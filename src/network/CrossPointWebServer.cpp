@@ -612,6 +612,7 @@ void CrossPointWebServer::handleExit() {
   // Status code only, no body: 204 on success.
   // Refuse while a WebSocket upload is still streaming; leaving would abort it.
   if (wsUploadInProgress) {
+    LOG_ERR("WEB", "/api/exit refused: WebSocket upload in progress");
     server->send(409);
     return;
   }
@@ -623,10 +624,12 @@ void CrossPointWebServer::handleExit() {
     String lower = requested;
     lower.toLowerCase();
     if (!lower.endsWith(".bin") || requested.length() >= MAX_SILENT_FIRMWARE_PATH || isProtectedPath(requested)) {
+      LOG_ERR("WEB", "/api/exit refused: invalid flash path %s", requested.c_str());
       server->send(400);
       return;
     }
     if (!Storage.exists(requested.c_str())) {
+      LOG_ERR("WEB", "/api/exit refused: %s not found", requested.c_str());
       server->send(404);
       return;
     }

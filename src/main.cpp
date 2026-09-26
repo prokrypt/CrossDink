@@ -1626,15 +1626,29 @@ void setup() {
     // X4's HALF refresh is the same single-pass clean transition already used
     // by network screens. Keep X3's existing full refresh behavior unchanged.
     const auto homeRefreshMode = gpio.deviceIsX3() ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
-    activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
     // File Transfer exit with a firmware to flash (POST /api/exit?flash=...):
-    // open the update flow over Home so cancelling lands back on Home.
+    // open the update flow directly instead of over a live Home, whose
+    // background Library walk would otherwise keep competing for the SD card
+    // while the image is validated and flashed. Finishing pops an empty
+    // stack, which lands on Home.
     const std::string pendingFirmware =
         snapshotTarget == SILENT_REBOOT_TARGET_HOME ? consumeSilentRestartFirmwareUpdate() : std::string();
-    if (!pendingFirmware.empty()) {
+    auto firmwareUpdate = pendingFirmware.empty() ? nullptr
+                                                  : makeUniqueNoThrow<SdFirmwareUpdateActivity>(
+                                                        renderer, mappedInputManager, false, pendingFirmware);
+    if (firmwareUpdate) {
       LOG_INF("MAIN", "Opening firmware update for %s", pendingFirmware.c_str());
-      activityManager.pushActivity(
-          std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, false, pendingFirmware));
+      {
+        // Clear the pre-reboot File Transfer frame the way Home's first paint
+        // would; the update screen itself draws with FAST refreshes.
+        RenderLock lock;
+        renderer.clearScreen();
+        renderer.displayBuffer(homeRefreshMode);
+      }
+      activityManager.replaceActivity(std::move(firmwareUpdate));
+    } else {
+      if (!pendingFirmware.empty()) LOG_ERR("MAIN", "Cannot allocate firmware update for %s", pendingFirmware.c_str());
+      activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
     }
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {

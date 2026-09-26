@@ -127,12 +127,15 @@ async function hydrate() {
     if (closeFn) closeFn();
   });
 
-  // Enter confirms the rename/move text inputs
+  // Enter confirms the rename/move text inputs. Ignore the Enter that commits
+  // an IME composition and key auto-repeat, which would send a half-typed or
+  // duplicate request.
+  const isConfirmEnter = (e) => e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && !e.repeat;
   document.getElementById("renameNewName").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") confirmRename();
+    if (isConfirmEnter(e)) confirmRename();
   });
   document.getElementById("moveDestPath").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") confirmMove();
+    if (isConfirmEnter(e)) confirmMove();
   });
 
   const breadcrumbs = document.getElementById("directory-breadcrumbs");
