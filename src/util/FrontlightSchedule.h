@@ -26,6 +26,13 @@ constexpr bool hasCompleteWindow(const bool enabled, const uint16_t startTimeOfD
 // current frontlight state instead of applying wake or schedule policy.
 constexpr bool shouldPreserveLightAcrossRestart(const bool isSilentReboot) { return isSilentReboot; }
 
+// The saved on/off flag only records explicit toggles; wake and schedule policy
+// change the light without saving it. A silent restart hands over the live
+// state instead, and the saved flag is used only when none survived the reset.
+constexpr bool lightStateBeforeStart(const bool hasLiveState, const bool liveLightOn, const bool savedLightOn) {
+  return hasLiveState ? liveLightOn : savedLightOn;
+}
+
 constexpr bool shouldRestoreLightOnStart(const bool preserveLightAcrossRestart, const bool restoreOnWake,
                                          const bool wasLightOnBeforeSleep) {
   return wasLightOnBeforeSleep && (preserveLightAcrossRestart || restoreOnWake);

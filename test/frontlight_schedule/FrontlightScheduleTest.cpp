@@ -34,6 +34,19 @@ TEST(FrontlightSchedule, SilentRestartPreservesLightStateWithoutWakePolicy) {
       /*preserveLightAcrossRestart=*/true, /*restoreOnWake=*/true, /*wasLightOnBeforeSleep=*/false));
 }
 
+TEST(FrontlightSchedule, SilentRestartUsesLiveLightStateOverStaleSavedFlag) {
+  // Schedule kept the light off this wake while the saved flag still says on.
+  const bool lightOn = FrontlightSchedule::lightStateBeforeStart(
+      /*hasLiveState=*/true, /*liveLightOn=*/false, /*savedLightOn=*/true);
+  EXPECT_FALSE(lightOn);
+  EXPECT_FALSE(FrontlightSchedule::shouldRestoreLightOnStart(
+      /*preserveLightAcrossRestart=*/true, /*restoreOnWake=*/false, /*wasLightOnBeforeSleep=*/lightOn));
+  EXPECT_TRUE(FrontlightSchedule::lightStateBeforeStart(
+      /*hasLiveState=*/true, /*liveLightOn=*/true, /*savedLightOn=*/false));
+  EXPECT_TRUE(FrontlightSchedule::lightStateBeforeStart(
+      /*hasLiveState=*/false, /*liveLightOn=*/false, /*savedLightOn=*/true));
+}
+
 TEST(FrontlightSchedule, SameEndpointIsAnEmptyWindow) {
   EXPECT_FALSE(FrontlightSchedule::hasCompleteWindow(true, timeOfDay(18), timeOfDay(18)));
   EXPECT_FALSE(FrontlightSchedule::containsTimeOfDay(timeOfDay(18), timeOfDay(18), timeOfDay(18)));

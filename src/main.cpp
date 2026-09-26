@@ -379,7 +379,10 @@ RTC_NOINIT_ATTR uint32_t silentReaderPageBuildPackedTarget;
 RTC_NOINIT_ATTR uint32_t silentReaderPageBuildFlags;
 RTC_NOINIT_ATTR uint32_t silentFirmwareUpdateMagic;
 RTC_NOINIT_ATTR char silentFirmwareUpdatePath[MAX_SILENT_FIRMWARE_PATH];
+RTC_NOINIT_ATTR uint32_t silentRebootFrontlight;
 constexpr uint32_t SILENT_FIRMWARE_UPDATE_MAGIC = 0x46574E55;  // "FWNU"
+constexpr uint32_t SILENT_REBOOT_FRONTLIGHT_OFF = 0xC1EA1100;
+constexpr uint32_t SILENT_REBOOT_FRONTLIGHT_ON = 0xC1EA1101;
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
@@ -406,6 +409,9 @@ using BootResume = SleepWakePolicy::Resume;
 static bool deepSleepInProgress = false;
 
 static void restartWithSilentToken() {
+  // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
+  // policy change the light without saving it, so hand the live state over.
+  silentRebootFrontlight = Frontlight.isOn() ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
 #ifdef SIMULATOR
   SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
 #endif
@@ -1301,9 +1307,13 @@ void setup() {
   // and KOReader Auth after their Wi-Fi child completes. C3 retains the smaller
   // network stack to preserve internal RAM.
   const bool useReaderRenderStack = !isNetworkResume || FREEINK_MCU_S3;
+  const bool hasSilentRebootLight = isSilentReboot && (silentRebootFrontlight == SILENT_REBOOT_FRONTLIGHT_ON ||
+                                                       silentRebootFrontlight == SILENT_REBOOT_FRONTLIGHT_OFF);
+  const bool silentRebootLightOn = silentRebootFrontlight == SILENT_REBOOT_FRONTLIGHT_ON;
   silentRebootMagic = 0;
   silentRebootTarget = 0;
   silentRebootPayload = 0;
+  silentRebootFrontlight = 0;
   if (!isSilentReboot || snapshotTarget != SILENT_REBOOT_TARGET_READER) {
     clearSilentRestartReaderPageBuild();
   }
@@ -1413,8 +1423,11 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
   // Silent restarts are invisible recovery steps, so they always retain the
-  // current light state rather than applying wake or schedule policy.
-  const bool wasLightOnBeforeSleep = SETTINGS.frontlightOn != 0;
+  // current light state rather than applying wake or schedule policy. The
+  // saved flag can be stale (e.g. schedule kept the light off this wake), so
+  // prefer the live state the previous run handed over in RTC memory.
+  const bool wasLightOnBeforeSleep =
+      FrontlightSchedule::lightStateBeforeStart(hasSilentRebootLight, silentRebootLightOn, SETTINGS.frontlightOn != 0);
   const bool preserveLightAcrossRestart = FrontlightSchedule::shouldPreserveLightAcrossRestart(isSilentReboot);
   bool restoreLightOn = FrontlightSchedule::shouldRestoreLightOnStart(
       preserveLightAcrossRestart, SETTINGS.frontlightRestoreOnWake != 0, wasLightOnBeforeSleep);
