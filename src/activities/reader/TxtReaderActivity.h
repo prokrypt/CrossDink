@@ -112,6 +112,8 @@ class TxtReaderActivity final : public Activity {
   std::string getCurrentBookPath() const override { return txt ? txt->getPath() : std::string{}; }
   std::string getCurrentBookTitle() const override { return txt ? txt->getTitle() : std::string{}; }
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
+  // The panel leads to Settings, whose update and font downloads restart the device.
+  void onFrontlightPanelOpened() override { flushQueuedProgress(); }
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.

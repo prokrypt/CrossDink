@@ -497,12 +497,15 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CALIBRE_WIRELESS:
+      flushQueuedProgress();  // silent restart skips onExit()
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::JOIN_NETWORK:
+      flushQueuedProgress();  // silent restart skips onExit()
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CREATE_HOTSPOT:
+      flushQueuedProgress();  // silent restart skips onExit()
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_DARK_MODE:
@@ -571,12 +574,15 @@ bool TxtReaderActivity::executeLongPressBackAction() {
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CALIBRE_WIRELESS:
+      flushQueuedProgress();  // silent restart skips onExit()
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_JOIN_NETWORK:
+      flushQueuedProgress();  // silent restart skips onExit()
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_HOTSPOT:
+      flushQueuedProgress();  // silent restart skips onExit()
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_TOGGLE_DARK_MODE:

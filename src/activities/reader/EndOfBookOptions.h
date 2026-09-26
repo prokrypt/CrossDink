@@ -45,10 +45,12 @@ class EndOfBookOptions {
   // the book. Fills openPath when the result is OpenBook. Returns Action::None when
   // nothing relevant was pressed; callers continue their normal input path (keeping
   // long-press Back to the file browser working).
-  Action handleMenuInput(const MappedInputManager& input, std::string* openPath);
+  // confirmReleased is the caller's single wasReleased(Confirm) read for this loop: a
+  // second read would turn a suppressed release (e.g. after a popup) into a press.
+  Action handleMenuInput(const MappedInputManager& input, bool confirmReleased, std::string* openPath);
 
   // Decodes the physical-button menu command in this input frame, or MenuKey::None.
-  static MenuKey readMenuKey(const MappedInputManager& input);
+  static MenuKey readMenuKey(const MappedInputManager& input, bool confirmReleased);
 
   // Applies a decoded (possibly queued) button command to the menu.
   Action applyMenuKey(MenuKey key, std::string* openPath);

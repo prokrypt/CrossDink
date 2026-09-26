@@ -2954,7 +2954,7 @@ void EpubReaderActivity::loop() {
   }
 #endif
 
-  // Incremental resumes a reopened partial immediately; IncreMENTAL waits until the reader is
+  // IncreMENTAL resumes a reopened partial immediately; Incremental waits until the reader is
   // close enough to its watermark to avoid rebuilding far ahead of the current session.
   if (!backgroundBuildYieldForInput.load(std::memory_order_relaxed) && section && !section->isBuilding() &&
       section->isPartial() && !RenderLock::peek() && buildViewportWidth > 0 && !partialRebuildStartFailed &&
@@ -2976,20 +2976,24 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  // Drive any in-progress incremental section build forward, off the page-turn critical path, until
-  // it completes. Responsiveness comes from ticking one page at a time (BACKGROUND_BUILD_PAGES_PER_TICK),
-  // skipping while the render mutex is busy so we never delay a pending render, and yielding whenever
-  // input is pending (backgroundBuildYieldForInput) -- not from capping how far ahead the build may get.
-  // Re-check isBuilding() under the lock since render() may have just finished it.
-  if (!backgroundBuildYieldForInput.load(std::memory_order_relaxed) && !RenderLock::peek()) {
+  // Drive any in-progress section build forward, off the page-turn critical path. Responsiveness comes
+  // from ticking one page at a time (BACKGROUND_BUILD_PAGES_PER_TICK), skipping while the render mutex is
+  // busy so we never delay a pending render, and yielding whenever input is pending
+  // (backgroundBuildYieldForInput). Incremental only ticks within BUILD_WINDOW_AHEAD of the reader (or
+  // while catching up); IncreMENTAL runs the build to completion (see sectionBuildWantsTick()).
+  // The lock-free sectionBuildWantsTick() pre-check keeps idle iterations from taking RenderLock and
+  // freeing the grayscale strip scratch, which the next anti-aliased page would have to reallocate.
+  if (!backgroundBuildYieldForInput.load(std::memory_order_relaxed) && sectionBuildWantsTick() && !RenderLock::peek()) {
     RenderLock lock(*this);
-    releaseGrayscaleStripScratch();
-    // Re-check under the lock: render() may have finalized the build between the outer
-    // isBuilding() check and acquiring the lock here.
+    // Re-check under the lock: render() may have finalized the build between the pre-check and
+    // acquiring the lock here.
     const bool boundedBuildCanTick =
         SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL ||
         (section && (section->isPartial() || section->activeBuildHasCaughtReadablePages()));
-    if (section && sectionBuildWantsTick() && backgroundSectionBuildHasHeap() && boundedBuildCanTick) {
+    const bool tickDue = section && sectionBuildWantsTick() && boundedBuildCanTick;
+    // Layout needs the heap the strip scratch holds; only give it up for a tick that is due.
+    if (tickDue) releaseGrayscaleStripScratch();
+    if (tickDue && backgroundSectionBuildHasHeap()) {
       if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
         LOG_ERR("ERS", "Background section build failed");
         if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
@@ -3123,7 +3127,7 @@ void EpubReaderActivity::loop() {
     // The render task is still loading the suggestions. Keep the first menu press
     // for the menu instead of letting it fall through to the plain end-screen
     // page-turn handling (which goes Home) or dropping it.
-    const auto key = EndOfBookOptions::readMenuKey(mappedInput);
+    const auto key = EndOfBookOptions::readMenuKey(mappedInput, confirmReleased);
     if (key != EndOfBookOptions::MenuKey::None && queuedEndOfBookKey == EndOfBookOptions::MenuKey::None) {
       queuedEndOfBookKey = key;
     }
@@ -3141,7 +3145,7 @@ void EpubReaderActivity::loop() {
     queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
     const auto menuAction = queuedKey != EndOfBookOptions::MenuKey::None
                                 ? endOfBookOptions->applyMenuKey(queuedKey, &openPath)
-                                : endOfBookOptions->handleMenuInput(mappedInput, &openPath);
+                                : endOfBookOptions->handleMenuInput(mappedInput, confirmReleased, &openPath);
     switch (menuAction) {
       case EndOfBookOptions::Action::OpenBook:
         activityManager.goToReader(openPath);
@@ -4225,6 +4229,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::SYNC: {
       if (!KOREADER_STORE.hasCredentials()) {
         pauseReadingPaceTimer("koreader_settings");
+        // Authenticate / Sign Up there restart into network mode.
+        saveProgressBeforeRestart();
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) {
                                  resumeReadingPaceTimer("koreader_settings_return");
@@ -4504,6 +4510,8 @@ bool EpubReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetail
 void EpubReaderActivity::onFrontlightPanelOpened() {
   clearPendingManualPageTurns();
   pauseReadingPaceTimer("frontlight_panel");
+  // The panel leads to Settings, whose update and font downloads restart the device.
+  saveProgressBeforeRestart();
 }
 
 void EpubReaderActivity::onFrontlightPanelClosed() {
@@ -5061,12 +5069,15 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       openFileTransfer();
       break;
     case CrossPointSettings::LONG_MENU_CALIBRE_WIRELESS:
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(epub ? epub->getPath() : "");
       break;
     case CrossPointSettings::LONG_MENU_JOIN_NETWORK:
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(epub ? epub->getPath() : "");
       break;
     case CrossPointSettings::LONG_MENU_CREATE_HOTSPOT:
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(epub ? epub->getPath() : "");
       break;
     case CrossPointSettings::LONG_MENU_TOGGLE_TILT_PAGE_TURN:
@@ -6031,6 +6042,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   if (!section) {
     preparedNextSpineIndex = -1;
+    // A freshly loaded section can reuse the old one's address, and relayout-only
+    // settings (spacing, alignment, hyphenation) are not in the prerender key, so
+    // a frame drawn ahead for the previous section must never be taken.
+    clearPrerenderedPage();
     // Section loading/indexing can need a large contiguous block. Return the
     // render-only strip before starting that work.
     releaseGrayscaleStripScratch();
@@ -7076,6 +7091,13 @@ bool EpubReaderActivity::saveFootnoteOriginProgress() {
   return saveProgress(origin.spineIndex, origin.pageNumber, originPageCount, /*allowDuringFootnotePreview=*/true);
 }
 
+void EpubReaderActivity::saveProgressBeforeRestart() {
+  const bool saved = footnoteDepth > 0 ? (epub && saveFootnoteOriginProgress()) : flushQueuedProgress();
+  if (!saved) {
+    LOG_ERR("ERS", "Failed to save progress before restart");
+  }
+}
+
 bool EpubReaderActivity::queueProgressSave(const int spineIndex, const int currentPage, const int pageCount,
                                            const bool forceSave) {
   if (activeFootnotePreview) {
@@ -7429,9 +7451,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       const bool directImageBase = renderer.shouldSkipImageBlanking();
       // A countdown at or below one means a cleanup is due: the previous
       // image page finished its grayscale pass and left gray residue (#2190),
-      // or the refresh cadence ran out. Run the strong cleanup here instead of
-      // fading straight from that residue to the new image.
-      const bool cleanBase = cleanImageBasePending || pagesUntilFullRefresh <= 1;
+      // or the refresh cadence ran out. UC8179 skips the blank/FAST pass, so
+      // run the strong cleanup there instead of fading straight from that
+      // residue to the new image. Other controllers already clear the image
+      // area with blank+FAST (HALF sets particles too firmly for the gray LUT).
+      const bool cleanBase = cleanImageBasePending || (directImageBase && pagesUntilFullRefresh <= 1);
       // UC8179's base waveform transitions directly from the displayed page.
       // Keep blanking for other controllers and for a pending strong cleanup.
       const bool blankImage = !directImageBase || cleanBase;

@@ -129,7 +129,11 @@ class XtcReaderActivity final : public Activity {
   std::string getCurrentBookTitle() const override { return xtc ? xtc->getTitle() : std::string{}; }
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
   std::unique_ptr<Activity> createFrontlightReadingStatsActivity() override;
-  void onFrontlightPanelOpened() override { pauseReadingStatsTimer("frontlight_panel"); }
+  void onFrontlightPanelOpened() override {
+    pauseReadingStatsTimer("frontlight_panel");
+    // The panel leads to Settings, whose update and font downloads restart the device.
+    flushQueuedProgress();
+  }
   void onFrontlightPanelClosed() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
