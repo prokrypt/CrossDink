@@ -13,7 +13,7 @@ The sections here focus on larger CrossInk-specific reader features. Small fixes
 
 Reader settings are available directly from the in-book menu without leaving the book.
 
-Open the reader menu and select **Reader Options** to adjust settings such as:
+Open the reader menu and select **Book Options** to adjust settings such as:
 
 - Font family
 - Font size
@@ -28,6 +28,11 @@ Open the reader menu and select **Reader Options** to adjust settings such as:
 - Dark Reader Mode
 
 Changes take effect immediately.
+
+EPUB layout choices such as font size and margins can be saved for that book
+and take precedence over matching global defaults. Status bar settings are global. See [Global settings and individual
+books](./user-guide.md#362-reader) for how to restore a book's layout choices
+to the global defaults.
 
 For books that are slow to index or fail because of complex publisher styling,
 see [EPUB Indexing Methods](./epub-indexing.md) and
@@ -81,6 +86,19 @@ The reader can also use SD-card font packs with selectable font-size ranges. Thi
 Related docs:
 
 - [SD Card Fonts](./sd-card-fonts.md)
+
+## Custom TTF Fonts
+
+On ESP32-S3 readers, you can use your own static TrueType (`.ttf`) fonts. Copy
+the files into `/fonts` on the SD card, either together or in a folder named
+after the font family. Restart the reader or refresh its font list, then choose
+the family from the font picker.
+
+For the full range of text styles, include all four faces: regular, bold,
+italic, and bold italic. A family with fewer faces can still be used, but some
+styles will fall back to another face. Variable fonts are not supported.
+
+See [Scalable Fonts](./scalable-fonts.md) for installation details and limits.
 
 ## Dark Reader Mode
 

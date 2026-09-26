@@ -253,6 +253,22 @@ device model and build.
 
 #### 3.6.2 Reader
 
+**Global settings and individual books:** Choices under **Settings > Reader**
+are the defaults for your EPUB books. Layout choices such as font family, font
+size, and margins can be saved for one book from its **Reader Options** menu.
+A saved book choice takes precedence over the matching global setting; layout
+choices you have not changed for that book still follow the global defaults.
+For example, a book with its own font size can still pick up a later change to
+your global margins. **Dark Reader Mode** and **Stable Page Numbers** remain
+global even when changed from inside a book.
+
+If a global change does not affect one EPUB, find it in **Browse Files**, open
+its book actions, and choose **Reset Book Reader Settings**. This removes
+that book's saved reader choices so it follows the current global defaults
+again; it does not reset your other books or global settings. Older saved books
+may need this reset before they can inherit individual global changes. **Delete
+Book Cache** does not reset these choices.
+
 - **Reader Font Family**: Choose the font used for reading:
   - "Lexend Deca" (default)
   - "Bitter"
@@ -669,9 +685,9 @@ CrossInk supports loading additional fonts from the SD card, extending beyond th
 
 There are three ways to install fonts:
 
-1. **Download from device (recommended):** Go to **Settings -> Reader -> Font Options -> Manage Fonts**, browse the available font families, and select one to download over Wi-Fi.
-2. **Upload via web interface:** While in **File Transfer** mode, open the web UI in a browser and navigate to the **Fonts** tab to upload `.cpfont` files.
-3. **Manual SD card copy:** Download font files from the [CrossInk-fonts repository](https://github.com/uxjulia/crossink-fonts/releases) and copy them to `/.fonts/` (preferred) or `/fonts/` on your SD card.
+1. **Manual SD card copy (recommended):** Download font files from [Inky](https://inky.crossink.dev/#downloads) and copy them to `/.fonts/` (preferred) or `/fonts/` on your SD card.
+2. **Download from device:** Go to **Settings -> Reader -> Font Options -> Manage Fonts**, browse the available font families, and select one to download over Wi-Fi. Note that downloading over Wi-Fi can be unstable. If you experience download errors, please use one of the alternate methods.
+3. **Upload via web interface:** While in **File Transfer** mode, open the web UI in a browser and navigate to the **Fonts** tab to upload `.cpfont` files. For supported devices, `.ttf` font files can also be uploaded.
 
 Once installed, custom fonts appear in **Settings -> Reader -> Font Options -> Font Family** alongside the built-in fonts.
 

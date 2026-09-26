@@ -102,9 +102,15 @@ class LibraryIndexFile {
   bool readSourceAuthor(const ClixRecord& record, std::string& out);
   bool readSeries(const ClixRecord& record, std::string& out);
   bool readGenre(const ClixRecord& record, std::string& out);
+  // V6 sortable signed float bits; UINT32_MAX means no usable order.
+  bool readSeriesPosition(const ClixRecord& record, uint32_t& out);
 
   // Absolute path of the book, rebuilt from its folder record.
   bool readPath(const ClixRecord& record, std::string& out);
+  // A small, caller-owned offset table bounds folder walks during full-library scans.
+  static constexpr uint16_t FOLDER_CHECKPOINT_COUNT = 128;
+  bool buildFolderCheckpoints(uint32_t* offsets, uint16_t& stride);
+  bool readPath(const ClixRecord& record, std::string& out, const uint32_t* offsets, uint16_t stride);
 
  private:
   bool openImpl(const char* path, bool acceptStaleFold);

@@ -9,16 +9,19 @@
 #include <LibraryText.h>
 #include <Memory.h>
 #include <Utf8.h>
+#include <Xtc.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActionActivity.h"
 #include "activities/library/LibraryPrewarm.h"
 #include "activities/library/LibrarySettingsActivity.h"
+#include "activities/reader/BookReadingStats.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -204,7 +207,7 @@ const char* LibraryActivity::sortLabel() const {
 
 bool LibraryActivity::hasActiveFilter() const {
   return !query.empty() || !SETTINGS.libraryShowEpub || !SETTINGS.libraryShowXtc || !SETTINGS.libraryShowTxt ||
-         !SETTINGS.libraryShowMarkdown;
+         !SETTINGS.libraryShowMarkdown || SETTINGS.libraryHideFinishedBooks;
 }
 
 int LibraryActivity::rowCount() const {
@@ -259,9 +262,13 @@ void LibraryActivity::applyFilter() {
   const uint8_t visibleTypes =
       (SETTINGS.libraryShowEpub ? library::FileEpub : 0) | (SETTINGS.libraryShowXtc ? library::FileXtc : 0) |
       (SETTINGS.libraryShowTxt ? library::FileTxt : 0) | (SETTINGS.libraryShowMarkdown ? library::FileMarkdown : 0);
+  std::unique_ptr<uint32_t[]> folderOffsets;
+  uint16_t folderStride = 0;
   std::string title;
   std::string author;
   std::string name;
+  std::string path;
+  std::string cachePath;
   std::string combined;
   std::string folded;
   // Blob fields are byte-length-prefixed. Reserve once for the entire scan,
@@ -269,8 +276,24 @@ void LibraryActivity::applyFilter() {
   title.reserve(UINT8_MAX);
   author.reserve(UINT8_MAX);
   name.reserve(UINT8_MAX);
+  path.reserve(256);
+  cachePath.reserve(64);
   combined.reserve(2 * UINT8_MAX + 1);
   folded.reserve(2 * UINT8_MAX + 1);
+  const auto readIndexedPath = [&](const library::ClixRecord& record) {
+    if (!folderOffsets) {
+      folderOffsets = makeUniqueNoThrow<uint32_t[]>(library::LibraryIndexFile::FOLDER_CHECKPOINT_COUNT);
+      if (!folderOffsets || !index.buildFolderCheckpoints(folderOffsets.get(), folderStride)) {
+        LOG_ERR("LIB", "Cannot prepare Library folder lookup");
+        return false;
+      }
+    }
+    if (!index.readPath(record, path, folderOffsets.get(), folderStride)) {
+      LOG_ERR("LIB", "Cannot read Library book path");
+      return false;
+    }
+    return true;
+  };
   for (uint16_t row = 0; row < sourceCount; ++row) {
     const uint16_t indexRow = sort == Sort::RecentlyRead ? library::recentHistoryRow(row, index.bookCount(), recentRows,
                                                                                      recentCount, descending)
@@ -284,6 +307,38 @@ void LibraryActivity::applyFilter() {
       break;
     }
     if ((library::fileTypeFor(name) & visibleTypes) == 0) continue;
+    if (SETTINGS.libraryHideFinishedBooks) {
+      const uint8_t type = library::fileTypeFor(name);
+      cachePath.clear();
+      if (type == library::FileEpub) {
+        uint64_t pathHash = 0;
+        if (!index.readPathHash(record, pathHash)) {
+          LOG_ERR("LIB", "Cannot read Library book hash");
+          filterFailed = true;
+          filteredCount = 0;
+          break;
+        }
+        cachePath = "/.crosspoint/epub_" + std::to_string(pathHash);
+        if (!Storage.exists(cachePath.c_str())) {
+          // Older EPUB caches used std::hash. Reading their stats here avoids
+          // requiring the user to open each finished book to migrate its cache.
+          if (!readIndexedPath(record)) {
+            filterFailed = true;
+            filteredCount = 0;
+            break;
+          }
+          cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(path));
+        }
+      } else if (type == library::FileXtc) {
+        if (!readIndexedPath(record)) {
+          filterFailed = true;
+          filteredCount = 0;
+          break;
+        }
+        cachePath = Xtc(path, "/.crosspoint").getCachePath();
+      }
+      if (!cachePath.empty() && BookReadingStats::load(cachePath).isCompleted) continue;
+    }
     if (!needle.empty() && !index.readDisplayText(record, title, author)) {
       LOG_ERR("LIB", "Cannot read Library search text");
       filterFailed = true;
@@ -637,8 +692,7 @@ void LibraryActivity::fillRow(const int row, CachedRow& out) {
   out.ok = true;
   out.title = rowScratch.title;
   out.subtitle = rowScratch.author;
-  if (SETTINGS.libraryListExpanded && SETTINGS.libraryUseMetadata &&
-      (SETTINGS.libraryShowSeries || SETTINGS.libraryShowGenre)) {
+  if (SETTINGS.libraryUseMetadata && (SETTINGS.libraryShowSeries || SETTINGS.libraryShowGenre)) {
     library::ClixRecord record{};
     const uint16_t ordinal = ordinalForRow(row);
     if (ordinal != UINT16_MAX && index.readRecord(ordinal, record) && index.readSeries(record, seriesScratch) &&
@@ -701,7 +755,7 @@ bool LibraryActivity::metadataGroupForRow(const int row, std::string& out) {
   const uint16_t ordinal = ordinalForRow(row);
   if (ordinal == UINT16_MAX || !index.readRecord(ordinal, record)) return false;
   const bool read = sort == Sort::Series ? index.readSeries(record, out) : index.readGenre(record, out);
-  if (read && out.empty()) out = "#";
+  if (read && out.empty()) out = "-";
   return read;
 }
 
@@ -854,7 +908,7 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.headerText.bold = true;
   props.rtl = (I18N.getLanguage() == Language::AR || I18N.getLanguage() == Language::HE);
   configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
-  if (SETTINGS.libraryListExpanded) props.subtitleText.maxLines = 3;
+  props.subtitleText.maxLines = 3;
   listNav.selected = showSelection ? selection - CONTROL_COUNT : -1;
   listNav.top = topIndex;
   listNav.syncToProps(screen.body(), props.rowHeight, props.rowGap, rowCount(), props);
