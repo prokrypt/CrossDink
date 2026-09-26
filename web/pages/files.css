@@ -132,6 +132,20 @@ h2 {
       width: auto;
       text-decoration: none;
     }
+.image-preview-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+.image-preview-actions button {
+      width: auto;
+      margin: 0;
+      font-size: 1.4em;
+      line-height: 1;
+    }
+.image-preview-actions.single button {
+      display: none;
+    }
 .picker-columns.picker-active {
       display: flex;
       flex-direction: row;

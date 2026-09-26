@@ -380,9 +380,13 @@
       <div class="image-preview-stage">
         <img id="imagePreviewImg" alt="" />
       </div>
-      <a id="imagePreviewDownload" class="move-btn-confirm" rel="noopener noreferrer" target="_blank" href="#"
-        >Download</a
-      >
+      <div class="image-preview-actions" id="imagePreviewNav">
+        <button class="delete-btn-cancel" onclick="stepImagePreview(-1)" title="Previous image">&lsaquo;</button>
+        <a id="imagePreviewDownload" class="move-btn-confirm" rel="noopener noreferrer" target="_blank" href="#"
+          >Download</a
+        >
+        <button class="delete-btn-cancel" onclick="stepImagePreview(1)" title="Next image">&rsaquo;</button>
+      </div>
     </div>
   </div>
 </div>
