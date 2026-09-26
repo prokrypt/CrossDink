@@ -447,12 +447,12 @@ void BmpViewerActivity::loop() {
     if (siblingImages.size() <= 1 || nextIndex < 0 || nextIndex >= static_cast<int>(siblingImages.size())) {
       return false;
     }
-    currentImageIndex = nextIndex;
     std::string dirPath = FsHelpers::extractFolderPath(filePath);
     if (dirPath.back() != '/') dirPath += "/";
     {
-      // render() reads filePath on the render task.
+      // render() reads filePath and currentImageIndex on the render task.
       RenderLock lock(*this);
+      currentImageIndex = nextIndex;
       filePath = dirPath + siblingImages[currentImageIndex];
     }
     requestImageRedraw();
