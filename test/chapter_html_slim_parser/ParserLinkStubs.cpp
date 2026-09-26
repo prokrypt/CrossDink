@@ -35,6 +35,8 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
 bool TextBlock::hasRuby() const { return false; }
 
 bool ImageDecoderFactory::isFormatSupported(const std::string& path) { return path.ends_with(".jpg"); }
+// Only reached in unoptimized builds, where the calls are not dropped as dead code.
+ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return nullptr; }
 
 ImageBlock::ImageBlock(std::string imagePath, std::string sourcePath, const int16_t width, const int16_t height)
     : imagePath(std::move(imagePath)), sourcePath(std::move(sourcePath)), width(width), height(height) {}
@@ -45,6 +47,7 @@ bool PageImage::serialize(FsFile&) { return false; }
 
 PreviewBlockLocator::PreviewBlockLocator(const char*, IsBlockTagFn) {}
 PreviewBlockLocator::~PreviewBlockLocator() = default;
+bool PreviewBlockLocator::feed(const char*, int, bool) { return false; }
 
 CompactTableLayout::CompactTableLayout(GfxRenderer& renderer, int, uint16_t, uint16_t, uint16_t, uint8_t,
                                        BlockStyle tableStyle)
