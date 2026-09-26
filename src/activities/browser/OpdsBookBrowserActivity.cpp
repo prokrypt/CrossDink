@@ -613,7 +613,12 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   selectorIndex = 0;
   topIndex = 0;
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
-  if (entryCount == 0) errorMessage = tr(STR_NO_ENTRIES);
+  if (entryCount == 0) {
+    // An empty feed may fill in later (new shelf, server still indexing); make
+    // Retry go back to the server instead of replaying the cached empty page.
+    if (pageCache) pageCache->erase(url);
+    errorMessage = tr(STR_NO_ENTRIES);
+  }
   requestUpdate();
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);

@@ -52,8 +52,12 @@ def patch_input_buffer_shrink(path: Path) -> None:
     if SHRINK_MARKER in text:
         return
     if SHRINK_ORIGINAL not in text:
-        print(f"WARNING: wolfSSL ShrinkInputBuffer not found; input buffer patch skipped: {path.relative_to(PROJECT_DIR)}")
-        return
+        # This patch is the whole C3 large-download fix; never build without it.
+        print(
+            f"ERROR: wolfSSL ShrinkInputBuffer not found in {path.relative_to(PROJECT_DIR)}; "
+            "re-check scripts/patch_wolfssl.py against the new wolfSSL version"
+        )
+        env.Exit(1)
     path.write_text(text.replace(SHRINK_ORIGINAL, SHRINK_PATCHED, 1))
     print(f"Patched wolfSSL input buffer: {path.relative_to(PROJECT_DIR)}")
 
