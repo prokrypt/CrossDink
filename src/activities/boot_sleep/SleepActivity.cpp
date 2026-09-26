@@ -782,10 +782,22 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
 
   if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY)) return false;
 
+  // The margin helpers need the rectangle drawBitmap actually covered. It only
+  // matches the bitmap size when setDitheredOutputSize() pre-scaled it; otherwise
+  // drawBitmap scales an oversized image itself (Extend modes never crop).
+  int drawnWidth = bitmap.getWidth();
+  int drawnHeight = bitmap.getHeight();
+  if (drawnWidth > pageWidth || drawnHeight > pageHeight) {
+    const float scale = std::min(static_cast<float>(pageWidth) / static_cast<float>(drawnWidth),
+                                 static_cast<float>(pageHeight) / static_cast<float>(drawnHeight));
+    drawnWidth = static_cast<int>(std::floor((drawnWidth - 1) * scale)) + 1;
+    drawnHeight = static_cast<int>(std::floor((drawnHeight - 1) * scale)) + 1;
+  }
+
   if (extendEdges) {
-    extendBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
+    extendBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
   } else if (mirrorEdges) {
-    mirrorBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
+    mirrorBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
   }
 
   if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
@@ -824,9 +836,9 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
       return false;
     }
     if (extendEdges) {
-      extendBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
+      extendBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
     } else if (mirrorEdges) {
-      mirrorBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
+      mirrorBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
     }
     if (mode == GfxRenderer::GRAYSCALE_LSB)
       renderer.copyGrayscaleLsbBuffers();
