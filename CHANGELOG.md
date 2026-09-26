@@ -6,7 +6,7 @@
 - Library replaces Recent Books with a searchable book list, title and author metadata, and sorting by date added, title, author last name, author first name, or recently opened.
 - Reset a book's reader settings from the in-reader Settings tab.
 - Assign actions to upward and downward slides along either screen edge on touch devices.
-- Automatic light sleep is available in the X4 Pro light-sleep firmware profiles, reducing idle power while retaining normal button, touch, and frontlight behavior. USB serial stays available while a computer is connected, because the device skips light sleep for as long as a USB host is attached. USB Drive also works in these profiles and keeps the device awake while it is open.
+- Automatic light sleep is available on the X3/X4 and Sticky and in the X4 Pro light-sleep firmware profiles, reducing idle power while retaining normal button, touch, and frontlight behavior. USB serial stays available while a computer is connected, because the device skips light sleep for as long as a USB host is attached. USB Drive also works in these profiles and keeps the device awake while it is open.
 - Add the continuous **IncreMENTAL** EPUB indexing method for background chapter indexing.
 - A new **Extend** sleep screen cover mode fills the empty margins around a cover that doesn't match the screen's aspect ratio by repeating its edge pixels instead of leaving them blank.
 - A new **Extend Mirror** sleep screen cover mode fills those same margins by reflecting the cover's edge content instead of repeating a single edge pixel.
@@ -22,7 +22,7 @@
 - Reversing a brightness or warmth drag partway now moves the level past where it started instead of stopping there.
 - Idle power saving now puts the device into automatic light sleep between loop ticks instead of only lowering the CPU clock, cutting idle draw while leaving buttons, touch, and the frontlight working exactly as before. The screen, Wi-Fi transfers, and USB sessions stay awake while they are in use.
 - GitHub workflows and release documentation links now follow the `development` default branch.
-- Idle power saving now engages after 1 second instead of 3, and battery level is polled every 6 seconds instead of every 1.5, trading slightly less frequent battery updates for lower average power draw.
+- Idle power saving now engages after 250 ms instead of 3 seconds, and battery level is polled every 6 seconds instead of every 1.5, trading slightly less frequent battery updates for lower average power draw.
 - The Library opens instantly when nothing on the SD card has changed since its last scan, instead of rescanning the whole card on every visit. Moving the selection no longer re-reads each visible book from the card.
 - After a restart, Home starts indexing the Library in the background as soon as it appears, so the first Library visit usually opens without the "Reading your books" wait. Indexing pauses the moment you press a button or touch the screen and picks up where it left off.
 - Library scans no longer re-read books whose title and author could not be read last time; they keep their filename until the file changes or you use the Library's refresh, which retries them.
@@ -30,6 +30,18 @@
 - Far fewer SD card writes when saving your place: EPUB progress now alternates between two small slot files that are overwritten in place, so a save costs about 2 sector writes instead of roughly a dozen, and a save that would store the position already on the card (such as closing a book without turning a page) writes nothing. Your place is now saved every 30 page turns or 15 minutes of reading instead of every 10 pages or 5 minutes; leaving the book or putting the device to sleep still saves it immediately, so only a crash, reset or dead battery can lose more pages than before. A save interrupted by power loss falls back to the previous save. TXT and XTC progress and the Home reading percentage are also overwritten in place instead of being truncated and rewritten.
 
 ### Fixed
+
+- Your reading position is saved before a reader shortcut starts Calibre Wireless, Join Network or Create Hotspot, and before the light panel or KOReader sign-in can lead to a restart, instead of reopening the book up to 29 pages behind.
+- On the X4, X3 and Sticky, consecutive EPUB image pages no longer add an extra full-screen flash; the image-to-image cleanup refresh now runs only on the X4 Pro panel that needs it.
+- EPUB anti-aliased page turns on the X3/X4 no longer free and reallocate an 8 KB render buffer on every page, which could fragment memory and fall back to slower rendering.
+- Changing line spacing or other layout settings from the reader menu can no longer show a page drawn ahead with the old layout on PSRAM devices.
+- Pressing Confirm on a Quick Actions "Next page" at the end of a book no longer opens the first suggested book or the reader menu.
+- Extend and Extend Mirror sleep covers fill both margins when the cover image is larger than the screen and is scaled while drawing.
+- The USB serial connection stays available under automatic light sleep on every build that uses it, not only the X4 Pro light-sleep profiles.
+- Retrying an OPDS folder that showed "No entries" now asks the server again instead of showing the cached empty page on PSRAM devices, and indented "12713 books" summaries show their count.
+- A re-downloaded OPDS book that cannot be moved into place keeps the previous copy instead of deleting both.
+- A background Library index that could not be sorted or de-duplicated for lack of memory is rebuilt by the Library instead of being kept as current.
+- The web file manager ignores the Enter that commits an IME composition or repeats while held, so rename and move are not sent twice or half-typed.
 
 - In the OPDS browser, Back (the header button, the back swipe or the Back button) now goes up to the catalog you came from instead of stepping back through each Next/Previous page you visited.
 - Chapters left partly indexed by v1.6.0 now re-index after updating instead of resuming with pages laid out under the old rules.
@@ -50,7 +62,6 @@
 - Periodic memory telemetry now reports only when free heap or PSRAM changes, while checking for changes every 2 seconds.
 - Incremental EPUB indexing resumes after skipping chapters and refreshes the status bar when indexing completes.
 - Rapid queued EPUB page turns skip rendering intermediate pages until the final destination.
-- Devices with only Up/Down navigation buttons (e.g. X4 Pro) can now reach every book in the Recent Books grid view, with Up/Down walking left-to-right, line by line, instead of only moving between rows.
 - Automatic light sleep can no longer engage while the e-ink panel is mid-refresh, closing a latent waveform/SPI timing risk on devices with idle power saving enabled.
 - Improve stability when connecting to Wi-Fi for update checks and KOReader authentication on X4 Pro.
 - Crash reports now identify the primary CPU core, show task names when available, preserve both cores' backtraces, and include the firmware ELF hash needed to decode them.

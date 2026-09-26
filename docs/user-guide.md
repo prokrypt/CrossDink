@@ -198,6 +198,8 @@ device model and build.
 - **Sleep Screen Cover Mode**: How to display the book cover when "Cover" sleep screen is selected:
   - "Fit" (default) - Scale the image down to fit centered on the screen, padding with white borders as necessary
   - "Crop" - Scale the image down and crop as necessary to try to fill the screen (Note: this is experimental and may not work as expected)
+  - "Extend" - Fit the image, then fill the empty margins by repeating the cover's edge pixels
+  - "Extend Mirror" - Fit the image, then fill the empty margins by reflecting the cover's edge content
 
 - **Sleep Screen Cover Filter**: What filter will be applied to the book cover when "Cover" sleep screen is selected:
   - "None" (default) - The cover image will be converted to a grayscale image and displayed as it is
@@ -588,7 +590,7 @@ The **Sleep Screen** setting controls what is displayed when the device goes to 
 
 When using **Cover** or **Cover + Custom**, two additional settings apply:
 
-- **Sleep Screen Cover Mode**: **Fit** (scale to fit, white borders) or **Crop** (scale and crop to fill the screen).
+- **Sleep Screen Cover Mode**: **Fit** (scale to fit, white borders), **Crop** (scale and crop to fill the screen), **Extend** (fit, then repeat the edge pixels into the margins), or **Extend Mirror** (fit, then reflect the edges into the margins).
 - **Sleep Screen Cover Filter**: **None** (grayscale), **Contrast** (black & white), or **Inverted** (inverted black & white).
 
 #### Custom images
