@@ -992,13 +992,14 @@ void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
 }
 
-void ActivityManager::goToLibrary() {
+bool ActivityManager::goToLibrary() {
   auto library = makeUniqueNoThrow<LibraryActivity>(renderer, mappedInput);
   if (!library) {
     LOG_ERR("ACT", "Cannot allocate Library activity");
-    return;
+    return false;
   }
   replaceActivity(std::move(library));
+  return true;
 }
 
 void ActivityManager::goToBrowser() {
