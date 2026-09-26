@@ -133,7 +133,9 @@ async function hydrate() {
     const openOverlay = document.querySelector(".modal-overlay.open");
     if (!openOverlay) return;
     if (openOverlay.id === "imagePreviewModal" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-      return stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
+      // A held key would queue a device download per auto-repeat
+      if (!e.repeat) stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
+      return;
     }
     if (e.key !== "Escape") return;
     const closeFn = MODAL_CANCEL_FNS[openOverlay.id];
@@ -281,6 +283,9 @@ function downloadUrl(filePath) {
 function openImagePreview(url, name) {
   const img = document.getElementById("imagePreviewImg");
   document.getElementById("imagePreviewName").textContent = name;
+  // Browsers keep showing the previous image until the new one arrives
+  img.style.opacity = 0;
+  img.onload = img.onerror = () => (img.style.opacity = "");
   img.src = url;
   img.alt = name;
   document.getElementById("imagePreviewDownload").href = url;
@@ -288,8 +293,7 @@ function openImagePreview(url, name) {
   document.getElementById("imagePreviewModal").classList.add("open");
 }
 
-// Only image rows get .image-preview-link (isImageFile), so stepping through
-// these skips every non-image file. Wraps around at either end.
+// Only image rows get .image-preview-link (isImageFile); wraps at the ends.
 function previewLinks() {
   return [...document.querySelectorAll("#file-table .image-preview-link")];
 }
