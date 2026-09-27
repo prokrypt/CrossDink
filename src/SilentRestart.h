@@ -42,6 +42,9 @@ void silentRestart();                                            // home screen
 void silentRestartToReader(bool cleanImageBaseOnEntry = false);  // currently-open EPUB (APP_STATE.openEpubPath)
 // Reboots immediately after an activity releases exclusive raw storage.
 void restartToHomeAfterStorageHandoff();
+// Opens a Wi-Fi screen. Replaces the current screen with a handoff that, once
+// the old screen has freed its state, opens the target in place when the
+// internal heap allows and otherwise reboots into a minimal network boot.
 void silentRestartToNetwork(NetworkBootTarget target, uint32_t payload = 0);
 void silentRestartToManageFonts();
 // Ends a Wi-Fi session without rebooting: Wi-Fi is stopped and deinitialized,

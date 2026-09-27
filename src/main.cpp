@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <BoardConfig.h>
 #include <CrossDinkHalFrontlight.h>
+#include <Epub/blocks/ImageBlock.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <FreeInkUIGfxRenderer.h>
@@ -392,7 +393,7 @@ static void silentRestartToReaderImpl(const bool cleanImageBaseOnEntry) {
 
 void silentRestartToReader(const bool cleanImageBaseOnEntry) { silentRestartToReaderImpl(cleanImageBaseOnEntry); }
 
-void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
+static void restartToNetworkTarget(const NetworkBootTarget target, const uint32_t payload) {
   if (deepSleepInProgress) return;
   clearSilentRestartReaderPageBuild();
   silentRebootTarget = static_cast<uint32_t>(target);
@@ -441,6 +442,64 @@ bool leaveNetworkInPlace() {
     readerResourcesReady = true;
   }
   return true;
+}
+
+static bool launchNetworkTarget(NetworkBootTarget target, uint32_t payload, bool inPlace);
+
+namespace {
+// Wi-Fi uses internal RAM for driver state and buffers that PSRAM cannot hold;
+// below this the screen is entered through a reboot as before.
+constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE;
+constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+
+bool enterNetworkInPlace() {
+  // The previous activity (a reader included) has run onExit() by now.
+  sdFontSystem.releaseForNetwork(renderer);
+  ImageBlock::releaseSessionPixelCache();
+#ifndef SIMULATOR
+  const size_t free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  if (free < NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE || largest < NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK) {
+    LOG_INF("MAIN", "Entering Wi-Fi by restart: internal free %u largest %u", static_cast<unsigned>(free),
+            static_cast<unsigned>(largest));
+    return false;
+  }
+  LOG_INF("MAIN", "Entering Wi-Fi in place: internal free %u largest %u", static_cast<unsigned>(free),
+          static_cast<unsigned>(largest));
+#endif
+  return true;
+}
+
+// Replaces the current screen first, so its onExit() frees reader state before
+// the heap check; then opens the Wi-Fi screen in place or reboots into it.
+class NetworkEntryActivity final : public Activity {
+ public:
+  NetworkEntryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const NetworkBootTarget target,
+                       const uint32_t payload)
+      : Activity("NetworkEntry", renderer, mappedInput), target_(target), payload_(payload) {}
+
+  void onEnter() override {
+    Activity::onEnter();
+    if (enterNetworkInPlace() && launchNetworkTarget(target_, payload_, /*inPlace=*/true)) return;
+    restartToNetworkTarget(target_, payload_);
+  }
+
+  void render(RenderLock&&) override { GUI.drawPopup(renderer, tr(STR_LOADING_POPUP)); }
+
+ private:
+  NetworkBootTarget target_;
+  uint32_t payload_;
+};
+}  // namespace
+
+void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
+  if (deepSleepInProgress) return;
+  auto entry = makeUniqueNoThrow<NetworkEntryActivity>(renderer, mappedInputManager, target, payload);
+  if (!entry) {
+    restartToNetworkTarget(target, payload);
+    return;
+  }
+  activityManager.replaceActivity(std::move(entry));
 }
 
 void silentRestartToFirmwareUpdate(const std::string& firmwarePath) {
@@ -510,6 +569,62 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
   }
   activityManager.replaceActivity(std::move(syncActivity));
   return true;
+}
+
+// Opens a Wi-Fi screen the way a minimal network boot does. inPlace: entered
+// without the reboot, so the stores a network boot loads are loaded here.
+static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t payload, const bool inPlace) {
+  if (inPlace && (target == NetworkBootTarget::KOREADER_SYNC || target == NetworkBootTarget::KOREADER_AUTH ||
+                  target == NetworkBootTarget::FILE_TRANSFER)) {
+    KOREADER_STORE.loadFromFile();
+  }
+  bool launched = false;
+  switch (target) {
+    case NetworkBootTarget::OTA: {
+      auto otaActivity = makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInputManager);
+      if (otaActivity) {
+        activityManager.replaceActivity(std::move(otaActivity));
+        launched = true;
+      } else {
+        LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                ESP.getMaxAllocHeap());
+      }
+      break;
+    }
+    case NetworkBootTarget::OPDS:
+      launched = activityManager.goToOpdsServer(payload, true);
+      break;
+    case NetworkBootTarget::KOREADER_SYNC:
+      launched = startGlobalSyncProgress(true, decodeKOReaderSyncOrientation(payload));
+      break;
+    case NetworkBootTarget::KOREADER_AUTH: {
+      const auto mode = payload == 1 ? KOReaderAuthActivity::Mode::SIGN_UP : KOReaderAuthActivity::Mode::AUTHENTICATE;
+      auto authActivity = makeUniqueNoThrow<KOReaderAuthActivity>(renderer, mappedInputManager, mode);
+      if (authActivity) {
+        activityManager.replaceActivity(std::move(authActivity));
+        launched = true;
+      } else {
+        LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                ESP.getMaxAllocHeap());
+      }
+      break;
+    }
+    case NetworkBootTarget::FILE_TRANSFER:
+      launched = activityManager.resumeFileTransferFromNetworkBoot(payload);
+      break;
+    case NetworkBootTarget::MANAGE_FONTS: {
+      auto fontsActivity = makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInputManager);
+      if (fontsActivity) {
+        activityManager.replaceActivity(std::move(fontsActivity));
+        launched = true;
+      } else {
+        LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                ESP.getMaxAllocHeap());
+      }
+      break;
+    }
+  }
+  return launched;
 }
 
 CrossPointSettings::SHORT_PWRBTN getPowerButtonAction() {
@@ -1515,53 +1630,8 @@ void setup() {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
   } else if (resume == BootResume::Network) {
-    bool launched = false;
-    switch (static_cast<NetworkBootTarget>(snapshotTarget)) {
-      case NetworkBootTarget::OTA: {
-        auto otaActivity = makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInputManager);
-        if (otaActivity) {
-          activityManager.replaceActivity(std::move(otaActivity));
-          launched = true;
-        } else {
-          LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                  ESP.getMaxAllocHeap());
-        }
-        break;
-      }
-      case NetworkBootTarget::OPDS:
-        launched = activityManager.goToOpdsServer(snapshotPayload, true);
-        break;
-      case NetworkBootTarget::KOREADER_SYNC:
-        launched = startGlobalSyncProgress(true, decodeKOReaderSyncOrientation(snapshotPayload));
-        break;
-      case NetworkBootTarget::KOREADER_AUTH: {
-        const auto mode =
-            snapshotPayload == 1 ? KOReaderAuthActivity::Mode::SIGN_UP : KOReaderAuthActivity::Mode::AUTHENTICATE;
-        auto authActivity = makeUniqueNoThrow<KOReaderAuthActivity>(renderer, mappedInputManager, mode);
-        if (authActivity) {
-          activityManager.replaceActivity(std::move(authActivity));
-          launched = true;
-        } else {
-          LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                  ESP.getMaxAllocHeap());
-        }
-        break;
-      }
-      case NetworkBootTarget::FILE_TRANSFER:
-        launched = activityManager.resumeFileTransferFromNetworkBoot(snapshotPayload);
-        break;
-      case NetworkBootTarget::MANAGE_FONTS: {
-        auto fontsActivity = makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInputManager);
-        if (fontsActivity) {
-          activityManager.replaceActivity(std::move(fontsActivity));
-          launched = true;
-        } else {
-          LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                  ESP.getMaxAllocHeap());
-        }
-        break;
-      }
-    }
+    const bool launched =
+        launchNetworkTarget(static_cast<NetworkBootTarget>(snapshotTarget), snapshotPayload, /*inPlace=*/false);
     if (!launched) {
       LOG_ERR("MAIN", "Minimal network boot target failed; returning home");
       silentRestart();
