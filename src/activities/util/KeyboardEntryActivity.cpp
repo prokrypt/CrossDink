@@ -3,6 +3,11 @@
 #include <BidiUtils.h>
 #include <FreeInkUIIcon.h>
 #include <HalGPIO.h>
+#include <HalStorage.h>
+#include <Logging.h>
+#ifndef SIMULATOR
+#include <FreeInkDisplay.h>
+#endif
 #include <I18n.h>
 
 #include <algorithm>
@@ -145,10 +150,49 @@ void KeyboardEntryActivity::onEnter() {
   touchRouter.holdMs = TOUCH_LONG_PRESS_MS;
   touchRouter.overrideHoldMs = TOUCH_DEL_LONG_PRESS_MS;
   interactionsReady = false;
+  loadKbdExperiment();
   requestUpdate();
 }
 
-void KeyboardEntryActivity::onExit() { Activity::onExit(); }
+void KeyboardEntryActivity::onExit() {
+  Activity::onExit();
+#ifndef SIMULATOR
+  // ActivityManager holds RenderLock around onExit, so no refresh is running.
+  freeink::setUc8179KbdExperiment(nullptr);
+  if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) freeink::requestUc8179HalfNext();
+#endif
+}
+
+// EXPERIMENT (test/kbd-uc8179): toggles come from /.crosspoint/kbd-exp.txt,
+// read once per keyboard open (one small SD read), so they flip without a
+// reflash. Format: "flags [lutFrames] [pll]", numbers in C syntax (0x.. ok).
+// flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
+// 8 = T5 half refresh on close. Missing file or 0 = T1 baseline (timing only).
+void KeyboardEntryActivity::loadKbdExperiment() {
+  kbdExpFlags = 0;
+  kbdExpFrames = 3;
+  kbdExpPll = 0;
+  kbdExpFirstFrame = true;
+  FsFile f;
+  if (Storage.exists(KBD_EXP_PATH) && Storage.openFileForRead("KBD", KBD_EXP_PATH, f)) {
+    char buf[48] = {};
+    const int n = f.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf) - 1);
+    f.close();
+    if (n > 0) {
+      char* end = buf;
+      kbdExpFlags = static_cast<uint8_t>(strtoul(end, &end, 0));
+      const unsigned long frames = strtoul(end, &end, 0);
+      if (frames > 0 && frames < 64) kbdExpFrames = static_cast<uint8_t>(frames);
+      kbdExpPll = static_cast<uint8_t>(strtoul(end, &end, 0));
+    }
+  }
+  LOG_INF("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
+}
+
+void KeyboardEntryActivity::requestStrokeUpdate() {
+  strokeAtMs.store(millis(), std::memory_order_relaxed);
+  requestUpdate();
+}
 
 const fui::KeyboardLayout& KeyboardEntryActivity::currentLayout() const {
   if (symbols) return fui::builtinKeyboardLayout(layoutId, shifted, true);
@@ -555,7 +599,7 @@ void KeyboardEntryActivity::loop() {
       passwordVisible = !passwordVisible;
       togglePos = false;
       hintVisible = false;
-      requestUpdate();
+      requestStrokeUpdate();
       return;
     }
     if (inputTarget == InputFieldTouchTarget::Cursor) {
@@ -569,7 +613,7 @@ void KeyboardEntryActivity::loop() {
         cursorPos--;
       }
       touchRouter.reset();
-      requestUpdate();
+      requestStrokeUpdate();
       return;
     }
   }
@@ -590,12 +634,12 @@ void KeyboardEntryActivity::loop() {
     if (result.event) {
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
-        requestUpdate();
+        requestStrokeUpdate();
       }
       return;
     }
     if (result.activeChanged) {
-      requestUpdate();
+      requestStrokeUpdate();
     }
     if (tapCandidate || tapped) {
       return;
@@ -614,13 +658,13 @@ void KeyboardEntryActivity::loop() {
     upLongHandled = true;
     hintVisible = true;
     hintShowTime = millis();
-    requestUpdate();
+    requestStrokeUpdate();
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
     if (upHeld && !upLongHandled && !cursorMode) {
       moveSelectionRow(-1);
-      requestUpdate();
+      requestStrokeUpdate();
     }
     upHeld = false;
     upLongHandled = false;
@@ -634,7 +678,7 @@ void KeyboardEntryActivity::loop() {
       cursorMode = false;
       hintVisible = false;
       downLongHandled = true;
-      requestUpdate();
+      requestStrokeUpdate();
     } else {
       downLongHandled = false;
     }
@@ -643,7 +687,7 @@ void KeyboardEntryActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
     if (downHeld && !downLongHandled && !cursorMode) {
       moveSelectionRow(1);
-      requestUpdate();
+      requestStrokeUpdate();
     }
     downHeld = false;
     downLongHandled = false;
@@ -652,7 +696,7 @@ void KeyboardEntryActivity::loop() {
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] {
     if (cursorMode) return;
     moveSelectionCol(-1);
-    requestUpdate();
+    requestStrokeUpdate();
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
@@ -660,10 +704,10 @@ void KeyboardEntryActivity::loop() {
       if (togglePos) {
         cursorPos = savedCursorPos;
         togglePos = false;
-        requestUpdate();
+        requestStrokeUpdate();
       } else if (cursorPos > 0) {
         cursorPos = utf8Prev(text, cursorPos);
-        requestUpdate();
+        requestStrokeUpdate();
       }
     }
   }
@@ -679,7 +723,7 @@ void KeyboardEntryActivity::loop() {
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] {
     if (cursorMode) return;
     moveSelectionCol(1);
-    requestUpdate();
+    requestStrokeUpdate();
   });
 
   if (rightHeld && !rightLongHandled && mappedInput.isPressed(MappedInputManager::Button::Right) &&
@@ -688,7 +732,7 @@ void KeyboardEntryActivity::loop() {
       savedCursorPos = rightStartCursorPos;
       togglePos = true;
       rightLongHandled = true;
-      requestUpdate();
+      requestStrokeUpdate();
     }
   }
 
@@ -699,7 +743,7 @@ void KeyboardEntryActivity::loop() {
     }
     if (cursorMode && !togglePos && cursorPos < text.length()) {
       cursorPos = utf8Next(text, cursorPos);
-      requestUpdate();
+      requestStrokeUpdate();
     }
     if (cursorMode) return;
     rightHeld = false;
@@ -718,13 +762,13 @@ void KeyboardEntryActivity::loop() {
       mappedInput.getHeldTime() > DEL_LONG_PRESS_MS && selectedDel) {
     clearAllOrAltOnSelected();
     confirmLongHandled = true;
-    requestUpdate();
+    requestStrokeUpdate();
   }
 
   if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() > LONG_PRESS_MS) {
     if (!selectedDel && clearAllOrAltOnSelected()) {
-      requestUpdate();
+      requestStrokeUpdate();
       confirmLongHandled = true;
     }
   }
@@ -732,11 +776,11 @@ void KeyboardEntryActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (confirmHeld && !confirmLongHandled && !cursorMode) {
       if (selKey && activateValue(selKey->value, false)) {
-        requestUpdate();
+        requestStrokeUpdate();
       }
     } else if (confirmHeld && !confirmLongHandled && cursorMode && inputType == InputType::Password && togglePos) {
       passwordVisible = !passwordVisible;
-      requestUpdate();
+      requestStrokeUpdate();
     }
     confirmHeld = false;
     confirmLongHandled = false;
@@ -749,7 +793,7 @@ void KeyboardEntryActivity::loop() {
 
   if (hintVisible && !cursorMode && millis() - hintShowTime > 4000) {
     hintVisible = false;
-    requestUpdate();
+    requestStrokeUpdate();
   }
 }
 
@@ -1037,7 +1081,39 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 
   GUI.drawSideButtonHints(renderer, ">", "<");
 
+#ifndef SIMULATOR
+  // EXPERIMENT: the text area (field, cursor, tips) and the key area are the
+  // two regions a keystroke changes. The first frame uploads everything.
+  freeink::Uc8179KbdExperiment exp;
+  exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT));
+  exp.lutFrames = kbdExpFrames;
+  exp.pll = (kbdExpFlags & KBD_EXP_DU_LUT) ? kbdExpPll : 0;
+  if ((kbdExpFlags & KBD_EXP_TWO_WINDOW) && !kbdExpFirstFrame) {
+    const int textTop = inputStartY;
+    const Rect windows[2] = {Rect(0, textTop, pageWidth, kbRect.y - textTop),
+                             Rect(kbRect.x, kbRect.y, kbRect.width, kbRect.height)};
+    for (const Rect& r : windows) {
+      auto& w = exp.windows[exp.windowCount];
+      if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
+    }
+  }
+  kbdExpFirstFrame = false;
+  freeink::setUc8179KbdExperiment(&exp);
+#endif
+  const unsigned long displayStartMs = millis();
   renderer.displayBuffer();
+#ifndef SIMULATOR
+  const freeink::Uc8179KbdTiming timing = freeink::uc8179KbdTiming();
+  const unsigned long stroke = strokeAtMs.exchange(0, std::memory_order_relaxed);
+  const unsigned long now = millis();
+  LOG_INF("KBD",
+          "KBD_EXP flags=0x%02x win=%u stroke_to_idle=%lu ms display=%lu ms upload=%u drf=%u sync=%u frames=%u pll=0x%02x",
+          kbdExpFlags, exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs,
+          static_cast<unsigned>(timing.uploadMs), static_cast<unsigned>(timing.drfMs),
+          static_cast<unsigned>(timing.syncMs), kbdExpFrames, exp.pll);
+#else
+  (void)displayStartMs;
+#endif
 }
 
 void KeyboardEntryActivity::onComplete(std::string text) {
