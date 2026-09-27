@@ -167,7 +167,8 @@ void KeyboardEntryActivity::onExit() {
 // read once per keyboard open (one small SD read), so they flip without a
 // reflash. Format: "flags [lutFrames] [pll]", numbers in C syntax (0x.. ok).
 // flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
-// 8 = T5 half refresh on close. Missing file or 0 = T1 baseline (timing only).
+// 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start).
+// Missing file or 0 = T1 baseline (timing only).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = 0;
   kbdExpFrames = 3;
@@ -1097,6 +1098,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
       if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
     }
   }
+  // T6: the first keyboard frame runs as a Half (charge scrub) refresh.
+  if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_HALF_ON_OPEN)) freeink::requestUc8179HalfNext();
   kbdExpFirstFrame = false;
   freeink::setUc8179KbdExperiment(&exp);
 #endif
@@ -1106,11 +1109,12 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const freeink::Uc8179KbdTiming timing = freeink::uc8179KbdTiming();
   const unsigned long stroke = strokeAtMs.exchange(0, std::memory_order_relaxed);
   const unsigned long now = millis();
-  LOG_INF("KBD",
-          "KBD_EXP flags=0x%02x win=%u stroke_to_idle=%lu ms display=%lu ms upload=%u drf=%u sync=%u frames=%u pll=0x%02x",
-          kbdExpFlags, exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs,
-          static_cast<unsigned>(timing.uploadMs), static_cast<unsigned>(timing.drfMs),
-          static_cast<unsigned>(timing.syncMs), kbdExpFrames, exp.pll);
+  LOG_INF(
+      "KBD",
+      "KBD_EXP flags=0x%02x win=%u stroke_to_idle=%lu ms display=%lu ms upload=%u drf=%u sync=%u frames=%u pll=0x%02x",
+      kbdExpFlags, exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs,
+      static_cast<unsigned>(timing.uploadMs), static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.syncMs),
+      kbdExpFrames, exp.pll);
 #else
   (void)displayStartMs;
 #endif
