@@ -101,6 +101,13 @@ class Section {
   explicit Section(const std::shared_ptr<Epub>& epub, int spineIndex, GfxRenderer& renderer,
                    const char* cacheSuffix = "");
   explicit Section(Epub& epub, int spineIndex, GfxRenderer& renderer, const char* cacheSuffix = "");
+  // Portrait and landscape layouts keep separate caches. The constructors above
+  // pick one from the renderer's orientation; lookups made outside the reader
+  // (position sync) name the book's layout instead, since the renderer is then
+  // oriented for their own screen.
+  Section(const std::shared_ptr<Epub>& epub, int spineIndex, GfxRenderer& renderer, const char* cacheSuffix,
+          bool landscapeLayout);
+  Section(Epub& epub, int spineIndex, GfxRenderer& renderer, const char* cacheSuffix, bool landscapeLayout);
   ~Section();
   bool loadSectionFile(const ReaderRenderSpec& spec);
   bool clearCache() const;

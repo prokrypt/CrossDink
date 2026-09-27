@@ -32,6 +32,9 @@
 
 ### Fixed
 
+- Background Library indexing and the reader's next-page draw-ahead run at full CPU speed again instead of the lowest idle clock.
+- USB Drive no longer reads ahead into the sectors a computer is about to write, so copying files to the card is not slowed by background reads.
+- Nearby and KOReader position sync read the chapter layout of the orientation the book is read in, instead of whichever orientation the sync screen happened to use, so a book read in landscape lands on the right page.
 - Your reading position is saved before a reader shortcut starts Calibre Wireless, Join Network or Create Hotspot, and before the light panel or KOReader sign-in can lead to a restart, instead of reopening the book up to 29 pages behind.
 - On the X4, X3 and Sticky, consecutive EPUB image pages no longer add an extra full-screen flash; the image-to-image cleanup refresh now runs only on the X4 Pro panel that needs it.
 - EPUB anti-aliased page turns on the X3/X4 no longer free and reallocate an 8 KB render buffer on every page, which could fragment memory and fall back to slower rendering.

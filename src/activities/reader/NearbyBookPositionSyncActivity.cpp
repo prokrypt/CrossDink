@@ -462,6 +462,7 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
 
 #include "CrossPointSettings.h"
 #include "Epub/Section.h"
+#include "EpubReaderActivity.h"
 #include "EpubReaderUtils.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
@@ -1179,7 +1180,10 @@ bool NearbyBookPositionSyncActivity::mapPeerPosition() {
   }
 
   if (peerCrossPoint_.hasLiIndex || peerCrossPoint_.xpathAnchorId[0] != '\0' || peerCrossPoint_.hasParagraphIndex) {
-    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer);
+    // The reader resets the renderer to portrait on exit, so name the layout
+    // the book reopens in to read its section cache.
+    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer, "",
+                        EpubReaderActivity::bookUsesLandscapeLayout(*epub_));
     bool refined = false;
     if (peerCrossPoint_.hasLiIndex) {
       const auto liPage = tempSection.getPageForListItemIndex(peerCrossPoint_.liIndex);

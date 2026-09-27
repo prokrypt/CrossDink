@@ -8,6 +8,7 @@
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -1507,6 +1508,11 @@ EpubReaderActivity::BookReaderSettingsData EpubReaderActivity::readBookReaderSet
   return loadBookReaderSettingsFile(epub.getCachePath());
 }
 
+bool EpubReaderActivity::bookUsesLandscapeLayout(const Epub& epub) {
+  const auto orientation = ReaderUtils::toRendererOrientation(readBookReaderSettings(epub).readerSettings.orientation);
+  return orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise;
+}
+
 uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
   Epub epub(filePath, "/.crosspoint");
   epub.setupCacheDir();
@@ -2778,6 +2784,8 @@ void EpubReaderActivity::prerenderNextPage() {
   prerenderAttemptSection = section.get();
   prerenderAttemptSpine = currentSpineIndex;
   prerenderAttemptPage = nextPage;
+  // Runs after the main loop has dropped to the lowest CPU clock.
+  HalPowerManager::Lock powerLock;
 
   auto page = section->loadPage(nextPage);
   if (!page || page->hasImages()) return;
@@ -2850,6 +2858,8 @@ void EpubReaderActivity::prewarmNextPageFonts(const char* when) {
   idlePrewarmSpine = currentSpineIndex;
   idlePrewarmPage = section->currentPage;
   idlePrewarmFontId = renderFontId;
+  // The idle path runs after the main loop has dropped to the lowest CPU clock.
+  HalPowerManager::Lock powerLock;
 
   auto page = section->loadPage(nextPage);
   if (!page) {

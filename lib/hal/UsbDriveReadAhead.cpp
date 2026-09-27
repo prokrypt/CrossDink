@@ -20,6 +20,7 @@ bool UsbDriveReadAhead::begin(FsBlockDeviceInterface* innerDevice) {
   windowBase = 0;
   windowCount = 0;
   windowHead = 0;
+  readAheadArmed = false;
   stopRequested = false;
   prefetchEnabled = false;
   if (!deviceMutex) deviceMutex = xSemaphoreCreateMutex();
@@ -83,16 +84,23 @@ void UsbDriveReadAhead::prefetchLoop() {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     while (!stopRequested) {
       xSemaphoreTake(windowMutex, portMAX_DELAY);
+      const bool armed = readAheadArmed;
       const Sector_t next = windowBase + windowCount;
       const size_t room = kWindowSectors - windowCount;
       const uint32_t gen = generation;
       xSemaphoreGive(windowMutex);
-      if (room < kChunkSectors || next >= total) break;
+      if (!armed || room < kChunkSectors || next >= total) break;
       const size_t count = std::min<size_t>(kChunkSectors, total - next);
 
       xSemaphoreTake(deviceMutex, portMAX_DELAY);
-      const bool ok = inner->readSectors(next, staging, count);
+      // A host write may have reset the window while this waited for the card;
+      // `next` is then the sector it is about to write.
+      xSemaphoreTake(windowMutex, portMAX_DELAY);
+      const bool current = gen == generation;
+      xSemaphoreGive(windowMutex);
+      const bool ok = current && inner->readSectors(next, staging, count);
       xSemaphoreGive(deviceMutex);
+      if (!current) continue;
       if (!ok) break;  // leave the error for the host's own read to report
 
       xSemaphoreTake(windowMutex, portMAX_DELAY);
@@ -141,7 +149,8 @@ bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const s
       }
       // The request starts inside the window or right at its frontier: the
       // chunk it needs is probably being read now, so wait for it.
-      const bool pending = sector >= windowBase && sector <= frontier && sector + ns <= windowBase + kWindowSectors;
+      const bool pending =
+          readAheadArmed && sector >= windowBase && sector <= frontier && sector + ns <= windowBase + kWindowSectors;
       xSemaphoreGive(windowMutex);
       if (!pending || attempt >= kPendingWaitTicks) break;
       vTaskDelay(1);
@@ -154,6 +163,7 @@ bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const s
   if (prefetchEnabled) {
     xSemaphoreTake(windowMutex, portMAX_DELAY);
     resetWindow(sector + ns);
+    readAheadArmed = true;
     xSemaphoreGive(windowMutex);
     xTaskNotifyGive(task);
   }
@@ -161,16 +171,18 @@ bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const s
 }
 
 bool UsbDriveReadAhead::writeSectors(const Sector_t sector, const uint8_t* src, const size_t ns) {
+  if (prefetchEnabled) {
+    // Any read-ahead is about to go stale, and the sectors past this write are
+    // the ones a copy writes next. Drop the window and stop prefetching before
+    // the write; the next read re-arms it from wherever the host goes.
+    xSemaphoreTake(windowMutex, portMAX_DELAY);
+    resetWindow(sector + ns);
+    readAheadArmed = false;
+    xSemaphoreGive(windowMutex);
+  }
   lockDevice();
   const bool ok = inner->writeSectors(sector, src, ns);
   unlockDevice();
-  if (prefetchEnabled) {
-    // Any read-ahead may now be stale. Start over after the write; the next
-    // read re-arms prefetching from wherever the host goes.
-    xSemaphoreTake(windowMutex, portMAX_DELAY);
-    resetWindow(sector + ns);
-    xSemaphoreGive(windowMutex);
-  }
   return ok;
 }
 
