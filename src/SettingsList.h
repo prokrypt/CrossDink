@@ -893,6 +893,10 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     // Range 0..104 = quarter-hour steps from UTC-12:00 to UTC+14:00, biased by 48.
     add(SettingInfo::Value(StrId::STR_CLOCK_UTC_OFFSET, &CrossPointSettings::clockUtcOffsetQ, {0, 104, 1},
                            "clockUtcOffsetQ", StrId::STR_CAT_SYSTEM));
+    add(SettingInfo::Enum(StrId::STR_CLOCK_DST, &CrossPointSettings::clockDstRule,
+                          {StrId::STR_OFF, StrId::STR_DST_US_CANADA, StrId::STR_DST_EUROPE, StrId::STR_DST_AUSTRALIA,
+                           StrId::STR_DST_NEW_ZEALAND},
+                          "clockDstRule", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Enum(StrId::STR_CLOCK_FORMAT, &CrossPointSettings::clockFormat,
                           {StrId::STR_CLOCK_FORMAT_24H, StrId::STR_CLOCK_FORMAT_12H}, "clockFormat",
                           StrId::STR_CAT_SYSTEM));
@@ -1387,7 +1391,7 @@ inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<
 
 inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(10);
+  settings.reserve(11);
   addSettingByName(settings, allSettings, StrId::STR_DEVICE_NAME);
   addSettingByName(settings, allSettings, StrId::STR_TIME_TO_SLEEP);
   addSettingByName(settings, allSettings, StrId::STR_CUSTOM_BOOTSCREEN);
@@ -1396,6 +1400,7 @@ inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<
   if (halClock.isAvailable()) {
     addSettingByName(settings, allSettings, StrId::STR_CLOCK_FORMAT);
     addSettingByName(settings, allSettings, StrId::STR_CLOCK_UTC_OFFSET);
+    addSettingByName(settings, allSettings, StrId::STR_CLOCK_DST);
     addSettingByName(settings, allSettings, StrId::STR_DATE_FORMAT);
     addSettingByName(settings, allSettings, StrId::STR_DATE_SEPARATOR);
     settings.push_back(SettingInfo::Action(StrId::STR_CLOCK_SYNC_NOW, SettingAction::ClockSync));

@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
+#include "util/DaylightSaving.h"
 
 namespace {
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -30,6 +31,32 @@ bool isProtectedPathSegment(const char* name) {
 // ESP32 doesn't have real-time clock set by default, so we use a fixed epoch date
 // as a fallback. The date is not critical for WebDAV Class 1 operations.
 const char* FIXED_DATE = "Thu, 01 Jan 2024 00:00:00 GMT";
+
+// Formats a packed FAT timestamp (date << 16 | time, local wall-clock time) as
+// an RFC 1123 GMT date. Falls back to FIXED_DATE when the entry has no usable time.
+String httpDate(const uint32_t fatDateTime) {
+  const uint16_t fatDate = static_cast<uint16_t>(fatDateTime >> 16);
+  const uint16_t fatTime = static_cast<uint16_t>(fatDateTime);
+  uint16_t year = static_cast<uint16_t>(1980 + (fatDate >> 9));
+  uint8_t month = static_cast<uint8_t>((fatDate >> 5) & 15);
+  uint8_t day = static_cast<uint8_t>(fatDate & 31);
+  uint8_t hour = static_cast<uint8_t>(fatTime >> 11);
+  uint8_t minute = static_cast<uint8_t>((fatTime >> 5) & 63);
+  const uint8_t second = static_cast<uint8_t>((fatTime & 31) * 2);
+  if (fatDateTime == 0 || !DaylightSaving::isValidDate(year, month, day) || hour > 23 || minute > 59 || second > 59) {
+    return FIXED_DATE;
+  }
+  DaylightSaving::localToUtc(SETTINGS.clockUtcOffsetQ, SETTINGS.clockDstRule, year, month, day, hour, minute);
+
+  static constexpr char kDays[][4] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+  static constexpr char kMonths[][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%s, %02u %s %04u %02u:%02u:%02u GMT", kDays[DaylightSaving::weekday(year, month, day)],
+           static_cast<unsigned>(day), kMonths[month - 1], static_cast<unsigned>(year), static_cast<unsigned>(hour),
+           static_cast<unsigned>(minute), static_cast<unsigned>(second));
+  return String(buf);
+}
 }  // namespace
 
 // ── RequestHandler interface ─────────────────────────────────────────────────
@@ -241,7 +268,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
   if (isDir) {
     sendPropEntry(s, path, true, 0, FIXED_DATE);
   } else {
-    sendPropEntry(s, path, false, root.size(), FIXED_DATE);
+    sendPropEntry(s, path, false, root.size(), httpDate(root.modificationTime()));
     root.close();
     s.sendContent("</D:multistatus>\n");
     s.sendContent("");
@@ -263,7 +290,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
         if (file.isDirectory()) {
           sendPropEntry(s, childPath, true, 0, FIXED_DATE);
         } else {
-          sendPropEntry(s, childPath, false, file.size(), FIXED_DATE);
+          sendPropEntry(s, childPath, false, file.size(), httpDate(file.modificationTime()));
         }
       }
 

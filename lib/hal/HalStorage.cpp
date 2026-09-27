@@ -94,7 +94,7 @@ constexpr uint8_t kFallbackMonth = 1;
 constexpr uint8_t kFallbackDay = 1;
 constexpr uint8_t kFallbackHour = 0;
 constexpr uint8_t kFallbackMinute = 0;
-const uint8_t* clockUtcOffsetQ = nullptr;
+HalStorage::UtcOffsetFn utcOffsetQAt = nullptr;
 
 bool isLeapYear(const uint16_t year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
 
@@ -141,21 +141,26 @@ void adjustDateByDays(uint16_t& year, uint8_t& month, uint8_t& day, const int da
   }
 }
 
-void setPackedFatDateTime(uint16_t* date, uint16_t* time, const uint16_t year, const uint8_t month, const uint8_t day,
-                          const uint8_t hour, const uint8_t minute) {
+void setPackedFatDateTime(uint16_t* date, uint16_t* time, uint8_t* ms10, const uint16_t year, const uint8_t month,
+                          const uint8_t day, const uint8_t hour, const uint8_t minute, const uint8_t second) {
   *date = FS_DATE(year, month, day);
-  *time = FS_TIME(hour, minute, 0);
+  // FAT stores seconds in 2 s steps; the odd second rides in the 10 ms field.
+  *time = FS_TIME(hour, minute, second);
+  *ms10 = second & 1 ? 100 : 0;
 }
 
-void storageDateTimeCallback(uint16_t* date, uint16_t* time) {
+void storageDateTimeCallback(uint16_t* date, uint16_t* time, uint8_t* ms10) {
   uint16_t year = kFallbackYear;
   uint8_t month = kFallbackMonth;
   uint8_t day = kFallbackDay;
   uint8_t hour = kFallbackHour;
   uint8_t minute = kFallbackMinute;
+  uint8_t second = 0;
 
-  if (halClock.getDateTime(year, month, day, hour, minute) && isValidFatDateTime(year, month, day, hour, minute)) {
-    const uint8_t configuredOffsetQ = clockUtcOffsetQ ? *clockUtcOffsetQ : 48;
+  if (halClock.getDateTime(year, month, day, hour, minute, second) &&
+      isValidFatDateTime(year, month, day, hour, minute)) {
+    // FAT timestamps are local wall-clock time; the RTC runs in UTC.
+    const uint8_t configuredOffsetQ = utcOffsetQAt ? utcOffsetQAt(year, month, day, hour, minute) : 48;
     const uint8_t offsetQ = configuredOffsetQ > 104 ? 104 : configuredOffsetQ;
     const int offsetQuarterHours = static_cast<int>(offsetQ) - 48;
     int localMinutes = static_cast<int>(hour) * 60 + static_cast<int>(minute) + offsetQuarterHours * 15;
@@ -166,15 +171,16 @@ void storageDateTimeCallback(uint16_t* date, uint16_t* time) {
     minute = static_cast<uint8_t>(localMinutes % 60);
   }
 
-  if (!isValidFatDateTime(year, month, day, hour, minute)) {
+  if (!isValidFatDateTime(year, month, day, hour, minute) || second > 59) {
     year = kFallbackYear;
     month = kFallbackMonth;
     day = kFallbackDay;
     hour = kFallbackHour;
     minute = kFallbackMinute;
+    second = 0;
   }
 
-  setPackedFatDateTime(date, time, year, month, day, hour, minute);
+  setPackedFatDateTime(date, time, ms10, year, month, day, hour, minute, second);
 }
 }  // namespace
 
@@ -345,9 +351,9 @@ bool HalStorage::writeFile(const char* path, const String& content) {
 
 bool HalStorage::ensureDirectoryExists(const char* path) { HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path); }
 
-void HalStorage::installDateTimeCallback(const uint8_t* utcOffsetQuarterHoursBiased) {
+void HalStorage::installDateTimeCallback(const UtcOffsetFn utcOffsetQuarterHoursAt) {
   if (!halClock.isAvailable()) return;
-  clockUtcOffsetQ = utcOffsetQuarterHoursBiased;
+  utcOffsetQAt = utcOffsetQuarterHoursAt;
   FsDateTime::setCallback(storageDateTimeCallback);
   LOG_INF("SD", "Installed RTC-backed SD timestamp callback");
 }

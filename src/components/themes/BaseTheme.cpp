@@ -26,6 +26,7 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "fontIds.h"
+#include "util/LocalClock.h"
 
 // Internal constants
 namespace {
@@ -1074,7 +1075,7 @@ void BaseTheme::drawTopStatusBarClock(const GfxRenderer& renderer, int topY, con
     if (!halClock.isAvailable()) {
       return;
     }
-    if (!halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
+    if (!halClock.formatTime(timeBuf, sizeof(timeBuf), LocalClock::currentOffsetQ(), SETTINGS.clockFormat == 1)) {
       return;
     }
     timeText = timeBuf;

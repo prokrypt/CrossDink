@@ -14,6 +14,7 @@
 #include "components/UITheme.h"
 #include "components/icons/listIcons.h"
 #include "fontIds.h"
+#include "util/LocalClock.h"
 
 namespace {
 constexpr uint8_t MAX_POS_HOURS = 14;
@@ -334,7 +335,7 @@ void ClockOffsetActivity::render(RenderLock&&) {
   if (halClock.isAvailable()) {
     char timeBuf[9];
     const uint8_t encoded = encodeOffset(sign, hours, minutesQuarter);
-    if (halClock.formatTime(timeBuf, sizeof(timeBuf), encoded, SETTINGS.clockFormat == 1)) {
+    if (halClock.formatTime(timeBuf, sizeof(timeBuf), LocalClock::currentOffsetQ(encoded), SETTINGS.clockFormat == 1)) {
       // STR_CURRENT_TIME alone is 26 bytes in Russian and 24 in Arabic and
       // Ukrainian, before the separator and formatted time are appended.
       char preview[64];

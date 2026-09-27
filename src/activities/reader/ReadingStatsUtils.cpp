@@ -3,6 +3,7 @@
 #include <HalClock.h>
 
 #include "CrossPointSettings.h"
+#include "util/LocalClock.h"
 
 namespace {
 constexpr const char* MONTH_NAMES[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -248,7 +249,7 @@ bool getCurrentLocalReadingStatsDateTime(ReadingStatsDateTime& outDateTime) {
     return false;
   }
 
-  const int offsetQuarterHours = static_cast<int>(SETTINGS.clockUtcOffsetQ) - 48;
+  const int offsetQuarterHours = static_cast<int>(LocalClock::offsetQAtUtc(year, month, day, hour, minute)) - 48;
   const int offsetMinutes = offsetQuarterHours * 15;
   int totalMinutes = static_cast<int>(outDateTime.hour) * 60 + static_cast<int>(outDateTime.minute) + offsetMinutes;
 

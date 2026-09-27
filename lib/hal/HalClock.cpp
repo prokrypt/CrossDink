@@ -13,6 +13,8 @@ HalClock halClock;  // Singleton instance
 
 namespace {
 constexpr uint16_t kBaseYear = 2000;
+// An RTC reading before this year was never synced or has been reset.
+constexpr uint16_t kMinTrustedYear = 2025;
 constexpr const char* kMonthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 constexpr char kFullMonthNames[][10] = {"January", "February", "March",     "April",   "May",      "June",
@@ -73,37 +75,71 @@ void HalClock::begin() {
   LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
 }
 
-bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
+bool HalClock::refresh(const bool needDate) const {
   if (!_available) return false;
 
+  const bool hasCached = needDate ? _hasCachedDate : _hasCachedTime;
   const unsigned long now = millis();
-  if (_lastPollMs != 0 && (now - _lastPollMs) < CLOCK_POLL_MS) {
-    hour = _cachedHour;
-    minute = _cachedMinute;
-    return true;
-  }
+  if (_lastPollMs != 0 && (now - _lastPollMs) < CLOCK_POLL_MS && hasCached) return true;
 
   Rtc::DateTime dt;
   if (!_sdkRtc.now(dt)) {
-    if (!_hasCachedTime) return false;
+    if (!hasCached) return false;
     _lastPollMs = now;
-    hour = _cachedHour;
-    minute = _cachedMinute;
     return true;
   }
 
-  _cachedHour = dt.hour;
-  _cachedMinute = dt.minute;
   _cachedYear = dt.year;
   _cachedMonth = dt.month;
   _cachedDay = dt.day;
+  _cachedHour = dt.hour;
+  _cachedMinute = dt.minute;
+  _cachedSecond = dt.second;
+  _cachedAtMs = now;
   _lastPollMs = now;
   _hasCachedTime = true;
   _hasCachedDate = isValidDate(_cachedYear, _cachedMonth, _cachedDay);
+  return needDate ? _hasCachedDate : true;
+}
 
-  hour = _cachedHour;
-  minute = _cachedMinute;
+void HalClock::readCached(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute,
+                          uint8_t& second) const {
+  // Advance the last RTC reading by the time since it was taken, so reads
+  // between polls keep ticking and carry whole seconds.
+  uint32_t secondOfDay = static_cast<uint32_t>(_cachedHour) * 3600u + static_cast<uint32_t>(_cachedMinute) * 60u +
+                         _cachedSecond + (millis() - _cachedAtMs) / 1000u;
+  uint32_t days = secondOfDay / 86400u;
+  secondOfDay %= 86400u;
+  year = _cachedYear;
+  month = _cachedMonth;
+  day = _cachedDay;
+  if (_hasCachedDate) {
+    for (; days > 0; days--) adjustDateByDays(year, month, day, 1);
+  }
+  hour = static_cast<uint8_t>(secondOfDay / 3600u);
+  minute = static_cast<uint8_t>((secondOfDay / 60u) % 60u);
+  second = static_cast<uint8_t>(secondOfDay % 60u);
+}
+
+bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
+  if (!refresh(false)) return false;
+  uint16_t year;
+  uint8_t month, day, second;
+  readCached(year, month, day, hour, minute, second);
   return true;
+}
+
+bool HalClock::getDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute,
+                           uint8_t& second) const {
+  if (!refresh(true)) return false;
+  readCached(year, month, day, hour, minute, second);
+  return true;
+}
+
+bool HalClock::hasTrustedDateTime() const {
+  if (!_available) return false;
+  Rtc::DateTime dt;
+  return _sdkRtc.now(dt) && dt.year >= kMinTrustedYear && isValidDate(dt.year, dt.month, dt.day);
 }
 
 bool HalClock::formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased, bool use12Hour) const {
@@ -133,46 +169,8 @@ bool HalClock::formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHou
 }
 
 bool HalClock::getDate(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute) const {
-  if (!_available) return false;
-
-  const unsigned long now = millis();
-  if (_lastPollMs != 0 && (now - _lastPollMs) < CLOCK_POLL_MS && _hasCachedDate) {
-    year = _cachedYear;
-    month = _cachedMonth;
-    day = _cachedDay;
-    hour = _cachedHour;
-    minute = _cachedMinute;
-    return true;
-  }
-
-  Rtc::DateTime dt;
-  if (!_sdkRtc.now(dt)) {
-    if (!_hasCachedDate) return false;
-    _lastPollMs = now;
-    year = _cachedYear;
-    month = _cachedMonth;
-    day = _cachedDay;
-    hour = _cachedHour;
-    minute = _cachedMinute;
-    return true;
-  }
-
-  _cachedYear = dt.year;
-  _cachedMonth = dt.month;
-  _cachedDay = dt.day;
-  _cachedHour = dt.hour;
-  _cachedMinute = dt.minute;
-  _lastPollMs = now;
-  _hasCachedTime = true;
-  _hasCachedDate = isValidDate(_cachedYear, _cachedMonth, _cachedDay);
-  if (!_hasCachedDate) return false;
-
-  year = _cachedYear;
-  month = _cachedMonth;
-  day = _cachedDay;
-  hour = _cachedHour;
-  minute = _cachedMinute;
-  return true;
+  uint8_t second;
+  return getDateTime(year, month, day, hour, minute, second);
 }
 
 bool HalClock::formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased, const DateFormat dateFormat,
@@ -254,6 +252,8 @@ bool HalClock::writeDateTimeToRTC(uint16_t year, uint8_t month, uint8_t day, uin
   _cachedYear = year;
   _cachedMonth = month;
   _cachedDay = day;
+  _cachedSecond = second;
+  _cachedAtMs = millis();
   _hasCachedTime = true;
   _hasCachedDate = true;
   return true;

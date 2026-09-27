@@ -46,8 +46,10 @@ class HalStorage {
   bool writeFile(const char* path, const String& content);
   // Ensure a directory exists, creating it if necessary. Returns true on success.
   bool ensureDirectoryExists(const char* path);
+  // Returns the biased quarter-hour UTC offset (48 = UTC+0) in effect at a UTC instant.
+  using UtcOffsetFn = uint8_t (*)(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute);
   // Install SdFat timestamp support when an RTC-backed clock is available.
-  void installDateTimeCallback(const uint8_t* utcOffsetQuarterHoursBiased);
+  void installDateTimeCallback(UtcOffsetFn utcOffsetQuarterHoursAt);
 
   bool beginUsbDrive();
   bool disconnectUsbDriveHost();
