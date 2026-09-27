@@ -9,6 +9,7 @@
 #include <esp_sleep.h>
 
 #include <algorithm>
+#include <type_traits>
 
 #if FREEINK_MCU_S3
 #include <soc/usb_serial_jtag_reg.h>
@@ -174,7 +175,103 @@ void HalGPIO::begin() {
   inputMgr.begin();
 }
 
+void HalGPIO::trackTouchDragOn(const InputManager& input, bool& draggedPastTapSlop) {
+#if CROSSDINK_APP_CAP_TOUCH
+  if (input.wasTouchPressed()) draggedPastTapSlop = false;
+  if (!input.isTouchPressed()) return;
+  // The SDK stops reporting a tap candidate once the contact moves past its
+  // 28 px stationary slop (the same gate long-press uses).
+  float nx = 0.0f;
+  float ny = 0.0f;
+  unsigned long heldMs = 0;
+  if (!input.isTouchTapCandidate(nx, ny, heldMs)) draggedPastTapSlop = true;
+#else
+  (void)input;
+  (void)draggedPastTapSlop;
+#endif
+}
+
+bool HalGPIO::startLatchedInput() {
+#if CROSSPOINT_EMULATED == 0
+  static_assert(std::is_trivially_copyable<InputManager>::value, "input samples are copied through a queue");
+  // Enough for a burst of edges (press, release, tap, gesture) while the loop
+  // is held up by a long render or build.
+  constexpr UBaseType_t EVENT_SAMPLE_QUEUE_LEN = 8;
+  if (latched_) return true;
+  if (!sampleMutex_) sampleMutex_ = xSemaphoreCreateMutex();
+  if (!eventSamples_) eventSamples_ = xQueueCreate(EVENT_SAMPLE_QUEUE_LEN, sizeof(InputSample));
+  if (!sampleMutex_ || !eventSamples_) {
+    LOG_ERR("GPIO", "Latched input unavailable; sampling on the loop");
+    return false;
+  }
+  // The sampler takes over the hardware state the loop has sampled so far.
+  sampler_ = inputMgr;
+#if CROSSDINK_APP_CAP_TOUCH
+  samplerDraggedPastTapSlop_ = touchDraggedPastTapSlop;
+#endif
+  sampler_.clearOneShotEvents();
+  quietSample_.input = sampler_;
+  quietSample_.touchDraggedPastTapSlop = samplerDraggedPastTapSlop_;
+  latched_ = true;
+  return true;
+#else
+  return false;
+#endif
+}
+
+void HalGPIO::stopLatchedInput() {
+#if CROSSPOINT_EMULATED == 0
+  if (!latched_) return;
+  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+  inputMgr = sampler_;
+  latched_ = false;
+  xSemaphoreGive(sampleMutex_);
+#endif
+}
+
+HalGPIO::SampleResult HalGPIO::sampleInput() {
+  SampleResult result{false, false};
+#if CROSSPOINT_EMULATED == 0
+  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+  sampler_.update();
+  trackTouchDragOn(sampler_, samplerDraggedPastTapSlop_);
+  quietSample_.input = sampler_;
+  quietSample_.touchDraggedPastTapSlop = samplerDraggedPastTapSlop_;
+  if (sampler_.hasOneShotEvents()) {
+    if (xQueueSend(eventSamples_, &quietSample_, 0) == pdTRUE) {
+      result.events = true;
+    } else {
+      LOG_ERR("GPIO", "Input sample queue full; dropping an input event");
+    }
+    quietSample_.input.clearOneShotEvents();
+  }
+  bool held = sampler_.isDebouncePending();
+  for (uint8_t button = BTN_BACK; button <= BTN_POWER && !held; ++button) held = sampler_.isPressed(button);
+#if CROSSDINK_APP_CAP_TOUCH
+  held = held || sampler_.isTouchPressed();
+#endif
+  result.active = held;
+  xSemaphoreGive(sampleMutex_);
+#endif
+  return result;
+}
+
 void HalGPIO::update() {
+#if CROSSPOINT_EMULATED == 0
+  if (latched_) {
+    if (xQueueReceive(eventSamples_, &loopSample_, 0) != pdTRUE) {
+      xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+      loopSample_ = quietSample_;
+      xSemaphoreGive(sampleMutex_);
+    }
+    inputMgr = loopSample_.input;
+#if CROSSDINK_APP_CAP_TOUCH
+    touchDraggedPastTapSlop = loopSample_.touchDraggedPastTapSlop;
+#endif
+    updateUsbState();
+    return;
+  }
+#endif
   inputMgr.update();
 #if CROSSDINK_APP_CAP_TOUCH
   trackTouchDrag();
@@ -189,7 +286,10 @@ void HalGPIO::update() {
     trackTouchDrag();
 #endif
   }
+  updateUsbState();
+}
 
+void HalGPIO::updateUsbState() {
   usbStateChanged = false;
   const unsigned long now = millis();
   if (deviceIsX3() && usbStateSampled && now - lastUsbPollMs < X3_USB_POLL_MS) {
@@ -262,16 +362,7 @@ bool HalGPIO::wasHomeKeyTapped() const { return inputMgr.wasHomeKeyTapped(); }
 
 bool HalGPIO::wasHomeKeyLongPressed() const { return inputMgr.wasHomeKeyLongPressed(); }
 
-void HalGPIO::trackTouchDrag() {
-  if (inputMgr.wasTouchPressed()) touchDraggedPastTapSlop = false;
-  if (!inputMgr.isTouchPressed()) return;
-  // The SDK stops reporting a tap candidate once the contact moves past its
-  // 28 px stationary slop (the same gate long-press uses).
-  float nx = 0.0f;
-  float ny = 0.0f;
-  unsigned long heldMs = 0;
-  if (!inputMgr.isTouchTapCandidate(nx, ny, heldMs)) touchDraggedPastTapSlop = true;
-}
+void HalGPIO::trackTouchDrag() { trackTouchDragOn(inputMgr, touchDraggedPastTapSlop); }
 
 bool HalGPIO::wasTouchTap(float& nx, float& ny) const {
   // The SDK accepts released taps up to its 60 px swipe distance so slow finger
@@ -290,7 +381,15 @@ bool HalGPIO::isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) c
 
 bool HalGPIO::wasTouchLongPress(float& nx, float& ny) const { return inputMgr.wasTouchLongPress(nx, ny); }
 
-void HalGPIO::suppressTouchContact() { inputMgr.suppressTouchContact(); }
+void HalGPIO::suppressTouchContact() {
+  inputMgr.suppressTouchContact();
+  if (!latched_) return;
+  // Later samples must stay suppressed until the contact lifts.
+  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+  sampler_.suppressTouchContact();
+  quietSample_.input.suppressTouchContact();
+  xSemaphoreGive(sampleMutex_);
+}
 
 bool HalGPIO::isTouchHeldAt(float& nx, float& ny) const { return inputMgr.isTouchHeldAt(nx, ny); }
 
@@ -302,9 +401,22 @@ bool HalGPIO::wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float& nyEn
 
 bool HalGPIO::wasTouchActivity() const { return inputMgr.wasTouchActivity(); }
 
-bool HalGPIO::setTouchSleep(const bool asleep) { return inputMgr.setTouchSleep(asleep); }
+bool HalGPIO::setTouchSleep(const bool asleep) {
+  if (!latched_) return inputMgr.setTouchSleep(asleep);
+  // The sampler owns the controller; the view follows on the next update().
+  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+  const bool ok = sampler_.setTouchSleep(asleep);
+  xSemaphoreGive(sampleMutex_);
+  return ok;
+}
 
-bool HalGPIO::isTouchAsleep() const { return inputMgr.isTouchAsleep(); }
+bool HalGPIO::isTouchAsleep() const {
+  if (!latched_) return inputMgr.isTouchAsleep();
+  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+  const bool asleep = sampler_.isTouchAsleep();
+  xSemaphoreGive(sampleMutex_);
+  return asleep;
+}
 #endif
 
 void HalGPIO::setSharedConfirmPowerShortPressEmitsPower(const bool enabled) {

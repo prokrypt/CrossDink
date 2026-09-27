@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <InputManager.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
 
 #include "AppCapabilities.h"
 
@@ -21,7 +24,24 @@
 
 class HalGPIO {
 #if CROSSPOINT_EMULATED == 0
+  // What every getter reads. Once latched input runs it is a copy of one
+  // sample taken by the input task; before that update() samples it directly.
   InputManager inputMgr;
+
+  // Latched input (startLatchedInput()). sampler_ owns the hardware; each
+  // sample with a one-shot event is queued whole, and quietSample_ holds the
+  // latest held state with its one-shot events cleared.
+  struct InputSample {
+    InputManager input;
+    bool touchDraggedPastTapSlop;
+  };
+  InputManager sampler_;
+  bool samplerDraggedPastTapSlop_ = false;
+  InputSample quietSample_{};
+  InputSample loopSample_{};  // update()'s receive buffer, kept off the loop stack
+  QueueHandle_t eventSamples_ = nullptr;
+  SemaphoreHandle_t sampleMutex_ = nullptr;
+  bool latched_ = false;
 #endif
 
   bool lastUsbConnected = false;
@@ -34,6 +54,8 @@ class HalGPIO {
   bool touchDraggedPastTapSlop = false;
   void trackTouchDrag();
 #endif
+  static void trackTouchDragOn(const InputManager& input, bool& draggedPastTapSlop);
+  void updateUsbState();
 
  public:
   // HAL-owned, normalized multi-touch representation. Activities must not
@@ -101,6 +123,19 @@ class HalGPIO {
 
   // Button input methods
   void update();
+
+  // Hands input sampling to a task that calls sampleInput(): from then on
+  // update() takes the next queued sample with an event, or the latest state,
+  // so events that arrive while the loop is busy are kept in order. False when
+  // it cannot start; update() then keeps sampling directly.
+  bool startLatchedInput();
+  void stopLatchedInput();
+  struct SampleResult {
+    bool events;  // queued a sample with a one-shot event
+    bool active;  // a key or contact is down or settling: sample again soon
+  };
+  // Input task only.
+  SampleResult sampleInput();
   bool isPressed(uint8_t buttonIndex) const;
   bool wasPressed(uint8_t buttonIndex) const;
   bool wasAnyPressed() const;

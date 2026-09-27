@@ -69,6 +69,7 @@
 #include "components/icons/tablerFilledIcons.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "platform/InputTask.h"
 #include "platform/InputWake.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
@@ -1701,6 +1702,10 @@ void setup() {
     gpio.update();
   }
 
+  // From here keys and touch are sampled on their own task, so events made
+  // during long loop work are queued instead of dropped.
+  InputTask::begin();
+
   allowSleepAt = millis() + 2000;
 }
 
@@ -2082,10 +2087,10 @@ void loop() {
     if (!radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
-      InputWake::wait(idleWaitMs(millis() - lastActivityTime));
+      InputTask::waitForInput(idleWaitMs(millis() - lastActivityTime));
     } else {
       // Short delay to prevent tight loop while still being responsive
-      InputWake::wait(10);
+      InputTask::waitForInput(10);
     }
   }
 }
