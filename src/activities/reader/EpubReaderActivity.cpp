@@ -1,5 +1,9 @@
 #include "EpubReaderActivity.h"
 
+#include "TaskCores.h"
+#if CROSSDINK_SCALABLE_FONTS
+#include <HalScalableFont.h>
+#endif
 #include <Arduino.h>
 #include <BidiUtils.h>
 #include <Epub/Page.h>
@@ -8,6 +12,7 @@
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -2318,6 +2323,8 @@ void EpubReaderActivity::onEnter() {
   loadBookReaderSettings();
   sdFontSystem.setSettingsPersistenceCallback(persistReaderSdFontSettingsForBook, this);
   ensureReaderSdFontLoaded(renderer);
+  if (!silentWorkerMutex) silentWorkerMutex = xSemaphoreCreateMutex();
+  if (!silentWorker.done) silentWorker.done = xSemaphoreCreateBinary();
   ImageBlock::clearSessionRenderFailures();
   ImageBlock::setExtractor(
       epub.get(),
@@ -2446,12 +2453,18 @@ void EpubReaderActivity::onEnter() {
 }
 
 void EpubReaderActivity::onExit() {
+  waitSilentIndexWorker(/*cancel=*/true);
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   // Drop the scalable-family catalog retained during reading. The active font
   // and its PSRAM face lifetime remain managed by SdCardFontSystem.
   sdFontSystem.releaseRegistry();
   clearPendingManualPageTurns(/*requestRecoveryRedraw=*/false);
   mappedInput.setReaderTouchscreenOverride(false);
+
+  if (silentWorker.done) vSemaphoreDelete(silentWorker.done);
+  silentWorker.done = nullptr;
+  if (silentWorkerMutex) vSemaphoreDelete(silentWorkerMutex);
+  silentWorkerMutex = nullptr;
 
   // The image callbacks hold the Epub as a raw context pointer.
   ImageBlock::setExtractor(nullptr, nullptr, nullptr);
@@ -2632,6 +2645,7 @@ void EpubReaderActivity::openReaderMenu() {
 #endif
       applyOrientation(chapter->orientation);
       if (chapter->settingsChanged) {
+        waitSilentIndexWorker(/*cancel=*/true);
         ensureReaderSdFontLoaded(renderer);
         RenderLock lock(*this);
         prepareCurrentSectionForRelayout();
@@ -2653,6 +2667,7 @@ void EpubReaderActivity::openReaderMenu() {
     if (const auto* clipping = std::get_if<ClippingJumpResult>(&result.data)) {
       applyOrientation(clipping->orientation);
       if (clipping->settingsChanged) {
+        waitSilentIndexWorker(/*cancel=*/true);
         ensureReaderSdFontLoaded(renderer);
         RenderLock lock(*this);
         prepareCurrentSectionForRelayout();
@@ -2675,6 +2690,7 @@ void EpubReaderActivity::openReaderMenu() {
 #endif
     applyOrientation(menu->orientation);
     if (menu->settingsChanged && hasReaderSettingsChange(menu->changeMask, ReaderSettingsChangeMask::Relayout)) {
+      waitSilentIndexWorker(/*cancel=*/true);
       ensureReaderSdFontLoaded(renderer);
       RenderLock lock(*this);
       prepareCurrentSectionForRelayout();
@@ -4164,6 +4180,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           }
 
           if (settingsReset) {
+            waitSilentIndexWorker(/*cancel=*/true);
             ensureReaderSdFontLoaded(renderer);
             drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
             delay(1000);
@@ -4532,6 +4549,7 @@ bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult
   bool handled = false;
   if (result.ttfRenderingChanged) {
     clearPendingManualPageTurns();
+    waitSilentIndexWorker(/*cancel=*/true);
     ensureReaderSdFontLoaded(renderer);
     RenderLock lock(*this);
     prepareCurrentSectionForRelayout();
@@ -4597,6 +4615,7 @@ void EpubReaderActivity::reindexCurrentSection() {
     // Saving releases the incremental parser's SD handle. Serialize that close
     // with parseStep() so the render task cannot read a just-closed HalFile.
     saveCurrentBookReaderSettings();
+    waitSilentIndexWorker(/*cancel=*/true);
     ensureReaderSdFontLoaded(renderer);
     if (!restorePreviewPosition) {
       GUI.drawPopup(renderer, tr(STR_INDEXING));
@@ -5938,6 +5957,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (!epub) {
     return;
   }
+  // Showing another page of the finished current chapter may overlap the
+  // worker's next-chapter build. Loading or building a section, a footnote
+  // preview or the book end waits for it, cancelling it unless it is
+  // building the very chapter now needed.
+  if (silentIndexWorkerBusy() && (!section || section->isBuilding() || section->isPartial() || activeFootnotePreview ||
+                                  !pendingFootnotePreviewAnchor.empty())) {
+    waitSilentIndexWorker(/*cancel=*/silentWorker.spineIndex != currentSpineIndex);
+  }
+  applySilentIndexWorkerOutcome();
   if (quickActionsPopup.processRender(renderer, mappedInput)) {
     return;
   }
@@ -6764,6 +6792,9 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
       preparedNextViewportHeight == viewportHeight) {
     return;
   }
+  if (silentIndexWorkerBusy()) {
+    return;
+  }
 
   const int readerFontId = SETTINGS.getReaderFontId();
   const EpubRenderMode selectedRenderMode = normalizeRenderMode(SETTINGS.epubRenderMode);
@@ -6785,6 +6816,17 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   // Close any loaded partial before rebuilding the same cache path. Real SdFat
   // hardware permits only one reader for a file path at a time.
   nextSection.reset();
+
+  if (nextSpineIndex != silentIndexRenderLaneSpine && canSilentIndexOnWorker(readerFontId)) {
+    if (!MemoryBudget::hasHeapForOptionalEpubRebuild("ERS", "worker next-chapter indexing", nextSpineIndex,
+                                                     MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE,
+                                                     MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC)) {
+      return;
+    }
+    if (startSilentIndexWorker(nextSpineIndex, viewportWidth, viewportHeight, readerFontId, selectedRenderMode)) {
+      return;
+    }
+  }
 
   releaseGrayscaleStripScratch();
   const bool releasedSdFontCaches =
@@ -6914,6 +6956,149 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   preparedNextSpineIndex = nextSpineIndex;
   preparedNextViewportWidth = viewportWidth;
   preparedNextViewportHeight = viewportHeight;
+}
+
+bool EpubReaderActivity::canSilentIndexOnWorker(const int readerFontId) const {
+#if defined(portNUM_PROCESSORS) && portNUM_PROCESSORS > 1
+  // SD card fonts stream glyphs through the render task's caches.
+  return silentWorkerMutex && silentWorker.done && renderer.fontMeasuresWithoutSd(readerFontId);
+#else
+  (void)readerFontId;
+  return false;
+#endif
+}
+
+bool EpubReaderActivity::startSilentIndexWorker(const int spineIndex, const uint16_t viewportWidth,
+                                                const uint16_t viewportHeight, const int readerFontId,
+                                                const EpubRenderMode renderMode) {
+  // Sized like the S3 reader render task, which runs the same section builds.
+  // Internal RAM only while the build runs; it writes to the SD card.
+  constexpr uint32_t STACK_BYTES = 24576;
+  xSemaphoreTake(silentWorkerMutex, portMAX_DELAY);
+  bool started = false;
+  if (!silentWorker.task) {
+    silentWorker.spineIndex = spineIndex;
+    silentWorker.viewportWidth = viewportWidth;
+    silentWorker.viewportHeight = viewportHeight;
+    silentWorker.renderMode = renderMode;
+    // Captured now: the loop may change SETTINGS while the worker builds.
+    silentWorker.spec =
+        readerRenderSpecForProfile(readerFontId, viewportWidth, viewportHeight, buildProfileForRenderMode(renderMode));
+    silentWorker.succeeded = false;
+    silentWorker.needsRenderLane = false;
+    silentWorker.cancel.store(false, std::memory_order_relaxed);
+    silentWorker.finished.store(false, std::memory_order_relaxed);
+    powerManager.beginBackgroundWork();
+    started = xTaskCreatePinnedToCore(silentIndexWorkerMain, "SilentIndex", STACK_BYTES, this, 1, &silentWorker.task,
+                                      TaskCores::kWorker) == pdPASS;
+    if (!started) {
+      silentWorker.task = nullptr;
+      powerManager.endBackgroundWork();
+      LOG_ERR("ERS", "Cannot start next-chapter worker; indexing on the render task");
+    }
+  }
+  xSemaphoreGive(silentWorkerMutex);
+  return started;
+}
+
+void EpubReaderActivity::silentIndexWorkerMain(void* param) {
+  auto* self = static_cast<EpubReaderActivity*>(param);
+  self->runSilentIndexWorker();
+  self->silentWorker.finished.store(true, std::memory_order_release);
+  // The activity may be destroyed as soon as this is given.
+  xSemaphoreGive(self->silentWorker.done);
+  vTaskDelete(nullptr);
+}
+
+void EpubReaderActivity::runSilentIndexWorker() {
+  auto& job = silentWorker;
+  LOG_DBG("ERS", "Silently indexing next chapter on core %d: %d (free=%u, maxAlloc=%u)", xPortGetCoreID(),
+          job.spineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  auto nextSection =
+      makeUniqueNoThrow<Section>(epub, job.spineIndex, renderer, sectionCacheSuffixForRenderMode(job.renderMode));
+  if (!nextSection) {
+    LOG_ERR("ERS", "Failed to allocate worker section builder for spine %d", job.spineIndex);
+    job.needsRenderLane = true;
+    return;
+  }
+  bool lowMemory = false;
+  bool cancelled = false;
+  SectionBuildOptions options;
+  options.shouldCancel = [](void* context) {
+    return static_cast<EpubReaderActivity*>(context)->silentWorker.cancel.load(std::memory_order_relaxed);
+  };
+  options.cancelContext = this;
+  options.cancellationObserved = &cancelled;
+  bool built = false;
+  {
+#if CROSSDINK_SCALABLE_FONTS
+    ScalableFontWorkerLane fontLane;
+#endif
+    built = nextSection->createSectionFile(job.spec, nullptr, nullptr, &lowMemory, options);
+#if CROSSDINK_SCALABLE_FONTS
+    if (fontLane.missed()) {
+      // A streamed face measured nothing here: never keep that layout.
+      if (built) nextSection->clearCache();
+      built = false;
+    }
+#endif
+  }
+  if (cancelled) {
+    LOG_DBG("ERS", "Worker next-chapter indexing cancelled: chapter=%d", job.spineIndex);
+    return;
+  }
+  if (!built) {
+    LOG_DBG("ERS", "Worker next-chapter indexing failed (lowMemory=%u); render task retries chapter %d",
+            lowMemory ? 1U : 0U, job.spineIndex);
+    job.needsRenderLane = true;
+    return;
+  }
+  LOG_DBG("ERS", "Worker indexing complete: chapter=%d pages=%u free=%u maxAlloc=%u", job.spineIndex,
+          nextSection->pageCount, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  job.succeeded = true;
+}
+
+bool EpubReaderActivity::silentIndexWorkerBusy() {
+  if (!silentWorkerMutex) return false;
+  xSemaphoreTake(silentWorkerMutex, portMAX_DELAY);
+  const bool busy = silentWorker.task != nullptr;
+  xSemaphoreGive(silentWorkerMutex);
+  return busy;
+}
+
+void EpubReaderActivity::waitSilentIndexWorker(const bool cancel) {
+  if (!silentWorkerMutex) return;
+  xSemaphoreTake(silentWorkerMutex, portMAX_DELAY);
+  if (silentWorker.task) {
+    if (cancel) silentWorker.cancel.store(true, std::memory_order_relaxed);
+    // Bounded by one parser step once cancelled; the worker never takes
+    // RenderLock, so waiting here while holding it cannot deadlock.
+    xSemaphoreTake(silentWorker.done, portMAX_DELAY);
+    silentWorker.task = nullptr;
+    silentWorkerOutcomePending = true;
+    powerManager.endBackgroundWork();
+  }
+  xSemaphoreGive(silentWorkerMutex);
+}
+
+// Render task, RenderLock held.
+void EpubReaderActivity::applySilentIndexWorkerOutcome() {
+  if (!silentWorkerMutex) return;
+  if (silentWorker.finished.load(std::memory_order_acquire)) waitSilentIndexWorker(/*cancel=*/false);
+  xSemaphoreTake(silentWorkerMutex, portMAX_DELAY);
+  const bool pending = silentWorkerOutcomePending;
+  silentWorkerOutcomePending = false;
+  xSemaphoreGive(silentWorkerMutex);
+  if (!pending) return;
+  if (silentWorker.succeeded) {
+    // See the in-render path: a grouped sibling may have become exact.
+    chapterGroupEstimate.valid = false;
+    preparedNextSpineIndex = silentWorker.spineIndex;
+    preparedNextViewportWidth = silentWorker.viewportWidth;
+    preparedNextViewportHeight = silentWorker.viewportHeight;
+  } else if (silentWorker.needsRenderLane) {
+    silentIndexRenderLaneSpine = silentWorker.spineIndex;
+  }
 }
 
 void EpubReaderActivity::cancelSilentPrefetchForInput() {

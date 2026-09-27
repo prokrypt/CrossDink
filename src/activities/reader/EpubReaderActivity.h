@@ -5,6 +5,7 @@
 #include <Epub/Section.h>
 #include <Memory.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 
 #include <array>
@@ -330,6 +331,38 @@ class EpubReaderActivity final : public Activity {
   uint16_t preparedNextViewportWidth = 0;
   uint16_t preparedNextViewportHeight = 0;
 
+  // Silent next-chapter indexing on the worker core, used when the reader
+  // font measures from memory only. The render task keeps showing and turning
+  // pages of the current chapter meanwhile; anything else waits for it first.
+  struct SilentIndexWorker {
+    TaskHandle_t task = nullptr;
+    SemaphoreHandle_t done = nullptr;  // given by the task after its build
+    std::atomic<bool> finished{false};
+    std::atomic<bool> cancel{false};
+    int spineIndex = -1;
+    uint16_t viewportWidth = 0;
+    uint16_t viewportHeight = 0;
+    EpubRenderMode renderMode = EpubRenderMode::CrossDinkDefault;
+    ReaderRenderSpec spec{};
+    bool succeeded = false;
+    bool needsRenderLane = false;
+  };
+  SilentIndexWorker silentWorker;
+  // Start and join happen on the render task and on the loop (font changes).
+  SemaphoreHandle_t silentWorkerMutex = nullptr;
+  bool silentWorkerOutcomePending = false;  // silentWorkerMutex
+  // A chapter the worker could not build (low memory, a streamed TTF face);
+  // the render task builds it the old way, with its fallbacks.
+  int silentIndexRenderLaneSpine = -1;
+  static void silentIndexWorkerMain(void* param);
+  void runSilentIndexWorker();
+  bool canSilentIndexOnWorker(int readerFontId) const;
+  bool startSilentIndexWorker(int spineIndex, uint16_t viewportWidth, uint16_t viewportHeight, int readerFontId,
+                              EpubRenderMode renderMode);
+  void waitSilentIndexWorker(bool cancel);
+  bool silentIndexWorkerBusy();
+  void applySilentIndexWorkerOutcome();
+
   bool renderContents(std::unique_ptr<Page> page, int fontId, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft, bool updatePanel,
                       bool usePrerenderedFrame = false);
@@ -500,6 +533,7 @@ class EpubReaderActivity final : public Activity {
         skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
   void onEnter() override;
   void onExit() override;
+  void onCovered() override { waitSilentIndexWorker(/*cancel=*/true); }
   void loop() override;
   void render(RenderLock&& lock) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;

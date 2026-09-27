@@ -39,6 +39,10 @@ class Activity {
   virtual ~Activity() = default;
   virtual void onEnter();
   virtual void onExit();
+  // Another activity is about to be pushed over this one (RenderLock held).
+  // Stop background work that must not overlap what the next activity may
+  // change, such as fonts or settings.
+  virtual void onCovered() {}
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}

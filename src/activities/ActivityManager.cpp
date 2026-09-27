@@ -696,6 +696,7 @@ void ActivityManager::loop() {
         }
       } else if (pendingAction == PendingAction::Push) {
         // Move current activity to stack
+        currentActivity->onCovered();
         stackActivities.push_back(std::move(currentActivity));
       }
       pendingAction = PendingAction::None;
@@ -783,6 +784,7 @@ bool ActivityManager::restoreBackdropBehindCurrentOverlay() {
 
   {
     RenderLock lock;
+    currentActivity->onCovered();
     stackActivities.push_back(std::move(currentActivity));
     currentActivity = std::move(overlay);
   }

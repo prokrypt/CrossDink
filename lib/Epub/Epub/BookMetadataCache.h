@@ -4,6 +4,8 @@
 #include <ArenaVector.h>
 #include <BufferedFile.h>
 #include <HalStorage.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include <algorithm>
 #include <memory>
@@ -63,6 +65,9 @@ class BookMetadataCache {
   uint16_t cumulativeSizeCount = 0;
 
   HalFile bookFile;
+  // bookFile lookups seek then read; the reader's render task and a background
+  // section build may look up spine and TOC entries at the same time.
+  SemaphoreHandle_t readMutex = nullptr;
   // Temp file handles during build
   HalFile spineFile;
   HalFile tocFile;
@@ -112,8 +117,11 @@ class BookMetadataCache {
         loaded(false),
         buildMode(false),
         cacheCumulativeSizes(cacheCumulativeSizes),
+        readMutex(xSemaphoreCreateMutex()),
         spineHrefIndex(spineHrefIndexArena) {}
-  ~BookMetadataCache() = default;
+  ~BookMetadataCache();
+  BookMetadataCache(const BookMetadataCache&) = delete;
+  BookMetadataCache& operator=(const BookMetadataCache&) = delete;
 
   // Building phase (stream to disk immediately)
   bool beginWrite();

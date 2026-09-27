@@ -581,6 +581,27 @@ void BookMetadataCache::cacheSpineCumulativeSizes() {
   cumulativeSizeCount = spineCount;
 }
 
+namespace {
+class ReadLock {
+ public:
+  explicit ReadLock(SemaphoreHandle_t mutex) : mutex_(mutex) {
+    if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
+  }
+  ~ReadLock() {
+    if (mutex_) xSemaphoreGive(mutex_);
+  }
+  ReadLock(const ReadLock&) = delete;
+  ReadLock& operator=(const ReadLock&) = delete;
+
+ private:
+  SemaphoreHandle_t mutex_;
+};
+}  // namespace
+
+BookMetadataCache::~BookMetadataCache() {
+  if (readMutex) vSemaphoreDelete(readMutex);
+}
+
 BookMetadataCache::SpineEntry BookMetadataCache::getSpineEntry(const int index) {
   if (!loaded) {
     LOG_ERR("BMC", "getSpineEntry called but cache not loaded");
@@ -593,6 +614,7 @@ BookMetadataCache::SpineEntry BookMetadataCache::getSpineEntry(const int index) 
   }
 
   // Seek to spine LUT item, read from LUT and get out data
+  ReadLock lock(readMutex);
   bookFile.seek(lutOffset + sizeof(uint32_t) * index);
   uint32_t spineEntryPos;
   serialization::readPod(bookFile, spineEntryPos);
@@ -616,6 +638,7 @@ size_t BookMetadataCache::getSpineCumulativeSize(const int index) {
   }
 
   // Seek to spine LUT item, then read only the cumulative size field from the entry.
+  ReadLock lock(readMutex);
   bookFile.seek(lutOffset + sizeof(uint32_t) * index);
   uint32_t spineEntryPos;
   serialization::readPod(bookFile, spineEntryPos);
@@ -642,6 +665,7 @@ BookMetadataCache::TocEntry BookMetadataCache::getTocEntry(const int index) {
   }
 
   // Seek to TOC LUT item, read from LUT and get out data
+  ReadLock lock(readMutex);
   bookFile.seek(lutOffset + sizeof(uint32_t) * spineCount + sizeof(uint32_t) * index);
   uint32_t tocEntryPos;
   serialization::readPod(bookFile, tocEntryPos);

@@ -178,6 +178,14 @@ class GfxRenderer {
   void clearSdCardFonts() { sdCardFonts_.clear(); }
   const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
   bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
+  // True when measuring text in fontId reads only in-memory font data (no SD
+  // card font, directly or as its fallback), so a task other than the render
+  // task may lay out text with it while the font registry stays unchanged.
+  bool fontMeasuresWithoutSd(int fontId) const {
+    if (isSdCardFont(fontId)) return false;
+    const auto fallback = fallbackFontMap_.find(fontId);
+    return fallback == fallbackFontMap_.end() || !isSdCardFont(fallback->second);
+  }
   // Register/clear size-matched CJK UI fallbacks (see fallbackFontMap_).
   // setFallbackFont maps a primary UI font id to an SD font id of the same size.
   void setFallbackFont(int primaryFontId, int fallbackFontId) { fallbackFontMap_[primaryFontId] = fallbackFontId; }

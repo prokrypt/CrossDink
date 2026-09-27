@@ -16,6 +16,7 @@
 
 ### Changed
 
+- The next chapter is indexed on the second core near the end of a chapter, so page turns are not held up by it. Books using SD card fonts still index it on the screen task.
 - File Transfer and Calibre Connect serve requests on their own task on the second core, so transfers keep flowing while the screen redraws.
 - TTF fonts opened from memory get a second FreeType instance for background work on the second core, so later background layout and drawing do not wait for the screen's font lock. Fonts streamed from the SD card still use the screen's instance.
 - Every remaining CrossInk name in code, build flags, scripts, and docs is now CrossDink. On-device data paths and file formats keep their names, so existing settings, stats backups, and optimized books keep working.
