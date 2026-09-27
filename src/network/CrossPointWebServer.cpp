@@ -512,7 +512,7 @@ void CrossPointWebServer::begin() {
   server->begin();
 
   // Start WebSocket server for fast binary uploads
-  wsServer.reset(new WebSocketsServer(wsPort));
+  wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
   wsInstance = const_cast<CrossPointWebServer*>(this);
   wsServer->begin();
   wsServer->onEvent(wsEventCallback);
@@ -589,7 +589,7 @@ void CrossPointWebServer::stop() {
 
   // Stop WebSocket server
   if (wsServer) {
-    wsServer->close();
+    wsServer->closeWithoutHandshake();
     wsServer.reset();
     wsInstance = nullptr;
   }

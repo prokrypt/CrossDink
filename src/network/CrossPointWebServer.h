@@ -15,6 +15,21 @@
 
 #include "network/WifiPowerSaveGuard.h"
 
+// WebSocketsServer whose shutdown cannot stall: close() writes a close frame
+// to each client and retries for up to WEBSOCKETS_TCP_TIMEOUT (5 s) per client
+// when a browser has stopped reading. Dropping the sockets first bounds the
+// shutdown to the socket closes; browsers see an abnormal closure (1006).
+class BoundedCloseWebSocketsServer : public WebSocketsServer {
+ public:
+  using WebSocketsServer::WebSocketsServer;
+  void closeWithoutHandshake() {
+    for (auto& client : _clients) {
+      if (client.tcp) clientDisconnect(&client);
+    }
+    close();
+  }
+};
+
 // Structure to hold file information
 struct FileInfo {
   String name;
@@ -103,7 +118,7 @@ class CrossPointWebServer {
 
  private:
   std::unique_ptr<PendingAwareWebServer> server = nullptr;
-  std::unique_ptr<WebSocketsServer> wsServer = nullptr;
+  std::unique_ptr<BoundedCloseWebSocketsServer> wsServer = nullptr;
   std::atomic<bool> running{false};
   std::atomic<bool> exitRequestPending{false};  // set by POST /api/exit, consumed by the activity
   std::string exitFlashPath;                    // optional `flash` argument of POST /api/exit; stateMutex

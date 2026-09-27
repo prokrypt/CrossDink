@@ -17,10 +17,14 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <MemoryBudget.h>
 #include <SPI.h>
 #include <WiFi.h>
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
+#endif
+#ifndef SIMULATOR
+#include <esp_heap_caps.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -402,6 +406,42 @@ void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t paylo
 }
 
 void silentRestartToManageFonts() { silentRestartToNetwork(NetworkBootTarget::MANAGE_FONTS); }
+
+namespace {
+// Reader work after a Wi-Fi session needs internal RAM for worker task stacks
+// (24 KB each) and inline image decoding; the same bar as optional rebuilds.
+constexpr uint32_t NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+bool readerResourcesReady = false;
+}  // namespace
+
+bool leaveNetworkInPlace() {
+  if (deepSleepInProgress) return true;
+#ifndef SIMULATOR
+  const wifi_mode_t mode = WiFi.getMode();
+  if (mode != WIFI_MODE_NULL) {
+    if (mode & WIFI_MODE_AP) WiFi.softAPdisconnect(true);
+    if (mode & WIFI_MODE_STA) WiFi.disconnect(true);
+    // WIFI_OFF stops the driver and calls esp_wifi_deinit(), returning its
+    // internal buffers before the heap check below.
+    WiFi.mode(WIFI_OFF);
+  }
+  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  if (largest < NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK) {
+    LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),
+            static_cast<unsigned>(NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK));
+    return false;
+  }
+  LOG_INF("MAIN", "Leaving Wi-Fi in place: internal largest block %u, free %u", static_cast<unsigned>(largest),
+          static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+#endif
+  if (!readerResourcesReady) {
+    // What a minimal network boot skipped (setupDisplayAndFonts, setup()).
+    sdFontSystem.begin(renderer);
+    Dictionary::isValidDictionary();
+    readerResourcesReady = true;
+  }
+  return true;
+}
 
 void silentRestartToFirmwareUpdate(const std::string& firmwarePath) {
   if (!firmwarePath.empty() && firmwarePath.size() < MAX_SILENT_FIRMWARE_PATH) {
@@ -1144,6 +1184,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
   if (loadReaderResources) {
     sdFontSystem.begin(renderer);
+    readerResourcesReady = true;
   } else {
     LOG_DBG("MAIN", "Skipping EPUB scratch workspace and SD fonts for minimal network boot");
   }

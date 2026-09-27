@@ -562,12 +562,16 @@ void NearbyBookTransferActivity::exitAfterRadio() {
     receiveFile_.close();
   }
   stopRadio();
-  if (radioUsed_) {
+  if (radioUsed_ && !leaveNetworkInPlace()) {
     if (returnToReader_) {
       silentRestartToReader();
     } else {
       silentRestart();
     }
+    return;
+  }
+  if (radioUsed_ && returnToReader_ && !APP_STATE.openEpubPath.empty()) {
+    activityManager.goToReader(APP_STATE.openEpubPath);
   } else {
     onGoHome();
   }
@@ -578,7 +582,11 @@ void NearbyBookTransferActivity::openReceivedFile() {
   APP_STATE.openEpubPath = finalPath_;
   APP_STATE.saveToFile();
   stopRadio();
-  silentRestartToReader();
+  if (!leaveNetworkInPlace()) {
+    silentRestartToReader();
+    return;
+  }
+  activityManager.goToReader(finalPath_);
 }
 
 void NearbyBookTransferActivity::chooseDestinationFolder() {

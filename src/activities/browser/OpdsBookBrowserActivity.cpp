@@ -140,13 +140,9 @@ void OpdsBookBrowserActivity::onExit() {
   navigationHistory.clear();
 
 #ifndef SIMULATOR
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
-    WiFi.disconnect(false);
-    delay(30);
-  }
-  // OPDS launches from minimal network boot, so restore the full app state
-  // even if setup failed before WiFi was started.
-  silentRestart();
+  // OPDS launches from minimal network boot, so the full app state is
+  // restored even if setup failed before WiFi was started.
+  if (!leaveNetworkInPlace()) silentRestart();
 #endif
 }
 

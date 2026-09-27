@@ -44,6 +44,12 @@ void silentRestartToReader(bool cleanImageBaseOnEntry = false);  // currently-op
 void restartToHomeAfterStorageHandoff();
 void silentRestartToNetwork(NetworkBootTarget target, uint32_t payload = 0);
 void silentRestartToManageFonts();
+// Ends a Wi-Fi session without rebooting: Wi-Fi is stopped and deinitialized,
+// and after a minimal network boot the reader resources it skipped are set up.
+// False when the largest internal heap block left is too small for reader
+// work; the caller then falls back to its silent restart. True during deep
+// sleep, so callers go on with their normal cleanup.
+bool leaveNetworkInPlace();
 // Reboots to home, then opens SD Card Firmware Update for `firmwarePath` (which
 // still asks for confirmation). Paths of MAX_SILENT_FIRMWARE_PATH bytes or more
 // fall back to a plain silentRestart().

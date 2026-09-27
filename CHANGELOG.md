@@ -16,6 +16,7 @@
 
 ### Changed
 
+- Leaving File Transfer, Calibre Connect, OPDS, KOReader Sync or Nearby Transfer no longer reboots the device when enough memory is left; Wi-Fi is shut down in place instead.
 - Larger allocations, Wi-Fi buffers and some debug buffers now use PSRAM by default, leaving more internal RAM free.
 - The next page is drawn ahead on the second core right after a page is shown, instead of waiting for the reader to sit idle. Pages using SD card fonts or with saved clippings keep the idle draw-ahead.
 - The next chapter is indexed on the second core near the end of a chapter, so page turns are not held up by it. Books using SD card fonts still index it on the screen task.

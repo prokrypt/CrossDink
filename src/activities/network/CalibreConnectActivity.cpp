@@ -53,17 +53,10 @@ void CalibreConnectActivity::onEnter() {
 void CalibreConnectActivity::onExit() {
   Activity::onExit();
 
+  // Wi-Fi belongs to the parent File Transfer screen, which leaves it (in
+  // place or by restart) on its own exit.
+  stopWebServer();
   MDNS.end();
-
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
-    WiFi.disconnect(false);
-    delay(30);
-    if (returnToReader) {
-      silentRestartToReader();
-    } else {
-      silentRestart();
-    }
-  }
 }
 
 void CalibreConnectActivity::onWifiSelectionComplete(const bool connected) {
