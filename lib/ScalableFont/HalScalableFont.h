@@ -9,19 +9,45 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 // Borrows the app's render mutex when already held; otherwise owns it for
 // this scope. A whole draw retains the outer RenderLock and borrowed pixels.
+// Inside a ScalableFontWorkerLane, Current means the worker lane's mutex.
+// Lock order is render then worker; a lane never waits for the render mutex.
 class ScalableFontAccess {
  public:
+  enum class Lane : uint8_t { Current, Render, Worker };
   static void configure(SemaphoreHandle_t mutex);
-  ScalableFontAccess();
+  explicit ScalableFontAccess(Lane lane = Lane::Current);
   ~ScalableFontAccess();
   ScalableFontAccess(const ScalableFontAccess&) = delete;
   ScalableFontAccess& operator=(const ScalableFontAccess&) = delete;
 
  private:
+  SemaphoreHandle_t mutex_ = nullptr;
   bool owned_ = false;
+};
+
+// Routes this task's scalable-font work to a second FreeType library and
+// glyph cache, so layout or drawing on the worker core runs beside the render
+// task instead of waiting for the render mutex. Faces opened from memory get a
+// worker copy on first use. Streamed faces cannot (one reader per SD file):
+// their calls fail and missed() turns true, so the caller redoes that work on
+// the render lane. Fonts must outlive every lane that uses them: stop lane
+// users before closing fonts or changing their options, and never take
+// RenderLock inside a font call made from a lane.
+class ScalableFontWorkerLane {
+ public:
+  ScalableFontWorkerLane();
+  ~ScalableFontWorkerLane();
+  ScalableFontWorkerLane(const ScalableFontWorkerLane&) = delete;
+  ScalableFontWorkerLane& operator=(const ScalableFontWorkerLane&) = delete;
+  bool missed() const;
+  static bool active();
+
+ private:
+  uint32_t missesAtStart_;
 };
 
 // The HAL adapter owns font files and translates SDK coverage into CrossDink's
@@ -38,7 +64,7 @@ class HalScalableFont {
   // Temporary uses a per-open identity and streams large faces; never persist
   // its layouts. Auto and Stream retain content-based reader cache identities.
   enum class FileMode { Auto, Stream, Temporary };
-  HalScalableFont() = default;
+  HalScalableFont();
   ~HalScalableFont();
   HalScalableFont(const HalScalableFont&) = delete;
   HalScalableFont& operator=(const HalScalableFont&) = delete;
@@ -74,6 +100,12 @@ class HalScalableFont {
     EpdGlyph glyphs[32]{};
     uint8_t cursor = 0;
   };
+  struct WorkerTwin;
+  struct Route;
+  static bool route(void* ctx, Route& out);
+  Size* workerSize(Size& size);
+  bool openWorkerTwin();
+  void dropWorkerTwin();
   static const EpdGlyph* glyph(void* ctx, uint32_t cp);
   static const uint8_t* bitmap(void* ctx, const EpdGlyph* glyph);
   static bool covers(void* ctx, uint32_t cp);
@@ -115,6 +147,12 @@ class HalScalableFont {
   StreamWindow streamWindows_[StreamWindowCount]{};
   size_t nextStreamWindow_ = 0;
   bool streamed_ = false;
+  // Memory-resident source bytes (flash or bytes_) that a worker copy may open.
+  const uint8_t* sourceBytes_ = nullptr;
+  size_t sourceSize_ = 0;
+  // Guarded by the worker lane mutex; released before font_ in the destructor.
+  std::unique_ptr<WorkerTwin> twin_;
+  bool twinFailed_ = false;
   // Declared last so it releases borrowed bytes/the stream before their owners.
   freeink::font::FtFont font_;
 };

@@ -13,6 +13,10 @@
 
 namespace {
 SemaphoreHandle_t renderMutex = nullptr;
+SemaphoreHandle_t workerMutex = nullptr;
+// Per task: ScalableFontWorkerLane nesting depth and calls it could not serve.
+thread_local uint8_t workerLaneDepth = 0;
+thread_local uint32_t workerLaneMisses = 0;
 #ifdef SIMULATOR
 constexpr auto Pool = MemoryPool::None;
 #else
@@ -22,6 +26,10 @@ constexpr auto Pool = MemoryPool::Psram;
 // 1 MiB in a warm preview; retain smaller arenas for fragmented PSRAM heaps.
 constexpr size_t WorkspaceOptions[] = {1280 * 1024, 1024 * 1024, 768 * 1024};
 constexpr size_t PixelBytes = 512 * 1024;
+// The worker lane holds memory faces only (no streamed GSUB/GPOS copies) and
+// serves one background page or chapter at a time, so smaller arenas suffice.
+constexpr size_t WorkerWorkspaceOptions[] = {512 * 1024, 384 * 1024, 256 * 1024};
+constexpr size_t WorkerPixelBytes = 256 * 1024;
 constexpr size_t PixelCacheSlots = 512;
 constexpr size_t MetricCacheSlots = 512;
 constexpr size_t KerningCacheSlots = 512;
@@ -134,12 +142,14 @@ constexpr size_t PixelTableBytes = alignSize(sizeof(PixelEntry) * PixelCacheSlot
 constexpr size_t MetricTableBytes = alignSize(sizeof(MetricEntry) * MetricCacheSlots, alignof(std::max_align_t));
 constexpr size_t KerningTableBytes = alignSize(sizeof(KerningEntry) * KerningCacheSlots, alignof(std::max_align_t));
 constexpr size_t CacheTableBytes = PixelTableBytes + MetricTableBytes + KerningTableBytes;
-constexpr size_t PixelArenaBytes = CacheTableBytes + PixelBytes;
 struct Runtime;
 Runtime* liveRuntime = nullptr;
 struct Runtime {
   Runtime() { liveRuntime = this; }
   ~Runtime() { liveRuntime = nullptr; }
+  // The worker lane's runtime is never destroyed and never registers as live.
+  struct Worker {};
+  explicit Runtime(Worker) : pixelCapacity(WorkerPixelBytes) {}
   HeapByteBuffer workspace;
   HeapByteBuffer pixels;
   FixedArenaAllocator allocator;
@@ -147,6 +157,7 @@ struct Runtime {
   MetricEntry* metricEntries = nullptr;
   KerningEntry* kerningEntries = nullptr;
   uint8_t* pixelData = nullptr;
+  size_t pixelCapacity = PixelBytes;
   size_t pixelUsed = 0;
   uint32_t nextCacheId = 1;
   uint16_t failedMetricWidth = 0;
@@ -240,8 +251,8 @@ struct Runtime {
     lastBitmapHeight = bitmap ? bitmap->height : 0;
     if (!bitmap || bitmap->width != width || bitmap->height != height) return nullptr;
     const size_t bytes = (size_t(width) * height + 3) / 4;
-    if (!bytes || bytes > PixelBytes) return nullptr;
-    if (pixelUsed + bytes > PixelBytes) clearPixels();
+    if (!bytes || bytes > pixelCapacity) return nullptr;
+    if (pixelUsed + bytes > pixelCapacity) clearPixels();
 
     auto* dest = pixelData + pixelUsed;
     std::memset(dest, 0, bytes);
@@ -261,16 +272,18 @@ struct Runtime {
     return dest;
   }
 
-  bool begin() {
+  bool begin() { return begin(WorkspaceOptions, nullptr); }
+  bool begin(const size_t (&workspaceOptions)[3], freeink::font::FtLibrary* library) {
     if (workspace) return true;
+    const size_t pixelArenaBytes = CacheTableBytes + pixelCapacity;
     // Persistent PSRAM arenas bound all FreeType scratch and cached coverage;
     // neither belongs on the render stack or in scarce internal DRAM.
     HeapByteBuffer w;
     HeapByteBuffer p;
     size_t workspaceBytes = 0;
-    for (const size_t candidate : WorkspaceOptions) {
+    for (const size_t candidate : workspaceOptions) {
       w = makeAlignedByteBufferNoThrow(candidate, Pool);
-      if (w) p = makeAlignedByteBufferNoThrow(PixelArenaBytes, Pool);
+      if (w) p = makeAlignedByteBufferNoThrow(pixelArenaBytes, Pool);
       if (w && p) {
         workspaceBytes = candidate;
         break;
@@ -278,19 +291,19 @@ struct Runtime {
       w.reset();
       p.reset();
     }
-    if (workspaceBytes && workspaceBytes != WorkspaceOptions[0])
+    if (workspaceBytes && workspaceBytes != workspaceOptions[0])
       LOG_DBG("TTF", "Using %u-byte fallback font arena", unsigned(workspaceBytes));
     if (!w || !p || !allocator.initialize(w.get(), workspaceBytes)) {
       const auto heap = byteHeapSnapshot(Pool);
       LOG_ERR("TTF", "Cannot allocate font arenas (tried %u/%u/%u + %u bytes; pool free=%u largest=%u)",
-              unsigned(WorkspaceOptions[0]), unsigned(WorkspaceOptions[1]), unsigned(WorkspaceOptions[2]),
-              unsigned(PixelArenaBytes), unsigned(heap.free), unsigned(heap.largest));
+              unsigned(workspaceOptions[0]), unsigned(workspaceOptions[1]), unsigned(workspaceOptions[2]),
+              unsigned(pixelArenaBytes), unsigned(heap.free), unsigned(heap.largest));
       return false;
     }
     workspace = std::move(w);
     freeink::font::FtFont::MemoryCallbacks memory{&allocator, FixedArenaAllocator::allocate,
                                                   FixedArenaAllocator::deallocate, FixedArenaAllocator::reallocate};
-    if (!freeink::font::FtFont::configureMemory(&memory)) {
+    if (!(library ? library->configureMemory(&memory) : freeink::font::FtFont::configureMemory(&memory))) {
       LOG_ERR("TTF", "Cannot configure bounded font allocator");
       workspace.reset();
       return false;
@@ -308,6 +321,17 @@ Runtime& runtime() {
   static Runtime value;
   return value;
 }
+// Static fonts may release their worker copies during process exit, so the
+// worker library and runtime are constructed once and never destroyed.
+template <typename T, typename... Args>
+T& immortal(Args... args) {
+  alignas(T) static unsigned char storage[sizeof(T)];
+  static T* value = new (storage) T(args...);
+  return *value;
+}
+freeink::font::FtLibrary& workerLibrary() { return immortal<freeink::font::FtLibrary>(); }
+Runtime& workerRuntime() { return immortal<Runtime>(Runtime::Worker{}); }
+bool beginWorkerRuntime() { return workerRuntime().begin(WorkerWorkspaceOptions, &workerLibrary()); }
 bool validFileSize(const char* path, size_t size) {
   if (size >= 12 && size <= HalScalableFont::MaxFileBytes) return true;
   LOG_ERR("TTF", "Unsupported TTF file size: %s (%u bytes; limit=%u)", path, unsigned(size),
@@ -331,17 +355,120 @@ FontByteSummary summarizeFontBytes(const uint8_t* bytes, const size_t size) {
   return {contentHash, checksumValue, checksum.isSingleFaceSfnt() && checksumValue != SfntChecksumMagic};
 }
 }  // namespace
-void ScalableFontAccess::configure(SemaphoreHandle_t mutex) { renderMutex = mutex; }
-ScalableFontAccess::ScalableFontAccess() {
-  if (renderMutex && xSemaphoreGetMutexHolder(renderMutex) != xTaskGetCurrentTaskHandle()) {
-    owned_ = xSemaphoreTake(renderMutex, portMAX_DELAY) == pdTRUE;
+void ScalableFontAccess::configure(SemaphoreHandle_t mutex) {
+  renderMutex = mutex;
+  if (!workerMutex) workerMutex = xSemaphoreCreateMutex();
+}
+ScalableFontAccess::ScalableFontAccess(const Lane lane) {
+  const bool worker = lane == Lane::Worker || (lane == Lane::Current && workerLaneDepth);
+  SemaphoreHandle_t mutex = worker ? workerMutex : renderMutex;
+  if (mutex && xSemaphoreGetMutexHolder(mutex) != xTaskGetCurrentTaskHandle()) {
+    owned_ = xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE;
+    if (owned_) mutex_ = mutex;
   }
 }
 ScalableFontAccess::~ScalableFontAccess() {
-  if (owned_) xSemaphoreGive(renderMutex);
+  if (owned_) xSemaphoreGive(mutex_);
 }
+
+ScalableFontWorkerLane::ScalableFontWorkerLane() : missesAtStart_(workerLaneMisses) { ++workerLaneDepth; }
+ScalableFontWorkerLane::~ScalableFontWorkerLane() { --workerLaneDepth; }
+bool ScalableFontWorkerLane::missed() const { return workerLaneMisses != missesAtStart_; }
+bool ScalableFontWorkerLane::active() { return workerLaneDepth; }
+
+struct HalScalableFont::WorkerTwin {
+  ~WorkerTwin() {
+    font.deinit();
+    if (sizes)
+      for (size_t i = 0; i < SizeCount; ++i) sizes[i].~Size();
+  }
+  HeapByteBuffer sizesStorage;
+  Size* sizes = nullptr;
+  freeink::font::FtFont font;
+};
+
+struct HalScalableFont::Route {
+  Size* size = nullptr;
+  freeink::font::FtFont* font = nullptr;
+  Runtime* runtime = nullptr;
+  bool worker = false;
+};
+
+// Render lane: the face itself. Worker lane: its worker copy, or a counted
+// miss when the face cannot have one.
+bool HalScalableFont::route(void* ctx, Route& out) {
+  auto& size = *static_cast<Size*>(ctx);
+  if (!workerLaneDepth) {
+    out = {&size, &size.owner->font_, &runtime(), false};
+    return true;
+  }
+  Size* twin = size.owner->workerSize(size);
+  if (!twin) {
+    ++workerLaneMisses;
+    return false;
+  }
+  out = {twin, &size.owner->twin_->font, &workerRuntime(), true};
+  return true;
+}
+
+HalScalableFont::Size* HalScalableFont::workerSize(Size& size) {
+  if (!twin_ && !openWorkerTwin()) return nullptr;
+  auto& twin = twin_->sizes[&size - sizes_];
+  if (!twin.owner) {
+    twin.owner = this;
+    twin.points = size.points;
+  }
+  return &twin;
+}
+
+// Runs on the worker lane under its mutex. The render-lane fields read here
+// only change while no lane uses this font (see ScalableFontWorkerLane).
+bool HalScalableFont::openWorkerTwin() {
+  if (twinFailed_ || streamed_ || !sourceBytes_ || !font_.ready()) return false;
+  twinFailed_ = true;
+  if (!beginWorkerRuntime()) return false;
+  // Small and made once per face, only when a lane first uses it; the size
+  // descriptors go to PSRAM with the render lane's.
+  std::unique_ptr<WorkerTwin> twin(new (std::nothrow) WorkerTwin);
+  if (twin) twin->sizesStorage = makeAlignedByteBufferNoThrow(sizeof(Size) * SizeCount, Pool);
+  if (!twin || !twin->sizesStorage) {
+    LOG_ERR("TTF", "Cannot allocate worker font copy: %s", streamPath_);
+    return false;
+  }
+  twin->sizes = reinterpret_cast<Size*>(twin->sizesStorage.get());
+  for (size_t i = 0; i < SizeCount; ++i) new (twin->sizes + i) Size{};
+  auto& arena = workerRuntime().allocator;
+  arena.clearFailure();
+  twin->font.setLibrary(&workerLibrary());
+  if (!twin->font.init(sourceBytes_, static_cast<uint32_t>(sourceSize_), 1) ||
+      !twin->font.setRenderOptions(renderOptions_)) {
+    LOG_ERR("TTF", "Cannot open worker font copy: %s stage=%s ftError=0x%X arenaRequest=%u free=%u", streamPath_,
+            initFailureName(twin->font.lastInitFailure()), unsigned(twin->font.lastInitError()),
+            unsigned(arena.lastFailedRequest()), unsigned(arena.freeBytes()));
+    return false;
+  }
+  // Ligature IDs are face-local and already resolved by the render lane.
+  twin->font.releaseLigatureTable();
+  twin_ = std::move(twin);
+  twinFailed_ = false;
+  return true;
+}
+
+void HalScalableFont::dropWorkerTwin() {
+  ScalableFontAccess access(ScalableFontAccess::Lane::Worker);
+  if (twin_) {
+    twin_.reset();
+    workerRuntime().clearCaches();
+  }
+  twinFailed_ = false;
+}
+
+// Out of line: twin_ deletes a type complete only in this file.
+HalScalableFont::HalScalableFont() = default;
+
 HalScalableFont::~HalScalableFont() {
-  ScalableFontAccess access;
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
+  dropWorkerTwin();
   if (font_.ready() && liveRuntime) liveRuntime->clearCaches();
   font_.deinit();
   streamFile_.close();
@@ -368,7 +495,7 @@ bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size,
 bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool streamed,
                                  const freeink::font::FtFont::RenderOptions& options, const uint32_t contentHash,
                                  const bool temporary) {
-  ScalableFontAccess access;
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
   if (font_.ready() || !runtime().begin()) return false;
   sizesStorage_ = makeAlignedByteBufferNoThrow(sizeof(Size) * SizeCount, Pool);
   sizes_ = reinterpret_cast<Size*>(sizesStorage_.get());
@@ -401,6 +528,8 @@ bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool s
   }
   renderOptions_ = options;
   streamed_ = streamed;
+  sourceBytes_ = streamed ? nullptr : bytes;
+  sourceSize_ = streamed ? 0 : size;
   // Large streamed fonts can carry multi-hundred-KiB GPOS tables. CrossPoint
   // skips these in streamed mode, keeping the shared FreeType arena for glyphs.
   if (streamed) font_.setGposByteBudget(0);
@@ -432,8 +561,10 @@ bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool s
   return true;
 }
 bool HalScalableFont::setRenderOptions(const freeink::font::FtFont::RenderOptions& options) {
-  ScalableFontAccess access;
-  if (!font_.ready() || !font_.setRenderOptions(options)) return false;
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
+  if (!font_.ready()) return false;
+  dropWorkerTwin();
+  if (!font_.setRenderOptions(options)) return false;
   renderOptions_ = options;
   runtime().clearCaches();
   for (size_t i = 0; i < SizeCount; ++i) {
@@ -464,7 +595,7 @@ bool HalScalableFont::fileSize(const char* path, size_t& size) {
   return validFileSize(path, size);
 }
 bool HalScalableFont::prepareFamily(size_t bytes, size_t faces) {
-  ScalableFontAccess access;
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
   if (!faces || faces > 4 || bytes > MaxFamilyBytes) {
     LOG_ERR("TTF", "TTF family data budget exceeded (%u bytes; limit=%u; faces=%u)", unsigned(bytes),
             unsigned(MaxFamilyBytes), unsigned(faces));
@@ -488,7 +619,7 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes) {
 bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
                                const freeink::font::FtFont::RenderOptions& options, const FileMode mode,
                                const size_t pendingFaces) {
-  ScalableFontAccess access;
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
   streamPrefix_.reset();
   streamPrefixSize_ = 0;
   fontDataFailure_ = false;
@@ -742,7 +873,7 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
   return info.family[0] != '\0';
 }
 const EpdFont* HalScalableFont::atSize(uint8_t points) {
-  ScalableFontAccess access;
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
   if (!font_.ready() || points < MinPointSize || points > MaxPointSize) return nullptr;
   auto& size = sizes_[points - MinPointSize];
   if (!size.owner) {
@@ -769,7 +900,7 @@ const EpdFont* HalScalableFont::atSize(uint8_t points) {
   return &size.font;
 }
 bool HalScalableFont::hasCodepoint(const uint32_t cp) {
-  ScalableFontAccess access;
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
   return font_.ready() && font_.hasGlyph(cp);
 }
 bool HalScalableFont::probeGlyph(const uint32_t cp, const uint8_t points) {
@@ -781,33 +912,41 @@ bool HalScalableFont::probeGlyph(const uint32_t cp, const uint8_t points) {
 }
 const EpdGlyph* HalScalableFont::glyph(void* ctx, uint32_t cp) {
   ScalableFontAccess access;
-  auto& s = *static_cast<Size*>(ctx);
-  s.owner->fontDataFailure_ = false;
-  const auto ligatureGlyph = cp >= 0xfb00 && cp <= 0xfb04 ? s.owner->ligatureGlyphs_[cp - 0xfb00] : 0;
+  Route route;
+  if (!HalScalableFont::route(ctx, route)) return nullptr;
+  auto& s = *route.size;
+  auto& owner = *s.owner;
+  auto& rt = *route.runtime;
+  // Failure diagnostics belong to the render lane; the worker copy only
+  // reports misses (its caller falls back to the render lane).
+  if (!route.worker) owner.fontDataFailure_ = false;
+  const auto ligatureGlyph = cp >= 0xfb00 && cp <= 0xfb04 ? owner.ligatureGlyphs_[cp - 0xfb00] : 0;
   auto& g = s.glyphs[s.cursor++ % 32];
-  if (!runtime().glyphMetrics(s.owner->font_, s.owner->cacheId_, ligatureGlyph ? GlyphIdMarker | ligatureGlyph : cp,
-                              s.points, g)) {
-    const auto failure = s.owner->font_.lastGlyphFailure();
-    const int error = s.owner->font_.lastGlyphError();
-    s.owner->fontDataFailure_ = !s.owner->streamFailureLogged_ && runtime().allocator.lastFailedRequest() == 0 &&
-                                ((failure == freeink::font::FtFont::GlyphFailure::Load ||
-                                  failure == freeink::font::FtFont::GlyphFailure::Embolden ||
-                                  failure == freeink::font::FtFont::GlyphFailure::Render) &&
-                                 error != 0);
-    if (!s.owner->metricFailureLogged_) {
-      s.owner->metricFailureLogged_ = true;
-      const auto& arena = runtime().allocator;
+  if (!rt.glyphMetrics(*route.font, owner.cacheId_, ligatureGlyph ? GlyphIdMarker | ligatureGlyph : cp, s.points, g)) {
+    if (route.worker) {
+      ++workerLaneMisses;
+      return nullptr;
+    }
+    const auto failure = owner.font_.lastGlyphFailure();
+    const int error = owner.font_.lastGlyphError();
+    owner.fontDataFailure_ = !owner.streamFailureLogged_ && rt.allocator.lastFailedRequest() == 0 &&
+                             ((failure == freeink::font::FtFont::GlyphFailure::Load ||
+                               failure == freeink::font::FtFont::GlyphFailure::Embolden ||
+                               failure == freeink::font::FtFont::GlyphFailure::Render) &&
+                              error != 0);
+    if (!owner.metricFailureLogged_) {
+      owner.metricFailureLogged_ = true;
+      const auto& arena = rt.allocator;
       LOG_ERR("TTF",
               "Metrics failed U+%04X at %u pt: %s stage=%s ftError=0x%X size=%u glyph=%u bounds=%ux%u "
               "streamReadFailed=%u hint=%u mono=%u embolden26_6=%d slant=%d dark=%u arenaRequest=%u free=%u "
               "largest=%u",
-              unsigned(cp), unsigned(s.points), s.owner->streamPath_,
-              glyphFailureName(s.owner->font_.lastGlyphFailure()), unsigned(s.owner->font_.lastGlyphError()),
-              unsigned(scalableFontPixelSize26_6(s.points)), unsigned(s.owner->font_.glyphId(cp)),
-              unsigned(runtime().failedMetricWidth), unsigned(runtime().failedMetricHeight),
-              unsigned(s.owner->streamFailureLogged_), unsigned(s.owner->renderOptions_.hinting),
-              unsigned(s.owner->renderOptions_.monochrome), int(s.owner->renderOptions_.embolden26_6),
-              int(s.owner->renderOptions_.slant16_16), unsigned(s.owner->renderOptions_.stemDarkening),
+              unsigned(cp), unsigned(s.points), owner.streamPath_, glyphFailureName(owner.font_.lastGlyphFailure()),
+              unsigned(owner.font_.lastGlyphError()), unsigned(scalableFontPixelSize26_6(s.points)),
+              unsigned(owner.font_.glyphId(cp)), unsigned(rt.failedMetricWidth), unsigned(rt.failedMetricHeight),
+              unsigned(owner.streamFailureLogged_), unsigned(owner.renderOptions_.hinting),
+              unsigned(owner.renderOptions_.monochrome), int(owner.renderOptions_.embolden26_6),
+              int(owner.renderOptions_.slant16_16), unsigned(owner.renderOptions_.stemDarkening),
               unsigned(arena.lastFailedRequest()), unsigned(arena.freeBytes()), unsigned(arena.largestFreeBlock()));
     }
     return nullptr;
@@ -816,45 +955,56 @@ const EpdGlyph* HalScalableFont::glyph(void* ctx, uint32_t cp) {
 }
 const uint8_t* HalScalableFont::bitmap(void* ctx, const EpdGlyph* g) {
   ScalableFontAccess access;
-  auto& s = *static_cast<Size*>(ctx);
-  s.owner->fontDataFailure_ = false;
-  const auto* pixels =
-      runtime().packedBitmap(s.owner->font_, s.owner->cacheId_, g->dataOffset, s.points, g->width, g->height);
-  if (!pixels && g->width && g->height) {
-    const auto failure = s.owner->font_.lastGlyphFailure();
-    const int error = s.owner->font_.lastGlyphError();
-    s.owner->fontDataFailure_ = !s.owner->streamFailureLogged_ && runtime().allocator.lastFailedRequest() == 0 &&
-                                ((failure == freeink::font::FtFont::GlyphFailure::Load ||
-                                  failure == freeink::font::FtFont::GlyphFailure::Embolden ||
-                                  failure == freeink::font::FtFont::GlyphFailure::Render) &&
-                                 error != 0);
+  Route route;
+  if (!HalScalableFont::route(ctx, route)) return nullptr;
+  auto& s = *route.size;
+  auto& owner = *s.owner;
+  auto& rt = *route.runtime;
+  if (!route.worker) owner.fontDataFailure_ = false;
+  const auto* pixels = rt.packedBitmap(*route.font, owner.cacheId_, g->dataOffset, s.points, g->width, g->height);
+  if (pixels || !g->width || !g->height) return pixels;
+  if (route.worker) {
+    ++workerLaneMisses;
+    return nullptr;
   }
-  if (!pixels && g->width && g->height && !s.owner->rasterFailureLogged_) {
-    s.owner->rasterFailureLogged_ = true;
+  const auto failure = owner.font_.lastGlyphFailure();
+  const int error = owner.font_.lastGlyphError();
+  owner.fontDataFailure_ = !owner.streamFailureLogged_ && rt.allocator.lastFailedRequest() == 0 &&
+                           ((failure == freeink::font::FtFont::GlyphFailure::Load ||
+                             failure == freeink::font::FtFont::GlyphFailure::Embolden ||
+                             failure == freeink::font::FtFont::GlyphFailure::Render) &&
+                            error != 0);
+  if (!owner.rasterFailureLogged_) {
+    owner.rasterFailureLogged_ = true;
     LOG_ERR("TTF",
             "Bitmap failed glyph=%u at %u pt: %s stage=%s ftError=0x%X expected=%ux%u actual=%ux%u "
             "arenaRequest=%u",
-            unsigned(g->dataOffset), unsigned(s.points), s.owner->streamPath_,
-            glyphFailureName(s.owner->font_.lastGlyphFailure()), unsigned(s.owner->font_.lastGlyphError()),
-            unsigned(g->width), unsigned(g->height), unsigned(runtime().lastBitmapWidth),
-            unsigned(runtime().lastBitmapHeight), unsigned(runtime().allocator.lastFailedRequest()));
+            unsigned(g->dataOffset), unsigned(s.points), owner.streamPath_,
+            glyphFailureName(owner.font_.lastGlyphFailure()), unsigned(owner.font_.lastGlyphError()),
+            unsigned(g->width), unsigned(g->height), unsigned(rt.lastBitmapWidth), unsigned(rt.lastBitmapHeight),
+            unsigned(rt.allocator.lastFailedRequest()));
   }
-  return pixels;
+  return nullptr;
 }
 bool HalScalableFont::covers(void* ctx, uint32_t cp) {
   ScalableFontAccess access;
-  auto& s = *static_cast<Size*>(ctx);
-  if (cp >= 0xfb00 && cp <= 0xfb04 && s.owner->ligatureGlyphs_[cp - 0xfb00]) return true;
-  return s.owner->font_.hasGlyph(cp);
+  Route route;
+  if (!HalScalableFont::route(ctx, route)) return false;
+  auto& owner = *route.size->owner;
+  if (cp >= 0xfb00 && cp <= 0xfb04 && owner.ligatureGlyphs_[cp - 0xfb00]) return true;
+  return route.font->hasGlyph(cp);
 }
 int8_t HalScalableFont::kerning(void* ctx, uint32_t a, uint32_t b) {
   ScalableFontAccess access;
-  auto& s = *static_cast<Size*>(ctx);
+  Route route;
+  if (!HalScalableFont::route(ctx, route)) return 0;
+  auto& s = *route.size;
+  auto& owner = *s.owner;
   const auto glyph = [&](uint32_t cp) {
-    const auto ligature = cp >= 0xfb00 && cp <= 0xfb04 ? s.owner->ligatureGlyphs_[cp - 0xfb00] : 0;
-    return ligature ? ligature : s.owner->font_.glyphId(cp);
+    const auto ligature = cp >= 0xfb00 && cp <= 0xfb04 ? owner.ligatureGlyphs_[cp - 0xfb00] : 0;
+    return ligature ? ligature : route.font->glyphId(cp);
   };
-  return runtime().kerning(s.owner->font_, s.owner->cacheId_, glyph(a), glyph(b), s.points);
+  return route.runtime->kerning(*route.font, owner.cacheId_, glyph(a), glyph(b), s.points);
 }
 uint32_t HalScalableFont::ligature(void* ctx, uint32_t a, uint32_t b) {
   ScalableFontAccess access;

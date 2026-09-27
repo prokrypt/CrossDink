@@ -16,6 +16,7 @@
 
 ### Changed
 
+- TTF fonts opened from memory get a second FreeType instance for background work on the second core, so later background layout and drawing do not wait for the screen's font lock. Fonts streamed from the SD card still use the screen's instance.
 - Every remaining CrossInk name in code, build flags, scripts, and docs is now CrossDink. On-device data paths and file formats keep their names, so existing settings, stats backups, and optimized books keep working.
 - File Transfer and Calibre on a Wi-Fi network now idle in modem sleep and light sleep between transfers, and switch to full power from the first byte of a request or upload until two seconds after the last one. Hotspot mode keeps the radio fully on.
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal. Existing settings, caches, and device paths are unchanged.
