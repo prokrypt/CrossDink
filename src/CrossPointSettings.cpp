@@ -840,11 +840,13 @@ bool CrossPointSettings::loadFromFile() {
       }
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile()) {
-          LOG_DBG("CPS", migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
-                                              : "Resaved settings to update format");
+          LOG_DBG("CPS", "%s",
+                  migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
+                                       : "Resaved settings to update format");
         } else {
-          LOG_ERR("CPS", migrateToCurrentPath ? "Failed to save migrated settings to crossink-settings.json"
-                                              : "Failed to resave settings after format update");
+          LOG_ERR("CPS", "%s",
+                  migrateToCurrentPath ? "Failed to save migrated settings to crossink-settings.json"
+                                       : "Failed to resave settings after format update");
         }
       }
       migrateLanguageBinaryFile();

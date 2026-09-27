@@ -72,7 +72,7 @@ void adjustDateByDays(uint16_t& year, uint8_t& month, uint8_t& day, const int da
 
 void HalClock::begin() {
   _available = _sdkRtc.begin();
-  LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
+  LOG_INF("CLK", "%s", _available ? "SDK RTC found" : "RTC not found");
 }
 
 bool HalClock::refresh(const bool needDate) const {

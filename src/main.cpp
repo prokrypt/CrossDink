@@ -228,20 +228,29 @@ const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
 }
 
 void logMemoryStats(const char* phase, const bool onlyIfChanged = false) {
+  // Periodic lines skip small churn; a new low-water mark always prints.
+  constexpr uint32_t PERIODIC_HEAP_DELTA = 1024;
+  constexpr uint32_t PERIODIC_PSRAM_DELTA = 8 * 1024;
   static bool hasPreviousPeriodicStats = false;
   static uint32_t previousFreeHeap = 0;
+  static uint32_t previousMinFreeHeap = 0;
 #if defined(BOARD_HAS_PSRAM)
   static uint32_t previousFreePsram = 0;
 #endif
+  const auto movedBy = [](const uint32_t a, const uint32_t b, const uint32_t delta) {
+    return (a > b ? a - b : b - a) >= delta;
+  };
 
   const uint32_t freeHeap = ESP.getFreeHeap();
+  const uint32_t minFreeHeap = ESP.getMinFreeHeap();
 #if defined(BOARD_HAS_PSRAM)
   const uint32_t freePsram = ESP.getFreePsram();
 #endif
 
-  if (onlyIfChanged && hasPreviousPeriodicStats && freeHeap == previousFreeHeap
+  if (onlyIfChanged && hasPreviousPeriodicStats && !movedBy(freeHeap, previousFreeHeap, PERIODIC_HEAP_DELTA) &&
+      minFreeHeap == previousMinFreeHeap
 #if defined(BOARD_HAS_PSRAM)
-      && freePsram == previousFreePsram
+      && !movedBy(freePsram, previousFreePsram, PERIODIC_PSRAM_DELTA)
 #endif
   ) {
     return;
@@ -250,6 +259,7 @@ void logMemoryStats(const char* phase, const bool onlyIfChanged = false) {
   if (onlyIfChanged) {
     hasPreviousPeriodicStats = true;
     previousFreeHeap = freeHeap;
+    previousMinFreeHeap = minFreeHeap;
 #if defined(BOARD_HAS_PSRAM)
     previousFreePsram = freePsram;
 #endif
