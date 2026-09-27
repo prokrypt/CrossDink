@@ -1,4 +1,5 @@
 #include <BidiUtils.h>
+#include <Epub/HtmlInflateStream.h>
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
 #include <Epub/converters/ImageDecoderFactory.h>
@@ -67,3 +68,10 @@ void PageHorizontalRule::render(GfxRenderer&, int, int, int, bool) {}
 bool PageHorizontalRule::serialize(FsFile&) { return false; }
 void PageTableFragment::render(GfxRenderer&, int, int, int, bool) {}
 bool PageTableFragment::serialize(FsFile&) { return false; }
+
+// The parser only streams through HtmlInflateStream when worthSplitting() says
+// a second core is free; host tests always take the single-core path.
+HtmlInflateStream::~HtmlInflateStream() = default;
+bool HtmlInflateStream::worthSplitting() { return false; }
+size_t HtmlInflateStream::read(void*, size_t) { return 0; }
+bool HtmlInflateStream::drained() const { return true; }
