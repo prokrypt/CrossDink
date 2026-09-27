@@ -15,7 +15,8 @@
 namespace PerfLog {
 // A press, tap or tilt starts a latency sample. A release restarts it only
 // while no render has begun, so release-triggered actions time from release.
-void noteInput(bool release);
+// kind ("btn", "tap", "swipe", ...) is a string literal shown as [LAT] in=.
+void noteInput(bool release, const char* kind);
 // Render task brackets around Activity::render().
 void noteRenderStart();
 void noteRenderEnd(const char* activity);
@@ -37,7 +38,7 @@ void logPeriodic();
 }  // namespace PerfLog
 #else
 namespace PerfLog {
-inline void noteInput(bool) {}
+inline void noteInput(bool, const char*) {}
 inline void noteRenderStart() {}
 inline void noteRenderEnd(const char*) {}
 inline void notePagePath(const char*) {}
