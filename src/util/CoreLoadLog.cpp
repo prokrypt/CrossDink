@@ -52,6 +52,40 @@ char coreTag(const TaskHandle_t handle) {
   const BaseType_t core = xTaskGetCoreID(handle);
   return core == 0 ? '0' : core == 1 ? '1' : '-';
 }
+
+// Stack headroom changes slowly; log it on the first sample and then about
+// every 30 s (the caller samples every 2 s).
+constexpr uint32_t kStackLogEverySamples = 15;
+constexpr int kLowestStacks = 8;
+uint32_t samplesSinceStackLog = kStackLogEverySamples;
+
+// The tasks closest to overflowing: minimum free stack ever (bytes on ESP-IDF,
+// whose StackType_t is one byte), lowest first.
+void logLowestStackHeadroom(const UBaseType_t count) {
+  if (++samplesSinceStackLog < kStackLogEverySamples) return;
+  samplesSinceStackLog = 0;
+
+  bool logged[kMaxTasks] = {};
+  char line[240];
+  size_t used = 0;
+  line[0] = '\0';
+  for (int rank = 0; rank < kLowestStacks; rank++) {
+    int lowest = -1;
+    for (UBaseType_t i = 0; i < count; i++) {
+      if (logged[i]) continue;
+      if (lowest < 0 || statuses[i].usStackHighWaterMark < statuses[lowest].usStackHighWaterMark) {
+        lowest = static_cast<int>(i);
+      }
+    }
+    if (lowest < 0) break;
+    logged[lowest] = true;
+    const int written = snprintf(line + used, sizeof(line) - used, " %s:%u", statuses[lowest].pcTaskName,
+                                 static_cast<unsigned>(statuses[lowest].usStackHighWaterMark));
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(line) - used) break;
+    used += static_cast<size_t>(written);
+  }
+  LOG_INF("STK", "lowest free stack (bytes):%s", line);
+}
 }  // namespace
 
 namespace CoreLoadLog {
@@ -62,6 +96,7 @@ void logSinceLast() {
     LOG_ERR("CPU", "More than %u tasks; core load not sampled", static_cast<unsigned>(kMaxTasks));
     return;
   }
+  logLowestStackHeadroom(count);
   const int64_t nowUs = esp_timer_get_time();
   const int64_t elapsedUs = nowUs - previousSampleUs;
   const bool havePrevious = previousSampleUs != 0 && elapsedUs > 0;
