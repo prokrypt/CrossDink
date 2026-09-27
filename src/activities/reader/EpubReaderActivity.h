@@ -3,6 +3,9 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Page.h>
 #include <Epub/Section.h>
+#include <FontCacheManager.h>
+#include <FontDecompressor.h>
+#include <GfxRenderer.h>
 #include <Memory.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -363,6 +366,40 @@ class EpubReaderActivity final : public Activity {
   bool silentIndexWorkerBusy();
   void applySilentIndexWorkerOutcome();
 
+  // Draw-ahead on the worker core: right after a page is shown, the next page
+  // is drawn into prerenderFrameBuffer with an offscreen renderer and its own
+  // glyph decompressor, while the render task stays free. Used when the page's
+  // fonts are in memory and no clippings need highlighting; otherwise the idle
+  // prerenderNextPage() path runs as before.
+  struct DrawAheadWorker {
+    std::unique_ptr<GfxRenderer> renderer;
+    std::unique_ptr<FontDecompressor> decompressor;
+    std::unique_ptr<FontCacheManager> fontCache;
+    TaskHandle_t task = nullptr;
+    SemaphoreHandle_t done = nullptr;
+    std::unique_ptr<Page> page;
+    const Section* section = nullptr;
+    int spine = -1;
+    int pageIndex = -1;
+    int fontId = 0;
+    int marginTop = 0;
+    int marginLeft = 0;
+    int contentBottom = 0;
+    uint32_t key = 0;
+    bool foregroundBlack = true;
+    uint8_t background = 0xFF;
+    bool drawn = false;
+    bool pending = false;  // a finished draw not yet taken (drawAheadMutex)
+  };
+  DrawAheadWorker drawAhead;
+  SemaphoreHandle_t drawAheadMutex = nullptr;
+  static void drawAheadWorkerMain(void* param);
+  void runDrawAhead();
+  void startDrawAhead(int fontId, int marginTop, int marginLeft, int contentBottom, uint32_t layoutKey);
+  // publish: render task only (RenderLock), moves a finished draw into the
+  // prerendered* fields; otherwise the draw is discarded.
+  void waitDrawAhead(bool publish);
+
   bool renderContents(std::unique_ptr<Page> page, int fontId, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft, bool updatePanel,
                       bool usePrerenderedFrame = false);
@@ -533,7 +570,10 @@ class EpubReaderActivity final : public Activity {
         skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
   void onEnter() override;
   void onExit() override;
-  void onCovered() override { waitSilentIndexWorker(/*cancel=*/true); }
+  void onCovered() override {
+    waitSilentIndexWorker(/*cancel=*/true);
+    waitDrawAhead(/*publish=*/false);
+  }
   void loop() override;
   void render(RenderLock&& lock) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;

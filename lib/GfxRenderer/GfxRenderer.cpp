@@ -1,4 +1,6 @@
 #include "GfxRenderer.h"
+
+#include <new>
 #if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #endif
@@ -246,6 +248,33 @@ void GfxRenderer::begin() {
   panelWidthBytes = display.getDisplayWidthBytes();
   frameBufferSize = display.getBufferSize();
   bwBufferChunks.assign((frameBufferSize + BW_BUFFER_CHUNK_SIZE - 1) / BW_BUFFER_CHUNK_SIZE, nullptr);
+}
+
+std::unique_ptr<GfxRenderer> GfxRenderer::makeOffscreen(uint8_t* buffer) const {
+  std::unique_ptr<GfxRenderer> offscreen(new (std::nothrow) GfxRenderer(display));
+  if (offscreen) offscreen->syncOffscreenFrom(*this, buffer);
+  return offscreen;
+}
+
+void GfxRenderer::syncOffscreenFrom(const GfxRenderer& source, uint8_t* buffer) {
+  frameBuffer = buffer;
+  panelWidth = source.panelWidth;
+  panelHeight = source.panelHeight;
+  panelWidthBytes = source.panelWidthBytes;
+  frameBufferSize = source.frameBufferSize;
+  renderMode = source.renderMode;
+  absoluteGrayPlanes = source.absoluteGrayPlanes;
+  orientation = source.orientation;
+  fadingFix = source.fadingFix;
+}
+
+bool GfxRenderer::copyFontFrom(const GfxRenderer& source, const int fontId) {
+  if (source.isSdCardFont(fontId)) return false;
+  const auto it = source.fontMap.find(fontId);
+  if (it == source.fontMap.end()) return false;
+  fontMap.erase(fontId);
+  fontMap.emplace(fontId, it->second);
+  return true;
 }
 
 void GfxRenderer::freeBitmapScratchBuffers() {

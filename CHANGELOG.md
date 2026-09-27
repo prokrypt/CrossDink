@@ -16,6 +16,7 @@
 
 ### Changed
 
+- The next page is drawn ahead on the second core right after a page is shown, instead of waiting for the reader to sit idle. Pages using SD card fonts or with saved clippings keep the idle draw-ahead.
 - The next chapter is indexed on the second core near the end of a chapter, so page turns are not held up by it. Books using SD card fonts still index it on the screen task.
 - File Transfer and Calibre Connect serve requests on their own task on the second core, so transfers keep flowing while the screen redraws.
 - TTF fonts opened from memory get a second FreeType instance for background work on the second core, so later background layout and drawing do not wait for the screen's font lock. Fonts streamed from the SD card still use the screen's instance.

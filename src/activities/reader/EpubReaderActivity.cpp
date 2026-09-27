@@ -2325,6 +2325,8 @@ void EpubReaderActivity::onEnter() {
   ensureReaderSdFontLoaded(renderer);
   if (!silentWorkerMutex) silentWorkerMutex = xSemaphoreCreateMutex();
   if (!silentWorker.done) silentWorker.done = xSemaphoreCreateBinary();
+  if (!drawAheadMutex) drawAheadMutex = xSemaphoreCreateMutex();
+  if (!drawAhead.done) drawAhead.done = xSemaphoreCreateBinary();
   ImageBlock::clearSessionRenderFailures();
   ImageBlock::setExtractor(
       epub.get(),
@@ -2454,6 +2456,7 @@ void EpubReaderActivity::onEnter() {
 
 void EpubReaderActivity::onExit() {
   waitSilentIndexWorker(/*cancel=*/true);
+  waitDrawAhead(/*publish=*/false);
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   // Drop the scalable-family catalog retained during reading. The active font
   // and its PSRAM face lifetime remain managed by SdCardFontSystem.
@@ -2465,6 +2468,14 @@ void EpubReaderActivity::onExit() {
   silentWorker.done = nullptr;
   if (silentWorkerMutex) vSemaphoreDelete(silentWorkerMutex);
   silentWorkerMutex = nullptr;
+  if (drawAhead.done) vSemaphoreDelete(drawAhead.done);
+  drawAhead.done = nullptr;
+  if (drawAheadMutex) vSemaphoreDelete(drawAheadMutex);
+  drawAheadMutex = nullptr;
+  drawAhead.fontCache.reset();
+  if (drawAhead.decompressor) drawAhead.decompressor->deinit();
+  drawAhead.decompressor.reset();
+  drawAhead.renderer.reset();
 
   // The image callbacks hold the Epub as a raw context pointer.
   ImageBlock::setExtractor(nullptr, nullptr, nullptr);
@@ -2646,6 +2657,7 @@ void EpubReaderActivity::openReaderMenu() {
       applyOrientation(chapter->orientation);
       if (chapter->settingsChanged) {
         waitSilentIndexWorker(/*cancel=*/true);
+        waitDrawAhead(/*publish=*/false);
         ensureReaderSdFontLoaded(renderer);
         RenderLock lock(*this);
         prepareCurrentSectionForRelayout();
@@ -2668,6 +2680,7 @@ void EpubReaderActivity::openReaderMenu() {
       applyOrientation(clipping->orientation);
       if (clipping->settingsChanged) {
         waitSilentIndexWorker(/*cancel=*/true);
+        waitDrawAhead(/*publish=*/false);
         ensureReaderSdFontLoaded(renderer);
         RenderLock lock(*this);
         prepareCurrentSectionForRelayout();
@@ -2691,6 +2704,7 @@ void EpubReaderActivity::openReaderMenu() {
     applyOrientation(menu->orientation);
     if (menu->settingsChanged && hasReaderSettingsChange(menu->changeMask, ReaderSettingsChangeMask::Relayout)) {
       waitSilentIndexWorker(/*cancel=*/true);
+      waitDrawAhead(/*publish=*/false);
       ensureReaderSdFontLoaded(renderer);
       RenderLock lock(*this);
       prepareCurrentSectionForRelayout();
@@ -2763,12 +2777,14 @@ void EpubReaderActivity::idlePrewarmNextPage() {
 }
 
 void EpubReaderActivity::clearPrerenderedPage() {
+  waitDrawAhead(/*publish=*/false);
   prerenderedReady = false;
   prerenderedPage.reset();
   prerenderAttemptSection = nullptr;
 }
 
 std::unique_ptr<Page> EpubReaderActivity::takePrerenderedPage(const uint32_t layoutKey) {
+  waitDrawAhead(/*publish=*/true);
   if (!prerenderedReady) return nullptr;
   prerenderedReady = false;
   auto page = std::move(prerenderedPage);
@@ -2837,6 +2853,158 @@ void EpubReaderActivity::prerenderNextPage() {
   prerenderedKey = prerenderLayoutKey(renderer, layout, fontId);
   prerenderedReady = true;
   LOG_DBG("ERS", "Prerendered spine=%d page=%d in %lums", currentSpineIndex, nextPage, millis() - startedAt);
+}
+
+void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, const int marginLeft,
+                                        const int contentBottom, const uint32_t layoutKey) {
+#if defined(portNUM_PROCESSORS) && portNUM_PROCESSORS > 1
+  if (!drawAheadMutex || !drawAhead.done || !section || section->isBuilding() || prerenderedReady ||
+      automaticPageTurnActive || !psramHeapAvailable() || !renderer.hasFrameBuffer() ||
+      renderer.getRenderMode() != GfxRenderer::BW) {
+    return;
+  }
+  const int nextPage = section->currentPage + 1;
+  if (nextPage >= static_cast<int>(section->pageCount)) return;
+  if (prerenderAttemptSection == section.get() && prerenderAttemptSpine == currentSpineIndex &&
+      prerenderAttemptPage == nextPage) {
+    return;
+  }
+  // SD fonts and clipping highlights read the SD card through state the
+  // render task owns; the idle path draws those pages instead.
+  if (!renderer.fontMeasuresWithoutSd(fontId) || !renderer.fontMeasuresWithoutSd(SMALL_FONT_ID) ||
+      CLIPPINGS.hasClippings()) {
+    return;
+  }
+  // Sized like the S3 reader render task, which draws the same pages. Internal
+  // RAM only while one page is drawn.
+  constexpr uint32_t STACK_BYTES = 24576;
+  xSemaphoreTake(drawAheadMutex, portMAX_DELAY);
+  if (drawAhead.task || drawAhead.pending) {
+    xSemaphoreGive(drawAheadMutex);
+    return;
+  }
+  prerenderAttemptSection = section.get();
+  prerenderAttemptSpine = currentSpineIndex;
+  prerenderAttemptPage = nextPage;
+  // The page is read here: the section file belongs to the render task.
+  auto page = section->loadPage(nextPage);
+  if (!prerenderFrameBuffer) prerenderFrameBuffer = makePsramByteBufferNoThrow(renderer.getBufferSize());
+  bool ready = page && !page->hasImages() && prerenderFrameBuffer;
+  if (ready && !drawAhead.renderer) {
+    // Kept for the reader session: a few hundred bytes plus the decompressor's
+    // glyph caches, which fill only while a page is drawn ahead.
+    drawAhead.renderer = renderer.makeOffscreen(prerenderFrameBuffer.get());
+    drawAhead.decompressor = makeUniqueNoThrow<FontDecompressor>();
+    if (drawAhead.renderer && drawAhead.decompressor && drawAhead.decompressor->init()) {
+      drawAhead.fontCache =
+          makeUniqueNoThrow<FontCacheManager>(drawAhead.renderer->getFontMap(), drawAhead.renderer->getSdCardFonts());
+    }
+    if (drawAhead.fontCache) {
+      drawAhead.fontCache->setFontDecompressor(drawAhead.decompressor.get());
+      drawAhead.renderer->setFontCacheManager(drawAhead.fontCache.get());
+    } else {
+      LOG_ERR("ERS", "Cannot allocate draw-ahead renderer");
+      drawAhead.renderer.reset();
+      drawAhead.decompressor.reset();
+    }
+  }
+  ready = ready && drawAhead.fontCache;
+  if (ready) {
+    drawAhead.renderer->syncOffscreenFrom(renderer, prerenderFrameBuffer.get());
+    ready =
+        drawAhead.renderer->copyFontFrom(renderer, fontId) && drawAhead.renderer->copyFontFrom(renderer, SMALL_FONT_ID);
+  }
+  if (ready) {
+    drawAhead.page = std::move(page);
+    drawAhead.section = section.get();
+    drawAhead.spine = currentSpineIndex;
+    drawAhead.pageIndex = nextPage;
+    drawAhead.fontId = fontId;
+    drawAhead.marginTop = marginTop;
+    drawAhead.marginLeft = marginLeft;
+    drawAhead.contentBottom = contentBottom;
+    drawAhead.key = layoutKey;
+    drawAhead.foregroundBlack = ReaderUtils::readerForegroundBlack();
+    drawAhead.background = ReaderUtils::readerBackgroundColor();
+    drawAhead.drawn = false;
+    powerManager.beginBackgroundWork();
+    if (xTaskCreatePinnedToCore(drawAheadWorkerMain, "DrawAhead", STACK_BYTES, this, 1, &drawAhead.task,
+                                TaskCores::kWorker) != pdPASS) {
+      drawAhead.task = nullptr;
+      drawAhead.page.reset();
+      powerManager.endBackgroundWork();
+      LOG_ERR("ERS", "Cannot start draw-ahead worker");
+    }
+  }
+  xSemaphoreGive(drawAheadMutex);
+#else
+  (void)fontId;
+  (void)marginTop;
+  (void)marginLeft;
+  (void)contentBottom;
+  (void)layoutKey;
+#endif
+}
+
+void EpubReaderActivity::drawAheadWorkerMain(void* param) {
+  auto* self = static_cast<EpubReaderActivity*>(param);
+  self->runDrawAhead();
+  // The activity may be destroyed as soon as this is given.
+  xSemaphoreGive(self->drawAhead.done);
+  vTaskDelete(nullptr);
+}
+
+// Worker task: touches only the offscreen renderer, its font cache and the job.
+void EpubReaderActivity::runDrawAhead() {
+  auto& job = drawAhead;
+  auto& target = *job.renderer;
+  const unsigned long startedAt = millis();
+  bool drawn = false;
+  {
+#if CROSSDINK_SCALABLE_FONTS
+    ScalableFontWorkerLane fontLane;
+#endif
+    // Same glyph preparation as renderContents(): scan, prewarm, then draw.
+    FontCacheManager::PrewarmScope scope(*job.fontCache, FontCacheManager::PreparationPolicy::Normal);
+    job.page->renderText(target, job.fontId, job.marginLeft, job.marginTop);
+    if (scope.endScanAndPrewarm()) {
+      target.clearScreen(job.background);
+      job.page->render(target, job.fontId, job.marginLeft, job.marginTop, job.foregroundBlack);
+      drawPublisherPageMarkers(target, *job.page, job.marginTop, job.contentBottom, job.foregroundBlack);
+      drawn = true;
+    }
+#if CROSSDINK_SCALABLE_FONTS
+    if (fontLane.missed()) drawn = false;
+#endif
+  }
+  job.drawn = drawn;
+  LOG_DBG("ERS", "Drew ahead spine=%d page=%d on core %d in %lums (ok=%u)", job.spine, job.pageIndex, xPortGetCoreID(),
+          millis() - startedAt, drawn ? 1U : 0U);
+}
+
+void EpubReaderActivity::waitDrawAhead(const bool publish) {
+  if (!drawAheadMutex) return;
+  xSemaphoreTake(drawAheadMutex, portMAX_DELAY);
+  if (drawAhead.task) {
+    // One page draw; the worker takes no lock this task may hold.
+    xSemaphoreTake(drawAhead.done, portMAX_DELAY);
+    drawAhead.task = nullptr;
+    drawAhead.pending = true;
+    powerManager.endBackgroundWork();
+  }
+  if (drawAhead.pending) {
+    drawAhead.pending = false;
+    if (publish && drawAhead.drawn) {
+      prerenderedPage = std::move(drawAhead.page);
+      prerenderedSection = drawAhead.section;
+      prerenderedSpine = drawAhead.spine;
+      prerenderedPageIndex = drawAhead.pageIndex;
+      prerenderedKey = drawAhead.key;
+      prerenderedReady = true;
+    }
+    drawAhead.page.reset();
+  }
+  xSemaphoreGive(drawAheadMutex);
 }
 
 // Scans the next page's text so its SD-font glyphs are resident before the turn.
@@ -4181,6 +4349,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
 
           if (settingsReset) {
             waitSilentIndexWorker(/*cancel=*/true);
+            waitDrawAhead(/*publish=*/false);
             ensureReaderSdFontLoaded(renderer);
             drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
             delay(1000);
@@ -4550,6 +4719,7 @@ bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult
   if (result.ttfRenderingChanged) {
     clearPendingManualPageTurns();
     waitSilentIndexWorker(/*cancel=*/true);
+    waitDrawAhead(/*publish=*/false);
     ensureReaderSdFontLoaded(renderer);
     RenderLock lock(*this);
     prepareCurrentSectionForRelayout();
@@ -4616,6 +4786,7 @@ void EpubReaderActivity::reindexCurrentSection() {
     // with parseStep() so the render task cannot read a just-closed HalFile.
     saveCurrentBookReaderSettings();
     waitSilentIndexWorker(/*cancel=*/true);
+    waitDrawAhead(/*publish=*/false);
     ensureReaderSdFontLoaded(renderer);
     if (!restorePreviewPosition) {
       GUI.drawPopup(renderer, tr(STR_INDEXING));
@@ -6760,6 +6931,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
     }
     silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
+    {
+      const int drawFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+      const ReaderViewportLayout drawLayout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+      startDrawAhead(drawFontId, drawLayout.marginTop, drawLayout.marginLeft,
+                     renderer.getScreenHeight() - drawLayout.marginBottom,
+                     prerenderLayoutKey(renderer, drawLayout, drawFontId));
+    }
     queueCompletionPromptIfNeeded();
   }
 

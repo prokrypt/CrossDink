@@ -20,6 +20,7 @@ class SdCardFont;
 #include <cstring>
 #include <deque>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -152,7 +153,18 @@ class GfxRenderer {
   ~GfxRenderer() {
     freeBwBufferChunks();
     freeBitmapScratchBuffers();
+    if (bitmapScratchMutex_) vSemaphoreDelete(bitmapScratchMutex_);
   }
+
+  // A renderer another task can draw with while this one keeps the panel's
+  // frame: same geometry, orientation and render mode, drawing into `buffer`
+  // (getBufferSize() bytes). It starts with no fonts (see copyFontFrom) and
+  // no font cache manager.
+  std::unique_ptr<GfxRenderer> makeOffscreen(uint8_t* buffer) const;
+  void syncOffscreenFrom(const GfxRenderer& source, uint8_t* buffer);
+  // Registers source's fontId here. False for SD card fonts, which stream
+  // glyphs through the source's caches, and for unknown ids.
+  bool copyFontFrom(const GfxRenderer& source, int fontId);
 
   static constexpr int VIEWABLE_MARGIN_TOP = 9;
   static constexpr int VIEWABLE_MARGIN_RIGHT = 3;
