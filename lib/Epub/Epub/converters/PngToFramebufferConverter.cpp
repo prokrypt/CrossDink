@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <new>
 
+#include "DecodePipeline.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
 #include "PixelCache.h"
@@ -39,6 +40,11 @@ struct PngContext {
 
   uint8_t* grayLineBuffer{nullptr};
   uint32_t lastYieldMs{0};
+
+  // Split decode: PNGdec inflates and converts rows to gray on the worker
+  // core, tracking its own last row; this task dithers them.
+  DecodePipeline* pipeline{nullptr};
+  int workerLastDstY{-1};
 };
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
@@ -205,34 +211,28 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
   }
 }
 
-int pngDrawCallback(PNGDRAW* pDraw) {
-  PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
-  if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
-
-  ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
-
-  int srcY = pDraw->y;
-  int srcWidth = ctx->srcWidth;
-
+// Maps source row srcY to the output rows it fills after lastDstY. False when
+// it fills none.
+bool pngOutputRows(const PngContext& ctx, const int srcY, const int lastDstY, int& firstDstY, int& endDstY) {
   // Map source rows with the exact output-height ratio. During downscaling,
   // multiple source rows can select the same output row; during upscaling, one
   // source row must be repeated across every output row in its range. Emitting
   // only the first row of an upscale leaves zero-filled (black) gaps in the
   // streamed pixel cache.
-  int firstDstY = (srcY * ctx->dstHeight) / ctx->srcHeight;
-  int endDstY = firstDstY + 1;
-  if (ctx->dstHeight > ctx->srcHeight) {
-    endDstY = ((srcY + 1) * ctx->dstHeight) / ctx->srcHeight;
+  firstDstY = (srcY * ctx.dstHeight) / ctx.srcHeight;
+  endDstY = firstDstY + 1;
+  if (ctx.dstHeight > ctx.srcHeight) {
+    endDstY = ((srcY + 1) * ctx.dstHeight) / ctx.srcHeight;
   }
 
-  if (firstDstY <= ctx->lastDstY) firstDstY = ctx->lastDstY + 1;
-  if (firstDstY >= endDstY || firstDstY >= ctx->dstHeight) return 1;
-  if (endDstY > ctx->dstHeight) endDstY = ctx->dstHeight;
+  if (firstDstY <= lastDstY) firstDstY = lastDstY + 1;
+  if (firstDstY >= endDstY || firstDstY >= ctx.dstHeight) return false;
+  if (endDstY > ctx.dstHeight) endDstY = ctx.dstHeight;
+  return true;
+}
 
-  // Convert entire source line to grayscale (improves cache locality)
-  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, srcWidth, pDraw->iPixelType, pDraw->iBpp, pDraw->pPalette,
-                    pDraw->iHasAlpha);
-
+void pngDrawRows(PngContext* ctx, const int firstDstY, const int endDstY, const uint8_t* grayLine) {
+  const int srcWidth = ctx->srcWidth;
   // Render scaled rows using Bresenham-style integer stepping (no floating-point division)
   int dstWidth = ctx->dstWidth;
   int outXBase = ctx->config->x;
@@ -272,7 +272,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
     for (int dstX = 0; dstX < dstWidth; dstX++) {
       int outX = outXBase + dstX;
       if (outX >= 0 && outX < screenWidth) {
-        uint8_t gray = ctx->grayLineBuffer[srcX];
+        uint8_t gray = grayLine[srcX];
 
         uint8_t ditheredGray;
         if (useDithering) {
@@ -292,8 +292,61 @@ int pngDrawCallback(PNGDRAW* pDraw) {
       }
     }
   }
+}
 
+int pngDrawCallback(PNGDRAW* pDraw) {
+  PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
+  if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
+
+  int firstDstY = 0;
+  int endDstY = 0;
+  if (ctx->pipeline) {
+    // Worker core. The caller repeats this mapping against its own lastDstY
+    // and gets the same rows, since it sees every row this side sends.
+    if (!pngOutputRows(*ctx, pDraw->y, ctx->workerLastDstY, firstDstY, endDstY)) return 1;
+    ctx->workerLastDstY = endDstY - 1;
+    uint8_t* slot = ctx->pipeline->acquire();
+    if (!slot) return 0;
+    convertLineToGray(pDraw->pPixels, slot, ctx->srcWidth, pDraw->iPixelType, pDraw->iBpp, pDraw->pPalette,
+                      pDraw->iHasAlpha);
+    DecodePipeline::Block block;
+    block.y = pDraw->y;
+    block.width = ctx->srcWidth;
+    block.widthUsed = ctx->srcWidth;
+    block.height = 1;
+    ctx->pipeline->commit(block);
+    return 1;
+  }
+
+  ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
+  if (!pngOutputRows(*ctx, pDraw->y, ctx->lastDstY, firstDstY, endDstY)) return 1;
+
+  // Convert entire source line to grayscale (improves cache locality)
+  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, ctx->srcWidth, pDraw->iPixelType, pDraw->iBpp, pDraw->pPalette,
+                    pDraw->iHasAlpha);
+  pngDrawRows(ctx, firstDstY, endDstY, ctx->grayLineBuffer);
   return 1;
+}
+
+bool drawPipelinedPngRow(void* context, const DecodePipeline::Block& block) {
+  auto* ctx = static_cast<PngContext*>(context);
+  ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
+  int firstDstY = 0;
+  int endDstY = 0;
+  if (pngOutputRows(*ctx, block.y, ctx->lastDstY, firstDstY, endDstY)) {
+    pngDrawRows(ctx, firstDstY, endDstY, block.pixels);
+  }
+  return true;
+}
+
+struct PngDecodeJob {
+  PNG* png;
+  PngContext* ctx;
+};
+
+int runPngDecode(void* context) {
+  auto* job = static_cast<PngDecodeJob*>(context);
+  return job->png->decode(job->ctx, 0);
 }
 
 }  // namespace
@@ -440,7 +493,17 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   }
 
   ctx.lastYieldMs = millis();
-  rc = png->decode(&ctx, 0);
+  // Inflate and row conversion on the worker core while this task dithers the
+  // previous rows; the split falls back to an inline decode.
+  DecodePipeline pipeline;
+  PngDecodeJob job{png, &ctx};
+  bool decoded = false;
+  if (DecodePipeline::worthSplitting() && pipeline.begin(static_cast<size_t>(ctx.srcWidth))) {
+    ctx.pipeline = &pipeline;
+    decoded = pipeline.run(runPngDecode, &job, drawPipelinedPngRow, &ctx, rc);
+    ctx.pipeline = nullptr;
+  }
+  if (!decoded) rc = png->decode(&ctx, 0);
 
   ctx.grayLineBuffer = nullptr;
 

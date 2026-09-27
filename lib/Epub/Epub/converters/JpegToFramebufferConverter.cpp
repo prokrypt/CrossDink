@@ -10,6 +10,7 @@
 
 #include <cstddef>
 
+#include "DecodePipeline.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
 #include "PixelCache.h"
@@ -46,7 +47,14 @@ struct JpegContext {
   PixelCache cache;
   bool caching{false};
   uint32_t lastYieldMs{0};
+
+  // Set when the decode runs on the worker core; blocks then reach
+  // jpegDrawCallback() on this task through the pipeline.
+  DecodePipeline* pipeline{nullptr};
 };
+
+// JPEGDEC's 8-bit grayscale blocks come from its usUnalignedPixels buffer.
+constexpr size_t JPEG_PIPELINE_SLOT_BYTES = (MAX_BUFFERED_PIXELS + 8) * sizeof(uint16_t);
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
@@ -415,6 +423,52 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   return 1;
 }
 
+// Registered with JPEGDEC. Worker core in a split decode: copy the block out
+// for the caller; otherwise draw it here.
+int jpegDecoderCallback(JPEGDRAW* pDraw) {
+  auto* ctx = reinterpret_cast<JpegContext*>(pDraw->pUser);
+  if (!ctx || !ctx->pipeline) return jpegDrawCallback(pDraw);
+  const size_t bytes = static_cast<size_t>(pDraw->iWidth) * static_cast<size_t>(pDraw->iHeight);
+  if (pDraw->iWidth <= 0 || pDraw->iHeight <= 0 || bytes > ctx->pipeline->slotBytes()) {
+    LOG_ERR("JPG", "Decoded block %dx%d does not fit the pipeline slot", pDraw->iWidth, pDraw->iHeight);
+    return 0;
+  }
+  uint8_t* slot = ctx->pipeline->acquire();
+  if (!slot) return 0;
+  memcpy(slot, pDraw->pPixels, bytes);
+  DecodePipeline::Block block;
+  block.x = pDraw->x;
+  block.y = pDraw->y;
+  block.width = pDraw->iWidth;
+  block.widthUsed = pDraw->iWidthUsed;
+  block.height = pDraw->iHeight;
+  ctx->pipeline->commit(block);
+  return 1;
+}
+
+bool drawPipelinedJpegBlock(void* context, const DecodePipeline::Block& block) {
+  JPEGDRAW draw{};
+  draw.x = block.x;
+  draw.y = block.y;
+  draw.iWidth = block.width;
+  draw.iWidthUsed = block.widthUsed;
+  draw.iHeight = block.height;
+  draw.iBpp = 8;
+  draw.pPixels = reinterpret_cast<uint16_t*>(const_cast<uint8_t*>(block.pixels));
+  draw.pUser = context;
+  return jpegDrawCallback(&draw) != 0;
+}
+
+struct JpegDecodeJob {
+  JPEGDEC* jpeg;
+  int scaleOption;
+};
+
+int runJpegDecode(void* context) {
+  auto* job = static_cast<JpegDecodeJob*>(context);
+  return job->jpeg->decode(0, 0, job->scaleOption);
+}
+
 }  // namespace
 
 bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
@@ -456,7 +510,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   // Keep exactly one close after every attempted open, including malformed
   // JPEGs where JPEGDEC returns from JPEGInit without closing its file handle.
   const auto closeJpeg = ScopedCleanup{[&jpeg] { jpeg->close(); }};
-  int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
+  int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDecoderCallback);
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
     return false;
@@ -549,7 +603,17 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
 
   ctx.lastYieldMs = millis();
   const uint32_t decodeStarted = millis();
-  rc = jpeg->decode(0, 0, jpegScaleOption);
+  // Decode (Huffman + IDCT) on the worker core while this task dithers the
+  // previous blocks; the split falls back to an inline decode.
+  DecodePipeline pipeline;
+  JpegDecodeJob job{jpeg.get(), jpegScaleOption};
+  bool decoded = false;
+  if (DecodePipeline::worthSplitting() && pipeline.begin(JPEG_PIPELINE_SLOT_BYTES)) {
+    ctx.pipeline = &pipeline;
+    decoded = pipeline.run(runJpegDecode, &job, drawPipelinedJpegBlock, &ctx, rc);
+    ctx.pipeline = nullptr;
+  }
+  if (!decoded) rc = jpeg->decode(0, 0, jpegScaleOption);
   LOG_DBG("JPG", "Decoded %s: ok=%d time=%ums", imagePath.c_str(), rc == 1,
           static_cast<unsigned>(millis() - decodeStarted));
 
