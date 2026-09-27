@@ -79,10 +79,13 @@ struct PixelCache {
     if ((size_t)wantRows > maxRowsByMem) wantRows = (int)maxRowsByMem;
 
     // A single decode block must fit inside the band, otherwise streaming would
-    // drop rows. This only fails for pathological upscales that could not be
-    // cached at all; fall back to the no-cache path.
-    if (wantRows < maxBlockDstRows) {
-      LOG_ERR("IMG", "Cache band too small (%d < %d rows) for %dx%d", wantRows, maxBlockDstRows, w, h);
+    // drop rows. A block never writes past the image's last row (the writer
+    // skips rows outside the band), so a band holding the whole image is
+    // always enough. This only fails for pathological upscales that could not
+    // be cached at all; fall back to the no-cache path.
+    const int neededRows = maxBlockDstRows < h ? maxBlockDstRows : h;
+    if (wantRows < neededRows) {
+      LOG_ERR("IMG", "Cache band too small (%d < %d rows) for %dx%d", wantRows, neededRows, w, h);
       return false;
     }
     bandRows = wantRows;
