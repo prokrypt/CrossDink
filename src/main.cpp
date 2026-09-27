@@ -25,55 +25,13 @@
 #include <builtinFonts/all.h>
 #include <uzlib.h>
 
-#include "AppCapabilities.h"
-
-#ifdef SIMULATOR
-using esp_reset_reason_t = int;
-using esp_sleep_wakeup_cause_t = int;
-enum : int {
-  ESP_RST_UNKNOWN = 0,
-  ESP_RST_POWERON,
-  ESP_RST_EXT,
-  ESP_RST_SW,
-  ESP_RST_PANIC,
-  ESP_RST_INT_WDT,
-  ESP_RST_TASK_WDT,
-  ESP_RST_WDT,
-  ESP_RST_DEEPSLEEP,
-  ESP_RST_BROWNOUT,
-  ESP_RST_SDIO,
-  ESP_RST_USB,
-  ESP_RST_JTAG,
-  ESP_RST_EFUSE,
-  ESP_RST_PWR_GLITCH,
-  ESP_RST_CPU_LOCKUP
-};
-enum : int {
-  ESP_SLEEP_WAKEUP_UNDEFINED = 0,
-  ESP_SLEEP_WAKEUP_ALL,
-  ESP_SLEEP_WAKEUP_EXT0,
-  ESP_SLEEP_WAKEUP_EXT1,
-  ESP_SLEEP_WAKEUP_TIMER,
-  ESP_SLEEP_WAKEUP_TOUCHPAD,
-  ESP_SLEEP_WAKEUP_ULP,
-  ESP_SLEEP_WAKEUP_GPIO,
-  ESP_SLEEP_WAKEUP_UART,
-  ESP_SLEEP_WAKEUP_WIFI,
-  ESP_SLEEP_WAKEUP_COCPU,
-  ESP_SLEEP_WAKEUP_COCPU_TRAP_TRIG,
-  ESP_SLEEP_WAKEUP_BT
-};
-inline esp_reset_reason_t esp_reset_reason() { return ESP_RST_UNKNOWN; }
-inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_WAKEUP_UNDEFINED; }
-#else
-#include <esp_sleep.h>
-#include <esp_system.h>
-#endif
-
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <string>
+
+#include "AppCapabilities.h"
+#include "util/BootReason.h"
 
 #ifndef SIMULATOR
 #include <nvs.h>
@@ -247,77 +205,6 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, 
 EpdFont ui12RegularFont(&inter_12_regular);
 EpdFont ui12BoldFont(&inter_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &uiSymbols10Font);
-
-const char* resetReasonName(const esp_reset_reason_t reason) {
-  switch (reason) {
-    case ESP_RST_POWERON:
-      return "POWERON";
-    case ESP_RST_EXT:
-      return "EXT";
-    case ESP_RST_SW:
-      return "SW";
-    case ESP_RST_PANIC:
-      return "PANIC";
-    case ESP_RST_INT_WDT:
-      return "INT_WDT";
-    case ESP_RST_TASK_WDT:
-      return "TASK_WDT";
-    case ESP_RST_WDT:
-      return "WDT";
-    case ESP_RST_DEEPSLEEP:
-      return "DEEPSLEEP";
-    case ESP_RST_BROWNOUT:
-      return "BROWNOUT";
-    case ESP_RST_SDIO:
-      return "SDIO";
-    case ESP_RST_USB:
-      return "USB";
-    case ESP_RST_JTAG:
-      return "JTAG";
-    case ESP_RST_EFUSE:
-      return "EFUSE";
-    case ESP_RST_PWR_GLITCH:
-      return "PWR_GLITCH";
-    case ESP_RST_CPU_LOCKUP:
-      return "CPU_LOCKUP";
-    case ESP_RST_UNKNOWN:
-    default:
-      return "UNKNOWN";
-  }
-}
-
-const char* wakeupCauseName(const esp_sleep_wakeup_cause_t cause) {
-  switch (cause) {
-    case ESP_SLEEP_WAKEUP_UNDEFINED:
-      return "UNDEFINED";
-    case ESP_SLEEP_WAKEUP_ALL:
-      return "ALL";
-    case ESP_SLEEP_WAKEUP_EXT0:
-      return "EXT0";
-    case ESP_SLEEP_WAKEUP_EXT1:
-      return "EXT1";
-    case ESP_SLEEP_WAKEUP_TIMER:
-      return "TIMER";
-    case ESP_SLEEP_WAKEUP_TOUCHPAD:
-      return "TOUCHPAD";
-    case ESP_SLEEP_WAKEUP_ULP:
-      return "ULP";
-    case ESP_SLEEP_WAKEUP_GPIO:
-      return "GPIO";
-    case ESP_SLEEP_WAKEUP_UART:
-      return "UART";
-    case ESP_SLEEP_WAKEUP_WIFI:
-      return "WIFI";
-    case ESP_SLEEP_WAKEUP_COCPU:
-      return "COCPU";
-    case ESP_SLEEP_WAKEUP_COCPU_TRAP_TRIG:
-      return "COCPU_TRAP";
-    case ESP_SLEEP_WAKEUP_BT:
-      return "BT";
-    default:
-      return "UNKNOWN";
-  }
-}
 
 const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
   switch (reason) {

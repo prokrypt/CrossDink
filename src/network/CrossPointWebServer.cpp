@@ -7,13 +7,19 @@
 #endif
 #include <Epub.h>
 #include <FsHelpers.h>
+#include <HalClock.h>
 #include <HalGPIO.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
+#ifndef SIMULATOR
+#include <esp_image_format.h>
+#include <esp_ota_ops.h>
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -39,6 +45,7 @@
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 #include "util/BookCacheUtils.h"
+#include "util/BootReason.h"
 #include "util/FontFamilyLabel.h"
 #include "util/StringUtils.h"
 
@@ -305,6 +312,84 @@ bool isProtectedPath(const String& path) {
 
   return false;
 }
+#ifndef SIMULATOR
+const char* displayControllerName(const BoardConfig::DisplayController controller) {
+  switch (controller) {
+    case BoardConfig::DisplayController::SSD1677:
+      return "SSD1677";
+    case BoardConfig::DisplayController::UC8253:
+      return "UC8253";
+    case BoardConfig::DisplayController::ED2208:
+      return "ED2208";
+    case BoardConfig::DisplayController::LgfxEpd:
+      return "LgfxEpd";
+    case BoardConfig::DisplayController::IT8951:
+      return "IT8951";
+    case BoardConfig::DisplayController::UC8279:
+      return "UC8279";
+    case BoardConfig::DisplayController::UC8179:
+      return "UC8179";
+    case BoardConfig::DisplayController::UC8279C:
+      return "UC8279C";
+  }
+  return "unknown";
+}
+
+const char* touchControllerName(const BoardConfig::TouchController controller) {
+  switch (controller) {
+    case BoardConfig::TouchController::None:
+      return "none";
+    case BoardConfig::TouchController::Chsc6x:
+      return "CHSC6x";
+    case BoardConfig::TouchController::Gt911:
+      return "GT911";
+    case BoardConfig::TouchController::Ft5x06:
+      return "FT5x06";
+    case BoardConfig::TouchController::Ft6336u:
+      return "FT6336U";
+    case BoardConfig::TouchController::Gslx680:
+      return "GSLX680";
+  }
+  return "unknown";
+}
+
+// Bytes of the running app image, from its segment headers. Reading the
+// headers is cheap, unlike ESP.getSketchSize() which hashes the whole image,
+// and the result can't change until the next boot.
+uint32_t runningAppImageSize() {
+  static uint32_t size = 0;
+  if (size != 0) return size;
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (running == nullptr) return 0;
+  const esp_partition_pos_t pos = {running->address, running->size};
+  esp_image_metadata_t meta;
+  if (esp_image_get_metadata(&pos, &meta) == ESP_OK) size = meta.image_len;
+  return size;
+}
+#endif
+
+// ISO 8601 UTC, e.g. "2026-09-26T19:30:00Z". Hand-rolled because strftime()
+// and sniprintf() pull ~20 KB of newlib (tzset, sscanf, integer printf) into an
+// image that has no other user of them. buf needs 21 bytes.
+void formatUtc(char* buf, const uint16_t year, const uint8_t month, const uint8_t day, const uint8_t hour,
+               const uint8_t minute, const uint8_t second) {
+  const auto put = [&buf](unsigned value, const int width, const char sep) {
+    for (int i = width - 1; i >= 0; --i) {
+      buf[i] = static_cast<char>('0' + value % 10);
+      value /= 10;
+    }
+    buf += width;
+    *buf++ = sep;
+  };
+  put(year, 4, '-');
+  put(month, 2, '-');
+  put(day, 2, 'T');
+  put(hour, 2, ':');
+  put(minute, 2, ':');
+  put(second, 2, 'Z');
+  *buf = '\0';
+}
+
 }  // namespace
 
 // File listing page template - now using generated headers:
@@ -683,6 +768,96 @@ void CrossPointWebServer::handleStatus() const {
   } else {
     doc["serial"] = "Not found";
   }
+
+  // Everything below is additive diagnostics; the keys above are read by the
+  // web UI and upload tooling and keep their names and formats. Nothing here
+  // touches the SD card beyond the capacity cached at mount.
+  JsonObject build = doc["build"].to<JsonObject>();
+  build["env"] = CROSSINK_PIOENV;
+  build["gitSha"] = CROSSINK_GIT_SHA;
+  build["gitDirty"] = CROSSINK_GIT_DIRTY;
+
+#ifndef SIMULATOR
+  const BoardConfig::BoardProfile& board = BoardConfig::ACTIVE;
+  doc["board"] = board.name;
+
+  JsonObject display = doc["display"].to<JsonObject>();
+  display["controller"] = displayControllerName(board.displayController);
+  display["controllerVariant"] = board.displayControllerVariant;
+  display["width"] = board.displayWidth;
+  display["height"] = board.displayHeight;
+  display["touch"] = touchControllerName(board.touch.controller);
+
+  JsonObject chip = doc["chip"].to<JsonObject>();
+  chip["model"] = ESP.getChipModel();
+  chip["revision"] = ESP.getChipRevision();
+  chip["cores"] = ESP.getChipCores();
+  chip["cpuMHz"] = ESP.getCpuFreqMHz();
+  chip["flashSize"] = ESP.getFlashChipSize();
+
+  JsonObject memory = doc["memory"].to<JsonObject>();
+  memory["freeHeap"] = ESP.getFreeHeap();
+  memory["minFreeHeap"] = ESP.getMinFreeHeap();
+  memory["maxAllocHeap"] = ESP.getMaxAllocHeap();
+  memory["psramSize"] = ESP.getPsramSize();
+  memory["freePsram"] = ESP.getFreePsram();
+
+  JsonObject app = doc["app"].to<JsonObject>();
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  app["partition"] = running ? running->label : "unknown";
+  app["partitionSize"] = running ? running->size : 0;
+  app["imageSize"] = runningAppImageSize();
+#endif
+
+  JsonObject boot = doc["boot"].to<JsonObject>();
+  boot["resetReason"] = resetReasonName(esp_reset_reason());
+  boot["wakeCause"] = wakeupCauseName(esp_sleep_get_wakeup_cause());
+  boot["uptimeMs"] = millis();
+
+  JsonObject battery = doc["battery"].to<JsonObject>();
+  battery["percent"] = powerManager.getBatteryPercentage();
+  battery["usb"] = gpio.isUsbConnectedCached();
+#ifndef SIMULATOR
+  {
+    // Same function-local pattern as HalPowerManager: ACTIVE must be resolved
+    // before the monitor is built. handleClient() runs on the main loop, so
+    // this I2C/ADC read can't race the UI's own battery polling.
+    static const BatteryMonitor monitor;
+    battery["millivolts"] = monitor.readMillivolts();
+    battery["charging"] = monitor.isCharging();
+  }
+#endif
+
+  JsonObject clock = doc["clock"].to<JsonObject>();
+  char timeBuf[21];
+  const time_t now = time(nullptr);
+  // Anything before 2025 means the system clock was never set (no NTP/RTC).
+  const bool systemTimeValid = now >= 1735689600;
+  clock["systemTimeValid"] = systemTimeValid;
+  if (systemTimeValid) {
+    struct tm tm;
+    gmtime_r(&now, &tm);
+    formatUtc(timeBuf, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    clock["systemTime"] = timeBuf;
+  }
+  clock["rtc"] = halClock.isAvailable();
+  uint16_t year;
+  uint8_t month, day, hour, minute;
+  if (halClock.getDateTime(year, month, day, hour, minute)) {
+    formatUtc(timeBuf, year, month, day, hour, minute, 0);
+    clock["rtcTime"] = timeBuf;
+    clock["rtcTimeValid"] = year >= 2025;
+  }
+
+  JsonObject wifi = doc["wifi"].to<JsonObject>();
+  wifi["ssid"] = apMode ? WiFi.softAPSSID() : WiFi.SSID();
+  wifi["channel"] = WiFi.channel();
+  wifi["hostname"] = WiFi.getHostname();
+  wifi["mac"] = apMode ? WiFi.softAPmacAddress() : WiFi.macAddress();
+
+  JsonObject sd = doc["sd"].to<JsonObject>();
+  sd["ready"] = Storage.ready();
+  sd["totalBytes"] = Storage.totalBytes();
 
   String response;
   serializeJson(doc, response);
