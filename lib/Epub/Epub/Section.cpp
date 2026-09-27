@@ -256,7 +256,7 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
 }
 
 bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
-  if (!Storage.openFileForRead("SCT", filePath, file)) {
+  if (!Storage.openFileForReadIfPresent("SCT", filePath, file)) {
     return false;
   }
 

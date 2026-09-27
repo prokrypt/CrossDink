@@ -292,7 +292,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   }
 
   FsFile cacheFile;
-  if (!Storage.openFileForRead("IMG", cachePath, cacheFile)) {
+  if (!Storage.openFileForReadIfPresent("IMG", cachePath, cacheFile)) {
     invalidateRetainedPxcPath(cachePath);
     return false;
   }
@@ -413,7 +413,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
 bool ImageBlock::hasValidCache() const {
   const auto cachePath = getCachePath(imagePath);
   FsFile cacheFile;
-  if (!Storage.openFileForRead("IMG", cachePath, cacheFile)) {
+  if (!Storage.openFileForReadIfPresent("IMG", cachePath, cacheFile)) {
     return false;
   }
 

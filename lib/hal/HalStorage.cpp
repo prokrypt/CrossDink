@@ -442,12 +442,30 @@ bool HalStorage::rmdir(const char* path) {
 }
 
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
+  return openFileForRead(moduleName, path, file, /*quietMiss=*/false);
+}
+
+bool HalStorage::openFileForReadIfPresent(const char* moduleName, const char* path, HalFile& file) {
+  return openFileForRead(moduleName, path, file, /*quietMiss=*/true);
+}
+
+bool HalStorage::openFileForReadIfPresent(const char* moduleName, const std::string& path, HalFile& file) {
+  return openFileForRead(moduleName, path.c_str(), file, /*quietMiss=*/true);
+}
+
+bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file, const bool quietMiss) {
   file.close();
   FsFile fsFile;
   bool ok = false;
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
-    ok = SDCard.openFileForRead(moduleName, path, fsFile);
+    if (quietMiss) {
+      // One open, no failure print: a missing file is an expected answer here.
+      fsFile = SDCard.open(path, O_RDONLY);
+      ok = static_cast<bool>(fsFile);
+    } else {
+      ok = SDCard.openFileForRead(moduleName, path, fsFile);
+    }
   }
   if (!ok) {
     return false;

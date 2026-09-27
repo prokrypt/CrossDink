@@ -1590,7 +1590,7 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
   // Existing exact-layout output always wins, even if the optional transport is corrupt.
   FsFile existing;
   uint16_t w = 0, h = 0;
-  bool cached = Storage.openFileForRead("EBP", destPxcPath, existing) && readPxcHeader(existing, w, h) &&
+  bool cached = Storage.openFileForReadIfPresent("EBP", destPxcPath, existing) && readPxcHeader(existing, w, h) &&
                 w == expectedWidth && h == expectedHeight && existing.size() == pxcByteCount(w, h);
   existing.close();
   if (cached) {
