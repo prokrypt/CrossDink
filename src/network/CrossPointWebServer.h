@@ -23,9 +23,11 @@ class BoundedCloseWebSocketsServer : public WebSocketsServer {
  public:
   using WebSocketsServer::WebSocketsServer;
   void closeWithoutHandshake() {
+#ifndef SIMULATOR
     for (auto& client : _clients) {
       if (client.tcp) clientDisconnect(&client);
     }
+#endif
     close();
   }
 };
