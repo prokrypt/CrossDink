@@ -1152,6 +1152,12 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
 void setup() {
 #ifdef SIMULATOR
   SimulatorLifecycle::restoreSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
+#else
+  // loopTask shares its core with the priority-1 background workers (library
+  // prewarm, OPDS prefetch, dictionary lookup). Run above them so input
+  // handling never time-slices with a worker; the loop blocks or sleeps a tick
+  // every pass, which is when they run.
+  vTaskPrioritySet(nullptr, 2);
 #endif
   BoardConfig::holdPowerRails();
 
@@ -1938,11 +1944,14 @@ void loop() {
   }
 
   // Add delay at the end of the loop to prevent tight spinning
-  // When an activity requests skip loop delay (e.g., webserver running), use yield() for faster response
+  // When an activity requests skip loop delay (e.g., webserver running), sleep one tick for faster response
   // Otherwise, use longer delay to save power
   if (activityManager.skipLoopDelay()) {
     powerManager.setPowerSaving(false);  // Make sure we're at full performance when skipLoopDelay is requested
-    yield();                             // Give FreeRTOS a chance to run tasks, but return immediately
+    // Not yield(): at priority 2 it only yields to tasks at 2 or above, which
+    // would starve the priority-1 workers the loop is often waiting on (a
+    // dictionary lookup, a prefetch) and IDLE0.
+    vTaskDelay(1);
   } else {
     // Both waits end early when a key or the touch INT line changes, so the
     // longer idle tick no longer delays the first input after a pause. Screens
