@@ -66,6 +66,8 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
+  enteredUiTheme = SETTINGS.uiTheme;
+  enteredUiScale = SETTINGS.uiScale;
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
   // C3 has substantially more contiguous heap here than while serving HTTP.
   sdFontSystem.ensureRegistry();
@@ -118,8 +120,10 @@ void CrossPointWebServerActivity::onExit() {
   delay(50);
 
   // Wi-Fi goes down after local services have released their sockets. A
-  // session that left the internal heap too fragmented still reboots.
-  if ((wifiWasActive || networkBootReady) && !leaveNetworkInPlace()) {
+  // session that left the internal heap too fragmented, or changed the UI
+  // theme or scale from the portal, still reboots.
+  const bool uiChanged = SETTINGS.uiTheme != enteredUiTheme || SETTINGS.uiScale != enteredUiScale;
+  if ((wifiWasActive || networkBootReady) && (uiChanged || !leaveNetworkInPlace())) {
     if (returnBookPath.empty()) {
       silentRestart();
     } else {

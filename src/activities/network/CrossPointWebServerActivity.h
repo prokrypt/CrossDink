@@ -35,6 +35,9 @@ class CrossPointWebServerActivity final : public Activity {
   bool hasInitialNetworkMode = false;
   NetworkMode initialNetworkMode = NetworkMode::JOIN_NETWORK;
   bool networkBootReady = false;
+  // The web portal can change these; only a restart applies them.
+  uint8_t enteredUiTheme = 0;
+  uint8_t enteredUiScale = 0;
 
   // Network mode
   NetworkMode networkMode = NetworkMode::JOIN_NETWORK;

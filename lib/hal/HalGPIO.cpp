@@ -238,6 +238,7 @@ HalGPIO::SampleResult HalGPIO::sampleInput() {
   quietSample_.input = sampler_;
   quietSample_.touchDraggedPastTapSlop = samplerDraggedPastTapSlop_;
   if (sampler_.hasOneShotEvents()) {
+    quietSample_.sampledAtMs = millis();
     if (xQueueSend(eventSamples_, &quietSample_, 0) == pdTRUE) {
       result.events = true;
     } else {
@@ -259,10 +260,13 @@ HalGPIO::SampleResult HalGPIO::sampleInput() {
 void HalGPIO::update() {
 #if CROSSPOINT_EMULATED == 0
   if (latched_) {
-    if (xQueueReceive(eventSamples_, &loopSample_, 0) != pdTRUE) {
+    if (xQueueReceive(eventSamples_, &loopSample_, 0) == pdTRUE) {
+      replayLagMs_ = millis() - loopSample_.sampledAtMs;
+    } else {
       xSemaphoreTake(sampleMutex_, portMAX_DELAY);
       loopSample_ = quietSample_;
       xSemaphoreGive(sampleMutex_);
+      replayLagMs_ = 0;
     }
     inputMgr = loopSample_.input;
 #if CROSSDINK_APP_CAP_TOUCH
@@ -315,9 +319,31 @@ bool HalGPIO::wasReleased(uint8_t buttonIndex) const { return inputMgr.wasReleas
 
 bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
 
-unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
+namespace {
+// A held button's time runs to now; a replayed sample's ran to when it was taken.
+unsigned long heldAtSample(const unsigned long heldNow, const bool held, const unsigned long lagMs) {
+  if (!held) return heldNow;
+  return heldNow > lagMs ? heldNow - lagMs : 0;
+}
+}  // namespace
 
-unsigned long HalGPIO::getPowerButtonHeldTime() const { return inputMgr.getPowerButtonHeldTime(); }
+unsigned long HalGPIO::getHeldTime() const {
+#if CROSSPOINT_EMULATED == 0
+  bool held = false;
+  for (uint8_t button = BTN_BACK; button <= BTN_POWER && !held; ++button) held = inputMgr.isPressed(button);
+  return heldAtSample(inputMgr.getHeldTime(), held, replayLagMs_);
+#else
+  return inputMgr.getHeldTime();
+#endif
+}
+
+unsigned long HalGPIO::getPowerButtonHeldTime() const {
+#if CROSSPOINT_EMULATED == 0
+  return heldAtSample(inputMgr.getPowerButtonHeldTime(), inputMgr.isPressed(BTN_POWER), replayLagMs_);
+#else
+  return inputMgr.getPowerButtonHeldTime();
+#endif
+}
 
 #if CROSSDINK_APP_CAP_TOUCH
 bool HalGPIO::hasTouch() const { return inputMgr.hasTouch(); }
@@ -383,12 +409,26 @@ bool HalGPIO::wasTouchLongPress(float& nx, float& ny) const { return inputMgr.wa
 
 void HalGPIO::suppressTouchContact() {
   inputMgr.suppressTouchContact();
+#if CROSSPOINT_EMULATED == 0
   if (!latched_) return;
-  // Later samples must stay suppressed until the contact lifts.
+  // Later samples of this contact, queued ones included, must stay suppressed
+  // until it lifts; a contact after that is left alone.
+  bool contactOver = !inputMgr.isTouchPressed();
   xSemaphoreTake(sampleMutex_, portMAX_DELAY);
-  sampler_.suppressTouchContact();
-  quietSample_.input.suppressTouchContact();
+  for (UBaseType_t n = uxQueueMessagesWaiting(eventSamples_); n > 0; --n) {
+    if (xQueueReceive(eventSamples_, &loopSample_, 0) != pdTRUE) break;
+    if (!contactOver) {
+      contactOver = !loopSample_.input.isTouchPressed();
+      loopSample_.input.suppressTouchContact();
+    }
+    xQueueSend(eventSamples_, &loopSample_, 0);
+  }
+  if (!contactOver) {
+    sampler_.suppressTouchContact();
+    quietSample_.input.suppressTouchContact();
+  }
   xSemaphoreGive(sampleMutex_);
+#endif
 }
 
 bool HalGPIO::isTouchHeldAt(float& nx, float& ny) const { return inputMgr.isTouchHeldAt(nx, ny); }

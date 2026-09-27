@@ -34,6 +34,7 @@ class HalGPIO {
   struct InputSample {
     InputManager input;
     bool touchDraggedPastTapSlop;
+    unsigned long sampledAtMs;
   };
   InputManager sampler_;
   bool samplerDraggedPastTapSlop_ = false;
@@ -42,6 +43,8 @@ class HalGPIO {
   QueueHandle_t eventSamples_ = nullptr;
   SemaphoreHandle_t sampleMutex_ = nullptr;
   bool latched_ = false;
+  // How old the sample update() replays is: held times are measured at it.
+  unsigned long replayLagMs_ = 0;
 #endif
 
   bool lastUsbConnected = false;

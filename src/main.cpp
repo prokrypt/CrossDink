@@ -414,6 +414,8 @@ namespace {
 // (24 KB each) and inline image decoding; the same bar as optional rebuilds.
 constexpr uint32_t NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
 bool readerResourcesReady = false;
+// The render task has the reader's stack (not the 8 KB network-boot one).
+bool readerRenderStackReady = false;
 }  // namespace
 
 bool leaveNetworkInPlace() {
@@ -426,6 +428,10 @@ bool leaveNetworkInPlace() {
     // WIFI_OFF stops the driver and calls esp_wifi_deinit(), returning its
     // internal buffers before the heap check below.
     WiFi.mode(WIFI_OFF);
+  }
+  if (!readerRenderStackReady) {
+    LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
+    return false;
   }
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   if (largest < NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK) {
@@ -1277,6 +1283,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   // caller selects the reader-sized stack. Lightweight network targets use
   // 8 KB; reader rendering retains its 16 KB budget.
   activityManager.begin(useReaderRenderStack ? READER_RENDER_TASK_STACK_BYTES : NETWORK_RENDER_TASK_STACK_BYTES);
+  readerRenderStackReady = useReaderRenderStack;
 
   // Initialize font decompressor for compressed reader fonts
   if (!fontDecompressor.init()) {

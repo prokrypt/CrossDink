@@ -707,8 +707,10 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     *layoutAbortedForLowMemory = *layoutAbortedForLowMemory || visitor.wasLowMemoryAbortTriggered();
   }
 
-  // The worker has finished once the parse drained it; otherwise stop it.
-  const bool inflateComplete = !inflateOverlapped || overlappedInflate.finish(/*stopEarly=*/true);
+  // A parse that succeeded early (content after </html>) lets the inflate
+  // finish so the HTML cache is still kept; otherwise it is stopped.
+  const bool keepHtml = !htmlCached && (success || pageCompletionFailed);
+  const bool inflateComplete = !inflateOverlapped || overlappedInflate.finish(/*stopEarly=*/!keepHtml);
   if (!htmlCached) {
     if (inflateComplete && (success || pageCompletionFailed)) {
       // Promote the freshly unzipped HTML to the persistent cache so future rebuilds (e.g. after a
