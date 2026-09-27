@@ -14,6 +14,8 @@ class HalClock {
   mutable uint16_t _cachedYear = 2000;
   mutable uint8_t _cachedMonth = 1;
   mutable uint8_t _cachedDay = 1;
+  mutable uint8_t _cachedSecond = 0;
+  mutable unsigned long _cachedAtMs = 0;  // millis() when the cached reading was taken
   mutable bool _hasCachedTime = false;
   mutable bool _hasCachedDate = false;
   mutable unsigned long _lastPollMs = 0;
@@ -56,6 +58,13 @@ class HalClock {
   bool getDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute) const {
     return getDate(year, month, day, hour, minute);
   }
+  // Same, with seconds.
+  bool getDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute, uint8_t& second) const;
+
+  // Reads the RTC directly (bypassing the cache) and returns true only when it
+  // holds a plausible, running date/time. False after the RTC lost power or was
+  // never set, which is the cue to re-sync from NTP.
+  bool hasTrustedDateTime() const;
 
   // Format date into a caller-provided buffer using the requested display format.
   // utcOffsetQuarterHoursBiased matches formatTime so the date rolls over at local midnight.
@@ -75,6 +84,8 @@ class HalClock {
   bool syncSystemTimeFromNTP();
 
  private:
+  bool refresh(bool needDate) const;
+  void readCached(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute, uint8_t& second) const;
   bool getDate(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute) const;
   bool writeDateTimeToRTC(uint16_t year, uint8_t month, uint8_t day, uint8_t weekday, uint8_t hour, uint8_t minute,
                           uint8_t second);

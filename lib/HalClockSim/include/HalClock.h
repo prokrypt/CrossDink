@@ -30,5 +30,6 @@ class HalClock {
   bool formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48, bool use12Hour = false) const;
   bool formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48,
                   DateFormat dateFormat = MONTH_DAY_YEAR_LONG, char numericSeparator = '/') const;
+  bool hasTrustedDateTime() const { return false; }
   bool syncFromNTP() { return false; }
 };

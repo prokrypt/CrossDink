@@ -15,6 +15,7 @@
 struct FileInfo {
   String name;
   size_t size;
+  uint32_t modified;  // packed FAT date << 16 | time (local), 0 for folders or unknown
   bool isEpub;
   bool isDirectory;
 };

@@ -150,6 +150,7 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
       case StrId::STR_HIDE_CLOCK:
       case StrId::STR_AUTO_BACKUP_STATS:
       case StrId::STR_CLOCK_UTC_OFFSET:
+      case StrId::STR_CLOCK_DST:
       case StrId::STR_CLOCK_FORMAT:
       case StrId::STR_DATE_FORMAT:
       case StrId::STR_DATE_SEPARATOR:
@@ -729,9 +730,11 @@ bool CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor,
 
         if (info.isDirectory) {
           info.size = 0;
+          info.modified = 0;
           info.isEpub = false;
         } else {
           info.size = file.size();
+          info.modified = file.modificationTime();
           info.isEpub = isEpubFile(info.name);
         }
 
@@ -813,6 +816,7 @@ void CrossPointWebServer::handleFileListData() const {
         (*context.doc)["size"] = info.size;
         (*context.doc)["isDirectory"] = info.isDirectory;
         (*context.doc)["isEpub"] = info.isEpub;
+        if (info.modified != 0) (*context.doc)["mtime"] = info.modified;
 
         const size_t written = serializeJson(*context.doc, context.output, outputSize);
         if (written >= outputSize) {

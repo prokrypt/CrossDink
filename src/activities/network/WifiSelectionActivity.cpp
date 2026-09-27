@@ -747,10 +747,13 @@ void WifiSelectionActivity::checkConnectionStatus() {
             WiFi.RSSI());
 #endif
 
-    // Sync RTC from NTP on the first successful WiFi connection only. Users can force a re-sync from
-    // Settings > System > Device > Sync Date/Time Now.
-    if (halClock.isAvailable() && (!SETTINGS.clockHasBeenSynced || !SETTINGS.clockDateHasBeenSynced)) {
-      if (halClock.syncFromNTP()) {
+    // Sync RTC from NTP on the first successful WiFi connection, and again whenever the RTC has lost
+    // its time (e.g. a fully drained battery), so file timestamps and the clock recover on their own.
+    // Users can force a re-sync from Settings > System > Device > Sync Date/Time Now. The settings
+    // file is only rewritten when the synced flags actually change.
+    const bool neverSynced = !SETTINGS.clockHasBeenSynced || !SETTINGS.clockDateHasBeenSynced;
+    if (halClock.isAvailable() && (neverSynced || !halClock.hasTrustedDateTime())) {
+      if (halClock.syncFromNTP() && neverSynced) {
         SETTINGS.clockHasBeenSynced = 1;
         SETTINGS.clockDateHasBeenSynced = 1;
         SETTINGS.saveToFile();

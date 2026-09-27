@@ -196,6 +196,9 @@ h2 {
       text-align: left;
       border-bottom: 1px solid var(--border-color);
     }
+.file-table .modified-col {
+      white-space: nowrap;
+    }
 .file-table th {
       font-weight: 600;
       color: var(--label-color);
@@ -1290,6 +1293,9 @@ h2 {
       }
       .file-table th {
         font-size: 0.85em;
+      }
+      .file-table .modified-col {
+        display: none;
       }
       .file-icon {
         margin-right: 4px;

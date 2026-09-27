@@ -9,6 +9,7 @@
 #include "CrossPointSettings.h"
 #include "components/themes/BaseTheme.h"
 #include "fontIds.h"
+#include "util/LocalClock.h"
 
 namespace {
 constexpr int kHeaderDateRightInset = 12;
@@ -31,10 +32,10 @@ bool formatHeaderDateImpl(char* buf, const size_t len) {
   if (!SETTINGS.clockDateHasBeenSynced) return false;
 #if defined(SIMULATOR) && !defined(CROSSPOINT_SIMULATOR_HAS_DATE_FORMAT)
   // Keep compatibility with older downloaded simulator libraries.
-  return halClock.formatDate(buf, len, SETTINGS.clockUtcOffsetQ);
+  return halClock.formatDate(buf, len, LocalClock::currentOffsetQ());
 #elif defined(SIMULATOR) && !defined(CROSSPOINT_SIMULATOR_HAS_DATE_SEPARATOR)
   // Older simulator libraries support date formats but always emit slashes.
-  if (!halClock.formatDate(buf, len, SETTINGS.clockUtcOffsetQ,
+  if (!halClock.formatDate(buf, len, LocalClock::currentOffsetQ(),
                            static_cast<HalClock::DateFormat>(SETTINGS.dateFormat))) {
     return false;
   }
@@ -46,8 +47,8 @@ bool formatHeaderDateImpl(char* buf, const size_t len) {
   }
   return true;
 #else
-  return halClock.formatDate(buf, len, SETTINGS.clockUtcOffsetQ, static_cast<HalClock::DateFormat>(SETTINGS.dateFormat),
-                             dateSeparatorChar());
+  return halClock.formatDate(buf, len, LocalClock::currentOffsetQ(),
+                             static_cast<HalClock::DateFormat>(SETTINGS.dateFormat), dateSeparatorChar());
 #endif
 }
 }  // namespace

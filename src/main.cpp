@@ -120,6 +120,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "util/Dictionary.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
+#include "util/LocalClock.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SleepWakePolicy.h"
 
@@ -1420,7 +1421,7 @@ void setup() {
   ReaderProgressShadow::recoverPending();
 
   SETTINGS.loadFromFile();
-  Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
+  Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
@@ -1457,7 +1458,8 @@ void setup() {
     uint8_t utcHour = 0;
     uint8_t utcMinute = 0;
     if (halClock.getTime(utcHour, utcMinute)) {
-      const uint16_t localTimeOfDay = FrontlightSchedule::localTimeOfDay(utcHour, utcMinute, SETTINGS.clockUtcOffsetQ);
+      const uint16_t localTimeOfDay =
+          FrontlightSchedule::localTimeOfDay(utcHour, utcMinute, LocalClock::currentOffsetQ());
       restoreLightOn = FrontlightSchedule::containsTimeOfDay(SETTINGS.frontlightScheduleStart,
                                                              SETTINGS.frontlightScheduleEnd, localTimeOfDay);
     } else {
