@@ -169,6 +169,7 @@ def inject_version(env):
     env.Append(CPPDEFINES=[
         ('CROSSINK_GIT_SHA', f'\\"{get_git_short_sha(project_dir)}\\"'),
         ('CROSSINK_GIT_DIRTY', f'\\"{get_git_dirty(project_dir)}\\"'),
+        ('CROSSINK_PIOENV', f'\\"{pioenv}\\"'),
     ])
 
     if pioenv in {'default', 'sticky', 'x4-pro', 'x4-classic'}:

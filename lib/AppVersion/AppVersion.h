@@ -14,6 +14,10 @@
 #define CROSSINK_GIT_DIRTY "unknown"
 #endif
 
+#ifndef CROSSINK_PIOENV
+#define CROSSINK_PIOENV "unknown"
+#endif
+
 #ifndef CROSSINK_BUILD_ENV
 #define CROSSINK_BUILD_ENV "unknown"
 #endif
