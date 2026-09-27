@@ -11,6 +11,7 @@ add_executable(ChapterHtmlSlimParserTest
 
 target_include_directories(ChapterHtmlSlimParserTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../freertos_stubs
   ${REPO_ROOT}/lib
   ${REPO_ROOT}/lib/Epub
   ${REPO_ROOT}/lib/Epub/Epub

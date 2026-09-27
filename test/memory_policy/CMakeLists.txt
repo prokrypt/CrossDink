@@ -6,8 +6,9 @@ gtest_discover_tests(MemoryPoolPolicyTest PROPERTIES ENVIRONMENT "UBSAN_OPTIONS=
 
 add_executable(JpegDecoderPolicyTest JpegDecoderPolicyTest.cpp
   ${REPO_ROOT}/lib/Epub/Epub/converters/JpegToFramebufferConverter.cpp
-  ${REPO_ROOT}/lib/Epub/Epub/converters/ImageToFramebufferDecoder.cpp)
-target_include_directories(JpegDecoderPolicyTest PRIVATE jpeg_decoder_stubs stubs
+  ${REPO_ROOT}/lib/Epub/Epub/converters/ImageToFramebufferDecoder.cpp
+  jpeg_decoder_stubs/DecodePipelineStub.cpp)
+target_include_directories(JpegDecoderPolicyTest PRIVATE jpeg_decoder_stubs stubs ../freertos_stubs
   ${REPO_ROOT}/lib/Epub/Epub/converters ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/Memory
   ${REPO_ROOT}/lib/MemoryBudget)
 target_compile_definitions(JpegDecoderPolicyTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSDINK_MEMORY_TEST=1)

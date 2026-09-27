@@ -784,7 +784,7 @@ bool ActivityManager::restoreBackdropBehindCurrentOverlay() {
 
   {
     RenderLock lock;
-    currentActivity->onCovered();
+    if (currentActivity) currentActivity->onCovered();
     stackActivities.push_back(std::move(currentActivity));
     currentActivity = std::move(overlay);
   }
