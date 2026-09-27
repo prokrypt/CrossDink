@@ -12,6 +12,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <TaskCores.h>
 
 #include <algorithm>
@@ -475,7 +476,9 @@ void ActivityManager::renderTaskLoop() {
       // cppcheck-suppress knownConditionTrueFalse
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       renderer.setDeferFastRefresh(deferredRender);
+      PerfLog::noteRenderStart();
       currentActivity->render(std::move(lock));
+      PerfLog::noteRenderEnd(currentActivity ? currentActivity->name.c_str() : nullptr);
       renderer.setDeferFastRefresh(false);
       restoredActivityNeedsRender = false;
     }
@@ -511,6 +514,8 @@ void ActivityManager::renderTaskLoop() {
         if (!renderer.isRefreshPending()) break;
         if (!renderer.isRefreshBusy()) {
           renderer.waitRefreshComplete();
+          // Already over, so the busy-wait hook that marks ink never fired.
+          PerfLog::noteInk();
           break;
         }
       }

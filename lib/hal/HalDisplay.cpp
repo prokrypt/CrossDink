@@ -2,6 +2,7 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
+#include <PerfLog.h>
 
 #include "HalSpiBus.h"
 
@@ -19,7 +20,17 @@ namespace {
 bool spiLentDuringBusyWait = false;
 #endif
 
+#if CROSSDINK_PERF_LOG
+// The begin hook fires once a wait passes the SDK's 20 ms threshold. Waits this
+// long are refreshes (PON ~130 ms and POF ~80 ms stay below it).
+constexpr uint32_t REFRESH_WAIT_MIN_MS = 250;
+uint32_t busyWaitBeganMs = 0;
+#endif
+
 void onDisplayBusyWaitBegin() {
+#if CROSSDINK_PERF_LOG
+  busyWaitBeganMs = millis();
+#endif
   powerManager.beginDisplayBusyWait();
 #if !FREEINK_SD_SDMMC
   spiLentDuringBusyWait = HalSpiBus::getInstance().releaseForIdle();
@@ -34,6 +45,9 @@ void onDisplayBusyWaitEnd() {
   }
 #endif
   powerManager.endDisplayBusyWait();
+#if CROSSDINK_PERF_LOG
+  if (millis() - busyWaitBeganMs >= REFRESH_WAIT_MIN_MS) PerfLog::noteInk();
+#endif
 }
 }  // namespace
 

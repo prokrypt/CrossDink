@@ -422,6 +422,7 @@ bool Section::clearCache() const {
 bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::function<void()>& popupFn,
                                 bool* imagesWereSuppressed, bool* layoutAbortedForLowMemory,
                                 const SectionBuildOptions buildOptions) {
+  [[maybe_unused]] const uint32_t buildStartedMs = millis();
   const int fontId = spec.fontId;
   const float lineCompression = spec.lineCompression;
   const bool extraParagraphSpacing = spec.extraParagraphSpacing;
@@ -790,6 +791,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     }
     return false;
   }
+  [[maybe_unused]] const uint32_t sectionBytes = static_cast<uint32_t>(file.size());
   // Explicit close() required: member variable persists beyond function scope
   file.close();
   if (!promoteSectionCache(tmpSectionPath, filePath)) {
@@ -806,11 +808,14 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   partial_ = false;
   partialPageCount_ = 0;
   partialProtectedImageUnits_ = 0;
+  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu ms=%lu", spineIndex, pageCount,
+          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(millis() - buildStartedMs));
   return true;
 }
 
 bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions buildOptions,
                          const std::function<void()>& popupFn) {
+  [[maybe_unused]] const uint32_t buildStartedMs = millis();  // includes HTML inflate
   const int fontId = spec.fontId;
   const float lineCompression = spec.lineCompression;
   const bool extraParagraphSpacing = spec.extraParagraphSpacing;
@@ -1016,6 +1021,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   }
 
   Hyphenator::setPreferredLanguage(epub->getLanguage());
+  ctx->startedMs = buildStartedMs;
   build_ = std::move(ctx);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
@@ -1214,6 +1220,7 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
     LOG_ERR("SCT", "Failed to commit section cache");
     return failCommit();
   }
+  [[maybe_unused]] const uint32_t sectionBytes = static_cast<uint32_t>(file.size());
   // Explicit close() required: member variable persists beyond function scope
   file.close();
 
@@ -1224,6 +1231,9 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
     Storage.remove(build_->tmpSectionPath.c_str());
     return false;
   }
+  LOG_DBG("SCT", "Section %s: spine=%d pages=%u bytes=%lu wall_ms=%lu", asPartial ? "partial" : "built", spineIndex,
+          builtPageCount_, static_cast<unsigned long>(sectionBytes),
+          static_cast<unsigned long>(millis() - build_->startedMs));
   return true;
 }
 

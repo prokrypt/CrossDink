@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <Serialization.h>
 
 #include <algorithm>
@@ -514,6 +515,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   // Try to render from cache first
   std::string cachePath = getCachePath(imagePath);
   if (renderFromCache(renderer, cachePath, x, y, width, height)) {
+    PerfLog::noteImage(/*cacheHit=*/true, 0);
     renderer.preserveImagePolarity(x, y, width, height);
     return;  // Successfully rendered from cache
   }
@@ -561,7 +563,12 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     return;
   }
 
+  const uint32_t decodeStartedMs = millis();
   bool success = decoder->decodeToFramebuffer(imagePath, renderer, config);
+  const uint32_t decodeMs = millis() - decodeStartedMs;
+  PerfLog::noteImage(/*cacheHit=*/false, decodeMs);
+  LOG_DBG("IMG", "Decoded %dx%d in %lu ms (cache %s)", width, height, static_cast<unsigned long>(decodeMs),
+          config.cachePath.empty() ? "off" : "write");
   if (!success) {
     LOG_ERR("IMG", "Failed to decode image: %s", imagePath.c_str());
     rememberImageFailure(imagePath);

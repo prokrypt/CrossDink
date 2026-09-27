@@ -19,6 +19,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <SPI.h>
 #include <WiFi.h>
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
@@ -321,6 +322,7 @@ using BootResume = SleepWakePolicy::Resume;
 static bool deepSleepInProgress = false;
 
 static void restartWithSilentToken() {
+  PerfLog::noteRestart();
   // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
   // policy change the light without saving it, so hand the live state over.
   silentRebootFrontlight = Frontlight.isOn() ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
@@ -1863,6 +1865,7 @@ void loop() {
   static unsigned long lastCoreLoadLog = 0;
   if (millis() - lastCoreLoadLog >= 2000) {
     CoreLoadLog::logSinceLast();
+    PerfLog::logPeriodic();
     lastCoreLoadLog = millis();
   }
 
@@ -1885,6 +1888,9 @@ void loop() {
                                  || gpio.wasTouchActivity()
 #endif
                                  || halTiltSensor.hadActivity();
+#if CROSSDINK_PERF_LOG
+  if (userInputReceived) PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased());
+#endif
 
   // User input paces power saving. Background work that only has to keep the
   // device out of deep sleep (automatic page turn, sync screens) holds off the

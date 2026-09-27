@@ -43,6 +43,9 @@ TouchActionButtons::Layout promptActionLayout(const Rect& screen, const ThemeMet
 uint8_t sLastStaDisconnectReason = 0;
 bool sConnectionAttemptLoggingActive = false;
 bool sWifiEventLoggingRegistered = false;
+// Connect phases: WiFi.begin() -> associated (includes the channel scan) -> DHCP lease.
+unsigned long sBeginMs = 0;
+unsigned long sAssocMs = 0;
 #endif
 
 std::string getDisplayMacAddress() {
@@ -70,11 +73,14 @@ void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-      LOG_INF("WIFI", "STA event: connected to AP");
+      sAssocMs = millis();
+      LOG_INF("WIFI", "STA event: connected to AP (assoc %lu ms)", sAssocMs - sBeginMs);
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
       const uint8_t* ip = reinterpret_cast<const uint8_t*>(&info.got_ip.ip_info.ip.addr);
-      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+      const unsigned long now = millis();
+      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u (dhcp %lu ms, total %lu ms)", ip[0], ip[1], ip[2], ip[3],
+              sAssocMs != 0 ? now - sAssocMs : 0UL, now - sBeginMs);
       break;
     }
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
@@ -701,6 +707,10 @@ void WifiSelectionActivity::attemptConnection() {
   WiFi.setHostname(hostname.c_str());
 
   wl_status_t beginStatus = WL_IDLE_STATUS;
+#ifndef SIMULATOR
+  sBeginMs = millis();
+  sAssocMs = 0;
+#endif
   if (selectedRequiresPassword && !enteredPassword.empty()) {
     beginStatus = WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());
   } else {

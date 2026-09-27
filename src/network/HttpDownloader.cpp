@@ -437,9 +437,10 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
   return HttpDownloader::HTTP_ERROR;
 }
 
-HttpDownloader::DownloadError runGet(const std::string& url, const std::string& username, const std::string& password,
-                                     const std::string_view authorizationOrigin, Sink& sink, const size_t bufferSize,
-                                     const HttpDownloader::Transport transport) {
+HttpDownloader::DownloadError runGetTransport(const std::string& url, const std::string& username,
+                                              const std::string& password, const std::string_view authorizationOrigin,
+                                              Sink& sink, const size_t bufferSize,
+                                              const HttpDownloader::Transport transport) {
   HttpRedirectPolicy::Url credentialOrigin;
   const std::string_view credentialUrl = authorizationOrigin.empty() ? std::string_view(url) : authorizationOrigin;
   const bool hasCredentials =
@@ -452,6 +453,22 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
   (void)transport;
 #endif
   return runGetDefault(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize);
+}
+
+HttpDownloader::DownloadError runGet(const std::string& url, const std::string& username, const std::string& password,
+                                     const std::string_view authorizationOrigin, Sink& sink, const size_t bufferSize,
+                                     const HttpDownloader::Transport transport) {
+  const unsigned long startedMs = millis();
+  const size_t startBytes = sink.downloaded;
+  const auto result = runGetTransport(url, username, password, authorizationOrigin, sink, bufferSize, transport);
+  // One line per request (redirects and TLS handshakes included) for KB/s.
+  const unsigned long ms = millis() - startedMs;
+  const size_t bytes = sink.downloaded - startBytes;
+  LOG_DBG("HTTP", "GET done: err=%d bytes=%u ms=%lu KBps=%lu", static_cast<int>(result), static_cast<unsigned>(bytes),
+          ms, ms > 0 ? static_cast<unsigned long>(bytes / ms) : 0UL);
+  (void)ms;
+  (void)bytes;
+  return result;
 }
 }  // namespace
 
