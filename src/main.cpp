@@ -27,6 +27,7 @@
 #endif
 #ifndef SIMULATOR
 #include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -39,6 +40,7 @@
 
 #include "AppCapabilities.h"
 #include "util/BootReason.h"
+#include "util/BuildInfo.h"
 
 #ifndef SIMULATOR
 #include <nvs.h>
@@ -1416,6 +1418,16 @@ void setup() {
   // checkPanic() clears the watchdog capture marker after a successful SD
   // dump, so retain the boot classification for the later activity route.
   const bool rebootedFromPanic = HalSystem::isRebootFromPanic();
+  // Build identity first, so every log capture names the firmware it came from.
+#ifdef SIMULATOR
+  [[maybe_unused]] const char* runningPart = "sim";
+#else
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  [[maybe_unused]] const char* runningPart = running ? running->label : "?";
+#endif
+  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", CROSSDINK_VERSION, CROSSDINK_GIT_SHA,
+          strcmp(CROSSDINK_GIT_DIRTY, "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
+          BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
 
