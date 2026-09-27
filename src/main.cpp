@@ -321,8 +321,52 @@ using BootResume = SleepWakePolicy::Resume;
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
+#if CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY && !defined(SIMULATOR)
+// The frame on the panel at a silent restart, so the first paint after it can
+// be a Fast refresh instead of a full flash (the controller forgets its OLD
+// plane on reset). PSRAM noinit survives ESP.restart() and is skipped by the
+// boot memory test; the CRC rejects power-on garbage.
+struct RetainedPanelFrame {
+  static constexpr uint32_t MAGIC = 0x46524D31;  // "FRM1"
+  static constexpr size_t CAPACITY = 64 * 1024;
+  uint32_t magic;
+  uint32_t size;
+  uint32_t crc;
+  uint8_t bytes[CAPACITY];
+};
+EXT_RAM_NOINIT_ATTR RetainedPanelFrame retainedPanelFrame;
+
+static void retainPanelFrame() {
+  retainedPanelFrame.magic = 0;
+  const uint8_t* frame = display.getFrameBuffer();
+  const size_t size = display.getBufferSize();
+  // Inverted frames are flipped in place only while they are sent.
+  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0) return;
+  memcpy(retainedPanelFrame.bytes, frame, size);
+  retainedPanelFrame.size = static_cast<uint32_t>(size);
+  retainedPanelFrame.crc = uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0);
+  retainedPanelFrame.magic = RetainedPanelFrame::MAGIC;
+}
+
+static void seedRetainedPanelFrame() {
+  const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
+  retainedPanelFrame.magic = 0;
+  const size_t size = display.getBufferSize();
+  if (!present || retainedPanelFrame.size != size ||
+      uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0) != retainedPanelFrame.crc) {
+    return;
+  }
+  const bool seeded = display.seedDisplayedFrame(retainedPanelFrame.bytes);
+  LOG_INF("MAIN", "Retained panel frame %s; first paint %s", seeded ? "loaded" : "unused", seeded ? "fast" : "full");
+}
+#else
+static void retainPanelFrame() {}
+static void seedRetainedPanelFrame() {}
+#endif
+
 static void restartWithSilentToken() {
   PerfLog::noteRestart();
+  retainPanelFrame();
   // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
   // policy change the light without saving it, so hand the live state over.
   silentRebootFrontlight = Frontlight.isOn() ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
@@ -1286,6 +1330,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
+  if (seamless) seedRetainedPanelFrame();
 #endif
   renderer.begin();
   display.setInverted(SETTINGS.screenInverted != 0);

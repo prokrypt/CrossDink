@@ -83,6 +83,11 @@ void HalDisplay::begin(bool seamless) {
   }
 }
 
+bool HalDisplay::seedDisplayedFrame(const uint8_t* frame) {
+  HalSpiBus::Lock spiLock;
+  return einkDisplay.seedDisplayedFrame(frame);
+}
+
 void HalDisplay::clearScreen(uint8_t color) const { einkDisplay.clearScreen(color); }
 
 void HalDisplay::drawImage(const uint8_t* imageData, uint16_t x, uint16_t y, uint16_t w, uint16_t h,

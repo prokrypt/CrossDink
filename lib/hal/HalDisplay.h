@@ -29,6 +29,10 @@ class HalDisplay {
   // counter; otherwise the first two paints get promoted to FULL
   // (~770ms each on X3).
   void begin(bool seamless = false);
+  // After a silent restart: the panel still shows `frame`, so the driver can
+  // use it as the previous frame and make the first paint Fast. Call after
+  // begin(). False when the panel driver cannot use it.
+  bool seedDisplayedFrame(const uint8_t* frame);
 
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
