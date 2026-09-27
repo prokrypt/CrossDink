@@ -12,6 +12,7 @@ Simulator environments set CROSSINK_VERSION directly in platformio.ini.
 """
 
 import configparser
+import datetime
 import os
 import re
 import subprocess
@@ -100,6 +101,54 @@ def get_git_dirty(project_dir):
         return 'unknown'
 
 
+def get_build_number(project_dir):
+    # Batch/CI builds may pass their own number; otherwise use the commit count,
+    # which only means something when the full history is checked out. Shallow
+    # CI checkouts would all report 1, so they get no number at all.
+    number = os.environ.get('CROSSINK_BUILD_NUMBER')
+    if number:
+        return sanitize_version_component(number)
+    if run_git_value(project_dir, ['rev-parse', '--is-shallow-repository'], 'shallow state') != 'false':
+        return ''
+    number = run_git_value(project_dir, ['rev-list', '--count', 'HEAD'], 'build number')
+    return number if number.isdigit() else ''
+
+
+def short_branch_label(branch):
+    # Batch branches (test/combined-0927-b11) show as their batch number; other
+    # branches drop their prefix folder (claude/, feature/, fix/).
+    batch = re.search(r'combined-\d+-(b\d+)$', branch)
+    if batch:
+        return batch.group(1)
+    return branch.rsplit('/', 1)[-1] or 'unknown'
+
+
+def register_build_info(env, project_dir):
+    # The build time changes on every build. Defining it globally would change
+    # every compile command and force a full rebuild, so scope these defines to
+    # the one small file that exposes them.
+    branch = run_git_value(
+        project_dir, ['rev-parse', '--abbrev-ref', 'HEAD'], 'branch'
+    )
+    if branch == 'HEAD':
+        branch = 'detached'
+    branch = re.sub(r'[^A-Za-z0-9._/-]+', '-', branch) or 'unknown'
+    build_time = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%MZ')
+    defines = [
+        ('CROSSINK_GIT_BRANCH', f'\\"{branch}\\"'),
+        ('CROSSINK_GIT_BRANCH_SHORT', f'\\"{short_branch_label(branch)}\\"'),
+        ('CROSSINK_BUILD_NUMBER', f'\\"{get_build_number(project_dir)}\\"'),
+        ('CROSSINK_BUILD_TIME', f'\\"{build_time}\\"'),
+    ]
+
+    def add_build_info_defines(node_env, node):
+        build_env = node_env.Clone()
+        build_env.Append(CPPDEFINES=defines)
+        return build_env.Object(node)
+
+    env.AddBuildMiddleware(add_build_info_defines, '*src/util/BuildInfo.cpp')
+
+
 def _read_ini(project_dir):
     ini_path = os.path.join(project_dir, 'platformio.ini')
     local_ini_path = os.path.join(project_dir, 'platformio.local.ini')
@@ -156,7 +205,12 @@ def get_hardware_version(project_dir, pioenv):
         if os.environ.get('CROSSINK_RELEASE_VERSION')
         else get_crossink_version(project_dir)
     )
-    device_suffix = {'sticky': '-sticky', 'x4-pro': '-x4-pro', 'x4-classic': '-x4-classic'}[pioenv]
+    device_suffix = {
+        'sticky': '-sticky',
+        'x4-pro': '-x4-pro',
+        'x4-pro-light-sleep': '-x4-pro',
+        'x4-classic': '-x4-classic',
+    }[pioenv]
     return f'{base_version}{device_suffix}'
 
 
@@ -172,7 +226,10 @@ def inject_version(env):
         ('CROSSINK_PIOENV', f'\\"{pioenv}\\"'),
     ])
 
-    if pioenv in {'default', 'sticky', 'x4-pro', 'x4-classic'}:
+    if hasattr(env, 'AddBuildMiddleware'):
+        register_build_info(env, project_dir)
+
+    if pioenv in {'default', 'sticky', 'x4-pro', 'x4-pro-light-sleep', 'x4-classic'}:
         version_string = get_hardware_version(project_dir, pioenv)
         if os.environ.get('CROSSINK_RC_HASH'):
             print(f'CrossInk RC build version: {version_string}')
@@ -206,7 +263,7 @@ def inject_version(env):
         ])
         print(f'CrossInk test build version: {ci_version}{suffix}')
 
-    elif pioenv in {'x4-pro-debug', 'x4-classic-debug'}:
+    elif pioenv in {'x4-pro-debug', 'x4-pro-light-sleep-debug', 'x4-classic-debug'}:
         branch = get_git_branch(project_dir)
         short_hash = get_git_short_hash(project_dir)
         ci_version = get_crossink_version(project_dir)

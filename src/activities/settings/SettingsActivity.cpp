@@ -50,6 +50,7 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/frontlightHeaderIcons.h"
 #include "fontIds.h"
+#include "util/BuildInfo.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
 
@@ -148,12 +149,31 @@ std::string formatCompactDuration(const uint32_t seconds) {
   return buf;
 }
 
+constexpr const char* systemVersionLabel = "CrossInk " CROSSINK_VERSION;
+
+// Space below the settings list for the System footer: the build details line
+// plus the version on one line, or two when it has to wrap.
+int systemVersionFooterReserve(const GfxRenderer& renderer, const int pageWidth, const ThemeMetrics& metrics) {
+  const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
+  const int versionLines = renderer.getTextWidth(SMALL_FONT_ID, systemVersionLabel) <= maxWidth ? 1 : 2;
+  return metrics.verticalSpacing + systemVersionFooterBottomInset +
+         versionLines * renderer.getLineHeight(SMALL_FONT_ID);
+}
+
 void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
                              const ThemeMetrics& metrics) {
-  const std::string label = "CrossInk " CROSSINK_VERSION;
+  const std::string label = systemVersionLabel;
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
-  const int bottomLineY =
+  const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int detailsLineY =
       pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - systemVersionFooterBottomInset;
+  const int bottomLineY = detailsLineY - lineHeight;
+
+  // Short branch and commit; "*" marks uncommitted changes.
+  char details[64];
+  snprintf(details, sizeof(details), "%s %s%s", BuildInfo::shortBranch(), CROSSINK_GIT_SHA,
+           strcmp(CROSSINK_GIT_DIRTY, "1") == 0 ? "*" : "");
+  drawCenteredTextLine(renderer, pageWidth, detailsLineY, renderer.truncatedText(SMALL_FONT_ID, details, maxWidth));
 
   if (renderer.getTextWidth(SMALL_FONT_ID, label.c_str()) <= maxWidth) {
     drawCenteredTextLine(renderer, pageWidth, bottomLineY, label);
@@ -182,7 +202,6 @@ void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, c
   const std::string secondLine = lineBreak == std::string::npos
                                      ? ""
                                      : renderer.truncatedText(SMALL_FONT_ID, label.substr(lineBreak).c_str(), maxWidth);
-  const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   drawCenteredTextLine(renderer, pageWidth, bottomLineY - lineHeight, firstLine);
   drawCenteredTextLine(renderer, pageWidth, bottomLineY, secondLine);
 }
@@ -1374,8 +1393,11 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   // compact header geometry is in absolute screen coordinates. Overlap the
   // tab's top rule with the header's final underline pixel.
   const int tabTop = std::max<int>(safe.y, CompactHeader::headerBottomY(metrics) - 1);
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(tabTop - safe.y), 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  int bottomMargin = metrics.buttonHintsHeight;
+  if (!isFileBrowserView() && selectedCategoryIndex == 3) {
+    bottomMargin += systemVersionFooterReserve(renderer, renderer.getScreenWidth(), metrics);
+  }
+  screen.setContentMargin(fui::Insets{static_cast<int16_t>(tabTop - safe.y), 0, static_cast<int16_t>(bottomMargin), 0});
 
   if (isFileBrowserView()) {
     screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));

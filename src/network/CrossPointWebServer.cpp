@@ -46,6 +46,7 @@
 #include "html/js/jszip_minJs.generated.h"
 #include "util/BookCacheUtils.h"
 #include "util/BootReason.h"
+#include "util/BuildInfo.h"
 #include "util/FontFamilyLabel.h"
 #include "util/StringUtils.h"
 
@@ -776,6 +777,9 @@ void CrossPointWebServer::handleStatus() const {
   build["env"] = CROSSINK_PIOENV;
   build["gitSha"] = CROSSINK_GIT_SHA;
   build["gitDirty"] = CROSSINK_GIT_DIRTY;
+  build["gitBranch"] = BuildInfo::gitBranch();
+  build["buildNumber"] = BuildInfo::buildNumber();
+  build["buildTime"] = BuildInfo::buildTime();
 
 #ifndef SIMULATOR
   const BoardConfig::BoardProfile& board = BoardConfig::ACTIVE;
