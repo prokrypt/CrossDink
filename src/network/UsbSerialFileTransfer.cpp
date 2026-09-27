@@ -742,7 +742,7 @@ ProcessResult handleLine() {
 #if CROSSDINK_PSRAM_LOG
   if (strcmp(lineBuffer, "CMD:PSRAMLOG") == 0) {
     // Debug builds: dump the PSRAM log ring (survives software restarts).
-    static char chunk[1024];
+    EXT_RAM_BSS_ATTR static char chunk[1024];
     uint32_t cursor = PsramLog::oldest();
     const uint32_t end = PsramLog::end();
     logSerial.printf("PSRAMLOG_START:%lu\n", static_cast<unsigned long>(end - cursor));

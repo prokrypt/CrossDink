@@ -15,6 +15,7 @@
 #endif
 
 #include <Logging.h>
+#include <esp_attr.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -34,9 +35,9 @@ struct PreviousRunTime {
   configRUN_TIME_COUNTER_TYPE runTime;
 };
 
-TaskStatus_t statuses[kMaxTasks];
-configRUN_TIME_COUNTER_TYPE deltas[kMaxTasks];
-PreviousRunTime previous[kMaxTasks];
+EXT_RAM_BSS_ATTR TaskStatus_t statuses[kMaxTasks];
+EXT_RAM_BSS_ATTR configRUN_TIME_COUNTER_TYPE deltas[kMaxTasks];
+EXT_RAM_BSS_ATTR PreviousRunTime previous[kMaxTasks];
 UBaseType_t previousCount = 0;
 int64_t previousSampleUs = 0;
 
