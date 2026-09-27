@@ -5,6 +5,7 @@
 - View a selected book's reading stats from its Library or File Browser action menu.
 - Library replaces Recent Books with a searchable book list, and adds various book metadata sort options.
 - Reset a book's reader settings from the in-reader Settings tab.
+- The OPDS browser asks before downloading a book that is already on the SD card, showing the existing file's size and date. Cancel is selected by default.
 - Assign actions to upward and downward slides along either screen edge on touch devices.
 - Automatic light sleep is available on the X3/X4 and Sticky and in the X4 Pro light-sleep firmware profiles, reducing idle power while retaining normal button, touch, and frontlight behavior. USB serial stays available while a computer is connected, because the device skips light sleep for as long as a USB host is attached. USB Drive also works in these profiles and keeps the device awake while it is open.
 - Add the continuous **IncreMENTAL** EPUB indexing method for background chapter indexing.

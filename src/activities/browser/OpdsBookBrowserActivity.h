@@ -106,7 +106,11 @@ class OpdsBookBrowserActivity final : public Activity {
   // listing instead of pushing it onto the Back history.
   void navigateToEntry(const OpdsEntry& entry, bool pageLink);
   void navigateBack();
-  void downloadBook(const OpdsEntry& book);
+  // Asks before replacing a book already on SD (showing its size and date),
+  // otherwise downloads straight away.
+  void requestDownload(const OpdsEntry& book);
+  // filename: the SD destination from requestDownload.
+  void downloadBook(const OpdsEntry& book, const std::string& filename);
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;
