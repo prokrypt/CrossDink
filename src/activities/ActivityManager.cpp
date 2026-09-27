@@ -12,6 +12,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <TaskCores.h>
 
 #include <algorithm>
 
@@ -433,16 +434,11 @@ void ActivityManager::begin(const uint32_t renderTaskStackBytes) {
 #if CROSSINK_SCALABLE_FONTS
   ScalableFontAccess::configure(renderingMutex);
 #endif
-#if defined(configNUM_CORES) && configNUM_CORES > 1
-  constexpr BaseType_t renderTaskCore = 1;
-#else
-  constexpr BaseType_t renderTaskCore = 0;
-#endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender", renderTaskStackBytes,
                           this,               // Parameters
                           1,                  // Priority
                           &renderTaskHandle,  // Task handle
-                          renderTaskCore  // Keep long renders/cover decodes off CPU 0's idle watchdog when available
+                          TaskCores::kUi      // Keep long renders/cover decodes off CPU 0's idle watchdog
   );
   assert(renderTaskHandle != nullptr && "Failed to create render task");
   LOG_DBG("ACT", "Render task started with %lu-byte stack", static_cast<unsigned long>(renderTaskStackBytes));

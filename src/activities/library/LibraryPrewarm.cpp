@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
+#include <TaskCores.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -142,15 +143,11 @@ void start() {
   pausedMs = 0;
   paused.store(false, std::memory_order_release);
   cancelRequested.store(false, std::memory_order_release);
-  // Dual-core: priority 1 on core 0, which the loop and render tasks do not
-  // use. At idle priority it would time-slice with IDLE0 (which does not yield)
-  // and get about half the core. Single-core: idle priority, so the walk only
-  // gets the CPU when the loop and render tasks have nothing to do. Mutex
-  // priority inheritance covers the card lock either way.
-  const bool dualCore = portNUM_PROCESSORS > 1;
-  const BaseType_t core = dualCore ? 0 : tskNO_AFFINITY;
-  const UBaseType_t priority = dualCore ? tskIDLE_PRIORITY + 1 : tskIDLE_PRIORITY;
-  if (xTaskCreatePinnedToCore(&buildTask, "LibPrewarm", kStackBytes, nullptr, priority, &task, core) != pdPASS) {
+  // Priority 1 on the worker core, away from the render task. At idle
+  // priority it would time-slice with IDLE0 (which does not yield) and get
+  // about half the core. Mutex priority inheritance covers the card lock.
+  if (xTaskCreatePinnedToCore(&buildTask, "LibPrewarm", kStackBytes, nullptr, tskIDLE_PRIORITY + 1, &task,
+                              TaskCores::kWorker) != pdPASS) {
     task = nullptr;
     gaveUp = true;
     LOG_ERR("LIBPW", "Cannot start background Library build (%u free, %u max alloc)", ESP.getFreeHeap(),

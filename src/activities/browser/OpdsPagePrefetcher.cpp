@@ -4,6 +4,7 @@
 #ifndef SIMULATOR
 
 #include <Logging.h>
+#include <TaskCores.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -15,11 +16,9 @@ namespace {
 // wolfSSL handshake plus the HTTP client need more than the 4 KB used by the
 // SD-bound workers; the stack is internal RAM and lives only while a job runs.
 constexpr uint32_t PREFETCH_STACK_BYTES = 12 * 1024;
-// Same priority as the loop and render tasks, but pinned to core 0 (the Wi-Fi
-// core) while both of those run on core 1, so input and redraws never wait on
-// the download.
+// Same priority as the loop and render tasks, but pinned to the worker core
+// (also the Wi-Fi core) so redraws never wait on the download.
 constexpr UBaseType_t PREFETCH_PRIORITY = 1;
-constexpr BaseType_t PREFETCH_CORE = 0;
 constexpr TickType_t JOIN_POLL_TICKS = pdMS_TO_TICKS(10);
 }  // namespace
 
@@ -40,7 +39,7 @@ bool OpdsPagePrefetcher::start(Request&& request, const size_t maxBytes) {
   // The task stack must stay in internal RAM: Wi-Fi/TLS code runs on it and
   // PSRAM stacks are not safe while flash cache is disabled.
   if (xTaskCreatePinnedToCore(&taskEntry, "OpdsPrefetch", PREFETCH_STACK_BYTES, this, PREFETCH_PRIORITY, nullptr,
-                              PREFETCH_CORE) != pdPASS) {
+                              TaskCores::kWorker) != pdPASS) {
     active.store(false, std::memory_order_release);
     page.reset();
     LOG_ERR("OPDS", "Prefetch task could not start");
