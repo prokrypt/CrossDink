@@ -43,6 +43,20 @@ class KeyboardEntryActivity : public Activity {
   size_t minLength;
   bool passwordVisible = false;
 
+  // EXPERIMENT (test/kbd-uc8179): UC8179 keyboard refresh toggles.
+  static constexpr const char* KBD_EXP_PATH = "/.crosspoint/kbd-exp.txt";
+  static constexpr uint8_t KBD_EXP_SKIP_RESYNC = 1;
+  static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
+  static constexpr uint8_t KBD_EXP_DU_LUT = 4;
+  static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
+  uint8_t kbdExpFlags = 0;
+  uint8_t kbdExpFrames = 3;
+  uint8_t kbdExpPll = 0;
+  bool kbdExpFirstFrame = true;
+  std::atomic<unsigned long> strokeAtMs{0};
+  void loadKbdExperiment();
+  void requestStrokeUpdate();
+
   ButtonNavigator buttonNavigator;
 
   // Keyboard layers. The letter/symbol layers come from the SDK's builtin
