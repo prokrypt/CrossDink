@@ -1,6 +1,12 @@
 #include "CoreLoadLog.h"
 
-#if CROSSINK_CORE_LOAD_LOG
+#if CROSSINK_CORE_LOAD_LOG && !defined(SIMULATOR)
+
+#include <sdkconfig.h>
+
+#if !CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS || !CONFIG_FREERTOS_USE_TRACE_FACILITY
+#error "CROSSINK_CORE_LOAD_LOG needs CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS and CONFIG_FREERTOS_USE_TRACE_FACILITY"
+#endif
 
 #include <Logging.h>
 #include <esp_timer.h>
