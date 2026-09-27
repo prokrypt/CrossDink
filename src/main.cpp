@@ -1723,8 +1723,14 @@ void loop() {
 
   if (Serial && millis() - lastMemPrint >= 2000) {
     logMemoryStats("Periodic", true);
-    CoreLoadLog::logSinceLast();
     lastMemPrint = millis();
+  }
+  // Not gated on Serial: without a USB host these lines still reach the
+  // PSRAM log ring (debug builds), which is how they get read off the device.
+  static unsigned long lastCoreLoadLog = 0;
+  if (millis() - lastCoreLoadLog >= 2000) {
+    CoreLoadLog::logSinceLast();
+    lastCoreLoadLog = millis();
   }
 
   if (!buttonShortcutController.isQuickLocked() && UsbSerialFileTransfer::process(activityManager.isHomeActivity()) ==

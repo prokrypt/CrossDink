@@ -4,6 +4,7 @@
 
 #include <esp_attr.h>
 #include <esp_cache.h>
+#include <esp_psram.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <sdkconfig.h>
@@ -38,7 +39,6 @@ EXT_RAM_NOINIT_ATTR Ring ring;
 // Internal RAM, zeroed every boot.
 portMUX_TYPE ringMux = portMUX_INITIALIZER_UNLOCKED;
 bool initDone = false;
-bool restartMarkerPending = false;
 
 // PSRAM sits behind a write-back cache. Push the new bytes out right away so
 // a panic or restart that skips the cache flush still leaves them in PSRAM.
@@ -75,13 +75,32 @@ void appendRaw(const char* text, const uint32_t len) {
   writeBackRange(startHead, std::min(len, kRingBytes));
 }
 
-void ensureInit() {
-  if (initDone) return;
+// Header as found at boot, reported once in the first line this boot writes.
+uint32_t foundMagicA = 0, foundMagicB = 0, foundSize = 0, foundHead = 0;
+bool headerKept = false;
+bool bootLinePending = false;
+
+// Belt and braces for the per-append write-back: flush the header once more
+// on the way down through esp_restart().
+void flushHeaderOnRestart() { writeBack(&ring, offsetof(Ring, data)); }
+
+// PSRAM is mapped by Arduino's psramInit() inside initArduino(), after global
+// constructors run. Touching the ring before that reads an unmapped address
+// and would stamp a fresh header over the surviving one, so every entry point
+// waits until PSRAM is up; lines logged earlier are not kept.
+bool ensureInit() {
+  if (initDone) return true;
+  if (!esp_psram_is_initialized()) return false;
+  bool didInit = false;
   portENTER_CRITICAL_SAFE(&ringMux);
   if (!initDone) {
-    if (ring.magicA == kMagicA && ring.magicB == kMagicB && ring.size == kRingBytes) {
+    foundMagicA = ring.magicA;
+    foundMagicB = ring.magicB;
+    foundSize = ring.size;
+    foundHead = ring.head;
+    headerKept = ring.magicA == kMagicA && ring.magicB == kMagicB && ring.size == kRingBytes;
+    if (headerKept) {
       ring.restarts++;
-      restartMarkerPending = true;
     } else {
       ring.magicA = kMagicA;
       ring.size = kRingBytes;
@@ -89,33 +108,43 @@ void ensureInit() {
       ring.restarts = 0;
       ring.magicB = kMagicB;
     }
+    bootLinePending = true;
     initDone = true;
+    didInit = true;
   }
   portEXIT_CRITICAL_SAFE(&ringMux);
-  writeBack(&ring, offsetof(Ring, data));
+  if (didInit) {
+    writeBack(&ring, offsetof(Ring, data));
+    esp_register_shutdown_handler(flushHeaderOnRestart);
+  }
+  return true;
 }
 
-void appendRestartMarkerIfPending() {
-  if (!restartMarkerPending) return;
-  restartMarkerPending = false;
-  char marker[80];
-  const int len = snprintf(marker, sizeof(marker), "\n=== software restart #%lu (reset reason %d) ===\n",
-                           static_cast<unsigned long>(ring.restarts), static_cast<int>(esp_reset_reason()));
-  if (len > 0) appendRaw(marker, static_cast<uint32_t>(std::min<int>(len, sizeof(marker) - 1)));
+void appendBootLineIfPending() {
+  if (!bootLinePending) return;
+  bootLinePending = false;
+  char line[200];
+  const int len = snprintf(line, sizeof(line),
+                           "\n=== boot: PSRAM log %s, restart #%lu, reset reason %d, ring@%p, found magic %08lx/%08lx "
+                           "size %lu head %lu ===\n",
+                           headerKept ? "kept" : "reset", static_cast<unsigned long>(ring.restarts),
+                           static_cast<int>(esp_reset_reason()), static_cast<void*>(&ring),
+                           static_cast<unsigned long>(foundMagicA), static_cast<unsigned long>(foundMagicB),
+                           static_cast<unsigned long>(foundSize), static_cast<unsigned long>(foundHead));
+  if (len > 0) appendRaw(line, static_cast<uint32_t>(std::min<int>(len, sizeof(line) - 1)));
 }
 }  // namespace
 
 namespace PsramLog {
 
 void append(const char* text, const size_t len) {
-  if (len == 0) return;
-  ensureInit();
-  appendRestartMarkerIfPending();
+  if (len == 0 || !ensureInit()) return;
+  appendBootLineIfPending();
   appendRaw(text, static_cast<uint32_t>(len));
 }
 
 uint32_t oldest() {
-  ensureInit();
+  if (!ensureInit()) return 0;
   portENTER_CRITICAL_SAFE(&ringMux);
   const uint32_t head = ring.head;
   portEXIT_CRITICAL_SAFE(&ringMux);
@@ -123,7 +152,7 @@ uint32_t oldest() {
 }
 
 uint32_t end() {
-  ensureInit();
+  if (!ensureInit()) return 0;
   portENTER_CRITICAL_SAFE(&ringMux);
   const uint32_t head = ring.head;
   portEXIT_CRITICAL_SAFE(&ringMux);
@@ -131,7 +160,7 @@ uint32_t end() {
 }
 
 size_t read(uint32_t& cursor, char* dst, const size_t maxLen) {
-  ensureInit();
+  if (!ensureInit()) return 0;
   portENTER_CRITICAL_SAFE(&ringMux);
   const uint32_t head = ring.head;
   const uint32_t oldestByte = head > kRingBytes ? head - kRingBytes : 0;
