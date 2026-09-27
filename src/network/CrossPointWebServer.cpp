@@ -13,6 +13,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PsramLog.h>
 #include <WiFi.h>
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
@@ -453,6 +454,9 @@ void CrossPointWebServer::begin() {
   server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+#if CROSSINK_PSRAM_LOG
+  server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
+#endif
   server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
@@ -726,6 +730,24 @@ void CrossPointWebServer::handleExit() {
   exitFlashPath = std::move(flashPath);
   exitRequestPending = true;
 }
+
+#if CROSSINK_PSRAM_LOG
+// Debug builds: the PSRAM log ring, oldest first, including lines from before
+// the last software restarts.
+void CrossPointWebServer::handlePsramLog() const {
+  static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
+  uint32_t cursor = PsramLog::oldest();
+  const uint32_t end = PsramLog::end();
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "text/plain; charset=utf-8", "");
+  while (cursor < end) {
+    const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+    if (len == 0) break;
+    server->sendContent(chunk, len);
+  }
+  server->sendContent("");
+}
+#endif
 
 void CrossPointWebServer::handleStatus() const {
   // Get correct IP based on AP vs STA mode

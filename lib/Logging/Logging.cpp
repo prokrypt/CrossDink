@@ -1,6 +1,7 @@
 #include "Logging.h"
 
 #include <BoardConfig.h>
+#include <PsramLog.h>
 #include <esp_rom_sys.h>
 
 #include <cstdio>
@@ -100,6 +101,7 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   }
 #endif
   addToLogRingBuffer(buf);
+  PsramLog::append(buf, strnlen(buf, sizeof(buf)));
 }
 
 std::string getLastLogs() {

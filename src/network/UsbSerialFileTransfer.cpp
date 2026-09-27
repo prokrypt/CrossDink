@@ -4,6 +4,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <PsramLog.h>
 #include <SdCardFontSystem.h>
 #include <esp_rom_crc.h>
 
@@ -738,6 +739,21 @@ ProcessResult handleLine() {
   if (strcmp(lineBuffer, "CMD:SCREENSHOT") == 0) {
     return ProcessResult::ScreenshotRequested;
   }
+#if CROSSINK_PSRAM_LOG
+  if (strcmp(lineBuffer, "CMD:PSRAMLOG") == 0) {
+    // Debug builds: dump the PSRAM log ring (survives software restarts).
+    static char chunk[1024];
+    uint32_t cursor = PsramLog::oldest();
+    const uint32_t end = PsramLog::end();
+    logSerial.printf("PSRAMLOG_START:%lu\n", static_cast<unsigned long>(end - cursor));
+    while (cursor < end) {
+      const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+      if (len == 0) break;
+      logSerial.write(reinterpret_cast<const uint8_t*>(chunk), len);
+    }
+    logSerial.printf("\nPSRAMLOG_END\n");
+  }
+#endif
   return ProcessResult::None;
 }
 
