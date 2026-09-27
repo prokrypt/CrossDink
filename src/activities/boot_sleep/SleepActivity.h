@@ -17,6 +17,9 @@ class SleepActivity final : public Activity {
         fromTimeout(fromTimeout),
         sleepPopupOrientation(sleepPopupOrientation) {}
   void onEnter() override;
+  // True when this sleep screen needs nothing the outgoing activity saves on
+  // exit, so it may be drawn before that activity's onExit() runs.
+  static bool rendersBeforeExit(const std::string& currentBookPath, bool fromTimeout);
 
  private:
   void renderDefaultSleepScreen() const;

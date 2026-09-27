@@ -1153,12 +1153,14 @@ void enterDeepSleep(bool fromTimeout) {
     // it visible until the first useful reader or Home paint replaces it.
     APP_STATE.showBootScreen = false;
 
-    APP_STATE.saveToFile();
-
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
     activityManager.goToSleep(fromTimeout);
+    // Persist after the sleep screen is up so the write does not delay it. The
+    // reader's onExit() usually saves the same state already, so this write is
+    // then skipped as unchanged.
+    APP_STATE.saveToFile();
 
     // Sleep screens refresh synchronously and display.deepSleep() waits out any
     // pending refresh and the power-off, so no settle delay is needed here. A

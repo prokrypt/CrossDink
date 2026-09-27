@@ -1057,8 +1057,28 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
 void ActivityManager::goToSleep(bool fromTimeout) {
   const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
   const GfxRenderer::Orientation sleepPopupOrientation = renderer.getOrientation();
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay, getCurrentBookPath(),
-                                                  fromTimeout, sleepPopupOrientation));
+  std::string currentBookPath = getCurrentBookPath();
+  const bool renderBeforeExit = currentActivity && SleepActivity::rendersBeforeExit(currentBookPath, fromTimeout);
+  auto sleepActivity = std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay,
+                                                       std::move(currentBookPath), fromTimeout, sleepPopupOrientation);
+  if (renderBeforeExit) {
+    // Draw the sleep screen first, then let the outgoing activities save their
+    // progress and stats. Holding the render lock throughout keeps the render
+    // task from repainting the outgoing activity over the sleep screen.
+    RenderLock lock;
+    TouchRegistry::getInstance().clear();
+    sleepActivity->onEnter();
+    exitActivity(lock);
+    while (!stackActivities.empty()) {
+      stackActivities.back()->onExit();
+      stackActivities.pop_back();
+    }
+    pendingActivity.reset();
+    pendingAction = PendingAction::None;
+    currentActivity = std::move(sleepActivity);
+    return;
+  }
+  replaceActivity(std::move(sleepActivity));
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 
