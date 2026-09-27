@@ -75,6 +75,7 @@
 #include "util/BatteryDiagnosticLog.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
+#include "util/CoreLoadLog.h"
 #include "util/Dictionary.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
@@ -1716,6 +1717,7 @@ void loop() {
 
   if (Serial && millis() - lastMemPrint >= 2000) {
     logMemoryStats("Periodic", true);
+    CoreLoadLog::logSinceLast();
     lastMemPrint = millis();
   }
 
