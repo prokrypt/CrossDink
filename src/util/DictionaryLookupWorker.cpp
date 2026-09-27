@@ -1,6 +1,7 @@
 #include "DictionaryLookupWorker.h"
 
 #include <Logging.h>
+#include <TaskCores.h>
 
 #include "DictionaryLookupController.h"
 
@@ -11,7 +12,14 @@ DictionaryLookupWorker& DictionaryLookupWorker::instance() {
 
 bool DictionaryLookupWorker::start(DictionaryLookupController& owner) {
   if (taskHandle_ == nullptr) {
+#ifdef SIMULATOR
     taskHandle_ = xTaskCreateStatic(taskEntry, "DictLookup", kStackBytes, this, 1, stack_, &taskStorage_);
+#else
+    // Worker core: a lookup scans dictionary files on SD and must not
+    // time-slice with the render task.
+    taskHandle_ = xTaskCreateStaticPinnedToCore(taskEntry, "DictLookup", kStackBytes, this, 1, stack_, &taskStorage_,
+                                                TaskCores::kWorker);
+#endif
     if (taskHandle_ == nullptr) {
       LOG_ERR("DICT", "Could not start static dictionary lookup worker");
       return false;
