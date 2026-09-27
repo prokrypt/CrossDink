@@ -221,11 +221,9 @@ void updateLiveLightSwipe(Activity& activity, ActivityManager& activityManager, 
   const int difference = sign * (target - current);
   if (difference != 0 || (brightness && amount != 0 && !Frontlight.isOn()))
     applyConfiguredSwipeAction(activity, activityManager, state.action, difference, false);
-  if (brightness && amount == 0 && Frontlight.isOn() != state.initialOn) {
-    Frontlight.setOn(state.initialOn);
-    SETTINGS.frontlightOn = state.initialOn ? 1 : 0;
-    activity.onExternalFrontlightChange();
-  }
+  // Without a dead zone, amount 0 is only a narrow band mid-drag, so restoring
+  // the initial on/off state here would blink the light off and back on while
+  // reversing through it. cancelLiveLightSwipe() restores it when needed.
   state.changed = (brightness ? Frontlight.brightness() : Frontlight.warmth()) != state.initialValue ||
                   Frontlight.isOn() != state.initialOn;
 }
@@ -992,13 +990,14 @@ void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
 }
 
-void ActivityManager::goToLibrary() {
+bool ActivityManager::goToLibrary() {
   auto library = makeUniqueNoThrow<LibraryActivity>(renderer, mappedInput);
   if (!library) {
     LOG_ERR("ACT", "Cannot allocate Library activity");
-    return;
+    return false;
   }
   replaceActivity(std::move(library));
+  return true;
 }
 
 void ActivityManager::goToBrowser() {
@@ -1058,8 +1057,28 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
 void ActivityManager::goToSleep(bool fromTimeout) {
   const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
   const GfxRenderer::Orientation sleepPopupOrientation = renderer.getOrientation();
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay, getCurrentBookPath(),
-                                                  fromTimeout, sleepPopupOrientation));
+  std::string currentBookPath = getCurrentBookPath();
+  const bool renderBeforeExit = currentActivity && SleepActivity::rendersBeforeExit(currentBookPath, fromTimeout);
+  auto sleepActivity = std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay,
+                                                       std::move(currentBookPath), fromTimeout, sleepPopupOrientation);
+  if (renderBeforeExit) {
+    // Draw the sleep screen first, then let the outgoing activities save their
+    // progress and stats. Holding the render lock throughout keeps the render
+    // task from repainting the outgoing activity over the sleep screen.
+    RenderLock lock;
+    TouchRegistry::getInstance().clear();
+    sleepActivity->onEnter();
+    exitActivity(lock);
+    while (!stackActivities.empty()) {
+      stackActivities.back()->onExit();
+      stackActivities.pop_back();
+    }
+    pendingActivity.reset();
+    pendingAction = PendingAction::None;
+    currentActivity = std::move(sleepActivity);
+    return;
+  }
+  replaceActivity(std::move(sleepActivity));
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 

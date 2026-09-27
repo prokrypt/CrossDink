@@ -19,7 +19,7 @@ later.
 | ------------ | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Full Section | Builds and caches the whole chapter before it is shown.                                                     | Normal page turns within the chapter do not need more indexing. | A large uncached chapter can take a noticeable time to open.                                                 |
 | Incremental  | Builds enough pages to show your current position, then keeps a five-page look-ahead while you read.         | Reduces background indexing work and power use while preserving early reading. | You may see **Indexing** more often when reading quickly or reopening a partial chapter. |
-| IncreMENTAL  | Builds enough pages to show your current position, then continues in small background steps while you read. | You can begin reading a large chapter sooner.                   | If you reach pages that have not been built yet, CrossInk may briefly show **Indexing** while it catches up. |
+| IncreMENTAL  | Builds enough pages to show your current position, then continues in small background steps while you read. | Starts as fast as Incremental, with fewer **Indexing** catch-up waits. | Keeps indexing in the background (CPU and battery) until the chapter cache is complete. |
 
 ## Full Section
 
@@ -70,19 +70,19 @@ unbuilt part of the chapter, or turn pages faster than the background work can
 stay ahead. That is normal: CrossInk is building just enough additional pages
 to make the requested position readable.
 
-## IncreMENTAL
-
-IncreMENTAL is the continuous version of Incremental indexing. It builds a
-small number of pages at a time in the background and keeps working toward a
-complete chapter cache while you read. This reduces catch-up waits, at the
-cost of doing more background work before you leave the chapter.
-
 KOReader Sync uses the same content location rather than the other device's
 page number. If a synced location is beyond this device's saved incremental
 prefix, CrossInk indexes forward until that location is available. Switching
 between Incremental and Full Section does not change the saved reading location:
 Full Section resolves it as soon as the chapter is built, while Incremental only
 builds through the requested content.
+
+## IncreMENTAL
+
+IncreMENTAL is the continuous version of Incremental indexing. It builds a
+small number of pages at a time in the background and keeps working toward a
+complete chapter cache while you read. This reduces catch-up waits, at the
+cost of doing more background work before you leave the chapter.
 
 ## Changing The Setting
 

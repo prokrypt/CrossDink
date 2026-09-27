@@ -637,6 +637,47 @@ void SleepActivity::onEnter() {
   }
 }
 
+bool SleepActivity::rendersBeforeExit(const std::string& currentBookPath, const bool fromTimeout) {
+#if FREEINK_MCU_S3 && !defined(SIMULATOR)
+  // The outgoing reader keeps its heap until onExit(); only PSRAM boards have
+  // room to decode a sleep image alongside it.
+  if (fromTimeout &&
+      SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT) {
+    return false;
+  }
+  switch (SETTINGS.sleepScreen) {
+    case CrossPointSettings::SLEEP_SCREEN_MODE::DARK:
+    case CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT:
+    case CrossPointSettings::SLEEP_SCREEN_MODE::BLANK:
+    case CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM:
+      return true;
+    case CrossPointSettings::SLEEP_SCREEN_MODE::COVER:
+    case CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM: {
+      if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM &&
+          !APP_STATE.lastSleepFromReader) {
+        return true;
+      }
+      // An uncached cover is extracted from the book, which needs the memory
+      // the reader releases on exit. Keep the original order for that case.
+      const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
+      if (path.empty()) return true;
+      const bool absolute = display.grayscaleCapabilities(HalDisplay::GrayscaleMode::Absolute).supported() &&
+                            SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
+      const bool cropped = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
+      return !SleepCoverAssets::cachedCoverPathFor(path, cropped, absolute).empty();
+    }
+    default:
+      // Stats, recent-book and overlay screens read what the reader saves on
+      // exit; Quick Resume snapshots the live frame in its own path.
+      return false;
+  }
+#else
+  (void)currentBookPath;
+  (void)fromTimeout;
+  return false;
+#endif
+}
+
 void SleepActivity::renderCustomSleepScreen() const {
   const auto tryRenderSelection = [this](const SleepImageSelection& selection) {
     FsFile file;
@@ -780,21 +821,16 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
   const bool hasGreyscale = bitmap.hasGreyscale() &&
                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
 
-  if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY)) return false;
-
-  if (extendEdges) {
-    extendBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
-  } else if (mirrorEdges) {
-    mirrorBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
-  }
-
-  if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
-    renderer.invertScreen();
-  }
-
-  if (!hasGreyscale) {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
-    return true;
+  // The margin helpers need the rectangle drawBitmap actually covers. It only
+  // matches the bitmap size when setDitheredOutputSize() pre-scaled it; otherwise
+  // drawBitmap scales an oversized image itself (Extend modes never crop).
+  int drawnWidth = bitmap.getWidth();
+  int drawnHeight = bitmap.getHeight();
+  if (drawnWidth > pageWidth || drawnHeight > pageHeight) {
+    const float scale = std::min(static_cast<float>(pageWidth) / static_cast<float>(drawnWidth),
+                                 static_cast<float>(pageHeight) / static_cast<float>(drawnHeight));
+    drawnWidth = static_cast<int>(std::floor((drawnWidth - 1) * scale)) + 1;
+    drawnHeight = static_cast<int>(std::floor((drawnHeight - 1) * scale)) + 1;
   }
 
   // Prefer the Direct waveform where the panel implements it: it folds the B/W
@@ -804,6 +840,32 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
   // is only ever an upgrade on top of it, never a substitute.
   const bool absolute = renderer.supportsAbsoluteGrayscale();
   const bool direct = absolute && renderer.supportsDirectGrayscale();
+  // Direct starts from the two complete gray planes and never reads the B/W
+  // frame buffer, so a B/W render ahead of it would be a whole image decode
+  // that the LSB pass immediately clears. Absolute and Overlay bases still
+  // push the B/W frame, so they keep it.
+  const bool drawBwFrame = !hasGreyscale || !direct;
+  [[maybe_unused]] const unsigned long decodeStartMs = millis();
+
+  if (drawBwFrame) {
+    if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY)) return false;
+
+    if (extendEdges) {
+      extendBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
+    } else if (mirrorEdges) {
+      mirrorBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
+    }
+
+    if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+      renderer.invertScreen();
+    }
+  }
+
+  if (!hasGreyscale) {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+    return true;
+  }
+
   if (absolute) {
     if (!(direct ? renderer.displayDirectGrayscaleBase() : renderer.displayAbsoluteGrayscaleBase())) return false;
   } else {
@@ -824,15 +886,16 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
       return false;
     }
     if (extendEdges) {
-      extendBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
+      extendBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
     } else if (mirrorEdges) {
-      mirrorBitmapEdges(renderer, x, y, bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
+      mirrorBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
     }
     if (mode == GfxRenderer::GRAYSCALE_LSB)
       renderer.copyGrayscaleLsbBuffers();
     else
       renderer.copyGrayscaleMsbBuffers();
   }
+  LOG_DBG("SLP", "Sleep image decoded in %lu ms (%d passes)", millis() - decodeStartMs, drawBwFrame ? 3 : 2);
   renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
   renderer.setRenderMode(GfxRenderer::BW);
   return true;

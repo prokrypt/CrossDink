@@ -78,7 +78,8 @@ void EndOfBookOptions::onRowEvent(const fui::ActionEvent& event, void* user) {
   self->app.clearTapFlash();
 }
 
-EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputManager& input, std::string* openPath) {
+EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputManager& input, const bool confirmReleased,
+                                                           std::string* openPath) {
   // Touch goes through the FreeInkApp: render() registered the row hit rects;
   // route the snapshot and consume the dispatched row from the returned event.
   if (uiReady.load(std::memory_order_acquire)) {
@@ -101,11 +102,11 @@ EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputMana
     }
   }
 
-  return applyMenuKey(readMenuKey(input), openPath);
+  return applyMenuKey(readMenuKey(input, confirmReleased), openPath);
 }
 
-EndOfBookOptions::MenuKey EndOfBookOptions::readMenuKey(const MappedInputManager& input) {
-  if (input.wasReleased(MappedInputManager::Button::Confirm)) {
+EndOfBookOptions::MenuKey EndOfBookOptions::readMenuKey(const MappedInputManager& input, const bool confirmReleased) {
+  if (confirmReleased) {
     return MenuKey::Confirm;
   }
 

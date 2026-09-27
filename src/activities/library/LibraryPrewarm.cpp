@@ -95,8 +95,14 @@ void finalize() {
   task = nullptr;
   if (buildOk) {
     // The generation read before the walk: a change made during it leaves the
-    // counter ahead, so the Library rescans.
-    Storage.noteLibraryScanned(startGeneration);
+    // counter ahead, so the Library rescans. A degraded index (sort or dedup
+    // allocation failed under Home's heap) is left for the Library's own
+    // build, which runs with Home's buffers freed and can repair it.
+    if (!lastStats.ranksDegraded && !lastStats.dedupDegraded) {
+      Storage.noteLibraryScanned(startGeneration);
+    } else {
+      LOG_INF("LIBPW", "Background index is degraded; the Library will rebuild it");
+    }
     LOG_INF("LIBPW", "Library index ready in the background: %u books, %u parsed, %ums total, %ums paused",
             static_cast<unsigned>(lastStats.books), static_cast<unsigned>(lastStats.parsed),
             static_cast<unsigned>(millis() - startedAtMs), static_cast<unsigned>(pausedMs));

@@ -84,10 +84,10 @@ inline bool loadProgress(const Epub& epub, Progress& progress, const char* modul
   return loadProgressFromCachePath(moduleName, epub.getCachePath(), progress);
 }
 
-// Persists reader progress for an EPUB to its cache directory. Returns true on success,
+// Persists reader progress to an EPUB cache directory. Returns true on success,
 // including when the stored position already matches and nothing is written.
-inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int pageCount,
-                         const std::optional<uint32_t> visibleTextOffset = std::nullopt) {
+inline bool saveProgressToCachePath(const std::string& cachePath, int spineIndex, int pageNumber, int pageCount,
+                                    const std::optional<uint32_t> visibleTextOffset = std::nullopt) {
   if (spineIndex < 0 || spineIndex > 0xFFFF || pageNumber < 0 || pageNumber > 0xFFFF || pageCount < 0 ||
       pageCount > 0xFFFF) {
     LOG_ERR("ERS", "Progress values out of range: spine=%d page=%d count=%d", spineIndex, pageNumber, pageCount);
@@ -101,8 +101,8 @@ inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int p
   fields.hasVisibleTextOffset = visibleTextOffset.has_value();
   fields.visibleTextOffset = visibleTextOffset.value_or(0);
 
-  const std::string primaryPath = progressPrimaryPath(epub.getCachePath());
-  const std::string backupPath = progressBackupPath(epub.getCachePath());
+  const std::string primaryPath = progressPrimaryPath(cachePath);
+  const std::string backupPath = progressBackupPath(cachePath);
   const progress_record::Slot primary = readProgressSlot("ERS", primaryPath);
   const progress_record::Slot backup = readProgressSlot("ERS", backupPath);
 
@@ -123,6 +123,11 @@ inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int p
     return false;
   }
   return true;
+}
+
+inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int pageCount,
+                         const std::optional<uint32_t> visibleTextOffset = std::nullopt) {
+  return saveProgressToCachePath(epub.getCachePath(), spineIndex, pageNumber, pageCount, visibleTextOffset);
 }
 
 }  // namespace EpubReaderUtils

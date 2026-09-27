@@ -324,6 +324,12 @@ void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const 
   } else if (self->inId) {
     appendBounded(self->currentText, s, len, MAX_ID_CHARS);
   } else if (self->inSummary) {
-    appendBounded(self->currentText, s, len, MAX_SUMMARY_COUNT_CHARS + 1);
+    // Drop leading whitespace and collapse runs, so an indented "\n    12713 books\n  "
+    // still fits the count-sized buffer while a real sentence still overflows it.
+    std::string& text = self->currentText;
+    for (int i = 0; i < len && text.size() <= MAX_SUMMARY_COUNT_CHARS; ++i) {
+      if (isSpace(s[i]) && (text.empty() || isSpace(text.back()))) continue;
+      text.push_back(s[i]);
+    }
   }
 }

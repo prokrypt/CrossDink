@@ -82,6 +82,35 @@ TEST(OpdsParserTest, NavigationCountFromSummary) {
   EXPECT_EQ(parser.getEntry(3)->count, -1);
 }
 
+TEST(OpdsParserTest, NavigationCountFromIndentedSummary) {
+  constexpr char feed[] = R"(<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>urn:example:indented</id>
+    <title>Indented</title>
+    <summary type="text">
+                        12713 books
+                    </summary>
+    <link rel="subsection" href="/opds/a" type="application/atom+xml;profile=opds-catalog;kind=acquisition"></link>
+  </entry>
+  <entry>
+    <id>urn:example:sentence</id>
+    <title>Sentence</title>
+    <summary type="text">
+        3 books      that were picked by the staff this week
+    </summary>
+    <link rel="subsection" href="/opds/b" type="application/atom+xml;profile=opds-catalog;kind=acquisition"></link>
+  </entry>
+</feed>)";
+  OpdsEntry entries[MAX_OPDS_FEED_ENTRIES];
+  OpdsParser parser(entries);
+
+  ASSERT_TRUE(parser.parse(feed, sizeof(feed) - 1));
+  ASSERT_EQ(parser.getEntryCount(), 2u);
+  EXPECT_EQ(parser.getEntry(0)->count, 12713);
+  EXPECT_EQ(parser.getEntry(1)->count, -1);
+}
+
 TEST(OpdsParserTest, ThrCountWinsAndBooksHaveNoCount) {
   OpdsEntry entries[MAX_OPDS_FEED_ENTRIES];
   OpdsParser parser(entries);

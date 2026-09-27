@@ -385,6 +385,10 @@ class EpubReaderActivity final : public Activity {
   bool queueProgressSave(int spineIndex, int currentPage, int pageCount, bool forceSave = false);
   bool flushQueuedProgress();
   bool saveFootnoteOriginProgress();
+  // Saves the position now, the way onExit() does (the link origin while in a
+  // footnote). Used before handing off to anything that can silently restart
+  // the device, which reboots without running onExit().
+  void saveProgressBeforeRestart();
   void cacheCurrentSectionPosition();
   void pauseReadingPaceTimer(const char* reason = "unknown");
   void resumeReadingPaceTimer(const char* reason = "unknown");

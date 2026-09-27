@@ -2411,8 +2411,10 @@ void HomeActivity::onContinueReading() {
 }
 
 void HomeActivity::onLibraryOpen() {
+  // Hand the running build to the Library only if it actually opens; a failed
+  // open must leave Home's exit path to stop and join the build.
   libraryPrewarmHandOff = true;
-  activityManager.goToLibrary();
+  if (!activityManager.goToLibrary()) libraryPrewarmHandOff = false;
 }
 
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
