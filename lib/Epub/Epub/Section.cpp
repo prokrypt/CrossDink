@@ -287,7 +287,8 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     if (version != SECTION_FILE_VERSION && version != SECTION_FILE_PARTIAL_VERSION) {
       // Explicit close() required: member variable persists beyond function scope
       file.close();
-      LOG_ERR("SCT", "Deserialization failed: Unknown version %u", version);
+      // Expected after a firmware update changes the layout format.
+      LOG_INF("SCT", "Stale section cache v%u (current v%u), rebuilding", version, SECTION_FILE_VERSION);
       clearCache();
       return false;
     }
