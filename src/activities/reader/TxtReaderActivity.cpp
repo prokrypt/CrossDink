@@ -16,6 +16,7 @@
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
 #include "QuickActions.h"
+#include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
@@ -132,6 +133,7 @@ void TxtReaderActivity::onEnter() {
   mappedInput.setReaderMode(true);
 
   txt->setupCacheDir();
+  progressSaveDebouncer.setShadowed(ReaderProgressShadow::bind(ReaderProgressShadow::Kind::Txt, txt->getCachePath()));
 
   // Save current txt as last opened file and add to recent books
   auto filePath = txt->getPath();
@@ -155,9 +157,11 @@ void TxtReaderActivity::onExit() {
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
 
-  if (!flushQueuedProgress()) {
+  const bool progressFlushed = flushQueuedProgress();
+  if (!progressFlushed) {
     LOG_ERR("TRS", "Failed to flush debounced reader progress on exit");
   }
+  ReaderProgressShadow::unbind(progressFlushed);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -881,13 +885,17 @@ bool TxtReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetails
   return true;
 }
 
+uint32_t TxtReaderActivity::pageFileOffset(const int page) const {
+  return (page >= 0 && page < static_cast<int>(pageOffsets.size())) ? static_cast<uint32_t>(pageOffsets[page]) : 0;
+}
+
 bool TxtReaderActivity::saveProgress(const int page) {
   if (!txt) {
     return false;
   }
   // 6-byte format: page(2 bytes LE) + file offset(4 bytes LE)
   // The offset lets drawCurrentPageToBuffer render without requiring index.bin.
-  const size_t offset = (page >= 0 && page < static_cast<int>(pageOffsets.size())) ? pageOffsets[page] : 0;
+  const uint32_t offset = pageFileOffset(page);
   uint8_t data[6];
   data[0] = page & 0xFF;
   data[1] = (page >> 8) & 0xFF;
@@ -904,11 +912,16 @@ bool TxtReaderActivity::saveProgress(const int page) {
     return false;
   }
   progressSaveDebouncer.markPersisted(static_cast<uint32_t>(page));
+  ReaderProgressShadow::notePersisted(static_cast<uint32_t>(page), offset);
   return true;
 }
 
 bool TxtReaderActivity::queueProgressSave() {
-  if (!progressSaveDebouncer.observe(static_cast<uint32_t>(currentPage))) {
+  const bool saveDue = progressSaveDebouncer.observe(static_cast<uint32_t>(currentPage));
+  if (progressSaveDebouncer.hasPending()) {
+    ReaderProgressShadow::notePending(static_cast<uint32_t>(currentPage), pageFileOffset(currentPage));
+  }
+  if (!saveDue) {
     return true;
   }
   return saveProgress(currentPage);

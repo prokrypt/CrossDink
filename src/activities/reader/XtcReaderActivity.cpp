@@ -21,6 +21,7 @@
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
 #include "QuickActions.h"
+#include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
@@ -116,6 +117,7 @@ void XtcReaderActivity::onEnter() {
   }
 
   xtc->setupCacheDir();
+  progressSaveDebouncer.setShadowed(ReaderProgressShadow::bind(ReaderProgressShadow::Kind::Xtc, xtc->getCachePath()));
 
   // Activate reader-specific front button mapping (if configured).
   mappedInput.setReaderMode(true);
@@ -146,9 +148,11 @@ void XtcReaderActivity::onExit() {
 
   mappedInput.setReaderMode(false);
 
-  if (!flushQueuedProgress()) {
+  const bool progressFlushed = flushQueuedProgress();
+  if (!progressFlushed) {
     LOG_ERR("XTR", "Failed to flush debounced reader progress on exit");
   }
+  ReaderProgressShadow::unbind(progressFlushed);
 
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
@@ -1378,11 +1382,16 @@ bool XtcReaderActivity::saveProgress(const uint32_t page) {
     return false;
   }
   progressSaveDebouncer.markPersisted(page);
+  ReaderProgressShadow::notePersisted(page, 0);
   return true;
 }
 
 bool XtcReaderActivity::queueProgressSave(const uint32_t pageToRender) {
-  if (!progressSaveDebouncer.observe(pageToRender)) {
+  const bool saveDue = progressSaveDebouncer.observe(pageToRender);
+  if (progressSaveDebouncer.hasPending()) {
+    ReaderProgressShadow::notePending(pageToRender, 0);
+  }
+  if (!saveDue) {
     return true;
   }
   return saveProgress(pageToRender);

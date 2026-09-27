@@ -55,6 +55,7 @@
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
 #include "QuickActions.h"
+#include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
@@ -2309,6 +2310,7 @@ void EpubReaderActivity::onEnter() {
   // instead would leave reader mode and the bookmark/clipping stores unbalanced.
   captureGlobalReaderSettings();
   epub->setupCacheDir();
+  progressSaveDebouncer.setShadowed(ReaderProgressShadow::bind(ReaderProgressShadow::Kind::Epub, epub->getCachePath()));
   {
     GfxRenderer::FrameBufferLoan loan(renderer);
     epub->ensureOptimizerImageIndex();
@@ -2465,9 +2467,13 @@ void EpubReaderActivity::onExit() {
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
 
-  if (footnoteDepth == 0 && !flushQueuedProgress()) {
+  // Inside a followed footnote the origin position is what counts; it is saved
+  // below, so RTC has nothing left to hold either way.
+  const bool progressFlushed = footnoteDepth != 0 || flushQueuedProgress();
+  if (!progressFlushed) {
     LOG_ERR("ERS", "Failed to flush debounced reader progress on exit");
   }
+  ReaderProgressShadow::unbind(progressFlushed);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -7070,6 +7076,7 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     lastSavedPageCount = pageCount;
     const uint32_t positionKey = (static_cast<uint32_t>(spineIndex) << 16) | static_cast<uint16_t>(currentPage);
     progressSaveDebouncer.markPersisted(positionKey, static_cast<uint32_t>(pageCount));
+    ReaderProgressShadow::notePersisted(positionKey, static_cast<uint32_t>(pageCount));
   }
   return saved;
 }
@@ -7104,7 +7111,13 @@ bool EpubReaderActivity::queueProgressSave(const int spineIndex, const int curre
     return true;
   }
   const uint32_t positionKey = (static_cast<uint32_t>(spineIndex) << 16) | static_cast<uint16_t>(currentPage);
-  if (!progressSaveDebouncer.observe(positionKey, static_cast<uint32_t>(pageCount)) && !forceSave) {
+  const bool saveDue = progressSaveDebouncer.observe(positionKey, static_cast<uint32_t>(pageCount));
+  // After a crash inside a followed footnote, resume at the link origin (the
+  // last position noted before the jump), as a normal exit would.
+  if (progressSaveDebouncer.hasPending() && footnoteDepth == 0) {
+    ReaderProgressShadow::notePending(positionKey, static_cast<uint32_t>(pageCount));
+  }
+  if (!saveDue && !forceSave) {
     return true;
   }
   return saveProgress(spineIndex, currentPage, pageCount);
