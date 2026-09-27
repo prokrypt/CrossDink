@@ -23,6 +23,8 @@
 #include "Epub/css/CssStyle.h"
 #include "Epub/tables/CompactTableLayout.h"
 
+class HtmlInflateStream;
+
 class GfxRenderer;
 class Epub;
 #define MAX_WORD_SIZE 200
@@ -113,6 +115,7 @@ class ChapterHtmlSlimParser {
   bool syntheticCharacterData = false;
   XML_Parser activeParser = nullptr;
   FsFile parseFile_;
+  HtmlInflateStream* streamInput_ = nullptr;  // replaces parseFile_ when set
   size_t parseFileOffset_ = 0;
   size_t parseFileSize_ = 0;
   uint32_t parseStartTime_ = 0;
@@ -348,6 +351,9 @@ class ChapterHtmlSlimParser {
   ~ChapterHtmlSlimParser();
   uint32_t getVisibleTextLength() const { return visibleTextOffset; }
   bool parseAndBuildPages();
+  // Parse from an overlapped inflate instead of the file (non-preview builds
+  // without SD card font prewarm). Set before beginParse().
+  void setStreamInput(HtmlInflateStream* input) { streamInput_ = input; }
   bool beginParse();
   ParseStatus parseStep();
   bool finishParse();  // flush the trailing page and tear down; returns true
@@ -362,6 +368,6 @@ class ChapterHtmlSlimParser {
   // Byte progress of the in-flight parse, used to estimate a still-building section's total page
   // count (a giant single-spine book never fully lays out, so its real count is unknown). Valid
   // between beginParse() and finishParse()/abortParse().
-  size_t parseBytesConsumed() { return parseFile_ ? parseFile_.position() : parseFileOffset_; }
+  size_t parseBytesConsumed() { return parseFile_ && !streamInput_ ? parseFile_.position() : parseFileOffset_; }
   size_t parseTotalBytes() { return parseFileSize_; }
 };

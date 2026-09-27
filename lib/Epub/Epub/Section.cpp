@@ -12,6 +12,7 @@
 
 #include "Epub/ReferencePageNavigation.h"
 #include "Epub/css/CssParser.h"
+#include "HtmlInflateStream.h"
 #include "Page.h"
 #include "SectionPageIndexSerialization.h"
 #include "hyphenation/Hyphenator.h"
@@ -476,16 +477,46 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   // reopen skip the multi-second inflate. If htmlPath exists it is known-complete.
   const bool reusedHtml = Storage.exists(htmlPath.c_str());
   bool htmlCached = reusedHtml;
-  const auto cleanupTempHtml = [&]() {
-    if (!htmlCached && Storage.exists(tmpHtmlPath.c_str())) {
-      Storage.remove(tmpHtmlPath.c_str());
-    }
-  };
   if (cancelBuild()) {
     LOG_DBG("SCT", "Section build cancelled before HTML inflate: spine=%d", spineIndex);
     return false;
   }
-  if (!reusedHtml) {
+  // First build of a chapter: inflate it on the worker core while this task
+  // parses. SD card fonts need the whole file up front for their glyph
+  // prewarm, and previews read only a slice, so both inflate first.
+  HtmlInflateStream overlappedInflate;
+  bool inflateOverlapped = false;
+  if (!reusedHtml && !buildOptions.isPreview() && !renderer.isSdCardFont(fontId) &&
+      HtmlInflateStream::worthSplitting()) {
+    size_t itemBytes = 0;
+    if (epub->getItemSize(localPath, &itemBytes) && itemBytes > 0 && itemBytes <= HtmlInflateStream::MAX_ITEM_BYTES) {
+      Storage.mkdir(htmlDir.c_str());
+      if (Storage.exists(tmpHtmlPath.c_str())) Storage.remove(tmpHtmlPath.c_str());
+      HalFile tmpHtml;
+      if (Storage.openFileForWrite("SCT", tmpHtmlPath, tmpHtml)) {
+        prepareSectionZipInflate(renderer, fontId);
+        inflateOverlapped = overlappedInflate.start(*epub, localPath, itemBytes,
+                                                    sectionHtmlStreamChunkSize(/*preview=*/false), tmpHtml);
+        if (!inflateOverlapped) {
+          tmpHtml.close();
+          Storage.remove(tmpHtmlPath.c_str());
+        }
+      }
+    }
+  }
+  // Joins the inflate worker on every return below; it owns tmpHtmlPath until then.
+  struct JoinInflate {
+    HtmlInflateStream& stream;
+    ~JoinInflate() { stream.finish(/*stopEarly=*/true); }
+  } joinInflate{overlappedInflate};
+  const auto cleanupTempHtml = [&]() {
+    overlappedInflate.finish(/*stopEarly=*/true);
+    if (!htmlCached && Storage.exists(tmpHtmlPath.c_str())) {
+      Storage.remove(tmpHtmlPath.c_str());
+    }
+  };
+
+  if (!reusedHtml && !inflateOverlapped) {
     Storage.mkdir(htmlDir.c_str());
 
     // Retry logic for SD card timing issues
@@ -638,6 +669,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       buildOptions.isPreview() ? std::string(buildOptions.previewAnchor) : std::string{}, buildOptions.previewMaxPages,
       buildOptions.referenceUnitsAreCharacters);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
+  if (inflateOverlapped) visitor.setStreamInput(&overlappedInflate);
   bool cancelled = false;
   bool success = false;
   if (cancelBuild()) {
@@ -675,8 +707,10 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     *layoutAbortedForLowMemory = *layoutAbortedForLowMemory || visitor.wasLowMemoryAbortTriggered();
   }
 
+  // The worker has finished once the parse drained it; otherwise stop it.
+  const bool inflateComplete = !inflateOverlapped || overlappedInflate.finish(/*stopEarly=*/true);
   if (!htmlCached) {
-    if (success || pageCompletionFailed) {
+    if (inflateComplete && (success || pageCompletionFailed)) {
       // Promote the freshly unzipped HTML to the persistent cache so future rebuilds (e.g. after a
       // settings change invalidates the layout caches) can skip zip inflation. If promotion fails,
       // drop the temp file; the section build can still continue from the already-open source.

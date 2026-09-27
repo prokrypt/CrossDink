@@ -16,6 +16,7 @@
 
 ### Changed
 
+- A chapter's first open inflates it on the second core while the screen task parses and lays it out, instead of unpacking it to the SD card first.
 - JPEG and PNG images in books decode on the second core while the screen task dithers and draws the rows already decoded.
 - Opening File Transfer, OPDS, KOReader Sync, update check or Manage Fonts no longer reboots the device when enough memory is free; reader caches are released in place instead.
 - Leaving File Transfer, Calibre Connect, OPDS, KOReader Sync or Nearby Transfer no longer reboots the device when enough memory is left; Wi-Fi is shut down in place instead.

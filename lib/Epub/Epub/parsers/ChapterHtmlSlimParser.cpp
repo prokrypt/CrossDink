@@ -23,6 +23,7 @@
 #include <string_view>
 
 #include "Epub.h"
+#include "Epub/HtmlInflateStream.h"
 #include "Epub/Page.h"
 #include "Epub/converters/ImageDecoderFactory.h"
 #include "Epub/converters/ImageDimsProbe.h"
@@ -3668,7 +3669,7 @@ void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
 ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { abortParse(); }
 
 bool ChapterHtmlSlimParser::ensureInputFileOpen() {
-  if (parseFile_) {
+  if (streamInput_ || parseFile_) {
     return true;
   }
   if (!Storage.openFileForRead("EHP", filepath, parseFile_)) {
@@ -3759,7 +3760,9 @@ bool ChapterHtmlSlimParser::beginParse() {
   // Using DefaultHandlerExpand preserves normal entity expansion from DOCTYPE
   XML_SetDefaultHandlerExpand(activeParser, defaultHandlerExpand);
 
-  if (!Storage.openFileForRead("EHP", filepath, parseFile_)) {
+  if (streamInput_) {
+    parseFileSize_ = streamInput_->totalBytes();
+  } else if (!Storage.openFileForRead("EHP", filepath, parseFile_)) {
     destroyXmlParser(activeParser);
     activeParser = nullptr;
     parseArena_.release();
@@ -3767,7 +3770,7 @@ bool ChapterHtmlSlimParser::beginParse() {
     blockStyleBuf_ = nullptr;
     return false;
   }
-  parseFileSize_ = parseFile_.size();
+  if (!streamInput_) parseFileSize_ = parseFile_.size();
 
   // Get file size to decide whether to show indexing popup.
   if (popupFn && parseFileSize_ >= MIN_SIZE_FOR_POPUP) {
@@ -3780,7 +3783,7 @@ bool ChapterHtmlSlimParser::beginParse() {
 
   // Compute the time taken to parse and build pages
   parseStartTime_ = millis();
-  prewarmSectionAdvanceTable(parseFile_);
+  if (!streamInput_) prewarmSectionAdvanceTable(parseFile_);
   return true;
 }
 
@@ -3800,14 +3803,25 @@ ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
     return ParseStatus::Error;
   }
 
-  const size_t len = parseFile_.read(buf, PARSE_BUFFER_SIZE);
-  parseFileOffset_ = parseFile_.position();
-  if (len == 0 && parseFile_.available() > 0) {
-    LOG_ERR("EHP", "File read error");
-    return ParseStatus::Error;
+  size_t len = 0;
+  bool done = false;
+  if (streamInput_) {
+    len = streamInput_->read(buf, PARSE_BUFFER_SIZE);
+    parseFileOffset_ += len;
+    if (streamInput_->failed()) {
+      LOG_ERR("EHP", "Overlapped inflate failed");
+      return ParseStatus::Error;
+    }
+    done = streamInput_->drained();
+  } else {
+    len = parseFile_.read(buf, PARSE_BUFFER_SIZE);
+    parseFileOffset_ = parseFile_.position();
+    if (len == 0 && parseFile_.available() > 0) {
+      LOG_ERR("EHP", "File read error");
+      return ParseStatus::Error;
+    }
+    done = parseFile_.available() == 0;
   }
-
-  const bool done = parseFile_.available() == 0;
   const XML_Status parseStatus = XML_ParseBuffer(activeParser, static_cast<int>(len), done);
   if (parseStatus == XML_STATUS_ERROR && !previewStopRequested) {
     if (htmlEnded_) {
