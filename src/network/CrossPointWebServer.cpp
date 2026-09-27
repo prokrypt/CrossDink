@@ -853,7 +853,7 @@ void CrossPointWebServer::handleExit() {
 // Debug builds: the PSRAM log ring, oldest first, including lines from before
 // the last software restarts.
 void CrossPointWebServer::handlePsramLog() const {
-  EXT_RAM_BSS_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
+  EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
   uint32_t cursor = PsramLog::oldest();
   const uint32_t end = PsramLog::end();
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
