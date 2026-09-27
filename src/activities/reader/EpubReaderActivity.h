@@ -349,6 +349,7 @@ class EpubReaderActivity final : public Activity {
     ReaderRenderSpec spec{};
     bool succeeded = false;
     bool needsRenderLane = false;
+    bool laneMissed = false;  // a streamed TTF face: the worker lane cannot serve it
   };
   SilentIndexWorker silentWorker;
   // Start and join happen on the render task and on the loop (font changes).
@@ -357,6 +358,9 @@ class EpubReaderActivity final : public Activity {
   // A chapter the worker could not build (low memory, a streamed TTF face);
   // the render task builds it the old way, with its fallbacks.
   int silentIndexRenderLaneSpine = -1;
+  // Reader font the worker lane missed on (a streamed TTF face); both workers
+  // skip it until the reader fonts reload. Render task or RenderLock.
+  int workerLaneMissFontId = 0;
   static void silentIndexWorkerMain(void* param);
   void runSilentIndexWorker();
   bool canSilentIndexOnWorker(int readerFontId) const;
@@ -389,6 +393,7 @@ class EpubReaderActivity final : public Activity {
     bool foregroundBlack = true;
     uint8_t background = 0xFF;
     bool drawn = false;
+    bool laneMissed = false;
     bool pending = false;  // a finished draw not yet taken (drawAheadMutex)
   };
   DrawAheadWorker drawAhead;

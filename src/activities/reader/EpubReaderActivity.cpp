@@ -2323,6 +2323,7 @@ void EpubReaderActivity::onEnter() {
   loadBookReaderSettings();
   sdFontSystem.setSettingsPersistenceCallback(persistReaderSdFontSettingsForBook, this);
   ensureReaderSdFontLoaded(renderer);
+  workerLaneMissFontId = 0;
   if (!silentWorkerMutex) silentWorkerMutex = xSemaphoreCreateMutex();
   if (!silentWorker.done) silentWorker.done = xSemaphoreCreateBinary();
   if (!drawAheadMutex) drawAheadMutex = xSemaphoreCreateMutex();
@@ -2656,10 +2657,13 @@ void EpubReaderActivity::openReaderMenu() {
 #endif
       applyOrientation(chapter->orientation);
       if (chapter->settingsChanged) {
+        // Locked first: a render between the join and the reload would start new
+        // workers on the fonts about to be unloaded.
+        RenderLock lock(*this);
         waitSilentIndexWorker(/*cancel=*/true);
         waitDrawAhead(/*publish=*/false);
         ensureReaderSdFontLoaded(renderer);
-        RenderLock lock(*this);
+        workerLaneMissFontId = 0;
         prepareCurrentSectionForRelayout();
         section.reset();
       }
@@ -2679,10 +2683,13 @@ void EpubReaderActivity::openReaderMenu() {
     if (const auto* clipping = std::get_if<ClippingJumpResult>(&result.data)) {
       applyOrientation(clipping->orientation);
       if (clipping->settingsChanged) {
+        // Locked first: a render between the join and the reload would start new
+        // workers on the fonts about to be unloaded.
+        RenderLock lock(*this);
         waitSilentIndexWorker(/*cancel=*/true);
         waitDrawAhead(/*publish=*/false);
         ensureReaderSdFontLoaded(renderer);
-        RenderLock lock(*this);
+        workerLaneMissFontId = 0;
         prepareCurrentSectionForRelayout();
         section.reset();  // Force re-layout with changed reader settings
       }
@@ -2703,10 +2710,13 @@ void EpubReaderActivity::openReaderMenu() {
 #endif
     applyOrientation(menu->orientation);
     if (menu->settingsChanged && hasReaderSettingsChange(menu->changeMask, ReaderSettingsChangeMask::Relayout)) {
+      // Locked first: a render between the join and the reload would start new
+      // workers on the fonts about to be unloaded.
+      RenderLock lock(*this);
       waitSilentIndexWorker(/*cancel=*/true);
       waitDrawAhead(/*publish=*/false);
       ensureReaderSdFontLoaded(renderer);
-      RenderLock lock(*this);
+      workerLaneMissFontId = 0;
       prepareCurrentSectionForRelayout();
       section.reset();  // Force re-layout with changed reader settings
     }
@@ -2871,10 +2881,15 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
   }
   // SD fonts and clipping highlights read the SD card through state the
   // render task owns; the idle path draws those pages instead.
-  if (!renderer.fontMeasuresWithoutSd(fontId) || !renderer.fontMeasuresWithoutSd(SMALL_FONT_ID) ||
-      CLIPPINGS.hasClippings()) {
+  if (fontId == workerLaneMissFontId || !renderer.fontMeasuresWithoutSd(fontId) ||
+      !renderer.fontMeasuresWithoutSd(SMALL_FONT_ID) || CLIPPINGS.hasClippings()) {
     return;
   }
+#if CROSSDINK_SCALABLE_FONTS
+  // One task at a time on the scalable-font worker lane: its glyph slots are
+  // shared, and the idle path still draws this page.
+  if (silentIndexWorkerBusy()) return;
+#endif
   // Sized like the S3 reader render task, which draws the same pages. Internal
   // RAM only while one page is drawn.
   constexpr uint32_t STACK_BYTES = 24576;
@@ -2927,6 +2942,7 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
     drawAhead.foregroundBlack = ReaderUtils::readerForegroundBlack();
     drawAhead.background = ReaderUtils::readerBackgroundColor();
     drawAhead.drawn = false;
+    drawAhead.laneMissed = false;
     powerManager.beginBackgroundWork();
     if (xTaskCreatePinnedToCore(drawAheadWorkerMain, "DrawAhead", STACK_BYTES, this, 1, &drawAhead.task,
                                 TaskCores::kWorker) != pdPASS) {
@@ -2949,6 +2965,8 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
 void EpubReaderActivity::drawAheadWorkerMain(void* param) {
   auto* self = static_cast<EpubReaderActivity*>(param);
   self->runDrawAhead();
+  // Released here, not at the join: the join waits for the next page turn.
+  powerManager.endBackgroundWork();
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->drawAhead.done);
   vTaskDelete(nullptr);
@@ -2974,7 +2992,10 @@ void EpubReaderActivity::runDrawAhead() {
       drawn = true;
     }
 #if CROSSDINK_SCALABLE_FONTS
-    if (fontLane.missed()) drawn = false;
+    if (fontLane.missed()) {
+      drawn = false;
+      job.laneMissed = true;
+    }
 #endif
   }
   job.drawn = drawn;
@@ -2990,10 +3011,14 @@ void EpubReaderActivity::waitDrawAhead(const bool publish) {
     xSemaphoreTake(drawAhead.done, portMAX_DELAY);
     drawAhead.task = nullptr;
     drawAhead.pending = true;
-    powerManager.endBackgroundWork();
   }
   if (drawAhead.pending) {
     drawAhead.pending = false;
+    if (drawAhead.laneMissed) {
+      // Let the idle path draw this page on the render lane instead.
+      workerLaneMissFontId = drawAhead.fontId;
+      prerenderAttemptPage = -1;
+    }
     if (publish && drawAhead.drawn) {
       prerenderedPage = std::move(drawAhead.page);
       prerenderedSection = drawAhead.section;
@@ -4351,6 +4376,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
             waitSilentIndexWorker(/*cancel=*/true);
             waitDrawAhead(/*publish=*/false);
             ensureReaderSdFontLoaded(renderer);
+            workerLaneMissFontId = 0;
             drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
             delay(1000);
           } else {
@@ -4718,10 +4744,13 @@ bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult
   bool handled = false;
   if (result.ttfRenderingChanged) {
     clearPendingManualPageTurns();
+    // Locked first: a render between the join and the reload would start new
+    // workers on the fonts about to be unloaded.
+    RenderLock lock(*this);
     waitSilentIndexWorker(/*cancel=*/true);
     waitDrawAhead(/*publish=*/false);
     ensureReaderSdFontLoaded(renderer);
-    RenderLock lock(*this);
+    workerLaneMissFontId = 0;
     prepareCurrentSectionForRelayout();
     section.reset();
     handled = true;
@@ -4788,6 +4817,7 @@ void EpubReaderActivity::reindexCurrentSection() {
     waitSilentIndexWorker(/*cancel=*/true);
     waitDrawAhead(/*publish=*/false);
     ensureReaderSdFontLoaded(renderer);
+    workerLaneMissFontId = 0;
     if (!restorePreviewPosition) {
       GUI.drawPopup(renderer, tr(STR_INDEXING));
       prepareCurrentSectionForRelayout();
@@ -7139,7 +7169,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 bool EpubReaderActivity::canSilentIndexOnWorker(const int readerFontId) const {
 #if defined(portNUM_PROCESSORS) && portNUM_PROCESSORS > 1
   // SD card fonts stream glyphs through the render task's caches.
-  return silentWorkerMutex && silentWorker.done && renderer.fontMeasuresWithoutSd(readerFontId);
+  return silentWorkerMutex && silentWorker.done && readerFontId != workerLaneMissFontId &&
+         renderer.fontMeasuresWithoutSd(readerFontId);
 #else
   (void)readerFontId;
   return false;
@@ -7152,6 +7183,10 @@ bool EpubReaderActivity::startSilentIndexWorker(const int spineIndex, const uint
   // Sized like the S3 reader render task, which runs the same section builds.
   // Internal RAM only while the build runs; it writes to the SD card.
   constexpr uint32_t STACK_BYTES = 24576;
+#if CROSSDINK_SCALABLE_FONTS
+  // One task at a time on the scalable-font worker lane; a page draw is short.
+  waitDrawAhead(/*publish=*/true);
+#endif
   xSemaphoreTake(silentWorkerMutex, portMAX_DELAY);
   bool started = false;
   if (!silentWorker.task) {
@@ -7164,6 +7199,7 @@ bool EpubReaderActivity::startSilentIndexWorker(const int spineIndex, const uint
         readerRenderSpecForProfile(readerFontId, viewportWidth, viewportHeight, buildProfileForRenderMode(renderMode));
     silentWorker.succeeded = false;
     silentWorker.needsRenderLane = false;
+    silentWorker.laneMissed = false;
     silentWorker.cancel.store(false, std::memory_order_relaxed);
     silentWorker.finished.store(false, std::memory_order_relaxed);
     powerManager.beginBackgroundWork();
@@ -7183,6 +7219,8 @@ void EpubReaderActivity::silentIndexWorkerMain(void* param) {
   auto* self = static_cast<EpubReaderActivity*>(param);
   self->runSilentIndexWorker();
   self->silentWorker.finished.store(true, std::memory_order_release);
+  // Released here, not at the join: the join waits for the next render.
+  powerManager.endBackgroundWork();
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->silentWorker.done);
   vTaskDelete(nullptr);
@@ -7218,6 +7256,7 @@ void EpubReaderActivity::runSilentIndexWorker() {
       // A streamed face measured nothing here: never keep that layout.
       if (built) nextSection->clearCache();
       built = false;
+      job.laneMissed = true;
     }
 #endif
   }
@@ -7254,7 +7293,6 @@ void EpubReaderActivity::waitSilentIndexWorker(const bool cancel) {
     xSemaphoreTake(silentWorker.done, portMAX_DELAY);
     silentWorker.task = nullptr;
     silentWorkerOutcomePending = true;
-    powerManager.endBackgroundWork();
   }
   xSemaphoreGive(silentWorkerMutex);
 }
@@ -7277,6 +7315,7 @@ void EpubReaderActivity::applySilentIndexWorkerOutcome() {
   } else if (silentWorker.needsRenderLane) {
     silentIndexRenderLaneSpine = silentWorker.spineIndex;
   }
+  if (silentWorker.laneMissed) workerLaneMissFontId = silentWorker.spec.fontId;
 }
 
 void EpubReaderActivity::cancelSilentPrefetchForInput() {

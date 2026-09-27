@@ -400,7 +400,11 @@ void formatUtc(char* buf, const uint16_t year, const uint8_t month, const uint8_
 // - FilesPageFooterHtml (from html/FilesPageFooter.html)
 CrossPointWebServer::CrossPointWebServer() {}
 
-CrossPointWebServer::~CrossPointWebServer() { stop(); }
+CrossPointWebServer::~CrossPointWebServer() {
+  stop();
+  if (stateMutex) vSemaphoreDelete(stateMutex);
+  if (serverStopped) vSemaphoreDelete(serverStopped);
+}
 
 void CrossPointWebServer::begin() {
   if (running) {

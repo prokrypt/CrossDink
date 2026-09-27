@@ -1540,10 +1540,14 @@ bool validateOptimizerIndex(const std::string& path, const ZipFile::EntryIdentit
 }
 }  // namespace
 
-bool Epub::findOptimizerImage(const std::string& itemHref) const {
+bool Epub::findOptimizerImage(const std::string& itemHref, OptimizerFormat::Record& out) const {
   if (!optimizerIndexReady || itemHref.empty() || itemHref.size() > 128) return false;
   const std::string normalized = FsHelpers::normalisePath(itemHref);
-  if (normalized == optimizerLastHit.href) return true;
+  taskENTER_CRITICAL(&optimizerHitMux);
+  const bool cached = normalized == optimizerLastHit.href;
+  if (cached) out = optimizerLastHit;
+  taskEXIT_CRITICAL(&optimizerHitMux);
+  if (cached) return true;
   FsFile file;
   if (!Storage.openFileForRead("EBP", cachePath + "/optimizer-images.idx", file)) return false;
   uint8_t bytes[208];
@@ -1551,19 +1555,25 @@ bool Epub::findOptimizerImage(const std::string& itemHref) const {
   for (uint16_t i = 0; i < optimizerIndexCount; ++i) {
     if (!file.seek(32U + 208U * i) || file.read(bytes, sizeof(bytes)) != sizeof(bytes)) break;
     if (memcmp(bytes, normalized.c_str(), std::min<size_t>(normalized.size() + 1, 129)) == 0 &&
-        normalized.size() <= 128 && OptimizerFormat::decodeRecord(bytes, optimizerLastHit)) {
+        normalized.size() <= 128 && OptimizerFormat::decodeRecord(bytes, out)) {
       found = true;
       break;
     }
   }
   file.close();
+  if (found) {
+    taskENTER_CRITICAL(&optimizerHitMux);
+    optimizerLastHit = out;
+    taskEXIT_CRITICAL(&optimizerHitMux);
+  }
   return found;
 }
 
 bool Epub::getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const {
-  if (!findOptimizerImage(itemHref)) return false;
-  width = optimizerLastHit.width;
-  height = optimizerLastHit.height;
+  OptimizerFormat::Record entry;
+  if (!findOptimizerImage(itemHref, entry)) return false;
+  width = entry.width;
+  height = entry.height;
   return true;
 }
 
@@ -1587,8 +1597,9 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
     Storage.remove(backup.c_str());
     return true;
   }
-  if (!findOptimizerImage(itemHref)) return false;
-  const auto& entry = optimizerLastHit;
+  // A copy: the next-chapter worker may look up another image meanwhile.
+  OptimizerFormat::Record entry;
+  if (!findOptimizerImage(itemHref, entry)) return false;
   size_t bytes = 0;
   if (!getItemSize(entry.pxcHref, &bytes) || bytes != entry.bytes) return false;
   const std::string temp = destPxcPath + ".optimizer.tmp";
@@ -1632,7 +1643,9 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
 
 bool Epub::ensureOptimizerImageIndex() {
   if (optimizerIndexReady) return true;
+  taskENTER_CRITICAL(&optimizerHitMux);
   optimizerLastHit = {};
+  taskEXIT_CRITICAL(&optimizerHitMux);
   const size_t length = strlen(kOptimizerManifestPath);
   ZipFile::EntryTarget target{ZipFile::fnvHash64(kOptimizerManifestPath, length), static_cast<uint16_t>(length), 0,
                               kOptimizerManifestPath};

@@ -72,10 +72,12 @@ class Epub {
   std::unique_ptr<LocationSpineEntry[]> locationSpine;
   size_t locationSpineCount = 0;
   mutable OptimizerFormat::Record optimizerLastHit;
+  // The next-chapter worker and the render task both look images up.
+  mutable portMUX_TYPE optimizerHitMux = portMUX_INITIALIZER_UNLOCKED;
   mutable std::unique_ptr<PxcV2Workspace> optimizerWorkspace;
   uint16_t optimizerIndexCount = 0;
   bool optimizerIndexReady = false;
-  bool findOptimizerImage(const std::string& itemHref) const;
+  bool findOptimizerImage(const std::string& itemHref, OptimizerFormat::Record& out) const;
   std::unique_ptr<LocationChapterGroupEntry[]> locationChapterGroups;
   size_t locationChapterGroupCount = 0;
   std::unique_ptr<SourceSpineMapEntry[]> sourceSpineMap;
