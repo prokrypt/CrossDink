@@ -348,7 +348,8 @@ class SimulatorSmokeTest {
     }
 
     if (hadCrossDinkSettings) {
-      if (!Storage.writeFile(crossDinkSettingsPath, savedCrossDinkSettings)) fail("Could not restore CrossDink settings");
+      if (!Storage.writeFile(crossDinkSettingsPath, savedCrossDinkSettings))
+        fail("Could not restore CrossDink settings");
     } else if (Storage.exists(crossDinkSettingsPath) && !Storage.remove(crossDinkSettingsPath)) {
       fail("Could not remove CrossDink settings test fixture");
     }

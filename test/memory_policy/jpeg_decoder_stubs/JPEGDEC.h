@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#define MAX_BUFFERED_PIXELS 2048
+
 struct JPEGFILE {
   int32_t iPos = 0;
   int32_t iSize = 0;
