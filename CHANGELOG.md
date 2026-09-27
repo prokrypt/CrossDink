@@ -24,6 +24,7 @@
 - Reversing a brightness or warmth drag partway now moves the level past where it started instead of stopping there.
 - Idle power saving now puts the device into automatic light sleep between loop ticks instead of only lowering the CPU clock, cutting idle draw while leaving buttons, touch, and the frontlight working exactly as before. The screen, Wi-Fi transfers, and USB sessions stay awake while they are in use.
 - GitHub workflows and release documentation links now follow the `development` default branch.
+- The built-in Bitter and Lexend Deca TTF fonts carry only the ligature and kerning data the reader uses, freeing about 290 KB of flash on ESP32-S3 builds. Text renders the same.
 - Idle power saving now engages after 250 ms instead of 3 seconds, and battery level is polled every 6 seconds instead of every 1.5, trading slightly less frequent battery updates for lower average power draw.
 - The Library opens instantly when nothing on the SD card has changed since its last scan, instead of rescanning the whole card on every visit. Moving the selection no longer re-reads each visible book from the card.
 - After a restart, Home starts indexing the Library in the background as soon as it appears, so the first Library visit usually opens without the "Reading your books" wait. Indexing pauses the moment you press a button or touch the screen and picks up where it left off.
