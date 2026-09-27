@@ -46,6 +46,46 @@ bool sWifiEventLoggingRegistered = false;
 // Connect phases: WiFi.begin() -> associated (includes the channel scan) -> DHCP lease.
 unsigned long sBeginMs = 0;
 unsigned long sAssocMs = 0;
+
+// The AP of the last successful connection. Joining it by BSSID and channel
+// skips the all-channel scan (~2 s of the ~4 s connect); silent network
+// reboots keep it (RTC memory), power loss clears it. A failed hinted attempt
+// drops the hint and retries once with the full scan.
+struct WifiApHint {
+  static constexpr uint32_t MAGIC = 0x57415031;  // "WAP1"
+  uint32_t magic;
+  uint32_t ssidHash;
+  uint8_t bssid[6];
+  uint8_t channel;
+};
+RTC_NOINIT_ATTR WifiApHint sWifiApHint;
+bool sHintedAttempt = false;
+constexpr unsigned long HINTED_CONNECTION_TIMEOUT_MS = 6000;
+
+uint32_t ssidHash(const std::string& ssid) {
+  uint32_t hash = 2166136261u;  // FNV-1a
+  for (const char c : ssid) hash = (hash ^ static_cast<uint8_t>(c)) * 16777619u;
+  return hash;
+}
+
+const WifiApHint* apHintFor(const std::string& ssid) {
+  const WifiApHint& hint = sWifiApHint;
+  if (hint.magic != WifiApHint::MAGIC || hint.ssidHash != ssidHash(ssid) || hint.channel == 0 || hint.channel > 14) {
+    return nullptr;
+  }
+  return &hint;
+}
+
+void saveApHint(const std::string& ssid) {
+  sWifiApHint.magic = 0;
+  const uint8_t* bssid = WiFi.BSSID();
+  const int32_t channel = WiFi.channel();
+  if (!bssid || channel <= 0 || channel > 14) return;
+  memcpy(sWifiApHint.bssid, bssid, sizeof(sWifiApHint.bssid));
+  sWifiApHint.channel = static_cast<uint8_t>(channel);
+  sWifiApHint.ssidHash = ssidHash(ssid);
+  sWifiApHint.magic = WifiApHint::MAGIC;
+}
 #endif
 
 std::string getDisplayMacAddress() {
@@ -707,14 +747,21 @@ void WifiSelectionActivity::attemptConnection() {
   WiFi.setHostname(hostname.c_str());
 
   wl_status_t beginStatus = WL_IDLE_STATUS;
+  const char* const passphrase =
+      selectedRequiresPassword && !enteredPassword.empty() ? enteredPassword.c_str() : nullptr;
 #ifndef SIMULATOR
   sBeginMs = millis();
   sAssocMs = 0;
+  const WifiApHint* hint = apHintFor(selectedSSID);
+  sHintedAttempt = hint != nullptr;
+  if (hint) {
+    LOG_INF("WIFI", "Joining saved AP %02x:%02x:%02x:%02x:%02x:%02x on channel %u (no scan)", hint->bssid[0],
+            hint->bssid[1], hint->bssid[2], hint->bssid[3], hint->bssid[4], hint->bssid[5], hint->channel);
+    beginStatus = WiFi.begin(selectedSSID.c_str(), passphrase, hint->channel, hint->bssid);
+  } else
 #endif
-  if (selectedRequiresPassword && !enteredPassword.empty()) {
-    beginStatus = WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());
-  } else {
-    beginStatus = WiFi.begin(selectedSSID.c_str());
+  {
+    beginStatus = WiFi.begin(selectedSSID.c_str(), passphrase);
   }
   LOG_INF("WIFI", "WiFi.begin returned status=%d/%s", static_cast<int>(beginStatus), wifiStatusName(beginStatus));
 }
@@ -746,6 +793,10 @@ void WifiSelectionActivity::checkConnectionStatus() {
     sConnectionAttemptLoggingActive = false;
 #endif
     LOG_INF("WIFI", "Connected to ssid=%s ip=%s rssi=%d", selectedSSID.c_str(), connectedIP.c_str(), WiFi.RSSI());
+#ifndef SIMULATOR
+    saveApHint(selectedSSID);
+    sHintedAttempt = false;
+#endif
 
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
     uint8_t connectedBssid[6] = {};
@@ -797,6 +848,20 @@ void WifiSelectionActivity::checkConnectionStatus() {
     }
     return;
   }
+
+#ifndef SIMULATOR
+  // The saved AP moved channel, went away or refused us: forget it and connect
+  // the normal way, scan included, within the same attempt.
+  const bool hintedTimedOut = sHintedAttempt && now - connectionStartTime > HINTED_CONNECTION_TIMEOUT_MS;
+  if (sHintedAttempt && (hintedTimedOut || wifiStatusIsConnectionFailure(status))) {
+    LOG_INF("WIFI", "Saved-AP join failed (status=%d/%s elapsed=%lums); retrying with a full scan",
+            static_cast<int>(status), wifiStatusName(status), now - connectionStartTime);
+    sWifiApHint.magic = 0;
+    sHintedAttempt = false;
+    attemptConnection();  // disconnects the hinted attempt first
+    return;
+  }
+#endif
 
   if (wifiStatusIsConnectionFailure(status)) {
     connectionError = tr(STR_ERROR_GENERAL_FAILURE);
