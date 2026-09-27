@@ -6,7 +6,7 @@ nav_order: 1
 
 # Getting Started
 
-This guide helps you build and run CrossInk locally.
+This guide helps you build and run CrossDink locally.
 
 ## Prerequisites
 
@@ -50,7 +50,7 @@ The reported major version must be 21 or newer.
 
 ```sh
 git clone --recursive https://github.com/uxjulia/CrossInk
-cd CrossInk
+cd CrossDink
 ```
 
 If you already cloned without submodules:

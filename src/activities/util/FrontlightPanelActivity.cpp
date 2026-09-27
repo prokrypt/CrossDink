@@ -1,6 +1,6 @@
 #include "FrontlightPanelActivity.h"
 
-#include <CrossInkHalFrontlight.h>
+#include <CrossDinkHalFrontlight.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Memory.h>

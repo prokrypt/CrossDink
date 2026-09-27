@@ -119,7 +119,7 @@ int8_t EpdFont::getKerning(const uint32_t leftCp, const uint32_t rightCp) const 
   if (utf8IsCjkBreakable(leftCp) || utf8IsCjkBreakable(rightCp)) {
     return 0;
   }
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (data->kerningHandler) return data->kerningHandler(data->glyphMissCtx, leftCp, rightCp);
 #endif
   if (!data->kernMatrix && !data->kernRowOffsets) {
@@ -171,7 +171,7 @@ static inline bool isArabicPresentationForm(const uint32_t cp) {
 }
 
 uint32_t EpdFont::getLigature(const uint32_t leftCp, const uint32_t rightCp) const {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (data->ligatureHandler && !isArabicPresentationForm(leftCp) && !isArabicPresentationForm(rightCp))
     return data->ligatureHandler(data->glyphMissCtx, leftCp, rightCp);
 #endif
@@ -201,7 +201,7 @@ uint32_t EpdFont::getLigature(const uint32_t leftCp, const uint32_t rightCp) con
 
 uint32_t EpdFont::applyLigatures(uint32_t cp, const char*& text) const {
   if (
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
       !data->ligatureHandler &&
 #endif
       (!data->ligaturePairs || data->ligaturePairCount == 0)) {
@@ -222,7 +222,7 @@ uint32_t EpdFont::applyLigatures(uint32_t cp, const char*& text) const {
 }
 
 const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (data->dynamicGlyphHandler) return data->dynamicGlyphHandler(data->glyphMissCtx, cp);
 #endif
   const int count = data->intervalCount;

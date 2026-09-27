@@ -242,7 +242,7 @@ bool HalStorage::beginUsbDrive() {
     return false;
   }
   return true;
-#elif defined(SIMULATOR) && CROSSINK_APP_CAP_USB_DRIVE
+#elif defined(SIMULATOR) && CROSSDINK_APP_CAP_USB_DRIVE
   return true;
 #else
   return false;

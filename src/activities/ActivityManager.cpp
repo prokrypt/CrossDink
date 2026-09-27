@@ -1,10 +1,10 @@
 #include "ActivityManager.h"
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #endif
 
-#include <CrossInkHalFrontlight.h>
+#include <CrossDinkHalFrontlight.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
@@ -203,7 +203,7 @@ bool isLightSwipeAction(const uint8_t action) {
          action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_WARMTH;
 }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 void finishLiveLightSwipe(LiveLightSwipeState& state, ActivityManager& activityManager) {
   if (state.changed) activityManager.persistGlobalSettings();
   state = {};
@@ -258,7 +258,7 @@ uint8_t actionForTwoFingerDirection(const TwoFingerSwipe::Direction direction) {
   return CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET;
 }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 bool applyLiveTwoFingerLightSwipe(Activity& activity, MappedInputManager& mappedInput, const GfxRenderer& renderer,
                                   ActivityManager& activityManager, LiveLightSwipeState& state,
                                   LiveLightSwipeState& edgeState) {
@@ -356,7 +356,7 @@ bool applyTwoFingerSwipeAction(Activity& activity, MappedInputManager& mappedInp
   return applyConfiguredSwipeAction(activity, activityManager, action, SwipeAdjustment::edgeAmount(distance, axisSize));
 }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, ActivityManager& activityManager,
                           LiveLightSwipeState& state) {
   MappedInputManager::EdgeSlideProgress progress;
@@ -431,7 +431,7 @@ bool applyTwoFingerRotation(Activity& activity, MappedInputManager& mappedInput)
 }  // namespace
 
 void ActivityManager::begin(const uint32_t renderTaskStackBytes) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   ScalableFontAccess::configure(renderingMutex);
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender", renderTaskStackBytes,
@@ -552,7 +552,7 @@ void ActivityManager::loop() {
     }
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (edgeLightSwipe.active && edgeLightSwipe.owner != currentActivity.get())
     finishLiveLightSwipe(edgeLightSwipe, *this);
   if (twoFingerLightSwipe.tracking && twoFingerLightSwipe.owner != currentActivity.get())
@@ -563,14 +563,14 @@ void ActivityManager::loop() {
     mappedInput.setPowerAsConfirmInReaderMode(currentActivity->allowPowerAsConfirmInReaderMode());
 
     if (currentActivity->blocksGlobalInput()) {
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
       if (edgeLightSwipe.active) finishLiveLightSwipe(edgeLightSwipe, *this);
       if (twoFingerLightSwipe.tracking) finishLiveLightSwipe(twoFingerLightSwipe, *this);
 #endif
       mappedInput.resetEdgeSlide();
       currentActivity->loop();
     } else {
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
       if (currentActivity->name != "FrontlightPanel" &&
           applyLiveTwoFingerLightSwipe(*currentActivity, mappedInput, renderer, *this, twoFingerLightSwipe,
                                        edgeLightSwipe)) {
@@ -590,7 +590,7 @@ void ActivityManager::loop() {
         return;
       }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
       if (applyEdgeSlideAction(*currentActivity, mappedInput, *this, edgeLightSwipe)) {
         return;
       }
@@ -923,7 +923,7 @@ void ActivityManager::goToHotspotFileTransfer(const std::string& returnBookPath)
 }
 
 void ActivityManager::goToUsbDrive() {
-#if CROSSINK_APP_CAP_USB_DRIVE
+#if CROSSDINK_APP_CAP_USB_DRIVE
   auto activity = makeUniqueNoThrow<UsbDriveActivity>(renderer, mappedInput);
   if (!activity) {
     LOG_ERR("ACT", "OOM: USB Drive activity");

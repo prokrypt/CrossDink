@@ -10,8 +10,8 @@ type Props = {
 };
 
 const docs = await getDocs();
-const { title = 'CrossInk', description = 'CrossInk firmware documentation', pageClass = '' } = Astro.props;
-const pageTitle = title === 'CrossInk' ? title : `${title} | CrossInk`;
+const { title = 'CrossDink', description = 'CrossDink firmware documentation', pageClass = '' } = Astro.props;
+const pageTitle = title === 'CrossDink' ? title : `${title} | CrossDink`;
 const currentDoc = docs.find((doc) => Astro.url.pathname === doc.url);
 ---
 
@@ -25,7 +25,7 @@ const currentDoc = docs.find((doc) => Astro.url.pathname === doc.url);
       // preference until the visitor picks one, which is stored in localStorage.
       (function () {
         try {
-          var stored = localStorage.getItem('crossink-theme');
+          var stored = localStorage.getItem('crossdink-theme');
           document.documentElement.dataset.theme =
             stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         } catch (e) {}
@@ -43,7 +43,7 @@ const currentDoc = docs.find((doc) => Astro.url.pathname === doc.url);
       <a class="brand" href="/">
         <img class="brand-mark" src="/logo.png" alt="" aria-hidden="true" />
         <span>
-          <strong>CrossInk</strong>
+          <strong>CrossDink</strong>
           <small>E-reader Firmware</small>
         </span>
       </a>
@@ -129,7 +129,7 @@ const currentDoc = docs.find((doc) => Astro.url.pathname === doc.url);
           var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
           document.documentElement.dataset.theme = next;
           try {
-            localStorage.setItem('crossink-theme', next);
+            localStorage.setItem('crossdink-theme', next);
           } catch (e) {}
           sync();
         });

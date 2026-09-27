@@ -4,7 +4,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <SdCardFontSystem.h>
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #endif
 
@@ -20,7 +20,7 @@ bool isSafeFontPathChar(const char c) {
   return static_cast<unsigned char>(c) >= 0x80 || std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' ||
          c == ' ' || c == '.' || c == '(' || c == ')';
 }
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 // Match discovery names: folder names for grouped TTFs, metadata for loose files.
 // Scan skipped duplicate styles too, so they cannot reappear after deletion.
 bool deleteTtfFamily(const char* path, const char* family, const char* folderName = nullptr) {
@@ -88,7 +88,7 @@ bool FontInstaller::isValidCpfontFilename(const char* name) {
   if (strchr(name, '/') != nullptr) return false;
   if (strchr(name, '\\') != nullptr) return false;
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   const size_t n = strlen(name);
   if (n > 4 && strcasecmp(name + n - 4, ".ttf") == 0) {
     for (const char* p = name; *p; ++p)
@@ -159,7 +159,7 @@ bool FontInstaller::validateCpfontFile(const char* path) {
     return false;
   }
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   const bool staticTtf = memcmp(magic, "\0\1\0\0", 4) == 0 || memcmp(magic, "true", 4) == 0;
   if (ttf && staticTtf) {
     HalScalableFont::Info info;
@@ -185,7 +185,7 @@ void FontInstaller::buildFontPath(const char* family, const char* filename, char
 FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
   if (!isValidFamilyName(familyName)) return Error::INVALID_FAMILY_NAME;
   sdFontSystem.markRegistryDirty();
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (registry_.lastDiscoveryFailed()) return Error::SD_WRITE_ERROR;
   const auto* scalable = registry_.findSummary(familyName);
   if (scalable && scalable->isScalable()) {

@@ -1,5 +1,5 @@
 #pragma once
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <EpdFontFamily.h>
 #include <FtFont.h>
 #include <HalStorage.h>
@@ -24,7 +24,7 @@ class ScalableFontAccess {
   bool owned_ = false;
 };
 
-// The HAL adapter owns font files and translates SDK coverage into CrossInk's
+// The HAL adapter owns font files and translates SDK coverage into CrossDink's
 // existing 2-bit and fractional-metric conventions. Call under RenderLock.
 class HalScalableFont {
  public:

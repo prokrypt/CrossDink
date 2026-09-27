@@ -1,6 +1,6 @@
 #pragma once
 
-#include <CrossInkHalFrontlight.h>
+#include <CrossDinkHalFrontlight.h>
 #include <HalGPIO.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>

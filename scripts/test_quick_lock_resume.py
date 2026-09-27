@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def check_resume(program: Path, suffix: str, activity: str, orientation: int) -> None:
-    with tempfile.TemporaryDirectory(prefix="crossink-quick-lock-") as directory:
+    with tempfile.TemporaryDirectory(prefix="crossdink-quick-lock-") as directory:
         work = Path(directory)
         state_dir = work / "fs_" / ".crosspoint"
         state_dir.mkdir(parents=True)
@@ -32,7 +32,7 @@ def check_resume(program: Path, suffix: str, activity: str, orientation: int) ->
         }))
         env = os.environ.copy()
         for key in list(env):
-            if key.startswith(("CROSSPOINT_SIM_", "CROSSINK_SIMULATOR_SMOKE")):
+            if key.startswith(("CROSSPOINT_SIM_", "CROSSDINK_SIMULATOR_SMOKE")):
                 del env[key]
         env.update(SDL_VIDEODRIVER="dummy", CROSSPOINT_SIM_WAKE_REASON="power",
                    CROSSPOINT_SIM_INPUT_SCRIPT="2000:QUIT")

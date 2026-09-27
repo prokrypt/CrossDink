@@ -157,7 +157,7 @@ void HalGPIO::begin() {
                             : x3IsUc8279  ? BoardConfig::Board::XteinkX3Uc8279
                                           : BoardConfig::Board::XteinkX3);
 
-  // CrossInk's X3 override/cache remains authoritative. X4 has no equivalent
+  // CrossDink's X3 override/cache remains authoritative. X4 has no equivalent
   // local override, so use the SDK's factory-aware controller selection before
   // SPI claims the display pins.
   if (deviceIsX4()) {
@@ -176,7 +176,7 @@ void HalGPIO::begin() {
 
 void HalGPIO::update() {
   inputMgr.update();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   trackTouchDrag();
 #endif
   if (inputMgr.isDebouncePending()) {
@@ -185,7 +185,7 @@ void HalGPIO::update() {
     // physical button presses are not discarded.
     delay(BUTTON_DEBOUNCE_REPOLL_MS);
     inputMgr.update();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     trackTouchDrag();
 #endif
   }
@@ -219,7 +219,7 @@ unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
 
 unsigned long HalGPIO::getPowerButtonHeldTime() const { return inputMgr.getPowerButtonHeldTime(); }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 bool HalGPIO::hasTouch() const { return inputMgr.hasTouch(); }
 
 bool HalGPIO::supportsMultiTouch() const { return inputMgr.supportsMultiTouch(); }

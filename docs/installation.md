@@ -13,7 +13,7 @@ nav_order: 2
 
 Don't have a device yet? Get one directly from [Xteink](https://go.sjv.io/X4RGBb) or [Seeed Studio](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html?sensecap_affiliate=1Nxo3Gw&referring_service=link).
 
-Note: Your purchases using the above affiliate links help support ongoing development of Crossink.
+Note: Your purchases using the above affiliate links help support ongoing development of Crossdink.
 
 ## Web Installation via USB
 
@@ -36,7 +36,7 @@ removed.
 
 ## SD Card Firmware Update
 
-#### For installing newer versions of CrossInk. Can be used by USB locked devices.
+#### For installing newer versions of CrossDink. Can be used by USB locked devices.
 
 1. Follow the same steps from the Web Installation method above. There will be an option to download the firmware instead of USB flashing.
 2. Place the downloaded `firmware-*.bin` file on your SD card. You can place this file anywhere.

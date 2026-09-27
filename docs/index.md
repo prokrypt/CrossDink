@@ -3,9 +3,9 @@ title: Home
 nav_order: 1
 ---
 
-# CrossInk
+# CrossDink
 
-Welcome to CrossInk, a personal fork of CrossPoint Reader.
+Welcome to CrossDink, a personal fork of CrossPoint Reader.
 
 [View on GitHub](https://github.com/uxjulia/CrossInk)
 

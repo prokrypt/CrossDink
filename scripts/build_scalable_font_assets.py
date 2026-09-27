@@ -24,5 +24,5 @@ except NameError:
     generate(Path(__file__).resolve().parents[1])
 else:
     flags = env.GetProjectOption('build_flags', [])
-    if 'CROSSINK_SCALABLE_FONTS=1' in ' '.join(flags):
+    if 'CROSSDINK_SCALABLE_FONTS=1' in ' '.join(flags):
         generate(Path(env.subst('$PROJECT_DIR')))

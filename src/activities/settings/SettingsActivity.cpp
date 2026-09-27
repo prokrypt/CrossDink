@@ -22,7 +22,7 @@
 #include "ClockSyncActivity.h"
 #include "CrossPointSettings.h"
 #include "FontSelectionActivity.h"
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include "TtfRenderOptionsActivity.h"
 #endif
 #include "FrontlightTimePickerActivity.h"
@@ -88,7 +88,7 @@ bool useLandscapeTouchLayout(const GfxRenderer& renderer) {
   // Layout is an app capability decision, not a live GT911 probe or SDK board
   // profile result. The simulator supplies touch through its own device
   // profile, while firmware can construct Settings during touch reinitialization.
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   return renderer.getScreenWidth() > renderer.getScreenHeight();
 #else
   return false;
@@ -150,7 +150,7 @@ std::string formatCompactDuration(const uint32_t seconds) {
 
 void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
                              const ThemeMetrics& metrics) {
-  const std::string label = "CrossInk " CROSSINK_VERSION;
+  const std::string label = "CrossDink " CROSSDINK_VERSION;
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
   const int bottomLineY =
       pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - systemVersionFooterBottomInset;
@@ -314,7 +314,7 @@ void SettingsActivity::rebuildSettingsLists() {
   const auto allSettings = getSettingsList(needsFonts ? &sdFontSystem.registry() : nullptr, &dictionaryRegistry);
   displaySettings = buildGroupedDisplaySettingsList(allSettings);
 #ifndef SIMULATOR
-  if (BoardConfig::isX4Pro() || CROSSINK_APP_DEVICE_X4CLASSIC) {
+  if (BoardConfig::isX4Pro() || CROSSDINK_APP_DEVICE_X4CLASSIC) {
     displaySettings.erase(
         std::remove_if(displaySettings.begin(), displaySettings.end(),
                        [](const SettingInfo& setting) { return setting.valuePtr == &CrossPointSettings::fadingFix; }),
@@ -325,7 +325,7 @@ void SettingsActivity::rebuildSettingsLists() {
   displayFrontlightSettings = buildDisplayFrontlightSettingsList(allSettings);
   readerSettings = buildReaderSettingsParentList(allSettings);
   readerFontSettings = buildReaderFontSettingsList(allSettings);
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (needsFonts && sdFontSystem.isScalableFamily(SETTINGS.sdFontFamilyName)) {
     const auto fontSize =
         std::find_if(readerFontSettings.begin(), readerFontSettings.end(),
@@ -349,7 +349,7 @@ void SettingsActivity::rebuildSettingsLists() {
   controlsEdgeGestureSettings = buildControlsEdgeGestureSettingsList(allSettings);
   const size_t expectedSideButtonCount =
       controlsSideButtonBaseCount + (hasSideButtonChordSetting(allSettings) ? 1u : 0u);
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (!gpio.hasTouch()) {
     controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
   }
@@ -923,7 +923,7 @@ void SettingsActivity::loop() {
   // Swipes scroll the viewport; the selection stays put (it may scroll
   // off-screen) and button navigation pulls the view back to it.
   const auto swipe = mappedInput.wasSwipe();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   // Settings opened from the frontlight panel keeps its quick exit, but only
   // from the lower-edge gesture band. Ordinary upward swipes scroll the list
   // in both portrait and landscape.
@@ -1176,7 +1176,7 @@ void SettingsActivity::toggleCurrentSetting() {
         silentRestartToManageFonts();
         break;
       case SettingAction::TtfRendering:
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
         startActivityForResult(
             std::make_unique<TtfRenderOptionsActivity>(renderer, mappedInput, SETTINGS.sdFontFamilyName, false),
             [this](const ActivityResult& result) {
@@ -1366,7 +1366,7 @@ void SettingsActivity::settingsScreen(UiApp::ScreenType& screen, void* user) {
 
 void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   const bool landscapeTouch = useLandscapeTouchLayout(renderer);
 #endif
   const fui::Rect safe = screen.frame().safeRect();
@@ -1473,7 +1473,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     tabStyles.active = tabStyles.selected;
     tabProps.tabStyles = tabStyles;
   }
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (landscapeTouch) {
     // Landscape has width to spare but little vertical room. Keep categories
     // in a left rail so the settings list can use the full remaining height.

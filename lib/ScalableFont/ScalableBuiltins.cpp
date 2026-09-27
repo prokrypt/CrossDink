@@ -1,5 +1,5 @@
 #include "ScalableBuiltins.h"
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <GfxRenderer.h>
 #include <Logging.h>
 

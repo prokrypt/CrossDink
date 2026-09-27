@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #endif
 
@@ -23,19 +23,19 @@ class SdCardFontManager {
   // file is loaded; other sizes remain on disk. This keeps resident interval
   // + kern/ligature tables to one size's worth of memory.
   bool loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPointSize);
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   bool loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPointSize,
                          const freeink::font::FtFont::RenderOptions& renderOptions);
 #endif
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   // Reuse an active reader face, or load a temporary dictionary family
   // without computing identities for persistent EPUB layouts.
   bool loadDictionaryFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t pointSize,
                             const freeink::font::FtFont::RenderOptions& options);
 #endif
   bool hasTemporaryScalableFamily() const {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     return temporaryScalable_;
 #else
     return false;
@@ -73,7 +73,7 @@ class SdCardFontManager {
   // True when the most recent scalable-font load found both an invalid
   // whole-file OpenType checksum and unusable basic-text probe data.
   bool lastLoadHadIntegrityWarning() const {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     return lastLoadHadIntegrityWarning_;
 #else
     return false;
@@ -84,7 +84,7 @@ class SdCardFontManager {
   // distinguishes a catalog entry from a family whose TTF bytes are actually
   // resident and can therefore change size without another SD read.
   bool hasResidentScalableFamily(const char* familyName) const {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     return familyName && loadedFamilyName_ == familyName && scalable_[0] != nullptr;
 #else
     (void)familyName;
@@ -92,7 +92,7 @@ class SdCardFontManager {
 #endif
   }
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   // Update the resident faces without rereading their TTF files. Existing
   // renderer registrations are replaced because metrics and cache identity
   // depend on these options.
@@ -100,7 +100,7 @@ class SdCardFontManager {
 #endif
 
  private:
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   std::unique_ptr<HalScalableFont> scalable_[4];
   uint32_t scalableHash_ = 0;
   int activeScalableId_ = 0;

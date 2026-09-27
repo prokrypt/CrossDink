@@ -64,7 +64,7 @@ void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::strin
   ensureLoaded();
 
   // No-op write suppression adapted from Sichroteph/YACP commit
-  // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT), preserving CrossInk's
+  // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT), preserving CrossDink's
   // cover-state metadata.
   bool changed = pruneMissing();
 

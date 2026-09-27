@@ -1,17 +1,17 @@
 #include "CoreLoadLog.h"
 
-#if CROSSINK_CORE_LOAD_LOG && !defined(SIMULATOR)
+#if CROSSDINK_CORE_LOAD_LOG && !defined(SIMULATOR)
 
 #include <sdkconfig.h>
 
 #if !CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS || !CONFIG_FREERTOS_USE_TRACE_FACILITY
-#error "CROSSINK_CORE_LOAD_LOG needs CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS and CONFIG_FREERTOS_USE_TRACE_FACILITY"
+#error "CROSSDINK_CORE_LOAD_LOG needs CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS and CONFIG_FREERTOS_USE_TRACE_FACILITY"
 #endif
 // Deltas are compared against esp_timer_get_time(), so the counter must tick in
 // microseconds. With the default 32-bit counter it wraps every ~71 minutes;
 // unsigned subtraction keeps deltas right while samples are closer than that.
 #if !CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER
-#error "CROSSINK_CORE_LOAD_LOG needs CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER (microsecond counter)"
+#error "CROSSDINK_CORE_LOAD_LOG needs CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER (microsecond counter)"
 #endif
 
 #include <Logging.h>

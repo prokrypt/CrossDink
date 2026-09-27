@@ -5,9 +5,9 @@ nav_order: 5
 
 # Reader Features
 
-This page covers a subset of CrossInk reader features that go beyond basic page turning. It is not a complete list of every reader setting or action. For a more complete list of features as they were released, see the [releases page](https://github.com/uxjulia/CrossInk/releases).
+This page covers a subset of CrossDink reader features that go beyond basic page turning. It is not a complete list of every reader setting or action. For a more complete list of features as they were released, see the [releases page](https://github.com/uxjulia/CrossInk/releases).
 
-The sections here focus on larger CrossInk-specific reader features. Small fixes, implementation details, and features that only arrived from upstream CrossPoint are intentionally left out.
+The sections here focus on larger CrossDink-specific reader features. Small fixes, implementation details, and features that only arrived from upstream CrossPoint are intentionally left out.
 
 ## In-book Reader Options
 
@@ -23,7 +23,7 @@ Open the reader menu and select **Book Options** to adjust settings such as:
 - Alignment
 - Image rendering
 - [Publisher Page Numbers](#publisher-page-numbers)
-- [Stable Page Numbers](#stable-page-numbers), when the book includes CrossInk reference metadata
+- [Stable Page Numbers](#stable-page-numbers), when the book includes CrossDink reference metadata
 - [Focus Reading](#focus-reading) / Guide Dots
 - Dark Reader Mode
 
@@ -79,7 +79,7 @@ headings and emphasis, is left unchanged.
 
 ## Font Sizes And Downloadable Font Ranges
 
-CrossInk adds a wider range of reader font-sizes, including smaller and larger point sizes for users who want denser pages or much larger text.
+CrossDink adds a wider range of reader font-sizes, including smaller and larger point sizes for users who want denser pages or much larger text.
 
 The reader can also use SD-card font packs with selectable font-size ranges. This lets you keep the installed firmware smaller while still using extra sizes or custom fonts from the SD card.
 
@@ -110,7 +110,7 @@ Dark Reader Mode can also be assigned to shortcut actions, so it can be switched
 
 ## Line Spacing
 
-CrossInk supports adjustable reader line spacing from compact to wide spacing.
+CrossDink supports adjustable reader line spacing from compact to wide spacing.
 
 Use this when a book feels visually cramped, or when larger fonts need more vertical room to stay comfortable.
 
@@ -129,14 +129,14 @@ TXT books.
 
 Publisher Page Numbers show page labels supplied by the EPUB, such as the
 printed page numbers from a physical edition. When the book includes labeled
-page-break markers, CrossInk displays those labels in the reader margin beside
+page-break markers, CrossDink displays those labels in the reader margin beside
 the matching content.
 
 To enable them, open the reader menu and select **Reader Options > Publisher
 Page Numbers**. If an EPUB does not contain labeled page-break markers, there
-are no publisher page numbers for CrossInk to display.
+are no publisher page numbers for CrossDink to display.
 
-Publisher page markers are preserved by **CrossInk Default** and **Balanced**
+Publisher page markers are preserved by **CrossDink Default** and **Balanced**
 render modes. **Light** and **Safe Mode** omit them when simplifying a difficult
 book's layout.
 
@@ -153,8 +153,8 @@ To enable them:
 2. Select **Customize Status Bar**.
 3. Toggle **Stable Page Numbers** on.
 
-The option appears only when the current EPUB contains valid CrossInk reference
-metadata. To create that metadata, optimize the EPUB in the CrossInk web
+The option appears only when the current EPUB contains valid CrossDink reference
+metadata. To create that metadata, optimize the EPUB in the CrossDink web
 interface or with [Inky](https://inky.crossink.dev) before uploading it to the reader.
 In the optimizer's settings, the **Characters per Page** controls the reference-page size; the default
 is 1,500 characters. Lower values create more reference pages, while higher
@@ -188,13 +188,13 @@ Toggle it from **Reader settings**.
 
 Auto Page Turn can advance pages on a timer while reading.
 
-CrossInk adds a custom interval picker, so the interval is not limited to the built-in presets. The reader can also remember a different Auto Page Turn interval per book.
+CrossDink adds a custom interval picker, so the interval is not limited to the built-in presets. The reader can also remember a different Auto Page Turn interval per book.
 
 Open the reader menu and select **Auto Page Turn** to configure it.
 
 ## Time Left
 
-CrossInk can show estimated time left in the current chapter or book.
+CrossDink can show estimated time left in the current chapter or book.
 
 The estimate is based on your recent forward-page reading pace. Non-linear jumps such as chapter skips, bookmark jumps, and footnote navigation are handled separately so they do not immediately distort the normal reading estimate.
 
@@ -202,7 +202,7 @@ Use **Reset Reading Pace** if the estimate was trained by unusual reading behavi
 
 ## Bookmarks
 
-CrossInk supports EPUB bookmarks from the reader.
+CrossDink supports EPUB bookmarks from the reader.
 
 You can:
 
@@ -214,14 +214,14 @@ You can:
 
 ## Clippings And Highlights
 
-CrossInk supports EPUB text clippings from the reader. Use **Create Clipping**
+CrossDink supports EPUB text clippings from the reader. Use **Create Clipping**
 from the reader menu or a configured shortcut, select text, and save it.
 
 On button devices, move the cursor with the direction buttons, press **Select**
 at the first word, move to the last word, then press **Done**. On touchscreen
 devices, a tap saves the single word you touch. To save a range, touch and hold
 the first word until range selection begins, drag to the last word, then lift
-your finger; CrossInk saves the clipping immediately. A touch drag does not
+your finger; CrossDink saves the clipping immediately. A touch drag does not
 turn pages, so use the direction buttons if a clipping must extend to another
 page.
 
@@ -232,7 +232,7 @@ A saved clipping is used in three ways:
 - It is appended to `/My Clippings.txt` on the SD card in a Kindle-style text format
 
 The in-app clipping list is stored separately from the text export. Deleting a
-clipping from CrossInk removes the saved clipping and highlight from the device
+clipping from CrossDink removes the saved clipping and highlight from the device
 UI, but it does not rewrite old entries that were already appended to
 `/My Clippings.txt`.
 
@@ -246,7 +246,7 @@ clipping and its highlight, not an entry already exported to
 
 ## Reading Stats
 
-CrossInk tracks per-book reading stats automatically and aggregates them into global stats.
+CrossDink tracks per-book reading stats automatically and aggregates them into global stats.
 
 Tracked stats include:
 
@@ -256,7 +256,7 @@ Tracked stats include:
 - Average session time
 - All-time reading stats, including total books read
 
-Recent CrossInk versions expanded this into a larger stats system, including synced totals, richer X3 stats screens, reading-streak and time charts, editable stat dates, idle-time filtering, reset controls, and all-time stats backup options.
+Recent CrossDink versions expanded this into a larger stats system, including synced totals, richer X3 stats screens, reading-streak and time charts, editable stat dates, idle-time filtering, reset controls, and all-time stats backup options.
 
 **Note**: Date-related stats require a device with a real-time clock (RTC) module. The X4 does not have an RTC module, therefore will not have as detailed stats as the X3.
 
@@ -266,7 +266,7 @@ For two-device syncing, see [Reading Stats Sync](./reading-stats-sync.md).
 
 ## Nearby Position Sync
 
-CrossInk can copy the current EPUB position from one nearby CrossInk reader to
+CrossDink can copy the current EPUB position from one nearby CrossDink reader to
 another over ESP-NOW. Open the same EPUB on both readers, choose **Nearby
 Position Sync** from the in-book menu on both devices, and press **Share** on
 the reader that is already at the correct page.
@@ -280,7 +280,7 @@ For details and troubleshooting, see [Nearby Position Sync](./nearby-position-sy
 
 You can manually mark a book as finished from the in-book menu.
 
-At 99% book progress, CrossInk also shows a popup asking whether to mark the book as finished.
+At 99% book progress, CrossDink also shows a popup asking whether to mark the book as finished.
 
 If **Move finished books to Read folder** is enabled, books marked as finished are moved to `/Read/` on the SD card.
 
@@ -290,7 +290,7 @@ The file browser can also mark books as finished without opening them first.
 
 ## Reader Controls And Shortcuts
 
-CrossInk adds reader-focused control options beyond the default button mappings.
+CrossDink adds reader-focused control options beyond the default button mappings.
 
 Examples include:
 

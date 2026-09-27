@@ -8,7 +8,7 @@
 #include <cstring>
 
 #include "ClippingStore.h"
-#include "CrossInkHalFrontlight.h"
+#include "CrossDinkHalFrontlight.h"
 #include "CrossPointSettings.h"
 #include "EpubReaderClippingListActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
@@ -46,7 +46,7 @@ int readerMenuTabBarHeight(const int baseTabBarHeight, const bool hasTouch) {
   return baseTabBarHeight * (hasTouch ? touchReaderMenuTabBarHeightScale : 1);
 }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 bool readerMenuTabsAtBottom(const MappedInputManager& mappedInput) {
   // Frontlight boards reserve the top-edge down-swipe for the quick panel, so
   // the reader menu opens from the bottom and its tabs should stay thumb-close.
@@ -507,7 +507,7 @@ void EpubReaderMenuActivity::drawIconTabBar(const Rect rect, const bool drawBott
     renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   const size_t iconCount = mappedInput.hasTouchHardware() ? TOUCH_ICON_COUNT : MENU_TAB_COUNT;
 #else
   constexpr size_t iconCount = MENU_TAB_COUNT;
@@ -540,7 +540,7 @@ void EpubReaderMenuActivity::drawIconTabBar(const Rect rect, const bool drawBott
     } else if (i == static_cast<size_t>(MenuTab::Settings)) {
       drawSdkIcon(uiTarget, icon_cog_24, iconX, iconY, !tabFocused);
     }
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     else {
       drawSdkIcon(uiTarget, SETTINGS.disableReaderTouchscreen ? icon_device_tablet_off_24 : icon_device_tablet_24,
                   iconX, iconY);
@@ -658,7 +658,7 @@ void EpubReaderMenuActivity::buildMenuScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouch(), false);
   const int tabBarHeight = readerMenuTabBarHeight(metrics.tabBarHeight, mappedInput.hasTouch());
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   // cppcheck-suppress knownConditionTrueFalse ; compile-time false on Sticky (touch, no frontlight)
   const bool tabsAtBottom = readerMenuTabsAtBottom(mappedInput);
   // Sticky has touch but no frontlight, so this is compile-time false there;
@@ -724,7 +724,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   const bool hasTouch = mappedInput.hasTouch();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, !hasTouch, false);
   const int tabBarHeight = readerMenuTabBarHeight(metrics.tabBarHeight, hasTouch);
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   // cppcheck-suppress knownConditionTrueFalse ; compile-time false on Sticky (touch, no frontlight)
   const bool tabsAtBottom = readerMenuTabsAtBottom(mappedInput);
 #endif
@@ -758,14 +758,14 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
 
   const int topTabBarY =
       screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.tabBarHeight;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   // cppcheck-suppress knownConditionTrueFalse
   const int tabBarY = tabsAtBottom ? screen.y + screen.height - tabBarHeight : topTabBarY;
 #else
   const int tabBarY = topTabBarY;
 #endif
   const Rect tabRect{screen.x, tabBarY, screen.width, tabBarHeight};
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   drawIconTabBar(tabRect, !tabsAtBottom);
 #else
   drawIconTabBar(tabRect, true);

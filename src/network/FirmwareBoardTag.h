@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// Board-identity tag embedded in every CrossInk image, plus a streaming
+// Board-identity tag embedded in every CrossDink image, plus a streaming
 // scanner the firmware update paths use to reject an image built for a
 // different board before it can boot and drive another device's pins. Sticky
 // and X4 Pro both use ESP32-S3, so the ESP image chip ID cannot distinguish

@@ -1,6 +1,6 @@
 #include "TtfRenderProfileStore.h"
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 
 #include <algorithm>
 #include <cstring>

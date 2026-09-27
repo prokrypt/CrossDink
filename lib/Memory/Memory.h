@@ -128,7 +128,7 @@ inline HeapByteBuffer makeInternalByteBufferNoThrow(const size_t count) {
 // its explicit MALLOC_CAP_DEFAULT behavior for its existing callers.
 inline HeapByteBuffer makeDefaultByteBufferNoThrow(const size_t count) {
   if (count == 0) return {};
-#if defined(CROSSINK_MEMORY_TEST)
+#if defined(CROSSDINK_MEMORY_TEST)
   // Native failure-injection seam; no hooks or dispatch in firmware builds.
   return HeapByteBuffer(static_cast<uint8_t*>(heap_caps_malloc(count, MALLOC_CAP_DEFAULT)));
 #else
@@ -140,7 +140,7 @@ inline HeapByteBuffer makeDefaultByteBufferNoThrow(const size_t count) {
 // byte-allocation minimum alignment is smaller. None selects the default heap.
 inline HeapByteBuffer makeAlignedByteBufferNoThrow(const size_t count, const MemoryPool pool = MemoryPool::None) {
   if (count == 0) return {};
-#if !defined(CROSSINK_MEMORY_TEST)
+#if !defined(CROSSDINK_MEMORY_TEST)
   if (pool == MemoryPool::None) {
     constexpr size_t alignment = alignof(std::max_align_t);
     if (count > SIZE_MAX - (alignment - 1)) return {};

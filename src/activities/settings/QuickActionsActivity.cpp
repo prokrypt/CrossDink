@@ -21,7 +21,7 @@ constexpr StrId triggerLabels[] = {
 std::vector<QuickActions::Trigger> availableTriggers() {
   std::vector<QuickActions::Trigger> triggers = {QuickActions::Trigger::None, QuickActions::Trigger::ShortPower,
                                                  QuickActions::Trigger::LongPower, QuickActions::Trigger::PowerUp};
-#if CROSSINK_APP_CAP_TOUCH || CROSSINK_APP_DEVICE_X4CLASSIC || defined(SIMULATOR_DEVICE_X4_CLASSIC)
+#if CROSSDINK_APP_CAP_TOUCH || CROSSDINK_APP_DEVICE_X4CLASSIC || defined(SIMULATOR_DEVICE_X4_CLASSIC)
   if (deviceSupportsSideButtonChord(gpio)) {
     triggers.push_back(QuickActions::Trigger::UpDown);
   }
@@ -31,7 +31,7 @@ std::vector<QuickActions::Trigger> availableTriggers() {
     triggers.push_back(QuickActions::Trigger::LongPressHome);
     triggers.push_back(QuickActions::Trigger::DoubleTapHome);
   }
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (!gpio.hasTouch()) {
     triggers.push_back(QuickActions::Trigger::LongBack);
     triggers.push_back(QuickActions::Trigger::LongMenu);

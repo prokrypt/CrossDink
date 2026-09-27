@@ -37,7 +37,7 @@ def rule_groups(path: Path) -> int:
 
 
 def check_drawer(program: Path, orientation: int) -> None:
-    with tempfile.TemporaryDirectory(prefix="crossink-drawer-") as directory:
+    with tempfile.TemporaryDirectory(prefix="crossdink-drawer-") as directory:
         work = Path(directory)
         state = work / "fs_/.crosspoint"
         state.mkdir(parents=True)
@@ -49,7 +49,7 @@ def check_drawer(program: Path, orientation: int) -> None:
         screenshot = work / "drawer.bmp"
         env = os.environ.copy()
         for key in list(env):
-            if key.startswith(("CROSSPOINT_SIM_", "CROSSINK_SIMULATOR_SMOKE")):
+            if key.startswith(("CROSSPOINT_SIM_", "CROSSDINK_SIMULATOR_SMOKE")):
                 del env[key]
         # Normalized positions remain valid when boot starts in portrait and
         # the reader subsequently restores a landscape orientation.

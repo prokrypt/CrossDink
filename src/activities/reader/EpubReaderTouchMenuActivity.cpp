@@ -1,6 +1,6 @@
 #include "EpubReaderTouchMenuActivity.h"
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 
 #include <Epub/Page.h>
 #include <FontCacheManager.h>
@@ -28,7 +28,7 @@
 #include "StablePageSelectionModel.h"
 #include "activities/reader/ControlsOptionsActivity.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include "activities/settings/TtfRenderOptionsActivity.h"
 #endif
 #include "components/DrawerHandle.h"
@@ -394,7 +394,7 @@ void EpubReaderTouchMenuActivity::onExit() {
   dictionaryRegistry.clear();
   // The reader remains active beneath this drawer. Keep the small catalog for
   // its resident scalable family so reopening Font Size avoids an SD rescan.
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (!sdFontSystem.hasResidentScalableFamily(SETTINGS.sdFontFamilyName))
 #endif
     sdFontSystem.releaseRegistry();
@@ -424,7 +424,7 @@ void EpubReaderTouchMenuActivity::discoverFonts() {
 
 void EpubReaderTouchMenuActivity::refreshTtfRenderingRow() {
   paneRows.erase(std::remove(paneRows.begin(), paneRows.end(), RowId::TtfRendering), paneRows.end());
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (state.pane == ReaderDrawerPane::ReaderFont && sdFontSystem.isScalableFamily(draft.sdFontFamilyName.data())) {
     const auto fontSize = std::find(paneRows.begin(), paneRows.end(), RowId::FontSize);
     if (fontSize != paneRows.end()) paneRows.insert(std::next(fontSize), RowId::TtfRendering);
@@ -432,7 +432,7 @@ void EpubReaderTouchMenuActivity::refreshTtfRenderingRow() {
 #endif
 }
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 void EpubReaderTouchMenuActivity::rebuildTtfRenderingRows() {
   paneRows = {RowId::TtfHinting, RowId::TtfRaster};
   if (ttfRenderProfile.hinting == 1) paneRows.push_back(RowId::TtfInterpreter);
@@ -579,7 +579,7 @@ void EpubReaderTouchMenuActivity::markSettingChanged(const ReaderSettingsChangeM
 
 void EpubReaderTouchMenuActivity::closeAndReturn(const bool cancelled, const EpubReaderMenuAction action,
                                                  const bool reopenDrawer) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   // ActivityManager copies the result before onExit(). Resolve a pending TTF
   // edit here so the reader knows its old font ID and section need replacing.
   finishTtfRenderingEdit();
@@ -791,7 +791,7 @@ void EpubReaderTouchMenuActivity::buildDrawer(UiApp::ScreenType& screen) {
     case ReaderDrawerPane::EnumOptions:
       buildEnumOptionsPane(screen);
       break;
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case ReaderDrawerPane::TtfRendering:
       buildTtfRenderingPane(screen);
       break;
@@ -1222,7 +1222,7 @@ void EpubReaderTouchMenuActivity::buildEnumOptionsPane(UiApp::ScreenType& screen
                                screen.theme().listScrollInset);
 }
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 void EpubReaderTouchMenuActivity::buildTtfRenderingPane(UiApp::ScreenType& screen) {
   buildPaneHeader(screen);
   const auto& rows = activeRows();
@@ -1272,7 +1272,7 @@ void EpubReaderTouchMenuActivity::openPane(const ReaderDrawerPane pane) {
   if (pane == ReaderDrawerPane::DictionaryFont) {
     paneRows = {RowId::DictionaryFontFamily, RowId::DictionaryFontSize};
   }
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (pane == ReaderDrawerPane::TtfRendering) {
     ttfRenderProfile = TTF_RENDER_PROFILES.profileFor(draft.sdFontFamilyName.data());
     initialTtfRenderProfile = ttfRenderProfile;
@@ -1292,7 +1292,7 @@ void EpubReaderTouchMenuActivity::closePane() {
     state.pane = enumOptionReturnPane;
   } else if (state.pane == ReaderDrawerPane::FontFamily) {
     state.pane = ReaderDrawerPane::ReaderFont;
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   } else if (state.pane == ReaderDrawerPane::TtfRendering) {
     finishTtfRenderingEdit();
     state.pane = ReaderDrawerPane::ReaderFont;
@@ -1308,7 +1308,7 @@ void EpubReaderTouchMenuActivity::closePane() {
   if (state.pane == ReaderDrawerPane::DictionaryFont) {
     paneRows = {RowId::DictionaryFontFamily, RowId::DictionaryFontSize};
   }
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (state.pane == ReaderDrawerPane::TtfRendering) rebuildTtfRenderingRows();
 #endif
   state.paneTopIndex = 0;
@@ -1317,7 +1317,7 @@ void EpubReaderTouchMenuActivity::closePane() {
 }
 
 void EpubReaderTouchMenuActivity::changeTab(const ReaderDrawerTab tab) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   finishTtfRenderingEdit();
 #endif
   state.tab = tab;
@@ -1385,11 +1385,11 @@ void EpubReaderTouchMenuActivity::activateRow(const RowId row) {
       openPane(ReaderDrawerPane::ReaderFont);
       return;
     case RowId::TtfRendering:
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
       openPane(ReaderDrawerPane::TtfRendering);
 #endif
       return;
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case RowId::TtfHinting:
     case RowId::TtfRaster:
     case RowId::TtfInterpreter:
@@ -1638,7 +1638,7 @@ void EpubReaderTouchMenuActivity::showEnumOptions(const RowId row) {
       break;
     case RowId::RenderMode:
       title = StrId::STR_EPUB_RENDER_MODE;
-      labels = {tr(STR_RENDER_MODE_CROSSINK_DEFAULT), tr(STR_RENDER_MODE_BALANCED), tr(STR_RENDER_MODE_LIGHT)};
+      labels = {tr(STR_RENDER_MODE_CROSSDINK_DEFAULT), tr(STR_RENDER_MODE_BALANCED), tr(STR_RENDER_MODE_LIGHT)};
       raw = {0, 1, 2};
       currentRaw = draft.epubRenderMode;
       break;
@@ -1795,7 +1795,7 @@ void EpubReaderTouchMenuActivity::selectEnumOption(const int index) {
       }
       notifyDictionaryFontChanged();
       break;
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case RowId::TtfHinting:
     case RowId::TtfRaster:
     case RowId::TtfInterpreter:
@@ -2251,7 +2251,7 @@ const char* EpubReaderTouchMenuActivity::paneTitle() const {
       return tr(STR_BOOK_DICTIONARY);
     case ReaderDrawerPane::EnumOptions:
       return I18N.get(enumOptionTitle);
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case ReaderDrawerPane::TtfRendering:
       return tr(STR_TTF_RENDERING);
 #endif
@@ -2353,7 +2353,7 @@ const char* EpubReaderTouchMenuActivity::rowLabel(const RowId row) const {
       return tr(STR_FONT_FAMILY);
     case RowId::DictionaryFontSize:
       return tr(STR_FONT_SIZE);
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case RowId::TtfHinting:
       return TtfRenderOptionsActivity::rowLabel(TtfRenderOptionsActivity::Row::Hinting);
     case RowId::TtfRaster:
@@ -2385,7 +2385,7 @@ const char* EpubReaderTouchMenuActivity::rowValue(const RowId row, char* buffer,
     case RowId::FontSize:
       std::snprintf(buffer, bufferSize, "%upt", draft.readerFontPointSize);
       return buffer;
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case RowId::TtfHinting:
       return TtfRenderOptionsActivity::rowValue(TtfRenderOptionsActivity::Row::Hinting, ttfRenderProfile);
     case RowId::TtfRaster:
@@ -2415,7 +2415,7 @@ const char* EpubReaderTouchMenuActivity::rowValue(const RowId row, char* buffer,
       return I18N.get(labels[std::min<size_t>(draft.imageRendering, labels.size() - 1)]);
     }
     case RowId::RenderMode: {
-      static const std::array<StrId, 3> labels = {StrId::STR_RENDER_MODE_CROSSINK_DEFAULT,
+      static const std::array<StrId, 3> labels = {StrId::STR_RENDER_MODE_CROSSDINK_DEFAULT,
                                                   StrId::STR_RENDER_MODE_BALANCED, StrId::STR_RENDER_MODE_LIGHT};
       return I18N.get(labels[std::min<size_t>(draft.epubRenderMode, labels.size() - 1)]);
     }
@@ -2464,7 +2464,7 @@ bool EpubReaderTouchMenuActivity::rowIsToggle(const RowId row) {
     case RowId::ExtraSpacing:
     case RowId::ForceIndents:
     case RowId::EmbeddedStyle:
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case RowId::TtfStemDarkening:
 #endif
       return true;
@@ -2511,7 +2511,7 @@ bool EpubReaderTouchMenuActivity::rowToggleValue(const RowId row) const {
       return draft.extraParagraphSpacing;
     case RowId::ForceIndents:
       return draft.forceParagraphIndents;
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     case RowId::TtfStemDarkening:
       return ttfRenderProfile.stemDarkening;
 #endif

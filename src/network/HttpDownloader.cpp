@@ -108,7 +108,7 @@ struct Sink {
 
 void setRequestHeaders(esp_http_client_handle_t client, const std::string& username, const std::string& password,
                        size_t resumeOffset, bool sendAuthorization) {
-  esp_http_client_set_header(client, "User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
+  esp_http_client_set_header(client, "User-Agent", "CrossDink-ESP32-" CROSSDINK_VERSION);
   esp_http_client_set_header(client, "Connection", "close");
   if (resumeOffset > 0) {
     char rangeHeader[40];
@@ -158,8 +158,8 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
-    // exactly one header while retaining CrossInk's device/version identity.
-    http.setUserAgent("CrossInk-ESP32-" CROSSINK_VERSION);
+    // exactly one header while retaining CrossDink's device/version identity.
+    http.setUserAgent("CrossDink-ESP32-" CROSSDINK_VERSION);
     if (sink.resumeOffset > 0) {
       char rangeHeader[40];
       snprintf(rangeHeader, sizeof(rangeHeader), "bytes=%zu-", sink.resumeOffset);

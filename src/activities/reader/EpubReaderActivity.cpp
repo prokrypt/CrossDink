@@ -39,7 +39,7 @@
 #include "EpubReaderClippingListActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "ReaderFontLoading.h"
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 #include "EpubReaderTouchMenuActivity.h"
 #endif
 #include "EpubReaderPercentSelectionActivity.h"
@@ -69,7 +69,7 @@
 #include "clippings/ClippingTextMatcher.h"
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 #include "components/TouchHeaderBackButton.h"
 #endif
 #include "fontIds.h"
@@ -121,7 +121,7 @@ constexpr uint16_t MIN_STORED_PACE_FASTER_RECOVERY_SESSION_SAMPLES = 15;
 constexpr uint8_t STORED_PACE_FASTER_RECOVERY_PERCENT = 90;
 constexpr uint8_t BOOK_PROGRESS_ESTIMATE_FLOOR_PERCENT = 90;
 constexpr uint16_t FOOTNOTE_PREVIEW_MAX_PAGES = 3;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 constexpr int TOUCH_FOOTNOTE_TARGET_SIZE = 48;
 #endif
 constexpr uint8_t PUBLISHER_PAGE_NUMBER_LEFT_MARGIN_MIN = 15;
@@ -195,7 +195,7 @@ std::string confirmationHeading(const StrId actionLabelId) {
 }
 
 EpubRenderMode normalizeRenderMode(const uint8_t rawMode) {
-  return isValidEpubRenderMode(rawMode) ? static_cast<EpubRenderMode>(rawMode) : EpubRenderMode::CrossInkDefault;
+  return isValidEpubRenderMode(rawMode) ? static_cast<EpubRenderMode>(rawMode) : EpubRenderMode::CrossDinkDefault;
 }
 
 uint8_t normalizeRenderModeRaw(const uint8_t rawMode) { return static_cast<uint8_t>(normalizeRenderMode(rawMode)); }
@@ -206,7 +206,7 @@ const char* sectionCacheSuffixForRenderMode(const EpubRenderMode renderMode) {
       return BALANCED_SECTION_CACHE_SUFFIX;
     case EpubRenderMode::Light:
       return LIGHT_SECTION_CACHE_SUFFIX;
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossDinkDefault:
     default:
       return "";
   }
@@ -242,7 +242,7 @@ const char* labelForRenderModeToast(const EpubRenderMode renderMode) {
       return tr(STR_BALANCED_MODE);
     case EpubRenderMode::Light:
       return tr(STR_LIGHT_MODE);
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossDinkDefault:
     default:
       return "";
   }
@@ -256,10 +256,10 @@ std::array<EpubRenderMode, 3> fallbackModesForSelection(const EpubRenderMode sel
     case EpubRenderMode::Light:
       count = 1;
       return {EpubRenderMode::Light, EpubRenderMode::Light, EpubRenderMode::Light};
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossDinkDefault:
     default:
       count = 3;
-      return {EpubRenderMode::CrossInkDefault, EpubRenderMode::Balanced, EpubRenderMode::Light};
+      return {EpubRenderMode::CrossDinkDefault, EpubRenderMode::Balanced, EpubRenderMode::Light};
   }
 }
 
@@ -278,7 +278,7 @@ const char* sectionBuildLabelForRenderMode(const EpubRenderMode renderMode) {
       return "balanced";
     case EpubRenderMode::Light:
       return "light";
-    case EpubRenderMode::CrossInkDefault:
+    case EpubRenderMode::CrossDinkDefault:
     default:
       return "primary";
   }
@@ -362,7 +362,7 @@ void ensureReaderSdFontLoaded(GfxRenderer& renderer) {
   // S3 scalable faces are already kept in PSRAM. Keep their small catalog while
   // reading too, so opening Font Size does not rescan the SD card. Bitmap/C3
   // paths retain the previous heap-headroom behavior.
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (sdFontSystem.hasResidentScalableFamily(SETTINGS.sdFontFamilyName)) return;
 #endif
   sdFontSystem.releaseRegistry();
@@ -1009,7 +1009,7 @@ ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bo
     layout.marginTop += SETTINGS.screenMarginVertical;
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (showFootnoteHeader) {
     const Rect header = TouchHeaderBackButton::compactHeaderRect(renderer);
     layout.marginTop =
@@ -1352,7 +1352,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
 
   uint8_t flags = 0;
   uint16_t seconds = 0;
-  uint8_t renderMode = static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+  uint8_t renderMode = static_cast<uint8_t>(EpubRenderMode::CrossDinkDefault);
   EpubReaderActivity::ReaderSettingsSnapshot snapshot;
   // Version 2 books inherit the current global indexing method instead of
   // silently changing modes when their older custom settings are loaded.
@@ -1512,7 +1512,7 @@ uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
   epub.setupCacheDir();
   const BookReaderSettingsData data = loadBookReaderSettingsFile(epub.getCachePath());
   return data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
-                                    : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+                                    : static_cast<uint8_t>(EpubRenderMode::CrossDinkDefault);
 }
 
 bool EpubReaderActivity::saveBookRenderMode(const std::string& filePath, const uint8_t renderMode) {
@@ -2092,7 +2092,7 @@ void EpubReaderActivity::loadBookReaderSettings() {
     applySafeModeReaderSettings();
   }
   SETTINGS.epubRenderMode = data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
-                                                       : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+                                                       : static_cast<uint8_t>(EpubRenderMode::CrossDinkDefault);
   captureReaderSettings(initialBookReaderSettings.readerSettings);
 }
 
@@ -2148,7 +2148,7 @@ void EpubReaderActivity::saveCurrentBookReaderSettings() {
   data.hasSafeModeOverride = keepSafeMode;
   data.hasAutoPageTurnInterval = bookHasAutoPageTurnInterval;
   data.autoPageTurnSeconds = lastAutoPageTurnIntervalSeconds;
-  data.hasRenderModeOverride = currentSettings.epubRenderMode != static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+  data.hasRenderModeOverride = currentSettings.epubRenderMode != static_cast<uint8_t>(EpubRenderMode::CrossDinkDefault);
   data.renderMode = currentSettings.epubRenderMode;
   if (!saveBookReaderSettingsFile(epub->getCachePath(), data)) return;
 
@@ -2583,7 +2583,7 @@ void EpubReaderActivity::openReaderMenu() {
   pauseReadingPaceTimer("reader_menu");
   const BookReaderSettingsData bookSettings = loadBookReaderSettingsFile(epub->getCachePath());
   std::unique_ptr<Activity> menuActivity;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     menuActivity = makeUniqueNoThrow<EpubReaderTouchMenuActivity>(
         renderer, mappedInput, epub, touchReaderPreviewModel.get(), bookProgress,
@@ -2627,7 +2627,7 @@ void EpubReaderActivity::openReaderMenu() {
   }
   startActivityForResult(std::move(menuActivity), [this](const ActivityResult& result) {
     if (const auto* chapter = std::get_if<ChapterResult>(&result.data)) {
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
       touchReaderDrawerState = chapter->drawerState;
 #endif
       applyOrientation(chapter->orientation);
@@ -2670,7 +2670,7 @@ void EpubReaderActivity::openReaderMenu() {
       requestUpdate();
       return;
     }
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     touchReaderDrawerState = menu->reopenDrawer ? menu->drawerState : ReaderDrawerState{};
 #endif
     applyOrientation(menu->orientation);
@@ -2700,7 +2700,7 @@ void EpubReaderActivity::openReaderMenu() {
           shouldReopenTouchReaderDrawer(menu->reopenDrawer, mappedInput.hasTouchHardware()) ||
           !mappedInput.hasTouchHardware();
       onReaderMenuConfirm(action, returnToReaderMenu);
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
       if (shouldReopenTouchReaderDrawer(menu->reopenDrawer, mappedInput.hasTouchHardware()) &&
           (action == EpubReaderMenuAction::BOOKMARK_TOGGLE || action == EpubReaderMenuAction::TOGGLE_COMPLETED ||
            action == EpubReaderMenuAction::RESET_READING_PACE)) {
@@ -2885,7 +2885,7 @@ bool EpubReaderActivity::transientFeedbackDismissed(const unsigned long showTime
 
 void EpubReaderActivity::loop() {
   bool rawTouchInput = false;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   int touchDownX = 0;
   int touchDownY = 0;
   rawTouchInput = mappedInput.wasScreenTouchDown(touchDownX, touchDownY) || mappedInput.wasScreenTouchReleased();
@@ -2904,7 +2904,7 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (handlePinchFontResize()) {
     // A live two-finger gesture is reader input, so background indexing yields
     // just as it does for a page turn or normal tap.
@@ -2952,7 +2952,7 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (activeFootnotePreview && touch.tapped && !RenderLock::peek() &&
       TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
     restoreSavedPosition();
@@ -3199,7 +3199,7 @@ void EpubReaderActivity::loop() {
     }
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (!atEndOfBook && touch.tapped && handleTouchFootnoteLink(touch.x, touch.y)) {
     return;
   }
@@ -3718,7 +3718,7 @@ void EpubReaderActivity::handleClippingJump(const ClippingJumpResult& clipping) 
   pauseReadingPaceTimer("clipping_jump");
 }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 bool EpubReaderActivity::handlePinchFontResize() {
   if (!SETTINGS.pinchFontResizeEnabled || !SETTINGS.touchReaderControls || !mappedInput.supportsMultiTouch()) {
     resetPinchFontGesture();
@@ -4574,7 +4574,7 @@ bool EpubReaderActivity::handleExternalReaderMenuAction(const uint8_t action) {
 }
 
 bool EpubReaderActivity::restorePendingOverlay(const PendingOverlayResume& resume) {
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (!epub || resume.overlay != PendingOverlayType::ReaderDrawer || resume.bookPath != epub->getPath()) return false;
   touchReaderDrawerState.tab =
       static_cast<ReaderDrawerTab>(std::min<uint8_t>(resume.tab, static_cast<uint8_t>(ReaderDrawerTab::Count) - 1));
@@ -4973,7 +4973,7 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
     MemoryBudget::logHeapShape("clip.after_font_release");
     pendingHeapShapeReaderRedrawStages.fetch_or(HEAP_SHAPE_REDRAW_CLIP, std::memory_order_relaxed);
     if (clippingFeedback) {
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
       if (saved && mappedInput.hasTouchHardware() && requestUpdateAndWait() != RequestUpdateResult::Rendered) {
         LOG_ERR("CLIP", "Could not render saved highlight before clipping toast");
       }
@@ -5626,7 +5626,7 @@ void EpubReaderActivity::toggleHomeButtonInReader() {
 }
 
 void EpubReaderActivity::showRenderModeToast(const uint8_t renderMode) {
-  if (normalizeRenderMode(renderMode) == EpubRenderMode::CrossInkDefault) {
+  if (normalizeRenderMode(renderMode) == EpubRenderMode::CrossDinkDefault) {
     return;
   }
   renderModeToastMode = normalizeRenderModeRaw(renderMode);
@@ -6419,7 +6419,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (!buildingFootnotePreview && safeModeBuildSucceeded && !safeModeToastShown) {
       showSafeModeToast();
     } else if (!buildingFootnotePreview && renderModeChangedDuringLoad &&
-               usedRenderMode != EpubRenderMode::CrossInkDefault && !renderModeToastShown) {
+               usedRenderMode != EpubRenderMode::CrossDinkDefault && !renderModeToastShown) {
       showRenderModeToast(static_cast<uint8_t>(usedRenderMode));
     }
 
@@ -6699,7 +6699,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (!renderContents(std::move(p), renderFontId, layout.marginTop, layout.marginRight, layout.marginBottom,
                         layout.marginLeft, /*updatePanel=*/true, prerendered)) {
       currentPageFootnotes.clear();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
       currentPageFootnoteTouchTargets.fill({});
 #endif
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
@@ -7238,7 +7238,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // A drawn-ahead frame serves at most this render; any other render may
   // change what the next page should look like.
   clearPrerenderedPage();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     if (!touchReaderPreviewAllocationAttempted) {
       touchReaderPreviewAllocationAttempted = true;
@@ -7286,7 +7286,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     }
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   buildFootnoteTouchTargets(*page, fontId, orientedMarginTop, orientedMarginLeft);
 #endif
 
@@ -7323,7 +7323,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const auto finalizeBufferComposition = [&]() {
     drawClippingHighlights(*page, fontId, orientedMarginTop, orientedMarginLeft);
     drawPublisherPageMarkers(renderer, *page, orientedMarginTop, contentBottom, foregroundBlack);
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     if (activeFootnotePreview) {
       TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), tr(STR_FOOTNOTES),
                                   /*readerContext=*/true);
@@ -7639,7 +7639,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   return true;
 }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 void EpubReaderActivity::buildFootnoteTouchTargets(const Page& page, const int fontId, const int orientedMarginTop,
                                                    const int orientedMarginLeft) {
   currentPageFootnoteTouchTargets.fill({});
@@ -7945,7 +7945,7 @@ void EpubReaderActivity::renderStatusBar() const {
     }
 
   }
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   else if (activeFootnotePreview) {
     // The touch header owns the preview title; keep the footer from repeating it.
   }
@@ -8272,7 +8272,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
   SETTINGS.epubRenderMode = readerSettings.hasRenderModeOverride
                                 ? normalizeRenderModeRaw(readerSettings.renderMode)
-                                : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+                                : static_cast<uint8_t>(EpubRenderMode::CrossDinkDefault);
 
   // Load CSS when embeddedStyle is enabled, as createSectionFile may need it to rebuild the cache.
   {

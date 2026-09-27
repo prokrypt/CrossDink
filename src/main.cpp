@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <BoardConfig.h>
-#include <CrossInkHalFrontlight.h>
+#include <CrossDinkHalFrontlight.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <FreeInkUIGfxRenderer.h>
@@ -147,7 +147,7 @@ static void logBootHeap(const char* stage) {
 }
 
 // Fonts
-#if !CROSSINK_SCALABLE_FONTS
+#if !CROSSDINK_SCALABLE_FONTS
 EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
 EpdFont lexenddeca10BoldFont(&lexenddeca_10_bold);
 EpdFont lexenddeca10ItalicFont(&lexenddeca_10_italic);
@@ -1129,7 +1129,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
 
-#if !CROSSINK_SCALABLE_FONTS
+#if !CROSSDINK_SCALABLE_FONTS
   renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
   renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
   renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily);
@@ -1253,7 +1253,7 @@ void setup() {
   // X4 Pro and X4 Classic both map Up to the GPIO0 boot strap. Use Down for
   // recovery so holding the recovery chord cannot strand either S3 board in a
   // boot-mode loop.
-  const auto recoveryButton = (BoardConfig::isX4Pro() || CROSSINK_APP_DEVICE_X4CLASSIC)
+  const auto recoveryButton = (BoardConfig::isX4Pro() || CROSSDINK_APP_DEVICE_X4CLASSIC)
                                   ? MappedInputManager::Button::Down
                                   : MappedInputManager::Button::Up;
   const bool recoveryFirmwareMode = wakeupReason == HalGPIO::WakeupReason::PowerButton && !BoardConfig::isPaperMono() &&
@@ -1365,10 +1365,10 @@ void setup() {
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
-            (BoardConfig::isX4Pro() || CROSSINK_APP_DEVICE_X4CLASSIC) ? "DOWN" : "UP");
+            (BoardConfig::isX4Pro() || CROSSDINK_APP_DEVICE_X4CLASSIC) ? "DOWN" : "UP");
   }
 
-  LOG_DBG("MAIN", "Starting CrossInk version " CROSSINK_VERSION);
+  LOG_DBG("MAIN", "Starting CrossDink version " CROSSDINK_VERSION);
   logMemoryStats("Boot");
 
   // Resolve the single boot-presentation decision. Skipping the splash also
@@ -1606,7 +1606,7 @@ bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
     if (gpio.isPressed(button)) return true;
   }
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   float nx = 0.0f;
   float ny = 0.0f;
   if (gpio.isTouchHeldAt(nx, ny)) return true;
@@ -1635,7 +1635,7 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   return idleMs < IDLE_WAIT_LONG_AFTER_MS ? IDLE_WAIT_SETTLED_MS : IDLE_WAIT_LONG_MS;
 }
 
-#if CROSSINK_APP_CAP_TOUCH && !defined(SIMULATOR)
+#if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
 // Quick Lock triggers that only the physical keys can lift. The Home-key
 // triggers and the Back/Menu holds read the touch controller, so it stays
 // awake for those.
@@ -1710,7 +1710,7 @@ void loop() {
     return;
   }
 
-#if CROSSINK_APP_CAP_TOUCH && !defined(SIMULATOR)
+#if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
   updateTouchControllerSleep();
 #endif
 
@@ -1748,7 +1748,7 @@ void loop() {
   // Notify the active activity before global shortcut and gesture routes consume
   // the input and skip its loop() for this frame.
   const bool userInputReceived = gpio.wasAnyPressed() || gpio.wasAnyReleased()
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
                                  || gpio.wasTouchActivity()
 #endif
                                  || halTiltSensor.hadActivity();
@@ -1932,7 +1932,7 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   // A delayed Home event is valid for this activity dispatch only. If an
   // unrelated gesture took priority, do not carry it into the next activity.
   mappedInputManager.clearDeferredHomeGesture();

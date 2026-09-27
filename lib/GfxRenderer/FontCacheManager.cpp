@@ -1,4 +1,4 @@
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #endif
 #include <FontDecompressor.h>
@@ -56,7 +56,7 @@ void FontCacheManager::releaseSdFontCaches() {
 
 bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask,
                                     const PreparationPolicy policy) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   ScalableFontAccess access;
 #endif
   // SD card font prewarm path: prewarm all requested styles in one call
@@ -78,7 +78,7 @@ bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
     if (!(styleMask & (1 << i))) continue;
     auto style = static_cast<EpdFontFamily::Style>(i);
     const EpdFontData* data = fontMap_.at(fontId).getData(style);
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
     if (data && data->bitmapHandler && utf8Text) {
       const auto& family = fontMap_.at(fontId);
       const char* text = utf8Text;

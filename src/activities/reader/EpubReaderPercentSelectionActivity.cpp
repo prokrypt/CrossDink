@@ -374,7 +374,7 @@ void EpubReaderPercentSelectionActivity::buildPercentScreen(UiApp::ScreenType& s
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& theme = screen.theme();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  // Start below CrossInk's shared back header; its touch-device height differs from
+  // Start below CrossDink's shared back header; its touch-device height differs from
   // the legacy theme header height.
   screen.setContentMargin(fui::Insets{
       static_cast<int16_t>(safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +

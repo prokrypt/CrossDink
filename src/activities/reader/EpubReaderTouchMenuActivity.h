@@ -2,7 +2,7 @@
 
 #include <AppCapabilities.h>
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 
 #include <Epub.h>
 #include <FreeInkApp.h>
@@ -20,7 +20,7 @@
 #include "TouchReaderPreviewModel.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include "TtfRenderProfileStore.h"
 #endif
 
@@ -230,7 +230,7 @@ class EpubReaderTouchMenuActivity final : public Activity {
   void renderPreviewText(const ReaderSettingsDraft& previewSettings, int previewFontId);
   void discoverFonts();
   void refreshTtfRenderingRow();
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   TtfRenderProfile ttfRenderProfile{};
   TtfRenderProfile initialTtfRenderProfile{};
   bool ttfRenderingChanged = false;

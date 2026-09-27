@@ -36,6 +36,7 @@ def patch_user_settings(path: Path) -> None:
 # fails with MEMORY_E once fragmentation leaves none. Keep the grown buffer
 # until the connection is freed: one allocation per connection, failing at the
 # first record rather than megabytes into the transfer.
+# Marker text stays "CrossInk": already-patched libdeps checkouts carry it.
 SHRINK_MARKER = "/* CrossInk: keep a grown input buffer until the connection is freed */"
 SHRINK_ORIGINAL = """    if (!forcedFree && (usedLength > STATIC_BUFFER_LEN ||
             ssl->buffers.clearOutputBuffer.length > 0))

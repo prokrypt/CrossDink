@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate CrossInk icon headers from a pinned SVG icon library."""
+"""Generate CrossDink icon headers from a pinned SVG icon library."""
 
 import argparse
 from pathlib import Path
@@ -30,7 +30,7 @@ def manifest_sources(path):
 
 
 def prepare_stroked_svg_dir(svg_dir, manifest, stroke_width):
-    temp_dir = tempfile.TemporaryDirectory(prefix="crossink-icons-")
+    temp_dir = tempfile.TemporaryDirectory(prefix="crossdink-icons-")
     try:
         prepared_dir = Path(temp_dir.name)
         value = f"{stroke_width:g}"

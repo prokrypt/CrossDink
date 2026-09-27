@@ -63,7 +63,7 @@ target_include_directories(scalable_font_adapter_test PRIVATE
   stubs ../../lib/ScalableFont ../../lib/EpdFont ../../lib/Memory
   ${SDK}/include ${SDK}/third_party/freetype/include ${SDK}/third_party/stb)
 target_compile_definitions(scalable_font_adapter_test PRIVATE
-  CROSSINK_SCALABLE_FONTS=1 SIMULATOR=1
+  CROSSDINK_SCALABLE_FONTS=1 SIMULATOR=1
   FREEINK_FONT_ENABLE_AUTOHINT=1 FREEINK_FONT_ENABLE_NATIVE_HINTING=1 FREEINK_FONT_ENABLE_MONOCHROME=1)
 if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(scalable_font_adapter_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

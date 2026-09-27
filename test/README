@@ -28,9 +28,9 @@ Limits:
 - After a simulator pass, still verify important changes on hardware with the same EPUB and theme by turning pages, opening the reader menu, entering Reader Options, toggling a setting, backing out, and watching for crashes or memory-related logs.
 
 Native regression suite (macOS/Linux):
-- Configure: `cmake -S test -B /tmp/crossink-tests -G 'Unix Makefiles'`
-- Build: `cmake --build /tmp/crossink-tests -j 6`
-- Run all registered tests: `ctest --test-dir /tmp/crossink-tests --output-on-failure`
+- Configure: `cmake -S test -B /tmp/crossdink-tests -G 'Unix Makefiles'`
+- Build: `cmake --build /tmp/crossdink-tests -j 6`
+- Run all registered tests: `ctest --test-dir /tmp/crossdink-tests --output-on-failure`
 
 High-risk storage/update coverage:
 - `ota_boot_switch` links production `OtaBootSwitch.cpp` against an in-memory

@@ -5,7 +5,7 @@
 #include "../../src/util/FontFamilyLabel.h"
 
 int main() {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   assert(fontFamilyLabel("Bitter", BUILTIN_FONT_POINT_SIZE_RANGE) == "Bitter (8-22pt)");
   assert(std::size(BUILTIN_READER_FONT_SIZES) == 15);
   for (uint8_t points = 8; points <= 22; ++points) {

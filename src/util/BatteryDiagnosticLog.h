@@ -1,14 +1,14 @@
 #pragma once
 
-#include <HalPowerManager.h>  // CROSSINK_BATTERY_DIAG_LOG
+#include <HalPowerManager.h>  // CROSSDINK_BATTERY_DIAG_LOG
 
 #include <cstdint>
 
 // Repeated from HalPowerManager.h rather than relied upon: simulator builds
 // ignore lib/hal and pick up the crossink-simulator stand-in instead, which
 // does not define this. Both guards are #ifndef, so they cannot disagree.
-#ifndef CROSSINK_BATTERY_DIAG_LOG
-#define CROSSINK_BATTERY_DIAG_LOG 0
+#ifndef CROSSDINK_BATTERY_DIAG_LOG
+#define CROSSDINK_BATTERY_DIAG_LOG 0
 #endif
 
 // Battery telemetry log, for diagnosing a fuel gauge that misreports state of
@@ -28,7 +28,7 @@
 // wake. The first firmware using this schema preserves an old-format log as
 // /battery_log_v1.csv instead of appending unlabeled columns to it.
 //
-// Enable with -DCROSSINK_BATTERY_DIAG_LOG=1. The debug environment carries a
+// Enable with -DCROSSDINK_BATTERY_DIAG_LOG=1. The debug environment carries a
 // commented opt-in flag; no shipping environment enables it. Firmware only -
 // the simulator's stand-in HAL has no battery backend to sample, so the flag
 // must stay off there.
@@ -43,7 +43,7 @@ enum class Event : uint8_t {
   Sleep,
 };
 
-#if CROSSINK_BATTERY_DIAG_LOG
+#if CROSSDINK_BATTERY_DIAG_LOG
 // Appends one sample. Never fatal: every failure logs and returns, because a
 // diagnostic must not be able to take down the boot or sleep path it sits in.
 // deviceName is the runtime board profile name. wakeRoute applies only to a

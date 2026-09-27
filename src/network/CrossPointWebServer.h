@@ -137,7 +137,7 @@ class CrossPointWebServer {
   void handleLogo() const;
   void handleNotFound() const;
   void handleStatus() const;
-#if CROSSINK_PSRAM_LOG
+#if CROSSDINK_PSRAM_LOG
   void handlePsramLog() const;
 #endif
   void handleExit();

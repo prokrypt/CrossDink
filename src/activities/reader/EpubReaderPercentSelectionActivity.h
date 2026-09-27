@@ -26,7 +26,7 @@ class EpubReaderPercentSelectionActivity final : public Activity {
 
  private:
   // FreeInkApp hosts the 4x3 numeric keypad (touch always; non-touch once the user
-  // holds Confirm to enter it) and its backspace icon. The shared CrossInk back
+  // holds Confirm to enter it) and its backspace icon. The shared CrossDink back
   // header stays separate. 12 grid keys + 1 backspace, one spare slot; 2 handlers.
   using UiApp = freeink::ui::FreeInkApp<14, 2>;
 

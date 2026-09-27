@@ -8,29 +8,29 @@
 // environment (and any fork built from this source) is tagged automatically.
 // X3/X4 share one ESP32-C3 compatibility binary and one tag.
 #if FREEINK_DEVICE_X4PRO
-#define CROSSINK_BOARD_NAME "x4pro"
+#define CROSSDINK_BOARD_NAME "x4pro"
 #elif FREEINK_DEVICE_X4CLASSIC
-#define CROSSINK_BOARD_NAME "x4c"
+#define CROSSDINK_BOARD_NAME "x4c"
 #elif FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
-#define CROSSINK_BOARD_NAME "x4"
+#define CROSSDINK_BOARD_NAME "x4"
 #elif FREEINK_DEVICE_STICKY
-#define CROSSINK_BOARD_NAME "sticky"
+#define CROSSDINK_BOARD_NAME "sticky"
 #elif FREEINK_DEVICE_PAPERMONO
-#define CROSSINK_BOARD_NAME "papermono"
+#define CROSSDINK_BOARD_NAME "papermono"
 #elif FREEINK_DEVICE_M5PAPER
-#define CROSSINK_BOARD_NAME "m5paper"
+#define CROSSDINK_BOARD_NAME "m5paper"
 #elif FREEINK_DEVICE_LILYGO
-#define CROSSINK_BOARD_NAME "lilygo"
+#define CROSSDINK_BOARD_NAME "lilygo"
 #elif FREEINK_DEVICE_M5
-#define CROSSINK_BOARD_NAME "m5"
+#define CROSSDINK_BOARD_NAME "m5"
 #elif FREEINK_DEVICE_MURPHY
-#define CROSSINK_BOARD_NAME "murphy"
+#define CROSSDINK_BOARD_NAME "murphy"
 #elif FREEINK_DEVICE_MURPHY_M4
-#define CROSSINK_BOARD_NAME "murphy-m4"
+#define CROSSDINK_BOARD_NAME "murphy-m4"
 #elif FREEINK_DEVICE_DELINK
-#define CROSSINK_BOARD_NAME "delink"
+#define CROSSDINK_BOARD_NAME "delink"
 #elif FREEINK_DEVICE_PAPERS3
-#define CROSSINK_BOARD_NAME "papers3"
+#define CROSSDINK_BOARD_NAME "papers3"
 #else
 #error "FirmwareBoardTag: no FREEINK_DEVICE_* flag set; cannot derive board name"
 #endif
@@ -43,7 +43,7 @@ namespace {
 constexpr size_t MAGIC_LEN = sizeof("CROSSPOINT-BOARD-V1:") - 1;
 }  // namespace
 
-const char TAG[] = "CROSSPOINT-BOARD-V1:" CROSSINK_BOARD_NAME ";";
+const char TAG[] = "CROSSPOINT-BOARD-V1:" CROSSDINK_BOARD_NAME ";";
 
 const char* boardName() { return TAG + MAGIC_LEN; }
 size_t boardNameLen() { return sizeof(TAG) - 1 - MAGIC_LEN - 1; }  // strip magic and ';'

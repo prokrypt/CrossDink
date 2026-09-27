@@ -1,7 +1,7 @@
 #include "CrossPointSettings.h"
 
 #include <BoardConfig.h>
-#include <CrossInkHalFrontlight.h>
+#include <CrossDinkHalFrontlight.h>
 #include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
@@ -122,7 +122,7 @@ CrossPointSettings::FONT_SIZE firstAvailableReaderFontSize() {
   return (it != std::end(READER_FONT_SIZE_STORAGE_ORDER)) ? *it : CrossPointSettings::TINY;
 }
 
-#if !CROSSINK_SCALABLE_FONTS
+#if !CROSSDINK_SCALABLE_FONTS
 int getFallbackReaderFontIdForFamily(const CrossPointSettings::FONT_FAMILY family) {
   switch (family) {
     case CrossPointSettings::BITTER:
@@ -620,7 +620,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   readLibraryChoice("libraryHideFinishedBooks", libraryHideFinishedBooks, 2);
 
   // Only the generic-file fallback imports CrossPoint's combined touch mode.
-  // Explicit CrossInk gesture keys identify a CrossInk document, even at the old path.
+  // Explicit CrossDink gesture keys identify a CrossDink document, even at the old path.
   if (importingCrossPoint && doc["pageTurnGesture"].isNull() && doc["previousPageGesture"].isNull()) {
     disableReaderTouchscreen = 0;
     if (doc["touchReaderControls"].is<uint8_t>()) {
@@ -853,14 +853,14 @@ bool CrossPointSettings::loadFromFile() {
     return JsonLoadStatus::MissingOrEmpty;
   };
 
-  // Prefer CrossInk's namespaced settings file. Use the old generic file only
+  // Prefer CrossDink's namespaced settings file. Use the old generic file only
   // as a migration fallback so other firmware can keep its own settings.json.
-  const bool hasCrossInkSettings = Storage.exists(SETTINGS_FILE_JSON) || Storage.exists(SETTINGS_FILE_JSON_BAK);
+  const bool hasCrossDinkSettings = Storage.exists(SETTINGS_FILE_JSON) || Storage.exists(SETTINGS_FILE_JSON_BAK);
   JsonLoadStatus jsonStatus = loadJsonSettings(SETTINGS_FILE_JSON, false);
-  // A CrossInk-specific settings file takes precedence even when it is
+  // A CrossDink-specific settings file takes precedence even when it is
   // damaged. Falling through would import another firmware's settings.json
-  // and replace the user's CrossInk preferences.
-  if (hasCrossInkSettings || jsonStatus != JsonLoadStatus::MissingOrEmpty) {
+  // and replace the user's CrossDink preferences.
+  if (hasCrossDinkSettings || jsonStatus != JsonLoadStatus::MissingOrEmpty) {
     return jsonStatus == JsonLoadStatus::Loaded;
   }
 
@@ -1209,7 +1209,7 @@ int CrossPointSettings::getReaderFontId() const {
 }
 
 int CrossPointSettings::getBuiltInReaderFontId() const {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   return scalableBuiltinReaderFontId(fontFamily == BITTER ? 1 : 0, closestBuiltinReaderPointSize(readerFontPointSize));
 #else
   const FONT_SIZE effectiveSize = getEffectiveReaderFontSize();

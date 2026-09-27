@@ -5,7 +5,7 @@ nav_order: 4
 
 # SD Card Fonts
 
-CrossInk supports loading additional fonts from the SD card, including fonts
+CrossDink supports loading additional fonts from the SD card, including fonts
 with extended Unicode coverage (CJK, Cyrillic, Greek, etc.). All devices can
 use `.cpfont` font packs. ESP32-S3 devices can also use static TrueType (`.ttf`)
 fonts directly; ESP32-C3 devices need `.cpfont` files.
@@ -59,13 +59,13 @@ There are three ways to install fonts:
     `/fonts/MyFont/MyFont-Regular.ttf` alongside its bold, italic, and bold
     italic files.
 
-3.  Insert the SD card and power on your CrossInk device
+3.  Insert the SD card and power on your CrossDink device
 
 ### Option 2: Download from device
 
 This option downloads pre-built `.cpfont` packs.
 
-1. Connect your CrossInk reader to Wi-Fi
+1. Connect your CrossDink reader to Wi-Fi
 2. Go to **Settings > Reader > Font Options > Manage Fonts**
 3. Browse available font families and select to download
 4. Downloaded fonts appear immediately in **Settings > Reader > Font Options > Font Family**
@@ -90,7 +90,7 @@ file must be 2 MiB or smaller, and the family must total 6 MiB or less. See
 
 EPUB books can use a different installed SD-card family for dictionary definitions.
 This can be set globally or per-book via `Font Options`. If a
-saved point size is no longer available, CrossInk chooses the closest file from
+saved point size is no longer available, CrossDink chooses the closest file from
 the dictionary family. If the device experiences low available RAM, you may see the
 dictionary font fall back to your reader font. This is normal.
 

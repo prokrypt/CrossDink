@@ -1,6 +1,6 @@
 #include "SdCardFontManager.h"
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <FtFont.h>
 #endif
 
@@ -71,7 +71,7 @@ int SdCardFontManager::loadFilePath(const char* path, const char* familyName, ui
 
 bool SdCardFontManager::loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer,
                                           uint8_t targetPointSize) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (family.isScalable()) {
     freeink::font::FtFont::RenderOptions defaults;
     defaults.hinting = freeink::font::FtFont::HintingMode::Auto;
@@ -97,7 +97,7 @@ bool SdCardFontManager::loadFamilyClosest(const SdCardFontFamilyInfo& family, Gf
   return true;
 }
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 bool SdCardFontManager::loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer,
                                           const uint8_t targetPointSize,
                                           const freeink::font::FtFont::RenderOptions& renderOptions) {
@@ -121,7 +121,7 @@ bool SdCardFontManager::loadFamilyFile(const char* path, const char* familyName,
 
 int SdCardFontManager::loadFamilyExtraSize(const SdCardFontFamilyInfo& family, GfxRenderer& renderer,
                                            uint8_t pointSize) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (family.isScalable()) return registerScalableSize(renderer, pointSize);
 #endif
   const SdCardFontFileInfo* file = family.findFile(pointSize);
@@ -153,7 +153,7 @@ void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
     delete lf.font;
   }
   loaded_.clear();
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   for (auto& font : scalable_) font.reset();
   activeScalableId_ = 0;
   scalableHash_ = 0;
@@ -165,13 +165,13 @@ void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
 
 int SdCardFontManager::getFontId(const std::string& familyName) const {
   if (familyName != loadedFamilyName_ || loaded_.empty()) return 0;
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   if (activeScalableId_) return activeScalableId_;
 #endif
   return loaded_.front().fontId;
 }
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 int SdCardFontManager::registerScalableSize(GfxRenderer& renderer, uint8_t size) {
   for (const auto& f : loaded_)
     if (f.size == size) return f.fontId;

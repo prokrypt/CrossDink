@@ -948,7 +948,7 @@ CssStyle CssParser::parseInlineStyle(std::string_view styleValue) { return parse
 
 // Cache serialization
 
-// Cache file name (magic + version identify Crossink-owned CSS rule caches)
+// Cache file name (magic + version identify Crossdink-owned CSS rule caches)
 constexpr char rulesCache[] = "/css_rules.cache";
 constexpr char rulesCacheTmp[] = "/css_rules.cache.tmp";
 constexpr char rulesCacheBackup[] = "/css_rules.cache.bak";

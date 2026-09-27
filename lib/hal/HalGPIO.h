@@ -28,7 +28,7 @@ class HalGPIO {
   bool usbStateChanged = false;
   bool usbStateSampled = false;
   unsigned long lastUsbPollMs = 0;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   // Latched once the current contact leaves the stationary tap slop, so a drag
   // that stays under the SDK's swipe distance is not reported as a tap.
   bool touchDraggedPastTapSlop = false;
@@ -108,7 +108,7 @@ class HalGPIO {
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
   unsigned long getPowerButtonHeldTime() const;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   bool hasTouch() const;
   bool supportsMultiTouch() const;
   TouchSnapshot getTouchSnapshot() const;

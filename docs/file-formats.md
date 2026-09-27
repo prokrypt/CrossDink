@@ -8,7 +8,7 @@ fixed-size char buffer.
 ## `/.crosspoint/ttf-rendering.json`
 
 This user-owned JSON file stores only custom TTF families whose raster settings
-differ from CrossInk's defaults. Each entry is keyed by the installed family name
+differ from CrossDink's defaults. Each entry is keyed by the installed family name
 and contains numeric hinting, raster, interpreter, weight, and slant choices plus
 the stem-darkening toggle. Missing families use automatic hinting, grayscale
 output, the default interpreter, and no outline adjustments. The file currently
@@ -137,7 +137,7 @@ reconciliation instead: `openForReconciliation()` accepts stale sort/search
 keys so each book's `firstSeen` arrival order survives across the rebuild
 even though its fold and permutations are regenerated.
 
-CrossInk's format version is `6`; older indexes rebuild automatically. Versions
+CrossDink's format version is `6`; older indexes rebuild automatically. Versions
 2 through 5 can be read for reconciliation so arrival history survives. The fold
 version is `3`.
 
@@ -311,7 +311,7 @@ struct ReaderSettingsBin {
     u8 version; // 10
     u8 flags;   // bit 0 = at least one custom reader field, bit 1 = custom auto-page-turn interval, bit 2 = render mode override, bit 3 = dictionary font override, bit 4 = Safe Mode override
     u16 autoPageTurnSeconds;
-    u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
+    u8 renderMode; // 0 = CrossDink Default, 1 = Balanced, 2 = Light
 
     u8 fontFamily;
     u8 readerFontPointSize; // physical point size; versions 2-5 stored a size slot
@@ -344,7 +344,7 @@ struct ReaderSettingsBin {
 ### Versions 1-4
 
 Clipping files store the per-book EPUB clipping list used by the reader. A
-saved clipping is also what CrossInk renders as an in-reader highlight; there is
+saved clipping is also what CrossDink renders as an in-reader highlight; there is
 no separate highlight file. The file lives in `/.crosspoint/clippings/` instead
 of the EPUB render-cache directory so clearing/rebuilding layout cache does not
 delete user clippings.
@@ -389,14 +389,14 @@ The clipping selector has a separate navigation bound: it exposes at most
 selection window for low-memory devices, not a character-count limit. The
 selected text is still stored separately and is limited to `4096` UTF-8 bytes.
 
-CrossInk uses the stored spine/page/paragraph fields as anchors, then searches
+CrossDink uses the stored spine/page/paragraph fields as anchors, then searches
 near that location for the stored clipping text after relayout. This is similar
 to keeping both a DOM position and a text quote in a web app: the numeric
 position gives a fast starting point, while the text makes jumps and highlights
 survive font, layout, or page-count changes when possible.
 
 Version 3 records which reader layout produced the numeric page/word anchor.
-When that signature differs, CrossInk ignores the stale numeric range and
+When that signature differs, CrossDink ignores the stale numeric range and
 matches the saved text instead, including when both layouts happen to have the
 same total page count. Legacy records without a layout signature use text
 matching rather than trusting ambiguous numeric ranges. Version 4 adds the
@@ -408,9 +408,9 @@ bytes of the selected text and is append-only. Removing a clipping from the
 reader deletes or rewrites only the binary clipping file; it does not remove
 previous entries from `/My Clippings.txt`.
 
-When CrossInk moves an EPUB through its built-in move-to-Read flow, it rewrites
+When CrossDink moves an EPUB through its built-in move-to-Read flow, it rewrites
 the clipping file under the new path-derived name and removes the old one. If a
-book is renamed or moved outside CrossInk, the path hash changes, so the old
+book is renamed or moved outside CrossDink, the path hash changes, so the old
 clipping file may no longer be associated with the book until the file is moved
 back or the clipping store is migrated.
 
@@ -459,7 +459,7 @@ their own per-book stats files without overwriting each other. Version 5 extends
 version 4 with a cached live reader book time-left estimate so Home and Reading
 Stats can show the same estimate the reader last computed.
 
-When `stats_v5.bin` is missing, CrossInk can read the previous versioned stats
+When `stats_v5.bin` is missing, CrossDink can read the previous versioned stats
 filename (`stats_v4.bin` for version 5, `stats_v5.bin` after a future version 6
 bump) before falling back to legacy `stats.bin` files with compatible stats
 payloads. Future changes are always saved to the current versioned filename.
@@ -822,7 +822,7 @@ struct SectionBin {
     bool focusReadingEnabled;
     bool guideReadingEnabled;
     u8 wordSpacing;
-    u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
+    u8 renderMode; // 0 = CrossDink Default, 1 = Balanced, 2 = Light
 
     u16 pageCount;
     u32 protectedImageUnits;

@@ -11,7 +11,7 @@ constexpr uint32_t scalableFontPixelSize26_6ForPpi(const uint8_t points, const u
   return (uint32_t(points) * ppi * 64 + 36) / 72;
 }
 
-// CrossInk's reader-size convention is firmware policy. The SDK accepts generic
+// CrossDink's reader-size convention is firmware policy. The SDK accepts generic
 // 26.6 pixel sizes and has no knowledge of labels or display density.
 constexpr uint32_t scalableFontPixelSize26_6(const uint8_t points) {
   return scalableFontPixelSize26_6ForPpi(points, ScalableFontCompatibilityPpi);

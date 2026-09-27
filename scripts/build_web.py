@@ -1,4 +1,4 @@
-"""Build the CrossInk web portal: compose pages from shared templates/assets,
+"""Build the CrossDink web portal: compose pages from shared templates/assets,
 minify, gzip, and emit the C headers that the firmware serves from flash.
 
 Source of truth lives under web/:

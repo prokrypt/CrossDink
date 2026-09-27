@@ -1,5 +1,5 @@
 #include "HalScalableFont.h"
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <HalStorage.h>
 #include <Logging.h>
 #include <freertos/task.h>

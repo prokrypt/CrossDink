@@ -74,7 +74,7 @@ for family, directory in [('bitter', 'Bitter'), ('lexenddeca', 'LexendDeca')]:
             for table in font['cmap'].tables:
                 if table.isUnicode(): table.cmap[cp]=glyphname
         options=subset.Options()
-        # Normalize our derived faces to the family/style shown in CrossInk.
+        # Normalize our derived faces to the family/style shown in CrossDink.
         for nid,value in [(1,directory),(2,style),(16,directory),(17,style)]:
             font['name'].setName(value,nid,3,1,0x409)
         font['head'].macStyle=(1 if 'Bold' in style else 0)|(2 if 'Italic' in style else 0)

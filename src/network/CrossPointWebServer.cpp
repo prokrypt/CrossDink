@@ -458,7 +458,7 @@ void CrossPointWebServer::begin() {
   server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
-#if CROSSINK_PSRAM_LOG
+#if CROSSDINK_PSRAM_LOG
   server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
 #endif
   server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
@@ -774,7 +774,7 @@ void CrossPointWebServer::handleExit() {
   exitRequestPending = true;
 }
 
-#if CROSSINK_PSRAM_LOG
+#if CROSSDINK_PSRAM_LOG
 // Debug builds: the PSRAM log ring, oldest first, including lines from before
 // the last software restarts.
 void CrossPointWebServer::handlePsramLog() const {
@@ -797,7 +797,7 @@ void CrossPointWebServer::handleStatus() const {
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
 
   JsonDocument doc;
-  doc["version"] = CROSSINK_VERSION;
+  doc["version"] = CROSSDINK_VERSION;
   doc["ip"] = ipAddr;
   doc["mode"] = apMode ? "AP" : "STA";
   doc["rssi"] = apMode ? 0 : WiFi.RSSI();
@@ -838,9 +838,9 @@ void CrossPointWebServer::handleStatus() const {
   // web UI and upload tooling and keep their names and formats. Nothing here
   // touches the SD card beyond the capacity cached at mount.
   JsonObject build = doc["build"].to<JsonObject>();
-  build["env"] = CROSSINK_PIOENV;
-  build["gitSha"] = CROSSINK_GIT_SHA;
-  build["gitDirty"] = CROSSINK_GIT_DIRTY;
+  build["env"] = CROSSDINK_PIOENV;
+  build["gitSha"] = CROSSDINK_GIT_SHA;
+  build["gitDirty"] = CROSSDINK_GIT_DIRTY;
 
 #ifndef SIMULATOR
   const BoardConfig::BoardProfile& board = BoardConfig::ACTIVE;
@@ -2446,7 +2446,7 @@ void CrossPointWebServer::handleFontList() const {
     yield();
   }
 
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   json.append("],\"ttfSupported\":true,\"maxFamilies\":");
 #else
   json.append("],\"ttfSupported\":false,\"maxFamilies\":");
@@ -2515,7 +2515,7 @@ void CrossPointWebServer::handleFontUploadData() {
 
       // Validate the complete file after closing it; multipart chunks may
       // split the signature at any byte boundary.
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
       const auto& path = fontUpload.filePath;
       if (path.size() > 4 && strcasecmp(path.c_str() + path.size() - 4, ".ttf") == 0 &&
           fontUpload.bytesWritten + fontUpload.bufferPos + upload.currentSize > 2 * 1024 * 1024) {

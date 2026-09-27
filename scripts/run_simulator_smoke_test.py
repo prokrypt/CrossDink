@@ -73,7 +73,7 @@ def run_smoke(args: argparse.Namespace) -> int:
         print(f"Run: pio run -e {args.env}", file=sys.stderr)
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="crossink-sim-smoke-") as temp_dir_name:
+    with tempfile.TemporaryDirectory(prefix="crossdink-sim-smoke-") as temp_dir_name:
         temp_root = Path(temp_dir_name)
         simulator_book_path = prepare_fs(temp_root, book)
 
@@ -81,14 +81,14 @@ def run_smoke(args: argparse.Namespace) -> int:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
         if args.font_dir and args.font_family:
-            env["CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
+            env["CROSSDINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
         if args.font_family:
-            env["CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
-        env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
-        env["CROSSINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
-        env["CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
+            env["CROSSDINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
+        env["CROSSDINK_SIMULATOR_SMOKE_TEST"] = "1"
+        env["CROSSDINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
+        env["CROSSDINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
         if args.theme:
-            env["CROSSINK_SIMULATOR_SMOKE_THEME"] = str(THEMES[args.theme])
+            env["CROSSDINK_SIMULATOR_SMOKE_THEME"] = str(THEMES[args.theme])
         if args.headless:
             env.setdefault("SDL_VIDEODRIVER", "dummy")
 

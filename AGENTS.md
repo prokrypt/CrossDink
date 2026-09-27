@@ -1,4 +1,4 @@
-# CrossInk — Shared Agent Guide
+# CrossDink — Shared Agent Guide
 
 This is the canonical repo instruction file.
 `CLAUDE.md` should point here so Codex and Claude read the same guidance.
@@ -20,7 +20,7 @@ SDK.
 | Reading | `src/activities/reader/ReaderActivity.h`, the matching `EpubReaderActivity`, `TxtReaderActivity`, or `XtcReaderActivity` | Reader UI, controls, progress, dictionary/clipping flows, and format dispatch. |
 | EPUB engine | `lib/Epub/Epub.{h,cpp}`, `lib/Epub/Epub/` | ZIP/OPF/HTML/CSS parsing, layout, page model, hyphenation, images, and SD cache serialization. |
 | UI and input | `src/components/UITheme.{h,cpp}`, `src/MappedInputManager.{h,cpp}`, `src/QuickActions.{h,cpp}` | App theme policy, logical buttons/gestures, shortcuts, and app-specific touch components. |
-| Hardware boundary | `lib/hal/`, `include/AppCapabilities.h`, `include/DeviceCapabilities.h`, then `freeink-sdk/` | CrossInk HAL wrappers and capability gating; display, storage, input, power, and board drivers live in the SDK. |
+| Hardware boundary | `lib/hal/`, `include/AppCapabilities.h`, `include/DeviceCapabilities.h`, then `freeink-sdk/` | CrossDink HAL wrappers and capability gating; display, storage, input, power, and board drivers live in the SDK. |
 | Network and transfers | `src/activities/network/`, `src/network/CrossPointWebServer.{h,cpp}` | Wi-Fi flow, web/WebDAV/WebSocket transfer, OTA, Calibre, Nearby, and USB Drive activities. |
 | Persistence | `lib/Serialization/`, `src/*Store.*`, `src/clippings/`, `docs/data-cache.md` | Settings/session data plus per-feature SD stores; EPUB cache is a separate layout/cache concern. |
 
@@ -182,7 +182,7 @@ SDK.
 
 - Check `git status --short` before edits and before reporting results. Preserve unrelated user changes.
 - When resolving merge, rebase, or cherry-pick conflicts, inspect the relevant commit messages for upstream PR references such as `#2608`. Open the PR in its source repository and read its description and changed files before resolving the conflict so the intended behavior is understood.
-- Do not resolve conflicts by automatically keeping CrossInk's current implementation or by discarding the upstream change wholesale. Preserve or adapt the upstream intent unless it is already fully implemented, would introduce a regression, or would substantially and unjustifiably change CrossInk's UX or behavior. When rejecting an upstream change, state the concrete reason.
+- Do not resolve conflicts by automatically keeping CrossDink's current implementation or by discarding the upstream change wholesale. Preserve or adapt the upstream intent unless it is already fully implemented, would introduce a regression, or would substantially and unjustifiably change CrossDink's UX or behavior. When rejecting an upstream change, state the concrete reason.
 - If a referenced PR cannot be accessed, inspect the source commit diff and nearby history, then report that the PR intent could not be verified instead of guessing.
 - Do not commit unless the user explicitly asks or committing is part of the skill utilized.
 - Before staging, ensure ignored/generated/local files such as `.pio/`, `*.generated.h`, `compile_commands.json`, and `platformio.local.ini` are not included.

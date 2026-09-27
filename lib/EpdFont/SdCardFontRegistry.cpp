@@ -6,7 +6,7 @@
 #include <MemoryBudget.h>
 
 #include "../../src/ReaderFontSizeStep.h"
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #endif
 
@@ -129,7 +129,7 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
 
     uint8_t size = 0, style = 0;
     if (!SdCardFontRegistry::parseFilename(name, size, style)) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
       const size_t nameLength = std::strlen(name);
       // A family is either bitmap or scalable. Once the first TTF selects the
       // scalable path, continue counting its other unique style files.
@@ -264,7 +264,7 @@ bool writeFamilyDetails(HalFile& index, const char* dirPath, const uint16_t expe
 
     uint8_t size = 0, style = 0;
     if (summary.scalable) {
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
       const size_t nameLength = std::strlen(name);
       if (nameLength < 5 || strcasecmp(name + nameLength - 4, ".ttf") != 0) continue;
       const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);

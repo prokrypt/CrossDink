@@ -226,7 +226,7 @@ typedef struct EpdFontData {
   /// answer from RAM-resident data without storage I/O.  Shares glyphMissCtx.
   /// nullptr for fonts whose interval table is already complete (built-ins).
   bool (*coverageHandler)(void* ctx, uint32_t codepoint);
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
   // Optional scalable backend. Metrics never rasterize; bitmap is consumed
   // before the next bitmap request. These are null for legacy bitmap fonts.
   const EpdGlyph* (*dynamicGlyphHandler)(void*, uint32_t) = nullptr;

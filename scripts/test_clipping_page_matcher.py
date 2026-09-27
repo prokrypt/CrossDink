@@ -105,7 +105,7 @@ def main():
     source = (ROOT / "src/activities/reader/EpubReaderActivity.cpp").read_text()
     start = source.index("bool hasEmSpacePrefix(const char*")
     end = source.index("bool findClippingStoredRangeOnPage(", start)
-    with tempfile.TemporaryDirectory(prefix="crossink-clipping-matcher-") as directory:
+    with tempfile.TemporaryDirectory(prefix="crossdink-clipping-matcher-") as directory:
         source_path = Path(directory) / "matcher.cpp"
         binary = Path(directory) / "matcher"
         source_path.write_text(FIXTURES + source[start:end] + CASES)

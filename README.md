@@ -47,8 +47,8 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Added ability to move finished books to "Read" folder.
 - In-book menu to quickly adjust reader options without having to exit the book.
 - Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute. You can also set your reading stats as your sleep screen.
-- All-time reading stats [syncing](./docs/reading-stats-sync.md) between two CrossInk devices.
-- Reading [progress sync](./docs/nearby-position-sync.md) between two CrossInk devices.
+- All-time reading stats [syncing](./docs/reading-stats-sync.md) between two CrossDink devices.
+- Reading [progress sync](./docs/nearby-position-sync.md) between two CrossDink devices.
 - Added customizable Auto Page Turn Interval (anything between 5-120 seconds).
 - Added ability to view Recent Books as a 3x3 grid view.
 - To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
@@ -72,7 +72,7 @@ The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display 
 
 ### Font Sizes
 
-CrossInk includes 10 pt, 12 pt, 14 pt, and 16 pt built-in reader font sizes.
+CrossDink includes 10 pt, 12 pt, 14 pt, and 16 pt built-in reader font sizes.
 
 See [SD Card Fonts](./docs/sd-card-fonts.md) for installing additional font families and size ranges.
 
@@ -84,7 +84,7 @@ Reader Options, Focus Reading, Guide Dots, Force Paragraph Indents, reading stat
 
 ### Custom button actions
 
-CrossInk adds configurable button shortcuts.
+CrossDink adds configurable button shortcuts.
 
 See [Controls](./docs/controls.md) for the full action list and defaults.
 
@@ -92,7 +92,7 @@ See [Controls](./docs/controls.md) for the full action list and defaults.
 
 ## Tips for the best reading experience
 
-CrossInk runs on an ESP32-C3 with limited RAM, so very large folders or complex EPUBs can be slower than they would be on a phone, tablet, or desktop app.
+CrossDink runs on an ESP32-C3 with limited RAM, so very large folders or complex EPUBs can be slower than they would be on a phone, tablet, or desktop app.
 
 - Keep folders under about 200 files. For the smoothest browsing, aim for 50-100 files per folder.
 - Having 1000+ books on the SD card is fine if they are split into smaller folders, such as by author, series, genre, or read/unread status.
@@ -100,13 +100,13 @@ CrossInk runs on an ESP32-C3 with limited RAM, so very large folders or complex 
 - Text-first EPUBs are the best fit. Large image-heavy EPUBs, scanned books, comics, and omnibus files with thousands of sections may load slowly or fail under memory pressure.
 - As a rough target, EPUBs under 20 MB tend to work the best. Files over 50 MB may still work, but they are more likely to be slow or memory-sensitive, especially if they contain many large images.
 - If an EPUB is unusually slow, try [optimizing](./docs/webserver.md#epub-optimization) it with the built-in web optimizer (via File Transfer) before copying it to the SD card: remove unused high-resolution images, split very large omnibus files, and avoid embedding multiple full font families when possible.
-- Use a reliable SD card and leave some free space. CrossInk stores settings, reading progress, cache files, stats, and generated book data on the card.
+- Use a reliable SD card and leave some free space. CrossDink stores settings, reading progress, cache files, stats, and generated book data on the card.
 
 ---
 
 ## Installation
 
-The fastest way to install Crossink is by using Inky, Crossink's web companion app: https://inky.crossink.dev/#flash-tools
+The fastest way to install Crossdink is by using Inky, Crossdink's web companion app: https://inky.crossink.dev/#flash-tools
 
 Download a `firmware-*.bin` from the [releases page](https://github.com/uxjulia/CrossInk/releases), then flash it with the web installer or command line.
 
@@ -122,7 +122,7 @@ Visit [https://www.crossink.dev](https://www.crossink.dev) for more user guides 
 
 ## Development quick start
 
-CrossInk uses PlatformIO for building and flashing firmware. See [Getting Started](./docs/development/getting-started.md) for prerequisites, clone setup, and validation commands.
+CrossDink uses PlatformIO for building and flashing firmware. See [Getting Started](./docs/development/getting-started.md) for prerequisites, clone setup, and validation commands.
 
 ### Nix/NixOS
 

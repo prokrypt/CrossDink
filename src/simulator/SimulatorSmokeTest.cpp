@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 
 #include <filesystem>
@@ -111,10 +111,10 @@ class SimulatorSmokeTest {
   size_t scriptIndex = 0;
   SmokeStep inputCompletionStep = SmokeStep::Done;
 
-  static bool enabled() { return std::getenv("CROSSINK_SIMULATOR_SMOKE_TEST") != nullptr; }
+  static bool enabled() { return std::getenv("CROSSDINK_SIMULATOR_SMOKE_TEST") != nullptr; }
 
   static int pageTurnCount() {
-    const char* raw = std::getenv("CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS");
+    const char* raw = std::getenv("CROSSDINK_SIMULATOR_SMOKE_PAGE_TURNS");
     if (raw == nullptr || raw[0] == '\0') {
       return 2;
     }
@@ -122,12 +122,12 @@ class SimulatorSmokeTest {
   }
 
   static bool landscapeReaderRequested() {
-    const char* raw = std::getenv("CROSSINK_SIMULATOR_SMOKE_LANDSCAPE_READER");
+    const char* raw = std::getenv("CROSSDINK_SIMULATOR_SMOKE_LANDSCAPE_READER");
     return raw != nullptr && raw[0] != '\0' && raw[0] != '0';
   }
 
   static void applyRequestedTheme() {
-    const char* raw = std::getenv("CROSSINK_SIMULATOR_SMOKE_THEME");
+    const char* raw = std::getenv("CROSSDINK_SIMULATOR_SMOKE_THEME");
     if (raw == nullptr || raw[0] == '\0') {
       return;
     }
@@ -143,7 +143,7 @@ class SimulatorSmokeTest {
   }
 
   static void verifyMixedPageGestures() {
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     if (!gpio.hasTouch()) return;
     const uint8_t savedNext = SETTINGS.pageTurnGesture;
     const uint8_t savedPrevious = SETTINGS.previousPageGesture;
@@ -262,13 +262,13 @@ class SimulatorSmokeTest {
     locked["touchReaderControls"] = 1;
     locked["disableReaderTouchscreen"] = 1;
     SETTINGS.fromJson(locked.as<JsonVariantConst>());
-    if (!SETTINGS.disableReaderTouchscreen) fail("CrossInk touch lock was lost");
+    if (!SETTINGS.disableReaderTouchscreen) fail("CrossDink touch lock was lost");
     locked["pageTurnGesture"] = CrossPointSettings::TAP_ONLY;
     locked["previousPageGesture"] = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
     SETTINGS.fromJson(locked.as<JsonVariantConst>(), true);
     if (!SETTINGS.disableReaderTouchscreen || SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
         SETTINGS.previousPageGesture != CrossPointSettings::PAGE_TURN_GESTURE_DISABLED) {
-      fail("Legacy CrossInk gesture settings were treated as CrossPoint");
+      fail("Legacy CrossDink gesture settings were treated as CrossPoint");
     }
     SETTINGS.previousPageGesture = CrossPointSettings::SWIPE_ONLY;
     SETTINGS.pageTurnGesture = CrossPointSettings::TAP_ONLY;
@@ -285,24 +285,24 @@ class SimulatorSmokeTest {
         SETTINGS.tapToHideStatusBar) {
       fail("Reader controls settings round-trip mismatch");
     }
-    constexpr char CROSSINK_SETTINGS_FILE_BAK[] = "/.crosspoint/crossink-settings.json.bak";
+    constexpr char CROSSDINK_SETTINGS_FILE_BAK[] = "/.crosspoint/crossink-settings.json.bak";
     constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
-    const char* const crossInkSettingsPath = CrossPointSettings::getFilePath();
-    const bool hadCrossInkSettings = Storage.exists(crossInkSettingsPath);
-    const String savedCrossInkSettings = hadCrossInkSettings ? Storage.readFile(crossInkSettingsPath) : String();
-    const bool hadCrossInkSettingsBackup = Storage.exists(CROSSINK_SETTINGS_FILE_BAK);
-    const String savedCrossInkSettingsBackup =
-        hadCrossInkSettingsBackup ? Storage.readFile(CROSSINK_SETTINGS_FILE_BAK) : String();
+    const char* const crossDinkSettingsPath = CrossPointSettings::getFilePath();
+    const bool hadCrossDinkSettings = Storage.exists(crossDinkSettingsPath);
+    const String savedCrossDinkSettings = hadCrossDinkSettings ? Storage.readFile(crossDinkSettingsPath) : String();
+    const bool hadCrossDinkSettingsBackup = Storage.exists(CROSSDINK_SETTINGS_FILE_BAK);
+    const String savedCrossDinkSettingsBackup =
+        hadCrossDinkSettingsBackup ? Storage.readFile(CROSSDINK_SETTINGS_FILE_BAK) : String();
     const bool hadLegacySettings = Storage.exists(LEGACY_SETTINGS_FILE_JSON);
     const String savedLegacySettings = hadLegacySettings ? Storage.readFile(LEGACY_SETTINGS_FILE_JSON) : String();
 
-    JsonDocument crossInkSettings;
-    crossInkSettings["touchReaderControls"] = CrossPointSettings::TOUCH_READER_ON;
-    crossInkSettings["pageTurnGesture"] = CrossPointSettings::TAP_ONLY;
-    crossInkSettings["previousPageGesture"] = CrossPointSettings::SWIPE_ONLY;
-    crossInkSettings["disableReaderTouchscreen"] = 0;
-    String crossInkJson;
-    serializeJson(crossInkSettings, crossInkJson);
+    JsonDocument crossDinkSettings;
+    crossDinkSettings["touchReaderControls"] = CrossPointSettings::TOUCH_READER_ON;
+    crossDinkSettings["pageTurnGesture"] = CrossPointSettings::TAP_ONLY;
+    crossDinkSettings["previousPageGesture"] = CrossPointSettings::SWIPE_ONLY;
+    crossDinkSettings["disableReaderTouchscreen"] = 0;
+    String crossDinkJson;
+    serializeJson(crossDinkSettings, crossDinkJson);
 
     JsonDocument crossPointSettings;
     crossPointSettings["touchReaderControls"] = 2;
@@ -310,7 +310,7 @@ class SimulatorSmokeTest {
     String crossPointJson;
     serializeJson(crossPointSettings, crossPointJson);
 
-    if (!Storage.writeFile(crossInkSettingsPath, crossInkJson) ||
+    if (!Storage.writeFile(crossDinkSettingsPath, crossDinkJson) ||
         !Storage.writeFile(LEGACY_SETTINGS_FILE_JSON, crossPointJson)) {
       fail("Could not write settings migration test fixture");
     }
@@ -320,44 +320,44 @@ class SimulatorSmokeTest {
     if (!SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
         SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY) {
-      fail("CrossInk settings file did not take precedence over CrossPoint settings");
+      fail("CrossDink settings file did not take precedence over CrossPoint settings");
     }
 
-    // A corrupt CrossInk file still blocks the foreign fallback. It is safer
+    // A corrupt CrossDink file still blocks the foreign fallback. It is safer
     // to leave settings unchanged than to silently import CrossPoint values.
-    if (!Storage.writeFile(crossInkSettingsPath, "{")) fail("Could not corrupt CrossInk settings test fixture");
+    if (!Storage.writeFile(crossDinkSettingsPath, "{")) fail("Could not corrupt CrossDink settings test fixture");
     if (SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
         SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY) {
-      fail("Corrupt CrossInk settings fell through to CrossPoint settings");
+      fail("Corrupt CrossDink settings fell through to CrossPoint settings");
     }
 
-    // An interrupted atomic replacement leaves the CrossInk backup as the
+    // An interrupted atomic replacement leaves the CrossDink backup as the
     // sole namespaced file. Recover it before considering CrossPoint's file.
-    if (!Storage.writeFile(CROSSINK_SETTINGS_FILE_BAK, crossInkJson) || !Storage.remove(crossInkSettingsPath)) {
-      fail("Could not create interrupted CrossInk settings fixture");
+    if (!Storage.writeFile(CROSSDINK_SETTINGS_FILE_BAK, crossDinkJson) || !Storage.remove(crossDinkSettingsPath)) {
+      fail("Could not create interrupted CrossDink settings fixture");
     }
     SETTINGS.disableReaderTouchscreen = 1;
     SETTINGS.pageTurnGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
     SETTINGS.previousPageGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
     if (!SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
-        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || !Storage.exists(crossInkSettingsPath) ||
-        Storage.exists(CROSSINK_SETTINGS_FILE_BAK)) {
-      fail("Interrupted CrossInk settings save did not recover before CrossPoint import");
+        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || !Storage.exists(crossDinkSettingsPath) ||
+        Storage.exists(CROSSDINK_SETTINGS_FILE_BAK)) {
+      fail("Interrupted CrossDink settings save did not recover before CrossPoint import");
     }
 
-    if (hadCrossInkSettings) {
-      if (!Storage.writeFile(crossInkSettingsPath, savedCrossInkSettings)) fail("Could not restore CrossInk settings");
-    } else if (Storage.exists(crossInkSettingsPath) && !Storage.remove(crossInkSettingsPath)) {
-      fail("Could not remove CrossInk settings test fixture");
+    if (hadCrossDinkSettings) {
+      if (!Storage.writeFile(crossDinkSettingsPath, savedCrossDinkSettings)) fail("Could not restore CrossDink settings");
+    } else if (Storage.exists(crossDinkSettingsPath) && !Storage.remove(crossDinkSettingsPath)) {
+      fail("Could not remove CrossDink settings test fixture");
     }
-    if (hadCrossInkSettingsBackup) {
-      if (!Storage.writeFile(CROSSINK_SETTINGS_FILE_BAK, savedCrossInkSettingsBackup)) {
-        fail("Could not restore CrossInk settings backup");
+    if (hadCrossDinkSettingsBackup) {
+      if (!Storage.writeFile(CROSSDINK_SETTINGS_FILE_BAK, savedCrossDinkSettingsBackup)) {
+        fail("Could not restore CrossDink settings backup");
       }
-    } else if (Storage.exists(CROSSINK_SETTINGS_FILE_BAK) && !Storage.remove(CROSSINK_SETTINGS_FILE_BAK)) {
-      fail("Could not remove CrossInk settings backup fixture");
+    } else if (Storage.exists(CROSSDINK_SETTINGS_FILE_BAK) && !Storage.remove(CROSSDINK_SETTINGS_FILE_BAK)) {
+      fail("Could not remove CrossDink settings backup fixture");
     }
     if (hadLegacySettings) {
       if (!Storage.writeFile(LEGACY_SETTINGS_FILE_JSON, savedLegacySettings)) fail("Could not restore legacy settings");
@@ -516,8 +516,8 @@ class SimulatorSmokeTest {
         verifyUpDownShortcutAvailability();
         verifyReaderControlsSettings();
         verifyMixedPageGestures();
-#if CROSSINK_SCALABLE_FONTS
-        if (const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY")) {
+#if CROSSDINK_SCALABLE_FONTS
+        if (const char* family = std::getenv("CROSSDINK_SIMULATOR_SMOKE_FONT_FAMILY")) {
           // Exercise the production registry, adapter, size cache, and dictionary
           // handoff before the normal reader navigation smoke sequence.
           sdFontSystem.ensureRegistry();
@@ -598,7 +598,7 @@ class SimulatorSmokeTest {
             if (SETTINGS.getReaderFontId() == SETTINGS.getBuiltInReaderFontId()) fail("TTF size activation failed");
           }
           if (SETTINGS.getReaderFontId() != original) fail("TTF size identity changed on reuse");
-          if (std::getenv("CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS")) {
+          if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_ISOLATED_FONTS")) {
             // A clean resize must use resident metadata, even with the cache temporarily unavailable.
             namespace fs = std::filesystem;
             fs::rename("fs_/.crosspoint/font-catalog.bin", "fs_/.crosspoint/font-catalog.saved");
@@ -634,7 +634,7 @@ class SimulatorSmokeTest {
           sdFontSystem.releaseLoadedFont(renderer);
           sdFontSystem.ensureLoaded(renderer);
           if (SETTINGS.getReaderFontId() != original) fail("TTF reload changed identity");
-          if (std::getenv("CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS")) {
+          if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_ISOLATED_FONTS")) {
             namespace fs = std::filesystem;
             // The runner provides disposable copies; never mutate a user's SD tree.
             const auto* current = sdFontSystem.registry().findFamily(family);
@@ -722,7 +722,7 @@ class SimulatorSmokeTest {
         break;
 
       case SmokeStep::FileBrowser:
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
         if (mappedInputManager.hasTouchHardware()) {
           buildFileBrowserInputScript();
           step = SmokeStep::ReaderInput;
@@ -742,7 +742,7 @@ class SimulatorSmokeTest {
         // Rendering an error screen is not a successful Library smoke test.
         // The script supplies an isolated card with at least one EPUB.
         library::LibraryIndexFile shelf;
-        const bool hasFixture = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK") != nullptr;
+        const bool hasFixture = std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK") != nullptr;
         const bool readable = shelf.open(library::libraryIndexPath());
         const bool populated = readable && (!hasFixture || shelf.bookCount() > 0);
         shelf.close();
@@ -774,9 +774,9 @@ class SimulatorSmokeTest {
         break;
 
       case SmokeStep::Sleep: {
-        const char* bookPath = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+        const char* bookPath = std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK");
         if (bookPath == nullptr || bookPath[0] == '\0') {
-          LOG_INF("SMOKE", "Skipping Reader step; CROSSINK_SIMULATOR_SMOKE_BOOK is not set");
+          LOG_INF("SMOKE", "Skipping Reader step; CROSSDINK_SIMULATOR_SMOKE_BOOK is not set");
           step = SmokeStep::Reader;
           break;
         }
@@ -867,7 +867,7 @@ class SimulatorSmokeTest {
     return {ScriptActionType::Render, MappedInputManager::Button::Back, label, framesToSettle, 0, 0};
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   static ScriptAction touchDown(const int x, const int y) {
     return {ScriptActionType::TouchDown, MappedInputManager::Button::Back, nullptr, 0, x, y};
   }
@@ -893,7 +893,7 @@ class SimulatorSmokeTest {
     inputCompletionStep = SmokeStep::Done;
 
     const int turns = pageTurnCount();
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     if (mappedInputManager.hasTouch()) {
       const int width = renderer.getScreenWidth();
       const int height = renderer.getScreenHeight();
@@ -908,7 +908,7 @@ class SimulatorSmokeTest {
 
       // Exercise the TTF edit path that replaces the active scalable font IDs:
       // Auto -> Native, switch tabs, then return to the current page.
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
       if (SETTINGS.sdFontFamilyName[0] != '\0' && sdFontSystem.isScalableFamily(SETTINGS.sdFontFamilyName)) {
         inputScript.push_back(touchDown(width / 2, height - 8));
         inputScript.push_back(touchMove(width / 2, height * 3 / 4));
@@ -1179,7 +1179,7 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Running reader input script with %d page turn(s)", turns);
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   void buildFileBrowserInputScript() {
     inputScript.clear();
     scriptIndex = 0;
@@ -1277,14 +1277,14 @@ class SimulatorSmokeTest {
         if (SETTINGS.disableReaderTouchscreen) fail("Expected reader touchscreen to be enabled");
         break;
       case ScriptActionType::AssertTtfProfileNative:
-#if CROSSINK_SCALABLE_FONTS
+#if CROSSDINK_SCALABLE_FONTS
         if (TTF_RENDER_PROFILES.profileFor(SETTINGS.sdFontFamilyName).hinting != 1) {
           fail("Expected active TTF profile to use native hinting");
         }
 #endif
         break;
       case ScriptActionType::OpenSmokeBook: {
-        const char* bookPath = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+        const char* bookPath = std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK");
         if (bookPath == nullptr || bookPath[0] == '\0') fail("Smoke test book path is missing");
         activityManager.goToReader(bookPath, true);
         break;
@@ -1296,17 +1296,17 @@ class SimulatorSmokeTest {
         SETTINGS.disableReaderTouchscreen = false;
         break;
       case ScriptActionType::TouchDown:
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
         mappedInputManager.simulatorInjectTouchDown(action.x, action.y);
 #endif
         break;
       case ScriptActionType::TouchMove:
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
         mappedInputManager.simulatorInjectTouchMove(action.x, action.y);
 #endif
         break;
       case ScriptActionType::TouchRelease:
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
         mappedInputManager.simulatorInjectTouchRelease(action.x, action.y);
 #endif
         break;

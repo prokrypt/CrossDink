@@ -13,7 +13,7 @@ static void put(const char* path, const char* text) {
   std::ofstream(testRoot + path) << text;
 }
 int main() {
-  char temp[] = "/tmp/crossink-font-index-XXXXXX";
+  char temp[] = "/tmp/crossdink-font-index-XXXXXX";
   testRoot = mkdtemp(temp);
   put("/.fonts/Bitmap/Bitmap_10.cpfont", "bitmap10");
   put("/.fonts/Bitmap/Bitmap_14.cpfont", "bitmap14");

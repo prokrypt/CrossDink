@@ -10,7 +10,7 @@ import debugging_monitor as monitor
 
 
 class MemoryLogsTest(unittest.TestCase):
-    def test_crossink_combined_pools(self):
+    def test_crossdink_combined_pools(self):
         line = "[MEM] Periodic: heap free=85000 total=270000 min=30000 maxAlloc=49000 psram free=7000000 total=8388608 min=6000000 maxAlloc=6500000"
         self.assertEqual(monitor.parse_memory_samples(line), [
             ("heap", (85000, 270000, 49000)),

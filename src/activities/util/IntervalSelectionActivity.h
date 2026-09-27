@@ -5,7 +5,7 @@
 
 #include <cstddef>
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
 
@@ -62,7 +62,7 @@ class IntervalSelectionActivity final : public Activity {
   bool draggingBar = false;
   ButtonNavigator buttonNavigator;
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   using UiApp = freeink::ui::FreeInkApp<8, 3>;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;

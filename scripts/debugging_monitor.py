@@ -174,7 +174,7 @@ COLOR_KEYWORDS: dict[str, list[str]] = {
         "LOAD:",
         "ENTRY",
         "[SD]",
-        "STARTING CROSSINK",
+        "STARTING CROSSDINK",
         "VERSION",
     ],
     Fore.LIGHTCYAN_EX: ["[RBS]"],
@@ -237,7 +237,7 @@ def parse_memory_line(line: str) -> tuple[int | None, int | None, int | None]:
 
 
 def parse_memory_samples(line: str) -> list[tuple[str, tuple[int | None, int | None, int | None]]]:
-    """Separate CrossInk's combined heap/PSRAM line and legacy upstream lines."""
+    """Separate CrossDink's combined heap/PSRAM line and legacy upstream lines."""
     pools = list(re.finditer(r"\b(heap|psram)\s*:?\s+(?=free\s*[:=])", line, re.IGNORECASE))
     if not pools:
         return [("heap", parse_memory_line(line))]

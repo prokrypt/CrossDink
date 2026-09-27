@@ -8,7 +8,7 @@ target_include_directories(OptionPopupTest PRIVATE
 )
 
 target_compile_definitions(OptionPopupTest PRIVATE
-  CROSSINK_APP_CAP_TOUCH=1
+  CROSSDINK_APP_CAP_TOUCH=1
 )
 
 target_link_libraries(OptionPopupTest PRIVATE

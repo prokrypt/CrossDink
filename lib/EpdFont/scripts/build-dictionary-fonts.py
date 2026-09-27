@@ -5,7 +5,7 @@ This is a dictionary-specific wrapper around ``build-sd-fonts.py``. It keeps
 the family/style/size catalog in ``sd-fonts.yaml`` while replacing each
 family's interval list with the reading ranges plus IPA and combining-mark
 ranges needed by dictionary definitions. The shared builder supplies
-CrossInk's built-in intervals and fallback stack, with bundled Noto Sans
+CrossDink's built-in intervals and fallback stack, with bundled Noto Sans
 remaining the final fallback for every style.
 
 The default output is the sibling crossink-fonts repository:
@@ -64,7 +64,7 @@ def load_dictionary_config(config_path: Path) -> tuple[dict, list[dict]]:
 def write_temporary_config(config: dict) -> Path:
     """Write a temporary transformed catalog for the shared builder."""
     temp_file = tempfile.NamedTemporaryFile(
-        mode="w", prefix="crossink-dictionary-fonts-", suffix=".yaml", delete=False
+        mode="w", prefix="crossdink-dictionary-fonts-", suffix=".yaml", delete=False
     )
     try:
         yaml.safe_dump(config, temp_file, sort_keys=False)

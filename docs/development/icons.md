@@ -5,7 +5,7 @@ nav_order: 4
 
 # Icon Libraries
 
-CrossInk rasterizes only the icons it uses into 1-bit C++ headers. This keeps
+CrossDink rasterizes only the icons it uses into 1-bit C++ headers. This keeps
 the firmware small enough for ESP32-C3 devices; adding an icon does not embed a
 whole icon library.
 
@@ -15,7 +15,7 @@ The local manifests in `src/components/icons/` can use either source:
 - **Tabler outline:** `assets/tabler-icons/icons/outline`
 - **Tabler filled:** `assets/tabler-icons/icons/filled`
 
-Tabler is a CrossInk submodule pinned to a release commit. Clone it with the
+Tabler is a CrossDink submodule pinned to a release commit. Clone it with the
 other dependencies before generating icons:
 
 ```sh

@@ -596,7 +596,7 @@ void SleepActivity::onEnter() {
   // X4 Pro and X4 Classic share a panel that can retain this high-contrast
   // transient update beneath the final OEM-style sleep refresh. Render only
   // the final sleep frame on that panel family.
-  const bool showSleepPopup = !BoardConfig::isX4Pro() && !CROSSINK_APP_DEVICE_X4CLASSIC;
+  const bool showSleepPopup = !BoardConfig::isX4Pro() && !CROSSDINK_APP_DEVICE_X4CLASSIC;
   // Show the popup in the orientation that was visible before reader exit restores
   // global settings. Reset to portrait afterwards so sleep screen layout stays unchanged.
   if (APP_STATE.lastSleepFromReader) {
@@ -749,7 +749,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
 
   renderer.clearScreen();
   renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSINK), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSDINK), true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_SLEEPING));
 
   // Make sleep screen dark unless light is selected in settings
@@ -758,8 +758,8 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-#ifdef CROSSINK_SHOW_SLEEP_BUILD_INFO
-  const std::string buildInfo = std::string(CROSSINK_BUILD_ENV) + " " + CROSSINK_VERSION;
+#ifdef CROSSDINK_SHOW_SLEEP_BUILD_INFO
+  const std::string buildInfo = std::string(CROSSDINK_BUILD_ENV) + " " + CROSSDINK_VERSION;
   const std::string visibleBuildInfo =
       renderer.truncatedText(SMALL_FONT_ID, buildInfo.c_str(), pageWidth - sleepBuildInfoSideMargin * 2);
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 118, visibleBuildInfo.c_str(), lightSleepScreen);

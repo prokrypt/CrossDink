@@ -180,7 +180,7 @@ int EpubReaderClippingListActivity::getDetailLinesPerPage() const {
   // cppcheck-suppress unreadVariable ; only read in touch builds
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int lineStep = renderer.getLineHeight(UI_10_FONT_ID) + DETAIL_LINE_GAP;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     const Rect header = clippingHeaderRect(safe, metrics, mappedInput);
     const Rect openButton = touchDetailOpenButtonRect(safe, metrics);
@@ -371,7 +371,7 @@ void EpubReaderClippingListActivity::loop() {
     int touchY = 0;
     int detailTouchTop = safe.y + DETAIL_START_Y;
     int detailTouchBottom = safe.y + safe.height - DETAIL_BOTTOM_RESERVE;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     if (mappedInput.hasTouchHardware()) {
       const Rect openButton = touchDetailOpenButtonRect(safe, metrics);
       if (mappedInput.wasTapInRect(openButton.x, openButton.y, openButton.width, openButton.height)) {
@@ -554,7 +554,7 @@ void EpubReaderClippingListActivity::renderDetail() {
   }
 
   int textStartY = DETAIL_START_Y + contentY;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   const bool showTouchControls = mappedInput.hasTouchHardware();
   Rect openButton{};
   if (showTouchControls) {
@@ -588,7 +588,7 @@ void EpubReaderClippingListActivity::renderDetail() {
     snprintf(pageBuf, sizeof(pageBuf), "%d/%d", detailPage + 1, detailPageCount);
     const int pageLabelWidth = renderer.getTextWidth(SMALL_FONT_ID, pageBuf);
     int pageLabelY = safe.y + safe.height - 35;
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
     if (showTouchControls) {
       pageLabelY = openButton.y - metrics.verticalSpacing - renderer.getLineHeight(SMALL_FONT_ID);
     }
@@ -597,7 +597,7 @@ void EpubReaderClippingListActivity::renderDetail() {
                       pageBuf);
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (showTouchControls) {
     renderer.fillRectDither(openButton.x, openButton.y, openButton.width, openButton.height, Color::White);
     renderer.drawRect(openButton.x, openButton.y, openButton.width, openButton.height, true);

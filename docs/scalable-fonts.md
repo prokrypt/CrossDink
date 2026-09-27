@@ -1,6 +1,6 @@
 # Scalable TTF fonts on ESP32-S3 devices
 
-On ESP32-S3 readers, CrossInk includes Bitter and Lexend Deca as scalable
+On ESP32-S3 readers, CrossDink includes Bitter and Lexend Deca as scalable
 TrueType fonts. You can also add your own static `.ttf` fonts. ESP32-C3 readers
 continue to use the existing bitmap fonts and `.cpfont` font packs.
 
@@ -18,7 +18,7 @@ interface. See [SD Card Fonts](./sd-card-fonts.md) for how to open that interfac
 No font conversion or separate files for each size are needed.
 
 For the full range of text styles, add all four files for a family: **regular**,
-**bold**, **italic**, and **bold italic**. CrossInk can use a family with fewer
+**bold**, **italic**, and **bold italic**. CrossDink can use a family with fewer
 styles, but missing styles may appear in another available style. If the files
 are in a family folder, that folder's name appears in the font picker. Keep
 `.ttf` and `.cpfont` files in separate family folders.
@@ -32,7 +32,7 @@ all its styles and are remembered for that family. This option appears only
 for custom TTF fonts; built-in and `.cpfont` fonts do not use it.
 
 Custom TTF fonts use the existing **8–22 pt** size choices. Changing fonts or
-their appearance may make CrossInk lay out the current book again, so page
+their appearance may make CrossDink lay out the current book again, so page
 positions can change. Your bookmarks and clippings remain saved.
 
 ## Supported files and limits

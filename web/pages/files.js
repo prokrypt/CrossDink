@@ -114,7 +114,7 @@ const MODAL_CANCEL_FNS = {
 const MODAL_OUTSIDE_CLICK_FNS = { ...MODAL_CANCEL_FNS, uploadModal: closeUploadModal };
 
 async function hydrate() {
-  // Fetch CrossInk version
+  // Fetch CrossDink version
   fetchVersion();
 
   // Close modals when clicking overlay - call proper cleanup functions
@@ -1603,7 +1603,7 @@ const logSection = document.getElementById("log-section");
 const logContainer = document.getElementById("log-container");
 const exportLogCheckbox = document.getElementById("export-log-checkbox");
 
-// CrossInk version (fetched from API)
+// CrossDink version (fetched from API)
 let crosspointVersion = "Unknown";
 
 // Fetch version from API
@@ -2506,7 +2506,7 @@ function findXmlRootElementStart(content) {
 
 function protectWhitespaceOnlyTextNodes(content) {
   const preserved = [];
-  const tokenPrefix = "__CROSSINK_PRESERVE_WS_";
+  const tokenPrefix = "__CROSSDINK_PRESERVE_WS_";
   const rootStart = findXmlRootElementStart(content);
   const protectedContent = content.replace(/>([\s\u00a0]+)</g, (match, whitespace, offset) => {
     if (offset < rootStart) return match;
@@ -4251,11 +4251,11 @@ function imageMimeType(filename) {
   return "image/jpeg";
 }
 
-const CROSSINK_OPTIMIZER_MANIFEST_PATH = "META-INF/crossink/optimizer-v1.json";
-const CROSSINK_PXC_DIR = "META-INF/crossink/pxc";
-const CROSSINK_BAYER_4X4 = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+const CROSSDINK_OPTIMIZER_MANIFEST_PATH = "META-INF/crossink/optimizer-v1.json";
+const CROSSDINK_PXC_DIR = "META-INF/crossink/pxc";
+const CROSSDINK_BAYER_4X4 = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
 
-function crossInkPxcRules(text) {
+function crossDinkPxcRules(text) {
   const rules = [];
   for (const match of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const declarations = {};
@@ -4268,7 +4268,7 @@ function crossInkPxcRules(text) {
   return rules;
 }
 
-function crossInkPxcStyle(rules, image) {
+function crossDinkPxcStyle(rules, image) {
   const style = {};
   for (const rule of rules) {
     try {
@@ -4277,12 +4277,12 @@ function crossInkPxcStyle(rules, image) {
       // Unsupported/invalid selectors must not style unrelated images.
     }
   }
-  const inline = crossInkPxcRules(`x{${image.getAttribute("style") || ""}}`)[0];
+  const inline = crossDinkPxcRules(`x{${image.getAttribute("style") || ""}}`)[0];
   if (inline) Object.assign(style, inline.declarations);
   return style;
 }
 
-function crossInkPxcLength(value, relative) {
+function crossDinkPxcLength(value, relative) {
   if (!value) return undefined;
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) return undefined;
@@ -4291,9 +4291,9 @@ function crossInkPxcLength(value, relative) {
   return Math.max(1, Math.round(parsed));
 }
 
-function crossInkPxcSize(width, height, style, viewportWidth, viewportHeight) {
-  let resolvedWidth = crossInkPxcLength(style.width, viewportWidth);
-  let resolvedHeight = crossInkPxcLength(style.height, viewportHeight);
+function crossDinkPxcSize(width, height, style, viewportWidth, viewportHeight) {
+  let resolvedWidth = crossDinkPxcLength(style.width, viewportWidth);
+  let resolvedHeight = crossDinkPxcLength(style.height, viewportHeight);
   if (!resolvedWidth && !resolvedHeight) return { width, height };
   if (!resolvedWidth) resolvedWidth = Math.max(1, Math.round(resolvedHeight * width / height));
   if (!resolvedHeight) resolvedHeight = Math.max(1, Math.round(resolvedWidth * height / width));
@@ -4305,13 +4305,13 @@ function crossInkPxcSize(width, height, style, viewportWidth, viewportHeight) {
   return { width: resolvedWidth, height: resolvedHeight };
 }
 
-function crossInkPxcPathKey(value) {
+function crossDinkPxcPathKey(value) {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index++) hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193) >>> 0;
   return hash.toString(16).padStart(8, "0");
 }
 
-function crossInkCrc32(data) {
+function crossDinkCrc32(data) {
   let crc = 0xffffffff;
   for (const byte of data) {
     crc ^= byte;
@@ -4320,7 +4320,7 @@ function crossInkCrc32(data) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function crossInkPackBits(data) {
+function crossDinkPackBits(data) {
   const out = [];
   let i = 0;
   while (i < data.length) {
@@ -4337,7 +4337,7 @@ function crossInkPackBits(data) {
   return new Uint8Array(out);
 }
 
-function encodeCrossInkPxc2(legacy) {
+function encodeCrossDinkPxc2(legacy) {
   const input = new DataView(legacy.buffer, legacy.byteOffset, legacy.byteLength);
   const width = input.getUint16(0, true), height = input.getUint16(2, true);
   const raw = legacy.subarray(4), rowBytes = Math.ceil(width / 4);
@@ -4347,7 +4347,7 @@ function encodeCrossInkPxc2(legacy) {
   let size = 32;
   for (let offset = 0; offset < raw.length; offset += 2048) {
     const block = raw.subarray(offset, offset + 2048);
-    let encoded = crossInkPackBits(block), codec = 2;
+    let encoded = crossDinkPackBits(block), codec = 2;
     if (encoded.length >= block.length) { encoded = block; codec = 0; }
     blocks.push({ block, encoded, codec }); size += 12 + encoded.length;
   }
@@ -4355,27 +4355,27 @@ function encodeCrossInkPxc2(legacy) {
   out.set([80, 88, 67, 50, 2, 1]); view.setUint16(6, 32, true);
   view.setUint16(8, width, true); view.setUint16(10, height, true); view.setUint16(12, rowBytes, true);
   view.setUint16(14, 2048, true); view.setUint16(16, blocks.length, true);
-  view.setUint32(20, raw.length, true); view.setUint32(24, crossInkCrc32(raw), true); view.setUint32(28, size, true);
+  view.setUint32(20, raw.length, true); view.setUint32(24, crossDinkCrc32(raw), true); view.setUint32(28, size, true);
   let offset = 32;
   blocks.forEach(({ block, encoded, codec }, sequence) => {
     out[offset] = codec; view.setUint16(offset + 2, block.length, true);
     view.setUint16(offset + 4, encoded.length, true); view.setUint16(offset + 6, sequence, true);
-    view.setUint32(offset + 8, crossInkCrc32(block), true); out.set(encoded, offset + 12); offset += 12 + encoded.length;
+    view.setUint32(offset + 8, crossDinkCrc32(block), true); out.set(encoded, offset + 12); offset += 12 + encoded.length;
   });
   return out;
 }
 
-function crossInkIndexPath(path, limit) {
+function crossDinkIndexPath(path, limit) {
   return path && !path.startsWith("/") && !path.includes("..") && !/[\x00-\x1f\\:%]/.test(path) &&
     new TextEncoder().encode(path).length <= limit;
 }
 
-function buildCrossInkImageIndex(manifest, entries) {
+function buildCrossDinkImageIndex(manifest, entries) {
   if (entries.length > 256) throw new Error("Too many optimizer index records");
   const out = new Uint8Array(32 + 208 * entries.length), view = new DataView(out.buffer), encoder = new TextEncoder();
   const seen = new Set();
   entries.forEach((e, i) => {
-    if (seen.has(e.href) || !crossInkIndexPath(e.href, 128) || !crossInkIndexPath(e.pxc, 64))
+    if (seen.has(e.href) || !crossDinkIndexPath(e.href, 128) || !crossDinkIndexPath(e.pxc, 64))
       throw new Error("Invalid optimizer index path");
     seen.add(e.href);
     const at = 32 + 208 * i;
@@ -4385,12 +4385,12 @@ function buildCrossInkImageIndex(manifest, entries) {
   });
   out.set([67, 79, 73, 88]); view.setUint16(4, 1, true); view.setUint16(6, 32, true);
   view.setUint16(8, 208, true); view.setUint16(10, entries.length, true);
-  view.setUint32(16, crossInkCrc32(manifest), true); view.setUint32(20, manifest.length, true);
-  view.setUint32(24, crossInkCrc32(out.subarray(32)), true); view.setUint32(28, crossInkCrc32(out.subarray(0, 28)), true);
+  view.setUint32(16, crossDinkCrc32(manifest), true); view.setUint32(20, manifest.length, true);
+  view.setUint32(24, crossDinkCrc32(out.subarray(32)), true); view.setUint32(28, crossDinkCrc32(out.subarray(0, 28)), true);
   return out;
 }
 
-async function buildCrossInkPxc(data, width, height) {
+async function buildCrossDinkPxc(data, width, height) {
   const bitmap = await createImageBitmap(new Blob([data]));
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -4413,7 +4413,7 @@ async function buildCrossInkPxc(data, width, height) {
     for (let x = 0; x < width; x++) {
       const index = (y * width + x) * 4;
       const grayBase = Math.round(pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114);
-      const gray = Math.max(0, Math.min(255, grayBase + (CROSSINK_BAYER_4X4[y & 3][x & 3] - 8) * 5));
+      const gray = Math.max(0, Math.min(255, grayBase + (CROSSDINK_BAYER_4X4[y & 3][x & 3] - 8) * 5));
       const level = gray < 64 ? 0 : gray < 128 ? 1 : gray < 192 ? 2 : 3;
       packed |= level << shift;
       if (shift === 0) {
@@ -4426,19 +4426,19 @@ async function buildCrossInkPxc(data, width, height) {
     }
     if (shift !== 6) output[offset++] = packed;
   }
-  return encodeCrossInkPxc2(output);
+  return encodeCrossDinkPxc2(output);
 }
 
-function resolveCrossInkPxcPath(basePath, reference) {
+function resolveCrossDinkPxcPath(basePath, reference) {
   const source = decodeHref((reference || "").split("#")[0]);
   if (!source || source.startsWith("data:")) return "";
   return resolvePath(basePath, source);
 }
 
-async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
+async function buildCrossDinkPxcSidecars(out, zip, xhtmlFiles) {
   const cssRules = new Map();
   for (const [path, fileObj] of Object.entries(zip.files)) {
-    if (!fileObj.dir && path.toLowerCase().endsWith(".css")) cssRules.set(path, crossInkPxcRules(await safeReadText(fileObj)));
+    if (!fileObj.dir && path.toLowerCase().endsWith(".css")) cssRules.set(path, crossDinkPxcRules(await safeReadText(fileObj)));
   }
   const entries = [];
   const seen = new Set();
@@ -4449,11 +4449,11 @@ async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
     const doc = new DOMParser().parseFromString(xhtml, "text/html");
     const rules = [];
     doc.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
-      rules.push(...(cssRules.get(resolveCrossInkPxcPath(xhtmlPath, link.getAttribute("href"))) || []));
+      rules.push(...(cssRules.get(resolveCrossDinkPxcPath(xhtmlPath, link.getAttribute("href"))) || []));
     });
-    doc.querySelectorAll("style").forEach((style) => rules.push(...crossInkPxcRules(style.textContent || "")));
+    doc.querySelectorAll("style").forEach((style) => rules.push(...crossDinkPxcRules(style.textContent || "")));
     for (const image of doc.querySelectorAll("img")) {
-      const href = resolveCrossInkPxcPath(xhtmlPath, image.getAttribute("src"));
+      const href = resolveCrossDinkPxcPath(xhtmlPath, image.getAttribute("src"));
       const imageFile = href && out.file(href);
       if (!imageFile) continue;
       try {
@@ -4463,12 +4463,12 @@ async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
         const sourceHeight = bitmap.height;
         if (bitmap.close) bitmap.close();
         if (!sourceWidth || !sourceHeight) continue;
-        const size = crossInkPxcSize(sourceWidth, sourceHeight, crossInkPxcStyle(rules, image), viewportWidth, viewportHeight);
-        if (entries.length >= 256 || entries.some((e) => e.href === href) || !crossInkIndexPath(href, 128)) continue;
+        const size = crossDinkPxcSize(sourceWidth, sourceHeight, crossDinkPxcStyle(rules, image), viewportWidth, viewportHeight);
+        if (entries.length >= 256 || entries.some((e) => e.href === href) || !crossDinkIndexPath(href, 128)) continue;
         const key = `${href}:${size.width}x${size.height}`;
         if (seen.has(key)) continue;
-        const pxcPath = `${CROSSINK_PXC_DIR}/${crossInkPxcPathKey(key)}.pxc2`;
-        const payload = await buildCrossInkPxc(data, size.width, size.height);
+        const pxcPath = `${CROSSDINK_PXC_DIR}/${crossDinkPxcPathKey(key)}.pxc2`;
+        const payload = await buildCrossDinkPxc(data, size.width, size.height);
         out.file(pxcPath, payload, { compression: "STORE", createFolders: false });
         seen.add(key);
         entries.push({ href, pxc: pxcPath, ...size, pxcFormat: "pxc2", pxcBytes: payload.length,
@@ -4646,7 +4646,7 @@ async function convertEpubFile(file, progressCallback) {
         let modified = false;
 
         // Remove width/height attributes from ALL img tags (dimensions may have changed)
-        // This prevents CrossInk and other readers from using wrong dimensions
+        // This prevents CrossDink and other readers from using wrong dimensions
         const allImgElements = doc.querySelectorAll("img");
         for (const img of allImgElements) {
           if (img.hasAttribute("width")) {
@@ -4878,7 +4878,7 @@ async function convertEpubFile(file, progressCallback) {
     out.file(xhtmlPath, content, DEFLATE_OPTS);
   }
 
-  const imageCacheEntries = await buildCrossInkPxcSidecars(out, zip, processedXhtmlFiles);
+  const imageCacheEntries = await buildCrossDinkPxcSidecars(out, zip, processedXhtmlFiles);
   if (optimizedOpfContent) {
     const manifest = new TextEncoder().encode(JSON.stringify({
       format: "crossink-optimizer",
@@ -4888,8 +4888,8 @@ async function convertEpubFile(file, progressCallback) {
       features: { htmlNormalized: true, cssFlattened: false, xLocations: true, prebuiltPxc: imageCacheEntries.length > 0 },
       images: imageCacheEntries,
     }));
-    out.file(CROSSINK_OPTIMIZER_MANIFEST_PATH, manifest, { compression: "STORE", createFolders: false });
-    out.file("META-INF/crossink/optimizer-images-v1.idx", buildCrossInkImageIndex(manifest, imageCacheEntries),
+    out.file(CROSSDINK_OPTIMIZER_MANIFEST_PATH, manifest, { compression: "STORE", createFolders: false });
+    out.file("META-INF/crossink/optimizer-images-v1.idx", buildCrossDinkImageIndex(manifest, imageCacheEntries),
       { compression: "STORE", createFolders: false });
   }
 
@@ -4898,8 +4898,8 @@ async function convertEpubFile(file, progressCallback) {
     if (operationCancelled) throw new Error("Cancelled by user");
     if (fileObj.dir || path === "mimetype") continue;
     const low = path.toLowerCase();
-    if (low === X_LOCATION_MANIFEST_PATH.toLowerCase() || low === CROSSINK_OPTIMIZER_MANIFEST_PATH.toLowerCase() || low === "meta-inf/crossink/optimizer-images-v1.idx" ||
-        low.startsWith(`${CROSSINK_PXC_DIR.toLowerCase()}/`)) continue;
+    if (low === X_LOCATION_MANIFEST_PATH.toLowerCase() || low === CROSSDINK_OPTIMIZER_MANIFEST_PATH.toLowerCase() || low === "meta-inf/crossink/optimizer-images-v1.idx" ||
+        low.startsWith(`${CROSSDINK_PXC_DIR.toLowerCase()}/`)) continue;
     if (low.match(/\.(png|gif|webp|bmp|jpg|jpeg|svg)$/) || low.match(/\.(xhtml|html|htm)$/) || low.endsWith(".opf"))
       continue;
 

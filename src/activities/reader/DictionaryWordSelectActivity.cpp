@@ -194,7 +194,7 @@ bool DictionaryWordSelectActivity::buildWorkingSet(const bool consumeInitialConf
   }
   navigator.loadView(workingSet_.words.get(), workingSet_.wordCount, workingSet_.rows.get(), workingSet_.rowCount,
                      workingSet_.textPool.get(), consumeInitialConfirm);
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   navigator.setTouchDragCursorVisible(mappedInput.hasTouch());
   bool initialTouchHit = false;
   if (initialTouchX_ >= 0 && initialTouchY_ >= 0) {
@@ -1076,7 +1076,7 @@ void DictionaryWordSelectActivity::loop() {
     requestUpdate();
   }
 
-#if CROSSINK_APP_CAP_TOUCH
+#if CROSSDINK_APP_CAP_TOUCH
   if (touchDragLookup_) {
     int dragX = 0;
     int dragY = 0;

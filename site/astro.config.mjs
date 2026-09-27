@@ -9,7 +9,7 @@ const docsDir = fileURLToPath(new URL("../docs", import.meta.url));
 
 function watchExternalDocs() {
   return {
-    name: "crossink:watch-external-docs",
+    name: "crossdink:watch-external-docs",
     apply: "serve",
     configureServer(server) {
       server.watcher.add(docsDir);

@@ -16,6 +16,7 @@
 
 ### Changed
 
+- Every remaining CrossInk name in code, build flags, scripts, and docs is now CrossDink. On-device data paths and file formats keep their names, so existing settings, stats backups, and optimized books keep working.
 - File Transfer and Calibre on a Wi-Fi network now idle in modem sleep and light sleep between transfers, and switch to full power from the first byte of a request or upload until two seconds after the last one. Hotspot mode keeps the radio fully on.
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal. Existing settings, caches, and device paths are unchanged.
 - USB Drive mounts faster: the next part of the SD card is read in the background while the current data is sent over USB, cutting about 5 seconds from mounting a FAT32 card on the X4 Pro.
@@ -130,7 +131,7 @@
 - EPUB paragraphs without source indentation no longer gain a synthetic first-line indent.
 - End-of-book selection remains consistent during concurrent redraws.
 - Image dithering reports low-memory failures instead of aborting during buffer allocation.
-- The debugging monitor plots CrossInk heap and PSRAM logs separately; ZIP failures identify the affected EPUB entry.
+- The debugging monitor plots CrossDink heap and PSRAM logs separately; ZIP failures identify the affected EPUB entry.
 - Many progressive JPEG images that store brightness and color in separate scans now render instead of appearing blank.
 - PNG sleep overlays preserve four evenly spaced grayscale levels on supported displays.
 - Exiting Calibre Wireless on X4 now returns Home with one clean screen refresh instead of repeated blank flashes.
@@ -200,8 +201,8 @@
 
 - EPUB tables now lay out a row at a time in both Incremental and Full Section indexing, keeping regular tables readable without whole-table buffering.
 - Touch support for Seeed Studio Sticky
-- Nearby File Transfer can send EPUB, TXT, XTC, XTCH, PNG, and BMP files directly between two CrossInk devices without a Wi-Fi network.
-- Recent Books and image-file long-press actions can send files directly to a nearby CrossInk device.
+- Nearby File Transfer can send EPUB, TXT, XTC, XTCH, PNG, and BMP files directly between two CrossDink devices without a Wi-Fi network.
+- Recent Books and image-file long-press actions can send files directly to a nearby CrossDink device.
 - Dictionary lookup and lookup history
 - EPUB books can use a dedicated SD-card dictionary font while keeping a different reader font.
 - EPUB books can set a dedicated dictionary font size independently of the reader font size.
@@ -282,8 +283,8 @@
 ### Added
 
 - Dashboard UI theme for the Home screen, showing the current book cover and reading stats.
-- Nearby Position Sync for sending or applying the current EPUB position between two CrossInk devices over ESP-NOW.
-- Web EPUB optimizer support for CrossInk location metadata, so optimized EPUBs can keep better progress and stable page numbers.
+- Nearby Position Sync for sending or applying the current EPUB position between two CrossDink devices over ESP-NOW.
+- Web EPUB optimizer support for CrossDink location metadata, so optimized EPUBs can keep better progress and stable page numbers.
 - Reading Stats support for XTC and XTCH books, including reader menus, Home and sleep screen stats, mark finished, delete stats, and preserving stats when clearing book caches.
 - Web file manager image previews, so PNG, JPEG, BMP, GIF, and WebP files can be viewed inline before downloading.
 
@@ -332,7 +333,7 @@
 - File Browser now indexes large SD-card folders so directories with many books can be browsed without loading every filename into memory at once.
 - EPUB text clipping with saved highlights, clipping lists, and Kindle-style `/My Clippings.txt` export.
 - `Create Clipping` is now available as a reader shortcut for short/long Power, long-press Menu, and long-press Back actions.
-- Per-book EPUB options for font, layout, styling, reading aids, and render modes, including `CrossInk Default`, `Balanced`, and `Light` modes for difficult books.
+- Per-book EPUB options for font, layout, styling, reading aids, and render modes, including `CrossDink Default`, `Balanced`, and `Light` modes for difficult books.
 - Arena allocator (`lib/Memory/Arena.h`) for burst-then-discard allocation patterns - reduces heap fragmentation during EPUB parsing and page layout over long reading sessions.
 - Optimized EPUBs now store location metadata at `META-INF/x-locations.json`.
 - X3 SD-card writes now use the RTC for file timestamps when the clock is available.
@@ -380,7 +381,7 @@
 
 ### Changed
 
-- CrossInk settings now save to `/.crosspoint/crossink-settings.json`, with a one-time fallback migration from `/.crosspoint/settings.json`, so switching between firmware builds is less likely to reset preferences.
+- CrossDink settings now save to `/.crosspoint/crossink-settings.json`, with a one-time fallback migration from `/.crosspoint/settings.json`, so switching between firmware builds is less likely to reset preferences.
 - The X3 clock visibility setting is now phrased as `Hide Clock`, with existing `Show Clock` preferences migrated to the matching hide behavior.
 
 ### Fixed
@@ -438,7 +439,7 @@
 ### Added
 
 - EPUB reading-position improvements, including bookmark anchors, bookmark preview snippets, and optional chapter/book time-left estimates.
-- Nearby Reading Stats sync with separate totals for this device and all synced CrossInk readers.
+- Nearby Reading Stats sync with separate totals for this device and all synced CrossDink readers.
 - Per-server OPDS filename settings so downloaded books can use either Author - Title or Title - Author.
 - EPUB render heap diagnostics that include the largest allocatable block, not just total free heap.
 
@@ -492,7 +493,7 @@
 
 ### Fixed
 
-- Lyra Carousel is now included by activating the build flag `DCROSSINK_ENABLE_LYRA_CAROUSEL=1`
+- Lyra Carousel is now included by activating the build flag `DCROSSDINK_ENABLE_LYRA_CAROUSEL=1`
 
 ---
 

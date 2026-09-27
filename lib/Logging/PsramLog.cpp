@@ -1,6 +1,6 @@
 #include "PsramLog.h"
 
-#if CROSSINK_PSRAM_LOG && !defined(SIMULATOR)
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
 
 #include <esp_attr.h>
 #include <esp_cache.h>
@@ -14,7 +14,7 @@
 #include <cstring>
 
 #if !CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY
-#error "CROSSINK_PSRAM_LOG needs CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y"
+#error "CROSSDINK_PSRAM_LOG needs CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y"
 #endif
 
 namespace {
