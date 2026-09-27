@@ -3,6 +3,7 @@
 #if FREEINK_CAP_USB_MSC
 
 #include <Logging.h>
+#include <TaskCores.h>
 #include <esp_heap_caps.h>
 
 #include <algorithm>
@@ -40,8 +41,12 @@ bool UsbDriveReadAhead::begin(FsBlockDeviceInterface* innerDevice) {
     end();
     return false;
   }
-  // Below TinyUSB's device task so USB servicing always wins the CPU.
-  if (xTaskCreate(prefetchTask, "usbReadAhead", 3072, this, configMAX_PRIORITIES - 2, &task) != pdPASS) {
+  // Below TinyUSB's device task so USB servicing always wins the CPU. usbd is
+  // unpinned (esp32-hal-tinyusb.c); pin the read-ahead to the render core,
+  // which is idle during USB Drive, so SD prefetch never competes with the
+  // loop on core 0 and usbd can take whichever core is free.
+  if (xTaskCreatePinnedToCore(prefetchTask, "usbReadAhead", 3072, this, configMAX_PRIORITIES - 2, &task,
+                              TaskCores::kUi) != pdPASS) {
     task = nullptr;
     LOG_ERR("USB", "USB Drive read-ahead task creation failed; reading directly");
     end();
