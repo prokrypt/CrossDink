@@ -27,6 +27,11 @@ constexpr uint32_t kMagicB = 0xC0DE0513;
 // so a software restart finds it as it was. After power loss it is random,
 // which the two magic words and the size field reject.
 struct Ring {
+  // The S3 MSPI timing tuning writes a 64 B test pattern at physical PSRAM
+  // address 0 on every boot (mspi_timing_tuning_configs.h,
+  // MSPI_TIMING_PSRAM_TEST_DATA_ADDR), and the noinit segment starts there.
+  // Keep the header clear of it.
+  char tuningScratch[1024];
   uint32_t magicA;
   uint32_t size;
   uint32_t head;  // Total bytes ever written; position = head % kRingBytes
@@ -46,6 +51,8 @@ void writeBack(const void* addr, const size_t len) {
   esp_cache_msync(const_cast<void*>(addr), len, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
 }
 
+void writeBackHeader() { writeBack(&ring.magicA, offsetof(Ring, data) - offsetof(Ring, magicA)); }
+
 // Caller holds ringMux. Keeps only the tail of text longer than the ring.
 void writeLocked(const char* text, uint32_t len) {
   if (len > kRingBytes) {
@@ -64,7 +71,7 @@ void writeBackRange(const uint32_t startHead, const uint32_t len) {
   const uint32_t first = std::min(len, kRingBytes - pos);
   writeBack(ring.data + pos, first);
   if (len > first) writeBack(ring.data, len - first);
-  writeBack(&ring, offsetof(Ring, data));
+  writeBackHeader();
 }
 
 void appendRaw(const char* text, const uint32_t len) {
@@ -82,7 +89,7 @@ bool bootLinePending = false;
 
 // Belt and braces for the per-append write-back: flush the header once more
 // on the way down through esp_restart().
-void flushHeaderOnRestart() { writeBack(&ring, offsetof(Ring, data)); }
+void flushHeaderOnRestart() { writeBackHeader(); }
 
 // PSRAM is mapped by Arduino's psramInit() inside initArduino(), after global
 // constructors run. Touching the ring before that reads an unmapped address
@@ -114,7 +121,7 @@ bool ensureInit() {
   }
   portEXIT_CRITICAL_SAFE(&ringMux);
   if (didInit) {
-    writeBack(&ring, offsetof(Ring, data));
+    writeBackHeader();
     esp_register_shutdown_handler(flushHeaderOnRestart);
   }
   return true;
