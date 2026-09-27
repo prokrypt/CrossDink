@@ -30,10 +30,23 @@ RTC_NOINIT_ATTR size_t logHead = 0;
 RTC_NOINIT_ATTR uint32_t rtcLogMagic;
 static constexpr uint32_t LOG_RTC_MAGIC = 0xDEADBEEF;
 
+// logPrintf runs on both cores at once (loop on core 0, render on core 1), so
+// the ring's head and slots need a lock. A spinlock, because logging happens
+// before the scheduler starts and must never block.
+#ifdef SIMULATOR
+#define LOG_RING_LOCK()
+#define LOG_RING_UNLOCK()
+#else
+static portMUX_TYPE logRingMux = portMUX_INITIALIZER_UNLOCKED;
+#define LOG_RING_LOCK() portENTER_CRITICAL_SAFE(&logRingMux)
+#define LOG_RING_UNLOCK() portEXIT_CRITICAL_SAFE(&logRingMux)
+#endif
+
 void addToLogRingBuffer(const char* message) {
   // Add the message to the ring buffer, overwriting old messages if necessary.
   // If the magic is wrong or logHead is out of range (RTC_NOINIT_ATTR garbage
   // on cold boot), clear the entire buffer so subsequent reads are safe.
+  LOG_RING_LOCK();
   if (rtcLogMagic != LOG_RTC_MAGIC || logHead >= MAX_LOG_LINES) {
     memset(logMessages, 0, sizeof(logMessages));
     logHead = 0;
@@ -42,6 +55,7 @@ void addToLogRingBuffer(const char* message) {
   strncpy(logMessages[logHead], message, MAX_ENTRY_LEN - 1);
   logMessages[logHead][MAX_ENTRY_LEN - 1] = '\0';
   logHead = (logHead + 1) % MAX_LOG_LINES;
+  LOG_RING_UNLOCK();
 }
 
 // Since logging can take a large amount of flash, we want to make the format string as short as possible.
@@ -92,13 +106,20 @@ std::string getLastLogs() {
   if (rtcLogMagic != LOG_RTC_MAGIC) {
     return {};
   }
+  // Copy one line at a time under the lock and grow the string outside it:
+  // string growth allocates, which must not happen with interrupts off.
+  LOG_RING_LOCK();
+  const size_t head = logHead % MAX_LOG_LINES;
+  LOG_RING_UNLOCK();
   std::string output;
+  char line[MAX_ENTRY_LEN];
   for (size_t i = 0; i < MAX_LOG_LINES; i++) {
-    size_t idx = (logHead + i) % MAX_LOG_LINES;
-    if (logMessages[idx][0] != '\0') {
-      const size_t len = strnlen(logMessages[idx], MAX_ENTRY_LEN);
-      output.append(logMessages[idx], len);
-    }
+    const size_t idx = (head + i) % MAX_LOG_LINES;
+    LOG_RING_LOCK();
+    memcpy(line, logMessages[idx], MAX_ENTRY_LEN);
+    LOG_RING_UNLOCK();
+    line[MAX_ENTRY_LEN - 1] = '\0';
+    if (line[0] != '\0') output.append(line, strnlen(line, MAX_ENTRY_LEN));
   }
   return output;
 }
@@ -118,9 +139,11 @@ bool sanitizeLogHead() {
 }
 
 void clearLastLogs() {
+  LOG_RING_LOCK();
   for (size_t i = 0; i < MAX_LOG_LINES; i++) {
     logMessages[i][0] = '\0';
   }
   logHead = 0;
   rtcLogMagic = LOG_RTC_MAGIC;
+  LOG_RING_UNLOCK();
 }
