@@ -10,9 +10,9 @@
 // down and start a fresh ring.
 //
 // Enabled with -DCROSSINK_PSRAM_LOG=1. Needs
-// CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y and CONFIG_SPIRAM_MEMTEST=n
-// ([dualpoint_cores] in platformio.ini); otherwise every function is an empty
-// inline.
+// CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y ([dualpoint_cores] in
+// platformio.ini); the boot PSRAM test skips that segment. Otherwise every
+// function is an empty inline.
 #if CROSSINK_PSRAM_LOG && !defined(SIMULATOR)
 namespace PsramLog {
 // Appends text; safe from any task on either core.

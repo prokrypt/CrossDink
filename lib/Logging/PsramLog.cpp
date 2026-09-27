@@ -15,9 +15,6 @@
 #if !CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY
 #error "CROSSINK_PSRAM_LOG needs CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y"
 #endif
-#if CONFIG_SPIRAM_MEMTEST
-#error "CROSSINK_PSRAM_LOG needs CONFIG_SPIRAM_MEMTEST=n (the boot memtest overwrites PSRAM)"
-#endif
 
 namespace {
 // Power of two so the ring position is a mask of the running byte count.
