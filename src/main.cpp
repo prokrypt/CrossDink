@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -1861,6 +1862,59 @@ void updateTouchControllerSleep() {
 #endif
 }  // namespace
 
+#if CROSSDINK_PERF_LOG
+// Debug trace of discrete input events ([IN]): button edges, taps, long
+// presses, swipes, the home key and tilt turns. Drag samples are left out.
+// Touch coordinates are panel-normalized per mille (0-1000). Returns the kind
+// of this frame's event for the [LAT] line.
+static const char* logInputEvents() {
+  static constexpr const char* BUTTON_NAMES[] = {"back", "confirm", "left", "right", "up", "down", "power"};
+  const char* kind = "touch";  // contact moves only
+  for (uint8_t i = 0; i < sizeof(BUTTON_NAMES) / sizeof(BUTTON_NAMES[0]); i++) {
+    if (gpio.wasPressed(i)) {
+      LOG_DBG("IN", "btn %s down", BUTTON_NAMES[i]);
+      kind = "btn";
+    }
+    if (gpio.wasReleased(i)) {
+      LOG_DBG("IN", "btn %s up", BUTTON_NAMES[i]);
+      kind = "btn";
+    }
+  }
+#if CROSSDINK_APP_CAP_TOUCH
+  const auto permille = [](const float n) { return static_cast<int>(n * 1000.0f); };
+  float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+  if (gpio.wasHomeKeyTapped()) {
+    LOG_DBG("IN", "home key");
+    kind = "home";
+  }
+  if (gpio.wasTouchTap(x0, y0)) {
+    LOG_DBG("IN", "tap %d,%d", permille(x0), permille(y0));
+    kind = "tap";
+  } else if (gpio.wasTouchLongPress(x0, y0)) {
+    LOG_DBG("IN", "long %d,%d", permille(x0), permille(y0));
+    kind = "long";
+  } else if (gpio.wasSwipe(x0, y0, x1, y1)) {
+    const float dx = x1 - x0;
+    const float dy = y1 - y0;
+    const char* dir = std::fabs(dx) >= std::fabs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
+    LOG_DBG("IN", "swipe %s %d,%d->%d,%d", dir, permille(x0), permille(y0), permille(x1), permille(y1));
+    kind = "swipe";
+  }
+#endif
+  // The loop only calls this on input, and hadActivity() consumes its flag, so
+  // input with no button or touch event is a tilt turn.
+  bool touchActivity = false;
+#if CROSSDINK_APP_CAP_TOUCH
+  touchActivity = gpio.wasTouchActivity();
+#endif
+  if (strcmp(kind, "touch") == 0 && !touchActivity) {
+    LOG_DBG("IN", "tilt");
+    kind = "tilt";
+  }
+  return kind;
+}
+#endif
+
 void loop() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
@@ -1934,7 +1988,9 @@ void loop() {
 #endif
                                  || halTiltSensor.hadActivity();
 #if CROSSDINK_PERF_LOG
-  if (userInputReceived) PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased());
+  if (userInputReceived) {
+    PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), logInputEvents());
+  }
 #endif
 
   // User input paces power saving. Background work that only has to keep the

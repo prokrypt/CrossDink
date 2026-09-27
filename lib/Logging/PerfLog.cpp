@@ -39,6 +39,7 @@ volatile bool inputPending = false;
 // Copied: the activity can be destroyed before its refresh ends.
 char renderActivity[24] = "-";
 const char* volatile pagePath = "-";
+const char* volatile inputKind = "-";
 bool firstInkLogged = false;
 
 constexpr uint32_t RESTART_MAGIC = 0x52535431;  // "RST1"
@@ -70,8 +71,9 @@ void logPmLocks() {
 #endif
 }  // namespace
 
-void noteInput(const bool release) {
+void noteInput(const bool release, const char* kind) {
   if (release && inputPending && renderStartMs != 0) return;
+  inputKind = kind ? kind : "-";
   renderStartMs = 0;
   renderEndMs = 0;
   pagePath = "-";
@@ -114,10 +116,10 @@ void noteInk() {
   // A blocking refresh finishes inside render(), before its end is noted.
   const uint32_t re = renderEndMs != 0 ? renderEndMs : now;
   if (rs == 0) {
-    LOG_DBG("LAT", "act=- total=%lu", static_cast<unsigned long>(now - in));
+    LOG_DBG("LAT", "in=%s act=- total=%lu", inputKind, static_cast<unsigned long>(now - in));
     return;
   }
-  LOG_DBG("LAT", "act=%s path=%s queue=%lu render=%lu ink=%lu total=%lu", renderActivity, pagePath,
+  LOG_DBG("LAT", "in=%s act=%s path=%s queue=%lu render=%lu ink=%lu total=%lu", inputKind, renderActivity, pagePath,
           static_cast<unsigned long>(rs - in), static_cast<unsigned long>(re - rs),
           static_cast<unsigned long>(now - re), static_cast<unsigned long>(now - in));
 }
