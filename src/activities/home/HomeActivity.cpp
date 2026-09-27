@@ -1519,8 +1519,8 @@ void HomeActivity::onUserInput() {
   LibraryPrewarm::pause();
 }
 
-// Keep the CPU at full speed while the background Library build runs so it
-// finishes and lets the chip sleep sooner; a paused build does not count.
+// Hold off auto sleep while the background Library build runs; a paused build
+// does not count. The build task keeps the full CPU clock itself.
 bool HomeActivity::preventAutoSleep() { return LibraryPrewarm::working(); }
 
 void HomeActivity::loop() {

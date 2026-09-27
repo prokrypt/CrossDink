@@ -2,6 +2,7 @@
 
 #ifndef SIMULATOR
 #include <Arduino.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
@@ -11,6 +12,7 @@
 #include <freertos/task.h>
 
 #include <atomic>
+#include <optional>
 
 #include "CrossPointSettings.h"
 #endif
@@ -60,15 +62,20 @@ SkipReason lastSkip = SkipReason::None;
 // A build that failed on its own (not stopped) is not retried until the next
 // boot; the Library still scans in the foreground and reports the problem.
 bool gaveUp = false;
+// Build task only. Held while the walk runs and dropped while it is paused:
+// the main loop's idle branch otherwise leaves it at the lowest CPU clock.
+std::optional<HalPowerManager::Lock> fullSpeed;
 
 bool serviceBuild(void*) {
   // Blocks instead of polling so a paused build costs no wakeups and the chip
   // can stay in light sleep. resume/cancel send a notification.
   if (paused.load(std::memory_order_acquire) && !cancelRequested.load(std::memory_order_acquire)) {
     const uint32_t pausedAtMs = millis();
+    fullSpeed.reset();
     while (paused.load(std::memory_order_acquire) && !cancelRequested.load(std::memory_order_acquire)) {
       ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
+    fullSpeed.emplace();
     pausedMs += millis() - pausedAtMs;
   }
   return !cancelRequested.load(std::memory_order_acquire);
@@ -78,7 +85,10 @@ void buildTask(void*) {
   library::BuildStats stats;
   library::BuildControl control;
   control.service = &serviceBuild;
+  fullSpeed.emplace();
   buildOk = library::buildLibraryIndex("/", stats, useMetadata, &control);
+  // Released before doneSem: the owner deletes this task once it takes it.
+  fullSpeed.reset();
   buildCancelled = stats.cancelled;
   lastStats = stats;
   xSemaphoreGive(doneSem);

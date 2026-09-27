@@ -62,6 +62,10 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   size_t windowCount = 0;      // valid sectors starting at windowBase
   size_t windowHead = 0;       // ring index of windowBase
   uint32_t generation = 0;     // bumped on every reset to drop in-flight chunks
+  // Set by host reads, cleared by host writes: after a write the sectors ahead
+  // are usually the ones the host writes next, so reading them only competes
+  // with those writes for the card.
+  bool readAheadArmed = false;
   bool prefetchEnabled = false;
 };
 

@@ -5,6 +5,7 @@
 - View a selected book's reading stats from its Library or File Browser action menu.
 - Library replaces Recent Books with a searchable book list, and adds various book metadata sort options.
 - Reset a book's reader settings from the in-reader Settings tab.
+- The OPDS browser asks before downloading a book that is already on the SD card, showing the existing file's size and date. Cancel is selected by default.
 - Assign actions to upward and downward slides along either screen edge on touch devices.
 - Automatic light sleep is available on the X3/X4 and Sticky and in the X4 Pro light-sleep firmware profiles, reducing idle power while retaining normal button, touch, and frontlight behavior. USB serial stays available while a computer is connected, because the device skips light sleep for as long as a USB host is attached. USB Drive also works in these profiles and keeps the device awake while it is open.
 - Add the continuous **IncreMENTAL** EPUB indexing method for background chapter indexing.
@@ -13,6 +14,8 @@
 - TTF font support on ESP32-S3 devices. Whole-point sizes from 8pt to 22pt will be automatically available.
 - The OPDS browser shows how many books a category holds, in parentheses next to its arrow, when the catalog provides a count (a `thr:count` link attribute or a "12713 books" summary). Folder titles that start with a 📁 emoji show as "/name" instead, since the device fonts have no folder emoji.
 - On devices with PSRAM (Sticky, X4 Pro), the OPDS browser downloads the next page of a catalog in the background while you browse, and keeps pages you have visited in memory, so Next page, Previous page and Back open without waiting on the server.
+- The web file manager's image preview has previous and next buttons, and the left and right arrow keys, to step through the images in the current folder. Other file types are skipped, and stepping wraps around at either end. The preview also shows the image's position in the folder, its pixel dimensions, its file size and, when the file list has one, its modified date.
+- The Settings > System footer shows the firmware's branch (the batch number, such as `b11`, for combined test builds) and commit, with `*` when built from uncommitted changes, under the version. The System list stops above the footer instead of running under it. The web status API reports the full branch, build number (the commit count unless the build sets `CROSSDINK_BUILD_NUMBER`; left out for shallow checkouts) and UTC build time.
 
 ### Changed
 
@@ -35,15 +38,23 @@
 - Reversing a brightness or warmth drag partway now moves the level past where it started instead of stopping there.
 - Idle power saving now puts the device into automatic light sleep between loop ticks instead of only lowering the CPU clock, cutting idle draw while leaving buttons, touch, and the frontlight working exactly as before. The screen, Wi-Fi transfers, and USB sessions stay awake while they are in use.
 - GitHub workflows and release documentation links now follow the `development` default branch.
+- The built-in Bitter and Lexend Deca TTF fonts carry only the ligature and kerning data the reader uses, freeing about 290 KB of flash on ESP32-S3 builds. Text renders the same.
+- The web portal pages ship minified JavaScript and CSS, freeing about 22 KB of flash and loading the Files page faster over Wi-Fi. Builds need Node (npx) for this; without it the pages are served unminified as before.
 - Idle power saving now engages after 250 ms instead of 3 seconds, and battery level is polled every 6 seconds instead of every 1.5, trading slightly less frequent battery updates for lower average power draw.
 - The Library opens instantly when nothing on the SD card has changed since its last scan, instead of rescanning the whole card on every visit. Moving the selection no longer re-reads each visible book from the card.
 - After a restart, Home starts indexing the Library in the background as soon as it appears, so the first Library visit usually opens without the "Reading your books" wait. Indexing pauses the moment you press a button or touch the screen and picks up where it left off.
 - Library scans no longer re-read books whose title and author could not be read last time; they keep their filename until the file changes or you use the Library's refresh, which retries them.
 - Fewer SD card writes: session state and reading stats are no longer rewritten when nothing changed, and the reading percentage shown on Home is saved once when you leave a book instead of every 10 pages.
 - Far fewer SD card writes when saving your place: EPUB progress now alternates between two small slot files that are overwritten in place, so a save costs about 2 sector writes instead of roughly a dozen, and a save that would store the position already on the card (such as closing a book without turning a page) writes nothing. Your place is now saved every 30 page turns or 15 minutes of reading instead of every 10 pages or 5 minutes; leaving the book or putting the device to sleep still saves it immediately, so only a crash, reset or dead battery can lose more pages than before. A save interrupted by power loss falls back to the previous save. TXT and XTC progress and the Home reading percentage are also overwritten in place instead of being truncated and rewritten.
+- Firmware is about 32 KB smaller: wolfSSL no longer builds its debug trace messages in. Builds with `-DFREEINK_WOLFSSL_DEBUG` still include them.
+- The X4 Pro light-sleep firmware now uses the scalable TTF versions of Bitter and Lexend Deca, like the standard X4 Pro build, making it about 360 KB smaller.
 
 ### Fixed
 
+- X4 Pro light-sleep firmware shows its real version (for example `1.6.0-x4-pro`) instead of "dev" in Settings, on the boot screen, and in the web and OTA version checks.
+- Background Library indexing and the reader's next-page draw-ahead run at full CPU speed again instead of the lowest idle clock.
+- USB Drive no longer reads ahead into the sectors a computer is about to write, so copying files to the card is not slowed by background reads.
+- Nearby and KOReader position sync read the chapter layout of the orientation the book is read in, instead of whichever orientation the sync screen happened to use, so a book read in landscape lands on the right page.
 - Your reading position is saved before a reader shortcut starts Calibre Wireless, Join Network or Create Hotspot, and before the light panel or KOReader sign-in can lead to a restart, instead of reopening the book up to 29 pages behind.
 - On the X4, X3 and Sticky, consecutive EPUB image pages no longer add an extra full-screen flash; the image-to-image cleanup refresh now runs only on the X4 Pro panel that needs it.
 - EPUB anti-aliased page turns on the X3/X4 no longer free and reallocate an 8 KB render buffer on every page, which could fragment memory and fall back to slower rendering.

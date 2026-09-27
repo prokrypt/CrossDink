@@ -130,9 +130,14 @@ async function hydrate() {
 
   // Escape cancels whichever modal is currently open
   document.addEventListener("keydown", function (e) {
-    if (e.key !== "Escape") return;
     const openOverlay = document.querySelector(".modal-overlay.open");
     if (!openOverlay) return;
+    if (openOverlay.id === "imagePreviewModal" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      // A held key would queue a device download per auto-repeat
+      if (!e.repeat) stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
+      return;
+    }
+    if (e.key !== "Escape") return;
     const closeFn = MODAL_CANCEL_FNS[openOverlay.id];
     if (closeFn) closeFn();
   });
@@ -275,13 +280,44 @@ function downloadUrl(filePath) {
   return `/download?path=${encodeURIComponent(filePath)}`;
 }
 
-function openImagePreview(url, name) {
+function openImagePreview(link) {
+  const url = link.getAttribute("href");
+  const name = link.textContent;
+  const links = previewLinks();
+  const row = link.closest("tr");
+  const info = [`${links.indexOf(link) + 1} / ${links.length}`, row.cells[3].textContent];
+  // No .modified-col without SD file times
+  const modified = row.querySelector(".modified-col")?.textContent;
+  if (modified && modified !== "-") info.push(`Modified ${modified}`);
+  const meta = document.getElementById("imagePreviewMeta");
+  meta.textContent = info.join(" · ");
   const img = document.getElementById("imagePreviewImg");
   document.getElementById("imagePreviewName").textContent = name;
+  // Browsers keep showing the previous image until the new one arrives
+  img.style.opacity = 0;
+  img.onload = img.onerror = (e) => {
+    img.style.opacity = "";
+    if (e.type !== "load") return;
+    info.splice(1, 0, `${img.naturalWidth} × ${img.naturalHeight}`);
+    meta.textContent = info.join(" · ");
+  };
   img.src = url;
   img.alt = name;
   document.getElementById("imagePreviewDownload").href = url;
+  document.getElementById("imagePreviewNav").classList.toggle("single", links.length < 2);
   document.getElementById("imagePreviewModal").classList.add("open");
+}
+
+// Only image rows get .image-preview-link (isImageFile); wraps at the ends.
+function previewLinks() {
+  return [...document.querySelectorAll("#file-table .image-preview-link")];
+}
+
+function stepImagePreview(dir) {
+  const links = previewLinks();
+  const current = document.getElementById("imagePreviewDownload").getAttribute("href");
+  const i = links.findIndex((l) => l.getAttribute("href") === current);
+  if (i >= 0 && links.length > 1) openImagePreview(links[(i + dir + links.length) % links.length]);
 }
 
 function closeImagePreview() {
@@ -1127,7 +1163,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const link = event.target.closest(".image-preview-link");
     if (!link) return;
     event.preventDefault();
-    openImagePreview(link.getAttribute("href"), link.textContent);
+    openImagePreview(link);
   });
 
   const qualitySlider = document.getElementById("qualitySlider");

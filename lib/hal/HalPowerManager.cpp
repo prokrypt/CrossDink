@@ -176,9 +176,9 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   }
   if (backgroundWorkCount > 0) enabled = false;
 
-  const LockMode mode = currentLockMode;
+  const bool locked = lockCount > 0;
 
-  if (mode == None && enabled && !isLowPower) {
+  if (!locked && enabled && !isLowPower) {
     LOG_DBG("PWR", "Going to low-power mode");
 #if CONFIG_PM_ENABLE
     // DFS owns the clock here: dropping the lock is what lets the CPU fall to
@@ -196,7 +196,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 #endif
     isLowPower = true;
 
-  } else if ((!enabled || mode != None) && isLowPower) {
+  } else if ((!enabled || locked) && isLowPower) {
     LOG_DBG("PWR", "Restoring normal CPU frequency");
 #if CONFIG_PM_ENABLE
     isLowPower = false;
@@ -335,25 +335,14 @@ bool HalPowerManager::getBatteryDiagnostics(BatteryDiagnostics& out) const {
 
 HalPowerManager::Lock::Lock() {
   xSemaphoreTake(powerManager.modeMutex, portMAX_DELAY);
-  // Current limitation: only one lock at a time
-  if (powerManager.currentLockMode != None) {
-    LOG_ERR("PWR", "Lock already held, ignore");
-    valid = false;
-  } else {
-    powerManager.currentLockMode = NormalSpeed;
-    valid = true;
-  }
+  ++powerManager.lockCount;
   xSemaphoreGive(powerManager.modeMutex);
-  if (valid) {
-    // Immediately restore normal CPU frequency if currently in low-power mode
-    powerManager.setPowerSaving(false);
-  }
+  // Immediately restore normal CPU frequency if currently in low-power mode
+  powerManager.setPowerSaving(false);
 }
 
 HalPowerManager::Lock::~Lock() {
   xSemaphoreTake(powerManager.modeMutex, portMAX_DELAY);
-  if (valid) {
-    powerManager.currentLockMode = None;
-  }
+  --powerManager.lockCount;
   xSemaphoreGive(powerManager.modeMutex);
 }

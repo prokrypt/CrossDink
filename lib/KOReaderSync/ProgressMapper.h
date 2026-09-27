@@ -85,12 +85,15 @@ class ProgressMapper {
    * page transfers losslessly; otherwise the paragraph LUT or the intra-spine
    * page fraction is used.
    *
+   * @param landscapeLayout Read the landscape section cache, i.e. the reader
+   *        lays this book out in landscape.
    * @return The position, or std::nullopt when the rich position cannot be
    *         applied (spine out of range, no section cache) and the caller
    *         should fall back to toCrossPoint().
    */
   static std::optional<CrossPointPosition> fromRichPosition(const std::shared_ptr<Epub>& epub,
-                                                            const KOReaderRichPosition& rich, GfxRenderer& renderer);
+                                                            const KOReaderRichPosition& rich, GfxRenderer& renderer,
+                                                            bool landscapeLayout);
 
  private:
   /**

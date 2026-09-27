@@ -647,6 +647,10 @@ class EpubReaderActivity final : public Activity {
   // Returns false if the page cannot be loaded (missing cache / file error).
   static bool drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer);
   static BookReaderSettingsData readBookReaderSettings(const Epub& epub);
+  // Whether the reader lays this book out in landscape: its own orientation
+  // override, else the global setting. Picks the section cache that position
+  // sync reads outside the reader.
+  static bool bookUsesLandscapeLayout(const Epub& epub);
   static uint8_t loadBookRenderMode(const std::string& filePath);
   static bool saveBookRenderMode(const std::string& filePath, uint8_t renderMode);
   static bool resetBookReaderSettings(const std::string& filePath);

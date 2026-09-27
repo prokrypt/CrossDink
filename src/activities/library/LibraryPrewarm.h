@@ -29,8 +29,8 @@ void stop(bool handOffToLibrary);
 // True while a background build is in flight (running or paused).
 bool active();
 
-// True while a build is running rather than paused. Home keeps the CPU at full
-// speed during these bursts so they end sooner.
+// True while a build is running rather than paused. Home holds off auto sleep
+// during these bursts; the build task keeps the CPU at full speed itself.
 bool working();
 
 // Library entry: lets a handed-off build run unpaused and waits up to `waitMs`

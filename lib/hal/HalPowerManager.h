@@ -56,9 +56,10 @@ class HalPowerManager {
   bool radioIdleSleepAllowed = false;
   int backgroundWorkCount = 0;  // guarded by modeMutex
 
-  enum LockMode { None, NormalSpeed };
-  LockMode currentLockMode = None;
-  SemaphoreHandle_t modeMutex = nullptr;  // Protect access to currentLockMode
+  // Live Lock instances. The render task, background work and deep-sleep prep
+  // can overlap, so each keeps the full clock until the last one ends.
+  uint8_t lockCount = 0;
+  SemaphoreHandle_t modeMutex = nullptr;  // Protect access to lockCount and backgroundWorkCount
 
  public:
 #if defined(BOARD_HAS_PSRAM)
@@ -108,7 +109,7 @@ class HalPowerManager {
   void endBackgroundWork();
 
   // Setup wake up GPIO and enter deep sleep
-  // Should be called inside main loop() to handle the currentLockMode
+  // Should be called inside main loop() to handle the lockCount
   void startDeepSleep(HalGPIO& gpio) const;
 
   // Get battery percentage (range 0-100)
@@ -136,10 +137,10 @@ class HalPowerManager {
 
   // RAII helper class to manage power saving locks
   // Usage: create an instance of Lock in a scope to disable power saving, for example when running a task that needs
-  // full performance. When the Lock instance is destroyed (goes out of scope), power saving will be re-enabled.
+  // full performance. When the last Lock instance is destroyed (goes out of scope), power saving will be re-enabled.
+  // Locks may overlap across tasks and nest.
   class Lock {
     friend class HalPowerManager;
-    bool valid = false;
 
    public:
     explicit Lock();

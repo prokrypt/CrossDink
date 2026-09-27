@@ -23,6 +23,7 @@
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UIScale.h"
@@ -33,6 +34,7 @@
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
+#include "util/DaylightSaving.h"
 #include "util/StringUtils.h"
 #include "util/UrlUtils.h"
 
@@ -61,6 +63,52 @@ std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameForma
   if (book.title.empty()) return book.author;
   if (format == OpdsFilenameFormat::TITLE_AUTHOR) return book.title + " - " + book.author;
   return book.author + " - " + book.title;
+}
+
+// SD path a book downloads to: the configured folder (or the root) plus the
+// sanitized "<author> - <title>.epub" name.
+std::string bookDownloadPath(const OpdsEntry& book, const OpdsFilenameFormat format) {
+  const char* downloadFolder = SETTINGS.opdsDownloadFolder;
+  std::string path;
+  path.reserve(96);
+  if (downloadFolder[0] != '\0') path += downloadFolder;
+  path += '/';
+  path += StringUtils::sanitizeFilename(buildBookFilenameBase(book, format));
+  path += ".epub";
+  return path;
+}
+
+// "12.3 MB", "456 KB" or "789 B", with integer math only.
+void formatFileSize(const uint64_t bytes, char* out, const size_t outSize) {
+  constexpr uint64_t KB = 1024;
+  constexpr uint64_t MB = KB * KB;
+  const uint64_t roundedKb = (bytes + KB / 2) / KB;
+  if (roundedKb >= KB) {
+    const uint64_t tenths = (bytes * 10 + MB / 2) / MB;
+    snprintf(out, outSize, "%lu.%lu MB", static_cast<unsigned long>(tenths / 10),
+             static_cast<unsigned long>(tenths % 10));
+  } else if (bytes >= KB) {
+    snprintf(out, outSize, "%lu KB", static_cast<unsigned long>(roundedKb));
+  } else {
+    snprintf(out, outSize, "%lu B", static_cast<unsigned long>(bytes));
+  }
+}
+
+// Packed FAT date/time (HalFile::modificationTime) as "YYYY-MM-DD HH:MM",
+// decoded by hand rather than through strftime. False when the file has none.
+bool formatFatDateTime(const uint32_t packed, char* out, const size_t outSize) {
+  if (packed == 0) return false;
+  const uint16_t date = static_cast<uint16_t>(packed >> 16);
+  const uint16_t time = static_cast<uint16_t>(packed & 0xFFFF);
+  const uint16_t year = static_cast<uint16_t>(1980 + (date >> 9));
+  const uint8_t month = static_cast<uint8_t>((date >> 5) & 0x0F);
+  const uint8_t day = static_cast<uint8_t>(date & 0x1F);
+  const unsigned hour = time >> 11;
+  const unsigned minute = (time >> 5) & 0x3F;
+  if (!DaylightSaving::isValidDate(year, month, day) || hour > 23 || minute > 59) return false;
+  snprintf(out, outSize, "%04u-%02u-%02u %02u:%02u", static_cast<unsigned>(year), static_cast<unsigned>(month),
+           static_cast<unsigned>(day), hour, minute);
+  return true;
 }
 
 // Mayberry prefixes folder titles with U+1F4C1 (file folder), which the UI
@@ -150,7 +198,7 @@ void OpdsBookBrowserActivity::activateSelected() {
   if (!entries || entryCount == 0 || selectorIndex < 0 || selectorIndex >= static_cast<int>(entryCount)) return;
   const auto& entry = entries[selectorIndex];
   if (entry.type == OpdsEntryType::BOOK) {
-    downloadBook(entry);
+    requestDownload(entry);
     return;
   }
   const bool pageLink =
@@ -748,7 +796,46 @@ void OpdsBookBrowserActivity::navigateBack() {
   }
 }
 
-void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
+void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
+  // Read-only open: one directory lookup for existence, size and date, and no
+  // SD write unless the user chooses to overwrite.
+  std::string path = bookDownloadPath(book, server.filenameFormat);
+  HalFile existing = Storage.open(path.c_str());
+  if (!existing || existing.isDirectory()) {
+    if (existing) existing.close();
+    downloadBook(book, path);
+    return;
+  }
+  char sizeLabel[16];
+  formatFileSize(existing.fileSize64(), sizeLabel, sizeof(sizeLabel));
+  char dateLabel[20];
+  const bool hasDate = formatFatDateTime(existing.modificationTime(), dateLabel, sizeof(dateLabel));
+  existing.close();
+
+  // ConfirmationActivity appends "<size>, <date>" to the question in one
+  // popup title; Cancel is the focused option.
+  std::string details = sizeLabel;
+  if (hasDate) {
+    details += ", ";
+    details += dateLabel;
+  }
+  LOG_INF("OPDS", "Already on SD: %s (%s)", path.c_str(), details.c_str());
+
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_BOOK_EXISTS_OVERWRITE), details);
+  if (!dialog) {
+    LOG_ERR("OPDS", "Cannot allocate overwrite dialog");
+    return;
+  }
+  // entries and selectorIndex stay put while the dialog is on top (this
+  // activity's loop does not run), so the index is enough to find the book.
+  const int bookIndex = selectorIndex;
+  startActivityForResult(std::move(dialog), [this, bookIndex, path = std::move(path)](const ActivityResult& result) {
+    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
+    downloadBook(entries[bookIndex], path);
+  });
+}
+
+void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
@@ -773,8 +860,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   // DownloadOptions borrows it to avoid copying the server URL per transfer.
   const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
   const char* downloadFolder = SETTINGS.opdsDownloadFolder;
-  bool useDownloadFolder = downloadFolder[0] != '\0';
-  if (useDownloadFolder && !Storage.exists(downloadFolder) && !Storage.mkdir(downloadFolder)) {
+  if (downloadFolder[0] != '\0' && !Storage.exists(downloadFolder) && !Storage.mkdir(downloadFolder)) {
     LOG_ERR("OPDS", "Could not create download folder %s", downloadFolder);
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
@@ -782,12 +868,6 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
     return;
   }
 
-  std::string filename;
-  filename.reserve(96);
-  if (useDownloadFolder) filename += downloadFolder;
-  filename += '/';
-  filename += StringUtils::sanitizeFilename(buildBookFilenameBase(book, server.filenameFormat));
-  filename += ".epub";
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
   bool cancelRequested = false;
