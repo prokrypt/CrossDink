@@ -30,6 +30,7 @@
 - Fewer SD card writes: session state and reading stats are no longer rewritten when nothing changed, and the reading percentage shown on Home is saved once when you leave a book instead of every 10 pages.
 - Far fewer SD card writes when saving your place: EPUB progress now alternates between two small slot files that are overwritten in place, so a save costs about 2 sector writes instead of roughly a dozen, and a save that would store the position already on the card (such as closing a book without turning a page) writes nothing. Your place is now saved every 30 page turns or 15 minutes of reading instead of every 10 pages or 5 minutes; leaving the book or putting the device to sleep still saves it immediately, so only a crash, reset or dead battery can lose more pages than before. A save interrupted by power loss falls back to the previous save. TXT and XTC progress and the Home reading percentage are also overwritten in place instead of being truncated and rewritten.
 - Firmware is about 32 KB smaller: wolfSSL no longer builds its debug trace messages in. Builds with `-DFREEINK_WOLFSSL_DEBUG` still include them.
+- The X4 Pro light-sleep firmware now uses the scalable TTF versions of Bitter and Lexend Deca, like the standard X4 Pro build, making it about 360 KB smaller.
 
 ### Fixed
 
