@@ -35,9 +35,9 @@ struct PreviousRunTime {
   configRUN_TIME_COUNTER_TYPE runTime;
 };
 
-EXT_RAM_BSS_ATTR TaskStatus_t statuses[kMaxTasks];
-EXT_RAM_BSS_ATTR configRUN_TIME_COUNTER_TYPE deltas[kMaxTasks];
-EXT_RAM_BSS_ATTR PreviousRunTime previous[kMaxTasks];
+EXT_RAM_NOINIT_ATTR TaskStatus_t statuses[kMaxTasks];
+EXT_RAM_NOINIT_ATTR configRUN_TIME_COUNTER_TYPE deltas[kMaxTasks];
+EXT_RAM_NOINIT_ATTR PreviousRunTime previous[kMaxTasks];
 UBaseType_t previousCount = 0;
 int64_t previousSampleUs = 0;
 
