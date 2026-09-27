@@ -1966,7 +1966,8 @@ void loop() {
     // longer idle tick no longer delays the first input after a pause. Screens
     // that hold the device awake for a radio exchange keep the fast tick they
     // had before, since WiFi blocks power saving anyway.
-    const bool radioExchange = activityManager.preventAutoSleep() && WiFi.getMode() != WIFI_MODE_NULL;
+    const bool radioExchange = activityManager.preventAutoSleep() && WiFi.getMode() != WIFI_MODE_NULL &&
+                               !activityManager.allowsRadioIdleSleep();
     if (!radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity

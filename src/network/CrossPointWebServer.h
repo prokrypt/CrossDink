@@ -20,6 +20,14 @@ struct FileInfo {
   bool isDirectory;
 };
 
+// Reports a waiting request, so the transfer power hold can start before
+// WebServer::handleClient() blocks reading the request body.
+class PendingAwareWebServer final : public WebServer {
+ public:
+  using WebServer::WebServer;
+  bool requestPending();
+};
+
 class CrossPointWebServer {
  public:
   struct WsUploadStatus {
@@ -70,6 +78,14 @@ class CrossPointWebServer {
   // Check if server is running
   bool isRunning() const { return running; }
 
+  // True from the first byte of a request, upload or WebSocket message until
+  // TRANSFER_LINGER_MS after the last one: CPU at full clock, no light sleep,
+  // Wi-Fi modem awake. The linger keeps page loads and bursts fast.
+  bool isTransferActive() const { return transferActive; }
+  // STA mode only. Between transfers the modem sleeps between DTIM beacons
+  // and the device light-sleeps between loop ticks; an AP must stay awake.
+  bool allowsIdleSleep() const { return running && !apMode; }
+
   WsUploadStatus getWsUploadStatus() const;
 
   // True once after a client called POST /api/exit (the reply has been sent).
@@ -86,7 +102,7 @@ class CrossPointWebServer {
   uint16_t getPort() const { return port; }
 
  private:
-  std::unique_ptr<WebServer> server = nullptr;
+  std::unique_ptr<PendingAwareWebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
   bool exitRequestPending = false;  // set by POST /api/exit, consumed by the activity
@@ -96,6 +112,12 @@ class CrossPointWebServer {
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
+
+  static constexpr unsigned long TRANSFER_LINGER_MS = 2000;
+  bool transferActive = false;
+  unsigned long lastTransferMs = 0;
+  void noteTransferActivity();
+  void updateTransferIdle();
 
   // WebSocket upload state
   void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length);

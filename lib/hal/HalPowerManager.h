@@ -51,6 +51,10 @@ class HalPowerManager {
                                           // path only — I2C/X3 path stores 0-100 directly)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
 
+  // Set by a Wi-Fi screen that manages its own radio power (File Transfer in
+  // STA mode): an active Wi-Fi link then no longer forces power saving off.
+  bool radioIdleSleepAllowed = false;
+
   enum LockMode { None, NormalSpeed };
   LockMode currentLockMode = None;
   SemaphoreHandle_t modeMutex = nullptr;  // Protect access to currentLockMode
@@ -90,6 +94,10 @@ class HalPowerManager {
   // Keeps the device out of light sleep while USB Drive is exposing the SD card
   // over USB-OTG. Idempotent, so repeated end calls on exit paths are safe.
   void setUsbDriveActive(bool active);
+
+  // Lets setPowerSaving(true) take effect while Wi-Fi is up. The caller owns
+  // keeping the CPU and modem at full power while it moves data.
+  void setRadioIdleSleepAllowed(bool allowed) { radioIdleSleepAllowed = allowed; }
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the currentLockMode

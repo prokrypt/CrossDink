@@ -16,6 +16,7 @@
 
 ### Changed
 
+- File Transfer and Calibre on a Wi-Fi network now idle in modem sleep and light sleep between transfers, and switch to full power from the first byte of a request or upload until two seconds after the last one. Hotspot mode keeps the radio fully on.
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal. Existing settings, caches, and device paths are unchanged.
 - USB Drive mounts faster: the next part of the SD card is read in the background while the current data is sent over USB, cutting about 5 seconds from mounting a FAT32 card on the X4 Pro.
 - Brightness and warmth gestures now respond while you drag, with longer swipes making larger adjustments.

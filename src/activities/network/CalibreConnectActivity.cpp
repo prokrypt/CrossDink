@@ -119,7 +119,8 @@ void CalibreConnectActivity::loop() {
 
     esp_task_wdt_reset();
     constexpr int MAX_ITERATIONS = 80;
-    for (int i = 0; i < MAX_ITERATIONS && webServer->isRunning(); i++) {
+    const int iterations = webServer->allowsIdleSleep() && !webServer->isTransferActive() ? 1 : MAX_ITERATIONS;
+    for (int i = 0; i < iterations && webServer->isRunning(); i++) {
       webServer->handleClient();
       if ((i & 0x07) == 0x07) {
         esp_task_wdt_reset();

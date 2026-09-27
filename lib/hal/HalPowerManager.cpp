@@ -147,8 +147,14 @@ void HalPowerManager::setPowerSaving(bool enabled) {
     xSemaphoreTake(modeMutex, portMAX_DELAY);
   }
 
+#if CONFIG_PM_ENABLE
+  const bool radioMayIdle = radioIdleSleepAllowed;
+#else
+  // Without PM, power saving means LOW_POWER_FREQ, too slow to keep Wi-Fi up.
+  const bool radioMayIdle = false;
+#endif
   auto wifiMode = WiFi.getMode();
-  if (wifiMode != WIFI_MODE_NULL) {
+  if (wifiMode != WIFI_MODE_NULL && !radioMayIdle) {
     // Wifi is active, force disabling power saving
     enabled = false;
   }

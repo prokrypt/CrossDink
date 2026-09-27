@@ -86,6 +86,13 @@ class CrossPointWebServerActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool skipLoopDelay() override { return webServer && webServer->isRunning(); }
+  // Fast ticks only while a transfer is live; an idle STA-mode server lets the
+  // main loop power save instead (see CrossPointWebServer::isTransferActive).
+  bool skipLoopDelay() override {
+    return webServer && webServer->isRunning() && (webServer->isTransferActive() || !webServer->allowsIdleSleep());
+  }
+  bool allowsRadioIdleSleep() override {
+    return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
+  }
   bool preventAutoSleep() override { return webServer && webServer->isRunning(); }
 };

@@ -194,6 +194,7 @@ class ActivityManager {
   void notifyInputLockChanged(bool locked);
   void notifyUserInput();
   bool skipLoopDelay() const;
+  bool allowsRadioIdleSleep() const;
   std::string getCurrentBookPath() const;
   ScreenshotInfo getScreenshotInfo() const;
 

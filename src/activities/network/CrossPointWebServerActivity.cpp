@@ -447,8 +447,11 @@ void CrossPointWebServerActivity::loop() {
       // dropped them before the ActivityManager's edge-slide and two-finger
       // gesture handling could see them. The batch matches the old poll
       // interval, so exit buttons stay as responsive as before.
+      // While idle, one pass per tick is enough to notice a new request, which
+      // then switches the server to transfer mode and the full batch.
       constexpr int MAX_ITERATIONS = 64;
-      for (int i = 0; i < MAX_ITERATIONS && webServer->isRunning(); i++) {
+      const int iterations = webServer->allowsIdleSleep() && !webServer->isTransferActive() ? 1 : MAX_ITERATIONS;
+      for (int i = 0; i < iterations && webServer->isRunning(); i++) {
         webServer->handleClient();
       }
       lastHandleClientTime = millis();

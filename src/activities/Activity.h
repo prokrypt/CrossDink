@@ -55,6 +55,9 @@ class Activity {
 
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
+  // A Wi-Fi screen that is idle between transfers: the main loop may power
+  // save and light-sleep between ticks even though the radio is up.
+  virtual bool allowsRadioIdleSleep() { return false; }
   // While true, main-loop global controls and activity replacement are
   // suspended so an exclusive storage owner cannot race the filesystem.
   virtual bool requiresExclusiveStorageLoop() const { return false; }

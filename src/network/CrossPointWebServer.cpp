@@ -424,11 +424,15 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
 
   LOG_DBG("WEB", "Creating web server on port %d...", port);
-  server.reset(new WebServer(port));
+  server.reset(new PendingAwareWebServer(port));
 
-  // Disable WiFi sleep to improve responsiveness and prevent 'unreachable' errors.
-  // This is critical for reliable web server operation on ESP32.
-  WiFi.setSleep(false);
+  // STA mode starts idle: the modem sleeps between DTIM beacons and the
+  // device may light-sleep between loop ticks until a request arrives, which
+  // switches both back to full power (noteTransferActivity). An AP must stay
+  // awake to beacon, so it keeps the modem on throughout.
+  transferActive = false;
+  WiFi.setSleep(!apMode);
+  powerManager.setRadioIdleSleepAllowed(!apMode);
   // Default varies by ESP32 core version. The activity's loss-recovery loop
   // relies on driver retries during transient disconnects.
   WiFi.setAutoReconnect(true);
@@ -551,6 +555,9 @@ void CrossPointWebServer::stop() {
   }
 
   running = false;  // Set this FIRST to prevent handleClient from using server
+  transferActive = false;
+  powerManager.setRadioIdleSleepAllowed(false);
+  WiFi.setSleep(false);
 
   LOG_DBG("WEB", "[MEM] Free heap before stop: %d bytes", ESP.getFreeHeap());
 
@@ -606,7 +613,12 @@ void CrossPointWebServer::handleClient() {
     lastDebugPrint = millis();
   }
 
+  // Take the power hold before handleClient(): it reads a whole upload or
+  // sends a whole download in one blocking call.
+  const bool pending = server->requestPending();
+  if (pending) noteTransferActivity();
   server->handleClient();
+  if (pending) lastTransferMs = millis();
 
   // Handle WebSocket events
   if (wsServer) {
@@ -634,6 +646,37 @@ void CrossPointWebServer::handleClient() {
       }
     }
   }
+
+  updateTransferIdle();
+}
+
+bool PendingAwareWebServer::requestPending() {
+  // A new connection waiting in accept(), or bytes on the kept-alive one. An
+  // idle keep-alive connection does not count, so it cannot pin full power.
+  return _server.hasClient() || _currentClient.available() > 0;
+}
+
+void CrossPointWebServer::noteTransferActivity() {
+  lastTransferMs = millis();
+  if (transferActive) return;
+  transferActive = true;
+  // Holds the CPU frequency lock, which also keeps light sleep off.
+  powerManager.setPowerSaving(false);
+  if (!apMode) WiFi.setSleep(false);
+  LOG_DBG("WEB", "Transfer started: full power");
+}
+
+void CrossPointWebServer::updateTransferIdle() {
+  if (!transferActive) return;
+  if (wsUploadInProgress) {
+    lastTransferMs = millis();
+    return;
+  }
+  if (millis() - lastTransferMs < TRANSFER_LINGER_MS) return;
+  transferActive = false;
+  // The main loop drops the CPU lock on its next idle tick.
+  if (!apMode) WiFi.setSleep(true);
+  LOG_DBG("WEB", "Transfer idle: modem and light sleep allowed");
 }
 
 CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() const {
@@ -2156,6 +2199,7 @@ void CrossPointWebServer::wsEventCallback(uint8_t num, WStype_t type, uint8_t* p
 //   3. Server sends TEXT "PROGRESS:<received>:<total>" after each chunk
 //   4. Server sends TEXT "DONE" or "ERROR:<message>" when complete
 void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+  if (type == WStype_CONNECTED || type == WStype_TEXT || type == WStype_BIN) noteTransferActivity();
   switch (type) {
     case WStype_DISCONNECTED:
       LOG_DBG("WS", "Client %u disconnected", num);

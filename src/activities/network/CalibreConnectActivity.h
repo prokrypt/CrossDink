@@ -44,6 +44,12 @@ class CalibreConnectActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool skipLoopDelay() override { return webServer && webServer->isRunning(); }
+  // Same power policy as File Transfer: fast ticks only while a transfer is live.
+  bool skipLoopDelay() override {
+    return webServer && webServer->isRunning() && (webServer->isTransferActive() || !webServer->allowsIdleSleep());
+  }
+  bool allowsRadioIdleSleep() override {
+    return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
+  }
   bool preventAutoSleep() override { return webServer && webServer->isRunning(); }
 };
