@@ -124,6 +124,22 @@ void HalPowerManager::endDisplayRefreshHold() {
 #endif
 }
 
+void HalPowerManager::beginBackgroundWork() {
+  if (modeMutex == nullptr) return;
+  xSemaphoreTake(modeMutex, portMAX_DELAY);
+  ++backgroundWorkCount;
+  xSemaphoreGive(modeMutex);
+  setPowerSaving(false);
+}
+
+void HalPowerManager::endBackgroundWork() {
+  if (modeMutex == nullptr) return;
+  xSemaphoreTake(modeMutex, portMAX_DELAY);
+  if (backgroundWorkCount > 0) --backgroundWorkCount;
+  xSemaphoreGive(modeMutex);
+  // The main loop re-enters power saving on its next idle tick.
+}
+
 void HalPowerManager::setUsbDriveActive(bool active) {
 #if CONFIG_PM_ENABLE
   if (usbDrivePmLock == nullptr || usbDrivePmLockHeld == active) return;
@@ -158,6 +174,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
     // Wifi is active, force disabling power saving
     enabled = false;
   }
+  if (backgroundWorkCount > 0) enabled = false;
 
   const LockMode mode = currentLockMode;
 

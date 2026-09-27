@@ -21,7 +21,6 @@ class CalibreConnectActivity final : public Activity {
   std::unique_ptr<CrossPointWebServer> webServer;
   std::string connectedIP;
   std::string connectedSSID;
-  unsigned long lastHandleClientTime = 0;
   size_t lastProgressReceived = 0;
   size_t lastProgressTotal = 0;
   std::string currentUploadName;
@@ -44,10 +43,7 @@ class CalibreConnectActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // Same power policy as File Transfer: fast ticks only while a transfer is live.
-  bool skipLoopDelay() override {
-    return webServer && webServer->isRunning() && (webServer->isTransferActive() || !webServer->allowsIdleSleep());
-  }
+  // Same power policy as File Transfer.
   bool allowsRadioIdleSleep() override {
     return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
   }

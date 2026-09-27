@@ -79,7 +79,6 @@ void CrossPointWebServerActivity::onEnter() {
   isApMode = false;
   connectedIP.clear();
   connectedSSID.clear();
-  lastHandleClientTime = 0;
   requestUpdate();
 
   if (hasInitialNetworkMode) {
@@ -429,32 +428,6 @@ void CrossPointWebServerActivity::loop() {
         }
         if (repaint) requestUpdate();
       }
-    }
-
-    // Handle web server requests while keeping input responsive.
-    if (webServer && webServer->isRunning()) {
-      const unsigned long timeSinceLastHandleClient = millis() - lastHandleClientTime;
-
-      // Log if there's a significant gap between handleClient calls (>100ms)
-      if (lastHandleClientTime > 0 && timeSinceLastHandleClient > 100) {
-        LOG_DBG("WEBACT", "WARNING: %lu ms gap since last handleClient", timeSinceLastHandleClient);
-      }
-
-      // Process a batch of HTTP requests, then return to the main loop, which
-      // skips its delay while the server runs. Input is polled only there:
-      // every update() clears the previous poll's one-shot touch events
-      // (touch-down, release, completed two-finger swipes), so polling here
-      // dropped them before the ActivityManager's edge-slide and two-finger
-      // gesture handling could see them. The batch matches the old poll
-      // interval, so exit buttons stay as responsive as before.
-      // While idle, one pass per tick is enough to notice a new request, which
-      // then switches the server to transfer mode and the full batch.
-      constexpr int MAX_ITERATIONS = 64;
-      const int iterations = webServer->allowsIdleSleep() && !webServer->isTransferActive() ? 1 : MAX_ITERATIONS;
-      for (int i = 0; i < iterations && webServer->isRunning(); i++) {
-        webServer->handleClient();
-      }
-      lastHandleClientTime = millis();
     }
   }
 }

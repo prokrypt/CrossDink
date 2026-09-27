@@ -35,6 +35,7 @@
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "SilentRestart.h"
+#include "TaskCores.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
@@ -427,10 +428,10 @@ void CrossPointWebServer::begin() {
   server.reset(new PendingAwareWebServer(port));
 
   // STA mode starts idle: the modem sleeps between DTIM beacons and the
-  // device may light-sleep between loop ticks until a request arrives, which
+  // device may light-sleep between polls until a request arrives, which
   // switches both back to full power (noteTransferActivity). An AP must stay
   // awake to beacon, so it keeps the modem on throughout.
-  transferActive = false;
+  transferActive.store(false, std::memory_order_relaxed);
   WiFi.setSleep(!apMode);
   powerManager.setRadioIdleSleepAllowed(!apMode);
   // Default varies by ESP32 core version. The activity's loss-recovery loop
@@ -524,7 +525,20 @@ void CrossPointWebServer::begin() {
   // default watchdog window on a weak connection even while the CPU idle task
   // is healthy. The system idle-task watchdog still detects real CPU stalls.
 
-  running = true;
+  if (!stateMutex) stateMutex = xSemaphoreCreateMutex();
+  if (!serverStopped) serverStopped = xSemaphoreCreateBinary();
+  stopRequested.store(false, std::memory_order_relaxed);
+  running.store(true, std::memory_order_release);
+  // Internal-RAM stack (8 KB) only while the server runs: handlers write to
+  // the SD card, and task stacks must stay reachable while flash is busy.
+  if (!stateMutex || !serverStopped ||
+      xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
+                              TaskCores::kWorker) != pdPASS) {
+    LOG_ERR("WEB", "Failed to start web server task");
+    serverTask = nullptr;
+    stop();
+    return;
+  }
 
   // Show the correct IP based on network mode
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
@@ -550,12 +564,19 @@ void CrossPointWebServer::abortWsUpload(const char* tag) {
 
 void CrossPointWebServer::stop() {
   if (!running || !server) {
-    LOG_DBG("WEB", "stop() called but already stopped (running=%d, server=%p)", running, server.get());
+    LOG_DBG("WEB", "stop() called but already stopped (running=%d, server=%p)", running.load() ? 1 : 0, server.get());
     return;
   }
 
-  running = false;  // Set this FIRST to prevent handleClient from using server
-  transferActive = false;
+  running.store(false, std::memory_order_release);
+  // Hand the server back to this task: the serving task finishes its current
+  // request (bounded by WebServer's client timeouts), then exits.
+  stopRequested.store(true, std::memory_order_release);
+  if (serverTask) {
+    xSemaphoreTake(serverStopped, portMAX_DELAY);
+    serverTask = nullptr;
+  }
+  if (transferActive.exchange(false, std::memory_order_relaxed)) powerManager.endBackgroundWork();
   powerManager.setRadioIdleSleepAllowed(false);
   WiFi.setSleep(false);
 
@@ -578,9 +599,6 @@ void CrossPointWebServer::stop() {
     udpActive = false;
   }
 
-  // Brief delay to allow any in-flight handleClient() calls to complete
-  delay(20);
-
   server->stop();
 
   // Brief delay before deletion
@@ -593,11 +611,44 @@ void CrossPointWebServer::stop() {
   LOG_DBG("WEB", "[MEM] Free heap final: %d bytes", ESP.getFreeHeap());
 }
 
+void CrossPointWebServer::serverTaskMain(void* param) {
+  static_cast<CrossPointWebServer*>(param)->serveUntilStopped();
+  vTaskDelete(nullptr);
+}
+
+void CrossPointWebServer::serveUntilStopped() {
+  LOG_DBG("WEB", "Serving on core %d", xPortGetCoreID());
+  while (!stopRequested.load(std::memory_order_acquire)) {
+    if (allowsIdleSleep() && !isTransferActive()) {
+      // Idle STA: one pass per poll, blocked in between so tickless idle can
+      // light-sleep. A request found here switches to transfer mode.
+      handleClient();
+      if (!isTransferActive()) vTaskDelay(pdMS_TO_TICKS(IDLE_POLL_MS));
+      continue;
+    }
+    for (int i = 0; i < ACTIVE_PASSES_PER_TICK && !stopRequested.load(std::memory_order_relaxed); i++) {
+      handleClient();
+    }
+    // Not yield(): lower-priority workers and IDLE0 need the core too.
+    vTaskDelay(1);
+  }
+  xSemaphoreGive(serverStopped);
+}
+
+std::string CrossPointWebServer::takeExitFlashPath() {
+  if (!stateMutex) return {};
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  std::string path = std::move(exitFlashPath);
+  exitFlashPath.clear();
+  xSemaphoreGive(stateMutex);
+  return path;
+}
+
 void CrossPointWebServer::handleClient() {
   static unsigned long lastDebugPrint = 0;
 
   // Check running flag FIRST before accessing server
-  if (!running) {
+  if (!isRunning()) {
     return;
   }
 
@@ -607,7 +658,7 @@ void CrossPointWebServer::handleClient() {
     return;
   }
 
-  // Print debug every 10 seconds to confirm handleClient is being called
+  // Print debug every 10 seconds to confirm the server task is alive
   if (millis() - lastDebugPrint > 10000) {
     LOG_DBG("WEB", "handleClient active, server running on port %d", port);
     lastDebugPrint = millis();
@@ -648,6 +699,7 @@ void CrossPointWebServer::handleClient() {
   }
 
   updateTransferIdle();
+  publishWsStatus();
 }
 
 bool PendingAwareWebServer::requestPending() {
@@ -658,36 +710,52 @@ bool PendingAwareWebServer::requestPending() {
 
 void CrossPointWebServer::noteTransferActivity() {
   lastTransferMs = millis();
-  if (transferActive) return;
-  transferActive = true;
-  // Holds the CPU frequency lock, which also keeps light sleep off.
-  powerManager.setPowerSaving(false);
+  if (isTransferActive()) return;
+  transferActive.store(true, std::memory_order_relaxed);
+  // Holds the CPU frequency lock, which also keeps light sleep off, until
+  // updateTransferIdle() or stop() ends the hold.
+  powerManager.beginBackgroundWork();
   if (!apMode) WiFi.setSleep(false);
   LOG_DBG("WEB", "Transfer started: full power");
 }
 
 void CrossPointWebServer::updateTransferIdle() {
-  if (!transferActive) return;
+  if (!isTransferActive()) return;
   if (wsUploadInProgress) {
     lastTransferMs = millis();
     return;
   }
   if (millis() - lastTransferMs < TRANSFER_LINGER_MS) return;
-  transferActive = false;
+  transferActive.store(false, std::memory_order_relaxed);
   // The main loop drops the CPU lock on its next idle tick.
+  powerManager.endBackgroundWork();
   if (!apMode) WiFi.setSleep(true);
   LOG_DBG("WEB", "Transfer idle: modem and light sleep allowed");
 }
 
+// Serving task: copy the upload state for the activity when it changed.
+void CrossPointWebServer::publishWsStatus() {
+  // wsStatus is written only here, so this task may read it unlocked.
+  if (wsStatus.inProgress == wsUploadInProgress && wsStatus.received == wsUploadReceived &&
+      wsStatus.total == wsUploadSize && wsStatus.lastCompleteAt == wsLastCompleteAt) {
+    return;
+  }
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  wsStatus.inProgress = wsUploadInProgress;
+  wsStatus.received = wsUploadReceived;
+  wsStatus.total = wsUploadSize;
+  wsStatus.filename = wsUploadFileName.c_str();
+  wsStatus.lastCompleteName = wsLastCompleteName.c_str();
+  wsStatus.lastCompleteSize = wsLastCompleteSize;
+  wsStatus.lastCompleteAt = wsLastCompleteAt;
+  xSemaphoreGive(stateMutex);
+}
+
 CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() const {
-  WsUploadStatus status;
-  status.inProgress = wsUploadInProgress;
-  status.received = wsUploadReceived;
-  status.total = wsUploadSize;
-  status.filename = wsUploadFileName.c_str();
-  status.lastCompleteName = wsLastCompleteName.c_str();
-  status.lastCompleteSize = wsLastCompleteSize;
-  status.lastCompleteAt = wsLastCompleteAt;
+  if (!stateMutex) return {};
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  WsUploadStatus status = wsStatus;
+  xSemaphoreGive(stateMutex);
   return status;
 }
 
@@ -770,8 +838,10 @@ void CrossPointWebServer::handleExit() {
   }
   LOG_DBG("WEB", "Exit requested via /api/exit (flash=%s)", flashPath.empty() ? "-" : flashPath.c_str());
   server->send(204);
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
   exitFlashPath = std::move(flashPath);
-  exitRequestPending = true;
+  xSemaphoreGive(stateMutex);
+  exitRequestPending.store(true, std::memory_order_release);
 }
 
 #if CROSSDINK_PSRAM_LOG

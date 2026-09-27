@@ -48,7 +48,6 @@ class CrossPointWebServerActivity final : public Activity {
   std::string connectedSSID;  // For STA mode: network name, For AP mode: AP name
 
   // Performance monitoring
-  unsigned long lastHandleClientTime = 0;
 
   // Sustained WiFi-loss tracking; abandon only after WIFI_ABANDON_MS.
   int consecutiveDisconnects = 0;
@@ -86,11 +85,8 @@ class CrossPointWebServerActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // Fast ticks only while a transfer is live; an idle STA-mode server lets the
-  // main loop power save instead (see CrossPointWebServer::isTransferActive).
-  bool skipLoopDelay() override {
-    return webServer && webServer->isRunning() && (webServer->isTransferActive() || !webServer->allowsIdleSleep());
-  }
+  // The server runs on its own task; an idle STA-mode server lets the main
+  // loop power save (see CrossPointWebServer::isTransferActive).
   bool allowsRadioIdleSleep() override {
     return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
   }

@@ -54,6 +54,7 @@ class HalPowerManager {
   // Set by a Wi-Fi screen that manages its own radio power (File Transfer in
   // STA mode): an active Wi-Fi link then no longer forces power saving off.
   bool radioIdleSleepAllowed = false;
+  int backgroundWorkCount = 0;  // guarded by modeMutex
 
   enum LockMode { None, NormalSpeed };
   LockMode currentLockMode = None;
@@ -98,6 +99,13 @@ class HalPowerManager {
   // Lets setPowerSaving(true) take effect while Wi-Fi is up. The caller owns
   // keeping the CPU and modem at full power while it moves data.
   void setRadioIdleSleepAllowed(bool allowed) { radioIdleSleepAllowed = allowed; }
+
+  // Counted, callable from any task: while any hold is open the CPU stays at
+  // full speed (and so out of light sleep), and setPowerSaving(true) from the
+  // main loop is ignored. For work that runs on its own task while the loop
+  // idles: web transfers, background layout or decoding.
+  void beginBackgroundWork();
+  void endBackgroundWork();
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the currentLockMode

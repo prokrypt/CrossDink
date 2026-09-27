@@ -4,7 +4,6 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <WiFi.h>
-#include <esp_task_wdt.h>
 
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
@@ -26,7 +25,6 @@ void CalibreConnectActivity::onEnter() {
   state = CalibreConnectState::WIFI_SELECTION;
   connectedIP.clear();
   connectedSSID.clear();
-  lastHandleClientTime = 0;
   lastProgressReceived = 0;
   lastProgressTotal = 0;
   currentUploadName.clear();
@@ -112,29 +110,7 @@ void CalibreConnectActivity::loop() {
   }
 
   if (webServer && webServer->isRunning()) {
-    const unsigned long timeSinceLastHandleClient = millis() - lastHandleClientTime;
-    if (lastHandleClientTime > 0 && timeSinceLastHandleClient > 100) {
-      LOG_DBG("CAL", "WARNING: %lu ms gap since last handleClient", timeSinceLastHandleClient);
-    }
-
-    esp_task_wdt_reset();
-    constexpr int MAX_ITERATIONS = 80;
-    const int iterations = webServer->allowsIdleSleep() && !webServer->isTransferActive() ? 1 : MAX_ITERATIONS;
-    for (int i = 0; i < iterations && webServer->isRunning(); i++) {
-      webServer->handleClient();
-      if ((i & 0x07) == 0x07) {
-        esp_task_wdt_reset();
-      }
-      if ((i & 0x0F) == 0x0F) {
-        yield();
-        if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-          exitRequested = true;
-          break;
-        }
-      }
-    }
-    lastHandleClientTime = millis();
-
+    // Requests are served on the server's own task.
     const auto status = webServer->getWsUploadStatus();
     bool changed = false;
     if (status.inProgress) {

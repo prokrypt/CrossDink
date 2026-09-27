@@ -4,7 +4,11 @@
 #include <NetworkUdp.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -66,37 +70,33 @@ class CrossPointWebServer {
   CrossPointWebServer();
   ~CrossPointWebServer();
 
-  // Start the web server (call after WiFi is connected)
+  // Start the web server (call after WiFi is connected). Requests are served
+  // on a dedicated task on the worker core; the server objects belong to that
+  // task until stop() returns.
   void begin();
 
-  // Stop the web server
+  // Stop the web server. Waits for the serving task to finish its current
+  // request, so never call it from a request handler.
   void stop();
 
-  // Call this periodically to handle client requests
-  void handleClient();
-
   // Check if server is running
-  bool isRunning() const { return running; }
+  bool isRunning() const { return running.load(std::memory_order_acquire); }
 
   // True from the first byte of a request, upload or WebSocket message until
   // TRANSFER_LINGER_MS after the last one: CPU at full clock, no light sleep,
   // Wi-Fi modem awake. The linger keeps page loads and bursts fast.
-  bool isTransferActive() const { return transferActive; }
+  bool isTransferActive() const { return transferActive.load(std::memory_order_relaxed); }
   // STA mode only. Between transfers the modem sleeps between DTIM beacons
-  // and the device light-sleeps between loop ticks; an AP must stay awake.
-  bool allowsIdleSleep() const { return running && !apMode; }
+  // and the device light-sleeps between polls; an AP must stay awake.
+  bool allowsIdleSleep() const { return isRunning() && !apMode; }
 
   WsUploadStatus getWsUploadStatus() const;
 
   // True once after a client called POST /api/exit (the reply has been sent).
-  bool consumeExitRequest() {
-    const bool requested = exitRequestPending;
-    exitRequestPending = false;
-    return requested;
-  }
+  bool consumeExitRequest() { return exitRequestPending.exchange(false, std::memory_order_acq_rel); }
 
   // Firmware .bin the exit request asked to flash (empty when none); cleared on read.
-  std::string takeExitFlashPath() { return std::move(exitFlashPath); }
+  std::string takeExitFlashPath();
 
   // Get the port number
   uint16_t getPort() const { return port; }
@@ -104,20 +104,38 @@ class CrossPointWebServer {
  private:
   std::unique_ptr<PendingAwareWebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
-  bool running = false;
-  bool exitRequestPending = false;  // set by POST /api/exit, consumed by the activity
-  std::string exitFlashPath;        // optional `flash` argument of POST /api/exit
-  bool apMode = false;              // true when running in AP mode, false for STA mode
+  std::atomic<bool> running{false};
+  std::atomic<bool> exitRequestPending{false};  // set by POST /api/exit, consumed by the activity
+  std::string exitFlashPath;                    // optional `flash` argument of POST /api/exit; stateMutex
+  bool apMode = false;                          // true when running in AP mode, false for STA mode
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
 
   static constexpr unsigned long TRANSFER_LINGER_MS = 2000;
-  bool transferActive = false;
+  std::atomic<bool> transferActive{false};
   unsigned long lastTransferMs = 0;
   void noteTransferActivity();
   void updateTransferIdle();
+
+  // Serving task. It owns server and wsServer between begin() and stop().
+  // Same stack as Arduino's loopTask, which used to run these handlers.
+  static constexpr uint32_t SERVER_TASK_STACK_BYTES = 8192;
+  // Idle STA poll: a new request waits at most this long (plus a DTIM beacon).
+  static constexpr uint32_t IDLE_POLL_MS = 100;
+  static constexpr int ACTIVE_PASSES_PER_TICK = 64;
+  TaskHandle_t serverTask = nullptr;
+  SemaphoreHandle_t serverStopped = nullptr;
+  std::atomic<bool> stopRequested{false};
+  static void serverTaskMain(void* param);
+  void serveUntilStopped();
+  void handleClient();
+
+  // Guards exitFlashPath and wsStatus, which the activity reads.
+  SemaphoreHandle_t stateMutex = nullptr;
+  WsUploadStatus wsStatus;
+  void publishWsStatus();
 
   // WebSocket upload state
   void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length);
