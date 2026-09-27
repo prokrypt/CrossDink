@@ -14,8 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - environment: default
-            firmware: firmware-x3-x4
           - environment: sticky
             firmware: firmware-sticky
           - environment: x4-pro
@@ -56,7 +54,7 @@ jobs:
       - name: Pin pioarduino core inside the platform penv
         run: |
           set -euo pipefail
-          # Envs with custom_sdkconfig (default, the light-sleep profiles) run a
+          # Envs with custom_sdkconfig (the light-sleep profiles) run a
           # nested `pio run` from ~/.platformio/penv, which the platform creates
           # with an open-ended "pioarduino>=6.1.19". That now resolves to 6.2.0,
           # which needs SCons 4.11 while the platform installs SCons 4.8.1; the
@@ -143,7 +141,6 @@ jobs:
           draft: true
           prerelease: true
           files: |
-            release-candidate-firmware/firmware-x3-x4-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-sticky-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-x4-pro-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-x4-classic-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin

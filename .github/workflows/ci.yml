@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [default, sticky, x4-pro, x4-classic, x4-pro-light-sleep]
+        environment: [sticky, x4-pro, x4-classic, x4-pro-light-sleep]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -116,7 +116,7 @@ jobs:
       - name: Pin pioarduino core inside the platform penv
         run: |
           set -euo pipefail
-          # Envs with custom_sdkconfig (default, the light-sleep profiles) run a
+          # Envs with custom_sdkconfig (the light-sleep profiles) run a
           # nested `pio run` from ~/.platformio/penv, which the platform creates
           # with an open-ended "pioarduino>=6.1.19". That now resolves to 6.2.0,
           # which needs SCons 4.11 while the platform installs SCons 4.8.1; the
