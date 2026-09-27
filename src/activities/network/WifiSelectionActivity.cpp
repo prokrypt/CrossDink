@@ -850,10 +850,18 @@ void WifiSelectionActivity::checkConnectionStatus() {
   }
 
 #ifndef SIMULATOR
-  // The saved AP moved channel, went away or refused us: forget it and connect
-  // the normal way, scan included, within the same attempt.
-  const bool hintedTimedOut = sHintedAttempt && now - connectionStartTime > HINTED_CONNECTION_TIMEOUT_MS;
-  if (sHintedAttempt && (hintedTimedOut || wifiStatusIsConnectionFailure(status))) {
+  // The saved AP moved channel or went away: forget it and connect the normal
+  // way, scan included, within the same attempt. Once associated the AP is
+  // right, so a slow DHCP lease runs on the normal timeout, and a rejected
+  // password is not the hint's fault (the normal failure path reports it).
+  const bool authRejected = sLastStaDisconnectReason == WIFI_REASON_AUTH_FAIL ||
+                            sLastStaDisconnectReason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+                            sLastStaDisconnectReason == WIFI_REASON_HANDSHAKE_TIMEOUT ||
+                            sLastStaDisconnectReason == WIFI_REASON_802_1X_AUTH_FAILED;
+  const bool hintedTimedOut =
+      sHintedAttempt && sAssocMs == 0 && now - connectionStartTime > HINTED_CONNECTION_TIMEOUT_MS;
+  const bool hintedFailed = sHintedAttempt && sAssocMs == 0 && !authRejected && wifiStatusIsConnectionFailure(status);
+  if (hintedTimedOut || hintedFailed) {
     LOG_INF("WIFI", "Saved-AP join failed (status=%d/%s elapsed=%lums); retrying with a full scan",
             static_cast<int>(status), wifiStatusName(status), now - connectionStartTime);
     sWifiApHint.magic = 0;
