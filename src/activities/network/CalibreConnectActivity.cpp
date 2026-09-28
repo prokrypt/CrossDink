@@ -13,6 +13,7 @@
 #include "components/CompactHeader.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BlackRedriveLut.h"
 
 namespace {
 constexpr const char* HOSTNAME = "crosspoint";
@@ -215,5 +216,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_EXIT)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
+  // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
+  const BlackRedriveLut redriveLut(state == CalibreConnectState::SERVER_RUNNING);
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }

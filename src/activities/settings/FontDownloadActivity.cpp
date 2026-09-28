@@ -26,6 +26,7 @@
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/BlackRedriveLut.h"
 
 namespace fui = freeink::ui;
 
@@ -1320,5 +1321,7 @@ void FontDownloadActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 
+  // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
+  const BlackRedriveLut redriveLut(state_ == DOWNLOADING);
   renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
 }

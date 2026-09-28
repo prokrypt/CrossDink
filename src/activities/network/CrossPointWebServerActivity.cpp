@@ -21,6 +21,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BlackRedriveLut.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -442,6 +443,8 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
       const auto top = (pageHeight - height) / 2;
       renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_STARTING_HOTSPOT));
     }
+    // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
+    const BlackRedriveLut redriveLut(state == WebServerActivityState::SERVER_RUNNING);
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
   }
 }

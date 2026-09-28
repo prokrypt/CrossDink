@@ -33,6 +33,7 @@
 #include "components/icons/listIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/BlackRedriveLut.h"
 #include "util/BookCacheUtils.h"
 #include "util/DaylightSaving.h"
 #include "util/StringUtils.h"
@@ -558,6 +559,8 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   uiReady = false;
   app.render();
   uiReady = true;
+  // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
+  const BlackRedriveLut redriveLut(state == BrowserState::DOWNLOADING);
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }
 
