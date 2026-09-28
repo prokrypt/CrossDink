@@ -286,12 +286,12 @@ void SdFirmwareUpdateActivity::loop() {
 
 void SdFirmwareUpdateActivity::render(RenderLock&&) {
 #ifndef SIMULATOR
-  // Trial (log item 9): progress repaints use the keyboard's windowed DU LUT
+  // Trial (log item 9): progress repaints use the keyboard's DU LUT
   // (~230 ms instead of the ~560 ms OTP fast refresh) while flashing, so each
   // one holds the flash loop's SPI/cache for less time. Off in every other state.
   if (state == State::UPDATING) {
     freeink::Uc8179KbdExperiment exp;
-    exp.flags = freeink::Uc8179KbdExperiment::KbdLut | freeink::Uc8179KbdExperiment::WindowDrf;
+    exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
     exp.lutFrames = PROGRESS_LUT_FRAMES;
     freeink::setUc8179KbdExperiment(&exp);
   } else {

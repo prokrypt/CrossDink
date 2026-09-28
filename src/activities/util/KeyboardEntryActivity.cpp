@@ -1216,7 +1216,6 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // two regions a keystroke changes. The first frame uploads everything.
   freeink::Uc8179KbdExperiment exp;
   exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT));
-  if (kbdExpFlags & KBD_EXP_WINDOW_DRF) exp.flags |= freeink::Uc8179KbdExperiment::WindowDrf;
   exp.lutFrames = kbdExpFrames;
   exp.pll = (kbdExpFlags & KBD_EXP_DU_LUT) ? kbdExpPll : 0;
   if ((kbdExpFlags & KBD_EXP_TWO_WINDOW) && !kbdExpFirstFrame) {

@@ -50,7 +50,7 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
-  static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // T6: DRF only the changed box
+  static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // retired T6 windowed DRF; ignored
   // Open with a ~250 ms DU scrub (T4 LUT, needs 4) instead of the 1.5 s Half of 16.
   static constexpr uint8_t KBD_EXP_DU_SCRUB_ON_OPEN = 64;
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
