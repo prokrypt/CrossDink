@@ -23,6 +23,7 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- X4 Pro keyboard: tapping at the screen edge beside A or L now types that key, like Q and P. The keys look the same.
 
 - On touch devices the keyboard no longer highlights a key when it opens, and the Up and Down buttons move the text cursor left and right. A side button press brings the highlight back for button typing.
 - Updating firmware from the SD card is faster: picking a file checks only its header, the full checksum and SHA-256 are verified while it is written (the new firmware is only activated when they match), the next part of the file is read while the current part is written, blank flash is not erased or written again, and the progress bar moves in 5% steps. The frontlight pulses while it flashes and stays on until the restart, and the touchscreen sleeps meanwhile.
