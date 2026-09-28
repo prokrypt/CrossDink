@@ -49,6 +49,16 @@ void onDisplayBusyWaitEnd() {
   if (millis() - busyWaitBeganMs >= REFRESH_WAIT_MIN_MS) PerfLog::noteInk();
 #endif
 }
+#ifndef SIMULATOR
+// Trial slice hook: replaces the 1-tick BUSY poll with a 10 ms task sleep, long
+// enough for tickless idle to light-sleep (no GPIO wake, so completion is seen
+// up to 10 ms late).
+bool onDisplayBusyWaitSlice(int8_t, uint8_t) {
+  if (!powerManager.refreshLightSleepAllowed()) return false;
+  vTaskDelay(pdMS_TO_TICKS(10));
+  return true;
+}
+#endif
 }  // namespace
 
 HalDisplay::HalDisplay() : einkDisplay(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_RST, EPD_BUSY) {}
@@ -175,6 +185,17 @@ bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
 bool HalDisplay::powerOffIdle() {
   HalSpiBus::Lock spiLock;
   return einkDisplay.powerOffIdle();
+}
+
+void HalDisplay::setRefreshLightSleep(const bool allowed) {
+#ifndef SIMULATOR
+  powerManager.setRefreshLightSleep(allowed);
+  // Installed only for the trial: with a slice hook the SDK polls BUSY instead
+  // of taking its edge-interrupt path on other controllers.
+  einkDisplay.setBusyWaitSliceHook(allowed ? &onDisplayBusyWaitSlice : nullptr);
+#else
+  (void)allowed;
+#endif
 }
 
 void HalDisplay::deepSleep() {

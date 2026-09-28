@@ -19,6 +19,7 @@ constexpr const char* HOSTNAME = "crosspoint";
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
+  transferLight.begin();
   sdFontSystem.releaseLoadedFont(renderer);
 
   requestUpdate();
@@ -52,6 +53,7 @@ void CalibreConnectActivity::onEnter() {
 
 void CalibreConnectActivity::onExit() {
   Activity::onExit();
+  transferLight.end();
 
   // Wi-Fi belongs to the parent File Transfer screen, which leaves it (in
   // place or by restart) on its own exit.
@@ -98,6 +100,7 @@ void CalibreConnectActivity::stopWebServer() {
 }
 
 void CalibreConnectActivity::loop() {
+  transferLight.update(webServer && webServer->isTransferActive());
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     exitRequested = true;
   }

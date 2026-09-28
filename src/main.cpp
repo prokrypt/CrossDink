@@ -31,6 +31,9 @@
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
+#if !defined(SIMULATOR)
+#include <esp_cache.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -150,6 +153,11 @@ QuickLockBadgeBackdrop quickLockBadgeBackdrop;
 // setup() starts. esp_psram_init() has already identified the chip by then, so
 // skip the sweep and keep the wake path short.
 extern "C" bool testSPIRAM(void) { return true; }
+#endif
+
+#if defined(CROSSDINK_LOOP_STACK_BYTES) && !defined(SIMULATOR)
+// Overrides FreeInkUI's weak 16 KB loopTask stack (internal RAM).
+size_t getArduinoLoopTaskStackSize(void) { return CROSSDINK_LOOP_STACK_BYTES; }
 #endif
 
 static void logBootHeap(const char* stage) {
@@ -349,14 +357,27 @@ static void retainPanelFrame() {
   retainedPanelFrame.size = static_cast<uint32_t>(size);
   retainedPanelFrame.crc = uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0);
   retainedPanelFrame.magic = RetainedPanelFrame::MAGIC;
+  // ESP.restart() does not write back the PSRAM cache, so without this the
+  // frame (or its header) could still sit in dirty cache lines and be lost;
+  // logs showed every restart falling back to a full first paint.
+  esp_cache_msync(&retainedPanelFrame, offsetof(RetainedPanelFrame, bytes) + size,
+                  ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
 }
+
+static bool retainedPanelFramePresent() { return retainedPanelFrame.magic == RetainedPanelFrame::MAGIC; }
 
 static void seedRetainedPanelFrame() {
   const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
   retainedPanelFrame.magic = 0;
   const size_t size = display.getBufferSize();
-  if (!present || retainedPanelFrame.size != size ||
+  if (!present) {
+    LOG_INF("MAIN", "No retained panel frame; first paint full");
+    return;
+  }
+  if (retainedPanelFrame.size != size ||
       uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0) != retainedPanelFrame.crc) {
+    LOG_INF("MAIN", "Retained panel frame rejected (size %lu, expected %u, or CRC); first paint full",
+            static_cast<unsigned long>(retainedPanelFrame.size), static_cast<unsigned>(size));
     return;
   }
   const bool seeded = display.seedDisplayedFrame(retainedPanelFrame.bytes);
@@ -364,8 +385,15 @@ static void seedRetainedPanelFrame() {
 }
 #else
 static void retainPanelFrame() {}
+static bool retainedPanelFramePresent() { return false; }
 static void seedRetainedPanelFrame() {}
 #endif
+
+void restartKeepingPanelFrame() {
+  PerfLog::noteRestart();
+  retainPanelFrame();
+  ESP.restart();
+}
 
 static void restartWithSilentToken() {
   PerfLog::noteRestart();
@@ -1533,6 +1561,7 @@ void setup() {
       break;
   }
 
+  PerfLog::noteBootPhase("start");
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
@@ -1542,6 +1571,7 @@ void setup() {
     return;
   }
   logBootHeap("storage ready");
+  PerfLog::noteBootPhase("sd");
 
   HalSystem::checkPanic();
   // Before anything reads progress.bin: replay a position a crash or reset kept
@@ -1570,6 +1600,7 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
+  PerfLog::noteBootPhase("settings");
   // Silent restarts are invisible recovery steps, so they always retain the
   // current light state rather than applying wake or schedule policy. The
   // saved flag can be stale (e.g. schedule kept the light off this wake), so
@@ -1642,9 +1673,16 @@ void setup() {
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
 
-  setupDisplayAndFonts(SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame),
-                       resume != BootResume::Network, useReaderRenderStack);
+  // A plain software restart that left its frame behind (restartKeepingPanelFrame,
+  // e.g. after an SD firmware update) also starts seamlessly: the splash is
+  // then a Fast refresh from the known panel content instead of a full flash.
+  const bool retainedFrameBoot =
+      resume == BootResume::Splash && rawResetReason == ESP_RST_SW && retainedPanelFramePresent();
+  setupDisplayAndFonts(
+      SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame) || retainedFrameBoot,
+      resume != BootResume::Network, useReaderRenderStack);
   logBootHeap("display and font resolver ready");
+  PerfLog::noteBootPhase("display");
 
   switch (resume) {
     case BootResume::Silent:
@@ -1762,6 +1800,7 @@ void setup() {
     activityManager.goToReader(path, false, allowFastInitialReaderRefresh);
   }
 
+  PerfLog::noteBootPhase("route");
   if (resume == BootResume::Silent || resume == BootResume::Network) {
     // Block until the first paint physically completes. refreshDisplay()
     // waits on the panel BUSY pin so when this returns the user can see the
@@ -1967,12 +2006,13 @@ void loop() {
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
-  if (Serial && millis() - lastMemPrint >= 2000) {
+  // Not gated on Serial: without a USB host these lines still reach the
+  // PSRAM log ring (debug builds), which is how they get read off the device.
+  if (millis() - lastMemPrint >= 2000) {
     logMemoryStats("Periodic", true);
     lastMemPrint = millis();
   }
-  // Not gated on Serial: without a USB host these lines still reach the
-  // PSRAM log ring (debug builds), which is how they get read off the device.
+  Frontlight.flushLog();
   static unsigned long lastCoreLoadLog = 0;
   if (millis() - lastCoreLoadLog >= 2000) {
     CoreLoadLog::logSinceLast();
@@ -2199,7 +2239,8 @@ void loop() {
   if (loopDuration > maxLoopDuration) {
     maxLoopDuration = loopDuration;
     if (maxLoopDuration > 50) {
-      LOG_DBG("LOOP", "New max loop duration: %lu ms (activity: %lu ms)", maxLoopDuration, activityDuration);
+      LOG_DBG("LOOP", "New max loop duration: %lu ms (activity %s: %lu ms, rest of loop: %lu ms)", maxLoopDuration,
+              activityManager.currentActivityName(), activityDuration, loopDuration - activityDuration);
       (void)activityDuration;
     }
   }

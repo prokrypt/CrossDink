@@ -53,6 +53,10 @@ class SdCardFontSystem {
   /// newly uploaded or deleted fonts visible in the web UI.
   void ensureRegistry();
 
+  /// True when ensureRegistry() rebuilt the catalog within maxAgeMs and no
+  /// font file changed since. Lets a screen skip a second scan it just did.
+  bool registryRefreshedWithin(uint32_t maxAgeMs) const;
+
   /// Release catalog names and paths without unloading the active reader font.
   void releaseRegistry();
 
@@ -113,6 +117,7 @@ class SdCardFontSystem {
   /// Mark the registry as needing re-discovery.
   /// Thread-safe: can be called from the web server task.
   void markRegistryDirty() {
+    fontFilesChanged_.store(true, std::memory_order_release);
     registryDirty_.store(true, std::memory_order_release);
     SdCardFontRegistry::invalidateIndex();
   }
@@ -138,6 +143,9 @@ class SdCardFontSystem {
   SdCardFontManager manager_;
   std::atomic<bool> registryDirty_{false};
   bool registryLoaded_ = false;
+  // Set by markRegistryDirty() (a font file changed), unlike releaseForNetwork().
+  std::atomic<bool> fontFilesChanged_{false};
+  uint32_t registryRefreshMs_ = 0;  // millis() of the last successful scan; 0 = never
   uint8_t loadedFontPointSize_ = 0;
   bool fontReloadPending_ = false;
   uint32_t loadedRegistryRevision_ = 0;

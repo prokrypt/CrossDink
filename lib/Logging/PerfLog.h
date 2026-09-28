@@ -25,6 +25,9 @@ void notePagePath(const char* path);
 // A refresh finished on the panel: closes the pending latency sample, and the
 // first one after reset logs [BOOT].
 void noteInk();
+// Boot phase mark (name is a string literal): the first ink logs
+// "[BOOT] t <name>=<ms since previous mark> ... ink= first_ink=".
+void noteBootPhase(const char* name);
 // A silent restart is about to happen; the first ink after it logs the time
 // from this call across the reset (RTC timer, survives software restart).
 void noteRestart();
@@ -43,6 +46,7 @@ inline void noteRenderStart() {}
 inline void noteRenderEnd(const char*) {}
 inline void notePagePath(const char*) {}
 inline void noteInk() {}
+inline void noteBootPhase(const char*) {}
 inline void noteRestart() {}
 inline void noteSdOpen(bool) {}
 inline void noteSdRead(uint32_t, uint32_t) {}

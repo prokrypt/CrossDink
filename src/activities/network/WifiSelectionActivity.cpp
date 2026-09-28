@@ -112,9 +112,18 @@ void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   }
 
   switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_START:
+      LOG_INF("WIFI", "STA event: started (%lu ms after begin)", millis() - sBeginMs);
+      break;
+    case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
+      LOG_INF("WIFI", "STA event: authmode %u -> %u (%lu ms)", info.wifi_sta_authmode_change.old_mode,
+              info.wifi_sta_authmode_change.new_mode, millis() - sBeginMs);
+      break;
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
       sAssocMs = millis();
-      LOG_INF("WIFI", "STA event: connected to AP (assoc %lu ms)", sAssocMs - sBeginMs);
+      // Scan, auth, association and the WPA 4-way handshake all end here.
+      LOG_INF("WIFI", "STA event: connected to AP ch %u authmode %u (assoc %lu ms)", info.wifi_sta_connected.channel,
+              info.wifi_sta_connected.authmode, sAssocMs - sBeginMs);
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
       const uint8_t* ip = reinterpret_cast<const uint8_t*>(&info.got_ip.ip_info.ip.addr);
@@ -129,8 +138,9 @@ void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
         reason = WIFI_REASON_UNSPECIFIED;
       }
       sLastStaDisconnectReason = reason;
-      LOG_INF("WIFI", "STA event: disconnected reason=%u(%s)", reason,
-              WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)));
+      LOG_INF("WIFI", "STA event: disconnected reason=%u(%s) rssi=%d (%lu ms)", reason,
+              WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)), info.wifi_sta_disconnected.rssi,
+              millis() - sBeginMs);
       break;
     }
     case ARDUINO_EVENT_WIFI_STA_LOST_IP:
@@ -145,6 +155,8 @@ void ensureWifiEventLoggingRegistered() {
   if (sWifiEventLoggingRegistered) {
     return;
   }
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_START);
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_CONNECTED);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
@@ -726,10 +738,13 @@ void WifiSelectionActivity::attemptConnection() {
   // Abort any in-progress SDK auto-connect before our explicit begin().
   // Do not erase the AP config or power-cycle the radio; some routers fail the
   // next WPA handshake after that heavier reset.
+  const bool wasAssociated = WiFi.status() == WL_CONNECTED;
   if (!WiFi.disconnect(false, false, 1000)) {
     LOG_DBG("WIFI", "Disconnect before begin timed out; continuing with explicit begin");
   }
-  delay(100);
+  // Settle only after dropping a live association; an idle station has
+  // nothing to tear down.
+  if (wasAssociated) delay(100);
 #ifndef SIMULATOR
   sLastStaDisconnectReason = 0;
   sConnectionAttemptLoggingActive = true;
@@ -755,7 +770,12 @@ void WifiSelectionActivity::attemptConnection() {
   const WifiApHint* hint = apHintFor(selectedSSID);
   sHintedAttempt = hint != nullptr;
   if (hint) {
-    LOG_INF("WIFI", "Joining saved AP %02x:%02x:%02x:%02x:%02x:%02x on channel %u (no scan)", hint->bssid[0],
+    // WIFI_ALL_CHANNEL_SCAN (set above) makes the driver sweep every channel
+    // even with a channel and BSSID given, which cost a fixed ~2.4 s per join.
+    // A fast scan starts on the hinted channel and stops at the first match;
+    // a stale hint fails and checkConnectionStatus() retries with a full scan.
+    WiFi.setScanMethod(WIFI_FAST_SCAN);
+    LOG_INF("WIFI", "Joining saved AP %02x:%02x:%02x:%02x:%02x:%02x on channel %u (fast scan)", hint->bssid[0],
             hint->bssid[1], hint->bssid[2], hint->bssid[3], hint->bssid[4], hint->bssid[5], hint->channel);
     beginStatus = WiFi.begin(selectedSSID.c_str(), passphrase, hint->channel, hint->bssid);
   } else

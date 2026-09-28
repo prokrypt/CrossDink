@@ -6,8 +6,12 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <esp_ota_ops.h>
+#ifndef SIMULATOR
+#include <FreeInkDisplay.h>
+#endif
 
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
@@ -20,6 +24,8 @@ namespace {
 // flash loop for the CPU and, on shared-bus boards, the SPI bus; 10% steps keep
 // the bar moving without stretching the update.
 constexpr unsigned int PROGRESS_STEP_PERCENT = 10;
+// DU frames for progress repaints (the keyboard's tested "63 6" setting).
+constexpr uint8_t PROGRESS_LUT_FRAMES = 6;
 
 unsigned int progressStep(size_t written, size_t total) {
   if (total == 0) return 0;
@@ -36,6 +42,13 @@ void SdFirmwareUpdateActivity::onEnter() {
   // A preselected file is validated from loop(): selectFirmware() waits on the
   // render task, which must not happen inside onEnter().
   if (preselectedPath.empty()) launchPicker();
+}
+
+void SdFirmwareUpdateActivity::onExit() {
+  Activity::onExit();
+#ifndef SIMULATOR
+  freeink::setUc8179KbdExperiment(nullptr);  // render() may have left the progress LUT on
+#endif
 }
 
 void SdFirmwareUpdateActivity::launchPicker() {
@@ -132,6 +145,7 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
     }
     return false;
   }
+  firmwarePinned = firmware_flash::readShaTrailer(firmwarePath.c_str(), pinnedSize, pinnedSha);
   return true;
 }
 
@@ -185,11 +199,13 @@ void SdFirmwareUpdateActivity::performUpdate() {
     if (stepChanged) self->requestUpdate(true);
   };
 
-  // Re-validate at flash time (TOCTOU): SD is removable, so don't trust the
-  // pre-confirmation pass. The alreadyValidated parameter on the API stays
-  // for callers (e.g. an OTA staging path) where the same byte stream was
-  // just hashed and there's no removable-media gap.
-  const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
+  // SD is removable, so the flash pass must not trust the confirmation-time
+  // check blindly (TOCTOU). A pinned image is re-checked in the same pass that
+  // writes it (size + SHA-256 trailer before, hash of the written bytes after),
+  // instead of a second full validation read (~2.7 s for 5.5 MB).
+  const auto result =
+      firmwarePinned ? firmware_flash::flashConfirmedFile(firmwarePath.c_str(), pinnedSize, pinnedSha, progressCb, this)
+                     : firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
     errorMessage = result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD
@@ -208,7 +224,7 @@ void SdFirmwareUpdateActivity::performUpdate() {
   }
   requestUpdateAndWait();
   delay(1500);
-  ESP.restart();
+  restartKeepingPanelFrame();
 }
 
 void SdFirmwareUpdateActivity::loop() {
@@ -236,6 +252,19 @@ void SdFirmwareUpdateActivity::loop() {
 }
 
 void SdFirmwareUpdateActivity::render(RenderLock&&) {
+#ifndef SIMULATOR
+  // Trial (log item 9): progress repaints use the keyboard's windowed DU LUT
+  // (~230 ms instead of the ~560 ms OTP fast refresh) while flashing, so each
+  // one holds the flash loop's SPI/cache for less time. Off in every other state.
+  if (state == State::UPDATING) {
+    freeink::Uc8179KbdExperiment exp;
+    exp.flags = freeink::Uc8179KbdExperiment::KbdLut | freeink::Uc8179KbdExperiment::WindowDrf;
+    exp.lutFrames = PROGRESS_LUT_FRAMES;
+    freeink::setUc8179KbdExperiment(&exp);
+  } else {
+    freeink::setUc8179KbdExperiment(nullptr);
+  }
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();

@@ -51,6 +51,10 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
   static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // T6: DRF only the changed box
+  // Open with a ~250 ms DU scrub (T4 LUT, needs 4) instead of the 1.5 s Half of 16.
+  static constexpr uint8_t KBD_EXP_DU_SCRUB_ON_OPEN = 64;
+  // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
+  static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
   // Settings > Turbo keyboard: every tweak above.
   static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = 31;
   uint8_t kbdExpFlags = 0;
@@ -58,8 +62,18 @@ class KeyboardEntryActivity : public Activity {
   uint8_t kbdExpPll = 0;
   bool kbdExpFirstFrame = true;
   std::atomic<unsigned long> strokeAtMs{0};
+  // What queued the next keyboard frame, for the [KBD] line.
+  enum class StrokeCause : uint8_t { Redraw, Key, Press, Release };
+  std::atomic<uint8_t> strokeCause{0};
+  uint32_t kbdFrame = 0;
+  unsigned long prevFrameStrokeMs = 0;  // stroke behind the previous frame; 0 = none
+  // Touch-down highlight is held back briefly: a quick tap releases first, and
+  // its activation frame is then the keystroke's only refresh.
+  static constexpr uint16_t TOUCH_HIGHLIGHT_DELAY_MS = 120;
+  bool highlightPending = false;
+  unsigned long highlightDueMs = 0;
   void loadKbdExperiment();
-  void requestStrokeUpdate();
+  void requestStrokeUpdate(StrokeCause cause = StrokeCause::Key);
 
   ButtonNavigator buttonNavigator;
 

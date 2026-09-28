@@ -56,7 +56,13 @@ struct PixelCache {
   PixelCache& operator=(const PixelCache&) = delete;
 
   static constexpr int MIN_BAND_ROWS = 16;
+#if defined(FREEINK_FB_PSRAM)
+  // PSRAM builds: plain malloc above 1 KB lands in PSRAM, so a taller band lets
+  // large upscaled images cache instead of re-decoding on every render.
+  static constexpr size_t MAX_BAND_BYTES = 128 * 1024;
+#else
   static constexpr size_t MAX_BAND_BYTES = 24 * 1024;  // band working-set ceiling
+#endif
 
   // Open the cache file, write the header, and allocate a band buffer big enough
   // to hold the tallest single decode block (maxBlockDstRows output rows).

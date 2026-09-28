@@ -42,6 +42,12 @@ const char* volatile pagePath = "-";
 const char* volatile inputKind = "-";
 bool firstInkLogged = false;
 
+// Boot phase marks (setup() order), printed with the first ink.
+constexpr int BOOT_PHASES = 8;
+const char* bootPhaseName[BOOT_PHASES];
+uint32_t bootPhaseMs[BOOT_PHASES];
+int bootPhaseCount = 0;
+
 constexpr uint32_t RESTART_MAGIC = 0x52535431;  // "RST1"
 RTC_NOINIT_ATTR uint32_t restartMagic;
 RTC_NOINIT_ATTR uint64_t restartRequestedUs;
@@ -50,8 +56,34 @@ uint32_t take(std::atomic<uint32_t>& counter) { return counter.exchange(0, std::
 void add(std::atomic<uint32_t>& counter, const uint32_t value) { counter.fetch_add(value, std::memory_order_relaxed); }
 
 #if CONFIG_PM_PROFILING
-// esp_pm_dump_locks() only writes to a FILE*; route it through a memory stream
-// so each row becomes one [PM] log line that also reaches the log ring.
+// esp_pm_dump_locks() only writes cumulative-since-boot tables to a FILE*.
+// Parse them from a memory stream and print one [PM] line with the change
+// since the previous dump: light-sleep and CPU_MAX share of the window, sleep
+// entries/rejects, and the three locks held longest.
+struct PmLockTime {
+  char name[16];
+  int64_t us;
+};
+constexpr int PM_MAX_LOCKS = 16;
+PmLockTime pmPrevLocks[PM_MAX_LOCKS];
+int pmPrevLockCount = 0;
+int64_t pmPrevBootUs = 0;
+int64_t pmPrevSleepUs = 0;
+int64_t pmPrevCpuMaxUs = 0;
+long pmPrevSleeps = 0;
+long pmPrevRejects = 0;
+
+int64_t pmPrevLockUs(const char* name) {
+  for (int i = 0; i < pmPrevLockCount; i++) {
+    if (strcmp(pmPrevLocks[i].name, name) == 0) return pmPrevLocks[i].us;
+  }
+  return 0;
+}
+
+unsigned pmPct(const int64_t part, const int64_t whole) {
+  return whole > 0 ? static_cast<unsigned>((part * 100 + whole / 2) / whole) : 0;
+}
+
 void logPmLocks() {
   static char dump[2048];
   FILE* stream = fmemopen(dump, sizeof(dump) - 1, "w");
@@ -63,10 +95,81 @@ void logPmLocks() {
   const long used = ftell(stream);
   fclose(stream);
   dump[used > 0 && used < static_cast<long>(sizeof(dump)) ? used : 0] = '\0';
+
+  static PmLockTime locks[PM_MAX_LOCKS];  // main loop only; keeps 384 B off the stack
+  int lockCount = 0;
+  long long bootUs = 0;
+  int64_t sleepUs = 0;
+  int64_t cpuMaxUs = 0;
+  long sleeps = 0;
+  long rejects = 0;
+  bool inModes = false;
   char* save = nullptr;
   for (char* line = strtok_r(dump, "\n", &save); line; line = strtok_r(nullptr, "\n", &save)) {
-    LOG_DBG("PM", "%s", line);
+    if (sscanf(line, "Time since bootup: %lld", &bootUs) == 1) continue;
+    if (strncmp(line, "Mode stats", 10) == 0) {
+      inModes = true;
+      continue;
+    }
+    if (sscanf(line, "light_sleep_counts:%ld light_sleep_reject_counts:%ld", &sleeps, &rejects) == 2) continue;
+    char name[16];
+    if (!inModes) {
+      char type[16];
+      int arg = 0, active = 0, count = 0;
+      long long us = 0;
+      if (lockCount < PM_MAX_LOCKS &&
+          sscanf(line, "%15s %15s %d %d %d %lld", name, type, &arg, &active, &count, &us) == 6) {
+        snprintf(locks[lockCount].name, sizeof(locks[lockCount].name), "%s", name);
+        locks[lockCount].us = us;
+        lockCount++;
+      }
+      continue;
+    }
+    // Mode rows: "SLEEP     80 M        23547275    77%" (the frequency may be "240M").
+    const char* freqEnd = strchr(line, 'M');
+    long long us = 0;
+    if (sscanf(line, "%15s", name) != 1 || freqEnd == nullptr || sscanf(freqEnd + 1, "%lld", &us) != 1) continue;
+    if (strcmp(name, "SLEEP") == 0) sleepUs = us;
+    if (strcmp(name, "CPU_MAX") == 0) cpuMaxUs = us;
   }
+
+  const int64_t windowUs = bootUs - pmPrevBootUs;
+  // Top three locks by hold time in this window.
+  int top[3] = {-1, -1, -1};
+  int64_t topUs[3] = {0, 0, 0};
+  for (int i = 0; i < lockCount; i++) {
+    const int64_t d = locks[i].us - pmPrevLockUs(locks[i].name);
+    for (int t = 0; t < 3; t++) {
+      if (d > topUs[t]) {
+        for (int k = 2; k > t; k--) {
+          top[k] = top[k - 1];
+          topUs[k] = topUs[k - 1];
+        }
+        top[t] = i;
+        topUs[t] = d;
+        break;
+      }
+    }
+  }
+  char topText[96] = "-";
+  int pos = 0;
+  for (int t = 0; t < 3 && top[t] >= 0; t++) {
+    const int n = snprintf(topText + pos, sizeof(topText) - pos, "%s%s %u%%", t ? "," : "", locks[top[t]].name,
+                           pmPct(topUs[t], windowUs));
+    if (n < 0 || n >= static_cast<int>(sizeof(topText)) - pos) break;
+    pos += n;
+  }
+  LOG_DBG("PM", "%lus: sleep=%u%% cpumax=%u%% ls=%ld rej=%ld top=%s", static_cast<unsigned long>(windowUs / 1000000),
+          pmPct(sleepUs - pmPrevSleepUs, windowUs), pmPct(cpuMaxUs - pmPrevCpuMaxUs, windowUs), sleeps - pmPrevSleeps,
+          rejects - pmPrevRejects, topText);
+
+  memcpy(pmPrevLocks, locks, sizeof(PmLockTime) * lockCount);
+  pmPrevLockCount = lockCount;
+  pmPrevBootUs = bootUs;
+  pmPrevSleepUs = sleepUs;
+  pmPrevCpuMaxUs = cpuMaxUs;
+  pmPrevSleeps = sleeps;
+  pmPrevRejects = rejects;
 }
 #endif
 }  // namespace
@@ -96,10 +199,32 @@ void notePagePath(const char* path) {
   if (inputPending) pagePath = path;
 }
 
+void noteBootPhase(const char* name) {
+  if (firstInkLogged || bootPhaseCount >= BOOT_PHASES) return;
+  bootPhaseName[bootPhaseCount] = name;
+  bootPhaseMs[bootPhaseCount] = millis();
+  bootPhaseCount++;
+}
+
 void noteInk() {
   const uint32_t now = millis();
   if (!firstInkLogged) {
     firstInkLogged = true;
+    // "[BOOT] t start=54 sd=242 ... ink=1620 first_ink=2450": each phase is the
+    // time since the previous mark; ink runs from the last mark to first ink.
+    char phases[160];
+    int pos = 0;
+    uint32_t prev = 0;
+    for (int i = 0; i < bootPhaseCount; i++) {
+      const int n = snprintf(phases + pos, sizeof(phases) - pos, "%s=%lu ", bootPhaseName[i],
+                             static_cast<unsigned long>(bootPhaseMs[i] - prev));
+      if (n < 0 || n >= static_cast<int>(sizeof(phases)) - pos) break;
+      pos += n;
+      prev = bootPhaseMs[i];
+    }
+    phases[pos] = '\0';
+    LOG_DBG("BOOT", "t %sink=%lu first_ink=%lu", phases, static_cast<unsigned long>(now - prev),
+            static_cast<unsigned long>(now));
     if (restartMagic == RESTART_MAGIC) {
       restartMagic = 0;
       const uint64_t acrossUs = esp_rtc_get_time_us() - restartRequestedUs;
@@ -111,6 +236,9 @@ void noteInk() {
   }
   if (!inputPending) return;
   inputPending = false;
+  // The keyboard logs its own per-keystroke key-to-ink ([KBD] prev_key_to_ink);
+  // [LAT] drops samples there when strokes overlap.
+  if (strcmp(renderActivity, "KeyboardEntry") == 0) return;
   const uint32_t in = inputMs;
   const uint32_t rs = renderStartMs;
   // A blocking refresh finishes inside render(), before its end is noted.

@@ -81,6 +81,8 @@ class HalDisplay {
   void deepSleep();
   // Booster off between refreshes on idle screens; false when nothing changed.
   bool powerOffIdle();
+  // Trial: light-sleep through refresh busy-waits (HalPowerManager::setRefreshLightSleep).
+  void setRefreshLightSleep(bool allowed);
 
   // Access to frame buffer
   uint8_t* getFrameBuffer() const;

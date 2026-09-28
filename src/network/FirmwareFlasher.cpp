@@ -293,13 +293,11 @@ Result validateImageFile(const char* sdPath, size_t partitionSize) {
   return result;
 }
 
-Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
-  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
-  if (!dest) {
-    LOG_ERR("FLASH", "no next-update partition");
-    return Result::NO_PARTITION;
-  }
-
+namespace {
+// Erase + write `file` into `dest`, interleaved. With `sha`, also hashes every
+// byte before the final 32 (the appended SHA-256 trailer) as it streams.
+Result writeImage(HalFile& file, const esp_partition_t* dest, ProgressCb onProgress, void* ctx,
+                  mbedtls_sha256_context* sha) {
   const size_t firmwareSize = file.fileSize();
   LOG_INF("FLASH", "open image size=%u dest=%s @0x%x partsize=%u", static_cast<unsigned>(firmwareSize), dest->label,
           static_cast<unsigned>(dest->address), static_cast<unsigned>(dest->size));
@@ -314,6 +312,7 @@ Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
     return Result::OOM;
   }
 
+  const size_t hashedSize = firmwareSize > SHA_TRAILER_BYTES ? firmwareSize - SHA_TRAILER_BYTES : 0;
   // Interleave erase + write so the progress bar advances 0→100% smoothly
   // rather than stalling for several seconds during a single up-front erase.
   size_t streamPos = 0;
@@ -342,12 +341,91 @@ Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
       LOG_ERR("FLASH", "read @%u: got=%d want=%u", static_cast<unsigned>(streamPos), read, static_cast<unsigned>(want));
       return Result::READ_FAIL;
     }
+    if (sha && streamPos < hashedSize) {
+      mbedtls_sha256_update(sha, buffer.get(), std::min(want, hashedSize - streamPos));
+    }
     if (esp_partition_write(dest, streamPos, buffer.get(), want) != ESP_OK) {
       LOG_ERR("FLASH", "write @%u failed", static_cast<unsigned>(streamPos));
       return Result::WRITE_FAIL;
     }
     streamPos += want;
     if (onProgress) onProgress(streamPos, firmwareSize, ctx);
+  }
+  return Result::OK;
+}
+}  // namespace
+
+Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
+  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  if (!dest) {
+    LOG_ERR("FLASH", "no next-update partition");
+    return Result::NO_PARTITION;
+  }
+  const Result written = writeImage(file, dest, onProgress, ctx, nullptr);
+  if (written != Result::OK) return written;
+  if (!ota_boot::switchTo(dest)) {
+    LOG_ERR("FLASH", "otadata switch failed");
+    return Result::OTADATA_FAIL;
+  }
+  return Result::OK;
+}
+
+bool readShaTrailer(const char* sdPath, size_t& size, uint8_t sha[SHA_TRAILER_BYTES]) {
+  HalFile file;
+  if (!Storage.openFileForRead("FLASH", sdPath, file) || !file) {
+    LOG_ERR("FLASH", "open failed: %s", sdPath);
+    return false;
+  }
+  size = file.fileSize();
+  // esp_image_header_t.hash_appended (byte 23): only such images end in a SHA-256.
+  constexpr size_t HASH_APPENDED_OFFSET = 23;
+  uint8_t header[HASH_APPENDED_OFFSET + 1];
+  const bool hashed =
+      file.read(header, sizeof(header)) == static_cast<int>(sizeof(header)) && header[HASH_APPENDED_OFFSET] == 1;
+  const bool ok = hashed && size > SHA_TRAILER_BYTES && file.seek(size - SHA_TRAILER_BYTES) &&
+                  file.read(sha, SHA_TRAILER_BYTES) == static_cast<int>(SHA_TRAILER_BYTES);
+  file.close();
+  if (!ok) LOG_INF("FLASH", "no SHA-256 trailer to pin (hash_appended=%d): %s", hashed ? 1 : 0, sdPath);
+  return ok;
+}
+
+Result flashConfirmedFile(const char* sdPath, const size_t expectedSize, const uint8_t expectedSha[SHA_TRAILER_BYTES],
+                          ProgressCb onProgress, void* ctx) {
+  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  if (!dest) {
+    LOG_ERR("FLASH", "no next-update partition");
+    return Result::NO_PARTITION;
+  }
+  HalFile file;
+  if (!Storage.openFileForRead("FLASH", sdPath, file) || !file) {
+    LOG_ERR("FLASH", "open failed: %s", sdPath);
+    return Result::OPEN_FAIL;
+  }
+  const size_t size = file.fileSize();
+  uint8_t trailer[SHA_TRAILER_BYTES];
+  if (size != expectedSize || size > dest->size || !file.seek(size - SHA_TRAILER_BYTES) ||
+      file.read(trailer, SHA_TRAILER_BYTES) != static_cast<int>(SHA_TRAILER_BYTES) ||
+      memcmp(trailer, expectedSha, SHA_TRAILER_BYTES) != 0) {
+    LOG_ERR("FLASH", "file changed since validation: %s (size %u, expected %u)", sdPath, static_cast<unsigned>(size),
+            static_cast<unsigned>(expectedSize));
+    file.close();
+    return Result::BAD_SHA;
+  }
+
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  mbedtls_sha256_starts(&sha, /*is224=*/0);
+  const Result written = writeImage(file, dest, onProgress, ctx, &sha);
+  file.close();
+  uint8_t digest[SHA_TRAILER_BYTES];
+  mbedtls_sha256_finish(&sha, digest);
+  mbedtls_sha256_free(&sha);
+  if (written != Result::OK) return written;
+  // The bytes just written hash to the trailer validateImageFile() accepted,
+  // so the partition holds exactly the image that passed the full check.
+  if (memcmp(digest, expectedSha, SHA_TRAILER_BYTES) != 0) {
+    LOG_ERR("FLASH", "written image SHA-256 mismatch; otadata left unchanged");
+    return Result::BAD_SHA;
   }
   if (!ota_boot::switchTo(dest)) {
     LOG_ERR("FLASH", "otadata switch failed");

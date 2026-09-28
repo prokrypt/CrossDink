@@ -2,6 +2,7 @@
 
 #include <BidiUtils.h>
 #include <FreeInkUIIcon.h>
+#include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -160,6 +161,7 @@ void KeyboardEntryActivity::onExit() {
 #ifndef SIMULATOR
   // ActivityManager holds RenderLock around onExit, so no refresh is running.
   freeink::setUc8179KbdExperiment(nullptr);
+  display.setRefreshLightSleep(false);
   if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) freeink::requestUc8179HalfNext();
 #endif
 }
@@ -190,10 +192,17 @@ void KeyboardEntryActivity::loadKbdExperiment() {
     }
   }
   LOG_INF("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
+  kbdFrame = 0;
+  prevFrameStrokeMs = 0;
+  highlightPending = false;
+#ifndef SIMULATOR
+  display.setRefreshLightSleep((kbdExpFlags & KBD_EXP_LIGHT_SLEEP_DRF) != 0);
+#endif
 }
 
-void KeyboardEntryActivity::requestStrokeUpdate() {
+void KeyboardEntryActivity::requestStrokeUpdate(const StrokeCause cause) {
   strokeAtMs.store(millis(), std::memory_order_relaxed);
+  strokeCause.store(static_cast<uint8_t>(cause), std::memory_order_relaxed);
   requestUpdate();
 }
 
@@ -641,6 +650,7 @@ void KeyboardEntryActivity::loop() {
         touchRouter.update(interactions, tapCandidate, static_cast<int16_t>(tx), static_cast<int16_t>(ty), tapped,
                            static_cast<int16_t>(tapX), static_cast<int16_t>(tapY), inContact, millis());
     if (result.event) {
+      highlightPending = false;
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestStrokeUpdate();
@@ -648,7 +658,18 @@ void KeyboardEntryActivity::loop() {
       return;
     }
     if (result.activeChanged) {
-      requestStrokeUpdate();
+      if (interactions.activeIndex() >= 0) {
+        highlightPending = true;
+        highlightDueMs = millis() + TOUCH_HIGHLIGHT_DELAY_MS;
+      } else if (highlightPending) {
+        highlightPending = false;  // released before the highlight was drawn
+      } else {
+        requestStrokeUpdate(StrokeCause::Release);
+      }
+    }
+    if (highlightPending && static_cast<long>(millis() - highlightDueMs) >= 0) {
+      highlightPending = false;
+      requestStrokeUpdate(StrokeCause::Press);
     }
     if (tapCandidate || tapped) {
       return;
@@ -1107,23 +1128,37 @@ void KeyboardEntryActivity::render(RenderLock&&) {
       if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
     }
   }
-  // T6: the first keyboard frame runs as a Half (charge scrub) refresh.
-  if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_HALF_ON_OPEN)) freeink::requestUc8179HalfNext();
+  // The first keyboard frame cleans the panel: a DU scrub (64, with the T4
+  // LUT) or a Half charge scrub (16).
+  if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_DU_SCRUB_ON_OPEN) && (kbdExpFlags & KBD_EXP_DU_LUT)) {
+    freeink::requestUc8179DuScrubNext();
+  } else if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_HALF_ON_OPEN)) {
+    freeink::requestUc8179HalfNext();
+  }
   kbdExpFirstFrame = false;
   freeink::setUc8179KbdExperiment(&exp);
 #endif
   const unsigned long displayStartMs = millis();
   renderer.displayBuffer();
 #ifndef SIMULATOR
+  // prev_* describe the refresh that finished before this frame started (the
+  // previous frame's); prev_key_to_ink = that frame's stroke -> its DRF done.
   const freeink::Uc8179KbdTiming timing = freeink::uc8179KbdTiming();
   const unsigned long stroke = strokeAtMs.exchange(0, std::memory_order_relaxed);
+  static constexpr const char* CAUSE_NAMES[] = {"redraw", "key", "press", "release"};
+  const uint8_t cause = strokeCause.exchange(0, std::memory_order_relaxed);
   const unsigned long now = millis();
+  const long prevKeyToInk = prevFrameStrokeMs != 0 && timing.doneMs >= prevFrameStrokeMs
+                                ? static_cast<long>(timing.doneMs - prevFrameStrokeMs)
+                                : -1L;
   LOG_INF("KBD",
-          "KBD_EXP flags=0x%02x win=%u stroke_to_idle=%lu ms display=%lu ms upload=%u drf=%u rows=%u sync=%u frames=%u "
-          "pll=0x%02x",
-          kbdExpFlags, exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs,
-          static_cast<unsigned>(timing.uploadMs), static_cast<unsigned>(timing.drfMs),
-          static_cast<unsigned>(timing.drfRows), static_cast<unsigned>(timing.syncMs), kbdExpFrames, exp.pll);
+          "KBD_EXP flags=0x%02x frame=%lu cause=%s win=%u stroke_to_idle=%lu ms display=%lu ms prev_upload=%u "
+          "prev_drf=%u prev_rows=%u prev_sync=%u prev_key_to_ink=%ld frames=%u pll=0x%02x",
+          kbdExpFlags, static_cast<unsigned long>(++kbdFrame), stroke ? CAUSE_NAMES[cause & 3] : "redraw",
+          exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
+          static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.drfRows),
+          static_cast<unsigned>(timing.syncMs), prevKeyToInk, kbdExpFrames, exp.pll);
+  prevFrameStrokeMs = stroke;
 #else
   (void)displayStartMs;
 #endif

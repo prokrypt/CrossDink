@@ -37,6 +37,7 @@ class SdFirmwareUpdateActivity : public Activity {
         preselectedPath(std::move(preselectedPath)) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return state == State::UPDATING || state == State::VALIDATING; }
@@ -49,6 +50,11 @@ class SdFirmwareUpdateActivity : public Activity {
 
   std::string firmwarePath;
   size_t firmwareSize = 0;
+  // Size and SHA-256 trailer of the image validateFirmware() accepted; the
+  // flash pass then reads the card once (FirmwareFlasher::flashConfirmedFile).
+  bool firmwarePinned = false;
+  size_t pinnedSize = 0;
+  uint8_t pinnedSha[32] = {};
   size_t writtenBytes = 0;
   unsigned int lastRenderedPercent = 101;
   std::string errorMessage;

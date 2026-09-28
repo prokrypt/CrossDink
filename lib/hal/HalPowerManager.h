@@ -27,6 +27,7 @@ extern HalPowerManager powerManager;  // Singleton
 class HalPowerManager {
   int normalFreq = 0;  // MHz
   bool isLowPower = false;
+  volatile bool refreshLightSleep = false;
 #if CONFIG_PM_ENABLE
   // Held while the device is active. Releasing it is what lets DFS drop to the
   // floor and lets tickless idle enter light sleep.
@@ -39,6 +40,7 @@ class HalPowerManager {
   // floor. cpuFreqLockHeld tracks what has actually been acquired.
   bool cpuFreqLockHeld = false;
   bool displayBusyWaitActive = false;
+  bool displayPmLockHeld = false;  // this busy-wait took displayPmLock
   void syncCpuFreqLock();
   // Held while USB Drive owns the USB-OTG PHY. TinyUSB cannot service the host
   // across a light-sleep window, and USJ_NO_AUTO_LS_ON_CONNECTION only watches
@@ -85,6 +87,11 @@ class HalPowerManager {
   // lock creation failed.
   void beginDisplayBusyWait();
   void endDisplayBusyWait();
+  // Trial (keyboard kbd-exp bit 128): busy-waits skip the no-light-sleep lock,
+  // and HalDisplay's slice hook sleeps the task in 10 ms steps, so tickless
+  // idle can light-sleep through the waveform. Set between refreshes.
+  void setRefreshLightSleep(bool allowed) { refreshLightSleep = allowed; }
+  bool refreshLightSleepAllowed() const { return refreshLightSleep; }
 
   // Keeps light sleep off while a refresh runs in the background and the
   // render task goes on working, as the deferred menu refresh does. Unlike the

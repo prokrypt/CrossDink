@@ -91,7 +91,8 @@ void HalPowerManager::syncCpuFreqLock() {
 
 void HalPowerManager::beginDisplayBusyWait() {
 #if CONFIG_PM_ENABLE
-  if (displayPmLock != nullptr) esp_pm_lock_acquire(displayPmLock);
+  displayPmLockHeld = displayPmLock != nullptr && !refreshLightSleep;
+  if (displayPmLockHeld) esp_pm_lock_acquire(displayPmLock);
   // The panel runs its waveform on its own; the CPU only waits for BUSY, so
   // let DFS drop it to the floor for the duration. displayPmLock still keeps
   // it out of light sleep.
@@ -108,7 +109,8 @@ void HalPowerManager::endDisplayBusyWait() {
   displayBusyWaitActive = false;
   syncCpuFreqLock();
   if (modeMutex != nullptr) xSemaphoreGive(modeMutex);
-  if (displayPmLock != nullptr) esp_pm_lock_release(displayPmLock);
+  if (displayPmLockHeld) esp_pm_lock_release(displayPmLock);
+  displayPmLockHeld = false;
 #endif
 }
 
@@ -179,7 +181,6 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   const bool locked = lockCount > 0;
 
   if (!locked && enabled && !isLowPower) {
-    LOG_DBG("PWR", "Going to low-power mode");
 #if CONFIG_PM_ENABLE
     // DFS owns the clock here: dropping the lock is what lets the CPU fall to
     // DFS_MIN_FREQ and lets the idle task light-sleep between loop ticks.
@@ -197,7 +198,6 @@ void HalPowerManager::setPowerSaving(bool enabled) {
     isLowPower = true;
 
   } else if ((!enabled || locked) && isLowPower) {
-    LOG_DBG("PWR", "Restoring normal CPU frequency");
 #if CONFIG_PM_ENABLE
     isLowPower = false;
     syncCpuFreqLock();

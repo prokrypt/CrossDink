@@ -7,6 +7,7 @@
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
 #include "network/CrossPointWebServer.h"
+#include "util/TransferLightPulse.h"
 
 enum class CalibreConnectState { WIFI_SELECTION, SERVER_STARTING, SERVER_RUNNING, ERROR };
 
@@ -19,6 +20,7 @@ class CalibreConnectActivity final : public Activity {
   ScreenTransitionRefresh screenTransitionRefresh;
 
   std::unique_ptr<CrossPointWebServer> webServer;
+  TransferLightPulse transferLight;
   std::string connectedIP;
   std::string connectedSSID;
   size_t lastProgressReceived = 0;

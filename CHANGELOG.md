@@ -2,6 +2,7 @@
 
 ### Added
 
+- While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% every half second, and stays off while idle. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
 - View a selected book's reading stats from its Library or File Browser action menu.
 - Library replaces Recent Books with a searchable book list, and adds various book metadata sort options.
 - Reset a book's reader settings from the in-reader Settings tab.
@@ -19,6 +20,10 @@
 
 ### Changed
 
+- X4 Pro light-sleep profiles: Wi-Fi rejoins a saved network with a fast scan on its known channel, and uploads use larger TCP windows, 12 KB WebSocket chunks and a background SD writer, so they reach the device faster.
+- Updating firmware from the SD card checks the image's SHA-256 while writing it, instead of reading the whole file twice, and shows its progress with the fast keyboard refresh.
+- After a silent restart the screen keeps its previous frame instead of doing a full refresh.
+- Large images in books that were re-decoded on every page now stay cached on PSRAM devices.
 - Buttons and touch are read on their own task, woken by the input lines, so presses, taps and swipes made while the device is busy drawing or indexing are queued instead of lost.
 - A chapter's first open inflates it on the second core while the screen task parses and lays it out, instead of unpacking it to the SD card first.
 - JPEG and PNG images in books decode on the second core while the screen task dithers and draws the rows already decoded.

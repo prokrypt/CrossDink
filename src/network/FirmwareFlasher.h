@@ -70,6 +70,21 @@ Result validateOpenImageFile(HalFile& file, size_t partitionSize);
 // never reopens `file`; the caller must keep it open until this returns.
 Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx);
 
+// Size of the SHA-256 trailer appended to hash_appended images.
+constexpr size_t SHA_TRAILER_BYTES = 32;
+
+// Reads `sdPath`'s size and its last SHA_TRAILER_BYTES (the appended SHA-256),
+// to pin a file that validateImageFile() just accepted. False when the image
+// has no appended hash (use flashFromSdPath then).
+bool readShaTrailer(const char* sdPath, size_t& size, uint8_t sha[SHA_TRAILER_BYTES]);
+
+// flashFromSdPath() for a file validateImageFile() accepted earlier, pinned by
+// readShaTrailer(): one SD pass instead of validate + write. It refuses a file
+// whose size or trailer changed, hashes the bytes as it writes them, and
+// switches otadata only when that hash equals the pinned trailer.
+Result flashConfirmedFile(const char* sdPath, size_t expectedSize, const uint8_t expectedSha[SHA_TRAILER_BYTES],
+                          ProgressCb onProgress, void* ctx);
+
 const char* resultName(Result r);
 
 // Returns the chip_id at byte 12 of the running app image, or 0xFFFF when it

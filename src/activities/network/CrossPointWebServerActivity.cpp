@@ -66,11 +66,17 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
+  transferLight.begin();
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
   // C3 has substantially more contiguous heap here than while serving HTTP.
-  sdFontSystem.ensureRegistry();
+  // The in-place relaunch after the mode picker follows a scan made moments
+  // ago on the previous entry, so it skips a second one.
+  constexpr uint32_t REGISTRY_FRESH_MS = 30000;
+  if (!networkBootReady || !sdFontSystem.registryRefreshedWithin(REGISTRY_FRESH_MS)) {
+    sdFontSystem.ensureRegistry();
+  }
   sdFontSystem.releaseForNetwork(renderer);
 
   LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
@@ -101,6 +107,7 @@ void CrossPointWebServerActivity::onEnter() {
 
 void CrossPointWebServerActivity::onExit() {
   Activity::onExit();
+  transferLight.end();
 
   state = WebServerActivityState::SHUTTING_DOWN;
 
@@ -117,7 +124,9 @@ void CrossPointWebServerActivity::onExit() {
     delete dnsServer;
     dnsServer = nullptr;
   }
-  delay(50);
+  // Let sockets close before Wi-Fi goes down; nothing to wait for when the
+  // exit comes straight from the mode picker (no radio, no services).
+  if (wifiWasActive) delay(50);
 
   // Wi-Fi goes down after local services have released their sockets. A
   // session that left the internal heap too fragmented, or changed the UI
@@ -355,6 +364,7 @@ void CrossPointWebServerActivity::stopWebServer() {
 }
 
 void CrossPointWebServerActivity::loop() {
+  transferLight.update(webServer && webServer->isTransferActive());
   if ((state == WebServerActivityState::SERVER_RUNNING || state == WebServerActivityState::AP_STARTING) &&
       exitRequested()) {
     exitToOrigin();
