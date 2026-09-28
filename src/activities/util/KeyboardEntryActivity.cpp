@@ -1089,6 +1089,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // two regions a keystroke changes. The first frame uploads everything.
   freeink::Uc8179KbdExperiment exp;
   exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT));
+  if (kbdExpFlags & KBD_EXP_WINDOW_DRF) exp.flags |= freeink::Uc8179KbdExperiment::WindowDrf;
   exp.lutFrames = kbdExpFrames;
   exp.pll = (kbdExpFlags & KBD_EXP_DU_LUT) ? kbdExpPll : 0;
   if ((kbdExpFlags & KBD_EXP_TWO_WINDOW) && !kbdExpFirstFrame) {
@@ -1111,12 +1112,12 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const freeink::Uc8179KbdTiming timing = freeink::uc8179KbdTiming();
   const unsigned long stroke = strokeAtMs.exchange(0, std::memory_order_relaxed);
   const unsigned long now = millis();
-  LOG_INF(
-      "KBD",
-      "KBD_EXP flags=0x%02x win=%u stroke_to_idle=%lu ms display=%lu ms upload=%u drf=%u sync=%u frames=%u pll=0x%02x",
-      kbdExpFlags, exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs,
-      static_cast<unsigned>(timing.uploadMs), static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.syncMs),
-      kbdExpFrames, exp.pll);
+  LOG_INF("KBD",
+          "KBD_EXP flags=0x%02x win=%u stroke_to_idle=%lu ms display=%lu ms upload=%u drf=%u rows=%u sync=%u frames=%u "
+          "pll=0x%02x",
+          kbdExpFlags, exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs,
+          static_cast<unsigned>(timing.uploadMs), static_cast<unsigned>(timing.drfMs),
+          static_cast<unsigned>(timing.drfRows), static_cast<unsigned>(timing.syncMs), kbdExpFrames, exp.pll);
 #else
   (void)displayStartMs;
 #endif
