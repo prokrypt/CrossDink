@@ -366,7 +366,7 @@ void CrossPointWebServerActivity::stopWebServer() {
 }
 
 void CrossPointWebServerActivity::loop() {
-  transferLight.update(webServer && webServer->isTransferActive());
+  transferLight.update(webServer && webServer->isMovingData(TransferLightPulse::TAIL_MS));
   if ((state == WebServerActivityState::SERVER_RUNNING || state == WebServerActivityState::AP_STARTING) &&
       exitRequested()) {
     exitToOrigin();

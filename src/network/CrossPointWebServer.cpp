@@ -838,9 +838,15 @@ void CrossPointWebServer::handleClient() {
   // Take the power hold before handleClient(): it reads a whole upload or
   // sends a whole download in one blocking call.
   const bool pending = server->requestPending();
-  if (pending) noteTransferActivity();
+  if (pending) {
+    noteTransferActivity();
+    requestBusy.store(true, std::memory_order_relaxed);
+  }
   server->handleClient();
-  if (pending) lastTransferMs = millis();
+  if (pending) {
+    lastTransferMs = millis();
+    requestBusy.store(false, std::memory_order_relaxed);
+  }
 
   // Handle WebSocket events
   if (wsServer) {

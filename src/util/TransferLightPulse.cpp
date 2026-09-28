@@ -19,6 +19,7 @@ void TransferLightPulse::begin() {
   savedOn = Frontlight.isOn();
   userOverride = false;
   pulsing = false;
+  stopAtMs = 0;
   held = false;
   armed = true;
   write(0);
@@ -43,10 +44,24 @@ void TransferLightPulse::update(const bool transferActive) {
   }
 
   const uint32_t now = millis();
-  if (transferActive != pulsing) {
-    pulsing = transferActive;
-    pulseStartMs = now;
-    LOG_DBG("LIGHT", "Transfer pulse %s", pulsing ? "start" : "stop");
+  if (transferActive) {
+    if (!pulsing) {
+      pulsing = true;
+      pulseStartMs = now;
+      LOG_DBG("LIGHT", "Transfer pulse start");
+    }
+    stopAtMs = 0;  // data resumed while fading: keep the same waveform going
+  } else if (pulsing) {
+    if (stopAtMs == 0) {
+      // Finish the current cycle so the light ramps down to 0.
+      const uint32_t cycles = (now - pulseStartMs) / kCycleMs + 1;
+      stopAtMs = pulseStartMs + cycles * kCycleMs;
+    }
+    if (static_cast<int32_t>(now - stopAtMs) >= 0) {
+      pulsing = false;
+      stopAtMs = 0;
+      LOG_DBG("LIGHT", "Transfer pulse stop");
+    }
   }
 
   uint8_t target = 0;

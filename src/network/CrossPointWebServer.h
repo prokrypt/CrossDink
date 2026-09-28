@@ -103,6 +103,13 @@ class CrossPointWebServer {
   // TRANSFER_LINGER_MS after the last one: CPU at full clock, no light sleep,
   // Wi-Fi modem awake. The linger keeps page loads and bursts fast.
   bool isTransferActive() const { return transferActive.load(std::memory_order_relaxed); }
+  // True while a request is being served or within `tailMs` of the last
+  // request, upload chunk or WebSocket message. Unlike isTransferActive() it
+  // has no power linger, so UI feedback can stop soon after data stops.
+  bool isMovingData(unsigned long tailMs) const {
+    return requestBusy.load(std::memory_order_relaxed) ||
+           millis() - lastTransferMs.load(std::memory_order_relaxed) < tailMs;
+  }
   // STA mode only. Between transfers the modem sleeps between DTIM beacons
   // and the device light-sleeps between polls; an AP must stay awake.
   bool allowsIdleSleep() const { return isRunning() && !apMode; }
@@ -132,7 +139,8 @@ class CrossPointWebServer {
 
   static constexpr unsigned long TRANSFER_LINGER_MS = 2000;
   std::atomic<bool> transferActive{false};
-  unsigned long lastTransferMs = 0;
+  std::atomic<unsigned long> lastTransferMs{0};
+  std::atomic<bool> requestBusy{false};  // handleClient() is serving a request
   void noteTransferActivity();
   void updateTransferIdle();
 

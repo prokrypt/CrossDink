@@ -102,7 +102,7 @@ void CalibreConnectActivity::stopWebServer() {
 }
 
 void CalibreConnectActivity::loop() {
-  transferLight.update(webServer && webServer->isTransferActive());
+  transferLight.update(webServer && webServer->isMovingData(TransferLightPulse::TAIL_MS));
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     exitRequested = true;
   }
