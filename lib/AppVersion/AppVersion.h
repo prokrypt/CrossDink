@@ -6,14 +6,6 @@
 #define CROSSDINK_VERSION "dev"
 #endif
 
-#ifndef CROSSDINK_GIT_SHA
-#define CROSSDINK_GIT_SHA "unknown"
-#endif
-
-#ifndef CROSSDINK_GIT_DIRTY
-#define CROSSDINK_GIT_DIRTY "unknown"
-#endif
-
 #ifndef CROSSDINK_PIOENV
 #define CROSSDINK_PIOENV "unknown"
 #endif

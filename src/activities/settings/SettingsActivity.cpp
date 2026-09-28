@@ -171,8 +171,8 @@ void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, c
 
   // Short branch and commit; "*" marks uncommitted changes.
   char details[64];
-  snprintf(details, sizeof(details), "%s %s%s", BuildInfo::shortBranch(), CROSSDINK_GIT_SHA,
-           strcmp(CROSSDINK_GIT_DIRTY, "1") == 0 ? "*" : "");
+  snprintf(details, sizeof(details), "%s %s%s", BuildInfo::shortBranch(), BuildInfo::gitSha(),
+           strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "");
   drawCenteredTextLine(renderer, pageWidth, detailsLineY, renderer.truncatedText(SMALL_FONT_ID, details, maxWidth));
 
   if (renderer.getTextWidth(SMALL_FONT_ID, label.c_str()) <= maxWidth) {
