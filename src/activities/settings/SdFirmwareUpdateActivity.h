@@ -56,6 +56,7 @@ class SdFirmwareUpdateActivity : public Activity {
   TransferLightPulse flashLight;
   unsigned int lastRenderedPercent = 101;
   std::string errorMessage;
+  std::string errorHint;  // second failure line (e.g. the running firmware was kept)
 
   void launchPicker();
   void onPickerResult(const ActivityResult& result);
