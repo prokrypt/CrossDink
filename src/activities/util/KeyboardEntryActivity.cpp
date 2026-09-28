@@ -1201,8 +1201,9 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const int bottomEdge = mappedInput.hasTouchHardware() ? renderer.getScreenHeight()
                                                         : renderer.getScreenHeight() - metrics.buttonHintsHeight;
   props.bottomHitOverflow = static_cast<int16_t>(std::max(0, bottomEdge - keysRect.bottom()));
-  // Edge taps on short rows (A, L) land on the edge key, like Q and P.
-  props.edgeKeysHitPanelSides = mappedInput.hasTouchHardware();
+  // Every tap inside the keyboard lands on a key: gaps split between
+  // neighbours, and edge keys reach the screen sides.
+  props.fillHitGaps = mappedInput.hasTouchHardware();
   fui::keyboard(frame, keysRect, props);
   interactions.publish();
   interactionsReady.store(true, std::memory_order_release);
