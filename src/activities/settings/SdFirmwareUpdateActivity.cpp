@@ -28,6 +28,29 @@ constexpr unsigned int PROGRESS_STEP_PERCENT = 5;
 // DU frames for progress repaints (the keyboard's tested "63 6" setting).
 constexpr uint8_t PROGRESS_LUT_FRAMES = 6;
 
+// What went wrong, for the failure screen. Integrity failures come from the
+// check that runs while the image is written.
+const char* failureMessage(const firmware_flash::Result result) {
+  using firmware_flash::Result;
+  switch (result) {
+    case Result::BAD_CHIP:
+    case Result::WRONG_BOARD:
+      return tr(STR_FIRMWARE_WRONG_DEVICE);
+    case Result::BAD_MAGIC:
+    case Result::BAD_SEGMENTS:
+    case Result::BAD_CHECKSUM:
+    case Result::BAD_SHA:
+    case Result::BAD_SIZE:
+      return tr(STR_INVALID_FIRMWARE);
+    case Result::TOO_LARGE:
+      return tr(STR_FIRMWARE_TOO_LARGE);
+    case Result::TOO_SMALL:
+      return tr(STR_FIRMWARE_TOO_SMALL);
+    default:
+      return tr(STR_FIRMWARE_WRITE_FAILED);
+  }
+}
+
 unsigned int progressStep(size_t written, size_t total) {
   if (total == 0) return 0;
   const auto pct = static_cast<unsigned int>((static_cast<uint64_t>(written) * 100) / total);
@@ -84,6 +107,7 @@ void SdFirmwareUpdateActivity::onPickerResult(const ActivityResult& result) {
 
 void SdFirmwareUpdateActivity::selectFirmware(std::string path) {
   firmwarePath = std::move(path);
+  errorHint.clear();
   LOG_DBG("FW", "Selected: %s", firmwarePath.c_str());
 
   {
@@ -210,11 +234,12 @@ void SdFirmwareUpdateActivity::performUpdate() {
   flashLight.begin();
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
-    LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
+    LOG_ERR("FW", "flash failed: %s; running firmware kept", firmware_flash::resultName(result));
+    // Back out: the user's light and a live touchscreen for the Back tap.
     flashLight.end();
-    errorMessage = result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD
-                       ? tr(STR_FIRMWARE_WRONG_DEVICE)
-                       : tr(STR_FIRMWARE_WRITE_FAILED);
+    if (gpio.hasTouch() && !gpio.setTouchSleep(false)) LOG_ERR("FW", "Touch controller did not wake");
+    errorMessage = failureMessage(result);
+    errorHint = tr(STR_FIRMWARE_KEPT_HINT);
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
@@ -319,9 +344,13 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
                                      tr(STR_RESTARTING_HINT), 3);
   } else if (state == State::FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
+    int y = top + lineHeight + metrics.verticalSpacing;
     if (!errorMessage.empty()) {
-      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing,
-                                       errorMessage.c_str(), 3);
+      y += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, errorMessage.c_str(), 3);
+    }
+    if (!errorHint.empty()) {
+      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y + metrics.verticalSpacing,
+                                       errorHint.c_str(), 3);
     }
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
