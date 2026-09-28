@@ -230,14 +230,18 @@ void SdFirmwareUpdateActivity::performUpdate() {
   // SHA-256, board tag) and activates the slot only when they pass.
   // Nothing reads touch while flashing; sleep the GT911 to save power. After a
   // failure the main loop's touch sleep policy wakes it again.
+#if CROSSDINK_APP_CAP_TOUCH
   if (gpio.hasTouch() && !gpio.setTouchSleep(true)) LOG_ERR("FW", "Touch controller did not sleep");
+#endif
   flashLight.begin();
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s; running firmware kept", firmware_flash::resultName(result));
     // Back out: the user's light and a live touchscreen for the Back tap.
     flashLight.end();
+#if CROSSDINK_APP_CAP_TOUCH
     if (gpio.hasTouch() && !gpio.setTouchSleep(false)) LOG_ERR("FW", "Touch controller did not wake");
+#endif
     errorMessage = failureMessage(result);
     errorHint = tr(STR_FIRMWARE_KEPT_HINT);
     RenderLock lock(*this);
