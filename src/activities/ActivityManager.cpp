@@ -1166,6 +1166,12 @@ bool ActivityManager::requiresExclusiveStorageLoop() const {
 
 bool ActivityManager::blocksGlobalInput() const { return currentActivity && currentActivity->blocksGlobalInput(); }
 
+bool ActivityManager::isRenderIdle() const {
+  if (requestedUpdate.load() || RenderLock::peek() || renderer.isRefreshPending()) return false;
+  // Notified-but-not-yet-running shows as Ready; waiting for work is Blocked.
+  return renderTaskHandle == nullptr || eTaskGetState(renderTaskHandle) == eBlocked;
+}
+
 bool ActivityManager::isHomeActivity() const { return currentActivity && currentActivity->name == "Home"; }
 
 bool ActivityManager::isReaderActivity() const {

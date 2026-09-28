@@ -62,6 +62,9 @@ class Activity {
   // Screens that mostly sit idle (file transfer and similar) let the panel's
   // booster switch off once no frame has been drawn for a couple of seconds.
   virtual bool powerOffPanelWhenIdle() const { return false; }
+  // Serial remote control: insert text as if typed. False when the screen has
+  // no text entry.
+  virtual bool injectText(const char*) { return false; }
   // A Wi-Fi screen that is idle between transfers: the main loop may power
   // save and light-sleep between ticks even though the radio is up.
   virtual bool allowsRadioIdleSleep() { return false; }
