@@ -50,6 +50,7 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
+  static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // T6: DRF only the changed box
   // Settings > Turbo keyboard: every tweak above.
   static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = 31;
   uint8_t kbdExpFlags = 0;
