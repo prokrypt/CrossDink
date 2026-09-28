@@ -111,6 +111,10 @@ class HalStorage {
     const auto found = files_.find(path);
     return found == files_.end() ? HalFile{} : HalFile(found->second);
   }
+  template <typename Path>
+  bool openFileForReadIfPresent(const char* moduleName, const Path& path, HalFile& file) {
+    return openFileForRead(moduleName, path, file);
+  }
   bool openFileForRead(const char*, const std::string& path, HalFile& file) {
     file = open(path.c_str(), O_RDONLY);
     return static_cast<bool>(file);

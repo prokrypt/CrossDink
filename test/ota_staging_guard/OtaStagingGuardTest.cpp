@@ -40,12 +40,22 @@ TEST(OtaStagingGuard, ValidatesBoardTaggedImageBeforeFlashCanStart) {
   EXPECT_EQ(flasher.substr(flashValidated, pathFlasher - flashValidated).find("Storage.openFileForRead"),
             std::string::npos);
 
+  // The SD path checks only the header up front; the full image (checksum,
+  // SHA-256, board tag) is verified over the bytes as they are written, and
+  // the new slot is activated only after that verification passes.
   const std::string sharedPathFlasher = flasher.substr(pathFlasher);
-  const size_t sharedValidation = sharedPathFlasher.find("validateOpenImageFile(file");
+  const size_t sharedHeader = sharedPathFlasher.find("checkImageHeader(file");
   const size_t sharedFlash = sharedPathFlasher.find("flashValidatedFile(file");
-  ASSERT_NE(sharedValidation, std::string::npos);
+  ASSERT_NE(sharedHeader, std::string::npos);
   ASSERT_NE(sharedFlash, std::string::npos);
-  EXPECT_LT(sharedValidation, sharedFlash);
+  EXPECT_LT(sharedHeader, sharedFlash);
+
+  const std::string validatedFlasher = flasher.substr(flashValidated, pathFlasher - flashValidated);
+  const size_t streamVerify = validatedFlasher.find("verifier.finish()");
+  const size_t activate = validatedFlasher.find("ota_boot::switchTo(dest)");
+  ASSERT_NE(streamVerify, std::string::npos);
+  ASSERT_NE(activate, std::string::npos);
+  EXPECT_LT(streamVerify, activate);
 }
 
 }  // namespace
