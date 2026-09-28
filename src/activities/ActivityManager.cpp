@@ -1368,3 +1368,9 @@ void RenderLock::unlock() {
  * @note Must not be called from ISR context — xSemaphoreGetMutexHolder is not ISR-safe.
  */
 bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
+
+const char* ActivityManager::currentActivityName() const {
+  return currentActivity ? currentActivity->name.c_str() : "";
+}
+
+bool ActivityManager::injectText(const char* utf8) { return currentActivity && currentActivity->injectText(utf8); }
