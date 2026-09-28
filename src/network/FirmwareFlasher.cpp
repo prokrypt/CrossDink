@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
+#include <TaskCores.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
@@ -10,6 +12,7 @@
 #include <spi_flash_mmap.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 
 #include "FirmwareBoardTag.h"
@@ -294,6 +297,151 @@ Result validateImageFile(const char* sdPath, size_t partitionSize) {
 }
 
 namespace {
+// Double-buffered read-ahead: a reader task fills one I/O buffer from the SD
+// card while the caller erases and programs the other. Flash operations stall
+// the cache on both cores, so the overlap is partial, but the card's DMA and
+// command turnaround no longer sit between every write. Falls back to plain
+// synchronous reads when the second buffer or the task can't be created.
+class ChunkSource {
+ public:
+  ChunkSource(HalFile& file, const size_t total) : file_(file), total_(total) {}
+  ~ChunkSource() { stop(); }
+  ChunkSource(const ChunkSource&) = delete;
+  ChunkSource& operator=(const ChunkSource&) = delete;
+
+  bool begin() {
+    if (!bufs_[0]) return false;
+    chunk_ = bufs_[0].size();
+    if (!bufs_[1] || bufs_[1].size() != chunk_) return true;
+    for (int i = 0; i < 2; ++i) {
+      free_[i] = xSemaphoreCreateBinary();
+      full_[i] = xSemaphoreCreateBinary();
+    }
+    done_ = xSemaphoreCreateBinary();
+    const bool semsOk = free_[0] && free_[1] && full_[0] && full_[1] && done_;
+    if (semsOk) {
+      xSemaphoreGive(free_[0]);
+      xSemaphoreGive(free_[1]);
+      async_ = xTaskCreatePinnedToCore(readTask, "FwRead", 3072, this, 1, nullptr, TaskCores::kUi) == pdPASS;
+    }
+    if (async_) {
+      LOG_INF("FLASH", "read-ahead on (2 x %u bytes)", static_cast<unsigned>(chunk_));
+    } else {
+      LOG_ERR("FLASH", "read-ahead unavailable; reading synchronously");
+      deleteSems();
+    }
+    return true;
+  }
+
+  // Next chunk (chunk_ bytes, less at the end), or nullptr on a read failure.
+  const uint8_t* next(size_t& len) {
+    if (!async_) {
+      len = std::min(chunk_, total_ - pos_);
+      const int read = file_.read(bufs_[0].get(), len);
+      if (read <= 0 || static_cast<size_t>(read) != len) {
+        LOG_ERR("FLASH", "read @%u: got=%d want=%u", static_cast<unsigned>(pos_), read, static_cast<unsigned>(len));
+        return nullptr;
+      }
+      pos_ += len;
+      return bufs_[0].get();
+    }
+    xSemaphoreTake(full_[idx_], portMAX_DELAY);
+    if (!ok_[idx_]) return nullptr;
+    len = len_[idx_];
+    return bufs_[idx_].get();
+  }
+
+  // The chunk from next() has been written; its buffer may be refilled.
+  void release() {
+    if (!async_) return;
+    xSemaphoreGive(free_[idx_]);
+    idx_ ^= 1;
+  }
+
+  // Stops the reader task (if any) and waits for it to let go of the file.
+  void stop() {
+    if (!async_) return;
+    stopping_.store(true, std::memory_order_release);
+    xSemaphoreGive(free_[0]);
+    xSemaphoreGive(free_[1]);
+    xSemaphoreTake(done_, portMAX_DELAY);
+    async_ = false;
+    deleteSems();
+  }
+
+ private:
+  static void readTask(void* arg) {
+    static_cast<ChunkSource*>(arg)->readLoop();
+    vTaskDelete(nullptr);
+  }
+
+  void readLoop() {
+    size_t pos = 0;
+    int i = 0;
+    while (pos < total_) {
+      xSemaphoreTake(free_[i], portMAX_DELAY);
+      if (stopping_.load(std::memory_order_acquire)) break;
+      const size_t want = std::min(chunk_, total_ - pos);
+      const int read = file_.read(bufs_[i].get(), want);
+      ok_[i] = read > 0 && static_cast<size_t>(read) == want;
+      len_[i] = want;
+      if (!ok_[i]) {
+        LOG_ERR("FLASH", "read @%u: got=%d want=%u", static_cast<unsigned>(pos), read, static_cast<unsigned>(want));
+      }
+      xSemaphoreGive(full_[i]);
+      if (!ok_[i]) break;
+      pos += want;
+      i ^= 1;
+    }
+    // Last touch of `this`: stop() may destroy the object once this is given.
+    xSemaphoreGive(done_);
+  }
+
+  void deleteSems() {
+    for (int i = 0; i < 2; ++i) {
+      if (free_[i]) vSemaphoreDelete(free_[i]);
+      if (full_[i]) vSemaphoreDelete(full_[i]);
+      free_[i] = full_[i] = nullptr;
+    }
+    if (done_) vSemaphoreDelete(done_);
+    done_ = nullptr;
+  }
+
+  HalFile& file_;
+  const size_t total_;
+  IoBuffer bufs_[2];
+  size_t chunk_ = 0;
+  size_t pos_ = 0;  // synchronous mode only
+  int idx_ = 0;
+  bool async_ = false;
+  std::atomic<bool> stopping_{false};
+  SemaphoreHandle_t free_[2] = {};
+  SemaphoreHandle_t full_[2] = {};
+  SemaphoreHandle_t done_ = nullptr;
+  size_t len_[2] = {};
+  bool ok_[2] = {};
+};
+
+bool allErased(const uint8_t* data, const size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    if (data[i] != 0xFF) return false;
+  }
+  return true;
+}
+
+// True when flash reads back all 0xFF over [offset, offset + len): NOR erase
+// only sets bits to 1 and programming only clears them, so such a range is
+// already in the erased state. Stops at the first programmed byte, so a used
+// block costs one 4 KiB read.
+bool rangeErased(const esp_partition_t* dest, const size_t offset, const size_t len, uint8_t* scratch) {
+  for (size_t done = 0; done < len; done += SEC) {
+    const size_t n = std::min(SEC, len - done);
+    if (esp_partition_read(dest, offset + done, scratch, n) != ESP_OK) return false;
+    if (!allErased(scratch, n)) return false;
+  }
+  return true;
+}
+
 // Erase + write `file` into `dest`, interleaved. With `sha`, also hashes every
 // byte before the final 32 (the appended SHA-256 trailer) as it streams.
 Result writeImage(HalFile& file, const esp_partition_t* dest, ProgressCb onProgress, void* ctx,
@@ -306,11 +454,17 @@ Result writeImage(HalFile& file, const esp_partition_t* dest, ProgressCb onProgr
     return Result::READ_FAIL;
   }
 
-  const IoBuffer buffer;
-  if (!buffer) {
+  ChunkSource source(file, firmwareSize);
+  if (!source.begin()) {
     LOG_ERR("FLASH", "OOM");
     return Result::OOM;
   }
+  // Blank skips compare plaintext 0xFF against raw flash, which only holds on
+  // an unencrypted partition. Without the scratch buffer every block is erased.
+  const bool blankSkips = !dest->encrypted;
+  auto scratch = blankSkips ? makeUniqueNoThrow<uint8_t[]>(SEC) : nullptr;
+  unsigned skippedErases = 0;
+  unsigned skippedChunks = 0;
 
   const size_t hashedSize = firmwareSize > SHA_TRAILER_BYTES ? firmwareSize - SHA_TRAILER_BYTES : 0;
   // Interleave erase + write so the progress bar advances 0→100% smoothly
@@ -318,39 +472,45 @@ Result writeImage(HalFile& file, const esp_partition_t* dest, ProgressCb onProgr
   size_t streamPos = 0;
   size_t erasedUpto = 0;
   while (streamPos < firmwareSize) {
-    if (streamPos >= erasedUpto) {
-      size_t eraseLen = std::min<size_t>(BLK, dest->size - streamPos);
+    size_t len = 0;
+    const uint8_t* data = source.next(len);
+    if (!data) return Result::READ_FAIL;
+
+    // Chunks are a fixed power-of-two size from offset 0, so one never spans
+    // an erase boundary; the loop still covers the whole write if it did.
+    while (erasedUpto < streamPos + len) {
+      size_t eraseLen = std::min<size_t>(BLK, dest->size - erasedUpto);
       eraseLen = (eraseLen + SEC - 1) & ~(SEC - 1);
-      eraseLen = std::min<size_t>(eraseLen, dest->size - streamPos);
-      if (esp_partition_erase_range(dest, streamPos, eraseLen) != ESP_OK) {
-        LOG_ERR("FLASH", "erase @%u (len=%u) failed", static_cast<unsigned>(streamPos),
+      eraseLen = std::min<size_t>(eraseLen, dest->size - erasedUpto);
+      if (scratch && rangeErased(dest, erasedUpto, eraseLen, scratch.get())) {
+        ++skippedErases;
+      } else if (esp_partition_erase_range(dest, erasedUpto, eraseLen) != ESP_OK) {
+        LOG_ERR("FLASH", "erase @%u (len=%u) failed", static_cast<unsigned>(erasedUpto),
                 static_cast<unsigned>(eraseLen));
         return Result::ERASE_FAIL;
       }
-      erasedUpto = streamPos + eraseLen;
+      erasedUpto += eraseLen;
       // Once per 64 KiB block: lets the idle task and render task run without
       // paying a tick per chunk.
       delay(1);
     }
 
-    // Stop each chunk at the next erase boundary so the erase above always
-    // covers the whole write.
-    const size_t want = std::min<size_t>({buffer.size(), firmwareSize - streamPos, erasedUpto - streamPos});
-    const int read = file.read(buffer.get(), want);
-    if (read <= 0 || static_cast<size_t>(read) != want) {
-      LOG_ERR("FLASH", "read @%u: got=%d want=%u", static_cast<unsigned>(streamPos), read, static_cast<unsigned>(want));
-      return Result::READ_FAIL;
-    }
     if (sha && streamPos < hashedSize) {
-      mbedtls_sha256_update(sha, buffer.get(), std::min(want, hashedSize - streamPos));
+      mbedtls_sha256_update(sha, data, std::min(len, hashedSize - streamPos));
     }
-    if (esp_partition_write(dest, streamPos, buffer.get(), want) != ESP_OK) {
+    // The range is erased (all 0xFF), so programming 0xFF would change nothing.
+    if (blankSkips && allErased(data, len)) {
+      ++skippedChunks;
+    } else if (esp_partition_write(dest, streamPos, data, len) != ESP_OK) {
       LOG_ERR("FLASH", "write @%u failed", static_cast<unsigned>(streamPos));
       return Result::WRITE_FAIL;
     }
-    streamPos += want;
+    source.release();
+    streamPos += len;
     if (onProgress) onProgress(streamPos, firmwareSize, ctx);
   }
+  source.stop();
+  LOG_INF("FLASH", "written: %u blank blocks not erased, %u blank chunks not programmed", skippedErases, skippedChunks);
   return Result::OK;
 }
 }  // namespace

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -20,10 +21,10 @@
 #include "network/FirmwareFlasher.h"
 
 namespace {
-// Each progress repaint is a ~0.5 s partial refresh that competes with the
-// flash loop for the CPU and, on shared-bus boards, the SPI bus; 10% steps keep
-// the bar moving without stretching the update.
-constexpr unsigned int PROGRESS_STEP_PERCENT = 10;
+// Each progress repaint competes with the flash loop for the CPU and, on
+// shared-bus boards, the SPI bus. With the keyboard DU LUT a repaint is short
+// enough for 5% steps.
+constexpr unsigned int PROGRESS_STEP_PERCENT = 5;
 // DU frames for progress repaints (the keyboard's tested "63 6" setting).
 constexpr uint8_t PROGRESS_LUT_FRAMES = 6;
 
@@ -46,6 +47,7 @@ void SdFirmwareUpdateActivity::onEnter() {
 
 void SdFirmwareUpdateActivity::onExit() {
   Activity::onExit();
+  flashLight.end();
 #ifndef SIMULATOR
   freeink::setUc8179KbdExperiment(nullptr);  // render() may have left the progress LUT on
 #endif
@@ -91,6 +93,7 @@ void SdFirmwareUpdateActivity::selectFirmware(std::string path) {
   requestUpdateAndWait();
 
   if (!validateFirmware()) {
+    flashLight.end();
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
@@ -194,6 +197,8 @@ void SdFirmwareUpdateActivity::performUpdate() {
     const bool stepChanged = progressStep(written, total) != progressStep(self->writtenBytes, total);
     self->writtenBytes = written;
     self->firmwareSize = total;
+    // The loop is blocked for the whole flash, so the warble runs from here.
+    self->flashLight.update(true);
     // immediate=true: wake the render task directly. We're in a tight sync
     // loop so the main loop won't drain the requestedUpdate flag for us.
     if (stepChanged) self->requestUpdate(true);
@@ -203,6 +208,10 @@ void SdFirmwareUpdateActivity::performUpdate() {
   // check blindly (TOCTOU). A pinned image is re-checked in the same pass that
   // writes it (size + SHA-256 trailer before, hash of the written bytes after),
   // instead of a second full validation read (~2.7 s for 5.5 MB).
+  // Nothing reads touch while flashing; sleep the GT911 to save power. After a
+  // failure the main loop's touch sleep policy wakes it again.
+  if (gpio.hasTouch() && !gpio.setTouchSleep(true)) LOG_ERR("FW", "Touch controller did not sleep");
+  flashLight.begin();
   const auto result =
       firmwarePinned ? firmware_flash::flashConfirmedFile(firmwarePath.c_str(), pinnedSize, pinnedSha, progressCb, this)
                      : firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
@@ -211,6 +220,7 @@ void SdFirmwareUpdateActivity::performUpdate() {
     errorMessage = result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD
                        ? tr(STR_FIRMWARE_WRONG_DEVICE)
                        : tr(STR_FIRMWARE_WRITE_FAILED);
+    flashLight.end();
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
@@ -222,8 +232,12 @@ void SdFirmwareUpdateActivity::performUpdate() {
     RenderLock lock(*this);
     state = State::SUCCESS;
   }
+  // Held steady until the restart, so the light changing marks the reboot.
+  flashLight.holdOn();
   requestUpdateAndWait();
   delay(1500);
+  // Back to the user's light state so the silent restart restores that one.
+  flashLight.end();
   restartKeepingPanelFrame();
 }
 

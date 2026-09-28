@@ -19,6 +19,7 @@ void TransferLightPulse::begin() {
   savedOn = Frontlight.isOn();
   userOverride = false;
   pulsing = false;
+  held = false;
   armed = true;
   write(0);
   Frontlight.setOn(true);
@@ -31,7 +32,7 @@ void TransferLightPulse::write(const uint8_t percent) {
 }
 
 void TransferLightPulse::update(const bool transferActive) {
-  if (!armed || userOverride) {
+  if (!armed || userOverride || held) {
     return;
   }
   if (Frontlight.brightness() != written || !Frontlight.isOn()) {
@@ -58,6 +59,15 @@ void TransferLightPulse::update(const bool transferActive) {
   if (target != written && (target == 0 || now - lastWriteMs >= kWriteIntervalMs)) {
     write(target);
   }
+}
+
+void TransferLightPulse::holdOn() {
+  if (!armed || userOverride) {
+    return;
+  }
+  held = true;
+  write(kPeakPercent);
+  LOG_DBG("LIGHT", "Transfer pulse held at %u%%", kPeakPercent);
 }
 
 void TransferLightPulse::end() {

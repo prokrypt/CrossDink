@@ -3,6 +3,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "util/TransferLightPulse.h"
 
 /**
  * SD-card based firmware update activity.
@@ -56,6 +57,8 @@ class SdFirmwareUpdateActivity : public Activity {
   size_t pinnedSize = 0;
   uint8_t pinnedSha[32] = {};
   size_t writtenBytes = 0;
+  // Frontlight warble while flashing, held on at completion (see performUpdate).
+  TransferLightPulse flashLight;
   unsigned int lastRenderedPercent = 101;
   std::string errorMessage;
 

@@ -12,6 +12,8 @@ class TransferLightPulse {
  public:
   void begin();
   void update(bool transferActive);
+  // Stops the pulse and holds the light steady at the pulse peak until end().
+  void holdOn();
   void end();
 
  private:
@@ -25,4 +27,5 @@ class TransferLightPulse {
   bool armed = false;
   bool userOverride = false;
   bool pulsing = false;
+  bool held = false;
 };
