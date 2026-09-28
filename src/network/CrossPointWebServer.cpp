@@ -1185,11 +1185,13 @@ void CrossPointWebServer::handleStatus() const {
       const bool ambientKnown = ambient.read(ambientC, humidity);
       addTemp("ambient", "sht40", ambientKnown, ambientC);
     }
+#if FREEINK_UC8179_PANEL_TEMP  // UC8179 boards only (not Sticky)
     int8_t panelC = 0;
     uint32_t panelAgeMs = 0;
     const bool panelKnown = freeink::uc8179PanelTemperature(panelC, panelAgeMs);
     addTemp("panel", "uc8179", panelKnown, panelC);
     if (panelKnown) temps["panel"]["ageMs"] = panelAgeMs;
+#endif
   }
 #endif
 

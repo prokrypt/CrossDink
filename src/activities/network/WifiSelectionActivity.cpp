@@ -64,6 +64,7 @@ constexpr unsigned long HINTED_CONNECTION_TIMEOUT_MS = 6000;
 
 uint32_t ssidHash(const std::string& ssid) {
   uint32_t hash = 2166136261u;  // FNV-1a
+  // cppcheck-suppress useStlAlgorithm ; FNV-1a reads clearer as a loop
   for (const char c : ssid) hash = (hash ^ static_cast<uint8_t>(c)) * 16777619u;
   return hash;
 }
