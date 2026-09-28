@@ -649,8 +649,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
   uint16_t keyboardLayouts = 0;
-  // UC8179 fast keyboard refresh (kbd-exp flags 31); /.crosspoint/kbd-exp.txt overrides it.
-  uint8_t fastKeyboard = 0;
+  // UC8179 turbo keyboard refresh (kbd-exp flags 31); /.crosspoint/kbd-exp.txt overrides it.
+  uint8_t turboKeyboard = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.

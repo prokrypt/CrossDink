@@ -169,10 +169,10 @@ void KeyboardEntryActivity::onExit() {
 // reflash. Format: "flags [lutFrames] [pll]", numbers in C syntax (0x.. ok).
 // flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
 // 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start).
-// Without the file, Settings > System > Device > Fast keyboard picks 31 or 0
+// Without the file, Settings > System > Device > Turbo keyboard picks 31 or 0
 // (T1 baseline, timing only).
 void KeyboardEntryActivity::loadKbdExperiment() {
-  kbdExpFlags = SETTINGS.fastKeyboard ? KBD_EXP_FAST_KEYBOARD : 0;
+  kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
   kbdExpFrames = 3;
   kbdExpPll = 0;
   kbdExpFirstFrame = true;

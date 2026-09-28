@@ -773,7 +773,7 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
         "sleepTimeoutMinutes", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_CUSTOM_BOOTSCREEN, &CrossPointSettings::customBootscreenEnabled,
                             "customBootscreenEnabled", StrId::STR_CAT_SYSTEM));
-    add(SettingInfo::Toggle(StrId::STR_FAST_KEYBOARD, &CrossPointSettings::fastKeyboard, "fastKeyboard",
+    add(SettingInfo::Toggle(StrId::STR_TURBO_KEYBOARD, &CrossPointSettings::turboKeyboard, "turboKeyboard",
                             StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                             StrId::STR_CAT_SYSTEM));
@@ -1400,7 +1400,7 @@ inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<
   settings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
 #if FREEINK_DEVICE_X4PRO
   // UC8179-only: the fast path is a driver experiment (KeyboardEntryActivity).
-  addSettingByName(settings, allSettings, StrId::STR_FAST_KEYBOARD);
+  addSettingByName(settings, allSettings, StrId::STR_TURBO_KEYBOARD);
 #endif
   settings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
   if (halClock.isAvailable()) {
