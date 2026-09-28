@@ -18,12 +18,14 @@
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
 #ifndef SIMULATOR
+#include <EnvironmentSensor.h>
 #include <esp_image_format.h>
 #include <esp_ota_ops.h>
 #endif
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <iterator>
 
@@ -970,6 +972,50 @@ void CrossPointWebServer::handleStatus() const {
     battery["charging"] = monitor.isCharging();
   }
 #endif
+
+  // Every temperature the board can report, in C; null when the source is
+  // absent or the read failed. The UC8179 has an internal sensor, but the EPD
+  // bus is write-only (no MISO), so the panel entry is always null.
+  JsonObject temps = doc["temperatures"].to<JsonObject>();
+  const auto addTemp = [&temps](const char* role, const char* source, const bool known, const float celsius) {
+    JsonObject t = temps[role].to<JsonObject>();
+    t["source"] = source;
+    if (known) {
+      t["c"] = std::round(celsius * 10.0f) / 10.0f;
+    } else {
+      t["c"] = nullptr;
+    }
+  };
+#ifdef SIMULATOR
+  addTemp("chip", "simulator", false, 0.0f);
+#else
+  {
+    const float chipC = temperatureRead();
+    addTemp("chip", CONFIG_IDF_TARGET, !std::isnan(chipC), chipC);
+    // Main-loop only, like the battery block above: the gauge shares its I2C bus
+    // with touch and the RTC.
+    static const BatteryMonitor gauge;
+    int16_t gaugeDeciC = 0;
+    const bool gaugeKnown = gauge.readTemperatureDeciC(gaugeDeciC);
+    const auto& gaugeCfg = BoardConfig::ACTIVE.batteryGauge;
+    const char* gaugeName = gaugeCfg.gaugeAddr == 0                                 ? "none"
+                            : gaugeCfg.gaugeType == BoardConfig::GaugeType::Cw2017  ? "cw2017"
+                            : gaugeCfg.gaugeType == BoardConfig::GaugeType::Bq27220 ? "bq27220"
+                                                                                    : "axp2101";
+    addTemp("battery", gaugeName, gaugeKnown, gaugeDeciC / 10.0f);
+    static EnvironmentSensor ambient;
+    static bool ambientTried = false;
+    if (!ambientTried) {
+      ambientTried = true;
+      ambient.begin();
+    }
+    float ambientC = 0.0f;
+    float humidity = 0.0f;
+    const bool ambientKnown = ambient.present() && ambient.read(ambientC, humidity);
+    addTemp("ambient", "sht40", ambientKnown, ambientC);
+  }
+#endif
+  addTemp("panel", "uc8179", false, 0.0f);
 
   JsonObject clock = doc["clock"].to<JsonObject>();
   char timeBuf[21];
