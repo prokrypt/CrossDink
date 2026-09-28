@@ -1009,7 +1009,7 @@ const std::vector<StyledSpan>& DictHtmlRenderer::renderFromFile(const char* dict
   }
 
   HalFile file;
-  if (!Storage.openFileForRead("DICT", dictPath, file)) {
+  if (!Storage.openFileForReadIfPresent("DICT", dictPath, file)) {
     LOG_ERR("DHTML", "Failed to open: %s", dictPath);
     parseError = true;
     return spans;
@@ -1038,7 +1038,7 @@ bool DictHtmlRenderer::renderFromFileStreaming(const char* dictPath, uint32_t of
   }
 
   HalFile file;
-  if (!Storage.openFileForRead("DICT", dictPath, file)) {
+  if (!Storage.openFileForReadIfPresent("DICT", dictPath, file)) {
     LOG_ERR("DHTML", "Failed to open: %s", dictPath);
     parseError = true;
     spanSink_ = SpanSink{};
@@ -1059,7 +1059,7 @@ bool DictHtmlRenderer::renderPlainTextFromFileStreaming(const char* dictPath, ui
   spanSink_ = sink;
 
   HalFile file;
-  if (!Storage.openFileForRead("DICT", dictPath, file)) {
+  if (!Storage.openFileForReadIfPresent("DICT", dictPath, file)) {
     LOG_ERR("DHTML", "Failed to open plain-text fallback: %s", dictPath);
     spanSink_ = SpanSink{};
     return false;

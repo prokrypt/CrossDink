@@ -2427,6 +2427,16 @@ bool GfxRenderer::isRefreshBusy() const {
 #endif
 }
 
+bool GfxRenderer::toFrameBufferRect(const int x, const int y, const int w, const int h, uint16_t& fx, uint16_t& fy,
+                                    uint16_t& fw, uint16_t& fh) const {
+  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  fx = mem.x;
+  fy = mem.y;
+  fw = mem.w;
+  fh = mem.h;
+  return mem.valid;
+}
+
 size_t GfxRenderer::readFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t* dst,
                                           size_t dstCapacity) const {
   if (frameBuffer == nullptr || dst == nullptr || w == 0 || h == 0) return 0;

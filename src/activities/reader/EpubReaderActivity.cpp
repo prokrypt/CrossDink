@@ -18,6 +18,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -7902,6 +7903,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       needsImageGrayscale = false;
     }
   }
+  PerfLog::notePagePath(usePrerenderedFrame ? "pre" : "draw");
   if (usePrerenderedFrame) {
     // Drawn by prerenderNextPage() with the same composition (no images).
     memcpy(renderer.getFrameBuffer(), prerenderFrameBuffer.get(), renderer.getBufferSize());

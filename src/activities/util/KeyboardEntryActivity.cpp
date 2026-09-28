@@ -2,12 +2,19 @@
 
 #include <BidiUtils.h>
 #include <FreeInkUIIcon.h>
+#include <HalDisplay.h>
 #include <HalGPIO.h>
+#include <HalStorage.h>
+#include <Logging.h>
+#ifndef SIMULATOR
+#include <FreeInkDisplay.h>
+#endif
 #include <I18n.h>
 
 #include <algorithm>
 #include <cstring>
 
+#include "CrossPointSettings.h"
 #include "DeviceCapabilities.h"
 #include "KeyboardLayoutSet.h"
 #include "MappedInputManager.h"
@@ -148,6 +155,9 @@ void KeyboardEntryActivity::onEnter() {
   passwordVisible = false;
   selRow = 0;
   selCol = 0;
+  // Touch users tap keys directly: no key is highlighted until a button moves
+  // the selection.
+  selectionShown = !mappedInput.hasTouchHardware();
   delPressCount = 0;
   hintVisible = false;
   hintShowTime = 0;
@@ -159,10 +169,59 @@ void KeyboardEntryActivity::onEnter() {
   touchRouter.holdMs = TOUCH_LONG_PRESS_MS;
   touchRouter.overrideHoldMs = TOUCH_DEL_LONG_PRESS_MS;
   interactionsReady = false;
+  loadKbdExperiment();
   requestUpdate();
 }
 
-void KeyboardEntryActivity::onExit() { Activity::onExit(); }
+void KeyboardEntryActivity::onExit() {
+  Activity::onExit();
+#ifndef SIMULATOR
+  // ActivityManager holds RenderLock around onExit, so no refresh is running.
+  freeink::setUc8179KbdExperiment(nullptr);
+  display.setRefreshLightSleep(false);
+  if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) freeink::requestUc8179HalfNext();
+#endif
+}
+
+// EXPERIMENT (test/kbd-uc8179): toggles come from /.crosspoint/kbd-exp.txt,
+// read once per keyboard open (one small SD read), so they flip without a
+// reflash. Format: "flags [lutFrames] [pll]", numbers in C syntax (0x.. ok).
+// flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
+// 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start).
+// Without the file, Settings > System > Device > Turbo keyboard picks "31 6" or 0
+// (T1 baseline, timing only).
+void KeyboardEntryActivity::loadKbdExperiment() {
+  kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
+  kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
+  kbdExpPll = 0;
+  kbdExpFirstFrame = true;
+  FsFile f;
+  if (Storage.exists(KBD_EXP_PATH) && Storage.openFileForRead("KBD", KBD_EXP_PATH, f)) {
+    char buf[48] = {};
+    const int n = f.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf) - 1);
+    f.close();
+    if (n > 0) {
+      char* end = buf;
+      kbdExpFlags = static_cast<uint8_t>(strtoul(end, &end, 0));
+      const unsigned long frames = strtoul(end, &end, 0);
+      if (frames > 0 && frames < 64) kbdExpFrames = static_cast<uint8_t>(frames);
+      kbdExpPll = static_cast<uint8_t>(strtoul(end, &end, 0));
+    }
+  }
+  LOG_DBG("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
+  kbdFrame = 0;
+  prevFrameStrokeMs = 0;
+  highlightPending = false;
+#ifndef SIMULATOR
+  display.setRefreshLightSleep((kbdExpFlags & KBD_EXP_LIGHT_SLEEP_DRF) != 0);
+#endif
+}
+
+void KeyboardEntryActivity::requestStrokeUpdate(const StrokeCause cause) {
+  strokeAtMs.store(millis(), std::memory_order_relaxed);
+  strokeCause.store(static_cast<uint8_t>(cause), std::memory_order_relaxed);
+  requestUpdate();
+}
 
 const fui::KeyboardLayout& KeyboardEntryActivity::currentLayout() const {
   if (symbols) return fui::builtinKeyboardLayout(layoutId, shifted, true);
@@ -252,6 +311,12 @@ size_t KeyboardEntryActivity::utf8Next(const std::string& s, size_t pos) {
   pos++;
   while (pos < s.length() && (static_cast<uint8_t>(s[pos]) & 0xC0) == 0x80) pos++;
   return pos;
+}
+
+bool KeyboardEntryActivity::injectText(const char* utf8) {
+  insertUtf8(utf8);
+  requestUpdate();
+  return true;
 }
 
 void KeyboardEntryActivity::insertUtf8(const char* out) {
@@ -565,7 +630,7 @@ void KeyboardEntryActivity::loop() {
       passwordVisible = !passwordVisible;
       togglePos = false;
       hintVisible = false;
-      requestUpdate();
+      requestStrokeUpdate();
       return;
     }
     if (inputTarget == InputFieldTouchTarget::Cursor) {
@@ -579,7 +644,7 @@ void KeyboardEntryActivity::loop() {
         cursorPos--;
       }
       touchRouter.reset();
-      requestUpdate();
+      requestStrokeUpdate();
       return;
     }
   }
@@ -598,14 +663,27 @@ void KeyboardEntryActivity::loop() {
         touchRouter.update(interactions, tapCandidate, static_cast<int16_t>(tx), static_cast<int16_t>(ty), tapped,
                            static_cast<int16_t>(tapX), static_cast<int16_t>(tapY), inContact, millis());
     if (result.event) {
+      highlightPending = false;
+      selectionShown = true;  // the tapped key keeps the highlight; only the initial preselect is hidden
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
-        requestUpdate();
+        requestStrokeUpdate();
       }
       return;
     }
     if (result.activeChanged) {
-      requestUpdate();
+      if (interactions.activeIndex() >= 0) {
+        highlightPending = true;
+        highlightDueMs = millis() + TOUCH_HIGHLIGHT_DELAY_MS;
+      } else if (highlightPending) {
+        highlightPending = false;  // released before the highlight was drawn
+      } else {
+        requestStrokeUpdate(StrokeCause::Release);
+      }
+    }
+    if (highlightPending && static_cast<long>(millis() - highlightDueMs) >= 0) {
+      highlightPending = false;
+      requestStrokeUpdate(StrokeCause::Press);
     }
     if (tapCandidate || tapped) {
       return;
@@ -613,56 +691,29 @@ void KeyboardEntryActivity::loop() {
   }
 #endif
 
-  if (!cursorMode && mappedInput.wasPressed(MappedInputManager::Button::Up)) {
-    upHeld = true;
-    upLongHandled = false;
-  }
-
-  if (upHeld && !upLongHandled && mappedInput.isPressed(MappedInputManager::Button::Up) &&
-      mappedInput.getHeldTime() > LONG_PRESS_MS) {
-    cursorMode = true;
-    upLongHandled = true;
-    hintVisible = true;
-    hintShowTime = millis();
-    requestUpdate();
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    if (upHeld && !upLongHandled && !cursorMode) {
-      moveSelectionRow(-1);
-      requestUpdate();
-    }
-    upHeld = false;
-    upLongHandled = false;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
-    downHeld = true;
-    if (cursorMode) {
-      togglePos = false;
-      passwordVisible = false;
-      cursorMode = false;
-      hintVisible = false;
-      downLongHandled = true;
-      requestUpdate();
-    } else {
-      downLongHandled = false;
-    }
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    if (downHeld && !downLongHandled && !cursorMode) {
-      moveSelectionRow(1);
-      requestUpdate();
-    }
-    downHeld = false;
-    downLongHandled = false;
+  if (mappedInput.hasTouchHardware()) {
+    // Touch devices pick keys by tapping, so Up/Down move the text cursor
+    // (repeating while held) instead of the key selection.
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] {
+      if (cursorPos > 0) {
+        cursorPos = utf8Prev(text, cursorPos);
+        requestStrokeUpdate();
+      }
+    });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] {
+      if (cursorPos < text.length()) {
+        cursorPos = utf8Next(text, cursorPos);
+        requestStrokeUpdate();
+      }
+    });
+  } else {
+    handleUpDownButtons();
   }
 
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] {
-    if (cursorMode) return;
+    if (cursorMode || revealSelection()) return;
     moveSelectionCol(-1);
-    requestUpdate();
+    requestStrokeUpdate();
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
@@ -670,10 +721,10 @@ void KeyboardEntryActivity::loop() {
       if (togglePos) {
         cursorPos = savedCursorPos;
         togglePos = false;
-        requestUpdate();
+        requestStrokeUpdate();
       } else if (cursorPos > 0) {
         cursorPos = utf8Prev(text, cursorPos);
-        requestUpdate();
+        requestStrokeUpdate();
       }
     }
   }
@@ -687,9 +738,9 @@ void KeyboardEntryActivity::loop() {
   }
 
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] {
-    if (cursorMode) return;
+    if (cursorMode || revealSelection()) return;
     moveSelectionCol(1);
-    requestUpdate();
+    requestStrokeUpdate();
   });
 
   if (rightHeld && !rightLongHandled && mappedInput.isPressed(MappedInputManager::Button::Right) &&
@@ -698,7 +749,7 @@ void KeyboardEntryActivity::loop() {
       savedCursorPos = rightStartCursorPos;
       togglePos = true;
       rightLongHandled = true;
-      requestUpdate();
+      requestStrokeUpdate();
     }
   }
 
@@ -709,7 +760,7 @@ void KeyboardEntryActivity::loop() {
     }
     if (cursorMode && !togglePos && cursorPos < text.length()) {
       cursorPos = utf8Next(text, cursorPos);
-      requestUpdate();
+      requestStrokeUpdate();
     }
     if (cursorMode) return;
     rightHeld = false;
@@ -721,32 +772,34 @@ void KeyboardEntryActivity::loop() {
     confirmLongHandled = false;
   }
 
-  const fui::KeyboardKey* selKey = selectedKey();
+  const fui::KeyboardKey* selKey = selectionShown ? selectedKey() : nullptr;
   const bool selectedDel = selKey && selKey->value == fui::QWERTY_KEY_BACKSPACE;
 
   if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() > DEL_LONG_PRESS_MS && selectedDel) {
     clearAllOrAltOnSelected();
     confirmLongHandled = true;
-    requestUpdate();
+    requestStrokeUpdate();
   }
 
   if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() > LONG_PRESS_MS) {
-    if (!selectedDel && clearAllOrAltOnSelected()) {
-      requestUpdate();
+    if (selKey && !selectedDel && clearAllOrAltOnSelected()) {
+      requestStrokeUpdate();
       confirmLongHandled = true;
     }
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (confirmHeld && !confirmLongHandled && !cursorMode) {
-      if (selKey && activateValue(selKey->value, false)) {
-        requestUpdate();
+    if (confirmHeld && !confirmLongHandled && !cursorMode && !selKey) {
+      revealSelection();  // first Confirm on touch shows the selection, types nothing
+    } else if (confirmHeld && !confirmLongHandled && !cursorMode) {
+      if (activateValue(selKey->value, false)) {
+        requestStrokeUpdate();
       }
     } else if (confirmHeld && !confirmLongHandled && cursorMode && inputType == InputType::Password && togglePos) {
       passwordVisible = !passwordVisible;
-      requestUpdate();
+      requestStrokeUpdate();
     }
     confirmHeld = false;
     confirmLongHandled = false;
@@ -759,7 +812,62 @@ void KeyboardEntryActivity::loop() {
 
   if (hintVisible && !cursorMode && millis() - hintShowTime > 4000) {
     hintVisible = false;
-    requestUpdate();
+    requestStrokeUpdate();
+  }
+}
+
+bool KeyboardEntryActivity::revealSelection() {
+  if (selectionShown) return false;
+  selectionShown = true;
+  requestStrokeUpdate();
+  return true;
+}
+
+void KeyboardEntryActivity::handleUpDownButtons() {
+  if (!cursorMode && mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+    upHeld = true;
+    upLongHandled = false;
+  }
+
+  if (upHeld && !upLongHandled && mappedInput.isPressed(MappedInputManager::Button::Up) &&
+      mappedInput.getHeldTime() > LONG_PRESS_MS) {
+    cursorMode = true;
+    upLongHandled = true;
+    hintVisible = true;
+    hintShowTime = millis();
+    requestStrokeUpdate();
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+    if (upHeld && !upLongHandled && !cursorMode) {
+      moveSelectionRow(-1);
+      requestStrokeUpdate();
+    }
+    upHeld = false;
+    upLongHandled = false;
+  }
+
+  if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+    downHeld = true;
+    if (cursorMode) {
+      togglePos = false;
+      passwordVisible = false;
+      cursorMode = false;
+      hintVisible = false;
+      downLongHandled = true;
+      requestStrokeUpdate();
+    } else {
+      downLongHandled = false;
+    }
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+    if (downHeld && !downLongHandled && !cursorMode) {
+      moveSelectionRow(1);
+      requestStrokeUpdate();
+    }
+    downHeld = false;
+    downLongHandled = false;
   }
 }
 
@@ -1077,7 +1185,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
-  props.selectedIndex = cursorMode ? -1 : static_cast<int16_t>(selectedLogicalIndex());
+  props.selectedIndex = cursorMode || !selectionShown ? -1 : static_cast<int16_t>(selectedLogicalIndex());
   props.labelText.font = layoutId == fui::KeyboardLayoutId::ArabicAr && !symbols ? fui::GfxRendererTarget::FONT_SMALL
                                                                                  : fui::GfxRendererTarget::FONT_BODY;
   props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
@@ -1093,6 +1201,11 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const int bottomEdge = mappedInput.hasTouchHardware() ? renderer.getScreenHeight()
                                                         : renderer.getScreenHeight() - metrics.buttonHintsHeight;
   props.bottomHitOverflow = static_cast<int16_t>(std::max(0, bottomEdge - keysRect.bottom()));
+  // Every tap inside the keyboard lands on a key: gaps split between
+  // neighbours, and edge keys reach the screen sides.
+  props.fillHitGaps = mappedInput.hasTouchHardware();
+  // The top row also reaches up through half the strip above the keys.
+  if (props.fillHitGaps) props.topHitOverflow = static_cast<int16_t>((keysRect.y - kbRect.y) / 2);
   fui::keyboard(frame, keysRect, props);
   interactions.publish();
   interactionsReady.store(true, std::memory_order_release);
@@ -1103,7 +1216,56 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 
   GUI.drawSideButtonHints(renderer, ">", "<");
 
+#ifndef SIMULATOR
+  // EXPERIMENT: the text area (field, cursor, tips) and the key area are the
+  // two regions a keystroke changes. The first frame uploads everything.
+  freeink::Uc8179KbdExperiment exp;
+  exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT));
+  exp.lutFrames = kbdExpFrames;
+  exp.pll = (kbdExpFlags & KBD_EXP_DU_LUT) ? kbdExpPll : 0;
+  if ((kbdExpFlags & KBD_EXP_TWO_WINDOW) && !kbdExpFirstFrame) {
+    const int textTop = inputStartY;
+    const Rect windows[2] = {Rect(0, textTop, pageWidth, kbRect.y - textTop),
+                             Rect(kbRect.x, kbRect.y, kbRect.width, kbRect.height)};
+    for (const Rect& r : windows) {
+      auto& w = exp.windows[exp.windowCount];
+      if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
+    }
+  }
+  // The first keyboard frame cleans the panel: a DU scrub (64, with the T4
+  // LUT) or a Half charge scrub (16).
+  if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_DU_SCRUB_ON_OPEN) && (kbdExpFlags & KBD_EXP_DU_LUT)) {
+    freeink::requestUc8179DuScrubNext();
+  } else if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_HALF_ON_OPEN)) {
+    freeink::requestUc8179HalfNext();
+  }
+  kbdExpFirstFrame = false;
+  freeink::setUc8179KbdExperiment(&exp);
+#endif
+  const unsigned long displayStartMs = millis();
   renderer.displayBuffer();
+#if !defined(SIMULATOR) && LOG_LEVEL >= 2  // per-keystroke timing: debug builds only
+  // prev_* describe the refresh that finished before this frame started (the
+  // previous frame's); prev_key_to_ink = that frame's stroke -> its DRF done.
+  const freeink::Uc8179KbdTiming timing = freeink::uc8179KbdTiming();
+  const unsigned long stroke = strokeAtMs.exchange(0, std::memory_order_relaxed);
+  static constexpr const char* CAUSE_NAMES[] = {"redraw", "key", "press", "release"};
+  const uint8_t cause = strokeCause.exchange(0, std::memory_order_relaxed);
+  const unsigned long now = millis();
+  const long prevKeyToInk = prevFrameStrokeMs != 0 && timing.doneMs >= prevFrameStrokeMs
+                                ? static_cast<long>(timing.doneMs - prevFrameStrokeMs)
+                                : -1L;
+  LOG_DBG("KBD",
+          "KBD_EXP flags=0x%02x frame=%lu cause=%s win=%u stroke_to_idle=%lu ms display=%lu ms prev_upload=%u "
+          "prev_drf=%u prev_rows=%u prev_sync=%u prev_key_to_ink=%ld frames=%u pll=0x%02x",
+          kbdExpFlags, static_cast<unsigned long>(++kbdFrame), stroke ? CAUSE_NAMES[cause & 3] : "redraw",
+          exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
+          static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.drfRows),
+          static_cast<unsigned>(timing.syncMs), prevKeyToInk, kbdExpFrames, exp.pll);
+  prevFrameStrokeMs = stroke;
+#else
+  (void)displayStartMs;
+#endif
 }
 
 void KeyboardEntryActivity::onComplete(std::string text) {

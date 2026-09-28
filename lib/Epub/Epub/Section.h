@@ -62,6 +62,7 @@ class Section {
     // the EMA is stepped once per build advance (not per redraw) to damp that wobble.
     float smoothedEstimate = 0;
     uint32_t smoothedAtConsumed = 0;
+    uint32_t startedMs = 0;  // wall clock, including pauses between chunks
   };
   std::unique_ptr<BuildContext> build_;
   bool buildComplete_ = false;

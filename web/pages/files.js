@@ -1494,7 +1494,9 @@ let currentUploadXhr = null; // Active XHR reference for external abort
 // same adjacent-port contract to an unprivileged host pair such as 8080/8081.
 const HTTP_PORT = Number(window.location.port || 80);
 const WS_PORT = HTTP_PORT + 1;
-const WS_CHUNK_SIZE = 4096; // 4KB chunks - smaller for ESP32 stability
+// 12 KB frames (the device accepts up to 15 KB): a third of the per-frame
+// WebSocket and SD overhead of the old 4 KB chunks.
+const WS_CHUNK_SIZE = 12 * 1024;
 // Max bytes allowed in flight before pausing sends. Throughput is capped at
 // roughly WS_MAX_BUFFERED / RTT, so a small window starves high-latency links
 // (e.g. a phone's WiFi) much more than low-latency ones (e.g. Ethernet).

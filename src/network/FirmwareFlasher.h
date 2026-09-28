@@ -39,14 +39,12 @@ enum class Result {
 // Progress callback: called after every chunk write. `written`/`total` are bytes.
 using ProgressCb = void (*)(size_t written, size_t total, void* ctx);
 
-// Open `sdPath`, validate it looks like an ESP32 image, then stream it into the
-// next OTA app partition with interleaved 64 KiB erase + sector writes. On
-// success switches otadata via ota_boot::switchTo. Caller is responsible for
-// ESP.restart() afterwards.
-//
-// This pathname-based entry point opens one file object, validates it, then
-// flashes that same open file. Use flashValidatedFile only when the caller
-// already holds a just-validated HalFile through flashing.
+// Open `sdPath`, check its header, then stream it into the next OTA app
+// partition with interleaved 64 KiB erase + sector writes, verifying the full
+// image (checksum, SHA-256, board tag) on the way. Only a verified image
+// switches otadata via ota_boot::switchTo; on any failure the running slot
+// stays active, though the inactive slot has been overwritten. Caller is
+// responsible for ESP.restart() afterwards.
 Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx);
 
 // Full-image integrity check that mirrors the bootloader's verification:
@@ -66,9 +64,17 @@ Result validateImageFile(const char* sdPath, size_t partitionSize);
 // file object without a pathname re-open window.
 Result validateOpenImageFile(HalFile& file, size_t partitionSize);
 
-// Flash a file that validateOpenImageFile() has just accepted. This function
-// never reopens `file`; the caller must keep it open until this returns.
+// Flash an open image file, verifying it in the same pass (see
+// flashFromSdPath). This function never reopens `file`; the caller must keep
+// it open until this returns.
 Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx);
+
+// Cheap check when an image is picked: size bounds, magic, chip ID and a
+// segment-table walk by seeking (no data read). The checksum, SHA-256 and board
+// tag are verified while flashing (flashValidatedFile / flashFromSdPath), which
+// never activate an image that fails them.
+Result checkImageHeader(HalFile& file, size_t partitionSize);
+Result checkImageHeaderFile(const char* sdPath, size_t partitionSize);
 
 const char* resultName(Result r);
 

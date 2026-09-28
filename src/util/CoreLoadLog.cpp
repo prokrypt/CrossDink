@@ -14,6 +14,7 @@
 #error "CROSSDINK_CORE_LOAD_LOG needs CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER (microsecond counter)"
 #endif
 
+#include <Arduino.h>
 #include <Logging.h>
 #include <esp_attr.h>
 #include <esp_timer.h>
@@ -22,6 +23,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace {
 // Static so sampling never touches the heap; debug builds only.
@@ -58,6 +60,7 @@ char coreTag(const TaskHandle_t handle) {
 // every 30 s (the caller samples every 2 s).
 constexpr uint32_t kStackLogEverySamples = 15;
 constexpr int kLowestStacks = 8;
+constexpr unsigned kStackWarnBytes = 1536;  // loop/render tasks: log an error below this
 uint32_t samplesSinceStackLog = kStackLogEverySamples;
 
 // The tasks closest to overflowing: minimum free stack ever (bytes on ESP-IDF,
@@ -85,7 +88,25 @@ void logLowestStackHeadroom(const UBaseType_t count) {
     if (written < 0 || static_cast<size_t>(written) >= sizeof(line) - used) break;
     used += static_cast<size_t>(written);
   }
-  LOG_INF("STK", "lowest free stack (bytes):%s", line);
+  // The loop and render tasks always, whatever their rank: their sizes are
+  // set by this app (loopTask via getArduinoLoopTaskStackSize(), the render
+  // task by ActivityManager::begin), so these are the numbers to tune them by.
+  used = 0;
+  char watched[96];
+  watched[0] = '\0';
+  for (UBaseType_t i = 0; i < count; i++) {
+    const char* name = statuses[i].pcTaskName;
+    const bool isLoop = strcmp(name, "loopTask") == 0;
+    if (!isLoop && strncmp(name, "ActivityManager", 15) != 0) continue;
+    const unsigned freeBytes = static_cast<unsigned>(statuses[i].usStackHighWaterMark);
+    const int written = isLoop ? snprintf(watched + used, sizeof(watched) - used, " loopTask:%u/%u", freeBytes,
+                                          static_cast<unsigned>(getArduinoLoopTaskStackSize()))
+                               : snprintf(watched + used, sizeof(watched) - used, " render:%u", freeBytes);
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(watched) - used) break;
+    used += static_cast<size_t>(written);
+    if (freeBytes < kStackWarnBytes) LOG_ERR("STK", "%s has only %u bytes of stack left", name, freeBytes);
+  }
+  LOG_INF("STK", "lowest free stack (bytes):%s |%s", line, watched);
 }
 }  // namespace
 

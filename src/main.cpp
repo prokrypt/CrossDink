@@ -19,6 +19,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <SPI.h>
 #include <WiFi.h>
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
@@ -26,17 +27,23 @@
 #endif
 #ifndef SIMULATOR
 #include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
+#if !defined(SIMULATOR)
+#include <esp_cache.h>
+#endif
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <string>
 
 #include "AppCapabilities.h"
 #include "util/BootReason.h"
+#include "util/BuildInfo.h"
 
 #ifndef SIMULATOR
 #include <nvs.h>
@@ -148,6 +155,11 @@ QuickLockBadgeBackdrop quickLockBadgeBackdrop;
 extern "C" bool testSPIRAM(void) { return true; }
 #endif
 
+#if defined(CROSSDINK_LOOP_STACK_BYTES) && !defined(SIMULATOR)
+// Overrides FreeInkUI's weak 16 KB loopTask stack (internal RAM).
+size_t getArduinoLoopTaskStackSize(void) { return CROSSDINK_LOOP_STACK_BYTES; }
+#endif
+
 static void logBootHeap(const char* stage) {
   LOG_DBG("BOOTMEM", "%s: free=%u maxAlloc=%u", stage, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
@@ -228,20 +240,29 @@ const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
 }
 
 void logMemoryStats(const char* phase, const bool onlyIfChanged = false) {
+  // Periodic lines skip small churn; a new low-water mark always prints.
+  constexpr uint32_t PERIODIC_HEAP_DELTA = 1024;
+  constexpr uint32_t PERIODIC_PSRAM_DELTA = 8 * 1024;
   static bool hasPreviousPeriodicStats = false;
   static uint32_t previousFreeHeap = 0;
+  static uint32_t previousMinFreeHeap = 0;
 #if defined(BOARD_HAS_PSRAM)
   static uint32_t previousFreePsram = 0;
 #endif
+  const auto movedBy = [](const uint32_t a, const uint32_t b, const uint32_t delta) {
+    return (a > b ? a - b : b - a) >= delta;
+  };
 
   const uint32_t freeHeap = ESP.getFreeHeap();
+  const uint32_t minFreeHeap = ESP.getMinFreeHeap();
 #if defined(BOARD_HAS_PSRAM)
   const uint32_t freePsram = ESP.getFreePsram();
 #endif
 
-  if (onlyIfChanged && hasPreviousPeriodicStats && freeHeap == previousFreeHeap
+  if (onlyIfChanged && hasPreviousPeriodicStats && !movedBy(freeHeap, previousFreeHeap, PERIODIC_HEAP_DELTA) &&
+      minFreeHeap == previousMinFreeHeap
 #if defined(BOARD_HAS_PSRAM)
-      && freePsram == previousFreePsram
+      && !movedBy(freePsram, previousFreePsram, PERIODIC_PSRAM_DELTA)
 #endif
   ) {
     return;
@@ -250,6 +271,7 @@ void logMemoryStats(const char* phase, const bool onlyIfChanged = false) {
   if (onlyIfChanged) {
     hasPreviousPeriodicStats = true;
     previousFreeHeap = freeHeap;
+    previousMinFreeHeap = minFreeHeap;
 #if defined(BOARD_HAS_PSRAM)
     previousFreePsram = freePsram;
 #endif
@@ -310,7 +332,72 @@ using BootResume = SleepWakePolicy::Resume;
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
+#if CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY && !defined(SIMULATOR)
+// The frame on the panel at a silent restart, so the first paint after it can
+// be a Fast refresh instead of a full flash (the controller forgets its OLD
+// plane on reset). PSRAM noinit survives ESP.restart() and is skipped by the
+// boot memory test; the CRC rejects power-on garbage.
+struct RetainedPanelFrame {
+  static constexpr uint32_t MAGIC = 0x46524D31;  // "FRM1"
+  static constexpr size_t CAPACITY = 64 * 1024;
+  uint32_t magic;
+  uint32_t size;
+  uint32_t crc;
+  uint8_t bytes[CAPACITY];
+};
+EXT_RAM_NOINIT_ATTR RetainedPanelFrame retainedPanelFrame;
+
+static void retainPanelFrame() {
+  retainedPanelFrame.magic = 0;
+  const uint8_t* frame = display.getFrameBuffer();
+  const size_t size = display.getBufferSize();
+  // Inverted frames are flipped in place only while they are sent.
+  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0) return;
+  memcpy(retainedPanelFrame.bytes, frame, size);
+  retainedPanelFrame.size = static_cast<uint32_t>(size);
+  retainedPanelFrame.crc = uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0);
+  retainedPanelFrame.magic = RetainedPanelFrame::MAGIC;
+  // ESP.restart() does not write back the PSRAM cache, so without this the
+  // frame (or its header) could still sit in dirty cache lines and be lost;
+  // logs showed every restart falling back to a full first paint.
+  esp_cache_msync(&retainedPanelFrame, offsetof(RetainedPanelFrame, bytes) + size,
+                  ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+}
+
+static bool retainedPanelFramePresent() { return retainedPanelFrame.magic == RetainedPanelFrame::MAGIC; }
+
+static void seedRetainedPanelFrame() {
+  const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
+  retainedPanelFrame.magic = 0;
+  const size_t size = display.getBufferSize();
+  if (!present) {
+    LOG_INF("MAIN", "No retained panel frame; first paint full");
+    return;
+  }
+  if (retainedPanelFrame.size != size ||
+      uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0) != retainedPanelFrame.crc) {
+    LOG_INF("MAIN", "Retained panel frame rejected (size %lu, expected %u, or CRC); first paint full",
+            static_cast<unsigned long>(retainedPanelFrame.size), static_cast<unsigned>(size));
+    return;
+  }
+  const bool seeded = display.seedDisplayedFrame(retainedPanelFrame.bytes);
+  LOG_INF("MAIN", "Retained panel frame %s; first paint %s", seeded ? "loaded" : "unused", seeded ? "fast" : "full");
+}
+#else
+static void retainPanelFrame() {}
+static bool retainedPanelFramePresent() { return false; }
+static void seedRetainedPanelFrame() {}
+#endif
+
+void restartKeepingPanelFrame() {
+  PerfLog::noteRestart();
+  retainPanelFrame();
+  ESP.restart();
+}
+
 static void restartWithSilentToken() {
+  PerfLog::noteRestart();
+  retainPanelFrame();
   // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
   // policy change the light without saving it, so hand the live state over.
   silentRebootFrontlight = Frontlight.isOn() ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
@@ -1279,6 +1366,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
+  if (seamless) seedRetainedPanelFrame();
 #endif
   renderer.begin();
   display.setInverted(SETTINGS.screenInverted != 0);
@@ -1363,6 +1451,16 @@ void setup() {
   // checkPanic() clears the watchdog capture marker after a successful SD
   // dump, so retain the boot classification for the later activity route.
   const bool rebootedFromPanic = HalSystem::isRebootFromPanic();
+  // Build identity first, so every log capture names the firmware it came from.
+#ifdef SIMULATOR
+  [[maybe_unused]] const char* runningPart = "sim";
+#else
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  [[maybe_unused]] const char* runningPart = running ? running->label : "?";
+#endif
+  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", CROSSDINK_VERSION, BuildInfo::gitSha(),
+          strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
+          BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
 
@@ -1468,6 +1566,7 @@ void setup() {
       break;
   }
 
+  PerfLog::noteBootPhase("start");
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
@@ -1477,6 +1576,7 @@ void setup() {
     return;
   }
   logBootHeap("storage ready");
+  PerfLog::noteBootPhase("sd");
 
   HalSystem::checkPanic();
   // Before anything reads progress.bin: replay a position a crash or reset kept
@@ -1505,6 +1605,7 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
+  PerfLog::noteBootPhase("settings");
   // Silent restarts are invisible recovery steps, so they always retain the
   // current light state rather than applying wake or schedule policy. The
   // saved flag can be stale (e.g. schedule kept the light off this wake), so
@@ -1577,9 +1678,16 @@ void setup() {
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
 
-  setupDisplayAndFonts(SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame),
-                       resume != BootResume::Network, useReaderRenderStack);
+  // A plain software restart that left its frame behind (restartKeepingPanelFrame,
+  // e.g. after an SD firmware update) also starts seamlessly: the splash is
+  // then a Fast refresh from the known panel content instead of a full flash.
+  const bool retainedFrameBoot =
+      resume == BootResume::Splash && rawResetReason == ESP_RST_SW && retainedPanelFramePresent();
+  setupDisplayAndFonts(
+      SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame) || retainedFrameBoot,
+      resume != BootResume::Network, useReaderRenderStack);
   logBootHeap("display and font resolver ready");
+  PerfLog::noteBootPhase("display");
 
   switch (resume) {
     case BootResume::Silent:
@@ -1697,6 +1805,7 @@ void setup() {
     activityManager.goToReader(path, false, allowFastInitialReaderRefresh);
   }
 
+  PerfLog::noteBootPhase("route");
   if (resume == BootResume::Silent || resume == BootResume::Network) {
     // Block until the first paint physically completes. refreshDisplay()
     // waits on the panel BUSY pin so when this returns the user can see the
@@ -1809,6 +1918,59 @@ void updateTouchControllerSleep() {
 #endif
 }  // namespace
 
+#if CROSSDINK_PERF_LOG
+// Debug trace of discrete input events ([IN]): button edges, taps, long
+// presses, swipes, the home key and tilt turns. Drag samples are left out.
+// Touch coordinates are panel-normalized per mille (0-1000). Returns the kind
+// of this frame's event for the [LAT] line.
+static const char* logInputEvents() {
+  static constexpr const char* BUTTON_NAMES[] = {"back", "confirm", "left", "right", "up", "down", "power"};
+  const char* kind = "touch";  // contact moves only
+  for (uint8_t i = 0; i < sizeof(BUTTON_NAMES) / sizeof(BUTTON_NAMES[0]); i++) {
+    if (gpio.wasPressed(i)) {
+      LOG_DBG("IN", "btn %s down", BUTTON_NAMES[i]);
+      kind = "btn";
+    }
+    if (gpio.wasReleased(i)) {
+      LOG_DBG("IN", "btn %s up", BUTTON_NAMES[i]);
+      kind = "btn";
+    }
+  }
+#if CROSSDINK_APP_CAP_TOUCH
+  const auto permille = [](const float n) { return static_cast<int>(n * 1000.0f); };
+  float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+  if (gpio.wasHomeKeyTapped()) {
+    LOG_DBG("IN", "home key");
+    kind = "home";
+  }
+  if (gpio.wasTouchTap(x0, y0)) {
+    LOG_DBG("IN", "tap %d,%d", permille(x0), permille(y0));
+    kind = "tap";
+  } else if (gpio.wasTouchLongPress(x0, y0)) {
+    LOG_DBG("IN", "long %d,%d", permille(x0), permille(y0));
+    kind = "long";
+  } else if (gpio.wasSwipe(x0, y0, x1, y1)) {
+    const float dx = x1 - x0;
+    const float dy = y1 - y0;
+    const char* dir = std::fabs(dx) >= std::fabs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
+    LOG_DBG("IN", "swipe %s %d,%d->%d,%d", dir, permille(x0), permille(y0), permille(x1), permille(y1));
+    kind = "swipe";
+  }
+#endif
+  // The loop only calls this on input, and hadActivity() consumes its flag, so
+  // input with no button or touch event is a tilt turn.
+  bool touchActivity = false;
+#if CROSSDINK_APP_CAP_TOUCH
+  touchActivity = gpio.wasTouchActivity();
+#endif
+  if (strcmp(kind, "touch") == 0 && !touchActivity) {
+    LOG_DBG("IN", "tilt");
+    kind = "tilt";
+  }
+  return kind;
+}
+#endif
+
 void loop() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
@@ -1849,15 +2011,17 @@ void loop() {
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
-  if (Serial && millis() - lastMemPrint >= 2000) {
+  // Not gated on Serial: without a USB host these lines still reach the
+  // PSRAM log ring (debug builds), which is how they get read off the device.
+  if (millis() - lastMemPrint >= 2000) {
     logMemoryStats("Periodic", true);
     lastMemPrint = millis();
   }
-  // Not gated on Serial: without a USB host these lines still reach the
-  // PSRAM log ring (debug builds), which is how they get read off the device.
+  Frontlight.flushLog();
   static unsigned long lastCoreLoadLog = 0;
   if (millis() - lastCoreLoadLog >= 2000) {
     CoreLoadLog::logSinceLast();
+    PerfLog::logPeriodic();
     lastCoreLoadLog = millis();
   }
 
@@ -1880,6 +2044,11 @@ void loop() {
                                  || gpio.wasTouchActivity()
 #endif
                                  || halTiltSensor.hadActivity();
+#if CROSSDINK_PERF_LOG
+  if (userInputReceived) {
+    PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), logInputEvents());
+  }
+#endif
 
   // User input paces power saving. Background work that only has to keep the
   // device out of deep sleep (automatic page turn, sync screens) holds off the
@@ -2075,7 +2244,8 @@ void loop() {
   if (loopDuration > maxLoopDuration) {
     maxLoopDuration = loopDuration;
     if (maxLoopDuration > 50) {
-      LOG_DBG("LOOP", "New max loop duration: %lu ms (activity: %lu ms)", maxLoopDuration, activityDuration);
+      LOG_DBG("LOOP", "New max loop duration: %lu ms (activity %s: %lu ms, rest of loop: %lu ms)", maxLoopDuration,
+              activityManager.currentActivityName(), activityDuration, loopDuration - activityDuration);
       (void)activityDuration;
     }
   }

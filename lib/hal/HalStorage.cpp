@@ -7,6 +7,7 @@
 #include <HalClock.h>
 #include <HalPowerManager.h>
 #include <Logging.h>
+#include <PerfLog.h>
 #include <SDCardManager.h>
 #if FREEINK_CAP_USB_MSC
 #include <UsbMassStorage.h>
@@ -406,6 +407,7 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
     StorageLock lock;  // ensure thread safety for the duration of this function
     fsFile = SDCard.open(path, oflag);
   }
+  PerfLog::noteSdOpen(static_cast<bool>(fsFile));
   if (!fsFile) {
     return HalFile();
   }
@@ -442,13 +444,32 @@ bool HalStorage::rmdir(const char* path) {
 }
 
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
+  return openFileForRead(moduleName, path, file, /*quietMiss=*/false);
+}
+
+bool HalStorage::openFileForReadIfPresent(const char* moduleName, const char* path, HalFile& file) {
+  return openFileForRead(moduleName, path, file, /*quietMiss=*/true);
+}
+
+bool HalStorage::openFileForReadIfPresent(const char* moduleName, const std::string& path, HalFile& file) {
+  return openFileForRead(moduleName, path.c_str(), file, /*quietMiss=*/true);
+}
+
+bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file, const bool quietMiss) {
   file.close();
   FsFile fsFile;
   bool ok = false;
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
-    ok = SDCard.openFileForRead(moduleName, path, fsFile);
+    if (quietMiss) {
+      // One open, no failure print: a missing file is an expected answer here.
+      fsFile = SDCard.open(path, O_RDONLY);
+      ok = static_cast<bool>(fsFile);
+    } else {
+      ok = SDCard.openFileForRead(moduleName, path, fsFile);
+    }
   }
+  PerfLog::noteSdOpen(ok);
   if (!ok) {
     return false;
   }
@@ -586,9 +607,31 @@ bool HalFile::seekCur(int64_t offset) { HAL_FILE_WRAPPED_CALL(seekCur, offset); 
 bool HalFile::seekSet(size_t offset) { HAL_FILE_WRAPPED_CALL(seekSet, offset); }
 int HalFile::available() const { HAL_FILE_WRAPPED_CALL(available, ); }
 size_t HalFile::position() const { HAL_FILE_WRAPPED_CALL(position, ); }
-int HalFile::read(void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(read, buf, count); }
+int HalFile::read(void* buf, size_t count) {
+#if CROSSDINK_PERF_LOG
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr);
+  const uint32_t startUs = micros();
+  const int n = impl->file.read(buf, count);
+  PerfLog::noteSdRead(n > 0 ? static_cast<uint32_t>(n) : 0, micros() - startUs);
+  return n;
+#else
+  HAL_FILE_WRAPPED_CALL(read, buf, count);
+#endif
+}
 int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
-size_t HalFile::write(const void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(write, buf, count); }
+size_t HalFile::write(const void* buf, size_t count) {
+#if CROSSDINK_PERF_LOG
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr);
+  const uint32_t startUs = micros();
+  const size_t n = impl->file.write(buf, count);
+  PerfLog::noteSdWrite(static_cast<uint32_t>(n), micros() - startUs);
+  return n;
+#else
+  HAL_FILE_WRAPPED_CALL(write, buf, count);
+#endif
+}
 size_t HalFile::write(uint8_t b) { HAL_FILE_WRAPPED_CALL(write, b); }
 bool HalFile::sync() { HAL_FILE_WRAPPED_CALL(sync, ); }
 bool HalFile::rename(const char* newPath) {

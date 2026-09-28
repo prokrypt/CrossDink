@@ -1,5 +1,6 @@
 #include "HalTiltSensor.h"
 
+#include <BoardConfig.h>
 #include <Logging.h>
 
 HalTiltSensor halTiltSensor;  // Singleton instance
@@ -35,7 +36,12 @@ void HalTiltSensor::begin() {
     LOG_INF("GYR", "SDK IMU initialized");
     return;
   }
-  LOG_ERR("GYR", "SDK IMU not found");
+  // A board with no IMU in its profile is not an error.
+  if (!BoardConfig::hasImu()) {
+    LOG_DBG("GYR", "No IMU on this board");
+  } else {
+    LOG_ERR("GYR", "SDK IMU not found");
+  }
 }
 
 bool HalTiltSensor::wake() {

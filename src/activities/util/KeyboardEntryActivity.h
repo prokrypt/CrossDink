@@ -43,6 +43,41 @@ class KeyboardEntryActivity : public Activity {
   size_t minLength;
   bool passwordVisible = false;
 
+  // EXPERIMENT (test/kbd-uc8179): UC8179 keyboard refresh toggles.
+  static constexpr const char* KBD_EXP_PATH = "/.crosspoint/kbd-exp.txt";
+  static constexpr uint8_t KBD_EXP_SKIP_RESYNC = 1;
+  static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
+  static constexpr uint8_t KBD_EXP_DU_LUT = 4;
+  static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
+  static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
+  static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // retired T6 windowed DRF; ignored
+  // Open with a ~250 ms DU scrub (T4 LUT, needs 4) instead of the 1.5 s Half of 16.
+  static constexpr uint8_t KBD_EXP_DU_SCRUB_ON_OPEN = 64;
+  // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
+  static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
+  // Settings > Turbo keyboard: every tweak above.
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = 31;
+  // DU LUT drive frames: 3 left heavy ghosting on the X4 Pro; 6 is the
+  // setting tested on hardware ("63 6").
+  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
+  uint8_t kbdExpFlags = 0;
+  uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
+  uint8_t kbdExpPll = 0;
+  bool kbdExpFirstFrame = true;
+  std::atomic<unsigned long> strokeAtMs{0};
+  // What queued the next keyboard frame, for the [KBD] line.
+  enum class StrokeCause : uint8_t { Redraw, Key, Press, Release };
+  std::atomic<uint8_t> strokeCause{0};
+  uint32_t kbdFrame = 0;
+  unsigned long prevFrameStrokeMs = 0;  // stroke behind the previous frame; 0 = none
+  // Touch-down highlight is held back briefly: a quick tap releases first, and
+  // its activation frame is then the keystroke's only refresh.
+  static constexpr uint16_t TOUCH_HIGHLIGHT_DELAY_MS = 120;
+  bool highlightPending = false;
+  unsigned long highlightDueMs = 0;
+  void loadKbdExperiment();
+  void requestStrokeUpdate(StrokeCause cause = StrokeCause::Key);
+
   ButtonNavigator buttonNavigator;
 
   // Keyboard layers. The letter/symbol layers come from the SDK's builtin
@@ -63,6 +98,11 @@ class KeyboardEntryActivity : public Activity {
   // the bottom action row is just the last row).
   int selRow = 0;
   int selCol = 0;
+  bool selectionShown = true;  // false on touch until a button moves the selection
+  // Shows a hidden selection; true when it did (the press only reveals it).
+  bool revealSelection();
+  // Button devices: Up/Down move the key row; long Up enters cursor mode.
+  void handleUpDownButtons();
 
   bool confirmHeld = false;
   bool confirmLongHandled = false;
@@ -97,6 +137,7 @@ class KeyboardEntryActivity : public Activity {
   enum class InputFieldTouchTarget { None, Cursor, PasswordToggle };
 
   void onComplete(std::string text);
+  bool injectText(const char* utf8) override;
   void onCancel();
   InputFieldTouchTarget inputFieldTouchTargetFromPoint(int x, int y, size_t& position) const;
   std::string displayTextForCurrentState() const;

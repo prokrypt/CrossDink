@@ -38,7 +38,10 @@ static_assert(isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::MANAGE_FONTS)),
               "Every network boot target must pass RTC target validation");
 
-void silentRestart();                                            // home screen
+void silentRestart();  // home screen
+// Plain ESP.restart() (no silent token) that keeps the current frame in PSRAM,
+// so the next boot's first paint is a Fast refresh. Used after a firmware flash.
+void restartKeepingPanelFrame();
 void silentRestartToReader(bool cleanImageBaseOnEntry = false);  // currently-open EPUB (APP_STATE.openEpubPath)
 // Reboots immediately after an activity releases exclusive raw storage.
 void restartToHomeAfterStorageHandoff();

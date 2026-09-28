@@ -3,6 +3,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "util/TransferLightPulse.h"
 
 /**
  * SD-card based firmware update activity.
@@ -37,6 +38,7 @@ class SdFirmwareUpdateActivity : public Activity {
         preselectedPath(std::move(preselectedPath)) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return state == State::UPDATING || state == State::VALIDATING; }
@@ -50,8 +52,11 @@ class SdFirmwareUpdateActivity : public Activity {
   std::string firmwarePath;
   size_t firmwareSize = 0;
   size_t writtenBytes = 0;
+  // Frontlight warble while flashing, held on at completion (see performUpdate).
+  TransferLightPulse flashLight;
   unsigned int lastRenderedPercent = 101;
   std::string errorMessage;
+  std::string errorHint;  // second failure line (e.g. the running firmware was kept)
 
   void launchPicker();
   void onPickerResult(const ActivityResult& result);

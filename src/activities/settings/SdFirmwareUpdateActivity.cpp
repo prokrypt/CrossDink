@@ -2,12 +2,17 @@
 
 #include <Arduino.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <esp_ota_ops.h>
+#ifndef SIMULATOR
+#include <FreeInkDisplay.h>
+#endif
 
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
@@ -16,10 +21,35 @@
 #include "network/FirmwareFlasher.h"
 
 namespace {
-// Each progress repaint is a ~0.5 s partial refresh that competes with the
-// flash loop for the CPU and, on shared-bus boards, the SPI bus; 10% steps keep
-// the bar moving without stretching the update.
-constexpr unsigned int PROGRESS_STEP_PERCENT = 10;
+// Each progress repaint competes with the flash loop for the CPU and, on
+// shared-bus boards, the SPI bus. With the keyboard DU LUT a repaint is short
+// enough for 5% steps.
+constexpr unsigned int PROGRESS_STEP_PERCENT = 5;
+// DU frames for progress repaints (the keyboard's tested "63 6" setting).
+constexpr uint8_t PROGRESS_LUT_FRAMES = 6;
+
+// What went wrong, for the failure screen. Integrity failures come from the
+// check that runs while the image is written.
+const char* failureMessage(const firmware_flash::Result result) {
+  using firmware_flash::Result;
+  switch (result) {
+    case Result::BAD_CHIP:
+    case Result::WRONG_BOARD:
+      return tr(STR_FIRMWARE_WRONG_DEVICE);
+    case Result::BAD_MAGIC:
+    case Result::BAD_SEGMENTS:
+    case Result::BAD_CHECKSUM:
+    case Result::BAD_SHA:
+    case Result::BAD_SIZE:
+      return tr(STR_INVALID_FIRMWARE);
+    case Result::TOO_LARGE:
+      return tr(STR_FIRMWARE_TOO_LARGE);
+    case Result::TOO_SMALL:
+      return tr(STR_FIRMWARE_TOO_SMALL);
+    default:
+      return tr(STR_FIRMWARE_WRITE_FAILED);
+  }
+}
 
 unsigned int progressStep(size_t written, size_t total) {
   if (total == 0) return 0;
@@ -36,6 +66,14 @@ void SdFirmwareUpdateActivity::onEnter() {
   // A preselected file is validated from loop(): selectFirmware() waits on the
   // render task, which must not happen inside onEnter().
   if (preselectedPath.empty()) launchPicker();
+}
+
+void SdFirmwareUpdateActivity::onExit() {
+  Activity::onExit();
+  flashLight.end();
+#ifndef SIMULATOR
+  freeink::setUc8179KbdExperiment(nullptr);  // render() may have left the progress LUT on
+#endif
 }
 
 void SdFirmwareUpdateActivity::launchPicker() {
@@ -69,6 +107,7 @@ void SdFirmwareUpdateActivity::onPickerResult(const ActivityResult& result) {
 
 void SdFirmwareUpdateActivity::selectFirmware(std::string path) {
   firmwarePath = std::move(path);
+  errorHint.clear();
   LOG_DBG("FW", "Selected: %s", firmwarePath.c_str());
 
   {
@@ -114,11 +153,11 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
     return false;
   }
 
-  // Run the same end-to-end integrity check (header / segment table / XOR checksum / SHA256
-  // trailer) that the shared firmware-flasher applies right before raw-writing otadata. This
-  // catches truncated or corrupted .bin files at confirmation time, before the user ever sees
-  // the "Updating…" progress bar.
-  const auto vr = firmware_flash::validateImageFile(firmwarePath.c_str(), partitionLimit);
+  // Header only (magic, chip, segment table and sizes): a truncated or foreign
+  // .bin fails here without reading the whole card file. The checksum, SHA-256
+  // and board tag are verified during the flash, which only activates the new
+  // slot when they pass.
+  const auto vr = firmware_flash::checkImageHeaderFile(firmwarePath.c_str(), partitionLimit);
   if (vr != firmware_flash::Result::OK) {
     LOG_ERR("FW", "image validation failed: %s", firmware_flash::resultName(vr));
     if (vr == firmware_flash::Result::TOO_LARGE) {
@@ -180,21 +219,31 @@ void SdFirmwareUpdateActivity::performUpdate() {
     const bool stepChanged = progressStep(written, total) != progressStep(self->writtenBytes, total);
     self->writtenBytes = written;
     self->firmwareSize = total;
+    // The loop is blocked for the whole flash, so the warble runs from here.
+    self->flashLight.update(true);
     // immediate=true: wake the render task directly. We're in a tight sync
     // loop so the main loop won't drain the requestedUpdate flag for us.
     if (stepChanged) self->requestUpdate(true);
   };
 
-  // Re-validate at flash time (TOCTOU): SD is removable, so don't trust the
-  // pre-confirmation pass. The alreadyValidated parameter on the API stays
-  // for callers (e.g. an OTA staging path) where the same byte stream was
-  // just hashed and there's no removable-media gap.
+  // SD is removable: the flash pass verifies the bytes it writes (checksum,
+  // SHA-256, board tag) and activates the slot only when they pass.
+  // Nothing reads touch while flashing; sleep the GT911 to save power. After a
+  // failure the main loop's touch sleep policy wakes it again.
+#if CROSSDINK_APP_CAP_TOUCH
+  if (gpio.hasTouch() && !gpio.setTouchSleep(true)) LOG_ERR("FW", "Touch controller did not sleep");
+#endif
+  flashLight.begin();
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
-    LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
-    errorMessage = result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD
-                       ? tr(STR_FIRMWARE_WRONG_DEVICE)
-                       : tr(STR_FIRMWARE_WRITE_FAILED);
+    LOG_ERR("FW", "flash failed: %s; running firmware kept", firmware_flash::resultName(result));
+    // Back out: the user's light and a live touchscreen for the Back tap.
+    flashLight.end();
+#if CROSSDINK_APP_CAP_TOUCH
+    if (gpio.hasTouch() && !gpio.setTouchSleep(false)) LOG_ERR("FW", "Touch controller did not wake");
+#endif
+    errorMessage = failureMessage(result);
+    errorHint = tr(STR_FIRMWARE_KEPT_HINT);
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
@@ -206,9 +255,13 @@ void SdFirmwareUpdateActivity::performUpdate() {
     RenderLock lock(*this);
     state = State::SUCCESS;
   }
+  // Held steady until the restart, so the light changing marks the reboot.
+  flashLight.holdOn();
   requestUpdateAndWait();
   delay(1500);
-  ESP.restart();
+  // Back to the user's light state so the silent restart restores that one.
+  flashLight.end();
+  restartKeepingPanelFrame();
 }
 
 void SdFirmwareUpdateActivity::loop() {
@@ -236,6 +289,19 @@ void SdFirmwareUpdateActivity::loop() {
 }
 
 void SdFirmwareUpdateActivity::render(RenderLock&&) {
+#ifndef SIMULATOR
+  // Trial (log item 9): progress repaints use the keyboard's DU LUT
+  // (~230 ms instead of the ~560 ms OTP fast refresh) while flashing, so each
+  // one holds the flash loop's SPI/cache for less time. Off in every other state.
+  if (state == State::UPDATING) {
+    freeink::Uc8179KbdExperiment exp;
+    exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
+    exp.lutFrames = PROGRESS_LUT_FRAMES;
+    freeink::setUc8179KbdExperiment(&exp);
+  } else {
+    freeink::setUc8179KbdExperiment(nullptr);
+  }
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -282,9 +348,13 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
                                      tr(STR_RESTARTING_HINT), 3);
   } else if (state == State::FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
+    int y = top + lineHeight + metrics.verticalSpacing;
     if (!errorMessage.empty()) {
-      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing,
-                                       errorMessage.c_str(), 3);
+      y += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, errorMessage.c_str(), 3);
+    }
+    if (!errorHint.empty()) {
+      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y + metrics.verticalSpacing,
+                                       errorHint.c_str(), 3);
     }
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

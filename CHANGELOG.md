@@ -2,6 +2,7 @@
 
 ### Added
 
+- While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% once a second, and stays off while idle. Each pulse finishes smoothly, so even a short request gives one full blink and the light never cuts off abruptly. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
 - Assign Library to power, long-press, button-chord, Home-button, or Quick Actions shortcuts to open the book list directly.
 - Customize the top and bottom reader status bars separately, including item positions and progress bars, in EPUB, TXT, and XTC books. Each bar can be previewed where it appears while reading.
 - View a selected book's reading stats from its Library or File Browser action menu.
@@ -22,7 +23,16 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.
+- X4 Pro: Turbo keyboard now drives 6 frames per key (was 3), matching the tested setup; 3 frames left heavy ghosting.
+- Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, the outer keys reach the screen edges, and the top row reaches halfway up the strip above it, so there are no dead spots. The keys look the same.
 
+- On touch devices the keyboard no longer highlights a key when it opens, and the Up and Down buttons move the text cursor left and right. A side button press brings the highlight back for button typing.
+- Updating firmware from the SD card is faster: picking a file checks only its header, the full checksum and SHA-256 are verified while it is written (the new firmware is only activated when they match), the next part of the file is read while the current part is written, blank flash is not erased or written again, and the progress bar moves in 5% steps. The frontlight pulses while it flashes and stays on until the restart, and the touchscreen sleeps meanwhile.
+- X4 Pro light-sleep profiles: Wi-Fi rejoins a saved network with a fast scan on its known channel, and uploads use larger TCP windows, 12 KB WebSocket chunks and a background SD writer, so they reach the device faster.
+- Updating firmware from the SD card checks the image's SHA-256 while writing it, instead of reading the whole file twice, and shows its progress with the fast keyboard refresh.
+- After a silent restart the screen keeps its previous frame instead of doing a full refresh.
+- Large images in books that were re-decoded on every page now stay cached on PSRAM devices.
 - Buttons and touch are read on their own task, woken by the input lines, so presses, taps and swipes made while the device is busy drawing or indexing are queued instead of lost.
 - A chapter's first open inflates it on the second core while the screen task parses and lays it out, instead of unpacking it to the SD card first.
 - JPEG and PNG images in books decode on the second core while the screen task dithers and draws the rows already decoded.
@@ -61,6 +71,8 @@
 - The on-screen keyboard now uses wider outlined keys with clearer spacing on touch and button devices.
 
 ### Fixed
+- X4 Pro: joining Wi-Fi is about 1.5 s faster. The address conflict check that was meant to be off was still running on every join.
+- X4 Pro keyboard: keys you have not pressed no longer fade during long typing sessions; every keystroke now also re-darkens black pixels that stay black.
 
 - X4 Pro light-sleep firmware shows its real version (for example `1.6.0-x4-pro`) instead of "dev" in Settings, on the boot screen, and in the web and OTA version checks.
 - Background Library indexing and the reader's next-page draw-ahead run at full CPU speed again instead of the lowest idle clock.

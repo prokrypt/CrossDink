@@ -12,6 +12,7 @@ class UsbDriveActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool powerOffPanelWhenIdle() const override { return true; }
   bool preventAutoSleep() override {
     return state == State::Connected || state == State::Accessed || forcedDisconnectRequested ||
            (!startFailed && state == State::IoError);

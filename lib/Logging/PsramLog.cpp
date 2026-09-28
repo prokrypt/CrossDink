@@ -131,13 +131,19 @@ void appendBootLineIfPending() {
   if (!bootLinePending) return;
   bootLinePending = false;
   char line[200];
-  const int len = snprintf(line, sizeof(line),
-                           "\n=== boot: PSRAM log %s, restart #%lu, reset reason %d, ring@%p, found magic %08lx/%08lx "
-                           "size %lu head %lu ===\n",
-                           headerKept ? "kept" : "reset", static_cast<unsigned long>(ring.restarts),
-                           static_cast<int>(esp_reset_reason()), static_cast<void*>(&ring),
-                           static_cast<unsigned long>(foundMagicA), static_cast<unsigned long>(foundMagicB),
-                           static_cast<unsigned long>(foundSize), static_cast<unsigned long>(foundHead));
+  int len = snprintf(line, sizeof(line), "\n=== boot: PSRAM log %s, restart #%lu, reset reason %d, ring@%p",
+                     headerKept ? "kept" : "reset", static_cast<unsigned long>(ring.restarts),
+                     static_cast<int>(esp_reset_reason()), static_cast<void*>(&ring));
+  // The found header is uninitialized PSRAM after a cold boot; show it only
+  // when it was valid and kept.
+  if (len > 0 && headerKept && len < static_cast<int>(sizeof(line))) {
+    len += snprintf(line + len, sizeof(line) - len, ", found magic %08lx/%08lx size %lu head %lu",
+                    static_cast<unsigned long>(foundMagicA), static_cast<unsigned long>(foundMagicB),
+                    static_cast<unsigned long>(foundSize), static_cast<unsigned long>(foundHead));
+  }
+  if (len > 0 && len < static_cast<int>(sizeof(line))) {
+    len += snprintf(line + len, sizeof(line) - len, " ===\n");
+  }
   if (len > 0) appendRaw(line, static_cast<uint32_t>(std::min<int>(len, sizeof(line) - 1)));
 }
 }  // namespace

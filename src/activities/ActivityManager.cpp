@@ -12,6 +12,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <TaskCores.h>
 
 #include <algorithm>
@@ -452,8 +453,28 @@ void ActivityManager::renderTaskTrampoline(void* param) {
 void ActivityManager::renderTaskLoop() {
   bool renderQueued = false;
   bool displayPmHeld = false;
+  bool idlePanelOffArmed = false;
   while (true) {
-    if (!renderQueued) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (!renderQueued) {
+      if (!idlePanelOffArmed) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      } else if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(IDLE_PANEL_OFF_MS)) == 0) {
+        // No frame for IDLE_PANEL_OFF_MS on a screen that opted in: switch the
+        // booster off. The next refresh powers it back on.
+        idlePanelOffArmed = false;
+#ifndef SIMULATOR  // the simulator HAL has no panel power
+        RenderLock offLock;
+        if (display.isRefreshPending() || display.isRefreshBusy()) {
+          // A deferred refresh is still driving the panel: never cut the
+          // booster mid-waveform; try again after the next idle period.
+          idlePanelOffArmed = true;
+        } else if (currentActivity && currentActivity->powerOffPanelWhenIdle() && display.powerOffIdle()) {
+          LOG_DBG("ACT", "Panel booster off after %lu ms idle", static_cast<unsigned long>(IDLE_PANEL_OFF_MS));
+        }
+#endif
+        continue;
+      }
+    }
     renderQueued = false;
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
@@ -475,7 +496,10 @@ void ActivityManager::renderTaskLoop() {
       // cppcheck-suppress knownConditionTrueFalse
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       renderer.setDeferFastRefresh(deferredRender);
+      PerfLog::noteRenderStart(currentActivity->name.c_str());
+      idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       currentActivity->render(std::move(lock));
+      PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
       restoredActivityNeedsRender = false;
     }
@@ -511,6 +535,8 @@ void ActivityManager::renderTaskLoop() {
         if (!renderer.isRefreshPending()) break;
         if (!renderer.isRefreshBusy()) {
           renderer.waitRefreshComplete();
+          // Already over, so the busy-wait hook that marks ink never fired.
+          PerfLog::noteInk();
           break;
         }
       }
@@ -1144,6 +1170,12 @@ bool ActivityManager::requiresExclusiveStorageLoop() const {
 
 bool ActivityManager::blocksGlobalInput() const { return currentActivity && currentActivity->blocksGlobalInput(); }
 
+bool ActivityManager::isRenderIdle() const {
+  if (requestedUpdate.load() || RenderLock::peek() || renderer.isRefreshPending()) return false;
+  // Notified-but-not-yet-running shows as Ready; waiting for work is Blocked.
+  return renderTaskHandle == nullptr || eTaskGetState(renderTaskHandle) == eBlocked;
+}
+
 bool ActivityManager::isHomeActivity() const { return currentActivity && currentActivity->name == "Home"; }
 
 bool ActivityManager::isReaderActivity() const {
@@ -1359,3 +1391,9 @@ void RenderLock::unlock() {
  * @note Must not be called from ISR context — xSemaphoreGetMutexHolder is not ISR-safe.
  */
 bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
+
+const char* ActivityManager::currentActivityName() const {
+  return currentActivity ? currentActivity->name.c_str() : "";
+}
+
+bool ActivityManager::injectText(const char* utf8) { return currentActivity && currentActivity->injectText(utf8); }
