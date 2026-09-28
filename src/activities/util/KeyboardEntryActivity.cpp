@@ -1204,6 +1204,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // Every tap inside the keyboard lands on a key: gaps split between
   // neighbours, and edge keys reach the screen sides.
   props.fillHitGaps = mappedInput.hasTouchHardware();
+  // The top row also reaches up through half the strip above the keys.
+  if (props.fillHitGaps) props.topHitOverflow = static_cast<int16_t>((keysRect.y - kbRect.y) / 2);
   fui::keyboard(frame, keysRect, props);
   interactions.publish();
   interactionsReady.store(true, std::memory_order_release);

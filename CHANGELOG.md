@@ -23,7 +23,7 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
-- Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, and the outer keys reach the screen edges, so there are no dead spots. The keys look the same.
+- Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, the outer keys reach the screen edges, and the top row reaches halfway up the strip above it, so there are no dead spots. The keys look the same.
 
 - On touch devices the keyboard no longer highlights a key when it opens, and the Up and Down buttons move the text cursor left and right. A side button press brings the highlight back for button typing.
 - Updating firmware from the SD card is faster: picking a file checks only its header, the full checksum and SHA-256 are verified while it is written (the new firmware is only activated when they match), the next part of the file is read while the current part is written, blank flash is not erased or written again, and the progress bar moves in 5% steps. The frontlight pulses while it flashes and stays on until the restart, and the touchscreen sleeps meanwhile.
@@ -69,6 +69,7 @@
 - The on-screen keyboard now uses wider outlined keys with clearer spacing on touch and button devices.
 
 ### Fixed
+- X4 Pro: joining Wi-Fi is about 1.5 s faster. The address conflict check that was meant to be off was still running on every join.
 - X4 Pro keyboard: keys you have not pressed no longer fade during long typing sessions; every keystroke now also re-darkens black pixels that stay black.
 
 - X4 Pro light-sleep firmware shows its real version (for example `1.6.0-x4-pro`) instead of "dev" in Settings, on the boot screen, and in the web and OTA version checks.
