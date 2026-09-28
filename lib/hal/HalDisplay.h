@@ -75,6 +75,8 @@ class HalDisplay {
 
   // Power management
   void deepSleep();
+  // Booster off between refreshes on idle screens; false when nothing changed.
+  bool powerOffIdle();
 
   // Access to frame buffer
   uint8_t* getFrameBuffer() const;

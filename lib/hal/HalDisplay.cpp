@@ -153,6 +153,11 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
 
 bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
 
+bool HalDisplay::powerOffIdle() {
+  HalSpiBus::Lock spiLock;
+  return einkDisplay.powerOffIdle();
+}
+
 void HalDisplay::deepSleep() {
   HalSpiBus::Lock spiLock;
   einkDisplay.deepSleep();

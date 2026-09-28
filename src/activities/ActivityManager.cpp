@@ -452,8 +452,24 @@ void ActivityManager::renderTaskTrampoline(void* param) {
 void ActivityManager::renderTaskLoop() {
   bool renderQueued = false;
   bool displayPmHeld = false;
+  bool idlePanelOffArmed = false;
   while (true) {
-    if (!renderQueued) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (!renderQueued) {
+      if (!idlePanelOffArmed) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      } else if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(IDLE_PANEL_OFF_MS)) == 0) {
+        // No frame for IDLE_PANEL_OFF_MS on a screen that opted in: switch the
+        // booster off. The next refresh powers it back on.
+        idlePanelOffArmed = false;
+#ifndef SIMULATOR  // the simulator HAL has no panel power
+        RenderLock offLock;
+        if (currentActivity && currentActivity->powerOffPanelWhenIdle() && display.powerOffIdle()) {
+          LOG_DBG("ACT", "Panel booster off after %lu ms idle", static_cast<unsigned long>(IDLE_PANEL_OFF_MS));
+        }
+#endif
+        continue;
+      }
+    }
     renderQueued = false;
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
@@ -475,6 +491,7 @@ void ActivityManager::renderTaskLoop() {
       // cppcheck-suppress knownConditionTrueFalse
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       renderer.setDeferFastRefresh(deferredRender);
+      idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       currentActivity->render(std::move(lock));
       renderer.setDeferFastRefresh(false);
       restoredActivityNeedsRender = false;

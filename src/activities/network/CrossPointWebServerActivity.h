@@ -93,5 +93,6 @@ class CrossPointWebServerActivity final : public Activity {
   bool allowsRadioIdleSleep() override {
     return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
   }
+  bool powerOffPanelWhenIdle() const override { return true; }
   bool preventAutoSleep() override { return webServer && webServer->isRunning(); }
 };
