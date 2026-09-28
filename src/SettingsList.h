@@ -370,6 +370,8 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return Chord::CHORD_SYNC_PROGRESS;
         case Action::NEARBY_POSITION_SYNC:
           return Chord::CHORD_NEARBY_POSITION_SYNC;
+        case Action::LIBRARY:
+          return Chord::CHORD_LIBRARY;
         case Action::FILE_TRANSFER:
           return Chord::CHORD_FILE_TRANSFER;
         case Action::CALIBRE_WIRELESS:
@@ -456,6 +458,8 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return LongPress::LONG_MENU_QUICK_ACTIONS;
         case Action::QUICK_LOCK:
           return LongPress::LONG_MENU_QUICK_LOCK;
+        case Action::LIBRARY:
+          return LongPress::LONG_MENU_LIBRARY;
         case Action::PAGE_TURN:
         case Action::PREVIOUS_PAGE:
         case Action::NEARBY_POSITION_SYNC:
@@ -555,6 +559,8 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
                           StrId::STR_CAT_DISPLAY)
             .withEnumRawValues({CrossPointSettings::HIDE_CLOCK_NEVER, CrossPointSettings::HIDE_CLOCK_IN_READER,
                                 CrossPointSettings::HIDE_CLOCK_ALWAYS}));
+    add(SettingInfo::Toggle(StrId::STR_CLOCK_OUTSIDE_READER, &CrossPointSettings::showClockOutsideReader,
+                            "showClockOutsideReader", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Enum(StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
                           {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15,
                            StrId::STR_PAGES_30, StrId::STR_NEVER},
@@ -859,38 +865,39 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
         },
         "koSyncBehavior", StrId::STR_KOREADER_SYNC));
 
-    // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
+    // Legacy fields stay in JSON for one-time status bar migration; the web
+    // editor uses /api/status-bars instead of exposing these controls.
     add(SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,
-                            "statusBarChapterPageCount", StrId::STR_CUSTOMISE_STATUS_BAR));
+                            "statusBarChapterPageCount", StrId::STR_STATUS_BARS));
     add(SettingInfo::Toggle(StrId::STR_STABLE_PAGE_NUMBERS, &CrossPointSettings::stablePageNumbers, "stablePageNumbers",
-                            StrId::STR_CUSTOMISE_STATUS_BAR));
+                            StrId::STR_STATUS_BARS));
     add(SettingInfo::Toggle(StrId::STR_BOOK_PROGRESS_PERCENTAGE, &CrossPointSettings::statusBarBookProgressPercentage,
-                            "statusBarBookProgressPercentage", StrId::STR_CUSTOMISE_STATUS_BAR));
+                            "statusBarBookProgressPercentage", StrId::STR_STATUS_BARS));
     add(SettingInfo::Enum(StrId::STR_PERCENTAGE_FORMAT, &CrossPointSettings::statusBarBookPercentageFormat,
                           {StrId::STR_PERCENTAGE_FORMAT_WHOLE, StrId::STR_PERCENTAGE_FORMAT_ONE_DECIMAL,
                            StrId::STR_PERCENTAGE_FORMAT_TWO_DECIMALS},
-                          "statusBarBookPercentageFormat", StrId::STR_CUSTOMISE_STATUS_BAR));
+                          "statusBarBookPercentageFormat", StrId::STR_STATUS_BARS));
     add(SettingInfo::Enum(StrId::STR_PROGRESS_BAR, &CrossPointSettings::statusBarProgressBar,
                           {StrId::STR_HIDE, StrId::STR_BOOK, StrId::STR_CHAPTER}, "statusBarProgressBar",
-                          StrId::STR_CUSTOMISE_STATUS_BAR)
+                          StrId::STR_STATUS_BARS)
             .withEnumRawValues({CrossPointSettings::HIDE_PROGRESS, CrossPointSettings::BOOK_PROGRESS,
                                 CrossPointSettings::CHAPTER_PROGRESS}));
     add(SettingInfo::Enum(StrId::STR_PROGRESS_BAR_THICKNESS, &CrossPointSettings::statusBarProgressBarThickness,
                           {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK},
-                          "statusBarProgressBarThickness", StrId::STR_CUSTOMISE_STATUS_BAR));
+                          "statusBarProgressBarThickness", StrId::STR_STATUS_BARS));
     add(SettingInfo::Enum(StrId::STR_TITLE, &CrossPointSettings::statusBarTitle,
                           {StrId::STR_HIDE, StrId::STR_BOOK, StrId::STR_CHAPTER}, "statusBarTitle",
-                          StrId::STR_CUSTOMISE_STATUS_BAR)
+                          StrId::STR_STATUS_BARS)
             .withEnumRawValues(
                 {CrossPointSettings::HIDE_TITLE, CrossPointSettings::BOOK_TITLE, CrossPointSettings::CHAPTER_TITLE}));
     add(SettingInfo::Enum(StrId::STR_TIME_LEFT, &CrossPointSettings::statusBarTimeLeft,
                           {StrId::STR_HIDE, StrId::STR_CHAPTER, StrId::STR_BOOK}, "statusBarTimeLeft",
-                          StrId::STR_CUSTOMISE_STATUS_BAR));
+                          StrId::STR_STATUS_BARS));
     add(SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
-                            StrId::STR_CUSTOMISE_STATUS_BAR));
+                            StrId::STR_STATUS_BARS));
     add(SettingInfo::Enum(StrId::STR_XTC_STATUS_BAR, &CrossPointSettings::xtcStatusBarMode,
-                          {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP}, "xtcStatusBarMode",
-                          StrId::STR_CUSTOMISE_STATUS_BAR));
+                          {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP, StrId::STR_STATUS_BAR_BOTH},
+                          "xtcStatusBarMode", StrId::STR_STATUS_BARS));
     // Clock detail entries live under System > Device in the device UI.
     // Range 0..104 = quarter-hour steps from UTC-12:00 to UTC+14:00, biased by 48.
     add(SettingInfo::Value(StrId::STR_CLOCK_UTC_OFFSET, &CrossPointSettings::clockUtcOffsetQ, {0, 104, 1},
@@ -1111,7 +1118,7 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
   readerSettings.reserve(12);
   readerSettings.push_back(SettingInfo::Submenu(StrId::STR_READER_FONT_OPTIONS, SettingAction::ReaderFontOptions));
   readerSettings.push_back(SettingInfo::Submenu(StrId::STR_READER_PAGE_LAYOUT, SettingAction::ReaderPageLayout));
-  readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+  readerSettings.push_back(SettingInfo::Action(StrId::STR_STATUS_BARS, SettingAction::CustomiseStatusBar));
   addSettingByName(readerSettings, allSettings, StrId::STR_PUBLISHER_PAGE_NUMBERS);
   addSettingByName(readerSettings, allSettings, StrId::STR_DISABLE_TOUCHSCREEN);
   addSettingByName(readerSettings, allSettings, StrId::STR_EMBEDDED_STYLE);
@@ -1326,7 +1333,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   }
   addDisplaySetting(StrId::STR_HIDE_BATTERY);
   if (halClock.isAvailable()) {
-    addDisplaySetting(StrId::STR_HIDE_CLOCK);
+    addDisplaySetting(StrId::STR_CLOCK_OUTSIDE_READER);
   }
   addDisplaySetting(StrId::STR_REFRESH_FREQ);
   addDisplaySetting(StrId::STR_NIGHT_MODE);

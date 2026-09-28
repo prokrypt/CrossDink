@@ -316,3 +316,78 @@ TEST(TouchReaderPreviewModel, KeepsBoundedPreviewWhenPageHasMoreLinesThanSnapsho
   EXPECT_EQ(renderer.drawCalls.size(), TouchReaderPreviewModel::LINE_CAPACITY);
   EXPECT_GT(renderer.drawCalls.back().x, 0);
 }
+
+TEST(SampleReaderPreviewModel, ContainsTheWholeParagraphWithoutABookPage) {
+  SampleReaderPreviewModel model;
+  ASSERT_TRUE(model.captureParagraph(READER_PREVIEW_PARAGRAPH));
+  GfxRenderer renderer;
+  model.renderText(renderer, 1, 5, 8, 100, 100, 0, static_cast<uint8_t>(CssTextAlign::Left), false, false, true);
+  std::string paragraph;
+  for (const auto& call : renderer.drawCalls) {
+    if (!paragraph.empty()) paragraph += ' ';
+    paragraph += call.text;
+    EXPECT_GE(call.x, 5);
+  }
+  EXPECT_EQ(paragraph, READER_PREVIEW_PARAGRAPH);
+  EXPECT_GT(renderer.drawCalls.back().y, renderer.drawCalls.front().y);
+  EXPECT_LE(sizeof(model), 3U * 1024U);
+}
+
+TEST(SampleReaderPreviewModel, ReflowsForMarginsFontSizeAndSpacing) {
+  SampleReaderPreviewModel model;
+  ASSERT_TRUE(model.captureParagraph(READER_PREVIEW_PARAGRAPH));
+  const auto lastY = [&](int font, int width, int lineSpacing, int wordSpacing) {
+    GfxRenderer renderer;
+    model.renderText(renderer, font, 0, 0, width, lineSpacing, wordSpacing, static_cast<uint8_t>(CssTextAlign::Left),
+                     false, false, true);
+    return renderer.drawCalls.back().y;
+  };
+  const int normal = lastY(1, 100, 100, 0);
+  EXPECT_GT(lastY(1, 60, 100, 0), normal);
+  EXPECT_GT(lastY(2, 100, 100, 0), normal);
+  EXPECT_GT(lastY(1, 100, 150, 0), normal);
+  EXPECT_GT(lastY(1, 100, 100, 4), normal);
+}
+
+TEST(SampleReaderPreviewModel, SupportsAlignmentFocusAndGuideDots) {
+  SampleReaderPreviewModel model;
+  ASSERT_TRUE(model.captureParagraph("Lorem ipsum dolor sit amet."));
+  GfxRenderer left, right, decorated;
+  model.renderText(left, 1, 0, 0, 100, 100, 0, static_cast<uint8_t>(CssTextAlign::Left), false, false, true);
+  model.renderText(right, 1, 0, 0, 100, 100, 0, static_cast<uint8_t>(CssTextAlign::Right), false, false, true);
+  model.renderText(decorated, 1, 0, 0, 100, 100, 0, static_cast<uint8_t>(CssTextAlign::Left), true, true, true);
+  EXPECT_GT(right.drawCalls.front().x, left.drawCalls.front().x);
+  bool bold = false, dot = false;
+  for (const auto& call : decorated.drawCalls) {
+    bold = bold || (call.style & EpdFontFamily::BOLD);
+    dot = dot || call.text == "·";
+  }
+  EXPECT_TRUE(bold);
+  EXPECT_TRUE(dot);
+}
+
+TEST(SampleReaderPreviewModel, RejectsOverlongSamplesWithoutLeavingAStalePreview) {
+  ReaderPreviewModel<32, 2, 1, false> model;
+  ASSERT_TRUE(model.captureParagraph("one two"));
+  EXPECT_FALSE(model.captureParagraph("one two three"));
+  EXPECT_FALSE(model.valid());
+  EXPECT_FALSE(model.captureParagraph("This sample exceeds the available text capacity."));
+  EXPECT_FALSE(model.valid());
+  EXPECT_FALSE(model.captureParagraph("   "));
+  EXPECT_FALSE(model.valid());
+}
+
+TEST(SampleReaderPreviewModel, DrawsOnlyCompleteLinesInsideThePreview) {
+  SampleReaderPreviewModel model;
+  ASSERT_TRUE(model.captureParagraph(READER_PREVIEW_PARAGRAPH));
+  for (const int spacing : {70, 100, 200}) {
+    GfxRenderer renderer;
+    model.renderText(renderer, 1, 0, 5, 80, spacing, 0, static_cast<uint8_t>(CssTextAlign::Left), false, false, true,
+                     24);
+    ASSERT_FALSE(renderer.drawCalls.empty());
+    for (const auto& call : renderer.drawCalls) EXPECT_LE(call.y + renderer.getTextHeight(1), 24);
+  }
+  GfxRenderer tiny;
+  model.renderText(tiny, 1, 0, 5, 80, 100, 0, static_cast<uint8_t>(CssTextAlign::Left), false, false, true, 10);
+  EXPECT_TRUE(tiny.drawCalls.empty());
+}

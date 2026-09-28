@@ -18,6 +18,7 @@ class GfxRenderer {
   mutable std::vector<DrawCall> drawCalls;
 
   int getLineHeight(int) const { return 10; }
+  int getTextHeight(int) const { return 10; }
   int getSpaceWidth(int, EpdFontFamily::Style) const { return 1; }
   int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 1; }
   int getKerning(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 0; }

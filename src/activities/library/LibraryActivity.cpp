@@ -1,6 +1,7 @@
 #include "LibraryActivity.h"
 
 #include <Arduino.h>
+#include <DateFormatting.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <LibraryBuilder.h>
@@ -44,6 +45,7 @@ constexpr int HEADER_CONTROL_GAP = 10;
 // A released contact that travelled further than this is a drag, not a tap on
 // the row it started on. Matches the SDK's stationary tap slop.
 constexpr int DRAG_TAP_SLOP_PX = 28;
+constexpr int FOOTER_HEIGHT = 28;
 
 int headerControlRightInset() {
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -359,7 +361,7 @@ void LibraryActivity::applyFilter() {
 }
 
 void LibraryActivity::resetViewport() {
-  selection = rowCount() ? CONTROL_COUNT : 3;
+  selection = rowCount() || !mappedInput.hasTouchHardware() ? CONTROL_COUNT : 3;
   showSelection = !mappedInput.hasTouchHardware();
   topIndex = 0;
   listNav.reset(selection - CONTROL_COUNT);
@@ -402,7 +404,7 @@ void LibraryActivity::openBook(const int row) {
   onSelectBook(book.path);
 }
 
-void LibraryActivity::openSortPicker() {
+void LibraryActivity::openSortPicker(const int selectedIndex) {
   static constexpr StrId choices[] = {StrId::STR_LIBRARY_DATE_ADDED,
                                       StrId::STR_LIBRARY_TITLE,
                                       StrId::STR_LIBRARY_AUTHOR_LAST_NAME,
@@ -410,19 +412,46 @@ void LibraryActivity::openSortPicker() {
                                       StrId::STR_LIBRARY_RECENTLY_OPENED,
                                       StrId::STR_LIBRARY_SERIES,
                                       StrId::STR_LIBRARY_GENRE};
-  sortPopup.setDismissOnOutsideTouchDown(true);
-  sortPopup.show(StrId::STR_LIBRARY_SORT_BY, choices, 7, static_cast<int>(sort), [this](const int selected) {
-    if (selected < 0 || selected > static_cast<int>(Sort::Genre)) return;
-    sort = static_cast<Sort>(selected);
-    descending = sort == Sort::DateAdded || sort == Sort::RecentlyRead;
+  const bool buttonOnly = !mappedInput.hasTouchHardware();
+  auto onSelect = [this, buttonOnly](const int selected) {
+    if (buttonOnly && selected == 0) {
+      descending = !descending;
+    } else {
+      const int method = selected - (buttonOnly ? 1 : 0);
+      if (method < 0 || method > static_cast<int>(Sort::Genre)) return;
+      sort = static_cast<Sort>(method);
+      if (!buttonOnly) descending = sort == Sort::DateAdded || sort == Sort::RecentlyRead;
+    }
     SETTINGS.librarySortMethod = static_cast<uint8_t>(sort);
     SETTINGS.librarySortDescending = descending;
     if (!SETTINGS.saveToFile()) LOG_ERR("LIB", "Cannot save Library sort");
     applyFilter();
     resetViewport();
-  });
+    if (buttonOnly && selected == 0) openSortPicker(0);
+  };
+  actionPopup.setDismissOnOutsideTouchDown(true);
+  if (buttonOnly) {
+    const char* options[] = {descending ? "Z-A" : "A-Z", I18N.get(choices[0]), I18N.get(choices[1]),
+                             I18N.get(choices[2]),       I18N.get(choices[3]), I18N.get(choices[4]),
+                             I18N.get(choices[5]),       I18N.get(choices[6])};
+    actionPopup.show(tr(STR_LIBRARY_SORT_BY), options, 8, selectedIndex < 0 ? 0 : selectedIndex, std::move(onSelect));
+    actionPopup.setDividerAfterOption(0);
+  } else {
+    actionPopup.show(StrId::STR_LIBRARY_SORT_BY, choices, 7, static_cast<int>(sort), std::move(onSelect));
+  }
   if (index.isOpen() && index.header().formatVersion < 4)
-    sortPopup.setDisabledOptions({false, false, false, false, false, true, true});
+    actionPopup.setDisabledOptions(buttonOnly ? std::vector<bool>{false, false, false, false, false, false, true, true}
+                                              : std::vector<bool>{false, false, false, false, false, true, true});
+  requestUpdate();
+}
+
+void LibraryActivity::openMenu() {
+  static constexpr StrId choices[] = {StrId::STR_SEARCH, StrId::STR_SETTINGS_SHORT, StrId::STR_LIBRARY_RESCAN};
+  actionPopup.show(StrId::STR_MENU, choices, 3, 0, [this](const int selected) {
+    if (selected == 0) openSearch();
+    if (selected == 1) openSettings();
+    if (selected == 2) refreshLibrary();
+  });
   requestUpdate();
 }
 
@@ -541,17 +570,28 @@ void LibraryActivity::latchInput() {
   const auto step = [](int8_t& value, const int delta) {
     value = static_cast<int8_t>(std::max<int>(INT8_MIN, std::min<int>(INT8_MAX, value + delta)));
   };
-  buttonNavigator.onNextRelease([&] { step(pending.steps, 1); });
-  buttonNavigator.onPreviousRelease([&] { step(pending.steps, -1); });
-  buttonNavigator.onNextContinuous([&] { step(pending.pageSteps, 1); });
-  buttonNavigator.onPreviousContinuous([&] { step(pending.pageSteps, -1); });
+  if (mappedInput.hasTouchHardware()) {
+    buttonNavigator.onNextRelease([&] { step(pending.steps, 1); });
+    buttonNavigator.onPreviousRelease([&] { step(pending.steps, -1); });
+    buttonNavigator.onNextContinuous([&] { step(pending.pageSteps, 1); });
+    buttonNavigator.onPreviousContinuous([&] { step(pending.pageSteps, -1); });
+    return;
+  }
+  // Button-only: Up/Down move through books; Left/Right open sort and menu.
+  using Button = MappedInputManager::Button;
+  buttonNavigator.onRelease({Button::Down, Button::Down}, [&] { step(pending.steps, 1); });
+  buttonNavigator.onRelease({Button::Up, Button::Up}, [&] { step(pending.steps, -1); });
+  buttonNavigator.onContinuous({Button::Down, Button::Down}, [&] { step(pending.pageSteps, 1); });
+  buttonNavigator.onContinuous({Button::Up, Button::Up}, [&] { step(pending.pageSteps, -1); });
+  if (mappedInput.wasReleased(Button::Left)) pending.leftReleased = true;
+  if (mappedInput.wasReleased(Button::Right)) pending.rightReleased = true;
 }
 
 void LibraryActivity::loop() {
-  if (sortPopup.isActive()) {
+  if (actionPopup.isActive()) {
     pending = {};
     RenderLock lock;
-    sortPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+    actionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
     return;
   }
   latchInput();
@@ -605,7 +645,7 @@ void LibraryActivity::loop() {
   if (input.confirmReleased) {
     if (selection < CONTROL_COUNT)
       activateControl(selection);
-    else
+    else if (rowCount() > 0)
       openBook(selection - CONTROL_COUNT);
     return;
   }
@@ -628,6 +668,14 @@ void LibraryActivity::loop() {
     requestUpdate();
     return;
   }
+  if (input.leftReleased) {
+    openSortPicker();
+    return;
+  }
+  if (input.rightReleased) {
+    openMenu();
+    return;
+  }
   const int count = rowCount() + CONTROL_COUNT;
   const auto move = [this](const int next) {
     if (!showSelection) {
@@ -644,14 +692,31 @@ void LibraryActivity::loop() {
     }
     requestUpdate();
   };
-  for (int i = 0; i < std::abs(input.steps); ++i) {
-    move(input.steps > 0 ? ButtonNavigator::nextIndex(selection, count)
-                         : ButtonNavigator::previousIndex(selection, count));
-  }
-  for (int i = 0; i < std::abs(input.pageSteps); ++i) {
-    const int page = listNav.pageRowsFor(rowCount());
-    move(input.pageSteps > 0 ? ButtonNavigator::nextPageIndex(selection, count, page)
-                             : ButtonNavigator::previousPageIndex(selection, count, page));
+  if (mappedInput.hasTouchHardware()) {
+    for (int i = 0; i < std::abs(input.steps); ++i) {
+      move(input.steps > 0 ? ButtonNavigator::nextIndex(selection, count)
+                           : ButtonNavigator::previousIndex(selection, count));
+    }
+    for (int i = 0; i < std::abs(input.pageSteps); ++i) {
+      const int page = listNav.pageRowsFor(rowCount());
+      move(input.pageSteps > 0 ? ButtonNavigator::nextPageIndex(selection, count, page)
+                               : ButtonNavigator::previousPageIndex(selection, count, page));
+    }
+  } else if (rowCount() > 0) {
+    // Button-only devices keep the selection on books; Left and Right open the
+    // sort picker and the menu instead of reaching the header controls.
+    const int bookCount = rowCount();
+    for (int i = 0; i < std::abs(input.steps); ++i) {
+      const int row = selection - CONTROL_COUNT;
+      move(CONTROL_COUNT + (input.steps > 0 ? ButtonNavigator::nextIndex(row, bookCount)
+                                            : ButtonNavigator::previousIndex(row, bookCount)));
+    }
+    for (int i = 0; i < std::abs(input.pageSteps); ++i) {
+      const int row = selection - CONTROL_COUNT;
+      const int page = listNav.pageRowsFor(bookCount);
+      move(CONTROL_COUNT + (input.pageSteps > 0 ? ButtonNavigator::nextPageIndex(row, bookCount, page)
+                                                : ButtonNavigator::previousPageIndex(row, bookCount, page)));
+    }
   }
 }
 
@@ -722,9 +787,14 @@ void LibraryActivity::fillRow(const int row, CachedRow& out) {
       if (date == 0) {
         groupHeading = "?";
       } else {
-        char heading[11];
-        std::snprintf(heading, sizeof(heading), "%04u-%02u-%02u", 1980u + (date >> 9), (date >> 5) & 15u, date & 31u);
-        groupHeading = heading;
+        char heading[20];
+        const char separator = SETTINGS.dateSeparator == CrossPointSettings::DATE_SEPARATOR_PERIOD   ? '.'
+                               : SETTINGS.dateSeparator == CrossPointSettings::DATE_SEPARATOR_HYPHEN ? '-'
+                                                                                                     : '/';
+        groupHeading = formatDateParts(heading, sizeof(heading), 1980u + (date >> 9), (date >> 5) & 15u, date & 31u,
+                                       SETTINGS.dateFormat, separator)
+                           ? heading
+                           : "?";
       }
       out.hasHeading = true;
     }
@@ -813,17 +883,21 @@ void LibraryActivity::buildSortHeader(UiApp::ScreenType& screen) {
   button.text = screen.theme().bodyText;
   button.styles = fui::plainStyles();
   button.styles.selected = screen.theme().button.selected;
-  button.state = showSelection && selection == 3 ? fui::StateSelected : fui::StateNormal;
+  button.state =
+      mappedInput.hasTouchHardware() && showSelection && selection == 3 ? fui::StateSelected : fui::StateNormal;
   screen.button(button, method);
   button.label = nullptr;
   button.icon = fui::bitmapFromIcon(descending ? icon_arrow_down_wide_narrow_32 : icon_arrow_up_narrow_wide_32);
-  button.state = showSelection && selection == 4 ? fui::StateSelected : fui::StateNormal;
+  button.state =
+      mappedInput.hasTouchHardware() && showSelection && selection == 4 ? fui::StateSelected : fui::StateNormal;
   screen.button(button, direction);
   const int16_t split = static_cast<int16_t>((method.right() + direction.x) / 2);
-  screen.frame().hit(fui::Rect{band.x, band.y, static_cast<int16_t>(split - band.x), band.height}, ACTION_CONTROL, 3,
-                     fui::InputTouch);
-  screen.frame().hit(fui::Rect{split, band.y, static_cast<int16_t>(band.right() - split), band.height}, ACTION_CONTROL,
-                     4, fui::InputTouch);
+  if (mappedInput.hasTouchHardware()) {
+    screen.frame().hit(fui::Rect{band.x, band.y, static_cast<int16_t>(split - band.x), band.height}, ACTION_CONTROL, 3,
+                       fui::InputTouch);
+    screen.frame().hit(fui::Rect{split, band.y, static_cast<int16_t>(band.right() - split), band.height},
+                       ACTION_CONTROL, 4, fui::InputTouch);
+  }
   uiTarget.fill(fui::Rect{band.x, band.y, band.width, 1}, fui::Paint::solid(fui::Color::Black));
   uiTarget.fill(fui::Rect{band.x, static_cast<int16_t>(band.bottom() - 1), band.width, 1},
                 fui::Paint::solid(fui::Color::Black));
@@ -835,39 +909,42 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
   renderer.getOrientedViewableTRBL(&bounds[0], &bounds[1], &bounds[2], &bounds[3]);
   const int16_t headerBottom =
       static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput));
+  const int buttonHintsHeight = mappedInput.hasTouchHardware() ? 0 : metrics.buttonHintsHeight;
   screen.setContentMarginFromScreen(fui::Insets{headerBottom, static_cast<int16_t>(bounds[1]),
-                                                static_cast<int16_t>(metrics.buttonHintsHeight + bounds[2]),
+                                                static_cast<int16_t>(FOOTER_HEIGHT + buttonHintsHeight + bounds[2]),
                                                 static_cast<int16_t>(bounds[3])});
   // Every header icon owns a 44px touch box, with 10px of clearance.
   const int16_t controlSize = HEADER_CONTROL_SIZE;
   const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   const int16_t right = static_cast<int16_t>(renderer.getScreenWidth() - bounds[1] - headerControlRightInset());
-  fui::ButtonProps action;
-  action.action = ACTION_CONTROL;
-  action.inputMask = fui::InputTouch;
-  action.styles = fui::plainStyles();
-  action.styles.selected = screen.theme().button.selected;
-  action.icon = fui::bitmapFromIcon(icon_refresh_cw_32);
-  action.value = 0;
-  action.state = showSelection && selection == 0 ? fui::StateSelected : fui::StateNormal;
-  screen.button(action,
-                fui::Rect{static_cast<int16_t>(right - 3 * controlSize - 2 * HEADER_CONTROL_GAP),
-                          static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
-  action.icon = fui::bitmapFromIcon(icon_search_32);
-  action.value = 1;
-  action.state = showSelection && selection == 1 ? fui::StateSelected : fui::StateNormal;
-  screen.button(action,
-                fui::Rect{static_cast<int16_t>(right - 2 * controlSize - HEADER_CONTROL_GAP),
-                          static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
-  action.icon = fui::bitmapFromIcon(icon_ellipsis_vertical_32);
-  action.value = 2;
-  action.state = showSelection && selection == 2 ? fui::StateSelected : fui::StateNormal;
-  // Give the small overflow icon a 56px touch target. Keep its bottom edge at
-  // the header boundary so the expanded target cannot steal taps from sorting.
-  if (mappedInput.hasTouchHardware()) action.hitPadding = fui::Insets{12, 6, 0, 6};
-  screen.button(action,
-                fui::Rect{static_cast<int16_t>(right - controlSize),
-                          static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
+  if (mappedInput.hasTouchHardware()) {
+    fui::ButtonProps action;
+    action.action = ACTION_CONTROL;
+    action.inputMask = fui::InputTouch;
+    action.styles = fui::plainStyles();
+    action.styles.selected = screen.theme().button.selected;
+    action.icon = fui::bitmapFromIcon(icon_refresh_cw_32);
+    action.value = 0;
+    action.state = showSelection && selection == 0 ? fui::StateSelected : fui::StateNormal;
+    screen.button(action,
+                  fui::Rect{static_cast<int16_t>(right - 3 * controlSize - 2 * HEADER_CONTROL_GAP),
+                            static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
+    action.icon = fui::bitmapFromIcon(icon_search_32);
+    action.value = 1;
+    action.state = showSelection && selection == 1 ? fui::StateSelected : fui::StateNormal;
+    screen.button(action,
+                  fui::Rect{static_cast<int16_t>(right - 2 * controlSize - HEADER_CONTROL_GAP),
+                            static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
+    action.icon = fui::bitmapFromIcon(icon_ellipsis_vertical_32);
+    action.value = 2;
+    action.state = showSelection && selection == 2 ? fui::StateSelected : fui::StateNormal;
+    // Give the small overflow icon a 56px touch target. Keep its bottom edge at
+    // the header boundary so the expanded target cannot steal taps from sorting.
+    action.hitPadding = fui::Insets{12, 6, 0, 6};
+    screen.button(action,
+                  fui::Rect{static_cast<int16_t>(right - controlSize),
+                            static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
+  }
   buildSortHeader(screen);
   if (scanFailed || index.ranksDegraded() || filterFailed) {
     const auto warning = screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8);
@@ -931,11 +1008,25 @@ void LibraryActivity::render(RenderLock&&) {
     if (!listNav.consumeRebuildNeeded()) break;
   }
   uiReady = true;
-  if (sortPopup.processRender(renderer, mappedInput)) return;
-  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(query.empty() ? tr(STR_HOME) : tr(STR_BACK)),
-                                            selection < CONTROL_COUNT ? tr(STR_SELECT) : tr(STR_OPEN), tr(STR_DIR_UP),
-                                            tr(STR_DIR_DOWN));
+  if (actionPopup.processRender(renderer, mappedInput)) return;
+  const char* confirmLabel = !mappedInput.hasTouchHardware() && rowCount() == 0 ? ""
+                             : selection < CONTROL_COUNT                        ? tr(STR_SELECT)
+                                                                                : tr(STR_OPEN);
+  const auto labels =
+      mappedInput.mapLabels(mappedInput.withBackArrow(query.empty() ? tr(STR_HOME) : tr(STR_BACK)), confirmLabel,
+                            mappedInput.hasTouchHardware() ? tr(STR_DIR_UP) : tr(STR_SORT),
+                            mappedInput.hasTouchHardware() ? tr(STR_DIR_DOWN) : tr(STR_MENU));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  char footer[32];
+  snprintf(footer, sizeof(footer), tr(STR_LIBRARY_FILES_COUNT), static_cast<unsigned>(rowCount()));
+  int bounds[4]{};
+  renderer.getOrientedViewableTRBL(&bounds[0], &bounds[1], &bounds[2], &bounds[3]);
+  const int buttonHintsHeight =
+      mappedInput.hasTouchHardware() ? 0 : UITheme::getInstance().getMetrics().buttonHintsHeight;
+  renderer.drawCenteredText(SMALL_FONT_ID,
+                            renderer.getScreenHeight() - bounds[2] - buttonHintsHeight -
+                                (FOOTER_HEIGHT + renderer.getLineHeight(SMALL_FONT_ID)) / 2,
+                            footer);
   if (pendingCacheDeletedFeedback) GUI.drawPopup(renderer, tr(STR_BOOK_CACHE_DELETED));
   renderer.displayBuffer();
 }
@@ -953,6 +1044,7 @@ void LibraryActivity::promptDeleteBook(const RecentBook& book) {
       return;
     }
 
+    library::invalidateLibraryIndex();
     RECENT_BOOKS.removeByPath(path);
     reloadAfterBookAction();
   };

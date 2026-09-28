@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <OpdsStream.h>
@@ -178,6 +179,7 @@ void OpdsBookBrowserActivity::onEnter() {
 }
 
 void OpdsBookBrowserActivity::onExit() {
+  library::invalidateLibraryIndex();
   Activity::onExit();
   // Joins the background download before Wi-Fi goes down and before the
   // cache it would hand its page to is freed.

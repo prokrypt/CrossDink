@@ -19,19 +19,18 @@ class LibraryActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool blocksGlobalInput() const override { return sortPopup.isActive(); }
+  bool blocksGlobalInput() const override { return actionPopup.isActive(); }
 
  private:
   enum class Sort : uint8_t { DateAdded, Title, AuthorLast, AuthorFirst, RecentlyRead, Series, Genre };
-  // Ring: refresh, search, settings, sort method, direction, then the book rows. All controls are
-  // reachable on button-only devices as well as through SDK touch routing.
+  // Touch header controls precede the book rows; button-only navigation visits books directly.
   static constexpr int CONTROL_COUNT = 5;
   using UiApp = freeink::ui::FreeInkApp<32, 4>;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   ButtonNavigator buttonNavigator;
   freeink::ui::ListNav listNav;
-  OptionPopup sortPopup;
+  OptionPopup actionPopup;
   library::LibraryIndexFile index;
   Sort sort = Sort::RecentlyRead;
   bool descending = true;
@@ -89,6 +88,8 @@ class LibraryActivity final : public Activity {
     bool headerBack = false;
     bool confirmReleased = false;
     bool backReleased = false;
+    bool leftReleased = false;   // button-only: sort picker
+    bool rightReleased = false;  // button-only: menu
     int16_t pressX = 0;
     int16_t pressY = 0;
     int16_t releaseX = 0;
@@ -132,7 +133,8 @@ class LibraryActivity final : public Activity {
   void resetViewport();
   void reloadAfterBookAction();
   void openBook(int row);
-  void openSortPicker();
+  void openSortPicker(int selectedIndex = -1);
+  void openMenu();
   void refreshLibrary();
   void openSearch();
   void openSettings();

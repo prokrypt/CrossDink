@@ -26,6 +26,10 @@ class SdCardFont;
 
 #include "Bitmap.h"
 
+namespace glyphBitmap {
+struct Frame;
+}
+
 // Color representation: uint8_t mapped to 4x4 Bayer matrix dithering levels
 // 0 = transparent, 1-16 = gray levels (white to black)
 enum Color : uint8_t { Clear = 0x00, White = 0x01, LightGray = 0x05, DarkGray = 0x0A, Black = 0x10 };
@@ -271,31 +275,9 @@ class GfxRenderer {
   // Drawing
   bool isPixelBlack(int x, int y) const;
   void drawPixel(int x, int y, bool state = true) const;
-  // Direct pixel target for the glyph hot path. drawPixel() re-derives the
-  // rotation, clip and strip state for every pixel; a glyph box that needs no
-  // clipping can instead step through physical coordinates incrementally.
-  struct GlyphTarget {
-    uint8_t* buf = nullptr;
-    int widthBytes = 0;
-    int phyX = 0;  // physical position of the box's logical top-left pixel
-    int phyY = 0;
-    int colDX = 0;  // physical step for logical +x
-    int colDY = 0;
-    int rowDX = 0;  // physical step for logical +y
-    int rowDY = 0;
-    void set(const int x, const int y, const bool state) const {
-      uint8_t& b = buf[static_cast<uint32_t>(y) * widthBytes + (x >> 3)];
-      const auto mask = static_cast<uint8_t>(0x80 >> (x & 7));
-      if (state) {
-        b = static_cast<uint8_t>(b & ~mask);  // black clears the bit, as in drawPixel()
-      } else {
-        b = static_cast<uint8_t>(b | mask);
-      }
-    }
-  };
-  // False when the box needs per-pixel clipping (screen edge, text clip, or a
-  // partial grayscale strip); callers then fall back to drawPixel().
-  bool glyphFastTarget(int x0, int y0, int w, int h, GlyphTarget& out) const;
+  // Unscaled glyphs share one clipped, orientation-aware rasterizer.
+  void drawGlyphBitmap(const uint8_t* bitmap, int width, int height, const glyphBitmap::Frame& frame, bool twoBit,
+                       RenderMode mode, bool state) const;
   void drawLine(int x1, int y1, int x2, int y2, bool state = true) const;
   void drawLine(int x1, int y1, int x2, int y2, int lineWidth, bool state) const;
   void drawArc(int maxRadius, int cx, int cy, int xDir, int yDir, int lineWidth, bool state) const;

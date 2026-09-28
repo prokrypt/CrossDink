@@ -65,6 +65,7 @@ add_subdirectory(pinch_font_resize)
 add_subdirectory(font_catalog_index)
 add_subdirectory(reader_font_sizes)
 add_subdirectory(reader_status_bar_tap_target)
+add_subdirectory(reader_status_bar_config)
 add_subdirectory(two_finger_swipe)
 add_subdirectory(edge_slide)
 add_subdirectory(option_popup)
@@ -104,3 +105,5 @@ add_subdirectory(library_builder)
 
 add_subdirectory(library_recent_order)
 add_subdirectory(scalable_fonts)
+
+add_subdirectory(glyph_bitmap)

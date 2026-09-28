@@ -10,6 +10,7 @@
 #include <mutex>
 
 #include "ReaderFontSizeStep.h"
+#include "util/ReaderStatusBarConfig.h"
 
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
@@ -85,6 +86,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     XTC_STATUS_BAR_HIDE = 0,
     XTC_STATUS_BAR_BOTTOM = 1,
     XTC_STATUS_BAR_TOP = 2,
+    XTC_STATUS_BAR_BOTH = 3,
     XTC_STATUS_BAR_MODE_COUNT
   };
   enum HIDE_CLOCK_MODE { HIDE_CLOCK_NEVER = 0, HIDE_CLOCK_IN_READER = 1, HIDE_CLOCK_ALWAYS = 2, HIDE_CLOCK_MODE_COUNT };
@@ -264,6 +266,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     // raw values or they can silently change an existing binding's behavior.
     PREVIOUS_PAGE = 31,
     NEARBY_POSITION_SYNC = 32,
+    LIBRARY = 33,
     SHORT_PWRBTN_COUNT
   };
 
@@ -302,6 +305,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     CHORD_TOGGLE_TOUCHSCREEN = 28,
     CHORD_PREVIOUS_PAGE = 29,
     CHORD_NEARBY_POSITION_SYNC = 30,
+    CHORD_LIBRARY = 31,
     POWER_CHORD_ACTION_COUNT
   };
 
@@ -396,6 +400,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     // Appended: values are persisted in settings.bin.
     LONG_MENU_QUICK_ACTIONS = 22,
     LONG_MENU_QUICK_LOCK = 23,
+    LONG_MENU_LIBRARY = 24,
     LONG_PRESS_MENU_ACTION_COUNT
   };
 
@@ -438,6 +443,20 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t statusBarTimeLeft = TIME_LEFT_HIDE;
   uint8_t statusBarBattery = 1;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
+  ReaderStatusBarConfig topReaderStatusBar{};
+  ReaderStatusBarConfig bottomReaderStatusBar = [] {
+    ReaderStatusBarConfig config;
+    config.slots = {ReaderStatusBarItem::Battery,
+                    ReaderStatusBarItem::Empty,
+                    ReaderStatusBarItem::Empty,
+                    ReaderStatusBarItem::TitleChapter,
+                    ReaderStatusBarItem::ChapterPageCount,
+                    ReaderStatusBarItem::BookProgressPercentage,
+                    ReaderStatusBarItem::Empty};
+    return config;
+  }();
+  uint8_t legacyXtcTopUsesBottom = 0;
+  uint8_t showClockOutsideReader = 0;
   // Clock visibility mode (requires an RTC-backed clock).
   uint8_t hideClock = HIDE_CLOCK_ALWAYS;
   // Clock UTC offset in quarter-hour steps, biased by 48 so it fits in uint8_t.
@@ -694,10 +713,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
                                                                     : POWER_BUTTON_WAKE_LONG_MS;
   }
 
-  bool shouldShowClockInReader() const { return hideClock == HIDE_CLOCK_NEVER; }
-  bool shouldShowClockOutsideReader() const {
-    return hideClock == HIDE_CLOCK_NEVER || hideClock == HIDE_CLOCK_IN_READER;
+  bool shouldShowClockInReader() const {
+    return topReaderStatusBar.contains(ReaderStatusBarItem::Clock) ||
+           bottomReaderStatusBar.contains(ReaderStatusBarItem::Clock);
   }
+  bool shouldShowClockOutsideReader() const { return showClockOutsideReader != 0; }
   bool shouldTrackReadingStats() const {
 #ifdef CROSSDINK_ENABLE_READING_STATS_TOGGLE
     return trackReadingStats != 0;
@@ -737,28 +757,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc, bool importingCrossPoint = false);
 
-  struct StatusBarSpec {
-    bool showChapterPageCount = false;
-    bool showBookProgressPercent = false;
-    bool showStablePageNumbers = false;
-    uint8_t titleMode = HIDE_TITLE;
-    uint8_t timeLeftMode = TIME_LEFT_HIDE;
-    bool showBattery = false;
-    bool showBatteryPercent = false;
-    bool showClock = false;
-    uint8_t progressBarMode = HIDE_PROGRESS;
-    uint8_t progressBarHeightPx = 0;
-    uint8_t xtcMode = XTC_STATUS_BAR_HIDE;
-
-    bool textLaneVisible(bool clockAvailable) const {
-      return showChapterPageCount || showBookProgressPercent || showStablePageNumbers || titleMode != HIDE_TITLE ||
-             timeLeftMode != TIME_LEFT_HIDE || showBattery || (showClock && clockAvailable);
-    }
-    bool showsProgressBar() const { return progressBarMode != HIDE_PROGRESS; }
-    bool showsTitle() const { return titleMode != HIDE_TITLE; }
-  };
-
-  StatusBarSpec statusBarSpec() const;
+  static bool parseReaderStatusBars(JsonVariantConst json, ReaderStatusBarsPayload& config);
+  ReaderStatusBarConfig readerStatusBar(ReaderStatusBarPosition position) const;
+  void setReaderStatusBar(ReaderStatusBarPosition position, const ReaderStatusBarConfig& config);
   ReaderRenderSpec readerRenderSpec(uint16_t viewportWidth, uint16_t viewportHeight,
                                     EpubRenderMode renderMode = EpubRenderMode::CrossDinkDefault) const;
 

@@ -99,7 +99,6 @@ class Epub {
     Complete,
   };
 
-  void migrateLegacyCachePath(const std::string& cacheDir) const;
   bool findContentOpfFile(std::string* contentOpfFile) const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true,
                        bool collectCssFiles = true, bool metadataOnly = false, std::string* seriesIndex = nullptr);
@@ -118,6 +117,10 @@ class Epub {
   explicit Epub(std::string filepath, const std::string& cacheDir);
   ~Epub() = default;
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
+  // Resolve the stable cache path and migrate an older hash-named directory if
+  // needed, without opening the EPUB or loading its metadata/location indexes.
+  static std::string resolveCachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
+
   // True when a metadata cache already exists for this book, i.e. load() will
   // hit the fast path instead of rebuilding. Cheap: no parsing, just a stat.
   static bool hasCache(const std::string& filepath, const std::string& cacheDir);
@@ -126,8 +129,9 @@ class Epub {
             XLocationLoadMode xLocationLoadMode = XLocationLoadMode::Immediate, bool cacheCumulativeSpineSizes = false);
   // Title and author only, without building the spine/TOC/CSS/cover caches
   // load() does. Reuses an existing metadata cache when there is one unless
-  // allowCachedMetadata is false; that path invalidates a stale full cache and
-  // stops the OPF parse at </metadata>, before the manifest. Used by the
+  // allowCachedMetadata is false. Cache invalidation is the caller's job, so
+  // metadata reads cannot delete per-book progress or settings. Parsing stops
+  // at </metadata>, before the manifest. Used by the
   // Library index builder, which reads every EPUB on the card and cannot
   // afford a full load() per book.
   bool loadMetadata(std::string& title, std::string& author, bool allowCachedMetadata = true,

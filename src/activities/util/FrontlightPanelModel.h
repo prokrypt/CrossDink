@@ -40,6 +40,9 @@ struct FrontlightPanelBookDetails {
   std::string title;
   std::string author;
   std::string chapter;
+  uint32_t chapterPage = 0;
+  uint32_t chapterPageCount = 0;
+  bool chapterPageCountEstimated = false;
   int progressPercent = 0;
 };
 

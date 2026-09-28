@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
+#include <LibraryBuilder.h>
 #include <Logging.h>
 #include <PsramLog.h>
 #include <SdCardFontSystem.h>
@@ -282,6 +283,7 @@ bool removeRecursive(const char* path, size_t depth = 0) {
 
   if (!file.isDirectory()) {
     file.close();
+    library::invalidateLibraryIndex();
     const bool removed = Storage.remove(path);
     if (removed) clearCachesForPath(path);
     return removed;
@@ -573,6 +575,7 @@ void handleWrite() {
     return;
   }
 
+  library::invalidateLibraryIndex();
   sdFontSystem.markRegistryDirtyForPath(path);
   if (Storage.exists(path)) {
     Storage.remove(path);
@@ -639,6 +642,7 @@ void handleRename() {
   }
 
   if (Storage.rename(src, dst)) {
+    library::invalidateLibraryIndex();
     clearCachesForPath(src);
     clearCachesForPath(dst);
     ImageFolderIndex::invalidateForPath(src);

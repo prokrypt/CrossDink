@@ -3,6 +3,7 @@
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <LibraryBuilder.h>
 #include <WiFi.h>
 
 #include "MappedInputManager.h"
@@ -52,6 +53,7 @@ void CalibreConnectActivity::onEnter() {
 }
 
 void CalibreConnectActivity::onExit() {
+  library::invalidateLibraryIndex();
   Activity::onExit();
   transferLight.end();
 

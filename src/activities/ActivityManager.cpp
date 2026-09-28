@@ -90,9 +90,9 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     context.bookTitle = activity.getCurrentBookTitle();
     context.bookPath = currentPath;
     context.activeEpub = activity.isEpubReaderActivity() && currentEpubValid;
-    if (shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook) &&
-        activity.getFrontlightPanelBookDetails(context.bookDetails)) {
-      context.showReaderDetails = true;
+    if (activity.getFrontlightPanelBookDetails(context.bookDetails)) {
+      context.showReaderDetails =
+          shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook);
       context.bookTitle = context.bookDetails.title;
     }
     context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
@@ -806,7 +806,7 @@ bool ActivityManager::restoreBackdropBehindCurrentOverlay() {
 
   {
     RenderLock lock;
-    currentActivity->onCovered();
+    if (currentActivity) currentActivity->onCovered();
     stackActivities.push_back(std::move(currentActivity));
     currentActivity = std::move(overlay);
   }
@@ -1358,15 +1358,12 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
 
 // RenderLock
 
-RenderLock::RenderLock() {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
+RenderLock::RenderLock(const Mode mode) {
+  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
+  assert(mode == Mode::Try || isLocked);
 }
 
-RenderLock::RenderLock([[maybe_unused]] Activity&) {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
-}
+RenderLock::RenderLock([[maybe_unused]] Activity&, const Mode mode) : RenderLock(mode) {}
 
 RenderLock::~RenderLock() {
   if (isLocked) {

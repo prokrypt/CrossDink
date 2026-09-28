@@ -53,6 +53,7 @@ struct BuildStats {
   bool indexReplaced = false;
   bool ranksDegraded = false;
   bool dedupDegraded = false;
+  bool arrivalDegraded = false;
   bool cancelled = false;  // the owner stopped the build; the previous index is untouched
 };
 
@@ -77,6 +78,12 @@ struct BuildControl {
 // `control` is optional; only one build may run at a time.
 bool buildLibraryIndex(const char* rootPath, BuildStats& stats, bool readMetadata = false,
                        const BuildControl* control = nullptr, bool retryFailedMetadata = false);
+
+// Starts dirty on every boot to reconcile external card edits. File-changing
+// activities must invalidate before returning to Library. A successful scan
+// clears only changes known when it started; failures remain retryable.
+void invalidateLibraryIndex();
+bool libraryIndexNeedsRefresh();
 
 // Live index path, shared by the builder and activity.
 const char* libraryIndexPath();
