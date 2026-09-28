@@ -664,7 +664,7 @@ void KeyboardEntryActivity::loop() {
                            static_cast<int16_t>(tapX), static_cast<int16_t>(tapY), inContact, millis());
     if (result.event) {
       highlightPending = false;
-      selectionShown = !mappedInput.hasTouchHardware();  // a tap hides a button-driven selection again
+      selectionShown = true;  // the tapped key keeps the highlight; only the initial preselect is hidden
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestStrokeUpdate();
