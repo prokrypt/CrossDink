@@ -545,25 +545,37 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   FsFile file;
   bool fileOpen = false;
-  bool spaceChecked = false;
   bool insufficientSpace = false;
+  // Free space is only measured once a write fails: counting free clusters
+  // scans the whole FAT, which takes seconds on a large FAT32 card and used to
+  // hold up the first byte of every download. A failed write leaves only the
+  // .part file, which the failure path removes.
+  auto noteWriteFailure = [&]() {
+    if (!options.checkFreeSpace || insufficientSpace) return;
+    // Some SD transports cannot report capacity; report a plain write failure.
+    const uint64_t totalBytes = Storage.totalBytes();
+    if (totalBytes == 0) return;
+    const uint64_t usedBytes = Storage.usedBytes();
+    const uint64_t freeBytes = totalBytes > usedBytes ? totalBytes - usedBytes : 0;
+    const uint64_t neededBytes = sink.total > sink.downloaded ? sink.total - sink.downloaded : 0;
+    // A nearly full card (under 1 MB left) counts as full even without a size.
+    if (freeBytes < neededBytes || freeBytes < 1024 * 1024) {
+      LOG_ERR("HTTP", "Insufficient SD space: free=%llu required=%llu", static_cast<unsigned long long>(freeBytes),
+              static_cast<unsigned long long>(neededBytes));
+      insufficientSpace = true;
+    }
+  };
   auto openOutputFile = [&]() {
     if (fileOpen) return true;
-    if (options.checkFreeSpace && !spaceChecked) {
-      spaceChecked = true;
-      // Some SD transports cannot report capacity; let the write fail instead.
-      const uint64_t totalBytes = Storage.totalBytes();
-      if (totalBytes > 0 && sink.total > sink.resumeOffset) {
-        const uint64_t usedBytes = Storage.usedBytes();
-        const uint64_t freeBytes = totalBytes > usedBytes ? totalBytes - usedBytes : 0;
-        const uint64_t neededBytes = sink.total - sink.resumeOffset;
-        if (freeBytes < neededBytes) {
-          LOG_ERR("HTTP", "Insufficient SD space: free=%llu required=%llu", static_cast<unsigned long long>(freeBytes),
-                  static_cast<unsigned long long>(neededBytes));
-          insufficientSpace = true;
-          return false;
-        }
-      }
+    // Cheap up-front check (capacity is cached at mount): a book larger than
+    // the whole card can never fit.
+    const uint64_t totalBytes = Storage.totalBytes();
+    if (options.checkFreeSpace && totalBytes > 0 && sink.total > sink.resumeOffset &&
+        sink.total - sink.resumeOffset > totalBytes) {
+      LOG_ERR("HTTP", "Insufficient SD space: card=%llu required=%llu", static_cast<unsigned long long>(totalBytes),
+              static_cast<unsigned long long>(sink.total - sink.resumeOffset));
+      insufficientSpace = true;
+      return false;
     }
     if (sink.resumeOffset > 0) {
       file = Storage.open(writePath.c_str(), O_WRONLY | O_APPEND);
@@ -581,7 +593,13 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     return fileOpen;
   };
 
-  sink.write = [&](const uint8_t* data, size_t len) { return openOutputFile() && file.write(data, len) == len; };
+  auto writeChunk = [&](const uint8_t* data, size_t len) {
+    if (!openOutputFile()) return false;
+    if (file.write(data, len) == len) return true;
+    noteWriteFailure();
+    return false;
+  };
+  sink.write = writeChunk;
 
   DownloadError result =
       runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
@@ -595,7 +613,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     sink.resumeOffset = 0;
     sink.downloaded = 0;
     sink.total = 0;
-    sink.write = [&](const uint8_t* data, size_t len) { return openOutputFile() && file.write(data, len) == len; };
+    sink.write = writeChunk;
     result = runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
   }
 

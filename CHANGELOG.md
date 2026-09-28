@@ -71,6 +71,8 @@
 - The on-screen keyboard now uses wider outlined keys with clearer spacing on touch and button devices.
 
 ### Fixed
+- OPDS: book downloads run in the background, so Back and the Cancel button stop them at any point (the partial file is deleted) and the screen shows Connecting until the first byte arrives. Downloads also start sooner: the free-space check no longer scans the whole SD card first.
+- Keyboard: kbd-exp.txt is only read by debug builds.
 - X4 Pro: joining Wi-Fi is about 1.5 s faster. The address conflict check that was meant to be off was still running on every join.
 - X4 Pro keyboard: keys you have not pressed no longer fade during long typing sessions; every keystroke now also re-darkens black pixels that stay black.
 
