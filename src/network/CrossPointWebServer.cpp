@@ -1014,7 +1014,7 @@ void CrossPointWebServer::handleStatus() const {
     float ambientC = 0.0f;
     float humidity = 0.0f;
     const bool ambientKnown = ambient.present() && ambient.read(ambientC, humidity);
-    addTemp("ambient", "sht40", ambientKnown, ambientC);
+    addTemp("ambient", ambient.present() ? "sht40" : "none", ambientKnown, ambientC);
     int8_t panelC = 0;
     uint32_t panelAgeMs = 0;
     const bool panelKnown = freeink::uc8179PanelTemperature(panelC, panelAgeMs);
