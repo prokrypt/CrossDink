@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "OpdsPageCache.h"
 #include "OpdsPagePrefetcher.h"
@@ -195,7 +196,16 @@ void OpdsBookBrowserActivity::onExit() {
 #ifndef SIMULATOR
   // OPDS launches from minimal network boot, so the full app state is
   // restored even if setup failed before WiFi was started.
-  if (!leaveNetworkInPlace()) silentRestart();
+  if (!leaveNetworkInPlace()) {
+    if (!openAfterExit.empty()) {
+      // goToReader() is lost across the reboot: reopen the book from APP_STATE.
+      APP_STATE.openEpubPath = openAfterExit;
+      APP_STATE.saveToFile();
+      silentRestartToReader();
+    } else {
+      silentRestart();
+    }
+  }
 #endif
 }
 
@@ -932,6 +942,7 @@ void OpdsBookBrowserActivity::pollDownload() {
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
     state = BrowserState::BROWSING;
+    offerToOpen(filename);
   } else if (result == HttpDownloader::ABORTED) {
     LOG_INF("OPDS", "Download cancelled");
     state = BrowserState::BROWSING;
@@ -940,6 +951,21 @@ void OpdsBookBrowserActivity::pollDownload() {
     errorMessage = result == HttpDownloader::INSUFFICIENT_SPACE ? tr(STR_SD_CARD_FULL) : tr(STR_DOWNLOAD_FAILED);
   }
   requestUpdate();
+}
+
+void OpdsBookBrowserActivity::offerToOpen(const std::string& path) {
+  auto dialog =
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_OPEN_DOWNLOADED_BOOK), statusMessage);
+  if (!dialog) {
+    LOG_ERR("OPDS", "Cannot allocate open-book dialog");
+    return;
+  }
+  startActivityForResult(std::move(dialog), [this, path](const ActivityResult& result) {
+    if (result.isCancelled) return;
+    LOG_INF("OPDS", "Opening downloaded book: %s", path.c_str());
+    openAfterExit = path;
+    onSelectBook(path);
+  });
 }
 
 void OpdsBookBrowserActivity::launchSearch() {

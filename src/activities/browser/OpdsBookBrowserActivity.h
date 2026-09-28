@@ -80,6 +80,9 @@ class OpdsBookBrowserActivity final : public Activity {
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
   // Set by the Cancel button handler; loop() forwards it to bookDownloader.
   bool cancelDownload = false;
+  // Book the user chose to open after its download; onExit() reboots into it
+  // when Wi-Fi cannot be left in place.
+  std::string openAfterExit;
 
   // Single screen fn dispatching on `state`: every state shares the themed
   // header and gets built through FreeInkUI.
@@ -118,6 +121,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // DOWNLOADING state: forwards cancel input, redraws progress, and finishes
   // once the background task has exited.
   void pollDownload();
+  // After a finished download: asks whether to open the book now.
+  void offerToOpen(const std::string& path);
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;
