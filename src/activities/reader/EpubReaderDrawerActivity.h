@@ -53,6 +53,7 @@ class EpubReaderDrawerActivity final : public Activity {
   bool allowFrontlightPanelGesture() const override { return false; }
   // A dirty preview can rebuild the page area itself; after a TTF ID change,
   // an unavailable text snapshot is replaced with a safe blank background.
+  // cppcheck-suppress uselessOverride ; identical to the base only when the sample preview is built in
   bool requiresFreshBackdrop() const override {
 #if CROSSDINK_APP_READER_SAMPLE_PREVIEW
     return false;  // The full-screen menu paints every pixel itself.

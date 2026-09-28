@@ -310,8 +310,10 @@ bool recoverInterruptedPreservation(const std::string& cachePath, const Preserve
     LOG_ERR("BookCache", "Failed to inspect preserved stats beside: %s", cachePath.c_str());
     return false;
   }
-  for (const std::string& name : pendingStats) {
-    if (!recoverPreservedTemp(cachePath, name, std::string(statsTmpPrefix) + name)) return false;
+  if (std::any_of(pendingStats.begin(), pendingStats.end(), [&](const std::string& name) {
+        return !recoverPreservedTemp(cachePath, name, std::string(statsTmpPrefix) + name);
+      })) {
+    return false;
   }
   return removeStatsRecoveryMarker(cachePath, statsTmpPrefix);
 }

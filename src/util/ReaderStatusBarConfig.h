@@ -54,6 +54,7 @@ struct ReaderStatusBarConfig {
   uint8_t progressBarThickness = 1;
 
   constexpr bool contains(ReaderStatusBarItem item) const {
+    // cppcheck-suppress useStlAlgorithm ; plain constexpr loop over three slots per side
     for (const auto slot : slots) {
       if (slot == item) return true;
     }
@@ -61,6 +62,7 @@ struct ReaderStatusBarConfig {
   }
 
   constexpr bool hasTextItems(bool clockAvailable) const {
+    // cppcheck-suppress useStlAlgorithm ; plain constexpr loop over three slots per side
     for (const auto slot : slots) {
       if (slot != ReaderStatusBarItem::Empty && (slot != ReaderStatusBarItem::Clock || clockAvailable)) return true;
     }
@@ -125,14 +127,13 @@ struct ReaderStatusBarGeometry {
 // overlap, trim the longest items until both clusters fit the available row.
 inline void fitReaderStatusBarSideWidths(std::array<int, ReaderStatusBarConfig::SLOT_COUNT>& widths,
                                          const int available, const int bookmarkReserve = 0, const int gap = 8) {
-  int leftCount = 0;
-  int rightCount = 0;
-  for (unsigned i = ReaderStatusBarConfig::LEFT_FIRST; i <= ReaderStatusBarConfig::LEFT_THIRD; ++i) {
-    if (widths[i] > 0) ++leftCount;
-  }
-  for (unsigned i = ReaderStatusBarConfig::RIGHT_FIRST; i <= ReaderStatusBarConfig::RIGHT_THIRD; ++i) {
-    if (widths[i] > 0) ++rightCount;
-  }
+  const auto visible = [](const int width) { return width > 0; };
+  const int leftCount =
+      static_cast<int>(std::count_if(widths.begin() + ReaderStatusBarConfig::LEFT_FIRST,
+                                     widths.begin() + ReaderStatusBarConfig::LEFT_THIRD + 1, visible));
+  const int rightCount =
+      static_cast<int>(std::count_if(widths.begin() + ReaderStatusBarConfig::RIGHT_FIRST,
+                                     widths.begin() + ReaderStatusBarConfig::RIGHT_THIRD + 1, visible));
   if (leftCount + rightCount == 0) return;
   const int gaps =
       std::max(0, leftCount - 1) + std::max(0, rightCount - 1) + (bookmarkReserve > 0 && leftCount > 0 ? 1 : 0);

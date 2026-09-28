@@ -1028,6 +1028,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.layout = &layout;
   // Match the bottom row's outer edges to the ten-key letter row. Control-only
   // rows otherwise fill the whole panel, even when their key weights shrink.
+  // cppcheck-suppress variableScope ; props.layout may point at compactLayout, which points at these rows
   fui::KeyboardRow compactRows[5];
   fui::KeyboardKey compactBottomKeys[4];
   fui::KeyboardLayout compactLayout;

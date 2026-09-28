@@ -485,7 +485,7 @@ void EpubReaderDrawerActivity::onExit() {
   commitSettings();
   ownedPreviewModel.reset();
   if (!mappedInput.hasTouchHardware()) {
-    const auto heap = MemoryBudget::snapshot();
+    [[maybe_unused]] const auto heap = MemoryBudget::snapshot();
     LOG_DBG("ERDM", "Button preview released: free=%u maxAlloc=%u", heap.freeHeap, heap.maxAllocHeap);
   }
   dictionaryRegistry.clear();
@@ -882,6 +882,7 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   const fui::Rect tabs = buttonDevice ? screen.takeTop(tabBarHeight) : screen.takeBottom(tabBarHeight);
   buildTabBar(screen, tabs, buttonDevice);
   samplePreviewBounds = {};
+  // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on builds without the sample preview
   if (showsSamplePreview()) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     int previewHeight = screen.body().height * metrics.previewHeightPercent / 100;
@@ -2506,6 +2507,7 @@ void EpubReaderDrawerActivity::renderPreviewUnavailable() {
 bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
                                              std::optional<FontCacheManager::PrewarmScope>& prewarmScope) {
   previewFontId = -1;
+  // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on builds without the sample preview
   if (CROSSDINK_APP_READER_SAMPLE_PREVIEW && !showsSamplePreview()) return false;
   if (!previewDirty) return false;
   previewDirty = false;
@@ -2813,6 +2815,7 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
   if (CROSSDINK_APP_READER_SAMPLE_PREVIEW) {
     previewDirty = true;  // The full-screen UI cleared the sample area as well.
     previewRendered = renderPreview(previewFontId, previewPrewarmScope);
+    // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on builds without the sample preview
     if (showsSamplePreview() && previewUnavailable) {
       app.render();  // A failed font selection rolled the draft back; repaint its values too.
       drawButtonBookHeader();
