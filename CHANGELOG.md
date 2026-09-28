@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Debug builds: the boot log names the exact panel controller (UC8179, SSD1677, ...), how it was detected, and the panel's VER/MTP product id and LUT version. Every PSRAM log grab (/api/psram-log, CMD:PSRAMLOG) starts with a header: device, serial, build, env, panel, uptime and heap.
 
 - While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% once a second, and stays off while idle. Each pulse finishes smoothly, so even a short request gives one full blink and the light never cuts off abruptly. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
 - Assign Library to power, long-press, button-chord, Home-button, or Quick Actions shortcuts to open the book list directly.

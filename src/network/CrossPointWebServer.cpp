@@ -53,6 +53,7 @@
 #include "util/BookCacheUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
+#include "util/DeviceIdentity.h"
 #include "util/FontFamilyLabel.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/StringUtils.h"
@@ -1030,6 +1031,9 @@ void CrossPointWebServer::handlePsramLog() const {
   const uint32_t end = PsramLog::end();
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "text/plain; charset=utf-8", "");
+  // Fresh identity header first: the ring may have wrapped past the boot lines.
+  const size_t headerLen = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+  if (headerLen > 0) server->sendContent(chunk, headerLen);
   while (cursor < end) {
     const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
     if (len == 0) break;
