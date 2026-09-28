@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./docs/images/crossdink-logo-dark.png" />
-    <img src="./docs/images/crossdink-logo.png" alt="CrossDink logo: two ink drops" width="140" />
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/images/crossdink-logo-dark.svg" />
+    <img src="./docs/images/crossdink-logo.svg" alt="CrossDink logo: two ink drops" width="88" height="80" />
   </picture>
 </p>
 
