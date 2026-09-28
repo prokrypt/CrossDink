@@ -50,6 +50,8 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
+  // Settings > Fast keyboard: every tweak above.
+  static constexpr uint8_t KBD_EXP_FAST_KEYBOARD = 31;
   uint8_t kbdExpFlags = 0;
   uint8_t kbdExpFrames = 3;
   uint8_t kbdExpPll = 0;
