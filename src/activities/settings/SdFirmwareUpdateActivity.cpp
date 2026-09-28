@@ -93,7 +93,6 @@ void SdFirmwareUpdateActivity::selectFirmware(std::string path) {
   requestUpdateAndWait();
 
   if (!validateFirmware()) {
-    flashLight.end();
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
@@ -130,11 +129,11 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
     return false;
   }
 
-  // Run the same end-to-end integrity check (header / segment table / XOR checksum / SHA256
-  // trailer) that the shared firmware-flasher applies right before raw-writing otadata. This
-  // catches truncated or corrupted .bin files at confirmation time, before the user ever sees
-  // the "Updating…" progress bar.
-  const auto vr = firmware_flash::validateImageFile(firmwarePath.c_str(), partitionLimit);
+  // Header only (magic, chip, segment table and sizes): a truncated or foreign
+  // .bin fails here without reading the whole card file. The checksum, SHA-256
+  // and board tag are verified during the flash, which only activates the new
+  // slot when they pass.
+  const auto vr = firmware_flash::checkImageHeaderFile(firmwarePath.c_str(), partitionLimit);
   if (vr != firmware_flash::Result::OK) {
     LOG_ERR("FW", "image validation failed: %s", firmware_flash::resultName(vr));
     if (vr == firmware_flash::Result::TOO_LARGE) {
@@ -148,7 +147,6 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
     }
     return false;
   }
-  firmwarePinned = firmware_flash::readShaTrailer(firmwarePath.c_str(), pinnedSize, pinnedSha);
   return true;
 }
 
@@ -204,23 +202,19 @@ void SdFirmwareUpdateActivity::performUpdate() {
     if (stepChanged) self->requestUpdate(true);
   };
 
-  // SD is removable, so the flash pass must not trust the confirmation-time
-  // check blindly (TOCTOU). A pinned image is re-checked in the same pass that
-  // writes it (size + SHA-256 trailer before, hash of the written bytes after),
-  // instead of a second full validation read (~2.7 s for 5.5 MB).
+  // SD is removable: the flash pass verifies the bytes it writes (checksum,
+  // SHA-256, board tag) and activates the slot only when they pass.
   // Nothing reads touch while flashing; sleep the GT911 to save power. After a
   // failure the main loop's touch sleep policy wakes it again.
   if (gpio.hasTouch() && !gpio.setTouchSleep(true)) LOG_ERR("FW", "Touch controller did not sleep");
   flashLight.begin();
-  const auto result =
-      firmwarePinned ? firmware_flash::flashConfirmedFile(firmwarePath.c_str(), pinnedSize, pinnedSha, progressCb, this)
-                     : firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
+  const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
+    flashLight.end();
     errorMessage = result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD
                        ? tr(STR_FIRMWARE_WRONG_DEVICE)
                        : tr(STR_FIRMWARE_WRITE_FAILED);
-    flashLight.end();
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
