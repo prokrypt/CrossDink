@@ -24,6 +24,7 @@
 
 ### Changed
 
+- On touch devices the keyboard no longer highlights a key when it opens, and the Up and Down buttons move the text cursor left and right. A side button press brings the highlight back for button typing.
 - Updating firmware from the SD card is faster: picking a file checks only its header, the full checksum and SHA-256 are verified while it is written (the new firmware is only activated when they match), the next part of the file is read while the current part is written, blank flash is not erased or written again, and the progress bar moves in 5% steps. The frontlight pulses while it flashes and stays on until the restart, and the touchscreen sleeps meanwhile.
 - X4 Pro light-sleep profiles: Wi-Fi rejoins a saved network with a fast scan on its known channel, and uploads use larger TCP windows, 12 KB WebSocket chunks and a background SD writer, so they reach the device faster.
 - Updating firmware from the SD card checks the image's SHA-256 while writing it, instead of reading the whole file twice, and shows its progress with the fast keyboard refresh.

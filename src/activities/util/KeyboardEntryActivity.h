@@ -95,6 +95,11 @@ class KeyboardEntryActivity : public Activity {
   // the bottom action row is just the last row).
   int selRow = 0;
   int selCol = 0;
+  bool selectionShown = true;  // false on touch until a button moves the selection
+  // Shows a hidden selection; true when it did (the press only reveals it).
+  bool revealSelection();
+  // Button devices: Up/Down move the key row; long Up enters cursor mode.
+  void handleUpDownButtons();
 
   bool confirmHeld = false;
   bool confirmLongHandled = false;

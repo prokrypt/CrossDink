@@ -155,6 +155,9 @@ void KeyboardEntryActivity::onEnter() {
   passwordVisible = false;
   selRow = 0;
   selCol = 0;
+  // Touch users tap keys directly: no key is highlighted until a button moves
+  // the selection.
+  selectionShown = !mappedInput.hasTouchHardware();
   delPressCount = 0;
   hintVisible = false;
   hintShowTime = 0;
@@ -661,6 +664,7 @@ void KeyboardEntryActivity::loop() {
                            static_cast<int16_t>(tapX), static_cast<int16_t>(tapY), inContact, millis());
     if (result.event) {
       highlightPending = false;
+      selectionShown = !mappedInput.hasTouchHardware();  // a tap hides a button-driven selection again
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestStrokeUpdate();
@@ -687,6 +691,139 @@ void KeyboardEntryActivity::loop() {
   }
 #endif
 
+  if (mappedInput.hasTouchHardware()) {
+    // Touch devices pick keys by tapping, so Up/Down move the text cursor
+    // (repeating while held) instead of the key selection.
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] {
+      if (cursorPos > 0) {
+        cursorPos = utf8Prev(text, cursorPos);
+        requestStrokeUpdate();
+      }
+    });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] {
+      if (cursorPos < text.length()) {
+        cursorPos = utf8Next(text, cursorPos);
+        requestStrokeUpdate();
+      }
+    });
+  } else {
+    handleUpDownButtons();
+  }
+
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] {
+    if (cursorMode || revealSelection()) return;
+    moveSelectionCol(-1);
+    requestStrokeUpdate();
+  });
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+    if (cursorMode) {
+      if (togglePos) {
+        cursorPos = savedCursorPos;
+        togglePos = false;
+        requestStrokeUpdate();
+      } else if (cursorPos > 0) {
+        cursorPos = utf8Prev(text, cursorPos);
+        requestStrokeUpdate();
+      }
+    }
+  }
+
+  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+    if (cursorMode && inputType == InputType::Password && !togglePos) {
+      rightHeld = true;
+      rightLongHandled = false;
+      rightStartCursorPos = cursorPos;
+    }
+  }
+
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] {
+    if (cursorMode || revealSelection()) return;
+    moveSelectionCol(1);
+    requestStrokeUpdate();
+  });
+
+  if (rightHeld && !rightLongHandled && mappedInput.isPressed(MappedInputManager::Button::Right) &&
+      mappedInput.getHeldTime() > LONG_PRESS_MS) {
+    if (cursorMode && inputType == InputType::Password && !togglePos) {
+      savedCursorPos = rightStartCursorPos;
+      togglePos = true;
+      rightLongHandled = true;
+      requestStrokeUpdate();
+    }
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+    if (cursorMode && inputType == InputType::Password) {
+      rightHeld = false;
+      rightLongHandled = false;
+    }
+    if (cursorMode && !togglePos && cursorPos < text.length()) {
+      cursorPos = utf8Next(text, cursorPos);
+      requestStrokeUpdate();
+    }
+    if (cursorMode) return;
+    rightHeld = false;
+    rightLongHandled = false;
+  }
+
+  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    confirmHeld = true;
+    confirmLongHandled = false;
+  }
+
+  const fui::KeyboardKey* selKey = selectionShown ? selectedKey() : nullptr;
+  const bool selectedDel = selKey && selKey->value == fui::QWERTY_KEY_BACKSPACE;
+
+  if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+      mappedInput.getHeldTime() > DEL_LONG_PRESS_MS && selectedDel) {
+    clearAllOrAltOnSelected();
+    confirmLongHandled = true;
+    requestStrokeUpdate();
+  }
+
+  if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+      mappedInput.getHeldTime() > LONG_PRESS_MS) {
+    if (selKey && !selectedDel && clearAllOrAltOnSelected()) {
+      requestStrokeUpdate();
+      confirmLongHandled = true;
+    }
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (confirmHeld && !confirmLongHandled && !cursorMode && !selKey) {
+      revealSelection();  // first Confirm on touch shows the selection, types nothing
+    } else if (confirmHeld && !confirmLongHandled && !cursorMode) {
+      if (activateValue(selKey->value, false)) {
+        requestStrokeUpdate();
+      }
+    } else if (confirmHeld && !confirmLongHandled && cursorMode && inputType == InputType::Password && togglePos) {
+      passwordVisible = !passwordVisible;
+      requestStrokeUpdate();
+    }
+    confirmHeld = false;
+    confirmLongHandled = false;
+  }
+
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    mappedInput.suppressNextBackRelease();
+    onCancel();
+  }
+
+  if (hintVisible && !cursorMode && millis() - hintShowTime > 4000) {
+    hintVisible = false;
+    requestStrokeUpdate();
+  }
+}
+
+bool KeyboardEntryActivity::revealSelection() {
+  if (selectionShown) return false;
+  selectionShown = true;
+  requestStrokeUpdate();
+  return true;
+}
+
+void KeyboardEntryActivity::handleUpDownButtons() {
   if (!cursorMode && mappedInput.wasPressed(MappedInputManager::Button::Up)) {
     upHeld = true;
     upLongHandled = false;
@@ -731,109 +868,6 @@ void KeyboardEntryActivity::loop() {
     }
     downHeld = false;
     downLongHandled = false;
-  }
-
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] {
-    if (cursorMode) return;
-    moveSelectionCol(-1);
-    requestStrokeUpdate();
-  });
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-    if (cursorMode) {
-      if (togglePos) {
-        cursorPos = savedCursorPos;
-        togglePos = false;
-        requestStrokeUpdate();
-      } else if (cursorPos > 0) {
-        cursorPos = utf8Prev(text, cursorPos);
-        requestStrokeUpdate();
-      }
-    }
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    if (cursorMode && inputType == InputType::Password && !togglePos) {
-      rightHeld = true;
-      rightLongHandled = false;
-      rightStartCursorPos = cursorPos;
-    }
-  }
-
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] {
-    if (cursorMode) return;
-    moveSelectionCol(1);
-    requestStrokeUpdate();
-  });
-
-  if (rightHeld && !rightLongHandled && mappedInput.isPressed(MappedInputManager::Button::Right) &&
-      mappedInput.getHeldTime() > LONG_PRESS_MS) {
-    if (cursorMode && inputType == InputType::Password && !togglePos) {
-      savedCursorPos = rightStartCursorPos;
-      togglePos = true;
-      rightLongHandled = true;
-      requestStrokeUpdate();
-    }
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-    if (cursorMode && inputType == InputType::Password) {
-      rightHeld = false;
-      rightLongHandled = false;
-    }
-    if (cursorMode && !togglePos && cursorPos < text.length()) {
-      cursorPos = utf8Next(text, cursorPos);
-      requestStrokeUpdate();
-    }
-    if (cursorMode) return;
-    rightHeld = false;
-    rightLongHandled = false;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    confirmHeld = true;
-    confirmLongHandled = false;
-  }
-
-  const fui::KeyboardKey* selKey = selectedKey();
-  const bool selectedDel = selKey && selKey->value == fui::QWERTY_KEY_BACKSPACE;
-
-  if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
-      mappedInput.getHeldTime() > DEL_LONG_PRESS_MS && selectedDel) {
-    clearAllOrAltOnSelected();
-    confirmLongHandled = true;
-    requestStrokeUpdate();
-  }
-
-  if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
-      mappedInput.getHeldTime() > LONG_PRESS_MS) {
-    if (!selectedDel && clearAllOrAltOnSelected()) {
-      requestStrokeUpdate();
-      confirmLongHandled = true;
-    }
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (confirmHeld && !confirmLongHandled && !cursorMode) {
-      if (selKey && activateValue(selKey->value, false)) {
-        requestStrokeUpdate();
-      }
-    } else if (confirmHeld && !confirmLongHandled && cursorMode && inputType == InputType::Password && togglePos) {
-      passwordVisible = !passwordVisible;
-      requestStrokeUpdate();
-    }
-    confirmHeld = false;
-    confirmLongHandled = false;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    mappedInput.suppressNextBackRelease();
-    onCancel();
-  }
-
-  if (hintVisible && !cursorMode && millis() - hintShowTime > 4000) {
-    hintVisible = false;
-    requestStrokeUpdate();
   }
 }
 
@@ -1151,7 +1185,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
-  props.selectedIndex = cursorMode ? -1 : static_cast<int16_t>(selectedLogicalIndex());
+  props.selectedIndex = cursorMode || !selectionShown ? -1 : static_cast<int16_t>(selectedLogicalIndex());
   props.labelText.font = layoutId == fui::KeyboardLayoutId::ArabicAr && !symbols ? fui::GfxRendererTarget::FONT_SMALL
                                                                                  : fui::GfxRendererTarget::FONT_BODY;
   props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
