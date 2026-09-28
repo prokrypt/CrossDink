@@ -974,9 +974,8 @@ void CrossPointWebServer::handleStatus() const {
   }
 #endif
 
-  // Every temperature the board can report, in C; null when the source is
-  // absent or the read failed. The panel value is the UC8179's own sensor,
-  // sampled after a refresh at most once a minute; ageMs says how old it is.
+  // Every temperature the board can report, in C; null when the read failed. The panel value is the UC8179's own
+  // sensor, sampled after a refresh at most once a minute; ageMs says how old it is.
   JsonObject temps = doc["temperatures"].to<JsonObject>();
   const auto addTemp = [&temps](const char* role, const char* source, const bool known, const float celsius) {
     JsonObject t = temps[role].to<JsonObject>();
@@ -1011,10 +1010,12 @@ void CrossPointWebServer::handleStatus() const {
       ambientTried = true;
       ambient.begin();
     }
-    float ambientC = 0.0f;
-    float humidity = 0.0f;
-    const bool ambientKnown = ambient.present() && ambient.read(ambientC, humidity);
-    addTemp("ambient", ambient.present() ? "sht40" : "none", ambientKnown, ambientC);
+    if (ambient.present()) {  // only boards that carry an SHT40 list it
+      float ambientC = 0.0f;
+      float humidity = 0.0f;
+      const bool ambientKnown = ambient.read(ambientC, humidity);
+      addTemp("ambient", "sht40", ambientKnown, ambientC);
+    }
     int8_t panelC = 0;
     uint32_t panelAgeMs = 0;
     const bool panelKnown = freeink::uc8179PanelTemperature(panelC, panelAgeMs);
