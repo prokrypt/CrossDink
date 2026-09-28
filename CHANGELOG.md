@@ -23,6 +23,7 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.
 - Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, the outer keys reach the screen edges, and the top row reaches halfway up the strip above it, so there are no dead spots. The keys look the same.
 
 - On touch devices the keyboard no longer highlights a key when it opens, and the Up and Down buttons move the text cursor left and right. A side button press brings the highlight back for button typing.
