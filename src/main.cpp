@@ -1458,8 +1458,8 @@ void setup() {
   const esp_partition_t* running = esp_ota_get_running_partition();
   [[maybe_unused]] const char* runningPart = running ? running->label : "?";
 #endif
-  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", CROSSDINK_VERSION, CROSSDINK_GIT_SHA,
-          strcmp(CROSSDINK_GIT_DIRTY, "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
+  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", CROSSDINK_VERSION, BuildInfo::gitSha(),
+          strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
           BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
