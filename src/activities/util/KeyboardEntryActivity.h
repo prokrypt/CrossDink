@@ -57,8 +57,11 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
   // Settings > Turbo keyboard: every tweak above.
   static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = 31;
+  // DU LUT drive frames: 3 left heavy ghosting on the X4 Pro; 6 is the
+  // setting tested on hardware ("63 6").
+  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
   uint8_t kbdExpFlags = 0;
-  uint8_t kbdExpFrames = 3;
+  uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   uint8_t kbdExpPll = 0;
   bool kbdExpFirstFrame = true;
   std::atomic<unsigned long> strokeAtMs{0};

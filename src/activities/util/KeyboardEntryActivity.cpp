@@ -188,11 +188,11 @@ void KeyboardEntryActivity::onExit() {
 // reflash. Format: "flags [lutFrames] [pll]", numbers in C syntax (0x.. ok).
 // flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
 // 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start).
-// Without the file, Settings > System > Device > Turbo keyboard picks 31 or 0
+// Without the file, Settings > System > Device > Turbo keyboard picks "31 6" or 0
 // (T1 baseline, timing only).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
-  kbdExpFrames = 3;
+  kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   kbdExpPll = 0;
   kbdExpFirstFrame = true;
   FsFile f;
@@ -208,7 +208,7 @@ void KeyboardEntryActivity::loadKbdExperiment() {
       kbdExpPll = static_cast<uint8_t>(strtoul(end, &end, 0));
     }
   }
-  LOG_INF("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
+  LOG_DBG("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
   kbdFrame = 0;
   prevFrameStrokeMs = 0;
   highlightPending = false;
@@ -1244,7 +1244,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 #endif
   const unsigned long displayStartMs = millis();
   renderer.displayBuffer();
-#ifndef SIMULATOR
+#if !defined(SIMULATOR) && LOG_LEVEL >= 2  // per-keystroke timing: debug builds only
   // prev_* describe the refresh that finished before this frame started (the
   // previous frame's); prev_key_to_ink = that frame's stroke -> its DRF done.
   const freeink::Uc8179KbdTiming timing = freeink::uc8179KbdTiming();
@@ -1255,7 +1255,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const long prevKeyToInk = prevFrameStrokeMs != 0 && timing.doneMs >= prevFrameStrokeMs
                                 ? static_cast<long>(timing.doneMs - prevFrameStrokeMs)
                                 : -1L;
-  LOG_INF("KBD",
+  LOG_DBG("KBD",
           "KBD_EXP flags=0x%02x frame=%lu cause=%s win=%u stroke_to_idle=%lu ms display=%lu ms prev_upload=%u "
           "prev_drf=%u prev_rows=%u prev_sync=%u prev_key_to_ink=%ld frames=%u pll=0x%02x",
           kbdExpFlags, static_cast<unsigned long>(++kbdFrame), stroke ? CAUSE_NAMES[cause & 3] : "redraw",
