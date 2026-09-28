@@ -5,7 +5,7 @@
 #include <Logging.h>
 
 namespace {
-constexpr uint32_t kCycleMs = 500;
+constexpr uint32_t kCycleMs = 1000;
 constexpr uint32_t kWriteIntervalMs = 20;
 constexpr uint8_t kPeakPercent = 25;
 }  // namespace

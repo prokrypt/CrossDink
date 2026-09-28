@@ -2,7 +2,7 @@
 
 ### Added
 
-- While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% every half second, and stays off while idle. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
+- While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% once a second, and stays off while idle. Each pulse finishes smoothly, so even a short request gives one full blink and the light never cuts off abruptly. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
 - Assign Library to power, long-press, button-chord, Home-button, or Quick Actions shortcuts to open the book list directly.
 - Customize the top and bottom reader status bars separately, including item positions and progress bars, in EPUB, TXT, and XTC books. Each bar can be previewed where it appears while reading.
 - View a selected book's reading stats from its Library or File Browser action menu.
