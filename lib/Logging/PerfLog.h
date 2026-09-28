@@ -17,9 +17,11 @@ namespace PerfLog {
 // while no render has begun, so release-triggered actions time from release.
 // kind ("btn", "tap", "swipe", ...) is a string literal shown as [LAT] in=.
 void noteInput(bool release, const char* kind);
-// Render task brackets around Activity::render().
-void noteRenderStart();
-void noteRenderEnd(const char* activity);
+// Render task brackets around Activity::render(). Start takes the activity
+// name while the render lock is held; after render() the lock is gone and the
+// activity may already be destroyed.
+void noteRenderStart(const char* activity);
+void noteRenderEnd();
 // Reader: how the page frame was produced ("pre" drawn ahead, "draw" composed).
 void notePagePath(const char* path);
 // A refresh finished on the panel: closes the pending latency sample, and the
@@ -42,8 +44,8 @@ void logPeriodic();
 #else
 namespace PerfLog {
 inline void noteInput(bool, const char*) {}
-inline void noteRenderStart() {}
-inline void noteRenderEnd(const char*) {}
+inline void noteRenderStart(const char*) {}
+inline void noteRenderEnd() {}
 inline void notePagePath(const char*) {}
 inline void noteInk() {}
 inline void noteBootPhase(const char*) {}

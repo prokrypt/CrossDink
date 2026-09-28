@@ -464,7 +464,11 @@ void ActivityManager::renderTaskLoop() {
         idlePanelOffArmed = false;
 #ifndef SIMULATOR  // the simulator HAL has no panel power
         RenderLock offLock;
-        if (currentActivity && currentActivity->powerOffPanelWhenIdle() && display.powerOffIdle()) {
+        if (display.isRefreshPending() || display.isRefreshBusy()) {
+          // A deferred refresh is still driving the panel: never cut the
+          // booster mid-waveform; try again after the next idle period.
+          idlePanelOffArmed = true;
+        } else if (currentActivity && currentActivity->powerOffPanelWhenIdle() && display.powerOffIdle()) {
           LOG_DBG("ACT", "Panel booster off after %lu ms idle", static_cast<unsigned long>(IDLE_PANEL_OFF_MS));
         }
 #endif
@@ -492,10 +496,10 @@ void ActivityManager::renderTaskLoop() {
       // cppcheck-suppress knownConditionTrueFalse
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       renderer.setDeferFastRefresh(deferredRender);
-      PerfLog::noteRenderStart();
+      PerfLog::noteRenderStart(currentActivity->name.c_str());
       idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       currentActivity->render(std::move(lock));
-      PerfLog::noteRenderEnd(currentActivity ? currentActivity->name.c_str() : nullptr);
+      PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
       restoredActivityNeedsRender = false;
     }

@@ -184,14 +184,16 @@ void noteInput(const bool release, const char* kind) {
   inputPending = true;
 }
 
-void noteRenderStart() {
-  if (inputPending && renderStartMs == 0) renderStartMs = millis();
+void noteRenderStart(const char* activity) {
+  if (inputPending && renderStartMs == 0) {
+    renderStartMs = millis();
+    snprintf(renderActivity, sizeof(renderActivity), "%s", activity ? activity : "-");
+  }
 }
 
-void noteRenderEnd(const char* activity) {
+void noteRenderEnd() {
   if (inputPending && renderStartMs != 0 && renderEndMs == 0) {
     renderEndMs = millis();
-    snprintf(renderActivity, sizeof(renderActivity), "%s", activity ? activity : "-");
   }
 }
 
