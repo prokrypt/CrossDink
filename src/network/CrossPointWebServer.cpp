@@ -19,6 +19,7 @@
 #include <esp_efuse_table.h>
 #ifndef SIMULATOR
 #include <EnvironmentSensor.h>
+#include <FreeInkDisplay.h>
 #include <esp_image_format.h>
 #include <esp_ota_ops.h>
 #endif
@@ -974,8 +975,8 @@ void CrossPointWebServer::handleStatus() const {
 #endif
 
   // Every temperature the board can report, in C; null when the source is
-  // absent or the read failed. The UC8179 has an internal sensor, but the EPD
-  // bus is write-only (no MISO), so the panel entry is always null.
+  // absent or the read failed. The panel value is the UC8179's own sensor,
+  // sampled after a refresh at most once a minute; ageMs says how old it is.
   JsonObject temps = doc["temperatures"].to<JsonObject>();
   const auto addTemp = [&temps](const char* role, const char* source, const bool known, const float celsius) {
     JsonObject t = temps[role].to<JsonObject>();
@@ -988,6 +989,7 @@ void CrossPointWebServer::handleStatus() const {
   };
 #ifdef SIMULATOR
   addTemp("chip", "simulator", false, 0.0f);
+  addTemp("panel", "uc8179", false, 0.0f);
 #else
   {
     const float chipC = temperatureRead();
@@ -1013,9 +1015,13 @@ void CrossPointWebServer::handleStatus() const {
     float humidity = 0.0f;
     const bool ambientKnown = ambient.present() && ambient.read(ambientC, humidity);
     addTemp("ambient", "sht40", ambientKnown, ambientC);
+    int8_t panelC = 0;
+    uint32_t panelAgeMs = 0;
+    const bool panelKnown = freeink::uc8179PanelTemperature(panelC, panelAgeMs);
+    addTemp("panel", "uc8179", panelKnown, panelC);
+    if (panelKnown) temps["panel"]["ageMs"] = panelAgeMs;
   }
 #endif
-  addTemp("panel", "uc8179", false, 0.0f);
 
   JsonObject clock = doc["clock"].to<JsonObject>();
   char timeBuf[21];
