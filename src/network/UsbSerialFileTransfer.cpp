@@ -15,6 +15,7 @@
 #include <string>
 
 #include "CrossPointSettings.h"
+#include "SerialRemote.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
 
@@ -32,7 +33,11 @@ constexpr uint8_t ACK = 0x06;
 constexpr size_t SERIAL_CHUNK_SIZE = 256;
 constexpr size_t FILE_BUFFER_SIZE = 4096;
 constexpr size_t PATH_BUFFER_SIZE = 256;
+#if CROSSDINK_SERIAL_REMOTE
+constexpr size_t LINE_BUFFER_SIZE = 256;  // room for CMD:TYPE / CMD:OPEN arguments
+#else
 constexpr size_t LINE_BUFFER_SIZE = 80;
+#endif
 constexpr size_t REMOVE_RECURSIVE_MAX_DEPTH = 8;
 constexpr uint32_t SHORT_TIMEOUT_MS = 1000;
 constexpr uint32_t HEADER_TIMEOUT_MS = 2000;
@@ -739,6 +744,7 @@ ProcessResult handleLine() {
   if (strcmp(lineBuffer, "CMD:SCREENSHOT") == 0) {
     return ProcessResult::ScreenshotRequested;
   }
+  if (SerialRemote::handleLine(lineBuffer)) return ProcessResult::None;
 #if CROSSDINK_PSRAM_LOG
   if (strcmp(lineBuffer, "CMD:PSRAMLOG") == 0) {
     // Debug builds: dump the PSRAM log ring (survives software restarts).
@@ -766,6 +772,7 @@ void registerUsbCdcOverflowHandler() {
 }
 
 ProcessResult process(bool allowed) {
+  SerialRemote::poll();
   if (!logSerial) return ProcessResult::None;
   fileTransferAllowed = allowed;
 

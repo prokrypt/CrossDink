@@ -59,6 +59,9 @@ class Activity {
 
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
+  // Serial remote control: insert text as if typed. False when the screen has
+  // no text entry.
+  virtual bool injectText(const char*) { return false; }
   // A Wi-Fi screen that is idle between transfers: the main loop may power
   // save and light-sleep between ticks even though the radio is up.
   virtual bool allowsRadioIdleSleep() { return false; }

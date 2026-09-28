@@ -175,6 +175,12 @@ class ActivityManager {
   // gestures until it is dismissed.
   bool blocksGlobalInput() const;
   bool isHomeActivity() const;
+  // Foreground activity name ("" when none). Main task only.
+  const char* currentActivityName() const { return currentActivity ? currentActivity->name.c_str() : ""; }
+  // No render is queued, running or waiting on the panel. Main task only.
+  bool isRenderIdle() const;
+  // Serial remote control: forwards typed text to the foreground activity.
+  bool injectText(const char* utf8) { return currentActivity && currentActivity->injectText(utf8); }
   bool isReaderActivity() const;
   bool openReaderSettingsForTouchscreenEscapeHatch();
   bool handleHomeButtonBackOrHome();

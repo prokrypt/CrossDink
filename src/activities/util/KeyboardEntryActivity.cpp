@@ -240,6 +240,12 @@ size_t KeyboardEntryActivity::utf8Next(const std::string& s, size_t pos) {
   return pos;
 }
 
+bool KeyboardEntryActivity::injectText(const char* utf8) {
+  insertUtf8(utf8);
+  requestUpdate();
+  return true;
+}
+
 void KeyboardEntryActivity::insertUtf8(const char* out) {
   if (!out || !*out) return;
   const size_t n = strlen(out);

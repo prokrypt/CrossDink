@@ -97,6 +97,7 @@ class KeyboardEntryActivity : public Activity {
   enum class InputFieldTouchTarget { None, Cursor, PasswordToggle };
 
   void onComplete(std::string text);
+  bool injectText(const char* utf8) override;
   void onCancel();
   InputFieldTouchTarget inputFieldTouchTargetFromPoint(int x, int y, size_t& position) const;
   std::string displayTextForCurrentState() const;
