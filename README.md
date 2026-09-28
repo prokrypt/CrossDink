@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/images/crossdink-logo-dark.png" />
+    <img src="./docs/images/crossdink-logo.png" alt="CrossDink logo: two ink drops" width="140" />
+  </picture>
+</p>
+
 # CrossDink
 
 > **CrossDink is a fork of [CrossInk](https://github.com/uxjulia/CrossInk)**, which is itself a fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader). It keeps CrossInk's fonts, reader features and reading stats, and rebuilds the firmware around the dual-core ESP32-S3 in the newer Xteink and Seeed readers.
