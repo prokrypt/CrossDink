@@ -25,6 +25,7 @@
 #include "components/icons/readingStatsIcons.h"
 #include "components/icons/tablerIcons.h"
 #include "components/icons/touchscreenStateIcons.h"
+#include "util/ReaderBookProgress.h"
 
 namespace fui = freeink::ui;
 
@@ -370,6 +371,7 @@ int FrontlightPanelActivity::computePanelBottom() const {
   const auto tokens = uiThemeTokens(uiTarget);
   const int16_t lh = uiTarget.lineHeight(tokens.bodyText.font);
   int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
+  if (showsBookProgress()) y += metrics.tabBarHeight;
   if (context.showReaderDetails) {
     const int16_t titleLh = uiTarget.lineHeight(tokens.titleText.font);
     y += tokens.spaceLg * 2;
@@ -451,8 +453,9 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   drawerHandleRect = DrawerHandle::registerTap(screen.frame(), sheetContent, sheet, ACTION_DISMISS);
   const int16_t bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - sheetContent.bottom());
   screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
-                  bottomInset, 0});
+      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
+                                       (showsBookProgress() ? metrics.tabBarHeight : 0)),
+                  0, bottomInset, 0});
 
   const fui::Rect actionBar = screen.takeBottom(ACTION_BAR_HEIGHT);
   const int16_t slotWidth = static_cast<int16_t>(actionBar.width / 5);
@@ -555,8 +558,8 @@ void FrontlightPanelActivity::drawHeader() {
     const int titleX = header.x + tokens.headerSidePadding;
     const int titleRight = homeButton.x - tokens.spaceSm;
     const int titleWidth = std::max(0, titleRight - titleX);
-    const std::string visibleTitle = renderer.truncatedText(titleFontId, title, titleWidth, EpdFontFamily::REGULAR);
-    renderer.drawText(titleFontId, titleX, titleY, visibleTitle.c_str(), true);
+    const std::string visibleTitle = renderer.truncatedText(titleFontId, title, titleWidth, EpdFontFamily::BOLD);
+    renderer.drawText(titleFontId, titleX, titleY, visibleTitle.c_str(), true, EpdFontFamily::BOLD);
   } else {
     UITheme::drawCenteredText(renderer, header, titleFontId, titleY, title, true);
   }
@@ -568,6 +571,23 @@ void FrontlightPanelActivity::drawHeader() {
                               HEADER_ICON_SIZE, HEADER_ICON_SIZE},
                     fui::bitmapFromIcon(icon_home_24), fui::BitmapMode::Center);
   }
+}
+
+bool FrontlightPanelActivity::showsBookProgress() const {
+  return context.activeReaderBook && !context.showReaderDetails && !context.bookDetails.title.empty();
+}
+
+void FrontlightPanelActivity::drawBookProgress() {
+  if (!showsBookProgress()) return;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
+  const Rect row{0, y, renderer.getScreenWidth(), metrics.tabBarHeight};
+  char progress[96];
+  formatReaderBookProgress(progress, sizeof(progress), context.bookDetails.chapterPage,
+                           context.bookDetails.chapterPageCount, context.bookDetails.chapterPageCountEstimated,
+                           context.bookDetails.progressPercent);
+  GUI.drawSubHeader(renderer, row, progress);
+  renderer.drawLine(row.x, row.y + row.height - 1, row.x + row.width - 1, row.y + row.height - 1, 1, true);
 }
 
 void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui::Rect& row, const uint8_t value,
@@ -604,6 +624,7 @@ void FrontlightPanelActivity::render(RenderLock&&) {
   app.render();
   uiReady = true;
   drawHeader();
+  drawBookProgress();
 
   // The dialog is the topmost layer.
   if (optionPopup.isActive()) optionPopup.render(renderer);

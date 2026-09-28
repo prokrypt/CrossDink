@@ -10,6 +10,7 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstddef>
@@ -17,6 +18,7 @@
 #include <cstring>
 #include <limits>
 
+#include "../../src/util/BookCacheUtils.h"
 #include "LibraryFileTypes.h"
 #include "LibraryIndexFile.h"
 #include "LibraryText.h"
@@ -467,6 +469,11 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
         modificationTime == 0 ||
         (priorIndex >= 0 && (st.prior[priorIndex].fileSize != fileSize || priorRecord.modificationTime == 0 ||
                              priorRecord.modificationTime != modificationTime));
+    if (sourceChanged && !clearBookCachePreservingUserState(fullPath)) {
+      LOG_ERR("LIBIDX", "Cannot invalidate stale EPUB cache while preserving reading state: %s", fullPath.c_str());
+      st.failed = true;
+      return false;
+    }
     if (epub.loadMetadata(bookTitle, author, !sourceChanged, &series, &genre, &seriesIndex)) {
       entry.record.metadataStatus = CLIX_METADATA_EXTRACTED;
       entry.seriesPosition = parseSeriesPosition(seriesIndex);
@@ -1045,7 +1052,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
   // has to be SORTED rather than assumed, or "Recent" silently degrades into
   // "the order the card enumerates in" — exactly the bug reconciliation exists
   // to prevent.
-  bool arrivalDegraded = false;
+  stats.arrivalDegraded = false;
   if (rankable) {
     for (uint16_t i = 0; i < n; i++) arrivalOrder[i] = i;
     if (n > 1) {
@@ -1062,7 +1069,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
           }
         }
       } else {
-        arrivalDegraded = true;
+        stats.arrivalDegraded = true;
         LOG_ERR("LIBIDX", "OOM: %u-byte creation-time array, arrival falls back to firstSeen",
                 static_cast<unsigned>(n * sizeof(uint32_t)));
       }
@@ -1288,7 +1295,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
 
   header.flags = (stats.ranksDegraded ? CLIX_FLAG_RANKS_DEGRADED : 0) |
                  (stats.dedupDegraded ? CLIX_FLAG_DEDUP_DEGRADED : 0) |
-                 (arrivalDegraded ? CLIX_FLAG_ARRIVAL_DEGRADED : 0);
+                 (stats.arrivalDegraded ? CLIX_FLAG_ARRIVAL_DEGRADED : 0);
 
   if (!out.seekSet(0)) {
     ioFailed = true;
@@ -1321,8 +1328,8 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
 
 const char* libraryIndexPath() { return INDEX_PATH; }
 
-bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readMetadata, const BuildControl* control,
-                       const bool retryFailedMetadata) {
+static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readMetadata,
+                                const BuildControl* control, const bool retryFailedMetadata) {
   const uint32_t startMs = millis();
   uint32_t serviceUnits = 0;
   stats = BuildStats{};
@@ -1451,9 +1458,10 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
   stats.enriched = st.enriched;
 
   if (previous.isOpen() && previous.header().formatVersion == CLIX_FORMAT_VERSION &&
-      previous.header().foldVersion == CLIX_FOLD_VERSION && st.books == priorCount && st.reused == priorCount &&
-      stats.metadataReused == priorCount && st.creationTimesUnchanged && st.unreadableSkipped == 0 &&
-      !st.dedupDegraded &&
+      previous.header().foldVersion == CLIX_FOLD_VERSION &&
+      previous.header().metadataEnabled == static_cast<uint8_t>(readMetadata) && st.books == priorCount &&
+      st.reused == priorCount && stats.metadataReused == priorCount && st.creationTimesUnchanged &&
+      st.unreadableSkipped == 0 && !st.dedupDegraded &&
       (previous.header().flags & (CLIX_FLAG_RANKS_DEGRADED | CLIX_FLAG_DEDUP_DEGRADED | CLIX_FLAG_ARRIVAL_DEGRADED)) ==
           0) {
     previous.close();
@@ -1664,6 +1672,26 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
           static_cast<unsigned>(stats.parsed), static_cast<unsigned>(stats.metadataReused),
           static_cast<unsigned>(stats.indexReplaced), static_cast<unsigned>(stats.duplicatesDropped),
           static_cast<unsigned>(stats.unreadableSkipped), static_cast<unsigned>(stats.walkMs));
+  return ok;
+}
+
+namespace {
+std::atomic<bool> indexDirty{true};
+}
+
+void invalidateLibraryIndex() { indexDirty.store(true, std::memory_order_relaxed); }
+
+bool libraryIndexNeedsRefresh() { return indexDirty.load(std::memory_order_relaxed); }
+
+bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readMetadata, const BuildControl* control,
+                       const bool retryFailedMetadata) {
+  // Clear before scanning, not after: a file mutation during the scan must
+  // survive as a request for another reconciliation. A cancelled background
+  // build returns false, which marks the index dirty again.
+  indexDirty.exchange(false, std::memory_order_relaxed);
+  const bool ok = rebuildLibraryIndex(rootPath, stats, readMetadata, control, retryFailedMetadata);
+  if (!ok || stats.unreadableSkipped || stats.ranksDegraded || stats.dedupDegraded || stats.arrivalDegraded)
+    invalidateLibraryIndex();
   return ok;
 }
 

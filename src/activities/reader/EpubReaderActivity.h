@@ -20,15 +20,15 @@
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "EndOfBookOptions.h"
-#include "EpubReaderMenuActivity.h"
+#include "EpubReaderMenuModel.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "activities/Activity.h"
+#include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/OptionPopup.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "activities/reader/ReaderPinchGesture.h"
-#include "activities/reader/TouchReaderPreviewModel.h"
 #endif
 
 struct ToastRect {
@@ -204,8 +204,8 @@ class EpubReaderActivity final : public Activity {
   bool pendingReferenceUnitsAreCharacters = false;
   std::optional<uint16_t> pendingResolvedReferencePage;
   uint16_t pendingParagraphIndex = UINT16_MAX;
-#if CROSSDINK_APP_CAP_TOUCH
   ReaderDrawerState touchReaderDrawerState{};
+#if CROSSDINK_APP_CAP_TOUCH
   std::unique_ptr<TouchReaderPreviewModel> touchReaderPreviewModel;
   bool touchReaderPreviewAllocationAttempted = false;
 #endif
@@ -478,7 +478,7 @@ class EpubReaderActivity final : public Activity {
   bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
   bool estimateProgressTimeLeftSeconds(uint32_t& seconds) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
-  bool formatTimeLeftLabel(char* buf, size_t len) const;
+  bool formatTimeLeftLabel(char* buf, size_t len, bool bookEstimate) const;
   void refreshCachedTimeLeftEstimate();
   void applyBookStatsEditsFromDisk();
   void handleBookStatsReturn(bool returnToReaderMenu);
@@ -530,7 +530,7 @@ class EpubReaderActivity final : public Activity {
                       bool autoLookupInitialWord = false);
   std::unique_ptr<Page> reloadDictionaryLookupPage(int pageOffset = 0);
   static std::unique_ptr<Page> reloadDictionaryLookupPageCallback(void* context, int pageOffset);
-  void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action, bool returnToReaderMenu = false,
+  void onReaderMenuConfirm(EpubReaderMenuAction action, bool returnToReaderMenu = false,
                            const PendingOverlayResume* replacementResume = nullptr);
   // Opens the reader menu for the current position (short-press Confirm)
   void openReaderMenu();
@@ -589,6 +589,11 @@ class EpubReaderActivity final : public Activity {
     return true;
   }
   bool preventAutoSleep() override { return automaticPageTurnActive; }
+  // Hold the loop hot only while the build has work this loop would do: a kept-alive
+  // build sitting outside the lookahead window is dormant, and reporting it here would
+  // pin the CPU at full clock (no power saving, yield-only loop) for the whole read.
+  // Mirrors the tick condition in loop(): catch-up phase, or watermark inside the window.
+  // Caller must own RenderLock: render() can replace or finalize section.
   bool sectionBuildWantsTick() const {
     if (!section || !section->isBuilding()) {
       return false;

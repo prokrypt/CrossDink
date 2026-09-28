@@ -78,6 +78,8 @@ class FrontlightPanelActivity final : public Activity {
   void openReadingStats();
   void openGlobalSettings();
   void drawHeader();
+  bool showsBookProgress() const;
+  void drawBookProgress();
 
  public:
   explicit FrontlightPanelActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

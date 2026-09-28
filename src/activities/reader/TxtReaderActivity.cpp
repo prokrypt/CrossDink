@@ -207,7 +207,9 @@ void TxtReaderActivity::loop() {
 #endif
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
   if (touch.tapped &&
-      ReaderUtils::isBottomStatusBarTap(renderer, touch.y, UITheme::getInstance().getStatusBarHeight())) {
+      (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, UITheme::getInstance().getStatusBarHeight()) ||
+       ReaderUtils::isTopStatusBarTap(renderer, touch.y,
+                                      UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top)))) {
     if (SETTINGS.tapToHideStatusBar) {
       statusBarVisible = !statusBarVisible;
       requestUpdate();
@@ -233,6 +235,16 @@ void TxtReaderActivity::loop() {
       mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= LONG_PRESS_MENU_MS) {
     longPressMenuHandled = true;
     cycleReaderFont();
+    return;
+  }
+
+  if (SETTINGS.longPressMenuAction == CrossPointSettings::LONG_MENU_LIBRARY &&
+      mappedInput.getHeldTime() >= LONG_PRESS_MENU_MS &&
+      (mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
+       mappedInput.wasReleased(MappedInputManager::Button::Confirm))) {
+    longPressMenuHandled = mappedInput.isPressed(MappedInputManager::Button::Confirm);
+    mappedInput.suppressNextConfirmRelease();
+    activityManager.goToLibrary();
     return;
   }
 
@@ -478,6 +490,7 @@ bool TxtReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRB
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_DARK_MODE:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FONT:
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
+    case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       return true;
@@ -517,6 +530,9 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       return true;
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
       activityManager.goToFileBrowser(txt ? txt->getPath() : "");
+      return true;
+    case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
+      activityManager.goToLibrary();
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_HOME_BUTTON_IN_READER:
       toggleHomeButtonInReader();
@@ -595,6 +611,9 @@ bool TxtReaderActivity::executeLongPressBackAction() {
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_BROWSER:
       activityManager.goToFileBrowser(txt ? txt->getPath() : "");
       return true;
+    case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_LIBRARY:
+      activityManager.goToLibrary();
+      return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_CLIPPING:
       return false;
     default:
@@ -634,22 +653,23 @@ void TxtReaderActivity::initializeReader() {
   cachedVerticalMargin = SETTINGS.screenMarginVertical;
   cachedHorizontalMargin = SETTINGS.screenMarginHorizontal;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
+  cachedTopStatusBarHeight = ReaderUtils::getTopStatusBarReservedHeight(renderer);
+  cachedBottomStatusBarHeight = UITheme::getInstance().getStatusBarHeight();
 
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
                                    &cachedOrientedMarginLeft);
   cachedOrientedMarginLeft += cachedHorizontalMargin;
   cachedOrientedMarginRight += cachedHorizontalMargin;
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
+  const int topStatusBarReservedHeight = cachedTopStatusBarHeight;
   if (topStatusBarReservedHeight > 0) {
     cachedOrientedMarginTop += std::max(static_cast<int>(cachedVerticalMargin),
-                                        topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
+                                        topStatusBarReservedHeight + ReaderUtils::TOP_STATUS_BAR_TEXT_PADDING);
   } else {
     cachedOrientedMarginTop += cachedVerticalMargin;
   }
   cachedOrientedMarginBottom += std::max(
-      cachedVerticalMargin,
-      static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight() + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+      cachedVerticalMargin, static_cast<uint8_t>(cachedBottomStatusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -757,9 +777,26 @@ void TxtReaderActivity::render(RenderLock&&) {
     return;
   }
 
+  bool relayout = false;
+  size_t readingOffset = 0;
+  if (initialized && (cachedTopStatusBarHeight != ReaderUtils::getTopStatusBarReservedHeight(renderer) ||
+                      cachedBottomStatusBarHeight != UITheme::getInstance().getStatusBarHeight())) {
+    if (currentPage >= 0 && currentPage < static_cast<int>(pageOffsets.size())) {
+      readingOffset = pageOffsets[currentPage];
+      relayout = true;
+    }
+    if (!flushQueuedProgress()) LOG_ERR("TRS", "Failed to save progress before status bar relayout");
+    initialized = false;
+  }
+
   // Initialize reader if not done
   if (!initialized) {
     initializeReader();
+    if (relayout && !pageOffsets.empty()) {
+      const auto nextPage = std::upper_bound(pageOffsets.begin(), pageOffsets.end(), readingOffset);
+      currentPage = std::max(0, static_cast<int>(nextPage - pageOffsets.begin()) - 1);
+      if (!saveProgress(currentPage)) LOG_ERR("TRS", "Failed to save progress after status bar relayout");
+    }
   }
 
   if (pageOffsets.empty()) {
@@ -841,10 +878,6 @@ void TxtReaderActivity::renderPage() {
   // BW rendering
   renderLines();
   renderStatusBar();
-  if (statusBarVisible) {
-    GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
-                              ReaderUtils::readerDarkModeEnabled());
-  }
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
@@ -860,12 +893,24 @@ void TxtReaderActivity::renderStatusBar() const {
   }
 
   const float progress = totalPages > 0 ? (currentPage + 1) * 100.0f / totalPages : 0;
+  const auto needsTitle = [](const ReaderStatusBarConfig& bar) {
+    return bar.contains(ReaderStatusBarItem::TitleBook) || bar.contains(ReaderStatusBarItem::TitleChapter);
+  };
   std::string title;
-  if (SETTINGS.statusBarSpec().showsTitle()) {
+  if (needsTitle(SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top)) ||
+      needsTitle(SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom))) {
     title = txt->getTitle();
   }
-  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title.c_str(), 0, 0, false, nullptr,
-                    ReaderUtils::readerDarkModeEnabled());
+  ReaderStatusBarContent content;
+  content.bookProgress = progress;
+  content.chapterPage = currentPage + 1;
+  content.chapterPageCount = totalPages;
+  content.bookTitle = title.c_str();
+  // TXT has no chapter metadata; preserve its existing title fallback.
+  content.chapterTitle = content.bookTitle;
+  content.darkMode = ReaderUtils::readerDarkModeEnabled();
+  GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content);
+  GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content);
 }
 
 bool TxtReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) {
@@ -945,6 +990,7 @@ void TxtReaderActivity::loadProgress() {
         currentPage = 0;
       }
     }
+    f.close();
   }
 }
 
@@ -1110,10 +1156,10 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
   marginLeft += horizontalMargin;
   marginRight += horizontalMargin;
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
+  const int topStatusBarReservedHeight = ReaderUtils::getTopStatusBarReservedHeight(renderer);
   if (topStatusBarReservedHeight > 0) {
-    marginTop +=
-        std::max(static_cast<int>(verticalMargin), topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
+    marginTop += std::max(static_cast<int>(verticalMargin),
+                          topStatusBarReservedHeight + ReaderUtils::TOP_STATUS_BAR_TEXT_PADDING);
   } else {
     marginTop += verticalMargin;
   }

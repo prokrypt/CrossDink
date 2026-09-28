@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AppCapabilities.h>
 #include <Epub/Page.h>
 #include <GfxRenderer.h>
 #include <Utf8.h>
@@ -10,11 +11,13 @@
 #include <cstring>
 #include <limits>
 
-class TouchReaderPreviewModel {
+template <size_t TextCapacity, size_t WordCapacity, size_t LineCapacity, bool KeepSourceBlocks>
+class ReaderPreviewModel {
  public:
-  static constexpr size_t TEXT_CAPACITY = 8U * 1024U;
-  static constexpr size_t WORD_CAPACITY = 256;
-  static constexpr size_t LINE_CAPACITY = 128;
+  static constexpr size_t TEXT_CAPACITY = TextCapacity;
+  static constexpr size_t WORD_CAPACITY = WordCapacity;
+  static constexpr size_t LINE_CAPACITY = LineCapacity;
+  static constexpr bool RETAINS_SOURCE_BLOCKS = KeepSourceBlocks;
 
   bool capture(const Page& page, const GfxRenderer& renderer, const int fontId, const uint8_t lineHeightPercent,
                const int xOffset = 0, const int yOffset = 0) {
@@ -47,7 +50,7 @@ class TouchReaderPreviewModel {
       Line& line = lines[lineCount++];
       line.x = pageLine.xPos;
       line.y = pageLine.yPos;
-      line.sourceBlock = block;
+      if constexpr (KeepSourceBlocks) line.sourceBlock = block;
       line.firstWord = wordCount;
       line.wordCount = block->wordCount();
       line.style = block->getBlockStyle();
@@ -106,10 +109,41 @@ class TouchReaderPreviewModel {
     return hasBaseline && wordCount > 0;
   }
 
+  // Plain sample text needs no Page, TextBlock ownership, or source geometry.
+  // Split once into the model's bounded storage; rendering reuses its metrics.
+  bool captureParagraph(const char* paragraph) {
+    clear();
+    if (!paragraph || std::strlen(paragraph) >= text.size()) return false;
+    std::strcpy(text.data(), paragraph);
+    char* cursor = text.data();
+    while (*cursor) {
+      while (*cursor == ' ') ++cursor;
+      if (!*cursor) break;
+      if (wordCount == words.size()) {
+        clear();
+        return false;
+      }
+      Word& word = words[wordCount];
+      word = {};
+      word.textOffset = static_cast<uint16_t>(cursor - text.data());
+      word.hasSpaceBefore = wordCount > 0;
+      word.mayBreakBefore = wordCount > 0;
+      ++wordCount;
+      while (*cursor && *cursor != ' ') ++cursor;
+      if (*cursor) *cursor++ = '\0';
+    }
+    if (wordCount == 0) return false;
+    lines[0] = {};
+    lines[0].wordCount = wordCount;
+    lineCount = 1;
+    hasBaseline = true;
+    return true;
+  }
+
   void renderText(const GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                   const int contentWidth, const uint8_t lineHeightPercent, const uint8_t wordSpacing,
                   const uint8_t paragraphAlignment, const bool focusReadingEnabled, const bool guideReadingEnabled,
-                  const bool foregroundBlack) const {
+                  const bool foregroundBlack, const int bottom = std::numeric_limits<int>::max()) const {
     if (!valid()) return;
     const int currentLineHeight = std::max(1, (renderer.getLineHeight(fontId) * lineHeightPercent + 50) / 100);
     int y = firstLineY + yOffset;
@@ -135,6 +169,7 @@ class TouchReaderPreviewModel {
                      guideReadingEnabled);
       prepareLineBreaks(firstWord, paragraphWordEnd, availableWidth, previewFirstLineIndent(line, alignment));
       while (wordIndex < paragraphWordEnd) {
+        if (bottom != std::numeric_limits<int>::max() && y + renderer.getTextHeight(fontId) > bottom) return;
         const int firstLineIndent = firstPreviewLine ? previewFirstLineIndent(line, alignment) : 0;
         const uint16_t lineEnd = nextBreak[wordIndex];
         renderReflowedLine(renderer, fontId, wordIndex, lineEnd, y, availableLeft, availableWidth, firstLineIndent,
@@ -160,9 +195,11 @@ class TouchReaderPreviewModel {
   // cppcheck-suppress constParameterReference
   void renderSource(GfxRenderer& renderer, const int fontId, const bool foregroundBlack) const {
     if (!valid()) return;
-    for (size_t i = 0; i < lineCount; ++i) {
-      const auto& line = lines[i];
-      line.sourceBlock->render(renderer, fontId, sourceXOffset + line.x, sourceYOffset + line.y, foregroundBlack);
+    if constexpr (KeepSourceBlocks) {
+      for (size_t i = 0; i < lineCount; ++i) {
+        const auto& line = lines[i];
+        line.sourceBlock->render(renderer, fontId, sourceXOffset + line.x, sourceYOffset + line.y, foregroundBlack);
+      }
     }
   }
 
@@ -523,7 +560,9 @@ class TouchReaderPreviewModel {
   }
 
   void clear() {
-    for (size_t i = 0; i < lineCount; ++i) lines[i].sourceBlock.reset();
+    if constexpr (KeepSourceBlocks) {
+      for (size_t i = 0; i < lineCount; ++i) lines[i].sourceBlock.reset();
+    }
     textSize = 0;
     wordCount = 0;
     lineCount = 0;
@@ -532,3 +571,19 @@ class TouchReaderPreviewModel {
     hasBaseline = false;
   }
 };
+
+// Deliberately fixed Latin sample: font/layout test content, not a UI label.
+inline constexpr char READER_PREVIEW_PARAGRAPH[] =
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore "
+    "magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo "
+    "consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. "
+    "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+using SampleReaderPreviewModel = ReaderPreviewModel<sizeof(READER_PREVIEW_PARAGRAPH), 80, 1, false>;
+static_assert(sizeof(SampleReaderPreviewModel) <= 3U * 1024U, "Sample preview exceeds its C3 budget");
+
+using TouchReaderPreviewModel = ReaderPreviewModel<8U * 1024U, 256, 128, true>;
+#if CROSSDINK_APP_READER_SAMPLE_PREVIEW
+using EpubReaderPreviewModel = SampleReaderPreviewModel;
+#else
+using EpubReaderPreviewModel = TouchReaderPreviewModel;
+#endif

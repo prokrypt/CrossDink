@@ -1,10 +1,8 @@
 #pragma once
 
 #include <AppCapabilities.h>
-
-#if CROSSDINK_APP_CAP_TOUCH
-
 #include <Epub.h>
+#include <FontCacheManager.h>
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
 
@@ -12,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,23 +23,27 @@
 #include "TtfRenderProfileStore.h"
 #endif
 
-class EpubReaderTouchMenuActivity final : public Activity {
+class EpubReaderDrawerActivity final : public Activity {
  public:
-  explicit EpubReaderTouchMenuActivity(
+  explicit EpubReaderDrawerActivity(
       GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Epub> epub,
-      const TouchReaderPreviewModel* previewModel, float bookProgressPercent, bool hasFootnotes, bool hasDictionary,
+      const EpubReaderPreviewModel* previewModel, float bookProgressPercent, uint32_t chapterPage,
+      uint32_t chapterPageCount, bool chapterPageCountEstimated, bool hasFootnotes, bool hasDictionary,
       bool hasBookmarks, bool hasClippings, bool isCurrentPageBookmarked, bool isBookCompleted,
       bool showReadingPaceReset, uint32_t stableCurrentPage, uint32_t stablePageCount,
       uint16_t autoPageTurnIntervalSeconds, bool automaticPageTurnActive,
-      ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback, void* saveReaderSettingsContext,
-      ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback, void* saveGlobalSettingsContext,
-      ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback,
-      void* beginGlobalSettingsEditContext,
-      ReaderOptionsActivity::GlobalSettingsEditCallback endGlobalSettingsEditCallback,
-      void* endGlobalSettingsEditContext, const char* dictionaryFontFamilyName, uint8_t dictionaryFontPointSize,
-      bool hasDictionaryFontOverride,
-      ReaderOptionsActivity::DictionaryFontChangedCallback dictionaryFontChangedCallback,
-      void* dictionaryFontChangedContext, const ReaderDrawerState& initialState = {});
+      ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback = nullptr,
+      void* saveReaderSettingsContext = nullptr,
+      ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr,
+      void* saveGlobalSettingsContext = nullptr,
+      ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr,
+      void* beginGlobalSettingsEditContext = nullptr,
+      ReaderOptionsActivity::GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr,
+      void* endGlobalSettingsEditContext = nullptr, const char* dictionaryFontFamilyName = nullptr,
+      uint8_t dictionaryFontPointSize = 0, bool hasDictionaryFontOverride = false,
+      ReaderOptionsActivity::DictionaryFontChangedCallback dictionaryFontChangedCallback = nullptr,
+      void* dictionaryFontChangedContext = nullptr, const ReaderDrawerState& initialState = {},
+      std::unique_ptr<EpubReaderPreviewModel> ownedPreviewModel = nullptr);
 
   void onEnter() override;
   void onExit() override;
@@ -51,8 +54,12 @@ class EpubReaderTouchMenuActivity final : public Activity {
   // A dirty preview can rebuild the page area itself; after a TTF ID change,
   // an unavailable text snapshot is replaced with a safe blank background.
   bool requiresFreshBackdrop() const override {
+#if CROSSDINK_APP_READER_SAMPLE_PREVIEW
+    return false;  // The full-screen menu paints every pixel itself.
+#else
     return readerDrawerNeedsExternalBackdrop(previewDirty, previewModel && previewModel->valid(),
                                              previewFontMetricsChanged);
+#endif
   }
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
 
@@ -79,7 +86,12 @@ class EpubReaderTouchMenuActivity final : public Activity {
   static constexpr size_t WINDOW_SIZE = 20;
 
   std::shared_ptr<Epub> epub;
-  const TouchReaderPreviewModel* previewModel = nullptr;
+  const EpubReaderPreviewModel* previewModel = nullptr;
+  // Button devices own their bounded sample paragraph while the menu is open.
+  // Touch devices use the reader's current-page preview instead.
+  std::unique_ptr<EpubReaderPreviewModel> ownedPreviewModel;
+  bool previewUnavailable = false;
+  freeink::ui::Rect samplePreviewBounds{};
   // Centipercent (0-10000, hundredths of a percent) so the keypad can type a decimal
   // destination; 1.00% is 100 here.
   int percent = 0;
@@ -89,11 +101,20 @@ class EpubReaderTouchMenuActivity final : public Activity {
   // resetKeypadEntry() so backspacing everything or leaving and reopening the pane
   // shows the book's actual position again rather than an abandoned typed value.
   const int percentSeed = 0;
+  const uint32_t chapterPage = 0;
+  const uint32_t chapterPageCount = 0;
+  const bool chapterPageCountEstimated = false;
   const uint32_t stablePageSeed = 0;
-  // Numeric keypad entry for the Percent/StablePage panes (typed digits, not the old
-  // slider), matching EpubReaderPercentSelectionActivity's non-touch keypad.
+  // Touch uses the Percent keypad directly. Button devices start on the slider
+  // and can open this keypad by holding Confirm, as in the old selector.
   char entryText[8] = {0};
   uint8_t entryLen = 0;
+  uint8_t keypadRow = 0;
+  uint8_t keypadCol = 0;
+  bool keypadBackspaceFocused = false;
+  bool percentKeypadActive = false;
+  bool percentConfirmLongPressFired = false;
+  int percentBeforeKeypad = 0;
   bool hasFootnotes = false;
   bool hasDictionary = false;
   bool hasBookmarks = false;
@@ -106,16 +127,18 @@ class EpubReaderTouchMenuActivity final : public Activity {
   bool previewDirty = false;
   bool previewFontMetricsChanged = false;
   bool fontPreviewLoading = false;
-  int16_t previousDrawerTop = -1;
+  int16_t previousDrawerEdge = -1;
   bool draggingSlider = false;
   bool sliderTapPending = false;
   bool buttonFocusActive = false;
+  ReaderButtonSliderState buttonSliderState{};
   bool automaticPageTurnActive = false;
   uint16_t autoPageTurnIntervalSeconds = READER_AUTO_PAGE_TURN_MIN_SECONDS;
 
   ReaderDrawerState state{};
   ReaderSettingsDraft draft{};
   const ReaderSettingsDraft sourceSettings;
+  ReaderSettingsDraft lastGoodPreviewSettings{};
   ReaderSettingsChangeMask changeMask = ReaderSettingsChangeMask::None;
   std::array<std::vector<RowId>, READER_DRAWER_TAB_COUNT> rootRows;
   std::vector<RowId> paneRows;
@@ -169,6 +192,10 @@ class EpubReaderTouchMenuActivity final : public Activity {
   static void onKeypadBackspaceEvent(const freeink::ui::ActionEvent& event, void* user);
 
   void buildDrawer(UiApp::ScreenType& screen);
+  void drawButtonBookHeader();
+  bool showsSamplePreview() const;
+  void renderPreviewUnavailable();
+  void renderSamplePreviewText(const ReaderSettingsDraft& settings, int fontId);
   void buildTabBar(UiApp::ScreenType& screen, freeink::ui::Rect rect, bool drawBottomRule);
   void buildPaneHeader(UiApp::ScreenType& screen);
   void buildRootRows(UiApp::ScreenType& screen);
@@ -176,11 +203,11 @@ class EpubReaderTouchMenuActivity final : public Activity {
   void buildSpacingPane(UiApp::ScreenType& screen);
   void buildMarginsPane(UiApp::ScreenType& screen);
   void buildPercentPane(UiApp::ScreenType& screen);
+  void buildPercentSlider(UiApp::ScreenType& screen);
   void buildStablePagePane(UiApp::ScreenType& screen);
   // Shared by both panes: a readout with a backspace icon, and a 4x3 grid (1-9 / 0,
-  // ., OK; Percent only enables "."). Unlike every other pane, there is no separate
-  // Confirm button here - OK lives in the grid instead, since the sheet has no room
-  // for both. The pre-existing hardware-Confirm handling in loop() still applies.
+  // ., OK; Percent only enables "."). There is no separate Confirm button; button
+  // devices move focus through the grid and press Confirm on OK.
   void buildDrawerKeypad(UiApp::ScreenType& screen, bool allowDecimal, const char* value);
   void buildAutoPageTurnPane(UiApp::ScreenType& screen);
   void buildConfirmButton(UiApp::ScreenType& screen);
@@ -214,17 +241,23 @@ class EpubReaderTouchMenuActivity final : public Activity {
   void notifyDictionaryFontChanged();
   void toggleSetting(RowId row);
   void adjustActiveSlider(int delta);
+  void adjustButtonSlider(int direction);
   void setActiveSliderPermille(int16_t permille);
   void appendKeypadDigit(char digit);
   void appendKeypadDecimalPoint();
   void backspaceKeypadEntry();
   void resetKeypadEntry();
-  // Parses entryText (if any digits were typed) into percent/stablePage so both the
-  // grid's OK key and the pane's hardware-Confirm handling in loop() always read the
-  // latest typed value.
+  void enterPercentKeypad();
+  void exitPercentKeypad();
+  void adjustPercentSlider(int steps);
+  void moveKeypadFocus(int rowDelta, int colDelta);
+  void activateKeypadFocus();
+  // Parses entryText (if any digits were typed) into percent/stablePage so the
+  // grid's OK key always reads the latest typed value.
   void syncKeypadValue();
   int16_t drawerHeight() const;
-  bool renderPreview(int& previewFontId);
+  freeink::ui::Rect previewBounds() const;
+  bool renderPreview(int& previewFontId, std::optional<FontCacheManager::PrewarmScope>& prewarmScope);
   void renderPreviewWithAntiAliasing(int previewFontId);
   void renderPreviewContents(const ReaderSettingsDraft& previewSettings, int previewFontId);
   void renderPreviewText(const ReaderSettingsDraft& previewSettings, int previewFontId);
@@ -249,5 +282,3 @@ class EpubReaderTouchMenuActivity final : public Activity {
   bool rowToggleValue(RowId row) const;
   const char* paneTitle() const;
 };
-
-#endif
