@@ -921,8 +921,8 @@ void CrossPointWebServer::handleStatus() const {
   // touches the SD card beyond the capacity cached at mount.
   JsonObject build = doc["build"].to<JsonObject>();
   build["env"] = CROSSDINK_PIOENV;
-  build["gitSha"] = CROSSDINK_GIT_SHA;
-  build["gitDirty"] = CROSSDINK_GIT_DIRTY;
+  build["gitSha"] = BuildInfo::gitSha();
+  build["gitDirty"] = BuildInfo::gitDirty();
   build["gitBranch"] = BuildInfo::gitBranch();
   build["buildNumber"] = BuildInfo::buildNumber();
   build["buildTime"] = BuildInfo::buildTime();

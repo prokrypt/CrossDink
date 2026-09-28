@@ -139,6 +139,10 @@ def register_build_info(env, project_dir):
         ('CROSSDINK_GIT_BRANCH_SHORT', f'\\"{short_branch_label(branch)}\\"'),
         ('CROSSDINK_BUILD_NUMBER', f'\\"{get_build_number(project_dir)}\\"'),
         ('CROSSDINK_BUILD_TIME', f'\\"{build_time}\\"'),
+        # The commit and dirty flag change with every commit or first edit; as
+        # global defines they forced a full rebuild each time.
+        ('CROSSDINK_GIT_SHA', f'\\"{get_git_short_sha(project_dir)}\\"'),
+        ('CROSSDINK_GIT_DIRTY', f'\\"{get_git_dirty(project_dir)}\\"'),
     ]
 
     def add_build_info_defines(node_env, node):
@@ -219,10 +223,9 @@ def inject_version(env):
     pioenv = env['PIOENV']
     # Keep build provenance separate from CROSSDINK_VERSION: production versions
     # intentionally omit the source revision, while diagnostics need the base
-    # commit and whether the compiled tree had tracked modifications.
+    # commit and whether the compiled tree had tracked modifications. Those two
+    # live in register_build_info() (BuildInfo.cpp only).
     env.Append(CPPDEFINES=[
-        ('CROSSDINK_GIT_SHA', f'\\"{get_git_short_sha(project_dir)}\\"'),
-        ('CROSSDINK_GIT_DIRTY', f'\\"{get_git_dirty(project_dir)}\\"'),
         ('CROSSDINK_PIOENV', f'\\"{pioenv}\\"'),
     ])
 

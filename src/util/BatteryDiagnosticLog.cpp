@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "AppVersion.h"
+#include "BuildInfo.h"
 #include "activities/reader/ReadingStatsUtils.h"
 
 namespace BatteryDiagnosticLog {
@@ -185,7 +186,7 @@ void record(const Event event, const char* const deviceName, const char* const w
   char row[ROW_LEN];
   const int rowLen =
       snprintf(row, sizeof(row), "%s,%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s\n", timestamp, static_cast<unsigned long>(millis()),
-               soc, millivolts, charging, eventName(event), version, CROSSDINK_GIT_SHA, CROSSDINK_GIT_DIRTY,
+               soc, millivolts, charging, eventName(event), version, BuildInfo::gitSha(), BuildInfo::gitDirty(),
                deviceName ? deviceName : "", wakeRoute ? wakeRoute : "");
   if (rowLen <= 0 || static_cast<size_t>(rowLen) >= sizeof(row)) {
     file.close();
