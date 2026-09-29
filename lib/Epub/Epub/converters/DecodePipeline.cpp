@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Logging.h>
+#include <PerfLog.h>
 
 #include "ImageToFramebufferDecoder.h"
 #include "TaskCores.h"
@@ -67,6 +68,7 @@ void DecodePipeline::workerMain(void* param) {
   self->result_ = self->decode_(self->decodeContext_);
   const int end = END_OF_DECODE;
   xQueueSend(self->filledSlots_, &end, portMAX_DELAY);
+  PerfLog::noteTaskExit("ImgDecode");
   // The pipeline may be destroyed as soon as this is given.
   xSemaphoreGive(self->workerDone_);
   vTaskDelete(nullptr);

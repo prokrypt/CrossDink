@@ -26,6 +26,7 @@ class SdWriteBehind {
   SdWriteBehind(const SdWriteBehind&) = delete;
   SdWriteBehind& operator=(const SdWriteBehind&) = delete;
 
+  // taskName must be a string literal: [STK] keeps the pointer after the task exits.
   bool begin(WriteFn fn, void* ctx, const char* taskName, BaseType_t core);
   bool active() const { return task != nullptr; }
   // False once any earlier write came up short.
@@ -45,6 +46,7 @@ class SdWriteBehind {
 
   WriteFn writeFn = nullptr;
   void* writeCtx = nullptr;
+  const char* name = nullptr;
   uint8_t* bufs[2] = {nullptr, nullptr};
   size_t fill = 0;
   size_t fillLen = 0;

@@ -173,6 +173,60 @@ void logSinceLast() {
           static_cast<unsigned>(loadPct[1]), static_cast<unsigned long>(elapsedUs / 1000), act, top);
 }
 
+// Separate baseline from logSinceLast(): one per [PM] window.
+namespace {
+EXT_RAM_NOINIT_ATTR PreviousRunTime windowPrevious[kMaxTasks];
+UBaseType_t windowPreviousCount = 0;
+int64_t windowPreviousUs = 0;
+constexpr unsigned kQuietBusyPct = 5;
+}  // namespace
+
+void logQuietWindowTasks(const unsigned rtos0Pct, const unsigned rtos1Pct, const long gpioWakes) {
+  const UBaseType_t count = uxTaskGetSystemState(statuses, kMaxTasks, nullptr);
+  if (count == 0) return;
+  const int64_t nowUs = esp_timer_get_time();
+  const int64_t elapsedUs = nowUs - windowPreviousUs;
+  const bool report = windowPreviousUs != 0 && elapsedUs > 0 && gpioWakes == 0 &&
+                      (rtos0Pct >= kQuietBusyPct || rtos1Pct >= kQuietBusyPct);
+  const TaskHandle_t idle0 = xTaskGetIdleTaskHandleForCore(0);
+  const TaskHandle_t idle1 = xTaskGetIdleTaskHandleForCore(1);
+  configRUN_TIME_COUNTER_TYPE totalUs = 0;
+  for (UBaseType_t i = 0; i < count; i++) {
+    configRUN_TIME_COUNTER_TYPE before = statuses[i].ulRunTimeCounter;
+    for (UBaseType_t j = 0; j < windowPreviousCount; j++) {
+      if (windowPrevious[j].handle == statuses[i].xHandle) before = windowPrevious[j].runTime;
+    }
+    deltas[i] = statuses[i].ulRunTimeCounter - before;
+    if (statuses[i].xHandle == idle0 || statuses[i].xHandle == idle1) deltas[i] = 0;
+    totalUs += deltas[i];
+  }
+  for (UBaseType_t i = 0; i < count; i++) windowPrevious[i] = {statuses[i].xHandle, statuses[i].ulRunTimeCounter};
+  windowPreviousCount = count;
+  windowPreviousUs = nowUs;
+  if (!report) return;
+
+  // No input, yet a core stayed out of idle: name the tasks. Task time well
+  // below the rtos share means interrupts (counted as idle time) did the work.
+  char top[200];
+  size_t used = 0;
+  top[0] = '\0';
+  for (int rank = 0; rank < kTopTasks; rank++) {
+    int best = -1;
+    for (UBaseType_t i = 0; i < count; i++) {
+      if (deltas[i] == 0) continue;
+      if (best < 0 || deltas[i] > deltas[best]) best = static_cast<int>(i);
+    }
+    if (best < 0) break;
+    const int written = snprintf(top + used, sizeof(top) - used, " %s(%c)%lums", statuses[best].pcTaskName,
+                                 coreTag(statuses[best].xHandle), static_cast<unsigned long>(deltas[best] / 1000));
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(top) - used) break;
+    used += static_cast<size_t>(written);
+    deltas[best] = 0;
+  }
+  LOG_INF("PM", "quiet window busy: rtos0=%u%% rtos1=%u%% tasks=%lums of %lums |%s", rtos0Pct, rtos1Pct,
+          static_cast<unsigned long>(totalUs / 1000), static_cast<unsigned long>(elapsedUs / 1000), top);
+}
+
 }  // namespace CoreLoadLog
 
 #endif

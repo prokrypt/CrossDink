@@ -13,6 +13,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <PsramLog.h>
 #include <WiFi.h>
 #include <esp_efuse.h>
@@ -671,6 +672,7 @@ void CrossPointWebServer::stop() {
 
 void CrossPointWebServer::serverTaskMain(void* param) {
   static_cast<CrossPointWebServer*>(param)->serveUntilStopped();
+  PerfLog::noteTaskExit("WebServer");
   vTaskDelete(nullptr);
 }
 

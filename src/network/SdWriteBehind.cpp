@@ -3,6 +3,7 @@
 #if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR)
 
 #include <Logging.h>
+#include <PerfLog.h>
 #include <esp_heap_caps.h>
 
 #include <algorithm>
@@ -11,6 +12,7 @@
 bool SdWriteBehind::begin(const WriteFn fn, void* const ctx, const char* const taskName, const BaseType_t core) {
   writeFn = fn;
   writeCtx = ctx;
+  name = taskName;
   for (auto& buf : bufs) {
     buf = static_cast<uint8_t*>(heap_caps_malloc(BUF_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   }
@@ -99,6 +101,7 @@ void SdWriteBehind::taskMain(void* param) {
     }
     xSemaphoreGive(self->idle);
   }
+  PerfLog::noteTaskExit(self->name);
   xSemaphoreGive(self->idle);
   vTaskDelete(nullptr);
 }

@@ -6,6 +6,8 @@
 #include <Logging.h>
 #include <esp_attr.h>
 #include <esp_rtc_time.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <sdkconfig.h>
 
 #include <atomic>
@@ -46,6 +48,8 @@ bool firstInkLogged = false;
 char currentAct[24] = "-";
 char pmWindowAct[24] = "-";
 WakeCountFn wakeCounter = nullptr;
+PmWindowFn pmWindowHook = nullptr;
+std::atomic<uint32_t> loopPasses{0};
 
 // Boot phase marks (setup() order), printed with the first ink.
 constexpr int BOOT_PHASES = 8;
@@ -171,11 +175,25 @@ void logPmLocks(const char* act) {
   if (wakeCounter) wakeCounter(wakeButtons, wakeTouch);
   const long lsWindow = sleeps - pmPrevSleeps;
   const long gpioWakes = static_cast<long>(wakeButtons + wakeTouch);
-  LOG_DBG("PM", "%lus: act=%s sleep=%u%% cpumax=%u%% ls=%ld rej=%ld wake=gpio:%ld(btn %lu,touch %lu) timer:%ld top=%s",
+  LOG_DBG("PM",
+          "%lus: act=%s sleep=%u%% cpumax=%u%% ls=%ld rej=%ld wake=gpio:%ld(btn %lu,touch %lu) timer:%ld loop=%lu "
+          "top=%s",
           static_cast<unsigned long>(windowUs / 1000000), act, pmPct(sleepUs - pmPrevSleepUs, windowUs),
           pmPct(cpuMaxUs - pmPrevCpuMaxUs, windowUs), lsWindow, rejects - pmPrevRejects, gpioWakes,
           static_cast<unsigned long>(wakeButtons), static_cast<unsigned long>(wakeTouch),
-          lsWindow > gpioWakes ? lsWindow - gpioWakes : 0L, topText);
+          lsWindow > gpioWakes ? lsWindow - gpioWakes : 0L, static_cast<unsigned long>(take(loopPasses)), topText);
+  if (pmWindowHook) {
+    // IDF's per-core locks: held while that core is out of its idle task.
+    static const char* const kRtosLock[2] = {"rtos0", "rtos1"};
+    unsigned rtosPct[2] = {0, 0};
+    for (int i = 0; i < lockCount; i++) {
+      for (int core = 0; core < 2; core++) {
+        if (strcmp(locks[i].name, kRtosLock[core]) == 0)
+          rtosPct[core] = pmPct(locks[i].us - pmPrevLockUs(locks[i].name), windowUs);
+      }
+    }
+    pmWindowHook(rtosPct[0], rtosPct[1], gpioWakes);
+  }
 
   memcpy(pmPrevLocks, locks, sizeof(PmLockTime) * lockCount);
   pmPrevLockCount = lockCount;
@@ -333,6 +351,34 @@ void currentActivity(char* out, const uint32_t size) {
 }
 
 void setWakeCounter(const WakeCountFn fn) { wakeCounter = fn; }
+
+void noteTaskExit(const char* name) {
+  // Workers exit on either core; a short critical section guards the table.
+  struct Low {
+    const char* name;
+    uint32_t minFree;
+  };
+  static Low lows[12];
+  static portMUX_TYPE lowsMux = portMUX_INITIALIZER_UNLOCKED;
+  const uint32_t freeBytes = uxTaskGetStackHighWaterMark(nullptr);  // bytes on ESP-IDF
+  bool newLow = false;
+  taskENTER_CRITICAL(&lowsMux);
+  for (auto& low : lows) {
+    if (low.name == nullptr || strcmp(low.name, name) == 0) {
+      newLow = low.name == nullptr || freeBytes < low.minFree;
+      if (newLow) low = {name, freeBytes};
+      break;
+    }
+  }
+  taskEXIT_CRITICAL(&lowsMux);
+  if (newLow) {
+    LOG_DBG("STK", "exit %s: min free %lu", name, static_cast<unsigned long>(freeBytes));
+  }
+}
+
+void noteLoopPass() { add(loopPasses, 1); }
+
+void setPmWindowHook(const PmWindowFn fn) { pmWindowHook = fn; }
 
 }  // namespace PerfLog
 

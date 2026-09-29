@@ -26,5 +26,6 @@ class WorkerTask {
 
   Fn fn = nullptr;
   void* ctx = nullptr;
+  const char* exitName = nullptr;  // a literal: the exit log keeps the pointer
   std::atomic<bool> active{false};
 };

@@ -3034,6 +3034,7 @@ void EpubReaderActivity::drawAheadWorkerMain(void* param) {
   self->runDrawAhead();
   // Released here, not at the join: the join waits for the next page turn.
   powerManager.endBackgroundWork();
+  PerfLog::noteTaskExit("DrawAhead");
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->drawAhead.done);
   vTaskDelete(nullptr);
@@ -7480,6 +7481,7 @@ void EpubReaderActivity::silentIndexWorkerMain(void* param) {
   self->silentWorker.finished.store(true, std::memory_order_release);
   // Released here, not at the join: the join waits for the next render.
   powerManager.endBackgroundWork();
+  PerfLog::noteTaskExit("SilentIndex");
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->silentWorker.done);
   vTaskDelete(nullptr);
