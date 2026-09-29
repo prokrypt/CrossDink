@@ -102,6 +102,8 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return &icon_wifi_32;
       case UIIcon::Hotspot:
         return &icon_radio_tower_32;
+      case UIIcon::Flask:
+        return &icon_flask_32;
       default:
         return nullptr;
     }

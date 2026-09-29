@@ -45,6 +45,9 @@
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
+#if CROSSDINK_GOODIES
+#include "activities/goodies/GoodiesActivity.h"
+#endif
 
 namespace {
 constexpr uint32_t CAROUSEL_CACHE_MAGIC = 0x43434152;  // "CCAR"
@@ -67,6 +70,7 @@ enum class HomeMenuAction {
   Bookmarks,
   FileTransfer,
   Settings,
+  Goodies,
 };
 
 struct HomeMenuEntry {
@@ -76,7 +80,7 @@ struct HomeMenuEntry {
 };
 
 struct HomeMenuEntries {
-  static constexpr int kCapacity = 8;
+  static constexpr int kCapacity = 9;
   std::array<HomeMenuEntry, kCapacity> entries{};
   int count = 0;
 
@@ -282,6 +286,9 @@ void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasRe
 
   items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
   items.push({tr(STR_SETTINGS_TITLE), Settings, HomeMenuAction::Settings});
+#if CROSSDINK_GOODIES
+  items.push({tr(STR_GOODIES), Flask, HomeMenuAction::Goodies});
+#endif
 }
 
 HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
@@ -305,6 +312,9 @@ HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats,
   }
 
   items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
+#if CROSSDINK_GOODIES
+  items.push({tr(STR_GOODIES), Flask, HomeMenuAction::Goodies});
+#endif
   return items;
 }
 
@@ -486,6 +496,10 @@ void appendCarouselMenuStateToKey(std::string& key, const bool hasOpdsServers, c
   key += '\0';
   key += hasClippings ? "clippings:1" : "clippings:0";
   key += '\0';
+#if CROSSDINK_GOODIES
+  key += "goodies:1";
+  key += '\0';
+#endif
 }
 
 void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const bool hasOpdsServers,
@@ -613,6 +627,9 @@ int HomeActivity::getMenuItemCount() const {
   if (coverGridUi) return static_cast<int>(recentBooks.size()) + (hasOpdsServers ? 5 : 4);
   const auto& metrics = UITheme::getInstance().getMetrics();
   int count = 4;  // File Browser, Library, File transfer, Settings
+#if CROSSDINK_GOODIES
+  count++;
+#endif
   if (!metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     count += getVisibleRecentBookCount();
   } else if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -1786,6 +1803,9 @@ void HomeActivity::loop() {
           case HomeMenuAction::FileTransfer:
             onFileTransferOpen();
             break;
+          case HomeMenuAction::Goodies:
+            onGoodiesOpen();
+            break;
           case HomeMenuAction::ContinueReading:
           case HomeMenuAction::Settings:
             break;
@@ -2033,6 +2053,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuAction::Settings:
         onSettingsOpen();
+        break;
+      case HomeMenuAction::Goodies:
+        onGoodiesOpen();
         break;
     }
   };
@@ -2657,6 +2680,16 @@ void HomeActivity::onLibraryOpen() {
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
+
+void HomeActivity::onGoodiesOpen() {
+#if CROSSDINK_GOODIES
+  LibraryPrewarm::stop(false);
+  startActivityForResult(std::make_unique<GoodiesActivity>(renderer, mappedInput), [this](const ActivityResult&) {
+    mappedInput.suppressNextConfirmRelease();
+    requestUpdate();
+  });
+#endif
+}
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
