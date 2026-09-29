@@ -39,6 +39,14 @@ class BlackRedriveLut {
     (void)scrub;
 #endif
   }
+  // The next Half refresh runs as a SCRUB_FRAMES DU scrub instead of the
+  // flashing GC Half (reader ghost cleanups, keyboard close). UC8179 only;
+  // other panels keep the Half.
+  static void scrubNextHalf() {
+#ifndef SIMULATOR
+    freeink::requestUc8179HalfAsDuScrubNext(SCRUB_FRAMES);
+#endif
+  }
   // True on the frame a screen enters its redrive state: its first DU frame
   // lands on the previous screen, so it scrubs. `wasOn` is render-task state.
   static bool entering(bool& wasOn, const bool on) {

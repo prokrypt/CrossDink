@@ -39,6 +39,13 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- X4 Pro: the reader's automatic cleanups no longer flash (Refresh Screen still does a full refresh). Opening a book, returning to it, the page after an image, and the regular ghost cleanup use a ~0.3 s no-flash scrub instead of the 1.5 s flashing refresh, and closing a menu over an image page skips the cleanup. Image pages also finish their anti-aliasing sooner, and a menu opened during an image cleanup shows ~0.6 s sooner.
+- X4 Pro: closing the Turbo keyboard cleans the screen with the same no-flash scrub.
+- X4 Pro: the panel's power booster switches off after 10 s without a redraw on every screen (right after each progress update while an OPDS book downloads), and powers back on as soon as you touch the screen or press a button, so the next page isn't slowed down.
+- X4 Pro: the panel temperature check no longer runs right after a refresh, and a cold panel (below 15 C) uses the matching full-refresh waveform.
+- Opening an EPUB for the first time shows only the Indexing popup, not Loading first, so indexing starts ~0.6 s sooner.
+- Joining a saved Wi-Fi network shows the Connecting screen only if the join takes longer than 0.7 s.
+- The OPDS download screen no longer refreshes twice when a download starts.
 - X4 Pro: the SD card and online firmware update, Calibre Connect, Nearby transfer and font download progress screens clear the previous screen with a longer 15-frame scrub (no flash) each time they appear. OPDS uses the same longer scrub. The Turbo keyboard opens with this scrub instead of the flashing refresh.
 - OPDS: every screen (loading, downloading, errors) uses the same header with the status bar; on touch its arrow goes back, or cancels a download. After a download the book list is drawn first, then the open prompt appears over it.
 - X4 Pro: the first File Transfer QR frame runs a longer scrub (no flash), so the Wi-Fi list or keyboard no longer shows through the QR. The first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.

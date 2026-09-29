@@ -2078,6 +2078,7 @@ void loop() {
   static unsigned long lastActivityTime = millis();
   static unsigned long lastSleepBlockTime = millis();
   if (userInputReceived) {
+    activityManager.wakePanelEarly();    // PON while the finger is still down
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }

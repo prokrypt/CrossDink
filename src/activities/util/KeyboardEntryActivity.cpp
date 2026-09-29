@@ -180,7 +180,12 @@ void KeyboardEntryActivity::onExit() {
   // ActivityManager holds RenderLock around onExit, so no refresh is running.
   freeink::setUc8179KbdExperiment(nullptr);
   display.setRefreshLightSleep(false);
-  if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) freeink::requestUc8179HalfNext();
+  if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) {
+    // The returning screen's first refresh cleans the keyboard's DU ghost as
+    // a no-flash DU scrub rather than the 1.5 s flashing Half.
+    freeink::requestUc8179HalfNext();
+    BlackRedriveLut::scrubNextHalf();
+  }
 #endif
 }
 
@@ -204,7 +209,7 @@ void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 // EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
 // picks "31 6" (flags 31, 6 DU frames) or 0 (T1 baseline, timing only).
 // flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
-// 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
+// 8 = T5 cleanup on close (a DU scrub on UC8179), 16 = T6 half refresh on open (clean start),
 // 64 = DU scrub on open, 128 = light sleep during the refresh. Debug builds can
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {

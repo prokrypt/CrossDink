@@ -187,6 +187,15 @@ bool HalDisplay::powerOffIdle() {
   return einkDisplay.powerOffIdle();
 }
 
+bool HalDisplay::powerOnIdle() {
+#ifndef SIMULATOR  // the simulator panel has no booster
+  HalSpiBus::Lock spiLock;
+  return einkDisplay.powerOnIdle();
+#else
+  return false;
+#endif
+}
+
 void HalDisplay::setRefreshLightSleep(const bool allowed) {
 #ifndef SIMULATOR
   powerManager.setRefreshLightSleep(allowed);

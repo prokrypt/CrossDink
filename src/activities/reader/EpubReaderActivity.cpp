@@ -8106,39 +8106,50 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // snapshot/restore and the post-base plane renders drop out of the turn.
   HeapByteBuffer deferredLsbPlane;
   HeapByteBuffer deferredMsbPlane;
-  const bool deferredGrayscaleBase = needsTextGrayscale && !tiledGrayscale && !pageHasImages &&
-                                     pagesUntilFullRefresh > 1 && renderer.supportsDeferredGrayscaleBase() &&
-                                     allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+  bool deferredGrayscaleBase = needsTextGrayscale && !tiledGrayscale && !pageHasImages &&
+                               pagesUntilFullRefresh > 1 && renderer.supportsDeferredGrayscaleBase() &&
+                               allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
   bool baseRefreshPending = false;
+  int16_t imgX = 0, imgY = 0, imgW = 0, imgH = 0;
+  const bool hasImageBox = pageHasImages && page->getImageBoundingBox(imgX, imgY, imgW, imgH);
   // Completed image gray planes leave charge in the image region that a plain
   // fast diff on the next page can't clear, so text or a new image there
   // ghosts (#2190). Force the next page onto the HALF ghost-cleanup path.
   const auto markGrayscaleShown = [&]() {
     if (needsImageGrayscale) {
       pagesUntilFullRefresh = 1;
+      grayImageOnPanel = {currentSpineIndex, section ? section->currentPage : -1, imgX, imgY, imgW, imgH};
     }
   };
   if (pageHasImages && !deferImageLoading) {
     // Keep the legacy blank/base sequence unless the controller can transition
     // directly to the complete image base.
-    int16_t imgX, imgY, imgW, imgH;
-    if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
+    if (hasImageBox) {
       const bool directImageBase = renderer.shouldSkipImageBlanking();
+      // Redrawing the page whose image gray is already on the panel (an overlay
+      // closed over it) meets the same residue under the same image: no cleanup.
+      const GrayImageOnPanel thisPage{currentSpineIndex, section ? section->currentPage : -1, imgX, imgY, imgW, imgH};
+      const bool sameGrayImage = directImageBase && !cleanImageBasePending && grayImageOnPanel == thisPage;
       // A countdown at or below one means a cleanup is due: the previous
       // image page finished its grayscale pass and left gray residue (#2190),
       // or the refresh cadence ran out. UC8179 skips the blank/FAST pass, so
       // run the strong cleanup there instead of fading straight from that
       // residue to the new image. Other controllers already clear the image
       // area with blank+FAST (HALF sets particles too firmly for the gray LUT).
-      const bool cleanBase = cleanImageBasePending || (directImageBase && pagesUntilFullRefresh <= 1);
+      const bool cleanBase =
+          cleanImageBasePending || (directImageBase && pagesUntilFullRefresh <= 1 && !sameGrayImage);
+      // UC8179: the cleanup is a no-flash DU scrub straight to the composed
+      // page, which also serves as the grayscale base (no blank, no second
+      // base refresh). The manual Refresh Screen keeps the legacy sequence.
+      const bool scrubBase = cleanBase && directImageBase && pagesUntilFullRefresh >= 0;
       // UC8179's base waveform transitions directly from the displayed page.
       // Keep blanking for other controllers and for a pending strong cleanup.
-      const bool blankImage = !directImageBase || cleanBase;
+      const bool blankImage = !scrubBase && (!directImageBase || cleanBase);
       if (blankImage) {
         renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
       }
       if (cleanBase) {
-        renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
+        renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
         cleanImageBasePending = false;
         pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
       }
@@ -8149,12 +8160,23 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
         // Restore the composed image after legacy blanking or strong cleanup.
         composePageBuffer();
       }
-      // The restored image frame becomes the base for the grayscale image
-      // planes below. On X3, use the same grayscale-aware base waveform as
-      // text-only grayscale turns; other panels keep the FAST fallback behavior.
-      renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+      if (!scrubBase) {
+        // The restored image frame becomes the base for the grayscale image
+        // planes below. On X3, use the same grayscale-aware base waveform as
+        // text-only grayscale turns; other panels keep the FAST fallback behavior.
+        // X4 Pro: run that base in the background and render the AA planes
+        // into PSRAM meanwhile, as text pages do.
+        deferredGrayscaleBase = directImageBase && !cleanBase && needsAnyGrayscale && !tiledGrayscale &&
+                                renderer.supportsDeferredGrayscaleBase() &&
+                                allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+        if (deferredGrayscaleBase) {
+          baseRefreshPending = renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
+        } else {
+          renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+        }
+      }
     } else {
-      renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
+      renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     }
     // The image's own page doesn't count toward the full refresh cadence. The
@@ -8163,10 +8185,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // pages stay flash-free.
   } else if (needsAnyGrayscale) {
     if (pagesUntilFullRefresh <= 1) {
-      // Cleanup turns still need the stronger HALF pass, but X3 grayscale
-      // overlays settle better if the OEM precondition step runs before the
-      // gray planes are written.
-      renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
+      // Cleanup turns still need the stronger HALF pass (a DU scrub on the
+      // X4 Pro), but X3 grayscale overlays settle better if the OEM
+      // precondition step runs before the gray planes are written.
+      renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
       renderer.preconditionGrayscale();
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else if (overlapRefresh) {
@@ -8192,7 +8214,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       renderer.setRenderMode(mode);
       renderer.beginStripTarget(plane, 0, renderer.getDisplayHeight());
       renderer.clearScreen(0x00);
-      page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
+      if (needsTextGrayscale) {
+        page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
+      } else {
+        page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop);
+      }
       renderer.endStripTarget();
     };
     bool cancelled = grayscalePassCancelled("deferred-start");
@@ -8214,6 +8240,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     if (!cancelled && !grayscalePassCancelled("deferred-base")) {
       renderer.copyGrayscalePlanes(deferredLsbPlane.get(), deferredMsbPlane.get());
       renderer.displayGrayBuffer();
+      markGrayscaleShown();
     }
     renderer.cleanupGrayscaleWithFrameBuffer();
     return true;

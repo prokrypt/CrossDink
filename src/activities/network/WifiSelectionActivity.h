@@ -111,6 +111,9 @@ class WifiSelectionActivity final : public Activity {
   static constexpr unsigned long CONNECTION_STATUS_LOG_INTERVAL_MS = 2000;
   static constexpr unsigned long AUTO_CONNECTION_TIMEOUT_MS = 7000;
   unsigned long connectionStartTime = 0;
+  // Auto-connect: millis() at which to draw the Connecting screen (0 = drawn or not due).
+  unsigned long connectingScreenDueMs = 0;
+  static constexpr unsigned long CONNECTING_SCREEN_DELAY_MS = 700;
   unsigned long lastConnectionStatusLogTime = 0;
   int lastLoggedWifiStatus = -1;
 

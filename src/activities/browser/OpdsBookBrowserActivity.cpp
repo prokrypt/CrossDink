@@ -594,6 +594,18 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   uiReady = true;
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
   const bool scrub = scrubNextFrame.exchange(false, std::memory_order_acq_rel);
+  if (state == BrowserState::DOWNLOADING) {
+    const ShownDownloadFrame frame{true, downloadReceiving, downloadProgress, downloadTotal};
+    const bool same = !scrub && shownDownloadFrame.valid && frame.receiving == shownDownloadFrame.receiving &&
+                      frame.progress == shownDownloadFrame.progress && frame.total == shownDownloadFrame.total;
+    shownDownloadFrame = frame;
+    if (same) {
+      LOG_DBG("OPDS", "Download frame unchanged, refresh skipped");
+      return;
+    }
+  } else {
+    shownDownloadFrame.valid = false;
+  }
   const BlackRedriveLut redriveLut(state == BrowserState::DOWNLOADING || scrub, scrub);
   if (scrub) LOG_DBG("OPDS", "Frame refresh=du-scrub state=%d", static_cast<int>(state));
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
