@@ -20,13 +20,16 @@
 class BlackRedriveLut {
  public:
   static constexpr uint8_t FRAMES = 6;
+  // A long single-phase drive for scrubs that must erase dense old text
+  // without the Half flash (6 frames leaves it faintly visible).
+  static constexpr uint8_t SCRUB_FRAMES = 15;
 
-  explicit BlackRedriveLut(const bool enable = true) : enabled(enable) {
+  explicit BlackRedriveLut(const bool enable = true, const uint8_t frames = FRAMES) : enabled(enable) {
 #ifndef SIMULATOR
     if (!enabled) return;
     freeink::Uc8179KbdExperiment exp;
     exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
-    exp.lutFrames = FRAMES;
+    exp.lutFrames = frames;
     freeink::setUc8179KbdExperiment(&exp);
 #endif
   }
