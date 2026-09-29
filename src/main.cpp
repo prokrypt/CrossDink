@@ -1364,6 +1364,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
     controllerResolved = true;
     freeink::applyXteinkDisplayController();  // DeviceIdentity::logPanel() below reports the outcome
   }
+  PerfLog::noteBootPhase("probe");
 #endif
 
 #ifdef SIMULATOR
@@ -1377,6 +1378,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
     panelLogged = true;
     DeviceIdentity::logPanel();  // debug builds: exact controller, detect method, VER/MTP
   }
+  PerfLog::noteBootPhase("panel");
 #endif
   renderer.begin();
   display.setInverted(SETTINGS.screenInverted != 0);
@@ -1518,6 +1520,7 @@ void setup() {
   powerManager.begin();
   InputWake::begin();
   PerfLog::setWakeCounter(&InputWake::takeWakeCounts);
+  PerfLog::setPmWindowHook(&CoreLoadLog::logQuietWindowTasks);
 
   const auto wakeupReason = gpio.getWakeupReason();
 #ifndef SIMULATOR
@@ -1787,9 +1790,10 @@ void setup() {
                                                         renderer, mappedInputManager, false, pendingFirmware);
     if (firmwareUpdate) {
       LOG_INF("MAIN", "Opening firmware update for %s", pendingFirmware.c_str());
-      {
-        // Clear the pre-reboot File Transfer frame the way Home's first paint
-        // would; the update screen itself draws with FAST refreshes.
+      // UC8179: the update screen's first frame is a DU scrub over the retained
+      // File Transfer frame (no flash). Other panels clear it the way Home's
+      // first paint would.
+      if (BoardConfig::ACTIVE.displayController != BoardConfig::DisplayController::UC8179) {
         RenderLock lock;
         renderer.clearScreen();
         renderer.displayBuffer(homeRefreshMode);
@@ -1878,10 +1882,14 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
 #endif
   // Timed activity work (automatic page turn), USB serial transfer and radio
   // exchanges are paced by the tick rather than by input.
-  if (tiltPolling || usbConnected || activityManager.preventAutoSleep() || WiFi.getMode() != WIFI_MODE_NULL ||
-      anyInputHeld()) {
+  const bool radioIdle = activityManager.allowsRadioIdleSleep();
+  if (tiltPolling || usbConnected || anyInputHeld() ||
+      (!radioIdle && (activityManager.preventAutoSleep() || WiFi.getMode() != WIFI_MODE_NULL))) {
     return IDLE_WAIT_MS;
   }
+  // An idle server on its own task (File Transfer, Calibre) only needs the loop
+  // for exit requests and link checks: 4 wakes/s instead of 20.
+  if (radioIdle) return IDLE_WAIT_SETTLED_MS;
   return idleMs < IDLE_WAIT_LONG_AFTER_MS ? IDLE_WAIT_SETTLED_MS : IDLE_WAIT_LONG_MS;
 }
 
@@ -1996,6 +2004,7 @@ static const char* logInputEvents() {
 void loop() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
+  PerfLog::noteLoopPass();
   static unsigned long lastMemPrint = 0;
 
   // Keep release suppression in the mapped-input layer in sync with every

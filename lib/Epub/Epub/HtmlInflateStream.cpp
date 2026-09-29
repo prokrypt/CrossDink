@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Logging.h>
+#include <PerfLog.h>
 #include <MemoryBudget.h>
 #include <freertos/task.h>
 
@@ -114,6 +115,7 @@ void HtmlInflateStream::workerMain(void* param) {
           static_cast<unsigned>(bytes), millis() - startedAt);
   self->state_.store(ok ? State::Done : State::Failed, std::memory_order_release);
   xSemaphoreGive(self->dataReady_);
+  PerfLog::noteTaskExit("HtmlInflate");
   // The stream may be destroyed as soon as this is given.
   xSemaphoreGive(self->workerDone_);
   vTaskDelete(nullptr);

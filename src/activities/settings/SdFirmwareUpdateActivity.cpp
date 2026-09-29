@@ -290,6 +290,10 @@ void SdFirmwareUpdateActivity::loop() {
 }
 
 void SdFirmwareUpdateActivity::render(RenderLock&&) {
+  // A preselected file goes straight to validation: the blank picking frame
+  // would only cost a refresh before it.
+  if (state == State::PICKING && !preselectedPath.empty() && !recoveryMode) return;
+  bool openingScrub = false;
 #ifndef SIMULATOR
   // Trial (log item 9): progress repaints use the keyboard's DU LUT
   // (~230 ms instead of the ~560 ms OTP fast refresh) while flashing, so each
@@ -308,6 +312,19 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
     }
   } else {
     freeink::setUc8179KbdExperiment(nullptr);
+    // After a File Transfer exit the first frame lands on the retained QR
+    // screen: a long DU scrub clears it without the Half flash (UC8179 only;
+    // main.cpp skips its Half clear there).
+    if (scrubOpeningFrame) {
+      scrubOpeningFrame = false;
+      openingScrub = true;
+      freeink::Uc8179KbdExperiment exp;
+      exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
+      exp.lutFrames = BlackRedriveLut::SCRUB_FRAMES;
+      freeink::setUc8179KbdExperiment(&exp);
+      freeink::requestUc8179DuScrubNext();
+      LOG_DBG("FW", "Opening frame refresh=du-scrub");
+    }
   }
 #endif
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -374,4 +391,10 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   }
 
   renderer.displayBuffer();
+#ifndef SIMULATOR
+  // The driver latched the scrub; the confirm dialog on top keeps the stock waveform.
+  if (openingScrub) freeink::setUc8179KbdExperiment(nullptr);
+#else
+  (void)openingScrub;
+#endif
 }

@@ -49,6 +49,17 @@ void currentActivity(char* out, uint32_t size);
 // touch line interrupts since the previous call.
 using WakeCountFn = void (*)(uint32_t& buttons, uint32_t& touch);
 void setWakeCounter(WakeCountFn fn);
+// A worker task is about to delete itself: logs "[STK] exit <name>: min free
+// N" (bytes of stack never used) when N is a new low for that name this boot.
+// name is a string literal.
+void noteTaskExit(const char* name);
+// One main-loop pass; [PM] prints the count per window as loop=N, so timer
+// wakes split into loop ticks and everything else.
+void noteLoopPass();
+// Called after each [PM] line with the per-core rtos lock share of the window
+// and its GPIO wakes, so the app can name the tasks behind a busy idle window.
+using PmWindowFn = void (*)(unsigned rtos0Pct, unsigned rtos1Pct, long gpioWakes);
+void setPmWindowHook(PmWindowFn fn);
 }  // namespace PerfLog
 #else
 namespace PerfLog {
@@ -69,5 +80,9 @@ inline void currentActivity(char* out, uint32_t size) {
 }
 using WakeCountFn = void (*)(uint32_t& buttons, uint32_t& touch);
 inline void setWakeCounter(WakeCountFn) {}
+inline void noteTaskExit(const char*) {}
+inline void noteLoopPass() {}
+using PmWindowFn = void (*)(unsigned rtos0Pct, unsigned rtos1Pct, long gpioWakes);
+inline void setPmWindowHook(PmWindowFn) {}
 }  // namespace PerfLog
 #endif

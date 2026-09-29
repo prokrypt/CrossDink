@@ -40,6 +40,10 @@
 
 ### Changed
 - X4 Pro: the SD card and online firmware update, Calibre Connect, Nearby transfer and font download progress screens clear the previous screen with a longer 15-frame scrub (no flash) each time they appear. OPDS uses the same longer scrub. The Turbo keyboard opens with this scrub instead of the flashing refresh.
+- X4 Pro: after a restart (network screens, firmware update), the SD card mounts about 0.2 s sooner.
+- X4 Pro: flashing a firmware sent from File Transfer opens the update screen without the full-screen flash and one redraw sooner.
+- File Transfer and Calibre Connect use less power while idle: the device wakes about 4 times a second instead of 20.
+- Debug builds: `[PM]` lines count main-loop passes (`loop=N`), a quiet window with a busy core names the tasks behind it, worker tasks log their lowest stack headroom when they exit, and the boot timing line splits panel detection from panel start.
 - OPDS: every screen (loading, downloading, errors) uses the same header with the status bar; on touch its arrow goes back, or cancels a download. After a download the book list is drawn first, then the open prompt appears over it.
 - X4 Pro: the first File Transfer QR frame runs a longer scrub (no flash), so the Wi-Fi list or keyboard no longer shows through the QR. The first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.
 - File Transfer, Calibre and USB Drive keep a lit frontlight at your level for 10 seconds before the transfer pulse takes over.
