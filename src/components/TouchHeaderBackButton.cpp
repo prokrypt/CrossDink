@@ -1,6 +1,7 @@
 #include "TouchHeaderBackButton.h"
 
 #include <FreeInkUIIcon.h>
+#include <HalGPIO.h>
 
 #include <algorithm>
 
@@ -86,6 +87,10 @@ void draw(GfxRenderer& renderer, const Rect& header, const char* title, const bo
 void draw(const GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rect& header, const char* title,
           const bool readerContext, const int rightReserve, const char* subtitle, const int verticalOffset,
           const bool showStatus) {
+  if (!gpio.hasTouch()) {
+    GUI.drawHeader(renderer, header, title, subtitle, readerContext, showStatus);
+    return;
+  }
   Layout back = layout(header);
   const int offset = effectiveVerticalOffset(back, header, verticalOffset);
   back.iconRect.y += offset;
@@ -110,6 +115,10 @@ void draw(const GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rec
 
 void drawCompact(GfxRenderer& renderer, const char* title, const bool readerContext, const bool showDate,
                  const int verticalOffset) {
+  if (!gpio.hasTouch()) {
+    CompactHeader::drawTitle(renderer, title, showDate);
+    return;
+  }
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect header = compactHeaderRect(renderer);
   const int rightReserve =

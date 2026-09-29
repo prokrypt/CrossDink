@@ -5,7 +5,6 @@
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
 - OPDS: Back, Previous page and a prefetched Next page open straight from memory without a Loading screen first, and Back returns to the row you opened, scrolled as you left it.
 - OPDS: catalog pages reuse one open connection to the server instead of a new secure handshake per page.
-- Wi-Fi: rejoining a network after a network reboot reuses the address it was given (while that lease is well within its renewal time) instead of asking the router again.
 
 - The web status API (`/api/status`) reports the device's eFuse security state (flash encryption, secure boot, JTAG, USB-Serial-JTAG, download mode) and whether it is locked against reflashing. Debug builds log the same line at boot and in the PSRAM log header.
 - USB Drive (X4 Pro): the frontlight pulses while the computer reads or writes the card, like Wi-Fi file transfer, and your brightness returns when you leave.
@@ -36,6 +35,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- X4 Pro: the first frame of the SD card and online firmware update, Calibre Connect, Nearby transfer and font download progress screens clears the previous screen with a longer 15-frame scrub, without a flash. OPDS uses the same longer scrub.
 - OPDS: every screen (loading, downloading, errors) uses the same header with the status bar; on touch its arrow goes back, or cancels a download. After a download the book list is drawn first, then the open prompt appears over it.
 - X4 Pro: the first File Transfer QR frame runs a longer scrub (no flash), so the Wi-Fi list or keyboard no longer shows through the QR. The first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.
 - File Transfer, Calibre and USB Drive keep a lit frontlight at your level for 10 seconds before the transfer pulse takes over.

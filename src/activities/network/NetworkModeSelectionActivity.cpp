@@ -238,11 +238,7 @@ void NetworkModeSelectionActivity::render(RenderLock&&) {
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, ui.target, header, tr(STR_FILE_TRANSFER), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_FILE_TRANSFER));
-  }
+  TouchHeaderBackButton::draw(renderer, ui.target, header, tr(STR_FILE_TRANSFER), false);
 
   ui.closeRouting();
   for (int pass = 0; pass < 8; ++pass) {

@@ -1456,6 +1456,7 @@ void setup() {
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
 #endif
 #endif
+  logSerialInit();
 
   HalSystem::begin();
   // checkPanic() clears the watchdog capture marker after a successful SD

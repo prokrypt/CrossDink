@@ -19,6 +19,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
+#include "util/BlackRedriveLut.h"
 
 namespace {
 // Each progress repaint competes with the flash loop for the CPU and, on
@@ -294,10 +295,18 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   // (~230 ms instead of the ~560 ms OTP fast refresh) while flashing, so each
   // one holds the flash loop's SPI/cache for less time. Off in every other state.
   if (state == State::UPDATING) {
+    // The first flashing frame replaces the confirm dialog: a long DU scrub
+    // clears it without the Half flash. Later repaints keep the short drive.
+    const bool scrub = scrubFirstFrame;
+    scrubFirstFrame = false;
     freeink::Uc8179KbdExperiment exp;
     exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
-    exp.lutFrames = PROGRESS_LUT_FRAMES;
+    exp.lutFrames = scrub ? BlackRedriveLut::SCRUB_FRAMES : PROGRESS_LUT_FRAMES;
     freeink::setUc8179KbdExperiment(&exp);
+    if (scrub) {
+      freeink::requestUc8179DuScrubNext();
+      LOG_DBG("FW", "Frame refresh=du-scrub");
+    }
   } else {
     freeink::setUc8179KbdExperiment(nullptr);
   }

@@ -460,11 +460,7 @@ void ControlsOptionsActivity::render(RenderLock&&) {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
   header.x = safe.x;
   header.width = safe.width;
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_CAT_CONTROLS), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_CAT_CONTROLS), nullptr, true);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_CAT_CONTROLS), true);
 
   uiReady = false;
   app.render();

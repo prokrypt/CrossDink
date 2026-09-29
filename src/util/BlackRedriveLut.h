@@ -24,13 +24,19 @@ class BlackRedriveLut {
   // without the Half flash (6 frames leaves it faintly visible).
   static constexpr uint8_t SCRUB_FRAMES = 15;
 
-  explicit BlackRedriveLut(const bool enable = true, const uint8_t frames = FRAMES) : enabled(enable) {
+  // scrub: make the next fast refresh in this scope a DU scrub with the long
+  // drive: every pixel is driven through its complement once, erasing the
+  // previous screen's ghost without the Half flash. UC8179 only.
+  explicit BlackRedriveLut(const bool enable = true, const bool scrub = false) : enabled(enable) {
 #ifndef SIMULATOR
     if (!enabled) return;
     freeink::Uc8179KbdExperiment exp;
     exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
-    exp.lutFrames = frames;
+    exp.lutFrames = scrub ? SCRUB_FRAMES : FRAMES;
     freeink::setUc8179KbdExperiment(&exp);
+    if (scrub) freeink::requestUc8179DuScrubNext();
+#else
+    (void)scrub;
 #endif
   }
   ~BlackRedriveLut() {
@@ -38,15 +44,6 @@ class BlackRedriveLut {
     if (enabled) freeink::setUc8179KbdExperiment(nullptr);
 #endif
   }
-  // Makes the next fast refresh inside this scope a DU scrub: every pixel is
-  // driven through its complement once (~250 ms), cleaning the previous
-  // screen's ghost without the Half flash. UC8179 only; others ignore it.
-  static void scrubNext() {
-#ifndef SIMULATOR
-    freeink::requestUc8179DuScrubNext();
-#endif
-  }
-
   BlackRedriveLut(const BlackRedriveLut&) = delete;
   BlackRedriveLut& operator=(const BlackRedriveLut&) = delete;
 

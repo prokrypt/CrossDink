@@ -379,11 +379,7 @@ void FontSelectionActivity::render(RenderLock&&) {
 
   const auto pageWidth = renderer.getScreenWidth();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_FONT_FAMILY), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_FONT_FAMILY));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_FONT_FAMILY), false);
 
   const int previewTop = afterHeader;
   const int listTop = previewTop + previewHeight + metrics_.verticalSpacing;

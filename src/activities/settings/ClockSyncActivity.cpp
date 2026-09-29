@@ -117,11 +117,7 @@ void ClockSyncActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_CLOCK_SYNC), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_CLOCK_SYNC));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_CLOCK_SYNC), false);
 
   const int midY = pageHeight / 2;
 

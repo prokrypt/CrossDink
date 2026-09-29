@@ -176,11 +176,7 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_SELECT_CHAPTER), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_SELECT_CHAPTER), nullptr, true);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_SELECT_CHAPTER), true);
   uiReady = false;
   app.render();
   uiReady = true;

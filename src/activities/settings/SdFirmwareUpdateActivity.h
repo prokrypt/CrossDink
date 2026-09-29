@@ -46,6 +46,7 @@ class SdFirmwareUpdateActivity : public Activity {
 
  private:
   State state = State::PICKING;
+  bool scrubFirstFrame = true;  // render task only
   bool recoveryMode = false;
   std::string preselectedPath;
 

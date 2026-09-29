@@ -280,11 +280,7 @@ void OpdsSettingsActivity::render(RenderLock&&) {
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, headerRect, header, false);
-  } else {
-    GUI.drawHeader(renderer, headerRect, header);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, headerRect, header, false);
   uiReady = false;
   app.render();
   uiReady = true;

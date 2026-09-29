@@ -1255,11 +1255,8 @@ void LibraryActivity::render(RenderLock&&) {
   for (int pass = 0; pass < 8; ++pass) {
     renderer.clearScreen();
     const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-    if (mappedInput.hasTouchHardware())
-      TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LIBRARY), false,
-                                  3 * HEADER_CONTROL_SIZE + 2 * HEADER_CONTROL_GAP + headerControlRightInset() + 10);
-    else
-      GUI.drawHeader(renderer, header, tr(STR_LIBRARY));
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LIBRARY), false,
+                                3 * HEADER_CONTROL_SIZE + 2 * HEADER_CONTROL_GAP + headerControlRightInset() + 10);
     app.render();
     topIndex = listNav.top;
     if (!listNav.consumeRebuildNeeded()) break;

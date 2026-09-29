@@ -46,11 +46,7 @@ void ClearCacheActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_CLEAR_READING_CACHE), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_CLEAR_READING_CACHE));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_CLEAR_READING_CACHE), false);
 
   if (state == WARNING) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 60, tr(STR_CLEAR_CACHE_WARNING_1), true);

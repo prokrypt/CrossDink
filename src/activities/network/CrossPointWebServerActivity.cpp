@@ -453,8 +453,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
     // leaves that text behind it, so the first frame scrubs with a longer
     // drive (no flash, unlike Half). Later repaints stay plain DU.
     const bool scrub = serverRunning && cleanFirstQrFrame.exchange(false, std::memory_order_acq_rel);
-    const BlackRedriveLut redriveLut(serverRunning, scrub ? BlackRedriveLut::SCRUB_FRAMES : BlackRedriveLut::FRAMES);
-    if (scrub) BlackRedriveLut::scrubNext();
+    const BlackRedriveLut redriveLut(serverRunning, scrub);
     if (serverRunning) {
       LOG_DBG("WEBACT", "QR frame refresh=%s frames=%u", scrub ? "du-scrub" : "fast",
               scrub ? BlackRedriveLut::SCRUB_FRAMES : BlackRedriveLut::FRAMES);
@@ -465,11 +464,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
 
 void CrossPointWebServerActivity::renderHeader() const {
   const char* title = isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::drawCompact(renderer, title);
-  } else {
-    CompactHeader::drawTitle(renderer, title);
-  }
+  TouchHeaderBackButton::drawCompact(renderer, title);
 }
 
 bool CrossPointWebServerActivity::exitRequested() const {

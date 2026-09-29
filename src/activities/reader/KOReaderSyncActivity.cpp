@@ -4,7 +4,6 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
-#include <TaskCores.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
@@ -35,6 +34,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/WifiUtils.h"
+#include "util/WorkerTask.h"
 
 namespace {
 constexpr int RESULT_LOCAL_PAGE_Y_OFFSET = 200;
@@ -123,7 +123,6 @@ bool syncTimeWithNTP() {
 // wolfSSL handshake plus HTTPClient, as for the OPDS downloader (14 KB; SP math
 // is no longer built small). Internal RAM, held only while a request runs.
 constexpr uint32_t NET_TASK_STACK_BYTES = 14 * 1024;
-constexpr UBaseType_t NET_TASK_PRIORITY = 1;
 
 // Drops the radio while the result shows; leaveNetworkInPlace() does the full
 // teardown on exit, so no settle delays here.
@@ -200,15 +199,13 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
   returnToReader();
 }
 
-void KOReaderSyncActivity::returnToReader() {
-  if (netJobRunning()) abandonNetJob = true;
-  activityManager.goToReader(epubPath, false, false, true);
-}
-
-struct KOReaderSyncActivity::NetJobState {
-  std::atomic<uint8_t> refs{2};  // the activity and the worker
-  std::atomic<bool> running{true};
-  NetJob kind = NetJob::None;
+namespace {
+// One sync request at a time. Static, not a member: a request abandoned at
+// sleep keeps writing here after the activity is gone (deep sleep follows, so
+// no later job reuses it).
+enum class NetJobKind : uint8_t { Fetch, Upload };
+struct NetJob {
+  NetJobKind kind = NetJobKind::Fetch;
   DocumentMatchMethod method = DocumentMatchMethod::FILENAME;  // logs only
   std::string hash;
   std::string altHash;          // empty: no alternate probe
@@ -218,64 +215,13 @@ struct KOReaderSyncActivity::NetJobState {
   KOReaderSyncClient::Error altResult = KOReaderSyncClient::NOT_FOUND;
   uint32_t elapsedMs = 0;
 };
+NetJob netJob;
+WorkerTask netTask;
 
-KOReaderSyncActivity::NetJobState* KOReaderSyncActivity::newNetJob(const NetJob kind) {
-  // Heap, not a member: a worker abandoned at sleep must outlive the activity.
-  auto* job = new (std::nothrow) NetJobState;
-  if (job == nullptr) {
-    LOG_ERR("KOSync", "Net job allocation failed");
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      statusMessage = KOReaderSyncClient::errorString(KOReaderSyncClient::LOW_MEMORY);
-    }
-    requestUpdate(true);
-    return nullptr;
-  }
-  job->kind = kind;
-  return job;
-}
-
-void KOReaderSyncActivity::releaseNetJob(NetJobState* job) {
-  if (job->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete job;
-}
-
-bool KOReaderSyncActivity::netJobRunning() const {
-  return netState != nullptr && netState->running.load(std::memory_order_acquire);
-}
-
-void KOReaderSyncActivity::startNetJob(NetJobState* job) {
-  netState = job;
-#ifndef SIMULATOR
-  // Pinned to the Wi-Fi core like the OPDS workers; the stack must be internal
-  // RAM because TLS code runs while flash cache can be off.
-  if (xTaskCreatePinnedToCore(&netTaskEntry, "KOSyncNet", NET_TASK_STACK_BYTES, job, NET_TASK_PRIORITY, nullptr,
-                              TaskCores::kWorker) == pdPASS) {
-    return;
-  }
-  LOG_ERR("KOSync", "Net task could not start; running request on the main loop");
-#endif
-  runNetJob(*job);
-  completeNetJob(job);  // loop() picks the result up on its next pass
-}
-
-void KOReaderSyncActivity::netTaskEntry(void* context) {
-  auto* job = static_cast<NetJobState*>(context);
-  runNetJob(*job);
-  LOG_DBG("KOSync", "net task stack free min=%u of %u", static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
-          static_cast<unsigned>(NET_TASK_STACK_BYTES));
-  completeNetJob(job);
-  vTaskDelete(nullptr);
-}
-
-void KOReaderSyncActivity::completeNetJob(NetJobState* job) {
-  job->running.store(false, std::memory_order_release);
-  releaseNetJob(job);  // may free it when the activity already let go
-}
-
-void KOReaderSyncActivity::runNetJob(NetJobState& job) {
+void runNetJob() {
+  NetJob& job = netJob;
   const unsigned long start = millis();
-  if (job.kind == NetJob::Upload) {
+  if (job.kind == NetJobKind::Upload) {
     job.result = KOReaderSyncClient::updateProgress(job.progress);
   } else {
     job.result = KOReaderSyncClient::getProgress(job.hash, job.progress);
@@ -293,28 +239,40 @@ void KOReaderSyncActivity::runNetJob(NetJobState& job) {
   }
   job.elapsedMs = millis() - start;
 }
+}  // namespace
 
-bool KOReaderSyncActivity::joinNetJob(const uint32_t timeoutMs) const {
-  const uint32_t start = millis();
-  while (netJobRunning()) {
-    if (millis() - start >= timeoutMs) return false;
-    vTaskDelay(pdMS_TO_TICKS(10));
+void KOReaderSyncActivity::returnToReader() {
+  if (netTask.running()) abandonNetJob = true;
+  activityManager.goToReader(epubPath, false, false, true);
+}
+
+void KOReaderSyncActivity::startNetJob() {
+  netJobPending = true;
+  if (netTask.start(
+          [](void*) {
+            runNetJob();
+            LOG_DBG("KOSync", "net task stack free min=%u of %u",
+                    static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
+                    static_cast<unsigned>(NET_TASK_STACK_BYTES));
+          },
+          nullptr, NET_TASK_STACK_BYTES, "KOSyncNet")) {
+    return;
   }
-  return true;
+#ifndef SIMULATOR
+  LOG_ERR("KOSync", "Net task could not start; running request on the main loop");
+#endif
+  runNetJob();  // loop() picks the result up on its next pass
 }
 
 void KOReaderSyncActivity::pollNetJob() {
-  if (netState == nullptr || netJobRunning()) return;
-  NetJobState* job = netState;
-  netState = nullptr;
-  if (job->kind == NetJob::Upload) {
-    finishUpload(*job);
-    releaseNetJob(job);
+  if (!netJobPending || netTask.running()) return;
+  netJobPending = false;
+  if (netJob.kind == NetJobKind::Upload) {
+    finishUpload();
     return;
   }
-  finishSync(*job);
-  releaseNetJob(job);
-  if (netState == nullptr) logSyncTiming();  // an upload logs the run itself
+  finishSync();
+  if (!netJobPending) logSyncTiming();  // an upload logs the run itself
 }
 
 bool KOReaderSyncActivity::consumeInitialConfirmRelease() {
@@ -379,7 +337,7 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   // GET, the alternate GET and the PUT reuse one TLS connection.
   KOReaderSyncClient::beginSession();
   performSync();
-  if (netState == nullptr) logSyncTiming();  // failed before any request
+  if (!netJobPending) logSyncTiming();  // failed before any request
 }
 
 void KOReaderSyncActivity::performSync() {
@@ -400,18 +358,18 @@ void KOReaderSyncActivity::performSync() {
   // In smart mode, also probe the alternate document-id method and use the
   // furthest remote state found. This avoids a stale local upload when another
   // KOReader device synced the same book with a different matching method.
-  NetJobState* job = newNetJob(NetJob::Fetch);
-  if (job == nullptr) return;
-  job->method = primaryMethod;
-  job->hash = documentHash;
+  netJob = NetJob{};
+  netJob.method = primaryMethod;
+  netJob.hash = documentHash;
   if (smartSyncEnabled()) {
-    job->altHash = calculateDocumentHashForMethod(epubPath, alternateMatchMethod(primaryMethod));
-    if (job->altHash == documentHash) job->altHash.clear();
+    netJob.altHash = calculateDocumentHashForMethod(epubPath, alternateMatchMethod(primaryMethod));
+    if (netJob.altHash == documentHash) netJob.altHash.clear();
   }
-  startNetJob(job);
+  startNetJob();
 }
 
-void KOReaderSyncActivity::finishSync(NetJobState& job) {
+void KOReaderSyncActivity::finishSync() {
+  NetJob& job = netJob;
   timing.get = job.elapsedMs;
   auto result = job.result;
   remoteProgress = std::move(job.progress);
@@ -663,13 +621,14 @@ void KOReaderSyncActivity::performUpload() {
   // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
   epub.reset();
 
-  NetJobState* job = newNetJob(NetJob::Upload);
-  if (job == nullptr) return;
-  job->progress = std::move(progress);
-  startNetJob(job);
+  netJob = NetJob{};
+  netJob.kind = NetJobKind::Upload;
+  netJob.progress = std::move(progress);
+  startNetJob();
 }
 
-void KOReaderSyncActivity::finishUpload(NetJobState& job) {
+void KOReaderSyncActivity::finishUpload() {
+  const NetJob& job = netJob;
   timing.put = job.elapsedMs;
   const auto result = job.result;
 
@@ -770,21 +729,15 @@ void KOReaderSyncActivity::onExit() {
     touchOverrideActive = false;
   }
   Activity::onExit();
-  if (netJobRunning()) {
+  if (netTask.running()) {
     // Back mid-request: the reboot drops it at once. Other exits (sleep) wait
     // a little for it, then leave it running: deep sleep drops it.
     if (abandonNetJob) silentRestartToReader(true);
-    if (!joinNetJob(NET_JOIN_TIMEOUT_MS)) {
+    if (!netTask.join(NET_JOIN_TIMEOUT_MS)) {
       silentRestartToReader(true);  // returns only during deep sleep
       LOG_ERR("KOSync", "Net job still running at exit; left to deep sleep");
-      releaseNetJob(netState);  // the worker frees it; its TLS session stays open
-      netState = nullptr;
-      return;
+      return;  // its TLS session stays open
     }
-  }
-  if (netState != nullptr) {
-    releaseNetJob(netState);  // finished, never polled
-    netState = nullptr;
   }
   KOReaderSyncClient::endSession();  // before the radio goes down
 

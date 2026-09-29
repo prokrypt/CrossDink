@@ -25,6 +25,8 @@ Rect standardHeaderRect(const GfxRenderer& renderer);
 Rect compactHeaderRect(const GfxRenderer& renderer);
 bool wasTapped(const MappedInputManager& input, const Rect& header);
 bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer);
+// Without touch hardware these draw the plain header (GUI.drawHeader /
+// CompactHeader::drawTitle) instead, so callers need no touch check.
 void draw(GfxRenderer& renderer, const Rect& header, const char* title, bool readerContext, int rightReserve = 0,
           const char* subtitle = nullptr, int verticalOffset = TITLE_VERTICAL_OFFSET, bool showStatus = true);
 void draw(const GfxRenderer& renderer, freeink::ui::GfxRendererTarget& target, const Rect& header, const char* title,

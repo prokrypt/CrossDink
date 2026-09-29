@@ -830,11 +830,7 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
   const Rect header{0, metrics.topPadding, width, TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_NEARBY_BOOK_TRANSFER), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_NEARBY_BOOK_TRANSFER));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_NEARBY_BOOK_TRANSFER), false);
 
   const Rect textArea{metrics.contentSidePadding, 0, width - metrics.contentSidePadding * 2, height};
   auto centered = [this, height, textArea](const char* text, const int offset = 0, const int font = UI_10_FONT_ID) {
@@ -926,8 +922,10 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-  const BlackRedriveLut redriveLut(state_ == State::Sending || state_ == State::Receiving ||
-                                   state_ == State::Validating);
+  const bool redrive = state_ == State::Sending || state_ == State::Receiving || state_ == State::Validating;
+  const bool scrub = redrive && scrubFirstFrame.exchange(false, std::memory_order_acq_rel);
+  if (scrub) LOG_DBG("NEARBY", "Frame refresh=du-scrub");
+  const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
   if (drewReceivingScreen) receivingScreenDrawn_.store(true, std::memory_order_release);
 }

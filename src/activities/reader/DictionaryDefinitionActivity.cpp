@@ -1515,11 +1515,9 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
       const int separatorY = headerRect.y + headerRect.height + metrics.optionPopupTitleGap / 2;
       renderer.drawLine(headerRect.x, separatorY, headerRect.x + headerRect.width, separatorY, true);
     }
-  } else if (mappedInput.hasTouchHardware()) {
+  } else {
     // Icon centred on the headword line (offset 0) rather than below the status row.
     TouchHeaderBackButton::draw(renderer, headerRect, "", false, 0, nullptr, 0);
-  } else {
-    GUI.drawHeader(renderer, headerRect, "");
   }
 
   int titleRight = headerRect.x + headerRect.width;

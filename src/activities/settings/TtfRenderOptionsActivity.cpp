@@ -316,11 +316,7 @@ void TtfRenderOptionsActivity::render(RenderLock&&) {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
   header.x = safe.x;
   header.width = safe.width;
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_TTF_RENDERING), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_TTF_RENDERING), nullptr, true);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_TTF_RENDERING), true);
   uiReady_ = false;
   app_.render();
   uiReady_ = true;
