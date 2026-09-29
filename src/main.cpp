@@ -1503,6 +1503,7 @@ void setup() {
   gpio.setSharedConfirmPowerShortPressEmitsPower(true);
   powerManager.begin();
   InputWake::begin();
+  PerfLog::setWakeCounter(&InputWake::takeWakeCounts);
 
   const auto wakeupReason = gpio.getWakeupReason();
 #ifndef SIMULATOR

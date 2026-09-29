@@ -41,6 +41,11 @@ char renderActivity[24] = "-";
 const char* volatile pagePath = "-";
 const char* volatile inputKind = "-";
 bool firstInkLogged = false;
+// Last rendered activity (render task writes, main loop reads; a torn read
+// only mislabels one debug line) and the one the open [PM] window belongs to.
+char currentAct[24] = "-";
+char pmWindowAct[24] = "-";
+WakeCountFn wakeCounter = nullptr;
 
 // Boot phase marks (setup() order), printed with the first ink.
 constexpr int BOOT_PHASES = 8;
@@ -84,7 +89,7 @@ unsigned pmPct(const int64_t part, const int64_t whole) {
   return whole > 0 ? static_cast<unsigned>((part * 100 + whole / 2) / whole) : 0;
 }
 
-void logPmLocks() {
+void logPmLocks(const char* act) {
   static char dump[2048];
   FILE* stream = fmemopen(dump, sizeof(dump) - 1, "w");
   if (!stream) {
@@ -159,9 +164,18 @@ void logPmLocks() {
     if (n < 0 || n >= static_cast<int>(sizeof(topText)) - pos) break;
     pos += n;
   }
-  LOG_DBG("PM", "%lus: sleep=%u%% cpumax=%u%% ls=%ld rej=%ld top=%s", static_cast<unsigned long>(windowUs / 1000000),
-          pmPct(sleepUs - pmPrevSleepUs, windowUs), pmPct(cpuMaxUs - pmPrevCpuMaxUs, windowUs), sleeps - pmPrevSleeps,
-          rejects - pmPrevRejects, topText);
+  // Wake causes: GPIO line interrupts (they also fire while awake, so they
+  // can exceed ls); the remaining light-sleep exits are timer wakes.
+  uint32_t wakeButtons = 0;
+  uint32_t wakeTouch = 0;
+  if (wakeCounter) wakeCounter(wakeButtons, wakeTouch);
+  const long lsWindow = sleeps - pmPrevSleeps;
+  const long gpioWakes = static_cast<long>(wakeButtons + wakeTouch);
+  LOG_DBG("PM", "%lus: act=%s sleep=%u%% cpumax=%u%% ls=%ld rej=%ld wake=gpio:%ld(btn %lu,touch %lu) timer:%ld top=%s",
+          static_cast<unsigned long>(windowUs / 1000000), act, pmPct(sleepUs - pmPrevSleepUs, windowUs),
+          pmPct(cpuMaxUs - pmPrevCpuMaxUs, windowUs), lsWindow, rejects - pmPrevRejects, gpioWakes,
+          static_cast<unsigned long>(wakeButtons), static_cast<unsigned long>(wakeTouch),
+          lsWindow > gpioWakes ? lsWindow - gpioWakes : 0L, topText);
 
   memcpy(pmPrevLocks, locks, sizeof(PmLockTime) * lockCount);
   pmPrevLockCount = lockCount;
@@ -185,6 +199,7 @@ void noteInput(const bool release, const char* kind) {
 }
 
 void noteRenderStart(const char* activity) {
+  snprintf(currentAct, sizeof(currentAct), "%s", activity ? activity : "-");
   if (inputPending && renderStartMs == 0) {
     renderStartMs = millis();
     snprintf(renderActivity, sizeof(renderActivity), "%s", activity ? activity : "-");
@@ -300,12 +315,24 @@ void logPeriodic() {
   }
 #if CONFIG_PM_PROFILING
   static uint32_t lastPmMs = 0;
-  if (millis() - lastPmMs >= 30000) {
+  char act[sizeof(currentAct)];
+  currentActivity(act, sizeof(act));
+  const bool activityChanged = strcmp(act, pmWindowAct) != 0;
+  if (activityChanged || millis() - lastPmMs >= 30000) {
     lastPmMs = millis();
-    logPmLocks();
+    // The window so far belongs to the activity it started in.
+    logPmLocks(pmWindowAct);
+    memcpy(pmWindowAct, act, sizeof(pmWindowAct));
   }
 #endif
 }
+
+void currentActivity(char* out, const uint32_t size) {
+  if (size == 0) return;
+  snprintf(out, size, "%s", currentAct);
+}
+
+void setWakeCounter(const WakeCountFn fn) { wakeCounter = fn; }
 
 }  // namespace PerfLog
 
