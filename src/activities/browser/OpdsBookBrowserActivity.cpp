@@ -23,7 +23,7 @@
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "OpdsPageCache.h"
-#include "OpdsPagePrefetcher.h"
+#include "OpdsPreloadPool.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -56,11 +56,6 @@ constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 // prefetched next page parse locally instead of refetching.
 constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
-// Prefetch needs its 12 KB task stack as one internal block, plus internal
-// headroom for wolfSSL's small allocations (larger ones go to PSRAM on these
-// boards via CONFIG_SPIRAM_USE_MALLOC); skip it below these.
-constexpr size_t OPDS_PREFETCH_MIN_INTERNAL_FREE = 48 * 1024;
-constexpr size_t OPDS_PREFETCH_MIN_INTERNAL_BLOCK = 16 * 1024;
 // A kept-alive feed connection idle longer than this is closed before the
 // next request. Servers that time out sooner send a FIN, which the client
 // notices; this covers NATs and load balancers that drop the socket silently.
@@ -176,7 +171,10 @@ void OpdsBookBrowserActivity::onEnter() {
   if (psramHeapAvailable()) {
     const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
     pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
-    if (pageCache) prefetcher = makeUniqueNoThrow<OpdsPagePrefetcher>();
+    if (pageCache) {
+      preload = makeUniqueNoThrow<OpdsPreloadPool>(*pageCache, OPDS_PAGE_MAX_BYTES, server.username, server.password,
+                                                   UrlUtils::ensureProtocol(server.url));
+    }
     LOG_DBG("OPDS", "Page cache %s (budget %zu bytes)", pageCache ? "on" : "off", budget);
   }
 
@@ -197,7 +195,7 @@ void OpdsBookBrowserActivity::onExit() {
   bookDownloader.join();
   // Joins the background download before Wi-Fi goes down and before the
   // cache it would hand its page to is freed.
-  prefetcher.reset();
+  preload.reset();
   pageCache.reset();
 #if defined(FREEINK_NET_WOLFSSL)
   feedConnection.reset();  // closes the kept-alive socket before Wi-Fi goes down
@@ -310,6 +308,9 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::BROWSING) {
+    // Queued feed downloads start only from the browsing list; a network
+    // fetch or a book download pauses them.
+    if (preload) preload->pump();
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       navigateBack();
       return;
@@ -602,7 +603,7 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
   // A cached page parses in tens of ms, so a Loading frame would only add one
   // e-ink refresh (~600 ms) ahead of the list.
   if (pageCache) {
-    if (prefetcher) prefetcher->harvestInto(*pageCache);  // no-op while it runs
+    if (preload) preload->collect();
     const std::string url = UrlUtils::buildUrl(server.url, path);
     if (pageCache->contains(url)) {
       LOG_INF("OPDS", "Cache hit, no Loading frame: %s", url.c_str());
@@ -722,23 +723,23 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   requestUpdate();
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
+  if (currentPath.empty()) preloadFeedsOnPage();
+  if (preload) preload->pump();
 }
 
 bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parser) {
-  // A foreground request never overlaps the background one: finish the
-  // prefetch when it is this very page, otherwise cancel it. Either way a
-  // completed page lands in the cache.
-  if (prefetcher) {
-    if (prefetcher->running() && prefetcher->url() != url) prefetcher->cancel();
-    const unsigned long joinStart = millis();
-    const bool waited = prefetcher->running();
-    prefetcher->join();
-    if (waited) LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
-    prefetcher->harvestInto(*pageCache);
-  }
-
+  // A cache hit needs no network, so background downloads keep going.
+  // Otherwise a foreground request never overlaps them: finish the one for
+  // this very page, pause the rest. Either way completed pages land in the
+  // cache.
   if (pageCache) {
-    if (const OpdsPageBuffer* cached = pageCache->find(url)) {
+    const OpdsPageBuffer* cached = pageCache->find(url);
+    if (!cached && preload) {
+      const unsigned long joinStart = millis();
+      if (preload->pause(url)) LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
+      cached = pageCache->find(url);
+    }
+    if (cached) {
       LOG_INF("OPDS", "Cached: %s (%zu bytes)", url.c_str(), cached->size());
       parser.parse(cached->data(), cached->size());
       return true;
@@ -774,26 +775,28 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
 }
 
 void OpdsBookBrowserActivity::startNextPagePrefetch(const std::string& nextHref) {
-  if (!prefetcher) return;
+  if (!preload) return;
   // Same resolution navigateToEntry() and fetchFeed() apply, so the cache key
   // matches when the user selects the Next page row.
   const std::string nextPath = UrlUtils::buildUrl(UrlUtils::buildUrl(server.url, currentPath), nextHref);
-  const std::string nextFeedUrl = UrlUtils::buildUrl(server.url, nextPath);
-  if (pageCache->contains(nextFeedUrl)) return;
+  preload->enqueue(UrlUtils::buildUrl(server.url, nextPath), true);
+}
 
-  const ByteHeapSnapshot internal = byteHeapSnapshot(MemoryPool::Internal);
-  if (internal.free < OPDS_PREFETCH_MIN_INTERNAL_FREE || internal.largest < OPDS_PREFETCH_MIN_INTERNAL_BLOCK) {
-    LOG_INF("OPDS", "Prefetch skipped: internal free=%zu largest=%zu", internal.free, internal.largest);
-    return;
+void OpdsBookBrowserActivity::preloadFeedsOnPage() {
+  if (!preload) return;
+  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+  // Skips the synthetic Prev/Next rows (Next is already queued first) and
+  // books, whose links are downloads rather than feeds.
+  const size_t first = hasPrevPageRow ? 1 : 0;
+  const size_t last = hasNextPageRow ? entryCount - 1 : entryCount;
+  size_t queuedCount = 0;
+  for (size_t i = first; i < last; ++i) {
+    if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
+    const std::string path = UrlUtils::buildUrl(feedUrl, entries[i].href);
+    preload->enqueue(UrlUtils::buildUrl(server.url, path), false);
+    ++queuedCount;
   }
-
-  OpdsPagePrefetcher::Request request;
-  request.url = nextFeedUrl;
-  request.username = server.username;
-  request.password = server.password;
-  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
-  request.connection = feedConnectionForRequest();
-  prefetcher->start(std::move(request), OPDS_PAGE_MAX_BYTES);
+  LOG_INF("OPDS", "Preload queued %zu feeds from the first page", queuedCount);
 }
 
 freeink::SecureHttpClient* OpdsBookBrowserActivity::feedConnectionForRequest() {
@@ -814,10 +817,9 @@ freeink::SecureHttpClient* OpdsBookBrowserActivity::feedConnectionForRequest() {
 }
 
 void OpdsBookBrowserActivity::stopPrefetch() {
-  if (!prefetcher) return;
-  prefetcher->cancel();
-  prefetcher->join();
-  prefetcher->harvestInto(*pageCache);
+  if (!preload) return;
+  preload->pause("");
+  preload->closeConnections();
 }
 
 bool OpdsBookBrowserActivity::ensureEntryBuffer() {
@@ -932,7 +934,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   return;
 #endif
 
-  // The book download must not share the network with a page prefetch.
+  // The book download must not share the network or RAM with page preloads.
   stopPrefetch();
 #if defined(FREEINK_NET_WOLFSSL)
   // The book goes over its own connection; don't hold a second TLS session's

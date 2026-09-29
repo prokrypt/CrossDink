@@ -51,8 +51,9 @@ class OpdsPagePrefetcher {
   // Blocks the caller until the background task has exited.
   void join() const { task.join(); }
 
-  // After join(): moves a successfully downloaded page into cache.
-  void harvestInto(OpdsPageCache& cache);
+  // After join(): moves a successfully downloaded page into cache (see
+  // OpdsPageCache::store for mayEvict).
+  void harvestInto(OpdsPageCache& cache, bool mayEvict = true);
 
  private:
   void run();

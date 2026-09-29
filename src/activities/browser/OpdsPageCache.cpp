@@ -89,8 +89,11 @@ OpdsPageCache::Slot* OpdsPageCache::evictLeastRecentlyUsed() {
   return oldest;
 }
 
-bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page) {
+bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const bool mayEvict) {
   if (page.empty() || page.failed() || page.size() > byteBudget) return false;
+  if (!mayEvict && (usedBytes + page.size() > byteBudget || pageCount() >= MAX_PAGES) && !findSlot(url)) {
+    return false;
+  }
 
   if (Slot* existing = findSlot(url)) evict(*existing);
   while (usedBytes + page.size() > byteBudget && evictLeastRecentlyUsed()) {

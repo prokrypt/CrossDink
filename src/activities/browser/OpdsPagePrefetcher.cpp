@@ -36,11 +36,11 @@ bool OpdsPagePrefetcher::start(Request&& request, const size_t maxBytes) {
   return true;
 }
 
-void OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache) {
+void OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict) {
   if (running()) return;
   if (succeeded && !page.empty()) {
     LOG_DBG("OPDS", "Caching prefetched page (%zu bytes)", page.size());
-    cache.store(job.url, std::move(page));
+    if (!cache.store(job.url, std::move(page), mayEvict)) LOG_DBG("OPDS", "Prefetched page not cached (full)");
   }
   succeeded = false;
   page.reset();
@@ -79,7 +79,7 @@ void OpdsPagePrefetcher::run() {
 // these keep the link complete.
 OpdsPagePrefetcher::~OpdsPagePrefetcher() = default;
 bool OpdsPagePrefetcher::start(Request&&, size_t) { return false; }
-void OpdsPagePrefetcher::harvestInto(OpdsPageCache&) {}
+void OpdsPagePrefetcher::harvestInto(OpdsPageCache&, bool) {}
 void OpdsPagePrefetcher::run() {}
 
 #endif  // SIMULATOR
