@@ -39,7 +39,7 @@ The ESP32-C3 Xteink X3 and X4 are not supported. For those, use [CrossInk](https
 - **Input:** buttons and touch are read on their own task, woken by the input lines, so presses and swipes made while the device is busy are queued instead of lost.
 - **Faster File Transfer:** File Transfer and Calibre Connect serve requests on their own task, so transfers keep flowing while the screen redraws.
 - **Fewer reboots around Wi-Fi:** entering and leaving File Transfer, OPDS, KOReader Sync or Nearby Transfer no longer restarts the device when there is enough memory.
-- **Light-sleep firmware:** the `x4-pro-light-sleep` build adds automatic light sleep on the X4 Pro. Buttons, touch, the frontlight and USB serial keep working.
+- **Light sleep:** the X4 Pro firmware uses automatic light sleep. Buttons, touch, the frontlight and USB serial keep working.
 - **Faster Library and USB Drive:**
   - the Library index is kept between visits and starts building in the background after a restart;
   - USB Drive reads ahead while it sends data.
@@ -133,14 +133,14 @@ Then flash the firmware using the environment for your device:
 
 | Device | Environment |
 | --- | --- |
-| Xteink X4 Pro | `x4-pro`, or `x4-pro-light-sleep` for automatic light sleep |
+| Xteink X4 Pro | `x4-pro` |
 | Xteink X4 Classic | `x4-classic` |
 | Seeed Studio Sticky | `sticky` |
 
 Each has a `-debug` variant with extra logging.
 
 ```sh
-pio run -e x4-pro-light-sleep --target upload
+pio run -e x4-pro --target upload
 ```
 
 If PlatformIO reports `PackageException: Can not create a symbolic link for freeink-sdk/libs/hardware/BatteryMonitor, not a directory`, the `freeink-sdk` submodule is not initialized. Run the submodule command above and retry.

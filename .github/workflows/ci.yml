@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [sticky, x4-pro, x4-classic, x4-pro-light-sleep]
+        environment: [sticky, x4-pro, x4-classic]
     steps:
       - uses: actions/checkout@v6
         with:

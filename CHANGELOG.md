@@ -25,6 +25,7 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- X4 Pro: the standard `x4-pro` firmware now uses automatic light sleep (it was the separate `x4-pro-light-sleep` build), and `x4-pro-debug` is its debug build with the timing and PSRAM log tools. The `x4-pro-light-sleep` and `x4-pro-light-sleep-debug` environments are removed.
 - X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.
 - X4 Pro: Turbo keyboard now drives 6 frames per key (was 3), matching the tested setup; 3 frames left heavy ghosting.
 - Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, the outer keys reach the screen edges, and the top row reaches halfway up the strip above it, so there are no dead spots. The keys look the same.
