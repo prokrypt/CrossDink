@@ -91,7 +91,7 @@ void writeRxOverflowError(const uint32_t snapshot) {
 }
 #endif
 
-void writeLine(const char* line) { logSerial.print(line); }
+void writeLine(const char* line) { (void)logSerialWriteAll(line, strlen(line)); }
 
 void writeRaw(const uint8_t* data, size_t length) { logSerial.write(data, length); }
 
@@ -767,8 +767,10 @@ ProcessResult handleLine() {
       logSerial.write(reinterpret_cast<const uint8_t*>(chunk), len);
     }
     logSerial.printf("\nPSRAMLOG_END\n");
+    return ProcessResult::None;
   }
 #endif
+  if (strstr(lineBuffer, "CMD:")) LOG_DBG("SER", "unhandled line: %.48s", lineBuffer);
   return ProcessResult::None;
 }
 
@@ -782,7 +784,13 @@ void registerUsbCdcOverflowHandler() {
 
 ProcessResult process(bool allowed) {
   SerialRemote::poll();
-  if (!logSerial) return ProcessResult::None;
+  // Read even when the host looks gone: the HWCDC connected flag flaps (SOF
+  // timer, light sleep) and gating on it dropped whole commands.
+  static bool hostConnected = false;
+  if (static_cast<bool>(logSerial) != hostConnected) {
+    hostConnected = !hostConnected;
+    LOG_DBG("SER", "host %s", hostConnected ? "connected" : "disconnected");
+  }
   fileTransferAllowed = allowed;
 
   while (logSerial.available() > 0) {

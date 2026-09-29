@@ -104,6 +104,23 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   PsramLog::append(buf, strnlen(buf, sizeof(buf)));
 }
 
+bool logSerialWriteAll(const char* data, const size_t len, const uint32_t budgetMs) {
+#if defined(SIMULATOR)
+  (void)budgetMs;  // the simulator transport never drops
+  return logSerial.write(reinterpret_cast<const uint8_t*>(data), len) == len;
+#else
+  const uint32_t startMs = millis();
+  size_t sent = 0;
+  while (sent < len) {
+    sent += logSerial.write(reinterpret_cast<const uint8_t*>(data) + sent, len - sent);
+    if (sent >= len) break;
+    if (millis() - startMs >= budgetMs) return false;
+    delay(1);  // let the writer holding the TX lock, or the USB ISR, make room
+  }
+  return true;
+#endif
+}
+
 std::string getLastLogs() {
   if (rtcLogMagic != LOG_RTC_MAGIC) {
     return {};

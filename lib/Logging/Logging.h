@@ -33,6 +33,13 @@ static auto& logSerial = BoardConfig::serialTransport();
 
 void logPrintf(const char* level, const char* origin, const char* format, ...);
 
+// Writes all of `data` to logSerial, retrying for up to `budgetMs`. The log
+// transport uses a 1 ms TX timeout, so a plain write loses bytes whenever a
+// log line from another task holds the TX lock or the ring is full. Use this
+// for protocol replies (serial remote OK:/ERR:) that a host waits on. Returns
+// false when the budget ran out first.
+bool logSerialWriteAll(const char* data, size_t len, uint32_t budgetMs = 500);
+
 #ifdef ENABLE_SERIAL_LOG
 #if LOG_LEVEL >= 0
 #define LOG_ERR(origin, format, ...) logPrintf("ERR", origin, format "\n", ##__VA_ARGS__)

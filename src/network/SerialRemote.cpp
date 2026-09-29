@@ -86,9 +86,13 @@ void reply(const char* fmt, ...) {
   char buf[256];
   va_list args;
   va_start(args, fmt);
-  vsnprintf(buf, sizeof(buf), fmt, args);
+  const int n = vsnprintf(buf, sizeof(buf) - 1, fmt, args);
   va_end(args);
-  logSerial.printf("%s\n", buf);
+  const size_t len = n < 0 ? 0 : std::min(static_cast<size_t>(n), sizeof(buf) - 2);
+  buf[len] = '\n';
+  // The host waits on this line; a plain print drops it while logs from other
+  // tasks hold the 1 ms-timeout TX path.
+  if (!logSerialWriteAll(buf, len + 1)) LOG_ERR("SER", "Reply dropped: %.*s", static_cast<int>(len), buf);
 }
 
 int buttonBit(const char* name) {
@@ -311,6 +315,7 @@ bool handleLine(const char* line) {
     args = buf + strlen(buf);
   }
   const char* verb = buf;
+  LOG_DBG("SER", "cmd %s", verb);  // PSRAM log shows which commands arrived
   installHooks();
 
   if (strcmp(verb, "PING") == 0) {
