@@ -206,7 +206,8 @@ void KOReaderSyncActivity::returnToReader() {
 
 namespace {
 // One sync request at a time. Static, not a member: a request abandoned at
-// sleep keeps writing here after the activity is gone.
+// sleep keeps writing here after the activity is gone (deep sleep follows, so
+// no later job reuses it).
 enum class NetJobKind : uint8_t { Fetch, Upload };
 struct NetJob {
   NetJobKind kind = NetJobKind::Fetch;
