@@ -28,6 +28,7 @@
 
 ### Changed
 - File Transfer and Calibre Connect: the frontlight pulse starts once the server is running, so the mode menu and Wi-Fi picker keep your brightness.
+- KOReader sync reuses one TLS connection for the progress download, the second document-id check and the upload, instead of a new handshake for each. TLS handshakes (sync, OPDS, downloads) use faster elliptic-curve math.
 - KOReader sync is faster: it skips the time sync when the clock is already set, shows one status screen instead of three, no longer waits for each screen to finish drawing before the request, and gives up on an unresponsive server after 8 seconds. Smart sync no longer tries the second document id after a network or login error.
 - Debug builds: tap and swipe logs use screen coordinates in the current orientation and name the swipe direction.
 - X4 Pro: the keyboard refresh no longer reads `kbd-exp.txt` from the SD card; the debug serial `CMD:KBDEXP` override is kept in RAM until reboot.
