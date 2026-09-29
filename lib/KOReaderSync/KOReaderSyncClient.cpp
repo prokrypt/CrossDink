@@ -148,10 +148,11 @@ freeink::SecureHttpClient& sessionClientOr(freeink::SecureHttpClient& local) {
   return gSessionClient ? *gSessionClient : local;
 }
 
-// Closes a per-request connection; a session keeps its connection for the
-// next request (the client reconnects by itself if the server closed it).
-void releaseClient(freeink::SecureHttpClient& http) {
-  if (&http != gSessionClient.get()) http.end();
+// Closes a per-request connection, or any connection after a transport error.
+// A session keeps a healthy connection for the next request (the client
+// reconnects by itself if the server closed it).
+void releaseClient(freeink::SecureHttpClient& http, const int httpCode) {
+  if (httpCode <= 0 || &http != gSessionClient.get()) http.end();
 }
 
 // Apply the shared KOSync auth headers after begin(). x-auth-* is the native
@@ -385,7 +386,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   LOG_DBG("KOSync", "Get progress response: %d", httpCode);
 
   if (httpCode <= 0) {
-    releaseClient(http);
+    releaseClient(http, httpCode);
     return NETWORK_ERROR;
   }
 
@@ -394,7 +395,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   // object instead). Map it to the same graceful no-remote-progress path as
   // 404 rather than falling through to SERVER_ERROR — see issue #2876.
   if (httpCode == 204) {
-    releaseClient(http);
+    releaseClient(http, httpCode);
     return NOT_FOUND;
   }
 
@@ -405,12 +406,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
 
     if (error) {
       logJsonParseFailure("Get progress", error, body.c_str());
-      releaseClient(http);
+      releaseClient(http, httpCode);
       return JSON_ERROR;
     }
 
     if (doc["progress"].isNull()) {
-      releaseClient(http);
+      releaseClient(http, httpCode);
       LOG_DBG("KOSync", "No stored progress in successful response");
       return NOT_FOUND;
     }
@@ -441,12 +442,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
       }
     }
 
-    releaseClient(http);
+    releaseClient(http, httpCode);
     LOG_DBG("KOSync", "Got progress: %.2f%% at %s", outProgress.percentage * 100, outProgress.progress.c_str());
     return OK;
   }
 
-  releaseClient(http);
+  releaseClient(http, httpCode);
   if (httpCode == 401) return AUTH_FAILED;
   if (httpCode == 404) return NOT_FOUND;
   return SERVER_ERROR;
@@ -532,7 +533,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   applyAuthHeaders(http);
   http.addHeader("Content-Type", "application/json");
   const int httpCode = http.sendRequest("PUT", body);
-  releaseClient(http);
+  releaseClient(http, httpCode);
   lastHttpCode = httpCode;
   lastTransportError = (httpCode < 0) ? httpCode : 0;
 
