@@ -551,6 +551,7 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool
                                clearPreferredSleepFolder();
                                return;
                              case FileBrowserAction::DeleteCache:
+                             case FileBrowserAction::ToggleBookStatsTracking:
                              case FileBrowserAction::ReadingStats:
                              case FileBrowserAction::DeleteStats:
                              case FileBrowserAction::ToggleCompleted:
@@ -711,6 +712,15 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
 
         const auto action = static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
         switch (action) {
+          case FileBrowserAction::ToggleBookStatsTracking: {
+            bool enabled = false;
+            if (!BookActions::toggleBookStatsTracking(fullPath, enabled)) {
+              const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
+              BookActions::drawToast(renderer, error.c_str());
+            }
+            requestUpdate();
+            return;
+          }
           case FileBrowserAction::ReadingStats:
             if (auto statsActivity =
                     BookActions::createReadingStatsActivity(renderer, mappedInput, fullPath, getFileName(entry))) {

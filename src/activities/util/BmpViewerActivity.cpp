@@ -418,6 +418,7 @@ void BmpViewerActivity::showContextMenu() {
                                return;
                              case FileBrowserAction::DeleteCache:
                              case FileBrowserAction::ReadingStats:
+                             case FileBrowserAction::ToggleBookStatsTracking:
                              case FileBrowserAction::SetSleepFolder:
                              case FileBrowserAction::ClearSleepFolder:
                              case FileBrowserAction::ToggleCompleted:

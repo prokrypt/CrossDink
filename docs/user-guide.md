@@ -93,8 +93,7 @@ Alternatively, while reading a book, press the **Confirm** button to open the re
 
 ### Power On / Off
 
-To turn the device on or off, **press and hold the Power button for approximately half a second**.
-In **Settings > Controls > Power Button** you can configure the power button to turn the device off with a short press instead of a long one.
+By default, **press and hold the Power button for approximately half a second** to put the device to sleep or wake it. In **Settings > Controls > Power Button**, you can configure the short-press and long-press actions separately. A short press wakes the device only when **Short-press Action** is set to **Sleep/Wake** or **Wake**; otherwise, hold Power for about half a second to wake it. See [Controls](#363-controls) for details.
 
 To reboot the device (for example after a firmware update or if it's frozen), press and release the Reset button, and then quickly press and hold the Power button for a few seconds.
 
@@ -124,7 +123,7 @@ The Browse Files screen acts as a file and folder browser. The full path to the 
 - **Navigate List:** Use **Left** (or **Up**), or **Right** (or **Down**) to move the selection cursor up and down through folders and books. You can also long-press these buttons to scroll a full page up or down.
 - **Open Selection:** Press **Confirm** to open a folder or start reading a selected book. Selecting a `.bmp` file will open the image viewer.
 - **Delete Files or Folders:** Hold and release **Confirm** to open the selected file or folder action menu, then choose **Delete**. You will be given an option to either confirm or cancel. Folder deletion is limited to empty folders.
-- **Book Actions:** EPUB and XTC files can also show options such as **Delete Cache** or **Mark Finished** from the same action menu.
+- **Book Actions:** EPUB and XTC files can also show options such as **Delete Cache**, **Mark Finished**, and **Track Reading Stats** from the same action menu. Turning tracking off for a book keeps its saved stats; it only stops new tracking for that book.
 
 ### 3.4 Recent Books Screen
 
@@ -189,9 +188,9 @@ device model and build.
   - "None" - A blank screen
   - "Cover + Custom" - The book cover image while actively reading, falls back to "Custom" behavior otherwise
   - "Page Overlay" - Uses an image to overlay on top of the current page. Best used with transparent `.png` files or black and white `.bmp` files.
-  - "Reading Stats" - Recent reading stats on the sleep screen
+  - "Reading Stats" - Recent reading stats on the sleep screen; falls back to **Minimal** while tracking is off for the device or recent book
   - "Minimal" - A minimal sleep screen
-  - "Minimal Stats" - A minimal stats sleep screen on supported devices
+  - "Minimal Stats" - A minimal stats sleep screen on supported devices; falls back to **Minimal** while tracking is off for the device or recent book
   - "Dashboard" - A dashboard-style sleep screen based on the Dashboard theme
   - "Quick Resume" - Keeps the current content visible while sleeping
 
@@ -226,6 +225,8 @@ device model and build.
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "Lyra Carousel" - A carousel-based Lyra home layout
   - "RoundedRaff" - A rounded theme with additional visual styling
+
+  Themes that show reading stats hide those stats while **Track Reading Stats** is off.
 
 - **Recent Books View**: Choose whether the Recent Books screen uses a list or grid layout.
 
@@ -293,7 +294,7 @@ Book Cache** does not reset these choices.
 
   Note: This reserves 5px of left margin to your screen to provide space for the page numbers. This is only noticeable if your `Left/Right` margins are set to `5`. If the page has no publisher page number, your margins may appear uneven.
 
-- **Hyphenation**: Whether to hyphenate text in Reading Mode; options are "ON" or "OFF".
+- **Hyphenation**: Whether to hyphenate text in Reading Mode; options are "ON" or "OFF". Korean text wraps at spaces when "OFF"; when "ON", a Korean word may also split at a line end without drawing a hyphen.
 
 - **Reading Orientation**: Set the screen orientation for reading EPUB files:
   - "Portrait" (default) - Standard portrait orientation
@@ -339,7 +340,7 @@ which status-bar items are shown.
 
 #### 3.6.3 Controls
 
-- **Power Button**: Configure short-press and long-press power button actions.
+- **Power Button**: Configure short-press and long-press actions independently. On supported devices, you can also configure the **Power + Up** shortcut.
 
 - **Front Buttons**: Configure front-button remapping, orientation awareness,
   reader-only long-press behavior, Back action, and Menu action.
@@ -352,14 +353,16 @@ which status-bar items are shown.
 
 - **Side Button Long-press Action**: Set whether long-pressing side buttons does nothing, skips chapters, changes font size, or changes orientation.
 
-- **Short-press Action / Long-press Action**: Controls the effect of a short or long press of the power button. Available actions include:
-  - "Ignore" (default) - Require a long press to turn off the device
-  - "Sleep" - A short press puts the device into sleep mode
-  - "Page Turn" - A short press in reading mode turns to the next page; a long press turns the device off
+- **Short-press Action / Long-press Action**: Choose what a short press or a hold of about 0.4 seconds does. Available actions include:
+  - "Ignore" (default short-press action) - Do nothing for this press length
+  - "Sleep/Wake" (default long-press action) - Put the awake device to sleep; when selected as **Short-press Action**, also allow a short press to wake it
+  - "Sleep" - Put the awake device to sleep without enabling short-press wake
+  - "Wake" - When selected as **Short-press Action**, allow a short press to wake the device; does nothing while the device is awake
+  - "Page Turn" - Turn to the next page while reading
   - "Toggle Bookmark", "Reading Stats", "Mark Finished", "Refresh", "Change Font", "Guide Dots", "Focus Reading", "Auto Page Turn", "Sync Progress", "File Transfer", "Calibre Wireless", "Join a Network", "Create Hotspot", "Screenshot", "Dark Mode", "Browse Files", or "Save Clipping" - Run the matching action
   - "Footnotes" - A short press in reading mode opens the footnotes submenu; if only one footnote is present on the page, the referenced page is opened directly. The short press on the power button can be used to select the footnote in the submenu, and to go back to the original page after finish reading the footnote (like the back button).
 
-- **Quick-return from footnotes**: Toggles on and off the quick return functionality from the footnotes. When the functionality it's active, a short press of the power button will act as the back button from the footnotes page.
+- **Quick-return from Footnotes**: This setting appears under **Settings > Controls > Power Button** after you assign **Footnotes** to the short- or long-press Power action, or to the long-press Back or Menu action. When enabled, a short Power press returns from a footnote page to the original reading page.
 
 - **Taps & Gestures** (touchscreen devices): Configure the touch interactions
   available while reading from **Settings > Controls > Taps & Gestures**. The
@@ -397,8 +400,15 @@ which status-bar items are shown.
 - **Files & Cache**: Configure hidden files, file extensions, file-browser view,
   finished-book behavior, and clear the reading cache.
 
-- **Reading Stats**: Configure stats tracking and idle-time filtering, and
-  access all-time stats backup/reset actions.
+- **Reading Stats**: Turn device-wide stats tracking on or off, configure
+  idle-time filtering, and access all-time stats backup/reset actions. Turning
+  tracking off pauses new per-book and all-time stats but keeps the history
+  and Time Left pace estimates already saved on the device. Stats entries and
+  recorded-stat displays in menus and themes are hidden while tracking is off;
+  the Dashboard can still show a saved Time Left estimate. Turn tracking back
+  on to see the saved history and resume recording. Time and pages from the off
+  period are not added later. See [Reader Features](./reader-features.md#turn-tracking-on-or-off)
+  for per-book controls.
 
 - **Wi-Fi Networks**: Connect to Wi-Fi networks for file transfers and firmware updates.
 
@@ -591,17 +601,17 @@ Once any of the options above is set up, press **Confirm** while reading to open
 
 The **Sleep Screen** setting controls what is displayed when the device goes to sleep:
 
-| Mode               | Behavior                                                                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Dark** (default) | The CrossDink logo on a dark background.                                                                                                          |
-| **Light**          | The CrossDink logo on a white background.                                                                                                         |
-| **Custom**         | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found.                                                 |
-| **Cover**          | The cover of the currently open book. Falls back to **Dark** if no book is open.                                                                 |
-| **Cover + Custom** | The cover of the currently open book, shown only while actively reading. Falls back to **Custom** behavior when not reading.                     |
-| **Page Overlay**   | Keeps the current reader page visible and draws a sleep wallpaper over it. If no wallpaper is available, the page remains visible while reading. |
-| **Minimal**        | A compact sleep screen based on the Minimal home layout.                                                                                         |
-| **Minimal Stats**  | A compact sleep screen with recent reading stats, on supported devices.                                                                          |
-| **None**           | A blank screen.                                                                                                                                  |
+| Mode               | Behavior                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Dark** (default) | The CrossDink logo on a dark background.                                                                                                                |
+| **Light**          | The CrossDink logo on a white background.                                                                                                               |
+| **Custom**         | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found.                                                       |
+| **Cover**          | The cover of the currently open book. Falls back to **Dark** if no book is open.                                                                       |
+| **Cover + Custom** | The cover of the currently open book, shown only while actively reading. Falls back to **Custom** behavior when not reading.                           |
+| **Page Overlay**   | Keeps the current reader page visible and draws a sleep wallpaper over it. If no wallpaper is available, the page remains visible while reading.       |
+| **Minimal**        | A compact sleep screen based on the Minimal home layout.                                                                                               |
+| **Minimal Stats**  | A compact sleep screen with recent reading stats, on supported devices; falls back to **Minimal** while tracking is off for the device or recent book. |
+| **None**           | A blank screen.                                                                                                                                        |
 
 #### Cover settings
 
@@ -847,7 +857,10 @@ Available options include:
 - **Show page as QR** – Display a QR code encoding the current reading position.
 - **Delete Book Cache** – Clear the cached layout data for the current book, forcing a re-index on next open.
 - **Sync Progress** – Push or pull reading progress with a KOReader sync server (see [KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)).
-- **Reading Stats** – Open the current book's reading stats.
+- **Reading Stats** – Open the current book's reading stats on supported devices
+  when tracking is enabled for both the device and this book. Use the Reader
+  Menu's **Settings** tab in EPUB, or the Reader Menu in XTC, to pause or resume
+  tracking for this book; saved stats are kept while paused.
 - **Mark Finished / Mark Unfinished** – Toggle whether the current book is marked as finished.
 - **Look Up Word / Lookup History** – Select words on the page and revisit recent per-book lookups when a dictionary is active.
 - **Book Dictionary** – Choose a per-book dictionary override from the reader menu's settings tab.

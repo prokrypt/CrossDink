@@ -23,6 +23,7 @@
 #include <string_view>
 
 #include "../home/RecentBookProgress.h"
+#include "../reader/BookStatsTracking.h"
 #include "../reader/BookStatsView.h"
 #include "../reader/EpubReaderActivity.h"
 #include "../reader/EpubReaderUtils.h"
@@ -330,7 +331,15 @@ BookReadingStats loadBookStatsForPath(const std::string& path) {
   if (cachePath.empty()) {
     return BookReadingStats{};
   }
-  return BookReadingStats::load(cachePath);
+  BookReadingStats stats = BookReadingStats::load(cachePath);
+  if (!BookStatsTracking::isEnabled(cachePath)) {
+    BookReadingStats paceOnly;
+    paceOnly.avgSecondsPerForwardPage = stats.avgSecondsPerForwardPage;
+    paceOnly.paceSampleCount = stats.paceSampleCount;
+    paceOnly.estimatedTimeLeftSeconds = stats.estimatedTimeLeftSeconds;
+    return paceOnly;
+  }
+  return stats;
 }
 
 std::string loadChapterTitleForPath(const std::string& path) {
@@ -625,10 +634,12 @@ void SleepActivity::onEnter() {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY):
       return renderOverlaySleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP):
+      if (!BookStatsTracking::isEnabled(bookStatsCachePathFor(recentBookPath))) return renderMinimalSleepScreen();
       return renderReadingStatsSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP):
       return renderMinimalSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_STATS_SLEEP):
+      if (!BookStatsTracking::isEnabled(bookStatsCachePathFor(recentBookPath))) return renderMinimalSleepScreen();
       return renderMinimalStatsSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::DASHBOARD_SLEEP):
       return renderDashboardSleepScreen();
@@ -988,7 +999,9 @@ void SleepActivity::renderMinimalSleepScreen() const {
   const BookReadingStats bookStats = loadBookStatsForPath(path);
   const float progressPercent = RecentBookProgress::loadPercent(book);
   MinimalTheme theme;
-  theme.drawSleepScreen(renderer, book, &bookStats, progressPercent, sleepCoverFilterInvertsGeneratedScreen());
+  theme.drawSleepScreen(renderer, book,
+                        BookStatsTracking::isEnabled(bookStatsCachePathFor(path)) ? &bookStats : nullptr,
+                        progressPercent, sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
@@ -1046,12 +1059,12 @@ void SleepActivity::renderLastScreenSleepScreen() const {
   } else {
     renderer.drawImage(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
   }
+  // Only the moon differs from the displayed frame, so a differential FAST
+  // update avoids the flashing clean pass on an inverted night-mode page.
   if (gpio.deviceIsX3()) {
-    // The controller still holds the displayed page, so its differential base
-    // waveform can add the moon without a full-screen flash.
     renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
   } else {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   }
 }
 
