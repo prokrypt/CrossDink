@@ -32,6 +32,8 @@
 - KOReader sync is faster: it skips the time sync when the clock is already set, shows one status screen instead of three, no longer waits for each screen to finish drawing before the request, and gives up on an unresponsive server after 8 seconds. Smart sync no longer tries the second document id after a network or login error.
 - Debug builds: tap and swipe logs use screen coordinates in the current orientation and name the swipe direction.
 - X4 Pro: the keyboard refresh no longer reads `kbd-exp.txt` from the SD card; the debug serial `CMD:KBDEXP` override is kept in RAM until reboot.
+- File Transfer, Calibre Connect, Nearby transfer and USB Drive switch the panel's power booster off right after each screen update instead of after 8 seconds idle, saving power while they wait.
+- USB Drive logs how long the computer took to mount the card (connect, first read, end of the initial scan).
 - Reader: opening the menu, quick actions or the frontlight panel, rotating, jumping, skipping chapters, sleeping, locking, pressing Back and similar actions now stop a running anti-aliasing pass instead of waiting for it to finish. The page gets its anti-aliasing again when you come back to it.
 - X4 Pro: the standard `x4-pro` firmware now uses automatic light sleep (it was the separate `x4-pro-light-sleep` build), and `x4-pro-debug` is its debug build with the timing and PSRAM log tools. The `x4-pro-light-sleep` and `x4-pro-light-sleep-debug` environments are removed.
 - X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.

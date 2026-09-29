@@ -458,18 +458,18 @@ void ActivityManager::renderTaskLoop() {
     if (!renderQueued) {
       if (!idlePanelOffArmed) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-      } else if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(IDLE_PANEL_OFF_MS)) == 0) {
-        // No frame for IDLE_PANEL_OFF_MS on a screen that opted in: switch the
-        // booster off. The next refresh powers it back on.
+      } else if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PANEL_OFF_POLL_MS)) == 0) {
+        // The frame on a screen that opted in is drawn and no new one is
+        // queued: switch the booster off. The next refresh powers it back on.
         idlePanelOffArmed = false;
 #ifndef SIMULATOR  // the simulator HAL has no panel power
         RenderLock offLock;
         if (display.isRefreshPending() || display.isRefreshBusy()) {
           // A deferred refresh is still driving the panel: never cut the
-          // booster mid-waveform; try again after the next idle period.
+          // booster mid-waveform; poll again until it ends.
           idlePanelOffArmed = true;
         } else if (currentActivity && currentActivity->powerOffPanelWhenIdle() && display.powerOffIdle()) {
-          LOG_DBG("ACT", "Panel booster off after %lu ms idle", static_cast<unsigned long>(IDLE_PANEL_OFF_MS));
+          LOG_DBG("ACT", "Panel booster off after draw");
         }
 #endif
         continue;

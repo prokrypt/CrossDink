@@ -10,6 +10,8 @@
 #include <atomic>
 #include <cstdint>
 
+struct UsbDriveIo;
+
 // Block-device decorator used while USB Drive exposes the SD card. TinyUSB's
 // MSC driver serves reads in 4 KB chunks and waits for each SD read before it
 // starts the USB transfer, so card latency adds to every chunk. A host mounting
@@ -32,13 +34,9 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   bool syncDevice() override;
   bool writeSector(Sector_t sector, const uint8_t* src) override { return writeSectors(sector, src, 1); }
   bool writeSectors(Sector_t sector, const uint8_t* src, size_t ns) override;
-  // Host I/O since begin(): time of the last host read/write and byte totals.
-  // Prefetch reads don't count.
-  void hostIo(uint32_t& lastMs, uint32_t& readBytes, uint32_t& writeBytes) const {
-    lastMs = lastIoMs.load(std::memory_order_relaxed);
-    readBytes = hostReadBytes.load(std::memory_order_relaxed);
-    writeBytes = hostWriteBytes.load(std::memory_order_relaxed);
-  }
+  // Host I/O since begin(): first/last host read/write times, byte totals
+  // and call count. Prefetch reads don't count.
+  void hostIo(UsbDriveIo& out) const;
 
  private:
   static constexpr size_t kSectorSize = 512;
@@ -46,6 +44,7 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   static constexpr size_t kWindowSectors = 128;  // 64 KB read-ahead window
 
   static void prefetchTask(void* arg);
+  void noteHostIo();
   void prefetchLoop();
   // Copies window sectors [sector, sector + ns) to dst. Caller holds windowMutex.
   void copyFromWindow(Sector_t sector, uint8_t* dst, size_t ns) const;
@@ -76,7 +75,9 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   bool readAheadArmed = false;
   bool prefetchEnabled = false;
   // Written on the TinyUSB task, read on the main loop.
+  std::atomic<uint32_t> firstIoMs{0};
   std::atomic<uint32_t> lastIoMs{0};
+  std::atomic<uint32_t> hostOps{0};
   std::atomic<uint32_t> hostReadBytes{0};
   std::atomic<uint32_t> hostWriteBytes{0};
 };

@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "UsbDriveIo.h"
+
 class HalFile;
 
 enum class UsbDriveState : uint8_t {
@@ -19,14 +21,6 @@ enum class UsbDriveState : uint8_t {
   Ejected,
   Disconnected,
   IoError,
-};
-
-// Host I/O totals while USB Drive is up; stamped on the USB task, read on the
-// main loop (drives the transfer light).
-struct UsbDriveIo {
-  uint32_t lastIoMs = 0;  // millis() of the last host read/write, 0 = none yet
-  uint32_t readBytes = 0;
-  uint32_t writeBytes = 0;
 };
 
 class HalStorage {

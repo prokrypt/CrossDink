@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include "UsbDriveIo.h"
+
 namespace {
 // Holding the device mutex across one 4 KB SD read is ~2 ms, so a reader that
 // catches the prefetch mid-chunk waits at most a few ticks before falling back.
@@ -23,7 +25,9 @@ bool UsbDriveReadAhead::begin(FsBlockDeviceInterface* innerDevice) {
   windowCount = 0;
   windowHead = 0;
   readAheadArmed = false;
+  firstIoMs.store(0, std::memory_order_relaxed);
   lastIoMs.store(0, std::memory_order_relaxed);
+  hostOps.store(0, std::memory_order_relaxed);
   hostReadBytes.store(0, std::memory_order_relaxed);
   hostWriteBytes.store(0, std::memory_order_relaxed);
   stopRequested = false;
@@ -139,8 +143,24 @@ void UsbDriveReadAhead::resetWindow(const Sector_t nextSector) {
   windowHead = 0;
 }
 
+void UsbDriveReadAhead::hostIo(UsbDriveIo& out) const {
+  out.firstIoMs = firstIoMs.load(std::memory_order_relaxed);
+  out.lastIoMs = lastIoMs.load(std::memory_order_relaxed);
+  out.readBytes = hostReadBytes.load(std::memory_order_relaxed);
+  out.writeBytes = hostWriteBytes.load(std::memory_order_relaxed);
+  out.ops = hostOps.load(std::memory_order_relaxed);
+}
+
+void UsbDriveReadAhead::noteHostIo() {
+  const uint32_t now = millis();
+  uint32_t none = 0;
+  firstIoMs.compare_exchange_strong(none, now, std::memory_order_relaxed);
+  lastIoMs.store(now, std::memory_order_relaxed);
+  hostOps.fetch_add(1, std::memory_order_relaxed);
+}
+
 bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const size_t ns) {
-  lastIoMs.store(millis(), std::memory_order_relaxed);
+  noteHostIo();
   hostReadBytes.fetch_add(ns * kSectorSize, std::memory_order_relaxed);
   if (prefetchEnabled && ns <= kWindowSectors) {
     for (int attempt = 0;; attempt++) {
@@ -182,7 +202,7 @@ bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const s
 }
 
 bool UsbDriveReadAhead::writeSectors(const Sector_t sector, const uint8_t* src, const size_t ns) {
-  lastIoMs.store(millis(), std::memory_order_relaxed);
+  noteHostIo();
   hostWriteBytes.fetch_add(ns * kSectorSize, std::memory_order_relaxed);
   if (prefetchEnabled) {
     // Any read-ahead is about to go stale, and the sectors past this write are

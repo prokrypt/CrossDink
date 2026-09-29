@@ -59,8 +59,8 @@ class Activity {
 
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
-  // Screens that mostly sit idle (file transfer and similar) let the panel's
-  // booster switch off once no frame has been drawn for a couple of seconds.
+  // Screens that mostly sit idle (file transfer and similar) switch the
+  // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }
   // Serial remote control: insert text as if typed. False when the screen has
   // no text entry.

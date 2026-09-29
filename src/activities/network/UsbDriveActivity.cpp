@@ -16,6 +16,9 @@
 
 void UsbDriveActivity::onEnter() {
   Activity::onEnter();
+  enterMs = millis();
+  hostMs = 0;
+  mountLogged = false;
   state = State::Unsupported;
   preparing = true;
   startFailed = false;
@@ -71,6 +74,16 @@ void UsbDriveActivity::updateTransferLight() {
   const bool active = io.lastIoMs != 0 && now - io.lastIoMs < IO_ACTIVE_MS;
   transferLight.update(active);
 
+  if (!mountLogged && io.firstIoMs != 0 && !active && now - io.lastIoMs >= MOUNT_SETTLE_MS) {
+    mountLogged = true;
+    const uint32_t hostAt = hostMs != 0 ? hostMs : io.firstIoMs;
+    const uint32_t hostToIo = io.firstIoMs > hostAt ? io.firstIoMs - hostAt : 0;
+    LOG_INF("USB", "mount enter->host=%lu ms host->first_io=%lu ms first_io->settled=%lu ms (%lu KB, %lu ops)",
+            static_cast<unsigned long>(hostAt - enterMs), static_cast<unsigned long>(hostToIo),
+            static_cast<unsigned long>(io.lastIoMs - io.firstIoMs),
+            static_cast<unsigned long>((io.readBytes + io.writeBytes) / 1024), static_cast<unsigned long>(io.ops));
+  }
+
   if (active && !ioBurst) {
     ioBurst = true;
     burstStartMs = io.lastIoMs;
@@ -104,6 +117,7 @@ void UsbDriveActivity::loop() {
     const auto storageState = Storage.usbDriveState();
     const State nextState = static_cast<State>(storageState);
     if (nextState != state) {
+      if (hostMs == 0 && (nextState == State::Connected || nextState == State::Accessed)) hostMs = millis();
       const bool messageChanged = state != State::Connected || nextState != State::Accessed;
       state = nextState;
       if (messageChanged) requestUpdate();
