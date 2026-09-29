@@ -15,7 +15,8 @@
  * starts one job at a time, and must not start another network request while
  * it runs. join() and the destructor block until the task has exited. A
  * cancelled download removes its .part file (HttpDownloader stages to .part),
- * so an existing copy of the book is left untouched.
+ * so an existing copy of the book is left untouched. A failed one keeps it for
+ * a resume; the owner removes it when the user gives up.
  */
 class OpdsBookDownloader {
  public:
@@ -25,6 +26,11 @@ class OpdsBookDownloader {
     std::string username;
     std::string password;
     std::string authorizationOrigin;
+    // Continue the .part file left by a failed attempt (HttpDownloader falls
+    // back to byte 0 when the server ignores the Range request).
+    bool resume = false;
+    // In: the failed attempt's validator, sent as If-Range. Out: this response's.
+    std::string validator;
   };
 
   OpdsBookDownloader() = default;
@@ -52,6 +58,7 @@ class OpdsBookDownloader {
   // Valid after the task has exited.
   HttpDownloader::DownloadError result() const { return outcome; }
   const std::string& path() const { return job.path; }
+  const std::string& validator() const { return job.validator; }
 
  private:
   static void taskEntry(void* context);

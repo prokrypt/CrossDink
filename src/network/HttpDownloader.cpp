@@ -106,6 +106,8 @@ struct Sink {
   size_t downloaded = 0;
   size_t total = 0;
   bool rangeIgnored = false;
+  bool headersChecked = false;       // wolfSSL path: first body chunk seen
+  std::string* validator = nullptr;  // DownloadOptions::validator
   uint32_t lastDataMs = 0;  // millis() of the last body chunk (wolfSSL path)
   uint32_t maxWriteMs = 0;  // slowest SD write (downloadToFile)
 };
@@ -184,7 +186,10 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       char rangeHeader[40];
       snprintf(rangeHeader, sizeof(rangeHeader), "bytes=%zu-", sink.resumeOffset);
       http.addHeader("Range", rangeHeader);
-      LOG_DBG("HTTP", "Resuming download at byte %zu", sink.resumeOffset);
+      const bool ifRange = sink.validator && !sink.validator->empty();
+      if (ifRange) http.addHeader("If-Range", *sink.validator);
+      LOG_INF("HTTP", "Resume request from byte %zu (If-Range=%s)", sink.resumeOffset,
+              ifRange ? sink.validator->c_str() : "none");
     }
     if (sendAuthorization) {
       const std::string credentials = username + ":" + password;
@@ -203,6 +208,28 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
             sink.rangeIgnored = true;
             return false;
           }
+          if (!sink.headersChecked) {
+            sink.headersChecked = true;
+            if (isResumeResponse) {
+              // "bytes <start>-<end>/<total>": the body must continue exactly
+              // where the partial file ends.
+              const std::string range = http.getHeader("content-range");
+              char* end = nullptr;
+              const unsigned long long start =
+                  range.rfind("bytes ", 0) == 0 ? strtoull(range.c_str() + 6, &end, 10) : 0;
+              if (!end || *end != '-' || start != sink.resumeOffset) {
+                LOG_INF("HTTP", "Content-Range '%s' does not match byte %zu", range.c_str(), sink.resumeOffset);
+                sink.rangeIgnored = true;
+                return false;
+              }
+              LOG_INF("HTTP", "Resume accepted: 206 from byte %zu", sink.resumeOffset);
+            }
+            if (sink.validator) {
+              // If-Range needs a strong validator: skip weak ETags.
+              const std::string etag = http.getHeader("etag");
+              *sink.validator = !etag.empty() && etag.rfind("W/", 0) != 0 ? etag : http.getHeader("last-modified");
+            }
+          }
 
           if (sink.downloaded < sink.resumeOffset) sink.downloaded = sink.resumeOffset;
           if (sink.total == 0 && http.hasContentLength()) {
@@ -218,8 +245,10 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         [&sink]() { return isCancelRequested(sink.cancelFlag, sink.shouldCancel); });
 
     if (http.aborted()) return HttpDownloader::ABORTED;
+    // 416: the partial file is not a prefix the server can continue.
+    if (sink.resumeOffset > 0 && status == 416) sink.rangeIgnored = true;
     if (sink.rangeIgnored) {
-      LOG_DBG("HTTP", "Server ignored range request; restarting download");
+      LOG_INF("HTTP", "Server ignored range request (status %d); restarting download", status);
       sink.resumeOffset = 0;
       return HttpDownloader::HTTP_ERROR;
     }
@@ -570,6 +599,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   sink.cancelFlag = cancelFlag;
   sink.shouldCancel = std::move(options.shouldCancel);
   sink.resumeOffset = resumeOffset;
+  sink.validator = options.validator;
 
   FsFile file;
   bool fileOpen = false;
@@ -664,6 +694,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     Storage.remove(writePath.c_str());
     writeBufLen = 0;
     sink.rangeIgnored = false;
+    sink.headersChecked = false;
     sink.resumeOffset = 0;
     sink.downloaded = 0;
     sink.total = 0;
@@ -684,7 +715,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (result != OK) {
     LOG_ERR("HTTP", "Transfer failed: error=%d downloaded=%zu expected=%zu preservePartial=%d resumePartial=%d",
             static_cast<int>(result), sink.downloaded, sink.total, options.preservePartial, options.resumePartial);
-    if (result == ABORTED || !options.preservePartial) {
+    // A full card cannot take the rest either: free the space now.
+    if (result == ABORTED || result == INSUFFICIENT_SPACE || !options.preservePartial) {
       Storage.remove(writePath.c_str());
     }
     return result;

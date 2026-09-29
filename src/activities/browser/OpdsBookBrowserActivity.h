@@ -142,15 +142,17 @@ class OpdsBookBrowserActivity final : public Activity {
   // Asks before replacing a book already on SD (showing its size and date),
   // otherwise downloads straight away.
   void requestDownload(const OpdsEntry& book);
-  // filename: the SD destination from requestDownload.
-  void downloadBook(const OpdsEntry& book, const std::string& filename);
+  // filename: the SD destination from requestDownload. resumeValidator: set
+  // on Retry to continue the failed attempt's .part file (may be empty).
+  void downloadBook(const OpdsEntry& book, const std::string& filename,
+                    const std::string* resumeValidator = nullptr);
   // DOWNLOADING state: forwards cancel input, redraws progress, and finishes
   // once the background task has exited.
   void pollDownload();
   // After a finished download: asks whether to open the book now.
   void offerToOpen(const std::string& path);
-  // After a failed download: Retry restarts the same book from byte 0 (the
-  // partial file is already gone), Cancel returns to the listing.
+  // After a failed download: Retry resumes the same book (from byte 0 when the
+  // server cannot), Cancel removes the partial file and returns to the listing.
   void offerRetry(const std::string& path);
   void launchSearch();
   void performSearch(const std::string& query);

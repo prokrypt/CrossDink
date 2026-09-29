@@ -80,6 +80,9 @@ void OpdsBookDownloader::run() {
   options.stageAsPart = true;
   options.checkFreeSpace = true;
   options.writeBufferBytes = DOWNLOAD_WRITE_BUFFER_BYTES;
+  options.preservePartial = true;
+  options.resumePartial = job.resume;
+  options.validator = &job.validator;
   // A response with no Content-Length can end early and still look complete;
   // a truncated EPUB has no central directory to find container.xml in.
   options.validate = [](const std::string& path) {

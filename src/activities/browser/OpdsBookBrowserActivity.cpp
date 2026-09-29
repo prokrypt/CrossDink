@@ -915,7 +915,8 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   });
 }
 
-void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename) {
+void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename,
+                                           const std::string* resumeValidator) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
@@ -959,6 +960,10 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   request.username = server.username;
   request.password = server.password;
   request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  if (resumeValidator) {
+    request.resume = true;
+    request.validator = *resumeValidator;
+  }
   if (!bookDownloader.start(std::move(request))) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
@@ -1041,6 +1046,7 @@ void OpdsBookBrowserActivity::offerRetry(const std::string& path) {
   auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, statusMessage);
   if (!dialog) {
     LOG_ERR("OPDS", "Cannot allocate retry dialog");
+    Storage.remove((path + ".part").c_str());
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
     requestUpdate();
@@ -1050,13 +1056,15 @@ void OpdsBookBrowserActivity::offerRetry(const std::string& path) {
   // As in requestDownload(): entries and selectorIndex stay put under the
   // dialog, so the index still names the failed book.
   const int bookIndex = selectorIndex;
-  startActivityForResult(std::move(dialog), [this, bookIndex, path](const ActivityResult& result) {
+  startActivityForResult(std::move(dialog), [this, bookIndex, path, validator = bookDownloader.validator()](
+                                                const ActivityResult& result) {
     if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
-      LOG_INF("OPDS", "Download retry declined");
+      LOG_INF("OPDS", "Download retry declined; removing partial file");
+      Storage.remove((path + ".part").c_str());
       return;
     }
     LOG_INF("OPDS", "Retrying download: %s", path.c_str());
-    downloadBook(entries[bookIndex], path);
+    downloadBook(entries[bookIndex], path, &validator);
   });
 }
 
