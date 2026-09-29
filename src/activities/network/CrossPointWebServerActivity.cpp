@@ -449,17 +449,17 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
     }
     // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
     const bool serverRunning = state == WebServerActivityState::SERVER_RUNNING;
-    const BlackRedriveLut redriveLut(serverRunning);
-    // The QR appears over the Wi-Fi list or keyboard. DU (even the DU scrub)
-    // leaves that text behind it, so its first frame is a clearing Half.
-    // Later repaints stay plain DU.
-    auto mode = screenTransitionRefresh.modeFor(static_cast<uint8_t>(state));
+    // The QR appears over the Wi-Fi list or keyboard. A 6-frame DU scrub
+    // leaves that text behind it, so the first frame scrubs with a longer
+    // drive (no flash, unlike Half). Later repaints stay plain DU.
+    const bool scrub = serverRunning && cleanFirstQrFrame.exchange(false, std::memory_order_acq_rel);
+    const BlackRedriveLut redriveLut(serverRunning, scrub ? BlackRedriveLut::SCRUB_FRAMES : BlackRedriveLut::FRAMES);
+    if (scrub) BlackRedriveLut::scrubNext();
     if (serverRunning) {
-      const bool clean = cleanFirstQrFrame.exchange(false, std::memory_order_acq_rel);
-      if (clean) mode = HalDisplay::HALF_REFRESH;
-      LOG_DBG("WEBACT", "QR frame refresh=%s", clean ? "half" : "fast");
+      LOG_DBG("WEBACT", "QR frame refresh=%s frames=%u", scrub ? "du-scrub" : "fast",
+              scrub ? BlackRedriveLut::SCRUB_FRAMES : BlackRedriveLut::FRAMES);
     }
-    renderer.displayBuffer(mode);
+    renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
   }
 }
 

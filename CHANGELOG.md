@@ -31,7 +31,7 @@
 
 ### Changed
 - OPDS: every screen (loading, downloading, errors) uses the same header with the status bar; on touch its arrow goes back, or cancels a download. After a download the book list is drawn first, then the open prompt appears over it.
-- X4 Pro: the first File Transfer QR frame runs a clearing Half refresh (one short flash), so the Wi-Fi list or keyboard no longer shows through the QR. The first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.
+- X4 Pro: the first File Transfer QR frame runs a longer scrub (no flash), so the Wi-Fi list or keyboard no longer shows through the QR. The first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.
 - File Transfer, Calibre and USB Drive keep a lit frontlight at your level for 10 seconds before the transfer pulse takes over.
 - OPDS downloads write to the SD card in 32 KB blocks (PSRAM buffer) instead of one write per network packet.
 - File Transfer and Calibre Connect: the frontlight pulse starts once the server is running, so the mode menu and Wi-Fi picker keep your brightness.
