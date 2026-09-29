@@ -1,6 +1,6 @@
 # Serial remote control
 
-Debug builds only (`-DCROSSDINK_SERIAL_REMOTE=1`, set in `x4-pro-light-sleep-debug`).
+Debug builds only (`-DCROSSDINK_SERIAL_REMOTE=1`, set in `x4-pro-debug`).
 Commands are single lines on the USB serial port, handled by `src/network/SerialRemote.cpp`
 through the existing `CMD:` channel in `UsbSerialFileTransfer`. Lines are at most 255 bytes.
 

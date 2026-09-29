@@ -9,7 +9,7 @@
 //   [BOOT] first ink after reset, and silent restart request -> first ink
 //   [PM]   light-sleep residency and PM lock hold times (CONFIG_PM_PROFILING)
 //
-// Enabled with -DCROSSDINK_PERF_LOG=1 (x4-pro-light-sleep-debug). Elsewhere
+// Enabled with -DCROSSDINK_PERF_LOG=1 (x4-pro-debug). Elsewhere
 // every function is an empty inline, so call sites cost nothing.
 #if CROSSDINK_PERF_LOG && !defined(SIMULATOR)
 namespace PerfLog {
