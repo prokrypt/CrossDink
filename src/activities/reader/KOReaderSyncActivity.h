@@ -1,6 +1,7 @@
 #pragma once
 #include <Epub.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -89,6 +90,7 @@ class KOReaderSyncActivity final : public Activity {
   ScreenTransitionRefresh screenTransitionRefresh;
   std::string statusMessage;
   std::string documentHash;
+  std::string primaryHash;
 
   // Remote progress data
   bool hasRemoteProgress = false;
@@ -129,6 +131,28 @@ class KOReaderSyncActivity final : public Activity {
   };
   SyncTiming timing;
   void logSyncTiming();
+
+  // Sync requests run on a worker task so a slow server never stalls the main
+  // loop (8.5 s seen on a failed GET). The task only touches the fields below
+  // plus documentHash, remoteProgress and timing; the main loop reads them
+  // after netJobRunning clears.
+  enum class NetJob : uint8_t { None, Fetch, Upload };
+  NetJob netJob = NetJob::None;  // main loop only
+  std::atomic<bool> netJobRunning{false};
+  bool abandonNetJob = false;  // Back during a request: reboot drops it
+  std::string altHash;         // empty: no alternate probe
+  KOReaderProgress altProgress;
+  KOReaderProgress uploadProgress;
+  KOReaderSyncClient::Error fetchResult = KOReaderSyncClient::OK;
+  KOReaderSyncClient::Error altResult = KOReaderSyncClient::NOT_FOUND;
+  KOReaderSyncClient::Error uploadResult = KOReaderSyncClient::OK;
+  void startNetJob(NetJob job);
+  static void netTaskEntry(void* context);
+  void runNetJob();
+  void pollNetJob();
+  void joinNetJob() const;
+  void finishSync();
+  void finishUpload();
 
   void onWifiSelectionComplete(bool success);
   void performSync();
