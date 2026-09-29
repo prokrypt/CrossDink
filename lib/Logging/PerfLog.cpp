@@ -131,9 +131,9 @@ void logPmLocks(const char* act) {
       continue;
     }
     // Mode rows: "SLEEP     80 M        23547275    77%" (the frequency may be "240M").
-    const char* freqEnd = strchr(line, 'M');
+    // Match the M after the number: "CPU_MAX" itself contains an M.
     long long us = 0;
-    if (sscanf(line, "%15s", name) != 1 || freqEnd == nullptr || sscanf(freqEnd + 1, "%lld", &us) != 1) continue;
+    if (sscanf(line, "%15s %*d M %lld", name, &us) != 2) continue;
     if (strcmp(name, "SLEEP") == 0) sleepUs = us;
     if (strcmp(name, "CPU_MAX") == 0) cpuMaxUs = us;
   }
