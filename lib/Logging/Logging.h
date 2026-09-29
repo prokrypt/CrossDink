@@ -33,12 +33,36 @@ static auto& logSerial = BoardConfig::serialTransport();
 
 void logPrintf(const char* level, const char* origin, const char* format, ...);
 
-// Writes all of `data` to logSerial, retrying for up to `budgetMs`. The log
-// transport uses a 1 ms TX timeout, so a plain write loses bytes whenever a
-// log line from another task holds the TX lock or the ring is full. Use this
-// for protocol replies (serial remote OK:/ERR:) that a host waits on. Returns
-// false when the budget ran out first.
-bool logSerialWriteAll(const char* data, size_t len, uint32_t budgetMs = 500);
+// Serializes logSerial writers so a protocol reply or binary stream is never
+// split by a log line from another task. Recursive, so a holder may call
+// logSerialWriteAll(). Log lines that can't get it within 2 ms skip the serial
+// port (the RAM and PSRAM rings still get them).
+bool logSerialLock(uint32_t waitMs);
+void logSerialUnlock();
+class LogSerialGuard {
+ public:
+  explicit LogSerialGuard(uint32_t waitMs) : locked(logSerialLock(waitMs)) {}
+  ~LogSerialGuard() {
+    if (locked) logSerialUnlock();
+  }
+  LogSerialGuard(const LogSerialGuard&) = delete;
+  LogSerialGuard& operator=(const LogSerialGuard&) = delete;
+  explicit operator bool() const { return locked; }
+
+ private:
+  bool locked;
+};
+
+// Writes all of `data` to logSerial under logSerialLock, retrying for up to
+// `budgetMs`. The log transport uses a 1 ms TX timeout, so a plain write loses
+// bytes whenever the TX ring is full. Use this for protocol replies and binary
+// streams a host waits on. Gives up early when nothing has gone out for
+// `stallMs` (host stopped reading) or no host is attached. Returns false when
+// not everything went out.
+bool logSerialWriteAll(const uint8_t* data, size_t len, uint32_t budgetMs, uint32_t stallMs);
+inline bool logSerialWriteAll(const char* data, size_t len, uint32_t budgetMs = 500, uint32_t stallMs = 50) {
+  return logSerialWriteAll(reinterpret_cast<const uint8_t*>(data), len, budgetMs, stallMs);
+}
 
 #ifdef ENABLE_SERIAL_LOG
 #if LOG_LEVEL >= 0

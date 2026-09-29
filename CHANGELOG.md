@@ -92,6 +92,8 @@
 - The on-screen keyboard now uses wider outlined keys with clearer spacing on touch and button devices.
 
 ### Fixed
+- KOReader sync: pressing power or letting the device sleep during a slow sync no longer freezes it for up to ~16 seconds; it waits at most 3 seconds, then sleeps. The sync worker has a larger stack for the faster TLS math.
+- Debug builds: serial file downloads and CMD:PSRAMLOG dumps no longer lose bytes when the USB buffer is full, and a log line can no longer land inside a serial reply or binary stream. A reply to a host that has closed the port no longer stalls the device for half a second. Blank lines and xink-remote's ">>>>> " echo lines are ignored quietly.
 - Reader: a page whose anti-aliasing pass was cancelled by a page turn that was then dropped (for example "previous" on the first page) no longer stays without anti-aliasing until the next turn.
 - X4 Pro: the header and other still text no longer fade on screens that repaint progress over and over (file transfer, Calibre, Nearby transfer, OPDS and font downloads, OTA update). Those repaints now use the keyboard's fast waveform, which re-darkens unchanged black pixels.
 - OPDS: book downloads run in the background, so Back and the Cancel button stop them at any point (the partial file is deleted) and the screen shows Connecting until the first byte arrives. Downloads also start sooner: the free-space check no longer scans the whole SD card first.
