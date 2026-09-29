@@ -47,7 +47,8 @@ class UITheme {
   // - a legacy height-only template containing one [HEIGHT] placeholder.
   // No scaling is done here. Returns an empty string for invalid dimensions or
   // unsupported placeholder templates.
-  static std::string getCoverThumbPath(const std::string& coverBmpPath, int width, int height);
+  static std::string getCoverThumbPath(const std::string& coverBmpPath, int width, int height,
+                                       bool allowLegacyFallback = true);
   static UIIcon getFileIcon(const std::string& filename);
   static int getStatusBarHeight();
   static int getProgressBarHeight();

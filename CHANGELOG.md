@@ -16,6 +16,7 @@
 - While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% once a second, and stays off while idle. Each pulse finishes smoothly, so even a short request gives one full blink and the light never cuts off abruptly. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
 - Turn reading stats tracking on or off for the whole device or individual EPUB and XTC books, while keeping saved history and Time Left estimates.
 - Assign separate short-press and long-press actions to the Left/Up and Right/Down side buttons; existing side-button layouts migrate to matching individual actions.
+- Assign a side-button shortcut to flip the reading screen 180°, alongside clockwise and counterclockwise turns.
 - Assign Library to power, long-press, button-chord, Home-button, or Quick Actions shortcuts to open the book list directly.
 - Customize the top and bottom reader status bars separately, including item positions and progress bars, in EPUB, TXT, and XTC books. Each bar can be previewed where it appears while reading.
 - View a selected book's reading stats from its Library or File Browser action menu.
@@ -171,6 +172,7 @@
 - Korean text keeps natural syllable spacing when justified and wraps by word.
 - Footnote choices can be selected directly on the reading page, with a list fallback for links without a visible target.
 - Changing global font or page layout settings from the pull-down panel on touch devices now updates the open book when it inherits those settings.
+- KOReader authentication now rejects unexpectedly large server responses to avoid crashes.
 
 ## [v1.6.0] - 2026-09-21
 

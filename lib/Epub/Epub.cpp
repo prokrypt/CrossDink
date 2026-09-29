@@ -1319,7 +1319,10 @@ bool Epub::generateThumbBmp(int width, int height, const GfxRenderer* renderer, 
 }
 
 bool Epub::generateThumbBmpFromSource(int height, const GfxRenderer* renderer, const int readerFontId) {
-  int width = 0;
+  return generateThumbBmpFromSource(0, height, renderer, readerFontId);
+}
+
+bool Epub::generateThumbBmpFromSource(int width, int height, const GfxRenderer* renderer, const int readerFontId) {
   normalizeThumbDimensions(width, height);
   const std::string thumbPath = getThumbBmpPathForDimensions(cachePath, width, height);
   if (cachedBmpMatchesDimensions(thumbPath, width, height)) return true;

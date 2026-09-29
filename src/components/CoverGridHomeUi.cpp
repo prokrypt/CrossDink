@@ -41,9 +41,14 @@ void CoverGridHomeUi::refreshCoverPaths() {
 void CoverGridHomeUi::refreshCoverPath(size_t index) {
   if (index >= books->size() || index >= coverPaths.size()) return;
   coverCache.invalidate(index);
-  coverPaths[index] = thumbHeights[index] > 0
-                          ? UITheme::getCoverThumbPath((*books)[index].coverBmpPath, thumbHeights[index])
-                          : std::string();
+  coverPaths[index] =
+      thumbWidths[index] > 0 && thumbHeights[index] > 0
+          ? UITheme::getCoverThumbPath((*books)[index].coverBmpPath, thumbWidths[index], thumbHeights[index], false)
+          : std::string();
+}
+
+int CoverGridHomeUi::thumbWidthFor(size_t index) const {
+  return index < thumbWidths.size() && thumbWidths[index] > 0 ? thumbWidths[index] : THUMB_HEIGHT * 2 / 3;
 }
 
 int CoverGridHomeUi::thumbHeightFor(size_t index) const {
@@ -52,12 +57,12 @@ int CoverGridHomeUi::thumbHeightFor(size_t index) const {
 
 bool CoverGridHomeUi::takeThumbHeightsChanged() { return std::exchange(thumbHeightsChanged, false); }
 
-void CoverGridHomeUi::noteThumbHeight(size_t index, int slotWidth, int slotHeight) {
+void CoverGridHomeUi::noteThumbSize(size_t index, int slotWidth, int slotHeight) {
   if (index >= thumbHeights.size()) return;
-  // Thumbs cover a (0.6*h, h) target box, so a height of max(h, w*5/3) makes
-  // every cover overfill the slot; the cover renderer crops the overflow (full bleed).
-  const int height = std::max({1, slotHeight, slotWidth * 5 / 3 + 2});
-  if (thumbHeights[index] != height) {
+  const int width = std::max(1, slotWidth);
+  const int height = std::max(1, slotHeight);
+  if (thumbWidths[index] != width || thumbHeights[index] != height) {
+    thumbWidths[index] = width;
     thumbHeights[index] = height;
     thumbHeightsChanged = true;
     refreshCoverPath(index);
@@ -170,7 +175,7 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
   const int maxCoverWidth = rect.width / GRID_COLUMNS - 2 * COVER_CELL_INSET;
   card.coverSize.height = std::max(1, std::min(std::min<int>(rect.height, coverRowHeight) - 12, maxCoverWidth * 3 / 2));
   card.coverSize.width = std::max(1, card.coverSize.height * 2 / 3);
-  noteThumbHeight(0, card.coverSize.width, card.coverSize.height);
+  noteThumbSize(0, card.coverSize.width, card.coverSize.height);
   gridBounds = layoutGrid(screen.body());
   rect.x = gridBounds.x;
   rect.width = gridBounds.width;
@@ -210,7 +215,7 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
   grid.cellStyles = card.styles;
   grid.labelHeight = 0;
   grid.labelGap = 0;
-  for (size_t i = 1; i < thumbHeights.size(); ++i) noteThumbHeight(i, grid.coverSize.width, grid.coverSize.height);
+  for (size_t i = 1; i < thumbHeights.size(); ++i) noteThumbSize(i, grid.coverSize.width, grid.coverSize.height);
   grid.scrollIndicator = false;
   grid.itemProvider = [](uint16_t index, void*) { return fui::coverGridItem(nullptr, index + 1); };
   grid.coverPainterUserData = this;

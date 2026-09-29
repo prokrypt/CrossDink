@@ -726,6 +726,7 @@ void HomeActivity::loadCoverGridThumbnails() {
   for (size_t i = 0; i < recentBooks.size(); ++i) {
     auto& book = recentBooks[i];
     if (book.coverState == RecentBook::CoverState::Missing || !Storage.exists(book.path.c_str())) continue;
+    const int width = coverGridUi->thumbWidthFor(i);
     const int height = coverGridUi->thumbHeightFor(i);
     if (book.coverBmpPath.empty()) {
       if (FsHelpers::hasEpubExtension(book.path)) {
@@ -736,8 +737,16 @@ void HomeActivity::loadCoverGridThumbnails() {
         if (xtc) book.coverBmpPath = xtc->getThumbBmpPath();
       }
     }
-    const std::string thumbPath = UITheme::getCoverThumbPath(book.coverBmpPath, height);
-    if (thumbPath.empty() || Storage.exists(thumbPath.c_str())) continue;
+    const std::string thumbPath = UITheme::getCoverThumbPath(book.coverBmpPath, width, height, false);
+    if (thumbPath.empty()) continue;
+    FsFile thumbFile;
+    if (Storage.exists(thumbPath.c_str()) && Storage.openFileForRead("HOME", thumbPath, thumbFile)) {
+      Bitmap thumb(thumbFile);
+      const bool matches =
+          thumb.parseHeaders() == BmpReaderError::Ok && thumb.getWidth() == width && thumb.getHeight() == height;
+      thumbFile.close();
+      if (matches) continue;
+    }
     if (!showingLoading) {
       showingLoading = true;
       popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
@@ -750,7 +759,7 @@ void HomeActivity::loadCoverGridThumbnails() {
         LOG_ERR("HOME", "Cannot allocate EPUB for cover grid thumbnail");
         continue;
       }
-      if (!epub->generateThumbBmpFromSource(height, &renderer, SETTINGS.getReaderFontId())) {
+      if (!epub->generateThumbBmpFromSource(width, height, &renderer, SETTINGS.getReaderFontId())) {
         LOG_ERR("HOME", "Cannot create cover grid thumbnail: %s", book.path.c_str());
       }
     } else if (FsHelpers::hasXtcExtension(book.path)) {
@@ -759,7 +768,7 @@ void HomeActivity::loadCoverGridThumbnails() {
         LOG_ERR("HOME", "Cannot allocate XTC for cover grid thumbnail");
         continue;
       }
-      if (xtc->load()) xtc->generateThumbBmp(height);
+      if (xtc->load()) xtc->generateThumbBmp(static_cast<uint16_t>(width), static_cast<uint16_t>(height));
     }
   }
   recentsLoaded = true;

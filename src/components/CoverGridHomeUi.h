@@ -24,8 +24,9 @@ class CoverGridHomeUi final : public UiAppHost<16, 1> {
   void refreshCoverPaths();
   void setSelection(int selection) { selected = selection; }
   int selectedAction(const MappedInputManager& input);
-  // Exact generation height for a slot, recorded during draw. Thumbs must be
-  // generated at the drawn size: rescaling a dithered 1-bit image aliases badly.
+  // Exact generation size for a slot, recorded during draw. Rescaling a
+  // dithered 1-bit image aliases badly.
+  int thumbWidthFor(size_t index) const;
   int thumbHeightFor(size_t index) const;
   bool takeThumbHeightsChanged();
 
@@ -41,12 +42,13 @@ class CoverGridHomeUi final : public UiAppHost<16, 1> {
   void drawTabs(UiScreen& screen, freeink::ui::Rect rect);
   bool paintFramedCover(freeink::ui::DrawTarget& target, freeink::ui::Rect rect, size_t index);
   void refreshCoverPath(size_t index);
-  void noteThumbHeight(size_t index, int slotWidth, int slotHeight);
+  void noteThumbSize(size_t index, int slotWidth, int slotHeight);
 
   HomeCoverCache coverCache;
   GfxRenderer& renderer;
   const std::vector<RecentBook>* books = nullptr;
   std::array<std::string, MAX_BOOKS> coverPaths;
+  std::array<int, MAX_BOOKS> thumbWidths{};
   std::array<int, MAX_BOOKS> thumbHeights{};
   bool thumbHeightsChanged = false;
   int selected = 0;

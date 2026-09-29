@@ -218,7 +218,8 @@ std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int cove
   return getCoverThumbPath(coverBmpPath, coverWidth, coverHeight);
 }
 
-std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int width, int height) {
+std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int width, int height,
+                                       bool allowLegacyFallback) {
   if (width <= 0 || height <= 0) {
     return "";
   }
@@ -253,7 +254,7 @@ std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int widt
       std::string legacyPath = thumbPath;
       legacyPath.replace(pos, kHeightPlaceholderLength, std::to_string(height));
       thumbPath.replace(pos, kHeightPlaceholderLength, std::to_string(width) + "x" + std::to_string(height));
-      if (!Storage.exists(thumbPath.c_str()) && Storage.exists(legacyPath.c_str())) {
+      if (allowLegacyFallback && !Storage.exists(thumbPath.c_str()) && Storage.exists(legacyPath.c_str())) {
         return legacyPath;
       }
     }

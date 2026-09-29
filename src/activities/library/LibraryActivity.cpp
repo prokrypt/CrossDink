@@ -662,6 +662,10 @@ void LibraryActivity::loop() {
     pending = {};
     RenderLock lock;
     actionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+    // OptionPopup selects on press. Its matching release belongs to the popup,
+    // even when choosing a sort option keeps us in the Library activity.
+    if (!actionPopup.isActive() && mappedInput.isPressed(MappedInputManager::Button::Confirm))
+      ignoreConfirmRelease = true;
     return;
   }
   latchInput();
@@ -674,6 +678,9 @@ void LibraryActivity::loop() {
     requestUpdate();
   }
   if (ignoreConfirmRelease || longPressFired) {
+    // A popup may have suppressed this release. Consume that suppression while
+    // ignoring the opening press so it cannot affect the next Select.
+    (void)mappedInput.wasReleased(MappedInputManager::Button::Confirm);
     if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
       ignoreConfirmRelease = false;
       longPressFired = false;

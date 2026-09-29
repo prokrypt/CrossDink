@@ -2426,17 +2426,23 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
   if (CROSSDINK_APP_READER_SAMPLE_PREVIEW) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
+    const int noteHeight = previewSettings.textAntiAliasing ? labelTextHeight + 2 : 0;
     const char* name = previewSettings.sdFontFamilyName[0]
                            ? previewSettings.sdFontFamilyName.data()
                            : (previewSettings.fontFamily == 0 ? tr(STR_LEXEND_DECA) : tr(STR_BITTER));
     char label[128];
     std::snprintf(label, sizeof(label), "%s \"%s\", %upt", tr(STR_PREVIEW), name, previewSettings.readerFontPointSize);
-    const int separatorY = preview.bottom() - metrics.previewPadding - labelTextHeight - 4;
+    const int labelY = preview.bottom() - metrics.previewPadding - labelTextHeight - noteHeight;
+    const int separatorY = labelY - 4;
     renderer.drawLine(preview.x, separatorY, preview.right() - 1, separatorY, ReaderUtils::readerForegroundBlack());
     renderer.beginTextClip(preview.x, preview.y, preview.width, preview.height);
-    renderer.drawText(UI_10_FONT_ID, preview.x + metrics.previewPadding,
-                      preview.bottom() - metrics.previewPadding - labelTextHeight, label,
+    renderer.drawText(UI_10_FONT_ID, preview.x + metrics.previewPadding, labelY, label,
                       ReaderUtils::readerForegroundBlack());
+    if (previewSettings.textAntiAliasing) {
+      std::snprintf(label, sizeof(label), "%s: %s", tr(STR_TEXT_AA), tr(STR_PREVIEW_UNAVAILABLE));
+      renderer.drawText(SMALL_FONT_ID, preview.x + metrics.previewPadding, labelY + labelTextHeight + 6, label,
+                        ReaderUtils::readerForegroundBlack());
+    }
     renderer.endTextClip();
     renderer.drawLine(preview.x, preview.bottom() - 1, preview.right() - 1, preview.bottom() - 1,
                       ReaderUtils::readerForegroundBlack());
@@ -2492,7 +2498,9 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
   if (!previewModel || !previewModel->valid()) return;
   const auto& metrics = UITheme::getInstance().getMetrics();
   const fui::Rect area = previewBounds();
-  const int labelHeight = renderer.getTextHeight(UI_10_FONT_ID) + metrics.previewPadding + 8;
+  const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
+  const int labelHeight =
+      labelTextHeight + (settings.textAntiAliasing ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
   const int textHeight = std::max(0, area.height - labelHeight - metrics.previewPadding);
   // The sample is a short page: show top AND bottom margins proportionally
   // to its height, while horizontal margins and font sizes remain actual pixels.
@@ -2813,7 +2821,7 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
   }
   previousDrawerEdge = drawerEdge;
   int previewFontId = -1;
-  // Keep prewarmed glyphs resident through the BW and optional grayscale passes.
+  // Keep prewarmed glyphs resident through the BW and optional touch grayscale passes.
   std::optional<FontCacheManager::PrewarmScope> previewPrewarmScope;
   bool previewRendered = !CROSSDINK_APP_READER_SAMPLE_PREVIEW && renderPreview(previewFontId, previewPrewarmScope);
   uiReady = false;
@@ -2867,7 +2875,10 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  if (shouldRenderReaderDrawerAntiAliasing(previewRendered, draft.textAntiAliasing,
+  // Button menus repaint the sample on every navigation step. A grayscale pass
+  // here would add a second panel refresh and flash the preview each time.
+  if (!CROSSDINK_APP_READER_SAMPLE_PREVIEW &&
+      shouldRenderReaderDrawerAntiAliasing(previewRendered, draft.textAntiAliasing,
                                            ReaderUtils::readerForegroundBlack()) &&
       !sdFontSystem.fontUsesMonochromeRaster(renderer, previewFontId, draft.sdFontFamilyName.data())) {
     renderPreviewWithAntiAliasing(previewFontId);

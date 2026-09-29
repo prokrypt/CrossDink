@@ -77,6 +77,7 @@ class TxtReaderActivity final : public Activity {
   void cycleReaderFont();
   void rebuildTextLayout();
   void openReaderMenu();
+  bool applyReaderOrientation(uint8_t orientation);
 #if CROSSDINK_APP_CAP_TOUCH
   bool handlePinchFontResize();
   void resetPinchFontGesture();
