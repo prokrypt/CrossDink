@@ -327,6 +327,7 @@ void CrossPointWebServerActivity::startWebServer() {
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;
+    scrubFirstQrFrame.store(true, std::memory_order_release);
     // The pulse (and its 0% idle level) starts only once the server is up, so
     // the mode menu and Wi-Fi picker keep the user's brightness.
     transferLight.begin();
@@ -447,7 +448,15 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
       renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_STARTING_HOTSPOT));
     }
     // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-    const BlackRedriveLut redriveLut(state == WebServerActivityState::SERVER_RUNNING);
+    const bool serverRunning = state == WebServerActivityState::SERVER_RUNNING;
+    const BlackRedriveLut redriveLut(serverRunning);
+    // The QR appears over the Wi-Fi list or keyboard; DU alone leaves that
+    // behind it, so its first frame scrubs. Later repaints stay plain DU.
+    if (serverRunning) {
+      const bool scrub = scrubFirstQrFrame.exchange(false, std::memory_order_acq_rel);
+      if (scrub) BlackRedriveLut::scrubNext();
+      LOG_DBG("WEBACT", "QR frame refresh=%s", scrub ? "du-scrub" : "fast");
+    }
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
   }
 }

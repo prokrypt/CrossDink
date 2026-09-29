@@ -64,6 +64,10 @@ class HttpDownloader {
     // writing anything if the SD card cannot hold the file. The first check
     // can scan the whole FAT, so leave it off for small files.
     bool checkFreeSpace = false;
+    // downloadToFile only: coalesce body chunks into a PSRAM buffer of this
+    // size before each SD write (0 = write every chunk). Without PSRAM the
+    // chunks are written directly.
+    size_t writeBufferBytes = 0;
   };
 
   /**

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -61,6 +62,8 @@ class CrossPointWebServerActivity final : public Activity {
 
   // Cached signal-strength bracket (0..4) for the WiFi indicator.
   int lastWifiBars = 0;
+  // Set when the server starts; the first QR frame is a DU scrub (render task).
+  std::atomic<bool> scrubFirstQrFrame{false};
   ScreenTransitionRefresh screenTransitionRefresh;
 
   void renderServerRunning() const;

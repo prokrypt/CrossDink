@@ -233,7 +233,7 @@ void SdFirmwareUpdateActivity::performUpdate() {
 #if CROSSDINK_APP_CAP_TOUCH
   if (gpio.hasTouch() && !gpio.setTouchSleep(true)) LOG_ERR("FW", "Touch controller did not sleep");
 #endif
-  flashLight.begin();
+  flashLight.begin(0);  // warble and 25% hold start at once
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s; running firmware kept", firmware_flash::resultName(result));
