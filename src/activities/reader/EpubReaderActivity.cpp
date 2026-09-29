@@ -3121,6 +3121,11 @@ bool EpubReaderActivity::transientFeedbackDismissed(const unsigned long showTime
 }
 
 void EpubReaderActivity::loop() {
+  if (aaRedrawPending.load(std::memory_order_acquire) && !RenderLock::peek() && !pendingManualPageTurns.hasPending()) {
+    aaRedrawPending.store(false, std::memory_order_release);
+    LOG_DBG("AA", "redraw after cancel");
+    requestUpdate();
+  }
   bool rawTouchInput = false;
 #if CROSSDINK_APP_CAP_TOUCH
   int touchDownX = 0;
@@ -6180,9 +6185,10 @@ bool EpubReaderActivity::grayscalePassCancelled(const char* checkpoint) {
     LOG_DBG("AA", "cancel reason=%s at=%s", queuedTurn ? "turn" : aaCancelReason.load(std::memory_order_relaxed),
             checkpoint);
   }
-  // The page is left BW: make sure something redraws it, even when the queued
-  // turn is dropped (e.g. "prev" at the book start) instead of rendered.
-  queuedTurnRendering.markDeferred();
+  // The page is left BW. A new render clears this; otherwise loop() redraws
+  // the page with AA once the reader is foreground again (menu closed,
+  // unlocked) or the queued turn was dropped (e.g. "prev" at the book start).
+  aaRedrawPending.store(true, std::memory_order_release);
   return true;
 }
 
@@ -6303,6 +6309,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   // Cancel events from here on stop this render's AA pass.
   aaRenderEpoch = aaCancelEpoch.load(std::memory_order_acquire);
   aaCancelLogged = false;
+  aaRedrawPending.store(false, std::memory_order_release);
   if (!epub) {
     return;
   }

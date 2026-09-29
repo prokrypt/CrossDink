@@ -168,6 +168,9 @@ class EpubReaderActivity final : public Activity {
   std::atomic<const char*> aaCancelReason{"event"};
   uint32_t aaRenderEpoch = 0;   // render task only
   bool aaCancelLogged = false;  // render task only
+  // Set by the render task when it cancels an AA pass, cleared when a render
+  // starts; the input loop redraws the page once it is foreground and idle.
+  std::atomic<bool> aaRedrawPending{false};
   unsigned long pageShownAtMs = 0UL;
   unsigned long lastRenderCompleteMs = 0UL;
   int idlePrewarmSpine = -1;
@@ -549,7 +552,7 @@ class EpubReaderActivity final : public Activity {
   void clearPendingManualPageTurns(bool requestRecoveryRedraw = true, const char* aaReason = "turns-cleared");
   void cancelGrayscalePass(const char* reason);
   // Render task: true when the AA pass should stop at `checkpoint` (a queued
-  // turn or a cancel event since the render began). Schedules a recovery redraw.
+  // turn or a cancel event since the render began). Flags a recovery redraw.
   bool grayscalePassCancelled(const char* checkpoint);
   void finishManualPageTurnBrakeIfReady();
   void cancelSilentNextChapterPrefetchForForwardTurn();
