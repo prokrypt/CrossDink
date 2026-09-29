@@ -257,11 +257,7 @@ void OpdsServerListActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_OPDS_SERVERS), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_OPDS_SERVERS));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_OPDS_SERVERS), false);
 
   uiReady = false;
   app.render();

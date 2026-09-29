@@ -8,7 +8,6 @@
 #ifndef SIMULATOR
 
 #include <Arduino.h>
-#include <TaskCores.h>
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -18,15 +17,11 @@ namespace {
 // plus headroom for the EPUB check (ZipFile) after the last byte. Internal
 // RAM, held only while a download runs.
 constexpr uint32_t DOWNLOAD_STACK_BYTES = 14 * 1024;
-// Same priority as the loop and render tasks, pinned to the worker core (also
-// the Wi-Fi core) like the prefetch.
-constexpr UBaseType_t DOWNLOAD_PRIORITY = 1;
 constexpr size_t DOWNLOAD_BUFFER_SIZE = 2048;
 // PSRAM, held only while a download runs: one SD write per 32 KB instead of
 // one per TLS record.
 constexpr size_t DOWNLOAD_WRITE_BUFFER_BYTES = 32 * 1024;
 constexpr size_t RX_LOG_STEP_BYTES = 1024 * 1024;
-constexpr TickType_t JOIN_POLL_TICKS = pdMS_TO_TICKS(10);
 }  // namespace
 
 OpdsBookDownloader::~OpdsBookDownloader() {
@@ -43,29 +38,12 @@ bool OpdsBookDownloader::start(Request&& request) {
   bytesTotal.store(0, std::memory_order_release);
   firstByteSeen.store(false, std::memory_order_release);
   cancelRequested.store(false, std::memory_order_release);
-  active.store(true, std::memory_order_release);
-
-  // Internal-RAM stack: Wi-Fi/TLS and SD code run on it, and PSRAM stacks are
-  // not safe while the flash cache is disabled.
-  if (xTaskCreatePinnedToCore(&taskEntry, "OpdsDownload", DOWNLOAD_STACK_BYTES, this, DOWNLOAD_PRIORITY, nullptr,
-                              TaskCores::kWorker) != pdPASS) {
-    active.store(false, std::memory_order_release);
+  if (!task.start([](void* self) { static_cast<OpdsBookDownloader*>(self)->run(); }, this, DOWNLOAD_STACK_BYTES,
+                  "OpdsDownload")) {
     LOG_ERR("OPDS", "Download task could not start");
     return false;
   }
   return true;
-}
-
-void OpdsBookDownloader::join() const {
-  while (running()) vTaskDelay(JOIN_POLL_TICKS);
-}
-
-void OpdsBookDownloader::taskEntry(void* context) {
-  auto* self = static_cast<OpdsBookDownloader*>(context);
-  self->run();
-  // Last touch of `self`: after this store the owner may destroy it.
-  self->active.store(false, std::memory_order_release);
-  vTaskDelete(nullptr);
 }
 
 void OpdsBookDownloader::run() {
@@ -130,8 +108,6 @@ void OpdsBookDownloader::run() {
 // The simulator has no network: the activity fakes a download screen instead.
 OpdsBookDownloader::~OpdsBookDownloader() = default;
 bool OpdsBookDownloader::start(Request&&) { return false; }
-void OpdsBookDownloader::join() const {}
-void OpdsBookDownloader::taskEntry(void*) {}
 void OpdsBookDownloader::run() {}
 
 #endif  // SIMULATOR

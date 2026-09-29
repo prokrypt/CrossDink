@@ -40,11 +40,7 @@ void AlertActivity::render(RenderLock&&) {
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
-  } else {
-    GUI.drawHeader(renderer, header, title.c_str());
-  }
+  TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
 
   int y = header.y + header.height + metrics.verticalSpacing;
 

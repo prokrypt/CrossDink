@@ -280,11 +280,7 @@ void ClockOffsetActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_CLOCK_UTC_OFFSET), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_CLOCK_UTC_OFFSET));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_CLOCK_UTC_OFFSET), false);
 
   const PickerLayout layout = getPickerLayout(renderer, mappedInput.hasTouch());
   auto widthOf = [&](const char* s) { return renderer.getTextWidth(UI_12_FONT_ID, s, EpdFontFamily::BOLD); };

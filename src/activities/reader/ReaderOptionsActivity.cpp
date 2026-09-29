@@ -819,11 +819,7 @@ void ReaderOptionsActivity::render(RenderLock&&) {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
   header.x = safe.x;
   header.width = safe.width;
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_READER_OPTIONS), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_READER_OPTIONS), nullptr, true);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_READER_OPTIONS), true);
 
   uiReady = false;
   app.render();

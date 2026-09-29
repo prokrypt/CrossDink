@@ -274,11 +274,7 @@ void FrontlightTimePickerActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, I18N.get(titleId), false);
-  } else {
-    GUI.drawHeader(renderer, header, I18N.get(titleId));
-  }
+  TouchHeaderBackButton::draw(renderer, header, I18N.get(titleId), false);
 
   const PickerLayout layout = getPickerLayout(renderer, mappedInput);
   char hourText[4];

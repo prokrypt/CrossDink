@@ -521,13 +521,8 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
 
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header,
-                                mode == Mode::StablePage ? tr(STR_GO_TO_STABLE_PAGE) : tr(STR_GO_TO_PERCENT), true);
-  } else {
-    GUI.drawHeader(renderer, header, mode == Mode::StablePage ? tr(STR_GO_TO_STABLE_PAGE) : tr(STR_GO_TO_PERCENT),
-                   nullptr, true);
-  }
+  TouchHeaderBackButton::draw(renderer, header,
+                              mode == Mode::StablePage ? tr(STR_GO_TO_STABLE_PAGE) : tr(STR_GO_TO_PERCENT), true);
 
   // Percent/page readout, keypad or slider, and step controls render through the app.
   uiReady = false;

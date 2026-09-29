@@ -886,11 +886,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
-  } else {
-    GUI.drawHeader(renderer, header, title.c_str());
-  }
+  TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
 
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
   const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +

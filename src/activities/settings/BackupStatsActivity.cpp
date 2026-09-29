@@ -42,11 +42,7 @@ void BackupStatsActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_BACKUP_NOW), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_BACKUP_NOW));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_BACKUP_NOW), false);
 
   if (state == WARNING) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_BACKUP_STATS_CONFIRM), true);

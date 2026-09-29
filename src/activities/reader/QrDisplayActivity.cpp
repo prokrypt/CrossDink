@@ -34,11 +34,7 @@ void QrDisplayActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_DISPLAY_QR), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_DISPLAY_QR), nullptr);
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_DISPLAY_QR), false);
 
   const int availableWidth = pageWidth - 40;
   const int availableHeight = pageHeight - metrics.topPadding - TouchHeaderBackButton::height(metrics, mappedInput) -

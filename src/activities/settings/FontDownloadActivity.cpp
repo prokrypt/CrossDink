@@ -1236,11 +1236,7 @@ void FontDownloadActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_FONT_BROWSER), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_FONT_BROWSER));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_FONT_BROWSER), false);
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto contentTop =
@@ -1322,6 +1318,9 @@ void FontDownloadActivity::render(RenderLock&&) {
   }
 
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-  const BlackRedriveLut redriveLut(state_ == DOWNLOADING);
+  const bool redrive = state_ == DOWNLOADING;
+  const bool scrub = redrive && scrubFirstFrame.exchange(false, std::memory_order_acq_rel);
+  if (scrub) LOG_DBG("FONT", "Frame refresh=du-scrub");
+  const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
 }

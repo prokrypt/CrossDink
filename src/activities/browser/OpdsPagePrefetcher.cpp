@@ -4,9 +4,6 @@
 #ifndef SIMULATOR
 
 #include <Logging.h>
-#include <TaskCores.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 
 #include <utility>
 
@@ -16,10 +13,6 @@ namespace {
 // wolfSSL handshake plus the HTTP client need more than the 4 KB used by the
 // SD-bound workers; the stack is internal RAM and lives only while a job runs.
 constexpr uint32_t PREFETCH_STACK_BYTES = 12 * 1024;
-// Same priority as the loop and render tasks, but pinned to the worker core
-// (also the Wi-Fi core) so redraws never wait on the download.
-constexpr UBaseType_t PREFETCH_PRIORITY = 1;
-constexpr TickType_t JOIN_POLL_TICKS = pdMS_TO_TICKS(10);
 }  // namespace
 
 OpdsPagePrefetcher::~OpdsPagePrefetcher() {
@@ -34,22 +27,13 @@ bool OpdsPagePrefetcher::start(Request&& request, const size_t maxBytes) {
   page = OpdsPageBuffer(MemoryPool::Psram, maxBytes);
   succeeded = false;
   cancelRequested.store(false, std::memory_order_release);
-  active.store(true, std::memory_order_release);
-
-  // The task stack must stay in internal RAM: Wi-Fi/TLS code runs on it and
-  // PSRAM stacks are not safe while flash cache is disabled.
-  if (xTaskCreatePinnedToCore(&taskEntry, "OpdsPrefetch", PREFETCH_STACK_BYTES, this, PREFETCH_PRIORITY, nullptr,
-                              TaskCores::kWorker) != pdPASS) {
-    active.store(false, std::memory_order_release);
+  if (!task.start([](void* self) { static_cast<OpdsPagePrefetcher*>(self)->run(); }, this, PREFETCH_STACK_BYTES,
+                  "OpdsPrefetch")) {
     page.reset();
     LOG_ERR("OPDS", "Prefetch task could not start");
     return false;
   }
   return true;
-}
-
-void OpdsPagePrefetcher::join() const {
-  while (running()) vTaskDelay(JOIN_POLL_TICKS);
 }
 
 void OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache) {
@@ -60,14 +44,6 @@ void OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache) {
   }
   succeeded = false;
   page.reset();
-}
-
-void OpdsPagePrefetcher::taskEntry(void* context) {
-  auto* self = static_cast<OpdsPagePrefetcher*>(context);
-  self->run();
-  // Last touch of `self`: after this store the owner may destroy it.
-  self->active.store(false, std::memory_order_release);
-  vTaskDelete(nullptr);
 }
 
 void OpdsPagePrefetcher::run() {
@@ -103,9 +79,7 @@ void OpdsPagePrefetcher::run() {
 // these keep the link complete.
 OpdsPagePrefetcher::~OpdsPagePrefetcher() = default;
 bool OpdsPagePrefetcher::start(Request&&, size_t) { return false; }
-void OpdsPagePrefetcher::join() const {}
 void OpdsPagePrefetcher::harvestInto(OpdsPageCache&) {}
-void OpdsPagePrefetcher::taskEntry(void*) {}
 void OpdsPagePrefetcher::run() {}
 
 #endif  // SIMULATOR

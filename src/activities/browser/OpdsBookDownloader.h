@@ -5,6 +5,7 @@
 #include <string>
 
 #include "network/HttpDownloader.h"
+#include "util/WorkerTask.h"
 
 /**
  * Downloads one OPDS book to SD on a background task (the worker core), so the
@@ -36,11 +37,11 @@ class OpdsBookDownloader {
   bool start(Request&& request);
 
   // True while the background task is alive.
-  bool running() const { return active.load(std::memory_order_acquire); }
+  bool running() const { return task.running(); }
   void cancel() { cancelRequested.store(true, std::memory_order_release); }
   bool cancelling() const { return cancelRequested.load(std::memory_order_acquire); }
   // Blocks the caller until the background task has exited.
-  void join() const;
+  void join() const { task.join(); }
 
   // Progress, readable from any task while the job runs.
   size_t downloaded() const { return bytesDone.load(std::memory_order_acquire); }
@@ -54,14 +55,13 @@ class OpdsBookDownloader {
   const std::string& path() const { return job.path; }
 
  private:
-  static void taskEntry(void* context);
   void run();
 
   Request job;
-  HttpDownloader::DownloadError outcome = HttpDownloader::HTTP_ERROR;  // written before `active` clears
+  HttpDownloader::DownloadError outcome = HttpDownloader::HTTP_ERROR;  // written before running() clears
   std::atomic<size_t> bytesDone{0};
   std::atomic<size_t> bytesTotal{0};
   std::atomic<bool> firstByteSeen{false};
   std::atomic<bool> cancelRequested{false};
-  std::atomic<bool> active{false};
+  WorkerTask task;
 };

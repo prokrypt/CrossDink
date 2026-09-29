@@ -36,11 +36,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_NEARBY_STATS_SYNC));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
   renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_NEARBY_STATS_SIMULATOR_UNAVAILABLE), true,
                             EpdFontFamily::BOLD);
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
@@ -632,11 +628,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_NEARBY_STATS_SYNC));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
 
   const int centerY = pageHeight / 2 - 20;
   std::string primary;
