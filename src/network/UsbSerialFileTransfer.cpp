@@ -45,6 +45,8 @@ constexpr uint32_t SHORT_TIMEOUT_MS = 1000;
 constexpr uint32_t HEADER_TIMEOUT_MS = 2000;
 constexpr uint32_t CHECKSUM_TIMEOUT_MS = 10000;
 constexpr uint32_t CHUNK_TIMEOUT_MS = 45000;
+// Per binary write: how long a host may stop reading before a download aborts.
+constexpr uint32_t BULK_WRITE_BUDGET_MS = 3000;
 constexpr const char* TEMP_UPLOAD_PATH = "/.crosspoint/usb-upload.tmp";
 constexpr const char* INTERNAL_DIR = "/.crosspoint";
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -93,7 +95,10 @@ void writeRxOverflowError(const uint32_t snapshot) {
 
 void writeLine(const char* line) { (void)logSerialWriteAll(line, strlen(line)); }
 
-void writeRaw(const uint8_t* data, size_t length) { logSerial.write(data, length); }
+// Binary data: a short write would desync the host, which counts bytes.
+bool writeRaw(const uint8_t* data, size_t length) {
+  return logSerialWriteAll(data, length, BULK_WRITE_BUDGET_MS, BULK_WRITE_BUDGET_MS);
+}
 
 void writeAck() { writeRaw(&ACK, 1); }
 
@@ -102,10 +107,10 @@ uint32_t readLe32(const uint8_t* data) {
          (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
 }
 
-void writeLe32(uint32_t value) {
+bool writeLe32(uint32_t value) {
   uint8_t data[4] = {static_cast<uint8_t>(value), static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value >> 16),
                      static_cast<uint8_t>(value >> 24)};
-  writeRaw(data, sizeof(data));
+  return writeRaw(data, sizeof(data));
 }
 
 bool readExact(uint8_t* buffer, size_t length, uint32_t timeoutMs, size_t* receivedOut = nullptr,
@@ -684,25 +689,31 @@ void handleRead() {
     return;
   }
 
-  writeLine("READY\n");
-  writeLe32(static_cast<uint32_t>(fileSize64));
+  bool sent = true;
+  {
+    // Hold the port for the whole stream so no log line lands inside it.
+    const LogSerialGuard port(BULK_WRITE_BUDGET_MS);
+    writeLine("READY\n");
+    sent = writeLe32(static_cast<uint32_t>(fileSize64));
 
-  uint32_t crc = 0;
-  while (file.available() > 0) {
-    const int read = file.read(transferBuffer, sizeof(transferBuffer));
-    if (read < 0) {
-      file.close();
-      writeLine("ERR:read\n");
-      return;
+    uint32_t crc = 0;
+    while (sent && file.available() > 0) {
+      const int read = file.read(transferBuffer, sizeof(transferBuffer));
+      if (read < 0) {
+        file.close();
+        writeLine("ERR:read\n");
+        return;
+      }
+      if (read == 0) break;
+
+      sent = writeRaw(transferBuffer, static_cast<size_t>(read));
+      crc = esp_rom_crc32_le(crc, transferBuffer, static_cast<uint32_t>(read));
+      yield();
     }
-    if (read == 0) break;
-
-    writeRaw(transferBuffer, static_cast<size_t>(read));
-    crc = esp_rom_crc32_le(crc, transferBuffer, static_cast<uint32_t>(read));
-    yield();
+    if (sent) sent = writeLe32(crc);
   }
   file.close();
-  writeLe32(crc);
+  if (!sent) LOG_ERR("USB", "Read aborted: host stopped reading");
 }
 
 void handleCommand() {
@@ -745,6 +756,8 @@ void handleCommand() {
 ProcessResult handleLine() {
   lineBuffer[lineBufferPos] = '\0';
   lineBufferPos = 0;
+  // Blank lines and xink-remote's ">>>>> " operator echoes are for people only.
+  if (lineBuffer[0] == '\0' || strncmp(lineBuffer, ">>>>> ", 6) == 0) return ProcessResult::None;
 
   if (strcmp(lineBuffer, "CMD:SCREENSHOT") == 0) {
     return ProcessResult::ScreenshotRequested;
@@ -759,14 +772,23 @@ ProcessResult handleLine() {
     // Fresh identity header first (counted in the length): the ring may have
     // wrapped past the boot lines.
     const size_t headerLen = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
-    logSerial.printf("PSRAMLOG_START:%lu\n", static_cast<unsigned long>(headerLen + (end - cursor)));
-    logSerial.write(reinterpret_cast<const uint8_t*>(chunk), headerLen);
-    while (cursor < end) {
-      const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
-      if (len == 0) break;
-      logSerial.write(reinterpret_cast<const uint8_t*>(chunk), len);
+    bool sent = false;
+    {
+      // Hold the port for the whole dump: the host counts the announced bytes.
+      const LogSerialGuard port(BULK_WRITE_BUDGET_MS);
+      char start[32];
+      const int startLen = snprintf(start, sizeof(start), "PSRAMLOG_START:%lu\n",
+                                    static_cast<unsigned long>(headerLen + (end - cursor)));
+      sent = logSerialWriteAll(start, static_cast<size_t>(startLen)) &&
+             writeRaw(reinterpret_cast<const uint8_t*>(chunk), headerLen);
+      while (sent && cursor < end) {
+        const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+        if (len == 0) break;
+        sent = writeRaw(reinterpret_cast<const uint8_t*>(chunk), len);
+      }
+      if (sent) sent = logSerialWriteAll("\nPSRAMLOG_END\n", 14);
     }
-    logSerial.printf("\nPSRAMLOG_END\n");
+    if (!sent) LOG_ERR("USB", "PSRAMLOG dump aborted: host stopped reading");
     return ProcessResult::None;
   }
 #endif
