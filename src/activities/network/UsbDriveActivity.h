@@ -33,6 +33,8 @@ class UsbDriveActivity final : public Activity {
   // Bursts under this are host polling; they are summarized, not logged each.
   static constexpr uint32_t BURST_LOG_MIN_BYTES = 64 * 1024;
   static constexpr uint32_t POLL_SUMMARY_MS = 30UL * 1000UL;
+  // The host's mount scan counts as done after this long with no I/O.
+  static constexpr uint32_t MOUNT_SETTLE_MS = 1000;
 
   void restartToHome();
   void updateTransferLight();
@@ -57,4 +59,8 @@ class UsbDriveActivity final : public Activity {
   uint32_t burstWriteStart = 0;
   uint16_t pollBursts = 0;
   uint32_t pollSummaryAt = 0;
+  // Mount timing for the [USB] mount line.
+  uint32_t enterMs = 0;
+  uint32_t hostMs = 0;
+  bool mountLogged = false;
 };

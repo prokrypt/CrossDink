@@ -100,9 +100,11 @@ class ActivityManager {
   // Whether a FAST refresh in this activity's render may return before the waveform ends.
   static bool allowsDeferredRefresh(const Activity& activity);
   static constexpr uint32_t DEFERRED_REFRESH_POLL_MS = 5;
-  // Network screens repaint status every few seconds; below this gap the
-  // booster stays on so each update skips the ~127 ms power-on.
-  static constexpr uint32_t IDLE_PANEL_OFF_MS = 8000;
+  // Screens that opt in (powerOffPanelWhenIdle) switch the booster off as
+  // soon as their frame's refresh is done and no new frame is queued within
+  // this poll. Transfer screens rarely redraw (only the signal icon), so each
+  // redraw paying the ~127 ms power-on costs less than an idle booster.
+  static constexpr uint32_t PANEL_OFF_POLL_MS = DEFERRED_REFRESH_POLL_MS;
 
   // Set by requestUpdateAndWait(); read and cleared by the render task after render completes.
   // Note: only one waiting task is supported at a time

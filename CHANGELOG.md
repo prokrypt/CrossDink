@@ -26,6 +26,8 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- File Transfer, Calibre Connect, Nearby transfer and USB Drive switch the panel's power booster off right after each screen update instead of after 8 seconds idle, saving power while they wait.
+- USB Drive logs how long the computer took to mount the card (connect, first read, end of the initial scan).
 - Reader: opening the menu, quick actions or the frontlight panel, rotating, jumping, skipping chapters, sleeping, locking, pressing Back and similar actions now stop a running anti-aliasing pass instead of waiting for it to finish. The page gets its anti-aliasing again when you come back to it.
 - X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.
 - X4 Pro: Turbo keyboard now drives 6 frames per key (was 3), matching the tested setup; 3 frames left heavy ghosting.

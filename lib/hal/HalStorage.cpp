@@ -280,7 +280,7 @@ void HalStorage::endUsbDrive() {
 bool HalStorage::usbDriveIo(UsbDriveIo& out) const {
 #if FREEINK_CAP_USB_MSC
   if (!usbDriveContext) return false;
-  usbDriveContext->readAhead.hostIo(out.lastIoMs, out.readBytes, out.writeBytes);
+  usbDriveContext->readAhead.hostIo(out);
   return true;
 #else
   (void)out;
