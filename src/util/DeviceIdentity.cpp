@@ -13,6 +13,7 @@
 
 #include "AppVersion.h"
 #include "BuildInfo.h"
+#include "DeviceSecurity.h"
 #endif
 
 namespace DeviceIdentity {
@@ -95,15 +96,18 @@ size_t formatLogHeader(char* buf, const size_t size) {
   formatPanelId(d, id, sizeof(id), lut, sizeof(lut));
   const uint64_t mac = ESP.getEfuseMac();
   const unsigned long upS = millis() / 1000;
+  char sec[96];
+  DeviceSecurity::format(sec, sizeof(sec));
   const int n = snprintf(buf, size,
                          "=== CrossDink log dump: device=%s serial=%04X%08lX fw=%s sha=%s%s env=%s build=%s\n"
                          "=== panel=%s variant=0x%02X via %s VER=%02X %02X %02X %02X %02X productId=%s lutVer=%s\n"
+                         "=== sec: %s\n"
                          "=== uptime=%lu:%02lu:%02lu heap free=%u min=%u maxAlloc=%u psram free=%u ===\n",
                          BoardConfig::ACTIVE.name, static_cast<unsigned>(mac >> 32),
                          static_cast<unsigned long>(mac & 0xFFFFFFFFu), CROSSDINK_VERSION, BuildInfo::gitSha(),
                          strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", CROSSDINK_PIOENV, BuildInfo::buildNumber(),
                          controllerName(), BoardConfig::ACTIVE.displayControllerVariant, detectMethod(d), d.ver[0],
-                         d.ver[1], d.ver[2], d.ver[3], d.ver[4], id, lut, upS / 3600, (upS / 60) % 60, upS % 60,
+                         d.ver[1], d.ver[2], d.ver[3], d.ver[4], id, lut, sec, upS / 3600, (upS / 60) % 60, upS % 60,
                          static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                          static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
                          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),

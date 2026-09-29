@@ -183,33 +183,39 @@ void KeyboardEntryActivity::onExit() {
 #endif
 }
 
-// EXPERIMENT (test/kbd-uc8179): debug builds read toggles from /.crosspoint/kbd-exp.txt,
-// read once per keyboard open (one small SD read), so they flip without a
-// reflash. Format: "flags [lutFrames] [pll]", numbers in C syntax (0x.. ok).
+namespace {
+// Serial CMD:KBDEXP override (debug builds); main loop only.
+struct KbdExpOverride {
+  bool active = false;
+  uint8_t flags = 0;
+  uint8_t frames = 0;
+  uint8_t pll = 0;
+};
+KbdExpOverride gKbdExpOverride;
+}  // namespace
+
+void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uint8_t frames, const uint8_t pll) {
+  gKbdExpOverride = {true, flags, frames, pll};
+}
+
+void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
+
+// EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
+// picks "31 6" (flags 31, 6 DU frames) or 0 (T1 baseline, timing only).
 // flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
-// 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start).
-// Without the file, Settings > System > Device > Turbo keyboard picks "31 6" or 0
-// (T1 baseline, timing only).
+// 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
+// 64 = DU scrub on open, 128 = light sleep during the refresh. Debug builds can
+// override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
   kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   kbdExpPll = 0;
   kbdExpFirstFrame = true;
-#if LOG_LEVEL >= 2  // the kbd-exp.txt override is for debug builds only
-  FsFile f;
-  if (Storage.exists(KBD_EXP_PATH) && Storage.openFileForRead("KBD", KBD_EXP_PATH, f)) {
-    char buf[48] = {};
-    const int n = f.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf) - 1);
-    f.close();
-    if (n > 0) {
-      char* end = buf;
-      kbdExpFlags = static_cast<uint8_t>(strtoul(end, &end, 0));
-      const unsigned long frames = strtoul(end, &end, 0);
-      if (frames > 0 && frames < 64) kbdExpFrames = static_cast<uint8_t>(frames);
-      kbdExpPll = static_cast<uint8_t>(strtoul(end, &end, 0));
-    }
+  if (gKbdExpOverride.active) {
+    kbdExpFlags = gKbdExpOverride.flags;
+    if (gKbdExpOverride.frames > 0 && gKbdExpOverride.frames < 64) kbdExpFrames = gKbdExpOverride.frames;
+    kbdExpPll = gKbdExpOverride.pll;
   }
-#endif
   LOG_DBG("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
   kbdFrame = 0;
   prevFrameStrokeMs = 0;

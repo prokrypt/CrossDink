@@ -21,7 +21,6 @@ constexpr const char* HOSTNAME = "crosspoint";
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
-  transferLight.begin();
   sdFontSystem.releaseLoadedFont(renderer);
 
   requestUpdate();
@@ -88,6 +87,8 @@ void CalibreConnectActivity::startWebServer() {
 
   if (webServer->isRunning()) {
     state = CalibreConnectState::SERVER_RUNNING;
+    // Pulse only once the server is up; Wi-Fi selection keeps the user's brightness.
+    transferLight.begin();
     requestUpdate();
   } else {
     state = CalibreConnectState::ERROR;
@@ -96,6 +97,7 @@ void CalibreConnectActivity::startWebServer() {
 }
 
 void CalibreConnectActivity::stopWebServer() {
+  transferLight.end();  // restores the user's brightness
   if (webServer) {
     webServer->stop();
     webServer.reset();

@@ -2,6 +2,7 @@
 
 ### Added
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
+- The web status API (`/api/status`) reports the device's eFuse security state (flash encryption, secure boot, JTAG, USB-Serial-JTAG, download mode) and whether it is locked against reflashing. Debug builds log the same line at boot and in the PSRAM log header.
 - Debug builds: the boot log names the exact panel controller (UC8179, SSD1677, ...), how it was detected, and the panel's VER/MTP product id and LUT version. Every PSRAM log grab (/api/psram-log, CMD:PSRAMLOG) starts with a header: device, serial, build, env, panel, uptime and heap.
 
 - While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% once a second, and stays off while idle. Each pulse finishes smoothly, so even a short request gives one full blink and the light never cuts off abruptly. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
@@ -25,6 +26,10 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- File Transfer and Calibre Connect: the frontlight pulse starts once the server is running, so the mode menu and Wi-Fi picker keep your brightness.
+- KOReader sync is faster: it skips the time sync when the clock is already set, shows one status screen instead of three, no longer waits for each screen to finish drawing before the request, and gives up on an unresponsive server after 8 seconds. Smart sync no longer tries the second document id after a network or login error.
+- Debug builds: tap and swipe logs use screen coordinates in the current orientation and name the swipe direction.
+- X4 Pro: the keyboard refresh no longer reads `kbd-exp.txt` from the SD card; the debug serial `CMD:KBDEXP` override is kept in RAM until reboot.
 - X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.
 - X4 Pro: Turbo keyboard now drives 6 frames per key (was 3), matching the tested setup; 3 frames left heavy ghosting.
 - Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, the outer keys reach the screen edges, and the top row reaches halfway up the strip above it, so there are no dead spots. The keys look the same.

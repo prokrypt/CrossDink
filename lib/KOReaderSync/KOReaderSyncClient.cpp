@@ -116,6 +116,10 @@ KOReaderSyncClient::Error validateAuthResponse(const char* body) {
   return KOReaderSyncClient::OK;
 }
 
+// Sync runs on the main loop; a dead server should fail in seconds, not the
+// client's 15 s default per stage.
+constexpr uint32_t SYNC_HTTP_TIMEOUT_MS = 8000;
+
 // KOSync's TLS-1.3 servers can't be reached through the precompiled system
 // mbedTLS (TLS 1.3 is stubbed out), so requests run over wolfSSL via
 // SecureHttpClient. The handshake still needs working heap; gate on it. wolfSSL's
@@ -207,6 +211,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 #else
   freeink::SecureHttpClient http;
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -255,6 +260,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
 
   freeink::SecureHttpClient http;
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -349,6 +355,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
 #else
   freeink::SecureHttpClient http;
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -499,6 +506,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
 #else
   freeink::SecureHttpClient http;
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;

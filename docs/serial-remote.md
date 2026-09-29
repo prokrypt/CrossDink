@@ -25,7 +25,7 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:ACTIVITY` | `OK:ACTIVITY <name>` | |
 | `CMD:HEAP` | `OK:HEAP internal_free=.. internal_min=.. internal_largest=.. psram_free=.. psram_largest=..` | |
 | `CMD:SET <key> <value>` | `OK:SET <key> <value>` | Toggle, enum (raw value) or numeric setting by its web API key; saved to SD. |
-| `CMD:KBDEXP <flags> [frames] [pll]` / `CMD:KBDEXP off` | `OK:KBDEXP ...` | Writes or removes `/.crosspoint/kbd-exp.txt` (SD write); read at the next keyboard open. |
+| `CMD:KBDEXP <flags> [frames] [pll]` / `CMD:KBDEXP off` | `OK:KBDEXP ...` | Sets or clears a keyboard refresh override in RAM (no SD write); applied at the next keyboard open, kept until `off` or reboot. |
 | `CMD:REFRESH [fast\|half\|full]` | `OK:REFRESH` | Re-sends the current framebuffer. |
 | `CMD:HOME` | `OK:HOME` | |
 | `CMD:OPEN <path>` | `OK:OPEN` | Opens a book in the reader. |

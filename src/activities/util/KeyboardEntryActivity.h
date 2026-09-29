@@ -44,7 +44,6 @@ class KeyboardEntryActivity : public Activity {
   bool passwordVisible = false;
 
   // EXPERIMENT (test/kbd-uc8179): UC8179 keyboard refresh toggles.
-  static constexpr const char* KBD_EXP_PATH = "/.crosspoint/kbd-exp.txt";
   static constexpr uint8_t KBD_EXP_SKIP_RESYNC = 1;
   static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
@@ -76,6 +75,15 @@ class KeyboardEntryActivity : public Activity {
   bool highlightPending = false;
   unsigned long highlightDueMs = 0;
   void loadKbdExperiment();
+
+ public:
+  // Debug builds (serial CMD:KBDEXP): overrides the Turbo keyboard preset at
+  // the next keyboard open, so the trial bits (64, 128) and a PLL value stay
+  // reachable without a file. Held in RAM until cleared or reboot.
+  static void setExperimentOverride(uint8_t flags, uint8_t frames, uint8_t pll);
+  static void clearExperimentOverride();
+
+ private:
   void requestStrokeUpdate(StrokeCause cause = StrokeCause::Key);
 
   ButtonNavigator buttonNavigator;

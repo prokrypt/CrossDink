@@ -23,6 +23,7 @@
 #include "SettingsList.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
+#include "activities/util/KeyboardEntryActivity.h"
 
 namespace SerialRemote {
 namespace {
@@ -36,7 +37,6 @@ constexpr uint32_t DEFAULT_WAIT_MS = 10000;
 // Idle must hold this long so an injected release has reached the activity
 // loop (and its requestUpdate) before WAITIDLE answers.
 constexpr uint32_t IDLE_SETTLE_MS = 150;
-constexpr const char* KBD_EXP_PATH = "/.crosspoint/kbd-exp.txt";
 
 // Read by the input sampling task through the SDK hooks.
 std::atomic<uint8_t> buttonMask{0};
@@ -256,28 +256,23 @@ void cmdSet(char* args) {
   reply("ERR:SET:unknown_key");
 }
 
-// Writes the keyboard experiment file (read at each keyboard open), or removes
-// it with "off". SD write.
+// Overrides the keyboard refresh experiment in RAM (applied at the next
+// keyboard open, kept until "off" or reboot). No SD write.
 void cmdKbdExp(char* args) {
   while (*args == ' ') args++;
   if (strcasecmp(args, "off") == 0) {
-    if (Storage.exists(KBD_EXP_PATH) && !Storage.remove(KBD_EXP_PATH)) return reply("ERR:KBDEXP:remove");
+    KeyboardEntryActivity::clearExperimentOverride();
     return reply("OK:KBDEXP off");
   }
   int flags = 0;
-  int frames = 3;
+  int frames = 6;
   int pll = 0;
-  if (sscanf(args, "%i %i %i", &flags, &frames, &pll) < 1 || flags < 0 || frames < 0 || pll < 0) {
+  if (sscanf(args, "%i %i %i", &flags, &frames, &pll) < 1 || flags < 0 || flags > 255 || frames < 0 || frames > 63 ||
+      pll < 0 || pll > 255) {
     return reply("ERR:KBDEXP:args");
   }
-  if (Storage.exists(KBD_EXP_PATH)) Storage.remove(KBD_EXP_PATH);
-  HalFile f;
-  if (!Storage.openFileForWrite("SREM", KBD_EXP_PATH, f)) return reply("ERR:KBDEXP:open");
-  char line[32];
-  const int n = snprintf(line, sizeof(line), "%d %d %d\n", flags, frames, pll);
-  const bool ok = f.write(reinterpret_cast<const uint8_t*>(line), static_cast<size_t>(n)) == static_cast<size_t>(n);
-  f.close();
-  if (!ok) return reply("ERR:KBDEXP:write");
+  KeyboardEntryActivity::setExperimentOverride(static_cast<uint8_t>(flags), static_cast<uint8_t>(frames),
+                                               static_cast<uint8_t>(pll));
   reply("OK:KBDEXP %d %d %d", flags, frames, pll);
 }
 

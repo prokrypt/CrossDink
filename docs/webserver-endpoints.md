@@ -54,6 +54,7 @@ Response:
 | `uptime` | number | Seconds since boot |
 | `device` | string | `"X3"` or `"X4"` hardware detection |
 | `serial` | string | Device serial number from eFuse, or `"Not found"` when unavailable |
+| `security` | object | Read-only eFuse state (not in the simulator): `flashEnc` (`"off"`, `"dev"`, `"release"`), `secureBoot`, `usbSerialJtagDisabled`, `jtagDisabled`, `download` (`"on"`, `"secure"`, `"off"`), and `locked` (true when flash encryption is in release mode, secure boot is on, download mode is off, or USB-Serial-JTAG is disabled) |
 
 ### `POST /api/exit`
 

@@ -68,7 +68,6 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
-  transferLight.begin();
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
@@ -328,6 +327,9 @@ void CrossPointWebServerActivity::startWebServer() {
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;
+    // The pulse (and its 0% idle level) starts only once the server is up, so
+    // the mode menu and Wi-Fi picker keep the user's brightness.
+    transferLight.begin();
     lastWifiBars = isApMode ? 0 : barsForRssi(WiFi.RSSI(), 0);
 
     // Force an immediate render since we're transitioning from a subactivity
@@ -360,6 +362,7 @@ void CrossPointWebServerActivity::exitToOrigin() {
 }
 
 void CrossPointWebServerActivity::stopWebServer() {
+  transferLight.end();  // restores the user's brightness
   if (webServer && webServer->isRunning()) {
     webServer->stop();
   }

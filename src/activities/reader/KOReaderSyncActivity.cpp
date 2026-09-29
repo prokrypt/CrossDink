@@ -104,19 +104,25 @@ const char* matchMethodName(const DocumentMatchMethod method) {
   return method == DocumentMatchMethod::FILENAME ? "filename" : "binary";
 }
 
-void syncTimeWithNTP() {
+// TLS runs with setInsecure(), so the clock only matters for timestamps; the
+// Wi-Fi join already syncs an untrusted clock. Returns true when NTP ran.
+bool syncTimeWithNTP() {
 #ifndef SIMULATOR
+  if (halClock.hasTrustedDateTime()) return false;
   if (!halClock.syncSystemTimeFromNTP()) {
     LOG_DBG("KOSync", "NTP sync unavailable, using fallback");
   }
+  return true;
+#else
+  return false;
 #endif
 }
 
+// Drops the radio while the result shows; leaveNetworkInPlace() does the full
+// teardown on exit, so no settle delays here.
 void wifiOff() {
   WiFi.disconnect(false);
-  delay(100);
   WiFi.mode(WIFI_OFF);
-  delay(100);
 }
 }  // namespace
 
@@ -204,6 +210,14 @@ bool KOReaderSyncActivity::smartSyncEnabled() const {
   return KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART;
 }
 
+void KOReaderSyncActivity::logSyncTiming() {
+  if (timing.start == 0) return;
+  LOG_INF("SYNC", "t wifi=%u ntp=%u get=%u put=%u total=%lu", static_cast<unsigned>(timing.wifi),
+          static_cast<unsigned>(timing.ntp), static_cast<unsigned>(timing.get), static_cast<unsigned>(timing.put),
+          millis() - timing.start);
+  timing = SyncTiming{};
+}
+
 void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
 
 void KOReaderSyncActivity::completeAlreadySynced() {
@@ -222,28 +236,25 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
     return;
   }
 
+  if (timing.start != 0) timing.wifi = millis() - timing.start;
   WiFi.setSleep(false);
   LOG_DBG("KOSync", "WiFi sleep disabled for sync");
 
   sdFontSystem.releaseForNetwork(renderer);
 
+  // One status screen for the whole fetch; each extra screen is a panel refresh.
   {
     RenderLock lock(*this);
     state = SYNCING;
-    statusMessage = tr(STR_SYNCING_TIME);
+    statusMessage = tr(STR_FETCH_PROGRESS);
   }
   requestUpdate(true);
 
-  // Sync time with NTP before making API requests
-  syncTimeWithNTP();
-
-  {
-    RenderLock lock(*this);
-    statusMessage = tr(STR_CALC_HASH);
-  }
-  requestUpdate(true);
+  const unsigned long ntpStart = millis();
+  if (syncTimeWithNTP()) timing.ntp = millis() - ntpStart;
 
   performSync();
+  logSyncTiming();
 }
 
 void KOReaderSyncActivity::performSync() {
@@ -261,32 +272,20 @@ void KOReaderSyncActivity::performSync() {
   }
   const std::string primaryHash = documentHash;
 
-  {
-    RenderLock lock(*this);
-    statusMessage = tr(STR_FETCH_PROGRESS);
-  }
-  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
-    LOG_ERR("KOSync", "Fetch progress screen could not be rendered synchronously; aborting sync");
-    wifiOff();
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      statusMessage = tr(STR_SYNC_FAILED_MSG);
-    }
-    requestUpdate(true);
-    return;
-  }
-
   // Fetch remote progress. In smart mode, also probe the alternate document-id
   // method and use the furthest remote state we can find. This avoids a stale
   // local upload when another KOReader device synced the same book with a
   // different document matching method.
+  const unsigned long getStart = millis();
   auto result = KOReaderSyncClient::getProgress(documentHash, remoteProgress);
   LOG_DBG("KOSync", "Primary remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s",
           matchMethodName(primaryMethod), result, KOReaderSyncClient::lastHttpCode, documentHash.c_str(),
           remoteProgress.percentage, remoteProgress.progress.c_str());
 
-  if (smartSyncEnabled()) {
+  // A network or auth failure would fail the alternate probe too; skip its handshake.
+  const bool probeAlternate = result != KOReaderSyncClient::NETWORK_ERROR &&
+                              result != KOReaderSyncClient::AUTH_FAILED && result != KOReaderSyncClient::LOW_MEMORY;
+  if (smartSyncEnabled() && probeAlternate) {
     const DocumentMatchMethod altMethod = alternateMatchMethod(primaryMethod);
     const std::string altHash = calculateDocumentHashForMethod(epubPath, altMethod);
     if (!altHash.empty() && altHash != documentHash) {
@@ -305,6 +304,7 @@ void KOReaderSyncActivity::performSync() {
       }
     }
   }
+  timing.get = millis() - getStart;
 
   // A minimal network boot intentionally reaches this point without loading the EPUB.
   // Reconstruct local progress only after all remote TLS probes have completed.
@@ -485,22 +485,15 @@ void KOReaderSyncActivity::performSync() {
 }
 
 void KOReaderSyncActivity::performUpload() {
+  // A user-chosen upload starts a new timed run; smart sync continues its own.
+  if (timing.start == 0) timing.start = millis();
   {
     RenderLock lock(*this);
     state = UPLOADING;
     statusMessage = tr(STR_UPLOAD_PROGRESS);
   }
-  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
-    LOG_ERR("KOSync", "Upload progress screen could not be rendered synchronously; aborting upload");
-    wifiOff();
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      statusMessage = tr(STR_SYNC_FAILED_MSG);
-    }
-    requestUpdate(true);
-    return;
-  }
+  // The render task draws this while the request runs.
+  requestUpdate(true);
 
   if (epub) {
     epub.reset();
@@ -553,10 +546,13 @@ void KOReaderSyncActivity::performUpload() {
   // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
   epub.reset();
 
+  const unsigned long putStart = millis();
   const auto result = KOReaderSyncClient::updateProgress(progress);
+  timing.put = millis() - putStart;
 
   // Drop the radio while user reads the result; full teardown happens at silent reboot.
   wifiOff();
+  logSyncTiming();
 
   if (result != KOReaderSyncClient::OK) {
     {
@@ -630,6 +626,7 @@ void KOReaderSyncActivity::onEnter() {
   // Past this point every path uses WiFi.
   sdFontSystem.releaseLoadedFont(renderer);
   wifiActivated = true;
+  timing.start = millis();
 
   // Check if already connected (e.g. from settings page auth)
   if (hasActiveStationWifiConnection()) {

@@ -90,6 +90,7 @@
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
 #include "util/DeviceIdentity.h"
+#include "util/DeviceSecurity.h"
 #include "util/Dictionary.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
@@ -1467,6 +1468,13 @@ void setup() {
           BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
+#ifndef SIMULATOR
+  {
+    char sec[96];
+    DeviceSecurity::format(sec, sizeof(sec));
+    LOG_INF("BOOT", "sec: %s", sec);
+  }
+#endif
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
   // Validate the target too — RTC_NOINIT memory is uninitialized on cold boot.
@@ -1947,17 +1955,26 @@ static const char* logInputEvents() {
     LOG_DBG("IN", "home key");
     kind = "home";
   }
+  // Screen px in the current orientation (what the UI acts on), then the raw
+  // panel permille for touch debugging. The panel is rotated from the held
+  // orientation, so directions come from the logical points.
+  int lx0 = 0, ly0 = 0, lx1 = 0, ly1 = 0;
   if (gpio.wasTouchTap(x0, y0)) {
-    LOG_DBG("IN", "tap %d,%d", permille(x0), permille(y0));
+    renderer.tapToLogical(x0, y0, lx0, ly0);
+    LOG_DBG("IN", "tap %d,%d (panel %d,%d)", lx0, ly0, permille(x0), permille(y0));
     kind = "tap";
   } else if (gpio.wasTouchLongPress(x0, y0)) {
-    LOG_DBG("IN", "long %d,%d", permille(x0), permille(y0));
+    renderer.tapToLogical(x0, y0, lx0, ly0);
+    LOG_DBG("IN", "long %d,%d (panel %d,%d)", lx0, ly0, permille(x0), permille(y0));
     kind = "long";
   } else if (gpio.wasSwipe(x0, y0, x1, y1)) {
-    const float dx = x1 - x0;
-    const float dy = y1 - y0;
-    const char* dir = std::fabs(dx) >= std::fabs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
-    LOG_DBG("IN", "swipe %s %d,%d->%d,%d", dir, permille(x0), permille(y0), permille(x1), permille(y1));
+    renderer.tapToLogical(x0, y0, lx0, ly0);
+    renderer.tapToLogical(x1, y1, lx1, ly1);
+    const int dx = lx1 - lx0;
+    const int dy = ly1 - ly0;
+    const char* dir = std::abs(dx) >= std::abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
+    LOG_DBG("IN", "swipe %s %d,%d->%d,%d (panel %d,%d->%d,%d)", dir, lx0, ly0, lx1, ly1, permille(x0), permille(y0),
+            permille(x1), permille(y1));
     kind = "swipe";
   }
 #endif

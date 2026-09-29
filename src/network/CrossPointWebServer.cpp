@@ -54,6 +54,7 @@
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
 #include "util/DeviceIdentity.h"
+#include "util/DeviceSecurity.h"
 #include "util/FontFamilyLabel.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/StringUtils.h"
@@ -1113,6 +1114,17 @@ void CrossPointWebServer::handleStatus() const {
   chip["cores"] = ESP.getChipCores();
   chip["cpuMHz"] = ESP.getCpuFreqMHz();
   chip["flashSize"] = ESP.getFlashChipSize();
+
+#ifndef SIMULATOR
+  const DeviceSecurity::State& sec = DeviceSecurity::get();
+  JsonObject security = doc["security"].to<JsonObject>();
+  security["flashEnc"] = sec.flashEnc;
+  security["secureBoot"] = sec.secureBoot;
+  security["usbSerialJtagDisabled"] = sec.usbSerialJtagDisabled;
+  security["jtagDisabled"] = sec.jtagDisabled;
+  security["download"] = sec.download;
+  security["locked"] = sec.locked;
+#endif
 
   JsonObject memory = doc["memory"].to<JsonObject>();
   memory["freeHeap"] = ESP.getFreeHeap();

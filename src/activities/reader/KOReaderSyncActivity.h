@@ -119,6 +119,17 @@ class KOReaderSyncActivity final : public Activity {
   bool lockInitialConfirmRelease = false;
   bool touchOverrideActive = false;
 
+  // Phase timings (ms) of one network run, logged as one [SYNC] line when it ends.
+  struct SyncTiming {
+    unsigned long start = 0;
+    uint32_t wifi = 0;
+    uint32_t ntp = 0;
+    uint32_t get = 0;
+    uint32_t put = 0;
+  };
+  SyncTiming timing;
+  void logSyncTiming();
+
   void onWifiSelectionComplete(bool success);
   void performSync();
   void performUpload();
