@@ -528,8 +528,9 @@ void ActivityManager::renderTaskLoop() {
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       renderer.setDeferFastRefresh(deferredRender);
       PerfLog::noteRenderStart(currentActivity->name.c_str());
-      idlePanelOffArmed = true;
-      idlePanelOffMs = currentActivity->powerOffPanelWhenIdle() ? PANEL_OFF_POLL_MS : PANEL_IDLE_OFF_MS;
+      // Interactive screens keep the booster on so input never waits on PON.
+      idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
+      idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       currentActivity->render(std::move(lock));
       PerfLog::noteRenderEnd();

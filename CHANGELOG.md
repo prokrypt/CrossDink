@@ -42,7 +42,7 @@
 ### Changed
 - X4 Pro: the reader's automatic cleanups no longer flash (Refresh Screen still does a full refresh). Opening a book, returning to it, the page after an image, and the regular ghost cleanup use a ~0.3 s no-flash scrub instead of the 1.5 s flashing refresh, and closing a menu over an image page skips the cleanup. Image pages also finish their anti-aliasing sooner, and a menu opened during an image cleanup shows ~0.6 s sooner.
 - X4 Pro: closing the Turbo keyboard cleans the screen with the same no-flash scrub.
-- X4 Pro: the panel's power booster switches off after 10 s without a redraw on every screen (right after each progress update while an OPDS book downloads), and powers back on as soon as you touch the screen or press a button, so the next page isn't slowed down.
+- X4 Pro: an OPDS book download switches the panel's power booster off after each progress update, like the transfer screens; interactive screens keep it on so input stays fast.
 - X4 Pro: the panel temperature check no longer runs right after a refresh, and a cold panel (below 15 C) uses the matching full-refresh waveform.
 - Opening an EPUB for the first time shows only the Indexing popup, not Loading first, so indexing starts ~0.6 s sooner.
 - Joining a saved Wi-Fi network shows the Connecting screen only if the join takes longer than 0.7 s.
