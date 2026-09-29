@@ -32,13 +32,14 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v79: Hangul word boundaries and line-end splits change cached page positions.
 // v96: Root text indents, hidden <hr> borders and <figure> spacing change layout.
 //      80-95 are CrossInk's; skipped so a later sync cannot accept a foreign layout.
-constexpr uint8_t SECTION_FILE_VERSION = 96;
+// v97: Small EPUB images can share text lines; page-image records gain an inline flag.
+constexpr uint8_t SECTION_FILE_VERSION = 97;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract. Never reuse a retired sentinel: an old
 // partial on SD would resume with stale page positions. Pick below the lowest.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF0;
-constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xEF;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
                                                         0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
 constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
   for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
@@ -183,7 +184,7 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   // Scan the page before serializing it so image-only and mixed pages can be
   // protected from the later XHTML byte-density projection without changing
   // the serialized page payload.
-  const uint16_t imageUnits = page->imageEstimateUnits(imageEstimateViewportHeight_);
+  const uint16_t imageUnits = page->imageEstimateUnits(imageEstimateViewportWidth_, imageEstimateViewportHeight_);
   if (!page->serialize(file)) {
     LOG_ERR("SCT", "Failed to serialize page %d", builtPageCount_);
     return 0;
@@ -487,6 +488,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   pageCount = 0;
   builtPageCount_ = 0;
   imageEstimateViewportHeight_ = viewportHeight;
+  imageEstimateViewportWidth_ = viewportWidth;
   protectedImageUnits_ = 0;
   if (layoutAbortedForLowMemory) *layoutAbortedForLowMemory = false;
   if (buildOptions.cancellationObserved) *buildOptions.cancellationObserved = false;
@@ -889,6 +891,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   const auto tmpSectionPath = binTmpPath();
   builtPageCount_ = 0;
   imageEstimateViewportHeight_ = viewportHeight;
+  imageEstimateViewportWidth_ = viewportWidth;
   protectedImageUnits_ = 0;
   pageCount = partial_ ? partialPageCount_ : 0;
   buildComplete_ = false;
