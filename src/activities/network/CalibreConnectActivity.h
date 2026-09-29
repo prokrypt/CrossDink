@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -19,8 +18,7 @@ enum class CalibreConnectState { WIFI_SELECTION, SERVER_STARTING, SERVER_RUNNING
 class CalibreConnectActivity final : public Activity {
   CalibreConnectState state = CalibreConnectState::WIFI_SELECTION;
   ScreenTransitionRefresh screenTransitionRefresh;
-  // First redrive frame after entering: a long DU scrub clears the previous screen.
-  std::atomic<bool> scrubFirstFrame{true};
+  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
 
   std::unique_ptr<CrossPointWebServer> webServer;
   TransferLightPulse transferLight;

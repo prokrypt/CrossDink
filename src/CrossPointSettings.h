@@ -687,7 +687,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
   uint16_t keyboardLayouts = 0;
-  // UC8179 turbo keyboard refresh (kbd-exp flags 31, 6 frames); debug serial CMD:KBDEXP overrides it.
+  // UC8179 turbo keyboard refresh (kbd-exp flags 79, 6 frames, DU scrub on open); CMD:KBDEXP overrides it.
   uint8_t turboKeyboard = 1;
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";

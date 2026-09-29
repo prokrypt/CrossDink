@@ -923,7 +923,7 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
   }
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
   const bool redrive = state_ == State::Sending || state_ == State::Receiving || state_ == State::Validating;
-  const bool scrub = redrive && scrubFirstFrame.exchange(false, std::memory_order_acq_rel);
+  const bool scrub = BlackRedriveLut::entering(redriveOn, redrive);
   if (scrub) LOG_DBG("NEARBY", "Frame refresh=du-scrub");
   const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));

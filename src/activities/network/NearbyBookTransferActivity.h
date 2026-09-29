@@ -64,8 +64,7 @@ class NearbyBookTransferActivity final : public Activity {
   Mode mode_;
   State state_ = State::ChooseReceiveAction;
   ScreenTransitionRefresh screenTransitionRefresh_;
-  // First redrive frame after entering: a long DU scrub clears the previous screen.
-  std::atomic<bool> scrubFirstFrame{true};
+  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
   std::string sourcePath_;
   bool returnToReader_ = false;
   bool radioUsed_ = false;

@@ -84,8 +84,7 @@ class FontDownloadActivity : public Activity {
   };
 
   State state_ = WIFI_SELECTION;
-  // First redrive frame after entering: a long DU scrub clears the previous screen.
-  std::atomic<bool> scrubFirstFrame{true};
+  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
   ScreenTransitionRefresh screenTransitionRefresh_;
   FontInstaller fontInstaller_;
   ButtonNavigator buttonNavigator_;
