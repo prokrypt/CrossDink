@@ -26,6 +26,8 @@ class OpdsBookBrowserActivity final : public Activity {
   enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server);
+  // Out of line: feedConnection's type is only forward-declared here.
+  ~OpdsBookBrowserActivity() override;
 
   void onEnter() override;
   void onExit() override;
@@ -43,6 +45,13 @@ class OpdsBookBrowserActivity final : public Activity {
   BrowserState state = BrowserState::LOADING;
   ScreenTransitionRefresh screenTransitionRefresh;
   std::unique_ptr<OpdsEntry[]> entries;
+#if defined(FREEINK_NET_WOLFSSL)
+  // Kept-alive HTTPS connection for feed pages, shared by foreground fetches
+  // and the prefetcher (never at the same time: fetches join the prefetch
+  // first). Declared before the prefetcher so it outlives the prefetch task.
+  std::unique_ptr<freeink::SecureHttpClient> feedConnection;
+  unsigned long feedConnectionLastUseMs = 0;
+#endif
   // PSRAM devices only (null on C3): raw feed pages for Back/Prev, and the
   // background download of the next page. Declared so the prefetcher is
   // destroyed (joined) before the cache.
@@ -53,7 +62,13 @@ class OpdsBookBrowserActivity final : public Activity {
   // page rows added from the feed's rel="previous" / rel="next" links.
   bool hasPrevPageRow = false;
   bool hasNextPageRow = false;
-  std::vector<std::string> navigationHistory;
+  // Feeds Back returns to, with the row and scroll position to restore there.
+  struct HistoryEntry {
+    std::string path;
+    int selectorIndex = 0;
+    int topIndex = 0;
+  };
+  std::vector<HistoryEntry> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
   int selectorIndex = 0;
@@ -102,13 +117,21 @@ class OpdsBookBrowserActivity final : public Activity {
   void checkAndConnectWifi();
   void launchWifiSelection();
   void onWifiSelectionComplete(bool connected);
-  void showLoadingBeforeFetch();
-  void fetchFeed(const std::string& path);
+  // Skipped when path is already in the page cache: the list then replaces the
+  // current screen directly.
+  void showLoadingBeforeFetch(const std::string& path);
+  void pushHistory() { navigationHistory.push_back(HistoryEntry{currentPath, selectorIndex, topIndex}); }
+  // restoreRow/restoreTop: selection and scroll to show once loaded (Back).
+  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0);
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser);
   void startNextPagePrefetch(const std::string& nextHref);
   void stopPrefetch();
+  // The shared feed connection for the next request, or null. Drops a
+  // connection idle long enough that a router or server may have silently
+  // forgotten it (a dead socket would stall the request for its full timeout).
+  freeink::SecureHttpClient* feedConnectionForRequest();
   bool ensureEntryBuffer();
   void clearEntries();
   bool appendEntry(OpdsEntry&& entry);

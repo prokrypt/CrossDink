@@ -9,6 +9,9 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <OpdsStream.h>
+#if defined(FREEINK_NET_WOLFSSL)
+#include <SecureHttpClient.h>
+#endif
 #include <WiFi.h>
 
 #include <algorithm>
@@ -58,6 +61,10 @@ constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // boards via CONFIG_SPIRAM_USE_MALLOC); skip it below these.
 constexpr size_t OPDS_PREFETCH_MIN_INTERNAL_FREE = 48 * 1024;
 constexpr size_t OPDS_PREFETCH_MIN_INTERNAL_BLOCK = 16 * 1024;
+// A kept-alive feed connection idle longer than this is closed before the
+// next request. Servers that time out sooner send a FIN, which the client
+// notices; this covers NATs and load balancers that drop the socket silently.
+constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 30 * 1000;
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
   if (book.author.empty()) return book.title;
@@ -133,6 +140,8 @@ OpdsBookBrowserActivity::OpdsBookBrowserActivity(GfxRenderer& renderer, MappedIn
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {}
 
+OpdsBookBrowserActivity::~OpdsBookBrowserActivity() = default;
+
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();
 
@@ -190,6 +199,9 @@ void OpdsBookBrowserActivity::onExit() {
   // cache it would hand its page to is freed.
   prefetcher.reset();
   pageCache.reset();
+#if defined(FREEINK_NET_WOLFSSL)
+  feedConnection.reset();  // closes the kept-alive socket before Wi-Fi goes down
+#endif
   clearEntries();
   entries.reset();
   navigationHistory.clear();
@@ -261,7 +273,7 @@ void OpdsBookBrowserActivity::loop() {
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-        showLoadingBeforeFetch();
+        showLoadingBeforeFetch(currentPath);
         fetchFeed(currentPath);
       } else {
         launchWifiSelection();
@@ -589,7 +601,17 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }
 
-void OpdsBookBrowserActivity::showLoadingBeforeFetch() {
+void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
+  // A cached page parses in tens of ms, so a Loading frame would only add one
+  // e-ink refresh (~600 ms) ahead of the list.
+  if (pageCache) {
+    if (prefetcher) prefetcher->harvestInto(*pageCache);  // no-op while it runs
+    const std::string url = UrlUtils::buildUrl(server.url, path);
+    if (pageCache->contains(url)) {
+      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", url.c_str());
+      return;
+    }
+  }
   state = BrowserState::LOADING;
   statusMessage = tr(STR_LOADING);
   if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
@@ -598,7 +620,7 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch() {
   }
 }
 
-void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
+void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_MEMORY_ERROR);
@@ -688,8 +710,11 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     if (!hasNextPageRow) LOG_DBG("OPDS", "No room for next-page entry");
   }
 
-  selectorIndex = 0;
-  topIndex = 0;
+  // The feed may have changed since the row was saved: clamp the row here and
+  // leave topIndex to render()'s clamp.
+  selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
+  topIndex = restoreTop;
+  if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
@@ -736,6 +761,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
+    downloadOptions.connection = feedConnectionForRequest();
     const auto result = HttpDownloader::streamUrl(
         url,
         [&stream, &page, cachePage](const uint8_t* data, const size_t len) {
@@ -769,7 +795,25 @@ void OpdsBookBrowserActivity::startNextPagePrefetch(const std::string& nextHref)
   request.username = server.username;
   request.password = server.password;
   request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  request.connection = feedConnectionForRequest();
   prefetcher->start(std::move(request), OPDS_PAGE_MAX_BYTES);
+}
+
+freeink::SecureHttpClient* OpdsBookBrowserActivity::feedConnectionForRequest() {
+#if defined(FREEINK_NET_WOLFSSL)
+  const unsigned long now = millis();
+  if (feedConnection && now - feedConnectionLastUseMs > OPDS_KEEPALIVE_MAX_IDLE_MS) {
+    LOG_DBG("OPDS", "Closing feed connection idle %lu ms", now - feedConnectionLastUseMs);
+    feedConnection->end();
+  }
+  // Small object (no buffers until it connects); on failure every request
+  // just opens its own connection as before.
+  if (!feedConnection) feedConnection = makeUniqueNoThrow<freeink::SecureHttpClient>();
+  feedConnectionLastUseMs = now;
+  return feedConnection.get();
+#else
+  return nullptr;
+#endif
 }
 
 void OpdsBookBrowserActivity::stopPrefetch() {
@@ -806,14 +850,14 @@ bool OpdsBookBrowserActivity::appendEntry(OpdsEntry&& entry) {
 void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool pageLink) {
   // Prev/Next page stay at the same level: Back goes up to the feed that
   // opened this listing, not through every page visited.
-  if (!pageLink) navigationHistory.push_back(currentPath);
+  if (!pageLink) pushHistory();
   // Resolve to a full URL so sub-sub-navigation retains parent path context
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
 
   clearEntries();
   selectorIndex = 0;
-  showLoadingBeforeFetch();
+  showLoadingBeforeFetch(currentPath);
   fetchFeed(currentPath);
 }
 
@@ -821,12 +865,14 @@ void OpdsBookBrowserActivity::navigateBack() {
   if (navigationHistory.empty()) {
     onGoHome();
   } else {
-    currentPath = navigationHistory.back();
+    const HistoryEntry previous = std::move(navigationHistory.back());
     navigationHistory.pop_back();
+    currentPath = previous.path;
     clearEntries();
     selectorIndex = 0;
-    showLoadingBeforeFetch();
-    fetchFeed(currentPath);
+    showLoadingBeforeFetch(currentPath);
+    // Back lands on the row that was opened, scrolled as it was.
+    fetchFeed(currentPath, previous.selectorIndex, previous.topIndex);
   }
 }
 
@@ -890,6 +936,11 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
 
   // The book download must not share the network with a page prefetch.
   stopPrefetch();
+#if defined(FREEINK_NET_WOLFSSL)
+  // The book goes over its own connection; don't hold a second TLS session's
+  // RAM open for the whole download.
+  if (feedConnection) feedConnection->end();
+#endif
 
   const char* downloadFolder = SETTINGS.opdsDownloadFolder;
   if (downloadFolder[0] != '\0' && !Storage.exists(downloadFolder) && !Storage.mkdir(downloadFolder)) {
@@ -1032,18 +1083,18 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   const size_t pos = url.find(placeholder);
   if (pos != std::string::npos) url.replace(pos, placeholder.length(), urlEncode(query));
 
-  navigationHistory.push_back(currentPath);
+  pushHistory();
   currentPath = url;
 
   clearEntries();
   selectorIndex = 0;
-  showLoadingBeforeFetch();
+  showLoadingBeforeFetch(url);
   fetchFeed(url);
 }
 
 void OpdsBookBrowserActivity::checkAndConnectWifi() {
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-    showLoadingBeforeFetch();
+    showLoadingBeforeFetch(currentPath);
     fetchFeed(currentPath);
     return;
   }
@@ -1060,7 +1111,7 @@ void OpdsBookBrowserActivity::launchWifiSelection() {
 
 void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
   if (connected) {
-    showLoadingBeforeFetch();
+    showLoadingBeforeFetch(currentPath);
     fetchFeed(currentPath);
   } else {
     // Leave WiFi up; onExit's silent reboot handles teardown without fragmenting.
