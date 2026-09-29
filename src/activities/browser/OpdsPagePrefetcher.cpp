@@ -75,6 +75,7 @@ void OpdsPagePrefetcher::run() {
   HttpDownloader::DownloadOptions options;
   options.transport = HttpDownloader::Transport::WOLFSSL;
   options.authorizationOrigin = job.authorizationOrigin;
+  options.connection = job.connection;
   options.shouldCancel = [this]() { return cancelRequested.load(std::memory_order_acquire); };
 
   const auto result = HttpDownloader::streamUrl(

@@ -6,6 +6,10 @@
 
 #include "OpdsPageCache.h"
 
+namespace freeink {
+class SecureHttpClient;
+}
+
 /**
  * Downloads one OPDS feed page on a background task (core 0) so the next page
  * is ready in PSRAM before the user asks for it.
@@ -23,6 +27,9 @@ class OpdsPagePrefetcher {
     std::string username;
     std::string password;
     std::string authorizationOrigin;
+    // The activity's kept-alive feed connection (may be null). The task owns
+    // it until join(); the main loop never touches it while a job runs.
+    freeink::SecureHttpClient* connection = nullptr;
   };
 
   OpdsPagePrefetcher() = default;

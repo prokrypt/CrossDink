@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -151,9 +152,15 @@ void logTlsError(esp_http_client_handle_t client, const char* phase) {
 HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::string& username,
                                             const std::string& password,
                                             const HttpRedirectPolicy::Url& credentialOrigin, const bool hasCredentials,
-                                            Sink& sink, const size_t bufferSize) {
+                                            Sink& sink, const size_t bufferSize,
+                                            freeink::SecureHttpClient* const sharedHttp) {
   (void)bufferSize;  // SecureHttpClient owns one fixed 1024-byte streaming buffer.
   std::string currentUrl = url;
+  // A caller-owned client keeps its connection open for the caller's next
+  // request; a local one closes when this function returns.
+  std::optional<freeink::SecureHttpClient> localHttp;
+  if (!sharedHttp) localHttp.emplace();
+  freeink::SecureHttpClient& http = sharedHttp ? *sharedHttp : *localHttp;
   ProgressNotifier progressNotifier(sink.progress);
 
   for (uint8_t hop = 0; hop < MAX_REDIRECTS; ++hop) {
@@ -162,7 +169,6 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     const bool sendAuthorization =
         currentParsed && HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, hasCredentials);
 
-    freeink::SecureHttpClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
     // SecureNet does not yet expose ESP-IDF's CA bundle. This matches the
     // existing KOSync transport; cross-origin hops omit Basic credentials.
@@ -186,7 +192,8 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       http.addHeader("Authorization", std::string("Basic ") + encoded.c_str());
     }
 
-    LOG_DBG("HTTP", "wolfSSL GET: %s", currentUrl.c_str());
+    // "shared": a following request to the same host logs no new TLS handshake.
+    LOG_DBG("HTTP", "wolfSSL GET%s: %s", sharedHttp ? " (shared)" : "", currentUrl.c_str());
     const int status = http.GET(
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
           const int responseStatus = http.getStatus();
@@ -456,27 +463,31 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
 HttpDownloader::DownloadError runGetTransport(const std::string& url, const std::string& username,
                                               const std::string& password, const std::string_view authorizationOrigin,
                                               Sink& sink, const size_t bufferSize,
-                                              const HttpDownloader::Transport transport) {
+                                              const HttpDownloader::Transport transport,
+                                              freeink::SecureHttpClient* const sharedHttp) {
   HttpRedirectPolicy::Url credentialOrigin;
   const std::string_view credentialUrl = authorizationOrigin.empty() ? std::string_view(url) : authorizationOrigin;
   const bool hasCredentials =
       !username.empty() && !password.empty() && HttpRedirectPolicy::parseUrl(credentialUrl, credentialOrigin);
 #if defined(FREEINK_NET_WOLFSSL)
   if (transport == HttpDownloader::Transport::WOLFSSL) {
-    return runGetWolfSsl(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize);
+    return runGetWolfSsl(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize, sharedHttp);
   }
 #else
   (void)transport;
+  (void)sharedHttp;
 #endif
   return runGetDefault(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize);
 }
 
 HttpDownloader::DownloadError runGet(const std::string& url, const std::string& username, const std::string& password,
                                      const std::string_view authorizationOrigin, Sink& sink, const size_t bufferSize,
-                                     const HttpDownloader::Transport transport) {
+                                     const HttpDownloader::Transport transport,
+                                     freeink::SecureHttpClient* const sharedHttp = nullptr) {
   const unsigned long startedMs = millis();
   const size_t startBytes = sink.downloaded;
-  const auto result = runGetTransport(url, username, password, authorizationOrigin, sink, bufferSize, transport);
+  const auto result =
+      runGetTransport(url, username, password, authorizationOrigin, sink, bufferSize, transport, sharedHttp);
   // One line per request (redirects and TLS handshakes included) for KB/s.
   const unsigned long ms = millis() - startedMs;
   const size_t bytes = sink.downloaded - startBytes;
@@ -528,7 +539,8 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
-  return runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
+  return runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport,
+                options.connection);
 }
 
 HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& url, const std::string& destPath,

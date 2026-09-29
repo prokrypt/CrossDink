@@ -9,6 +9,9 @@
 #include <freertos/task.h>
 #ifndef SIMULATOR
 #include <esp_mac.h>
+#include <esp_netif_net_stack.h>
+#include <esp_rtc_time.h>
+#include <lwip/dhcp.h>
 #endif
 
 #include <algorithm>
@@ -86,6 +89,98 @@ void saveApHint(const std::string& ssid) {
   sWifiApHint.channel = static_cast<uint8_t>(channel);
   sWifiApHint.ssidHash = ssidHash(ssid);
   sWifiApHint.magic = WifiApHint::MAGIC;
+}
+
+// The last DHCP lease. While it is well inside its renewal time, a join on the
+// same network (silent network reboots keep it in RTC memory) configures the
+// address statically and skips DHCP (~0.5 s). Power loss clears it.
+struct WifiLeaseHint {
+  static constexpr uint32_t MAGIC = 0x4C454131;  // "LEA1"
+  uint32_t magic;
+  uint32_t ssidHash;
+  uint32_t ip, gateway, netmask, dns1, dns2;
+  uint32_t renewSeconds;   // DHCP T1: when the client would start renewing
+  uint64_t acquiredRtcUs;  // RTC timer: counts across soft reboots and sleep
+};
+RTC_NOINIT_ATTR WifiLeaseHint sWifiLeaseHint;
+// Set while an attempt runs on a reused lease; still set at the next attempt
+// means that one failed, so the lease is dropped and DHCP runs again.
+bool sLeaseAttempt = false;
+bool sStaticIpApplied = false;
+// A static join never renews, so only reuse a lease with this much time left
+// before T1, enough for a long File Transfer or OPDS session.
+constexpr uint64_t LEASE_MIN_REMAINING_US = 30ULL * 60 * 1000 * 1000;
+
+const WifiLeaseHint* leaseHintFor(const std::string& ssid) {
+  const WifiLeaseHint& lease = sWifiLeaseHint;
+  if (lease.magic != WifiLeaseHint::MAGIC || lease.ssidHash != ssidHash(ssid) || lease.ip == 0 || lease.netmask == 0 ||
+      lease.renewSeconds == 0) {
+    return nullptr;
+  }
+  const uint64_t now = esp_rtc_get_time_us();
+  const uint64_t renewUs = static_cast<uint64_t>(lease.renewSeconds) * 1000000ULL;
+  if (now < lease.acquiredRtcUs) return nullptr;  // RTC timer restarted: power was lost
+  const uint64_t age = now - lease.acquiredRtcUs;
+  if (age + LEASE_MIN_REMAINING_US > renewUs) {
+    LOG_INF("WIFI", "Saved lease too old (age %llus, renew at %lus); using DHCP",
+            static_cast<unsigned long long>(age / 1000000ULL), static_cast<unsigned long>(lease.renewSeconds));
+    return nullptr;
+  }
+  return &lease;
+}
+
+// Records the lease DHCP just granted. A join that reused a lease keeps the
+// original record, so its age keeps counting from the real grant.
+void saveLeaseHint(const std::string& ssid) {
+  if (sStaticIpApplied) return;
+  sWifiLeaseHint.magic = 0;
+  auto* lwipNetif = static_cast<struct netif*>(esp_netif_get_netif_impl(WiFi.STA.netif()));
+  const struct dhcp* dhcp = lwipNetif ? netif_dhcp_data(lwipNetif) : nullptr;
+  if (!dhcp || dhcp->offered_t0_lease == 0) return;
+  // T1 defaults to half the lease when the server leaves it out.
+  const uint32_t renew = dhcp->offered_t1_renew != 0 && dhcp->offered_t1_renew < dhcp->offered_t0_lease
+                             ? dhcp->offered_t1_renew
+                             : dhcp->offered_t0_lease / 2;
+  sWifiLeaseHint.ssidHash = ssidHash(ssid);
+  sWifiLeaseHint.ip = static_cast<uint32_t>(WiFi.localIP());
+  sWifiLeaseHint.gateway = static_cast<uint32_t>(WiFi.gatewayIP());
+  sWifiLeaseHint.netmask = static_cast<uint32_t>(WiFi.subnetMask());
+  sWifiLeaseHint.dns1 = static_cast<uint32_t>(WiFi.dnsIP(0));
+  sWifiLeaseHint.dns2 = static_cast<uint32_t>(WiFi.dnsIP(1));
+  sWifiLeaseHint.renewSeconds = renew;
+  sWifiLeaseHint.acquiredRtcUs = esp_rtc_get_time_us();
+  if (sWifiLeaseHint.ip == 0 || sWifiLeaseHint.netmask == 0) return;
+  sWifiLeaseHint.magic = WifiLeaseHint::MAGIC;
+  LOG_DBG("WIFI", "Saved DHCP lease: %lus, renew at %lus", static_cast<unsigned long>(dhcp->offered_t0_lease),
+          static_cast<unsigned long>(renew));
+}
+
+// Static address from a fresh saved lease, else DHCP (undoing an earlier
+// static join in this boot).
+void configureAddressing(const std::string& ssid) {
+  if (sLeaseAttempt) {
+    LOG_INF("WIFI", "Join on the saved lease failed; dropping it");
+    sWifiLeaseHint.magic = 0;
+    sLeaseAttempt = false;
+  }
+  if (const WifiLeaseHint* lease = leaseHintFor(ssid)) {
+    const IPAddress ip(lease->ip);
+    if (WiFi.config(ip, IPAddress(lease->gateway), IPAddress(lease->netmask), IPAddress(lease->dns1),
+                    IPAddress(lease->dns2))) {
+      sLeaseAttempt = true;
+      sStaticIpApplied = true;
+      LOG_INF("WIFI", "Reusing DHCP lease %u.%u.%u.%u (age %llus, renew at %lus): no DHCP", ip[0], ip[1], ip[2], ip[3],
+              static_cast<unsigned long long>((esp_rtc_get_time_us() - lease->acquiredRtcUs) / 1000000ULL),
+              static_cast<unsigned long>(lease->renewSeconds));
+      return;
+    }
+    LOG_ERR("WIFI", "Static config from saved lease failed; using DHCP");
+  }
+  if (sStaticIpApplied) {
+    // All-zero config stops the static address and restarts the DHCP client.
+    if (!WiFi.config(IPAddress(), IPAddress(), IPAddress())) LOG_ERR("WIFI", "Could not re-enable DHCP");
+    sStaticIpApplied = false;
+  }
 }
 #endif
 
@@ -766,6 +861,7 @@ void WifiSelectionActivity::attemptConnection() {
   const char* const passphrase =
       selectedRequiresPassword && !enteredPassword.empty() ? enteredPassword.c_str() : nullptr;
 #ifndef SIMULATOR
+  configureAddressing(selectedSSID);
   sBeginMs = millis();
   sAssocMs = 0;
   const WifiApHint* hint = apHintFor(selectedSSID);
@@ -816,7 +912,9 @@ void WifiSelectionActivity::checkConnectionStatus() {
     LOG_INF("WIFI", "Connected to ssid=%s ip=%s rssi=%d", selectedSSID.c_str(), connectedIP.c_str(), WiFi.RSSI());
 #ifndef SIMULATOR
     saveApHint(selectedSSID);
+    saveLeaseHint(selectedSSID);
     sHintedAttempt = false;
+    sLeaseAttempt = false;
 #endif
 
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
