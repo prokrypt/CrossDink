@@ -11,7 +11,7 @@
 
 #include "OpdsBookDownloader.h"
 #include "OpdsPageCache.h"
-#include "OpdsPagePrefetcher.h"
+#include "OpdsPreloadPool.h"
 #include "OpdsServerStore.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
@@ -46,17 +46,16 @@ class OpdsBookBrowserActivity final : public Activity {
   ScreenTransitionRefresh screenTransitionRefresh;
   std::unique_ptr<OpdsEntry[]> entries;
 #if defined(FREEINK_NET_WOLFSSL)
-  // Kept-alive HTTPS connection for feed pages, shared by foreground fetches
-  // and the prefetcher (never at the same time: fetches join the prefetch
-  // first). Declared before the prefetcher so it outlives the prefetch task.
+  // Kept-alive HTTPS connection for foreground feed fetches. Background
+  // preloads use the pool's own connections.
   std::unique_ptr<freeink::SecureHttpClient> feedConnection;
   unsigned long feedConnectionLastUseMs = 0;
 #endif
   // PSRAM devices only (null on C3): raw feed pages for Back/Prev, and the
-  // background download of the next page. Declared so the prefetcher is
-  // destroyed (joined) before the cache.
+  // background downloads of the next page and the first page's feeds.
+  // Declared so the pool is destroyed (joined) before the cache.
   std::unique_ptr<OpdsPageCache> pageCache;
-  std::unique_ptr<OpdsPagePrefetcher> prefetcher;
+  std::unique_ptr<OpdsPreloadPool> preload;
   size_t entryCount = 0;
   // Whether entries[0] / entries[entryCount - 1] are the synthetic Prev / Next
   // page rows added from the feed's rel="previous" / rel="next" links.
@@ -127,6 +126,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser);
   void startNextPagePrefetch(const std::string& nextHref);
+  // First page only: queues every navigation row's feed for the preload pool.
+  void preloadFeedsOnPage();
   void stopPrefetch();
   // The shared feed connection for the next request, or null. Drops a
   // connection idle long enough that a router or server may have silently
