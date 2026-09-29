@@ -3,13 +3,14 @@
 #if FREEINK_CAP_USB_MSC
 
 #include <Arduino.h>
-#include <HalStorage.h>
 #include <Logging.h>
 #include <TaskCores.h>
 #include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <cstring>
+
+#include "UsbDriveIo.h"
 
 namespace {
 // Holding the device mutex across one 4 KB SD read is ~2 ms, so a reader that
