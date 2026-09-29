@@ -59,6 +59,8 @@ class KOReaderSyncActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return state == CONNECTING || state == SYNCING || state == UPLOADING; }
+  // Result and prompt screens keep Wi-Fi up but idle: allow light sleep.
+  bool allowsRadioIdleSleep() override { return !preventAutoSleep(); }
   bool isReaderActivity() const override { return true; }
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
 

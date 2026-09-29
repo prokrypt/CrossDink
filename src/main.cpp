@@ -514,6 +514,10 @@ bool leaveNetworkInPlace() {
   if (mode != WIFI_MODE_NULL) {
     if (mode & WIFI_MODE_AP) WiFi.softAPdisconnect(true);
     if (mode & WIFI_MODE_STA) WiFi.disconnect(true);
+    // Arduino keeps the power-save mode across sessions: a KOSync or Nearby
+    // WiFi.setSleep(false) otherwise leaves every later session (OPDS
+    // browsing: wifi lock 100%) without modem sleep.
+    WiFi.setSleep(true);
     // WIFI_OFF stops the driver and calls esp_wifi_deinit(), returning its
     // internal buffers before the heap check below.
     WiFi.mode(WIFI_OFF);
@@ -1459,6 +1463,14 @@ void setup() {
   logSerialInit();
 
   HalSystem::begin();
+#ifndef SIMULATOR
+  // The network stack (lwIP's tiT task, the default event loop, Arduino's
+  // event task) can never be torn down once started. Started by the first
+  // Wi-Fi screen, those ~20 KB landed inside the largest internal block and
+  // cut it from ~123 KB to 63-74 KB for the rest of the boot. Starting it
+  // here, before the display and fonts allocate, keeps it out of the way.
+  Network.begin();
+#endif
   // checkPanic() clears the watchdog capture marker after a successful SD
   // dump, so retain the boot classification for the later activity route.
   const bool rebootedFromPanic = HalSystem::isRebootFromPanic();
@@ -2311,12 +2323,20 @@ void loop() {
     // longer idle tick no longer delays the first input after a pause. Screens
     // that hold the device awake for a radio exchange keep the fast tick they
     // had before, since WiFi blocks power saving anyway.
-    const bool radioExchange = activityManager.preventAutoSleep() && WiFi.getMode() != WIFI_MODE_NULL &&
-                               !activityManager.allowsRadioIdleSleep();
+    const bool radioIdleOk = activityManager.allowsRadioIdleSleep();
+    const bool radioExchange = activityManager.preventAutoSleep() && WiFi.getMode() != WIFI_MODE_NULL && !radioIdleOk;
+    // Wi-Fi keeps the CPU at full clock unless the screen opts in (File
+    // Transfer and Calibre when idle, the OPDS list, KOSync results).
+    powerManager.setRadioIdleSleepAllowed(radioIdleOk);
     if (!radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
       InputTask::waitForInput(idleWaitMs(millis() - lastActivityTime));
+    } else if (radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
+      // A radio exchange (Wi-Fi join, sync, download) runs on its own task and
+      // the screen only polls it. At a 10 ms tick the loop cost ~11% of core 0,
+      // the Wi-Fi/lwIP core, for the whole transfer.
+      InputTask::waitForInput(IDLE_WAIT_MS);
     } else {
       // Short delay to prevent tight loop while still being responsive
       InputTask::waitForInput(10);

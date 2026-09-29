@@ -13,8 +13,9 @@ class WorkerTask {
 
   // Runs fn(ctx) on a new task. The stack is internal RAM: Wi-Fi/TLS and SD
   // code run on it, and PSRAM stacks are unsafe while flash cache is off.
-  // False when a job is still running or the task could not start.
-  bool start(Fn fn, void* ctx, uint32_t stackBytes, const char* name);
+  // uiCore pins it to the render core instead (at the same priority, so they
+  // time-slice). False when a job is still running or the task could not start.
+  bool start(Fn fn, void* ctx, uint32_t stackBytes, const char* name, bool uiCore = false);
   bool running() const { return active.load(std::memory_order_acquire); }
   // Blocks the caller until the task has exited or timeoutMs passed; false on
   // timeout. An owner that gives up must outlive the task (static storage).

@@ -170,4 +170,7 @@ class OpdsBookBrowserActivity final : public Activity {
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;
+  // While the list just sits there, the loop may drop the CPU clock and light
+  // sleep with Wi-Fi up (each fetch turns Wi-Fi power save off for itself).
+  bool allowsRadioIdleSleep() override;
 };

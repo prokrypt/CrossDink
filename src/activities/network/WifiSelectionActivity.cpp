@@ -9,6 +9,8 @@
 #include <freertos/task.h>
 #ifndef SIMULATOR
 #include <esp_mac.h>
+#include <esp_netif_net_stack.h>
+#include <lwip/dhcp.h>
 #endif
 
 #include <algorithm>
@@ -86,6 +88,24 @@ void saveApHint(const std::string& ssid) {
   sWifiApHint.channel = static_cast<uint8_t>(channel);
   sWifiApHint.ssidHash = ssidHash(ssid);
   sWifiApHint.magic = WifiApHint::MAGIC;
+}
+
+// DHCP always took 511-517 ms after association (log 0929): lwIP's 500 ms
+// timer, so either the first REQUEST is lost and resent or a post-ACK check
+// still runs. Logs each client state change (lwIP DHCP_STATE_*: 1 REQUESTING,
+// 3 REBOOTING, 6 SELECTING, 8 CHECKING = ARP probe, 10 BOUND) with its
+// retry count, so the next log shows which.
+int sDhcpLoggedState = -1;
+int sDhcpLoggedTries = -1;
+void logDhcpProgress(const unsigned long elapsedMs) {
+  auto* lwipNetif = static_cast<struct netif*>(esp_netif_get_netif_impl(WiFi.STA.netif()));
+  const struct dhcp* dhcp = lwipNetif ? netif_dhcp_data(lwipNetif) : nullptr;
+  if (!dhcp) return;
+  if (dhcp->state == sDhcpLoggedState && dhcp->tries == sDhcpLoggedTries) return;
+  LOG_INF("WIFI", "dhcp state %d->%u tries=%u at %lums", sDhcpLoggedState, static_cast<unsigned>(dhcp->state),
+          static_cast<unsigned>(dhcp->tries), elapsedMs);
+  sDhcpLoggedState = dhcp->state;
+  sDhcpLoggedTries = dhcp->tries;
 }
 #endif
 
@@ -755,6 +775,8 @@ void WifiSelectionActivity::attemptConnection() {
 #ifndef SIMULATOR
   sLastStaDisconnectReason = 0;
   sConnectionAttemptLoggingActive = true;
+  sDhcpLoggedState = -1;
+  sDhcpLoggedTries = -1;
 #endif
 
   // Scan all channels so networks with multiple APs use the strongest matching
@@ -808,6 +830,9 @@ void WifiSelectionActivity::checkConnectionStatus() {
     lastLoggedWifiStatus = static_cast<int>(status);
     lastConnectionStatusLogTime = now;
   }
+#ifndef SIMULATOR
+  logDhcpProgress(now - connectionStartTime);
+#endif
 
   if (status == WL_CONNECTED) {
     // Successfully connected
