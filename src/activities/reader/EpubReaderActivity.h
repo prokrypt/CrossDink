@@ -21,9 +21,11 @@
 #include "BookmarkStore.h"
 #include "EndOfBookOptions.h"
 #include "EpubReaderMenuModel.h"
+#include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/OptionPopup.h"
@@ -203,8 +205,13 @@ class EpubReaderActivity final : public Activity {
   ReaderSettingsSnapshot suspendedBookReaderSettings;
   BookReadingStats stats;
   GlobalReadingStats globalStats;
+  bool bookStatsEnabled = true;
+  bool statsTrackingActive = true;
+  bool paceDirty = false;
+  bool pendingStatsCommit = false;
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
+  void syncStatsTrackingState();
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
@@ -231,7 +238,7 @@ class EpubReaderActivity final : public Activity {
   bool longPressBackHandled = false;
   bool longPowerButtonHandled = false;
   OptionPopup quickActionsPopup;
-  bool sideButtonLongPressHandled = false;
+  SideButtonShortcuts sideButtonShortcuts;
   bool frontButtonLongPressHandled = false;
   bool touchDictionaryLookupHandled = false;
   int pageLoadRetryCount = 0;
@@ -283,13 +290,7 @@ class EpubReaderActivity final : public Activity {
   std::vector<FootnoteEntry> currentPageFootnotes;
 #if CROSSDINK_APP_CAP_TOUCH
   ReaderPinchGesture pinchFontGesture;
-  struct FootnoteTouchTarget {
-    int16_t x = 0;
-    int16_t y = 0;
-    int16_t width = 0;
-    int16_t height = 0;
-  };
-  std::array<FootnoteTouchTarget, EPUB_MAX_FOOTNOTES_PER_PAGE> currentPageFootnoteTouchTargets{};
+  FootnoteLinkTargets currentPageFootnoteTouchTargets{};
 #endif
   struct SavedPosition {
     int spineIndex;
@@ -524,6 +525,7 @@ class EpubReaderActivity final : public Activity {
                                 QuickLockTrigger quickLockTrigger = QuickLockTrigger::LongMenu);
   void openQuickActionsPopup();
   void executeFootnoteQuickAction(bool suppressInitialPowerRelease = false);
+  void openFootnoteSelect(bool returnToReaderMenu);
 #if CROSSDINK_APP_CAP_TOUCH
   bool handlePinchFontResize();
   void resetPinchFontGesture();

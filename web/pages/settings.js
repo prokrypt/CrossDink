@@ -5,8 +5,6 @@ let allSettings = [];
   const SLEEP_SCREEN_MODE = {
     QUICK_RESUME: 6
   };
-  const POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX = 15;
-  const LONG_PRESS_MENU_FOOTNOTES_DISPLAY_INDEX = 14;
 
   function escapeHtml(unsafe) {
     return unsafe
@@ -170,14 +168,14 @@ let allSettings = [];
   }
 
   function updateSettingsVisibility() {
-    const shortPwrBtnVal = getControlValue('shortPwrBtn');
-    const longPwrBtnVal = getControlValue('longPwrBtn');
-    const longPressMenuActionVal = getControlValue('longPressMenuAction');
     const pwrBtnFootnoteBackRow = document.getElementById('row-setting-pwrBtnFootnoteBack');
     if (pwrBtnFootnoteBackRow) {
-      if (shortPwrBtnVal === POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX ||
-          longPwrBtnVal === POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX ||
-          longPressMenuActionVal === LONG_PRESS_MENU_FOOTNOTES_DISPLAY_INDEX) {
+      const footnoteActionSelected = ['shortPwrBtn', 'longPwrBtn', 'longPressMenuAction', 'longPressBackAction']
+        .some(key => {
+          const setting = allSettings.find(item => item.key === key);
+          return setting && getControlValue(key) === setting.footnotesIndex;
+        });
+      if (footnoteActionSelected) {
         pwrBtnFootnoteBackRow.style.display = '';
       } else {
         pwrBtnFootnoteBackRow.style.display = 'none';
@@ -187,7 +185,8 @@ let allSettings = [];
 
   function handleSettingChanged(key) {
     syncQuickResumeTimeoutForSleepScreen(key === 'sleepScreen', key === 'quickResumeSleepScreen');
-    if (key === 'shortPwrBtn' || key === 'longPwrBtn' || key === 'longPressMenuAction') {
+    if (key === 'shortPwrBtn' || key === 'longPwrBtn' || key === 'longPressMenuAction' ||
+        key === 'longPressBackAction') {
       updateSettingsVisibility();
     }
     markChanged();
@@ -279,6 +278,9 @@ let allSettings = [];
       // Update original values to new values
       for (const key in changes) {
         originalValues[key] = changes[key];
+      }
+      if (Object.prototype.hasOwnProperty.call(changes, 'trackReadingStats')) {
+        await loadSettings();
       }
 
       showMessage('Settings saved successfully!', false);

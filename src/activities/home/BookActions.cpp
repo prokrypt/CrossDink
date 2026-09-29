@@ -20,6 +20,7 @@
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/BookStatsActivity.h"
+#include "activities/reader/BookStatsTracking.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "components/UITheme.h"
@@ -49,7 +50,7 @@ std::string bookStatsCachePath(const std::string& path) {
 std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std::string& fullPath,
                                                                       const bool includeRemoveFromRecents) {
   std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.reserve(includeRemoveFromRecents ? 8 : 7);
+  items.reserve(includeRemoveFromRecents ? 9 : 8);
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
   if (hasClearableBookCache(fullPath)) {
     items.push_back({FileBrowserAction::DeleteCache, StrId::STR_DELETE_CACHE});
@@ -59,8 +60,15 @@ std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std:
     items.push_back({FileBrowserAction::ResetReaderSettings, StrId::STR_RESET_BOOK_READER_SETTINGS});
   }
   if (hasReadingStats(fullPath)) {
-    items.push_back({FileBrowserAction::ReadingStats, StrId::STR_READING_STATS});
-    items.push_back({FileBrowserAction::DeleteStats, StrId::STR_DELETE_BOOK_STATS});
+    if (SETTINGS.shouldTrackReadingStats()) {
+      const bool bookEnabled = isBookStatsTrackingEnabled(fullPath);
+      items.push_back({FileBrowserAction::ToggleBookStatsTracking, StrId::STR_TRACK_READING_STATS,
+                       bookEnabled ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF});
+      if (bookEnabled) {
+        items.push_back({FileBrowserAction::ReadingStats, StrId::STR_READING_STATS});
+        items.push_back({FileBrowserAction::DeleteStats, StrId::STR_DELETE_BOOK_STATS});
+      }
+    }
     items.push_back({FileBrowserAction::ToggleCompleted,
                      isBookCompleted(fullPath) ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
   }
@@ -109,7 +117,7 @@ bool deleteBookStats(const std::string& fullPath) {
 std::unique_ptr<Activity> createReadingStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                      const std::string& fullPath, const std::string& title) {
   const std::string cachePath = bookStatsCachePath(fullPath);
-  if (cachePath.empty()) {
+  if (cachePath.empty() || !BookStatsTracking::isEnabled(cachePath)) {
     LOG_ERR("BookActions", "No reading stats for: %s", fullPath.c_str());
     return {};
   }
@@ -176,6 +184,19 @@ bool isBookCompleted(const std::string& fullPath) {
   return !cachePath.empty() && BookReadingStats::load(cachePath).isCompleted;
 }
 
+bool isBookStatsTrackingEnabled(const std::string& fullPath) {
+  return BookStatsTracking::isBookEnabled(bookStatsCachePath(fullPath));
+}
+
+bool toggleBookStatsTracking(const std::string& fullPath, bool& enabled) {
+  if (!hasReadingStats(fullPath) || !SETTINGS.shouldTrackReadingStats()) return false;
+  const std::string cachePath = bookStatsCachePath(fullPath);
+  enabled = !BookStatsTracking::isBookEnabled(cachePath);
+  if (BookStatsTracking::setBookEnabled(cachePath, enabled)) return true;
+  enabled = BookStatsTracking::isBookEnabled(cachePath);
+  return false;
+}
+
 bool toggleBookCompleted(const std::string& fullPath, const std::string& displayName, bool& completed) {
   const bool isEpub = FsHelpers::hasEpubExtension(fullPath);
   const bool isXtc = FsHelpers::hasXtcExtension(fullPath);
@@ -206,25 +227,27 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
   BookReadingStats stats = BookReadingStats::load(cachePath);
   completed = !stats.isCompleted;
   stats.isCompleted = completed;
-  if (completed && !stats.finishedDateManual) {
+  const bool trackStats = BookStatsTracking::isEnabled(cachePath);
+  if (completed && trackStats && !stats.finishedDateManual) {
     ReadingStatsDateTime now;
     if (getCurrentLocalReadingStatsDateTime(now)) {
       stats.finishedDate = now.date;
     }
   }
 
-  GlobalReadingStats globalStats = GlobalReadingStats::load();
-  if (completed) {
-    globalStats.completedBooks++;
-  } else if (globalStats.completedBooks > 0) {
-    globalStats.completedBooks--;
-  }
-
   if (!stats.save(cachePath)) {
     LOG_ERR("BookActions", "Could not save completion for: %s", fullPath.c_str());
     return false;
   }
-  globalStats.save();
+  if (trackStats) {
+    GlobalReadingStats globalStats = GlobalReadingStats::load();
+    if (completed) {
+      globalStats.completedBooks++;
+    } else if (globalStats.completedBooks > 0) {
+      globalStats.completedBooks--;
+    }
+    globalStats.save();
+  }
 
   // Changing completion status does not open a book. The reader adds it to
   // recents if it is opened again after being marked unfinished.
