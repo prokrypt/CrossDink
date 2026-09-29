@@ -226,6 +226,13 @@ void DisplayTestActivity::drawOp(const Op& op) {
     case OpCode::Invert:
       renderer.invertScreen();
       break;
+    case OpCode::Label: {
+      const int bandH = renderer.getLineHeight(UI_12_FONT_ID) + 12;
+      renderer.fillRect(0, 0, w, bandH, false);
+      renderer.fillRect(0, bandH - 2, w, 2);
+      renderer.drawCenteredText(UI_12_FONT_ID, 6, op.text.c_str(), true, EpdFontFamily::BOLD);
+      break;
+    }
     default:
       break;
   }

@@ -29,6 +29,7 @@ enum class OpCode : uint8_t {
   End,       // a0: index of the matching Repeat
   Note,      // text
   Ask,       // text = question; options = the two answers
+  Label,     // text drawn in a white band at the top
 };
 
 enum class Mode : uint8_t { Full, Half, Fast, Du };

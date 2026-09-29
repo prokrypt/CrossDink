@@ -57,6 +57,11 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
     op.text = rest;
     return rest.empty() ? "name needs text" : nullptr;
   }
+  if (verb == "label") {
+    op.code = OpCode::Label;
+    op.text = rest;
+    return rest.empty() ? "label needs text" : nullptr;
+  }
   if (verb == "note") {
     op.code = OpCode::Note;
     op.text = rest;
@@ -164,11 +169,16 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
 const BuiltIn BUILT_INS[] = {
     {"Refresh modes",
      "fill white\nrefresh full\n"
-     "note full\npattern checker 32\nrefresh full\nwait 1000\nfill white\nrefresh full\n"
-     "note half\npattern checker 32\nrefresh half\nwait 1000\nfill white\nrefresh half\n"
-     "note fast\npattern checker 32\nrefresh fast\nwait 1000\nfill white\nrefresh fast\n"
-     "note du\npattern checker 32\nrefresh du\nwait 1000\nfill white\nrefresh du\n"
-     "ask Cleanest? | Half | Fast\n"},
+     "label Next: FULL\nrefresh fast\nwait 1200\nnote full\npattern checker 32\nlabel FULL refresh\nrefresh full\nwait "
+     "2000\nfill white\nlabel FULL back to white\nrefresh full\nwait 1500\nfill white\n"
+     "label Next: HALF\nrefresh fast\nwait 1200\nnote half\npattern checker 32\nlabel HALF refresh\nrefresh half\nwait "
+     "2000\nfill white\nlabel HALF back to white\nrefresh half\nwait 1500\nfill white\n"
+     "label Next: FAST\nrefresh fast\nwait 1200\nnote fast\npattern checker 32\nlabel FAST refresh\nrefresh fast\nwait "
+     "2000\nfill white\nlabel FAST back to white\nrefresh fast\nwait 1500\nfill white\n"
+     "label Next: DU\nrefresh fast\nwait 1200\nnote du\npattern checker 32\nlabel DU refresh\nrefresh du\nwait "
+     "2000\nfill white\nlabel DU back to white\nrefresh du\nwait 1500\nfill white\n"
+     "ask Cleaner, Half or Fast? | Half | Fast\n"
+     "ask Cleaner, Fast or DU? | Fast | DU\n"},
     {"Fast x20 text ghosting",
      "fill white\nrefresh half\n"
      "repeat 10\npattern text\nrefresh fast\nfill white\nrefresh fast\nend\n"
