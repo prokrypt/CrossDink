@@ -22,6 +22,7 @@
 #include "MappedInputManager.h"
 #include "Memory.h"
 #include "SdCardFontSystem.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/Dictionary.h"
@@ -1347,6 +1348,16 @@ void DictionaryDefinitionActivity::loop() {
     openDictionarySwitch();
     return;
   }
+  // Full-screen header Back arrow; the popup already closes on an outside tap.
+  if (!hasModalBackground()) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const Rect header{contentX, hintGutterHeight + metrics.topPadding, renderer.getScreenWidth() - hintGutterWidth,
+                      metrics.headerHeight};
+    if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
+      navigateBack();
+      return;
+    }
+  }
 #endif
 
   if (showLookupButton && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
@@ -1504,6 +1515,9 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
       const int separatorY = headerRect.y + headerRect.height + metrics.optionPopupTitleGap / 2;
       renderer.drawLine(headerRect.x, separatorY, headerRect.x + headerRect.width, separatorY, true);
     }
+  } else if (mappedInput.hasTouchHardware()) {
+    // Icon centred on the headword line (offset 0) rather than below the status row.
+    TouchHeaderBackButton::draw(renderer, headerRect, "", false, 0, nullptr, 0);
   } else {
     GUI.drawHeader(renderer, headerRect, "");
   }
@@ -1523,7 +1537,9 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
     titleRight = pageInfoX - metrics.optionPopupInnerPadding;
   }
 
-  const int titleX = hasModalBackground() ? headerRect.x : headerRect.x + metrics.contentSidePadding;
+  const int titleX = hasModalBackground()             ? headerRect.x
+                     : mappedInput.hasTouchHardware() ? TouchHeaderBackButton::layout(headerRect).titleX
+                                                      : headerRect.x + metrics.contentSidePadding;
   const int titleY = hasModalBackground() ? headerRect.y : headerRect.y + (headerRect.height - titleLineHeight) / 2;
   const int titleMaxWidth = std::max(0, titleRight - titleX);
   const std::string visibleHeadword =

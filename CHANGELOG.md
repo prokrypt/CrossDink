@@ -6,7 +6,7 @@
 
 - The web status API (`/api/status`) reports the device's eFuse security state (flash encryption, secure boot, JTAG, USB-Serial-JTAG, download mode) and whether it is locked against reflashing. Debug builds log the same line at boot and in the PSRAM log header.
 - USB Drive (X4 Pro): the frontlight pulses while the computer reads or writes the card, like Wi-Fi file transfer, and your brightness returns when you leave.
-- Touch devices: Calibre Connect and alert screens get the top-left Back button used by File Transfer.
+- Touch devices: Calibre Connect, alert screens and the full-screen dictionary get the top-left Back button used by File Transfer.
 - Debug builds: the boot log names the exact panel controller (UC8179, SSD1677, ...), how it was detected, and the panel's VER/MTP product id and LUT version. Every PSRAM log grab (/api/psram-log, CMD:PSRAMLOG) starts with a header: device, serial, build, env, panel, uptime and heap.
 
 - While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% once a second, and stays off while idle. Each pulse finishes smoothly, so even a short request gives one full blink and the light never cuts off abruptly. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
