@@ -1117,13 +1117,15 @@ void CrossPointWebServer::handleStatus() const {
 
 #ifndef SIMULATOR
   const DeviceSecurity::State& sec = DeviceSecurity::get();
-  JsonObject security = doc["security"].to<JsonObject>();
-  security["flashEnc"] = sec.flashEnc;
-  security["secureBoot"] = sec.secureBoot;
-  security["usbSerialJtagDisabled"] = sec.usbSerialJtagDisabled;
-  security["jtagDisabled"] = sec.jtagDisabled;
-  security["download"] = sec.download;
-  security["locked"] = sec.locked;
+  if (sec.read) {
+    JsonObject security = doc["security"].to<JsonObject>();
+    security["flashEnc"] = sec.flashEnc;
+    security["secureBoot"] = sec.secureBoot;
+    security["usbSerialJtagDisabled"] = sec.usbSerialJtagDisabled;
+    security["jtagDisabled"] = sec.jtagDisabled;
+    security["download"] = sec.download;
+    security["locked"] = sec.locked;
+  }
 #endif
 
   JsonObject memory = doc["memory"].to<JsonObject>();

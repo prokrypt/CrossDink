@@ -6,7 +6,7 @@
 #include <sdkconfig.h>
 #endif
 
-#if !defined(SIMULATOR) && defined(CONFIG_IDF_TARGET_ESP32S3)
+#if !defined(SIMULATOR) && (defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C3))
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
 #include <esp_flash_encrypt.h>
@@ -20,7 +20,7 @@ State gState;
 
 void readOnce() {
   if (gState.read) return;
-#if !defined(SIMULATOR) && defined(CONFIG_IDF_TARGET_ESP32S3)
+#if !defined(SIMULATOR) && (defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C3))
   switch (esp_get_flash_encryption_mode()) {
     case ESP_FLASH_ENC_MODE_RELEASE:
       gState.flashEnc = "release";
@@ -59,9 +59,11 @@ const State& get() {
 
 size_t format(char* buf, const size_t size) {
   const State& s = get();
-  const int n =
-      snprintf(buf, size, "fenc=%s sboot=%d usbjtag=%s jtag=%s dl=%s locked=%d", s.flashEnc, s.secureBoot ? 1 : 0,
-               s.usbSerialJtagDisabled ? "off" : "on", s.jtagDisabled ? "off" : "on", s.download, s.locked ? 1 : 0);
+  // Unread (simulator, other chips): don't report defaults as "unlocked".
+  const int n = !s.read ? snprintf(buf, size, "n/a")
+                        : snprintf(buf, size, "fenc=%s sboot=%d usbjtag=%s jtag=%s dl=%s locked=%d", s.flashEnc,
+                                   s.secureBoot ? 1 : 0, s.usbSerialJtagDisabled ? "off" : "on",
+                                   s.jtagDisabled ? "off" : "on", s.download, s.locked ? 1 : 0);
   if (n <= 0 || size == 0) return 0;
   return static_cast<size_t>(n) < size ? static_cast<size_t>(n) : size - 1;
 }
