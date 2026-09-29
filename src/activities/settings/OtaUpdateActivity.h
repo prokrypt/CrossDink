@@ -1,7 +1,5 @@
 #pragma once
 
-#include <atomic>
-
 #include "I18nKeys.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
@@ -24,8 +22,7 @@ class OtaUpdateActivity : public Activity {
 
   State state = WIFI_SELECTION;
   ScreenTransitionRefresh screenTransitionRefresh;
-  // First redrive frame after entering: a long DU scrub clears the previous screen.
-  std::atomic<bool> scrubFirstFrame{true};
+  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
   unsigned int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
   StrId failureMessage = StrId::STR_UPDATE_FAILED;
   OtaUpdater updater;

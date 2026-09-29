@@ -21,6 +21,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BlackRedriveLut.h"
 
 namespace fui = freeink::ui;
 
@@ -1236,10 +1237,12 @@ void KeyboardEntryActivity::render(RenderLock&&) {
       if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
     }
   }
-  // The first keyboard frame cleans the panel: a DU scrub (64, with the T4
-  // LUT) or a Half charge scrub (16).
+  // The first keyboard frame cleans the panel: a long DU scrub (64, with the
+  // T4 LUT) or a Half charge scrub (16).
   if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_DU_SCRUB_ON_OPEN) && (kbdExpFlags & KBD_EXP_DU_LUT)) {
+    exp.lutFrames = std::max(kbdExpFrames, BlackRedriveLut::SCRUB_FRAMES);
     freeink::requestUc8179DuScrubNext();
+    LOG_DBG("KBD", "Frame refresh=du-scrub frames=%u", exp.lutFrames);
   } else if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_HALF_ON_OPEN)) {
     freeink::requestUc8179HalfNext();
   }

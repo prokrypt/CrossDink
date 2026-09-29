@@ -39,6 +39,13 @@ class BlackRedriveLut {
     (void)scrub;
 #endif
   }
+  // True on the frame a screen enters its redrive state: its first DU frame
+  // lands on the previous screen, so it scrubs. `wasOn` is render-task state.
+  static bool entering(bool& wasOn, const bool on) {
+    const bool first = on && !wasOn;
+    wasOn = on;
+    return first;
+  }
   ~BlackRedriveLut() {
 #ifndef SIMULATOR
     if (enabled) freeink::setUc8179KbdExperiment(nullptr);

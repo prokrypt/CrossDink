@@ -50,12 +50,14 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
   static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // retired T6 windowed DRF; ignored
-  // Open with a ~250 ms DU scrub (T4 LUT, needs 4) instead of the 1.5 s Half of 16.
+  // Open with a DU scrub (T4 LUT, needs 4; BlackRedriveLut::SCRUB_FRAMES long)
+  // instead of the 1.5 s flashing Half of 16.
   static constexpr uint8_t KBD_EXP_DU_SCRUB_ON_OPEN = 64;
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
-  // Settings > Turbo keyboard: every tweak above.
-  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = 31;
+  // Settings > Turbo keyboard: 1+2+4+8, opening with the no-flash DU scrub (64).
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
+      KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_HALF_ON_CLOSE | KBD_EXP_DU_SCRUB_ON_OPEN;
   // DU LUT drive frames: 3 left heavy ghosting on the X4 Pro; 6 is the
   // setting tested on hardware ("63 6").
   static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
