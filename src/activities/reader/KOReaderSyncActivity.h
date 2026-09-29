@@ -133,25 +133,15 @@ class KOReaderSyncActivity final : public Activity {
   void logSyncTiming();
 
   // Sync requests run on a worker task so a slow server never stalls the main
-  // loop (8.5 s seen on a failed GET). The task works only on a NetJobState,
-  // which the activity and the task both own: whichever lets go last frees it,
-  // so a request still running when sleep abandons it never touches `this`.
-  enum class NetJob : uint8_t { None, Fetch, Upload };
-  struct NetJobState;
-  NetJobState* netState = nullptr;  // main loop only; null when no job
-  bool abandonNetJob = false;       // Back during a request: reboot drops it
+  // loop (8.5 s seen on a failed GET). The task works only on file-static job
+  // state, so a request still running when sleep abandons it never touches `this`.
+  bool netJobPending = false;  // main loop only: a started job not yet polled
+  bool abandonNetJob = false;  // Back during a request: reboot drops it
   static constexpr uint32_t NET_JOIN_TIMEOUT_MS = 3000;
-  NetJobState* newNetJob(NetJob kind);
-  void startNetJob(NetJobState* job);
-  static void netTaskEntry(void* context);
-  static void runNetJob(NetJobState& job);
-  static void completeNetJob(NetJobState* job);
-  static void releaseNetJob(NetJobState* job);
-  bool netJobRunning() const;
+  void startNetJob();
   void pollNetJob();
-  bool joinNetJob(uint32_t timeoutMs) const;
-  void finishSync(NetJobState& job);
-  void finishUpload(NetJobState& job);
+  void finishSync();
+  void finishUpload();
 
   void onWifiSelectionComplete(bool success);
   void performSync();

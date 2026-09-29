@@ -2,6 +2,7 @@
 
 #ifndef SIMULATOR
 
+#include <Arduino.h>
 #include <TaskCores.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -18,8 +19,13 @@ bool WorkerTask::start(const Fn taskFn, void* const taskCtx, const uint32_t stac
   return true;
 }
 
-void WorkerTask::join() const {
-  while (running()) vTaskDelay(pdMS_TO_TICKS(10));
+bool WorkerTask::join(const uint32_t timeoutMs) const {
+  const uint32_t startMs = millis();
+  while (running()) {
+    if (millis() - startMs >= timeoutMs) return false;
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  return true;
 }
 
 void WorkerTask::entry(void* const self) {
@@ -33,7 +39,7 @@ void WorkerTask::entry(void* const self) {
 #else  // SIMULATOR: no background network jobs.
 
 bool WorkerTask::start(Fn, void*, uint32_t, const char*) { return false; }
-void WorkerTask::join() const {}
+bool WorkerTask::join(uint32_t) const { return true; }
 void WorkerTask::entry(void*) {}
 
 #endif

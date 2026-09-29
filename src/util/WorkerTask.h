@@ -16,8 +16,9 @@ class WorkerTask {
   // False when a job is still running or the task could not start.
   bool start(Fn fn, void* ctx, uint32_t stackBytes, const char* name);
   bool running() const { return active.load(std::memory_order_acquire); }
-  // Blocks the caller until the task has exited.
-  void join() const;
+  // Blocks the caller until the task has exited or timeoutMs passed; false on
+  // timeout. An owner that gives up must outlive the task (static storage).
+  bool join(uint32_t timeoutMs = UINT32_MAX) const;
 
  private:
   static void entry(void* self);
