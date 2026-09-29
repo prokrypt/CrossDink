@@ -149,6 +149,9 @@ class OpdsBookBrowserActivity final : public Activity {
   void pollDownload();
   // After a finished download: asks whether to open the book now.
   void offerToOpen(const std::string& path);
+  // After a failed download: Retry restarts the same book from byte 0 (the
+  // partial file is already gone), Cancel returns to the listing.
+  void offerRetry(const std::string& path);
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;

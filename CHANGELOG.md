@@ -3,6 +3,7 @@
 ### Added
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
+- OPDS: when a book download fails, a prompt offers Retry (restarts the download from the beginning) or Cancel (back to the list). A full SD card still shows its own error.
 - OPDS: Back, Previous page and a prefetched Next page open straight from memory without a Loading screen first, and Back returns to the row you opened, scrolled as you left it.
 - OPDS: catalog pages reuse one open connection to the server instead of a new secure handshake per page.
 - Wi-Fi: rejoining a network after a network reboot reuses the address it was given (while that lease is well within its renewal time) instead of asking the router again.
