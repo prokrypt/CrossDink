@@ -50,6 +50,7 @@
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
+#include "network/SdWriteBehind.h"
 #include "util/BookCacheUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
@@ -290,136 +291,10 @@ class FontListJsonWriter {
 // WebSocket upload state
 HalFile wsUploadFile;
 
-#if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR)
-// Double-buffered SD writer for WebSocket uploads. X4 Pro logs showed the SD
-// write taking ~40% of upload wall time on the receiving task (core 0, with
-// Wi-Fi and lwIP). Frames are copied into one PSRAM buffer while a task on
-// core 1 writes the other to wsUploadFile, so receive and write overlap. The
-// buffers and the task exist only during an upload; if they can't be created
-// the upload writes directly, as before.
-class WsWriteBehind {
- public:
-  bool begin() {
-    for (auto& buf : bufs) {
-      buf = static_cast<uint8_t*>(heap_caps_malloc(BUF_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    }
-    work = xSemaphoreCreateBinary();
-    idle = xSemaphoreCreateBinary();
-    failed = false;
-    quit = false;
-    fillLen = 0;
-    fill = 0;
-    if (!bufs[0] || !bufs[1] || !work || !idle ||
-        xTaskCreatePinnedToCore(&taskMain, "WsWriter", 4096, this, 1, &task, TaskCores::kUi) != pdPASS) {
-      LOG_ERR("WS", "Write-behind unavailable; writing uploads directly");
-      task = nullptr;
-      release();
-      return false;
-    }
-    xSemaphoreGive(idle);  // writer starts idle
-    return true;
-  }
-
-  bool active() const { return task != nullptr; }
-
-  // False once any earlier write came up short.
-  bool append(const uint8_t* data, size_t len) {
-    while (len > 0) {
-      const size_t n = std::min(len, BUF_BYTES - fillLen);
-      memcpy(bufs[fill] + fillLen, data, n);
-      fillLen += n;
-      data += n;
-      len -= n;
-      if (fillLen == BUF_BYTES && !submit()) return false;
-    }
-    return !failed;
-  }
-
-  // Writes what is buffered and stops the task. True when every byte landed.
-  bool finish() {
-    bool ok = fillLen == 0 || submit();
-    stopTask();
-    ok = ok && !failed;
-    release();
-    return ok;
-  }
-
-  // Stops the task without writing the tail (the upload is being discarded).
-  void abort() {
-    if (!active()) return;
-    stopTask();
-    release();
-  }
-
- private:
-  static constexpr size_t BUF_BYTES = 32 * 1024;
-
-  bool submit() {
-    xSemaphoreTake(idle, portMAX_DELAY);  // previous buffer written
-    if (failed) return false;
-    pendingBuf = bufs[fill];
-    pendingLen = fillLen;
-    fill ^= 1;
-    fillLen = 0;
-    xSemaphoreGive(work);
-    return true;
-  }
-
-  void stopTask() {
-    xSemaphoreTake(idle, portMAX_DELAY);
-    quit = true;
-    xSemaphoreGive(work);
-    xSemaphoreTake(idle, portMAX_DELAY);  // the task gives it once more as it exits
-    task = nullptr;
-  }
-
-  void release() {
-    for (auto& buf : bufs) {
-      heap_caps_free(buf);
-      buf = nullptr;
-    }
-    if (work) vSemaphoreDelete(work);
-    if (idle) vSemaphoreDelete(idle);
-    work = nullptr;
-    idle = nullptr;
-  }
-
-  static void taskMain(void* param) {
-    auto* self = static_cast<WsWriteBehind*>(param);
-    for (;;) {
-      xSemaphoreTake(self->work, portMAX_DELAY);
-      if (self->quit) break;
-      if (!self->failed && wsUploadFile.write(self->pendingBuf, self->pendingLen) != self->pendingLen) {
-        self->failed = true;
-      }
-      xSemaphoreGive(self->idle);
-    }
-    xSemaphoreGive(self->idle);
-    vTaskDelete(nullptr);
-  }
-
-  uint8_t* bufs[2] = {nullptr, nullptr};
-  size_t fill = 0;
-  size_t fillLen = 0;
-  const uint8_t* pendingBuf = nullptr;
-  size_t pendingLen = 0;
-  volatile bool failed = false;
-  volatile bool quit = false;
-  SemaphoreHandle_t work = nullptr;
-  SemaphoreHandle_t idle = nullptr;
-  TaskHandle_t task = nullptr;
-};
-#else
-class WsWriteBehind {
- public:
-  bool begin() { return false; }
-  bool active() const { return false; }
-  bool append(const uint8_t*, size_t) { return false; }
-  bool finish() { return true; }
-  void abort() {}
-};
-#endif
-WsWriteBehind wsWriteBehind;
+// Write-behind for WebSocket uploads (SdWriteBehind.h): frames land in PSRAM
+// while a task on the other core writes the previous 32 KB to wsUploadFile.
+static bool writeWsUploadChunk(void*, const uint8_t* data, size_t len) { return wsUploadFile.write(data, len) == len; }
+SdWriteBehind wsWriteBehind;
 String wsUploadFileName;
 String wsUploadPath;
 size_t wsUploadSize = 0;
@@ -711,9 +586,11 @@ void CrossPointWebServer::begin() {
   running.store(true, std::memory_order_release);
   // Internal-RAM stack (8 KB) only while the server runs: handlers write to
   // the SD card, and task stacks must stay reachable while flash is busy.
+  // UI core: on core 0 with Wi-Fi, lwIP and the loop, uploads held core 0 at
+  // 92% (WebServer 36%) while core 1 did ~20%. The upload writer takes core 0.
   if (!stateMutex || !serverStopped ||
       xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
-                              TaskCores::kWorker) != pdPASS) {
+                              TaskCores::kUi) != pdPASS) {
     LOG_ERR("WEB", "Failed to start web server task");
     serverTask = nullptr;
     stop();
@@ -2727,7 +2604,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
           wsUploadClientNum = num;
           wsUploadInProgress = true;
-          wsWriteBehind.begin();
+          wsWriteBehind.begin(&writeWsUploadChunk, nullptr, "WsWriter", TaskCores::kWorker);
           wsUploadPowerSaveGuard = makeUniqueNoThrow<WifiPowerSaveGuard>();
           wsServer->sendTXT(num, "READY");
         } else {

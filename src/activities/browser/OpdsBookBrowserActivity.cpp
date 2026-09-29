@@ -387,6 +387,11 @@ bool OpdsBookBrowserActivity::preventAutoSleep() {
   return false;
 }
 
+bool OpdsBookBrowserActivity::allowsRadioIdleSleep() {
+  if (state != BrowserState::BROWSING && state != BrowserState::ERROR) return false;
+  return !(prefetcher && prefetcher->running());
+}
+
 void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) {
   auto* self = static_cast<OpdsBookBrowserActivity*>(user);
   switch (self->state) {

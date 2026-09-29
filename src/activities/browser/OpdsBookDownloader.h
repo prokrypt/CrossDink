@@ -8,7 +8,7 @@
 #include "util/WorkerTask.h"
 
 /**
- * Downloads one OPDS book to SD on a background task (the worker core), so the
+ * Downloads one OPDS book to SD on a background task (the UI core), so the
  * main loop keeps reading input (Back, Home, the Cancel button) and drawing
  * progress while the transfer runs.
  *

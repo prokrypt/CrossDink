@@ -221,10 +221,22 @@ WorkerTask netTask;
 void runNetJob() {
   NetJob& job = netJob;
   const unsigned long start = millis();
+  // One request on a fresh connection after a transport failure: a GET once
+  // hung 8 s after a good handshake (http=-1) and the user's retry right after
+  // took 1.2 s. The failed connection is already closed (releaseClient).
+  const auto retriedOnce = [](const char* what, auto&& request) {
+    KOReaderSyncClient::Error result = request();
+    if (result == KOReaderSyncClient::NETWORK_ERROR) {
+      LOG_INF("KOSync", "%s failed (http=%d); retrying once", what, KOReaderSyncClient::lastHttpCode);
+      result = request();
+    }
+    return result;
+  };
   if (job.kind == NetJobKind::Upload) {
-    job.result = KOReaderSyncClient::updateProgress(job.progress);
+    job.result = retriedOnce("Upload", [&job]() { return KOReaderSyncClient::updateProgress(job.progress); });
   } else {
-    job.result = KOReaderSyncClient::getProgress(job.hash, job.progress);
+    job.result =
+        retriedOnce("Get progress", [&job]() { return KOReaderSyncClient::getProgress(job.hash, job.progress); });
     LOG_DBG("KOSync", "Primary remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s", matchMethodName(job.method),
             job.result, KOReaderSyncClient::lastHttpCode, job.hash.c_str(), job.progress.percentage,
             job.progress.progress.c_str());
@@ -570,12 +582,28 @@ void KOReaderSyncActivity::performUpload() {
   // The render task draws this while the request runs.
   requestUpdate(true);
 
-  if (epub) {
-    epub.reset();
-  }
-
   // localProgress was pre-computed in EpubReaderActivity before the Epub was released.
   KOReaderProgress progress;
+
+  // Optionally include document metadata (KOReader PR #15306)
+  if (KOREADER_STORE.getSendMetadata()) {
+    // Read title/author before the Epub is released below: smart sync still has
+    // it loaded from progress mapping, and releasing it first (as this function
+    // used to) cost a ~0.3 s reload before the PUT. From NO_REMOTE_PROGRESS the Epub is null, so this
+    // loads it; guard the reads in case that fails. Filename is always safe.
+    ensureEpubLoaded();
+    KOReaderMetadata meta;
+    const auto lastSlash = epubPath.rfind('/');
+    meta.filename = (lastSlash != std::string::npos) ? epubPath.substr(lastSlash + 1) : epubPath;
+    if (epub) {
+      meta.title = epub->getTitle();
+      meta.authors = epub->getAuthor();
+    } else {
+      LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
+    }
+    progress.metadata = std::move(meta);
+  }
+
   progress.document = documentHash;
   progress.progress = localProgress.xpath;
   progress.percentage = localProgress.percentage;
@@ -596,25 +624,6 @@ void KOReaderSyncActivity::performUpload() {
     pos.paragraphIndex = currentParagraphIndex;
     pos.xpath = localProgress.xpath;
     progress.position = std::move(pos);
-  }
-
-  // Optionally include document metadata (KOReader PR #15306)
-  if (KOREADER_STORE.getSendMetadata()) {
-    // The Epub is released before the sync network calls and is only reloaded on the
-    // remote-progress path (performSync). When uploading from NO_REMOTE_PROGRESS the
-    // Epub is still null, so reload it here and guard the title/author reads to avoid
-    // dereferencing a null Epub. Filename is derived from the path and is always safe.
-    ensureEpubLoaded();
-    KOReaderMetadata meta;
-    const auto lastSlash = epubPath.rfind('/');
-    meta.filename = (lastSlash != std::string::npos) ? epubPath.substr(lastSlash + 1) : epubPath;
-    if (epub) {
-      meta.title = epub->getTitle();
-      meta.authors = epub->getAuthor();
-    } else {
-      LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
-    }
-    progress.metadata = std::move(meta);
   }
 
   // Release the Epub before the network call so the TLS handshake has enough free heap

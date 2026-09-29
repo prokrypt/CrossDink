@@ -7,6 +7,7 @@
 - OPDS: when a book download fails, a prompt offers Retry or Cancel (back to the list, deleting the partial file). Retry continues from where the download stopped when the server supports resuming (HTTP Range, checked with If-Range), and otherwise starts over. A full SD card still shows its own error.
 - OPDS: Back, Previous page and a prefetched Next page open straight from memory without a Loading screen first, and Back returns to the row you opened, scrolled as you left it.
 - OPDS: catalog pages reuse one open connection to the server instead of a new secure handshake per page.
+- OPDS: a book download that stops arriving is noticed after 10 s instead of 60 s and continues on its own from where it stopped (up to 4 times, while each attempt makes progress) before the Retry prompt appears. Large books from servers that cut long transfers now finish without a tap.
 
 - The web status API (`/api/status`) reports the device's eFuse security state (flash encryption, secure boot, JTAG, USB-Serial-JTAG, download mode) and whether it is locked against reflashing. Debug builds log the same line at boot and in the PSRAM log header.
 - USB Drive (X4 Pro): the frontlight pulses while the computer reads or writes the card, like Wi-Fi file transfer, and your brightness returns when you leave.
@@ -40,6 +41,9 @@
 
 ### Changed
 - X4 Pro: the SD card and online firmware update, Calibre Connect, Nearby transfer and font download progress screens clear the previous screen with a longer 15-frame scrub (no flash) each time they appear. OPDS uses the same longer scrub. The Turbo keyboard opens with this scrub instead of the flashing refresh.
+- OPDS book downloads and File Transfer uploads run their network work on the second CPU core and write to the SD card in the background, so transfers are faster.
+- The OPDS catalog and the KOReader Sync result screen let the device doze while you read the list, instead of keeping the CPU at full speed with Wi-Fi up.
+- KOReader Sync retries a request once when the connection fails, and uploads start sooner.
 - OPDS: every screen (loading, downloading, errors) uses the same header with the status bar; on touch its arrow goes back, or cancels a download. After a download the book list is drawn first, then the open prompt appears over it.
 - X4 Pro: the first File Transfer QR frame runs a longer scrub (no flash), so the Wi-Fi list or keyboard no longer shows through the QR. The first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.
 - File Transfer, Calibre and USB Drive keep a lit frontlight at your level for 10 seconds before the transfer pulse takes over.
@@ -105,6 +109,8 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- After a KOReader Sync or Nearby sync, later Wi-Fi sessions in the same boot no longer run with Wi-Fi power saving off.
+- Using Wi-Fi once no longer leaves internal memory fragmented until the next reboot.
 - X4 Pro: the sleep screen no longer ghosts when the device falls asleep on its own after sitting idle. Every sleep screen now starts from a freshly powered panel with the keyboard fast waveform switched off, the same as a power-button sleep.
 - KOReader sync: pressing power or letting the device sleep during a slow sync no longer freezes it for up to ~16 seconds; it waits at most 3 seconds, then sleeps. The sync worker has a larger stack for the faster TLS math.
 - Debug builds: serial file downloads and CMD:PSRAMLOG dumps no longer lose bytes when the USB buffer is full, and a log line can no longer land inside a serial reply or binary stream. A reply to a host that has closed the port no longer stalls the device for half a second. Blank lines and xink-remote's ">>>>> " echo lines are ignored quietly.

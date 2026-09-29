@@ -81,6 +81,10 @@ class HttpDownloader {
     // back whole (200) instead of spliced. Out: the response's strong ETag,
     // else its Last-Modified, else empty. Borrowed for this call.
     std::string* validator = nullptr;
+    // WOLFSSL only: once the body has started, fail with HTTP_ERROR after this
+    // long with no new bytes (0 = the 60 s request timeout). A server that
+    // drops a long response without closing otherwise costs the full timeout.
+    uint32_t stallTimeoutMs = 0;
   };
 
   /**

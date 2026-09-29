@@ -20,7 +20,9 @@
 #include <utility>
 
 #include "AppVersion.h"
+#include "TaskCores.h"
 #include "network/HttpRedirectPolicy.h"
+#include "network/SdWriteBehind.h"
 #include "network/WifiPowerSaveGuard.h"
 
 namespace {
@@ -108,9 +110,20 @@ struct Sink {
   bool rangeIgnored = false;
   bool headersChecked = false;       // wolfSSL path: first body chunk seen
   std::string* validator = nullptr;  // DownloadOptions::validator
-  uint32_t lastDataMs = 0;  // millis() of the last body chunk (wolfSSL path)
-  uint32_t maxWriteMs = 0;  // slowest SD write (downloadToFile)
+  uint32_t lastDataMs = 0;           // millis() of the last body chunk (wolfSSL path)
+  uint32_t maxWriteMs = 0;           // slowest SD write (downloadToFile)
+  uint32_t stallTimeoutMs = 0;       // DownloadOptions::stallTimeoutMs
+  bool stalled = false;              // the body stopped for stallTimeoutMs
 };
+
+// wolfSSL path abort poll: a user cancel, or a body that stopped arriving.
+bool shouldAbortTransfer(Sink& sink) {
+  if (isCancelRequested(sink.cancelFlag, sink.shouldCancel)) return true;
+  if (sink.stallTimeoutMs == 0 || sink.lastDataMs == 0) return false;
+  if (millis() - sink.lastDataMs < sink.stallTimeoutMs) return false;
+  sink.stalled = true;
+  return true;
+}
 
 // Tells a stalled server (idle near the timeout), a dropped link (wifi != 3)
 // and a slow card (large maxWrite) apart.
@@ -242,8 +255,12 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
           progressNotifier.notify(sink.downloaded, false);
           return true;
         },
-        [&sink]() { return isCancelRequested(sink.cancelFlag, sink.shouldCancel); });
+        [&sink]() { return shouldAbortTransfer(sink); });
 
+    if (sink.stalled) {
+      logStallDiagnostics("Stalled", sink);
+      return HttpDownloader::HTTP_ERROR;
+    }
     if (http.aborted()) return HttpDownloader::ABORTED;
     // 416: the partial file is not a prefix the server can continue.
     if (sink.resumeOffset > 0 && status == 416) sink.rangeIgnored = true;
@@ -600,6 +617,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   sink.shouldCancel = std::move(options.shouldCancel);
   sink.resumeOffset = resumeOffset;
   sink.validator = options.validator;
+  sink.stallTimeoutMs = options.stallTimeoutMs;
 
   FsFile file;
   bool fileOpen = false;
@@ -673,8 +691,19 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     writeBufLen = 0;
     return ok;
   };
+  // With PSRAM, a writer task on the worker core writes one 32 KB buffer while
+  // this task fills the other: the receive no longer waits on the card.
+  SdWriteBehind writeBehind;
+  bool writeBehindTried = false;
   auto writeChunk = [&](const uint8_t* data, size_t len) {
     if (!openOutputFile()) return false;
+    if (!writeBehindTried && options.writeBufferBytes > 0) {
+      writeBehindTried = true;
+      writeBehind.begin([](void* ctx, const uint8_t* bytes,
+                           size_t count) { return (*static_cast<decltype(timedWrite)*>(ctx))(bytes, count); },
+                        &timedWrite, "HttpWriter", TaskCores::kWorker);
+    }
+    if (writeBehind.active()) return writeBehind.append(data, len);
     if (!writeBuf) return timedWrite(data, len);
     if (writeBufLen + len > options.writeBufferBytes && !flushWriteBuf()) return false;
     if (len >= options.writeBufferBytes) return timedWrite(data, len);
@@ -687,6 +716,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   DownloadError result =
       runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
   if (sink.rangeIgnored) {
+    writeBehind.abort();  // the writer task must be done with the file first
+    writeBehindTried = false;
     if (fileOpen) {
       file.close();
       fileOpen = false;
@@ -703,6 +734,12 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
 
   if (fileOpen) {
+    // Also on failure: a resume continues from the file's size, so every
+    // received byte should land.
+    if (!writeBehind.finish() && result == OK) {
+      LOG_ERR("HTTP", "Write-behind failed after %zu bytes", sink.downloaded);
+      result = FILE_ERROR;
+    }
     if (!flushWriteBuf() && result == OK) {
       LOG_ERR("HTTP", "Final buffered write failed after %zu bytes", sink.downloaded);
       result = FILE_ERROR;
