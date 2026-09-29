@@ -199,11 +199,6 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
   returnToReader();
 }
 
-void KOReaderSyncActivity::returnToReader() {
-  if (netTask.running()) abandonNetJob = true;
-  activityManager.goToReader(epubPath, false, false, true);
-}
-
 namespace {
 // One sync request at a time. Static, not a member: a request abandoned at
 // sleep keeps writing here after the activity is gone (deep sleep follows, so
@@ -245,6 +240,11 @@ void runNetJob() {
   job.elapsedMs = millis() - start;
 }
 }  // namespace
+
+void KOReaderSyncActivity::returnToReader() {
+  if (netTask.running()) abandonNetJob = true;
+  activityManager.goToReader(epubPath, false, false, true);
+}
 
 void KOReaderSyncActivity::startNetJob() {
   netJobPending = true;
