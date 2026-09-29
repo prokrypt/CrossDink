@@ -881,6 +881,10 @@ void ActivityManager::notifyInputLockChanged(const bool locked) {
   }
 }
 
+void ActivityManager::cancelOptionalRenderWork(const char* reason) {
+  if (currentActivity) currentActivity->cancelOptionalRenderWork(reason);
+}
+
 void ActivityManager::notifyUserInput() {
   if (currentActivity) currentActivity->onUserInput();
 }
@@ -1079,6 +1083,8 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {
+  // The sleep screen waits on the render lock; don't make it wait on AA.
+  cancelOptionalRenderWork(fromTimeout ? "auto-sleep" : "sleep");
   const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
   const GfxRenderer::Orientation sleepPopupOrientation = renderer.getOrientation();
   std::string currentBookPath = getCurrentBookPath();
@@ -1220,6 +1226,7 @@ bool ActivityManager::canSnapshotForSleepOverlay() const {
 }
 
 bool ActivityManager::requestManualReaderRefresh() {
+  cancelOptionalRenderWork("refresh");
   RenderLock lock;
   if (!currentActivity || !currentActivity->isReaderActivity() || !currentActivity->prepareManualRefresh()) {
     return false;

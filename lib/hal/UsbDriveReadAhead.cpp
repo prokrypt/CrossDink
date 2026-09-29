@@ -2,6 +2,7 @@
 
 #if FREEINK_CAP_USB_MSC
 
+#include <Arduino.h>
 #include <Logging.h>
 #include <TaskCores.h>
 #include <esp_heap_caps.h>
@@ -22,6 +23,9 @@ bool UsbDriveReadAhead::begin(FsBlockDeviceInterface* innerDevice) {
   windowCount = 0;
   windowHead = 0;
   readAheadArmed = false;
+  lastIoMs.store(0, std::memory_order_relaxed);
+  hostReadBytes.store(0, std::memory_order_relaxed);
+  hostWriteBytes.store(0, std::memory_order_relaxed);
   stopRequested = false;
   prefetchEnabled = false;
   if (!deviceMutex) deviceMutex = xSemaphoreCreateMutex();
@@ -136,6 +140,8 @@ void UsbDriveReadAhead::resetWindow(const Sector_t nextSector) {
 }
 
 bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const size_t ns) {
+  lastIoMs.store(millis(), std::memory_order_relaxed);
+  hostReadBytes.fetch_add(ns * kSectorSize, std::memory_order_relaxed);
   if (prefetchEnabled && ns <= kWindowSectors) {
     for (int attempt = 0;; attempt++) {
       xSemaphoreTake(windowMutex, portMAX_DELAY);
@@ -176,6 +182,8 @@ bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const s
 }
 
 bool UsbDriveReadAhead::writeSectors(const Sector_t sector, const uint8_t* src, const size_t ns) {
+  lastIoMs.store(millis(), std::memory_order_relaxed);
+  hostWriteBytes.fetch_add(ns * kSectorSize, std::memory_order_relaxed);
   if (prefetchEnabled) {
     // Any read-ahead is about to go stale, and the sectors past this write are
     // the ones a copy writes next. Drop the window and stop prefetching before

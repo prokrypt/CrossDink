@@ -160,6 +160,14 @@ class EpubReaderActivity final : public Activity {
   unsigned long pageTurnDuration = 0UL;
   ManualPageTurnQueue pendingManualPageTurns;
   QueuedTurnRenderingState queuedTurnRendering;
+  // Any event that makes the current AA pass moot (menu, rotation, sleep, ...)
+  // bumps this from the input loop; the render task compares it with the value
+  // it saw when its render began. Unlike the turn queue, clearing queued turns
+  // can't erase it.
+  std::atomic<uint32_t> aaCancelEpoch{0};
+  std::atomic<const char*> aaCancelReason{"event"};
+  uint32_t aaRenderEpoch = 0;   // render task only
+  bool aaCancelLogged = false;  // render task only
   unsigned long pageShownAtMs = 0UL;
   unsigned long lastRenderCompleteMs = 0UL;
   int idlePrewarmSpine = -1;
@@ -537,7 +545,12 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void requestManualPageTurn(bool isForwardTurn, const char* source);
   bool drainPendingManualPageTurn();
-  void clearPendingManualPageTurns(bool requestRecoveryRedraw = true);
+  // Also cancels a running AA pass; `aaReason` names the event in the log.
+  void clearPendingManualPageTurns(bool requestRecoveryRedraw = true, const char* aaReason = "turns-cleared");
+  void cancelGrayscalePass(const char* reason);
+  // Render task: true when the AA pass should stop at `checkpoint` (a queued
+  // turn or a cancel event since the render began). Schedules a recovery redraw.
+  bool grayscalePassCancelled(const char* checkpoint);
   void finishManualPageTurnBrakeIfReady();
   void cancelSilentNextChapterPrefetchForForwardTurn();
   bool isAtBookStart() const;
@@ -617,6 +630,7 @@ class EpubReaderActivity final : public Activity {
   bool isReaderActivity() const override { return true; }
   bool isEpubReaderActivity() const override { return true; }
   void onInputLockChanged(bool locked) override;
+  void cancelOptionalRenderWork(const char* reason) override { cancelGrayscalePass(reason); }
   void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }

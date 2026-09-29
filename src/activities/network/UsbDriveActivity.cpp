@@ -26,6 +26,9 @@ void UsbDriveActivity::onEnter() {
   startFailureStartedAt = 0;
   forcedDisconnectRequestedAt = 0;
   hostSuspendStartedAt = 0;
+  ioBurst = false;
+  pollBursts = 0;
+  pollSummaryAt = millis();
 
   // Paint the instruction screen before detaching the filesystem and exposing
   // its block device to the host. The two operations must never overlap.
@@ -43,6 +46,7 @@ void UsbDriveActivity::onEnter() {
     return;
   }
 
+  transferLight.begin();
 #endif
   preparing = false;
   state = State::WaitingForHost;
@@ -51,6 +55,7 @@ void UsbDriveActivity::onEnter() {
 }
 
 void UsbDriveActivity::onExit() {
+  transferLight.end();  // restores the user's brightness
   library::invalidateLibraryIndex();
 #ifndef SIMULATOR
   if (!restartRequested) Storage.endUsbDrive();
@@ -58,7 +63,42 @@ void UsbDriveActivity::onExit() {
   Activity::onExit();
 }
 
+void UsbDriveActivity::updateTransferLight() {
+#ifndef SIMULATOR
+  UsbDriveIo io;
+  if (restartRequested || !Storage.usbDriveIo(io)) return;
+  const uint32_t now = millis();
+  const bool active = io.lastIoMs != 0 && now - io.lastIoMs < IO_ACTIVE_MS;
+  transferLight.update(active);
+
+  if (active && !ioBurst) {
+    ioBurst = true;
+    burstStartMs = io.lastIoMs;
+    burstReadStart = io.readBytes;
+    burstWriteStart = io.writeBytes;
+  } else if (!active && ioBurst) {
+    ioBurst = false;
+    const uint32_t readKb = (io.readBytes - burstReadStart) / 1024;
+    const uint32_t writeKb = (io.writeBytes - burstWriteStart) / 1024;
+    if ((readKb + writeKb) * 1024 >= BURST_LOG_MIN_BYTES) {
+      LOG_DBG("FL", "usb burst %lu ms r=%luKB w=%luKB", static_cast<unsigned long>(io.lastIoMs - burstStartMs),
+              static_cast<unsigned long>(readKb), static_cast<unsigned long>(writeKb));
+    } else {
+      pollBursts++;
+    }
+  }
+  // Host idle polling pulses the light too; one summary line per window.
+  if (pollBursts > 0 && now - pollSummaryAt >= POLL_SUMMARY_MS) {
+    LOG_DBG("FL", "usb idle polls: %u in last %lu s", pollBursts,
+            static_cast<unsigned long>((now - pollSummaryAt) / 1000));
+    pollBursts = 0;
+    pollSummaryAt = now;
+  }
+#endif
+}
+
 void UsbDriveActivity::loop() {
+  updateTransferLight();
 #ifndef SIMULATOR
   if (!startFailed) {
     const auto storageState = Storage.usbDriveState();
@@ -191,6 +231,7 @@ void UsbDriveActivity::renderMessage(const char* message, const char* detail) co
 void UsbDriveActivity::restartToHome() {
   if (restartRequested) return;
   restartRequested = true;
+  transferLight.end();
 #ifndef SIMULATOR
   Storage.endUsbDrive();
 #endif

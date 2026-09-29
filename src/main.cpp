@@ -589,6 +589,7 @@ class NetworkEntryActivity final : public Activity {
 
 void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
   if (deepSleepInProgress) return;
+  activityManager.cancelOptionalRenderWork("network");
   auto entry = makeUniqueNoThrow<NetworkEntryActivity>(renderer, mappedInputManager, target, payload);
   if (!entry) {
     restartToNetworkTarget(target, payload);

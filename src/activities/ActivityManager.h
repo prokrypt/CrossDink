@@ -201,6 +201,9 @@ class ActivityManager {
   bool beginGlobalSettingsEdit();
   void endGlobalSettingsEdit();
   void notifyInputLockChanged(bool locked);
+  // Lets the current activity drop optional render work before an event takes
+  // the render lock. Main loop only.
+  void cancelOptionalRenderWork(const char* reason);
   void notifyUserInput();
   bool skipLoopDelay() const;
   bool allowsRadioIdleSleep() const;

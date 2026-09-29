@@ -2,6 +2,7 @@
 
 ### Added
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
+- USB Drive (X4 Pro): the frontlight pulses while the computer reads or writes the card, like Wi-Fi file transfer, and your brightness returns when you leave.
 - Debug builds: the boot log names the exact panel controller (UC8179, SSD1677, ...), how it was detected, and the panel's VER/MTP product id and LUT version. Every PSRAM log grab (/api/psram-log, CMD:PSRAMLOG) starts with a header: device, serial, build, env, panel, uptime and heap.
 
 - While File Transfer or Calibre Connect is moving data, the frontlight pulses between off and 25% once a second, and stays off while idle. Each pulse finishes smoothly, so even a short request gives one full blink and the light never cuts off abruptly. Your previous brightness returns when you leave. Changing the brightness yourself stops the pulse.
@@ -25,6 +26,7 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- Reader: opening the menu, quick actions or the frontlight panel, rotating, jumping, skipping chapters, sleeping, locking, pressing Back and similar actions now stop a running anti-aliasing pass instead of waiting for it to finish. The page gets its anti-aliasing again when you come back to it.
 - X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.
 - X4 Pro: Turbo keyboard now drives 6 frames per key (was 3), matching the tested setup; 3 frames left heavy ghosting.
 - Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, the outer keys reach the screen edges, and the top row reaches halfway up the strip above it, so there are no dead spots. The keys look the same.
@@ -73,6 +75,7 @@
 - The on-screen keyboard now uses wider outlined keys with clearer spacing on touch and button devices.
 
 ### Fixed
+- Reader: a page whose anti-aliasing pass was cancelled by a page turn that was then dropped (for example "previous" on the first page) no longer stays without anti-aliasing until the next turn.
 - X4 Pro: the header and other still text no longer fade on screens that repaint progress over and over (file transfer, Calibre, Nearby transfer, OPDS and font downloads, OTA update). Those repaints now use the keyboard's fast waveform, which re-darkens unchanged black pixels.
 - OPDS: book downloads run in the background, so Back and the Cancel button stop them at any point (the partial file is deleted) and the screen shows Connecting until the first byte arrives. Downloads also start sooner: the free-space check no longer scans the whole SD card first.
 - Keyboard: kbd-exp.txt is only read by debug builds.
