@@ -105,9 +105,8 @@ class ActivityManager {
   // this poll. Transfer screens rarely redraw (only the signal icon), so each
   // redraw paying the ~127 ms power-on costs less than an idle booster.
   static constexpr uint32_t PANEL_OFF_POLL_MS = DEFERRED_REFRESH_POLL_MS;
-  // Every other screen switches the booster off after this long without a new
-  // frame; input powers it back on early (wakePanelEarly) so the next refresh
-  // doesn't wait on the power-on.
+  // Input on an opted-in screen powers the booster on early (wakePanelEarly);
+  // if no frame follows, it switches off again after this long.
   static constexpr uint32_t PANEL_IDLE_OFF_MS = 10000;
   // Render-task notification bit for wakePanelEarly(); renders use eIncrement,
   // so a value of exactly this bit means "wake only, nothing to draw".
