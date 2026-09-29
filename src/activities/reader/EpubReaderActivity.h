@@ -28,6 +28,7 @@
 #include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
+#include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "activities/reader/ReaderPinchGesture.h"
@@ -370,6 +371,21 @@ class EpubReaderActivity final : public Activity {
   void waitSilentIndexWorker(bool cancel);
   bool silentIndexWorkerBusy();
   void applySilentIndexWorkerOutcome();
+
+  // Home's cover thumbs for this book, made once per open on the worker core
+  // at idle priority after the page has been still for a moment, so returning
+  // Home finds them ready. Loop task only.
+  struct HomeThumbWorker {
+    TaskHandle_t task = nullptr;
+    SemaphoreHandle_t done = nullptr;
+    HomeCoverThumbs::Specs specs;
+    bool attempted = false;
+  };
+  HomeThumbWorker homeThumbWorker;
+  static constexpr unsigned long HOME_THUMB_IDLE_MS = 3000;
+  void maybeStartHomeThumbWorker();
+  static void homeThumbWorkerMain(void* param);
+  void waitHomeThumbWorker();
 
   // Draw-ahead on the worker core: right after a page is shown, the next page
   // is drawn into prerenderFrameBuffer with an offscreen renderer and its own

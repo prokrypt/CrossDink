@@ -1,5 +1,8 @@
 #pragma once
 #include <HalDisplay.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 
 #include <array>
 #include <atomic>
@@ -15,6 +18,7 @@
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "components/CoverGridHomeUi.h"
+#include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
@@ -134,6 +138,32 @@ class HomeActivity final : public Activity {
   void activateCoverGridSelection();
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);
+
+  // Missing cover thumbs are made on the worker core so Home stays drawn and
+  // responsive; the covers appear on the render after the job.
+  struct CoverJob {
+    std::string path;
+    size_t bookIdx = 0;
+    HomeCoverThumbs::Specs specs;
+    bool generated = false;
+    bool coverMissing = false;
+  };
+  struct CoverWorker {
+    TaskHandle_t task = nullptr;        // render task
+    SemaphoreHandle_t done = nullptr;   // given by the task when it ends
+    std::atomic<bool> finished{false};  // set by the task before done
+    std::atomic<bool> cancel{false};
+    std::vector<CoverJob> jobs;  // the task's while it runs
+  };
+  CoverWorker coverWorker;
+  // Cover grid slot sizes changed while a job ran: load again after it.
+  bool coverReloadPending = false;
+  void queueMissingThumbs(std::vector<CoverJob>& jobs, size_t bookIdx, const HomeCoverThumbs::Specs& specs);
+  void startCoverWorker(std::vector<CoverJob>&& jobs);
+  static void coverWorkerMain(void* param);
+  void runCoverJobs();
+  void joinCoverWorker(bool cancel);
+  void applyCoverJobs();
 
   // Background Library indexing starts once Home's own boot work (first frames,
   // covers, carousel warmup) is done, pauses while Home renders or sees input,

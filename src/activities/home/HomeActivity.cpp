@@ -5,6 +5,7 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <LibraryBuilder.h>
@@ -39,7 +40,9 @@
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
 #include "SavedItemsHomeActivity.h"
+#include "TaskCores.h"
 #include "activities/library/LibraryPrewarm.h"
+#include "components/HomeCoverThumbs.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
@@ -703,13 +706,11 @@ void HomeActivity::fillCoverGridFromLibrary() {
 }
 
 void HomeActivity::loadCoverGridThumbnails() {
-  recentsLoading = true;
-  bool showingLoading = false;
-  Rect popupRect;
+  std::vector<CoverJob> jobs;
+  jobs.reserve(recentBooks.size());
   for (size_t i = 0; i < recentBooks.size(); ++i) {
     auto& book = recentBooks[i];
     if (book.coverState == RecentBook::CoverState::Missing || !Storage.exists(book.path.c_str())) continue;
-    const int height = coverGridUi->thumbHeightFor(i);
     if (book.coverBmpPath.empty()) {
       if (FsHelpers::hasEpubExtension(book.path)) {
         auto epub = makeUniqueNoThrow<Epub>(book.path, "/.crosspoint");
@@ -719,34 +720,9 @@ void HomeActivity::loadCoverGridThumbnails() {
         if (xtc) book.coverBmpPath = xtc->getThumbBmpPath();
       }
     }
-    const std::string thumbPath = UITheme::getCoverThumbPath(book.coverBmpPath, height);
-    if (thumbPath.empty() || Storage.exists(thumbPath.c_str())) continue;
-    if (!showingLoading) {
-      showingLoading = true;
-      popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-    }
-    GUI.fillPopupProgress(renderer, popupRect, static_cast<int>(100 * i / std::max<size_t>(1, recentBooks.size())));
-    renderer.displayBuffer();
-    if (FsHelpers::hasEpubExtension(book.path)) {
-      auto epub = makeUniqueNoThrow<Epub>(book.path, "/.crosspoint");
-      if (!epub) {
-        LOG_ERR("HOME", "Cannot allocate EPUB for cover grid thumbnail");
-        continue;
-      }
-      if (!epub->generateThumbBmpFromSource(height, &renderer, SETTINGS.getReaderFontId())) {
-        LOG_ERR("HOME", "Cannot create cover grid thumbnail: %s", book.path.c_str());
-      }
-    } else if (FsHelpers::hasXtcExtension(book.path)) {
-      auto xtc = makeUniqueNoThrow<Xtc>(book.path, "/.crosspoint");
-      if (!xtc) {
-        LOG_ERR("HOME", "Cannot allocate XTC for cover grid thumbnail");
-        continue;
-      }
-      if (xtc->load()) xtc->generateThumbBmp(height);
-    }
+    queueMissingThumbs(jobs, i, HomeCoverThumbs::forCoverGrid(book.path, coverGridUi->thumbHeightFor(i)));
   }
-  recentsLoaded = true;
-  recentsLoading = false;
+  startCoverWorker(std::move(jobs));
 }
 
 void HomeActivity::loadAllBookStats() {
@@ -761,166 +737,143 @@ void HomeActivity::loadAllBookStats() {
 }
 
 void HomeActivity::loadRecentCovers(int coverHeight) {
+  std::vector<CoverJob> jobs;
+  jobs.reserve(recentBooks.size());
+  for (size_t bookIdx = 0; bookIdx < recentBooks.size(); ++bookIdx) {
+    RecentBook& book = recentBooks[bookIdx];
+    if (!Storage.exists(book.path.c_str())) continue;
+    ensureReusableCoverPath(book);
+    if (book.coverBmpPath.empty()) continue;
+    queueMissingThumbs(jobs, bookIdx, HomeCoverThumbs::forActiveTheme(book.path, coverHeight));
+  }
+  startCoverWorker(std::move(jobs));
+}
+
+void HomeActivity::queueMissingThumbs(std::vector<CoverJob>& jobs, const size_t bookIdx,
+                                      const HomeCoverThumbs::Specs& specs) {
+  const RecentBook& book = recentBooks[bookIdx];
+  CoverJob job;
+  for (uint8_t i = 0; i < specs.count; ++i) {
+    const std::string thumbPath = HomeCoverThumbs::path(book.path, book.coverBmpPath, specs.items[i]);
+    if (thumbPath.empty() || !Storage.exists(thumbPath.c_str())) job.specs.items[job.specs.count++] = specs.items[i];
+  }
+  if (job.specs.count == 0) return;
+  job.path = book.path;
+  job.bookIdx = bookIdx;
+  jobs.push_back(std::move(job));
+}
+
+// Render task, RenderLock held.
+void HomeActivity::startCoverWorker(std::vector<CoverJob>&& jobs) {
+  recentsLoading = true;
+  coverWorker.jobs = std::move(jobs);
+  if (coverWorker.jobs.empty()) {
+    applyCoverJobs();
+    return;
+  }
   // Thumbnail generation may need a 32 KB contiguous inflate buffer. The Home
   // cover snapshot is only a redraw cache, so release it before ZIP work.
   if (coverBuffer) {
     freeCoverBuffer();
     coverRendered = false;
   }
+  // The covers are made on the worker core while Home stays drawn and takes
+  // input; the render after the job draws them. Decoder buffers go to PSRAM.
+  constexpr uint32_t STACK_BYTES = 12288;
+  if (!coverWorker.done) coverWorker.done = xSemaphoreCreateBinary();
+  coverWorker.cancel.store(false, std::memory_order_relaxed);
+  coverWorker.finished.store(false, std::memory_order_relaxed);
+  powerManager.beginBackgroundWork();
+  if (coverWorker.done && xTaskCreatePinnedToCore(coverWorkerMain, "HomeCovers", STACK_BYTES, this, 1,
+                                                  &coverWorker.task, TaskCores::kWorker) == pdPASS) {
+    return;
+  }
+  coverWorker.task = nullptr;
+  powerManager.endBackgroundWork();
+  LOG_ERR("HOME", "Cannot start cover worker; making covers on the render task");
+  runCoverJobs();
+  applyCoverJobs();
+}
 
-  recentsLoading = true;
-  bool showingLoading = false;
-  Rect popupRect;
-  auto showLoadingProgress = [&](const int value) {
-    if (!showingLoading) {
-      showingLoading = true;
-      popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+void HomeActivity::coverWorkerMain(void* param) {
+  auto* self = static_cast<HomeActivity*>(param);
+  self->runCoverJobs();
+  self->coverWorker.finished.store(true, std::memory_order_release);
+  powerManager.endBackgroundWork();
+  activityManager.requestUpdate(true);
+  // The activity may be destroyed as soon as this is given.
+  xSemaphoreGive(self->coverWorker.done);
+  vTaskDelete(nullptr);
+}
+
+// Worker task (or the render task as a fallback). Touches only coverWorker.jobs.
+void HomeActivity::runCoverJobs() {
+  const unsigned long start = millis();
+  for (auto& job : coverWorker.jobs) {
+    if (coverWorker.cancel.load(std::memory_order_relaxed)) break;
+    bool generated = true;
+    if (FsHelpers::hasEpubExtension(job.path)) {
+      Epub epub(job.path, "/.crosspoint");
+      bool needsMetadata = false;
+      for (uint8_t i = 0; i < job.specs.count; ++i) {
+        needsMetadata |= job.specs.items[i].kind != HomeCoverThumbs::Spec::Kind::FromSource;
+      }
+      if (needsMetadata && !epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
+        LOG_ERR("HOME", "failed to load EPUB cache for thumb generation: %s", job.path.c_str());
+        continue;
+      }
+      for (uint8_t i = 0; i < job.specs.count; ++i) {
+        generated = HomeCoverThumbs::generate(epub, job.specs.items[i]) && generated;
+      }
+      job.coverMissing = !generated && needsMetadata && !epub.hasCoverImage();
+    } else {
+      Xtc xtc(job.path, "/.crosspoint");
+      if (!xtc.load()) continue;
+      for (uint8_t i = 0; i < job.specs.count; ++i) {
+        generated = HomeCoverThumbs::generate(xtc, job.specs.items[i]) && generated;
+      }
     }
-    GUI.fillPopupProgress(renderer, popupRect, std::clamp(value, 0, 100));
-    renderer.displayBuffer();
-  };
+    job.generated = generated;
+  }
+  LOG_DBG("HOME", "cover worker: %u book(s) in %lums on core %d, stack left %u",
+          static_cast<unsigned>(coverWorker.jobs.size()), millis() - start, xPortGetCoreID(),
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+}
+
+// Render task, RenderLock held.
+void HomeActivity::joinCoverWorker(const bool cancel) {
+  if (!coverWorker.task) return;
+  if (cancel) coverWorker.cancel.store(true, std::memory_order_relaxed);
+  // Bounded by one thumbnail once cancelled; the worker never takes RenderLock.
+  xSemaphoreTake(coverWorker.done, portMAX_DELAY);
+  coverWorker.task = nullptr;
+  coverWorker.finished.store(false, std::memory_order_relaxed);
+}
+
+// Render task, RenderLock held, worker joined.
+void HomeActivity::applyCoverJobs() {
+  // Home only loads kMaxCachedBooks recents; fixed storage avoids an aborting std::vector allocation on low heap.
+  std::array<char, kMaxCachedBooks> bookUpdated{};
+  for (const auto& job : coverWorker.jobs) {
+    if (job.bookIdx >= recentBooks.size() || recentBooks[job.bookIdx].path != job.path) continue;
+    if (job.coverMissing) {
+      markCoverMissing(recentBooks[job.bookIdx]);
+    } else if (job.generated && job.bookIdx < bookUpdated.size()) {
+      bookUpdated[job.bookIdx] = true;
+    }
+  }
+  const bool anyJobs = !coverWorker.jobs.empty();
+  std::vector<CoverJob>().swap(coverWorker.jobs);
+  if (anyJobs) coverRendered = false;
+  recentsLoading = false;
+  recentsLoaded = !std::exchange(coverReloadPending, false);
+  if (coverGridUi) {
+    coverGridUi->refreshCoverPaths();
+    return;
+  }
 
   const bool isCarouselTheme =
       static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
-  const bool isMinimal = isMinimalTheme();
-  const bool isDashboard = isDashboardTheme();
-  const size_t recentBookCount = recentBooks.size();
-  // Home only loads kMaxCachedBooks recents; fixed storage avoids an aborting std::vector allocation on low heap.
-  std::array<char, kMaxCachedBooks> bookUpdated{};
-  const int progressIncrement = 90 / static_cast<int>(std::max<size_t>(1, recentBookCount));
-
-  int progress = 0;
-  for (size_t bookIdx = 0; bookIdx < recentBooks.size(); ++bookIdx) {
-    RecentBook& book = recentBooks[bookIdx];
-    if (!Storage.exists(book.path.c_str())) {
-      progress++;
-      continue;
-    }
-    ensureReusableCoverPath(book);
-    if (!book.coverBmpPath.empty()) {
-      if (isCarouselTheme) {
-        // For carousel: generate exact-size thumbnails for the center image rect and side slots.
-        // Load the source image once even when both sizes are missing.
-        const std::string centerPath = UITheme::getCoverThumbPath(book.coverBmpPath, LyraCarouselTheme::kCenterThumbW,
-                                                                  LyraCarouselTheme::kCenterThumbH);
-        const std::string sidePath = UITheme::getCoverThumbPath(book.coverBmpPath, LyraCarouselTheme::kSideCoverW,
-                                                                LyraCarouselTheme::kSideCoverH);
-        const bool centerMissing = !Storage.exists(centerPath.c_str());
-        const bool sideMissing = !Storage.exists(sidePath.c_str());
-
-        if (centerMissing || sideMissing) {
-          if (FsHelpers::hasEpubExtension(book.path)) {
-            Epub epub(book.path, "/.crosspoint");
-            showLoadingProgress(10 + progress * progressIncrement);
-            if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
-              LOG_ERR("HOME", "carousel: failed to load EPUB cache for thumb generation: %s", book.path.c_str());
-              coverRendered = false;
-              requestUpdate();
-              progress++;
-              continue;
-            }
-            bool success = true;
-            if (centerMissing)
-              success = epub.generateThumbBmp(LyraCarouselTheme::kCenterThumbW, LyraCarouselTheme::kCenterThumbH,
-                                              &renderer, SETTINGS.getReaderFontId()) &&
-                        success;
-            if (sideMissing)
-              success = epub.generateThumbBmp(LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH, &renderer,
-                                              SETTINGS.getReaderFontId()) &&
-                        success;
-            if (!success) {
-              if (!epub.hasCoverImage()) markCoverMissing(book);
-            } else if (bookIdx < bookUpdated.size()) {
-              bookUpdated[bookIdx] = true;
-            }
-            coverRendered = false;
-            requestUpdate();
-          } else if (FsHelpers::hasXtcExtension(book.path)) {
-            Xtc xtc(book.path, "/.crosspoint");
-            if (xtc.load()) {
-              showLoadingProgress(10 + progress * progressIncrement);
-              bool success = true;
-              if (centerMissing)
-                success =
-                    xtc.generateThumbBmp(LyraCarouselTheme::kCenterThumbW, LyraCarouselTheme::kCenterThumbH) && success;
-              if (sideMissing)
-                success =
-                    xtc.generateThumbBmp(LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH) && success;
-              if (success) {
-                if (bookIdx < bookUpdated.size()) bookUpdated[bookIdx] = true;
-              }
-              coverRendered = false;
-              requestUpdate();
-            }
-          }
-        }
-      } else {
-        // Non-carousel: generate the active theme's thumbnail size.
-        const bool supportsExactHomeThumb =
-            FsHelpers::hasEpubExtension(book.path) || FsHelpers::hasXtcExtension(book.path);
-        const bool useDashboardThumb = isDashboard && supportsExactHomeThumb;
-        const bool useMinimalThumb = isMinimal && supportsExactHomeThumb;
-        const bool useExactHomeThumb = useDashboardThumb || useMinimalThumb;
-        const std::string coverPath =
-            useDashboardThumb ? dashboardHomeCoverPath(book, coverHeight)
-                              : (useMinimalThumb ? minimalHomeCoverPath(book, coverHeight)
-                                                 : UITheme::getCoverThumbPath(book.coverBmpPath, coverHeight));
-        if (coverPath.empty() || !Storage.exists(coverPath.c_str())) {
-          if (FsHelpers::hasEpubExtension(book.path)) {
-            Epub epub(book.path, "/.crosspoint");
-            showLoadingProgress(10 + progress * progressIncrement);
-            if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
-              LOG_ERR("HOME", "failed to load EPUB cache for thumb generation: %s", book.path.c_str());
-              coverRendered = false;
-              requestUpdate();
-              progress++;
-              continue;
-            }
-            const bool success =
-                useDashboardThumb
-                    ? epub.generateAdaptiveThumbBmp(dashboardHomeCoverWidth(coverHeight),
-                                                    dashboardHomeCoverHeight(coverHeight), &renderer,
-                                                    SETTINGS.getReaderFontId())
-                    : (useExactHomeThumb
-                           ? epub.generateAdaptiveThumbBmp(minimalHomeCoverWidth(coverHeight),
-                                                           minimalHomeCoverHeight(coverHeight), &renderer,
-                                                           SETTINGS.getReaderFontId())
-                           : epub.generateThumbBmp(0, coverHeight, &renderer, SETTINGS.getReaderFontId()));
-            if (!success) {
-              if (!epub.hasCoverImage()) markCoverMissing(book);
-            } else if (bookIdx < bookUpdated.size()) {
-              bookUpdated[bookIdx] = true;  // non-carousel path reuses same tracking
-            }
-            coverRendered = false;
-            requestUpdate();
-          } else if (FsHelpers::hasXtcExtension(book.path)) {
-            Xtc xtc(book.path, "/.crosspoint");
-            if (xtc.load()) {
-              showLoadingProgress(10 + progress * progressIncrement);
-              const bool success =
-                  useDashboardThumb
-                      ? xtc.generateThumbBmp(static_cast<uint16_t>(dashboardHomeCoverWidth(coverHeight)),
-                                             static_cast<uint16_t>(dashboardHomeCoverHeight(coverHeight)))
-                      : (useExactHomeThumb
-                             ? xtc.generateThumbBmp(static_cast<uint16_t>(minimalHomeCoverWidth(coverHeight)),
-                                                    static_cast<uint16_t>(minimalHomeCoverHeight(coverHeight)))
-                             : xtc.generateThumbBmp(coverHeight));
-              if (success) {
-                if (bookIdx < bookUpdated.size()) bookUpdated[bookIdx] = true;
-              }
-              coverRendered = false;
-              requestUpdate();
-            }
-          }
-        }
-      }
-    }
-    progress++;
-  }
-
-  recentsLoaded = true;
-  recentsLoading = false;
-
   // Re-render only the affected slots rather than rebuilding the entire cache.
   if (isCarouselTheme) {
     bool anyUpdated = false;
@@ -1229,6 +1182,12 @@ void HomeActivity::updateHighlightedBookContext(const bool allowChapterTitleRead
 
 void HomeActivity::onExit() {
   Activity::onExit();
+  joinCoverWorker(/*cancel=*/true);
+  std::vector<CoverJob>().swap(coverWorker.jobs);
+  if (coverWorker.done) vSemaphoreDelete(coverWorker.done);
+  coverWorker.done = nullptr;
+  recentsLoading = false;
+  coverReloadPending = false;
   // Opening the Library lets it finish the walk; anything else gets the card
   // and heap back before it starts.
   LibraryPrewarm::stop(libraryPrewarmHandOff);
@@ -2367,6 +2326,11 @@ void HomeActivity::render(RenderLock&&) {
     }
   } renderScope{*this};
 
+  if (coverWorker.finished.load(std::memory_order_acquire)) {
+    joinCoverWorker(/*cancel=*/false);
+    applyCoverJobs();
+  }
+
   if (quickActionsPopup.processRender(renderer, mappedInput)) {
     return;
   }
@@ -2392,7 +2356,12 @@ void HomeActivity::render(RenderLock&&) {
 
     if (coverGridUi->takeThumbHeightsChanged()) {
       coverGridUi->refreshCoverPaths();
-      recentsLoaded = false;
+      // A running job makes the old sizes; run again once it is done.
+      if (recentsLoading) {
+        coverReloadPending = true;
+      } else {
+        recentsLoaded = false;
+      }
     }
     if (!firstRenderDone) {
       firstRenderDone = true;
@@ -2587,7 +2556,7 @@ void HomeActivity::render(RenderLock&&) {
     loadRecentCovers(metrics.homeCoverHeight);
   }
 
-  if (carouselWarmupPending && !carouselFramesReady) {
+  if (carouselWarmupPending && !carouselFramesReady && recentsLoaded) {
     // Resolve any missing cover thumbs first, then warm the carousel snapshot.
     // Cover generation needs more contiguous heap than the frame cache path.
     carouselWarmupPending = false;

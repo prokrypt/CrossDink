@@ -304,6 +304,16 @@ std::string getAdaptiveThumbBmpPathForDimensions(const std::string& cachePath, i
   return cachePath + "/thumb_" + std::to_string(width) + "x" + std::to_string(height) + "_fit.bmp";
 }
 
+bool finalizeThumbBmp(const std::string& tmpPath, const std::string& thumbPath) {
+  if (Storage.exists(thumbPath.c_str())) Storage.remove(thumbPath.c_str());
+  if (!Storage.rename(tmpPath.c_str(), thumbPath.c_str())) {
+    LOG_ERR("EBP", "Failed to finalize thumb BMP: %s", thumbPath.c_str());
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+  return true;
+}
+
 std::string legacyCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
   return cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(filepath));
 }
@@ -1402,6 +1412,9 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
   if (cachedBmpMatchesDimensions(thumbPath, width, height, adaptiveContain)) {
     return true;
   }
+  // Written beside the final path and renamed: Home may draw this thumb while
+  // a background job makes it.
+  const std::string tmpPath = thumbPath + ".tmp";
 
   if (!coverHrefOverride && (!bookMetadataCache || !bookMetadataCache->isLoaded())) {
     LOG_ERR("EBP", "Cannot generate thumb BMP, cache not loaded");
@@ -1423,7 +1436,7 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     }
 
     FsFile thumbBmp;
-    if (!Storage.openFileForWrite("EBP", thumbPath, thumbBmp)) {
+    if (!Storage.openFileForWrite("EBP", tmpPath, thumbBmp)) {
       coverJpg.close();
       return false;
     }
@@ -1438,9 +1451,10 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
 
     if (!success) {
       LOG_ERR("EBP", "Failed to generate thumb BMP from JPG cover image");
-      Storage.remove(thumbPath.c_str());
+      Storage.remove(tmpPath.c_str());
+      return false;
     }
-    return success;
+    return finalizeThumbBmp(tmpPath, thumbPath);
   } else if (FsHelpers::hasPngExtension(coverImageHref)) {
     std::string coverPngPath;
     if (!ensureCachedCoverImage(coverImageHref, coverPngPath)) {
@@ -1453,7 +1467,7 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     }
 
     FsFile thumbBmp;
-    if (!Storage.openFileForWrite("EBP", thumbPath, thumbBmp)) {
+    if (!Storage.openFileForWrite("EBP", tmpPath, thumbBmp)) {
       coverPng.close();
       return false;
     }
@@ -1468,9 +1482,10 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
 
     if (!success) {
       LOG_ERR("EBP", "Failed to generate thumb BMP from PNG cover image");
-      Storage.remove(thumbPath.c_str());
+      Storage.remove(tmpPath.c_str());
+      return false;
     }
-    return success;
+    return finalizeThumbBmp(tmpPath, thumbPath);
   } else {
     LOG_ERR("EBP", "Cover image is not a supported format, skipping thumbnail");
   }

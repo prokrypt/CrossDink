@@ -28,6 +28,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Home no longer shows a Loading popup the first time you return from a book. While you read, the book's Home cover thumbnails are made in the background on the second core once the page has been still for a few seconds. Any cover still missing when Home opens is made in the background while Home is already drawn and usable, and it appears when ready. XTC books now pre-make the right thumbnail sizes for every Home theme (the Carousel sizes were wrong before).
 - X4 Pro: Turbo keyboard (Settings → System → Device) is on by default for new settings. A saved setting keeps its value.
 - X4 Pro: Turbo keyboard now drives 6 frames per key (was 3), matching the tested setup; 3 frames left heavy ghosting.
 - Touch keyboard: every tap inside the keyboard now types a key. Gaps between keys are split between neighbours, the outer keys reach the screen edges, and the top row reaches halfway up the strip above it, so there are no dead spots. The keys look the same.

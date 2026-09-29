@@ -29,8 +29,8 @@
 #include "XtcReaderMenuActivity.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "components/HomeCoverThumbs.h"
 #include "components/UITheme.h"
-#include "components/themes/lyra/LyraCarouselTheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
 #include "util/FileContentEquals.h"
@@ -165,12 +165,12 @@ void XtcReaderActivity::onExit() {
   syncStatsTrackingState();
   commitReadingStats();
 
-  // Generate carousel thumbnails while XTC is still loaded so the home screen
-  // can display the cover on the very first render without a loading popup.
-  if (xtc &&
-      static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL) {
-    xtc->generateThumbBmp(LyraCarouselTheme::kCenterCoverW, LyraCarouselTheme::kCenterCoverH);
-    xtc->generateThumbBmp(LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH);
+  // Generate Home's thumbnails while XTC is still loaded so the home screen
+  // can display the cover on the very first render without generating it.
+  if (xtc && !UITheme::hasCoverGridHome()) {
+    const auto specs =
+        HomeCoverThumbs::forActiveTheme(xtc->getPath(), UITheme::getInstance().getMetrics().homeCoverHeight);
+    for (uint8_t i = 0; i < specs.count; ++i) HomeCoverThumbs::generate(*xtc, specs.items[i]);
   }
 
   xtc.reset();
