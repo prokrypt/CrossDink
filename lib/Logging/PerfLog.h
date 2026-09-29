@@ -7,7 +7,9 @@
 //   [LAT]  input -> render -> ink per user action
 //   [PERF] SD opens/bytes/ms and image cache hits/misses/decode ms per 2 s
 //   [BOOT] first ink after reset, and silent restart request -> first ink
-//   [PM]   light-sleep residency and PM lock hold times (CONFIG_PM_PROFILING)
+//   [PM]   light-sleep residency, wake counts and PM lock hold times per
+//          activity (CONFIG_PM_PROFILING); a window ends every 30 s and on
+//          every activity change
 //
 // Enabled with -DCROSSDINK_PERF_LOG=1 (x4-pro-debug). Elsewhere
 // every function is an empty inline, so call sites cost nothing.
@@ -38,8 +40,15 @@ void noteSdOpen(bool opened);
 void noteSdRead(uint32_t bytes, uint32_t us);
 void noteSdWrite(uint32_t bytes, uint32_t us);
 void noteImage(bool cacheHit, uint32_t ms);
-// One [PERF] line if anything changed since the last call; [PM] every 30 s.
+// One [PERF] line if anything changed since the last call; [PM] every 30 s
+// and when the rendered activity changed.
 void logPeriodic();
+// Name of the activity rendered last (render task), for per-activity lines.
+void currentActivity(char* out, uint32_t size);
+// Source of input wake counts for [PM]: returns and clears the button and
+// touch line interrupts since the previous call.
+using WakeCountFn = void (*)(uint32_t& buttons, uint32_t& touch);
+void setWakeCounter(WakeCountFn fn);
 }  // namespace PerfLog
 #else
 namespace PerfLog {
@@ -55,5 +64,10 @@ inline void noteSdRead(uint32_t, uint32_t) {}
 inline void noteSdWrite(uint32_t, uint32_t) {}
 inline void noteImage(bool, uint32_t) {}
 inline void logPeriodic() {}
+inline void currentActivity(char* out, uint32_t size) {
+  if (size > 0) out[0] = '\0';
+}
+using WakeCountFn = void (*)(uint32_t& buttons, uint32_t& touch);
+inline void setWakeCounter(WakeCountFn) {}
 }  // namespace PerfLog
 #endif

@@ -15,18 +15,29 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 
 namespace {
 std::array<gpio_num_t, 8> wakePins{};
 size_t wakePinCount = 0;
 SemaphoreHandle_t wakeSignal = nullptr;
 bool allInputsCovered = false;
+#if CROSSDINK_PERF_LOG
+// Line interrupts per kind for the [PM] wake counts (ISR writes; DRAM).
+int8_t touchWakePin = -1;
+std::atomic<uint32_t> buttonWakes{0};
+std::atomic<uint32_t> touchWakes{0};
+#endif
 
 // Wake lines use level interrupts, because only those can also end a light
 // sleep. A level keeps firing while it holds, so each line disarms itself here
 // until the next wait() re-arms it against the level it reads then.
 void IRAM_ATTR onWakeLine(void* arg) {
   gpio_ll_intr_disable(&GPIO, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg)));
+#if CROSSDINK_PERF_LOG
+  const auto pin = static_cast<int>(reinterpret_cast<uintptr_t>(arg));
+  (pin == touchWakePin ? touchWakes : buttonWakes).fetch_add(1, std::memory_order_relaxed);
+#endif
   BaseType_t higherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(wakeSignal, &higherPriorityTaskWoken);
   if (higherPriorityTaskWoken == pdTRUE) portYIELD_FROM_ISR();
@@ -73,7 +84,12 @@ void InputWake::begin() {
       allArmed = addWakePin(pin) && allArmed;
     }
   }
-  if (board.touch.controller != BoardConfig::TouchController::None) allArmed = addWakePin(board.touch.irq) && allArmed;
+  if (board.touch.controller != BoardConfig::TouchController::None) {
+    allArmed = addWakePin(board.touch.irq) && allArmed;
+#if CROSSDINK_PERF_LOG
+    touchWakePin = board.touch.irq;
+#endif
+  }
   // The GT911 raises INT for every report frame while a finger or the Home key
   // is down, so one missed pulse is followed by the next. The other touch
   // controllers pulse it once or leave it unused, so they keep the poll tick.
@@ -106,6 +122,16 @@ void InputWake::wait(const uint32_t timeoutMs) {
 
 bool InputWake::coversAllInputs() { return allInputsCovered; }
 
+void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
+#if CROSSDINK_PERF_LOG
+  buttons = buttonWakes.exchange(0, std::memory_order_relaxed);
+  touch = touchWakes.exchange(0, std::memory_order_relaxed);
+#else
+  buttons = 0;
+  touch = 0;
+#endif
+}
+
 #else
 
 void InputWake::begin() {}
@@ -113,5 +139,10 @@ void InputWake::begin() {}
 void InputWake::wait(const uint32_t timeoutMs) { delay(timeoutMs); }
 
 bool InputWake::coversAllInputs() { return false; }
+
+void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
+  buttons = 0;
+  touch = 0;
+}
 
 #endif

@@ -16,6 +16,7 @@
 
 #include <Arduino.h>
 #include <Logging.h>
+#include <PerfLog.h>
 #include <esp_attr.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -166,8 +167,10 @@ void logSinceLast() {
     deltas[best] = 0;
   }
 
-  LOG_INF("CPU", "core0 %u%% core1 %u%% over %lu ms |%s", static_cast<unsigned>(loadPct[0]),
-          static_cast<unsigned>(loadPct[1]), static_cast<unsigned long>(elapsedUs / 1000), top);
+  char act[24];
+  PerfLog::currentActivity(act, sizeof(act));
+  LOG_INF("CPU", "core0 %u%% core1 %u%% over %lu ms act=%s |%s", static_cast<unsigned>(loadPct[0]),
+          static_cast<unsigned>(loadPct[1]), static_cast<unsigned long>(elapsedUs / 1000), act, top);
 }
 
 }  // namespace CoreLoadLog
