@@ -10,7 +10,6 @@
 #include <Memory.h>
 #include <OpdsStream.h>
 #include <WiFi.h>
-#include <ZipFile.h>
 
 #include <algorithm>
 #include <array>
@@ -18,6 +17,7 @@
 #include <utility>
 
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "OpdsPageCache.h"
 #include "OpdsPagePrefetcher.h"
@@ -34,6 +34,7 @@
 #include "components/icons/listIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/BlackRedriveLut.h"
 #include "util/BookCacheUtils.h"
 #include "util/DaylightSaving.h"
 #include "util/StringUtils.h"
@@ -43,7 +44,6 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr size_t OPDS_BROWSER_ENTRY_CAPACITY = MAX_OPDS_FEED_ENTRIES + 2;
-constexpr size_t OPDS_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SEARCH = 2;
 constexpr fui::ActionId ACTION_CANCEL = 3;
@@ -181,6 +181,10 @@ void OpdsBookBrowserActivity::onEnter() {
 void OpdsBookBrowserActivity::onExit() {
   library::invalidateLibraryIndex();
   Activity::onExit();
+  // A book download in flight is cancelled (its .part file removed) and
+  // joined before Wi-Fi goes down.
+  bookDownloader.cancel();
+  bookDownloader.join();
   // Joins the background download before Wi-Fi goes down and before the
   // cache it would hand its page to is freed.
   prefetcher.reset();
@@ -192,7 +196,16 @@ void OpdsBookBrowserActivity::onExit() {
 #ifndef SIMULATOR
   // OPDS launches from minimal network boot, so the full app state is
   // restored even if setup failed before WiFi was started.
-  if (!leaveNetworkInPlace()) silentRestart();
+  if (!leaveNetworkInPlace()) {
+    if (!openAfterExit.empty()) {
+      // goToReader() is lost across the reboot: reopen the book from APP_STATE.
+      APP_STATE.openEpubPath = openAfterExit;
+      APP_STATE.saveToFile();
+      silentRestartToReader();
+    } else {
+      silentRestart();
+    }
+  }
 #endif
 }
 
@@ -272,6 +285,8 @@ void OpdsBookBrowserActivity::loop() {
       state = BrowserState::BROWSING;
       requestUpdate();
     }
+#else
+    pollDownload();
 #endif
     return;
   }
@@ -484,7 +499,7 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiApp::ScreenType& screen) {
   const fui::Rect body = screen.body();
   if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
 
-  screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
+  screen.target().text(screen.takeTop(lh, gap), downloadReceiving ? tr(STR_DOWNLOADING) : tr(STR_CONNECTING), centered);
   screen.target().text(screen.takeTop(lh, gap), statusMessage.c_str(), centered);
 
   const fui::Rect bar = screen.takeTop(barH, gap).inset(fui::Insets{0, 50, 0, 50});
@@ -554,6 +569,8 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   uiReady = false;
   app.render();
   uiReady = true;
+  // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
+  const BlackRedriveLut redriveLut(state == BrowserState::DOWNLOADING);
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }
 
@@ -841,13 +858,16 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
+  downloadReceiving = false;
+  lastRenderedPercent = -1;
+  lastProgressUpdateMs = millis();
   cancelDownload = false;
-  goHomeAfterCancel = false;
   requestUpdate(true);
 
 #ifdef SIMULATOR
   downloadProgress = 1;
   downloadTotal = 2;
+  downloadReceiving = true;
   requestUpdate(true);
   return;
 #endif
@@ -855,12 +875,6 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   // The book download must not share the network with a page prefetch.
   stopPrefetch();
 
-  // Build full download URL relative to the current feed, not the root server URL
-  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  std::string downloadUrl = UrlUtils::buildUrl(feedUrl, book.href);
-  // This temporary is intentionally retained until downloadToFile returns;
-  // DownloadOptions borrows it to avoid copying the server URL per transfer.
-  const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
   const char* downloadFolder = SETTINGS.opdsDownloadFolder;
   if (downloadFolder[0] != '\0' && !Storage.exists(downloadFolder) && !Storage.mkdir(downloadFolder)) {
     LOG_ERR("OPDS", "Could not create download folder %s", downloadFolder);
@@ -870,86 +884,88 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
     return;
   }
 
-  LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
+  // Build full download URL relative to the current feed, not the root server URL
+  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+  OpdsBookDownloader::Request request;
+  request.url = UrlUtils::buildUrl(feedUrl, book.href);
+  request.path = filename;
+  request.username = server.username;
+  request.password = server.password;
+  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  if (!bookDownloader.start(std::move(request))) {
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+  }
+  // loop() -> pollDownload() takes it from here.
+}
 
-  bool cancelRequested = false;
-  auto pollCancel = [this, &cancelRequested] {
-    if (cancelRequested || cancelDownload) {
-      cancelRequested = true;
-      return true;
-    }
-    mappedInput.update();
-    if (mappedInput.wasHomeGesture()) {
-      goHomeAfterCancel = true;
-      cancelRequested = true;
-    }
-    if (mappedInput.isPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      cancelRequested = true;
-    }
-    // Route touch in the same poll that latched it. This runs before every
-    // read; a tap left for the much rarer progress callback could be cleared
-    // by the next update() first. A Cancel tap sets cancelDownload.
-    if (uiReady) {
-      const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
-      if (snap.touchPressed || snap.touchReleased) app.route(snap);
-    }
-    // cppcheck-suppress knownConditionTrueFalse ; app.route() can set cancelDownload via the Cancel button callback
-    return cancelRequested || cancelDownload;
-  };
-  HttpDownloader::DownloadOptions downloadOptions;
-  downloadOptions.shouldCancel = pollCancel;
-  downloadOptions.bufferSize = OPDS_DOWNLOAD_BUFFER_SIZE;
-  downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
-  downloadOptions.authorizationOrigin = authorizationOrigin;
-  downloadOptions.stageAsPart = true;
-  downloadOptions.checkFreeSpace = true;
-  // A response with no Content-Length can end early and still look complete;
-  // a truncated EPUB has no central directory to find container.xml in.
-  downloadOptions.validate = [](const std::string& path) {
-    ZipFile zip(path);
-    size_t size = 0;
-    return zip.getInflatedFileSize("META-INF/container.xml", &size);
-  };
-  int lastRenderedPercent = -1;
-  unsigned long lastProgressUpdateMs = 0;
+void OpdsBookBrowserActivity::pollDownload() {
+  // Touch goes through the app (the Cancel button sets cancelDownload). Back
+  // cancels on press; its release must not also leave the listing.
+  if (uiReady) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) app.route(snap);
+  }
+  const bool backPressed = mappedInput.wasPressed(MappedInputManager::Button::Back);
+  // cppcheck-suppress knownConditionTrueFalse ; app.route() can set cancelDownload via the Cancel button callback
+  if ((cancelDownload || backPressed) && bookDownloader.running() && !bookDownloader.cancelling()) {
+    LOG_INF("OPDS", "Download cancel requested");
+    bookDownloader.cancel();
+    if (backPressed) mappedInput.suppressNextBackRelease();
+  }
+  cancelDownload = false;
 
-  const auto result = HttpDownloader::downloadToFile(
-      downloadUrl, filename,
-      [this, &lastRenderedPercent, &lastProgressUpdateMs](const size_t downloaded, const size_t total) {
-        // Input (Back, home gesture, the Cancel button) is polled by
-        // pollCancel before every read; this callback only drives the screen.
-        downloadProgress = downloaded;
-        downloadTotal = total;
-        const int percent = total > 0 ? static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;
-        const unsigned long now = millis();
-        if (percent >= 100 || lastRenderedPercent < 0 ||
-            percent >= lastRenderedPercent + DOWNLOAD_PROGRESS_STEP_PERCENT ||
-            now - lastProgressUpdateMs >= DOWNLOAD_PROGRESS_MIN_UPDATE_MS) {
-          lastRenderedPercent = percent;
-          lastProgressUpdateMs = now;
-          requestUpdate(true);
-        }
-      },
-      &cancelRequested, server.username, server.password, downloadOptions);
+  if (bookDownloader.running()) {
+    const bool receiving = bookDownloader.receiving();
+    const size_t total = bookDownloader.total();
+    const size_t downloaded = bookDownloader.downloaded();
+    const int percent = total > 0 ? static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;
+    const unsigned long now = millis();
+    // Redraw on the first byte, every few percent, and at least every few
+    // seconds; each redraw is a full panel refresh.
+    if (receiving != downloadReceiving ||
+        (receiving && (percent >= lastRenderedPercent + DOWNLOAD_PROGRESS_STEP_PERCENT ||
+                       now - lastProgressUpdateMs >= DOWNLOAD_PROGRESS_MIN_UPDATE_MS))) {
+      downloadReceiving = receiving;
+      downloadProgress = downloaded;
+      downloadTotal = total;
+      lastRenderedPercent = percent;
+      lastProgressUpdateMs = now;
+      requestUpdate();
+    }
+    return;
+  }
 
+  const auto result = bookDownloader.result();
+  const std::string& filename = bookDownloader.path();
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
     state = BrowserState::BROWSING;
+    offerToOpen(filename);
   } else if (result == HttpDownloader::ABORTED) {
     LOG_INF("OPDS", "Download cancelled");
-    if (goHomeAfterCancel) {
-      onGoHome();
-      return;
-    }
-    mappedInput.suppressNextBackRelease();
     state = BrowserState::BROWSING;
   } else {
     state = BrowserState::ERROR;
     errorMessage = result == HttpDownloader::INSUFFICIENT_SPACE ? tr(STR_SD_CARD_FULL) : tr(STR_DOWNLOAD_FAILED);
   }
   requestUpdate();
+}
+
+void OpdsBookBrowserActivity::offerToOpen(const std::string& path) {
+  auto dialog =
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_OPEN_DOWNLOADED_BOOK), statusMessage);
+  if (!dialog) {
+    LOG_ERR("OPDS", "Cannot allocate open-book dialog");
+    return;
+  }
+  startActivityForResult(std::move(dialog), [this, path](const ActivityResult& result) {
+    if (result.isCancelled) return;
+    LOG_INF("OPDS", "Opening downloaded book: %s", path.c_str());
+    openAfterExit = path;
+    onSelectBook(path);
+  });
 }
 
 void OpdsBookBrowserActivity::launchSearch() {

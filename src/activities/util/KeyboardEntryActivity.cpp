@@ -183,7 +183,7 @@ void KeyboardEntryActivity::onExit() {
 #endif
 }
 
-// EXPERIMENT (test/kbd-uc8179): toggles come from /.crosspoint/kbd-exp.txt,
+// EXPERIMENT (test/kbd-uc8179): debug builds read toggles from /.crosspoint/kbd-exp.txt,
 // read once per keyboard open (one small SD read), so they flip without a
 // reflash. Format: "flags [lutFrames] [pll]", numbers in C syntax (0x.. ok).
 // flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
@@ -195,6 +195,7 @@ void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   kbdExpPll = 0;
   kbdExpFirstFrame = true;
+#if LOG_LEVEL >= 2  // the kbd-exp.txt override is for debug builds only
   FsFile f;
   if (Storage.exists(KBD_EXP_PATH) && Storage.openFileForRead("KBD", KBD_EXP_PATH, f)) {
     char buf[48] = {};
@@ -208,6 +209,7 @@ void KeyboardEntryActivity::loadKbdExperiment() {
       kbdExpPll = static_cast<uint8_t>(strtoul(end, &end, 0));
     }
   }
+#endif
   LOG_DBG("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
   kbdFrame = 0;
   prevFrameStrokeMs = 0;

@@ -19,6 +19,7 @@
 #include "SerialRemote.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
+#include "util/DeviceIdentity.h"
 
 #if defined(FREEINK_DEVICE_X4PRO) && FREEINK_DEVICE_X4PRO && ARDUINO_USB_CDC_ON_BOOT && !ARDUINO_USB_MODE && \
     !defined(SIMULATOR)
@@ -755,7 +756,11 @@ ProcessResult handleLine() {
     EXT_RAM_NOINIT_ATTR static char chunk[1024];
     uint32_t cursor = PsramLog::oldest();
     const uint32_t end = PsramLog::end();
-    logSerial.printf("PSRAMLOG_START:%lu\n", static_cast<unsigned long>(end - cursor));
+    // Fresh identity header first (counted in the length): the ring may have
+    // wrapped past the boot lines.
+    const size_t headerLen = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+    logSerial.printf("PSRAMLOG_START:%lu\n", static_cast<unsigned long>(headerLen + (end - cursor)));
+    logSerial.write(reinterpret_cast<const uint8_t*>(chunk), headerLen);
     while (cursor < end) {
       const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
       if (len == 0) break;

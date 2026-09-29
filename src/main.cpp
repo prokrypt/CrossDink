@@ -89,6 +89,7 @@
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
+#include "util/DeviceIdentity.h"
 #include "util/Dictionary.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
@@ -1355,9 +1356,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   static bool controllerResolved = false;
   if (!controllerResolved) {
     controllerResolved = true;
-    if (freeink::applyXteinkDisplayController()) {
-      LOG_DBG("MAIN", "Panel controller: UltraChip UC81xx variant detected");
-    }
+    freeink::applyXteinkDisplayController();  // DeviceIdentity::logPanel() below reports the outcome
   }
 #endif
 
@@ -1367,6 +1366,11 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
 #else
   display.begin(seamless);
   if (seamless) seedRetainedPanelFrame();
+  static bool panelLogged = false;
+  if (!panelLogged) {
+    panelLogged = true;
+    DeviceIdentity::logPanel();  // debug builds: exact controller, detect method, VER/MTP
+  }
 #endif
   renderer.begin();
   display.setInverted(SETTINGS.screenInverted != 0);

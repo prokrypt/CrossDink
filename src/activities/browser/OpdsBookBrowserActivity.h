@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "OpdsBookDownloader.h"
 #include "OpdsPageCache.h"
 #include "OpdsPagePrefetcher.h"
 #include "OpdsServerStore.h"
@@ -60,6 +61,13 @@ class OpdsBookBrowserActivity final : public Activity {
   std::string statusMessage;
   size_t downloadProgress = 0;
   size_t downloadTotal = 0;
+  // False until the first body byte: the screen says Connecting meanwhile.
+  bool downloadReceiving = false;
+  int lastRenderedPercent = -1;
+  unsigned long lastProgressUpdateMs = 0;
+  // Book downloads run on a background task; loop() polls it for progress
+  // and completion and forwards cancel requests.
+  OpdsBookDownloader bookDownloader;
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
 
@@ -70,12 +78,11 @@ class OpdsBookBrowserActivity final : public Activity {
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
-  // Read by HttpDownloader between chunks; set by the Cancel button handler or
-  // a Back press, both pumped from the download's progress callback.
+  // Set by the Cancel button handler; loop() forwards it to bookDownloader.
   bool cancelDownload = false;
-  // A blocking downloader consumes the one-shot Home event itself. Defer the
-  // activity exit until HttpDownloader has unwound and closed the partial file.
-  bool goHomeAfterCancel = false;
+  // Book the user chose to open after its download; onExit() reboots into it
+  // when Wi-Fi cannot be left in place.
+  std::string openAfterExit;
 
   // Single screen fn dispatching on `state`: every state shares the themed
   // header and gets built through FreeInkUI.
@@ -111,6 +118,11 @@ class OpdsBookBrowserActivity final : public Activity {
   void requestDownload(const OpdsEntry& book);
   // filename: the SD destination from requestDownload.
   void downloadBook(const OpdsEntry& book, const std::string& filename);
+  // DOWNLOADING state: forwards cancel input, redraws progress, and finishes
+  // once the background task has exited.
+  void pollDownload();
+  // After a finished download: asks whether to open the book now.
+  void offerToOpen(const std::string& path);
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;
