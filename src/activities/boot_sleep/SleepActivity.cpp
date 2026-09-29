@@ -3,6 +3,9 @@
 #include <BitmapHelpers.h>
 #include <BoardConfig.h>
 #include <Epub.h>
+#ifndef SIMULATOR
+#include <FreeInkDisplay.h>
+#endif
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
@@ -579,6 +582,18 @@ void SleepActivity::onEnter() {
   if (renderQuickResume) {
     return renderLastScreenSleepScreen();
   }
+
+#ifndef SIMULATOR
+  // Start every generated sleep screen from the same panel state, however long
+  // the outgoing screen sat idle. Drop any keyboard/DU waveform tweak and cut
+  // the booster, so the next refresh powers on fresh and a Direct gray cover
+  // takes the reset + OEM power cycle instead of loading its power registers
+  // into pumps that may have idled on since the last draw (auto-sleep only).
+  freeink::setUc8179KbdExperiment(nullptr);
+  const bool panelWasOn = display.powerOffIdle();
+  LOG_DBG("SLP", "Sleep draw: timeout=%d panelWasOn=%d lastDrfAgoMs=%lu", fromTimeout ? 1 : 0, panelWasOn ? 1 : 0,
+          static_cast<unsigned long>(millis() - freeink::uc8179KbdTiming().doneMs));
+#endif
 
   const auto sleepScreen = SETTINGS.sleepScreen;
   const bool sleepScreenUsesRecentBooks = sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP ||
