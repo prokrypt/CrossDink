@@ -5,7 +5,6 @@
 #include <esp_rom_sys.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstdio>
 #include <string>
 
@@ -110,6 +109,7 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
 }
 
 #if defined(SIMULATOR)
+void logSerialInit() {}
 bool logSerialLock(uint32_t) { return true; }
 void logSerialUnlock() {}
 
@@ -124,29 +124,21 @@ constexpr uint32_t NO_HOST_STALL_MS = 10;
 // writes there go straight out, as before.
 bool canUseLogSerialMutex() { return xTaskGetSchedulerState() == taskSCHEDULER_RUNNING && !xPortInIsrContext(); }
 
-SemaphoreHandle_t logSerialMutex() {
-  static StaticSemaphore_t storage;
-  static std::atomic<SemaphoreHandle_t> handle{nullptr};
-  SemaphoreHandle_t mutex = handle.load(std::memory_order_acquire);
-  if (mutex != nullptr) return mutex;
-  LOG_RING_LOCK();  // both cores can log first
-  mutex = handle.load(std::memory_order_relaxed);
-  if (mutex == nullptr) {
-    mutex = xSemaphoreCreateRecursiveMutexStatic(&storage);
-    handle.store(mutex, std::memory_order_release);
-  }
-  LOG_RING_UNLOCK();
-  return mutex;
-}
+StaticSemaphore_t logSerialMutexStorage;
+SemaphoreHandle_t logSerialMutex = nullptr;  // null until logSerialInit()
 }  // namespace
 
+void logSerialInit() {
+  if (logSerialMutex == nullptr) logSerialMutex = xSemaphoreCreateRecursiveMutexStatic(&logSerialMutexStorage);
+}
+
 bool logSerialLock(const uint32_t waitMs) {
-  if (!canUseLogSerialMutex()) return true;
-  return xSemaphoreTakeRecursive(logSerialMutex(), pdMS_TO_TICKS(waitMs)) == pdTRUE;
+  if (logSerialMutex == nullptr || !canUseLogSerialMutex()) return true;
+  return xSemaphoreTakeRecursive(logSerialMutex, pdMS_TO_TICKS(waitMs)) == pdTRUE;
 }
 
 void logSerialUnlock() {
-  if (canUseLogSerialMutex()) xSemaphoreGiveRecursive(logSerialMutex());
+  if (logSerialMutex != nullptr && canUseLogSerialMutex()) xSemaphoreGiveRecursive(logSerialMutex);
 }
 
 bool logSerialWriteAll(const uint8_t* data, const size_t len, const uint32_t budgetMs, const uint32_t stallMs) {

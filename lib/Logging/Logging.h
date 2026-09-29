@@ -36,7 +36,9 @@ void logPrintf(const char* level, const char* origin, const char* format, ...);
 // Serializes logSerial writers so a protocol reply or binary stream is never
 // split by a log line from another task. Recursive, so a holder may call
 // logSerialWriteAll(). Log lines that can't get it within 2 ms skip the serial
-// port (the RAM and PSRAM rings still get them).
+// port (the RAM and PSRAM rings still get them). setup() calls logSerialInit()
+// once; before that, and before the scheduler runs, writes go straight out.
+void logSerialInit();
 bool logSerialLock(uint32_t waitMs);
 void logSerialUnlock();
 class LogSerialGuard {
