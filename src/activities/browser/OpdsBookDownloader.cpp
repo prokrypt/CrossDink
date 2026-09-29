@@ -101,19 +101,19 @@ void OpdsBookDownloader::run() {
   outcome = HttpDownloader::downloadToFile(
       job.url, job.path,
       [this, startMs, &nextRxLog, &firstByteMs](const size_t downloaded, const size_t total) {
-        if (downloaded >= nextRxLog) {
-          const unsigned long elapsed = millis() - firstByteMs;
-          LOG_INF("OPDS", "rx %zu/%zu KB, %lu KB/s, rssi=%d", downloaded / 1024, total / 1024,
-                  elapsed > 0 ? static_cast<unsigned long>(downloaded / 1024 * 1000 / elapsed) : 0UL,
-                  WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
-          while (nextRxLog <= downloaded) nextRxLog += RX_LOG_STEP_BYTES;
-        }
         if (!firstByteSeen.load(std::memory_order_relaxed)) {
           // Everything before this is DNS, TLS, redirects and the server
           // preparing the file.
           firstByteMs = millis();
           LOG_DBG("OPDS", "First byte after %lu ms (total=%zu)", firstByteMs - startMs, total);
           firstByteSeen.store(true, std::memory_order_release);
+        }
+        if (downloaded >= nextRxLog) {
+          const unsigned long elapsed = millis() - firstByteMs;
+          LOG_INF("OPDS", "rx %zu/%zu KB, %lu KB/s, rssi=%d", downloaded / 1024, total / 1024,
+                  elapsed > 0 ? static_cast<unsigned long>(downloaded / 1024 * 1000 / elapsed) : 0UL,
+                  WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
+          while (nextRxLog <= downloaded) nextRxLog += RX_LOG_STEP_BYTES;
         }
         bytesTotal.store(total, std::memory_order_release);
         bytesDone.store(downloaded, std::memory_order_release);
