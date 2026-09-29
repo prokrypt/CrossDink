@@ -59,6 +59,7 @@ class DisplayTestActivity final : public Activity {
   void runOps();
   void drawOp(const display_script::Op& op);
   void refresh(display_script::Mode mode);
+  void drawFittedLine(const char* text, int y, bool bold);
   void drawAsk();
   void drawResult();
   void answer(int option);

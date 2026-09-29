@@ -23,7 +23,7 @@ commands are rejected, and the result screen shows the failing line.
 | `pattern text` | Sample text lines over the whole screen. |
 | `box X Y W H [white]` | Filled rectangle (black unless `white`). |
 | `invert` | Invert the whole framebuffer. |
-| `label <text>` | Draw the text in a white band across the top (shown by the next refresh). |
+| `label A \| B \| C` | White band across the top with up to 3 lines (A bold), shown by the next refresh. Convention: what this is \| what to look for \| what is next. |
 | `refresh full\|half\|fast\|du` | Show the framebuffer. `du` is a Fast refresh with the keyboard DU LUT. |
 | `frames N` | DU LUT frames (1..63, default 6). |
 | `pll 0xNN` | PLL (0x30) value during DU refreshes; `0` keeps the default. |

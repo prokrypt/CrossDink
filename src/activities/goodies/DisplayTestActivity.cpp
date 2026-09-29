@@ -186,6 +186,7 @@ void DisplayTestActivity::runOps() {
       case OpCode::Name:
         break;
       default:
+        if (op.code == OpCode::Label) LOG_INF("GDY", "test=\"%s\" label %s", title.c_str(), op.text.c_str());
         drawOp(op);
         break;
     }
@@ -227,10 +228,24 @@ void DisplayTestActivity::drawOp(const Op& op) {
       renderer.invertScreen();
       break;
     case OpCode::Label: {
-      const int bandH = renderer.getLineHeight(UI_12_FONT_ID) + 12;
+      // Up to 3 lines split on '|': what this is (bold), what to look for, what is next.
+      std::string lines[3];
+      int count = 0;
+      for (size_t start = 0; count < 3 && start <= op.text.size(); ++count) {
+        const size_t bar = op.text.find('|', start);
+        const size_t stop = bar == std::string::npos ? op.text.size() : bar;
+        lines[count] = op.text.substr(start, stop - start);
+        lines[count].erase(0, lines[count].find_first_not_of(' '));
+        lines[count].erase(lines[count].find_last_not_of(' ') + 1);
+        start = stop + 1;
+      }
+      const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+      const int bandH = count * lineHeight + 12;
       renderer.fillRect(0, 0, w, bandH, false);
       renderer.fillRect(0, bandH - 2, w, 2);
-      renderer.drawCenteredText(UI_12_FONT_ID, 6, op.text.c_str(), true, EpdFontFamily::BOLD);
+      for (int i = 0; i < count; ++i) {
+        drawFittedLine(lines[i].c_str(), 5 + i * lineHeight, i == 0);
+      }
       break;
     }
     default:
@@ -293,6 +308,13 @@ void DisplayTestActivity::refresh(const Mode mode) {
 #endif
 }
 
+// Centered line in UI_12, or UI_10 when UI_12 would not fit the width.
+void DisplayTestActivity::drawFittedLine(const char* text, const int y, const bool bold) {
+  const auto style = bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+  const bool fits = renderer.getTextWidth(UI_12_FONT_ID, text, style) <= renderer.getScreenWidth() - 16;
+  renderer.drawCenteredText(fits ? UI_12_FONT_ID : UI_10_FONT_ID, y, text, true, style);
+}
+
 void DisplayTestActivity::drawAsk() {
   // A band over the test image; the left/right halves are the two answers.
   const Op& op = script.ops[pc];
@@ -301,7 +323,7 @@ void DisplayTestActivity::drawAsk() {
   const int bandH = lineHeight * 3 + 16;
   renderer.fillRect(0, 0, w, bandH, false);
   renderer.drawRect(0, 0, w, bandH);
-  renderer.drawCenteredText(UI_12_FONT_ID, 6, op.text.c_str(), true, EpdFontFamily::BOLD);
+  drawFittedLine(op.text.c_str(), 6, true);
   char left[48];
   char right[48];
   snprintf(left, sizeof(left), "< %s", op.options[0].c_str());
