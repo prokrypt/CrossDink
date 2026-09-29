@@ -35,6 +35,15 @@ class BlackRedriveLut {
     if (enabled) freeink::setUc8179KbdExperiment(nullptr);
 #endif
   }
+  // Makes the next fast refresh inside this scope a DU scrub: every pixel is
+  // driven through its complement once (~250 ms), cleaning the previous
+  // screen's ghost without the Half flash. UC8179 only; others ignore it.
+  static void scrubNext() {
+#ifndef SIMULATOR
+    freeink::requestUc8179DuScrubNext();
+#endif
+  }
+
   BlackRedriveLut(const BlackRedriveLut&) = delete;
   BlackRedriveLut& operator=(const BlackRedriveLut&) = delete;
 

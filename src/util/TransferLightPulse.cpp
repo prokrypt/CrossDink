@@ -10,8 +10,9 @@ constexpr uint32_t kWriteIntervalMs = 20;
 constexpr uint8_t kPeakPercent = 25;
 }  // namespace
 
-void TransferLightPulse::begin() {
+void TransferLightPulse::begin(const uint32_t holdForMs) {
   armed = false;
+  entryHold = false;
   if (!Frontlight.present()) {
     return;
   }
@@ -22,6 +23,15 @@ void TransferLightPulse::begin() {
   stopAtMs = 0;
   held = false;
   armed = true;
+  if (holdForMs > 0 && savedOn && savedBrightness > 0) {
+    // Write nothing: `written` still lets update() spot a user change.
+    entryHold = true;
+    holdStartMs = millis();
+    holdMs = holdForMs;
+    written = savedBrightness;
+    LOG_DBG("LIGHT", "Transfer light hold %u%% for %lu ms", savedBrightness, static_cast<unsigned long>(holdMs));
+    return;
+  }
   write(0);
   Frontlight.setOn(true);
 }
@@ -44,6 +54,12 @@ void TransferLightPulse::update(const bool transferActive) {
   }
 
   const uint32_t now = millis();
+  if (entryHold) {
+    if (now - holdStartMs < holdMs) return;  // data during the hold is ignored
+    entryHold = false;
+    LOG_DBG("LIGHT", "Transfer light hold over after %lu ms (%s)", static_cast<unsigned long>(now - holdStartMs),
+            transferActive ? "data" : "idle");
+  }
   if (transferActive) {
     if (!pulsing) {
       pulsing = true;
@@ -81,6 +97,7 @@ void TransferLightPulse::holdOn() {
     return;
   }
   held = true;
+  entryHold = false;
   write(kPeakPercent);
   LOG_DBG("LIGHT", "Transfer pulse held at %u%%", kPeakPercent);
 }
@@ -90,6 +107,7 @@ void TransferLightPulse::end() {
     return;
   }
   armed = false;
+  entryHold = false;
   if (userOverride) {
     return;
   }

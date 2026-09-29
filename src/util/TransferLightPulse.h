@@ -15,7 +15,9 @@ class TransferLightPulse {
   // How long after the last data a caller should still report activity.
   static constexpr unsigned long TAIL_MS = 250;
 
-  void begin();
+  // A light that is on keeps its level for holdMs before pulsing starts (0 =
+  // pulse at once). A user change during the hold is kept as usual.
+  void begin(uint32_t holdMs = 10000);
   void update(bool transferActive);
   // Stops the pulse and holds the light steady at the pulse peak until end().
   void holdOn();
@@ -27,6 +29,8 @@ class TransferLightPulse {
   uint32_t pulseStartMs = 0;
   uint32_t stopAtMs = 0;  // end of the cycle the pulse fades out on; 0 = running
   uint32_t lastWriteMs = 0;
+  uint32_t holdStartMs = 0;
+  uint32_t holdMs = 0;
   uint8_t savedBrightness = 0;
   uint8_t written = 0;
   bool savedOn = false;
@@ -34,4 +38,5 @@ class TransferLightPulse {
   bool userOverride = false;
   bool pulsing = false;
   bool held = false;
+  bool entryHold = false;
 };

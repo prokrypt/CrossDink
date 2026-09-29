@@ -9,6 +9,7 @@
 
 #include <Arduino.h>
 #include <TaskCores.h>
+#include <WiFi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -21,6 +22,10 @@ constexpr uint32_t DOWNLOAD_STACK_BYTES = 14 * 1024;
 // the Wi-Fi core) like the prefetch.
 constexpr UBaseType_t DOWNLOAD_PRIORITY = 1;
 constexpr size_t DOWNLOAD_BUFFER_SIZE = 2048;
+// PSRAM, held only while a download runs: one SD write per 32 KB instead of
+// one per TLS record.
+constexpr size_t DOWNLOAD_WRITE_BUFFER_BYTES = 32 * 1024;
+constexpr size_t RX_LOG_STEP_BYTES = 1024 * 1024;
 constexpr TickType_t JOIN_POLL_TICKS = pdMS_TO_TICKS(10);
 }  // namespace
 
@@ -74,6 +79,7 @@ void OpdsBookDownloader::run() {
   options.authorizationOrigin = job.authorizationOrigin;
   options.stageAsPart = true;
   options.checkFreeSpace = true;
+  options.writeBufferBytes = DOWNLOAD_WRITE_BUFFER_BYTES;
   // A response with no Content-Length can end early and still look complete;
   // a truncated EPUB has no central directory to find container.xml in.
   options.validate = [](const std::string& path) {
@@ -82,19 +88,38 @@ void OpdsBookDownloader::run() {
     return zip.getInflatedFileSize("META-INF/container.xml", &size);
   };
 
+  // A dropped link mid-download otherwise shows only as a stall.
+  const wifi_event_id_t disconnectEvent = WiFi.onEvent(
+      [](arduino_event_id_t, arduino_event_info_t info) {
+        LOG_ERR("OPDS", "Wi-Fi disconnected during download (reason=%u)",
+                static_cast<unsigned>(info.wifi_sta_disconnected.reason));
+      },
+      ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+  size_t nextRxLog = RX_LOG_STEP_BYTES;
+  unsigned long firstByteMs = 0;
   outcome = HttpDownloader::downloadToFile(
       job.url, job.path,
-      [this, startMs](const size_t downloaded, const size_t total) {
+      [this, startMs, &nextRxLog, &firstByteMs](const size_t downloaded, const size_t total) {
         if (!firstByteSeen.load(std::memory_order_relaxed)) {
           // Everything before this is DNS, TLS, redirects and the server
           // preparing the file.
-          LOG_DBG("OPDS", "First byte after %lu ms (total=%zu)", millis() - startMs, total);
+          firstByteMs = millis();
+          LOG_DBG("OPDS", "First byte after %lu ms (total=%zu)", firstByteMs - startMs, total);
           firstByteSeen.store(true, std::memory_order_release);
+        }
+        if (downloaded >= nextRxLog) {
+          const unsigned long elapsed = millis() - firstByteMs;
+          LOG_INF("OPDS", "rx %zu/%zu KB, %lu KB/s, rssi=%d", downloaded / 1024, total / 1024,
+                  elapsed > 0 ? static_cast<unsigned long>(downloaded / 1024 * 1000 / elapsed) : 0UL,
+                  WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
+          while (nextRxLog <= downloaded) nextRxLog += RX_LOG_STEP_BYTES;
         }
         bytesTotal.store(total, std::memory_order_release);
         bytesDone.store(downloaded, std::memory_order_release);
       },
       nullptr, job.username, job.password, std::move(options));
+  WiFi.removeEvent(disconnectEvent);
 
   LOG_DBG("OPDS", "Download task done: result=%d in %lu ms, stack free=%u", static_cast<int>(outcome),
           millis() - startMs, static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));

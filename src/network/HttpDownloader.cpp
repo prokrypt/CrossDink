@@ -13,6 +13,7 @@
 #include <strings.h>
 
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <string>
 #include <utility>
@@ -104,7 +105,20 @@ struct Sink {
   size_t downloaded = 0;
   size_t total = 0;
   bool rangeIgnored = false;
+  uint32_t lastDataMs = 0;  // millis() of the last body chunk (wolfSSL path)
+  uint32_t maxWriteMs = 0;  // slowest SD write (downloadToFile)
 };
+
+// Tells a stalled server (idle near the timeout), a dropped link (wifi != 3)
+// and a slow card (large maxWrite) apart.
+[[maybe_unused]] void logStallDiagnostics(const char* what, const Sink& sink) {
+  const bool connected = WiFi.status() == WL_CONNECTED;
+  LOG_ERR("HTTP", "%s: got %zu of %zu bytes idle=%lu maxWrite=%lu wifi=%d rssi=%d heap=%u maxAlloc=%u", what,
+          sink.downloaded, sink.total,
+          sink.lastDataMs != 0 ? static_cast<unsigned long>(millis() - sink.lastDataMs) : 0UL,
+          static_cast<unsigned long>(sink.maxWriteMs), static_cast<int>(WiFi.status()), connected ? WiFi.RSSI() : 0,
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+}
 
 void setRequestHeaders(esp_http_client_handle_t client, const std::string& username, const std::string& password,
                        size_t resumeOffset, bool sendAuthorization) {
@@ -190,6 +204,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
           }
           if (!sink.write(data, len)) return false;
           sink.downloaded += len;
+          sink.lastDataMs = millis();
           progressNotifier.notify(sink.downloaded, false);
           return true;
         },
@@ -203,6 +218,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     }
     if (status < 0) {
       LOG_ERR("HTTP", "wolfSSL request failed: %s", currentUrl.c_str());
+      if (sink.downloaded > 0) logStallDiagnostics("Request failed", sink);
       logNetworkState("wolfSSL request failure");
       return HttpDownloader::HTTP_ERROR;
     }
@@ -239,7 +255,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       return HttpDownloader::FILE_ERROR;
     }
     if (!http.responseComplete()) {
-      LOG_ERR("HTTP", "Incomplete: got %zu of %zu bytes", sink.downloaded, sink.total);
+      logStallDiagnostics("Incomplete", sink);
       return HttpDownloader::HTTP_ERROR;
     }
 
@@ -593,11 +609,36 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     return fileOpen;
   };
 
+  // Fewer, larger SD writes: each write costs a FAT/cluster update, so 1-2 KB
+  // TLS records written one by one spend much of the time in card overhead.
+  HeapByteBuffer writeBuf;
+  size_t writeBufLen = 0;
+  if (options.writeBufferBytes > 0) {
+    writeBuf = makePsramByteBufferNoThrow(options.writeBufferBytes);
+    if (!writeBuf) LOG_DBG("HTTP", "No PSRAM write buffer; writing chunks directly");
+  }
+  auto timedWrite = [&](const uint8_t* data, size_t len) {
+    const uint32_t startMs = millis();
+    const bool ok = file.write(data, len) == len;
+    const uint32_t tookMs = millis() - startMs;
+    if (tookMs > sink.maxWriteMs) sink.maxWriteMs = tookMs;
+    if (!ok) noteWriteFailure();
+    return ok;
+  };
+  auto flushWriteBuf = [&]() {
+    if (writeBufLen == 0) return true;
+    const bool ok = timedWrite(writeBuf.get(), writeBufLen);
+    writeBufLen = 0;
+    return ok;
+  };
   auto writeChunk = [&](const uint8_t* data, size_t len) {
     if (!openOutputFile()) return false;
-    if (file.write(data, len) == len) return true;
-    noteWriteFailure();
-    return false;
+    if (!writeBuf) return timedWrite(data, len);
+    if (writeBufLen + len > options.writeBufferBytes && !flushWriteBuf()) return false;
+    if (len >= options.writeBufferBytes) return timedWrite(data, len);
+    memcpy(writeBuf.get() + writeBufLen, data, len);
+    writeBufLen += len;
+    return true;
   };
   sink.write = writeChunk;
 
@@ -609,6 +650,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       fileOpen = false;
     }
     Storage.remove(writePath.c_str());
+    writeBufLen = 0;
     sink.rangeIgnored = false;
     sink.resumeOffset = 0;
     sink.downloaded = 0;
@@ -618,6 +660,10 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
 
   if (fileOpen) {
+    if (!flushWriteBuf() && result == OK) {
+      LOG_ERR("HTTP", "Final buffered write failed after %zu bytes", sink.downloaded);
+      result = FILE_ERROR;
+    }
     file.flush();
     file.close();
   }

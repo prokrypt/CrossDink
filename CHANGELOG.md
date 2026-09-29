@@ -2,6 +2,8 @@
 
 ### Added
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
+- OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
+
 - The web status API (`/api/status`) reports the device's eFuse security state (flash encryption, secure boot, JTAG, USB-Serial-JTAG, download mode) and whether it is locked against reflashing. Debug builds log the same line at boot and in the PSRAM log header.
 - USB Drive (X4 Pro): the frontlight pulses while the computer reads or writes the card, like Wi-Fi file transfer, and your brightness returns when you leave.
 - Debug builds: the boot log names the exact panel controller (UC8179, SSD1677, ...), how it was detected, and the panel's VER/MTP product id and LUT version. Every PSRAM log grab (/api/psram-log, CMD:PSRAMLOG) starts with a header: device, serial, build, env, panel, uptime and heap.
@@ -27,6 +29,10 @@
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 
 ### Changed
+- OPDS: every screen (loading, downloading, errors) uses the same header with the status bar; on touch its arrow goes back, or cancels a download. After a download the book list is drawn first, then the open prompt appears over it.
+- X4 Pro: the first File Transfer QR frame, the first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.
+- File Transfer, Calibre and USB Drive keep a lit frontlight at your level for 10 seconds before the transfer pulse takes over.
+- OPDS downloads write to the SD card in 32 KB blocks (PSRAM buffer) instead of one write per network packet.
 - File Transfer and Calibre Connect: the frontlight pulse starts once the server is running, so the mode menu and Wi-Fi picker keep your brightness.
 - KOReader sync reuses one TLS connection for the progress download, the second document-id check and the upload, instead of a new handshake for each. TLS handshakes (sync, OPDS, downloads) use faster elliptic-curve math.
 - KOReader sync is faster: it skips the time sync when the clock is already set, shows one status screen instead of three, no longer waits for each screen to finish drawing before the request, and gives up on an unresponsive server after 8 seconds. Smart sync no longer tries the second document id after a network or login error.

@@ -139,6 +139,7 @@ void OpdsBookBrowserActivity::onEnter() {
   sdFontSystem.releaseLoadedFont(renderer);
 
   state = BrowserState::CHECK_WIFI;
+  scrubNextFrame.store(true, std::memory_order_release);
   entryCount = 0;
   navigationHistory.clear();
   searchTemplate = "";
@@ -252,6 +253,10 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::ERROR) {
+    if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+      navigateBack();
+      return;
+    }
     int tx = 0;
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
@@ -268,7 +273,8 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::CHECK_WIFI || state == BrowserState::LOADING) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+        TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       state == BrowserState::CHECK_WIFI ? onGoHome() : navigateBack();
     }
     return;
@@ -387,15 +393,16 @@ void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) 
 // draw the themed header (padding, centering, and rule come from the theme).
 void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool withSearch) {
   screen.takeBottom(static_cast<int16_t>(UITheme::getInstance().getMetrics().buttonHintsHeight));
-  const bool useTouchBackHeader = state == BrowserState::BROWSING && mappedInput.hasTouchHardware();
-  if (useTouchBackHeader) {
-    const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const char* title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
+  // One header for every state, so the title and status row never jump. On
+  // touch its arrow is Back, or Cancel while downloading.
+  const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (mappedInput.hasTouchHardware()) {
     const auto backLayout = TouchHeaderBackButton::layout(headerRect);
     const bool showSearch = withSearch && !searchTemplate.empty();
-    TouchHeaderBackButton::draw(renderer, uiTarget, headerRect,
-                                server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str(), false,
+    TouchHeaderBackButton::draw(renderer, uiTarget, headerRect, title, false,
                                 showSearch ? static_cast<int>(backLayout.iconRect.width + 8) : 0);
-    screen.takeTop(static_cast<int16_t>(headerRect.height));
+    screen.takeTop(static_cast<int16_t>(headerRect.y + headerRect.height));
 
     if (showSearch) {
       fui::ButtonProps search;
@@ -419,19 +426,8 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
           fui::bitmapFromIcon(icon_search_32), fui::BitmapMode::Center, fui::Paint::solid(fui::Color::Black));
     }
   } else {
-    fui::HeaderProps header;
-    header.title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
-    header.borderEdges = fui::EdgeBottom;
-    if (withSearch && !searchTemplate.empty()) {
-      header.trailingIcon = fui::bitmapFromIcon(icon_search_32);
-      header.trailingAction = ACTION_SEARCH;
-      // Optically align the icon with the title glyphs: text hangs low in its
-      // line cell by the font's internal leading; drop the button to match.
-      const int titleFontId = uiScaleSpec().titleFontId;
-      header.actionOffsetY =
-          static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
-    }
-    screen.header(header);
+    GUI.drawHeader(renderer, headerRect, title);
+    screen.takeTop(static_cast<int16_t>(headerRect.y + headerRect.height));
   }
   // Same breathing room between header and content as the legacy screens.
   screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().verticalSpacing));
@@ -495,7 +491,7 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiApp::ScreenType& screen) {
   const int16_t gap = theme.spaceMd;
   const int16_t barH = 16;
   const int16_t btnH = theme.rowHeight;
-  const int16_t blockH = static_cast<int16_t>(lh * 2 + barH + btnH + gap * 3);
+  const int16_t blockH = static_cast<int16_t>(lh * 3 + barH + btnH + gap * 4);
   const fui::Rect body = screen.body();
   if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
 
@@ -511,6 +507,20 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiApp::ScreenType& screen) {
     progress.borderWidth = 1;
     fui::progressBar(screen.frame(), bar, progress);
   }
+  // "12.3 / 33.0 MB": shows whether a stalled bar is still moving.
+  char sizeLine[40] = "";
+  if (downloadReceiving) {
+    char done[16];
+    formatFileSize(downloadProgress, done, sizeof(done));
+    if (downloadTotal > 0) {
+      char total[16];
+      formatFileSize(downloadTotal, total, sizeof(total));
+      snprintf(sizeLine, sizeof(sizeLine), "%s / %s", done, total);
+    } else {
+      snprintf(sizeLine, sizeof(sizeLine), "%s", done);
+    }
+  }
+  screen.target().text(screen.takeTop(lh, gap), sizeLine, centered);
 
   const fui::Rect btnArea = screen.takeTop(btnH);
   const int16_t btnW = static_cast<int16_t>(btnArea.width / 3);
@@ -570,7 +580,12 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   app.render();
   uiReady = true;
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-  const BlackRedriveLut redriveLut(state == BrowserState::DOWNLOADING);
+  const bool scrub = scrubNextFrame.exchange(false, std::memory_order_acq_rel);
+  const BlackRedriveLut redriveLut(state == BrowserState::DOWNLOADING || scrub);
+  if (scrub) {
+    BlackRedriveLut::scrubNext();
+    LOG_DBG("OPDS", "Frame refresh=du-scrub state=%d", static_cast<int>(state));
+  }
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }
 
@@ -862,6 +877,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   lastRenderedPercent = -1;
   lastProgressUpdateMs = millis();
   cancelDownload = false;
+  scrubNextFrame.store(true, std::memory_order_release);
   requestUpdate(true);
 
 #ifdef SIMULATOR
@@ -907,6 +923,7 @@ void OpdsBookBrowserActivity::pollDownload() {
     const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
     if (snap.touchPressed || snap.touchReleased) app.route(snap);
   }
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) cancelDownload = true;
   const bool backPressed = mappedInput.wasPressed(MappedInputManager::Button::Back);
   // cppcheck-suppress knownConditionTrueFalse ; app.route() can set cancelDownload via the Cancel button callback
   if ((cancelDownload || backPressed) && bookDownloader.running() && !bookDownloader.cancelling()) {
@@ -942,6 +959,11 @@ void OpdsBookBrowserActivity::pollDownload() {
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
     state = BrowserState::BROWSING;
+    // The prompt draws over the last frame: show the list under it, not the
+    // download screen (this also replaces the download frame's ghost).
+    if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+      LOG_ERR("OPDS", "List could not be rendered before the open prompt");
+    }
     offerToOpen(filename);
   } else if (result == HttpDownloader::ABORTED) {
     LOG_INF("OPDS", "Download cancelled");
