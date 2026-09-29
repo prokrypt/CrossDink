@@ -2,7 +2,7 @@ name: CI (build)
 
 on:
   push:
-    branches: [development]
+    branches: [main]
   pull_request:
 
 # A newer commit supersedes older PR validation; keep main pushes independent.
@@ -40,6 +40,12 @@ jobs:
 
   cppcheck:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The platformio.ini default_envs. A bare `pio check` walks them one after
+        # another (~15 min); one job each runs them in parallel.
+        environment: [sticky, x4-pro, x4-classic]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -74,12 +80,12 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q libpcre3
 
       - name: Run cppcheck
-        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+        run: pio check -e ${{ matrix.environment }} --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
   build:
     # Firmware artifacts are validated on pull requests; release builds stay
-    # in the dedicated release workflow.
-    if: github.event_name == 'pull_request'
+    # in the dedicated release workflow. Pushes build too, only to save the
+    # ccache: PR runs can restore caches from the base branch, not from other PRs.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -129,10 +135,34 @@ jobs:
           uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
           ~/.platformio/penv/bin/pio --version
 
+      - name: Install ccache
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ccache
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.environment }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-ccache-${{ matrix.environment }}-
+
       - name: Build ${{ matrix.environment }} firmware
+        env:
+          # scripts/pio_ccache.py prefixes the SCons compile commands with ccache;
+          # IDF_CCACHE_ENABLE covers the ESP-IDF CMake build of custom_sdkconfig envs.
+          # Absolute path: the platform's nested framework build runs from another dir.
+          XINK_CCACHE: /usr/bin/ccache
+          PLATFORMIO_EXTRA_SCRIPTS: pre:${{ github.workspace }}/scripts/pio_ccache.py
+          IDF_CCACHE_ENABLE: "1"
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: "1"
+          CCACHE_MAXSIZE: 400M
         run: |
           set -euo pipefail
+          ccache -z
           pio run -j4 -e ${{ matrix.environment }} | tee pio-${{ matrix.environment }}.log
+          ccache -s
 
       - name: Extract firmware stats
         run: |
@@ -143,6 +173,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload ${{ matrix.environment }} firmware
+        if: github.event_name == 'pull_request'
         # Flashable app image for testing PR builds; the release workflows publish
         # the same renamed firmware-<device>.bin.
         uses: actions/upload-artifact@v7
