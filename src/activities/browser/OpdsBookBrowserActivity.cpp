@@ -912,7 +912,8 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   });
 }
 
-void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename) {
+void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename,
+                                           const std::string* resumeValidator) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
@@ -956,6 +957,10 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   request.username = server.username;
   request.password = server.password;
   request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  if (resumeValidator) {
+    request.resume = true;
+    request.validator = *resumeValidator;
+  }
   if (!bookDownloader.start(std::move(request))) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
@@ -1016,11 +1021,48 @@ void OpdsBookBrowserActivity::pollDownload() {
   } else if (result == HttpDownloader::ABORTED) {
     LOG_INF("OPDS", "Download cancelled");
     state = BrowserState::BROWSING;
-  } else {
+  } else if (result == HttpDownloader::INSUFFICIENT_SPACE) {
     state = BrowserState::ERROR;
-    errorMessage = result == HttpDownloader::INSUFFICIENT_SPACE ? tr(STR_SD_CARD_FULL) : tr(STR_DOWNLOAD_FAILED);
+    errorMessage = tr(STR_SD_CARD_FULL);
+  } else {
+    state = BrowserState::BROWSING;
+    if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+      LOG_ERR("OPDS", "List could not be rendered before the retry prompt");
+    }
+    offerRetry(filename);
+    return;
   }
   requestUpdate();
+}
+
+void OpdsBookBrowserActivity::offerRetry(const std::string& path) {
+  LOG_INF("OPDS", "Download failed (error=%d), offering retry: %s", static_cast<int>(bookDownloader.result()),
+          path.c_str());
+  std::string heading = tr(STR_DOWNLOAD_FAILED);
+  heading += ':';
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, statusMessage);
+  if (!dialog) {
+    LOG_ERR("OPDS", "Cannot allocate retry dialog");
+    Storage.remove((path + ".part").c_str());
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+    return;
+  }
+  dialog->setConfirmOption(tr(STR_RETRY), true);
+  // As in requestDownload(): entries and selectorIndex stay put under the
+  // dialog, so the index still names the failed book.
+  const int bookIndex = selectorIndex;
+  startActivityForResult(std::move(dialog), [this, bookIndex, path, validator = bookDownloader.validator()](
+                                                const ActivityResult& result) {
+    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
+      LOG_INF("OPDS", "Download retry declined; removing partial file");
+      Storage.remove((path + ".part").c_str());
+      return;
+    }
+    LOG_INF("OPDS", "Retrying download: %s", path.c_str());
+    downloadBook(entries[bookIndex], path, &validator);
+  });
 }
 
 void OpdsBookBrowserActivity::offerToOpen(const std::string& path) {

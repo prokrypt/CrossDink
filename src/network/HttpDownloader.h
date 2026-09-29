@@ -77,6 +77,10 @@ class HttpDownloader {
     // size before each SD write (0 = write every chunk). Without PSRAM the
     // chunks are written directly.
     size_t writeBufferBytes = 0;
+    // WOLFSSL only. In: sent as If-Range on a resume, so a changed file comes
+    // back whole (200) instead of spliced. Out: the response's strong ETag,
+    // else its Last-Modified, else empty. Borrowed for this call.
+    std::string* validator = nullptr;
   };
 
   /**
