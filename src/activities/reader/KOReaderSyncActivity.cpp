@@ -121,6 +121,7 @@ bool syncTimeWithNTP() {
 // Drops the radio while the result shows; leaveNetworkInPlace() does the full
 // teardown on exit, so no settle delays here.
 void wifiOff() {
+  KOReaderSyncClient::endSession();
   WiFi.disconnect(false);
   WiFi.mode(WIFI_OFF);
 }
@@ -253,6 +254,8 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   const unsigned long ntpStart = millis();
   if (syncTimeWithNTP()) timing.ntp = millis() - ntpStart;
 
+  // GET, the alternate GET and the PUT reuse one TLS connection.
+  KOReaderSyncClient::beginSession();
   performSync();
   logSyncTiming();
 }
@@ -647,6 +650,7 @@ void KOReaderSyncActivity::onExit() {
     touchOverrideActive = false;
   }
   Activity::onExit();
+  KOReaderSyncClient::endSession();  // before the radio goes down
 
   if (wifiActivated && !leaveNetworkInPlace()) silentRestartToReader(true);
 }

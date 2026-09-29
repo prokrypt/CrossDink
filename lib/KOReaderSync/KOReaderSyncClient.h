@@ -102,6 +102,13 @@ class KOReaderSyncClient {
   static Error updateProgress(const KOReaderProgress& progress);
 
   /**
+   * Keep one keep-alive TLS connection for getProgress()/updateProgress()
+   * until endSession(). Without a session each request connects on its own.
+   */
+  static void beginSession();
+  static void endSession();
+
+  /**
    * Get human-readable error message.
    */
   static std::string errorString(Error error);
