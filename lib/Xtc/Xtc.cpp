@@ -698,8 +698,11 @@ bool Xtc::generateThumbBmp(uint16_t width, uint16_t height) const {
     return false;
   }
 
+  // Written beside the final path and renamed: Home may draw this thumb while
+  // a background job makes it.
+  const std::string tmpPath = thumbPath + ".tmp";
   FsFile thumbBmp;
-  if (!Storage.openFileForWrite("XTC", thumbPath, thumbBmp)) {
+  if (!Storage.openFileForWrite("XTC", tmpPath, thumbBmp)) {
     return false;
   }
 
@@ -787,7 +790,7 @@ bool Xtc::generateThumbBmp(uint16_t width, uint16_t height) const {
   }
 
   thumbBmp.close();
-  return true;
+  return replaceGeneratedBmp(tmpPath, thumbPath);
 }
 
 uint32_t Xtc::getPageCount() const {

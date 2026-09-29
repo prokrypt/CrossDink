@@ -76,6 +76,7 @@
 #include "clippings/ClippingMatchTracker.h"
 #include "clippings/ClippingTextMatcher.h"
 #include "clippings/ClippingsManager.h"
+#include "components/HomeCoverThumbs.h"
 #include "components/UITheme.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "components/TouchHeaderBackButton.h"
@@ -2369,6 +2370,8 @@ void EpubReaderActivity::onEnter() {
   if (!silentWorker.done) silentWorker.done = xSemaphoreCreateBinary();
   if (!drawAheadMutex) drawAheadMutex = xSemaphoreCreateMutex();
   if (!drawAhead.done) drawAhead.done = xSemaphoreCreateBinary();
+  if (!homeThumbWorker.done) homeThumbWorker.done = xSemaphoreCreateBinary();
+  homeThumbWorker.attempted = false;
   ImageBlock::clearSessionRenderFailures();
   ImageBlock::setExtractor(
       epub.get(),
@@ -2503,6 +2506,10 @@ void EpubReaderActivity::onEnter() {
 void EpubReaderActivity::onExit() {
   waitSilentIndexWorker(/*cancel=*/true);
   waitDrawAhead(/*publish=*/false);
+  // Not cancelled: at most two thumbs remain, and Home would make them anyway.
+  waitHomeThumbWorker();
+  if (homeThumbWorker.done) vSemaphoreDelete(homeThumbWorker.done);
+  homeThumbWorker.done = nullptr;
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   // Drop the scalable-family catalog retained during reading. The active font
   // and its PSRAM face lifetime remain managed by SdCardFontSystem.
@@ -3169,6 +3176,7 @@ void EpubReaderActivity::loop() {
     LOG_DBG("AA", "redraw after cancel");
     requestUpdate();
   }
+  maybeStartHomeThumbWorker();
   bool rawTouchInput = false;
 #if CROSSDINK_APP_CAP_TOUCH
   int touchDownX = 0;
@@ -7556,6 +7564,69 @@ void EpubReaderActivity::waitSilentIndexWorker(const bool cancel) {
     silentWorkerOutcomePending = true;
   }
   xSemaphoreGive(silentWorkerMutex);
+}
+
+void EpubReaderActivity::maybeStartHomeThumbWorker() {
+#if defined(portNUM_PROCESSORS) && portNUM_PROCESSORS > 1
+  if (homeThumbWorker.attempted || !homeThumbWorker.done || !epub) return;
+  // Written by the render task; zero while an overlay is up. A stale read only
+  // moves the start by one loop.
+  const unsigned long shownAt = pageShownAtMs;
+  if (shownAt == 0 || millis() - shownAt < HOME_THUMB_IDLE_MS || silentIndexWorkerBusy()) return;
+  homeThumbWorker.attempted = true;
+  // The cover grid sizes its thumbs from Home's layout, unknown here.
+  if (!epub->hasCoverImage() || UITheme::hasCoverGridHome()) return;
+
+  const auto specs =
+      HomeCoverThumbs::forActiveTheme(epub->getPath(), UITheme::getInstance().getMetrics().homeCoverHeight);
+  const std::string coverBmpPath = epub->getThumbBmpPath();
+  homeThumbWorker.specs = {};
+  for (uint8_t i = 0; i < specs.count; ++i) {
+    const std::string thumbPath = HomeCoverThumbs::path(epub->getPath(), coverBmpPath, specs.items[i]);
+    if (thumbPath.empty() || !Storage.exists(thumbPath.c_str())) {
+      homeThumbWorker.specs.items[homeThumbWorker.specs.count++] = specs.items[i];
+    }
+  }
+  if (homeThumbWorker.specs.count == 0) return;
+  // The decoder and inflate buffers go to PSRAM; the stack is internal RAM
+  // only while the job runs.
+  constexpr uint32_t STACK_BYTES = 12288;
+  if (!MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, STACK_BYTES + 4096U)) {
+    LOG_DBG("ERS", "Skipping Home thumbs: low heap (free=%u, maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    return;
+  }
+  powerManager.beginBackgroundWork();
+  // Idle priority: page draw-ahead and next-chapter indexing preempt it.
+  if (xTaskCreatePinnedToCore(homeThumbWorkerMain, "HomeThumbs", STACK_BYTES, this, tskIDLE_PRIORITY,
+                              &homeThumbWorker.task, TaskCores::kWorker) != pdPASS) {
+    homeThumbWorker.task = nullptr;
+    powerManager.endBackgroundWork();
+    LOG_ERR("ERS", "Cannot start Home thumb worker");
+  }
+#endif
+}
+
+void EpubReaderActivity::homeThumbWorkerMain(void* param) {
+  auto* self = static_cast<EpubReaderActivity*>(param);
+  const unsigned long start = millis();
+  bool made = true;
+  for (uint8_t i = 0; i < self->homeThumbWorker.specs.count; ++i) {
+    made = HomeCoverThumbs::generate(*self->epub, self->homeThumbWorker.specs.items[i]) && made;
+  }
+  LOG_DBG("ERS", "Home thumbs %s: %u in %lums on core %d, stack left %u", made ? "made" : "failed",
+          static_cast<unsigned>(self->homeThumbWorker.specs.count), millis() - start, xPortGetCoreID(),
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  powerManager.endBackgroundWork();
+  PerfLog::noteTaskExit("HomeThumbs");
+  // The activity may be destroyed as soon as this is given.
+  xSemaphoreGive(self->homeThumbWorker.done);
+  vTaskDelete(nullptr);
+}
+
+void EpubReaderActivity::waitHomeThumbWorker() {
+  if (!homeThumbWorker.task) return;
+  xSemaphoreTake(homeThumbWorker.done, portMAX_DELAY);
+  homeThumbWorker.task = nullptr;
 }
 
 // Render task, RenderLock held.
