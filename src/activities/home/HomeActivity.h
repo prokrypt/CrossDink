@@ -14,6 +14,7 @@
 #include "activities/Activity.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
+#include "components/CoverGridHomeUi.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
@@ -30,6 +31,8 @@ class HomeActivity final : public Activity {
 
  private:
   ButtonNavigator buttonNavigator;
+  std::unique_ptr<CoverGridHomeUi> coverGridUi;
+  bool gridHasContinueReading = false;
   int selectorIndex = 0;
   int lastCarouselBookIndex = 0;  // remembered position when leaving carousel row
   int carouselCoverTouchDownIndex = -1;
@@ -126,6 +129,9 @@ class HomeActivity final : public Activity {
   void showNextRecentBookOnHome();
   void updateHighlightedBookContext(bool allowChapterTitleRead = true);
   void loadRecentBooks(int maxBooks);
+  void fillCoverGridFromLibrary();
+  void loadCoverGridThumbnails();
+  void activateCoverGridSelection();
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);
 

@@ -171,6 +171,8 @@ class Epub {
   // thumbnail height.
   // Returns false on missing cache/cover, unsupported image format, or conversion failure.
   bool generateThumbBmp(int width, int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0) const;
+  // Generate a Home thumbnail from the EPUB cover without building reader pages or indexes.
+  bool generateThumbBmpFromSource(int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0);
   // Writes a thumbnail that can either crop-to-fill or contain unusual cover
   // ratios, depending on the source image dimensions.
   bool generateAdaptiveThumbBmp(int width, int height, const GfxRenderer* renderer = nullptr,
@@ -225,5 +227,5 @@ class Epub {
   std::string getCachedCoverImagePath(const std::string& coverImageHref) const;
   bool ensureCachedCoverImage(const std::string& coverImageHref, std::string& outPath) const;
   bool generateThumbBmpInternal(int width, int height, bool adaptiveContain, const GfxRenderer* renderer,
-                                int readerFontId) const;
+                                int readerFontId, const std::string* coverHrefOverride = nullptr) const;
 };

@@ -35,10 +35,12 @@
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderOptionsActivity.h"
 #include "activities/reader/ReaderUtils.h"
+#include "activities/reader/SideButtonShortcuts.h"
 #include "activities/settings/QuickActionsActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "simulator/SimulatorHomeKeyInput.h"
+#include "util/ButtonShortcutController.h"
 
 extern ActivityManager activityManager;
 extern GfxRenderer renderer;
@@ -53,6 +55,7 @@ enum class SmokeStep : uint8_t {
   FileBrowserSettings,
   Library,
   Settings,
+  SideButtons,
   ReaderOptions,
   ReaderMenu,
   Sleep,
@@ -374,6 +377,7 @@ class SimulatorSmokeTest {
     SETTINGS.librarySortMethod = 3;
     SETTINGS.librarySortDescending = 0;
     SETTINGS.libraryListExpanded = 1;
+    SETTINGS.recentBooksView = CrossPointSettings::RECENT_BOOKS_GRID;
     SETTINGS.libraryShowMarkdown = 0;
     SETTINGS.libraryHideFinishedBooks = 1;
     JsonDocument librarySaved;
@@ -381,20 +385,29 @@ class SimulatorSmokeTest {
     SETTINGS.librarySortMethod = 0;
     SETTINGS.librarySortDescending = 1;
     SETTINGS.libraryListExpanded = 0;
+    SETTINGS.recentBooksView = CrossPointSettings::RECENT_BOOKS_LIST;
     SETTINGS.libraryShowMarkdown = 1;
     SETTINGS.libraryHideFinishedBooks = 0;
     SETTINGS.fromJson(librarySaved.as<JsonVariantConst>());
     if (SETTINGS.librarySortMethod != 3 || SETTINGS.librarySortDescending || !SETTINGS.libraryListExpanded ||
-        SETTINGS.libraryShowMarkdown || !SETTINGS.libraryHideFinishedBooks) {
+        SETTINGS.recentBooksView != CrossPointSettings::RECENT_BOOKS_GRID || SETTINGS.libraryShowMarkdown ||
+        !SETTINGS.libraryHideFinishedBooks) {
       fail("Library settings round-trip mismatch");
     }
     librarySaved["librarySortMethod"] = 99;
     librarySaved["libraryShowTxt"] = 2;
     librarySaved["libraryHideFinishedBooks"] = 2;
+    librarySaved["recentBooksView"] = 2;
     SETTINGS.fromJson(librarySaved.as<JsonVariantConst>());
-    if (SETTINGS.librarySortMethod != 3 || SETTINGS.libraryShowTxt != 1 || !SETTINGS.libraryHideFinishedBooks) {
+    if (SETTINGS.librarySortMethod != 3 || SETTINGS.libraryShowTxt != 1 || !SETTINGS.libraryHideFinishedBooks ||
+        SETTINGS.recentBooksView != CrossPointSettings::RECENT_BOOKS_LIST) {
       fail("Invalid Library settings were not rejected");
     }
+    librarySaved.remove("recentBooksView");
+    SETTINGS.recentBooksView = CrossPointSettings::RECENT_BOOKS_GRID;
+    SETTINGS.fromJson(librarySaved.as<JsonVariantConst>());
+    if (SETTINGS.recentBooksView != CrossPointSettings::RECENT_BOOKS_LIST)
+      fail("Missing Recently Opened view did not default to List");
     SETTINGS.fromJson(original.as<JsonVariantConst>());
   }
 
@@ -417,10 +430,6 @@ class SimulatorSmokeTest {
       return settingKeyIs(setting, "powerChordAction");
     });
     if (chordSetting == allSettings.end()) fail("Power chord setting is missing");
-    if (std::find(chordSetting->enumRawValues.begin(), chordSetting->enumRawValues.end(),
-                  CrossPointSettings::CHORD_SLEEP) != chordSetting->enumRawValues.end()) {
-      fail("Sleep is still offered for a chord that cannot wake the device");
-    }
     if (std::find(chordSetting->enumRawValues.begin(), chordSetting->enumRawValues.end(),
                   CrossPointSettings::CHORD_QUICK_ACTIONS) == chordSetting->enumRawValues.end()) {
       fail("Quick Actions is missing from the Power + Up chord setting");
@@ -460,13 +469,73 @@ class SimulatorSmokeTest {
     };
     verifyLibraryChoice("shortPwrBtn", ShortcutOptionCatalog::PowerButton);
     verifyLibraryChoice("longPwrBtn", ShortcutOptionCatalog::PowerButton);
+    for (const char* key : {"sideButtonUpShort", "sideButtonUpLong", "sideButtonDownShort", "sideButtonDownLong"}) {
+      verifyLibraryChoice(key, ShortcutOptionCatalog::SideButton);
+    }
     verifyLibraryChoice("powerChordAction", ShortcutOptionCatalog::ButtonChord);
     verifyLibraryChoice("longPressMenuAction", ShortcutOptionCatalog::LongPress);
     verifyLibraryChoice("longPressBackAction", ShortcutOptionCatalog::LongPress);
+    const auto verifySleepChoice = [&](const char* key, const ShortcutOptionCatalog catalog) {
+      const auto setting = std::find_if(allSettings.begin(), allSettings.end(),
+                                        [key](const SettingInfo& candidate) { return settingKeyIs(candidate, key); });
+      const auto raw = shortcutRawValue(catalog, CrossPointSettings::SLEEP);
+      if (setting == allSettings.end() || raw == SHORTCUT_OPTION_UNAVAILABLE) {
+        fail("Sleep shortcut is missing from %s", key);
+      }
+      const auto choice = std::find(setting->enumRawValues.begin(), setting->enumRawValues.end(), raw);
+      const std::string expected = catalog == ShortcutOptionCatalog::PowerButton
+                                       ? std::string(tr(STR_SLEEP)) + "/" + tr(STR_WAKE)
+                                       : tr(STR_SLEEP);
+      if (choice == setting->enumRawValues.end() ||
+          sideButtonOptionLabel(*setting, static_cast<uint8_t>(choice - setting->enumRawValues.begin())) != expected) {
+        fail("Sleep shortcut has the wrong label in %s", key);
+      }
+    };
+    verifySleepChoice("shortPwrBtn", ShortcutOptionCatalog::PowerButton);
+    verifySleepChoice("longPwrBtn", ShortcutOptionCatalog::PowerButton);
+    for (const char* key : {"shortPwrBtn", "longPwrBtn"}) {
+      const auto setting = std::find_if(allSettings.begin(), allSettings.end(),
+                                        [key](const SettingInfo& candidate) { return settingKeyIs(candidate, key); });
+      if (setting == allSettings.end()) fail("Power shortcut setting is missing: %s", key);
+      for (const auto [action, label] : {std::pair{CrossPointSettings::SLEEP_ONLY, StrId::STR_SLEEP},
+                                         std::pair{CrossPointSettings::WAKE_ONLY, StrId::STR_WAKE}}) {
+        const auto choice = std::find(setting->enumRawValues.begin(), setting->enumRawValues.end(), action);
+        if (choice == setting->enumRawValues.end() ||
+            sideButtonOptionLabel(*setting, static_cast<uint8_t>(choice - setting->enumRawValues.begin())) !=
+                I18N.get(label)) {
+          fail("Power-only shortcut is missing or mislabeled in %s", key);
+        }
+      }
+    }
+    const uint8_t savedShortPowerAction = SETTINGS.shortPwrBtn;
+    for (const auto [action, wakes] :
+         {std::pair{CrossPointSettings::IGNORE, false}, std::pair{CrossPointSettings::SLEEP_ONLY, false},
+          std::pair{CrossPointSettings::WAKE_ONLY, true}, std::pair{CrossPointSettings::SLEEP, true}}) {
+      SETTINGS.shortPwrBtn = action;
+      if (SETTINGS.shortPowerPressWakes() != wakes) fail("Short Power wake policy does not match its shortcut");
+    }
+    SETTINGS.shortPwrBtn = savedShortPowerAction;
+    verifySleepChoice("powerChordAction", ShortcutOptionCatalog::ButtonChord);
+    verifySleepChoice("longPressMenuAction", ShortcutOptionCatalog::LongPress);
+    verifySleepChoice("longPressBackAction", ShortcutOptionCatalog::LongPress);
+    for (const char* key : {"sideButtonUpShort", "sideButtonUpLong", "sideButtonDownShort", "sideButtonDownLong"}) {
+      const auto side = std::find_if(sideButtonSettings.begin(), sideButtonSettings.end(),
+                                     [key](const SettingInfo& candidate) { return settingKeyIs(candidate, key); });
+      if (side != sideButtonSettings.end()) {
+        const auto sleep = std::find(side->enumRawValues.begin(), side->enumRawValues.end(), CrossPointSettings::SLEEP);
+        if (sleep == side->enumRawValues.end() ||
+            sideButtonOptionLabel(*side, static_cast<uint8_t>(sleep - side->enumRawValues.begin())) != tr(STR_SLEEP)) {
+          fail("Sleep shortcut has the wrong label in %s", key);
+        }
+      }
+    }
     if (gpio.hasHomeKey()) {
       verifyLibraryChoice("homeButtonTapAction", ShortcutOptionCatalog::HomeButton);
       verifyLibraryChoice("homeButtonDoubleTapAction", ShortcutOptionCatalog::HomeButton);
       verifyLibraryChoice("homeButtonLongPressAction", ShortcutOptionCatalog::HomeButton);
+      verifySleepChoice("homeButtonTapAction", ShortcutOptionCatalog::HomeButton);
+      verifySleepChoice("homeButtonDoubleTapAction", ShortcutOptionCatalog::HomeButton);
+      verifySleepChoice("homeButtonLongPressAction", ShortcutOptionCatalog::HomeButton);
     }
     if (hasSideButtonChord) {
       const auto side =
@@ -475,11 +544,122 @@ class SimulatorSmokeTest {
       if (side == sideButtonSettings.end() || !hasLibrary(*side, ShortcutOptionCatalog::ButtonChord)) {
         fail("Library shortcut is missing from the filtered Up + Down choices");
       }
+      const auto sleep =
+          std::find(side->enumRawValues.begin(), side->enumRawValues.end(), CrossPointSettings::CHORD_SLEEP);
+      if (sleep == side->enumRawValues.end() ||
+          sideButtonOptionLabel(*side, static_cast<uint8_t>(sleep - side->enumRawValues.begin())) != tr(STR_SLEEP)) {
+        fail("Sleep shortcut is missing or mislabeled in the filtered Up + Down choices");
+      }
     }
     if (!QuickActions::isQuickActionSlotActionAvailable(CrossPointSettings::LIBRARY) ||
         QuickActions::actionLabel(CrossPointSettings::LIBRARY) != StrId::STR_LIBRARY) {
       fail("Library is missing from Quick Actions choices");
     }
+
+    const uint8_t savedTrackReadingStats = SETTINGS.trackReadingStats;
+    SETTINGS.trackReadingStats = 0;
+    const auto statsDisabledSettings = getSettingsList();
+    SETTINGS.trackReadingStats = savedTrackReadingStats;
+    for (const char* key : {"sideButtonUpShort", "sideButtonUpLong", "sideButtonDownShort", "sideButtonDownLong"}) {
+      const auto setting = std::find_if(statsDisabledSettings.begin(), statsDisabledSettings.end(),
+                                        [key](const SettingInfo& candidate) { return settingKeyIs(candidate, key); });
+      if (setting == statsDisabledSettings.end() ||
+          std::find(setting->enumRawValues.begin(), setting->enumRawValues.end(), CrossPointSettings::READING_STATS) !=
+              setting->enumRawValues.end()) {
+        fail("Reading Stats remains available in %s while tracking is disabled", key);
+      }
+    }
+  }
+
+  static void verifySideButtonMigrationAndInput() {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    JsonDocument legacy;
+    SETTINGS.toJson(legacy);
+    for (const char* key : {"sideButtonUpShort", "sideButtonUpLong", "sideButtonDownShort", "sideButtonDownLong"}) {
+      legacy[key] = nullptr;
+    }
+    legacy["sideButtonLayout"] = CrossPointSettings::NEXT_PREV;
+    legacy["sideButtonLongPress"] = CrossPointSettings::SIDE_LONG_CHAPTER_SKIP;
+    SETTINGS.fromJson(legacy.as<JsonVariantConst>());
+    if (SETTINGS.sideButtonUpShort != CrossPointSettings::PAGE_TURN ||
+        SETTINGS.sideButtonDownShort != CrossPointSettings::PREVIOUS_PAGE ||
+        SETTINGS.sideButtonUpLong != CrossPointSettings::SIDE_NEXT_CHAPTER ||
+        SETTINGS.sideButtonDownLong != CrossPointSettings::SIDE_PREVIOUS_CHAPTER)
+      fail("Swapped side-button layout migration failed");
+
+    legacy["sideButtonLayout"] = CrossPointSettings::SIDE_BUTTONS_DISABLED;
+    legacy["sideButtonLongPress"] = CrossPointSettings::SIDE_LONG_FONT_SIZE;
+    SETTINGS.fromJson(legacy.as<JsonVariantConst>());
+    if (SETTINGS.sideButtonUpShort != CrossPointSettings::IGNORE ||
+        SETTINGS.sideButtonDownShort != CrossPointSettings::IGNORE ||
+        SETTINGS.sideButtonUpLong != CrossPointSettings::SIDE_INCREASE_FONT ||
+        SETTINGS.sideButtonDownLong != CrossPointSettings::SIDE_DECREASE_FONT)
+      fail("Disabled layout with font hold migration failed");
+
+    legacy["sideButtonUpShort"] = CrossPointSettings::LIBRARY;
+    SETTINGS.fromJson(legacy.as<JsonVariantConst>());
+    if (SETTINGS.sideButtonUpShort != CrossPointSettings::LIBRARY ||
+        SETTINGS.sideButtonDownShort != CrossPointSettings::IGNORE)
+      fail("Partially migrated side-button choices were overwritten");
+
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    const auto sideSettings = buildControlsSideButtonSettingsList(getSettingsList());
+    const size_t expected = 7 + (deviceSupportsSideButtonChord(gpio) ? 1u : 0u);
+    if (sideSettings.size() != expected) fail("Side-button menu row count mismatch");
+    for (const char* key : {"sideButtonUpShort", "sideButtonUpLong", "sideButtonDownShort", "sideButtonDownLong"}) {
+      if (std::find_if(sideSettings.begin(), sideSettings.end(),
+                       [key](const SettingInfo& setting) { return settingKeyIs(setting, key); }) == sideSettings.end())
+        fail("Side-button menu is missing an individual shortcut");
+    }
+
+    SideButtonShortcuts shortcuts;
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Up);
+    const auto heldUp = shortcuts.update(mappedInputManager, 1000);
+    if (!heldUp.consumed) fail("Side-button press was not captured");
+    mappedInputManager.injectRelease(MappedInputManager::Button::Right);
+    if (SideButtonShortcuts::shouldConsume(heldUp, mappedInputManager))
+      fail("Side-button hold swallowed a chord page turn");
+    mappedInputManager.clearInjectedReleases();
+    mappedInputManager.simulatorClearInputFrame();
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Up);
+    const auto shortResult = shortcuts.update(mappedInputManager, 1200);
+    if (!shortResult.triggered || shortResult.longPress || shortResult.action != SETTINGS.sideButtonUpShort)
+      fail("Side-button short action did not dispatch once");
+    mappedInputManager.simulatorClearInputFrame();
+    if (shortcuts.update(mappedInputManager, 1300).triggered) fail("Side-button release dispatched twice");
+
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Down);
+    shortcuts.update(mappedInputManager, 2000);
+    mappedInputManager.simulatorClearInputFrame();
+    const auto longResult = shortcuts.update(mappedInputManager, 2800);
+    if (!longResult.triggered || !longResult.longPress || longResult.action != SETTINGS.sideButtonDownLong)
+      fail("Side-button long action did not dispatch");
+    mappedInputManager.suppressNextSideRelease(MappedInputManager::Button::Down);
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Down);
+    if (mappedInputManager.wasReleased(MappedInputManager::Button::Down) ||
+        shortcuts.update(mappedInputManager, 2900).triggered)
+      fail("Side-button long release leaked into the next activity");
+    mappedInputManager.simulatorClearInputFrame();
+    if (shortcuts.update(mappedInputManager, 3000).triggered) fail("Side-button long action dispatched twice");
+
+    ButtonShortcutController lock;
+    lock.toggleQuickLock(4000, QuickLockTrigger::SideUpShort);
+    if (lock.tryUnlockSide(4100, true, true, false, true, false, false, false, true, ReaderUtils::SKIP_HOLD_MS) ||
+        !lock.isQuickLocked())
+      fail("Side-button Quick Lock unlocked on press instead of release");
+    if (!lock.tryUnlockSide(4200, false, false, true, true, false, false, false, true, ReaderUtils::SKIP_HOLD_MS) ||
+        lock.isQuickLocked())
+      fail("Side-button short Quick Lock did not unlock on a fresh release");
+    lock.toggleQuickLock(5000, QuickLockTrigger::SideDownLong);
+    if (lock.tryUnlockSide(5100, false, false, false, true, true, false, false, true, ReaderUtils::SKIP_HOLD_MS))
+      fail("An inherited side-button hold unlocked Quick Lock");
+    lock.tryUnlockSide(5200, false, false, false, true, false, false, true, true, ReaderUtils::SKIP_HOLD_MS);
+    lock.tryUnlockSide(5300, false, false, false, true, true, true, false, true, ReaderUtils::SKIP_HOLD_MS);
+    if (!lock.tryUnlockSide(6000, false, false, false, true, true, false, false, true, ReaderUtils::SKIP_HOLD_MS) ||
+        lock.isQuickLocked())
+      fail("Side-button long Quick Lock did not unlock on a fresh hold");
+    LOG_INF("SMOKE", "Side-button migration and press/release checks passed");
   }
 
   [[noreturn]] static void fail(const char* message) {
@@ -577,6 +757,7 @@ class SimulatorSmokeTest {
           fail("Simulator Home key timing contract failed");
         }
         verifyUpDownShortcutAvailability();
+        verifySideButtonMigrationAndInput();
         verifyReaderControlsSettings();
         verifyMixedPageGestures();
 #if CROSSDINK_SCALABLE_FONTS
@@ -845,6 +1026,22 @@ class SimulatorSmokeTest {
 
       case SmokeStep::Settings:
         renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+        if (!mappedInputManager.hasTouchHardware()) {
+          inputScript.clear();
+          scriptIndex = 0;
+          inputCompletionStep = SmokeStep::SideButtons;
+          addTap(MappedInputManager::Button::Confirm);  // Reader tab
+          addTap(MappedInputManager::Button::Confirm);  // Controls tab
+          addTap(MappedInputManager::Button::Down);     // Power Button
+          addTap(MappedInputManager::Button::Down);     // Front Buttons
+          addTap(MappedInputManager::Button::Down);     // Side Buttons
+          addTap(MappedInputManager::Button::Confirm);
+          inputScript.push_back(render("Side Button Settings", 250));
+          step = SmokeStep::ReaderInput;
+          break;
+        }
+        [[fallthrough]];
+      case SmokeStep::SideButtons:
         activityManager.replaceActivity(std::make_unique<ReaderOptionsActivity>(renderer, mappedInputManager));
         queueStep("Reader Options", SmokeStep::ReaderOptions);
         break;
@@ -852,7 +1049,7 @@ class SimulatorSmokeTest {
       case SmokeStep::ReaderOptions:
         activityManager.replaceActivity(std::make_unique<EpubReaderDrawerActivity>(
             renderer, mappedInputManager, std::shared_ptr<Epub>{}, nullptr, 0.0f, 0, 0, false, false, false, false,
-            false, false, false, false, 0, 0, 5, false));
+            false, false, false, false, true, true, 0, 0, 5, false));
         queueStep("Reader Menu", SmokeStep::ReaderMenu);
         break;
 

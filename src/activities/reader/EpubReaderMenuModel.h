@@ -21,6 +21,7 @@ enum class EpubReaderMenuAction : uint8_t {
   DELETE_CACHE,
   RESET_READING_PACE,
   READING_STATS,
+  TOGGLE_BOOK_STATS_TRACKING,
   TOGGLE_COMPLETED,
   READER_OPTIONS,
   CONTROLS_OPTIONS,
@@ -145,6 +146,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   TtfReset,
   ResetBookReaderSettings,
   ReadingStats,
+  TrackBookStats,
   SyncProgress,
   NearbyPositionSync,
   SendNearbyBook,
@@ -158,6 +160,8 @@ struct ReaderDrawerAvailability {
   bool showReadingPaceReset = false;
   bool hasStablePageNumbers = false;
   bool buttonDevice = false;
+  bool globalStatsEnabled = true;
+  bool bookStatsEnabled = true;
 };
 
 struct ReaderDrawerTabCatalog {
@@ -199,7 +203,8 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   more.add(ReaderDrawerCatalogItem::GoToPercent);
   if (available.hasStablePageNumbers) more.add(ReaderDrawerCatalogItem::GoToStablePage);
   more.add(ReaderDrawerCatalogItem::AutoPageTurn);
-  if (available.buttonDevice) more.add(ReaderDrawerCatalogItem::ReadingStats);
+  if (available.buttonDevice && available.globalStatsEnabled && available.bookStatsEnabled)
+    more.add(ReaderDrawerCatalogItem::ReadingStats);
   if (available.hasFootnotes) more.add(ReaderDrawerCatalogItem::Footnotes);
 
   auto& location = catalog[static_cast<size_t>(ReaderDrawerTab::Location)];
@@ -225,9 +230,10 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   settings.add(ReaderDrawerCatalogItem::RenderMode);
   settings.add(ReaderDrawerCatalogItem::IndexingMethod);
   settings.add(ReaderDrawerCatalogItem::ToggleCompleted);
+  if (available.globalStatsEnabled) settings.add(ReaderDrawerCatalogItem::TrackBookStats);
   if (available.showReadingPaceReset) settings.add(ReaderDrawerCatalogItem::ResetReadingPace);
   settings.add(ReaderDrawerCatalogItem::DeleteCache);
-  settings.add(ReaderDrawerCatalogItem::DeleteStats);
+  if (available.globalStatsEnabled && available.bookStatsEnabled) settings.add(ReaderDrawerCatalogItem::DeleteStats);
   settings.add(ReaderDrawerCatalogItem::ResetBookReaderSettings);
   return catalog;
 }

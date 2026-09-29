@@ -7,6 +7,8 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <cctype>
+#include <string_view>
 
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
@@ -23,6 +25,14 @@ constexpr unsigned long DELETE_HOLD_MS = 1000;
 constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
 // Gap between the top reader bar and the first line of book text.
 constexpr int8_t TOP_STATUS_BAR_TEXT_PADDING = 0;
+
+inline bool isRtlBookLanguage(std::string_view tag) {
+  if (tag.size() < 2 || (tag.size() > 2 && tag[2] != '-' && tag[2] != '_')) return false;
+  const auto first = std::tolower(static_cast<unsigned char>(tag[0]));
+  const auto second = std::tolower(static_cast<unsigned char>(tag[1]));
+  return (first == 'h' && second == 'e') || (first == 'i' && second == 'w') || (first == 'a' && second == 'r') ||
+         (first == 'f' && second == 'a');
+}
 
 inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation) {
   switch (orientation) {
@@ -108,10 +118,12 @@ struct TouchPageTurn {
   unsigned long heldMs;
 };
 
-inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const MappedInputManager& input) {
+inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const MappedInputManager& input,
+                                         const bool rtlBook = false) {
 #if !CROSSDINK_APP_CAP_TOUCH
   (void)renderer;
   (void)input;
+  (void)rtlBook;
   return {false, false, false, 0, 0, 0};
 #else
   TouchPageTurn result{false, false, false, 0, 0, 0};
@@ -134,8 +146,10 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
 
   const auto swipe = input.wasSwipe();
   if (swipe != MappedInputManager::SwipeDir::None) {
-    result.prev = swipe == MappedInputManager::SwipeDir::Right && allowsSwipe(SETTINGS.previousPageGesture);
-    result.next = swipe == MappedInputManager::SwipeDir::Left && allowsSwipe(SETTINGS.pageTurnGesture);
+    result.prev = swipe == (rtlBook ? MappedInputManager::SwipeDir::Left : MappedInputManager::SwipeDir::Right) &&
+                  allowsSwipe(SETTINGS.previousPageGesture);
+    result.next = swipe == (rtlBook ? MappedInputManager::SwipeDir::Right : MappedInputManager::SwipeDir::Left) &&
+                  allowsSwipe(SETTINGS.pageTurnGesture);
     return result;
   }
 
@@ -155,11 +169,11 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
   }
 
   // Give the entire page tap area to the sole tap-enabled direction. When
-  // both accept taps, either Inverted Tap setting swaps their shared zones.
+  // both accept taps, RTL books and Inverted Tap each swap their shared zones.
   const bool nextTaps = allowsTap(SETTINGS.pageTurnGesture);
   const bool previousTaps = allowsTap(SETTINGS.previousPageGesture);
-  const bool invertedTaps = SETTINGS.pageTurnGesture == CrossPointSettings::INVERTED_TAP ||
-                            SETTINGS.previousPageGesture == CrossPointSettings::INVERTED_TAP;
+  const bool invertedTaps = (SETTINGS.pageTurnGesture == CrossPointSettings::INVERTED_TAP ||
+                             SETTINGS.previousPageGesture == CrossPointSettings::INVERTED_TAP) != rtlBook;
   const bool nextZone = invertedTaps ? x < (width * 2) / 3 : x >= width / 3;
   result.next = nextTaps && (!previousTaps || nextZone);
   result.prev = previousTaps && (!nextTaps || !nextZone);
@@ -196,15 +210,8 @@ inline bool isTouchMenuDismissGesture(const MappedInputManager& input) {
 }
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
-  // Side buttons fire on press only when long-press action is OFF (nothing to detect).
-  const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
-
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
-  const bool sidePrev = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageBack)
-                                     : input.wasReleased(MappedInputManager::Button::PageBack);
-  const bool sideNext = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageForward)
-                                     : input.wasReleased(MappedInputManager::Button::PageForward);
 
   const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
@@ -215,9 +222,8 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool powerTurn = shortPowerTurn || longPowerTurn;
   const bool frontNext = input.wasReleased(MappedInputManager::Button::Right) || powerTurn;
 
-  // fromSideBtn is true when only side buttons contributed to this page turn.
-  const bool fromSide = (sidePrev || sideNext) && !(frontPrev || frontNext);
-  return {tiltPrev || sidePrev || frontPrev, tiltNext || sideNext || frontNext, fromSide, tiltPrev || tiltNext};
+  // Side-button actions are resolved by SideButtonShortcuts in each reader.
+  return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
 }
 
 // One helper, blocking or deferred: the async form starts the refresh and

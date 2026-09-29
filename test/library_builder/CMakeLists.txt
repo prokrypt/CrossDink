@@ -18,6 +18,7 @@ gtest_discover_tests(LibraryBuilderTest)
 add_executable(BookCacheUtilsTest
   BookCacheUtilsTest.cpp
   ${REPO_ROOT}/src/util/BookCacheUtils.cpp
+  ${REPO_ROOT}/src/activities/reader/BookStatsTracking.cpp
 )
 target_include_directories(BookCacheUtilsTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs

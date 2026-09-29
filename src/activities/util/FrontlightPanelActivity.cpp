@@ -214,6 +214,7 @@ void FrontlightPanelActivity::close() {
 }
 
 void FrontlightPanelActivity::openReadingStats() {
+  if (!context.showReadingStatsAction || !SETTINGS.shouldTrackReadingStats()) return;
   if (!context.readingStatsActivity && context.sourceActivity) {
     context.readingStatsActivity = context.sourceActivity->createFrontlightReadingStatsActivity();
   }
@@ -270,6 +271,7 @@ void FrontlightPanelActivity::closeSyncDialog() {
 
 void FrontlightPanelActivity::activateQuickAction(const int index) {
   if (index < 0 || index >= 5) return;
+  if (index == 0 && !context.showReadingStatsAction) return;
   drawerState.selectedAction = static_cast<int8_t>(index);
   switch (index) {
     case 0:
@@ -458,14 +460,17 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
                   0, bottomInset, 0});
 
   const fui::Rect actionBar = screen.takeBottom(ACTION_BAR_HEIGHT);
-  const int16_t slotWidth = static_cast<int16_t>(actionBar.width / 5);
+  const bool showStats = context.showReadingStatsAction;
+  const int16_t slotCount = showStats ? 5 : 4;
+  const int16_t slotWidth = static_cast<int16_t>(actionBar.width / slotCount);
   const std::array<fui::BitmapRef, 5> icons = {
       fui::bitmapFromIcon(icon_reading_stats_24), fui::bitmapFromIcon(icon_transfer_24),
       fui::bitmapFromIcon(icon_tabler_moon_filled_24), fui::bitmapFromIcon(icon_sliders_horizontal_24),
       fui::bitmapFromIcon(pendingTouchscreenDisabled ? icon_device_tablet_off_24 : icon_device_tablet_24)};
-  for (int16_t i = 0; i < 5; ++i) {
-    const int16_t x = static_cast<int16_t>(actionBar.x + i * slotWidth);
-    const int16_t width = i == 4 ? static_cast<int16_t>(actionBar.right() - x) : slotWidth;
+  for (int16_t slotIndex = 0; slotIndex < slotCount; ++slotIndex) {
+    const int16_t i = showStats ? slotIndex : slotIndex + 1;
+    const int16_t x = static_cast<int16_t>(actionBar.x + slotIndex * slotWidth);
+    const int16_t width = slotIndex == slotCount - 1 ? static_cast<int16_t>(actionBar.right() - x) : slotWidth;
     const fui::Rect slot{x, actionBar.y, width, actionBar.height};
     screen.frame().hit(slot, ACTION_QUICK, i);
     screen.target().bitmap(slot, icons[static_cast<size_t>(i)], fui::BitmapMode::Center);

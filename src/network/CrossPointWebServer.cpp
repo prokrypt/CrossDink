@@ -109,6 +109,14 @@ bool isWebEnumOptionAvailable(const SettingInfo& setting, size_t optionIndex) {
   if (optionIndex >= setting.enumValues.size()) return true;
 
   const StrId option = setting.enumValues[optionIndex];
+  if (!SETTINGS.shouldTrackReadingStats()) {
+    if (option == StrId::STR_READING_STATS) return false;
+    if (setting.valuePtr == &CrossPointSettings::sleepScreen && optionIndex < setting.enumRawValues.size()) {
+      const uint8_t raw = setting.enumRawValues[optionIndex];
+      if (raw == CrossPointSettings::READING_STATS_SLEEP || raw == CrossPointSettings::MINIMAL_STATS_SLEEP)
+        return false;
+    }
+  }
   if (option == StrId::STR_TOGGLE_TOUCHSCREEN && !gpio.hasTouch()) return false;
 
   if (!Frontlight.present()) {
@@ -2110,7 +2118,12 @@ void CrossPointWebServer::handleGetSettings() const {
 
     doc.clear();
     doc["key"] = s.key;
-    doc["name"] = I18N.get(s.nameId);
+    if (isSideButtonActionSetting(s)) {
+      const bool up = settingKeyIs(s, "sideButtonUpShort") || settingKeyIs(s, "sideButtonUpLong");
+      doc["name"] = sideButtonGroupLabel(up) + " " + I18N.get(s.nameId);
+    } else {
+      doc["name"] = I18N.get(s.nameId);
+    }
     doc["category"] = I18N.get(s.category);
 
     switch (s.type) {
@@ -2123,6 +2136,12 @@ void CrossPointWebServer::handleGetSettings() const {
       }
       case SettingType::ENUM: {
         doc["type"] = "enum";
+        if (s.valuePtr == &CrossPointSettings::shortPwrBtn || s.valuePtr == &CrossPointSettings::longPwrBtn) {
+          doc["footnotesIndex"] = enumDisplayIndexForWeb(s, CrossPointSettings::FOOTNOTES);
+        } else if (s.valuePtr == &CrossPointSettings::longPressMenuAction ||
+                   s.valuePtr == &CrossPointSettings::longPressBackAction) {
+          doc["footnotesIndex"] = enumDisplayIndexForWeb(s, CrossPointSettings::LONG_MENU_FOOTNOTES);
+        }
         if (s.nameId == StrId::STR_FONT_FAMILY && !fontFamilies.empty()) {
           uint8_t selected = SETTINGS.fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT ? SETTINGS.fontFamily : 0;
           if (selectedSdFamily) {
@@ -2167,7 +2186,7 @@ void CrossPointWebServer::handleGetSettings() const {
         } else {
           for (size_t optionIndex = 0; optionIndex < s.enumValues.size(); ++optionIndex) {
             if (isWebEnumOptionAvailable(s, optionIndex)) {
-              options.add(I18N.get(s.enumValues[optionIndex]));
+              options.add(sideButtonOptionLabel(s, static_cast<uint8_t>(optionIndex)));
             }
           }
         }

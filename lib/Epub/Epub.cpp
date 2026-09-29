@@ -1318,6 +1318,24 @@ bool Epub::generateThumbBmp(int width, int height, const GfxRenderer* renderer, 
   return generateThumbBmpInternal(width, height, false, renderer, readerFontId);
 }
 
+bool Epub::generateThumbBmpFromSource(int height, const GfxRenderer* renderer, const int readerFontId) {
+  int width = 0;
+  normalizeThumbDimensions(width, height);
+  const std::string thumbPath = getThumbBmpPathForDimensions(cachePath, width, height);
+  if (cachedBmpMatchesDimensions(thumbPath, width, height)) return true;
+
+  auto metadata = makeUniqueNoThrow<BookMetadataCache::BookMetadata>();
+  if (!metadata) {
+    LOG_ERR("EBP", "Cannot allocate cover metadata");
+    return false;
+  }
+  setupCacheDir();
+  if (!parseContentOpf(*metadata, /*writeSpineEntries=*/false, /*collectCssFiles=*/false)) {
+    return false;
+  }
+  return generateThumbBmpInternal(width, height, false, renderer, readerFontId, &metadata->coverItemHref);
+}
+
 bool Epub::generateAdaptiveThumbBmp(int width, int height, const GfxRenderer* renderer, const int readerFontId) const {
   return generateThumbBmpInternal(width, height, true, renderer, readerFontId);
 }
@@ -1372,7 +1390,7 @@ bool Epub::ensureCachedCoverImage(const std::string& coverImageHref, std::string
 }
 
 bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveContain, const GfxRenderer* renderer,
-                                    const int readerFontId) const {
+                                    const int readerFontId, const std::string* coverHrefOverride) const {
   if (height <= 0) {
     LOG_DBG("EBP", "Using default thumb BMP height for requested dimensions: %dx%d", width, height);
   }
@@ -1385,12 +1403,12 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     return true;
   }
 
-  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+  if (!coverHrefOverride && (!bookMetadataCache || !bookMetadataCache->isLoaded())) {
     LOG_ERR("EBP", "Cannot generate thumb BMP, cache not loaded");
     return false;
   }
 
-  const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  const auto& coverImageHref = coverHrefOverride ? *coverHrefOverride : bookMetadataCache->coreMetadata.coverItemHref;
   if (coverImageHref.empty()) {
     LOG_DBG("EBP", "No known cover image for thumbnail");
   } else if (FsHelpers::hasJpgExtension(coverImageHref)) {

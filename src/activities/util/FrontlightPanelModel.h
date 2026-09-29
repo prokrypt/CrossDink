@@ -66,6 +66,7 @@ struct FrontlightPanelContext {
   bool activeReaderBook = false;
   bool activeEpub = false;
   bool showReaderDetails = false;
+  bool showReadingStatsAction = true;
   std::string bookTitle;
   std::string bookPath;
   FrontlightPanelBookDetails bookDetails;
