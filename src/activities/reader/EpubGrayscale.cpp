@@ -14,8 +14,8 @@ namespace EpubGrayscale {
 bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
                            const int marginTop, const bool foregroundBlack, const bool needsTextGrayscale,
                            const bool needsImageGrayscale, uint8_t* scratch, const size_t scratchSize,
-                           const bool asyncRefreshPending, bool (*shouldCancel)(void*), void* cancelContext,
-                           bool* grayscaleShown) {
+                           const bool asyncRefreshPending, bool (*shouldCancel)(void*, const char*),
+                           void* cancelContext, bool* grayscaleShown) {
   if (grayscaleShown) *grayscaleShown = false;
   if ((!needsTextGrayscale && !needsImageGrayscale) || !renderer.supportsStripGrayscale()) {
     return false;
@@ -57,14 +57,16 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
   const auto allocatePlane = [planeBytes, usePsramPlanes] {
     return usePsramPlanes ? makePsramByteBufferNoThrow(planeBytes) : makeHeapByteBufferNoThrow(planeBytes);
   };
-  const auto cancelled = [&]() { return shouldCancel && shouldCancel(cancelContext); };
+  const auto cancelled = [&](const char* checkpoint) {
+    return shouldCancel && shouldCancel(cancelContext, checkpoint);
+  };
   const auto abortGrayscale = [&]() {
     if (asyncRefreshPending) renderer.waitRefreshComplete();
     renderer.setRenderMode(GfxRenderer::BW);
     renderer.cleanupGrayscaleWithFrameBuffer();
     return true;
   };
-  if (cancelled()) return abortGrayscale();
+  if (cancelled("tiled-start")) return abortGrayscale();
   auto lsbPlaneBuf = (asyncRefreshPending && planeBufferFits()) ? allocatePlane() : HeapByteBuffer{};
   auto msbPlaneBuf = (lsbPlaneBuf && planeBufferFits()) ? allocatePlane() : HeapByteBuffer{};
 
@@ -74,10 +76,10 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
               msbPlaneBuf ? 2U : 1U);
     }
     renderPlaneToBuffer(GfxRenderer::GRAYSCALE_LSB, lsbPlaneBuf.get());
-    if (cancelled()) return abortGrayscale();
+    if (cancelled("plane-lsb")) return abortGrayscale();
     if (msbPlaneBuf) {
       renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, msbPlaneBuf.get());
-      if (cancelled()) return abortGrayscale();
+      if (cancelled("plane-msb")) return abortGrayscale();
     }
 
     renderer.waitRefreshComplete();
@@ -85,13 +87,13 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     if (msbPlaneBuf) {
       renderer.writeGrayscalePlaneStrip(false, msbPlaneBuf.get(), 0, displayHeight);
     } else {
-      if (cancelled()) return abortGrayscale();
+      if (cancelled("plane-msb-reuse")) return abortGrayscale();
       renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, lsbPlaneBuf.get());
-      if (cancelled()) return abortGrayscale();
+      if (cancelled("plane-msb-reused")) return abortGrayscale();
       renderer.writeGrayscalePlaneStrip(false, lsbPlaneBuf.get(), 0, displayHeight);
     }
 
-    if (cancelled()) return abortGrayscale();
+    if (cancelled("plane-display")) return abortGrayscale();
     renderer.setRenderMode(GfxRenderer::BW);
     renderer.displayGrayBuffer();
     if (grayscaleShown) *grayscaleShown = true;
@@ -120,7 +122,7 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
   const auto renderPlane = [&](const GfxRenderer::RenderMode mode, const bool lsbPlane) {
     renderer.setRenderMode(mode);
     for (int y = 0; y < displayHeight; y += GRAYSCALE_STRIP_ROWS) {
-      if (cancelled()) return false;
+      if (cancelled("strip")) return false;
       const int rows = std::min(GRAYSCALE_STRIP_ROWS, displayHeight - y);
       renderer.beginStripTarget(scratch, y, rows);
       renderer.clearScreen(0x00);

@@ -1578,7 +1578,7 @@ void EpubReaderActivity::resumeReadingPaceTimer(const char*) {
 
 void EpubReaderActivity::onInputLockChanged(const bool locked) {
   if (locked) {
-    clearPendingManualPageTurns();
+    clearPendingManualPageTurns(true, "lock");
     pauseReadingPaceTimer("quick_lock");
   } else {
     resumeReadingPaceTimer("quick_lock");
@@ -2473,7 +2473,7 @@ void EpubReaderActivity::onExit() {
   // Drop the scalable-family catalog retained during reading. The active font
   // and its PSRAM face lifetime remain managed by SdCardFontSystem.
   sdFontSystem.releaseRegistry();
-  clearPendingManualPageTurns(/*requestRecoveryRedraw=*/false);
+  clearPendingManualPageTurns(/*requestRecoveryRedraw=*/false, "exit");
   mappedInput.setReaderTouchscreenOverride(false);
 
   if (silentWorker.done) vSemaphoreDelete(silentWorker.done);
@@ -2583,7 +2583,7 @@ void EpubReaderActivity::onExit() {
 }
 
 void EpubReaderActivity::openReaderMenu() {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "menu");
   int chapterPage = 0;
   int chapterPageCount = 0;
   bool chapterPageCountEstimated = false;
@@ -3121,6 +3121,11 @@ bool EpubReaderActivity::transientFeedbackDismissed(const unsigned long showTime
 }
 
 void EpubReaderActivity::loop() {
+  if (aaRedrawPending.load(std::memory_order_acquire) && !RenderLock::peek() && !pendingManualPageTurns.hasPending()) {
+    aaRedrawPending.store(false, std::memory_order_release);
+    LOG_DBG("AA", "redraw after cancel");
+    requestUpdate();
+  }
   bool rawTouchInput = false;
 #if CROSSDINK_APP_CAP_TOUCH
   int touchDownX = 0;
@@ -3190,6 +3195,7 @@ void EpubReaderActivity::loop() {
       mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
     sectionBuildCancelRequested.store(true, std::memory_order_relaxed);
     goHomeAfterBuildCancel.store(true, std::memory_order_relaxed);
+    cancelGrayscalePass("back");
     automaticPageTurnActive = false;
     LOG_DBG("ERS", "Back requested while EPUB indexing is busy; cancelling build");
     return;
@@ -3325,7 +3331,7 @@ void EpubReaderActivity::loop() {
   // finished. Two independent finished-book features key off this same condition.
   const bool atEndOfBook = currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount();
   if (atEndOfBook) {
-    clearPendingManualPageTurns();
+    clearPendingManualPageTurns(true, "end-of-book");
   } else {
     queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
   }
@@ -3554,7 +3560,7 @@ void EpubReaderActivity::loop() {
 
     if (sideLongPressSkipsChapter && !sideButtonLongPressHandled && (prevLongPressed || nextLongPressed)) {
       sideButtonLongPressHandled = true;
-      clearPendingManualPageTurns();
+      clearPendingManualPageTurns(true, "chapter-skip");
       if (!nextLongPressed && isAtBookStart()) return;
       if (!nextLongPressed && section && section->currentPage > 0) {
         section->currentPage = 0;
@@ -3627,7 +3633,7 @@ void EpubReaderActivity::loop() {
     if (!frontButtonLongPressHandled && (prevLongPressed || nextLongPressed)) {
       frontButtonLongPressHandled = true;
       if (SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP) {
-        clearPendingManualPageTurns();
+        clearPendingManualPageTurns(true, "chapter-skip");
         if (!nextLongPressed && currentSpineIndex <= 0) {
           // No previous chapter: go to the start of this one, or do nothing on the first page.
           if (section && section->currentPage > 0) {
@@ -3753,7 +3759,7 @@ void EpubReaderActivity::loop() {
   }
 
   if (skipChapter) {
-    clearPendingManualPageTurns();
+    clearPendingManualPageTurns(true, "chapter-skip");
     if (!nextTriggered && isAtBookStart()) return;
     if (!nextTriggered && section && section->currentPage > 0) {
       section->currentPage = 0;
@@ -3788,7 +3794,7 @@ void EpubReaderActivity::loop() {
 
   // No current section, attempt to rerender the book
   if (!section) {
-    clearPendingManualPageTurns();
+    clearPendingManualPageTurns(true, "no-section");
     requestUpdate();
     return;
   }
@@ -3826,7 +3832,7 @@ bool EpubReaderActivity::handleTwoFingerSwipeAction(const CrossPointSettings::TW
         targetSpine = previousChapterFirstSpineIndex;
       }
       if (activeFootnotePreview || targetSpine < 0 || targetSpine >= epub->getSpineItemsCount()) return true;
-      clearPendingManualPageTurns();
+      clearPendingManualPageTurns(true, "layout");
       {
         RenderLock lock(*this);
         nextPageNumber = 0;
@@ -3850,7 +3856,7 @@ void EpubReaderActivity::jumpToPercent(float percent) {
     return;
   }
 
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "jump");
 
   // BookMetadataCache uses a shared seek-based FsFile for spine metadata lookups.
   // Hold the render/file mutex for the full jump calculation so menu-driven jumps
@@ -3929,7 +3935,7 @@ void EpubReaderActivity::jumpToStablePage(const uint32_t page) {
   pageLoadRetryCount = 0;
   if (!epub) return;
 
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "jump");
   RenderLock lock(*this);
 
   int targetSpineIndex = 0;
@@ -3957,7 +3963,7 @@ void EpubReaderActivity::jumpToStablePage(const uint32_t page) {
 }
 
 void EpubReaderActivity::handleClippingJump(const ClippingJumpResult& clipping) {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "clipping");
   RenderLock lock(*this);
   clearFootnotePreviewState();
   currentSpineIndex = clipping.spineIndex;
@@ -4845,7 +4851,7 @@ bool EpubReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetail
 }
 
 void EpubReaderActivity::onFrontlightPanelOpened() {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "frontlight");
   pauseReadingPaceTimer("frontlight_panel");
   // The panel leads to Settings, whose update and font downloads restart the device.
   saveProgressBeforeRestart();
@@ -4862,7 +4868,7 @@ bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult
   if (!epub) return false;
   bool handled = false;
   if (result.ttfRenderingChanged) {
-    clearPendingManualPageTurns();
+    clearPendingManualPageTurns(true, "frontlight");
     // Locked first: a render between the join and the reload would start new
     // workers on the fonts about to be unloaded.
     RenderLock lock(*this);
@@ -4921,7 +4927,7 @@ bool EpubReaderActivity::restorePendingOverlay(const PendingOverlayResume& resum
 }
 
 void EpubReaderActivity::reindexCurrentSection() {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "reindex");
   const bool restorePreviewPosition = activeFootnotePreview;
   {
     RenderLock lock(*this);
@@ -4951,7 +4957,7 @@ void EpubReaderActivity::reindexCurrentSection() {
 }
 
 void EpubReaderActivity::openFileTransfer() {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "network");
   pauseReadingPaceTimer("file_transfer");
   if (epub && section) {
     saveProgress(currentSpineIndex, section->currentPage, section->estimatedTotalPages());
@@ -4962,7 +4968,7 @@ void EpubReaderActivity::openFileTransfer() {
 
 void EpubReaderActivity::openAutoPageTurnIntervalPicker(const bool ignoreInitialConfirmRelease,
                                                         const bool returnToReaderMenu) {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "menu");
   pauseReadingPaceTimer("auto_turn_interval");
   startActivityForResult(
       std::make_unique<IntervalSelectionActivity>(
@@ -5358,7 +5364,7 @@ void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
 void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS_MENU_ACTION action,
                                                   const bool dictionaryLookupFramebufferContainsPage,
                                                   const QuickLockTrigger quickLockTrigger) {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "quick-action");
   switch (action) {
     case CrossPointSettings::LONG_MENU_SLEEP:
       enterDeepSleep();
@@ -5648,7 +5654,7 @@ bool EpubReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PW
 }
 
 void EpubReaderActivity::openQuickActionsPopup() {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "quick-action");
   QuickActions::showConfiguredPopup(
       quickActionsPopup, [this] { requestUpdate(); },
       [this](const auto action) {
@@ -5673,7 +5679,7 @@ void EpubReaderActivity::openQuickActionsPopup() {
 }
 
 void EpubReaderActivity::executeFootnoteQuickAction(const bool suppressInitialPowerRelease) {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "footnote");
   if (footnoteDepth > 0 && SETTINGS.pwrBtnFootnoteBack) {
     restoreSavedPosition();
     return;
@@ -6046,7 +6052,7 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
     return;
   }
 
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "rotation");
 
   {
     RenderLock lock(*this);
@@ -6080,7 +6086,7 @@ uint16_t EpubReaderActivity::getAutoPageTurnIntervalSeconds() const {
 }
 
 void EpubReaderActivity::setAutoPageTurnIntervalSeconds(uint16_t seconds) {
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "auto-turn");
   if (seconds == 0) {
     automaticPageTurnActive = false;
     return;
@@ -6153,7 +6159,7 @@ bool EpubReaderActivity::drainPendingManualPageTurn() {
   ManualPageTurnRequest request;
   if (!pendingManualPageTurns.takeNext(request)) return false;
   if (!section || (!request.isForward && isAtBookStart())) {
-    clearPendingManualPageTurns(/*requestRecoveryRedraw=*/true);
+    clearPendingManualPageTurns(/*requestRecoveryRedraw=*/true, "book-start");
     return false;
   }
 
@@ -6166,7 +6172,28 @@ bool EpubReaderActivity::drainPendingManualPageTurn() {
   return true;
 }
 
-void EpubReaderActivity::clearPendingManualPageTurns(const bool requestRecoveryRedraw) {
+void EpubReaderActivity::cancelGrayscalePass(const char* reason) {
+  aaCancelReason.store(reason, std::memory_order_relaxed);
+  aaCancelEpoch.fetch_add(1, std::memory_order_acq_rel);
+}
+
+bool EpubReaderActivity::grayscalePassCancelled(const char* checkpoint) {
+  const bool queuedTurn = pendingManualPageTurns.hasPending();
+  if (!queuedTurn && aaCancelEpoch.load(std::memory_order_acquire) == aaRenderEpoch) return false;
+  if (!aaCancelLogged) {
+    aaCancelLogged = true;
+    LOG_DBG("AA", "cancel reason=%s at=%s", queuedTurn ? "turn" : aaCancelReason.load(std::memory_order_relaxed),
+            checkpoint);
+  }
+  // The page is left BW. A new render clears this; otherwise loop() redraws
+  // the page with AA once the reader is foreground again (menu closed,
+  // unlocked) or the queued turn was dropped (e.g. "prev" at the book start).
+  aaRedrawPending.store(true, std::memory_order_release);
+  return true;
+}
+
+void EpubReaderActivity::clearPendingManualPageTurns(const bool requestRecoveryRedraw, const char* aaReason) {
+  cancelGrayscalePass(aaReason);
   pendingManualPageTurns.clear();
   if (queuedTurnRendering.cancelDeferred() && requestRecoveryRedraw) {
     requestUpdate();
@@ -6229,7 +6256,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       section->currentPage++;
     } else {
       if (shouldQueueCompletionPromptOnChapterExit()) {
-        clearPendingManualPageTurns();
+        clearPendingManualPageTurns(true, "turn");
         completionPromptQueued = true;
         requestUpdate();
         return;
@@ -6279,6 +6306,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   // The render task now owns the mutex requested by the input action. Background
   // indexing may resume only after this render releases it.
   backgroundBuildYieldForInput.store(false, std::memory_order_relaxed);
+  // Cancel events from here on stop this render's AA pass.
+  aaRenderEpoch = aaCancelEpoch.load(std::memory_order_acquire);
+  aaCancelLogged = false;
+  aaRedrawPending.store(false, std::memory_order_release);
   if (!epub) {
     return;
   }
@@ -8051,7 +8082,6 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
   if (deferredGrayscaleBase) {
-    const auto queuedTurnPending = [this]() { return pendingManualPageTurns.hasPending(); };
     // Planes carry page text only, like the tiled pass: the framebuffer must
     // stay untouched until the base refresh finishes.
     const auto renderDeferredPlane = [&](const GfxRenderer::RenderMode mode, uint8_t* plane) {
@@ -8061,14 +8091,14 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
       renderer.endStripTarget();
     };
-    bool cancelled = queuedTurnPending();
+    bool cancelled = grayscalePassCancelled("deferred-start");
     if (!cancelled) {
       renderDeferredPlane(GfxRenderer::GRAYSCALE_LSB, deferredLsbPlane.get());
-      cancelled = queuedTurnPending();
+      cancelled = grayscalePassCancelled("deferred-lsb");
     }
     if (!cancelled) {
       renderDeferredPlane(GfxRenderer::GRAYSCALE_MSB, deferredMsbPlane.get());
-      cancelled = queuedTurnPending();
+      cancelled = grayscalePassCancelled("deferred-msb");
     }
     renderer.setRenderMode(GfxRenderer::BW);
     // Most of the ~670 ms base waveform is still running: warm the next page's
@@ -8077,7 +8107,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       prewarmNextPageFonts("Refresh");
     }
     renderer.waitRefreshComplete();
-    if (!cancelled && !queuedTurnPending()) {
+    if (!cancelled && !grayscalePassCancelled("deferred-base")) {
       renderer.copyGrayscalePlanes(deferredLsbPlane.get(), deferredMsbPlane.get());
       renderer.displayGrayBuffer();
     }
@@ -8091,7 +8121,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (EpubGrayscale::runTiledGrayscalePass(
           renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack, needsTextGrayscale,
           needsImageGrayscale, grayscaleStripScratch.get(), grayscaleStripScratchSize, overlapRefresh,
-          [](void* context) { return static_cast<EpubReaderActivity*>(context)->pendingManualPageTurns.hasPending(); },
+          [](void* context, const char* checkpoint) {
+            return static_cast<EpubReaderActivity*>(context)->grayscalePassCancelled(checkpoint);
+          },
           this, &tiledGrayscaleShown)) {
     if (tiledGrayscaleShown) {
       markGrayscaleShown();
@@ -8101,21 +8133,21 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
   // A turn queued during the base refresh cancels AA anyway: skip the ~60 ms BW
   // snapshot and only re-sync the controller baseline, as restoreBwBuffer() would.
-  if (needsAnyGrayscale && pendingManualPageTurns.hasPending()) {
+  if (needsAnyGrayscale && grayscalePassCancelled("legacy-base")) {
     renderer.cleanupGrayscaleWithFrameBuffer();
     return true;
   }
   // Save bw buffer to reset buffer state after grayscale data sync
   const bool storedBwBuffer = needsAnyGrayscale && renderer.storeBwBuffer();
   const bool canApplyGrayscale = needsAnyGrayscale && storedBwBuffer;
-  const auto queuedTurnArrived = [this]() { return pendingManualPageTurns.hasPending(); };
+  const auto queuedTurnArrived = [this](const char* checkpoint) { return grayscalePassCancelled(checkpoint); };
   if (needsAnyGrayscale && !storedBwBuffer) {
     LOG_ERR("ERS", "Skipping grayscale enhancement: failed to store BW backup");
   }
 
   // grayscale rendering
   if (canApplyGrayscale) {
-    if (queuedTurnArrived()) {
+    if (queuedTurnArrived("legacy-start")) {
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
       return true;
@@ -8123,7 +8155,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     composeGrayscaleBuffer();
-    if (queuedTurnArrived()) {
+    if (queuedTurnArrived("legacy-lsb")) {
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
       return true;
@@ -8131,7 +8163,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     renderer.copyGrayscaleLsbBuffers();
 
     // Render and copy to MSB buffer
-    if (queuedTurnArrived()) {
+    if (queuedTurnArrived("legacy-lsb-copy")) {
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
       return true;
@@ -8139,7 +8171,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     composeGrayscaleBuffer();
-    if (queuedTurnArrived()) {
+    if (queuedTurnArrived("legacy-msb")) {
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
       return true;
@@ -8147,7 +8179,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     renderer.copyGrayscaleMsbBuffers();
 
     // display grayscale part
-    if (queuedTurnArrived()) {
+    if (queuedTurnArrived("legacy-display")) {
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
       return true;
@@ -8738,7 +8770,7 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
     return;
   }
 
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "link");
 
   // Internal links are collected with footnotes so their rendered words can
   // be tapped. A destination declared in the book TOC is a chapter jump,
@@ -8783,7 +8815,7 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
 void EpubReaderActivity::restoreSavedPosition() {
   pageLoadRetryCount = 0;
   if (footnoteDepth <= 0) return;
-  clearPendingManualPageTurns();
+  clearPendingManualPageTurns(true, "restore");
   footnoteDepth--;
   const auto& pos = savedPositions[footnoteDepth];
 

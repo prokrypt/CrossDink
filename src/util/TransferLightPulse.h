@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Pulses the frontlight 0 -> 25% -> 0 (1 s cycle) while a Wi-Fi file
+// Pulses the frontlight 0 -> 25% -> 0 (1 s cycle) while a Wi-Fi or USB Drive file
 // transfer is moving data, and holds it at 0% when idle. Every pulse runs to
 // the end of its cycle, so even a short request gives one full blink and the
 // light always ramps down to 0 instead of cutting off. Saves the user's

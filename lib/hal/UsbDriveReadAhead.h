@@ -7,6 +7,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+#include <atomic>
 #include <cstdint>
 
 // Block-device decorator used while USB Drive exposes the SD card. TinyUSB's
@@ -31,6 +32,13 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   bool syncDevice() override;
   bool writeSector(Sector_t sector, const uint8_t* src) override { return writeSectors(sector, src, 1); }
   bool writeSectors(Sector_t sector, const uint8_t* src, size_t ns) override;
+  // Host I/O since begin(): time of the last host read/write and byte totals.
+  // Prefetch reads don't count.
+  void hostIo(uint32_t& lastMs, uint32_t& readBytes, uint32_t& writeBytes) const {
+    lastMs = lastIoMs.load(std::memory_order_relaxed);
+    readBytes = hostReadBytes.load(std::memory_order_relaxed);
+    writeBytes = hostWriteBytes.load(std::memory_order_relaxed);
+  }
 
  private:
   static constexpr size_t kSectorSize = 512;
@@ -67,6 +75,10 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   // with those writes for the card.
   bool readAheadArmed = false;
   bool prefetchEnabled = false;
+  // Written on the TinyUSB task, read on the main loop.
+  std::atomic<uint32_t> lastIoMs{0};
+  std::atomic<uint32_t> hostReadBytes{0};
+  std::atomic<uint32_t> hostWriteBytes{0};
 };
 
 #endif

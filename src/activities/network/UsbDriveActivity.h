@@ -2,6 +2,7 @@
 
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
+#include "util/TransferLightPulse.h"
 
 class UsbDriveActivity final : public Activity {
  public:
@@ -27,7 +28,14 @@ class UsbDriveActivity final : public Activity {
   static constexpr unsigned long FORCED_DISCONNECT_TIMEOUT_MS = 1000UL;
   static constexpr unsigned long HOST_SUSPEND_TIMEOUT_MS = 2000UL;
 
+  // Host I/O newer than this counts as a transfer for the light.
+  static constexpr uint32_t IO_ACTIVE_MS = 500;
+  // Bursts under this are host polling; they are summarized, not logged each.
+  static constexpr uint32_t BURST_LOG_MIN_BYTES = 64 * 1024;
+  static constexpr uint32_t POLL_SUMMARY_MS = 30UL * 1000UL;
+
   void restartToHome();
+  void updateTransferLight();
   void renderMessage(const char* message, const char* detail = nullptr) const;
 
   State state = State::Unsupported;
@@ -41,4 +49,12 @@ class UsbDriveActivity final : public Activity {
   unsigned long forcedDisconnectRequestedAt = 0;
   unsigned long hostSuspendStartedAt = 0;
   ScreenTransitionRefresh screenTransitionRefresh;
+  TransferLightPulse transferLight;
+  // Current burst of host I/O, for the [FL] log.
+  bool ioBurst = false;
+  uint32_t burstStartMs = 0;
+  uint32_t burstReadStart = 0;
+  uint32_t burstWriteStart = 0;
+  uint16_t pollBursts = 0;
+  uint32_t pollSummaryAt = 0;
 };

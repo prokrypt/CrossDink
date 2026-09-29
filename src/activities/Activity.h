@@ -74,6 +74,10 @@ class Activity {
   // Called by the app-wide Quick Lock. Reader activities use it to exclude
   // locked time from reading statistics; other activities have no state to change.
   virtual void onInputLockChanged(bool) {}
+  // Called from the main loop before an event (sleep, network entry, forced
+  // refresh) takes the render lock, so a render can drop optional work (the
+  // reader's AA pass) instead of making the event wait. Must be thread-safe.
+  virtual void cancelOptionalRenderWork(const char* /*reason*/) {}
   // Called from the main loop as soon as raw input arrives, before a global
   // shortcut or gesture can consume it instead of entering activity loop().
   virtual void onUserInput() {}

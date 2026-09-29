@@ -21,6 +21,14 @@ enum class UsbDriveState : uint8_t {
   IoError,
 };
 
+// Host I/O totals while USB Drive is up; stamped on the USB task, read on the
+// main loop (drives the transfer light).
+struct UsbDriveIo {
+  uint32_t lastIoMs = 0;  // millis() of the last host read/write, 0 = none yet
+  uint32_t readBytes = 0;
+  uint32_t writeBytes = 0;
+};
+
 class HalStorage {
  public:
   HalStorage();
@@ -56,6 +64,8 @@ class HalStorage {
   void endUsbDrive();
   UsbDriveState usbDriveState() const;
   bool usbDriveHostSuspended() const;
+  // False when USB Drive is unsupported.
+  bool usbDriveIo(UsbDriveIo& out) const;
 
   HalFile open(const char* path, const oflag_t oflag = O_RDONLY);
   bool mkdir(const char* path, const bool pFlag = true);
