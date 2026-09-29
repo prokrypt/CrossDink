@@ -105,6 +105,15 @@ class ActivityManager {
   // this poll. Transfer screens rarely redraw (only the signal icon), so each
   // redraw paying the ~127 ms power-on costs less than an idle booster.
   static constexpr uint32_t PANEL_OFF_POLL_MS = DEFERRED_REFRESH_POLL_MS;
+  // Every other screen switches the booster off after this long without a new
+  // frame; input powers it back on early (wakePanelEarly) so the next refresh
+  // doesn't wait on the power-on.
+  static constexpr uint32_t PANEL_IDLE_OFF_MS = 10000;
+  // Render-task notification bit for wakePanelEarly(); renders use eIncrement,
+  // so a value of exactly this bit means "wake only, nothing to draw".
+  static constexpr uint32_t PANEL_WAKE_BIT = 1UL << 31;
+  // True while the idle booster-off holds; the first input after it wakes the panel.
+  std::atomic<bool> panelBoosterOff{false};
 
   // Set by requestUpdateAndWait(); read and cleared by the render task after render completes.
   // Note: only one waiting task is supported at a time
@@ -137,6 +146,9 @@ class ActivityManager {
 
   void begin(uint32_t renderTaskStackBytes = 16384);
   void loop();
+  // User input (finger down, button press): power the panel booster back on
+  // ahead of the refresh if the idle booster-off switched it off. Any task.
+  void wakePanelEarly();
 
   // Will replace currentActivity and drop all activities on stack
   void replaceActivity(std::unique_ptr<Activity>&& newActivity);

@@ -321,8 +321,6 @@ void WifiSelectionActivity::onEnter() {
   app.on(ACTION_ROW, &WifiSelectionActivity::onRowEvent, this);
   app.setScreen(&WifiSelectionActivity::listScreen, this);
 
-  // Trigger first update to show scanning message
-  requestUpdate();
   LOG_INF("WIFI", "starting auto-connect/scan free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   // Attempt to auto-connect to known networks. Try the last successful
@@ -333,7 +331,7 @@ void WifiSelectionActivity::onEnter() {
     if (!lastSsid.empty()) {
       const auto cred = WIFI_STORE.findCredential(lastSsid);
       if (cred && tryAutoConnectCredential(*cred)) {
-        return;
+        return;  // draws Connecting only if the join is slow (attemptConnection)
       }
     }
 
@@ -651,7 +649,6 @@ bool WifiSelectionActivity::tryAutoConnectCredential(const WifiCredential& cred)
   autoConnecting = true;
   manualNetworkListRequested = false;
   attemptConnection();
-  requestUpdate();
   return true;
 }
 
@@ -715,7 +712,16 @@ void WifiSelectionActivity::attemptConnection() {
   sLastStaDisconnectReason = 0;
   sConnectionAttemptLoggingActive = false;
 #endif
-  requestUpdate();
+  // A saved network usually joins in ~0.6 s: draw Connecting only if the join
+  // is still running after CONNECTING_SCREEN_DELAY_MS, so a fast join skips
+  // one refresh and goes straight to the next screen.
+  connectingScreenDueMs = 0;
+  if (autoConnecting) {
+    connectingScreenDueMs = connectionStartTime + CONNECTING_SCREEN_DELAY_MS;
+    if (connectingScreenDueMs == 0) connectingScreenDueMs = 1;
+  } else {
+    requestUpdate();
+  }
 
   LOG_INF("WIFI", "Connecting to ssid=%s auto=%d saved=%d encrypted=%d passProvided=%d heap=%u maxAlloc=%u",
           selectedSSID.c_str(), autoConnecting, usedSavedPassword, selectedRequiresPassword, !enteredPassword.empty(),
@@ -1017,6 +1023,10 @@ void WifiSelectionActivity::loop() {
         showNetworkListFromAutoConnect();
         return;
       }
+    }
+    if (connectingScreenDueMs != 0 && static_cast<long>(millis() - connectingScreenDueMs) >= 0) {
+      connectingScreenDueMs = 0;
+      requestUpdate();
     }
     checkConnectionStatus();
     return;

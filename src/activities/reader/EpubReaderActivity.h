@@ -129,6 +129,17 @@ class EpubReaderActivity final : public Activity {
   // one-shot clean base for its first image page; normal image-page cleanup
   // uses pagesUntilFullRefresh independently.
   bool cleanImageBasePending = false;
+  // The image page whose grayscale pass last reached the panel. Redrawing that
+  // same page (an overlay closed) needs no gray-residue cleanup.
+  struct GrayImageOnPanel {
+    int spine = -1;
+    int page = -1;
+    int16_t x = 0, y = 0, w = 0, h = 0;
+    bool operator==(const GrayImageOnPanel& o) const {
+      return spine == o.spine && page == o.page && x == o.x && y == o.y && w == o.w && h == o.h;
+    }
+  };
+  GrayImageOnPanel grayImageOnPanel;
   bool skipRecentBookUpdateOnEntry = false;
   int cachedSpineIndex = 0;
   int cachedChapterPageNumber = 0;

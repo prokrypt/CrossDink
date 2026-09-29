@@ -47,6 +47,7 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_SKIP_RESYNC = 1;
   static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
+  // Clean on close: the next screen's first refresh is a no-flash DU scrub (UC8179).
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
   static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // retired T6 windowed DRF; ignored

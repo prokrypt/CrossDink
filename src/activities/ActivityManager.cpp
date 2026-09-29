@@ -469,13 +469,15 @@ void ActivityManager::renderTaskLoop() {
   bool renderQueued = false;
   bool displayPmHeld = false;
   bool idlePanelOffArmed = false;
+  uint32_t idlePanelOffMs = PANEL_OFF_POLL_MS;
   while (true) {
     if (!renderQueued) {
-      if (!idlePanelOffArmed) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-      } else if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PANEL_OFF_POLL_MS)) == 0) {
-        // The frame on a screen that opted in is drawn and no new one is
-        // queued: switch the booster off. The next refresh powers it back on.
+      const uint32_t notified =
+          ulTaskNotifyTake(pdTRUE, idlePanelOffArmed ? pdMS_TO_TICKS(idlePanelOffMs) : portMAX_DELAY);
+      if (notified == 0) {
+        // No new frame within the idle delay (right after the draw on screens
+        // that opted in): switch the booster off. The next refresh, or an
+        // early wake on input, powers it back on.
         idlePanelOffArmed = false;
 #ifndef SIMULATOR  // the simulator HAL has no panel power
         RenderLock offLock;
@@ -483,10 +485,24 @@ void ActivityManager::renderTaskLoop() {
           // A deferred refresh is still driving the panel: never cut the
           // booster mid-waveform; poll again until it ends.
           idlePanelOffArmed = true;
-        } else if (currentActivity && currentActivity->powerOffPanelWhenIdle() && display.powerOffIdle()) {
-          LOG_DBG("ACT", "Panel booster off after draw");
+          idlePanelOffMs = PANEL_OFF_POLL_MS;
+        } else if (currentActivity && display.powerOffIdle()) {
+          panelBoosterOff.store(true, std::memory_order_release);
+          LOG_DBG("ACT", "Panel booster off after %s", idlePanelOffMs == PANEL_IDLE_OFF_MS ? "idle" : "draw");
         }
 #endif
+        continue;
+      }
+      if (notified == PANEL_WAKE_BIT) {
+        // Input with no frame requested yet (finger down, button press):
+        // power the booster on now, so the coming refresh skips its ~127 ms
+        // power-on. Nothing drawn: switch it off again after the idle delay.
+#ifndef SIMULATOR
+        RenderLock wakeLock;
+        if (display.powerOnIdle()) LOG_DBG("ACT", "Panel booster on early");
+#endif
+        idlePanelOffArmed = true;
+        idlePanelOffMs = PANEL_IDLE_OFF_MS;
         continue;
       }
     }
@@ -512,7 +528,9 @@ void ActivityManager::renderTaskLoop() {
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       renderer.setDeferFastRefresh(deferredRender);
       PerfLog::noteRenderStart(currentActivity->name.c_str());
-      idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
+      idlePanelOffArmed = true;
+      idlePanelOffMs = currentActivity->powerOffPanelWhenIdle() ? PANEL_OFF_POLL_MS : PANEL_IDLE_OFF_MS;
+      panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       currentActivity->render(std::move(lock));
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
@@ -540,7 +558,8 @@ void ActivityManager::renderTaskLoop() {
       }
       lock.unlock();
       while (!renderQueued) {
-        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) > 0) {
+        // An early-wake bit alone is no frame: the booster is on mid-refresh.
+        if ((ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) & ~PANEL_WAKE_BIT) != 0) {
           renderQueued = true;
           break;
         }
@@ -1332,6 +1351,14 @@ ScreenshotInfo ActivityManager::getScreenshotInfo() const {
   }
 
   return {};
+}
+
+void ActivityManager::wakePanelEarly() {
+#ifndef SIMULATOR
+  if (renderTaskHandle && panelBoosterOff.exchange(false, std::memory_order_acq_rel)) {
+    xTaskNotify(renderTaskHandle, PANEL_WAKE_BIT, eSetBits);
+  }
+#endif
 }
 
 void ActivityManager::requestUpdate(bool immediate) {

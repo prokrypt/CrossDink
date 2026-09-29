@@ -1327,7 +1327,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
     renderOverlays(true);
 
     if (pagesUntilFullRefresh <= 1) {
-      renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
+      renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
       renderer.preconditionGrayscale();
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else {

@@ -14,6 +14,7 @@
 #include "MappedInputManager.h"
 #include "ReaderStatusBarTapTarget.h"
 #include "components/UITheme.h"
+#include "util/BlackRedriveLut.h"
 
 namespace ReaderUtils {
 
@@ -230,6 +231,16 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
 }
 
+// Mode for a ghost cleanup (cadence, reader entry, image gray residue). The
+// UC8179 (X4 Pro) runs the Half as a no-flash DU scrub; other panels keep the
+// Half. A negative countdown is the manual Refresh Screen shortcut, which keeps
+// its own mode. Call right before the display call: the scrub is one-shot.
+inline HalDisplay::RefreshMode cleanupRefreshMode(const int pagesUntilFullRefresh) {
+  if (pagesUntilFullRefresh < 0) return manualScreenRefreshMode();
+  BlackRedriveLut::scrubNextHalf();
+  return HalDisplay::HALF_REFRESH;
+}
+
 // One helper, blocking or deferred: the async form starts the refresh and
 // returns so the caller can overlap CPU work with the panel's refresh time.
 // Async callers must not touch the framebuffer until
@@ -239,9 +250,7 @@ inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntil
   // A negative countdown is reserved for the explicit Refresh Screen shortcut.
   // Regular cadence cleanup remains a HALF refresh at 1. The X4 retains its
   // prior clean HALF waveform; other panels use their full waveform.
-  const auto mode = pagesUntilFullRefresh < 0    ? manualScreenRefreshMode()
-                    : pagesUntilFullRefresh <= 1 ? HalDisplay::HALF_REFRESH
-                                                 : HalDisplay::FAST_REFRESH;
+  const auto mode = pagesUntilFullRefresh <= 1 ? cleanupRefreshMode(pagesUntilFullRefresh) : HalDisplay::FAST_REFRESH;
   if (async) {
     renderer.displayBufferAsync(mode);
   } else {

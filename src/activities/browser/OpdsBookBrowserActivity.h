@@ -33,6 +33,8 @@ class OpdsBookBrowserActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  // Progress repaints come every few seconds: booster off between them.
+  bool powerOffPanelWhenIdle() const override { return state == BrowserState::DOWNLOADING; }
 
  private:
   // FreeInkUI app runtime for the browsing screen: owns the interaction table,
@@ -93,6 +95,16 @@ class OpdsBookBrowserActivity final : public Activity {
   // The first OPDS frame and the first download frame are DU scrubs: DU
   // alone leaves the previous screen (menu, book list) ghosted underneath.
   std::atomic<bool> scrubNextFrame{false};
+  // Last download frame sent to the panel (render task only). A re-render with
+  // the same progress (the dialog closing right after the scrub frame) skips
+  // its refresh.
+  struct ShownDownloadFrame {
+    bool valid = false;
+    bool receiving = false;
+    size_t progress = 0;
+    size_t total = 0;
+  };
+  ShownDownloadFrame shownDownloadFrame;
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
   // Set by the Cancel button handler; loop() forwards it to bookDownloader.
