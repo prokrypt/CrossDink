@@ -98,6 +98,7 @@ class HomeActivity final : public Activity {
   void onLibraryOpen();
   void onSettingsOpen();
   void onFileTransferOpen();
+  void onGoodiesOpen();
   void onOpdsBrowserOpen();
   void onReadingStatsOpen();
   void onSavedItemsOpen();
