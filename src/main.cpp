@@ -367,6 +367,10 @@ static void retainPanelFrame() {
 }
 
 static bool retainedPanelFramePresent() { return retainedPanelFrame.magic == RetainedPanelFrame::MAGIC; }
+// A boot that does not seed the frame (a crash reset before display setup)
+// must drop it: a later plain ESP.restart() would otherwise seed a stale frame
+// as the OLD plane, and the first Fast paint would re-drive pixels one way.
+static void discardRetainedPanelFrame() { retainedPanelFrame.magic = 0; }
 
 static void seedRetainedPanelFrame() {
   const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
@@ -388,6 +392,7 @@ static void seedRetainedPanelFrame() {
 #else
 static void retainPanelFrame() {}
 static bool retainedPanelFramePresent() { return false; }
+static void discardRetainedPanelFrame() {}
 static void seedRetainedPanelFrame() {}
 #endif
 
@@ -1376,7 +1381,11 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
-  if (seamless) seedRetainedPanelFrame();
+  if (seamless) {
+    seedRetainedPanelFrame();
+  } else {
+    discardRetainedPanelFrame();
+  }
   static bool panelLogged = false;
   if (!panelLogged) {
     panelLogged = true;
