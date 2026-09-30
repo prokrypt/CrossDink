@@ -56,9 +56,11 @@ constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // A kept-alive feed connection idle longer than this is closed before the
-// next request. Servers that time out sooner send a FIN, which the client
-// notices; this covers NATs and load balancers that drop the socket silently.
-constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 30 * 1000;
+// next request. Some servers and load balancers drop an idle socket without a
+// FIN; the request then waits out the whole header timeout before the retry
+// on a fresh connection. Reuse after 1.4 s and 3.5 s idle worked on
+// mayberry.pub, after 10.5 s it never answered (crash log 2026-09-30).
+constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
   if (book.author.empty()) return book.title;
@@ -672,7 +674,15 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   clearEntries();
   const std::string url = UrlUtils::buildUrl(server.url, path);
   OpdsParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
+  fetchCancelled = false;
   if (!loadFeed(url, parser)) {
+    if (fetchCancelled) {
+      // pollFetchCancel() consumed the Back press, so act on it here.
+      LOG_INF("OPDS", "Feed fetch cancelled by Back");
+      fetchCancelled = false;
+      navigateBack();
+      return;
+    }
     state = BrowserState::ERROR;
     errorMessage = tr(STR_FETCH_FEED_FAILED);
     requestUpdate();
@@ -771,6 +781,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
     downloadOptions.connection = feedConnectionForRequest();
+    downloadOptions.shouldCancel = [this]() { return pollFetchCancel(); };
     const auto result = HttpDownloader::streamUrl(
         url,
         [&stream, &page, cachePage](const uint8_t* data, const size_t len) {
@@ -783,6 +794,18 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
 
   if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page));
   return true;
+}
+
+// Runs on this task while loadFeed() blocks the loop: Back is the only way
+// out of a slow or dead request, as in the LOADING state of loop().
+bool OpdsBookBrowserActivity::pollFetchCancel() {
+  if (fetchCancelled) return true;
+  mappedInput.update();
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+      TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    fetchCancelled = true;
+  }
+  return fetchCancelled;
 }
 
 void OpdsBookBrowserActivity::startNextPagePrefetch(const std::string& nextHref) {
