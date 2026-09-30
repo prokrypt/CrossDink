@@ -33,6 +33,7 @@ class OpdsBookBrowserActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
   bool usesWifi() const override { return true; }
+  bool sharesWifiWithRemote() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   // Progress repaints come every few seconds: booster off between them.

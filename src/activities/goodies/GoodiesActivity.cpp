@@ -59,6 +59,9 @@ std::atomic<bool> radioTaskRunning{false};
 std::atomic<uint8_t> joinOutcome{0};
 enum JoinOutcome : uint8_t { JOIN_FAILED, JOIN_BEGUN, JOIN_NO_NETWORK };
 constexpr uint32_t RADIO_TASK_STACK_BYTES = 6144;
+enum class RadioOwner : uint8_t { None, Shared, Screen };
+RadioOwner radioOwner = RadioOwner::None;
+bool sharedStartTried = false;
 uint32_t rejoinAt = 0;
 uint32_t rejoinRetryMs = 0;  // 0 until an attempt fails; doubles per failure
 constexpr uint32_t REJOIN_TIMEOUT_MS = 20000;
@@ -126,13 +129,18 @@ void stopServerAndRadioInBackground() {
 }
 
 // Wi-Fi is already connected (WifiSelectionActivity succeeded, or a rejoin).
-// On failure the radio is off and the toggle is left to the caller.
-bool startRemote() {
+// On failure the radio is off (unless a screen owns it) and the toggle is left
+// to the caller.
+bool startRemote(const bool ownsRadio = true) {
   remoteServer = makeUniqueNoThrow<CrossPointWebServer>();
   if (remoteServer) remoteServer->begin(/*logOnly=*/true);
   if (!remoteServer || !remoteServer->isRunning()) {
     LOG_ERR("GDY", "wifi remote: web server did not start");
-    stopServerAndRadio();
+    if (ownsRadio) {
+      stopServerAndRadio();
+    } else {
+      remoteServer.reset();
+    }
     return false;
   }
   MDNS.begin("crosspoint");
@@ -234,7 +242,6 @@ void startInBackground() {
 }
 
 void loop(const uint32_t idleMs) {
-  static bool screenHadRadio = false;
   if (!remoteWanted()) return;
   // A join or a toggle-off teardown still owns the radio (Off then On in quick succession).
   if (radioTaskRunning.load(std::memory_order_acquire)) return;
@@ -252,26 +259,47 @@ void loop(const uint32_t idleMs) {
     rejoinByUser = false;
     if (!rejoining) return;
   }
-  // A Wi-Fi screen is on the stack: the radio is its until it leaves.
-  if (activityManager.anyActivityUsesWifi()) {
-    screenHadRadio = true;
+  // A Wi-Fi screen on the stack owns the radio until it leaves. Shared: all of
+  // them (OPDS) only make HTTP requests, so the remote serves on their link.
+  const RadioOwner owner = !activityManager.anyActivityUsesWifi()        ? RadioOwner::None
+                           : activityManager.wifiActivitiesShareRemote() ? RadioOwner::Shared
+                                                                         : RadioOwner::Screen;
+  if (owner != radioOwner) {
+    const RadioOwner left = radioOwner;
+    radioOwner = owner;
+    sharedStartTried = false;
+    if (left != RadioOwner::None && owner != RadioOwner::Screen) {
+      // Whatever the screen left behind (Wi-Fi off or deinitialized, another
+      // network, AP mode), the old server's sockets can't be trusted.
+      if (remoteServer) remoteServer->stop();
+      remoteServer.reset();
+      MDNS.end();
+      rejoinAt = 0;
+      rejoinRetryMs = 0;
+      if (owner == RadioOwner::None) {
+        if (hasActiveStationWifiConnection()) {
+          if (!startRemote()) rejoinAt = millis();
+          return;
+        }
+        if (WiFi.getMode() != WIFI_MODE_NULL) stopServerAndRadio();
+      }
+    }
+  }
+  if (owner == RadioOwner::Screen) {
     rejoining = false;
     return;
   }
-  if (screenHadRadio) {
-    // Whatever the screen left behind (Wi-Fi off or deinitialized, another
-    // network, AP mode), the old server's sockets can't be trusted.
-    screenHadRadio = false;
-    if (remoteServer) remoteServer->stop();
-    remoteServer.reset();
-    MDNS.end();
-    rejoinAt = 0;
-    rejoinRetryMs = 0;
-    if (hasActiveStationWifiConnection()) {
-      if (!startRemote()) rejoinAt = millis();
-      return;
+  if (owner == RadioOwner::Shared) {
+    // Never joins or powers the radio here: the screen does. One start per
+    // shared stretch, once there is a link and the heap Wi-Fi entry wants.
+    rejoining = false;
+    if (!remoteServer && !sharedStartTried && hasActiveStationWifiConnection() &&
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL) >= MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE &&
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) >= MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC) {
+      sharedStartTried = true;
+      startRemote(/*ownsRadio=*/false);
     }
-    if (WiFi.getMode() != WIFI_MODE_NULL) stopServerAndRadio();
+    return;
   }
   if (rejoining) {
     if (WiFi.status() == WL_CONNECTED) {

@@ -34,7 +34,8 @@ bool allowsRadioIdleSleep();
 // Main loop: once no Wi-Fi screen (Activity::usesWifi) is on the stack, or
 // after any boot (restart, sleep wake, power-on), rejoins the last network and
 // restarts the server. Joins wait 5 s after boot and for idleMs >= 2 s of no
-// input; failures back off 1 to 10 min. No-op while the toggle is off.
+// input; failures back off 1 to 10 min. Beside screens that share their link
+// (sharesWifiWithRemote) it only starts the server. No-op while the toggle is off.
 void loop(uint32_t idleMs);
 }  // namespace goodies_remote
 
