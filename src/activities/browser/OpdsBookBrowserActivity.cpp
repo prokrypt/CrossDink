@@ -61,9 +61,6 @@ constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // on a fresh connection. Reuse after 1.4 s and 3.5 s idle worked on
 // mayberry.pub, after 10.5 s it never answered (crash log 2026-09-30).
 constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
-// A page shown from the cache is refetched in the background once per view if
-// its copy is at least this old; a fresher one (just preloaded) is trusted.
-constexpr uint32_t OPDS_RECHECK_MIN_AGE_MS = 30 * 1000;
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
   const std::string title(book.title);
@@ -313,7 +310,7 @@ void OpdsBookBrowserActivity::loop() {
       std::string changed;
       if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
         LOG_INF("OPDS", "Recheck: redrawing changed page");
-        fetchFeed(currentPath, selectorIndex, topIndex);
+        fetchFeed(currentPath, selectorIndex, topIndex, false);
       }
     }
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
@@ -637,7 +634,8 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
   }
 }
 
-void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop) {
+void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop,
+                                        const bool recheck) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_MEMORY_ERROR);
@@ -754,7 +752,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
   if (currentPath.empty()) preloadFeedsOnPage();
-  if (preload && pageCache->isStale(url, millis(), OPDS_RECHECK_MIN_AGE_MS)) preload->revalidate(url);
+  if (recheck && shownFromCache && preload) preload->revalidate(url);
   if (preload) preload->pump();
 }
 
@@ -763,8 +761,10 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   // Otherwise a foreground request never overlaps them: finish the one for
   // this very page, pause the rest. Either way completed pages land in the
   // cache.
+  shownFromCache = false;
   if (pageCache) {
     const OpdsPageBuffer* cached = pageCache->find(url);
+    shownFromCache = cached != nullptr;
     if (!cached && preload) {
       const unsigned long joinStart = millis();
       if (preload->pause(url)) LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
@@ -802,7 +802,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     if (result != HttpDownloader::OK) return false;
   }
 
-  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page), true, millis());
+  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page));
   return true;
 }
 

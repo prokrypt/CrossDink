@@ -3,7 +3,6 @@
 // Prefetch needs PSRAM, which the native simulator never reports.
 #ifndef SIMULATOR
 
-#include <Arduino.h>
 #include <Logging.h>
 
 #include <utility>
@@ -53,7 +52,7 @@ bool OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict, 
       } else {
         LOG_DBG("OPDS", "Caching prefetched page (%zu bytes)", page.size());
       }
-      stored = cache.store(job.url, std::move(page), mayEvict, millis());
+      stored = cache.store(job.url, std::move(page), mayEvict);
       if (!stored) LOG_DBG("OPDS", "Prefetched page not cached (full)");
     }
   }
