@@ -724,6 +724,7 @@ void HomeActivity::fillCoverGridFromLibrary() {
 }
 
 void HomeActivity::loadCoverGridThumbnails() {
+  HomeCoverThumbs::coverGridThumbHeight = coverGridUi->thumbHeightFor(0);
   std::vector<CoverJob> jobs;
   jobs.reserve(recentBooks.size());
   for (size_t i = 0; i < recentBooks.size(); ++i) {
@@ -812,7 +813,8 @@ void HomeActivity::startCoverWorker(std::vector<CoverJob>&& jobs) {
   }
   // The covers are made on the worker core while Home stays drawn and takes
   // input; the render after the job draws them. Decoder buffers go to PSRAM.
-  constexpr uint32_t STACK_BYTES = 12288;
+  // 4.8 KB used on device (0929e log).
+  constexpr uint32_t STACK_BYTES = 8192;
   if (!coverWorker.done) coverWorker.done = xSemaphoreCreateBinary();
   coverWorker.cancel.store(false, std::memory_order_relaxed);
   coverWorker.finished.store(false, std::memory_order_relaxed);

@@ -28,8 +28,12 @@ struct Specs {
   uint8_t count = 0;
 };
 
-// Thumbs of the active non-grid theme. coverHeight is the theme's
-// homeCoverHeight. Books that are neither EPUB nor XTC get none.
+// Thumb height of the cover grid's first slot (the book being read), set by
+// Home once laid out; 0 until Home has been shown since boot.
+extern int coverGridThumbHeight;
+
+// Thumbs of the active theme for the book being read. coverHeight is the
+// theme's homeCoverHeight. Books that are neither EPUB nor XTC get none.
 Specs forActiveTheme(const std::string& bookPath, int coverHeight);
 // The cover grid sizes each slot from its layout.
 Specs forCoverGrid(const std::string& bookPath, int thumbWidth, int thumbHeight);

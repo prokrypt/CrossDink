@@ -7574,8 +7574,7 @@ void EpubReaderActivity::maybeStartHomeThumbWorker() {
   const unsigned long shownAt = pageShownAtMs;
   if (shownAt == 0 || millis() - shownAt < HOME_THUMB_IDLE_MS || silentIndexWorkerBusy()) return;
   homeThumbWorker.attempted = true;
-  // The cover grid sizes its thumbs from Home's layout, unknown here.
-  if (!epub->hasCoverImage() || UITheme::hasCoverGridHome()) return;
+  if (!epub->hasCoverImage()) return;
 
   const auto specs =
       HomeCoverThumbs::forActiveTheme(epub->getPath(), UITheme::getInstance().getMetrics().homeCoverHeight);
@@ -7590,7 +7589,7 @@ void EpubReaderActivity::maybeStartHomeThumbWorker() {
   if (homeThumbWorker.specs.count == 0) return;
   // The decoder and inflate buffers go to PSRAM; the stack is internal RAM
   // only while the job runs.
-  constexpr uint32_t STACK_BYTES = 12288;
+  constexpr uint32_t STACK_BYTES = 8192;
   if (!MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, STACK_BYTES + 4096U)) {
     LOG_DBG("ERS", "Skipping Home thumbs: low heap (free=%u, maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     return;
