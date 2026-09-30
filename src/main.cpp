@@ -1373,6 +1373,9 @@ void mirrorWakeShortPressToNvs() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+#if CROSSDINK_GOODIES
+  goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
+#endif
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system

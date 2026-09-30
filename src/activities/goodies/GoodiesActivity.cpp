@@ -13,12 +13,14 @@
 #include <esp_heap_caps.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 
 #include "CrossPointSettings.h"
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
 #include "MappedInputManager.h"
+#include "TaskCores.h"
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -45,15 +47,24 @@ std::string remoteIp;
 // after power-on it is garbage and the last connected network is used instead.
 RTC_NOINIT_ATTR char remoteSsid[33];
 bool rejoining = false;
-bool rejoinNow = false;  // Toggled on in Goodies: skip the boot and idle waits
+bool rejoinNow = false;     // Toggled on in Goodies: skip the boot and idle waits
+bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens the picker
+bool pickerRequested = false;
+// The join itself (wifi.json read, WiFi.mode() bringing the driver up,
+// WiFi.begin()) runs on a short-lived task so the main loop never waits on it.
+// Main task only, except the two atomics the task sets.
+bool joinPending = false;
+std::atomic<bool> joinTaskRunning{false};
+std::atomic<uint8_t> joinOutcome{0};
+enum JoinOutcome : uint8_t { JOIN_FAILED, JOIN_BEGUN, JOIN_NO_NETWORK };
+constexpr uint32_t JOIN_TASK_STACK_BYTES = 6144;
 uint32_t rejoinAt = 0;
 uint32_t rejoinRetryMs = 0;  // 0 until an attempt fails; doubles per failure
 constexpr uint32_t REJOIN_TIMEOUT_MS = 20000;
 constexpr uint32_t REJOIN_RETRY_MIN_MS = 60000;
 constexpr uint32_t REJOIN_RETRY_MAX_MS = 600000;
-// Starting a join blocks the main task (wifi.json read, WiFi.mode() bringing
-// the driver up), so a background join waits for the wake screen to paint and
-// for a pause in input.
+// The join task still shares the SD card and core 0 with the main loop, so a
+// background join waits for the wake screen to paint and for a pause in input.
 constexpr uint32_t REJOIN_BOOT_DELAY_MS = 5000;
 constexpr uint32_t REJOIN_IDLE_MS = 2000;
 
@@ -66,7 +77,14 @@ void setRemoteWanted(const bool wanted) {
   if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "wifi remote: toggle not saved");
 }
 
+void waitForJoinTask() {
+  // Bounded by one wifi.json read and a driver start; no other Wi-Fi call may overlap it.
+  while (joinTaskRunning.load(std::memory_order_acquire)) vTaskDelay(1);
+}
+
 void stopServerAndRadio() {
+  waitForJoinTask();
+  joinPending = false;
   if (remoteServer) remoteServer->stop();
   remoteServer.reset();
   MDNS.end();
@@ -98,34 +116,52 @@ bool startRemote() {
   return true;
 }
 
-// Background join of the network the remote last used (async WiFi.begin()).
-// Every call counts as an attempt for the retry backoff.
-bool beginRejoin() {
+void joinTaskMain(void*) {
   const uint32_t startedAt = millis();
-  rejoinAt = startedAt;
-  rejoinRetryMs = rejoinRetryMs == 0 ? REJOIN_RETRY_MIN_MS : std::min(rejoinRetryMs * 2, REJOIN_RETRY_MAX_MS);
   remoteSsid[sizeof(remoteSsid) - 1] = '\0';
   auto cred = WIFI_STORE.findCredential(remoteSsid);
   if (!cred) cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
-  if (!cred) {
+  JoinOutcome outcome = JOIN_NO_NETWORK;
+  if (cred) {
+    WiFi.persistent(false);
+    if (WiFi.mode(WIFI_STA)) {
+      WiFi.begin(cred->ssid.c_str(), cred->password.empty() ? nullptr : cred->password.c_str());
+      outcome = JOIN_BEGUN;
+      LOG_INF("GDY", "wifi remote: rejoining %s (join task %lu ms)", cred->ssid.c_str(),
+              static_cast<unsigned long>(millis() - startedAt));
+    } else {
+      outcome = JOIN_FAILED;
+      LOG_ERR("GDY", "wifi remote: station mode failed");
+    }
+  } else {
     LOG_ERR("GDY", "wifi remote: no saved network to rejoin");
-    return false;
   }
+  cred.reset();  // before the task frees its stack; the password copy lives on the heap
+  joinOutcome.store(outcome, std::memory_order_relaxed);
+  joinTaskRunning.store(false, std::memory_order_release);
+  vTaskDelete(nullptr);
+}
+
+// Background join of the network the remote last used. Every call counts as
+// an attempt for the retry backoff.
+void beginRejoin() {
+  rejoinAt = millis();
+  rejoinRetryMs = rejoinRetryMs == 0 ? REJOIN_RETRY_MIN_MS : std::min(rejoinRetryMs * 2, REJOIN_RETRY_MAX_MS);
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   if (largest < MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC) {
     LOG_ERR("GDY", "wifi remote: rejoin skipped, internal largest block %u", static_cast<unsigned>(largest));
-    return false;
+    return;
   }
-  WiFi.persistent(false);
-  if (!WiFi.mode(WIFI_STA)) {
-    LOG_ERR("GDY", "wifi remote: station mode failed");
-    return false;
+  joinTaskRunning.store(true, std::memory_order_relaxed);
+  // Priority 1, under the main loop: it runs only while the loop waits. The
+  // stack is internal RAM (it reads the SD card) and is freed when the task ends.
+  if (xTaskCreatePinnedToCore(joinTaskMain, "WifiJoin", JOIN_TASK_STACK_BYTES, nullptr, 1, nullptr,
+                              TaskCores::kWorker) != pdPASS) {
+    joinTaskRunning.store(false, std::memory_order_relaxed);
+    LOG_ERR("GDY", "wifi remote: join task did not start");
+    return;
   }
-  WiFi.begin(cred->ssid.c_str(), cred->password.empty() ? nullptr : cred->password.c_str());
-  rejoining = true;
-  LOG_INF("GDY", "wifi remote: rejoining %s (main task blocked %lu ms)", cred->ssid.c_str(),
-          static_cast<unsigned long>(millis() - startedAt));
-  return true;
+  joinPending = true;
 }
 }  // namespace
 
@@ -139,8 +175,16 @@ bool allowsRadioIdleSleep() {
          !activityManager.anyActivityUsesWifi();
 }
 
+void waitForJoin() { waitForJoinTask(); }
+
+bool takePickerRequest() {
+  const bool requested = pickerRequested;
+  pickerRequested = false;
+  return requested;
+}
+
 void pause() {
-  if (!remoteServer && !rejoining) return;
+  if (!remoteServer && !rejoining && !joinPending) return;
   stopServerAndRadio();
   LOG_INF("GDY", "wifi remote paused");
 }
@@ -148,26 +192,37 @@ void pause() {
 void stop() {
   setRemoteWanted(false);
   rejoinNow = false;
-  if (!remoteServer && !rejoining) return;
+  if (!remoteServer && !rejoining && !joinPending) return;
   stopServerAndRadio();
   LOG_INF("GDY", "wifi remote off");
 }
 
-bool startInBackground() {
-  if (!WIFI_STORE.findCredential(remoteSsid) && !WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid())) {
-    return false;
-  }
+void startInBackground() {
   stop();  // a server left behind when the link dropped; no-op otherwise
   setRemoteWanted(true);
   rejoinAt = 0;
   rejoinRetryMs = 0;
   rejoinNow = true;
-  return true;
 }
 
 void loop(const uint32_t idleMs) {
   static bool screenHadRadio = false;
   if (!remoteWanted()) return;
+  if (joinPending) {
+    if (joinTaskRunning.load(std::memory_order_acquire)) return;
+    joinPending = false;
+    const uint8_t outcome = joinOutcome.load(std::memory_order_relaxed);
+    if (outcome == JOIN_BEGUN) {
+      rejoining = true;
+      rejoinAt = millis();  // the connect timeout runs from WiFi.begin()
+    } else if (outcome == JOIN_NO_NETWORK && rejoinByUser) {
+      // Toggled on with no saved network: Goodies opens the Wi-Fi picker.
+      setRemoteWanted(false);
+      pickerRequested = true;
+    }
+    rejoinByUser = false;
+    if (!rejoining) return;
+  }
   // A Wi-Fi screen is on the stack: the radio is its until it leaves.
   if (activityManager.anyActivityUsesWifi()) {
     screenHadRadio = true;
@@ -206,6 +261,7 @@ void loop(const uint32_t idleMs) {
     if (millis() < REJOIN_BOOT_DELAY_MS || idleMs < REJOIN_IDLE_MS) return;
     if (rejoinAt != 0 && millis() - rejoinAt < rejoinRetryMs) return;
   }
+  rejoinByUser = rejoinNow;
   rejoinNow = false;
   beginRejoin();
 }
@@ -219,6 +275,7 @@ GoodiesActivity::GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mapp
 void GoodiesActivity::onEnter() {
   Activity::onEnter();
   applySharedUiTheme(app, uiTarget);
+  goodies_remote::takePickerRequest();  // left over from a toggle made on an earlier visit
   app.on(ACTION_ROW, &GoodiesActivity::onRowEvent, this);
   app.setScreen(&GoodiesActivity::listScreen, this);
   showLevel(Level::Root);
@@ -311,11 +368,12 @@ void GoodiesActivity::toggleRemote() {
     showLevel(Level::Root);
     return;
   }
-  // A saved network joins in the background (the row reads Connecting...).
-  if (goodies_remote::startInBackground()) {
-    showLevel(Level::Root);
-    return;
-  }
+  // Joins the saved network in the background (the row reads Connecting...).
+  goodies_remote::startInBackground();
+  showLevel(Level::Root);
+}
+
+void GoodiesActivity::openRemotePicker() {
   // No saved network: the Wi-Fi picker joins one and leaves Wi-Fi up on success.
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
@@ -331,6 +389,10 @@ void GoodiesActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
 }
 
 void GoodiesActivity::loop() {
+  if (goodies_remote::takePickerRequest()) {
+    openRemotePicker();
+    return;
+  }
   // The background join finishes (or drops) while this screen is open.
   if (level == Level::Root && entries.size() > 1 && remoteRowState() != remoteRowShown) {
     RenderLock lock(*this);
