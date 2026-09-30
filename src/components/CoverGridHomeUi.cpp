@@ -160,8 +160,10 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
   card.action = SELECT;
   card.state = fui::StateNormal;
   card.styles = theme.listRow;
-  card.styles.selected.background = fui::Paint::dither(fui::Color::LightGray);
-  card.styles.selected.border = fui::Paint::dither(fui::Color::LightGray);
+  // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+  card.styles.selected.background = fui::Paint::solid(fui::Color::White);
+  card.styles.selected.border = fui::Paint::solid(fui::Color::Black);
+  card.styles.selected.borderWidth = 2;
   card.styles.selected.foreground = fui::Paint::solid(fui::Color::Black);
   card.styles.selected.radius = theme.listRowRadius;
   card.styles.active = card.styles.selected;
@@ -189,7 +191,7 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
     const int16_t barHeight = card.coverSize.height;
     screen.target().fill(fui::Rect{static_cast<int16_t>(rect.x - 9),
                                    static_cast<int16_t>(rect.y + (rect.height - barHeight) / 2), 3, barHeight},
-                         fui::Paint::dither(fui::Color::LightGray));
+                         fui::Paint::solid(fui::Color::Black));
   }
 }
 
