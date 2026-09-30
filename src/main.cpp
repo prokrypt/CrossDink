@@ -2009,7 +2009,67 @@ static bool radioMayIdle() {
 // Longest idle wait for the power-saving branch of loop(). When every input
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
+// Flash duck: while a refresh flashes the panel (HalDisplay::flashStartedMs),
+// ramp the frontlight to 0 and back up after it. Runs alongside the refresh
+// (render task) and never waits on it. Timings from
+// logs/device/20260930T095600Z-c18ab712-postflash.txt L358-364: gray planes
+// load from 47231 ("8179_gray_lsb") to 47310, then "8179_DIRECT_GRAY_DRF
+// (1189 ms)", so the light is out as the swing starts. The longest flash seen
+// is the boot Full "8179_DRF (1465 ms)" (L47); a mark older than
+// FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends.
+constexpr unsigned long FLASH_DUCK_DOWN_MS = 80;
+constexpr unsigned long FLASH_DUCK_MAX_MS = 3000;
+constexpr unsigned long FLASH_DUCK_UP_MS = 300;
+constexpr uint32_t FLASH_DUCK_TICK_MS = 10;
+static bool flashDuckActive = false;
+static uint8_t flashDuckLevel = 100;
+static unsigned long flashDuckUpStartMs = 0;
+
+static uint32_t liveFlashStartMs() {
+  const uint32_t startMs = display.flashStartedMs();
+  return startMs != 0 && millis() - startMs <= FLASH_DUCK_MAX_MS ? startMs : 0;
+}
+
+static void updateFlashDuck() {
+  const uint32_t flashStartMs = liveFlashStartMs();
+  // The user (brightness, toggle, Quick Lock) or the light timeout took over.
+  if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
+  if (!flashDuckActive) {
+    if (flashStartMs == 0 || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
+        Frontlight.idleDimPercent() != 100) {
+      return;
+    }
+    flashDuckActive = true;
+    flashDuckLevel = 100;
+    flashDuckUpStartMs = 0;
+    LOG_DBG("LIGHT", "Flash duck: down (%lu ms after planes)", millis() - flashStartMs);
+  }
+  const unsigned long now = millis();
+  // Each ramp moves only one way from where the light is.
+  unsigned long level;
+  if (flashStartMs != 0) {
+    const unsigned long elapsed = now - flashStartMs;
+    level = std::min<unsigned long>(flashDuckLevel,
+                                    elapsed >= FLASH_DUCK_DOWN_MS ? 0 : 100 - elapsed * 100 / FLASH_DUCK_DOWN_MS);
+    flashDuckUpStartMs = 0;  // a back-to-back flash keeps it down
+  } else {
+    if (flashDuckUpStartMs == 0) {
+      flashDuckUpStartMs = now;
+      LOG_DBG("LIGHT", "Flash duck: up at %u%%", flashDuckLevel);
+    }
+    const unsigned long elapsed = now - flashDuckUpStartMs;
+    level = std::max<unsigned long>(flashDuckLevel,
+                                    elapsed >= FLASH_DUCK_UP_MS ? 100 : elapsed * 100 / FLASH_DUCK_UP_MS);
+  }
+  if (level != flashDuckLevel) {
+    flashDuckLevel = static_cast<uint8_t>(level);
+    Frontlight.setIdleDim(flashDuckLevel);
+  }
+  if (flashDuckLevel == 100) flashDuckActive = false;
+}
+
 uint32_t idleWaitMs(const unsigned long idleMs) {
+  if (flashDuckActive || (liveFlashStartMs() != 0 && SETTINGS.frontlightFlashDuck)) return FLASH_DUCK_TICK_MS;
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
   // Light timeout: wake on time for the fade and step it at the fast tick.
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
@@ -2260,8 +2320,11 @@ static void loopPass() {
   // eat that whole gesture (held keys, their releases, a Home-key tap that
   // fires on release) so it never also turns a page.
   static bool lightWakeSwallow = false;
+  static bool lightTimedOut = false;  // the timeout dimmed it (not the flash duck)
   static unsigned long lightWakeHomeKeyUntil = 0;
-  if (userInputReceived && Frontlight.idleDimPercent() < 100) {
+  if (lightTimedOut && Frontlight.idleDimPercent() == 100) lightTimedOut = false;  // restored elsewhere
+  if (userInputReceived && lightTimedOut) {
+    lightTimedOut = false;
     Frontlight.setIdleDim(100);
     mappedInputManager.suppressCurrentTouchContact();
     lightWakeSwallow = true;
@@ -2283,9 +2346,11 @@ static void loopPass() {
       if (level < Frontlight.idleDimPercent()) {
         if (Frontlight.idleDimPercent() == 100) LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
         Frontlight.setIdleDim(level);
+        lightTimedOut = true;
       }
     }
   }
+  updateFlashDuck();
 
   // Let wake continue as soon as its hold has been verified. The release can
   // arrive after setup, so consume that one input frame rather than making it

@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <atomic>
 #include <EInkDisplay.h>
 
 class HalDisplay {
@@ -123,6 +124,10 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
+  // millis() when a flashing refresh started (a full-swing gray pass: when its
+  // planes started loading), 0 while none runs. The main loop dims the
+  // frontlight meanwhile.
+  uint32_t flashStartedMs() const { return flashStart.load(std::memory_order_relaxed); }
 
   // Tiled grayscale: stream one band of a plane (lsbPlane selects LSB/MSB RAM)
   // straight to the controller; supportsStripGrayscale() gates the path. See
@@ -145,6 +150,9 @@ class HalDisplay {
   uint32_t getBufferSize() const;
 
  private:
+  void markFlash(bool flashes);
+  std::atomic<uint32_t> flashStart{0};
+  bool smoothGray = false;
   EInkDisplay einkDisplay;
 };
 

@@ -687,6 +687,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint16_t frontlightScheduleEnd = 0xFFFF;
   // Idle light timeout: 1 / 2 / 5 / 10 min / Never (getFrontlightTimeoutMs).
   uint8_t frontlightTimeout = 4;
+  // Dim the frontlight while a refresh flashes the panel (gray pages, Half/Full, gray exit).
+  uint8_t frontlightFlashDuck = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Enabled keyboard layouts. Zero derives a default from the UI language;

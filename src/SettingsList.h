@@ -700,6 +700,8 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing,
                           {StrId::STR_STATE_OFF, StrId::STR_AA_SHARP, StrId::STR_AA_SMOOTH}, "textAntiAliasing",
                           StrId::STR_CAT_READER));
+    add(SettingInfo::Toggle(StrId::STR_FLASH_DUCK_LIGHT, &CrossPointSettings::frontlightFlashDuck,
+                            "frontlightFlashDuck", StrId::STR_CAT_READER));
     add(SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                           {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
                           "imageRendering", StrId::STR_CAT_READER));
@@ -1227,6 +1229,7 @@ inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<Se
   addSettingByName(settings, allSettings, StrId::STR_LINE_SPACING);
   addSettingByName(settings, allSettings, StrId::STR_WORD_SPACING);
   addSettingByName(settings, allSettings, StrId::STR_TEXT_AA);
+  if (Frontlight.present()) addSettingByName(settings, allSettings, StrId::STR_FLASH_DUCK_LIGHT);
   settings.push_back(SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
   addSettingByName(settings, allSettings, StrId::STR_SD_FONT_SIZE_RANGE);
   return settings;

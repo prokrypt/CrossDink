@@ -129,7 +129,9 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
     einkDisplay.requestResync(1);
   }
 
+  markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
+  flashStart.store(0, std::memory_order_relaxed);
 }
 
 void HalDisplay::setInverted(bool inverted) {
@@ -142,13 +144,18 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
     einkDisplay.requestResync(1);
   }
 
+  markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
   einkDisplay.displayBufferAsyncNoShadow(convertRefreshMode(mode));
 }
 
-void HalDisplay::waitRefreshComplete() { einkDisplay.waitRefreshComplete(); }
+void HalDisplay::waitRefreshComplete() {
+  einkDisplay.waitRefreshComplete();
+  flashStart.store(0, std::memory_order_relaxed);
+}
 
 void HalDisplay::displayBufferDeferred(HalDisplay::RefreshMode mode) {
   HalSpiBus::Lock spiLock;
+  markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
   einkDisplay.displayBufferAsync(convertRefreshMode(mode));
 }
 
@@ -167,7 +174,10 @@ bool HalDisplay::supportsAsyncGrayscaleBase() const { return grayscaleCapabiliti
 bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback, bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
   if (gpio.deviceIsX3() && fallback == HALF_REFRESH) einkDisplay.requestResync(1);
-  return einkDisplay.displayGrayscaleBase(mode, convertRefreshMode(fallback), turnOffScreen);
+  markFlash(mode == GrayscaleMode::Direct || fallback != FAST_REFRESH);
+  const bool shown = einkDisplay.displayGrayscaleBase(mode, convertRefreshMode(fallback), turnOffScreen);
+  flashStart.store(0, std::memory_order_relaxed);
+  return shown;
 }
 
 void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen) {
@@ -177,7 +187,9 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
     einkDisplay.requestResync(1);
   }
 
+  markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
+  flashStart.store(0, std::memory_order_relaxed);
 }
 
 bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
@@ -219,6 +231,7 @@ uint8_t* HalDisplay::lendFrameBufferStorage(uint32_t* sizeOut) { return einkDisp
 void HalDisplay::returnFrameBufferStorage() { einkDisplay.returnBuildStorage(); }
 
 void HalDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) {
+  markFlash(!smoothGray);
   einkDisplay.copyGrayscaleBuffers(lsbBuffer, msbBuffer);
 }
 
@@ -233,7 +246,9 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
     einkDisplay.requestResync(1);
   }
 
+  markFlash(fallback != RefreshMode::FAST_REFRESH);
   einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
+  flashStart.store(0, std::memory_order_relaxed);
 }
 
 void HalDisplay::preconditionGrayscale() { einkDisplay.preconditionGrayscale(); }
@@ -242,15 +257,31 @@ void HalDisplay::preconditionGrayscale(uint16_t x, uint16_t y, uint16_t w, uint1
   einkDisplay.preconditionGrayscale(x, y, w, h);
 }
 
-void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) { einkDisplay.copyGrayscaleLsbBuffers(lsbBuffer); }
+void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
+  markFlash(!smoothGray);
+  einkDisplay.copyGrayscaleLsbBuffers(lsbBuffer);
+}
+
+// Flashing refreshes: Half/Full, the repaint that leaves gray (grayOnPanel),
+// and full-swing gray passes. Gray planes load ~80 ms before their refresh, so
+// marking there lets the light dim first. Smooth gray holds B/W pixels (no
+// flash); ponytail: the SDK still swings a smooth pass it can't hold, undimmed.
+// Cleared when a refresh finishes; the main loop also drops a stale mark.
+void HalDisplay::markFlash(const bool flashes) {
+  if (flashes) flashStart.store(millis() | 1, std::memory_order_relaxed);  // | 1: never 0 while set
+}
 
 void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay.copyGrayscaleMsbBuffers(msbBuffer); }
 
-void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) { einkDisplay.cleanupGrayscaleBuffers(bwBuffer); }
+void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) {
+  flashStart.store(0, std::memory_order_relaxed);
+  einkDisplay.cleanupGrayscaleBuffers(bwBuffer);
+}
 
 void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
   einkDisplay.displayGrayBuffer(turnOffScreen);
+  flashStart.store(0, std::memory_order_relaxed);
 }
 
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
@@ -260,6 +291,7 @@ void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, ui
 }
 
 void HalDisplay::setSmoothGray(const bool smooth) {
+  smoothGray = smooth;
 #ifndef SIMULATOR  // the simulator panel has no waveform choice
   einkDisplay.setSmoothGray(smooth);
 #else
@@ -281,6 +313,7 @@ bool HalDisplay::fastTracksPanel() const {
 
 bool HalDisplay::displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) {
   HalSpiBus::Lock spiLock;
+  markFlash(fallback != RefreshMode::FAST_REFRESH);
   return einkDisplay.displayGrayscaleBaseAsync(convertRefreshMode(fallback));
 }
 
