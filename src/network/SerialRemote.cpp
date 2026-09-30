@@ -517,7 +517,12 @@ bool handleLine(const char* line) {
       RenderLock lock;
       display.displayBuffer(HalDisplay::FAST_REFRESH);
     }
-    reply("OK:OTPREAD %s", freeink::uc8179OtpReport());
+    const char* report = freeink::uc8179OtpReport();
+    if (strncmp(report, "ERR:", 4) == 0 || *report == '\0') {
+      reply("ERR:OTPREAD %s", report);
+    } else {
+      reply("OK:OTPREAD %s", report);
+    }
   } else if (strcmp(verb, "HOME") == 0) {
     activityManager.goHome();
     reply("OK:HOME");
