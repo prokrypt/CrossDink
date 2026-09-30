@@ -46,19 +46,17 @@ class GoodiesActivity final : public Activity {
 
  public:
   GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
-  // Root rows after Display test and Wi-Fi remote (frontlight boards only).
-  static constexpr int FLASH_DIM_ROW = 2;
-  static constexpr int FLASH_RESTORE_ROW = 3;
 
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
 
  private:
-  enum class Level : uint8_t { Root, DisplayTests };
+  enum class Level : uint8_t { Root, DisplayTests, Knobs };
+  static constexpr int KNOBS_ROW = 2;  // Root: Display test, Wi-Fi remote, Knobs, Battery & stats
   struct Entry {
     std::string label;
-    int builtIn;       // >= 0: display_script::BUILT_INS index
+    int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 header / Reset all
     std::string path;  // SD script when builtIn < 0
     std::string value = {};
   };
@@ -81,7 +79,8 @@ class GoodiesActivity final : public Activity {
   int remoteRowShown = -1;
 
   void toggleRemote();
-  void openFlashDuckKnob(int index);
+  void openKnob(int row);
+  void confirmResetKnobs();
   void refreshRemoteRow();
   void openRemotePicker();
   static int remoteRowState();

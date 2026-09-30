@@ -20,6 +20,15 @@
   starting the Wi-Fi driver) runs on its own task, so input and drawing never wait for it (logged as
   `join task N ms`). With no saved network, turning it on opens the Wi-Fi picker. While the idle server waits
   for requests, the device power saves as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
+- **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, grouped by area, as `id value unit`
+  (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
+  values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
+  deletes the file. Three boots in a row that never stay up 30 s move the file to `knobs.bad.json` and boot on
+  defaults (`KNOB` log lines). SDK values are pushed through `setUc8179Tuning()` / `InputManager::setTuning()`
+  (`-DFREEINK_TUNING=1`). Other builds read the same `KNOBS.<id>` as compile-time defaults. Display frame counts
+  only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
+  PLL bytes are never knobs (`kbdPll` picks panel default / 40 Hz / 50 Hz only). To add one: an `X(...)` row
+  whose default equals the constant, then read `KNOBS.<id>` where the constant was.
 
 Back stops a running test; Back again leaves the result screen.
 

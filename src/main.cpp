@@ -55,6 +55,7 @@
 #include "CrossPointState.h"
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
+#include "Knobs.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
@@ -1781,6 +1782,9 @@ void setup() {
   ReaderProgressShadow::recoverPending();
 
   SETTINGS.loadFromFile();
+#if CROSSDINK_GOODIES
+  knobs::load();
+#endif
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
@@ -2062,13 +2066,14 @@ static bool radioMayIdle() {
 // UC8179 the driver's DRF time plus the waveform's own offset, e.g. direct gray
 // holds white for 24 of 50 frames), and back up over FLASH_DUCK_UP_MS once the
 // refresh ends. A swing that shows at once (OTP Full/Half) cuts the light at
-// DRF. Goodies > Flash dim / restore offset shift both ends (flashDuckMs).
-// Runs alongside the refresh (render task) and never waits on it. A mark older
-// than FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends.
-constexpr unsigned long FLASH_DUCK_DOWN_MS = 80;
-constexpr unsigned long FLASH_DUCK_MAX_MS = 3000;
-constexpr unsigned long FLASH_DUCK_UP_MS = 300;
-constexpr uint32_t FLASH_DUCK_TICK_MS = 10;
+// DRF. Goodies > Knobs flashDimMs / flashRestoreMs shift both ends. Runs
+// alongside the refresh (render task) and never waits on it. A mark older than
+// FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends. The
+// times are Goodies > Knobs; a zero fade never divides (both ramps test it first).
+KNOB_ALIAS(FLASH_DUCK_DOWN_MS, flashDownMs);
+KNOB_ALIAS(FLASH_DUCK_MAX_MS, flashMaxMs);
+KNOB_ALIAS(FLASH_DUCK_UP_MS, flashUpMs);
+KNOB_ALIAS(FLASH_DUCK_TICK_MS, flashTickMs);
 static bool flashDuckActive = false;
 static uint8_t flashDuckLevel = 100;
 static unsigned long flashDuckUpStartMs = 0;
@@ -2077,7 +2082,7 @@ static uint32_t liveFlashStartMs() {
   const uint32_t startMs = display.flashStartedMs();
   // Signed: the swing can lie ahead, and is live until then.
   return startMs != 0 && static_cast<int32_t>(millis() - startMs) <= static_cast<int32_t>(FLASH_DUCK_MAX_MS) ? startMs
-                                                                                                            : 0;
+                                                                                                             : 0;
 }
 
 static void updateFlashDuck() {
@@ -2085,10 +2090,10 @@ static void updateFlashDuck() {
   const uint32_t swingMs = liveFlashStartMs();
   // Goodies offsets (later is positive). The refresh never waits on either: an
   // earlier dim than the driver can announce just cuts the light at DRF.
-  const int32_t dimMs = CrossPointSettings::flashDuckMs(SETTINGS.flashDuckDim);
-  const int32_t restoreMs = CrossPointSettings::flashDuckMs(SETTINGS.flashDuckRestore);
-  static uint32_t swingEndMs = 0;    // expected end of the swing being tracked
-  static uint32_t swingGoneMs = 0;   // when it ended (for a later restore)
+  const int32_t dimMs = KNOBS.flashDimMs;
+  const int32_t restoreMs = KNOBS.flashRestoreMs;
+  static uint32_t swingEndMs = 0;   // expected end of the swing being tracked
+  static uint32_t swingGoneMs = 0;  // when it ended (for a later restore)
   if (swingMs != 0) {
     swingEndMs = display.flashEndsMs();
     swingGoneMs = 0;
@@ -2098,8 +2103,8 @@ static void updateFlashDuck() {
   }
   // Up early: before the expected end (negative restore). Up late: hold dark
   // after the refresh ended (positive restore).
-  const bool restoreEarly = swingMs != 0 && restoreMs < 0 && swingEndMs != 0 &&
-                            static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
+  const bool restoreEarly =
+      swingMs != 0 && restoreMs < 0 && swingEndMs != 0 && static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
   const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
   // ms until the light should be out; the fade runs over the DOWN_MS before.
   const int32_t toDark = swingMs != 0 ? static_cast<int32_t>(swingMs + dimMs - now) : 0;
@@ -2421,7 +2426,7 @@ static void loopPass() {
     if (userInputReceived || anyInputHeld() || static_cast<long>(lightWakeHomeKeyUntil - millis()) > 0) return;
     lightWakeSwallow = false;
   }
-  constexpr unsigned long LIGHT_FADE_MS = 1000;
+  const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
   if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
     const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
@@ -2654,6 +2659,7 @@ static void loopPass() {
   activityManager.loop();
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
+  knobs::loop();
 #endif
 #if CROSSDINK_APP_CAP_TOUCH
   // A delayed Home event is valid for this activity dispatch only. If an

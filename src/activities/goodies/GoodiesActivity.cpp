@@ -2,11 +2,11 @@
 
 #if CROSSDINK_GOODIES
 
-#include <CrossDinkHalFrontlight.h>
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -25,6 +25,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -264,7 +265,7 @@ void updateOtaLight() {
   }
   if (!lit) return;
   light.update(streaming);
-  if (!streaming && millis() - lastStreamMs > 1500) {
+  if (!streaming && millis() - lastStreamMs > KNOBS.otaPulseGraceMs) {
     light.end();
     lit = false;
   }
@@ -358,29 +359,28 @@ void loop(const uint32_t idleMs) {
 }
 }  // namespace goodies_remote
 
+namespace {
+// Knob rows are debug-only English (ids as in Knobs.def, CMD:KNOB and
+// knobs.json), like the display test names: no I18n strings in release builds.
+constexpr int KNOB_HEADER = -1;
+constexpr int KNOB_RESET_ALL = -2;
+const char* editUnit = "";  // unit of the knob being edited, for formatKnob
+
+void formatKnob(const int value, char* buf, const size_t len) { snprintf(buf, len, "%d %s", value, editUnit); }
+
+std::string knobRowValue(const int index) {
+  char buf[32];
+  const int32_t v = knobs::get(index);
+  snprintf(buf, sizeof(buf), "%ld %s%s", static_cast<long>(v), knobs::INFO[index].unit,
+           v != knobs::INFO[index].def ? " *" : "");
+  return buf;
+}
+}  // namespace
+
 GoodiesActivity::GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : Activity("Goodies", renderer, mappedInput),
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {}
-
-namespace {
-// Flash dim / restore offsets: signed ms, later is positive.
-void formatFlashDuckMs(const int value, char* buf, const size_t len) {
-  const int32_t ms = CrossPointSettings::flashDuckMs(static_cast<uint8_t>(value));
-  snprintf(buf, len, ms > 0 ? "+%ld ms" : "%ld ms", static_cast<long>(ms));
-}
-
-std::string flashDuckRowValue(const uint8_t value) {
-  char buf[16];
-  formatFlashDuckMs(value, buf, sizeof(buf));
-  return buf;
-}
-
-uint8_t CrossPointSettings::* flashDuckKnob(const int index) {
-  return index == GoodiesActivity::FLASH_DIM_ROW ? &CrossPointSettings::flashDuckDim
-                                                 : &CrossPointSettings::flashDuckRestore;
-}
-}  // namespace
 
 void GoodiesActivity::onEnter() {
   Activity::onEnter();
@@ -398,14 +398,22 @@ void GoodiesActivity::showLevel(const Level next) {
   if (level == Level::Root) {
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
-    if (Frontlight.present()) {
-      entries.push_back({tr(STR_FLASH_DUCK_DIM), -1, {}, flashDuckRowValue(SETTINGS.flashDuckDim)});
-      entries.push_back({tr(STR_FLASH_DUCK_RESTORE), -1, {}, flashDuckRowValue(SETTINGS.flashDuckRestore)});
-    }
+    entries.push_back({"Knobs", -1, {}});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
 #endif
+  } else if (level == Level::Knobs) {
+    entries.reserve(knobs::COUNT + 16);
+    const char* group = "";
+    for (int i = 0; i < knobs::COUNT; ++i) {
+      if (strcmp(group, knobs::INFO[i].group) != 0) {
+        group = knobs::INFO[i].group;
+        entries.push_back({std::string("- ") + group + " -", KNOB_HEADER, {}});
+      }
+      entries.push_back({knobs::INFO[i].id, i, {}, knobRowValue(i)});
+    }
+    entries.push_back({"Reset all", KNOB_RESET_ALL, {}});
   } else {
     entries.reserve(display_script::BUILT_IN_COUNT + 8);
     for (int i = 0; i < display_script::BUILT_IN_COUNT; ++i) {
@@ -452,8 +460,8 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::DisplayTests);
     } else if (index == 1) {
       toggleRemote();
-    } else if (Frontlight.present() && (index == FLASH_DIM_ROW || index == FLASH_RESTORE_ROW)) {
-      openFlashDuckKnob(index);
+    } else if (index == KNOBS_ROW) {
+      showLevel(Level::Knobs);
     } else {
 #ifndef SIMULATOR
       startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
@@ -462,6 +470,14 @@ void GoodiesActivity::activate(const int index) {
                                requestUpdate();
                              });
 #endif
+    }
+    return;
+  }
+  if (level == Level::Knobs) {
+    if (entries[index].builtIn >= 0) {
+      openKnob(index);
+    } else if (entries[index].builtIn == KNOB_RESET_ALL) {
+      confirmResetKnobs();
     }
     return;
   }
@@ -479,29 +495,47 @@ int GoodiesActivity::remoteRowState() {
   return goodies_remote::wanted() ? 1 : 0;
 }
 
+// Applies at once (the SDK copies are pushed) and saves knobs.json.
+void GoodiesActivity::openKnob(const int row) {
+  const int index = entries[row].builtIn;
+  const knobs::Info& k = knobs::INFO[index];
+  editUnit = k.unit;
+  const int largeStep = std::max<int32_t>(k.step, std::min<int32_t>(k.step * 10, (k.max - k.min) / 4));
+  auto picker = std::make_unique<IntervalSelectionActivity>(
+      renderer, mappedInput, "KnobEdit", StrId::STR_GOODIES, knobs::get(index), k.min, k.max, k.step, largeStep,
+      StrId::STR_NONE_OPT, /*readerActivity=*/false, /*allowPowerAsConfirm=*/false,
+      /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/false, StrId::STR_NONE_OPT,
+      /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true, formatKnob,
+      /*tapStep=*/k.step, /*useReaderSlider=*/true);
+  picker->setTitle(k.id);
+  startActivityForResult(std::move(picker), [this, row, index](const ActivityResult& result) {
+    mappedInput.suppressNextConfirmRelease();
+    if (!result.isCancelled) {
+      knobs::set(index, std::get<IntervalResult>(result.data).value);
+      RenderLock lock(*this);
+      entries[row].value = knobRowValue(index);
+      rowItems[row].value = entries[row].value.c_str();
+    }
+    requestUpdate();
+  });
+}
 
-// Live: the main loop reads the value on its next tick, so the next flash uses it.
-void GoodiesActivity::openFlashDuckKnob(const int index) {
-  uint8_t CrossPointSettings::* const knob = flashDuckKnob(index);
-  startActivityForResult(
-      std::make_unique<IntervalSelectionActivity>(
-          renderer, mappedInput, "FlashDuckKnob",
-          index == FLASH_DIM_ROW ? StrId::STR_FLASH_DUCK_DIM : StrId::STR_FLASH_DUCK_RESTORE, SETTINGS.*knob, 0,
-          CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1, 5, StrId::STR_NONE_OPT, /*readerActivity=*/false,
-          /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/false,
-          StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
-          formatFlashDuckMs, /*tapStep=*/1, /*useReaderSlider=*/true),
-      [this, index, knob](const ActivityResult& result) {
-        mappedInput.suppressNextConfirmRelease();
-        if (!result.isCancelled) {
-          SETTINGS.*knob = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
-          SETTINGS.saveToFile();
-          RenderLock lock(*this);
-          entries[index].value = flashDuckRowValue(SETTINGS.*knob);
-          rowItems[index].value = entries[index].value.c_str();
-        }
-        requestUpdate();
-      });
+void GoodiesActivity::confirmResetKnobs() {
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Reset all knobs?",
+                                                                "Defaults for every knob; knobs.json is deleted."),
+                         [this](const ActivityResult& result) {
+                           mappedInput.suppressNextConfirmRelease();
+                           if (!result.isCancelled) {
+                             knobs::resetAll();
+                             RenderLock lock(*this);
+                             for (size_t row = 0; row < entries.size(); ++row) {
+                               if (entries[row].builtIn < 0) continue;
+                               entries[row].value = knobRowValue(entries[row].builtIn);
+                               rowItems[row].value = entries[row].value.c_str();
+                             }
+                           }
+                           requestUpdate();
+                         });
 }
 
 std::string GoodiesActivity::remoteRowValue() {
@@ -640,7 +674,7 @@ void GoodiesActivity::buildListScreen(UiApp::ScreenType& screen) {
 
 void GoodiesActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const char* title = level == Level::Root ? tr(STR_GOODIES) : tr(STR_DISPLAY_TEST);
+  const char* title = level == Level::Root ? tr(STR_GOODIES) : level == Level::Knobs ? "Knobs" : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);

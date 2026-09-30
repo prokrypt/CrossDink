@@ -1,0 +1,35 @@
+// Goodies > Knobs, one row each: X(group, id, type, default, min, max, step, unit).
+// type and default are the constant's own, so release builds are unchanged.
+// Never add LUT shapes, VCOM, voltages, TSSET, PSR/CDI/power registers, raw
+// PLL bytes, CPU/PM config, task stacks or anything that sizes an array:
+// display frame counts reach only the SDK's DC-balance-gated LUT generators.
+// Included once per expansion (no include guard).
+
+// Display: SDK Uc8179Driver (setUc8179Tuning) and the Turbo keyboard
+X("Display", paintFrames, uint8_t, 12, 6, 24, 1, "fr")                 // exit paint / smooth base DU frames per phase
+X("Display", coldDivisor, uint8_t, 3, 0, 10, 1, "1/n")                 // cold panel adds frames / n, 0 = none
+X("Display", heldRedriveFrames, uint8_t, 8, 0, 16, 4, "fr")            // smooth held-pixel re-drive, prebuilt sets
+X("Display", coldC, int8_t, 15, -10, 40, 1, "C")                       // panel counts as cold below this
+X("Display", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          // idle temperature sample
+X("Display", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
+X("Display", tempMaxAgeMs, uint32_t, 600000, 60000, 3600000, 60000, "ms")        // older samples ignored
+X("Display", kbdFrames, uint8_t, 4, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
+X("Display", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo keyboard PLL: panel, 1 = 40 Hz, 2 = 50 Hz
+
+// Frontlight
+X("Light", flashDimMs, int32_t, 0, -200, 200, 10, "ms")                // flash duck: dark this much after the swing
+X("Light", flashRestoreMs, int32_t, 0, -200, 200, 10, "ms")            // flash duck: back up this much after the end
+X("Light", flashDownMs, unsigned long, 80, 0, 500, 10, "ms")           // flash duck fade out
+X("Light", flashUpMs, unsigned long, 300, 0, 2000, 50, "ms")           // flash duck fade in
+X("Light", flashMaxMs, unsigned long, 3000, 500, 10000, 500, "ms")     // a flash mark older than this is dropped
+X("Light", flashTickMs, uint32_t, 10, 5, 50, 5, "ms")                  // main loop tick while ducking
+X("Light", lightFadeMs, unsigned long, 1000, 0, 5000, 100, "ms")       // Light Timeout fade
+X("Light", pulseCycleMs, uint32_t, 1000, 200, 5000, 100, "ms")         // transfer pulse period
+X("Light", pulsePeakPct, uint8_t, 25, 20, 100, 1, "%")                 // transfer pulse peak (above any floor)
+X("Light", pulseFloorPct, uint8_t, 10, 0, 20, 1, "%")                  // pulse floor when the light was on
+X("Light", pulseTailMs, unsigned long, 250, 0, 2000, 50, "ms")         // transfer counts as active this long after
+X("Light", pulseWriteMs, uint32_t, 20, 10, 100, 5, "ms")               // min gap between pulse writes (loop tick)
+X("Light", pulseHoldMs, uint32_t, 10000, 0, 60000, 1000, "ms")         // a lit light keeps its level this long first
+X("Light", otaPulseGraceMs, uint32_t, 1500, 0, 10000, 250, "ms")       // OTA pulse ends this long after the stream
+X("Light", panelStep, int, 5, 1, 20, 1, "%")                           // Frontlight panel button step
+X("Light", panelFineStep, int, 1, 1, 10, 1, "%")                       // Frontlight panel touch step

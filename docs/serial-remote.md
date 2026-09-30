@@ -26,6 +26,7 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:HEAP` | `OK:HEAP internal_free=.. internal_min=.. internal_largest=.. psram_free=.. psram_largest=..` | |
 | `CMD:SET <key> <value>` | `OK:SET <key> <value>` | Toggle, enum (raw value) or numeric setting by its web API key; saved to SD. |
 | `CMD:KBDEXP <flags> [frames] [pll]` / `CMD:KBDEXP off` | `OK:KBDEXP ...` | Sets or clears a keyboard refresh override in RAM (no SD write); applied at the next keyboard open, kept until `off` or reboot. `pll` (0x30 value) applies with or without flag 4. |
+| `CMD:KNOB list [from]` / `get <id>` / `set <id> <value>` / `reset [<id>]` | `OK:KNOB ...` | Goodies > Knobs ([goodies.md](goodies.md)). `list` pages `id=value` pairs from index `from` (`next=N` while more remain); `get` adds default, min, max, step and unit; `set` clamps and snaps to the step, applies at once and saves `knobs.json`; `reset` without an id resets all and deletes the file. |
 | `CMD:REFRESH [fast\|half\|full]` | `OK:REFRESH` | Re-sends the current framebuffer. |
 | `CMD:HOME` | `OK:HOME` | |
 | `CMD:OPEN <path>` | `OK:OPEN` | Opens a book in the reader. |

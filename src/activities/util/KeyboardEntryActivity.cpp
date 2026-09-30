@@ -5,6 +5,7 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <Logging.h>
 #ifndef SIMULATOR
 #include <FreeInkDisplay.h>
@@ -208,8 +209,10 @@ void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
-  kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
-  kbdExpPll = 0;
+  kbdExpFrames = KNOBS.kbdFrames;
+  // Goodies > Knobs kbdPll picks from a whitelist only: panel default, 40 or 50 Hz.
+  static constexpr uint8_t kPll[] = {0, 0x05, 0x06};
+  kbdExpPll = kPll[KNOBS.kbdPll];
   kbdExpFirstFrame = true;
   if (gKbdExpOverride.active) {
     kbdExpFlags = gKbdExpOverride.flags;
