@@ -79,6 +79,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Check for update now looks at CrossDink's own GitHub releases instead of upstream CrossInk's, so an upstream release can no longer be offered and flashed over CrossDink. It only accepts a release firmware for this device (`firmware-<device>-v<version>.bin`).
 - X4 Pro: the header and other still text no longer fade on screens that repaint progress over and over (file transfer, Calibre, Nearby transfer, OPDS and font downloads, OTA update). Those repaints now use the keyboard's fast waveform, which re-darkens unchanged black pixels.
 - OPDS: book downloads run in the background, so Back and the Cancel button stop them at any point (the partial file is deleted) and the screen shows Connecting until the first byte arrives. Downloads also start sooner: the free-space check no longer scans the whole SD card first.
 - Keyboard: kbd-exp.txt is only read by debug builds.
