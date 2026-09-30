@@ -472,6 +472,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
 
   // Store AP mode flag for later use (e.g., in handleStatus)
   apMode = isInApMode;
+  logOnly_ = logOnly;
 
   LOG_DBG("WEB", "[MEM] Free heap before begin: %d bytes", ESP.getFreeHeap());
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
@@ -529,75 +530,9 @@ void CrossPointWebServer::begin(const bool logOnly) {
     server->collectHeaders(remoteHeaders, 1);
     server->begin();
   } else {
-    server->on("/", HTTP_GET, [this] { handleRoot(); });
-    server->on("/files", HTTP_GET, [this] { handleFileList(); });
-    server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
-    server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
-    server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
-
-    server->on("/api/status", HTTP_GET, [this] {
-      releasePollHold();
-      handleStatus();
-    });
-    server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
-    server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
-    server->on("/download", HTTP_GET, [this] { handleDownload(); });
-
-    // Upload endpoint with special handling for multipart form data
-    server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
-
-    // Create folder endpoint
-    server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
-
-    // Rename file endpoint
-    server->on("/rename", HTTP_POST, [this] { handleRename(); });
-
-    // Move file endpoint
-    server->on("/move", HTTP_POST, [this] { handleMove(); });
-
-    // Delete file/folder endpoint
-    server->on("/delete", HTTP_POST, [this] { handleDelete(); });
-
-    // Settings endpoints
-    server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
-    server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
-    server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
-    server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
-    server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
-
-    // Font management endpoints
-    server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
-    server->on("/logs", HTTP_GET, [this] { handleLogsPage(); });
-    server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
-    server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
-    server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
-
-    // OPDS server endpoints
-    server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
-    server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
-    server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
-
-    // Wi-Fi credential endpoints
-    server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
-    server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
-    server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
-
-    // Collect WebDAV headers and register handler
-    const char* davHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
-                                "Lock-Token", "Timeout",     "If-None-Match", "X-Token"};
-    server->collectHeaders(davHeaders, 8);
-    server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
-
+    registerFullRoutes();
     server->begin();
-
-    // Start WebSocket server for fast binary uploads
-    wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
-    wsInstance = const_cast<CrossPointWebServer*>(this);
-    wsServer->begin();
-    wsServer->onEvent(wsEventCallback);
-
-    udpActive = udp.begin(LOCAL_UDP_PORT);
-    LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+    startWsAndUdp();
   }
   psramSmallAllocs.end();
 
@@ -610,28 +545,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   if (!serverStopped) serverStopped = xSemaphoreCreateBinary();
   stopRequested.store(false, std::memory_order_relaxed);
   running.store(true, std::memory_order_release);
-  // Internal-RAM stack (8 KB) only while the server runs: handlers write to
-  // the SD card, and task stacks must stay reachable while flash is busy.
-  // The log-only server has no such handlers, so its stack goes to PSRAM
-  // (internal fallback). UI core: on core 0 with Wi-Fi, lwIP and the loop,
-  // uploads held core 0 at 92% (WebServer 36%) while core 1 did ~20%. The
-  // upload writer takes core 0.
-  // Set before the task can run: serverTaskMain reads it to decide how to exit.
-  serverTaskPsram = logOnly;
-  if (serverTaskPsram &&
-      (!stateMutex || !serverStopped ||
-       xTaskCreatePinnedToCoreWithCaps(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
-                                       TaskCores::kUi, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)) {
-    serverTaskPsram = false;
-  }
-  if (!stateMutex || !serverStopped ||
-      (!serverTaskPsram && xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2,
-                                                   &serverTask, TaskCores::kUi) != pdPASS)) {
-    LOG_ERR("WEB", "Failed to start web server task");
-    serverTask = nullptr;
-    stop();
-    return;
-  }
+  if (!startServeTask(logOnly)) return;
 
   // Show the correct IP based on network mode
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
@@ -654,6 +568,128 @@ void CrossPointWebServer::abortWsUpload(const char* tag) {
   wsUploadClientNum = 255;
   wsLastProgressSent = 0;
   wsUploadPowerSaveGuard.reset();
+}
+
+void CrossPointWebServer::registerFullRoutes() {
+  server->on("/", HTTP_GET, [this] { handleRoot(); });
+  server->on("/files", HTTP_GET, [this] { handleFileList(); });
+  server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
+  server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
+  server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
+
+  server->on("/api/status", HTTP_GET, [this] {
+    releasePollHold();
+    handleStatus();
+  });
+  server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
+  server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+  server->on("/download", HTTP_GET, [this] { handleDownload(); });
+
+  // Upload endpoint with special handling for multipart form data
+  server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
+
+  // Create folder endpoint
+  server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
+
+  // Rename file endpoint
+  server->on("/rename", HTTP_POST, [this] { handleRename(); });
+
+  // Move file endpoint
+  server->on("/move", HTTP_POST, [this] { handleMove(); });
+
+  // Delete file/folder endpoint
+  server->on("/delete", HTTP_POST, [this] { handleDelete(); });
+
+  // Settings endpoints
+  server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
+  server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
+  server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+  server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
+  server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
+
+  // Font management endpoints
+  server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
+  server->on("/logs", HTTP_GET, [this] { handleLogsPage(); });
+  server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
+  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
+  server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+  // OPDS server endpoints
+  server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
+  server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
+  server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
+
+  // Wi-Fi credential endpoints
+  server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
+  server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
+  server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+
+  // Collect WebDAV headers and register handler
+  const char* davHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
+                              "Lock-Token", "Timeout",     "If-None-Match", "X-Token"};
+  server->collectHeaders(davHeaders, 8);
+  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+}
+
+void CrossPointWebServer::startWsAndUdp() {
+  // Start WebSocket server for fast binary uploads
+  wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
+  wsInstance = const_cast<CrossPointWebServer*>(this);
+  wsServer->begin();
+  wsServer->onEvent(wsEventCallback);
+
+  udpActive = udp.begin(LOCAL_UDP_PORT);
+  LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+}
+
+bool CrossPointWebServer::startServeTask(const bool psramStack) {
+  // Internal-RAM stack (8 KB) only while the server runs: handlers write to
+  // the SD card, and task stacks must stay reachable while flash is busy.
+  // The log-only server has no such handlers, so its stack goes to PSRAM
+  // (internal fallback). UI core: on core 0 with Wi-Fi, lwIP and the loop,
+  // uploads held core 0 at 92% (WebServer 36%) while core 1 did ~20%. The
+  // upload writer takes core 0.
+  // Set before the task can run: serverTaskMain reads it to decide how to exit.
+  serverTaskPsram = psramStack;
+  if (serverTaskPsram &&
+      (!stateMutex || !serverStopped ||
+       xTaskCreatePinnedToCoreWithCaps(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
+                                       TaskCores::kUi, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)) {
+    serverTaskPsram = false;
+  }
+  if (!stateMutex || !serverStopped ||
+      (!serverTaskPsram && xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2,
+                                                   &serverTask, TaskCores::kUi) != pdPASS)) {
+    LOG_ERR("WEB", "Failed to start web server task");
+    serverTask = nullptr;
+    stop();
+    return false;
+  }
+
+  return true;
+}
+
+bool CrossPointWebServer::upgradeToFull() {
+  if (!running || !server || !logOnly_ || apMode) return false;
+  // Park the log-only serving task. The listening socket stays open, so a
+  // client arriving meanwhile waits in lwIP's backlog instead of being refused.
+  stopRequested.store(true, std::memory_order_release);
+  if (serverTask) {
+    xSemaphoreTake(serverStopped, portMAX_DELAY);
+    if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
+    serverTask = nullptr;
+  }
+  {
+    PsramSmallAllocScope psramSmallAllocs;
+    registerFullRoutes();
+    startWsAndUdp();
+  }
+  logOnly_ = false;
+  stopRequested.store(false, std::memory_order_relaxed);
+  // Full handlers write the SD card: internal-RAM stack, as begin(false).
+  if (!startServeTask(/*psramStack=*/false)) return false;
+  LOG_INF("WEB", "log-only server upgraded to full in place");
+  return true;
 }
 
 void CrossPointWebServer::stop() {

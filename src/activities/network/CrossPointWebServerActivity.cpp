@@ -335,8 +335,13 @@ void CrossPointWebServerActivity::startAccessPoint() {
 
 void CrossPointWebServerActivity::startWebServer() {
   // Create the web server instance
-  webServer.reset(new CrossPointWebServer());
-  webServer->begin();
+#if CROSSDINK_GOODIES
+  webServer = goodies_remote::takeServer();  // the running remote's server, no socket closed
+#endif
+  if (!webServer) {
+    webServer.reset(new CrossPointWebServer());
+    webServer->begin();
+  }
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;

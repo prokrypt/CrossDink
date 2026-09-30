@@ -240,16 +240,24 @@ void pause(const bool keepStation) {
   rejoinAfterPause = true;
   if (!remoteServer && !rejoining && !joinPending) return;
   if (keepStation && keepsStation()) {
-    // Only port 80 changes hands; the screen reuses the association.
-    CrossPointWebServer* server = detachServer();
-    if (server) server->stop();
-    delete server;
-    MDNS.end();
-    LOG_INF("GDY", "wifi remote paused, link kept");
+    // The screen reuses the association and adopts the server (takeServer).
+    LOG_INF("GDY", "wifi remote paused, link and server kept for the screen");
     return;
   }
   stopServerAndRadio();
   LOG_INF("GDY", "wifi remote paused");
+}
+
+std::unique_ptr<CrossPointWebServer> takeServer() {
+  if (!remoteServer) return {};
+  std::unique_ptr<CrossPointWebServer> server(detachServer());
+  if (keepsStation() && server->upgradeToFull()) {
+    LOG_INF("GDY", "wifi remote: server handed to the screen");
+    return server;
+  }
+  server->stop();  // no-op when the failed upgrade already stopped it
+  MDNS.end();
+  return {};
 }
 
 void stop() {
@@ -322,10 +330,11 @@ void loop(const uint32_t idleMs) {
     const RadioOwner left = radioOwner;
     radioOwner = owner;
     sharedStartTried = false;
-    // A shared screen (OPDS, OTA check, ...) that left the link up: the remote
-    // served on it throughout, so nothing to restart.
-    const bool sharedLinkKept = left == RadioOwner::Shared && owner == RadioOwner::None && remoteServer &&
-                                WiFi.getMode() == WIFI_MODE_STA && hasActiveStationWifiConnection();
+    // A screen that left the link up and never took the server (OPDS, KOSync,
+    // a File Transfer backed out of the Wi-Fi picker): the remote served on it
+    // throughout, so nothing to restart. Same IP: same interface setup.
+    const bool sharedLinkKept = owner == RadioOwner::None && remoteServer && WiFi.getMode() == WIFI_MODE_STA &&
+                                hasActiveStationWifiConnection() && remoteIp == WiFi.localIP().toString().c_str();
     if (left != RadioOwner::None && owner != RadioOwner::Screen && !sharedLinkKept) {
       // Whatever the screen left behind (Wi-Fi off or deinitialized, another
       // network, AP mode), the old server's sockets can't be trusted.

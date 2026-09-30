@@ -95,6 +95,12 @@ class CrossPointWebServer {
   // so nothing touches the SD card or I2C behind other screens.
   void begin(bool logOnly = false);
 
+  // A running log-only STA server takes on every route (files, settings,
+  // WebSocket, discovery) without closing its socket: File Transfer and
+  // Calibre adopt the Goodies remote's server. False, still log-only or
+  // stopped, when it can't (not log-only, AP mode, task start failed).
+  bool upgradeToFull();
+
   // Stop the web server. Waits for the serving task to finish its current
   // request, so never call it from a request handler.
   void stop();
@@ -132,12 +138,16 @@ class CrossPointWebServer {
   uint16_t getPort() const { return port; }
 
  private:
+  void registerFullRoutes();
+  void startWsAndUdp();
+  bool startServeTask(bool psramStack);
   std::unique_ptr<PendingAwareWebServer> server = nullptr;
   std::unique_ptr<BoundedCloseWebSocketsServer> wsServer = nullptr;
   std::atomic<bool> running{false};
   std::atomic<bool> exitRequestPending{false};  // set by POST /api/exit, consumed by the activity
   std::string exitFlashPath;                    // optional `flash` argument of POST /api/exit; stateMutex
   bool apMode = false;                          // true when running in AP mode, false for STA mode
+  bool logOnly_ = false;                        // begin(true): just the remote's routes
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;

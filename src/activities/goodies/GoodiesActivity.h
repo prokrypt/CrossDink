@@ -4,11 +4,14 @@
 #include <FreeInkUIGfxRenderer.h>
 
 #include <atomic>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
+
+class CrossPointWebServer;
 
 // Background Wi-Fi remote (Goodies > Wi-Fi remote): a log-only web server
 // that outlives Goodies, so /api/psram-log answers while other screens run.
@@ -29,8 +32,13 @@ void waitForJoin();
 void stop();
 // A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
 // keepStation: the screen joins as a station (not AP), so a link to the
-// remote's own network stays up for it to reuse; only the server stops.
+// remote's own network stays up for it to reuse, and so does the server,
+// for takeServer().
 void pause(bool keepStation = false);
+// A station screen that needs the full web server (File Transfer, Calibre):
+// the remote's running server, upgraded in place (no socket closed), when the
+// link is still the remote's network. Empty otherwise: begin a new server.
+std::unique_ptr<CrossPointWebServer> takeServer();
 // The remote is on and the radio is a station on the remote's network: a
 // leaving Wi-Fi screen should hand the link back instead of tearing it down.
 bool keepsStation();
