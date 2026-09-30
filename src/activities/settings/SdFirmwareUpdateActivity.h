@@ -39,6 +39,7 @@ class SdFirmwareUpdateActivity : public Activity {
         scrubOpeningFrame(!this->preselectedPath.empty()) {}
 
   void onEnter() override;
+  bool scrubOnShow() const override { return false; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;

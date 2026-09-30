@@ -43,6 +43,7 @@ class CalibreConnectActivity final : public Activity {
   explicit CalibreConnectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool returnToReader = false)
       : Activity("CalibreConnect", renderer, mappedInput), returnToReader(returnToReader) {}
   void onEnter() override;
+  bool scrubOnShow() const override { return false; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;

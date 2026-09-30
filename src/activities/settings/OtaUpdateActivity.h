@@ -34,6 +34,7 @@ class OtaUpdateActivity : public Activity {
   explicit OtaUpdateActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("OtaUpdate", renderer, mappedInput), updater() {}
   void onEnter() override;
+  bool scrubOnShow() const override { return false; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;

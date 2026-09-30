@@ -64,6 +64,10 @@ class HalDisplay {
   // redrawn at once. Every other display call finishes the refresh first.
   // Night Mode, X3 and panels without deferral take the blocking path.
   void displayBufferDeferred(RefreshMode mode = RefreshMode::FAST_REFRESH);
+  // UC8179 only: the next display call, if it is a FAST refresh, runs as a
+  // no-flash DU scrub of `frames` LUT frames. Any other refresh drops the
+  // request. Render-task state.
+  void scrubNextFastRefresh(uint8_t frames);
   // True while a started refresh has not been finished with waitRefreshComplete().
   bool isRefreshPending() const;
   // True while that refresh's waveform is still running on the panel.
@@ -138,7 +142,10 @@ class HalDisplay {
   uint32_t getBufferSize() const;
 
  private:
+  void takeScrubRequest(RefreshMode mode);
+
   EInkDisplay einkDisplay;
+  uint8_t scrubFramesNext = 0;
 };
 
 extern HalDisplay display;

@@ -24,6 +24,7 @@ class NearbyBookTransferActivity final : public Activity {
   ~NearbyBookTransferActivity() override;
 
   void onEnter() override;
+  bool scrubOnShow() const override { return false; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
