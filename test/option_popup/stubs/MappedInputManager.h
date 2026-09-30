@@ -56,6 +56,8 @@ class MappedInputManager {
     return true;
   }
 
+  bool wasTapOrHeld() const { return false; }  // no tapped-row frame in these tests
+
   SwipeDir wasSwipe() const {
     const SwipeDir result = swipe;
     swipe = SwipeDir::None;
