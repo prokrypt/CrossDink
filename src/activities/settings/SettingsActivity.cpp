@@ -1170,7 +1170,7 @@ void SettingsActivity::toggleCurrentSetting() {
                                  SETTINGS.saveToFile();
                                  // Settings only manages credentials; no parent needs the connection.
                                  // Cancelled selections already stop WiFi in the picker.
-                                 if (WiFi.getMode() == WIFI_MODE_NULL) return;
+                                 if (WiFi.getMode() == WIFI_MODE_NULL || keepWifiForRemote()) return;
                                  WiFi.disconnect(false);
                                  delay(30);
                                  if (!WiFi.mode(WIFI_OFF)) {

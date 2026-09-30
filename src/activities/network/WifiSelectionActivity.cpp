@@ -22,6 +22,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
+#include "SilentRestart.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/TouchActionButtons.h"
@@ -30,6 +31,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "network/WifiUtils.h"
 
 namespace fui = freeink::ui;
 
@@ -408,7 +410,7 @@ void WifiSelectionActivity::onExit() {
 
   // Successful connections leave WiFi up for the parent activity. Canceled
   // flows own their cleanup because no parent may be present to tear WiFi down.
-  if (tearDownWifiOnExit) {
+  if (tearDownWifiOnExit && !keepWifiForRemote()) {
 #ifndef SIMULATOR
     sConnectionAttemptLoggingActive = false;
 #endif
@@ -798,6 +800,12 @@ void WifiSelectionActivity::attemptConnection() {
       state = WifiSelectionState::CONNECTION_FAILED;
       requestUpdate();
     }
+    return;
+  }
+  // Already on this network (the Goodies remote's link): reuse it. The status
+  // poll sees WL_CONNECTED and finishes as for a fresh join.
+  if (hasActiveStationWifiConnection() && WiFi.SSID() == selectedSSID.c_str()) {
+    LOG_INF("WIFI", "Already connected to %s, reusing the link", selectedSSID.c_str());
     return;
   }
   // Abort any in-progress SDK auto-connect before our explicit begin().

@@ -128,6 +128,7 @@ constexpr uint32_t NET_TASK_STACK_BYTES = 14 * 1024;
 // teardown on exit, so no settle delays here.
 void wifiOff() {
   KOReaderSyncClient::endSession();
+  if (keepWifiForRemote()) return;  // the Goodies remote's link
   WiFi.disconnect(false);
   WiFi.mode(WIFI_OFF);
 }

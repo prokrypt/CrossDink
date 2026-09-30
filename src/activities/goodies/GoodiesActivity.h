@@ -28,7 +28,12 @@ void waitForJoin();
 // Toggle off: server and Wi-Fi off, forgets the toggle.
 void stop();
 // A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
-void pause();
+// keepStation: the screen joins as a station (not AP), so a link to the
+// remote's own network stays up for it to reuse; only the server stops.
+void pause(bool keepStation = false);
+// The remote is on and the radio is a station on the remote's network: a
+// leaving Wi-Fi screen should hand the link back instead of tearing it down.
+bool keepsStation();
 // The idle server lets the main loop power save, as File Transfer's does.
 bool allowsRadioIdleSleep();
 // Main loop: once no Wi-Fi screen (Activity::usesWifi) is on the stack, or

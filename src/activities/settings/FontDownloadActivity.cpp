@@ -198,7 +198,7 @@ void FontDownloadActivity::onEnter() {
 void FontDownloadActivity::onExit() {
   Activity::onExit();
 
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  if (WiFi.getMode() != WIFI_MODE_NULL && (fontsChanged_ || !keepWifiForRemote())) {
     WiFi.disconnect(false);
     delay(30);
     if (fontsChanged_) {

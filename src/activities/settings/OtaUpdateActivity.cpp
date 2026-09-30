@@ -110,6 +110,8 @@ void OtaUpdateActivity::onExit() {
   // here with wifi still active; silent-restart to free the LWIP/mbedTLS
   // fragmentation, same as the other wifi activities.
   if (WiFi.getMode() != WIFI_MODE_NULL) {
+    // The Goodies remote's link stays when the heap allows; else restart as before.
+    if (keepWifiForRemote() && leaveNetworkInPlace()) return;
     WiFi.disconnect(false);
     delay(30);
     silentRestart();

@@ -230,9 +230,24 @@ bool takePickerRequest() {
   return requested;
 }
 
-void pause() {
+bool keepsStation() {
+  if (!remoteWanted() || WiFi.getMode() != WIFI_MODE_STA || !hasActiveStationWifiConnection()) return false;
+  remoteSsid[sizeof(remoteSsid) - 1] = '\0';
+  return WiFi.SSID() == remoteSsid;
+}
+
+void pause(const bool keepStation) {
   rejoinAfterPause = true;
   if (!remoteServer && !rejoining && !joinPending) return;
+  if (keepStation && keepsStation()) {
+    // Only port 80 changes hands; the screen reuses the association.
+    CrossPointWebServer* server = detachServer();
+    if (server) server->stop();
+    delete server;
+    MDNS.end();
+    LOG_INF("GDY", "wifi remote paused, link kept");
+    return;
+  }
   stopServerAndRadio();
   LOG_INF("GDY", "wifi remote paused");
 }
@@ -307,7 +322,11 @@ void loop(const uint32_t idleMs) {
     const RadioOwner left = radioOwner;
     radioOwner = owner;
     sharedStartTried = false;
-    if (left != RadioOwner::None && owner != RadioOwner::Screen) {
+    // A shared screen (OPDS, OTA check, ...) that left the link up: the remote
+    // served on it throughout, so nothing to restart.
+    const bool sharedLinkKept = left == RadioOwner::Shared && owner == RadioOwner::None && remoteServer &&
+                                WiFi.getMode() == WIFI_MODE_STA && hasActiveStationWifiConnection();
+    if (left != RadioOwner::None && owner != RadioOwner::Screen && !sharedLinkKept) {
       // Whatever the screen left behind (Wi-Fi off or deinitialized, another
       // network, AP mode), the old server's sockets can't be trusted.
       if (remoteServer) remoteServer->stop();
