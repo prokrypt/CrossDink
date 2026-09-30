@@ -145,6 +145,7 @@
 ### Fixed
 - X4 Pro: every reboot (update, restart into Wi-Fi or the reader, remote reboot) now switches the screen's power off first, instead of leaving it powered until the reset.
 - X4 Pro (Softfast): black pixels that stay the same across page turns (the status bar, overlapping text) get a short balanced re-drive at the end of each turn, so they no longer fade; a turn right after a skipped gray pass draws its text as dark as a regular turn; register waveforms run at the panel's own voltages and VCOM; balanced repaints run longer on a cold panel.
+- X4 Pro (Sharpflash, and Softfast's first page after opening a book or closing a menu): the anti-aliased page draws in one flash, instead of showing black-and-white text, flashing, then the gray. It also appears sooner.
 - OPDS: loading catalog pages and downloads uses 2 KB less of the main task's stack (the network read buffer moved off the stack).
 - Logs: download URLs are logged without their query string, so signed download tokens stay out of logs, and a line cut at the length limit still ends with a newline instead of running into the next one.
 - X4 Pro (Softfast): the reader's top and bottom panels and other menus opened over an anti-aliased page draw their black text with a longer balanced repaint (about 0.5 s more when opening them).
