@@ -208,16 +208,7 @@ void OpdsBookBrowserActivity::onExit() {
 #ifndef SIMULATOR
   // OPDS launches from minimal network boot, so the full app state is
   // restored even if setup failed before WiFi was started.
-  if (!leaveNetworkInPlace()) {
-    if (!openAfterExit.empty()) {
-      // goToReader() is lost across the reboot: reopen the book from APP_STATE.
-      APP_STATE.openEpubPath = openAfterExit;
-      APP_STATE.saveToFile();
-      silentRestartToReader();
-    } else {
-      silentRestart();
-    }
-  }
+  leaveNetworkAfterExit(std::move(openAfterExit));
 #endif
 }
 

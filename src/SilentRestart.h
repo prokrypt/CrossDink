@@ -56,6 +56,13 @@ void silentRestartToManageFonts();
 // work; the caller then falls back to its silent restart. True during deep
 // sleep, so callers go on with their normal cleanup.
 bool leaveNetworkInPlace();
+// For a Wi-Fi screen's onExit(): runs leaveNetworkInPlace() once the screen is
+// destroyed (finishNetworkExit()), so its leftover allocations don't split the
+// block the check needs. If that fails it restarts into `bookPath`, or Home
+// when empty.
+void leaveNetworkAfterExit(std::string bookPath);
+// ActivityManager, after destroying a screen: runs a pending leaveNetworkAfterExit().
+void finishNetworkExit();
 // Reboots to home, then opens SD Card Firmware Update for `firmwarePath` (which
 // still asks for confirmation). Paths of MAX_SILENT_FIRMWARE_PATH bytes or more
 // fall back to a plain silentRestart().

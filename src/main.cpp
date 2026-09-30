@@ -657,6 +657,29 @@ bool leaveNetworkInPlace() {
   return true;
 }
 
+static bool networkExitPending = false;
+static std::string networkExitBook;
+
+void leaveNetworkAfterExit(std::string bookPath) {
+  networkExitPending = true;
+  networkExitBook = std::move(bookPath);
+}
+
+void finishNetworkExit() {
+  if (!networkExitPending) return;
+  networkExitPending = false;
+  std::string book = std::move(networkExitBook);
+  if (leaveNetworkInPlace()) return;
+  if (book.empty()) {
+    silentRestart();
+    return;
+  }
+  // goToReader() is lost across the reboot: reopen the book from APP_STATE.
+  APP_STATE.openEpubPath = std::move(book);
+  APP_STATE.saveToFile();
+  silentRestartToReader();
+}
+
 static bool launchNetworkTarget(NetworkBootTarget target, uint32_t payload, bool inPlace);
 
 namespace {
