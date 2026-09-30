@@ -78,8 +78,10 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
+#include "components/themes/BaseTheme.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "network/WifiUtils.h"
 #include "platform/InputTask.h"
 #include "platform/InputWake.h"
 #ifdef SIMULATOR
@@ -2372,6 +2374,26 @@ static void loopPass() {
   // Placed after sleep guards so we never queue a render that won't be processed.
   if (gpio.wasUsbStateChanged()) {
     activityManager.requestUpdate();
+  }
+
+  // The header's Wi-Fi glyph: one ordinary repaint of the current screen when
+  // the link comes or goes. Only screens whose last frame drew a header status
+  // bar (never the reader); requestedFor stops a repeat if that repaint shows
+  // no header.
+  {
+    static unsigned long lastWifiGlyphPoll = 0;
+    static int requestedFor = -1;
+    if (millis() - lastWifiGlyphPoll >= 1000) {
+      lastWifiGlyphPoll = millis();
+      const int shown = BaseTheme::wifiStatusShown();
+      const int connected = hasActiveStationWifiConnection() ? 1 : 0;
+      if (shown < 0 || shown == connected) {
+        requestedFor = -1;
+      } else if (requestedFor != connected) {
+        requestedFor = connected;
+        activityManager.requestUpdate();
+      }
+    }
   }
 
   // While on external power the percent climbs with no user interaction to
