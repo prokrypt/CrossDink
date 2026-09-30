@@ -354,7 +354,14 @@ static void retainPanelFrame() {
   const uint8_t* frame = display.getFrameBuffer();
   const size_t size = display.getBufferSize();
   // Inverted frames are flipped in place only while they are sent.
-  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0) return;
+  // Direct gray on the panel: the B/W framebuffer is not its state, and a Fast
+  // first paint on that OLD plane would drive the gray pixels one way.
+  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0 ||
+      display.grayOnPanel()) {
+    esp_cache_msync(&retainedPanelFrame, sizeof(retainedPanelFrame.magic),
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    return;
+  }
   memcpy(retainedPanelFrame.bytes, frame, size);
   retainedPanelFrame.size = static_cast<uint32_t>(size);
   retainedPanelFrame.crc = uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0);
@@ -367,6 +374,9 @@ static void retainPanelFrame() {
 }
 
 static bool retainedPanelFramePresent() { return retainedPanelFrame.magic == RetainedPanelFrame::MAGIC; }
+
+// True once this boot loaded the retained frame as the panel's OLD plane.
+static bool retainedPanelFrameSeeded = false;
 
 static void seedRetainedPanelFrame() {
   const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
@@ -383,11 +393,13 @@ static void seedRetainedPanelFrame() {
     return;
   }
   const bool seeded = display.seedDisplayedFrame(retainedPanelFrame.bytes);
+  retainedPanelFrameSeeded = seeded;
   LOG_INF("MAIN", "Retained panel frame %s; first paint %s", seeded ? "loaded" : "unused", seeded ? "fast" : "full");
 }
 #else
 static void retainPanelFrame() {}
 static bool retainedPanelFramePresent() { return false; }
+static constexpr bool retainedPanelFrameSeeded = false;
 static void seedRetainedPanelFrame() {}
 #endif
 
@@ -1789,7 +1801,11 @@ void setup() {
     // openEpubPath + lastSleepFromReader from a prior session.
     // X4's HALF refresh is the same single-pass clean transition already used
     // by network screens. Keep X3's existing full refresh behavior unchanged.
-    const auto homeRefreshMode = gpio.deviceIsX3() ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
+    // A seeded retained frame is the panel's true OLD plane, so Home is a plain
+    // Fast transition from the exited screen (no flash).
+    const auto homeRefreshMode = gpio.deviceIsX3()           ? HalDisplay::FULL_REFRESH
+                                 : retainedPanelFrameSeeded ? HalDisplay::FAST_REFRESH
+                                                            : HalDisplay::HALF_REFRESH;
     // File Transfer exit with a firmware to flash (POST /api/exit?flash=...):
     // open the update flow directly instead of over a live Home, whose
     // background Library walk would otherwise keep competing for the SD card
