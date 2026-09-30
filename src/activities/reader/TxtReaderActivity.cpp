@@ -891,8 +891,11 @@ void TxtReaderActivity::renderPage() {
   renderLines();
   renderStatusBar();
 
-  renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !smoothFullSwingPending);
+  const bool smooth = SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !smoothFullSwingPending &&
+                      smoothPagesSinceSwing < ReaderUtils::kSoftfastSwingPages;
+  renderer.setSmoothGray(smooth);
   smoothFullSwingPending = false;
+  smoothPagesSinceSwing = smooth ? smoothPagesSinceSwing + 1 : 0;
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   if (SETTINGS.textAntiAliasing) {

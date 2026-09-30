@@ -29,6 +29,7 @@ class TxtReaderActivity final : public Activity {
   bool longPressMenuHandled = false;
   bool skipRecentBookUpdateOnEntry = false;
   bool smoothFullSwingPending = true;  // Softfast: full swing on open / after a covering screen
+  uint8_t smoothPagesSinceSwing = 0;   // held Softfast pages since the last full swing
   ReaderProgressSaveDebouncer progressSaveDebouncer;
 #if CROSSDINK_APP_CAP_TOUCH
   ReaderPinchGesture pinchFontGesture;
