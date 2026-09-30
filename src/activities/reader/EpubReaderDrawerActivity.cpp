@@ -1677,6 +1677,7 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::Alignment:
     case RowId::Images:
     case RowId::RenderMode:
+    case RowId::TextAa:
       showEnumOptions(row);
       return;
     case RowId::IndexingMethod:
@@ -1746,7 +1747,6 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::ResetBookReaderSettings:
       closeAndReturn(false, EpubReaderMenuAction::RESET_BOOK_READER_SETTINGS);
       return;
-    case RowId::TextAa:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -1829,14 +1829,6 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
 
 void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
   switch (row) {
-    case RowId::TextAa:
-      if (draft.textAntiAliasing != CrossPointSettings::TEXT_AA_OFF) {
-        textAaOnStyle = draft.textAntiAliasing;
-        draft.textAntiAliasing = CrossPointSettings::TEXT_AA_OFF;
-      } else {
-        draft.textAntiAliasing = textAaOnStyle;
-      }
-      break;
     case RowId::Focus:
       draft.focusReadingEnabled = !draft.focusReadingEnabled;
       break;
@@ -1861,15 +1853,9 @@ void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
     default:
       return;
   }
-  if (row == RowId::TextAa) {
-    // Anti-aliasing changes pixels only. Rebuilding the EPUB section here
-    // makes the in-drawer preview appear to zoom while the page reflows.
-    markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
-  } else {
-    const bool previews = row == RowId::Focus || row == RowId::GuideDots;
-    markSettingChanged(previews ? ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout
-                                : ReaderSettingsChangeMask::Relayout);
-  }
+  const bool previews = row == RowId::Focus || row == RowId::GuideDots;
+  markSettingChanged(previews ? ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout
+                              : ReaderSettingsChangeMask::Relayout);
   requestUpdate();
 }
 
@@ -1930,6 +1916,12 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       labels = {tr(STR_RENDER_MODE_CROSSDINK_DEFAULT), tr(STR_RENDER_MODE_BALANCED), tr(STR_RENDER_MODE_LIGHT)};
       raw = {0, 1, 2};
       currentRaw = draft.epubRenderMode;
+      break;
+    case RowId::TextAa:
+      title = StrId::STR_TEXT_AA;
+      labels = {tr(STR_STATE_OFF), tr(STR_AA_SHARP), tr(STR_AA_SMOOTH)};
+      raw = {CrossPointSettings::TEXT_AA_OFF, CrossPointSettings::TEXT_AA_SHARP, CrossPointSettings::TEXT_AA_SMOOTH};
+      currentRaw = draft.textAntiAliasing;
       break;
     case RowId::DictionaryFontFamily: {
       title = StrId::STR_FONT_FAMILY;
@@ -2050,6 +2042,12 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
     case RowId::RenderMode:
       draft.epubRenderMode = value;
       markSettingChanged(ReaderSettingsChangeMask::Relayout);
+      break;
+    case RowId::TextAa:
+      // Anti-aliasing changes pixels only. Rebuilding the EPUB section here
+      // makes the in-drawer preview appear to zoom while the page reflows.
+      draft.textAntiAliasing = value;
+      markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
       break;
     case RowId::DictionaryFontFamily:
       if (index == 0) {
@@ -3094,6 +3092,10 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
                                                   StrId::STR_RENDER_MODE_BALANCED, StrId::STR_RENDER_MODE_LIGHT};
       return I18N.get(labels[std::min<size_t>(draft.epubRenderMode, labels.size() - 1)]);
     }
+    case RowId::TextAa: {
+      static const std::array<StrId, 3> labels = {StrId::STR_STATE_OFF, StrId::STR_AA_SHARP, StrId::STR_AA_SMOOTH};
+      return I18N.get(labels[std::min<size_t>(draft.textAntiAliasing, labels.size() - 1)]);
+    }
     case RowId::IndexingMethod:
       switch (draft.indexingMethod) {
         case CrossPointSettings::INDEXING_INCREMENTAL:
@@ -3132,7 +3134,6 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
 bool EpubReaderDrawerActivity::rowIsToggle(const RowId row) {
   switch (row) {
     case RowId::TrackBookStats:
-    case RowId::TextAa:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -3178,8 +3179,6 @@ bool EpubReaderDrawerActivity::rowToggleValue(const RowId row) const {
   switch (row) {
     case RowId::TrackBookStats:
       return bookStatsEnabled;
-    case RowId::TextAa:
-      return draft.textAntiAliasing != CrossPointSettings::TEXT_AA_OFF;
     case RowId::Focus:
       return draft.focusReadingEnabled;
     case RowId::GuideDots:
