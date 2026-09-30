@@ -3,6 +3,7 @@
 #if CROSSDINK_SERIAL_REMOTE
 
 #include <Arduino.h>
+#include <FsHelpers.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
@@ -23,10 +24,17 @@
 #include <string>
 
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
+#include "OpdsServerStore.h"
 #include "SettingsList.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
+#include "activities/goodies/GoodiesActivity.h"
+#include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+
+extern GfxRenderer renderer;
+extern MappedInputManager mappedInputManager;
 
 namespace SerialRemote {
 namespace {
@@ -80,6 +88,18 @@ char httpLine[260];
 char httpToken[TOKEN_MAX + 2];
 char httpReply[256];
 int httpStatus = 0;
+
+// Wi-Fi screenshot: PBM (P4) image, inverted from the framebuffer's 1 = white.
+// Static in PSRAM (debug x4-pro only) so a grab never needs a 48 KB heap block.
+constexpr size_t SNAP_MAX = 48000 + 32;  // largest current panel + PBM header
+EXT_RAM_NOINIT_ATTR uint8_t snap[SNAP_MAX];
+size_t snapLen = 0;
+
+// GOTO launches this long after its reply, so the HTTP response is out before a
+// screen change (or a network reboot) can stop the server that carries it.
+constexpr uint32_t GOTO_DELAY_MS = 500;
+int gotoPending = -1;  // index into kGoto
+uint32_t gotoAt = 0;
 
 void finishHttp(const int status) {
   httpStatus = status;
@@ -321,6 +341,25 @@ void cmdRefresh(const char* mode) {
   reply("OK:REFRESH");
 }
 
+// Main task: copies the framebuffer under the render lock into `snap` as a PBM.
+void takeSnapshot() {
+  RenderLock lock;
+  const uint32_t w = display.getDisplayWidth();
+  const uint32_t h = display.getDisplayHeight();
+  const uint32_t bytes = display.getBufferSize();
+  const int headerLen = snprintf(reinterpret_cast<char*>(snap), 32, "P4\n%lu %lu\n", static_cast<unsigned long>(w),
+                                 static_cast<unsigned long>(h));
+  if (headerLen <= 0 || headerLen + bytes > SNAP_MAX) {
+    snapLen = 0;
+    return reply("ERR:SCREENSHOT:too_big");
+  }
+  const uint8_t* fb = display.getFrameBuffer();
+  for (uint32_t i = 0; i < bytes; i++) snap[headerLen + i] = static_cast<uint8_t>(~fb[i]);
+  snapLen = headerLen + bytes;
+  reply("OK:SCREENSHOT %lu %lu %lu", static_cast<unsigned long>(w), static_cast<unsigned long>(h),
+        static_cast<unsigned long>(bytes));
+}
+
 // Constant time over the whole buffer; empty or missing token file = disabled.
 bool tokenMatches(const char* given) {
   static char stored[TOKEN_MAX + 2];
@@ -343,10 +382,82 @@ void pollHttp() {
     return finishHttp(403);
   }
   httpState.store(2, std::memory_order_release);
+  if (strcmp(httpLine, "CMD:SCREENSHOT") == 0) return takeSnapshot();
   if (!handleLine(httpLine)) {
     strcpy(httpReply, "ERR:unknown_cmd");
     finishHttp(404);
   }
+}
+
+bool hasResumeBook() { return !APP_STATE.openEpubPath.empty() && Storage.exists(APP_STATE.openEpubPath.c_str()); }
+
+// ReaderActivity hands over to the format's reader at once.
+const char* readerName() {
+  const std::string& path = APP_STATE.openEpubPath;
+  if (FsHelpers::hasEpubExtension(path)) return "EpubReader";
+  if (FsHelpers::hasXtcExtension(path)) return "XtcReader";
+  if (FsHelpers::hasTxtExtension(path)) return "TxtReader";
+  return "Reader";
+}
+
+// Top-level screens for CMD:GOTO. `activity` is the name ACTIVITY reports once it is up.
+// Screens that drop Wi-Fi (Wi-Fi networks, transfer, Calibre, OPDS, nearby) end the remote.
+struct GotoTarget {
+  const char* name;
+  const char* activity;
+  bool (*available)();  // nullptr = always
+  void (*launch)();
+};
+const GotoTarget kGoto[] = {
+    {"home", "Home", nullptr, [] { activityManager.goHome(); }},
+    {"files", "FileBrowser", nullptr, [] { activityManager.goToFileBrowser(); }},
+    {"library", "Library", nullptr, [] { activityManager.goToLibrary(); }},
+    {"reader", "Reader", &hasResumeBook, [] { activityManager.goToReader(APP_STATE.openEpubPath); }},
+    {"settings", "Settings", nullptr, [] { activityManager.goToSettings(); }},
+    {"wifi", "WifiSelection", nullptr,
+     [] {
+       activityManager.replaceActivity(std::make_unique<WifiSelectionActivity>(renderer, mappedInputManager, false));
+     }},
+#if CROSSDINK_GOODIES
+    {"goodies", "Goodies", nullptr,
+     [] { activityManager.replaceActivity(std::make_unique<GoodiesActivity>(renderer, mappedInputManager)); }},
+#endif
+    {"transfer", "CrossPointWebServer", nullptr, [] { activityManager.goToFileTransfer(); }},
+    {"transfer-wifi", "CrossPointWebServer", nullptr, [] { activityManager.goToJoinNetworkFileTransfer(); }},
+    {"transfer-hotspot", "CrossPointWebServer", nullptr, [] { activityManager.goToHotspotFileTransfer(); }},
+    {"calibre", "CrossPointWebServer", nullptr, [] { activityManager.goToCalibreWireless(); }},
+    {"opds", "OpdsBookBrowser", [] { return OPDS_STORE.hasServers(); }, [] { activityManager.goToBrowser(); }},
+    {"nearby", "NearbyBookTransfer", nullptr, [] { activityManager.goToNearbyBookReceive(); }},
+    {"nearby-stats", "NearbyStatsSync", [] { return SETTINGS.shouldTrackReadingStats(); },
+     [] { activityManager.goToNearbyStatsSync(); }},
+#if CROSSDINK_APP_CAP_USB_DRIVE
+    {"usb", "UsbDrive", nullptr, [] { activityManager.goToUsbDrive(); }},
+#endif
+};
+
+void cmdGoto(const char* name) {
+  if (strcasecmp(name, "list") == 0) {
+    char names[200];
+    size_t n = 0;
+    names[0] = '\0';
+    for (const auto& t : kGoto) {
+      if (n < sizeof(names)) n += snprintf(names + n, sizeof(names) - n, " %s", t.name);
+    }
+    return reply("OK:GOTO list%s", names);
+  }
+  if (gotoPending >= 0) return reply("ERR:GOTO:busy");
+  for (size_t i = 0; i < sizeof(kGoto) / sizeof(kGoto[0]); i++) {
+    const auto& t = kGoto[i];
+    if (strcasecmp(name, t.name) != 0) continue;
+    if (t.available && !t.available()) return reply("ERR:GOTO:unavailable");
+    gotoPending = static_cast<int>(i);
+    gotoAt = millis() + GOTO_DELAY_MS;
+    const char* activity = t.activity;
+    if (t.available == &hasResumeBook) activity = readerName();
+    if (strcmp(t.name, "opds") == 0 && OPDS_STORE.getCount() > 1) activity = "OpdsServerList";  // server picker
+    return reply("OK:GOTO %s", activity);
+  }
+  reply("ERR:GOTO:unknown_screen");
 }
 
 void cmdWaitIdle(const char* arg) {
@@ -418,6 +529,8 @@ bool handleLine(const char* line) {
     ESP.restart();  // intentional: remote-control reboot for test runs
   } else if (strcmp(verb, "WAITIDLE") == 0) {
     cmdWaitIdle(args);
+  } else if (strcmp(verb, "GOTO") == 0) {
+    cmdGoto(args);
   } else {
     return false;  // SCREENSHOT, PSRAMLOG and future commands stay with the caller
   }
@@ -427,6 +540,13 @@ bool handleLine(const char* line) {
 void poll() {
   pollHttp();
   const uint32_t now = millis();
+
+  if (gotoPending >= 0 && static_cast<int32_t>(now - gotoAt) >= 0) {
+    const int i = gotoPending;
+    gotoPending = -1;
+    LOG_INF("SER", "GOTO %s", kGoto[i].name);
+    kGoto[i].launch();
+  }
 
   if (keyReleaseAt != 0 && static_cast<int32_t>(now - keyReleaseAt) >= 0) {
     buttonMask.fetch_and(static_cast<uint8_t>(~keyReleaseBit));
@@ -522,6 +642,11 @@ int runFromOtherTask(const char* token, const char* cmd, char* out, const size_t
   }
   snprintf(out, outLen, "%s", httpReply);
   return httpStatus;
+}
+
+const uint8_t* screenshot(size_t& len) {
+  len = snapLen;
+  return snap;
 }
 
 }  // namespace SerialRemote

@@ -29,6 +29,8 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:REFRESH [fast\|half\|full]` | `OK:REFRESH` | Re-sends the current framebuffer. |
 | `CMD:HOME` | `OK:HOME` | |
 | `CMD:OPEN <path>` | `OK:OPEN` | Opens a book in the reader. |
+| `CMD:GOTO <screen>` | `OK:GOTO <activity>` | Opens a top-level screen 0.5 s after the reply (so a Wi-Fi reply is sent before the screen can stop the server). `<activity>` is what `ACTIVITY` reports once it is up; confirm with `WAITIDLE` + `ACTIVITY`. `ERR:GOTO:unknown_screen`, `ERR:GOTO:unavailable` (no book to resume, no OPDS server, stats off), `ERR:GOTO:busy`. |
+| `CMD:GOTO list` | `OK:GOTO list <screen> ...` | Screen names in this build. |
 | `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
 | `CMD:REBOOT` | `OK:REBOOT` | Software restart. |
 | `CMD:WAITIDLE [ms]` | `OK:WAITIDLE <elapsed_ms>` or `ERR:WAITIDLE:timeout` | Replies once injected input and typing are done, no render is queued or running, no refresh is pending, and that has held for 150 ms. Default timeout 10 s. |
@@ -39,9 +41,38 @@ The same commands (without `CMD:`) also run over Wi-Fi, on Goodies > Wi-Fi remot
 The endpoint is off until `/debug/remote-token` exists on the SD card (one line, up to 64 characters;
 a bad or missing token gets `403 ERR:token`). The command runs on the main loop and the reply line is
 the response body: 200 for `OK:`, 400 for `ERR:`, 404 unknown command, 503 busy or no reply within 12 s.
-`SCREENSHOT` and `PSRAMLOG` stay serial-only (use `GET /api/psram-log`).
+`PSRAMLOG` stays serial-only (use `GET /api/psram-log`). `SCREENSHOT` over Wi-Fi returns the image
+(below) instead of a reply line.
+
+`GOTO` screens: `home`, `files`, `library`, `reader` (resume last book), `settings`, `wifi` (Wi-Fi networks),
+`goodies`, `transfer` (File Transfer mode picker), `transfer-wifi` (File Transfer on the saved network),
+`transfer-hotspot`, `calibre`, `opds`, `nearby` (receive a book), `nearby-stats`, `usb` (USB Drive builds).
+`wifi`, `transfer*`, `calibre`, `opds` and `nearby*` take the radio, so they end the Goodies Wi-Fi remote;
+`transfer-wifi`, `transfer-hotspot`, `calibre` and `opds` (one server) reboot into network mode first. File
+Transfer serves `/api/cmd` itself once it is on the network.
+
+`GET` or `POST /api/screenshot` (token as for `/api/cmd`) returns the framebuffer as a binary PBM (P4, 1 = black)
+in the panel's native orientation, the same frame as `TOUCH` coordinates. It is copied on the main task under the
+render lock, so it is never half-drawn; it shows what was last drawn, even if the panel refresh is still running.
 
 ```sh
 openssl rand -hex 16 > remote-token        # copy to the SD card as /debug/remote-token
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=KBDEXP 15 6" http://10.0.1.67/api/cmd
+curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=GOTO settings" http://10.0.1.67/api/cmd
+curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pbm http://10.0.1.67/api/screenshot
+convert screen.pbm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
+```
+
+## Wi-Fi: live log tail
+
+`GET /api/psram-log?since=<offset>&wait=<ms>` returns only the PSRAM log bytes after `<offset>`, with the
+offset for the next poll in the `X-Log-Next` header (no token; same as the full dump without `since`).
+Offsets count every byte since the ring started, so they carry across software restarts (GOTO reboots,
+panics). If the ring overwrote text since the last poll the reply starts with `[psram-log gap N bytes]`; if
+it restarted (power loss, deep sleep) it starts with `[psram-log restarted]` and the whole new ring. `wait`
+(max 5000) holds an empty reply until new text arrives; that holds up only the web server task, so
+`/api/cmd` answers after the current poll. Tail from the start of the ring (`o=0`), then follow:
+
+```sh
+o=0; while :; do n=$(curl -s --connect-timeout 3 --max-time 10 -D - -o /dev/stderr "http://10.0.1.67/api/psram-log?since=$o&wait=2000" | tr -d '\r' | awk 'tolower($1)=="x-log-next:"{print $2}'); o=${n:-$o}; done 2>&1
 ```
