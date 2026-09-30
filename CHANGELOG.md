@@ -55,6 +55,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Touch devices: lists open with no row highlighted. The first Up, Down or Confirm press shows the highlight without moving or opening anything; a row tapped to open a popup stays highlighted while the popup is up. The Home screen keeps its highlight.
 - Time to Sleep steps are now 1, 2, 3, 4, 5, 10, 20, 30 min, 1, 2, 4, 6, 8, 10 and 12 h, and Never, still on a slider (the web settings page shows them as a list). A saved time moves to the nearest step (a tie takes the shorter one).
 - Crash reports are now saved to `/debug/crash_report.txt` and the battery diagnostic log to `/debug/battery_log.csv`, next to the other debug files on the SD card. An existing `/crash_report.txt` or `/battery_log.csv` is left where it is.
 - Selection and tap highlights everywhere (list rows, Home menu tiles and cover cards, settings tabs, popups, reader drawer, buttons, keyboard keys and number fields) are marked with a thin outline instead of a dotted gray fill, which leaves less ghosting on the screen when the selection moves.
@@ -152,6 +153,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Tapping a list row that opens a popup now shows the row selected before the popup appears, instead of only after it closes.
 - X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) ramps smoothly again instead of stepping, and File Transfer no longer pulses when the only traffic is log or status polling.
 - A two-finger or edge brightness slide that starts with the light off and ends at or below where it started now leaves the light off.
 - A brightness slide during a transfer light pulse now starts from your own brightness instead of the pulse level, and the level you slide to is kept when the transfer ends.

@@ -31,4 +31,5 @@ class ConfirmationActivity : public Activity {
   void loop() override;
   void render(RenderLock&& lock) override;
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
+  bool drawsOverSourceFrame() const override { return true; }
 };

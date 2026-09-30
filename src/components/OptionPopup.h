@@ -10,10 +10,13 @@
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
 #include "components/TouchActionButtons.h"
+#include "components/ListSelection.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
+
+extern MappedInputManager mappedInputManager;
 
 class OptionPopup {
  public:
@@ -114,16 +117,26 @@ class OptionPopup {
   // activity revealed beneath a popup cannot receive the same tap.
   void setDismissOnOutsideTouchDown(bool enabled) { dismissOnOutsideTouchDown = enabled; }
 
+  // A popup opened by tapping a list row first lets the activity repaint with
+  // that row selected, then draws over it (see processRender). Popups opened
+  // over a page rather than a list (quick actions) skip that extra frame.
+  void setShowTappedRowFirst(bool enabled) { showTappedRowFirst = enabled; }
+
   // Actions that repaint synchronously can suppress the redundant update queued
   // after their selection callback returns.
   void skipPostSelectionUpdate() { skipPostSelectionUpdate_ = true; }
 
   bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (!active) return false;
+    if (popupFramePending) {
+      // The tapped row's frame is out; now draw the popup over it.
+      popupFramePending = false;
+      requestUpdate();
+    }
 
     const int count = static_cast<int>(ownedStrings.size());
     if (count <= 0) {
-      active = false;
+      close();
       return true;
     }
     int tx = 0;
@@ -271,6 +284,13 @@ class OptionPopup {
 
   bool processRender(GfxRenderer& renderer, const MappedInputManager& input) const {
     if (!active) return false;
+    if (baseFramePending) {
+      // Let the caller render its own screen (the tapped row selected) this
+      // frame; handleInput() queues the popup frame right after.
+      baseFramePending = false;
+      popupFramePending = true;
+      return false;
+    }
     const auto popupLabels = input.mapLabels(
         confirmationMode ? MappedInputManager::Label(tr(STR_CANCEL)) : input.withBackArrow(tr(STR_BACK)),
         confirmationMode && footerFocused ? tr(STR_SAVE) : tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -439,6 +459,12 @@ class OptionPopup {
   }
 
   bool active = false;
+  bool showTappedRowFirst = true;
+  // Written by processRender() on the render task, read by handleInput() on
+  // the main loop; single-byte flags, and a missed read just waits a loop.
+  mutable bool baseFramePending = false;
+  mutable bool popupFramePending = false;
+  bool showsTapRow = false;  // this popup set ListSelection::tapRowShown
   bool dismissOnOutsideTouchDown = false;
   bool confirmationMode = false;
   bool footerFocused = false;
@@ -470,7 +496,7 @@ class OptionPopup {
     footerFocused = false;
     skipPostSelectionUpdate_ = false;
     if (ownedStrings.empty()) {
-      active = false;
+      close();
       onSelectCallback = nullptr;
       selectedIndex = 0;
       return;
@@ -485,6 +511,16 @@ class OptionPopup {
       selectedIndex = currentIndex;
     }
     active = true;
+    baseFramePending = showTappedRowFirst && mappedInputManager.wasTapOrHeld();
+    popupFramePending = false;
+    showsTapRow = baseFramePending;
+    if (showsTapRow) ListSelection::tapRowShown = true;
+  }
+
+  void close() {
+    active = false;
+    if (showsTapRow) ListSelection::tapRowShown = false;
+    showsTapRow = false;
   }
 
   void prepareStandardShow() {
@@ -499,14 +535,14 @@ class OptionPopup {
 
   void activateSelection(MappedInputManager& input, const std::function<void()>& requestUpdate,
                          const bool suppressRelease) {
-    active = false;
+    close();
     suppressSelectionRelease(input, suppressRelease);
     if (onSelectCallback) onSelectCallback(selectedIndex);
     requestUpdate();
   }
 
   void confirm(MappedInputManager& input, const std::function<void()>& requestUpdate, const bool suppressRelease) {
-    active = false;
+    close();
     suppressSelectionRelease(input, suppressRelease);
     if (onSaveCallback) onSaveCallback();
     requestUpdate();
@@ -514,7 +550,7 @@ class OptionPopup {
 
   void save(MappedInputManager& input, const std::function<void()>& requestUpdate, const bool suppressRelease) {
     if (isDisabled(selectedIndex)) return;
-    active = false;
+    close();
     suppressSelectionRelease(input, suppressRelease);
     if (onSelectCallback) onSelectCallback(selectedIndex);
     const bool skipUpdate = skipPostSelectionUpdate_;
@@ -543,7 +579,7 @@ class OptionPopup {
   }
 
   void cancel(MappedInputManager& input, const std::function<void()>& requestUpdate, const bool suppressRelease) {
-    active = false;
+    close();
     if (suppressRelease) input.suppressNextBackRelease();
     if (onCancelCallback) onCancelCallback();
     requestUpdate();

@@ -36,6 +36,7 @@ void showConfiguredPopup(OptionPopup& popup, const std::function<void()>& reques
     actions.push_back(action);
   }
   if (actions.empty()) return;
+  popup.setShowTappedRowFirst(false);  // opens over a page, not a tapped row
   popup.show(StrId::STR_QUICK_ACTIONS, labels, 0,
              [actions = std::move(actions), actionHandler = std::move(actionHandler)](const int selected) {
                if (selected >= 0 && static_cast<size_t>(selected) < actions.size()) {

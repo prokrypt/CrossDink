@@ -129,6 +129,12 @@ class MappedInputManager {
   // Home-key layouts remain available while the key is locked on reader pages.
   bool isHomeButtonLockedInReader() const;
   bool wasScreenTapped(int& x, int& y) const;
+  // A tap or a still-held long press this loop: the touch that picks a row.
+  bool wasTapOrHeld() const {
+    int x = 0;
+    int y = 0;
+    return wasScreenTapped(x, y) || isScreenTouchHeld(x, y);
+  }
   // Also reports how long the finger was held before release.
   bool wasScreenTapped(int& x, int& y, unsigned long& heldMs) const;
   bool isScreenTouchLongPress(int& x, int& y, unsigned long thresholdMs) const;
@@ -211,6 +217,7 @@ class MappedInputManager {
   constexpr bool hasHomeKey() const { return false; }
   constexpr bool isHomeButtonLockedInReader() const { return false; }
   constexpr bool wasScreenTapped(int&, int&) const { return false; }
+  constexpr bool wasTapOrHeld() const { return false; }
   constexpr bool wasScreenTapped(int&, int&, unsigned long&) const { return false; }
   constexpr bool isScreenTouchLongPress(int&, int&, unsigned long) const { return false; }
   constexpr bool wasScreenLongPress(int&, int&) const { return false; }
