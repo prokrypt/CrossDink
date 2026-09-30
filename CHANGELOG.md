@@ -56,6 +56,7 @@
 
 ### Changed
 - Touch devices: lists open with no row highlighted. The first Up, Down or Confirm press shows the highlight without moving or opening anything; a row tapped to open a popup stays highlighted while the popup is up. The Home screen keeps its highlight.
+- Settings: the selected tab is marked by a bar under its name instead of a black (inverted) highlight, and tapping a tab no longer highlights it; the box around the tab bar stays. Up/Down now wrap within the list and no longer move onto the tabs; long-press Up/Down still switches tabs.
 - Time to Sleep steps are now 1, 2, 3, 4, 5, 10, 20, 30 min, 1, 2, 4, 6, 8, 10 and 12 h, and Never, still on a slider (the web settings page shows them as a list). A saved time moves to the nearest step (a tie takes the shorter one).
 - Crash reports are now saved to `/debug/crash_report.txt` and the battery diagnostic log to `/debug/battery_log.csv`, next to the other debug files on the SD card. An existing `/crash_report.txt` or `/battery_log.csv` is left where it is.
 - Selection and tap highlights everywhere (list rows, Home menu tiles and cover cards, settings tabs, popups, reader drawer, buttons, keyboard keys and number fields) are marked with a thin outline instead of a dotted gray fill, which leaves less ghosting on the screen when the selection moves.

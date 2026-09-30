@@ -957,11 +957,13 @@ void SettingsActivity::loop() {
     return;
   }
 
-  // Buttons walk the tab band (index 0) plus the rows (1..settingsCount).
+  // Up/Down wrap within the rows (1..settingsCount); they never land on the
+  // tab band (index 0). Long-press Up/Down switches tabs.
   const auto moveSelection = [this](int index, const bool forward) {
-    while (index > 0 && index <= settingsCount && (*currentSettings)[index - 1].type == SettingType::SECTION_HEADER) {
-      index = forward ? ButtonNavigator::nextIndex(index, settingsCount + 1)
-                      : ButtonNavigator::previousIndex(index, settingsCount + 1);
+    for (int guard = 0; guard < settingsCount && index > 0 && index <= settingsCount &&
+                        (*currentSettings)[index - 1].type == SettingType::SECTION_HEADER;
+         ++guard) {
+      index = forward ? (index >= settingsCount ? 1 : index + 1) : (index <= 1 ? settingsCount : index - 1);
     }
     selectedSettingIndex = index;
     showSettingSelection = true;
@@ -973,13 +975,11 @@ void SettingsActivity::loop() {
     requestUpdate();
   };
   buttonNavigator.onNextRelease([this, &moveSelection] {
-    const int next = isFileBrowserView() ? (selectedSettingIndex >= settingsCount ? 1 : selectedSettingIndex + 1)
-                                         : ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
+    const int next = selectedSettingIndex >= settingsCount ? 1 : selectedSettingIndex + 1;
     moveSelection(next, true);
   });
   buttonNavigator.onPreviousRelease([this, &moveSelection] {
-    const int previous = isFileBrowserView() ? (selectedSettingIndex <= 1 ? settingsCount : selectedSettingIndex - 1)
-                                             : ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
+    const int previous = selectedSettingIndex <= 1 ? settingsCount : selectedSettingIndex - 1;
     moveSelection(previous, false);
   });
 
@@ -1444,8 +1444,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     return;
   }
 
-  // Category tabs. The selected pill dims to a dither when the selection is
-  // down in the list (the legacy focused/unfocused tab distinction).
+  // Category tabs.
   fui::TabItem tabs[categoryCount];
   for (int i = 0; i < categoryCount; i++) {
     tabs[i].label = I18N.get(categoryNames[i]);
@@ -1470,51 +1469,15 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   const int16_t preferredTabHeight =
       mappedInput.hasTouch() ? TOUCH_TAB_BAR_HEIGHT : static_cast<int16_t>(metrics.tabBarHeight);
   const int16_t tabBand = preferredTabHeight > tabLineHeight + 10 ? preferredTabHeight : tabLineHeight + 10;
-  // Legacy Lyra two-state treatment: with the selection on the tab band, the
-  // band fills gray and the active tab is a solid pill; with the selection
-  // down in the list, the band is plain and the active tab keeps a gray box
-  // with an underline. The 1px rule under the band is always there.
+  // The 2 px band box marks tab focus; the active tab is a 3 px underline
+  // drawn from tab.selected. Every tab state resolves to plain black-on-white,
+  // so taps and flashes never highlight a tab and no inverted pill is drawn.
   const bool tabsFocused = selectedSettingIndex == 0;
   const bool borderedTabs = metrics.tabBarAppearance == ThemeTabBarAppearance::BorderedText;
-  const bool roundedRaffTabs = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::ROUNDEDRAFF;
   tabProps.divider = true;
-  fui::StyleSet tabStyles;
-  if (roundedRaffTabs) {
-    // RoundedRaff's tabs sit on white; the selected pill is black while the
-    // tabs have focus and a 2 px outline (not a dither fill) once focus moves
-    // into the settings list.
-    tabStyles.explicitlySet = true;
-    tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-    tabStyles.selected.background = fui::Paint::solid(tabsFocused ? fui::Color::Black : fui::Color::White);
-    tabStyles.selected.foreground = fui::Paint::solid(tabsFocused ? fui::Color::White : fui::Color::Black);
-    if (!tabsFocused) {
-      tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
-      tabStyles.selected.borderWidth = 2;
-    }
-    tabStyles.selected.radius = 18;
-    tabStyles.focused = tabStyles.selected;
-    tabStyles.active = tabStyles.selected;
-    tabProps.tabStyles = tabStyles;
-  } else if (!borderedTabs) {
-    tabStyles.explicitlySet = true;
-    tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-    if (tabsFocused) {
-      tabStyles.selected.background = fui::Paint::solid(fui::Color::Black);
-      tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
-      tabStyles.selected.radius = screen.theme().listRowRadius;
-    } else {
-      // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
-      tabStyles.selected.background = fui::Paint::solid(fui::Color::White);
-      tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-      tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
-      tabStyles.selected.borderWidth = 2;
-      tabStyles.selected.radius = screen.theme().listRowRadius;
-    }
-    // Focus/flash states keep the pill instead of falling back to an unset
-    // (blank) style.
-    tabStyles.focused = tabStyles.selected;
-    tabStyles.active = tabStyles.selected;
-    tabProps.tabStyles = tabStyles;
+  if (!borderedTabs) {
+    tabProps.tabStyles = fui::plainStyles();
+    tabProps.selectedUnderline = 3;
   }
 #if CROSSDINK_APP_CAP_TOUCH
   if (landscapeTouch) {
@@ -1530,7 +1493,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       fui::TabBarProps railProps = tabProps;
       railProps.tabs = &tabs[i];
       railProps.count = 1;
-      if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
+      if (!borderedTabs && tabsFocused) {
         screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
       }
       drawUiTabBar(screen, railProps, tabRect, metrics.tabBarAppearance);
@@ -1543,7 +1506,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
 #endif
   {
     const fui::Rect tabRect = screen.takeTop(tabBand);
-    if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
+    if (!borderedTabs && tabsFocused) {
       screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
     }
     drawUiTabBar(screen, tabProps, tabRect, metrics.tabBarAppearance);
