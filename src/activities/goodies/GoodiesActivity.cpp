@@ -84,17 +84,13 @@ void setRemoteWanted(const bool wanted) {
   if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "wifi remote: toggle not saved");
 }
 
-void closeServerAndRadio(CrossPointWebServer* server);
-
 // Callers that must own the radio next (a Wi-Fi screen, deep sleep, an inline
-// stop) wait here, and run an Off queued behind the join themselves.
+// stop) wait here. Each of them takes the radio over or turns it off itself,
+// so an Off queued behind the join is simply dropped.
 void waitForRadioTask() {
   // Bounded by a wifi.json read and driver start, or a server stop and radio off; no Wi-Fi call may overlap it.
   while (radioTask.running()) vTaskDelay(1);
-  if (shutdownQueued) {
-    shutdownQueued = false;
-    closeServerAndRadio(nullptr);  // no server exists while joining
-  }
+  shutdownQueued = false;
 }
 
 // Takes ownership of server (may be null). Runs on the main task or the shutdown task.
@@ -241,7 +237,8 @@ void stop() {
 }
 
 void startInBackground() {
-  stop();  // a server left behind when the link dropped; no-op otherwise
+  stop();                  // a server left behind when the link dropped; no-op otherwise
+  shutdownQueued = false;  // On supersedes an Off still queued behind a join
   setRemoteWanted(true);
   rejoinAt = 0;
   rejoinRetryMs = 0;
