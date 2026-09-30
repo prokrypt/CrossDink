@@ -143,7 +143,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
-- X4 Pro: with Light Timeout on, a transfer pulse on an idle device (such as an update over the Wi-Fi remote) no longer flickers: the timeout waits while the pulse runs.
+- X4 Pro: with Light Timeout on, a transfer pulse on an idle device (such as an update over the Wi-Fi remote) no longer flickers: the timeout counts from the end of the pulse, then fades as usual.
 - X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) ramps smoothly again instead of stepping, and File Transfer no longer pulses when the only traffic is log or status polling.
 - X4 Pro: every reboot (update, restart into Wi-Fi or the reader, remote reboot) now switches the screen's power off first, instead of leaving it powered until the reset.
 - X4 Pro (Softfast): the status bar and other black text that stays the same across page turns no longer fades lighter with every turn, using a short nudge at the end of each page turn instead of a visible blink.
