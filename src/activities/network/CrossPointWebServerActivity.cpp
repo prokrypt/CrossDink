@@ -70,7 +70,7 @@ void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
 #if CROSSDINK_GOODIES
   // Port 80 and the radio pass to this screen's own server.
-  goodies_remote::stop();
+  goodies_remote::pause();
 #endif
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
