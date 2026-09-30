@@ -2116,6 +2116,15 @@ static void updateFlashDuck() {
   if (flashDuckLevel == 100) flashDuckActive = false;
 }
 
+// A running transfer pulse owns the light (each step resets the dim), so the
+// Light Timeout counts from the pulse's last step: fading during it would
+// flicker, and a pulse longer than the timeout would end in a snap to dark.
+static unsigned long lastPulseMs = 0;
+static unsigned long lightIdleMs(const unsigned long idleMs) {
+  if (TransferLightPulse::animating()) lastPulseMs = millis();
+  return std::min(idleMs, millis() - lastPulseMs);
+}
+
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
   if (flashDuckActive || (liveFlashStartMs() != 0 && SETTINGS.frontlightFlashDuck)) return FLASH_DUCK_TICK_MS;
@@ -2123,7 +2132,7 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   // Light timeout: wake on time for the fade and step it at the fast tick.
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
   if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0 &&
-      idleMs + IDLE_WAIT_LONG_MS >= lightTimeoutMs) {
+      lightIdleMs(idleMs) + IDLE_WAIT_LONG_MS >= lightTimeoutMs) {
     return IDLE_WAIT_MS;
   }
   const bool tiltPolling = SETTINGS.tiltPageTurn != CrossPointSettings::TILT_OFF && halTiltSensor.isAvailable() &&
@@ -2388,7 +2397,7 @@ static void loopPass() {
   constexpr unsigned long LIGHT_FADE_MS = 1000;
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
   if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
-    const unsigned long idleMs = std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime);
+    const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
     if (idleMs >= lightTimeoutMs) {
       const unsigned long fadeMs = idleMs - lightTimeoutMs;
       const uint8_t level = fadeMs >= LIGHT_FADE_MS ? 0 : static_cast<uint8_t>(100 - fadeMs * 100 / LIGHT_FADE_MS);
