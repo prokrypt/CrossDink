@@ -55,6 +55,7 @@ class HtmlInflateStream {
   void publish(size_t bytes);
 
   const Epub* epub_ = nullptr;
+  const void* scratchLender_ = nullptr;  // starter task; may share its build scratch
   std::string itemHref_;
   size_t chunkSize_ = 0;
   HalFile cacheFile_;

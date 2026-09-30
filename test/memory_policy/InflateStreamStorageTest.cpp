@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <thread>
 #include <vector>
 
 struct InflateStreamStorageTest : testing::Test {
@@ -91,6 +92,29 @@ TEST_F(InflateStreamStorageTest, LoanAndOccupiedLoan) {
   first.deinit();
   second.deinit();
   EXPECT_TRUE(buildscratch::available(scratch.size()));
+}
+TEST_F(InflateStreamStorageTest, OnlyLenderAndAdoptedHelperMayClaim) {
+  alignas(std::max_align_t) std::array<uint8_t, 48000> scratch{};
+  buildscratch::lend(scratch.data(), scratch.size());
+  const void* lendingTask = buildscratch::self();
+  bool foreignAvailable = true;
+  uint8_t* foreign = scratch.data();
+  std::thread([&] {
+    foreignAvailable = buildscratch::available(1);
+    foreign = buildscratch::claim(1);
+  }).join();
+  EXPECT_FALSE(foreignAvailable);
+  EXPECT_EQ(foreign, nullptr);
+  uint8_t* helped = nullptr;
+  std::thread([&] {
+    buildscratch::HelperScope scope(lendingTask);
+    helped = buildscratch::claim(1);
+    buildscratch::release(helped);
+  }).join();
+  EXPECT_EQ(helped, scratch.data());
+  std::thread([&] { foreign = buildscratch::claim(1); }).join();  // scope ended
+  EXPECT_EQ(foreign, nullptr);
+  EXPECT_EQ(buildscratch::claim(1), scratch.data());
 }
 TEST_F(InflateStreamStorageTest, ExternalFailureAllowsOnlyAdmittedInternalFallback) {
   InflateStream stream;
