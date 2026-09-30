@@ -8360,18 +8360,20 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     }
   }
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
-  // Smooth holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
-  // The full swing owed after open/cover is spent only by a page that runs a gray pass.
-  if (updatePanel) {
-    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
-                           !smoothFullSwingPending);
-    if (needsAnyGrayscale) smoothFullSwingPending = false;
-  }
   // UC8179 (X4 Pro) runs every gray page as direct gray, which drives each
   // pixel absolutely: the page cleans itself, so the cadence Half is only an
   // extra flash. Restart the countdown instead (a manual Refresh, <0, still runs).
-  if (needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
-      renderer.shouldSkipImageBlanking()) {
+  const bool grayCadenceDue = needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
+                              renderer.shouldSkipImageBlanking();
+  // Softfast holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
+  // The full swing owed after open/cover is spent only by a page that runs a gray pass. Held pixels
+  // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
+  if (updatePanel) {
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
+                           !smoothFullSwingPending && !grayCadenceDue);
+    if (needsAnyGrayscale) smoothFullSwingPending = false;
+  }
+  if (grayCadenceDue) {
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   }
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
