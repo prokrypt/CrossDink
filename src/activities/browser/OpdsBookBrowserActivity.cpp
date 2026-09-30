@@ -481,10 +481,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
     // One mark for "no network needed": a downloaded book or a cached feed page.
-    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) {
-      item.icon = mark;
-      item.iconInMargin = true;  // in the left padding: nothing else moves
-    }
+    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) item.icon = mark;
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
         snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
@@ -504,6 +501,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the nav chevron and the row edge
+  props.iconsInMargin = true;         // the check sits in the left padding: nothing else moves
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entryCount));  // clamp to range
