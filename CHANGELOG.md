@@ -45,6 +45,7 @@
 - X4 Pro: the cleanup refresh (Half) no longer re-drives every white pixel black-to-white each time; it runs only the real changes from the previous screen.
 - Keyboard (X4 Pro): keys tapped while the screen is still updating now all appear together in the next update instead of one update per key.
 - X4 Pro: leaving a grayscale sleep image uses a charge-balanced drive for the first black-and-white screen.
+- OPDS (X4 Pro, Sticky): up to 64 catalog pages stay in memory for Back and Previous (was 24), and background page preloads no longer use the internal RAM that reading and leaving Wi-Fi without a restart need.
 - X4 Pro: the reader's automatic cleanups no longer flash (Refresh Screen still does a full refresh). Opening a book, returning to it, the page after an image, and the regular ghost cleanup use a ~0.3 s no-flash scrub instead of the 1.5 s flashing refresh, and closing a menu over an image page skips the cleanup. Image pages also finish their anti-aliasing sooner, and a menu opened during an image cleanup shows ~0.6 s sooner.
 - X4 Pro: closing the Turbo keyboard cleans the screen with the same no-flash scrub.
 - X4 Pro: an OPDS book download switches the panel's power booster off after each progress update, like the transfer screens; interactive screens keep it on so input stays fast.
@@ -127,6 +128,7 @@
 
 ### Fixed
 - X4 Pro: the display no longer uses one-way (DC-unbalanced) drives, which built up charge and made screens dirtier over time and risked lasting image retention. Every refresh now uses the panel's own waveforms: screen entries, typing, File Transfer / OPDS / Calibre / Nearby / OTA / font download / SD firmware progress repaints are OTP Fast, and reader ghost cleanups are the balanced Half again (a short flash at your refresh-frequency setting). Typing is slower per key (about 0.55 s instead of 0.3 s ink), and headers on long transfer screens may fade slightly.
+- OPDS (X4 Pro, Sticky): leaving the catalog after browsing no longer restarts the device. The secure-connection session kept for the next visit now lives in PSRAM instead of splitting the internal RAM block that returning without a restart needs.
 - After a KOReader Sync or Nearby sync, later Wi-Fi sessions in the same boot no longer run with Wi-Fi power saving off.
 - Using Wi-Fi once no longer leaves internal memory fragmented until the next reboot.
 - X4 Pro: the sleep screen no longer ghosts when the device falls asleep on its own after sitting idle. Every sleep screen now starts from a freshly powered panel with the keyboard fast waveform switched off, the same as a power-button sleep.

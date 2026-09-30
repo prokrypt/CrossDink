@@ -507,6 +507,69 @@ bool readerResourcesReady = false;
 bool readerRenderStackReady = false;
 }  // namespace
 
+#ifndef SIMULATOR
+#if CROSSDINK_PERF_LOG
+// Debug: small used blocks that sit between two large free runs of internal
+// RAM, i.e. what splits the block the Wi-Fi exit gate needs. The walker runs
+// under the heap lock, so it only records; the log comes after.
+struct HeapPinScan {
+  static constexpr size_t MAX_PINS = 6;
+  static constexpr size_t MAX_PIN_BYTES = 2048;
+  static constexpr size_t MIN_FREE_RUN = 4096;
+  struct Pin {
+    uintptr_t addr;
+    uint32_t size;
+    uint32_t freeBefore;
+    uint32_t freeAfter;
+  };
+  Pin pins[MAX_PINS];
+  size_t count = 0;
+  intptr_t heapStart = 0;
+  uint32_t freeRun = 0;
+  bool pending = false;
+  Pin candidate{};
+};
+
+static bool heapPinWalker(walker_heap_into_t heap, walker_block_info_t block, void* user) {
+  auto& scan = *static_cast<HeapPinScan*>(user);
+  if (heap.start != scan.heapStart) {
+    scan.heapStart = heap.start;
+    scan.freeRun = 0;
+    scan.pending = false;
+  }
+  if (!block.used) {
+    scan.freeRun += block.size;
+    return true;
+  }
+  if (scan.pending && scan.freeRun >= HeapPinScan::MIN_FREE_RUN && scan.count < HeapPinScan::MAX_PINS) {
+    scan.candidate.freeAfter = scan.freeRun;
+    scan.pins[scan.count++] = scan.candidate;
+  }
+  scan.pending = block.size <= HeapPinScan::MAX_PIN_BYTES && scan.freeRun >= HeapPinScan::MIN_FREE_RUN;
+  if (scan.pending) {
+    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), static_cast<uint32_t>(block.size), scan.freeRun, 0};
+  }
+  scan.freeRun = 0;
+  return true;
+}
+
+static void logInternalHeapPins() {
+  static HeapPinScan scan;  // the walker runs under the heap lock: no allocation
+  scan = HeapPinScan{};
+  heap_caps_walk(MALLOC_CAP_INTERNAL, heapPinWalker, &scan);
+  for (size_t i = 0; i < scan.count; ++i) {
+    const auto& pin = scan.pins[i];
+    LOG_INF("HEAP", "pin 0x%08x %u B between free %u + %u", static_cast<unsigned>(pin.addr),
+            static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.freeBefore),
+            static_cast<unsigned>(pin.freeAfter));
+  }
+  if (scan.count == 0) {
+    LOG_INF("HEAP", "no pins between free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
+  }
+}
+#endif
+#endif
+
 bool leaveNetworkInPlace() {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
@@ -526,6 +589,9 @@ bool leaveNetworkInPlace() {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
     return false;
   }
+#if CROSSDINK_PERF_LOG
+  logInternalHeapPins();
+#endif
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   if (largest < NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),

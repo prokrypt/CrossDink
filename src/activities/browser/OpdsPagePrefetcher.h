@@ -49,7 +49,7 @@ class OpdsPagePrefetcher {
 
   void cancel() { cancelRequested.store(true, std::memory_order_release); }
   // Blocks the caller until the background task has exited.
-  void join() const { task.join(); }
+  void join() { task.join(); }
 
   // After join(): moves a successfully downloaded page into cache (see
   // OpdsPageCache::store for mayEvict).

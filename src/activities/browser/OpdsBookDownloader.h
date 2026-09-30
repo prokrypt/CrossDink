@@ -47,7 +47,7 @@ class OpdsBookDownloader {
   void cancel() { cancelRequested.store(true, std::memory_order_release); }
   bool cancelling() const { return cancelRequested.load(std::memory_order_acquire); }
   // Blocks the caller until the background task has exited.
-  void join() const { task.join(); }
+  void join() { task.join(); }
 
   // Progress, readable from any task while the job runs.
   size_t downloaded() const { return bytesDone.load(std::memory_order_acquire); }

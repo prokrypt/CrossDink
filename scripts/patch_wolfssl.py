@@ -19,6 +19,11 @@ OVERRIDES = f"""
 #ifndef FREEINK_WOLFSSL_DEBUG
 #undef DEBUG_WOLFSSL
 #endif
+/* XMALLOC/XREALLOC/XFREE come from src/network/WolfSslAlloc.cpp, which puts
+   TLS sessions (kept past their connection for resumption) in PSRAM. */
+#if defined(ESP_PLATFORM)
+#define XMALLOC_USER
+#endif
 """
 
 
