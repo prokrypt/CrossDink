@@ -468,9 +468,8 @@ void ImageBlock::beginBackgroundCache() const {
 
 void ImageBlock::rememberFailure() const { rememberImageFailure(imagePath); }
 
-ImageBlock::CacheBuild ImageBlock::buildCacheInBackground(GfxRenderer& target, const int x, const int y,
-                                                          void* context, const ExtractFn extract,
-                                                          const SeedCacheFn seedCache,
+ImageBlock::CacheBuild ImageBlock::buildCacheInBackground(GfxRenderer& target, const int x, const int y, void* context,
+                                                          const ExtractFn extract, const SeedCacheFn seedCache,
                                                           const std::atomic<bool>& cancel) const {
   const std::string cache = getCachePath(imagePath);
   backgroundBuildKey.store(backgroundKey(imagePath), std::memory_order_release);

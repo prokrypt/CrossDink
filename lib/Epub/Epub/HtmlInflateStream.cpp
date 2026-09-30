@@ -3,8 +3,8 @@
 #include <Arduino.h>
 #include <BuildScratch.h>
 #include <Logging.h>
-#include <PerfLog.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <freertos/task.h>
 
 #include <algorithm>

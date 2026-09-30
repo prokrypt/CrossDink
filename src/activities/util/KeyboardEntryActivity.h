@@ -61,8 +61,8 @@ class KeyboardEntryActivity : public Activity {
   // (4; the SDK's DU LUT is charge-balanced, two phases), no tap highlight (32),
   // OTP Fast first frame (64); the screen below redraws with OTP Fast on exit.
   // CMD:KBDEXP 67 = the previous OTP Fast typing with highlight.
-  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT |
-                                                    KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
+      KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
   // DU frames per phase (two phases). Untested on hardware; the old one-way
   // LUT needed 6 single-phase frames.
   static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 4;

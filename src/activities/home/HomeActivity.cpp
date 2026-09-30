@@ -739,8 +739,9 @@ void HomeActivity::loadCoverGridThumbnails() {
         if (xtc) book.coverBmpPath = xtc->getThumbBmpPath();
       }
     }
-    queueMissingThumbs(jobs, i, HomeCoverThumbs::forCoverGrid(book.path, coverGridUi->thumbWidthFor(i),
-                                                                      coverGridUi->thumbHeightFor(i)));
+    queueMissingThumbs(
+        jobs, i,
+        HomeCoverThumbs::forCoverGrid(book.path, coverGridUi->thumbWidthFor(i), coverGridUi->thumbHeightFor(i)));
   }
   startCoverWorker(std::move(jobs));
 }

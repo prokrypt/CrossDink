@@ -7761,10 +7761,8 @@ void EpubReaderActivity::imageCacheWorkerMain(void* param) {
     auto* reader = static_cast<EpubReaderActivity*>(context);
     return reader->epub->extractItemToFile(source, destination, 4096, &reader->imageCacheWorker.cancel);
   };
-  const auto seed = [](void* context, const char* source, const int width, const int height,
-                       const char* destination) {
-    return static_cast<EpubReaderActivity*>(context)->epub->seedOptimizerImageCache(source, width, height,
-                                                                                    destination);
+  const auto seed = [](void* context, const char* source, const int width, const int height, const char* destination) {
+    return static_cast<EpubReaderActivity*>(context)->epub->seedOptimizerImageCache(source, width, height, destination);
   };
   for (uint8_t i = 0; i < job.count && !job.cancel.load(); ++i) {
     auto& item = job.items[i];
@@ -8366,8 +8364,8 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // snapshot/restore and the post-base plane renders drop out of the turn.
   HeapByteBuffer deferredLsbPlane;
   HeapByteBuffer deferredMsbPlane;
-  bool deferredGrayscaleBase = needsTextGrayscale && !tiledGrayscale && !pageHasImages &&
-                               pagesUntilFullRefresh > 1 && renderer.supportsDeferredGrayscaleBase() &&
+  bool deferredGrayscaleBase = needsTextGrayscale && !tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 &&
+                               renderer.supportsDeferredGrayscaleBase() &&
                                allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
   bool baseRefreshPending = false;
   int16_t imgX = 0, imgY = 0, imgW = 0, imgH = 0;
@@ -8396,8 +8394,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       // run the strong cleanup there instead of fading straight from that
       // residue to the new image. Other controllers already clear the image
       // area with blank+FAST (HALF sets particles too firmly for the gray LUT).
-      const bool cleanBase =
-          cleanImageBasePending || (directImageBase && pagesUntilFullRefresh <= 1 && !sameGrayImage);
+      const bool cleanBase = cleanImageBasePending || (directImageBase && pagesUntilFullRefresh <= 1 && !sameGrayImage);
       // UC8179's base waveform transitions directly from the displayed page.
       // Keep blanking for other controllers and for a pending strong cleanup.
       const bool blankImage = !directImageBase || cleanBase;

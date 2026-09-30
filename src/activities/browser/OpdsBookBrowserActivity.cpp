@@ -1065,16 +1065,16 @@ void OpdsBookBrowserActivity::offerRetry(const std::string& path) {
   // As in requestDownload(): entries and selectorIndex stay put under the
   // dialog, so the index still names the failed book.
   const int bookIndex = selectorIndex;
-  startActivityForResult(std::move(dialog), [this, bookIndex, path, validator = bookDownloader.validator()](
-                                                const ActivityResult& result) {
-    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
-      LOG_INF("OPDS", "Download retry declined; removing partial file");
-      Storage.remove((path + ".part").c_str());
-      return;
-    }
-    LOG_INF("OPDS", "Retrying download: %s", path.c_str());
-    downloadBook(entries[bookIndex], path, &validator);
-  });
+  startActivityForResult(
+      std::move(dialog), [this, bookIndex, path, validator = bookDownloader.validator()](const ActivityResult& result) {
+        if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
+          LOG_INF("OPDS", "Download retry declined; removing partial file");
+          Storage.remove((path + ".part").c_str());
+          return;
+        }
+        LOG_INF("OPDS", "Retrying download: %s", path.c_str());
+        downloadBook(entries[bookIndex], path, &validator);
+      });
 }
 
 void OpdsBookBrowserActivity::offerToOpen(const std::string& path) {

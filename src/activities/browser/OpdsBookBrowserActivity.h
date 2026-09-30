@@ -154,8 +154,7 @@ class OpdsBookBrowserActivity final : public Activity {
   void requestDownload(const OpdsEntry& book);
   // filename: the SD destination from requestDownload. resumeValidator: set
   // on Retry to continue the failed attempt's .part file (may be empty).
-  void downloadBook(const OpdsEntry& book, const std::string& filename,
-                    const std::string* resumeValidator = nullptr);
+  void downloadBook(const OpdsEntry& book, const std::string& filename, const std::string* resumeValidator = nullptr);
   // DOWNLOADING state: forwards cancel input, redraws progress, and finishes
   // once the background task has exited.
   void pollDownload();

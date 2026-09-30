@@ -124,8 +124,8 @@ void HalClock::readCached(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t&
 
   // Advance the last RTC reading by the time since it was taken, so reads
   // between polls keep ticking and carry whole seconds.
-  uint32_t secondOfDay = static_cast<uint32_t>(hour) * 3600u + static_cast<uint32_t>(minute) * 60u + second +
-                         elapsedMs / 1000u;
+  uint32_t secondOfDay =
+      static_cast<uint32_t>(hour) * 3600u + static_cast<uint32_t>(minute) * 60u + second + elapsedMs / 1000u;
   uint32_t days = secondOfDay / 86400u;
   secondOfDay %= 86400u;
   if (hasDate) {
