@@ -21,8 +21,6 @@ enum class OpCode : uint8_t {
   Refresh,   // a0: Mode
   Frames,    // a0: DU frames (1..63)
   Pll,       // a0: PLL byte during DU refreshes, 0 = default
-  Window,    // a0..a3: upload window (logical); w == 0 = off
-  Resync,    // a0: 0 = skip the OLD-plane resync after Fast/DU refreshes
   Scrub,     // a0: 0 = Half, 1 = DU (before the next Fast/DU refresh)
   Wait,      // a0: ms
   Repeat,    // a0: count, a1: index of the matching End
