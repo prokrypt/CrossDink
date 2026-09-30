@@ -28,7 +28,9 @@
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "network/CrossPointWebServer.h"
+#include "network/FirmwareFlasher.h"
 #include "network/WifiUtils.h"
+#include "util/TransferLightPulse.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -205,8 +207,30 @@ void startInBackground() {
   rejoinNow = true;
 }
 
+// /api/ota on the remote's server pulses the frontlight like a file transfer
+// (File Transfer's own server has its pulse). Ends once the stream has been
+// closed for a full pulse cycle.
+void updateOtaLight() {
+  static TransferLightPulse light;
+  static bool lit = false;
+  static uint32_t lastStreamMs = 0;
+  const bool streaming = firmware_flash::streamActive();
+  if (streaming) lastStreamMs = millis();
+  if (streaming && !lit && remoteServer) {
+    light.begin(/*holdMs=*/0);
+    lit = true;
+  }
+  if (!lit) return;
+  light.update(streaming);
+  if (!streaming && millis() - lastStreamMs > 1500) {
+    light.end();
+    lit = false;
+  }
+}
+
 void loop(const uint32_t idleMs) {
   static bool screenHadRadio = false;
+  updateOtaLight();
   if (!remoteWanted()) return;
   if (joinPending) {
     if (joinTaskRunning.load(std::memory_order_acquire)) return;
