@@ -20,9 +20,9 @@
 
 namespace {
 constexpr uint8_t kFullVersion = 79;
-constexpr uint8_t kPartialVersion = 0xF4;
+constexpr uint8_t kPartialVersion = 0xF1;
 constexpr uint8_t kPreviousFullVersion = 78;
-constexpr uint8_t kPreviousPartialVersion = 0xF2;
+constexpr uint8_t kPreviousPartialVersion = 0xF4;  // v75/v79 sentinel
 
 ReaderRenderSpec renderSpec() {
   ReaderRenderSpec spec;

@@ -148,6 +148,11 @@
 - X4 Pro: joining Wi-Fi is about 1.5 s faster. The address conflict check that was meant to be off was still running on every join.
 - X4 Pro keyboard: keys you have not pressed no longer fade during long typing sessions; every keystroke now also re-darkens black pixels that stay black.
 
+- A chapter left half-indexed by an older firmware is re-indexed instead of resuming with outdated page positions.
+- File Transfer choices no longer appear preselected when opened on a touch device.
+- On the X4 Pro and Sticky, the Home screen no longer stalls waiting for the SD card while the Library indexes in the background.
+- Small images that are scaled up, such as a short progressive JPEG, are now cached after the first draw instead of being decoded again on every screen refresh.
+- The serial log no longer reports errors for normal events: a missing image, section or dictionary cache file on first open, an outdated section cache being rebuilt, and a device without a clock chip or motion sensor. Log lines that were missing a line break now end cleanly, and SD, display, TLS and frontlight messages use the standard log format.
 - X4 Pro light-sleep firmware shows its real version (for example `1.6.0-x4-pro`) instead of "dev" in Settings, on the boot screen, and in the web and OTA version checks.
 - Background Library indexing and the reader's next-page draw-ahead run at full CPU speed again instead of the lowest idle clock.
 - USB Drive no longer reads ahead into the sectors a computer is about to write, so copying files to the card is not slowed by background reads.

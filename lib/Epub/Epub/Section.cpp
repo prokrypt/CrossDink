@@ -33,8 +33,20 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 constexpr uint8_t SECTION_FILE_VERSION = 79;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
-// under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF4;
+// under a different layout contract. Never reuse a retired sentinel: an old
+// partial on SD would resume with stale page positions. Pick below the lowest.
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF1;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+                                                        0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
+constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
+  for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
+    if (retired == v) return true;
+  }
+  return false;
+}
+static_assert(!isRetiredSectionPartialVersion(SECTION_FILE_PARTIAL_VERSION),
+              "SECTION_FILE_PARTIAL_VERSION reuses a retired partial sentinel");
+static_assert(SECTION_FILE_PARTIAL_VERSION > SECTION_FILE_VERSION, "partial sentinel collides with full versions");
 constexpr uint32_t HEADER_SIZE =
     sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
     sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
