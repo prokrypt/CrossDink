@@ -12,6 +12,7 @@
 #include <esp_http_client.h>
 #include <strings.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -35,6 +36,9 @@ constexpr int HTTP_READ_POLL_TIMEOUT_MS = 5000;
 constexpr uint32_t DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
 constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr uint8_t MAX_REDIRECTS = 5;
+
+// Length to log with %.*s: the query string can hold a signed download token.
+int pathOnly(const std::string& url) { return static_cast<int>(std::min(url.find('?'), url.size())); }
 
 void logNetworkState(const char* phase) {
   LOG_DBG("HTTP", "%s: heap free=%u maxAlloc=%u wifi=%d rssi=%d", phase, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
@@ -189,7 +193,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
     if (!http.begin(currentUrl)) {
-      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL rejected URL: %.*s", pathOnly(currentUrl), currentUrl.c_str());
       return HttpDownloader::HTTP_ERROR;
     }
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
@@ -211,7 +215,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     }
 
     // "shared": a following request to the same host logs no new TLS handshake.
-    LOG_DBG("HTTP", "wolfSSL GET%s: %s", sharedHttp ? " (shared)" : "", currentUrl.c_str());
+    LOG_DBG("HTTP", "wolfSSL GET%s: %.*s", sharedHttp ? " (shared)" : "", pathOnly(currentUrl), currentUrl.c_str());
     const int status = http.GET(
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
           const int responseStatus = http.getStatus();
@@ -270,7 +274,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
     if (status < 0) {
-      LOG_ERR("HTTP", "wolfSSL request failed: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL request failed: %.*s", pathOnly(currentUrl), currentUrl.c_str());
       if (sink.downloaded > 0) logStallDiagnostics("Request failed", sink);
       logNetworkState("wolfSSL request failure");
       return HttpDownloader::HTTP_ERROR;
