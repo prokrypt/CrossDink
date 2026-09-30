@@ -15,14 +15,22 @@
 // Main task only.
 namespace goodies_remote {
 bool running();
+// The toggle (SETTINGS.goodiesWifiRemote): on, whether or not connected yet.
+bool wanted();
+// Toggle on without a Wi-Fi screen: joins the saved network in the background.
+// False (nothing changed) when no network is saved.
+bool startInBackground();
 // Toggle off: server and Wi-Fi off, forgets the toggle.
 void stop();
 // A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
 void pause();
+// The idle server lets the main loop power save, as File Transfer's does.
+bool allowsRadioIdleSleep();
 // Main loop: once no Wi-Fi screen (Activity::usesWifi) is on the stack, or
-// after a silent restart, rejoins the last network and restarts the server.
-// No-op while the toggle is off.
-void loop();
+// after any boot (restart, sleep wake, power-on), rejoins the last network and
+// restarts the server. Joins wait 5 s after boot and for idleMs >= 2 s of no
+// input; failures back off 1 to 10 min. No-op while the toggle is off.
+void loop(uint32_t idleMs);
 }  // namespace goodies_remote
 
 // Debug-build Goodies menu (CROSSDINK_GOODIES). Root lists the tools; the
@@ -61,7 +69,11 @@ class GoodiesActivity final : public Activity {
 
   void showLevel(Level next);
   void activate(int index);
+  int remoteRowShown = -1;
+
   void toggleRemote();
+  static int remoteRowState();
+  static std::string remoteRowValue();
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
