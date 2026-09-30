@@ -791,6 +791,10 @@ void WifiSelectionActivity::attemptConnection() {
   String hostname = "CrossPoint-Reader-" + mac;
   WiFi.setHostname(hostname.c_str());
 
+  // Radio awake for the join: in modem sleep it can miss the DHCP answer and
+  // wait out lwIP's 500 ms resend. Modem sleep comes back once connected.
+  WiFi.setSleep(false);
+
   wl_status_t beginStatus = WL_IDLE_STATUS;
   const char* const passphrase =
       selectedRequiresPassword && !enteredPassword.empty() ? enteredPassword.c_str() : nullptr;
@@ -837,6 +841,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
 
   if (status == WL_CONNECTED) {
     // Successfully connected
+    WiFi.setSleep(true);
     IPAddress ip = WiFi.localIP();
     char ipStr[16];
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
