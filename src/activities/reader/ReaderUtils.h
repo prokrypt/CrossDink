@@ -230,10 +230,6 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
 }
 
-// Softfast holds B/W pixels, which never clean themselves: one full balanced
-// swing after this many held pages, whatever Refresh Frequency says (Never too).
-constexpr uint8_t kSoftfastSwingPages = 15;
-
 // Mode for a ghost cleanup (cadence, reader entry, image gray residue): the
 // panel's balanced Half. A negative countdown is the manual Refresh Screen
 // shortcut, which keeps its own mode.

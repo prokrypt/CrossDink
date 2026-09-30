@@ -148,7 +148,7 @@
 - OPDS: loading catalog pages and downloads uses 2 KB less of the main task's stack (the network read buffer moved off the stack).
 - Logs: download URLs are logged without their query string, so signed download tokens stay out of logs, and a line cut at the length limit still ends with a newline instead of running into the next one.
 - X4 Pro (Softfast): the reader's top and bottom panels and other menus opened over an anti-aliased page draw their black text with a longer balanced repaint (about 0.5 s more when opening them).
-- X4 Pro: Softfast no longer lets the page get dirtier over time: every Refresh Frequency pages, and at least every 15 pages even with Never, it runs one full gray refresh (one flash) that redraws every pixel.
+- X4 Pro: Softfast no longer lets the page get dirtier over time: every Refresh Frequency pages it runs one full gray refresh (one flash) that redraws every pixel.
 - X4 Pro: menus and the reader drawer opened over an anti-aliased page no longer show their text slightly gray (and no longer darken step by step on repeated taps). Leaving a gray page takes about 0.5 s longer.
 - X4 Pro: the OPDS download page, Calibre upload progress and Nearby send/receive progress keep the screen powered while the progress updates. Switching the screen off between updates left heavy ghosting on a large OPDS download.
 - OPDS: Back (button or the top-left Back button) now cancels a catalog page that is still loading and returns to the previous list, instead of being ignored until the request finishes or times out after 60 s. A kept-alive connection idle more than 4 s is reopened instead of reused, so a page opened after a pause no longer hangs on a socket the server dropped.

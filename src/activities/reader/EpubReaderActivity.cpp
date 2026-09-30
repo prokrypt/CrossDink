@@ -8369,14 +8369,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // The full swing owed after open/cover is spent only by a page that runs a gray pass. Held pixels
   // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
   if (updatePanel) {
-    const bool smooth = SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
-                        !smoothFullSwingPending && !grayCadenceDue &&
-                        smoothPagesSinceSwing < ReaderUtils::kSoftfastSwingPages;
-    renderer.setSmoothGray(smooth);
-    if (needsAnyGrayscale) {
-      smoothFullSwingPending = false;
-      smoothPagesSinceSwing = smooth ? smoothPagesSinceSwing + 1 : 0;
-    }
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
+                           !smoothFullSwingPending && !grayCadenceDue);
+    if (needsAnyGrayscale) smoothFullSwingPending = false;
   }
   if (grayCadenceDue) {
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
