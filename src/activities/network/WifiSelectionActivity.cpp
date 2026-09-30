@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
@@ -65,7 +66,7 @@ struct WifiApHint {
 };
 RTC_NOINIT_ATTR WifiApHint sWifiApHint;
 bool sHintedAttempt = false;
-constexpr unsigned long HINTED_CONNECTION_TIMEOUT_MS = 6000;
+KNOB_ALIAS(HINTED_CONNECTION_TIMEOUT_MS, hintedConnectTimeoutMs);  // Goodies > Knobs
 
 uint32_t ssidHash(const std::string& ssid) {
   uint32_t hash = 2166136261u;  // FNV-1a

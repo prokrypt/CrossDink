@@ -61,6 +61,19 @@ void apply() {
   d.tempRefreshPeriodMs = KNOBS.tempRefreshPeriodMs;
   d.tempMaxAgeMs = KNOBS.tempMaxAgeMs;
   freeink::setUc8179Tuning(d);
+  InputManager::Tuning t;
+  t.homeKeyLongPressMs = KNOBS.homeKeyLongMs;
+  t.confirmBackHoldMs = KNOBS.confirmBackHoldMs;
+  t.confirmPowerHoldMs = KNOBS.confirmPowerHoldMs;
+  t.twoButtonHoldMs = KNOBS.twoButtonHoldMs;
+  t.touchIrqPulseMs = KNOBS.touchIrqPulseMs;
+  t.touchTapSlopPx = KNOBS.tapSlopPx;
+  t.touchSwipeMinPx = KNOBS.swipeMinPx;
+  t.touchSwipeMaxMs = KNOBS.swipeMaxMs;
+  t.touchMultiSwipeMaxMs = KNOBS.multiSwipeMaxMs;
+  t.touchMultiSeparationSlopPx = KNOBS.multiSeparationSlopPx;
+  t.touchLongPressMs = KNOBS.touchLongPressMs;
+  InputManager::setTuning(t);
 }
 
 bool save() {

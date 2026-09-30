@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Knobs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -107,7 +108,7 @@ class ActivityManager {
   static constexpr uint32_t PANEL_OFF_POLL_MS = DEFERRED_REFRESH_POLL_MS;
   // Input on an opted-in screen powers the booster on early (wakePanelEarly);
   // if no frame follows, it switches off again after this long.
-  static constexpr uint32_t PANEL_IDLE_OFF_MS = 10000;
+  static KNOB_ALIAS(PANEL_IDLE_OFF_MS, panelIdleOffMs);  // Goodies > Knobs
   // Render-task notification bit for wakePanelEarly(); renders use eIncrement,
   // so a value of exactly this bit means "wake only, nothing to draw".
   static constexpr uint32_t PANEL_WAKE_BIT = 1UL << 31;

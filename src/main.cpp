@@ -16,6 +16,7 @@
 #include <HalSystem.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -127,7 +128,7 @@ static bool powerButtonReleasedSinceWake = false;
 static bool wakePowerReleasePending = false;
 
 namespace {
-constexpr unsigned long X4PRO_HOME_KEY_DOUBLE_TAP_MS = 300;
+KNOB_ALIAS(X4PRO_HOME_KEY_DOUBLE_TAP_MS, homeDoubleTapMs);  // Goodies > Knobs
 
 struct QuickLockBadgeBackdrop {
   static constexpr int SIZE = 40;
@@ -550,7 +551,7 @@ void silentRestartToManageFonts() { silentRestartToNetwork(NetworkBootTarget::MA
 namespace {
 // Reader work after a Wi-Fi session needs internal RAM for worker task stacks
 // (24 KB each) and inline image decoding; the same bar as optional rebuilds.
-constexpr uint32_t NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+KNOB_ALIAS(NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK, netExitMinBlock);  // Goodies > Knobs
 // Going Home on a PSRAM device: reader worker stacks and image decoders use
 // PSRAM, leaving text layout's 32 KB bar. Free blocks come in 2 KB steps less a
 // 12 B header, so a "32 KB" block reads 32756; 31 KB accepts it.
@@ -696,8 +697,8 @@ static bool launchNetworkTarget(NetworkBootTarget target, uint32_t payload, bool
 namespace {
 // Wi-Fi uses internal RAM for driver state and buffers that PSRAM cannot hold;
 // below this the screen is entered through a reboot as before.
-constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE;
-constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+KNOB_ALIAS(NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE, netEntryMinFree);  // Goodies > Knobs
+KNOB_ALIAS(NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK, netEntryMinBlock);
 
 bool enterNetworkInPlace() {
   // The previous activity (a reader included) has run onExit() by now.
@@ -1958,7 +1959,7 @@ void setup() {
     // by network screens. Keep X3's existing full refresh behavior unchanged.
     // A seeded retained frame is the panel's true OLD plane, so Home is a plain
     // Fast transition from the exited screen (no flash).
-    const auto homeRefreshMode = gpio.deviceIsX3()           ? HalDisplay::FULL_REFRESH
+    const auto homeRefreshMode = gpio.deviceIsX3()          ? HalDisplay::FULL_REFRESH
                                  : retainedPanelFrameSeeded ? HalDisplay::FAST_REFRESH
                                                             : HalDisplay::HALF_REFRESH;
     // File Transfer exit with a firmware to flash (POST /api/exit?flash=...):
@@ -2025,17 +2026,17 @@ void setup() {
   // during long loop work are queued instead of dropped.
   InputTask::begin();
 
-  allowSleepAt = millis() + 2000;
+  allowSleepAt = millis() + KNOBS.bootSleepGraceMs;
 }
 
 namespace {
-constexpr uint32_t IDLE_WAIT_MS = 50;
-constexpr uint32_t IDLE_WAIT_SETTLED_MS = 250;
-constexpr uint32_t IDLE_WAIT_LONG_MS = 1000;
+KNOB_ALIAS(IDLE_WAIT_MS, idleWaitMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(IDLE_WAIT_SETTLED_MS, idleWaitSettledMs);
+KNOB_ALIAS(IDLE_WAIT_LONG_MS, idleWaitLongMs);
 // Toasts, hold thresholds and the Home double tap all resolve within a couple
 // of seconds of the last input, so the idle tick stays short until then.
-constexpr unsigned long IDLE_WAIT_BACKOFF_AFTER_MS = 2000;
-constexpr unsigned long IDLE_WAIT_LONG_AFTER_MS = 10000;
+KNOB_ALIAS(IDLE_WAIT_BACKOFF_AFTER_MS, idleBackoffAfterMs);
+KNOB_ALIAS(IDLE_WAIT_LONG_AFTER_MS, idleLongAfterMs);
 
 bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <Knobs.h>
 #include <Rtc.h>
 
 class HalClock;
@@ -25,7 +26,7 @@ class HalClock {
   // never across the RTC's I2C read.
   mutable portMUX_TYPE _cacheMux = portMUX_INITIALIZER_UNLOCKED;
 
-  static constexpr unsigned long CLOCK_POLL_MS = 10000;  // 10 seconds
+  static KNOB_ALIAS(CLOCK_POLL_MS, clockPollMs);  // 10 seconds, Goodies > Knobs
 
  public:
   enum DateFormat : uint8_t {

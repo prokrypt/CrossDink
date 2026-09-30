@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 // Goodies > Knobs: tunable internal constants, listed in Knobs.def. Goodies

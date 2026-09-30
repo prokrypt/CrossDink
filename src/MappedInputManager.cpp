@@ -21,14 +21,13 @@
 namespace {
 using ButtonIndex = uint8_t;
 constexpr ButtonIndex kNoButton = UINT8_MAX;
-constexpr float LEFT_EDGE_BACK_GESTURE_FRAC_X = 0.25f;
-constexpr float BOTTOM_EDGE_HOME_GESTURE_FRAC_Y = 0.06f;
-constexpr float READER_BOTTOM_EDGE_HOME_GESTURE_FRAC_Y = 0.12f;
-constexpr float TOP_EDGE_MENU_GESTURE_FRAC_Y = 0.14f;
-constexpr unsigned long TOUCH_HELD_OVERRIDE_WINDOW_MS = 250;
+// Edge zones and the held override window are Goodies > Knobs (zones in permille).
+float leftEdgeBackGestureFracX() { return KNOBS.backEdgePermille / 1000.0f; }
+float topEdgeMenuGestureFracY() { return KNOBS.menuEdgePermille / 1000.0f; }
+KNOB_ALIAS(TOUCH_HELD_OVERRIDE_WINDOW_MS, heldOverrideMs);
 
-constexpr float bottomEdgeHomeGestureFraction(const bool readerMode) {
-  return readerMode ? READER_BOTTOM_EDGE_HOME_GESTURE_FRAC_Y : BOTTOM_EDGE_HOME_GESTURE_FRAC_Y;
+float bottomEdgeHomeGestureFraction(const bool readerMode) {
+  return (readerMode ? KNOBS.readerHomeEdgePermille : KNOBS.homeEdgePermille) / 1000.0f;
 }
 
 struct SideLayoutMap {
@@ -376,7 +375,7 @@ bool MappedInputManager::wasScreenLongPress(int& x, int& y) const {
 bool MappedInputManager::isInVerticalEdgeGestureZone(const int y) const {
   const int screenHeight = renderer.getScreenHeight();
   if (screenHeight <= 0) return false;
-  const int topEdgeBottom = static_cast<int>(screenHeight * TOP_EDGE_MENU_GESTURE_FRAC_Y);
+  const int topEdgeBottom = static_cast<int>(screenHeight * topEdgeMenuGestureFracY());
   const int bottomEdgeTop = screenHeight - static_cast<int>(screenHeight * bottomEdgeHomeGestureFraction(readerMode));
   return y <= topEdgeBottom || y >= bottomEdgeTop;
 }
@@ -765,8 +764,8 @@ bool MappedInputManager::wasBackGesture() const {
   int ex = 0;
   int ey = 0;
   if (!decodeSwipe(sx, sy, ex, ey)) return false;
-  const bool hit = sx <= renderer.getScreenWidth() * LEFT_EDGE_BACK_GESTURE_FRAC_X && ex > sx &&
-                   std::abs(ex - sx) > std::abs(ey - sy);
+  const bool hit =
+      sx <= renderer.getScreenWidth() * leftEdgeBackGestureFracX() && ex > sx && std::abs(ex - sx) > std::abs(ey - sy);
   if (hit) rememberTouchHeldTime();
   return hit;
 }
@@ -792,7 +791,7 @@ bool MappedInputManager::wasTopEdgeDownSwipe() const {
   int ex = 0;
   int ey = 0;
   if (!decodeSwipe(sx, sy, ex, ey)) return false;
-  const int topEdgeBottom = static_cast<int>(renderer.getScreenHeight() * TOP_EDGE_MENU_GESTURE_FRAC_Y);
+  const int topEdgeBottom = static_cast<int>(renderer.getScreenHeight() * topEdgeMenuGestureFracY());
   const bool hit = sy <= topEdgeBottom && ey > sy && std::abs(ey - sy) > std::abs(ex - sx);
   if (hit) rememberTouchHeldTime();
   return hit;

@@ -1,5 +1,6 @@
 #include "OpdsBookDownloader.h"
 
+#include <Knobs.h>
 #include <Logging.h>
 #include <ZipFile.h>
 
@@ -25,7 +26,7 @@ constexpr size_t RX_LOG_STEP_BYTES = 1024 * 1024;
 // Book hosts can drop a long response without closing it (seen: mayberry.pub
 // branch hosts stop ~65 s into a 32 MB book). Give up on a silent body after
 // this long instead of the 60 s request timeout, then resume it.
-constexpr uint32_t BODY_STALL_TIMEOUT_MS = 10000;
+KNOB_ALIAS(BODY_STALL_TIMEOUT_MS, opdsStallMs);  // Goodies > Knobs
 // Automatic Range resumes per download before the Retry/Cancel prompt. Each
 // must have made progress, so a dead server still fails after one attempt.
 constexpr uint8_t MAX_AUTO_RESUMES = 4;

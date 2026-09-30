@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HalGPIO.h>
+#include <Knobs.h>
 
 #include <array>
 #include <cstddef>
@@ -303,8 +304,8 @@ class MappedInputManager {
 #if CROSSDINK_APP_CAP_TOUCH
   mutable bool suppressTouchTap = false;
   mutable bool deferredHomeGesture = false;
-  static constexpr unsigned long SELECT_PRESS_DELAY_MS = 200;
-  static constexpr int SELECT_PRESS_SLOP_PX = 20;
+  static KNOB_ALIAS(SELECT_PRESS_DELAY_MS, selectPressDelayMs);  // Goodies > Knobs
+  static KNOB_ALIAS(SELECT_PRESS_SLOP_PX, selectPressSlopPx);
   mutable bool selectPressPending = false;
   mutable bool selectPressThisFrame = false;
   mutable int selectPressX = 0;

@@ -6,6 +6,7 @@
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
+#include <Knobs.h>
 #include <Memory.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -407,7 +408,7 @@ class EpubReaderActivity final : public Activity {
     bool attempted = false;
   };
   HomeThumbWorker homeThumbWorker;
-  static constexpr unsigned long HOME_THUMB_IDLE_MS = 3000;
+  static KNOB_ALIAS(HOME_THUMB_IDLE_MS, homeThumbIdleMs);  // Goodies > Knobs
   void maybeStartHomeThumbWorker();
   static void homeThumbWorkerMain(void* param);
   void waitHomeThumbWorker();
@@ -497,7 +498,7 @@ class EpubReaderActivity final : public Activity {
   void cancelSilentPrefetchForInput();
   bool restoreCurrentPageBufferAfterSilentIndex();
   // Larger batches are reserved for non-interactive work such as sleep-page preparation.
-  static constexpr int BUILD_PAGES_PER_CHUNK = 8;
+  static KNOB_ALIAS(BUILD_PAGES_PER_CHUNK, buildChunkPages);  // Goodies > Knobs
   // Interactive builds stop as soon as the requested page is ready and give the
   // main loop a chance to observe input between pages.
   static constexpr int INTERACTIVE_BUILD_PAGES_PER_CHUNK = 1;
@@ -505,19 +506,19 @@ class EpubReaderActivity final : public Activity {
   // before every tick) keeps the background build responsive. Incremental limits the build to
   // a small lookahead window, while IncreMENTAL keeps working to completion.
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
-  static constexpr int BUILD_WINDOW_AHEAD = 5;
-  static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
+  static KNOB_ALIAS(BUILD_WINDOW_AHEAD, buildAheadPages);  // Goodies > Knobs, as the next
+  static KNOB_ALIAS(PARTIAL_REBUILD_START_MARGIN, partialRebuildMargin);
   // Show the indexing popup when an initial build must lay out more than this many pages up front
   // (a deep resume/jump into a not-yet-built section), so it isn't a silent wait. Kept independent
   // of the background build so ordinary landings stay popup-free.
-  static constexpr int BUILD_POPUP_PAGE_THRESHOLD = 20;
+  static KNOB_ALIAS(BUILD_POPUP_PAGE_THRESHOLD, popupPages);  // Goodies > Knobs
   // Also show the popup when first building a spine larger than this (uncompressed bytes): its
   // whole HTML must be inflated before page 1 can lay out (the giant single-spine case), which is
   // a multi-second wait. Normal chapters are well under this and stay popup-free.
-  static constexpr size_t BUILD_POPUP_BYTE_THRESHOLD = 96 * 1024;
+  static KNOB_ALIAS(BUILD_POPUP_BYTE_THRESHOLD, popupBytes);  // Goodies > Knobs
   // If a build predicted to be fast still has not produced the requested page within this
   // window, show the popup while the blocking build continues.
-  static constexpr unsigned long BUILD_POPUP_DEADLINE_MS = 1000;
+  static KNOB_ALIAS(BUILD_POPUP_DEADLINE_MS, popupDeadlineMs);  // Goodies > Knobs
   // Only true during the blocking build-to-target phase. The parser retains the callback during
   // background indexing, so this guard prevents it from drawing over an already-visible page.
   bool buildPopupPending = false;

@@ -1,6 +1,7 @@
 #include "OpdsPreloadPool.h"
 
 #include <Arduino.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <SecureHttpClient.h>
@@ -13,12 +14,12 @@ namespace {
 // block check); each worker still costs an internal TCB and wolfSSL's small
 // allocations (larger ones go to PSRAM via CONFIG_SPIRAM_USE_MALLOC). Each
 // further worker raises the floor, so parallelism backs off as the heap shrinks.
-constexpr size_t PRELOAD_MIN_INTERNAL_FREE = 48 * 1024;
-constexpr size_t PRELOAD_INTERNAL_PER_WORKER = 16 * 1024;
-constexpr size_t PRELOAD_MIN_INTERNAL_BLOCK = 16 * 1024;
+KNOB_ALIAS(PRELOAD_MIN_INTERNAL_FREE, opdsPreloadMinFree);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(PRELOAD_INTERNAL_PER_WORKER, opdsPreloadPerWorker);
+KNOB_ALIAS(PRELOAD_MIN_INTERNAL_BLOCK, opdsPreloadMinBlock);
 // Same rule as the foreground feed connection: a socket idle this long may
 // have been dropped silently by a NAT or the server.
-constexpr unsigned long PRELOAD_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
+KNOB_ALIAS(PRELOAD_KEEPALIVE_MAX_IDLE_MS, opdsKeepaliveMs);  // Goodies > Knobs
 }  // namespace
 
 OpdsPreloadPool::OpdsPreloadPool(OpdsPageCache& cache, const size_t pageMaxBytes, std::string username,

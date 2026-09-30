@@ -11,6 +11,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Memory.h>
 
 #include <algorithm>
@@ -39,7 +40,7 @@
 namespace {
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint16_t MIN_TIME_LEFT_PACE_SAMPLE_COUNT = 3;
-constexpr unsigned long LONG_PRESS_MENU_MS = 600UL;
+KNOB_ALIAS(LONG_PRESS_MENU_MS, menuHoldMs);  // Goodies > Knobs
 
 std::string confirmationHeading(const StrId actionLabelId) {
   return std::string(tr(STR_CONFIRM)) + ": " + std::string(I18N.get(actionLabelId));
@@ -557,7 +558,7 @@ void XtcReaderActivity::loop() {
   // Mirror EPUB's manual-turn guard: the render task updates the panel
   // concurrently, so accepting another turn before it owns RenderLock can mix
   // two pages. The short time gap covers that request-to-render startup window.
-  constexpr unsigned long kMinManualTurnGapMs = 200;
+  const unsigned long kMinManualTurnGapMs = KNOBS.pageTurnGapMs;  // Goodies > Knobs
   const unsigned long now = millis();
   if (RenderLock::peek() || (now - lastPageTurnTime) < kMinManualTurnGapMs) {
     shortcutPageTurnPending = shortcutPageTurnPending || shortcutPageTurn;

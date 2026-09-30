@@ -70,14 +70,14 @@ enum class RadioOwner : uint8_t { None, Shared, Screen };
 RadioOwner radioOwner = RadioOwner::None;
 bool sharedStartTried = false;
 uint32_t rejoinAt = 0;
-uint32_t rejoinRetryMs = 0;  // 0 until an attempt fails; doubles per failure
-constexpr uint32_t REJOIN_TIMEOUT_MS = 20000;
-constexpr uint32_t REJOIN_RETRY_MIN_MS = 60000;
-constexpr uint32_t REJOIN_RETRY_MAX_MS = 600000;
+uint32_t rejoinRetryMs = 0;                      // 0 until an attempt fails; doubles per failure
+KNOB_ALIAS(REJOIN_TIMEOUT_MS, rejoinTimeoutMs);  // Goodies > Knobs, as the rejoin times below
+KNOB_ALIAS(REJOIN_RETRY_MIN_MS, rejoinRetryMinMs);
+KNOB_ALIAS(REJOIN_RETRY_MAX_MS, rejoinRetryMaxMs);
 // The join task still shares the SD card and core 0 with the main loop, so a
 // background join waits for the wake screen to paint and for a pause in input.
-constexpr uint32_t REJOIN_BOOT_DELAY_MS = 5000;
-constexpr uint32_t REJOIN_IDLE_MS = 2000;
+KNOB_ALIAS(REJOIN_BOOT_DELAY_MS, rejoinBootDelayMs);
+KNOB_ALIAS(REJOIN_IDLE_MS, rejoinIdleMs);
 
 bool remoteWanted() { return SETTINGS.goodiesWifiRemote != 0; }
 

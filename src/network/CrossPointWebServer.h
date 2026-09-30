@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <NetworkUdp.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -142,7 +143,7 @@ class CrossPointWebServer {
   NetworkUDP udp;
   bool udpActive = false;
 
-  static constexpr unsigned long TRANSFER_LINGER_MS = 500;
+  static KNOB_ALIAS(TRANSFER_LINGER_MS, transferLingerMs);  // Goodies > Knobs
   std::atomic<bool> transferActive{false};
   std::atomic<unsigned long> lastTransferMs{0};
   std::atomic<unsigned long> requestStartMs{0};  // handleClient() is serving a request since; 0 = none
@@ -156,8 +157,8 @@ class CrossPointWebServer {
   // Same stack as Arduino's loopTask, which used to run these handlers.
   static constexpr uint32_t SERVER_TASK_STACK_BYTES = 8192;
   // Idle STA poll: a new request waits at most this long (plus a DTIM beacon).
-  static constexpr uint32_t IDLE_POLL_MS = 100;
-  static constexpr int ACTIVE_PASSES_PER_TICK = 64;
+  static KNOB_ALIAS(IDLE_POLL_MS, serverIdlePollMs);  // Goodies > Knobs, as the next
+  static KNOB_ALIAS(ACTIVE_PASSES_PER_TICK, serverActivePasses);
   TaskHandle_t serverTask = nullptr;
   // Log-only server (Goodies remote): stack in PSRAM. None of its handlers
   // touch the SD card, and /api/ota's flash writes run on firmware_flash's

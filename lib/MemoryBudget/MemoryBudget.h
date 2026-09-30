@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <Knobs.h>
 #include <Logging.h>
 
 #include <cstdint>
@@ -39,18 +40,18 @@ struct HeapRequirement {
 
 constexpr uint32_t EPUB_INLINE_IMAGE_MIN_FREE = 72U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_MIN_MAX_ALLOC = 48U * 1024U;
-constexpr uint32_t EPUB_TEXT_LAYOUT_MIN_FREE = 44U * 1024U;
+KNOB_ALIAS(EPUB_TEXT_LAYOUT_MIN_FREE, layoutMinFree);  // Goodies > Knobs
 constexpr uint32_t EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC = 32U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_FREE = 120U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_MAX_ALLOC = 80U * 1024U;
-constexpr uint32_t OPTIONAL_EPUB_REBUILD_MIN_FREE = 96U * 1024U;
-constexpr uint32_t OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC = 48U * 1024U;
+KNOB_ALIAS(OPTIONAL_EPUB_REBUILD_MIN_FREE, rebuildMinFree);  // Goodies > Knobs
+KNOB_ALIAS(OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC, rebuildMinBlock);
 constexpr uint32_t OPTIONAL_EPUB_PREFETCH_AFTER_SD_FONT_RELEASE_MIN_FREE = 88U * 1024U;
 // Initial C3 guard for switching to a different dictionary .cpfont. Both total
 // free heap and contiguous maxAlloc matter because font metadata and prewarm
 // arenas are separate allocations. Hardware stress logs should tune these.
-constexpr uint32_t DICTIONARY_SD_FONT_MIN_FREE = 64U * 1024U;
-constexpr uint32_t DICTIONARY_SD_FONT_MIN_MAX_ALLOC = 32U * 1024U;
+KNOB_ALIAS(DICTIONARY_SD_FONT_MIN_FREE, dictFontMinFree);  // Goodies > Knobs
+KNOB_ALIAS(DICTIONARY_SD_FONT_MIN_MAX_ALLOC, dictFontMinBlock);
 constexpr uint32_t IMAGE_DECODER_HEADROOM = 16U * 1024U;
 constexpr uint32_t JPEG_DECODER_APPROX_BYTES = 20U * 1024U;
 constexpr uint32_t EPUB_INLINE_JPEG_MIN_FREE = JPEG_DECODER_APPROX_BYTES + IMAGE_DECODER_HEADROOM;
