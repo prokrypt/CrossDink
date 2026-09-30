@@ -27,6 +27,7 @@
 #include "CrossPointState.h"
 #include "OpdsServerStore.h"
 #include "SettingsList.h"
+#include "SilentRestart.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/goodies/GoodiesActivity.h"
@@ -525,8 +526,7 @@ bool handleLine(const char* line) {
   } else if (strcmp(verb, "REBOOT") == 0) {
     reply("OK:REBOOT");
     logSerial.flush();
-    delay(50);
-    ESP.restart();  // intentional: remote-control reboot for test runs
+    silentRestart();  // intentional: remote-control reboot for test runs, no logo
   } else if (strcmp(verb, "WAITIDLE") == 0) {
     cmdWaitIdle(args);
   } else if (strcmp(verb, "GOTO") == 0) {
