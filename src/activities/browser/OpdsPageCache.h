@@ -60,7 +60,7 @@ class OpdsPageBuffer {
  */
 class OpdsPageCache {
  public:
-  static constexpr size_t MAX_PAGES = 24;
+  static constexpr size_t MAX_PAGES = 64;
 
   explicit OpdsPageCache(size_t byteBudget) : byteBudget(byteBudget) {}
 
