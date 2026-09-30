@@ -385,10 +385,10 @@ struct FlashDuckKnob {
 constexpr FlashDuckKnob FLASH_DUCK_KNOBS[] = {
     {&CrossPointSettings::flashDuckDepth, StrId::STR_FLASH_DUCK_DEPTH, CrossPointSettings::FLASH_DUCK_DEPTH_MAX,
      CrossPointSettings::FLASH_DUCK_DEPTH_STEP, CrossPointSettings::FLASH_DUCK_DEPTH_STEP, formatFlashDuckDepth},
-    {&CrossPointSettings::flashDuckDim, StrId::STR_FLASH_DUCK_DIM, CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1, 5,
+    {&CrossPointSettings::flashDuckDim, StrId::STR_FLASH_DUCK_DIM, CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1, 10,
      formatFlashDuckMs},
     {&CrossPointSettings::flashDuckRestore, StrId::STR_FLASH_DUCK_RESTORE, CrossPointSettings::FLASH_DUCK_TIMING_MAX,
-     1, 5, formatFlashDuckMs},
+     1, 10, formatFlashDuckMs},
 };
 
 std::string flashDuckRowValue(const FlashDuckKnob& knob) {

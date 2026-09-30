@@ -698,8 +698,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Goodies flash-dim calibration: the dim and the restore move by
   // (value - FLASH_DUCK_TIMING_ZERO) x FLASH_DUCK_TIMING_STEP_MS, later is
   // positive (flashDuckMs). Neither ever delays a refresh.
-  static constexpr uint8_t FLASH_DUCK_TIMING_ZERO = 20;
-  static constexpr uint8_t FLASH_DUCK_TIMING_MAX = 40;
+  static constexpr uint8_t FLASH_DUCK_TIMING_ZERO = 80;  // +-800 ms: direct gray swings 570 ms in
+  static constexpr uint8_t FLASH_DUCK_TIMING_MAX = 160;
   static constexpr int FLASH_DUCK_TIMING_STEP_MS = 10;
   uint8_t flashDuckDim = FLASH_DUCK_TIMING_ZERO;
   uint8_t flashDuckRestore = FLASH_DUCK_TIMING_ZERO;
