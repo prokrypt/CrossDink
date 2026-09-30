@@ -1,0 +1,7 @@
+# Manifest for src/components/icons/markIcons.h — regenerate with:
+#   python3 scripts/generate_icons.py --library lucide \
+#     --manifest src/components/icons/markIcons.manifest \
+#     --sizes 8,16 --out src/components/icons/markIcons.h
+# then clang-format -i the output.
+# Small status marks drawn in a list row's side padding (8 px Lyra, 20 px others).
+check = check

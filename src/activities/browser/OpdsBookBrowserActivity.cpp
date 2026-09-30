@@ -36,6 +36,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/markIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
@@ -472,6 +473,8 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   // book count; same lifetime as `items`.
   using CountLabel = std::array<char, 16>;
   std::vector<CountLabel> countLabels(entryCount);
+  // The biggest check that fits the theme's row padding (8 px Lyra, 20 px others).
+  const fui::BitmapRef mark = fui::bitmapFromIcon(screen.theme().listSidePadding >= 16 ? icon_check_16 : icon_check_8);
   for (size_t i = 0; i < entryCount; ++i) {
     const auto& entry = entries[i];
     fui::ListItem item;
@@ -479,8 +482,8 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
     // One mark for "no network needed": a downloaded book or a cached feed page.
     if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) {
-      item.icon = fui::bitmapFromIcon(icon_check_24);
-      item.iconTrailing = true;  // right side, before the "(N) >" value
+      item.icon = mark;
+      item.iconInMargin = true;  // in the left padding: nothing else moves
     }
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
