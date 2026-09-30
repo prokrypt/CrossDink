@@ -63,10 +63,12 @@ constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
-  if (book.author.empty()) return book.title;
-  if (book.title.empty()) return book.author;
-  if (format == OpdsFilenameFormat::TITLE_AUTHOR) return book.title + " - " + book.author;
-  return book.author + " - " + book.title;
+  const std::string title(book.title);
+  const std::string author(book.author);
+  if (author.empty()) return title;
+  if (title.empty()) return author;
+  if (format == OpdsFilenameFormat::TITLE_AUTHOR) return title + " - " + author;
+  return author + " - " + title;
 }
 
 // SD path a book downloads to: the configured folder (or the root) plus the
@@ -117,7 +119,7 @@ bool formatFatDateTime(const uint32_t packed, char* out, const size_t outSize) {
 
 // Mayberry prefixes folder titles with U+1F4C1 (file folder), which the UI
 // fonts lack; show "/name" instead.
-void replaceFolderEmoji(std::string& title) {
+void replaceFolderEmoji(PsramString& title) {
   constexpr char FOLDER_EMOJI[] = "\xF0\x9F\x93\x81";
   constexpr size_t FOLDER_EMOJI_LEN = sizeof(FOLDER_EMOJI) - 1;
   if (title.compare(0, FOLDER_EMOJI_LEN, FOLDER_EMOJI) != 0) return;
@@ -712,14 +714,15 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
       entries[i] = std::move(entries[i - 1]);
     }
     entries[0] = OpdsEntry{OpdsEntryType::NAVIGATION,
-                           std::string(mappedInput.resolveLabel(mappedInput.withPreviousPageArrow(tr(STR_PREV_PAGE)))),
-                           "", prevUrl, ""};
+                           PsramString(mappedInput.resolveLabel(mappedInput.withPreviousPageArrow(tr(STR_PREV_PAGE)))),
+                           "", PsramString(prevUrl), ""};
     entryCount++;
   }
   if (!nextUrl.empty()) {
-    hasNextPageRow = appendEntry(OpdsEntry{
-        OpdsEntryType::NAVIGATION,
-        std::string(mappedInput.resolveLabel(mappedInput.withNextPageArrow(tr(STR_NEXT_PAGE)))), "", nextUrl, ""});
+    hasNextPageRow =
+        appendEntry(OpdsEntry{OpdsEntryType::NAVIGATION,
+                              PsramString(mappedInput.resolveLabel(mappedInput.withNextPageArrow(tr(STR_NEXT_PAGE)))),
+                              "", PsramString(nextUrl), ""});
     if (!hasNextPageRow) LOG_DBG("OPDS", "No room for next-page entry");
   }
 
@@ -821,7 +824,7 @@ void OpdsBookBrowserActivity::preloadFeedsOnPage() {
   size_t queuedCount = 0;
   for (size_t i = first; i < last; ++i) {
     if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
-    const std::string path = UrlUtils::buildUrl(feedUrl, entries[i].href);
+    const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
     preload->enqueue(UrlUtils::buildUrl(server.url, path), false);
     ++queuedCount;
   }
@@ -919,7 +922,7 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool
   if (!pageLink) pushHistory();
   // Resolve to a full URL so sub-sub-navigation retains parent path context
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
+  currentPath = UrlUtils::buildUrl(feedUrl, std::string(entry.href));
 
   clearEntries();
   selectorIndex = 0;
@@ -1020,7 +1023,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   // Build full download URL relative to the current feed, not the root server URL
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   OpdsBookDownloader::Request request;
-  request.url = UrlUtils::buildUrl(feedUrl, book.href);
+  request.url = UrlUtils::buildUrl(feedUrl, std::string(book.href));
   request.path = filename;
   request.username = server.username;
   request.password = server.password;
