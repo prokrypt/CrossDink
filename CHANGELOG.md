@@ -149,6 +149,7 @@
 - X4 Pro keyboard: keys you have not pressed no longer fade during long typing sessions; every keystroke now also re-darkens black pixels that stay black.
 
 - A chapter left half-indexed by an older firmware is re-indexed instead of resuming with outdated page positions.
+- Saving the reading position before opening Wi-Fi, Calibre, KOReader sign-in, file transfer or the light panel waits for the screen to finish drawing, so it can no longer read or close a chapter that is still being indexed.
 - File Transfer choices no longer appear preselected when opened on a touch device.
 - On the X4 Pro and Sticky, the Home screen no longer stalls waiting for the SD card while the Library indexes in the background.
 - Small images that are scaled up, such as a short progressive JPEG, are now cached after the first draw instead of being decoded again on every screen refresh.

@@ -5025,8 +5025,11 @@ void EpubReaderActivity::reindexCurrentSection() {
 void EpubReaderActivity::openFileTransfer() {
   clearPendingManualPageTurns(true, "network");
   pauseReadingPaceTimer("file_transfer");
-  if (epub && section) {
-    saveProgress(currentSpineIndex, section->currentPage, section->estimatedTotalPages());
+  {
+    RenderLock lock(*this);  // same race as saveProgressBeforeRestart()
+    if (epub && section) {
+      saveProgress(currentSpineIndex, section->currentPage, section->estimatedTotalPages());
+    }
   }
 
   activityManager.goToFileTransfer(epub ? epub->getPath() : std::string{});
@@ -8000,6 +8003,9 @@ bool EpubReaderActivity::saveFootnoteOriginProgress() {
 }
 
 void EpubReaderActivity::saveProgressBeforeRestart() {
+  // Runs on the input loop; the render task may be building or swapping `section`,
+  // which saveProgress() reads and whose build file it may release.
+  RenderLock lock(*this);
   const bool saved = footnoteDepth > 0 ? (epub && saveFootnoteOriginProgress()) : flushQueuedProgress();
   if (!saved) {
     LOG_ERR("ERS", "Failed to save progress before restart");
