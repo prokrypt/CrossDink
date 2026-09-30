@@ -24,6 +24,7 @@
 #include <esp_heap_caps.h>
 #include <esp_image_format.h>
 #include <esp_ota_ops.h>
+#include <freertos/idf_additions.h>
 #endif
 
 #include <algorithm>
@@ -608,11 +609,21 @@ void CrossPointWebServer::begin(const bool logOnly) {
   running.store(true, std::memory_order_release);
   // Internal-RAM stack (8 KB) only while the server runs: handlers write to
   // the SD card, and task stacks must stay reachable while flash is busy.
-  // UI core: on core 0 with Wi-Fi, lwIP and the loop, uploads held core 0 at
-  // 92% (WebServer 36%) while core 1 did ~20%. The upload writer takes core 0.
+  // The log-only server has no such handlers, so its stack goes to PSRAM
+  // (internal fallback). UI core: on core 0 with Wi-Fi, lwIP and the loop,
+  // uploads held core 0 at 92% (WebServer 36%) while core 1 did ~20%. The
+  // upload writer takes core 0.
+  // Set before the task can run: serverTaskMain reads it to decide how to exit.
+  serverTaskPsram = logOnly;
+  if (serverTaskPsram &&
+      (!stateMutex || !serverStopped ||
+       xTaskCreatePinnedToCoreWithCaps(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
+                                       TaskCores::kUi, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)) {
+    serverTaskPsram = false;
+  }
   if (!stateMutex || !serverStopped ||
-      xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
-                              TaskCores::kUi) != pdPASS) {
+      (!serverTaskPsram && xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2,
+                                                   &serverTask, TaskCores::kUi) != pdPASS)) {
     LOG_ERR("WEB", "Failed to start web server task");
     serverTask = nullptr;
     stop();
@@ -654,6 +665,7 @@ void CrossPointWebServer::stop() {
   stopRequested.store(true, std::memory_order_release);
   if (serverTask) {
     xSemaphoreTake(serverStopped, portMAX_DELAY);
+    if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
     serverTask = nullptr;
   }
   if (transferActive.exchange(false, std::memory_order_relaxed)) powerManager.endBackgroundWork();
@@ -692,8 +704,13 @@ void CrossPointWebServer::stop() {
 }
 
 void CrossPointWebServer::serverTaskMain(void* param) {
-  static_cast<CrossPointWebServer*>(param)->serveUntilStopped();
-  PerfLog::noteTaskExit("WebServer");
+  auto* self = static_cast<CrossPointWebServer*>(param);
+  const bool parks = self->serverTaskPsram;
+  self->serveUntilStopped();  // last touch of self
+  // A PSRAM stack cannot be freed by its own task: wait for stop() to delete it.
+  if (parks) {
+    for (;;) vTaskSuspend(nullptr);
+  }
   vTaskDelete(nullptr);
 }
 
@@ -713,6 +730,7 @@ void CrossPointWebServer::serveUntilStopped() {
     // Not yield(): lower-priority workers and IDLE0 need the core too.
     vTaskDelay(1);
   }
+  PerfLog::noteTaskExit("WebServer");
   xSemaphoreGive(serverStopped);
 }
 
@@ -1046,6 +1064,8 @@ void CrossPointWebServer::handleOtaDone() const {
     return;
   }
   otaAuthorized = false;
+  LOG_INF("WEB", "/api/ota: %s, server task stack min free %u (%s)", firmware_flash::resultName(otaResult),
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)), serverTaskPsram ? "PSRAM" : "internal");
   if (otaResult != firmware_flash::Result::OK) {
     firmware_flash::streamAbort();
     char msg[40];
