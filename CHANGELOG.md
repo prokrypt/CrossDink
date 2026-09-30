@@ -1,7 +1,7 @@
 ## [Unreleased]
 
 ### Added
-- X4 Pro: Text Anti-Aliasing has three choices: Off, Sharpflash (one full-screen flash per anti-aliased page, the previous behavior) and Softfast (no full-screen flash on text pages: the page shows in black and white first, then only its gray pixels turn gray; slower; image pages, the first page after opening a book and the first page after a menu refresh like Sharpflash). The in-reader menu offers the same three choices. Other devices treat Softfast like Sharpflash.
+- X4 Pro: Text Anti-Aliasing has three choices: Off, Sharpflash (one full-screen flash per anti-aliased page, the previous behavior) and Softfast (no full-screen flash on text pages: the page shows in black and white first, then only its light-gray edge pixels turn gray, for bolder text; slower; image pages, the first page after opening a book and the first page after a menu refresh like Sharpflash). The in-reader menu offers the same three choices. Other devices treat Softfast like Sharpflash.
 - X4 Pro: Display > Frontlight > Light Timeout (1 / 2 / 5 / 10 min / Never, default Never). With no input for that long, the frontlight fades out over 1 s. The next key or touch brings it back at once and does nothing else. It never turns on a light that was off, and it waits while File Transfer, Calibre or USB Drive keep the device awake.
 - Debug builds (X4 Pro): a Goodies entry on Home. Its Display test menu runs built-in refresh tests (modes, ghosting, DU frames, windowed upload, scrubs) and any line-script tests placed in `/debug/display/` on the SD card, logs each refresh's timings, and can ask a Yes/No style question and log the answer. Format: `docs/goodies.md`.
 - Debug builds (X4 Pro): Goodies > Wi-Fi remote joins a saved Wi-Fi network and keeps it up in the background, serving the PSRAM log (`/api/psram-log`) from any screen without opening File Transfer. The row shows the device's address; tap again to turn Wi-Fi off. File Transfer and Calibre Connect take the radio over when opened; OPDS, firmware update, font download, clock sync and KOReader login keep the remote reachable. The toggle is saved, so the remote reconnects in the background after every wake and restart; turning it on joins the saved network without opening the Wi-Fi screen.
@@ -142,6 +142,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: the reader's top and bottom panels and other menus opened over an anti-aliased page draw their black text with a longer balanced repaint (about 0.5 s more when opening them).
 - X4 Pro: Softfast no longer lets the page get dirtier over time: every Refresh Frequency pages it runs one full gray refresh (one flash) that redraws every pixel.
 - X4 Pro: menus and the reader drawer opened over an anti-aliased page no longer show their text slightly gray (and no longer darken step by step on repeated taps). Leaving a gray page takes about 0.5 s longer.
 - X4 Pro: the OPDS download page, Calibre upload progress and Nearby send/receive progress keep the screen powered while the progress updates. Switching the screen off between updates left heavy ghosting on a large OPDS download.
