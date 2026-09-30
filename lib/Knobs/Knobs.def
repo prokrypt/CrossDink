@@ -19,7 +19,7 @@ X("Display", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo 
 // Frontlight
 X("Light", flashDimMs, int32_t, 0, -200, 200, 10, "ms")                // flash duck: dark this much after the swing
 X("Light", flashRestoreMs, int32_t, 0, -200, 200, 10, "ms")            // flash duck: back up this much after the end
-X("Light", flashDownMs, unsigned long, 80, 0, 500, 10, "ms")           // flash duck fade out
+X("Light", flashDownMs, unsigned long, 80, 10, 500, 10, "ms")          // flash duck fade out
 X("Light", flashUpMs, unsigned long, 300, 0, 2000, 50, "ms")           // flash duck fade in
 X("Light", flashMaxMs, unsigned long, 3000, 500, 10000, 500, "ms")     // a flash mark older than this is dropped
 X("Light", flashTickMs, uint32_t, 10, 5, 50, 5, "ms")                  // main loop tick while ducking
@@ -87,26 +87,27 @@ X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // batt
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache
 X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
 X("Power", tiltCooldownMs, unsigned long, 600, 100, 3000, 50, "ms")      // min time between tilt flicks
-X("Power", bootSleepGraceMs, unsigned long, 2000, 0, 10000, 500, "ms")   // power actions ignored after boot
+X("Power", bootSleepGraceMs, unsigned long, 2000, 1000, 10000, 500, "ms") // power actions ignored after boot
 
-// Memory gates (the minimums are floors)
-X("Heap", netExitMinBlock, uint32_t, 49152, 24576, 131072, 1024, "B")    // leave Wi-Fi in place (else restart)
-X("Heap", netEntryMinFree, uint32_t, 98304, 65536, 196608, 1024, "B")    // enter Wi-Fi in place
-X("Heap", netEntryMinBlock, uint32_t, 49152, 32768, 131072, 1024, "B")
-X("Heap", rebuildMinFree, uint32_t, 98304, 65536, 196608, 1024, "B")     // optional EPUB rebuild / prefetch
-X("Heap", rebuildMinBlock, uint32_t, 49152, 32768, 131072, 1024, "B")
-X("Heap", layoutMinFree, uint32_t, 45056, 32768, 131072, 1024, "B")      // chapter layout start
-X("Heap", dictFontMinFree, uint32_t, 65536, 32768, 131072, 1024, "B")    // dictionary SD font
-X("Heap", dictFontMinBlock, uint32_t, 32768, 16384, 131072, 1024, "B")
-X("Heap", sectionPrewarmMinFree, uint32_t, 81920, 49152, 196608, 1024, "B")  // SD font prewarm at section start
-X("Heap", sectionPrewarmMinBlock, uint32_t, 24576, 16384, 131072, 1024, "B")
-X("Heap", idlePrewarmMinFree, uint32_t, 65536, 40960, 196608, 1024, "B")     // idle SD font prewarm
-X("Heap", idlePrewarmMinBlock, uint32_t, 40960, 24576, 131072, 1024, "B")
-X("Heap", richTableMinFree, uint32_t, 98304, 65536, 196608, 1024, "B")       // rich table layout
-X("Heap", richTableMinBlock, uint32_t, 57344, 40960, 131072, 1024, "B")
-X("Heap", opdsPreloadMinFree, size_t, 49152, 32768, 131072, 1024, "B")       // OPDS preload base floor
-X("Heap", opdsPreloadPerWorker, size_t, 16384, 8192, 65536, 1024, "B")       // added per running worker
-X("Heap", opdsPreloadMinBlock, size_t, 16384, 8192, 65536, 1024, "B")
+// Memory gates: raise only (the default is the floor); a lower gate lets an
+// allocation run short, and a bare new aborts.
+X("Heap", netExitMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")    // leave Wi-Fi in place (else restart)
+X("Heap", netEntryMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")    // enter Wi-Fi in place
+X("Heap", netEntryMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", rebuildMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")     // optional EPUB rebuild / prefetch
+X("Heap", rebuildMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", layoutMinFree, uint32_t, 45056, 45056, 131072, 1024, "B")      // chapter layout start
+X("Heap", dictFontMinFree, uint32_t, 65536, 65536, 131072, 1024, "B")    // dictionary SD font
+X("Heap", dictFontMinBlock, uint32_t, 32768, 32768, 131072, 1024, "B")
+X("Heap", sectionPrewarmMinFree, uint32_t, 81920, 81920, 196608, 1024, "B")  // SD font prewarm at section start
+X("Heap", sectionPrewarmMinBlock, uint32_t, 24576, 24576, 131072, 1024, "B")
+X("Heap", idlePrewarmMinFree, uint32_t, 65536, 65536, 196608, 1024, "B")     // idle SD font prewarm
+X("Heap", idlePrewarmMinBlock, uint32_t, 40960, 40960, 131072, 1024, "B")
+X("Heap", richTableMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")       // rich table layout
+X("Heap", richTableMinBlock, uint32_t, 57344, 57344, 131072, 1024, "B")
+X("Heap", opdsPreloadMinFree, size_t, 49152, 49152, 131072, 1024, "B")       // OPDS preload base floor
+X("Heap", opdsPreloadPerWorker, size_t, 16384, 16384, 65536, 1024, "B")       // added per running worker
+X("Heap", opdsPreloadMinBlock, size_t, 16384, 16384, 65536, 1024, "B")
 
 // Reader
 X("Reader", buildAheadPages, int, 5, 1, 20, 1, "pg")                  // incremental build runs this far ahead

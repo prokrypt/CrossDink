@@ -8,6 +8,7 @@
 #include <Logging.h>
 #include <PersistableStore.h>
 #include <esp_attr.h>
+#include <esp_system.h>
 
 #include <algorithm>
 #include <cstring>
@@ -111,10 +112,19 @@ void resetAll() {
   LOG_INF("KNOB", "all knobs reset");
 }
 
-void load() {
-  if (bootMagic != BOOT_MAGIC) {
+void load(const bool skipFile) {
+  // Only crashes and power cycles count: a wake from sleep or an intentional
+  // restart (Wi-Fi entry/exit, OTA) ended the last boot cleanly.
+  const esp_reset_reason_t reason = esp_reset_reason();
+  if (bootMagic != BOOT_MAGIC || reason == ESP_RST_DEEPSLEEP || reason == ESP_RST_SW) {
     bootMagic = BOOT_MAGIC;
     badBoots = 0;
+  }
+  if (skipFile) {
+    // Safe boot: the file stays; the next boot without Back loads it again.
+    LOG_INF("KNOB", "Back held at boot: knobs.json ignored, defaults in use");
+    apply();
+    return;
   }
   if (++badBoots > MAX_BAD_BOOTS) {
     // A knob may be what keeps the device from staying up: set the file aside.

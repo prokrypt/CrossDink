@@ -44,7 +44,7 @@ int32_t get(int index);
 int32_t set(int index, int32_t value, bool save = true);
 int find(const char* id);  // -1 when unknown
 void resetAll();           // defaults, knobs.json deleted
-void load();               // setup(), after SD; skipped after 3 boots that never ran 30 s
+void load(bool skipFile);  // setup(), after SD; defaults if Back is held or after 3 crash boots under 30 s
 void loop();               // main loop: clears the boot counter after 30 s up
 }  // namespace knobs
 #else

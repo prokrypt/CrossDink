@@ -1784,7 +1784,7 @@ void setup() {
 
   SETTINGS.loadFromFile();
 #if CROSSDINK_GOODIES
-  knobs::load();
+  knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
 #endif
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();

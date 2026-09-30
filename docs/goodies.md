@@ -23,8 +23,10 @@
 - **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, grouped by area, as `id value unit`
   (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
   values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
-  deletes the file. Three boots in a row that never stay up 30 s move the file to `knobs.bad.json` and boot on
-  defaults (`KNOB` log lines). SDK values are pushed through `setUc8179Tuning()` / `InputManager::setTuning()`
+  deletes the file. Three crash boots in a row (panic, watchdog or power cycle; wakes from sleep
+  and intentional restarts reset the count) that never stay up 30 s move the file to `knobs.bad.json` and boot on
+  defaults (`KNOB` log lines). Holding Back while the device starts ignores the file for that boot (safe boot).
+  Memory gates are raise-only. SDK values are pushed through `setUc8179Tuning()` / `InputManager::setTuning()`
   (`-DFREEINK_TUNING=1`). Other builds read the same `KNOBS.<id>` as compile-time defaults. Display frame counts
   only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
   PLL bytes are never knobs (`kbdPll` picks panel default / 40 Hz / 50 Hz only). To add one: an `X(...)` row
