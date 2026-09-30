@@ -508,7 +508,10 @@ void CrossPointWebServer::begin(const bool logOnly) {
 
   // Setup routes
 #if CROSSDINK_PSRAM_LOG
-  server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
+  server->on("/api/psram-log", HTTP_GET, [this] {
+    releasePollHold();
+    handlePsramLog();
+  });
 #endif
 #if CROSSDINK_SERIAL_REMOTE
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
@@ -529,7 +532,10 @@ void CrossPointWebServer::begin(const bool logOnly) {
     server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
     server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
-    server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+    server->on("/api/status", HTTP_GET, [this] {
+      releasePollHold();
+      handleStatus();
+    });
     server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
     server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
     server->on("/download", HTTP_GET, [this] { handleDownload(); });
@@ -743,11 +749,13 @@ void CrossPointWebServer::handleClient() {
   // sends a whole download in one blocking call.
   const bool pending = server->requestPending();
   if (pending) {
+    holdTakenForRequest = !isTransferActive();
     noteTransferActivity();
     requestBusy.store(true, std::memory_order_relaxed);
   }
   server->handleClient();
   if (pending) {
+    holdTakenForRequest = false;
     lastTransferMs = millis();
     requestBusy.store(false, std::memory_order_relaxed);
   }
@@ -807,11 +815,24 @@ void CrossPointWebServer::updateTransferIdle() {
     return;
   }
   if (millis() - lastTransferMs < TRANSFER_LINGER_MS) return;
+  endTransferHold();
+}
+
+void CrossPointWebServer::endTransferHold() {
   transferActive.store(false, std::memory_order_relaxed);
   // The main loop drops the CPU lock on its next idle tick.
   powerManager.endBackgroundWork();
   if (!apMode) WiFi.setSleep(true);
   LOG_DBG("WEB", "Transfer idle: modem and light sleep allowed");
+}
+
+// Log tail and status polls are a few KB: end the hold this request took
+// instead of lingering, so a poller cannot keep the device awake. A hold that
+// was already running (page load, upload) is left to its linger.
+void CrossPointWebServer::releasePollHold() {
+  if (!holdTakenForRequest || !isTransferActive() || wsUploadInProgress) return;
+  holdTakenForRequest = false;
+  endTransferHold();
 }
 
 // Serving task: copy the upload state for the activity when it changed.
