@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <memory>
 #include <new>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -39,6 +40,40 @@ std::unique_ptr<T> makeUniqueNoThrow(size_t count) {
   using Elem = std::remove_extent_t<T>;
   return std::unique_ptr<T>(new (std::nothrow) Elem[count]());
 }
+
+// std allocator that prefers PSRAM, for small, short-lived strings that would
+// land in internal RAM under the 1 KB malloc threshold and split it (OPDS
+// feeds). Plain CPU data only: no DMA or ISR use. Out of memory aborts, as
+// std::allocator does with exceptions disabled (IDF's operator new is malloc,
+// so heap_caps_free releases either).
+template <typename T>
+struct PsramPreferAllocator {
+  using value_type = T;
+  PsramPreferAllocator() noexcept = default;
+  template <typename U>
+  PsramPreferAllocator(const PsramPreferAllocator<U>&) noexcept {}
+  T* allocate(const size_t n) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+    if (void* p = heap_caps_malloc_prefer(n * sizeof(T), 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)) {
+      return static_cast<T*>(p);
+    }
+#endif
+    return std::allocator<T>{}.allocate(n);
+  }
+  void deallocate(T* p, const size_t n) noexcept {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+    (void)n;
+    heap_caps_free(p);
+#else
+    std::allocator<T>{}.deallocate(p, n);
+#endif
+  }
+  friend bool operator==(const PsramPreferAllocator&, const PsramPreferAllocator&) noexcept { return true; }
+  friend bool operator!=(const PsramPreferAllocator&, const PsramPreferAllocator&) noexcept { return false; }
+};
+
+using PsramString = std::basic_string<char, std::char_traits<char>, PsramPreferAllocator<char>>;
 
 // malloc-backed byte buffers for capability-specific ESP32 heaps. These are
 // runtime-sized working buffers, so stack/static storage is not suitable.

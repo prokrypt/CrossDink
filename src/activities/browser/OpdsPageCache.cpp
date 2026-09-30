@@ -49,13 +49,14 @@ void OpdsPageBuffer::reset() {
 
 OpdsPageCache::Slot* OpdsPageCache::findSlot(const std::string& url) {
   Slot* const found = std::find_if(std::begin(slots), std::end(slots),
-                                   [&url](const Slot& slot) { return slot.used && slot.url == url; });
+                                   [&url](const Slot& slot) { return slot.used && std::string_view(slot.url) == url; });
   return found == std::end(slots) ? nullptr : found;
 }
 
 const OpdsPageCache::Slot* OpdsPageCache::findSlot(const std::string& url) const {
-  const Slot* const found = std::find_if(std::begin(slots), std::end(slots),
-                                         [&url](const Slot& slot) { return slot.used && slot.url == url; });
+  const Slot* const found = std::find_if(std::begin(slots), std::end(slots), [&url](const Slot& slot) {
+    return slot.used && std::string_view(slot.url) == url;
+  });
   return found == std::end(slots) ? nullptr : found;
 }
 
@@ -102,7 +103,7 @@ bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const b
   Slot* target = std::find_if(std::begin(slots), std::end(slots), [](const Slot& slot) { return !slot.used; });
   if (target == std::end(slots)) target = evictLeastRecentlyUsed();
 
-  target->url = url;
+  target->url.assign(url.data(), url.size());
   target->page = std::move(page);
   target->lastUse = ++useClock;
   target->used = true;
