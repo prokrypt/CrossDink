@@ -34,8 +34,8 @@ X("Light", flashMaxMs, unsigned long, 3000, 500, 10000, 500, "ms")     // a flas
 X("Light", flashTickMs, uint32_t, 10, 5, 50, 5, "ms")                  // main loop tick while ducking
 X("Light", lightFadeMs, unsigned long, 1000, 0, 5000, 100, "ms")       // Light Timeout fade
 X("Light", pulseCycleMs, uint32_t, 1000, 200, 5000, 100, "ms")         // transfer pulse period
-X("Light", pulsePeakPct, uint8_t, 25, 20, 100, 1, "%")                 // transfer pulse top (from the user level)
-X("Light", pulseFloorPct, uint8_t, 10, 0, 20, 1, "%")                  // pulse dip from a lit level nearer the top
+X("Light", pulsePeakPct, uint8_t, 25, 20, 100, 1, "%")                 // transfer pulse top when the light was off
+X("Light", pulseFloorPct, uint8_t, 10, 0, 20, 1, "%")                  // lit pulse dips to this (or half the level)
 X("Light", pulseTailMs, unsigned long, 250, 0, 2000, 50, "ms")         // transfer counts as active this long after
 X("Light", pulseWriteMs, uint32_t, 20, 10, 100, 5, "ms")               // min gap between pulse writes (loop tick)
 X("Light", pulseHoldMs, uint32_t, 10000, 0, 60000, 1000, "ms")         // a lit light keeps its level this long first

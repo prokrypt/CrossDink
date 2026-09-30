@@ -4,12 +4,12 @@
 
 #include <cstdint>
 
-// Pulses the frontlight from the user's level (0% if the light was off at
-// begin()) to 25% and back (1 s cycle) while a Wi-Fi or USB Drive file transfer
-// is moving data, and holds the user's level when idle. A level nearer 25% than
-// 10% pulses down to 10% instead. Every pulse runs to the end of its cycle, so
-// even a short request gives one full blink and the light always ramps back to
-// the user's level instead of cutting off. Saves the user's
+// Pulses the frontlight while a Wi-Fi or USB Drive file transfer is moving
+// data (1 s cycle) and holds the user's level when idle. A lit light dips from
+// the user's level to 10% (or half the level, if lower) and back, never above
+// it; a light that was off at begin() pulses from off to 25%. Every pulse runs
+// to the end of its cycle, so even a short request gives one full blink and the
+// light always ramps back to the user's level instead of cutting off. Saves the user's
 // brightness/on state on begin() and restores it on end(). A brightness or
 // on/off change the pulse did not make (swipe, frontlight panel) stops the
 // pulse until end() and is left as the user set it. Main loop only; never
@@ -30,7 +30,8 @@ class TransferLightPulse {
   // pulse at once). A user change during the hold is kept as usual.
   void begin(uint32_t holdMs = KNOBS.pulseHoldMs);
   void update(bool transferActive);
-  // Stops the pulse and holds the light steady at the pulse peak until end().
+  // Stops the pulse and holds the light steady until end(): at the user's level
+  // if it was lit, else at the pulse peak.
   void holdOn();
   void end();
   ~TransferLightPulse() { end(); }
