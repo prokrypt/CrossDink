@@ -1973,7 +1973,10 @@ static const char* logInputEvents() {
 }
 #endif
 
-void loop() {
+// Set by every wait at the end of a pass; early returns skip those waits.
+static bool loopPassBlocked = false;
+
+static void loopPass() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
   static unsigned long lastMemPrint = 0;
@@ -1992,11 +1995,13 @@ void loop() {
     activityManager.loop();
     if (activityManager.preventAutoSleep()) {
       powerManager.setPowerSaving(false);
+      loopPassBlocked = true;
       delay(10);
     } else {
       // No host is active, so a slower loop is safe. The activity itself times
       // out the raw-storage handoff rather than entering deep sleep detached.
       powerManager.setPowerSaving(true);
+      loopPassBlocked = true;
       delay(50);
     }
     return;
@@ -2158,6 +2163,9 @@ void loop() {
       lastActivityTime = millis();
     }
     mappedInputManager.clearInjectedReleases();
+    // Nothing draws while locked; wait like an idle pass (ends early on input).
+    loopPassBlocked = true;
+    InputTask::waitForInput(10);
     return;
   }
 
@@ -2274,11 +2282,13 @@ void loop() {
     // here: the input loop must stay available while a page is being rendered.
     RenderLock lock(RenderLock::Mode::Try);
     if (!lock.ownsLock()) {
+      loopPassBlocked = true;
       delay(10);
       return;
     }
     skipLoopDelay = activityManager.skipLoopDelay();
   }
+  loopPassBlocked = true;
   if (skipLoopDelay) {
     powerManager.setPowerSaving(false);  // Make sure we're at full performance when skipLoopDelay is requested
     // Not yield(): at priority 2 it only yields to tasks at 2 or above, which
@@ -2300,5 +2310,17 @@ void loop() {
       // Short delay to prevent tight loop while still being responsive
       InputTask::waitForInput(10);
     }
+  }
+}
+
+void loop() {
+  loopPassBlocked = false;
+  loopPass();
+  // loopTask runs on core 0 at priority 2, above IDLE0 and the priority-1
+  // workers. Early returns (held chords, Home-key taps, shortcut dispatch)
+  // skip the pass-end wait; one tick keeps them from starving IDLE0 into a
+  // task-watchdog reset without delaying input.
+  if (!loopPassBlocked) {
+    vTaskDelay(1);
   }
 }
