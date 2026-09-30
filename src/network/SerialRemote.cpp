@@ -511,7 +511,7 @@ bool handleLine(const char* line) {
   } else if (strcmp(verb, "REFRESH") == 0) {
     cmdRefresh(args);
   } else if (strcmp(verb, "OTPREAD") == 0) {
-    // PROBE (read-only): UC8179 OTP voltage/VCOM headers; run on a B/W screen (Home).
+    // PROBE (read-only): UC8179 OTP voltage/VCOM headers (logs "8179 OTP").
     freeink::requestUc8179OtpReadNext();
     {
       RenderLock lock;
