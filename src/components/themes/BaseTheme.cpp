@@ -1364,7 +1364,7 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
         if (disabled) {
           rowColor = Color::LightGray;
         } else if (selected) {
-          rowColor = metrics.optionPopupSelectionLight ? Color::LightGray : Color::Black;
+          rowColor = metrics.optionPopupSelectionLight ? Color::White : Color::Black;
         } else {
           rowColor = Color::White;
         }
@@ -1372,6 +1372,10 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
           renderer.fillRoundedRect(itemRectX, itemY, itemRectW, rowHeight, selectionRadius, rowColor);
         } else {
           renderer.fillRect(itemRectX, itemY, itemRectW, rowHeight, rowColor == Color::Black);
+        }
+        // Light selection is a 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+        if (selected && metrics.optionPopupSelectionLight) {
+          renderer.drawRoundedRect(itemRectX, itemY, itemRectW, rowHeight, 2, selectionRadius, true);
         }
       }
 

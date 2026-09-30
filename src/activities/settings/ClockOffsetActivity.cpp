@@ -295,7 +295,7 @@ void ClockOffsetActivity::render(RenderLock&&) {
 
   auto drawField = [&](const char* text, const Rect& rect, const Field field) {
     const bool selected = activeField == field;
-    renderer.fillRectDither(rect.x, rect.y, rect.width, rect.height, selected ? Color::LightGray : Color::White);
+    renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);  // the double border marks selection
     renderer.drawRect(rect.x, rect.y, rect.width, rect.height, true);
     if (selected) {
       renderer.drawRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2, true);

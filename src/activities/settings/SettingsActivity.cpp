@@ -1479,12 +1479,17 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   tabProps.divider = true;
   fui::StyleSet tabStyles;
   if (roundedRaffTabs) {
-    // RoundedRaff's tabs have always sat on white, with the selected pill
-    // turning dark gray after focus moves into the settings list.
+    // RoundedRaff's tabs sit on white; the selected pill is black while the
+    // tabs have focus and a 2 px outline (not a dither fill) once focus moves
+    // into the settings list.
     tabStyles.explicitlySet = true;
     tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-    tabStyles.selected.background = fui::Paint::solid(tabsFocused ? fui::Color::Black : fui::Color::DarkGray);
-    tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
+    tabStyles.selected.background = fui::Paint::solid(tabsFocused ? fui::Color::Black : fui::Color::White);
+    tabStyles.selected.foreground = fui::Paint::solid(tabsFocused ? fui::Color::White : fui::Color::Black);
+    if (!tabsFocused) {
+      tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+      tabStyles.selected.borderWidth = 2;
+    }
     tabStyles.selected.radius = 18;
     tabStyles.focused = tabStyles.selected;
     tabStyles.active = tabStyles.selected;
@@ -1497,12 +1502,12 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
       tabStyles.selected.radius = screen.theme().listRowRadius;
     } else {
-      tabStyles.selected.background = fui::Paint::dither(fui::Color::LightGray);
+      // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+      tabStyles.selected.background = fui::Paint::solid(fui::Color::White);
       tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-      // Let the selected underline meet the shared bottom divider, as in the
-      // original Lyra tab bar. The default bottom inset leaves a visible gap.
-      tabProps.tabInset.bottom = 0;
-      tabProps.selectedUnderline = 2;
+      tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+      tabStyles.selected.borderWidth = 2;
+      tabStyles.selected.radius = screen.theme().listRowRadius;
     }
     // Focus/flash states keep the pill instead of falling back to an unset
     // (blank) style.
@@ -1525,7 +1530,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       railProps.tabs = &tabs[i];
       railProps.count = 1;
       if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
-        screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
+        screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
       }
       drawUiTabBar(screen, railProps, tabRect, metrics.tabBarAppearance);
       tabY = static_cast<int16_t>(tabY + tabHeight);
@@ -1538,7 +1543,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   {
     const fui::Rect tabRect = screen.takeTop(tabBand);
     if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
-      screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
+      screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
     }
     drawUiTabBar(screen, tabProps, tabRect, metrics.tabBarAppearance);
     screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));

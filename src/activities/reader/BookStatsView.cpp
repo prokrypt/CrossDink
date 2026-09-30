@@ -442,7 +442,7 @@ void drawDateField(const GfxRenderer& renderer, const int x, const int y, const 
   if (touchTarget >= 0) {
     TouchRegistry::getInstance().add(Rect(x, y, w, h), touchTarget, TouchRegistry::Item);
   }
-  renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
+  renderer.fillRect(x, y, w, h, false);  // the double border marks selection
   renderer.drawRect(x, y, w, h, true);
   if (selected) {
     renderer.drawRect(x + 1, y + 1, w - 2, h - 2, true);
