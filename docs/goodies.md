@@ -7,8 +7,7 @@
   that folder.
 - **Wi-Fi remote** (value column: `OFF`, `Connecting...` or the device IP) joins the last used saved network in
   the background (the Wi-Fi picker opens only when none is saved), then keeps Wi-Fi up with a log-only web
-  server: `GET /api/psram-log` (also
-  `http://crosspoint.local/api/psram-log`), plus the token-gated `POST /api/cmd` from
+  server: `GET /api/psram-log` (by IP; the remote runs no mDNS, so `crosspoint.local` does not resolve), plus the token-gated `POST /api/cmd` from
   [serial-remote.md](serial-remote.md#wi-fi-post-apicmd). It has no file, settings, upload or `/api/status` routes, so
   nothing touches the SD card or the I2C bus behind other screens. Tap again to turn Wi-Fi off. The toggle is
   saved in `crossink-settings.json` (`goodiesWifiRemote`), written only when it changes. Wi-Fi screens that need

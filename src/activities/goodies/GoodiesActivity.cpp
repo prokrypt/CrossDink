@@ -2,7 +2,6 @@
 
 #if CROSSDINK_GOODIES
 
-#include <ESPmDNS.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -92,7 +91,6 @@ void waitForRadioTask() {
 void closeServerAndRadio(CrossPointWebServer* server) {
   if (server) server->stop();
   delete server;
-  MDNS.end();
   WiFi.disconnect(false);
   // As leaveNetworkInPlace(): the server's stop() left modem sleep off, which
   // Arduino would carry into the next Wi-Fi session.
@@ -145,12 +143,15 @@ bool startRemote(const bool ownsRadio = true) {
     }
     return false;
   }
-  MDNS.begin("crosspoint");
+  // No mDNS: its responder task (4 KB internal stack) is the remote's largest
+  // cost after the server task, and the tools use the IP.
   remoteIp = WiFi.localIP().toString().c_str();
   snprintf(remoteSsid, sizeof(remoteSsid), "%s", WiFi.SSID().c_str());
   rejoinRetryMs = 0;
   setRemoteWanted(true);
-  LOG_INF("GDY", "wifi remote on: http://%s/api/psram-log", remoteIp.c_str());
+  LOG_INF("GDY", "wifi remote on: http://%s/api/psram-log (internal free %u largest %u)", remoteIp.c_str(),
+          static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
   return true;
 }
 
@@ -297,7 +298,6 @@ void loop(const uint32_t idleMs) {
       // network, AP mode), the old server's sockets can't be trusted.
       if (remoteServer) remoteServer->stop();
       remoteServer.reset();
-      MDNS.end();
       rejoinAt = 0;
       rejoinRetryMs = 0;
       if (owner == RadioOwner::None) {
