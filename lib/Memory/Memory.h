@@ -53,7 +53,7 @@ struct PsramPreferAllocator {
   template <typename U>
   PsramPreferAllocator(const PsramPreferAllocator<U>&) noexcept {}
   T* allocate(const size_t n) {
-#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR) && !defined(CROSSDINK_MEMORY_TEST)
     if (void* p = heap_caps_malloc_prefer(n * sizeof(T), 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
                                           MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)) {
       return static_cast<T*>(p);
