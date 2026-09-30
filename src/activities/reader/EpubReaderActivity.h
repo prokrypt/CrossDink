@@ -130,7 +130,7 @@ class EpubReaderActivity final : public Activity {
   // one-shot clean base for its first image page; normal image-page cleanup
   // uses pagesUntilFullRefresh independently.
   bool cleanImageBasePending = false;
-  // Slowsmooth holds B/W over the Fast base. Book open and the first page after a
+  // Softfast holds B/W over the Fast base. Book open and the first page after a
   // covering screen (drawer, menus) swing fully so nothing of it ghosts.
   bool smoothFullSwingPending = true;
   // The image page whose grayscale pass last reached the panel. Redrawing that
