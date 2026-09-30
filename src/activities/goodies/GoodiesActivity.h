@@ -22,7 +22,7 @@ bool wanted();
 // set once, so Goodies can open the Wi-Fi picker.
 void startInBackground();
 bool takePickerRequest();
-// Blocks until a running join task is done. Called before a Wi-Fi screen's
+// Blocks until a running join or toggle-off task is done. Called before a Wi-Fi screen's
 // onEnter() and before deep sleep, so no Wi-Fi call overlaps the task's.
 void waitForJoin();
 // Toggle off: server and Wi-Fi off, forgets the toggle.

@@ -141,6 +141,7 @@
 ### Fixed
 - OPDS: Back (button or the top-left Back button) now cancels a catalog page that is still loading and returns to the previous list, instead of being ignored until the request finishes or times out after 60 s. A kept-alive connection idle more than 4 s is reopened instead of reused, so a page opened after a pause no longer hangs on a socket the server dropped.
 - Touch: tapping a row in Goodies (such as Wi-Fi remote), Library settings, or Settings opened from the file browser now leaves that row highlighted, as tapping does on the other settings lists. Goodies no longer jumps the highlight back to the top row after the Wi-Fi remote toggle.
+- Debug builds (X4 Pro): turning Goodies > Wi-Fi remote off no longer holds up the tap for about 120 ms; Wi-Fi shuts down in the background.
 - Debug builds: after a task-watchdog reset, the SD crash report names the task each core was running.
 - X4 Pro: after a crash during start-up, a later restart no longer uses an out-of-date copy of the screen as its starting point, which could re-drive pixels that were already set.
 - With the Cover Grid Home, a large or imperfect library (for example more than 1024 books in one folder chain) no longer shows the "Scanning library" popup and rescans the card every time Home opens. A best-effort index is kept until the card changes; the Library still repairs it on its own visit.

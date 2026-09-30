@@ -51,13 +51,14 @@ bool rejoinNow = false;     // Toggled on in Goodies: skip the boot and idle wai
 bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens the picker
 bool pickerRequested = false;
 // The join itself (wifi.json read, WiFi.mode() bringing the driver up,
-// WiFi.begin()) runs on a short-lived task so the main loop never waits on it.
-// Main task only, except the two atomics the task sets.
+// WiFi.begin()) and the toggle-off teardown run on short-lived tasks so the
+// main loop never waits on them. One at a time: radioTaskRunning covers both.
+// Main task only, except the two atomics the tasks set.
 bool joinPending = false;
-std::atomic<bool> joinTaskRunning{false};
+std::atomic<bool> radioTaskRunning{false};
 std::atomic<uint8_t> joinOutcome{0};
 enum JoinOutcome : uint8_t { JOIN_FAILED, JOIN_BEGUN, JOIN_NO_NETWORK };
-constexpr uint32_t JOIN_TASK_STACK_BYTES = 6144;
+constexpr uint32_t RADIO_TASK_STACK_BYTES = 6144;
 uint32_t rejoinAt = 0;
 uint32_t rejoinRetryMs = 0;  // 0 until an attempt fails; doubles per failure
 constexpr uint32_t REJOIN_TIMEOUT_MS = 20000;
@@ -77,24 +78,51 @@ void setRemoteWanted(const bool wanted) {
   if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "wifi remote: toggle not saved");
 }
 
-void waitForJoinTask() {
-  // Bounded by one wifi.json read and a driver start; no other Wi-Fi call may overlap it.
-  while (joinTaskRunning.load(std::memory_order_acquire)) vTaskDelay(1);
+void waitForRadioTask() {
+  // Bounded by a wifi.json read and driver start, or a server stop and radio off; no Wi-Fi call may overlap it.
+  while (radioTaskRunning.load(std::memory_order_acquire)) vTaskDelay(1);
 }
 
-void stopServerAndRadio() {
-  waitForJoinTask();
-  joinPending = false;
-  if (remoteServer) remoteServer->stop();
-  remoteServer.reset();
+// Takes ownership of server (may be null). Runs on the main task or the shutdown task.
+void closeServerAndRadio(CrossPointWebServer* server) {
+  if (server) server->stop();
+  delete server;
   MDNS.end();
   WiFi.disconnect(false);
   // As leaveNetworkInPlace(): the server's stop() left modem sleep off, which
   // Arduino would carry into the next Wi-Fi session.
   WiFi.setSleep(true);
   WiFi.mode(WIFI_OFF);
+}
+
+// Clears the main-task state and hands back the server to close.
+CrossPointWebServer* detachServer() {
+  waitForRadioTask();
+  joinPending = false;
   remoteIp.clear();
   rejoining = false;
+  return remoteServer.release();
+}
+
+void stopServerAndRadio() { closeServerAndRadio(detachServer()); }
+
+void shutdownTaskMain(void* server) {
+  closeServerAndRadio(static_cast<CrossPointWebServer*>(server));
+  radioTaskRunning.store(false, std::memory_order_release);
+  vTaskDelete(nullptr);
+}
+
+// The toggle's Off: the server task handoff and radio off (~120 ms) run on a
+// task. loop() and every Wi-Fi screen wait for it before touching the radio.
+void stopServerAndRadioInBackground() {
+  CrossPointWebServer* server = detachServer();
+  radioTaskRunning.store(true, std::memory_order_relaxed);
+  if (xTaskCreatePinnedToCore(shutdownTaskMain, "WifiOff", RADIO_TASK_STACK_BYTES, server, 1, nullptr,
+                              TaskCores::kWorker) != pdPASS) {
+    radioTaskRunning.store(false, std::memory_order_relaxed);
+    LOG_ERR("GDY", "wifi remote: shutdown task did not start, stopping inline");
+    closeServerAndRadio(server);
+  }
 }
 
 // Wi-Fi is already connected (WifiSelectionActivity succeeded, or a rejoin).
@@ -138,7 +166,7 @@ void joinTaskMain(void*) {
   }
   cred.reset();  // before the task frees its stack; the password copy lives on the heap
   joinOutcome.store(outcome, std::memory_order_relaxed);
-  joinTaskRunning.store(false, std::memory_order_release);
+  radioTaskRunning.store(false, std::memory_order_release);
   vTaskDelete(nullptr);
 }
 
@@ -152,12 +180,12 @@ void beginRejoin() {
     LOG_ERR("GDY", "wifi remote: rejoin skipped, internal largest block %u", static_cast<unsigned>(largest));
     return;
   }
-  joinTaskRunning.store(true, std::memory_order_relaxed);
+  radioTaskRunning.store(true, std::memory_order_relaxed);
   // Priority 1, under the main loop: it runs only while the loop waits. The
   // stack is internal RAM (it reads the SD card) and is freed when the task ends.
-  if (xTaskCreatePinnedToCore(joinTaskMain, "WifiJoin", JOIN_TASK_STACK_BYTES, nullptr, 1, nullptr,
+  if (xTaskCreatePinnedToCore(joinTaskMain, "WifiJoin", RADIO_TASK_STACK_BYTES, nullptr, 1, nullptr,
                               TaskCores::kWorker) != pdPASS) {
-    joinTaskRunning.store(false, std::memory_order_relaxed);
+    radioTaskRunning.store(false, std::memory_order_relaxed);
     LOG_ERR("GDY", "wifi remote: join task did not start");
     return;
   }
@@ -175,7 +203,7 @@ bool allowsRadioIdleSleep() {
          !activityManager.anyActivityUsesWifi();
 }
 
-void waitForJoin() { waitForJoinTask(); }
+void waitForJoin() { waitForRadioTask(); }
 
 bool takePickerRequest() {
   const bool requested = pickerRequested;
@@ -193,7 +221,7 @@ void stop() {
   setRemoteWanted(false);
   rejoinNow = false;
   if (!remoteServer && !rejoining && !joinPending) return;
-  stopServerAndRadio();
+  stopServerAndRadioInBackground();
   LOG_INF("GDY", "wifi remote off");
 }
 
@@ -208,8 +236,9 @@ void startInBackground() {
 void loop(const uint32_t idleMs) {
   static bool screenHadRadio = false;
   if (!remoteWanted()) return;
+  // A join or a toggle-off teardown still owns the radio (Off then On in quick succession).
+  if (radioTaskRunning.load(std::memory_order_acquire)) return;
   if (joinPending) {
-    if (joinTaskRunning.load(std::memory_order_acquire)) return;
     joinPending = false;
     const uint8_t outcome = joinOutcome.load(std::memory_order_relaxed);
     if (outcome == JOIN_BEGUN) {
