@@ -56,6 +56,8 @@ RTC_NOINIT_ATTR char remoteSsid[33];
 bool rejoining = false;
 bool rejoinNow = false;     // Toggled on in Goodies: skip the boot and idle waits
 bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens the picker
+// A screen took the radio (pause): rejoin as soon as it leaves, no idle wait.
+bool rejoinAfterPause = false;
 bool pickerRequested = false;
 // The join itself (wifi.json read, WiFi.mode() bringing the driver up,
 // WiFi.begin()) and the toggle-off teardown run on short-lived tasks so the
@@ -229,6 +231,7 @@ bool takePickerRequest() {
 }
 
 void pause() {
+  rejoinAfterPause = true;
   if (!remoteServer && !rejoining && !joinPending) return;
   stopServerAndRadio();
   LOG_INF("GDY", "wifi remote paused");
@@ -350,12 +353,13 @@ void loop(const uint32_t idleMs) {
     return;
   }
   if (remoteServer) return;
-  if (!rejoinNow) {
+  if (!rejoinNow && !rejoinAfterPause) {
     if (millis() < REJOIN_BOOT_DELAY_MS || idleMs < REJOIN_IDLE_MS) return;
     if (rejoinAt != 0 && millis() - rejoinAt < rejoinRetryMs) return;
   }
   rejoinByUser = rejoinNow;
   rejoinNow = false;
+  rejoinAfterPause = false;
   beginRejoin();
 }
 }  // namespace goodies_remote

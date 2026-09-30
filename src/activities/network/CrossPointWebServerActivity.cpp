@@ -70,10 +70,7 @@ int barsForRssi(int rssi, int currentBars) {
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::event("xfer_start", "file-transfer");
-#if CROSSDINK_GOODIES
-  // Port 80 and the radio pass to this screen's own server.
-  goodies_remote::pause();
-#endif
+  radioTaken = false;
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
@@ -119,6 +116,8 @@ void CrossPointWebServerActivity::onExit() {
   transferLight.end();
 
   state = WebServerActivityState::SHUTTING_DOWN;
+  // Picker left without a mode: the remote kept the radio and port 80.
+  if (!radioTaken && !networkBootReady) return;
 
   const bool wifiWasActive = WiFi.getMode() != WIFI_MODE_NULL;
 
@@ -153,6 +152,13 @@ void CrossPointWebServerActivity::onExit() {
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
+#if CROSSDINK_GOODIES
+  // Port 80 and the radio pass to this screen's own server. A rejoin may have
+  // started while the picker was up; it must end before the radio goes off.
+  goodies_remote::waitForJoin();
+  goodies_remote::pause();
+#endif
+  radioTaken = true;
   const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";

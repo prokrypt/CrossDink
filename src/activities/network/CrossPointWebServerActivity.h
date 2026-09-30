@@ -39,6 +39,7 @@ class CrossPointWebServerActivity final : public Activity {
   bool hasInitialNetworkMode = false;
   NetworkMode initialNetworkMode = NetworkMode::JOIN_NETWORK;
   bool networkBootReady = false;
+  bool radioTaken = false;  // a mode was picked: the remote is paused, the radio is ours
   // The web portal can change these; only a restart applies them.
   uint8_t enteredUiTheme = 0;
   uint8_t enteredUiScale = 0;
@@ -91,7 +92,8 @@ class CrossPointWebServerActivity final : public Activity {
         networkBootReady(networkBootReady) {}
   void onEnter() override;
   void onExit() override;
-  bool usesWifi() const override { return true; }
+  // Only once a mode is picked: the mode picker leaves the Wi-Fi remote running.
+  bool usesWifi() const override { return radioTaken; }
   void loop() override;
   void render(RenderLock&&) override;
   // The server runs on its own task; an idle STA-mode server lets the main
