@@ -175,6 +175,8 @@ class ActivityManager {
                   bool cleanImageBaseOnEntry = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
   void goToSleep(bool fromTimeout = false);
+  // Runs every activity's onExit (reader progress, reading stats, Home %) before a restart.
+  void exitAllActivities();
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
