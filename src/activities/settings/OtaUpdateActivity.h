@@ -34,6 +34,7 @@ class OtaUpdateActivity : public Activity {
       : Activity("OtaUpdate", renderer, mappedInput), updater() {}
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return state == CHECKING_FOR_UPDATE || state == UPDATE_IN_PROGRESS; }

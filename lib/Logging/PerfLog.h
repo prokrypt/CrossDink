@@ -15,10 +15,14 @@
 // every function is an empty inline, so call sites cost nothing.
 #if CROSSDINK_PERF_LOG && !defined(SIMULATOR)
 namespace PerfLog {
+// Id for one main-loop frame with input: its [IN] lines and the [LAT] line for
+// the sample it starts all carry #N.
+uint32_t nextInputSeq();
 // A press, tap or tilt starts a latency sample. A release restarts it only
 // while no render has begun, so release-triggered actions time from release.
-// kind ("btn", "tap", "swipe", ...) is a string literal shown as [LAT] in=.
-void noteInput(bool release, const char* kind);
+// Contact moves ("touch") never replace a pending sample. kind ("btn", "tap",
+// "swipe", ...) is a string literal shown as [LAT] in=.
+void noteInput(bool release, const char* kind, uint32_t seq);
 // Render task brackets around Activity::render(). Start takes the activity
 // name while the render lock is held; after render() the lock is gone and the
 // activity may already be destroyed.
@@ -35,6 +39,11 @@ void noteBootPhase(const char* name);
 // A silent restart is about to happen; the first ink after it logs the time
 // from this call across the reset (RTC timer, survives software restart).
 void noteRestart();
+// Deep sleep is about to start: reason and activity go to RTC memory (survives
+// deep sleep, not power loss) and the next boot prints them with logLastSleep()
+// as "[BOOT] last sleep: ...", since the PSRAM log ring does not survive.
+void noteDeepSleep(const char* reason, const char* activity);
+void logLastSleep();
 // SD activity (HalStorage) and image decode/cache results (ImageBlock).
 void noteSdOpen(bool opened);
 void noteSdRead(uint32_t bytes, uint32_t us);
@@ -63,13 +72,16 @@ void setPmWindowHook(PmWindowFn fn);
 }  // namespace PerfLog
 #else
 namespace PerfLog {
-inline void noteInput(bool, const char*) {}
+inline uint32_t nextInputSeq() { return 0; }
+inline void noteInput(bool, const char*, uint32_t) {}
 inline void noteRenderStart(const char*) {}
 inline void noteRenderEnd() {}
 inline void notePagePath(const char*) {}
 inline void noteInk() {}
 inline void noteBootPhase(const char*) {}
 inline void noteRestart() {}
+inline void noteDeepSleep(const char*, const char*) {}
+inline void logLastSleep() {}
 inline void noteSdOpen(bool) {}
 inline void noteSdRead(uint32_t, uint32_t) {}
 inline void noteSdWrite(uint32_t, uint32_t) {}

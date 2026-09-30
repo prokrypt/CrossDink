@@ -16,10 +16,22 @@ namespace {
 // Holding the device mutex across one 4 KB SD read is ~2 ms, so a reader that
 // catches the prefetch mid-chunk waits at most a few ticks before falling back.
 constexpr int kPendingWaitTicks = 5;
+constexpr uint32_t kStopWaitMs = 1000;
 }  // namespace
 
 bool UsbDriveReadAhead::begin(FsBlockDeviceInterface* innerDevice) {
   inner = innerDevice;
+  prefetchEnabled = false;
+  if (task) {
+    // A previous end() left the task finishing a stalled card read; it exits
+    // on its own once that read returns and still owns the buffers until then.
+    if (xSemaphoreTake(stopDone, pdMS_TO_TICKS(kStopWaitMs)) != pdTRUE) {
+      LOG_ERR("USB", "USB Drive read-ahead task still stuck; reading directly");
+      return false;
+    }
+    task = nullptr;
+    freeBuffers();
+  }
   generation = 0;
   windowBase = 0;
   windowCount = 0;
@@ -31,7 +43,6 @@ bool UsbDriveReadAhead::begin(FsBlockDeviceInterface* innerDevice) {
   hostReadBytes.store(0, std::memory_order_relaxed);
   hostWriteBytes.store(0, std::memory_order_relaxed);
   stopRequested = false;
-  prefetchEnabled = false;
   if (!deviceMutex) deviceMutex = xSemaphoreCreateMutex();
   if (!windowMutex) windowMutex = xSemaphoreCreateMutex();
   if (!stopDone) stopDone = xSemaphoreCreateBinary();
@@ -69,15 +80,22 @@ void UsbDriveReadAhead::end() {
   if (task) {
     stopRequested = true;
     xTaskNotifyGive(task);
-    if (xSemaphoreTake(stopDone, pdMS_TO_TICKS(1000)) != pdTRUE) {
-      LOG_ERR("USB", "USB Drive read-ahead task did not stop; deleting it");
-      lockDevice();
-      vTaskDelete(task);
-      unlockDevice();
+    if (xSemaphoreTake(stopDone, pdMS_TO_TICKS(kStopWaitMs)) != pdTRUE) {
+      // The task only blocks this long inside inner->readSectors() on a
+      // stalled card, holding deviceMutex. Deleting it there would leave that
+      // mutex owned by a dead task and hang every later card access, so let it
+      // finish the read and exit; begin() reaps it and its buffers.
+      LOG_ERR("USB", "USB Drive read-ahead task did not stop; leaving it to exit");
+      prefetchEnabled = false;
+      return;
     }
     task = nullptr;
   }
   prefetchEnabled = false;
+  freeBuffers();
+}
+
+void UsbDriveReadAhead::freeBuffers() {
   heap_caps_free(window);
   window = nullptr;
   heap_caps_free(staging);

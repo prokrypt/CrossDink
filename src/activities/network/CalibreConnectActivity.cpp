@@ -10,6 +10,7 @@
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
+#include "activities/goodies/GoodiesActivity.h"
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -21,6 +22,10 @@ constexpr const char* HOSTNAME = "crosspoint";
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
+#if CROSSDINK_GOODIES
+  // Port 80 and the radio pass to this screen's own server.
+  goodies_remote::pause();
+#endif
   sdFontSystem.releaseLoadedFont(renderer);
 
   requestUpdate();

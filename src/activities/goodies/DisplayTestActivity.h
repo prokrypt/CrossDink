@@ -50,17 +50,21 @@ class DisplayTestActivity final : public Activity {
   // Refresh parameters set by the script.
   uint8_t duFrames = 6;
   uint8_t pll = 0;
-  bool resync = true;
-  bool windowOn = false;
-  int window[4] = {};
 
   int refreshCount = 0;
   ModeStats stats[4];
 
+  struct BandLine {
+    std::string text;
+    bool bold;
+  };
+  int bandH = 0;  // height of the label/ask band in the framebuffer (0 after a fill)
+
   void runOps();
   void drawOp(const display_script::Op& op);
   void refresh(display_script::Mode mode);
-  void drawFittedLine(const char* text, int y, bool bold);
+  void wrapBand(const std::string* parts, int count, std::vector<BandLine>& out) const;
+  int drawBand(const std::vector<BandLine>& lines, int extraH);
   void drawAsk();
   void drawResult();
   void answer(int option);

@@ -167,15 +167,11 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
     op.code = OpCode::Pll;
     return numbers(args, argc, 0, 1, op) && op.a[0] <= 0xFF ? nullptr : "pll 0x00..0xFF";
   }
-  if (verb == "window") {
-    op.code = OpCode::Window;
-    if (argc == 1 && args[0] == "off") return nullptr;
-    return numbers(args, argc, 0, 4, op) && op.a[2] > 0 && op.a[3] > 0 ? nullptr : "window x y w h | off";
-  }
-  if (verb == "resync") {
-    op.code = OpCode::Resync;
-    op.a[0] = argc == 1 && args[0] == "on";
-    return argc == 1 && (args[0] == "on" || args[0] == "off") ? nullptr : "resync on|off";
+  if (verb == "window" || verb == "resync") {
+    // Both can leave the OLD plane unlike the panel (a windowed upload of a
+    // full-screen change, or a skipped resync that relies on N2OCP), so the next
+    // refresh drives pixels through a transition they never made: one-way.
+    return "window/resync removed (unsafe OLD plane)";
   }
   if (verb == "scrub") {
     op.code = OpCode::Scrub;
@@ -204,6 +200,7 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
 // leaves its band in the framebuffer, so the next step starts with `fill white`.
 const BuiltIn BUILT_INS[] = {
     {"Refresh modes",
+     "frames 6\n"
      "fill white\n"
      "label Refresh modes | Squares on, then white, in each mode | Next: FULL\n"
      "refresh full\n"
@@ -240,17 +237,17 @@ const BuiltIn BUILT_INS[] = {
      "ask FAST: faint squares left on the white? | Yes | No\n"
      "fill white\n"
      "pattern checker 32\n"
-     "label DU: squares on | Look: solid, sharp black squares | Next: DU back to white\n"
+     "label DU (6 frames): squares on | Look: solid, sharp black squares | Next: DU back to white\n"
      "refresh du\n"
      "wait 2500\n"
      "fill white\n"
-     "label DU: back to white | Look: faint gray squares = ghost | Next: question\n"
+     "label DU (6 frames): back to white | Look: faint gray squares = ghost | Next: question\n"
      "refresh du\n"
      "wait 2000\n"
-     "ask DU: faint squares left on the white? | Yes | No\n"},
+     "ask DU (6 frames): faint squares left on the white? | Yes | No\n"},
     {"Ghost pick (8 squares)",
      "fill white\n"
-     "label Ghost pick: squares 1-8 | Each is cleared by a different refresh | Next: clearing 1 to 8, then you pick\n"
+     "label Ghost pick: 8 black squares | Each clears with a different refresh | Next: 1 to 8 turn white, then pick\n"
      "box 12 130 96 96\n"
      "text 52 232 1\n"
      "box 132 130 96 96\n"
@@ -301,7 +298,8 @@ const BuiltIn BUILT_INS[] = {
      "frames 20\n"
      "refresh du\n"
      "wait 1500\n"
-     "pick 0 120 120 150 4 2 | Which square has the least ghost? | fast | du 3 | du 4 | du 6 | du 9 | du 12 | du 15 | "
+     "pick 0 120 120 150 4 2 | Cleared squares: which is cleanest? | fast | du 3 | du 4 | du 6 | du 9 | du 12 | du 15 "
+     "| "
      "du 20\n"},
     {"Fast x20 text ghosting",
      "fill white\n"
@@ -354,7 +352,7 @@ const BuiltIn BUILT_INS[] = {
      "label Moving box done (Fast) | Look: gray boxes where it was | Next: question\n"
      "refresh fast\n"
      "wait 2000\n"
-     "ask Gray boxes left where the box had been? | Yes | No\n"},
+     "ask After 12 Fast moves: gray boxes where it had been? | Yes | No\n"},
     {"DU frames sweep",
      "fill white\n"
      "label DU frames sweep | Squares on/off with 3, 6, 9, 12 frames | Next: 3 frames\n"
@@ -404,27 +402,6 @@ const BuiltIn BUILT_INS[] = {
      "refresh du\n"
      "wait 2000\n"
      "ask DU 12 frames: faint squares left on the white? | Yes | No\n"},
-    {"Window vs full upload",
-     "fill white\n"
-     "label Window vs full upload | Same text page, top strip first | Next: windowed upload\n"
-     "refresh half\n"
-     "wait 2500\n"
-     "fill white\n"
-     "pattern text\n"
-     "label Windowed upload (Fast) | Look: text only in the top strip | Next: question\n"
-     "window 0 0 480 200\n"
-     "refresh fast\n"
-     "wait 2000\n"
-     "ask Text only in the top strip, rest white? | Yes | No\n"
-     "fill white\n"
-     "pattern text\n"
-     "label Full upload (Fast) | Look: text over the whole screen | Next: question\n"
-     "window off\n"
-     "refresh fast\n"
-     "wait 2000\n"
-     "ask Text now over the whole screen? | Yes | No\n"
-     "fill white\n"
-     "refresh half\n"},
     {"Half scrub after 10 fast",
      "fill white\n"
      "label Half scrub after 10 Fast | Squares on/off 10 times, then a scrub | Next: rounds start\n"
@@ -459,12 +436,12 @@ const BuiltIn BUILT_INS[] = {
      "wait 1000\n"
      "end\n"
      "wait 1000\n"
-     "ask Gray text ghosts in the white areas? | Yes | No\n"},
+     "ask After 6 Fast flips: gray text in the white areas? | Yes | No\n"},
     {"DU scrub 15 over text",
      "fill white\n"
      "refresh half\n"
      "pattern text\n"
-     "label DU scrub 15: text page | The reader's no-flash cleanup | Next: 15-frame DU scrub to squares\n"
+     "label DU scrub 15: text page | Drawn with Fast | Next: 15-frame DU scrub to squares\n"
      "refresh fast\n"
      "wait 3000\n"
      "fill white\n"

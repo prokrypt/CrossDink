@@ -40,6 +40,7 @@ class FontDownloadActivity : public Activity {
 
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override {

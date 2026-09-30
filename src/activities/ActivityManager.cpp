@@ -24,6 +24,9 @@
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
 #include "boot_sleep/BootActivity.h"
+#if CROSSDINK_GOODIES
+#include "goodies/GoodiesActivity.h"
+#endif
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/TouchRegistry.h"
@@ -768,6 +771,10 @@ void ActivityManager::loop() {
       currentActivity = std::move(pendingActivity);
 
       lock.unlock();  // onEnter may acquire its own lock
+#if CROSSDINK_GOODIES
+      // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
+      if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
+#endif
       currentActivity->onEnter();
 
       // cppcheck-suppress knownConditionTrueFalse ; onEnter() above may queue another navigation
@@ -1244,6 +1251,12 @@ bool ActivityManager::openReaderSettingsForTouchscreenEscapeHatch() {
     goToSettings();
   }
   return true;
+}
+
+bool ActivityManager::anyActivityUsesWifi() const {
+  const auto uses = [](const auto& activity) { return activity && activity->usesWifi(); };
+  return uses(currentActivity) || uses(pendingActivity) ||
+         std::any_of(stackActivities.begin(), stackActivities.end(), uses);
 }
 
 bool ActivityManager::hasActivityNamed(const char* activityName) const {

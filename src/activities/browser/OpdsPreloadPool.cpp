@@ -9,16 +9,16 @@
 #include <utility>
 
 namespace {
-// The first worker needs its 12 KB task stack as one internal block plus
-// headroom for wolfSSL's small allocations (larger ones go to PSRAM via
-// CONFIG_SPIRAM_USE_MALLOC). Each further worker raises the floor by about one
-// more stack and TLS session, so parallelism backs off as the heap shrinks.
+// Worker stacks are PSRAM (internal fallback when PSRAM is short, hence the
+// block check); each worker still costs an internal TCB and wolfSSL's small
+// allocations (larger ones go to PSRAM via CONFIG_SPIRAM_USE_MALLOC). Each
+// further worker raises the floor, so parallelism backs off as the heap shrinks.
 constexpr size_t PRELOAD_MIN_INTERNAL_FREE = 48 * 1024;
 constexpr size_t PRELOAD_INTERNAL_PER_WORKER = 16 * 1024;
 constexpr size_t PRELOAD_MIN_INTERNAL_BLOCK = 16 * 1024;
 // Same rule as the foreground feed connection: a socket idle this long may
 // have been dropped silently by a NAT or the server.
-constexpr unsigned long PRELOAD_KEEPALIVE_MAX_IDLE_MS = 30 * 1000;
+constexpr unsigned long PRELOAD_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
 }  // namespace
 
 OpdsPreloadPool::OpdsPreloadPool(OpdsPageCache& cache, const size_t pageMaxBytes, std::string username,

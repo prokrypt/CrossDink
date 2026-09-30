@@ -1,6 +1,7 @@
 #pragma once
 #include <HalStorage.h>
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -29,6 +30,18 @@ class ImageBlock final : public Block {
   using SeedCacheFn = bool (*)(void* context, const char* sourcePath, int width, int height,
                                const char* destinationPath);
   static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache);
+
+  // First-view cache build off the render task. beginBackgroundCache() runs on
+  // the render task first; buildCacheInBackground() then extracts the source
+  // with the given callbacks and decodes it into `target` (an offscreen
+  // renderer) only to write the pixel cache. It touches no session state, so a
+  // failure is reported back for rememberFailure() on the render task. While it
+  // runs, render() draws this image's placeholder.
+  enum class CacheBuild : uint8_t { Built, Failed, Cancelled };
+  void beginBackgroundCache() const;
+  CacheBuild buildCacheInBackground(GfxRenderer& target, int x, int y, void* context, ExtractFn extract,
+                                    SeedCacheFn seedCache, const std::atomic<bool>& cancel) const;
+  void rememberFailure() const;
 
   BlockType getType() override { return IMAGE_BLOCK; }
   bool isEmpty() override { return false; }

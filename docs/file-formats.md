@@ -488,12 +488,14 @@ Version 79 keeps the version 78 serialized layout. Korean words now wrap at
 spaces by default; with hyphenation enabled, they can also split at a legal
 CJK boundary at a line end without a visible hyphen. Justification stretches
 word spaces only. Full caches (byte `79`) and suspended partial caches
-(`0xF4`) both rebuild because earlier page positions are no longer valid.
+(`0xF1`) both rebuild because earlier page positions are no longer valid.
+Partial sentinels `0xF2`–`0xFE` are all retired (v75 already used `0xF4`), and
+`Section.cpp` rejects any reuse at compile time.
 
 ### Version 78
 
 Version 78 changed layout for inline CSS padding. Full and suspended partial
-section caches rebuild together.
+section caches rebuild together; suspended partials use sentinel `0xF2`.
 
 ### Version 77
 

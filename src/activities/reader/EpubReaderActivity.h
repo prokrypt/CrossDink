@@ -409,6 +409,38 @@ class EpubReaderActivity final : public Activity {
   static void homeThumbWorkerMain(void* param);
   void waitHomeThumbWorker();
 
+  // A page's first-view image caches (ZIP extract + decode, seconds for a big
+  // cover) are built on the worker core below the loop task's priority, so the
+  // render task never holds RenderLock through them and input stays live. The
+  // page shows placeholders, then redraws once the caches exist.
+  struct ImageCacheWorker {
+    static constexpr uint8_t MAX_IMAGES = 4;
+    struct Item {
+      std::unique_ptr<ImageBlock> block;  // copy: the page is gone after its render
+      int16_t x = 0;
+      int16_t y = 0;
+      ImageBlock::CacheBuild result = ImageBlock::CacheBuild::Cancelled;
+    };
+    Item items[MAX_IMAGES];
+    uint8_t count = 0;
+    int spine = -1;  // the page the job was started for
+    int pageIndex = -1;
+    std::unique_ptr<GfxRenderer> renderer;  // offscreen; kept for the session
+    HeapByteBuffer frame;                   // PSRAM scratch the decoder draws into
+    TaskHandle_t task = nullptr;            // render task (and onExit) only
+    SemaphoreHandle_t done = nullptr;
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> redraw{false};  // worker -> loop: caches ready, draw the page again
+  };
+  ImageCacheWorker imageCacheWorker;
+  // Render task: true when the page's missing image caches are (still) being
+  // built in the background and the page should draw placeholders for now.
+  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop);
+  static void imageCacheWorkerMain(void* param);
+  // Joins a finished job (all of it when cancel), applying its failures.
+  // False while it still runs. Render task or onExit.
+  bool joinImageCacheWorker(bool cancel);
+
   // Draw-ahead on the worker core: right after a page is shown, the next page
   // is drawn into prerenderFrameBuffer with an offscreen renderer and its own
   // glyph decompressor, while the render task stays free. Used when the page's

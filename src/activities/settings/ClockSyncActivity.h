@@ -13,6 +13,7 @@ class ClockSyncActivity final : public Activity {
 
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   bool skipLoopDelay() override { return true; }
   void render(RenderLock&&) override;

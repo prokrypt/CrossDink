@@ -24,7 +24,8 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   // logs and still forwards every call to `inner` without read-ahead.
   bool begin(FsBlockDeviceInterface* inner);
   // Stops the prefetch task and frees the window. Must run before the inner
-  // device is ended or remounted.
+  // device is ended or remounted. If the task is stuck in a card read it is
+  // left to exit on its own, and the next begin() frees its buffers.
   void end() override;
 
   bool isBusy() override;
@@ -49,6 +50,7 @@ class UsbDriveReadAhead : public FsBlockDeviceInterface {
   // Copies window sectors [sector, sector + ns) to dst. Caller holds windowMutex.
   void copyFromWindow(Sector_t sector, uint8_t* dst, size_t ns) const;
   void resetWindow(Sector_t nextSector);
+  void freeBuffers();
   void lockDevice() const {
     if (deviceMutex) xSemaphoreTake(deviceMutex, portMAX_DELAY);
   }

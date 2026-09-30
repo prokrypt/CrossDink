@@ -11,6 +11,9 @@
 #include "components/themes/minimal/MinimalTheme.h"
 
 namespace HomeCoverThumbs {
+
+int coverGridThumbHeight = 0;
+
 namespace {
 
 using Kind = Spec::Kind;
@@ -30,6 +33,11 @@ Specs forActiveTheme(const std::string& bookPath, const int coverHeight) {
   Specs specs;
   const bool isEpub = FsHelpers::hasEpubExtension(bookPath);
   if (!isEpub && !FsHelpers::hasXtcExtension(bookPath)) return specs;
+  if (UITheme::hasCoverGridHome()) {
+    // Same file as the grid's FromSource thumb, from the loaded metadata.
+    add(specs, Kind::Exact, 0, coverGridThumbHeight);
+    return specs;
+  }
   const Kind fitted = isEpub ? Kind::Adaptive : Kind::Exact;
   switch (static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme)) {
     case CrossPointSettings::UI_THEME::LYRA_CAROUSEL:

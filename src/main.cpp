@@ -59,6 +59,9 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#if CROSSDINK_GOODIES
+#include "activities/goodies/GoodiesActivity.h"
+#endif
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
@@ -367,6 +370,10 @@ static void retainPanelFrame() {
 }
 
 static bool retainedPanelFramePresent() { return retainedPanelFrame.magic == RetainedPanelFrame::MAGIC; }
+// A boot that does not seed the frame (a crash reset before display setup)
+// must drop it: a later plain ESP.restart() would otherwise seed a stale frame
+// as the OLD plane, and the first Fast paint would re-drive pixels one way.
+static void discardRetainedPanelFrame() { retainedPanelFrame.magic = 0; }
 
 static void seedRetainedPanelFrame() {
   const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
@@ -388,6 +395,7 @@ static void seedRetainedPanelFrame() {
 #else
 static void retainPanelFrame() {}
 static bool retainedPanelFramePresent() { return false; }
+static void discardRetainedPanelFrame() {}
 static void seedRetainedPanelFrame() {}
 #endif
 
@@ -507,6 +515,69 @@ bool readerResourcesReady = false;
 bool readerRenderStackReady = false;
 }  // namespace
 
+#ifndef SIMULATOR
+#if CROSSDINK_PERF_LOG
+// Debug: small used blocks that sit between two large free runs of internal
+// RAM, i.e. what splits the block the Wi-Fi exit gate needs. The walker runs
+// under the heap lock, so it only records; the log comes after.
+struct HeapPinScan {
+  static constexpr size_t MAX_PINS = 6;
+  static constexpr size_t MAX_PIN_BYTES = 2048;
+  static constexpr size_t MIN_FREE_RUN = 4096;
+  struct Pin {
+    uintptr_t addr;
+    uint32_t size;
+    uint32_t freeBefore;
+    uint32_t freeAfter;
+  };
+  Pin pins[MAX_PINS];
+  size_t count = 0;
+  intptr_t heapStart = 0;
+  uint32_t freeRun = 0;
+  bool pending = false;
+  Pin candidate{};
+};
+
+static bool heapPinWalker(walker_heap_into_t heap, walker_block_info_t block, void* user) {
+  auto& scan = *static_cast<HeapPinScan*>(user);
+  if (heap.start != scan.heapStart) {
+    scan.heapStart = heap.start;
+    scan.freeRun = 0;
+    scan.pending = false;
+  }
+  if (!block.used) {
+    scan.freeRun += block.size;
+    return true;
+  }
+  if (scan.pending && scan.freeRun >= HeapPinScan::MIN_FREE_RUN && scan.count < HeapPinScan::MAX_PINS) {
+    scan.candidate.freeAfter = scan.freeRun;
+    scan.pins[scan.count++] = scan.candidate;
+  }
+  scan.pending = block.size <= HeapPinScan::MAX_PIN_BYTES && scan.freeRun >= HeapPinScan::MIN_FREE_RUN;
+  if (scan.pending) {
+    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), static_cast<uint32_t>(block.size), scan.freeRun, 0};
+  }
+  scan.freeRun = 0;
+  return true;
+}
+
+static void logInternalHeapPins() {
+  static HeapPinScan scan;  // the walker runs under the heap lock: no allocation
+  scan = HeapPinScan{};
+  heap_caps_walk(MALLOC_CAP_INTERNAL, heapPinWalker, &scan);
+  for (size_t i = 0; i < scan.count; ++i) {
+    const auto& pin = scan.pins[i];
+    LOG_INF("HEAP", "pin 0x%08x %u B between free %u + %u", static_cast<unsigned>(pin.addr),
+            static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.freeBefore),
+            static_cast<unsigned>(pin.freeAfter));
+  }
+  if (scan.count == 0) {
+    LOG_INF("HEAP", "no pins between free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
+  }
+}
+#endif
+#endif
+
 bool leaveNetworkInPlace() {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
@@ -526,6 +597,9 @@ bool leaveNetworkInPlace() {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
     return false;
   }
+#if CROSSDINK_PERF_LOG
+  logInternalHeapPins();
+#endif
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   if (largest < NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),
@@ -585,6 +659,7 @@ class NetworkEntryActivity final : public Activity {
   }
 
   void render(RenderLock&&) override { GUI.drawPopup(renderer, tr(STR_LOADING_POPUP)); }
+  bool usesWifi() const override { return true; }
 
  private:
   NetworkBootTarget target_;
@@ -1298,6 +1373,9 @@ void mirrorWakeShortPressToNvs() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+#if CROSSDINK_GOODIES
+  goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
+#endif
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system
@@ -1305,6 +1383,10 @@ void enterDeepSleep(bool fromTimeout) {
   {
     HalPowerManager::Lock powerLock;
     APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+    // "request" = power button or a Sleep menu/quick action.
+    PerfLog::noteDeepSleep(
+        fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
+        activityManager.currentActivityName());
 
     const bool isQuickResumeSleep =
         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
@@ -1376,7 +1458,11 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
-  if (seamless) seedRetainedPanelFrame();
+  if (seamless) {
+    seedRetainedPanelFrame();
+  } else {
+    discardRetainedPanelFrame();
+  }
   static bool panelLogged = false;
   if (!panelLogged) {
     panelLogged = true;
@@ -1488,6 +1574,7 @@ void setup() {
           BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
+  PerfLog::logLastSleep();
 #ifndef SIMULATOR
   {
     char sec[96];
@@ -1540,6 +1627,7 @@ void setup() {
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton &&
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
+    PerfLog::noteDeepSleep("wake-not-held", "boot");
     powerManager.startDeepSleep(gpio);
   }
 #endif
@@ -1878,6 +1966,15 @@ bool anyInputHeld() {
   return false;
 }
 
+// The current screen opted into radio idle, or the radio only carries the
+// Goodies Wi-Fi remote's idle server.
+static bool radioMayIdle() {
+#if CROSSDINK_GOODIES
+  if (goodies_remote::allowsRadioIdleSleep()) return true;
+#endif
+  return activityManager.allowsRadioIdleSleep();
+}
+
 // Longest idle wait for the power-saving branch of loop(). When every input
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
@@ -1892,7 +1989,7 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
 #endif
   // Timed activity work (automatic page turn), USB serial transfer and radio
   // exchanges are paced by the tick rather than by input.
-  const bool radioIdle = activityManager.allowsRadioIdleSleep();
+  const bool radioIdle = radioMayIdle();
   if (tiltPolling || usbConnected || anyInputHeld() ||
       (!radioIdle && (activityManager.preventAutoSleep() || WiFi.getMode() != WIFI_MODE_NULL))) {
     return IDLE_WAIT_MS;
@@ -1955,16 +2052,22 @@ void updateTouchControllerSleep() {
 // presses, swipes, the home key and tilt turns. Drag samples are left out.
 // Touch coordinates are panel-normalized per mille (0-1000). Returns the kind
 // of this frame's event for the [LAT] line.
-static const char* logInputEvents() {
+static const char* logInputEvents(uint32_t& seq) {
   static constexpr const char* BUTTON_NAMES[] = {"back", "confirm", "left", "right", "up", "down", "power"};
+  // #N is taken by the first [IN] line of the frame; contact moves alone stay #0.
+  seq = 0;
+  const auto id = [&seq] {
+    if (seq == 0) seq = PerfLog::nextInputSeq();
+    return static_cast<unsigned long>(seq);
+  };
   const char* kind = "touch";  // contact moves only
   for (uint8_t i = 0; i < sizeof(BUTTON_NAMES) / sizeof(BUTTON_NAMES[0]); i++) {
     if (gpio.wasPressed(i)) {
-      LOG_DBG("IN", "btn %s down", BUTTON_NAMES[i]);
+      LOG_DBG("IN", "#%lu btn %s down", id(), BUTTON_NAMES[i]);
       kind = "btn";
     }
     if (gpio.wasReleased(i)) {
-      LOG_DBG("IN", "btn %s up", BUTTON_NAMES[i]);
+      LOG_DBG("IN", "#%lu btn %s up", id(), BUTTON_NAMES[i]);
       kind = "btn";
     }
   }
@@ -1972,7 +2075,7 @@ static const char* logInputEvents() {
   const auto permille = [](const float n) { return static_cast<int>(n * 1000.0f); };
   float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
   if (gpio.wasHomeKeyTapped()) {
-    LOG_DBG("IN", "home key");
+    LOG_DBG("IN", "#%lu home key", id());
     kind = "home";
   }
   // Screen px in the current orientation (what the UI acts on), then the raw
@@ -1981,11 +2084,11 @@ static const char* logInputEvents() {
   int lx0 = 0, ly0 = 0, lx1 = 0, ly1 = 0;
   if (gpio.wasTouchTap(x0, y0)) {
     renderer.tapToLogical(x0, y0, lx0, ly0);
-    LOG_DBG("IN", "tap %d,%d (panel %d,%d)", lx0, ly0, permille(x0), permille(y0));
+    LOG_DBG("IN", "#%lu tap %d,%d (panel %d,%d)", id(), lx0, ly0, permille(x0), permille(y0));
     kind = "tap";
   } else if (gpio.wasTouchLongPress(x0, y0)) {
     renderer.tapToLogical(x0, y0, lx0, ly0);
-    LOG_DBG("IN", "long %d,%d (panel %d,%d)", lx0, ly0, permille(x0), permille(y0));
+    LOG_DBG("IN", "#%lu long %d,%d (panel %d,%d)", id(), lx0, ly0, permille(x0), permille(y0));
     kind = "long";
   } else if (gpio.wasSwipe(x0, y0, x1, y1)) {
     renderer.tapToLogical(x0, y0, lx0, ly0);
@@ -1993,8 +2096,8 @@ static const char* logInputEvents() {
     const int dx = lx1 - lx0;
     const int dy = ly1 - ly0;
     const char* dir = std::abs(dx) >= std::abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
-    LOG_DBG("IN", "swipe %s %d,%d->%d,%d (panel %d,%d->%d,%d)", dir, lx0, ly0, lx1, ly1, permille(x0), permille(y0),
-            permille(x1), permille(y1));
+    LOG_DBG("IN", "#%lu swipe %s %d,%d->%d,%d (panel %d,%d->%d,%d)", id(), dir, lx0, ly0, lx1, ly1, permille(x0),
+            permille(y0), permille(x1), permille(y1));
     kind = "swipe";
   }
 #endif
@@ -2005,14 +2108,17 @@ static const char* logInputEvents() {
   touchActivity = gpio.wasTouchActivity();
 #endif
   if (strcmp(kind, "touch") == 0 && !touchActivity) {
-    LOG_DBG("IN", "tilt");
+    LOG_DBG("IN", "#%lu tilt", id());
     kind = "tilt";
   }
   return kind;
 }
 #endif
 
-void loop() {
+// Set by every wait at the end of a pass; early returns skip those waits.
+static bool loopPassBlocked = false;
+
+static void loopPass() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
   PerfLog::noteLoopPass();
@@ -2032,11 +2138,13 @@ void loop() {
     activityManager.loop();
     if (activityManager.preventAutoSleep()) {
       powerManager.setPowerSaving(false);
+      loopPassBlocked = true;
       delay(10);
     } else {
       // No host is active, so a slower loop is safe. The activity itself times
       // out the raw-storage handoff rather than entering deep sleep detached.
       powerManager.setPowerSaving(true);
+      loopPassBlocked = true;
       delay(50);
     }
     return;
@@ -2088,7 +2196,9 @@ void loop() {
                                  || halTiltSensor.hadActivity();
 #if CROSSDINK_PERF_LOG
   if (userInputReceived) {
-    PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), logInputEvents());
+    uint32_t inputSeq = 0;
+    const char* inputKind = logInputEvents(inputSeq);
+    PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), inputKind, inputSeq);
   }
 #endif
 
@@ -2199,6 +2309,9 @@ void loop() {
       lastActivityTime = millis();
     }
     mappedInputManager.clearInjectedReleases();
+    // Nothing draws while locked; wait like an idle pass (ends early on input).
+    loopPassBlocked = true;
+    InputTask::waitForInput(10);
     return;
   }
 
@@ -2285,6 +2398,9 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+#if CROSSDINK_GOODIES
+  goodies_remote::loop(millis() - lastActivityTime);
+#endif
 #if CROSSDINK_APP_CAP_TOUCH
   // A delayed Home event is valid for this activity dispatch only. If an
   // unrelated gesture took priority, do not carry it into the next activity.
@@ -2315,11 +2431,13 @@ void loop() {
     // here: the input loop must stay available while a page is being rendered.
     RenderLock lock(RenderLock::Mode::Try);
     if (!lock.ownsLock()) {
+      loopPassBlocked = true;
       delay(10);
       return;
     }
     skipLoopDelay = activityManager.skipLoopDelay();
   }
+  loopPassBlocked = true;
   if (skipLoopDelay) {
     powerManager.setPowerSaving(false);  // Make sure we're at full performance when skipLoopDelay is requested
     // Not yield(): at priority 2 it only yields to tasks at 2 or above, which
@@ -2331,7 +2449,7 @@ void loop() {
     // longer idle tick no longer delays the first input after a pause. Screens
     // that hold the device awake for a radio exchange keep the fast tick they
     // had before, since WiFi blocks power saving anyway.
-    const bool radioIdleOk = activityManager.allowsRadioIdleSleep();
+    const bool radioIdleOk = radioMayIdle();
     const bool radioExchange = activityManager.preventAutoSleep() && WiFi.getMode() != WIFI_MODE_NULL && !radioIdleOk;
     // Wi-Fi keeps the CPU at full clock unless the screen opts in (File
     // Transfer and Calibre when idle, the OPDS list, KOSync results).
@@ -2349,5 +2467,17 @@ void loop() {
       // Short delay to prevent tight loop while still being responsive
       InputTask::waitForInput(10);
     }
+  }
+}
+
+void loop() {
+  loopPassBlocked = false;
+  loopPass();
+  // loopTask runs on core 0 at priority 2, above IDLE0 and the priority-1
+  // workers. Early returns (held chords, Home-key taps, shortcut dispatch)
+  // skip the pass-end wait; one tick keeps them from starving IDLE0 into a
+  // task-watchdog reset without delaying input.
+  if (!loopPassBlocked) {
+    vTaskDelay(1);
   }
 }

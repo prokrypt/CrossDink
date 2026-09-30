@@ -1847,6 +1847,11 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
       break;
   }
   // TODO: Rotate bits
+  // The display blits into the panel's frame only; refuse other targets.
+  if (frameBuffer != display.getFrameBuffer()) {
+    LOG_ERR("GFX", "drawImage: offscreen target unsupported");
+    return;
+  }
   display.drawImage(bitmap, rotatedX, rotatedY, width, height);
 }
 
@@ -2315,7 +2320,9 @@ void GfxRenderer::clearScreen(const uint8_t color) const {
     memset(_stripBuf, color, static_cast<size_t>(panelWidthBytes) * _stripRows);
     return;
   }
-  display.clearScreen(color);
+  // Our own target, not the panel's: an offscreen renderer (makeOffscreen)
+  // must not wipe the live frame, and a lent framebuffer is null here.
+  if (frameBuffer) memset(frameBuffer, color, frameBufferSize);
 }
 
 void GfxRenderer::beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const {
