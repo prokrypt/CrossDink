@@ -328,6 +328,7 @@ void GoodiesActivity::showLevel(const Level next) {
 
 void GoodiesActivity::activate(const int index) {
   if (index < 0 || index >= static_cast<int>(entries.size())) return;
+  selectedIndex = index;  // a tapped row becomes the selected one, as on every other list
   app.clearTapFlash();
   if (level == Level::Root) {
     if (index == 0) {
@@ -365,12 +366,21 @@ std::string GoodiesActivity::remoteRowValue() {
 void GoodiesActivity::toggleRemote() {
   if (goodies_remote::wanted()) {
     goodies_remote::stop();
-    showLevel(Level::Root);
-    return;
+  } else {
+    // Joins the saved network in the background (the row reads Connecting...).
+    goodies_remote::startInBackground();
   }
-  // Joins the saved network in the background (the row reads Connecting...).
-  goodies_remote::startInBackground();
-  showLevel(Level::Root);
+  refreshRemoteRow();
+}
+
+// Updates the remote row in place; showLevel() would move the selection back to the top.
+void GoodiesActivity::refreshRemoteRow() {
+  RenderLock lock(*this);
+  remoteRowShown = remoteRowState();
+  entries[1].value = remoteRowValue();
+  rowItems[1].value = entries[1].value.c_str();
+  lock.unlock();
+  requestUpdate();
 }
 
 void GoodiesActivity::openRemotePicker() {
@@ -379,7 +389,11 @@ void GoodiesActivity::openRemotePicker() {
                          [this](const ActivityResult& result) {
                            mappedInput.suppressNextConfirmRelease();
                            if (!result.isCancelled) startRemote();
-                           showLevel(Level::Root);
+                           if (level == Level::Root) {
+                             refreshRemoteRow();
+                           } else {
+                             showLevel(Level::Root);
+                           }
                          });
 }
 
@@ -394,14 +408,7 @@ void GoodiesActivity::loop() {
     return;
   }
   // The background join finishes (or drops) while this screen is open.
-  if (level == Level::Root && entries.size() > 1 && remoteRowState() != remoteRowShown) {
-    RenderLock lock(*this);
-    remoteRowShown = remoteRowState();
-    entries[1].value = remoteRowValue();
-    rowItems[1].value = entries[1].value.c_str();
-    lock.unlock();
-    requestUpdate();
-  }
+  if (level == Level::Root && entries.size() > 1 && remoteRowState() != remoteRowShown) refreshRemoteRow();
   if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
       mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     if (level == Level::Root) {

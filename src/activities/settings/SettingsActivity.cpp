@@ -815,7 +815,6 @@ void SettingsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   if (event.value < 0 || event.value >= static_cast<int16_t>(self->settingsCount)) return;
   if ((*self->currentSettings)[event.value].type == SettingType::SECTION_HEADER) return;
   self->selectedSettingIndex = event.value + 1;
-  if (self->isFileBrowserView()) self->showSettingSelection = false;
   // Most rows repaint a different surface (popup, sub-activity, new value);
   // a lingering tap flash would gray an unrelated element.
   self->app.clearTapFlash();

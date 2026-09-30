@@ -77,6 +77,7 @@ class GoodiesActivity final : public Activity {
   int remoteRowShown = -1;
 
   void toggleRemote();
+  void refreshRemoteRow();
   void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();
