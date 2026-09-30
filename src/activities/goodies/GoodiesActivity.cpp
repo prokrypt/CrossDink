@@ -57,6 +57,7 @@ bool pickerRequested = false;
 // main loop never waits on them. One at a time: radioTask runs both.
 // Main task only, except radioTask's state and joinOutcome, which the tasks set.
 bool joinPending = false;
+bool shutdownQueued = false;  // Off during a join: loop() shuts down once it ends
 WorkerTask radioTask;
 std::atomic<uint8_t> joinOutcome{0};
 enum JoinOutcome : uint8_t { JOIN_FAILED, JOIN_BEGUN, JOIN_NO_NETWORK };
@@ -83,9 +84,17 @@ void setRemoteWanted(const bool wanted) {
   if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "wifi remote: toggle not saved");
 }
 
+void closeServerAndRadio(CrossPointWebServer* server);
+
+// Callers that must own the radio next (a Wi-Fi screen, deep sleep, an inline
+// stop) wait here, and run an Off queued behind the join themselves.
 void waitForRadioTask() {
   // Bounded by a wifi.json read and driver start, or a server stop and radio off; no Wi-Fi call may overlap it.
   while (radioTask.running()) vTaskDelay(1);
+  if (shutdownQueued) {
+    shutdownQueued = false;
+    closeServerAndRadio(nullptr);  // no server exists while joining
+  }
 }
 
 // Takes ownership of server (may be null). Runs on the main task or the shutdown task.
@@ -116,6 +125,14 @@ void shutdownTaskMain(void* server) { closeServerAndRadio(static_cast<CrossPoint
 // The toggle's Off: the server task handoff and radio off (~120 ms) run on a
 // task. loop() and every Wi-Fi screen wait for it before touching the radio.
 void stopServerAndRadioInBackground() {
+  if (radioTask.running()) {
+    // A join is in flight (no server yet): never overlap its Wi-Fi calls and
+    // never wait for it here. loop() runs this again once it has ended.
+    shutdownQueued = true;
+    joinPending = false;
+    rejoining = false;
+    return;
+  }
   CrossPointWebServer* server = detachServer();
   if (!radioTask.start(shutdownTaskMain, server, RADIO_TASK_STACK_BYTES, "WifiOff")) {
     LOG_ERR("GDY", "wifi remote: shutdown task did not start, stopping inline");
@@ -254,6 +271,10 @@ void updateOtaLight() {
 
 void loop(const uint32_t idleMs) {
   updateOtaLight();
+  if (shutdownQueued && !radioTask.running()) {
+    shutdownQueued = false;
+    stopServerAndRadioInBackground();
+  }
   if (!remoteWanted()) return;
   // A join or a toggle-off teardown still owns the radio (Off then On in quick succession).
   if (radioTask.running()) return;
