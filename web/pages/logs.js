@@ -58,6 +58,22 @@ async function load() {
 $('src').onchange = load;
 $('q').oninput = show;
 
+// Log text size, remembered in this browser.
+let fontPx = 14;
+try {
+  fontPx = +localStorage.getItem('logFontPx') || 14;
+} catch (e) {}
+function font(d) {
+  fontPx = Math.min(32, Math.max(10, fontPx + d));
+  $('out').style.fontSize = fontPx + 'px';
+  try {
+    localStorage.setItem('logFontPx', fontPx);
+  } catch (e) {}
+}
+$('fm').onclick = () => font(-2);
+$('fp').onclick = () => font(2);
+font(0);
+
 // Battery: /debug/logs/battery.1.csv + battery.csv + rows still in PSRAM
 // (/api/battery-pending), columns as BatteryLog.h, plus the Goodies counters
 // from /api/status. Rows without an RTC time (epoch 0) are left out.
@@ -92,7 +108,9 @@ function segments() {
 
 function chart(id, h, key, lo, hi, fmt, bands) {
   const svg = $(id);
-  const W = 1000;
+  const W = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
+  svg.setAttribute('viewBox', `0 0 ${W} ${h}`);
+  const ticks = W < 600 ? 1 : 4;
   const L = 44;
   const span = +$('range').value;
   const t1 = bat[bat.length - 1].t;
@@ -126,9 +144,10 @@ function chart(id, h, key, lo, hi, fmt, bands) {
     const v = lo + ((hi - lo) * q) / 4;
     s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="0" y="${y(v) + 4}">${fmt(v)}</text>`;
   }
-  for (let q = 0; q <= 4; q++) {
-    const t = t0 + ((t1 - t0) * q) / 4;
-    s += `<text x="${Math.min(x(t), W - 90)}" y="${h - 2}">${when(t)}</text>`;
+  for (let q = 0; q <= ticks; q++) {
+    const t = t0 + ((t1 - t0) * q) / ticks;
+    const anchor = q === 0 ? 'start' : q === ticks ? 'end' : 'middle';
+    s += `<text x="${x(t)}" y="${h - 2}" text-anchor="${anchor}">${when(t)}</text>`;
   }
   s += `<polyline class="line" points="${pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ')}"/>`;
   svg.innerHTML = s;
@@ -270,4 +289,5 @@ function summary() {
   stateTable();
   sessions();
   $('range').onchange = draw;
+  window.onresize = draw;
 })();
