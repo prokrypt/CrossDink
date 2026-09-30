@@ -267,6 +267,10 @@ bool HalDisplay::shouldSkipImageBlanking() const {
          einkDisplay.supportsAsyncRefresh();
 }
 
+bool HalDisplay::fastTracksPanel() const {
+  return BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179;
+}
+
 bool HalDisplay::displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) {
   HalSpiBus::Lock spiLock;
   return einkDisplay.displayGrayscaleBaseAsync(convertRefreshMode(fallback));
