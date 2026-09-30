@@ -41,6 +41,7 @@ class DisplayTestActivity final : public Activity {
   std::atomic<bool> stopRequested{false};
   bool stopped = false;
   bool askDrawn = false;
+  int pickIndex = 0;  // button selection while a pick waits
   unsigned long resumeAtMs = 0;
   int pc = 0;
   std::vector<Loop> loops;

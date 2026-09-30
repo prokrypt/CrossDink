@@ -49,6 +49,19 @@ bool numbers(const std::string* args, int argc, int first, int count, Op& op) {
   return true;
 }
 
+// Splits `s` on '|' into trimmed fields.
+std::vector<std::string> fields(const std::string& s) {
+  std::vector<std::string> out;
+  size_t start = 0;
+  while (true) {
+    const size_t bar = s.find('|', start);
+    const size_t stop = bar == std::string::npos ? s.size() : bar;
+    out.push_back(trim(s.data() + start, s.data() + stop));
+    if (bar == std::string::npos) return out;
+    start = bar + 1;
+  }
+}
+
 const char* parseLine(const std::string& verb, const std::string& rest, Op& op) {
   std::string args[6];
   const int argc = words(rest, args, 6);
@@ -69,13 +82,34 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
   }
   if (verb == "ask") {
     op.code = OpCode::Ask;
-    const size_t bar1 = rest.find('|');
-    const size_t bar2 = bar1 == std::string::npos ? bar1 : rest.find('|', bar1 + 1);
-    if (bar2 == std::string::npos) return "ask needs: question | A | B";
-    op.text = trim(rest.data(), rest.data() + bar1);
-    op.options[0] = trim(rest.data() + bar1 + 1, rest.data() + bar2);
-    op.options[1] = trim(rest.data() + bar2 + 1, rest.data() + rest.size());
-    return op.options[0].empty() || op.options[1].empty() ? "ask needs two answers" : nullptr;
+    auto f = fields(rest);
+    if (f.size() != 3 || f[1].empty() || f[2].empty()) return "ask needs: question | A | B";
+    op.text = std::move(f[0]);
+    op.options = {std::move(f[1]), std::move(f[2])};
+    return nullptr;
+  }
+  if (verb == "pick") {
+    op.code = OpCode::Pick;
+    auto f = fields(rest);
+    std::string nums[6];
+    if (words(f[0], nums, 6) != 6 || !numbers(nums, 6, 0, 6, op) || op.a[2] <= 0 || op.a[3] <= 0) {
+      return "pick x y cellW cellH cols rows | question | name1 | ...";
+    }
+    const int cells = op.a[4] * op.a[5];
+    if (cells < 2 || cells > 16 || static_cast<int>(f.size()) != cells + 2) return "pick needs cols*rows (2..16) names";
+    op.text = std::move(f[1]);
+    op.options.assign(f.begin() + 2, f.end());
+    return nullptr;
+  }
+  if (verb == "text") {
+    op.code = OpCode::DrawText;
+    std::string xy[2];
+    if (words(rest, xy, 2) != 2 || !numbers(xy, 2, 0, 2, op)) return "text x y <text>";
+    const size_t at = rest.find_first_not_of(
+        " \t", rest.find_first_of(" \t", rest.find_first_not_of(" \t", rest.find_first_of(" \t"))));
+    if (at == std::string::npos) return "text x y <text>";
+    op.text = rest.substr(at);
+    return nullptr;
   }
   if (verb == "fill") {
     op.code = OpCode::Fill;
@@ -214,6 +248,61 @@ const BuiltIn BUILT_INS[] = {
      "refresh du\n"
      "wait 2000\n"
      "ask DU: faint squares left on the white? | Yes | No\n"},
+    {"Ghost pick (8 squares)",
+     "fill white\n"
+     "label Ghost pick: squares 1-8 | Each is cleared by a different refresh | Next: clearing 1 to 8, then you pick\n"
+     "box 12 130 96 96\n"
+     "text 52 232 1\n"
+     "box 132 130 96 96\n"
+     "text 172 232 2\n"
+     "box 252 130 96 96\n"
+     "text 292 232 3\n"
+     "box 372 130 96 96\n"
+     "text 412 232 4\n"
+     "box 12 280 96 96\n"
+     "text 52 382 5\n"
+     "box 132 280 96 96\n"
+     "text 172 382 6\n"
+     "box 252 280 96 96\n"
+     "text 292 382 7\n"
+     "box 372 280 96 96\n"
+     "text 412 382 8\n"
+     "refresh half\n"
+     "wait 3000\n"
+     "note square 1 fast\n"
+     "box 12 130 96 96 white\n"
+     "refresh fast\n"
+     "note square 2 du 3\n"
+     "box 132 130 96 96 white\n"
+     "frames 3\n"
+     "refresh du\n"
+     "note square 3 du 4\n"
+     "box 252 130 96 96 white\n"
+     "frames 4\n"
+     "refresh du\n"
+     "note square 4 du 6\n"
+     "box 372 130 96 96 white\n"
+     "frames 6\n"
+     "refresh du\n"
+     "note square 5 du 9\n"
+     "box 12 280 96 96 white\n"
+     "frames 9\n"
+     "refresh du\n"
+     "note square 6 du 12\n"
+     "box 132 280 96 96 white\n"
+     "frames 12\n"
+     "refresh du\n"
+     "note square 7 du 15\n"
+     "box 252 280 96 96 white\n"
+     "frames 15\n"
+     "refresh du\n"
+     "note square 8 du 20\n"
+     "box 372 280 96 96 white\n"
+     "frames 20\n"
+     "refresh du\n"
+     "wait 1500\n"
+     "pick 0 120 120 150 4 2 | Which square has the least ghost? | fast | du 3 | du 4 | du 6 | du 9 | du 12 | du 15 | "
+     "du 20\n"},
     {"Fast x20 text ghosting",
      "fill white\n"
      "label Fast x20 text ghosting | Text page, then white, 10 rounds | Next: rounds start\n"
