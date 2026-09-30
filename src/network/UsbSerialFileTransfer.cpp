@@ -45,6 +45,7 @@ constexpr uint32_t SHORT_TIMEOUT_MS = 1000;
 constexpr uint32_t HEADER_TIMEOUT_MS = 2000;
 constexpr uint32_t CHECKSUM_TIMEOUT_MS = 10000;
 constexpr uint32_t CHUNK_TIMEOUT_MS = 45000;
+constexpr unsigned long IDLE_EVERY_MS = 100;
 constexpr const char* TEMP_UPLOAD_PATH = "/.crosspoint/usb-upload.tmp";
 constexpr const char* INTERNAL_DIR = "/.crosspoint";
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -57,6 +58,21 @@ constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 #endif
 
 uint8_t commandMatchPos = 0;
+
+// loopTask outranks the idle tasks the task watchdog watches, and yield() only
+// hands the CPU to tasks of equal or higher priority. Block for a tick at least
+// every IDLE_EVERY_MS so a long transfer or listing cannot starve them into a
+// watchdog reboot; yielding in between keeps 256-byte chunks at full speed.
+void letIdleRun() {
+  static unsigned long lastBlockMs = 0;
+  if (millis() - lastBlockMs >= IDLE_EVERY_MS) {
+    vTaskDelay(1);
+    lastBlockMs = millis();
+  } else {
+    yield();
+  }
+}
+
 char lineBuffer[LINE_BUFFER_SIZE] = {};
 size_t lineBufferPos = 0;
 uint8_t transferBuffer[SERIAL_CHUNK_SIZE];
@@ -136,9 +152,9 @@ bool readExact(uint8_t* buffer, size_t length, uint32_t timeoutMs, size_t* recei
       nextBusyAt = millis() + 5000;
     }
 
-    // USB transfers run on the Arduino loop task, which is intentionally not
-    // subscribed to the task watchdog. Yielding lets the watched idle tasks run.
-    yield();
+    // Nothing to read: sleep a tick so the watched idle tasks run while the
+    // host is slow (waits here can last CHUNK_TIMEOUT_MS).
+    vTaskDelay(1);
   }
   if (receivedOut) *receivedOut = received;
   return true;
@@ -305,7 +321,7 @@ bool removeRecursive(const char* path, size_t depth = 0) {
       return false;
     }
 
-    yield();
+    letIdleRun();
     child = file.openNextFile();
   }
   file.close();
@@ -364,7 +380,7 @@ void handleList() {
       }
     }
     file.close();
-    yield();
+    letIdleRun();
     file = root.openNextFile();
   }
   if (FsHelpers::directoryIterationFailed(root)) {
@@ -535,7 +551,7 @@ void handleWrite() {
     if (remaining > 0) {
       writeAck();
     }
-    yield();
+    letIdleRun();
   }
 
   if (!flushFileBuffer()) {
@@ -699,7 +715,7 @@ void handleRead() {
 
     writeRaw(transferBuffer, static_cast<size_t>(read));
     crc = esp_rom_crc32_le(crc, transferBuffer, static_cast<uint32_t>(read));
-    yield();
+    letIdleRun();
   }
   file.close();
   writeLe32(crc);
