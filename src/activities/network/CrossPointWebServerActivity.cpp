@@ -23,6 +23,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
+#include "util/BatteryLog.h"
 
 namespace {
 // AP Mode configuration
@@ -68,6 +69,7 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
+  BatteryLog::event("xfer_start", "file-transfer");
 #if CROSSDINK_GOODIES
   // Port 80 and the radio pass to this screen's own server.
   goodies_remote::pause();
@@ -111,6 +113,7 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  BatteryLog::event("xfer_end", "file-transfer");
   library::invalidateLibraryIndex();
   Activity::onExit();
   transferLight.end();
