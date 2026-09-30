@@ -20,7 +20,6 @@
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
 #include "MappedInputManager.h"
-#include "TaskCores.h"
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -31,6 +30,7 @@
 #include "network/FirmwareFlasher.h"
 #include "network/WifiUtils.h"
 #include "util/TransferLightPulse.h"
+#include "util/WorkerTask.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -54,10 +54,10 @@ bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens t
 bool pickerRequested = false;
 // The join itself (wifi.json read, WiFi.mode() bringing the driver up,
 // WiFi.begin()) and the toggle-off teardown run on short-lived tasks so the
-// main loop never waits on them. One at a time: radioTaskRunning covers both.
-// Main task only, except the two atomics the tasks set.
+// main loop never waits on them. One at a time: radioTask runs both.
+// Main task only, except radioTask's state and joinOutcome, which the tasks set.
 bool joinPending = false;
-std::atomic<bool> radioTaskRunning{false};
+WorkerTask radioTask;
 std::atomic<uint8_t> joinOutcome{0};
 enum JoinOutcome : uint8_t { JOIN_FAILED, JOIN_BEGUN, JOIN_NO_NETWORK };
 constexpr uint32_t RADIO_TASK_STACK_BYTES = 6144;
@@ -85,7 +85,7 @@ void setRemoteWanted(const bool wanted) {
 
 void waitForRadioTask() {
   // Bounded by a wifi.json read and driver start, or a server stop and radio off; no Wi-Fi call may overlap it.
-  while (radioTaskRunning.load(std::memory_order_acquire)) vTaskDelay(1);
+  while (radioTask.running()) vTaskDelay(1);
 }
 
 // Takes ownership of server (may be null). Runs on the main task or the shutdown task.
@@ -111,20 +111,13 @@ CrossPointWebServer* detachServer() {
 
 void stopServerAndRadio() { closeServerAndRadio(detachServer()); }
 
-void shutdownTaskMain(void* server) {
-  closeServerAndRadio(static_cast<CrossPointWebServer*>(server));
-  radioTaskRunning.store(false, std::memory_order_release);
-  vTaskDelete(nullptr);
-}
+void shutdownTaskMain(void* server) { closeServerAndRadio(static_cast<CrossPointWebServer*>(server)); }
 
 // The toggle's Off: the server task handoff and radio off (~120 ms) run on a
 // task. loop() and every Wi-Fi screen wait for it before touching the radio.
 void stopServerAndRadioInBackground() {
   CrossPointWebServer* server = detachServer();
-  radioTaskRunning.store(true, std::memory_order_relaxed);
-  if (xTaskCreatePinnedToCore(shutdownTaskMain, "WifiOff", RADIO_TASK_STACK_BYTES, server, 1, nullptr,
-                              TaskCores::kWorker) != pdPASS) {
-    radioTaskRunning.store(false, std::memory_order_relaxed);
+  if (!radioTask.start(shutdownTaskMain, server, RADIO_TASK_STACK_BYTES, "WifiOff")) {
     LOG_ERR("GDY", "wifi remote: shutdown task did not start, stopping inline");
     closeServerAndRadio(server);
   }
@@ -176,8 +169,6 @@ void joinTaskMain(void*) {
   }
   cred.reset();  // before the task frees its stack; the password copy lives on the heap
   joinOutcome.store(outcome, std::memory_order_relaxed);
-  radioTaskRunning.store(false, std::memory_order_release);
-  vTaskDelete(nullptr);
 }
 
 // Background join of the network the remote last used. Every call counts as
@@ -190,12 +181,9 @@ void beginRejoin() {
     LOG_ERR("GDY", "wifi remote: rejoin skipped, internal largest block %u", static_cast<unsigned>(largest));
     return;
   }
-  radioTaskRunning.store(true, std::memory_order_relaxed);
   // Priority 1, under the main loop: it runs only while the loop waits. The
   // stack is internal RAM (it reads the SD card) and is freed when the task ends.
-  if (xTaskCreatePinnedToCore(joinTaskMain, "WifiJoin", RADIO_TASK_STACK_BYTES, nullptr, 1, nullptr,
-                              TaskCores::kWorker) != pdPASS) {
-    radioTaskRunning.store(false, std::memory_order_relaxed);
+  if (!radioTask.start(joinTaskMain, nullptr, RADIO_TASK_STACK_BYTES, "WifiJoin")) {
     LOG_ERR("GDY", "wifi remote: join task did not start");
     return;
   }
@@ -268,7 +256,7 @@ void loop(const uint32_t idleMs) {
   updateOtaLight();
   if (!remoteWanted()) return;
   // A join or a toggle-off teardown still owns the radio (Off then On in quick succession).
-  if (radioTaskRunning.load(std::memory_order_acquire)) return;
+  if (radioTask.running()) return;
   if (joinPending) {
     joinPending = false;
     const uint8_t outcome = joinOutcome.load(std::memory_order_relaxed);
