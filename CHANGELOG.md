@@ -121,6 +121,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: the first time a page with a large image (such as a book's cover) opens, the image is unpacked and decoded in the background. The page shows its image frame at once and fills it in when ready; buttons, swipes and menus keep working meanwhile instead of freezing for several seconds.
 - After a KOReader Sync or Nearby sync, later Wi-Fi sessions in the same boot no longer run with Wi-Fi power saving off.
 - Using Wi-Fi once no longer leaves internal memory fragmented until the next reboot.
 - X4 Pro: the sleep screen no longer ghosts when the device falls asleep on its own after sitting idle. Every sleep screen now starts from a freshly powered panel with the keyboard fast waveform switched off, the same as a power-button sleep.

@@ -2372,6 +2372,7 @@ void EpubReaderActivity::onEnter() {
   if (!drawAhead.done) drawAhead.done = xSemaphoreCreateBinary();
   if (!homeThumbWorker.done) homeThumbWorker.done = xSemaphoreCreateBinary();
   homeThumbWorker.attempted = false;
+  if (!imageCacheWorker.done) imageCacheWorker.done = xSemaphoreCreateBinary();
   ImageBlock::clearSessionRenderFailures();
   ImageBlock::setExtractor(
       epub.get(),
@@ -2510,6 +2511,11 @@ void EpubReaderActivity::onExit() {
   waitHomeThumbWorker();
   if (homeThumbWorker.done) vSemaphoreDelete(homeThumbWorker.done);
   homeThumbWorker.done = nullptr;
+  joinImageCacheWorker(/*cancel=*/true);
+  if (imageCacheWorker.done) vSemaphoreDelete(imageCacheWorker.done);
+  imageCacheWorker.done = nullptr;
+  imageCacheWorker.renderer.reset();
+  imageCacheWorker.frame.reset();
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   // Drop the scalable-family catalog retained during reading. The active font
   // and its PSRAM face lifetime remain managed by SdCardFontSystem.
@@ -3174,6 +3180,12 @@ void EpubReaderActivity::loop() {
   if (aaRedrawPending.load(std::memory_order_acquire) && !RenderLock::peek() && !pendingManualPageTurns.hasPending()) {
     aaRedrawPending.store(false, std::memory_order_release);
     LOG_DBG("AA", "redraw after cancel");
+    requestUpdate();
+  }
+  // Only while the page whose image caches were built is still shown.
+  if (imageCacheWorker.redraw.exchange(false) && !pendingManualPageTurns.hasPending() && section &&
+      imageCacheWorker.spine == currentSpineIndex && imageCacheWorker.pageIndex == section->currentPage) {
+    LOG_DBG("ERS", "Redrawing page with its new image caches");
     requestUpdate();
   }
   maybeStartHomeThumbWorker();
@@ -7630,6 +7642,153 @@ void EpubReaderActivity::waitHomeThumbWorker() {
 }
 
 // Render task, RenderLock held.
+bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int marginLeft, const int marginTop) {
+#if defined(portNUM_PROCESSORS) && portNUM_PROCESSORS > 1
+  auto& job = imageCacheWorker;
+  if (!job.done || !section || !psramHeapAvailable() || !renderer.hasFrameBuffer()) return false;
+  const ImageBlock* first = nullptr;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageImage) continue;
+    const auto& block = static_cast<const PageImage&>(*element).getImageBlock();
+    if (block.needsDecode()) {
+      first = &block;
+      break;
+    }
+  }
+  if (!first) return false;
+  if (job.task) {
+    // Same page drawn again (overlay closed, repeat render): still loading.
+    if (!joinImageCacheWorker(/*cancel=*/false) && job.count > 0 &&
+        job.items[0].block->getImagePath() == first->getImagePath()) {
+      job.spine = currentSpineIndex;
+      job.pageIndex = section->currentPage;
+      return true;
+    }
+    joinImageCacheWorker(/*cancel=*/true);
+  }
+
+  // Caches are only written for images that fit the screen; anything else, or
+  // more images than the job holds, keeps the inline path.
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  uint8_t count = 0;
+  bool fits = true;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageImage) continue;
+    const auto& block = static_cast<const PageImage&>(*element).getImageBlock();
+    if (!block.needsDecode()) continue;
+    const int x = element->xPos + marginLeft;
+    const int y = element->yPos + marginTop;
+    if (count == ImageCacheWorker::MAX_IMAGES || x < 0 || y < 0 || x + block.getWidth() > screenWidth ||
+        y + block.getHeight() > screenHeight) {
+      fits = false;
+      break;
+    }
+    auto& item = job.items[count];
+    item.x = static_cast<int16_t>(x);
+    item.y = static_cast<int16_t>(y);
+    item.result = ImageBlock::CacheBuild::Cancelled;
+    // Two short path strings per image, freed when the job is joined.
+    item.block = makeUniqueNoThrow<ImageBlock>(block);
+    if (!item.block) {
+      fits = false;
+      break;
+    }
+    ++count;
+  }
+
+  // PSRAM, once per reader session: the decoder draws into this frame while
+  // it streams the pixel cache; the panel's frame stays with the render task.
+  if (fits && !job.frame) job.frame = makePsramByteBufferNoThrow(renderer.getBufferSize());
+  if (fits && job.frame && !job.renderer) job.renderer = renderer.makeOffscreen(job.frame.get());
+  // Decoder buffers go to PSRAM; the stack is internal RAM only while it runs.
+  constexpr uint32_t STACK_BYTES = 12288;
+  if (fits && (!job.renderer || !MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, STACK_BYTES + 4096U))) {
+    LOG_ERR("ERS", "Image cache worker unavailable (frame=%u, free=%u, maxAlloc=%u)", job.frame ? 1U : 0U,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    fits = false;
+  }
+  if (!fits || count == 0) {
+    for (uint8_t i = 0; i < count; ++i) job.items[i].block.reset();
+    return false;
+  }
+  job.renderer->syncOffscreenFrom(renderer, job.frame.get());
+  job.renderer->setRenderMode(GfxRenderer::BW);
+  for (uint8_t i = 0; i < count; ++i) job.items[i].block->beginBackgroundCache();
+  job.count = count;
+  job.spine = currentSpineIndex;
+  job.pageIndex = section->currentPage;
+  job.cancel.store(false);
+  job.redraw.store(false);
+  powerManager.beginBackgroundWork();
+  // Priority 1 on the worker core: the loop task (2) preempts it for input.
+  if (xTaskCreatePinnedToCore(imageCacheWorkerMain, "ImageCache", STACK_BYTES, this, 1, &job.task,
+                              TaskCores::kWorker) != pdPASS) {
+    job.task = nullptr;
+    powerManager.endBackgroundWork();
+    for (uint8_t i = 0; i < count; ++i) job.items[i].block.reset();
+    job.count = 0;
+    LOG_ERR("ERS", "Cannot start image cache worker");
+    return false;
+  }
+  LOG_DBG("ERS", "Image caches building in background: %u image(s), first %s", static_cast<unsigned>(count),
+          job.items[0].block->getImagePath().c_str());
+  return true;
+#else
+  (void)page;
+  (void)marginLeft;
+  (void)marginTop;
+  return false;
+#endif
+}
+
+void EpubReaderActivity::imageCacheWorkerMain(void* param) {
+  auto* self = static_cast<EpubReaderActivity*>(param);
+  auto& job = self->imageCacheWorker;
+  const unsigned long start = millis();
+  const auto extract = [](void* context, const char* source, const char* destination) {
+    auto* reader = static_cast<EpubReaderActivity*>(context);
+    return reader->epub->extractItemToFile(source, destination, 4096, &reader->imageCacheWorker.cancel);
+  };
+  const auto seed = [](void* context, const char* source, const int width, const int height,
+                       const char* destination) {
+    return static_cast<EpubReaderActivity*>(context)->epub->seedOptimizerImageCache(source, width, height,
+                                                                                    destination);
+  };
+  for (uint8_t i = 0; i < job.count && !job.cancel.load(); ++i) {
+    auto& item = job.items[i];
+    item.result = item.block->buildCacheInBackground(*job.renderer, item.x, item.y, self, extract, seed, job.cancel);
+  }
+  const bool cancelled = job.cancel.load();
+  LOG_DBG("ERS", "Image caches %s: %u in %lums, stack left %u", cancelled ? "cancelled" : "done",
+          static_cast<unsigned>(job.count), millis() - start,
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  // Built or failed, the page draws differently now.
+  if (!cancelled) job.redraw.store(true);
+  powerManager.endBackgroundWork();
+  // The activity may be destroyed as soon as this is given.
+  xSemaphoreGive(job.done);
+  vTaskDelete(nullptr);
+}
+
+bool EpubReaderActivity::joinImageCacheWorker(const bool cancel) {
+  auto& job = imageCacheWorker;
+  if (!job.task) return true;
+  if (cancel) job.cancel.store(true);
+  // A cancelled job stops within one ZIP chunk or decoded block.
+  if (xSemaphoreTake(job.done, cancel ? portMAX_DELAY : 0) != pdTRUE) return false;
+  job.task = nullptr;
+  // The render that joins draws the result; no second redraw.
+  job.redraw.store(false);
+  for (uint8_t i = 0; i < job.count; ++i) {
+    if (job.items[i].result == ImageBlock::CacheBuild::Failed) job.items[i].block->rememberFailure();
+    job.items[i].block.reset();
+  }
+  job.count = 0;
+  return true;
+}
+
+// Render task, RenderLock held.
 void EpubReaderActivity::applySilentIndexWorkerOutcome() {
   if (!silentWorkerMutex) return;
   if (silentWorker.finished.load(std::memory_order_acquire)) waitSilentIndexWorker(/*cancel=*/false);
@@ -8052,7 +8211,21 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (deferImageLoading) {
     needsImageGrayscale = false;
   }
-  const bool pageHasImagesNeedingDecode = !deferImageLoading && pageHasImages && page->hasImagesNeedingDecode();
+  // A finished background job's caches (or failures) apply to this render.
+  joinImageCacheWorker(/*cancel=*/false);
+  bool pageHasImagesNeedingDecode = !deferImageLoading && pageHasImages && page->hasImagesNeedingDecode();
+  // Missing image caches are built off this task; the page shows placeholders
+  // (and skips AA, which would draw the images) until the worker asks for a
+  // redraw. Input and overlays stay live meanwhile.
+  bool imagesLoadingInBackground = false;
+  if (updatePanel && pageHasImagesNeedingDecode &&
+      startImageCacheWorker(*page, orientedMarginLeft, orientedMarginTop)) {
+    imagesLoadingInBackground = true;
+    pageHasImagesNeedingDecode = false;
+    deferImageLoading = true;
+    needsImageGrayscale = false;
+    needsTextGrayscale = false;
+  }
 
   const auto finalizeBufferComposition = [&]() {
     drawClippingHighlights(*page, fontId, orientedMarginTop, orientedMarginLeft);
@@ -8068,7 +8241,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const auto composePageBuffer = [&]() {
     if (deferImageLoading) {
       page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
-                                        /*renderCachedImages=*/false);
+                                        /*renderCachedImages=*/imagesLoadingInBackground);
     } else {
       page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
     }

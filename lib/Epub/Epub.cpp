@@ -1524,14 +1524,37 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   return ZipFile(filepath).readFileToStream(path.c_str(), out, chunkSize, allowEarlyStop);
 }
 
-bool Epub::extractItemToFile(const std::string& itemHref, const std::string& destPath, const size_t chunkSize) const {
+namespace {
+// Forwards to the file until cancelled; a short write then ends the ZIP stream.
+class CancellableSink final : public Print {
+ public:
+  CancellableSink(Print& out, const std::atomic<bool>& cancel) : out(out), cancel(cancel) {}
+  size_t write(uint8_t byte) override { return cancel.load(std::memory_order_relaxed) ? 0 : out.write(byte); }
+  size_t write(const uint8_t* buffer, size_t size) override {
+    return cancel.load(std::memory_order_relaxed) ? 0 : out.write(buffer, size);
+  }
+
+ private:
+  Print& out;
+  const std::atomic<bool>& cancel;
+};
+}  // namespace
+
+bool Epub::extractItemToFile(const std::string& itemHref, const std::string& destPath, const size_t chunkSize,
+                             const std::atomic<bool>* cancel) const {
   FsFile out;
   if (!Storage.openFileForWrite("EBP", destPath, out)) {
     return false;
   }
 
   const uint32_t start = millis();
-  const bool success = readItemContentsToStream(itemHref, out, chunkSize);
+  bool success;
+  if (cancel) {
+    CancellableSink sink(out, *cancel);
+    success = readItemContentsToStream(itemHref, sink, chunkSize);
+  } else {
+    success = readItemContentsToStream(itemHref, out, chunkSize);
+  }
   const uint32_t written = millis();
   const size_t bytes = out.size();
   out.flush();

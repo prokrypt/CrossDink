@@ -190,6 +190,7 @@ constexpr int32_t FP_MASK = FP_ONE - 1;
 int jpegDrawCallback(JPEGDRAW* pDraw) {
   JpegContext* ctx = reinterpret_cast<JpegContext*>(pDraw->pUser);
   if (!ctx || !ctx->config || !ctx->renderer) return 0;
+  if (ctx->config->cancel && ctx->config->cancel->load(std::memory_order_relaxed)) return 0;
 
   ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
 
