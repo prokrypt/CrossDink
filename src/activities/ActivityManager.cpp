@@ -513,6 +513,7 @@ void ActivityManager::renderTaskLoop() {
     TouchRegistry::getInstance().setEnabled(mappedInput.hasTouch());
     TouchRegistry::getInstance().beginFrame();
     bool deferredRender = false;
+    bool batchInput = false;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
       // Apply Night Mode to each activity's normal-polarity frame. SleepActivity
@@ -526,6 +527,7 @@ void ActivityManager::renderTaskLoop() {
       // Always false on boards without PSRAM, where deferred refresh is off.
       // cppcheck-suppress knownConditionTrueFalse
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
+      batchInput = currentActivity->batchesInputDuringRefresh();
       renderer.setDeferFastRefresh(deferredRender);
       PerfLog::noteRenderStart(currentActivity->name.c_str());
       // Interactive screens keep the booster on so input never waits on PON.
@@ -551,18 +553,20 @@ void ActivityManager::renderTaskLoop() {
     // A deferred menu refresh is still running on the panel. Release the render
     // lock so input and screen changes proceed meanwhile, and finish the refresh
     // once the waveform ends. A new render request goes first: its own display
-    // call finishes this refresh before sending the next frame.
+    // call finishes this refresh before sending the next frame. Screens that
+    // batch input keep collecting requests until the waveform ends, so the next
+    // frame shows every keystroke made meanwhile instead of only the first.
     if (deferredRender && renderer.isRefreshPending()) {
       if (!displayPmHeld) {
         powerManager.beginDisplayRefreshHold();  // no light sleep mid-waveform
         displayPmHeld = true;
       }
       lock.unlock();
-      while (!renderQueued) {
+      while (true) {
         // An early-wake bit alone is no frame: the booster is on mid-refresh.
         if ((ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) & ~PANEL_WAKE_BIT) != 0) {
           renderQueued = true;
-          break;
+          if (!batchInput) break;
         }
         RenderLock finishLock;
         // The refresh can complete while this task waits for the notification.

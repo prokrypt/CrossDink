@@ -62,6 +62,10 @@ class Activity {
   // Screens that mostly sit idle (file transfer and similar) switch the
   // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }
+  // Input arriving mid-refresh waits for the waveform to end, then all of it
+  // lands in one frame (typing). Default: the next frame draws at once and
+  // overlaps the waveform's tail.
+  virtual bool batchesInputDuringRefresh() const { return false; }
   // Serial remote control: insert text as if typed. False when the screen has
   // no text entry.
   virtual bool injectText(const char*) { return false; }
