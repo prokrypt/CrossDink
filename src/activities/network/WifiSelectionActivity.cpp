@@ -10,7 +10,10 @@
 #ifndef SIMULATOR
 #include <esp_mac.h>
 #include <esp_netif_net_stack.h>
+#include <esp_timer.h>
 #include <lwip/dhcp.h>
+#include <lwip/prot/dhcp.h>
+#include <lwip/tcpip.h>
 #endif
 
 #include <algorithm>
@@ -107,6 +110,27 @@ void logDhcpProgress(const unsigned long elapsedMs) {
   sDhcpLoggedState = dhcp->state;
   sDhcpLoggedTries = dhcp->tries;
 }
+
+// The first DISCOVER after association usually goes unanswered and lwIP resends
+// it only after a fixed 500 ms (logs 0930: 88 of 90 joins, answered ~12 ms
+// after the resend). Resend it DHCP_KICK_DELAY_MS after association instead.
+// Same MAC and client id, so the router hands out the same lease.
+constexpr uint32_t DHCP_KICK_DELAY_MS = 100;
+esp_timer_handle_t sDhcpKickTimer = nullptr;
+bool sDhcpKicked = false;  // tcpip thread writes, the GOT_IP log reads
+
+void kickDhcpOnTcpip(void*) {
+  auto* lwipNetif = static_cast<struct netif*>(esp_netif_get_netif_impl(WiFi.STA.netif()));
+  const struct dhcp* dhcp = lwipNetif ? netif_dhcp_data(lwipNetif) : nullptr;
+  if (!dhcp || dhcp->state != DHCP_STATE_SELECTING || dhcp->tries != 1) return;
+  sDhcpKicked = true;
+  dhcp_start(lwipNetif);
+}
+
+void armDhcpKick(WiFiEvent_t, WiFiEventInfo_t) {
+  sDhcpKicked = false;
+  if (sDhcpKickTimer) esp_timer_start_once(sDhcpKickTimer, DHCP_KICK_DELAY_MS * 1000);
+}
 #endif
 
 std::string getDisplayMacAddress() {
@@ -149,8 +173,8 @@ void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
       const uint8_t* ip = reinterpret_cast<const uint8_t*>(&info.got_ip.ip_info.ip.addr);
       const unsigned long now = millis();
-      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u (dhcp %lu ms, total %lu ms)", ip[0], ip[1], ip[2], ip[3],
-              sAssocMs != 0 ? now - sAssocMs : 0UL, now - sBeginMs);
+      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u (dhcp %lu ms%s, total %lu ms)", ip[0], ip[1], ip[2], ip[3],
+              sAssocMs != 0 ? now - sAssocMs : 0UL, sDhcpKicked ? ", DISCOVER resent" : "", now - sBeginMs);
       break;
     }
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
@@ -182,6 +206,18 @@ void ensureWifiEventLoggingRegistered() {
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_LOST_IP);
+  const esp_timer_create_args_t kickArgs = {
+      .callback = [](void*) { tcpip_callback(kickDhcpOnTcpip, nullptr); },
+      .arg = nullptr,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "dhcpKick",
+      .skip_unhandled_events = true,
+  };
+  if (esp_timer_create(&kickArgs, &sDhcpKickTimer) == ESP_OK) {
+    WiFi.onEvent(armDhcpKick, ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  } else {
+    LOG_ERR("WIFI", "DHCP resend timer not created");
+  }
   sWifiEventLoggingRegistered = true;
 }
 #else
@@ -791,6 +827,10 @@ void WifiSelectionActivity::attemptConnection() {
   String hostname = "CrossPoint-Reader-" + mac;
   WiFi.setHostname(hostname.c_str());
 
+  // Radio awake for the join: in modem sleep it can miss the DHCP answer and
+  // wait out lwIP's 500 ms resend. Modem sleep comes back once connected.
+  WiFi.setSleep(false);
+
   wl_status_t beginStatus = WL_IDLE_STATUS;
   const char* const passphrase =
       selectedRequiresPassword && !enteredPassword.empty() ? enteredPassword.c_str() : nullptr;
@@ -837,6 +877,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
 
   if (status == WL_CONNECTED) {
     // Successfully connected
+    WiFi.setSleep(true);
     IPAddress ip = WiFi.localIP();
     char ipStr[16];
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);

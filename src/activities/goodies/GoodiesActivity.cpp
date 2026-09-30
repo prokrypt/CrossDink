@@ -172,6 +172,7 @@ void joinTaskMain(void*) {
   if (cred) {
     WiFi.persistent(false);
     if (WiFi.mode(WIFI_STA)) {
+      WiFi.setSleep(false);  // as WifiSelection: awake for DHCP; the server's begin() turns it back on
       WiFi.begin(cred->ssid.c_str(), cred->password.empty() ? nullptr : cred->password.c_str());
       outcome = JOIN_BEGUN;
       LOG_INF("GDY", "wifi remote: rejoining %s (join task %lu ms)", cred->ssid.c_str(),
