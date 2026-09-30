@@ -93,7 +93,24 @@ void DisplayTestActivity::loop() {
     requestUpdate();
     return;
   }
-  if (current == Phase::Asking && askDrawn) {
+  if (current == Phase::Asking && askDrawn && script.ops[pc].code == OpCode::Pick) {
+    const Op& op = script.ops[pc];
+    const int cells = static_cast<int>(op.options.size());
+    int x = 0, y = 0;
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      answer(pickIndex);
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+               mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+      const int step = mappedInput.wasReleased(MappedInputManager::Button::Left) ? cells - 1 : 1;
+      pickIndex = (pickIndex + step) % cells;
+      askDrawn = false;  // redraw the band with the new selection
+      requestUpdate();
+    } else if (mappedInput.wasScreenTapped(x, y) && x >= op.a[0] && y >= op.a[1]) {
+      const int col = (x - op.a[0]) / op.a[2];
+      const int row = (y - op.a[1]) / op.a[3];
+      if (col < op.a[4] && row < op.a[5]) answer(row * op.a[4] + col);
+    }
+  } else if (current == Phase::Asking && askDrawn) {
     int x = 0, y = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
       answer(0);
@@ -107,8 +124,15 @@ void DisplayTestActivity::loop() {
 
 void DisplayTestActivity::answer(const int option) {
   const Op& op = script.ops[pc];
-  LOG_INF("GDY", "test=\"%s\" ask=\"%s\" answer=\"%s\"", title.c_str(), op.text.c_str(), op.options[option].c_str());
-  answers.push_back(op.text + " " + op.options[option]);
+  if (op.code == OpCode::Pick) {
+    LOG_INF("GDY", "test=\"%s\" pick=\"%s\" square=%d variant=\"%s\"", title.c_str(), op.text.c_str(), option + 1,
+            op.options[option].c_str());
+    answers.push_back(op.text + " " + std::to_string(option + 1) + " (" + op.options[option] + ")");
+  } else {
+    LOG_INF("GDY", "test=\"%s\" ask=\"%s\" answer=\"%s\"", title.c_str(), op.text.c_str(), op.options[option].c_str());
+    answers.push_back(op.text + " " + op.options[option]);
+  }
+  pickIndex = 0;
   ++pc;
   askDrawn = false;
   phase = Phase::Running;
@@ -181,6 +205,7 @@ void DisplayTestActivity::runOps() {
         LOG_INF("GDY", "test=\"%s\" note %s", title.c_str(), op.text.c_str());
         break;
       case OpCode::Ask:
+      case OpCode::Pick:
         phase = Phase::Asking;
         return;
       case OpCode::Name:
@@ -226,6 +251,9 @@ void DisplayTestActivity::drawOp(const Op& op) {
     }
     case OpCode::Invert:
       renderer.invertScreen();
+      break;
+    case OpCode::DrawText:
+      renderer.drawText(UI_12_FONT_ID, op.a[0], op.a[1], op.text.c_str(), true, EpdFontFamily::BOLD);
       break;
     case OpCode::Label: {
       // Up to 3 lines split on '|': what this is (bold), what to look for, what is next.
@@ -324,6 +352,16 @@ void DisplayTestActivity::drawAsk() {
   renderer.fillRect(0, 0, w, bandH, false);
   renderer.drawRect(0, 0, w, bandH);
   drawFittedLine(op.text.c_str(), 6, true);
+  if (op.code == OpCode::Pick) {
+    // Only the band changes; the squares are left as the test drew them.
+    char line[64];
+    snprintf(line, sizeof(line), "Tap a square, or < > then OK: %d", pickIndex + 1);
+    drawFittedLine(line, 10 + lineHeight * 2, false);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    renderer.waitRefreshComplete();
+    askDrawn = true;
+    return;
+  }
   char left[48];
   char right[48];
   snprintf(left, sizeof(left), "< %s", op.options[0].c_str());

@@ -32,6 +32,8 @@ commands are rejected, and the result screen shows the failing line.
 | `scrub half\|du` | The next Fast/DU refresh runs as a Half scrub, or a DU scrub (DU needs `refresh du`). |
 | `wait MS` | Pause (0..60000 ms). |
 | `repeat N` ... `end` | Loop N times (1..1000, nesting up to 4). |
+| `text X Y <text>` | Draw bold text at X,Y. |
+| `pick X Y CW CH COLS ROWS \| question \| name1 \| ...` | Wait for a tap on one cell of a COLS x ROWS grid of CW x CH cells at X,Y (or Left/Right then Confirm); logs the square number and its name. |
 | `note <text>` | Write a line to the log. |
 | `ask <question> \| A \| B` | Show the question over the test image; Left/left half = A, Right/right half = B. The answer is logged. |
 

@@ -30,15 +30,17 @@ enum class OpCode : uint8_t {
   Note,      // text
   Ask,       // text = question; options = the two answers
   Label,     // text drawn in a white band at the top
+  DrawText,  // a0 a1: x y; text
+  Pick,      // a0..a5: grid x y cellW cellH cols rows; text = question; options = one name per cell
 };
 
 enum class Mode : uint8_t { Full, Half, Fast, Du };
 
 struct Op {
   OpCode code;
-  int32_t a[5] = {};
+  int32_t a[6] = {};
   std::string text;
-  std::string options[2];
+  std::vector<std::string> options;
 };
 
 struct Script {
