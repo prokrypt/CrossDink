@@ -474,17 +474,19 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   using CountLabel = std::array<char, 16>;
   std::vector<CountLabel> countLabels(entryCount);
   // The biggest check that fits the theme's row padding (8 px Lyra, 20 px others).
-  const fui::BitmapRef mark = fui::bitmapFromIcon(screen.theme().listSidePadding >= 16 ? icon_check_16 : icon_check_8);
+  // The biggest bold check that fits between the screen edge and the title.
+  const int room = screen.body().x + screen.theme().listSidePadding;
+  const fui::BitmapRef mark = fui::bitmapFromIcon(room >= 20   ? icon_check_20
+                                                  : room >= 16 ? icon_check_16
+                                                  : room >= 12 ? icon_check_12
+                                                               : icon_check_10);
   for (size_t i = 0; i < entryCount; ++i) {
     const auto& entry = entries[i];
     fui::ListItem item;
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
     // One mark for "no network needed": a downloaded book or a cached feed page.
-    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) {
-      item.icon = mark;
-      item.iconInMargin = true;  // in the left padding: nothing else moves
-    }
+    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) item.icon = mark;
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
         snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
@@ -504,6 +506,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the nav chevron and the row edge
+  props.iconsInMargin = true;         // the check sits left of the title: nothing else moves
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entryCount));  // clamp to range
