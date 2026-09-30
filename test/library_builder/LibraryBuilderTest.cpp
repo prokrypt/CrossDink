@@ -1073,9 +1073,10 @@ TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndAtFormatCeilingKeepAllOrders) 
       EXPECT_EQ(fake::parses, 0u);
       EXPECT_EQ(stats.metadataReused, CLIX_MAX_RECORDS);
       // The fixed-size per-directory duplicate tracker is deliberately bounded
-      // below the maximum library size, so this index remains degraded. It must
-      // rebuild rather than silently preserve an old degraded header.
-      EXPECT_TRUE(stats.indexReplaced);
+      // below the maximum library size, so this index remains degraded. An
+      // unchanged card degrades the same way every walk, so the index is kept
+      // instead of being rewritten to SD on every background pass.
+      EXPECT_FALSE(stats.indexReplaced);
       EXPECT_TRUE(stats.dedupDegraded);
       EXPECT_LT(fake::delays, 10000u);
     }
