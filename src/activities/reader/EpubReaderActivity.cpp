@@ -2838,7 +2838,7 @@ void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
   GUI.drawPopup(renderer, tr(STR_INDEXING));
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  pagesUntilFullRefresh = 1;
+  if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
 }
 
@@ -6493,7 +6493,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const auto showIndexingPopup = [this]() {
     GUI.drawPopup(renderer, tr(STR_INDEXING));
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    pagesUntilFullRefresh = 1;
+    // The popup is a Fast frame too: where Fast tracks the panel, the chapter's
+    // first page needs no cleanup flash.
+    if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;
   };
 
   bool buildCancelledForBack = false;

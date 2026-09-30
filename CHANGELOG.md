@@ -46,6 +46,8 @@
 
 ### Changed
 - Wi-Fi: after a web request the device drops back to low power 0.5 s later instead of 2 s, and log tail and status polls (`/api/psram-log`, `/api/status`) drop it as soon as they are answered, so a log watcher no longer keeps the device awake. Uploads still run at full power until they finish.
+- X4 Pro: less flashing. On an image page only the gray pixels change during the gray refresh; text and background no longer flash. Leaving a gray page, or opening a menu over it, repaints only the gray pixels and what changed instead of the whole screen.
+- X4 Pro: opening a book, a new chapter's first page, and returning to Home after Wi-Fi, OPDS, font download or update screens use a plain fast refresh instead of a full flash (about 0.9 s faster each).
 - X4 Pro: pages with gray (anti-aliased text, gray images) now use the full balanced gray waveform instead of the stock quick gray pass, which pushed the panel one way on every gray page. Each gray page now flashes once and takes about 1 s longer.
 - Turbo keyboard (X4 Pro): typing redraws only the letters that change, with a charge-balanced quick refresh (no one-way drive, pixels that stay the same are not driven), and tapped keys are no longer highlighted. The screen below redraws with the normal refresh when the keyboard closes.
 - X4 Pro: the cleanup refresh (Half) no longer re-drives every white pixel black-to-white each time; it runs only the real changes from the previous screen.
