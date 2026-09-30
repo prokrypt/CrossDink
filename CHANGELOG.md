@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Web portal: a Logs page (nav link on every page) shows `/api/status`, the PSRAM log (debug builds) and every file under `/debug/` on the SD card (battery logs, crash report, display scripts). Pick a source to view it, type to filter its lines, or download it. Sources a build or card lacks are left out.
 - X4 Pro (debug builds): battery log. Battery % changes, charger connect/disconnect and charge complete, boot (with reset reason), deep sleep and wake, firmware updates, Wi-Fi on/off, File Transfer/Calibre/USB Drive start and end, and frontlight level changes each add a row (time, %, mV, charging, USB, battery temperature, light level) to a 64 KB buffer in PSRAM that survives restarts and crashes. It is written to `/debug/logs/battery.csv` on the SD card before every sleep, after a boot, when the buffer is 3/4 full or the battery is at 5% or less, always after 2 s without input; at 256 KB the file becomes `/debug/logs/battery.1.csv`.
 - X4 Pro (debug builds): Goodies > Battery & stats shows a battery % graph from that log (a bar marks time asleep), drain per hour awake and asleep since the last unplug with an estimate of time left, wake/boot counts, awake and asleep time, refresh counts by kind, pages read and reading time, temperatures, uptime, reset and wake reasons, memory and the firmware sha. Confirm resets the counters (the log file stays).
 - X4 Pro (debug builds): Goodies > Display test > Panel conditioning. After a confirm, about 30 s of balanced black/white swings with null discharges in between, ending on white, to even out charge left on the panel. Back stops it between swings.
@@ -150,6 +151,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Web portal and WebDAV: `/debug/remote-token` (the Wi-Fi remote token) can no longer be downloaded, replaced, renamed or deleted over the network, under any spelling of its name, even with Show Hidden Files on; the `/debug` folder itself can no longer be renamed, moved or copied there, which would carry the token out with it.
 - X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) ramps smoothly again instead of stepping, and File Transfer no longer pulses when the only traffic is log or status polling.
 - A two-finger or edge brightness slide that starts with the light off and ends at or below where it started now leaves the light off.
 - A brightness slide during a transfer light pulse now starts from your own brightness instead of the pulse level, and the level you slide to is kept when the transfer ends.

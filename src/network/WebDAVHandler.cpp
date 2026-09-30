@@ -13,6 +13,7 @@
 #include <new>
 
 #include "CrossPointSettings.h"
+#include "SerialRemote.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
 #include "util/DaylightSaving.h"
@@ -561,7 +562,8 @@ void WebDAVHandler::handleMove(WebServer& s) {
     return;
   }
 
-  if (isProtectedPath(srcPath) || isProtectedPath(dstPath)) {
+  if (isProtectedPath(srcPath) || isProtectedPath(dstPath) || SerialRemote::isTokenPath(srcPath.c_str(), true) ||
+      SerialRemote::isTokenPath(dstPath.c_str(), true)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
@@ -632,7 +634,8 @@ void WebDAVHandler::handleCopy(WebServer& s) {
 
   LOG_DBG("DAV", "COPY %s -> %s (overwrite=%d)", srcPath.c_str(), dstPath.c_str(), overwrite);
 
-  if (isProtectedPath(srcPath) || isProtectedPath(dstPath)) {
+  if (isProtectedPath(srcPath) || isProtectedPath(dstPath) || SerialRemote::isTokenPath(srcPath.c_str(), true) ||
+      SerialRemote::isTokenPath(dstPath.c_str(), true)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
@@ -838,6 +841,7 @@ void WebDAVHandler::urlEncodePath(const String& path, String& out) const {
 }
 
 bool WebDAVHandler::isProtectedPath(const String& path) const {
+  if (SerialRemote::isTokenPath(path.c_str())) return true;
   // Check every segment of the path, not just the last one.
   // This prevents access to e.g. /.hidden/somefile or /System Volume Information/foo
   int start = 0;

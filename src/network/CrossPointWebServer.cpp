@@ -51,6 +51,7 @@
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
 #include "html/LogoPng.generated.h"
+#include "html/LogsPageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
@@ -333,6 +334,7 @@ String normalizeWebPath(const String& inputPath) {
 }
 
 bool isProtectedPath(const String& path) {
+  if (SerialRemote::isTokenPath(path.c_str())) return true;
   // Hidden/system items stay out of the default file-manager view. Enabling
   // Show Hidden Files intentionally makes them fully manageable.
   if (SETTINGS.showHiddenFiles) return false;
@@ -565,6 +567,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
 
     // Font management endpoints
     server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
+    server->on("/logs", HTTP_GET, [this] { handleLogsPage(); });
     server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
     server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
     server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
@@ -1833,7 +1836,8 @@ void CrossPointWebServer::handleRename() const {
   }
   newPath += newName;
 
-  if (isProtectedPath(newPath)) {
+  if (isProtectedPath(newPath) || SerialRemote::isTokenPath(itemPath.c_str(), true) ||
+      SerialRemote::isTokenPath(newPath.c_str(), true)) {
     server->send(403, "text/plain", "Cannot rename to protected path");
     return;
   }
@@ -1950,6 +1954,11 @@ void CrossPointWebServer::handleMove() const {
   }
   newPath += itemName;
 
+  if (SerialRemote::isTokenPath(newPath.c_str())) {
+    file.close();
+    server->send(403, "text/plain", "Cannot move into protected folder");
+    return;
+  }
   if (newPath == itemPath) {
     file.close();
     server->send(200, "text/plain", "Already in destination");
@@ -2862,6 +2871,10 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 }
 
 // --- Font management handlers ---
+
+void CrossPointWebServer::handleLogsPage() const {
+  sendStaticContent(server.get(), LogsPageHtml, sizeof(LogsPageHtml), LogsPageHtmlETag);
+}
 
 void CrossPointWebServer::handleFontsPage() const {
   sendStaticContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml), FontsPageHtmlETag);
