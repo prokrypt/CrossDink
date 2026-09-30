@@ -61,6 +61,9 @@ constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // on a fresh connection. Reuse after 1.4 s and 3.5 s idle worked on
 // mayberry.pub, after 10.5 s it never answered (crash log 2026-09-30).
 constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
+// A page shown from the cache is refetched in the background once per view if
+// its copy is at least this old; a fresher one (just preloaded) is trusted.
+constexpr uint32_t OPDS_RECHECK_MIN_AGE_MS = 30 * 1000;
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
   const std::string title(book.title);
@@ -304,7 +307,15 @@ void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::BROWSING) {
     // Queued feed downloads start only from the browsing list; a network
     // fetch or a book download pauses them.
-    if (preload) preload->pump();
+    if (preload) {
+      preload->pump();
+      // A recheck found the shown page changed: re-parse it in place.
+      std::string changed;
+      if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
+        LOG_INF("OPDS", "Recheck: redrawing changed page");
+        fetchFeed(currentPath, selectorIndex, topIndex);
+      }
+    }
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       navigateBack();
       return;
@@ -743,6 +754,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
   if (currentPath.empty()) preloadFeedsOnPage();
+  if (preload && pageCache->isStale(url, millis(), OPDS_RECHECK_MIN_AGE_MS)) preload->revalidate(url);
   if (preload) preload->pump();
 }
 
@@ -790,7 +802,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     if (result != HttpDownloader::OK) return false;
   }
 
-  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page));
+  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page), true, millis());
   return true;
 }
 
