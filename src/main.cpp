@@ -588,6 +588,7 @@ class NetworkEntryActivity final : public Activity {
   }
 
   void render(RenderLock&&) override { GUI.drawPopup(renderer, tr(STR_LOADING_POPUP)); }
+  bool usesWifi() const override { return true; }
 
  private:
   NetworkBootTarget target_;

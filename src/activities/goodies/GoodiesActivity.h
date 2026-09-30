@@ -19,9 +19,9 @@ bool running();
 void stop();
 // A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
 void pause();
-// Main loop: once the radio is off again at Home or in the reader (a Wi-Fi
-// screen exited, or a silent restart), rejoins the last network and restarts
-// the server. No-op while the toggle is off.
+// Main loop: once no Wi-Fi screen (Activity::usesWifi) is on the stack, or
+// after a silent restart, rejoins the last network and restarts the server.
+// No-op while the toggle is off.
 void loop();
 }  // namespace goodies_remote
 

@@ -26,6 +26,7 @@
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "network/CrossPointWebServer.h"
+#include "network/WifiUtils.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -123,11 +124,32 @@ void stop() {
 
 void loop() {
   static bool bootChecked = false;
+  static bool screenHadRadio = false;
   if (!bootChecked) {
     bootChecked = true;
     if (esp_reset_reason() != ESP_RST_SW) remoteWantedMagic = 0;
   }
   if (!remoteWanted()) return;
+  // A Wi-Fi screen is on the stack: the radio is its until it leaves.
+  if (activityManager.anyActivityUsesWifi()) {
+    screenHadRadio = true;
+    rejoining = false;
+    return;
+  }
+  if (screenHadRadio) {
+    // Whatever the screen left behind (Wi-Fi off or deinitialized, another
+    // network, AP mode), the old server's sockets can't be trusted.
+    screenHadRadio = false;
+    if (remoteServer) remoteServer->stop();
+    remoteServer.reset();
+    MDNS.end();
+    rejoinAt = 0;
+    if (hasActiveStationWifiConnection()) {
+      startRemote();
+      return;
+    }
+    if (WiFi.getMode() != WIFI_MODE_NULL) stopServerAndRadio();
+  }
   if (rejoining) {
     if (WiFi.status() == WL_CONNECTED) {
       rejoining = false;
@@ -140,17 +162,7 @@ void loop() {
     }
     return;
   }
-  // Radio on: the remote or a Wi-Fi screen owns it. Off at Home or in the
-  // reader: a Wi-Fi screen (File Transfer, OPDS, Nearby...) turned it off on
-  // exit, or this boot followed a silent restart.
-  if (WiFi.getMode() != WIFI_MODE_NULL) return;
-  if (!activityManager.isHomeActivity() && !activityManager.isReaderActivity()) return;
-  if (remoteServer) {
-    // Served through a screen that has since deinitialized Wi-Fi (OPDS).
-    remoteServer->stop();
-    remoteServer.reset();
-    MDNS.end();
-  }
+  if (remoteServer) return;
   if (rejoinAt != 0 && millis() - rejoinAt < REJOIN_RETRY_MS) return;
   beginRejoin();
 }
