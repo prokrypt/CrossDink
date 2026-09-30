@@ -8202,8 +8202,6 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const bool pageHasImages = page->hasImages();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
   bool needsImageGrayscale = pageHasImages;
-  // Smooth holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
-  renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages);
   bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack &&
                             !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
@@ -8362,6 +8360,13 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     }
   }
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
+  // Smooth holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
+  // The full swing owed after open/cover is spent only by a page that runs a gray pass.
+  if (updatePanel) {
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
+                           !smoothFullSwingPending);
+    if (needsAnyGrayscale) smoothFullSwingPending = false;
+  }
   // UC8179 (X4 Pro) runs every gray page as direct gray, which drives each
   // pixel absolutely: the page cleans itself, so the cadence Half is only an
   // extra flash. Restart the countdown instead (a manual Refresh, <0, still runs).
