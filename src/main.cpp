@@ -2022,14 +2022,14 @@ static bool radioMayIdle() {
 // Longest idle wait for the power-saving branch of loop(). When every input
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
-// Flash duck: while a refresh flashes the panel (HalDisplay::flashStartedMs),
-// ramp the frontlight to 0 and back up after it. Runs alongside the refresh
-// (render task) and never waits on it. Timings from
-// logs/device/20260930T095600Z-c18ab712-postflash.txt L358-364: gray planes
-// load from 47231 ("8179_gray_lsb") to 47310, then "8179_DIRECT_GRAY_DRF
-// (1189 ms)", so the light is out as the swing starts. The longest flash seen
-// is the boot Full "8179_DRF (1465 ms)" (L47); a mark older than
-// FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends.
+// Flash duck: fade the frontlight out over FLASH_DUCK_DOWN_MS so it is dark
+// when the refresh's full-screen swing shows (HalDisplay::flashStartedMs: on
+// UC8179 the driver's DRF time plus the waveform's own offset, e.g. direct gray
+// holds white for 24 of 50 frames), and back up over FLASH_DUCK_UP_MS once the
+// refresh ends. A swing that shows at once (OTP Full/Half) cuts the light at
+// DRF. Goodies > Flash dim / restore offset shift both ends (flashDuckMs).
+// Runs alongside the refresh (render task) and never waits on it. A mark older
+// than FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends.
 constexpr unsigned long FLASH_DUCK_DOWN_MS = 80;
 constexpr unsigned long FLASH_DUCK_MAX_MS = 3000;
 constexpr unsigned long FLASH_DUCK_UP_MS = 300;
@@ -2040,30 +2040,55 @@ static unsigned long flashDuckUpStartMs = 0;
 
 static uint32_t liveFlashStartMs() {
   const uint32_t startMs = display.flashStartedMs();
-  return startMs != 0 && millis() - startMs <= FLASH_DUCK_MAX_MS ? startMs : 0;
+  // Signed: the swing can lie ahead, and is live until then.
+  return startMs != 0 && static_cast<int32_t>(millis() - startMs) <= static_cast<int32_t>(FLASH_DUCK_MAX_MS) ? startMs
+                                                                                                            : 0;
 }
 
 static void updateFlashDuck() {
-  const uint32_t flashStartMs = liveFlashStartMs();
+  const unsigned long now = millis();
+  const uint32_t swingMs = liveFlashStartMs();
+  // Goodies offsets (later is positive). The refresh never waits on either: an
+  // earlier dim than the driver can announce just cuts the light at DRF.
+  const int32_t dimMs = CrossPointSettings::flashDuckMs(SETTINGS.flashDuckDim);
+  const int32_t restoreMs = CrossPointSettings::flashDuckMs(SETTINGS.flashDuckRestore);
+  static uint32_t swingEndMs = 0;    // expected end of the swing being tracked
+  static uint32_t swingGoneMs = 0;   // when it ended (for a later restore)
+  if (swingMs != 0) {
+    swingEndMs = display.flashEndsMs();
+    swingGoneMs = 0;
+  } else if (swingEndMs != 0) {
+    swingEndMs = 0;
+    swingGoneMs = now | 1;
+  }
+  // Up early: before the expected end (negative restore). Up late: hold dark
+  // after the refresh ended (positive restore).
+  const bool restoreEarly = swingMs != 0 && restoreMs < 0 && swingEndMs != 0 &&
+                            static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
+  const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
+  // ms until the light should be out; the fade runs over the DOWN_MS before.
+  const int32_t toDark = swingMs != 0 ? static_cast<int32_t>(swingMs + dimMs - now) : 0;
+  const bool ducking = (swingMs != 0 && !restoreEarly && toDark < static_cast<int32_t>(FLASH_DUCK_DOWN_MS)) ||
+                       (flashDuckActive && holdLate);
   // The user (brightness, toggle, Quick Lock) or the light timeout took over.
   if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
   if (!flashDuckActive) {
-    if (flashStartMs == 0 || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
+    if (swingMs == 0 || !ducking || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
         Frontlight.idleDimPercent() != 100) {
       return;
     }
     flashDuckActive = true;
     flashDuckLevel = 100;
     flashDuckUpStartMs = 0;
-    LOG_DBG("LIGHT", "Flash duck: down (%lu ms after planes)", millis() - flashStartMs);
+    LOG_DBG("LIGHT", "Flash duck: down, dark in %ld ms", static_cast<long>(toDark));
   }
-  const unsigned long now = millis();
-  // Each ramp moves only one way from where the light is.
+  // Each ramp moves only one way from where the light is, between 100% and
+  // the Flash Dim Level (a % of the user's brightness; 0 = dark).
+  const unsigned long floor = std::min<unsigned long>(SETTINGS.flashDuckDepth, 90);
   unsigned long level;
-  if (flashStartMs != 0) {
-    const unsigned long elapsed = now - flashStartMs;
-    level = std::min<unsigned long>(flashDuckLevel,
-                                    elapsed >= FLASH_DUCK_DOWN_MS ? 0 : 100 - elapsed * 100 / FLASH_DUCK_DOWN_MS);
+  if (ducking) {
+    const unsigned long left = toDark <= 0 ? 0 : std::min<unsigned long>(toDark, FLASH_DUCK_DOWN_MS);
+    level = std::min<unsigned long>(flashDuckLevel, floor + (100 - floor) * left / FLASH_DUCK_DOWN_MS);
     flashDuckUpStartMs = 0;  // a back-to-back flash keeps it down
   } else {
     if (flashDuckUpStartMs == 0) {
@@ -2071,19 +2096,21 @@ static void updateFlashDuck() {
       LOG_DBG("LIGHT", "Flash duck: up at %u%%", flashDuckLevel);
     }
     const unsigned long elapsed = now - flashDuckUpStartMs;
-    level = std::max<unsigned long>(flashDuckLevel,
-                                    elapsed >= FLASH_DUCK_UP_MS ? 100 : elapsed * 100 / FLASH_DUCK_UP_MS);
+    level = std::max<unsigned long>(
+        flashDuckLevel, elapsed >= FLASH_DUCK_UP_MS ? 100 : floor + (100 - floor) * elapsed / FLASH_DUCK_UP_MS);
   }
   if (level != flashDuckLevel) {
     flashDuckLevel = static_cast<uint8_t>(level);
     Frontlight.setIdleDim(flashDuckLevel);
   }
-  if (flashDuckLevel == 100) flashDuckActive = false;
+  if (!ducking && flashDuckLevel == 100) flashDuckActive = false;
 }
 
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
-  if (flashDuckActive || (liveFlashStartMs() != 0 && SETTINGS.frontlightFlashDuck)) return FLASH_DUCK_TICK_MS;
+  if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarked()) && SETTINGS.frontlightFlashDuck)) {
+    return FLASH_DUCK_TICK_MS;
+  }
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
   // Light timeout: wake on time for the fade and step it at the fast tick.
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();

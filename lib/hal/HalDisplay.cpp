@@ -257,13 +257,31 @@ void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
   einkDisplay.copyGrayscaleLsbBuffers(lsbBuffer);
 }
 
-// Flashing refreshes: Half/Full, the repaint that leaves gray (grayOnPanel),
-// and full-swing gray passes. Gray planes load ~80 ms before their refresh, so
-// marking there lets the light dim first. Smooth gray holds B/W pixels (no
-// flash); ponytail: the SDK still swings a smooth pass it can't hold, undimmed.
-// Cleared when a refresh finishes; the main loop also drops a stale mark.
+// Refreshes that may flash: Half/Full, the repaint that leaves gray
+// (grayOnPanel), and full-swing gray passes. On UC8179 this only keeps the main
+// loop ticking fast; the driver reports the real swing (flashStartedMs). Other
+// panels dim from here. Cleared when a refresh finishes; the main loop also
+// drops a stale mark.
 void HalDisplay::markFlash(const bool flashes) {
   if (flashes) flashStart.store(millis() | 1, std::memory_order_relaxed);  // | 1: never 0 while set
+}
+
+uint32_t HalDisplay::flashEndsMs() const {
+#ifndef SIMULATOR
+  if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) {
+    return freeink::uc8179FlashSwingDoneMs();
+  }
+#endif
+  return 0;
+}
+
+uint32_t HalDisplay::flashStartedMs() const {
+#ifndef SIMULATOR
+  if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) {
+    return freeink::uc8179FlashSwingMs();
+  }
+#endif
+  return flashStart.load(std::memory_order_relaxed);
 }
 
 void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay.copyGrayscaleMsbBuffers(msbBuffer); }

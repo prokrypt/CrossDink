@@ -643,6 +643,17 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_LIGHT_TIMEOUT, &CrossPointSettings::frontlightTimeout,
                           {StrId::STR_1_MIN, StrId::STR_2_MIN, StrId::STR_5_MIN, StrId::STR_10_MIN, StrId::STR_NEVER},
                           "frontlightTimeout", StrId::STR_CAT_DISPLAY));
+    // Same key as when it sat under Reader, so the stored value carries over.
+    add(SettingInfo::Toggle(StrId::STR_FLASH_DUCK_LIGHT, &CrossPointSettings::frontlightFlashDuck,
+                            "frontlightFlashDuck", StrId::STR_CAT_DISPLAY));
+    add(SettingInfo::Value(StrId::STR_FLASH_DUCK_DEPTH, &CrossPointSettings::flashDuckDepth,
+                           {0, CrossPointSettings::FLASH_DUCK_DEPTH_MAX, CrossPointSettings::FLASH_DUCK_DEPTH_STEP},
+                           "flashDuckDepth", StrId::STR_CAT_DISPLAY));
+    // Tuned from Goodies only: category-less, persisted.
+    add(SettingInfo::Value(StrId::STR_FLASH_DUCK_DIM, &CrossPointSettings::flashDuckDim,
+                           {0, CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1}, "flashDuckDim"));
+    add(SettingInfo::Value(StrId::STR_FLASH_DUCK_RESTORE, &CrossPointSettings::flashDuckRestore,
+                           {0, CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1}, "flashDuckRestore"));
     // Kept in the shared catalog for persistence and the web API. On-device,
     // these values are presented only by Display > Frontlight.
     add(SettingInfo::Toggle(StrId::STR_FRONTLIGHT_SCHEDULE, &CrossPointSettings::frontlightScheduleEnabled,
@@ -700,8 +711,6 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing,
                           {StrId::STR_STATE_OFF, StrId::STR_AA_SHARP, StrId::STR_AA_SMOOTH}, "textAntiAliasing",
                           StrId::STR_CAT_READER));
-    add(SettingInfo::Toggle(StrId::STR_FLASH_DUCK_LIGHT, &CrossPointSettings::frontlightFlashDuck,
-                            "frontlightFlashDuck", StrId::STR_CAT_READER));
     add(SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                           {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
                           "imageRendering", StrId::STR_CAT_READER));
@@ -1229,7 +1238,6 @@ inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<Se
   addSettingByName(settings, allSettings, StrId::STR_LINE_SPACING);
   addSettingByName(settings, allSettings, StrId::STR_WORD_SPACING);
   addSettingByName(settings, allSettings, StrId::STR_TEXT_AA);
-  if (Frontlight.present()) addSettingByName(settings, allSettings, StrId::STR_FLASH_DUCK_LIGHT);
   settings.push_back(SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
   addSettingByName(settings, allSettings, StrId::STR_SD_FONT_SIZE_RANGE);
   return settings;
@@ -1431,7 +1439,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
 
 inline std::vector<SettingInfo> buildDisplayFrontlightSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(5);
+  settings.reserve(7);
 
   auto addDisplaySetting = [&](const StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
@@ -1441,6 +1449,8 @@ inline std::vector<SettingInfo> buildDisplayFrontlightSettingsList(const std::ve
 
   addDisplaySetting(StrId::STR_RESTORE_LIGHT_ON_WAKE);
   addDisplaySetting(StrId::STR_LIGHT_TIMEOUT);
+  addDisplaySetting(StrId::STR_FLASH_DUCK_LIGHT);
+  addDisplaySetting(StrId::STR_FLASH_DUCK_DEPTH);
   if (halClock.isAvailable()) {
     addDisplaySetting(StrId::STR_FRONTLIGHT_SCHEDULE);
     addDisplaySetting(StrId::STR_START);
