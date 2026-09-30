@@ -922,19 +922,47 @@ void CrossPointWebServer::handleExit() {
 
 #if CROSSDINK_PSRAM_LOG
 // Debug builds: the PSRAM log ring, oldest first, including lines from before
-// the last software restarts.
+// the last software restarts. ?since=<offset> tails it: only bytes after that
+// offset (a "[psram-log gap ...]" line marks any the ring overwrote first), and
+// the X-Log-Next header is the offset for the next poll. &wait=<ms> (max 5000)
+// holds an empty reply until new text arrives; that parks only this server task.
 void CrossPointWebServer::handlePsramLog() const {
   EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
+  const bool tail = server->hasArg("since");
+  const uint32_t since = tail ? strtoul(server->arg("since").c_str(), nullptr, 10) : 0;
+  if (tail) {
+    const uint32_t waitMs = std::min<uint32_t>(strtoul(server->arg("wait").c_str(), nullptr, 10), 5000);
+    for (uint32_t waited = 0; PsramLog::end() == since && waited < waitMs; waited += 50) vTaskDelay(pdMS_TO_TICKS(50));
+  }
   uint32_t cursor = PsramLog::oldest();
+  // since > end: the ring restarted (power loss or deep sleep) after that offset.
+  const bool restarted = tail && since > PsramLog::end();
+  const uint32_t skipped = tail && !restarted && since < cursor ? cursor - since : 0;
+  if (tail && !restarted && since > cursor) cursor = since;
   const uint32_t end = PsramLog::end();
+  server->sendHeader("X-Log-Next", String(end));
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "text/plain; charset=utf-8", "");
-  // Fresh identity header first: the ring may have wrapped past the boot lines.
-  const size_t headerLen = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
-  if (headerLen > 0) server->sendContent(chunk, headerLen);
+  size_t len = 0;
+  if (!tail) {
+    // Fresh identity header first: the ring may have wrapped past the boot lines.
+    len = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+  } else if (restarted) {
+    len = snprintf(chunk, sizeof(chunk), "[psram-log restarted]\n");
+  } else if (skipped > 0) {
+    len = snprintf(chunk, sizeof(chunk), "[psram-log gap %lu bytes]\n", static_cast<unsigned long>(skipped));
+  }
+  if (len > 0) server->sendContent(chunk, len);
   while (cursor < end) {
-    const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+    const uint32_t before = cursor;
+    len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
     if (len == 0) break;
+    if (cursor - len != before) {  // lapped while streaming: read() skipped ahead
+      char gap[48];
+      const int n = snprintf(gap, sizeof(gap), "\n[psram-log gap %lu bytes]\n",
+                             static_cast<unsigned long>(cursor - len - before));
+      server->sendContent(gap, n);
+    }
     server->sendContent(chunk, len);
   }
   server->sendContent("");

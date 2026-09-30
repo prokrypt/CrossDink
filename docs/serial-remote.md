@@ -62,3 +62,17 @@ curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=GOTO 
 curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pbm http://10.0.1.67/api/screenshot
 convert screen.pbm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
 ```
+
+## Wi-Fi: live log tail
+
+`GET /api/psram-log?since=<offset>&wait=<ms>` returns only the PSRAM log bytes after `<offset>`, with the
+offset for the next poll in the `X-Log-Next` header (no token; same as the full dump without `since`).
+Offsets count every byte since the ring started, so they carry across software restarts (GOTO reboots,
+panics). If the ring overwrote text since the last poll the reply starts with `[psram-log gap N bytes]`; if
+it restarted (power loss, deep sleep) it starts with `[psram-log restarted]` and the whole new ring. `wait`
+(max 5000) holds an empty reply until new text arrives; that holds up only the web server task, so
+`/api/cmd` answers after the current poll. Tail from the start of the ring (`o=0`), then follow:
+
+```sh
+o=0; while :; do n=$(curl -s --connect-timeout 3 --max-time 10 -D - -o /dev/stderr "http://10.0.1.67/api/psram-log?since=$o&wait=2000" | tr -d '\r' | awk 'tolower($1)=="x-log-next:"{print $2}'); o=${n:-$o}; done 2>&1
+```
