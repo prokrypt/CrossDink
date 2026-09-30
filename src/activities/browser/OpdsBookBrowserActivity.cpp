@@ -147,6 +147,7 @@ void OpdsBookBrowserActivity::onEnter() {
   entryCount = 0;
   navigationHistory.clear();
   searchTemplate = "";
+  searchDescriptionUrl.clear();
   currentPath = "";
   selectorIndex = 0;
   errorMessage.clear();
@@ -320,7 +321,7 @@ void OpdsBookBrowserActivity::loop() {
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
+      if (hasSearch() && selectorIndex == 0) launchSearch();
     }
 
     // Touch goes through the FreeInkApp: render() registered every tap target
@@ -417,7 +418,7 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
   const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     const auto backLayout = TouchHeaderBackButton::layout(headerRect);
-    const bool showSearch = withSearch && !searchTemplate.empty();
+    const bool showSearch = withSearch && hasSearch();
     TouchHeaderBackButton::draw(renderer, uiTarget, headerRect, title, false,
                                 showSearch ? static_cast<int>(backLayout.iconRect.width + 8) : 0);
     screen.takeTop(static_cast<int16_t>(headerRect.y + headerRect.height));
@@ -472,6 +473,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
+    if (entry.type == OpdsEntryType::BOOK && onSd[i]) item.value = tr(STR_DOWNLOADED);
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
         snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
@@ -577,7 +579,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
     case BrowserState::BROWSING: {
       const char* confirmLabel =
           (entryCount > 0 && entries[selectorIndex].type == OpdsEntryType::BOOK) ? tr(STR_DOWNLOAD) : tr(STR_OPEN);
-      const char* searchLabel = (!searchTemplate.empty() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
+      const char* searchLabel = (hasSearch() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
       labels =
           mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, searchLabel, tr(STR_DIR_DOWN));
       break;
@@ -700,6 +702,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   }
 
   searchTemplate = parser.getSearchTemplate();
+  searchDescriptionUrl = parser.getSearchDescriptionUrl();
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   entryCount = parser.getEntryCount();
@@ -734,6 +737,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
   topIndex = restoreTop;
   if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
+  markBooksOnSd();
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
@@ -854,6 +858,44 @@ void OpdsBookBrowserActivity::stopPrefetch() {
   if (!preload) return;
   preload->pause("");
   preload->closeConnections();
+}
+
+// One pass over the download folder, not an exists() per book: each lookup
+// rescans the folder, so 50 books would read it 50 times. Read-only.
+void OpdsBookBrowserActivity::markBooksOnSd() {
+  onSd.reset();
+  const unsigned long startMs = millis();
+  // Transient: the page's expected file names, freed on return.
+  std::vector<std::string> names(entryCount);
+  size_t wanted = 0;
+  for (size_t i = 0; i < entryCount; ++i) {
+    if (entries[i].type != OpdsEntryType::BOOK) continue;
+    const std::string path = bookDownloadPath(entries[i], server.filenameFormat);
+    names[i] = path.substr(path.rfind('/') + 1);
+    ++wanted;
+  }
+  if (wanted == 0) return;
+  const char* folder = SETTINGS.opdsDownloadFolder[0] != '\0' ? SETTINGS.opdsDownloadFolder : "/";
+  HalFile dir = Storage.open(folder);
+  if (dir && dir.isDirectory()) {
+    char name[256];
+    size_t found = 0;
+    for (HalFile file = dir.openNextFile(); file && found < wanted; file = dir.openNextFile()) {
+      file.getName(name, sizeof(name));
+      const bool isFile = !file.isDirectory();
+      file.close();
+      if (!isFile) continue;
+      for (size_t i = 0; i < entryCount; ++i) {
+        if (!onSd[i] && !names[i].empty() && strcasecmp(name, names[i].c_str()) == 0) {
+          onSd.set(i);
+          ++found;
+        }
+      }
+    }
+  }
+  if (dir) dir.close();
+  LOG_DBG("OPDS", "On SD: %u of %u books (%lu ms)", static_cast<unsigned>(onSd.count()), static_cast<unsigned>(wanted),
+          millis() - startMs);
 }
 
 bool OpdsBookBrowserActivity::ensureEntryBuffer() {
@@ -1046,6 +1088,7 @@ void OpdsBookBrowserActivity::pollDownload() {
   const std::string& filename = bookDownloader.path();
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
+    if (selectorIndex >= 0 && selectorIndex < static_cast<int>(onSd.size())) onSd.set(selectorIndex);
     state = BrowserState::BROWSING;
     // The prompt draws over the last frame: show the list under it, not the
     // download screen (this also replaces the download frame's ghost).
@@ -1131,6 +1174,15 @@ void OpdsBookBrowserActivity::launchSearch() {
 }
 
 void OpdsBookBrowserActivity::performSearch(const std::string& query) {
+  if (!query.empty() && searchTemplate.empty() && !searchDescriptionUrl.empty()) {
+    // A few hundred bytes, fetched once: loadFeed() keeps it in the page cache.
+    OpdsEntry unused[1];
+    OpdsParser description(unused);
+    if (loadFeed(UrlUtils::buildUrl(server.url, searchDescriptionUrl), description) && description) {
+      searchTemplate = description.getSearchTemplate();
+    }
+    if (searchTemplate.empty()) LOG_ERR("OPDS", "No search template in %s", searchDescriptionUrl.c_str());
+  }
   if (query.empty() || searchTemplate.empty()) {
     state = BrowserState::BROWSING;
     requestUpdate();

@@ -137,6 +137,8 @@ class OpdsParser final : public Print {
 
   // Disable copy
   const std::string& getSearchTemplate() const { return searchTemplate; }
+  // rel="search" link without {searchTerms}: an OpenSearch description to fetch.
+  const std::string& getSearchDescriptionUrl() const { return searchDescriptionUrl; }
   const std::string& getNextPageUrl() const { return nextPageUrl; }
   const std::string& getPrevPageUrl() const { return prevPageUrl; }
   OpdsParser(const OpdsParser&) = delete;
@@ -176,6 +178,7 @@ class OpdsParser final : public Print {
   bool resetXmlParser();
 
   std::string searchTemplate;
+  std::string searchDescriptionUrl;
   std::string nextPageUrl;
   std::string prevPageUrl;
   // Helper to find attribute value
