@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AppCapabilities.h"
+// CROSSDINK_APP_CAP_TOUCH comes from the build flags (validated in AppCapabilities.h).
 
 // Touch devices open lists with no row selected. A list shows its selection
 // once a nav button is pressed on that screen (ActivityManager eats the first
