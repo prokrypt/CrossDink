@@ -151,6 +151,12 @@ class HalDisplay {
 
  private:
   void markFlash(bool flashes);
+  // Marks a synchronous refresh (if it flashes) and clears the mark when it returns.
+  struct FlashScope {
+    HalDisplay& d;
+    FlashScope(HalDisplay& display, const bool flashes) : d(display) { d.markFlash(flashes); }
+    ~FlashScope() { d.flashStart.store(0, std::memory_order_relaxed); }
+  };
   std::atomic<uint32_t> flashStart{0};
   bool smoothGray = false;
   EInkDisplay einkDisplay;
