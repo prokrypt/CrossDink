@@ -4,6 +4,8 @@
 #include <CrossDinkHalFrontlight.h>
 #include <Logging.h>
 
+#include <algorithm>
+
 namespace {
 KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs; the peak's range stays above the floor's
 uint32_t lastAnyWriteMs = 0;
@@ -26,10 +28,10 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   held = false;
   armed = true;
   active = this;
-  // Idle at the user's level (0 if off); pulse up to the peak, or, from a level
-  // nearer the peak than the floor, down to the lit floor and back.
+  // Idle at the user's level. A lit light never goes above it: each pulse dips
+  // to the lit floor (half the level if that is lower) and back. Off pulses up.
   basePercent = savedOn ? savedBrightness : 0;
-  swingPercent = basePercent * 2 < kPeakPercent + kLitFloorPercent ? kPeakPercent : kLitFloorPercent;
+  swingPercent = basePercent == 0 ? kPeakPercent : std::min<uint8_t>(kLitFloorPercent, basePercent / 2);
   if (holdForMs > 0 && savedOn && savedBrightness > 0) {
     // Write nothing: `written` still lets update() spot a user change.
     entryHold = true;
@@ -116,8 +118,9 @@ void TransferLightPulse::holdOn() {
   }
   held = true;
   entryHold = false;
-  write(kPeakPercent);
-  LOG_DBG("LIGHT", "Transfer pulse held at %u%%", kPeakPercent);
+  const uint8_t level = basePercent ? basePercent : kPeakPercent;  // never above a lit user level
+  write(level);
+  LOG_DBG("LIGHT", "Transfer pulse held at %u%%", level);
 }
 
 void TransferLightPulse::end() {
