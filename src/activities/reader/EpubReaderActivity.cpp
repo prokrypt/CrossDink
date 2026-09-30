@@ -8202,7 +8202,8 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const bool pageHasImages = page->hasImages();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
   bool needsImageGrayscale = pageHasImages;
-  renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH);
+  // Smooth holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
+  renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages);
   bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack &&
                             !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
