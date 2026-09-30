@@ -79,6 +79,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: touch, the battery gauge and the clock share one I2C bus, and a battery or clock read from another task could overwrite a touch reading mid-copy (phantom taps, odd battery or temperature values). Each I2C transaction now holds the bus until its data is copied out, and the clock's cached time can no longer be read half-updated.
 - X4 Pro: the header and other still text no longer fade on screens that repaint progress over and over (file transfer, Calibre, Nearby transfer, OPDS and font downloads, OTA update). Those repaints now use the keyboard's fast waveform, which re-darkens unchanged black pixels.
 - OPDS: book downloads run in the background, so Back and the Cancel button stop them at any point (the partial file is deleted) and the screen shows Connecting until the first byte arrives. Downloads also start sooner: the free-space check no longer scans the whole SD card first.
 - Keyboard: kbd-exp.txt is only read by debug builds.
