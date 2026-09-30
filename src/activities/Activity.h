@@ -62,11 +62,6 @@ class Activity {
   // Screens that mostly sit idle (file transfer and similar) switch the
   // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }
-  // UC8179: the first frame after this screen shows (entered or returned to)
-  // is a no-flash DU scrub that erases the previous screen's ghost. Screens
-  // that choose their own first refresh (readers, keyboard, redrive screens)
-  // return false.
-  virtual bool scrubOnShow() const { return true; }
   // Serial remote control: insert text as if typed. False when the screen has
   // no text entry.
   virtual bool injectText(const char*) { return false; }

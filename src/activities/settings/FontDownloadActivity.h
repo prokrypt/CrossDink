@@ -39,7 +39,6 @@ class FontDownloadActivity : public Activity {
   explicit FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
-  bool scrubOnShow() const override { return false; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;

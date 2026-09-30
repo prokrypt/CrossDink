@@ -1,5 +1,4 @@
 #include <BoardConfig.h>
-#include <FreeInkDisplay.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
@@ -123,24 +122,8 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
   }
 }
 
-void HalDisplay::scrubNextFastRefresh(const uint8_t frames) {
-  if (BoardConfig::ACTIVE.displayController != BoardConfig::DisplayController::UC8179) return;
-  scrubFramesNext = frames;
-}
-
-void HalDisplay::takeScrubRequest(const RefreshMode mode) {
-  const uint8_t frames = scrubFramesNext;
-  scrubFramesNext = 0;
-  if (frames == 0 || mode != FAST_REFRESH) return;
-  // The driver turns this Fast into Half, then the Half into the DU scrub;
-  // one refresh consumes both requests (the keyboard's close cleanup pair).
-  freeink::requestUc8179HalfNext();
-  freeink::requestUc8179HalfAsDuScrubNext(frames);
-}
-
 void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
-  takeScrubRequest(mode);
 
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
@@ -155,7 +138,6 @@ void HalDisplay::setInverted(bool inverted) {
 }
 
 void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
-  takeScrubRequest(mode);
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
   }
@@ -167,7 +149,6 @@ void HalDisplay::waitRefreshComplete() { einkDisplay.waitRefreshComplete(); }
 
 void HalDisplay::displayBufferDeferred(HalDisplay::RefreshMode mode) {
   HalSpiBus::Lock spiLock;
-  takeScrubRequest(mode);
   einkDisplay.displayBufferAsync(convertRefreshMode(mode));
 }
 
