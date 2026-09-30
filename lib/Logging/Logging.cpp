@@ -103,7 +103,13 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   esp_rom_printf("%s", buf);
 #else
   if (logSerial && logSerialLock(LOG_LINE_LOCK_WAIT_MS)) {
-    logSerial.print(buf);
+#if LOG_SERIAL_HAS_TX_TIMEOUT
+    // A host that is attached but not reading leaves the TX ring full: skip the
+    // line rather than wait out the TX timeout on every log call. The RTC and
+    // PSRAM rings below still get it.
+    if (static_cast<size_t>(logSerial.availableForWrite()) >= strnlen(buf, sizeof(buf)))
+#endif
+      logSerial.print(buf);
     logSerialUnlock();
   }
 #endif
