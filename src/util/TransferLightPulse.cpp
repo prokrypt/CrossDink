@@ -26,7 +26,10 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   held = false;
   armed = true;
   active = this;
-  floorPercent = savedOn && savedBrightness > 0 ? kLitFloorPercent : 0;
+  // Idle at the user's level (0 if off); pulse up to the peak, or, from a level
+  // nearer the peak than the floor, down to the lit floor and back.
+  basePercent = savedOn ? savedBrightness : 0;
+  swingPercent = basePercent * 2 < kPeakPercent + kLitFloorPercent ? kPeakPercent : kLitFloorPercent;
   if (holdForMs > 0 && savedOn && savedBrightness > 0) {
     // Write nothing: `written` still lets update() spot a user change.
     entryHold = true;
@@ -36,7 +39,7 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
     LOG_DBG("LIGHT", "Transfer light hold %u%% for %lu ms", savedBrightness, static_cast<unsigned long>(holdMs));
     return;
   }
-  write(floorPercent);
+  write(basePercent);
   Frontlight.setOn(true);
 }
 
@@ -84,7 +87,7 @@ void TransferLightPulse::update(const bool transferActive) {
     stopAtMs = 0;  // data resumed while fading: keep the same waveform going
   } else if (pulsing) {
     if (stopAtMs == 0) {
-      // Finish the current cycle so the light ramps down to the floor.
+      // Finish the current cycle so the light ramps back to the user's level.
       const uint32_t cycles = (now - pulseStartMs) / kCycleMs + 1;
       stopAtMs = pulseStartMs + cycles * kCycleMs;
     }
@@ -95,14 +98,14 @@ void TransferLightPulse::update(const bool transferActive) {
     }
   }
 
-  uint8_t target = floorPercent;
+  uint8_t target = basePercent;
   if (pulsing) {
     const uint32_t phase = (now - pulseStartMs) % kCycleMs;
     const uint32_t half = kCycleMs / 2;
-    const uint32_t ramp = phase < half ? phase : kCycleMs - phase;
-    target = static_cast<uint8_t>(floorPercent + ramp * (kPeakPercent - floorPercent) / half);
+    const int32_t ramp = static_cast<int32_t>(phase < half ? phase : kCycleMs - phase);
+    target = static_cast<uint8_t>(basePercent + ramp * (swingPercent - basePercent) / static_cast<int32_t>(half));
   }
-  if (target != written && (target == floorPercent || now - lastWriteMs >= WRITE_INTERVAL_MS)) {
+  if (target != written && (target == basePercent || now - lastWriteMs >= WRITE_INTERVAL_MS)) {
     write(target);
   }
 }
