@@ -125,6 +125,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- With the Cover Grid Home, a large or imperfect library (for example more than 1024 books in one folder chain) no longer shows the "Scanning library" popup and rescans the card every time Home opens. A best-effort index is kept until the card changes; the Library still repairs it on its own visit.
 - X4 Pro: the display no longer uses one-way (DC-unbalanced) drives, which built up charge and made screens dirtier over time and risked lasting image retention. Every refresh now uses the panel's own waveforms: screen entries, typing, File Transfer / OPDS / Calibre / Nearby / OTA / font download / SD firmware progress repaints are OTP Fast, and reader ghost cleanups are the balanced Half again (a short flash at your refresh-frequency setting). Typing is slower per key (about 0.55 s instead of 0.3 s ink), and headers on long transfer screens may fade slightly.
 - After a KOReader Sync or Nearby sync, later Wi-Fi sessions in the same boot no longer run with Wi-Fi power saving off.
 - Using Wi-Fi once no longer leaves internal memory fragmented until the next reboot.
