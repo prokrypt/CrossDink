@@ -490,6 +490,47 @@ const BuiltIn BUILT_INS[] = {
      "refresh du\n"
      "wait 2000\n"
      "ask After the 20-frame scrub: old text under the squares? | Yes | No\n"},
+    // Does the UC8179 copy NEW into OLD by itself after a refresh (CDI N2OCP)?
+    // Step 2 skips the OLD resync; step 3 shows the same picture again. With
+    // the copy, OLD == NEW and nothing moves; without it the old box pixels
+    // run KW/WK and blink. Every refresh here is balanced DU (rows net zero),
+    // so a missing copy changes only what is seen, never the charge.
+    {"N2OCP probe",
+     "fill white\n"
+     "label N2OCP 1/2: full upload | Box on the LEFT | Next: box moves RIGHT\n"
+     "box 40 300 160 160\n"
+     "refresh full\n"
+     "wait 2500\n"
+     "frames 10\n"
+     "resync off\n"
+     "fill white\n"
+     "label N2OCP 1/2: box moved RIGHT | Just watch | Next: TEST, same picture\n"
+     "box 280 300 160 160\n"
+     "refresh du\n"
+     "wait 2500\n"
+     "resync on\n"
+     "label N2OCP 1/2 TEST: same picture | Watch both boxes: a blink = no copy | Next: question\n"
+     "refresh du\n"
+     "wait 1500\n"
+     "ask 1/2: did either box blink (left dark, right white)? | Yes | No\n"
+     "fill white\n"
+     "label N2OCP 2/2: windowed upload | Box on the LEFT | Next: box moves RIGHT\n"
+     "box 40 300 160 160\n"
+     "refresh full\n"
+     "wait 2500\n"
+     "window 0 0 480 480\n"
+     "resync off\n"
+     "fill white\n"
+     "label N2OCP 2/2: box moved RIGHT | Just watch | Next: TEST, same picture\n"
+     "box 280 300 160 160\n"
+     "refresh du\n"
+     "wait 2500\n"
+     "resync on\n"
+     "label N2OCP 2/2 TEST: same picture | Watch both boxes: a blink = no copy | Next: question\n"
+     "refresh du\n"
+     "wait 1500\n"
+     "window off\n"
+     "ask 2/2: did either box blink (left dark, right white)? | Yes | No\n"},
 };
 const int BUILT_IN_COUNT = sizeof(BUILT_INS) / sizeof(BUILT_INS[0]);
 
