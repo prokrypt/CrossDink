@@ -37,7 +37,7 @@ constexpr uint32_t kRingMagicA = 0x4241544C;  // "BATL"
 constexpr uint32_t kRingMagicB = 0xC0DE0930;
 constexpr uint32_t kStatsMagic = 0x42415453;  // "BATS"
 constexpr uint32_t kMaxFileBytes = 256 * 1024;
-constexpr char kOldPath[] = "/logs/battery.1.csv";
+constexpr char kOldPath[] = "/debug/logs/battery.1.csv";
 constexpr char kHeader[] = "epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c,light_pct,event,detail\n";
 constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kClockMs = 60 * 1000;
@@ -309,7 +309,7 @@ bool flush() {
     LOG_ERR("BAT", "ring overran: %lu bytes lost", static_cast<unsigned long>(head - from - kRingBytes));
     from = head - kRingBytes;
   }
-  Storage.ensureDirectoryExists("/logs");
+  Storage.ensureDirectoryExists("/debug/logs");
   HalFile file = Storage.open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND);
   if (!file) {
     LOG_ERR("BAT", "Failed to open %s", LOG_PATH);

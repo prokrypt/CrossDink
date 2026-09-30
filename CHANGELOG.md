@@ -1,7 +1,7 @@
 ## [Unreleased]
 
 ### Added
-- X4 Pro (debug builds): battery log. Battery % changes, charger connect/disconnect and charge complete, boot (with reset reason), deep sleep and wake, firmware updates, Wi-Fi on/off, File Transfer/Calibre/USB Drive start and end, and frontlight level changes each add a row (time, %, mV, charging, USB, battery temperature, light level) to a 64 KB buffer in PSRAM that survives restarts and crashes. It is written to `/logs/battery.csv` on the SD card before every sleep, after a boot, when the buffer is 3/4 full or the battery is at 5% or less, always after 2 s without input; at 256 KB the file becomes `/logs/battery.1.csv`.
+- X4 Pro (debug builds): battery log. Battery % changes, charger connect/disconnect and charge complete, boot (with reset reason), deep sleep and wake, firmware updates, Wi-Fi on/off, File Transfer/Calibre/USB Drive start and end, and frontlight level changes each add a row (time, %, mV, charging, USB, battery temperature, light level) to a 64 KB buffer in PSRAM that survives restarts and crashes. It is written to `/debug/logs/battery.csv` on the SD card before every sleep, after a boot, when the buffer is 3/4 full or the battery is at 5% or less, always after 2 s without input; at 256 KB the file becomes `/debug/logs/battery.1.csv`.
 - X4 Pro (debug builds): Goodies > Battery & stats shows a battery % graph from that log (a bar marks time asleep), drain per hour awake and asleep since the last unplug with an estimate of time left, wake/boot counts, awake and asleep time, refresh counts by kind, pages read and reading time, temperatures, uptime, reset and wake reasons, memory and the firmware sha. Confirm resets the counters (the log file stays).
 - X4 Pro (debug builds): Goodies > Display test > Panel conditioning. After a confirm, about 30 s of balanced black/white swings with null discharges in between, ending on white, to even out charge left on the panel. Back stops it between swings.
 - X4 Pro: Reader > Dim Light on Flash (off by default). While the panel flashes (anti-aliased and image pages in Sharpflash, Softfast's full swings, Half/Full refreshes, opening or closing a menu or panel over a gray page), a lit frontlight fades out and then fades back up to your level over 0.3 s. It never turns on a light that was off and saves nothing to the SD card.
@@ -53,6 +53,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Crash reports are now saved to `/debug/crash_report.txt` and the battery diagnostic log to `/debug/battery_log.csv`, next to the other debug files on the SD card. An existing `/crash_report.txt` or `/battery_log.csv` is left where it is.
 - Turbo keyboard (X4 Pro): about 27 ms less per key when typing quickly; the panel keeps its own copy of the last frame, so the firmware no longer re-sends it after each key.
 - Wi-Fi: after a web request the device drops back to low power 0.5 s later instead of 2 s, and log tail and status polls (`/api/psram-log`, `/api/status`) drop it as soon as they are answered, so a log watcher no longer keeps the device awake. Uploads still run at full power until they finish.
 - X4 Pro: less flashing. Leaving a gray page, or opening a menu over it, repaints only the gray pixels and what changed instead of the whole screen.

@@ -20,13 +20,13 @@
 // current register, which is exactly what isCharging() infers charge state
 // from. Observing a real discharge means writing to the SD card instead.
 //
-// Rows are appended to /battery_log.csv as:
+// Rows are appended to /debug/battery_log.csv as:
 //   timestamp,uptime_ms,soc,mv,charging,event,version,git_sha,git_dirty,device,wake_route
 // A field that could not be read is written empty rather than as a plausible
 // zero. The timestamp is local wall-clock at minute resolution - HalClock does
 // not expose the RTC's seconds - so use uptime_ms to order rows within one
 // wake. The first firmware using this schema preserves an old-format log as
-// /battery_log_v1.csv instead of appending unlabeled columns to it.
+// /debug/battery_log_v1.csv instead of appending unlabeled columns to it.
 //
 // Enable with -DCROSSDINK_BATTERY_DIAG_LOG=1. The debug environment carries a
 // commented opt-in flag; no shipping environment enables it. Firmware only -

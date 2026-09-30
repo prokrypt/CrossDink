@@ -6,11 +6,11 @@
 // Goodies > Battery & stats.
 //
 // Rows go to a 64 KB PSRAM ring that survives restarts and crashes (not deep
-// sleep or power loss) and are appended to /logs/battery.csv, as
+// sleep or power loss) and are appended to /debug/logs/battery.csv, as
 //   epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c,light_pct,event,detail
 // Flushed before deep sleep, and from the main loop after 2 s without input
 // once a boot left rows, the ring is 3/4 full, or the battery is at 5% or
-// less off USB. At 256 KB the file becomes /logs/battery.1.csv (one old copy).
+// less off USB. At 256 KB the file becomes /debug/logs/battery.1.csv (one old copy).
 // The row's battery fields are the last main-loop reading, so any task may log.
 namespace BatteryLog {
 
@@ -59,6 +59,6 @@ inline void poll(uint32_t) {}
 inline void event(const char*, const char* = nullptr) {}
 #endif
 
-constexpr char LOG_PATH[] = "/logs/battery.csv";
+constexpr char LOG_PATH[] = "/debug/logs/battery.csv";
 
 }  // namespace BatteryLog
