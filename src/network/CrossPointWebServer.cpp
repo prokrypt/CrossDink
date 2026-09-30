@@ -749,13 +749,16 @@ void CrossPointWebServer::handleClient() {
   // sends a whole download in one blocking call.
   const bool pending = server->requestPending();
   if (pending) {
+    const unsigned long lastDataMs = lastTransferMs;
     noteTransferActivity();
-    requestBusy.store(true, std::memory_order_relaxed);
+    lastTransferMs = lastDataMs;  // stamped below unless it turns out to be a poll
+    pollRequest = false;
+    requestStartMs.store(millis() | 1, std::memory_order_relaxed);
   }
   server->handleClient();
   if (pending) {
-    lastTransferMs = millis();
-    requestBusy.store(false, std::memory_order_relaxed);
+    if (!pollRequest) lastTransferMs = millis();
+    requestStartMs.store(0, std::memory_order_relaxed);
   }
 
   // Handle WebSocket events
@@ -829,6 +832,9 @@ void CrossPointWebServer::endTransferHold() {
 // an earlier request left lingering (the log watcher GETs /api/status, a 404
 // on the Wi-Fi remote, just before the log); the next request takes it again.
 void CrossPointWebServer::releasePollHold() {
+  // Not data either: the transfer light ignores it (a long-poll can wait a while).
+  pollRequest = true;
+  requestStartMs.store(0, std::memory_order_relaxed);
   if (!isTransferActive() || wsUploadInProgress) return;
   endTransferHold();
 }

@@ -106,11 +106,13 @@ class CrossPointWebServer {
   // Wi-Fi modem awake. The linger keeps page loads and bursts fast. Log tail
   // and status polls end the hold they took without lingering.
   bool isTransferActive() const { return transferActive.load(std::memory_order_relaxed); }
-  // True while a request is being served or within `tailMs` of the last
-  // request, upload chunk or WebSocket message. Unlike isTransferActive() it
-  // has no power linger, so UI feedback can stop soon after data stops.
+  // True while a request has been served for over 100 ms or within `tailMs`
+  // of the last request, upload chunk or WebSocket message. Log tail and
+  // status polls never count. Unlike isTransferActive() it has no power
+  // linger, so UI feedback can stop soon after data stops.
   bool isMovingData(unsigned long tailMs) const {
-    return requestBusy.load(std::memory_order_relaxed) ||
+    const unsigned long startMs = requestStartMs.load(std::memory_order_relaxed);
+    return (startMs != 0 && millis() - startMs >= 100) ||
            millis() - lastTransferMs.load(std::memory_order_relaxed) < tailMs;
   }
   // STA mode only. Between transfers the modem sleeps between DTIM beacons
@@ -143,7 +145,8 @@ class CrossPointWebServer {
   static constexpr unsigned long TRANSFER_LINGER_MS = 500;
   std::atomic<bool> transferActive{false};
   std::atomic<unsigned long> lastTransferMs{0};
-  std::atomic<bool> requestBusy{false};  // handleClient() is serving a request
+  std::atomic<unsigned long> requestStartMs{0};  // handleClient() is serving a request since; 0 = none
+  bool pollRequest = false;                      // serving task: the request is a poll
   void noteTransferActivity();
   void updateTransferIdle();
   void endTransferHold();
