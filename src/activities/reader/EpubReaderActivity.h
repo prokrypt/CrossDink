@@ -657,6 +657,8 @@ class EpubReaderActivity final : public Activity {
   void onExit() override;
   void onCovered() override {
     smoothFullSwingPending = true;
+    // Menus over a Softfast page get the longer repaint (driver keys it on smooth gray).
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH);
     waitSilentIndexWorker(/*cancel=*/true);
     waitDrawAhead(/*publish=*/false);
   }

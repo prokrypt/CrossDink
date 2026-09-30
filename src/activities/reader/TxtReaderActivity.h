@@ -94,7 +94,10 @@ class TxtReaderActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
   // Softfast swings fully on open and after a covering screen (see EpubReaderActivity).
-  void onCovered() override { smoothFullSwingPending = true; }
+  void onCovered() override {
+    smoothFullSwingPending = true;
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH);  // see EpubReaderActivity
+  }
   void loop() override;
   void render(RenderLock&&) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;
