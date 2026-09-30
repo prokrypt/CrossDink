@@ -549,6 +549,10 @@ namespace {
 // Reader work after a Wi-Fi session needs internal RAM for worker task stacks
 // (24 KB each) and inline image decoding; the same bar as optional rebuilds.
 constexpr uint32_t NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+// Going Home on a PSRAM device: reader worker stacks and image decoders use
+// PSRAM, leaving text layout's 32 KB bar. Free blocks come in 2 KB steps less a
+// 12 B header, so a "32 KB" block reads 32756; 31 KB accepts it.
+constexpr uint32_t NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK = MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC - 1024;
 bool readerResourcesReady = false;
 // The render task has the reader's stack (not the 8 KB network-boot one).
 bool readerRenderStackReady = false;
@@ -617,7 +621,7 @@ static void logInternalHeapPins() {
 #endif
 #endif
 
-bool leaveNetworkInPlace() {
+bool leaveNetworkInPlace(const bool goingHome) {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
   const wifi_mode_t mode = WiFi.getMode();
@@ -640,9 +644,11 @@ bool leaveNetworkInPlace() {
   logInternalHeapPins();
 #endif
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  if (largest < NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK) {
+  const uint32_t need = goingHome && psramHeapAvailable() ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
+                                                          : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
+  if (largest < need) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),
-            static_cast<unsigned>(NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK));
+            static_cast<unsigned>(need));
     return false;
   }
   LOG_INF("MAIN", "Leaving Wi-Fi in place: internal largest block %u, free %u", static_cast<unsigned>(largest),
@@ -669,7 +675,7 @@ void finishNetworkExit() {
   if (!networkExitPending) return;
   networkExitPending = false;
   std::string book = std::move(networkExitBook);
-  if (leaveNetworkInPlace()) return;
+  if (leaveNetworkInPlace(/*goingHome=*/book.empty())) return;
   if (book.empty()) {
     silentRestart();
     return;
