@@ -34,6 +34,7 @@
 
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
+#include "FirmwareFlasher.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
 #include "QuickActions.h"
@@ -512,11 +513,14 @@ void CrossPointWebServer::begin(const bool logOnly) {
 #if CROSSDINK_SERIAL_REMOTE
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
   server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
+  server->on("/api/ota", HTTP_POST, [this] { handleOtaDone(); }, [this] { handleOtaData(); });
 #endif
   server->onNotFound([this] { handleNotFound(); });
   if (logOnly) {
     // Nothing else: no SD access behind other screens, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
+    const char* remoteHeaders[] = {"X-Token"};
+    server->collectHeaders(remoteHeaders, 1);
     server->begin();
   } else {
     server->on("/", HTTP_GET, [this] { handleRoot(); });
@@ -569,8 +573,9 @@ void CrossPointWebServer::begin(const bool logOnly) {
     server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
 
     // Collect WebDAV headers and register handler
-    const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
-    server->collectHeaders(davHeaders, 7);
+    const char* davHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
+                                "Lock-Token", "Timeout",     "If-None-Match", "X-Token"};
+    server->collectHeaders(davHeaders, 8);
     server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
 
     server->begin();
@@ -978,6 +983,62 @@ void CrossPointWebServer::handleRemoteCmd() const {
   const int status =
       SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(), out, sizeof(out), 12000);
   server->send(status, "text/plain; charset=utf-8", out);
+}
+
+namespace {
+// /api/ota state, server task only.
+bool otaAuthorized = false;
+firmware_flash::Result otaResult = firmware_flash::Result::OK;
+}  // namespace
+
+// Debug builds: raw firmware upload (docs/serial-remote.md). The token is
+// checked on the main task (as /api/cmd) before anything is erased; the image
+// streams into the next OTA slot, verified in the same pass, and only a
+// verified image switches otadata. No SD access.
+void CrossPointWebServer::handleOtaData() const {
+  const HTTPRaw& raw = server->raw();
+  static char out[32];
+  switch (raw.status) {
+    case RAW_START:
+      otaAuthorized =
+          SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", out, sizeof(out), 12000) == 200;
+      otaResult =
+          otaAuthorized ? firmware_flash::streamBegin(server->clientContentLength()) : firmware_flash::Result::OK;
+      break;
+    case RAW_WRITE:
+      if (otaAuthorized && otaResult == firmware_flash::Result::OK) {
+        otaResult = firmware_flash::streamWrite(raw.buf, raw.currentSize);
+      }
+      break;
+    case RAW_END:
+      if (otaAuthorized && otaResult == firmware_flash::Result::OK) otaResult = firmware_flash::streamFinish();
+      break;
+    case RAW_ABORTED:
+      firmware_flash::streamAbort();
+      otaResult = firmware_flash::Result::READ_FAIL;
+      break;
+  }
+}
+
+void CrossPointWebServer::handleOtaDone() const {
+  if (!otaAuthorized) {
+    LOG_ERR("WEB", "/api/ota refused: bad token");
+    server->send(403, "text/plain; charset=utf-8", "ERR:token");
+    return;
+  }
+  otaAuthorized = false;
+  if (otaResult != firmware_flash::Result::OK) {
+    firmware_flash::streamAbort();
+    char msg[40];
+    snprintf(msg, sizeof(msg), "ERR:OTA:%s", firmware_flash::resultName(otaResult));
+    server->send(400, "text/plain; charset=utf-8", msg);
+    return;
+  }
+  server->send(200, "text/plain; charset=utf-8", "OK:OTA rebooting");
+  delay(200);  // let the reply leave before the restart
+  // Restart on the main task, between loop passes, as CMD:REBOOT does.
+  static char out[32];
+  SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "REBOOT", out, sizeof(out), 2000);
 }
 
 // Debug builds: the current framebuffer as a PBM, captured on the main task

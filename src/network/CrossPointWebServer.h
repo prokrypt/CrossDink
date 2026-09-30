@@ -186,6 +186,8 @@ class CrossPointWebServer {
   void handlePsramLog() const;
   void handleRemoteCmd() const;
   void handleScreenshot() const;
+  void handleOtaData() const;
+  void handleOtaDone() const;
 #endif
   void handleExit();
   void handleFileList() const;
