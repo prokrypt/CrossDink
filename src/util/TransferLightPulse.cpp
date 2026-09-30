@@ -4,8 +4,6 @@
 #include <CrossDinkHalFrontlight.h>
 #include <Logging.h>
 
-#include <algorithm>
-
 namespace {
 KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs; the peak's range stays above the floor's
 uint32_t lastAnyWriteMs = 0;
@@ -28,10 +26,13 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   held = false;
   armed = true;
   active = this;
-  // Idle at the user's level. A lit light never goes above it: each pulse dips
-  // to the lit floor (half the level if that is lower) and back. Off pulses up.
+  // Idle at the user's level (0 if off). Pulse band by level: up to 10% -> 0-10,
+  // 11-25% -> 10-25, above 25% -> 10 to the level (knobs: floor 10, peak 25).
   basePercent = savedOn ? savedBrightness : 0;
-  swingPercent = basePercent == 0 ? kPeakPercent : std::min<uint8_t>(kLitFloorPercent, basePercent / 2);
+  lowPercent = basePercent > kLitFloorPercent ? kLitFloorPercent : 0;
+  highPercent = basePercent > kPeakPercent        ? basePercent
+                : basePercent > kLitFloorPercent ? kPeakPercent
+                                                 : kLitFloorPercent;
   if (holdForMs > 0 && savedOn && savedBrightness > 0) {
     // Write nothing: `written` still lets update() spot a user change.
     entryHold = true;
@@ -102,10 +103,14 @@ void TransferLightPulse::update(const bool transferActive) {
 
   uint8_t target = basePercent;
   if (pulsing) {
-    const uint32_t phase = (now - pulseStartMs) % kCycleMs;
-    const uint32_t half = kCycleMs / 2;
-    const int32_t ramp = static_cast<int32_t>(phase < half ? phase : kCycleMs - phase);
-    target = static_cast<uint8_t>(basePercent + ramp * (swingPercent - basePercent) / static_cast<int32_t>(half));
+    // One cycle at constant speed: level -> high -> low -> level, so every
+    // cycle starts and ends at the user's level.
+    const uint32_t span = highPercent - lowPercent;
+    const uint32_t up = highPercent - basePercent;
+    const uint32_t d = (now - pulseStartMs) % kCycleMs * 2 * span / kCycleMs;
+    target = static_cast<uint8_t>(d < up          ? basePercent + d
+                                  : d < up + span ? highPercent - (d - up)
+                                                  : lowPercent + (d - up - span));
   }
   if (target != written && (target == basePercent || now - lastWriteMs >= WRITE_INTERVAL_MS)) {
     write(target);
@@ -118,9 +123,8 @@ void TransferLightPulse::holdOn() {
   }
   held = true;
   entryHold = false;
-  const uint8_t level = basePercent ? basePercent : kPeakPercent;  // never above a lit user level
-  write(level);
-  LOG_DBG("LIGHT", "Transfer pulse held at %u%%", level);
+  write(highPercent);
+  LOG_DBG("LIGHT", "Transfer pulse held at %u%%", highPercent);
 }
 
 void TransferLightPulse::end() {
