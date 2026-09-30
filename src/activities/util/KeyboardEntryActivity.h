@@ -30,7 +30,6 @@ class KeyboardEntryActivity : public Activity {
         minLength(minLength) {}
 
   void onEnter() override;
-  bool scrubOnShow() const override { return false; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
@@ -48,18 +47,18 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_SKIP_RESYNC = 1;
   static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
-  // Clean on close: the next screen's first refresh is a no-flash DU scrub (UC8179).
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
   static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // retired T6 windowed DRF; ignored
-  // Open with a DU scrub (T4 LUT, needs 4; BlackRedriveLut::SCRUB_FRAMES long)
-  // instead of the 1.5 s flashing Half of 16.
-  static constexpr uint8_t KBD_EXP_DU_SCRUB_ON_OPEN = 64;
+  // Open with a plain OTP Fast first frame (no DU): the one-way DU drive adds
+  // charge over the previous screen instead of clearing it, and 16 flashes.
+  static constexpr uint8_t KBD_EXP_OTP_ON_OPEN = 64;
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
-  // Settings > Turbo keyboard: 1+2+4+8, opening with the no-flash DU scrub (64).
+  // Settings > Turbo keyboard: 1+2+4, opening with plain OTP Fast (64) and no
+  // close cleanup (the next screen's OTP Fast frame clears the keys).
   static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
-      KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_HALF_ON_CLOSE | KBD_EXP_DU_SCRUB_ON_OPEN;
+      KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_OTP_ON_OPEN;
   // DU LUT drive frames: 3 left heavy ghosting on the X4 Pro; 6 is the
   // setting tested on hardware ("63 6").
   static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;

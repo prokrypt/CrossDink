@@ -21,7 +21,6 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/BlackRedriveLut.h"
 
 namespace fui = freeink::ui;
 
@@ -180,12 +179,7 @@ void KeyboardEntryActivity::onExit() {
   // ActivityManager holds RenderLock around onExit, so no refresh is running.
   freeink::setUc8179KbdExperiment(nullptr);
   display.setRefreshLightSleep(false);
-  if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) {
-    // The returning screen's first refresh cleans the keyboard's DU ghost as
-    // a no-flash DU scrub rather than the 1.5 s flashing Half.
-    freeink::requestUc8179HalfNext();
-    BlackRedriveLut::scrubNextHalf();
-  }
+  if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) freeink::requestUc8179HalfNext();
 #endif
 }
 
@@ -207,10 +201,10 @@ void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uin
 void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 
 // EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
-// picks "31 6" (flags 31, 6 DU frames) or 0 (T1 baseline, timing only).
+// picks "71 6" (flags 71, 6 DU frames) or 0 (T1 baseline, timing only).
 // flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
-// 8 = T5 cleanup on close (a DU scrub on UC8179), 16 = T6 half refresh on open (clean start),
-// 64 = DU scrub on open, 128 = light sleep during the refresh. Debug builds can
+// 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
+// 64 = plain OTP Fast first frame, 128 = light sleep during the refresh. Debug builds can
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
@@ -1242,17 +1236,16 @@ void KeyboardEntryActivity::render(RenderLock&&) {
       if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
     }
   }
-  // The first keyboard frame cleans the panel: a long DU scrub (64, with the
-  // T4 LUT) or a Half charge scrub (16).
-  if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_DU_SCRUB_ON_OPEN) && (kbdExpFlags & KBD_EXP_DU_LUT)) {
-    exp.lutFrames = std::max(kbdExpFrames, BlackRedriveLut::SCRUB_FRAMES);
-    freeink::requestUc8179DuScrubNext();
-    LOG_DBG("KBD", "Frame refresh=du-scrub frames=%u", exp.lutFrames);
+  // The first keyboard frame lands on the previous screen: plain OTP Fast (64)
+  // or a flashing Half (16).
+  const bool otpOpen = kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_OTP_ON_OPEN);
+  if (otpOpen) {
+    LOG_DBG("KBD", "Frame refresh=otp-entry");
   } else if (kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_HALF_ON_OPEN)) {
     freeink::requestUc8179HalfNext();
   }
   kbdExpFirstFrame = false;
-  freeink::setUc8179KbdExperiment(&exp);
+  freeink::setUc8179KbdExperiment(otpOpen ? nullptr : &exp);
 #endif
   const unsigned long displayStartMs = millis();
   renderer.displayBuffer();

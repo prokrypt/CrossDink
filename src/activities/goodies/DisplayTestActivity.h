@@ -16,7 +16,6 @@ class DisplayTestActivity final : public Activity {
                       std::string path);
 
   void onEnter() override;
-  bool scrubOnShow() const override { return false; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;

@@ -454,14 +454,12 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
     }
     // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
     const bool serverRunning = state == WebServerActivityState::SERVER_RUNNING;
-    // The QR appears over the Wi-Fi list or keyboard. A 6-frame DU scrub
-    // leaves that text behind it, so the first frame scrubs with a longer
-    // drive (no flash, unlike Half). Later repaints stay plain DU.
+    // The QR appears over the Wi-Fi list or keyboard: that first frame stays
+    // OTP Fast (the one-way DU drive adds charge). Later repaints use DU.
     const bool scrub = serverRunning && cleanFirstQrFrame.exchange(false, std::memory_order_acq_rel);
     const BlackRedriveLut redriveLut(serverRunning, scrub);
     if (serverRunning) {
-      LOG_DBG("WEBACT", "QR frame refresh=%s frames=%u", scrub ? "du-scrub" : "fast",
-              scrub ? BlackRedriveLut::SCRUB_FRAMES : BlackRedriveLut::FRAMES);
+      LOG_DBG("WEBACT", "QR frame refresh=%s", scrub ? "otp-entry" : "du-redrive");
     }
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
   }

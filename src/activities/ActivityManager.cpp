@@ -44,7 +44,6 @@
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
-#include "util/BlackRedriveLut.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/SwipeAdjustment.h"
@@ -471,9 +470,6 @@ void ActivityManager::renderTaskLoop() {
   bool displayPmHeld = false;
   bool idlePanelOffArmed = false;
   uint32_t idlePanelOffMs = PANEL_OFF_POLL_MS;
-  // Screen scrub state (UC8179): the last activity rendered (compared, never
-  // dereferenced).
-  const Activity* scrubShownActivity = nullptr;
   while (true) {
     if (!renderQueued) {
       const uint32_t notified =
@@ -536,19 +532,6 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
-#ifndef SIMULATOR
-      // OTP Fast leaves grey behind and never re-drives pixels that stay white,
-      // so each screen change leaves the last screen's ghost. A screen's first
-      // frame is a DU scrub instead: about as fast, no flash.
-      const bool shown = currentActivity.get() != scrubShownActivity;
-      scrubShownActivity = currentActivity.get();
-      if (!currentActivity->scrubOnShow() || currentActivity->isReaderActivity()) {
-        display.scrubNextFastRefresh(0);
-      } else if (shown) {
-        display.scrubNextFastRefresh(BlackRedriveLut::SCRUB_FRAMES);
-        LOG_DBG("ACT", "Frame refresh=du-scrub act=%s", currentActivity->name.c_str());
-      }
-#endif
       currentActivity->render(std::move(lock));
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
