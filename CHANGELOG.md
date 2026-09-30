@@ -142,6 +142,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: every reboot (update, restart into Wi-Fi or the reader, remote reboot) now switches the screen's power off first, instead of leaving it powered until the reset.
 - X4 Pro (Softfast): the status bar and other black text that stays the same across page turns no longer fades lighter with every turn; it blinks once per turn instead.
 - X4 Pro (Softfast): the reader's top and bottom panels and other menus opened over an anti-aliased page draw their black text with a longer balanced repaint (about 0.5 s more when opening them).
 - X4 Pro: Softfast no longer lets the page get dirtier over time: every Refresh Frequency pages it runs one full gray refresh (one flash) that redraws every pixel.
