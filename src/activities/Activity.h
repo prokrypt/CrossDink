@@ -28,6 +28,9 @@ class Activity {
 
   ActivityResultHandler resultHandler;
   ActivityResult result;
+  // Touch lists hide their selection until a nav button press on this screen
+  // (see ListSelection.h); ActivityManager sets and reads it.
+  bool listSelectionRevealed = false;
 
   // Use when a screen exits on Back press instead of Back release so the
   // parent screen does not also receive the held button's release.

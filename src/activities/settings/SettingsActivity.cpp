@@ -1426,7 +1426,8 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       row.valueId = static_cast<int16_t>(i);
       row.labelText = screen.theme().bodyText;
       row.valueText = screen.theme().bodyText;
-      row.state = showSettingSelection && selectedSettingIndex == i + 1 ? fui::StateSelected : fui::StateNormal;
+      row.state = showSettingSelection && selectedSettingIndex == i + 1 && ListSelection::shown() ? fui::StateSelected
+                                                                                                 : fui::StateNormal;
       if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
         fui::ToggleRowProps toggle;
         toggle.row = row;
