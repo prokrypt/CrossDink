@@ -24,19 +24,17 @@ class BlackRedriveLut {
   // without the Half flash (6 frames leaves it faintly visible).
   static constexpr uint8_t SCRUB_FRAMES = 15;
 
-  // scrub: make the next fast refresh in this scope a DU scrub with the long
-  // drive: every pixel is driven through its complement once, erasing the
-  // previous screen's ghost without the Half flash. UC8179 only.
-  explicit BlackRedriveLut(const bool enable = true, const bool scrub = false) : enabled(enable) {
+  // firstFrame: the frame that enters the screen (it lands on the previous
+  // screen) keeps the stock OTP Fast. The DU LUT drives each pixel one way only,
+  // so a DU entry frame (or a DU scrub) adds charge instead of clearing it.
+  explicit BlackRedriveLut(const bool enable = true, const bool firstFrame = false)
+      : enabled(enable && !firstFrame) {
 #ifndef SIMULATOR
     if (!enabled) return;
     freeink::Uc8179KbdExperiment exp;
     exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
-    exp.lutFrames = scrub ? SCRUB_FRAMES : FRAMES;
+    exp.lutFrames = FRAMES;
     freeink::setUc8179KbdExperiment(&exp);
-    if (scrub) freeink::requestUc8179DuScrubNext();
-#else
-    (void)scrub;
 #endif
   }
   // The next Half refresh runs as a SCRUB_FRAMES DU scrub instead of the
@@ -47,8 +45,8 @@ class BlackRedriveLut {
     freeink::requestUc8179HalfAsDuScrubNext(SCRUB_FRAMES);
 #endif
   }
-  // True on the frame a screen enters its redrive state: its first DU frame
-  // lands on the previous screen, so it scrubs. `wasOn` is render-task state.
+  // True on the frame a screen enters its redrive state: that frame lands on
+  // the previous screen, so it stays OTP Fast. `wasOn` is render-task state.
   static bool entering(bool& wasOn, const bool on) {
     const bool first = on && !wasOn;
     wasOn = on;

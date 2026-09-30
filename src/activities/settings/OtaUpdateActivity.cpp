@@ -200,7 +200,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
   const bool redrive = state == UPDATE_IN_PROGRESS;
   const bool scrub = BlackRedriveLut::entering(redriveOn, redrive);
-  if (scrub) LOG_DBG("OTA", "Frame refresh=du-scrub");
+  if (scrub) LOG_DBG("OTA", "Frame refresh=otp-entry");
   const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }

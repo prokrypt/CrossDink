@@ -612,7 +612,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
     shownDownloadFrame.valid = false;
   }
   const BlackRedriveLut redriveLut(state == BrowserState::DOWNLOADING || scrub, scrub);
-  if (scrub) LOG_DBG("OPDS", "Frame refresh=du-scrub state=%d", static_cast<int>(state));
+  if (scrub) LOG_DBG("OPDS", "Frame refresh=otp-entry state=%d", static_cast<int>(state));
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }
 

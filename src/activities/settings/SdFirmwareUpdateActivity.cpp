@@ -298,18 +298,17 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   // Trial (log item 9): progress repaints use the keyboard's DU LUT
   // (~230 ms instead of the ~560 ms OTP fast refresh) while flashing, so each
   // one holds the flash loop's SPI/cache for less time. Off in every other state.
-  const bool scrub = BlackRedriveLut::entering(redriveOn, state == State::UPDATING);
-  if (state == State::UPDATING) {
-    // The first flashing frame replaces the confirm dialog: a long DU scrub
-    // clears it without the Half flash. Later repaints keep the short drive.
+  const bool entering = BlackRedriveLut::entering(redriveOn, state == State::UPDATING);
+  if (state == State::UPDATING && !entering) {
     freeink::Uc8179KbdExperiment exp;
     exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
-    exp.lutFrames = scrub ? BlackRedriveLut::SCRUB_FRAMES : PROGRESS_LUT_FRAMES;
+    exp.lutFrames = PROGRESS_LUT_FRAMES;
     freeink::setUc8179KbdExperiment(&exp);
-    if (scrub) {
-      freeink::requestUc8179DuScrubNext();
-      LOG_DBG("FW", "Frame refresh=du-scrub");
-    }
+  } else if (entering) {
+    // The first flashing frame replaces the confirm dialog: OTP Fast, as the
+    // one-way DU drive would add charge over it. Later repaints use the DU LUT.
+    freeink::setUc8179KbdExperiment(nullptr);
+    LOG_DBG("FW", "Frame refresh=otp-entry");
   } else {
     freeink::setUc8179KbdExperiment(nullptr);
     // After a File Transfer exit the first frame lands on the retained QR

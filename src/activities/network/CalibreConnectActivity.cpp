@@ -223,7 +223,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
   const bool redrive = state == CalibreConnectState::SERVER_RUNNING;
   const bool scrub = BlackRedriveLut::entering(redriveOn, redrive);
-  if (scrub) LOG_DBG("CAL", "Frame refresh=du-scrub");
+  if (scrub) LOG_DBG("CAL", "Frame refresh=otp-entry");
   const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }

@@ -1320,7 +1320,7 @@ void FontDownloadActivity::render(RenderLock&&) {
   // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
   const bool redrive = state_ == DOWNLOADING;
   const bool scrub = BlackRedriveLut::entering(redriveOn, redrive);
-  if (scrub) LOG_DBG("FONT", "Frame refresh=du-scrub");
+  if (scrub) LOG_DBG("FONT", "Frame refresh=otp-entry");
   const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
 }
