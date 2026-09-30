@@ -364,9 +364,12 @@ namespace {
 // knobs.json), like the display test names: no I18n strings in release builds.
 constexpr int KNOB_HEADER = -1;
 constexpr int KNOB_RESET_ALL = -2;
+constexpr int KNOB_DIM_LEVEL = -3;  // Flash Dim Level: the Display > Frontlight setting, not a knob
 const char* editUnit = "";  // unit of the knob being edited, for formatKnob
 
 void formatKnob(const int value, char* buf, const size_t len) { snprintf(buf, len, "%d %s", value, editUnit); }
+
+std::string dimLevelRowValue() { return std::to_string(SETTINGS.flashDuckDepth) + " %"; }
 
 std::string knobRowValue(const int index) {
   char buf[32];
@@ -410,6 +413,7 @@ void GoodiesActivity::showLevel(const Level next) {
       if (strcmp(group, knobs::INFO[i].group) != 0) {
         group = knobs::INFO[i].group;
         entries.push_back({std::string("- ") + group + " -", KNOB_HEADER, {}});
+        if (strcmp(group, "Light") == 0) entries.push_back({"flashDimLevel", KNOB_DIM_LEVEL, {}, dimLevelRowValue()});
       }
       entries.push_back({knobs::INFO[i].id, i, {}, knobRowValue(i)});
     }
@@ -476,6 +480,8 @@ void GoodiesActivity::activate(const int index) {
   if (level == Level::Knobs) {
     if (entries[index].builtIn >= 0) {
       openKnob(index);
+    } else if (entries[index].builtIn == KNOB_DIM_LEVEL) {
+      openDimLevel(index);
     } else if (entries[index].builtIn == KNOB_RESET_ALL) {
       confirmResetKnobs();
     }
@@ -518,6 +524,29 @@ void GoodiesActivity::openKnob(const int row) {
     }
     requestUpdate();
   });
+}
+
+// Same slider and value as Display > Frontlight > Flash Dim Level.
+void GoodiesActivity::openDimLevel(const int row) {
+  constexpr int step = CrossPointSettings::FLASH_DUCK_DEPTH_STEP;
+  startActivityForResult(
+      std::make_unique<IntervalSelectionActivity>(
+          renderer, mappedInput, "FlashDuckDepth", StrId::STR_FLASH_DUCK_DEPTH, SETTINGS.flashDuckDepth, 0,
+          CrossPointSettings::FLASH_DUCK_DEPTH_MAX, step, step, StrId::STR_NONE_OPT, /*readerActivity=*/false,
+          /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/true,
+          StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
+          /*valueFormatter=*/nullptr, /*tapStep=*/step, /*useReaderSlider=*/true),
+      [this, row](const ActivityResult& result) {
+        mappedInput.suppressNextConfirmRelease();
+        if (!result.isCancelled) {
+          SETTINGS.flashDuckDepth = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+          SETTINGS.saveToFile();
+          RenderLock lock(*this);
+          entries[row].value = dimLevelRowValue();
+          rowItems[row].value = entries[row].value.c_str();
+        }
+        requestUpdate();
+      });
 }
 
 void GoodiesActivity::confirmResetKnobs() {
