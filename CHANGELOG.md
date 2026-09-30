@@ -129,6 +129,8 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- OPDS: Back (button or the top-left Back button) now cancels a catalog page that is still loading and returns to the previous list, instead of being ignored until the request finishes or times out after 60 s. A kept-alive connection idle more than 4 s is reopened instead of reused, so a page opened after a pause no longer hangs on a socket the server dropped.
+- Debug builds: after a task-watchdog reset, the SD crash report names the task each core was running.
 - X4 Pro: the display no longer uses one-way (DC-unbalanced) drives, which built up charge and made screens dirtier over time and risked lasting image retention. Every refresh now uses the panel's own waveforms: screen entries, typing, File Transfer / OPDS / Calibre / Nearby / OTA / font download / SD firmware progress repaints are OTP Fast, and reader ghost cleanups are the balanced Half again (a short flash at your refresh-frequency setting). Typing is slower per key (about 0.55 s instead of 0.3 s ink), and headers on long transfer screens may fade slightly.
 - OPDS (X4 Pro, Sticky): leaving the catalog after browsing no longer restarts the device. The secure-connection session kept for the next visit now lives in PSRAM instead of splitting the internal RAM block that returning without a restart needs.
 - X4 Pro: the first time a page with a large image (such as a book's cover) opens, the image is unpacked and decoded in the background. The page shows its image frame at once and fills it in when ready; buttons, swipes and menus keep working meanwhile instead of freezing for several seconds.
