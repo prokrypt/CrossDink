@@ -65,6 +65,7 @@
 #endif
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
@@ -419,7 +420,18 @@ static void seedRetainedPanelFrame() {}
 // it waits out any refresh, then powers the panel off (POF + deep sleep) so the
 // booster is not left on until the reset. The retained frame was already
 // copied by the caller; begin() resets the controller after the reboot.
+// The render lock keeps the render task from refreshing meanwhile; a caller
+// that already holds it (render task) is the only one that could refresh.
 static void powerOffPanelOnRestart() {
+  // ponytail: 3 s covers the longest refresh (sleep cover ~2.7 s) and stays
+  // under the 5 s task watchdog; a longer hold leaves the panel on.
+  constexpr unsigned long RENDER_LOCK_WAIT_MS = 3000;
+  const bool ownLock = RenderLock::heldByCaller();
+  RenderLock lock(ownLock ? 0UL : RENDER_LOCK_WAIT_MS);
+  if (!ownLock && !lock.ownsLock()) {
+    LOG_ERR("MAIN", "Render busy at restart; panel left powered");
+    return;
+  }
   display.deepSleep();
   LOG_INF("MAIN", "Panel powered off before restart");
 }
