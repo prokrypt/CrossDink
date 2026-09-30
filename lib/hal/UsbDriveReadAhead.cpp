@@ -209,6 +209,7 @@ bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const s
   lockDevice();
   const bool ok = inner->readSectors(sector, dst, ns);
   unlockDevice();
+  lastIoMs.store(millis(), std::memory_order_relaxed);  // a slow op must not read as idle
   if (prefetchEnabled) {
     xSemaphoreTake(windowMutex, portMAX_DELAY);
     resetWindow(sector + ns);
@@ -234,6 +235,7 @@ bool UsbDriveReadAhead::writeSectors(const Sector_t sector, const uint8_t* src, 
   lockDevice();
   const bool ok = inner->writeSectors(sector, src, ns);
   unlockDevice();
+  lastIoMs.store(millis(), std::memory_order_relaxed);
   return ok;
 }
 
