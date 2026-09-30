@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <memory>
 
 #include "FirmwareBoardTag.h"
 #include "OtaBootSwitch.h"
@@ -807,6 +808,98 @@ Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
   }
   return Result::OK;
 }
+
+namespace {
+struct Stream {
+  const esp_partition_t* dest = nullptr;
+  std::unique_ptr<ImageVerifier> verifier;
+  std::unique_ptr<uint8_t[]> buf;  // one sector: keeps writes aligned for encrypted slots
+  size_t total = 0;
+  size_t written = 0;
+  size_t fill = 0;
+  size_t erasedUpto = 0;
+};
+Stream stream;
+
+Result flushStream() {
+  while (stream.erasedUpto < stream.written + stream.fill) {
+    const size_t len = std::min<size_t>(BLK, stream.dest->size - stream.erasedUpto);
+    if (esp_partition_erase_range(stream.dest, stream.erasedUpto, len) != ESP_OK) {
+      LOG_ERR("FLASH", "stream: erase @%u failed", static_cast<unsigned>(stream.erasedUpto));
+      return Result::ERASE_FAIL;
+    }
+    stream.erasedUpto += len;
+  }
+  if (esp_partition_write(stream.dest, stream.written, stream.buf.get(), stream.fill) != ESP_OK) {
+    LOG_ERR("FLASH", "stream: write @%u failed", static_cast<unsigned>(stream.written));
+    return Result::WRITE_FAIL;
+  }
+  stream.written += stream.fill;
+  stream.fill = 0;
+  return Result::OK;
+}
+
+Result failStream(const Result r) {
+  LOG_ERR("FLASH", "stream stopped: %s; otadata left unchanged", resultName(r));
+  streamAbort();
+  return r;
+}
+}  // namespace
+
+Result streamBegin(const size_t totalSize) {
+  streamAbort();
+  stream.dest = esp_ota_get_next_update_partition(nullptr);
+  if (!stream.dest) return failStream(Result::NO_PARTITION);
+  if (totalSize < MIN_FIRMWARE_SIZE) return failStream(Result::TOO_SMALL);
+  if (totalSize > stream.dest->size) return failStream(Result::TOO_LARGE);
+  stream.verifier = makeUniqueNoThrow<ImageVerifier>(totalSize);
+  stream.buf = makeUniqueNoThrow<uint8_t[]>(SEC);
+  if (!stream.verifier || !stream.buf) return failStream(Result::OOM);
+  stream.total = totalSize;
+  LOG_INF("FLASH", "stream: %u bytes -> %s @0x%x", static_cast<unsigned>(totalSize), stream.dest->label,
+          static_cast<unsigned>(stream.dest->address));
+  return Result::OK;
+}
+
+Result streamWrite(const uint8_t* data, size_t len) {
+  if (!stream.verifier) return Result::OPEN_FAIL;
+  if (stream.written + stream.fill + len > stream.total) return failStream(Result::BAD_SIZE);
+  stream.verifier->feed(data, len);
+  if (stream.verifier->status() != Result::OK) return failStream(stream.verifier->status());
+  while (len > 0) {
+    const size_t n = std::min(len, SEC - stream.fill);
+    std::memcpy(stream.buf.get() + stream.fill, data, n);
+    stream.fill += n;
+    data += n;
+    len -= n;
+    if (stream.fill == SEC) {
+      const Result r = flushStream();
+      if (r != Result::OK) return failStream(r);
+    }
+  }
+  return Result::OK;
+}
+
+Result streamFinish() {
+  if (!stream.verifier) return Result::OPEN_FAIL;
+  if (stream.written + stream.fill != stream.total) return failStream(Result::BAD_SIZE);
+  if (stream.fill > 0) {
+    const Result r = flushStream();
+    if (r != Result::OK) return failStream(r);
+  }
+  const Result verified = stream.verifier->finish();
+  if (verified != Result::OK) return failStream(verified);
+  const esp_partition_t* dest = stream.dest;
+  streamAbort();
+  if (!ota_boot::switchTo(dest)) {
+    LOG_ERR("FLASH", "stream: otadata switch failed");
+    return Result::OTADATA_FAIL;
+  }
+  LOG_INF("FLASH", "stream: verified, boots %s next", dest->label);
+  return Result::OK;
+}
+
+void streamAbort() { stream = Stream{}; }
 
 Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx) {
   // Resolve destination first so the header check can enforce the OTA

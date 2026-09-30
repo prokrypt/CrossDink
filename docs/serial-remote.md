@@ -63,6 +63,28 @@ curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pbm http://10.0.1
 convert screen.pbm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
 ```
 
+## Wi-Fi: POST /api/ota
+
+Flashes a firmware image with no File Transfer and no on-device confirm, on Goodies > Wi-Fi remote or File
+Transfer. Same token as `/api/cmd`, sent as a header; it is checked before anything is erased.
+
+```sh
+curl -s --data-binary @firmware.bin -H "Content-Type: application/octet-stream" \
+  -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/ota
+```
+
+The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
+table, checksum, SHA-256 and board tag, as SD Card Firmware Update does. Only a verified image switches the boot
+slot; OTA rollback still applies on the next boot.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| 200 | `OK:OTA rebooting` | Verified and selected; the device restarts from the main loop about 0.2 s later. |
+| 403 | `ERR:token` | Missing or wrong `X-Token`, or no `/debug/remote-token`; nothing written. |
+| 400 | `ERR:OTA:<reason>` | `TOO_SMALL`, `TOO_LARGE`, `BAD_MAGIC`, `BAD_CHIP`, `WRONG_BOARD`, `BAD_SIZE`, `BAD_CHECKSUM`, `BAD_SHA`, `ERASE_FAIL`, `WRITE_FAIL`, `OTADATA_FAIL`, `READ_FAIL` (connection dropped), `OOM`. The running firmware stays selected. |
+
+Needs `Content-Length` (curl sends it). Each 64 KiB flash erase pauses the screen briefly during the upload.
+
 ## Wi-Fi: live log tail
 
 `GET /api/psram-log?since=<offset>&wait=<ms>` returns only the PSRAM log bytes after `<offset>`, with the
