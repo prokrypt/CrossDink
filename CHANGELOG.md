@@ -121,7 +121,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
-- X4 Pro: screens no longer get dirtier each time you open one. The first frame of the keyboard, File Transfer (QR), OPDS, Calibre, Nearby, OTA, font download and SD firmware progress screens is a plain fast refresh again instead of a DU scrub, which pushed pixels one way and built up charge. Closing the keyboard no longer scrubs the screen underneath.
+- X4 Pro: the display no longer uses one-way (DC-unbalanced) drives, which built up charge and made screens dirtier over time and risked lasting image retention. Every refresh now uses the panel's own waveforms: screen entries, typing, File Transfer / OPDS / Calibre / Nearby / OTA / font download / SD firmware progress repaints are OTP Fast, and reader ghost cleanups are the balanced Half again (a short flash at your refresh-frequency setting). Typing is slower per key (about 0.55 s instead of 0.3 s ink), and headers on long transfer screens may fade slightly.
 - After a KOReader Sync or Nearby sync, later Wi-Fi sessions in the same boot no longer run with Wi-Fi power saving off.
 - Using Wi-Fi once no longer leaves internal memory fragmented until the next reboot.
 - X4 Pro: the sleep screen no longer ghosts when the device falls asleep on its own after sitting idle. Every sleep screen now starts from a freshly powered panel with the keyboard fast waveform switched off, the same as a power-button sleep.

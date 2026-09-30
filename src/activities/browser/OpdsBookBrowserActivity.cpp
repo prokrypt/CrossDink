@@ -37,7 +37,6 @@
 #include "components/icons/listIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
-#include "util/BlackRedriveLut.h"
 #include "util/BookCacheUtils.h"
 #include "util/DaylightSaving.h"
 #include "util/StringUtils.h"
@@ -143,7 +142,6 @@ void OpdsBookBrowserActivity::onEnter() {
   sdFontSystem.releaseLoadedFont(renderer);
 
   state = BrowserState::CHECK_WIFI;
-  scrubNextFrame.store(true, std::memory_order_release);
   entryCount = 0;
   navigationHistory.clear();
   searchTemplate = "";
@@ -597,11 +595,9 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   uiReady = false;
   app.render();
   uiReady = true;
-  // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-  const bool scrub = scrubNextFrame.exchange(false, std::memory_order_acq_rel);
   if (state == BrowserState::DOWNLOADING) {
     const ShownDownloadFrame frame{true, downloadReceiving, downloadProgress, downloadTotal};
-    const bool same = !scrub && shownDownloadFrame.valid && frame.receiving == shownDownloadFrame.receiving &&
+    const bool same = shownDownloadFrame.valid && frame.receiving == shownDownloadFrame.receiving &&
                       frame.progress == shownDownloadFrame.progress && frame.total == shownDownloadFrame.total;
     shownDownloadFrame = frame;
     if (same) {
@@ -611,8 +607,6 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   } else {
     shownDownloadFrame.valid = false;
   }
-  const BlackRedriveLut redriveLut(state == BrowserState::DOWNLOADING || scrub, scrub);
-  if (scrub) LOG_DBG("OPDS", "Frame refresh=otp-entry state=%d", static_cast<int>(state));
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }
 
@@ -940,7 +934,6 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   lastRenderedPercent = -1;
   lastProgressUpdateMs = millis();
   cancelDownload = false;
-  scrubNextFrame.store(true, std::memory_order_release);
   requestUpdate(true);
 
 #ifdef SIMULATOR

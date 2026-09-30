@@ -1802,10 +1802,8 @@ void setup() {
                                                         renderer, mappedInputManager, false, pendingFirmware);
     if (firmwareUpdate) {
       LOG_INF("MAIN", "Opening firmware update for %s", pendingFirmware.c_str());
-      // UC8179: the update screen's first frame is a DU scrub over the retained
-      // File Transfer frame (no flash). Other panels clear it the way Home's
-      // first paint would.
-      if (BoardConfig::ACTIVE.displayController != BoardConfig::DisplayController::UC8179) {
+      // Clear the retained File Transfer frame the way Home's first paint would.
+      {
         RenderLock lock;
         renderer.clearScreen();
         renderer.displayBuffer(homeRefreshMode);

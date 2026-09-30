@@ -14,7 +14,6 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/BlackRedriveLut.h"
 
 namespace {
 constexpr const char* HOSTNAME = "crosspoint";
@@ -220,10 +219,5 @@ void CalibreConnectActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_EXIT)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
-  // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-  const bool redrive = state == CalibreConnectState::SERVER_RUNNING;
-  const bool scrub = BlackRedriveLut::entering(redriveOn, redrive);
-  if (scrub) LOG_DBG("CAL", "Frame refresh=otp-entry");
-  const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }

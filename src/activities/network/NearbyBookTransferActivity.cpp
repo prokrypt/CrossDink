@@ -23,7 +23,6 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/BlackRedriveLut.h"
 
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
 #include <esp_system.h>
@@ -921,11 +920,6 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
                                               showNavigation ? tr(STR_DIR_DOWN) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
-  // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-  const bool redrive = state_ == State::Sending || state_ == State::Receiving || state_ == State::Validating;
-  const bool scrub = BlackRedriveLut::entering(redriveOn, redrive);
-  if (scrub) LOG_DBG("NEARBY", "Frame refresh=otp-entry");
-  const BlackRedriveLut redriveLut(redrive, scrub);
   renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
   if (drewReceivingScreen) receivingScreenDrawn_.store(true, std::memory_order_release);
 }

@@ -62,8 +62,6 @@ class CrossPointWebServerActivity final : public Activity {
 
   // Cached signal-strength bracket (0..4) for the WiFi indicator.
   int lastWifiBars = 0;
-  // Set when the server starts; the first QR frame is a long DU scrub (render task).
-  std::atomic<bool> cleanFirstQrFrame{false};
   ScreenTransitionRefresh screenTransitionRefresh;
 
   void renderServerRunning() const;
