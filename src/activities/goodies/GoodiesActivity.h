@@ -12,10 +12,17 @@
 
 // Background Wi-Fi remote (Goodies > Wi-Fi remote): a log-only web server
 // that outlives Goodies, so /api/psram-log answers while other screens run.
-// stop() turns Wi-Fi off and is a no-op when not started. Main task only.
+// Main task only.
 namespace goodies_remote {
 bool running();
+// Toggle off: server and Wi-Fi off, forgets the toggle.
 void stop();
+// A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
+void pause();
+// Main loop: once no Wi-Fi screen (Activity::usesWifi) is on the stack, or
+// after a silent restart, rejoins the last network and restarts the server.
+// No-op while the toggle is off.
+void loop();
 }  // namespace goodies_remote
 
 // Debug-build Goodies menu (CROSSDINK_GOODIES). Root lists the tools; the

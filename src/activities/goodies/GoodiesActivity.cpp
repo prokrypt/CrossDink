@@ -8,7 +8,10 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <MemoryBudget.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 
 #include <algorithm>
 #include <cstring>
@@ -16,11 +19,14 @@
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
 #include "MappedInputManager.h"
+#include "WifiCredentialStore.h"
+#include "activities/ActivityManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "network/CrossPointWebServer.h"
+#include "network/WifiUtils.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -33,7 +39,33 @@ bool hasTxtExtension(const char* name, const size_t len) { return len > 4 && str
 std::unique_ptr<CrossPointWebServer> remoteServer;
 std::string remoteIp;
 
-// Wi-Fi is already connected (WifiSelectionActivity succeeded).
+// The toggle survives Wi-Fi screens (File Transfer, Calibre, OPDS, Nearby) and
+// the silent restarts they end with: RTC_NOINIT keeps it across ESP.restart(),
+// and any other boot (power-on, deep-sleep wake) clears it.
+constexpr uint32_t REMOTE_WANTED_MAGIC = 0x57524d54;  // "WRMT"
+RTC_NOINIT_ATTR uint32_t remoteWantedMagic;
+RTC_NOINIT_ATTR char remoteSsid[33];
+bool rejoining = false;
+uint32_t rejoinAt = 0;
+constexpr uint32_t REJOIN_TIMEOUT_MS = 20000;
+constexpr uint32_t REJOIN_RETRY_MS = 60000;
+
+bool remoteWanted() { return remoteWantedMagic == REMOTE_WANTED_MAGIC; }
+
+void stopServerAndRadio() {
+  if (remoteServer) remoteServer->stop();
+  remoteServer.reset();
+  MDNS.end();
+  WiFi.disconnect(false);
+  // As leaveNetworkInPlace(): the server's stop() left modem sleep off, which
+  // Arduino would carry into the next Wi-Fi session.
+  WiFi.setSleep(true);
+  WiFi.mode(WIFI_OFF);
+  remoteIp.clear();
+  rejoining = false;
+}
+
+// Wi-Fi is already connected (WifiSelectionActivity succeeded, or a rejoin).
 bool startRemote() {
   remoteServer = makeUniqueNoThrow<CrossPointWebServer>();
   if (remoteServer) remoteServer->begin(/*logOnly=*/true);
@@ -44,26 +76,95 @@ bool startRemote() {
   }
   MDNS.begin("crosspoint");
   remoteIp = WiFi.localIP().toString().c_str();
+  snprintf(remoteSsid, sizeof(remoteSsid), "%s", WiFi.SSID().c_str());
+  remoteWantedMagic = REMOTE_WANTED_MAGIC;
   LOG_INF("GDY", "wifi remote on: http://%s/api/psram-log", remoteIp.c_str());
   return true;
+}
+
+// Background join of the network the remote last used (async WiFi.begin()).
+void beginRejoin() {
+  rejoinAt = millis();
+  const auto cred = WIFI_STORE.findCredential(remoteSsid);
+  if (!cred) {
+    LOG_ERR("GDY", "wifi remote: no saved credential for %s", remoteSsid);
+    return;
+  }
+  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  if (largest < MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC) {
+    LOG_ERR("GDY", "wifi remote: rejoin skipped, internal largest block %u", static_cast<unsigned>(largest));
+    return;
+  }
+  WiFi.persistent(false);
+  if (!WiFi.mode(WIFI_STA)) {
+    LOG_ERR("GDY", "wifi remote: station mode failed");
+    return;
+  }
+  WiFi.begin(cred->ssid.c_str(), cred->password.empty() ? nullptr : cred->password.c_str());
+  rejoining = true;
+  LOG_INF("GDY", "wifi remote: rejoining %s", remoteSsid);
 }
 }  // namespace
 
 namespace goodies_remote {
 bool running() { return remoteServer && remoteServer->isRunning() && WiFi.status() == WL_CONNECTED; }
 
+void pause() {
+  if (!remoteServer && !rejoining) return;
+  stopServerAndRadio();
+  LOG_INF("GDY", "wifi remote paused");
+}
+
 void stop() {
-  if (!remoteServer) return;
-  remoteServer->stop();
-  remoteServer.reset();
-  MDNS.end();
-  WiFi.disconnect(false);
-  // As leaveNetworkInPlace(): the server's stop() left modem sleep off, which
-  // Arduino would carry into the next Wi-Fi session.
-  WiFi.setSleep(true);
-  WiFi.mode(WIFI_OFF);
-  remoteIp.clear();
+  remoteWantedMagic = 0;
+  if (!remoteServer && !rejoining) return;
+  stopServerAndRadio();
   LOG_INF("GDY", "wifi remote off");
+}
+
+void loop() {
+  static bool bootChecked = false;
+  static bool screenHadRadio = false;
+  if (!bootChecked) {
+    bootChecked = true;
+    if (esp_reset_reason() != ESP_RST_SW) remoteWantedMagic = 0;
+  }
+  if (!remoteWanted()) return;
+  // A Wi-Fi screen is on the stack: the radio is its until it leaves.
+  if (activityManager.anyActivityUsesWifi()) {
+    screenHadRadio = true;
+    rejoining = false;
+    return;
+  }
+  if (screenHadRadio) {
+    // Whatever the screen left behind (Wi-Fi off or deinitialized, another
+    // network, AP mode), the old server's sockets can't be trusted.
+    screenHadRadio = false;
+    if (remoteServer) remoteServer->stop();
+    remoteServer.reset();
+    MDNS.end();
+    rejoinAt = 0;
+    if (hasActiveStationWifiConnection()) {
+      startRemote();
+      return;
+    }
+    if (WiFi.getMode() != WIFI_MODE_NULL) stopServerAndRadio();
+  }
+  if (rejoining) {
+    if (WiFi.status() == WL_CONNECTED) {
+      rejoining = false;
+      rejoinAt = 0;
+      startRemote();
+    } else if (millis() - rejoinAt > REJOIN_TIMEOUT_MS) {
+      LOG_ERR("GDY", "wifi remote: rejoin timed out, retrying in %u s", static_cast<unsigned>(REJOIN_RETRY_MS / 1000));
+      stopServerAndRadio();
+      rejoinAt = millis();
+    }
+    return;
+  }
+  if (remoteServer) return;
+  if (rejoinAt != 0 && millis() - rejoinAt < REJOIN_RETRY_MS) return;
+  beginRejoin();
 }
 }  // namespace goodies_remote
 

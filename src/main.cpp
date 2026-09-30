@@ -59,6 +59,9 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#if CROSSDINK_GOODIES
+#include "activities/goodies/GoodiesActivity.h"
+#endif
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
@@ -656,6 +659,7 @@ class NetworkEntryActivity final : public Activity {
   }
 
   void render(RenderLock&&) override { GUI.drawPopup(renderer, tr(STR_LOADING_POPUP)); }
+  bool usesWifi() const override { return true; }
 
  private:
   NetworkBootTarget target_;
@@ -2382,6 +2386,9 @@ static void loopPass() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+#if CROSSDINK_GOODIES
+  goodies_remote::loop();
+#endif
 #if CROSSDINK_APP_CAP_TOUCH
   // A delayed Home event is valid for this activity dispatch only. If an
   // unrelated gesture took priority, do not carry it into the next activity.

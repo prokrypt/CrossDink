@@ -1246,6 +1246,12 @@ bool ActivityManager::openReaderSettingsForTouchscreenEscapeHatch() {
   return true;
 }
 
+bool ActivityManager::anyActivityUsesWifi() const {
+  const auto uses = [](const auto& activity) { return activity && activity->usesWifi(); };
+  return uses(currentActivity) || uses(pendingActivity) ||
+         std::any_of(stackActivities.begin(), stackActivities.end(), uses);
+}
+
 bool ActivityManager::hasActivityNamed(const char* activityName) const {
   const auto matches = [activityName](const auto& activity) { return activity && activity->name == activityName; };
   if (matches(currentActivity) || matches(pendingActivity)) {

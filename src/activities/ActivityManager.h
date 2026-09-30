@@ -203,6 +203,8 @@ class ActivityManager {
   bool openReaderMenuFromShortcut();
   bool handleShortcutAction(uint8_t action);
   bool hasActivityNamed(const char* activityName) const;
+  // Any activity on the stack (or pending) owns the radio. Main task only.
+  bool anyActivityUsesWifi() const;
 #ifdef SIMULATOR
   bool isCurrentActivityNamed(const char* activityName) const;
 #endif
