@@ -13,6 +13,7 @@
 #include <Serialization.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -813,11 +814,16 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     }
     legacyXtcTopUsesBottom = bars["legacyXtcTopUsesBottom"].as<bool>() ? 1 : 0;
   }
-  if (doc["sleepTimeoutMinutes"].isNull() && !doc["sleepTimeout"].isNull()) {
-    const uint8_t legacyValue =
-        clamp(doc["sleepTimeout"] | static_cast<uint8_t>(SLEEP_10_MIN), SLEEP_TIMEOUT_COUNT, SLEEP_10_MIN);
-    sleepTimeoutMinutes = sleepTimeoutEnumToMinutes(legacyValue);
-    needsResave = true;
+  if (doc["sleepTimeoutStep"].isNull()) {
+    if (!doc["sleepTimeoutMinutes"].isNull()) {
+      sleepTimeoutStep = sleepTimeoutStepForMinutes(doc["sleepTimeoutMinutes"] | 10u);
+      needsResave = true;
+    } else if (!doc["sleepTimeout"].isNull()) {
+      const uint8_t legacyValue =
+          clamp(doc["sleepTimeout"] | static_cast<uint8_t>(SLEEP_10_MIN), SLEEP_TIMEOUT_COUNT, SLEEP_10_MIN);
+      sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(legacyValue));
+      needsResave = true;
+    }
   }
 
   frontButtonBack =
@@ -1059,7 +1065,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     uint8_t legacySleepTimeout = SLEEP_10_MIN;
     readAndValidate(inputFile, legacySleepTimeout, SLEEP_TIMEOUT_COUNT);
-    sleepTimeoutMinutes = sleepTimeoutEnumToMinutes(legacySleepTimeout);
+    sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(legacySleepTimeout));
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, refreshFrequency, REFRESH_FREQUENCY_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -1187,10 +1193,20 @@ float CrossPointSettings::getReaderLineCompression() const {
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {
-  if (sleepTimeoutMinutes >= SLEEP_TIMEOUT_NEVER_MINUTES) return 0UL;
-  const uint8_t minutes =
-      std::clamp(sleepTimeoutMinutes, MIN_SLEEP_TIMEOUT_MINUTES, static_cast<uint8_t>(SLEEP_TIMEOUT_NEVER_MINUTES - 1));
-  return static_cast<unsigned long>(minutes) * 60UL * 1000UL;
+  // 12 h = 43,200,000 ms, well inside 32 bits.
+  return sleepTimeoutStep < SLEEP_TIMEOUT_NEVER_STEP ? SLEEP_TIMEOUT_STEP_MINUTES[sleepTimeoutStep] * 60000UL : 0UL;
+}
+
+uint8_t CrossPointSettings::sleepTimeoutStepForMinutes(const unsigned minutes) {
+  if (minutes >= 31) return SLEEP_TIMEOUT_NEVER_STEP;
+  const auto distance = [minutes](const uint8_t step) {
+    return std::abs(static_cast<int>(SLEEP_TIMEOUT_STEP_MINUTES[step]) - static_cast<int>(minutes));
+  };
+  uint8_t best = 0;
+  for (uint8_t i = 1; i < SLEEP_TIMEOUT_NEVER_STEP; ++i) {
+    if (distance(i) < distance(best)) best = i;
+  }
+  return best;
 }
 
 unsigned long CrossPointSettings::getFrontlightTimeoutMs() const {
@@ -1201,16 +1217,21 @@ unsigned long CrossPointSettings::getFrontlightTimeoutMs() const {
 #ifdef SIMULATOR
 bool CrossPointSettings::verifySleepTimeoutMigrationContract() {
   CrossPointSettings& settings = getInstance();
-  const uint8_t originalMinutes = settings.sleepTimeoutMinutes;
+  const uint8_t originalStep = settings.sleepTimeoutStep;
 
-  settings.sleepTimeoutMinutes = sleepTimeoutEnumToMinutes(SLEEP_5_MIN);
+  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(SLEEP_5_MIN));
   const bool migratedValueDrivesTimeout = settings.getSleepTimeoutMs() == 5UL * 60UL * 1000UL;
 
-  settings.sleepTimeoutMinutes = 12;
-  const bool runtimeUsesMinutesOnly = settings.getSleepTimeoutMs() == 12UL * 60UL * 1000UL;
+  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(15);  // between 10 and 20: the shorter
+  const bool oldMinutesTakeNearestStep = settings.getSleepTimeoutMs() == 10UL * 60UL * 1000UL;
 
-  settings.sleepTimeoutMinutes = originalMinutes;
-  return migratedValueDrivesTimeout && runtimeUsesMinutesOnly;
+  settings.sleepTimeoutStep = SLEEP_TIMEOUT_NEVER_STEP - 1;
+  const bool longestIsTwelveHours = settings.getSleepTimeoutMs() == 12UL * 60UL * 60UL * 1000UL;
+
+  const bool oldNeverStaysNever = sleepTimeoutStepForMinutes(31) == SLEEP_TIMEOUT_NEVER_STEP;
+
+  settings.sleepTimeoutStep = originalStep;
+  return migratedValueDrivesTimeout && oldMinutesTakeNearestStep && longestIsTwelveHours && oldNeverStaysNever;
 }
 
 bool CrossPointSettings::verifySleepScreenMigrationContract() {
