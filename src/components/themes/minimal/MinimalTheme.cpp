@@ -419,15 +419,25 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
   const int batteryX = rect.x + rect.width - StatusBarMetrics::sideInset - MinimalMetrics::values.batteryWidth;
   const int batteryY = rect.y + UITheme::getTopStatusBarInset(renderer) + homeHeaderTopInset;
+  const int wifiReserve = showStatus ? wifiStatusReserve() : 0;
   if (showStatus) {
     drawBatteryRight(
         renderer, Rect{batteryX, batteryY, MinimalMetrics::values.batteryWidth, MinimalMetrics::values.batteryHeight},
         showBatteryPercentage);
   }
+  if (wifiReserve > 0) {
+    const int percentWidth =
+        showBatteryPercentage
+            ? batteryPercentSpacing +
+                  renderer.getTextWidth(SMALL_FONT_ID,
+                                        (std::to_string(powerManager.getBatteryPercentage()) + "%").c_str())
+            : 0;
+    drawWifiStatus(renderer, batteryX - percentWidth - wifiReserve, batteryY);
+  }
 
   if (title) {
     constexpr int titleInsetX = 12;
-    const int titleRight = showStatus ? batteryX : rect.x + rect.width - 12;
+    const int titleRight = showStatus ? batteryX - wifiReserve : rect.x + rect.width - 12;
     const int maxTitleWidth = titleRight - rect.x - titleInsetX - MinimalMetrics::values.contentSidePadding;
     auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
     renderer.drawText(UI_12_FONT_ID, rect.x + titleInsetX, rect.y + MinimalMetrics::values.batteryBarHeight + 3,

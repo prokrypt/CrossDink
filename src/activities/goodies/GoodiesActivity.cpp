@@ -11,11 +11,11 @@
 #include <MemoryBudget.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
-#include <esp_system.h>
 
 #include <algorithm>
 #include <cstring>
 
+#include "CrossPointSettings.h"
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
 #include "MappedInputManager.h"
@@ -39,18 +39,32 @@ bool hasTxtExtension(const char* name, const size_t len) { return len > 4 && str
 std::unique_ptr<CrossPointWebServer> remoteServer;
 std::string remoteIp;
 
-// The toggle survives Wi-Fi screens (File Transfer, Calibre, OPDS, Nearby) and
-// the silent restarts they end with: RTC_NOINIT keeps it across ESP.restart(),
-// and any other boot (power-on, deep-sleep wake) clears it.
-constexpr uint32_t REMOTE_WANTED_MAGIC = 0x57524d54;  // "WRMT"
-RTC_NOINIT_ATTR uint32_t remoteWantedMagic;
+// The toggle is SETTINGS.goodiesWifiRemote, so it survives Wi-Fi screens (File
+// Transfer, Calibre, OPDS, Nearby), the silent restarts they end with, sleep and
+// power-off. RTC_NOINIT keeps the network across ESP.restart() and deep sleep;
+// after power-on it is garbage and the last connected network is used instead.
 RTC_NOINIT_ATTR char remoteSsid[33];
 bool rejoining = false;
+bool rejoinNow = false;  // Toggled on in Goodies: skip the boot and idle waits
 uint32_t rejoinAt = 0;
+uint32_t rejoinRetryMs = 0;  // 0 until an attempt fails; doubles per failure
 constexpr uint32_t REJOIN_TIMEOUT_MS = 20000;
-constexpr uint32_t REJOIN_RETRY_MS = 60000;
+constexpr uint32_t REJOIN_RETRY_MIN_MS = 60000;
+constexpr uint32_t REJOIN_RETRY_MAX_MS = 600000;
+// Starting a join blocks the main task (wifi.json read, WiFi.mode() bringing
+// the driver up), so a background join waits for the wake screen to paint and
+// for a pause in input.
+constexpr uint32_t REJOIN_BOOT_DELAY_MS = 5000;
+constexpr uint32_t REJOIN_IDLE_MS = 2000;
 
-bool remoteWanted() { return remoteWantedMagic == REMOTE_WANTED_MAGIC; }
+bool remoteWanted() { return SETTINGS.goodiesWifiRemote != 0; }
+
+// One settings.json write per toggle change; rejoins leave it alone.
+void setRemoteWanted(const bool wanted) {
+  if (remoteWanted() == wanted) return;
+  SETTINGS.goodiesWifiRemote = wanted ? 1 : 0;
+  if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "wifi remote: toggle not saved");
+}
 
 void stopServerAndRadio() {
   if (remoteServer) remoteServer->stop();
@@ -66,48 +80,64 @@ void stopServerAndRadio() {
 }
 
 // Wi-Fi is already connected (WifiSelectionActivity succeeded, or a rejoin).
+// On failure the radio is off and the toggle is left to the caller.
 bool startRemote() {
   remoteServer = makeUniqueNoThrow<CrossPointWebServer>();
   if (remoteServer) remoteServer->begin(/*logOnly=*/true);
   if (!remoteServer || !remoteServer->isRunning()) {
     LOG_ERR("GDY", "wifi remote: web server did not start");
-    goodies_remote::stop();
+    stopServerAndRadio();
     return false;
   }
   MDNS.begin("crosspoint");
   remoteIp = WiFi.localIP().toString().c_str();
   snprintf(remoteSsid, sizeof(remoteSsid), "%s", WiFi.SSID().c_str());
-  remoteWantedMagic = REMOTE_WANTED_MAGIC;
+  rejoinRetryMs = 0;
+  setRemoteWanted(true);
   LOG_INF("GDY", "wifi remote on: http://%s/api/psram-log", remoteIp.c_str());
   return true;
 }
 
 // Background join of the network the remote last used (async WiFi.begin()).
-void beginRejoin() {
-  rejoinAt = millis();
-  const auto cred = WIFI_STORE.findCredential(remoteSsid);
+// Every call counts as an attempt for the retry backoff.
+bool beginRejoin() {
+  const uint32_t startedAt = millis();
+  rejoinAt = startedAt;
+  rejoinRetryMs = rejoinRetryMs == 0 ? REJOIN_RETRY_MIN_MS : std::min(rejoinRetryMs * 2, REJOIN_RETRY_MAX_MS);
+  remoteSsid[sizeof(remoteSsid) - 1] = '\0';
+  auto cred = WIFI_STORE.findCredential(remoteSsid);
+  if (!cred) cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
   if (!cred) {
-    LOG_ERR("GDY", "wifi remote: no saved credential for %s", remoteSsid);
-    return;
+    LOG_ERR("GDY", "wifi remote: no saved network to rejoin");
+    return false;
   }
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   if (largest < MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC) {
     LOG_ERR("GDY", "wifi remote: rejoin skipped, internal largest block %u", static_cast<unsigned>(largest));
-    return;
+    return false;
   }
   WiFi.persistent(false);
   if (!WiFi.mode(WIFI_STA)) {
     LOG_ERR("GDY", "wifi remote: station mode failed");
-    return;
+    return false;
   }
   WiFi.begin(cred->ssid.c_str(), cred->password.empty() ? nullptr : cred->password.c_str());
   rejoining = true;
-  LOG_INF("GDY", "wifi remote: rejoining %s", remoteSsid);
+  LOG_INF("GDY", "wifi remote: rejoining %s (main task blocked %lu ms)", cred->ssid.c_str(),
+          static_cast<unsigned long>(millis() - startedAt));
+  return true;
 }
 }  // namespace
 
 namespace goodies_remote {
 bool running() { return remoteServer && remoteServer->isRunning() && WiFi.status() == WL_CONNECTED; }
+
+bool wanted() { return remoteWanted(); }
+
+bool allowsRadioIdleSleep() {
+  return remoteServer && remoteServer->allowsIdleSleep() && !remoteServer->isTransferActive() &&
+         !activityManager.anyActivityUsesWifi();
+}
 
 void pause() {
   if (!remoteServer && !rejoining) return;
@@ -116,19 +146,27 @@ void pause() {
 }
 
 void stop() {
-  remoteWantedMagic = 0;
+  setRemoteWanted(false);
+  rejoinNow = false;
   if (!remoteServer && !rejoining) return;
   stopServerAndRadio();
   LOG_INF("GDY", "wifi remote off");
 }
 
-void loop() {
-  static bool bootChecked = false;
-  static bool screenHadRadio = false;
-  if (!bootChecked) {
-    bootChecked = true;
-    if (esp_reset_reason() != ESP_RST_SW) remoteWantedMagic = 0;
+bool startInBackground() {
+  if (!WIFI_STORE.findCredential(remoteSsid) && !WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid())) {
+    return false;
   }
+  stop();  // a server left behind when the link dropped; no-op otherwise
+  setRemoteWanted(true);
+  rejoinAt = 0;
+  rejoinRetryMs = 0;
+  rejoinNow = true;
+  return true;
+}
+
+void loop(const uint32_t idleMs) {
+  static bool screenHadRadio = false;
   if (!remoteWanted()) return;
   // A Wi-Fi screen is on the stack: the radio is its until it leaves.
   if (activityManager.anyActivityUsesWifi()) {
@@ -144,8 +182,9 @@ void loop() {
     remoteServer.reset();
     MDNS.end();
     rejoinAt = 0;
+    rejoinRetryMs = 0;
     if (hasActiveStationWifiConnection()) {
-      startRemote();
+      if (!startRemote()) rejoinAt = millis();
       return;
     }
     if (WiFi.getMode() != WIFI_MODE_NULL) stopServerAndRadio();
@@ -153,17 +192,21 @@ void loop() {
   if (rejoining) {
     if (WiFi.status() == WL_CONNECTED) {
       rejoining = false;
-      rejoinAt = 0;
-      startRemote();
+      if (!startRemote()) rejoinAt = millis();
     } else if (millis() - rejoinAt > REJOIN_TIMEOUT_MS) {
-      LOG_ERR("GDY", "wifi remote: rejoin timed out, retrying in %u s", static_cast<unsigned>(REJOIN_RETRY_MS / 1000));
+      LOG_ERR("GDY", "wifi remote: rejoin timed out, retrying in %lu s",
+              static_cast<unsigned long>(rejoinRetryMs / 1000));
       stopServerAndRadio();
       rejoinAt = millis();
     }
     return;
   }
   if (remoteServer) return;
-  if (rejoinAt != 0 && millis() - rejoinAt < REJOIN_RETRY_MS) return;
+  if (!rejoinNow) {
+    if (millis() < REJOIN_BOOT_DELAY_MS || idleMs < REJOIN_IDLE_MS) return;
+    if (rejoinAt != 0 && millis() - rejoinAt < rejoinRetryMs) return;
+  }
+  rejoinNow = false;
   beginRejoin();
 }
 }  // namespace goodies_remote
@@ -187,7 +230,8 @@ void GoodiesActivity::showLevel(const Level next) {
   entries.clear();
   if (level == Level::Root) {
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
-    entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, goodies_remote::running() ? remoteIp : tr(STR_STATE_OFF)});
+    entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
+    remoteRowShown = remoteRowState();
   } else {
     entries.reserve(display_script::BUILT_IN_COUNT + 8);
     for (int i = 0; i < display_script::BUILT_IN_COUNT; ++i) {
@@ -245,14 +289,34 @@ void GoodiesActivity::activate(const int index) {
       });
 }
 
+int GoodiesActivity::remoteRowState() {
+  if (goodies_remote::running()) return 2;
+  return goodies_remote::wanted() ? 1 : 0;
+}
+
+std::string GoodiesActivity::remoteRowValue() {
+  switch (remoteRowState()) {
+    case 2:
+      return remoteIp;
+    case 1:
+      return tr(STR_CONNECTING);
+    default:
+      return tr(STR_STATE_OFF);
+  }
+}
+
 void GoodiesActivity::toggleRemote() {
-  if (goodies_remote::running()) {
+  if (goodies_remote::wanted()) {
     goodies_remote::stop();
     showLevel(Level::Root);
     return;
   }
-  goodies_remote::stop();  // a server left behind when the link dropped; no-op otherwise
-  // The Wi-Fi picker auto-joins a saved network and leaves Wi-Fi up on success.
+  // A saved network joins in the background (the row reads Connecting...).
+  if (goodies_remote::startInBackground()) {
+    showLevel(Level::Root);
+    return;
+  }
+  // No saved network: the Wi-Fi picker joins one and leaves Wi-Fi up on success.
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
                            mappedInput.suppressNextConfirmRelease();
@@ -267,6 +331,15 @@ void GoodiesActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
 }
 
 void GoodiesActivity::loop() {
+  // The background join finishes (or drops) while this screen is open.
+  if (level == Level::Root && entries.size() > 1 && remoteRowState() != remoteRowShown) {
+    RenderLock lock(*this);
+    remoteRowShown = remoteRowState();
+    entries[1].value = remoteRowValue();
+    rowItems[1].value = entries[1].value.c_str();
+    lock.unlock();
+    requestUpdate();
+  }
   if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
       mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     if (level == Level::Root) {

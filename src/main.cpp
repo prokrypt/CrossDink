@@ -1963,6 +1963,15 @@ bool anyInputHeld() {
   return false;
 }
 
+// The current screen opted into radio idle, or the radio only carries the
+// Goodies Wi-Fi remote's idle server.
+static bool radioMayIdle() {
+#if CROSSDINK_GOODIES
+  if (goodies_remote::allowsRadioIdleSleep()) return true;
+#endif
+  return activityManager.allowsRadioIdleSleep();
+}
+
 // Longest idle wait for the power-saving branch of loop(). When every input
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
@@ -1977,7 +1986,7 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
 #endif
   // Timed activity work (automatic page turn), USB serial transfer and radio
   // exchanges are paced by the tick rather than by input.
-  const bool radioIdle = activityManager.allowsRadioIdleSleep();
+  const bool radioIdle = radioMayIdle();
   if (tiltPolling || usbConnected || anyInputHeld() ||
       (!radioIdle && (activityManager.preventAutoSleep() || WiFi.getMode() != WIFI_MODE_NULL))) {
     return IDLE_WAIT_MS;
@@ -2387,7 +2396,7 @@ static void loopPass() {
   const unsigned long activityStartTime = millis();
   activityManager.loop();
 #if CROSSDINK_GOODIES
-  goodies_remote::loop();
+  goodies_remote::loop(millis() - lastActivityTime);
 #endif
 #if CROSSDINK_APP_CAP_TOUCH
   // A delayed Home event is valid for this activity dispatch only. If an
@@ -2437,7 +2446,7 @@ static void loopPass() {
     // longer idle tick no longer delays the first input after a pause. Screens
     // that hold the device awake for a radio exchange keep the fast tick they
     // had before, since WiFi blocks power saving anyway.
-    const bool radioIdleOk = activityManager.allowsRadioIdleSleep();
+    const bool radioIdleOk = radioMayIdle();
     const bool radioExchange = activityManager.preventAutoSleep() && WiFi.getMode() != WIFI_MODE_NULL && !radioIdleOk;
     // Wi-Fi keeps the CPU at full clock unless the screen opts in (File
     // Transfer and Calibre when idle, the OPDS list, KOSync results).

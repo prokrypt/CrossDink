@@ -5,14 +5,18 @@
 - **Display test** lists the built-in tests (`src/activities/goodies/DisplayScript.cpp`), then every
   `/debug/display/*.txt` on the SD card, sorted by file name. New tests need no reflash: drop a file in
   that folder.
-- **Wi-Fi remote** (value column: `OFF` or the device IP) opens the Wi-Fi picker, which joins a saved network,
-  then keeps Wi-Fi up in the background with a log-only web server: `GET /api/psram-log` (also
+- **Wi-Fi remote** (value column: `OFF`, `Connecting...` or the device IP) joins the last used saved network in
+  the background (the Wi-Fi picker opens only when none is saved), then keeps Wi-Fi up with a log-only web
+  server: `GET /api/psram-log` (also
   `http://crosspoint.local/api/psram-log`), plus the token-gated `POST /api/cmd` from
   [serial-remote.md](serial-remote.md#wi-fi-post-apicmd). It has no file, settings, upload or `/api/status` routes, so
-  nothing touches the SD card or the I2C bus behind other screens. Tap again to turn Wi-Fi off. Opening File Transfer or
-  Calibre Connect stops it; so do sleep and any screen that turns Wi-Fi off (OPDS, KOSync): the row then
-  reads `OFF`, tap to start it again. While on, the CPU stays at full clock (Wi-Fi blocks power saving), so
-  it costs battery, not latency.
+  nothing touches the SD card or the I2C bus behind other screens. Tap again to turn Wi-Fi off. The toggle is
+  saved in `crossink-settings.json` (`goodiesWifiRemote`), written only when it changes. Wi-Fi screens (File
+  Transfer, Calibre Connect, OPDS, Nearby) take the radio while open; afterwards, and after every sleep wake,
+  restart or power-on, the remote rejoins in the background: 5 s after boot, once input has paused for 2 s,
+  retrying after 1, 2, 4... up to 10 min when the network is out of reach. Starting a join blocks the main task
+  briefly (logged as `main task blocked N ms`). While the idle server waits for requests, the device power saves
+  as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
 
 Back stops a running test; Back again leaves the result screen.
 
