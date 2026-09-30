@@ -307,6 +307,8 @@ void OpdsBookBrowserActivity::loop() {
     // fetch or a book download pauses them.
     if (preload) {
       preload->pump();
+      // A preload stored or evicted a page: recheck the row marks.
+      if (pageCache && pageCache->changes() != pageCachedAt) markCachedFeeds();
       // A recheck found the shown page changed: re-parse it in place.
       std::string changed;
       if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
@@ -475,7 +477,8 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
-    if (entry.type == OpdsEntryType::BOOK && onSd[i]) item.value = tr(STR_DOWNLOADED);
+    // One mark for "no network needed": a downloaded book or a cached feed page.
+    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) item.icon = fui::bitmapFromIcon(icon_check_24);
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
         snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
@@ -742,6 +745,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   topIndex = restoreTop;
   if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
   markBooksOnSd();
+  markCachedFeeds();
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
@@ -865,6 +869,28 @@ void OpdsBookBrowserActivity::stopPrefetch() {
   if (!preload) return;
   preload->pause("");
   preload->closeConnections();
+}
+
+// Feed rows (Prev/Next included) resolved to cache keys as navigateToEntry()
+// and the preloads do. Main loop only: the cache has no lock.
+void OpdsBookBrowserActivity::markCachedFeeds() {
+  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> cached;
+  if (pageCache) {
+    pageCachedAt = pageCache->changes();
+    const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+    for (size_t i = 0; i < entryCount; ++i) {
+      if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
+      const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
+      if (pageCache->contains(UrlUtils::buildUrl(server.url, path))) cached.set(i);
+    }
+  }
+  if (cached == pageCached) return;
+  {
+    RenderLock lock(*this);
+    pageCached = cached;
+  }
+  // A preload landing flips a ✓ on: redraw the list through the normal refresh.
+  if (state == BrowserState::BROWSING) requestUpdate();
 }
 
 // One pass over the download folder, not an exists() per book: each lookup

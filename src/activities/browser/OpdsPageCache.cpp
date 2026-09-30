@@ -111,6 +111,7 @@ void OpdsPageCache::evict(Slot& slot) {
   slot.url.clear();
   slot.url.shrink_to_fit();
   slot.used = false;
+  ++changeCount;
 }
 
 OpdsPageCache::Slot* OpdsPageCache::evictLeastRecentlyUsed() {
@@ -136,6 +137,7 @@ bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const b
   if (target == std::end(slots)) target = evictLeastRecentlyUsed();
 
   target->url.assign(url.data(), url.size());
+  ++changeCount;
   target->page = std::move(page);
   target->lastUse = ++useClock;
   target->used = true;

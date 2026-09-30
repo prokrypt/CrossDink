@@ -80,6 +80,7 @@ class GoodiesActivity final : public Activity {
 
   void toggleRemote();
   void openKnob(int row);
+  void openDimLevel(int row);
   void confirmResetKnobs();
   void refreshRemoteRow();
   void openRemotePicker();

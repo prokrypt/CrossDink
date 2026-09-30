@@ -29,6 +29,7 @@
 #endif
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "components/ListSelection.h"
 #include "components/TouchRegistry.h"
 #include "components/themes/BaseTheme.h"
 #include "home/AlertActivity.h"
@@ -556,7 +557,14 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       BaseTheme::beginFrameStatus();
+      if (currentActivity.get() != listSelectionOwner) {
+        listSelectionOwner = currentActivity.get();
+        ListSelection::tapRowShown = false;  // a popup of the previous screen
+      }
+      ListSelection::revealed = currentActivity->listSelectionRevealed;
+      ListSelection::hidThisFrame = false;
       currentActivity->render(std::move(lock));
+      ListSelection::hidOnScreen = ListSelection::hidThisFrame;
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
       restoredActivityNeedsRender = false;
@@ -648,6 +656,26 @@ void ActivityManager::loop() {
 
   if (currentActivity) {
     mappedInput.setPowerAsConfirmInReaderMode(currentActivity->allowPowerAsConfirmInReaderMode());
+
+#if CROSSDINK_APP_CAP_TOUCH
+    // A touch list opens with no row selected. The first Up/Down/Confirm press
+    // only shows the selection (no move, no activation); its release is eaten.
+    if (ListSelection::hidOnScreen && !currentActivity->listSelectionRevealed) {
+      using Button = MappedInputManager::Button;
+      const bool up = mappedInput.wasPressed(Button::Up);
+      const bool down = mappedInput.wasPressed(Button::Down);
+      const bool confirm = mappedInput.wasPressed(Button::Confirm);
+      if (up || down || confirm) {
+        currentActivity->listSelectionRevealed = true;
+        ListSelection::hidOnScreen = false;
+        if (up) mappedInput.suppressNextSideRelease(Button::Up);
+        if (down) mappedInput.suppressNextSideRelease(Button::Down);
+        if (confirm) mappedInput.suppressNextConfirmRelease();
+        requestUpdate();
+        return;
+      }
+    }
+#endif
 
     if (currentActivity->blocksGlobalInput()) {
 #if CROSSDINK_APP_CAP_TOUCH
@@ -769,6 +797,15 @@ void ActivityManager::loop() {
         // restoredActivityNeedsRender. Preserve the overlay's paused timing
         // state either way before it becomes current.
         if (currentActivity) currentActivity->onBackdropRenderedForOverlay();
+      } else if (pendingAction == PendingAction::Push && pendingActivity->drawsOverSourceFrame() &&
+                 mappedInput.wasTapOrHeld()) {
+        // The tapped row is selected but not yet on screen: show it before the
+        // popup covers the frame, not after the popup closes.
+        ListSelection::tapRowShown = true;
+        if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+          LOG_ERR("ACT", "Could not show tapped row before opening %s", pendingActivity->name.c_str());
+        }
+        ListSelection::tapRowShown = false;
       }
       // Current activity has requested a new activity to be launched
       RenderLock lock;
@@ -1177,6 +1214,17 @@ void ActivityManager::goToSleep(bool fromTimeout) {
   }
   replaceActivity(std::move(sleepActivity));
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
+}
+
+void ActivityManager::exitAllActivities() {
+  RenderLock lock;
+  exitActivity(lock);
+  while (!stackActivities.empty()) {
+    stackActivities.back()->onExit();
+    stackActivities.pop_back();
+  }
+  pendingActivity.reset();
+  pendingAction = PendingAction::None;
 }
 
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }

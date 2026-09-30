@@ -131,6 +131,8 @@ class ActivityManager {
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
   std::atomic<bool> restoredActivityNeedsRender{false};
+  // Render task only: the activity the last frame came from (ListSelection).
+  const Activity* listSelectionOwner = nullptr;
 
   Activity* findEpubReader() const;
   bool handleGlobalHomeGesture();
@@ -173,6 +175,8 @@ class ActivityManager {
                   bool cleanImageBaseOnEntry = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
   void goToSleep(bool fromTimeout = false);
+  // Runs every activity's onExit (reader progress, reading stats, Home %) before a restart.
+  void exitAllActivities();
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
