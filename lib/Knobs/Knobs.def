@@ -17,10 +17,17 @@ X("Display", kbdFrames, uint8_t, 4, 2, 16, 1, "fr")                    // Turbo 
 X("Display", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo keyboard PLL: panel, 1 = 40 Hz, 2 = 50 Hz
 
 // Frontlight
-// Defaults from log 20260930T213400Z-14588105-psram-duck: direct gray flashes text from DRF, 571 ms before the
-// swing the driver reports, and the up fade (flashUpMs) should end as the page settles.
-X("Light", flashDimMs, int32_t, -570, -800, 800, 10, "ms")             // flash duck: dark this much after the swing
-X("Light", flashRestoreMs, int32_t, -500, -800, 800, 10, "ms")         // flash duck: back up this much after the end
+// Flash duck, per waveform: dark this much after the swing the driver reports, back up this much after
+// the refresh ends. AA page (direct gray, log 20260930T213400Z-14588105-psram-duck): text flashes from DRF,
+// 571 ms before the reported background swing; up fade (flashUpMs) done ~200 ms before the 1192 ms end.
+// Half/Full (OTP GC) and DU paints (menus, drawer over gray; 2 x 12 frames ~663 ms) swing from DRF and
+// flash to their end, so the up fade ends with the refresh.
+X("Light", flashGrayDimMs, int32_t, -570, -800, 800, 10, "ms")         // AA page turn
+X("Light", flashGrayRestoreMs, int32_t, -500, -800, 800, 10, "ms")
+X("Light", flashFullDimMs, int32_t, 0, -800, 800, 10, "ms")            // Half/Full
+X("Light", flashFullRestoreMs, int32_t, -300, -800, 800, 10, "ms")
+X("Light", flashPaintDimMs, int32_t, 0, -800, 800, 10, "ms")           // menu / drawer over gray
+X("Light", flashPaintRestoreMs, int32_t, -300, -800, 800, 10, "ms")
 X("Light", flashDownMs, unsigned long, 80, 0, 500, 10, "ms")           // flash duck fade out
 X("Light", flashUpMs, unsigned long, 300, 0, 2000, 50, "ms")           // flash duck fade in
 X("Light", flashMaxMs, unsigned long, 3000, 500, 10000, 500, "ms")     // a flash mark older than this is dropped
