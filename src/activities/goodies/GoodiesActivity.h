@@ -10,6 +10,14 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
+// Background Wi-Fi remote (Goodies > Wi-Fi remote): a log-only web server
+// that outlives Goodies, so /api/psram-log answers while other screens run.
+// stop() turns Wi-Fi off and is a no-op when not started. Main task only.
+namespace goodies_remote {
+bool running();
+void stop();
+}  // namespace goodies_remote
+
 // Debug-build Goodies menu (CROSSDINK_GOODIES). Root lists the tools; the
 // Display test level lists built-in tests, then /debug/display/*.txt.
 class GoodiesActivity final : public Activity {
@@ -28,6 +36,7 @@ class GoodiesActivity final : public Activity {
     std::string label;
     int builtIn;       // >= 0: display_script::BUILT_INS index
     std::string path;  // SD script when builtIn < 0
+    std::string value = {};
   };
 
   Level level = Level::Root;
@@ -45,6 +54,7 @@ class GoodiesActivity final : public Activity {
 
   void showLevel(Level next);
   void activate(int index);
+  void toggleRemote();
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);

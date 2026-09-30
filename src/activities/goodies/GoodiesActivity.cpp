@@ -2,9 +2,13 @@
 
 #if CROSSDINK_GOODIES
 
+#include <ESPmDNS.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Logging.h>
+#include <Memory.h>
+#include <WiFi.h>
 
 #include <algorithm>
 #include <cstring>
@@ -12,9 +16,11 @@
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
 #include "MappedInputManager.h"
+#include "activities/network/WifiSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "network/CrossPointWebServer.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -23,7 +29,43 @@ constexpr char DISPLAY_TEST_DIR[] = "/debug/display";
 constexpr size_t MAX_SD_TESTS = 64;
 
 bool hasTxtExtension(const char* name, const size_t len) { return len > 4 && strcasecmp(name + len - 4, ".txt") == 0; }
+
+std::unique_ptr<CrossPointWebServer> remoteServer;
+std::string remoteIp;
+
+// Wi-Fi is already connected (WifiSelectionActivity succeeded).
+bool startRemote() {
+  remoteServer = makeUniqueNoThrow<CrossPointWebServer>();
+  if (remoteServer) remoteServer->begin(/*logOnly=*/true);
+  if (!remoteServer || !remoteServer->isRunning()) {
+    LOG_ERR("GDY", "wifi remote: web server did not start");
+    goodies_remote::stop();
+    return false;
+  }
+  MDNS.begin("crosspoint");
+  remoteIp = WiFi.localIP().toString().c_str();
+  LOG_INF("GDY", "wifi remote on: http://%s/api/psram-log", remoteIp.c_str());
+  return true;
+}
 }  // namespace
+
+namespace goodies_remote {
+bool running() { return remoteServer && remoteServer->isRunning() && WiFi.status() == WL_CONNECTED; }
+
+void stop() {
+  if (!remoteServer) return;
+  remoteServer->stop();
+  remoteServer.reset();
+  MDNS.end();
+  WiFi.disconnect(false);
+  // As leaveNetworkInPlace(): the server's stop() left modem sleep off, which
+  // Arduino would carry into the next Wi-Fi session.
+  WiFi.setSleep(true);
+  WiFi.mode(WIFI_OFF);
+  remoteIp.clear();
+  LOG_INF("GDY", "wifi remote off");
+}
+}  // namespace goodies_remote
 
 GoodiesActivity::GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : Activity("Goodies", renderer, mappedInput),
@@ -44,6 +86,7 @@ void GoodiesActivity::showLevel(const Level next) {
   entries.clear();
   if (level == Level::Root) {
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
+    entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, goodies_remote::running() ? remoteIp : tr(STR_STATE_OFF)});
   } else {
     entries.reserve(display_script::BUILT_IN_COUNT + 8);
     for (int i = 0; i < display_script::BUILT_IN_COUNT; ++i) {
@@ -71,6 +114,7 @@ void GoodiesActivity::showLevel(const Level next) {
   for (size_t i = 0; i < entries.size(); ++i) {
     rowItems[i].label = entries[i].label.c_str();
     rowItems[i].actionValue = static_cast<int16_t>(i);
+    if (!entries[i].value.empty()) rowItems[i].value = entries[i].value.c_str();
   }
   selectedIndex = 0;
   topIndex = 0;
@@ -84,7 +128,11 @@ void GoodiesActivity::activate(const int index) {
   if (index < 0 || index >= static_cast<int>(entries.size())) return;
   app.clearTapFlash();
   if (level == Level::Root) {
-    showLevel(Level::DisplayTests);
+    if (index == 0) {
+      showLevel(Level::DisplayTests);
+    } else {
+      toggleRemote();
+    }
     return;
   }
   const Entry& entry = entries[index];
@@ -94,6 +142,22 @@ void GoodiesActivity::activate(const int index) {
         mappedInput.suppressNextConfirmRelease();
         requestUpdate();
       });
+}
+
+void GoodiesActivity::toggleRemote() {
+  if (goodies_remote::running()) {
+    goodies_remote::stop();
+    showLevel(Level::Root);
+    return;
+  }
+  goodies_remote::stop();  // a server left behind when the link dropped; no-op otherwise
+  // The Wi-Fi picker auto-joins a saved network and leaves Wi-Fi up on success.
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) {
+                           mappedInput.suppressNextConfirmRelease();
+                           if (!result.isCancelled) startRemote();
+                           showLevel(Level::Root);
+                         });
 }
 
 void GoodiesActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
