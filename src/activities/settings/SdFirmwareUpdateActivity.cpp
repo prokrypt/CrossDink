@@ -7,9 +7,6 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <esp_ota_ops.h>
-#ifndef SIMULATOR
-#include <FreeInkDisplay.h>
-#endif
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
@@ -19,15 +16,11 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
-#include "util/BlackRedriveLut.h"
 
 namespace {
 // Each progress repaint competes with the flash loop for the CPU and, on
-// shared-bus boards, the SPI bus. With the keyboard DU LUT a repaint is short
-// enough for 5% steps.
-constexpr unsigned int PROGRESS_STEP_PERCENT = 5;
-// DU frames for progress repaints (the keyboard's tested "63 6" setting).
-constexpr uint8_t PROGRESS_LUT_FRAMES = 6;
+// shared-bus boards, the SPI bus.
+constexpr unsigned int PROGRESS_STEP_PERCENT = 10;
 
 // What went wrong, for the failure screen. Integrity failures come from the
 // check that runs while the image is written.
@@ -72,9 +65,6 @@ void SdFirmwareUpdateActivity::onEnter() {
 void SdFirmwareUpdateActivity::onExit() {
   Activity::onExit();
   flashLight.end();
-#ifndef SIMULATOR
-  freeink::setUc8179KbdExperiment(nullptr);  // render() may have left the progress LUT on
-#endif
 }
 
 void SdFirmwareUpdateActivity::launchPicker() {
@@ -293,39 +283,6 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   // A preselected file goes straight to validation: the blank picking frame
   // would only cost a refresh before it.
   if (state == State::PICKING && !preselectedPath.empty() && !recoveryMode) return;
-  bool openingScrub = false;
-#ifndef SIMULATOR
-  // Trial (log item 9): progress repaints use the keyboard's DU LUT
-  // (~230 ms instead of the ~560 ms OTP fast refresh) while flashing, so each
-  // one holds the flash loop's SPI/cache for less time. Off in every other state.
-  const bool entering = BlackRedriveLut::entering(redriveOn, state == State::UPDATING);
-  if (state == State::UPDATING && !entering) {
-    freeink::Uc8179KbdExperiment exp;
-    exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
-    exp.lutFrames = PROGRESS_LUT_FRAMES;
-    freeink::setUc8179KbdExperiment(&exp);
-  } else if (entering) {
-    // The first flashing frame replaces the confirm dialog: OTP Fast, as the
-    // one-way DU drive would add charge over it. Later repaints use the DU LUT.
-    freeink::setUc8179KbdExperiment(nullptr);
-    LOG_DBG("FW", "Frame refresh=otp-entry");
-  } else {
-    freeink::setUc8179KbdExperiment(nullptr);
-    // After a File Transfer exit the first frame lands on the retained QR
-    // screen: a long DU scrub clears it without the Half flash (UC8179 only;
-    // main.cpp skips its Half clear there).
-    if (scrubOpeningFrame) {
-      scrubOpeningFrame = false;
-      openingScrub = true;
-      freeink::Uc8179KbdExperiment exp;
-      exp.flags = freeink::Uc8179KbdExperiment::KbdLut;
-      exp.lutFrames = BlackRedriveLut::SCRUB_FRAMES;
-      freeink::setUc8179KbdExperiment(&exp);
-      freeink::requestUc8179DuScrubNext();
-      LOG_DBG("FW", "Opening frame refresh=du-scrub");
-    }
-  }
-#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -390,10 +347,4 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   }
 
   renderer.displayBuffer();
-#ifndef SIMULATOR
-  // The driver latched the scrub; the confirm dialog on top keeps the stock waveform.
-  if (openingScrub) freeink::setUc8179KbdExperiment(nullptr);
-#else
-  (void)openingScrub;
-#endif
 }

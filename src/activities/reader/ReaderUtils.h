@@ -14,7 +14,6 @@
 #include "MappedInputManager.h"
 #include "ReaderStatusBarTapTarget.h"
 #include "components/UITheme.h"
-#include "util/BlackRedriveLut.h"
 
 namespace ReaderUtils {
 
@@ -231,14 +230,11 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
 }
 
-// Mode for a ghost cleanup (cadence, reader entry, image gray residue). The
-// UC8179 (X4 Pro) runs the Half as a no-flash DU scrub; other panels keep the
-// Half. A negative countdown is the manual Refresh Screen shortcut, which keeps
-// its own mode. Call right before the display call: the scrub is one-shot.
+// Mode for a ghost cleanup (cadence, reader entry, image gray residue): the
+// panel's balanced Half. A negative countdown is the manual Refresh Screen
+// shortcut, which keeps its own mode.
 inline HalDisplay::RefreshMode cleanupRefreshMode(const int pagesUntilFullRefresh) {
-  if (pagesUntilFullRefresh < 0) return manualScreenRefreshMode();
-  BlackRedriveLut::scrubNextHalf();
-  return HalDisplay::HALF_REFRESH;
+  return pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH;
 }
 
 // One helper, blocking or deferred: the async form starts the refresh and

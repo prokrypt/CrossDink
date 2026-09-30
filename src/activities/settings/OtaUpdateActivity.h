@@ -22,7 +22,6 @@ class OtaUpdateActivity : public Activity {
 
   State state = WIFI_SELECTION;
   ScreenTransitionRefresh screenTransitionRefresh;
-  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
   unsigned int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
   StrId failureMessage = StrId::STR_UPDATE_FAILED;
   OtaUpdater updater;

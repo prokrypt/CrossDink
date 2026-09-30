@@ -8211,13 +8211,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       // area with blank+FAST (HALF sets particles too firmly for the gray LUT).
       const bool cleanBase =
           cleanImageBasePending || (directImageBase && pagesUntilFullRefresh <= 1 && !sameGrayImage);
-      // UC8179: the cleanup is a no-flash DU scrub straight to the composed
-      // page, which also serves as the grayscale base (no blank, no second
-      // base refresh). The manual Refresh Screen keeps the legacy sequence.
-      const bool scrubBase = cleanBase && directImageBase && pagesUntilFullRefresh >= 0;
       // UC8179's base waveform transitions directly from the displayed page.
       // Keep blanking for other controllers and for a pending strong cleanup.
-      const bool blankImage = !scrubBase && (!directImageBase || cleanBase);
+      const bool blankImage = !directImageBase || cleanBase;
       if (blankImage) {
         renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
       }
@@ -8233,20 +8229,18 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
         // Restore the composed image after legacy blanking or strong cleanup.
         composePageBuffer();
       }
-      if (!scrubBase) {
-        // The restored image frame becomes the base for the grayscale image
-        // planes below. On X3, use the same grayscale-aware base waveform as
-        // text-only grayscale turns; other panels keep the FAST fallback behavior.
-        // X4 Pro: run that base in the background and render the AA planes
-        // into PSRAM meanwhile, as text pages do.
-        deferredGrayscaleBase = directImageBase && !cleanBase && needsAnyGrayscale && !tiledGrayscale &&
-                                renderer.supportsDeferredGrayscaleBase() &&
-                                allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
-        if (deferredGrayscaleBase) {
-          baseRefreshPending = renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
-        } else {
-          renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
-        }
+      // The restored image frame becomes the base for the grayscale image
+      // planes below. On X3, use the same grayscale-aware base waveform as
+      // text-only grayscale turns; other panels keep the FAST fallback behavior.
+      // X4 Pro: run that base in the background and render the AA planes
+      // into PSRAM meanwhile, as text pages do.
+      deferredGrayscaleBase = directImageBase && !cleanBase && needsAnyGrayscale && !tiledGrayscale &&
+                              renderer.supportsDeferredGrayscaleBase() &&
+                              allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+      if (deferredGrayscaleBase) {
+        baseRefreshPending = renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
+      } else {
+        renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
       }
     } else {
       renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
@@ -8258,8 +8252,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // pages stay flash-free.
   } else if (needsAnyGrayscale) {
     if (pagesUntilFullRefresh <= 1) {
-      // Cleanup turns still need the stronger HALF pass (a DU scrub on the
-      // X4 Pro), but X3 grayscale overlays settle better if the OEM
+      // Cleanup turns still need the stronger HALF pass, but X3 grayscale overlays settle better if the OEM
       // precondition step runs before the gray planes are written.
       renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
       renderer.preconditionGrayscale();

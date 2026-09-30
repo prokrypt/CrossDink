@@ -92,11 +92,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // render() rebuilds the app's interaction table; loop() only routes touch
   // snapshots against it while this is true (the two run on different tasks).
   std::atomic<bool> uiReady{false};
-  // The first OPDS frame and the first download frame are DU scrubs: DU
-  // alone leaves the previous screen (menu, book list) ghosted underneath.
-  std::atomic<bool> scrubNextFrame{false};
   // Last download frame sent to the panel (render task only). A re-render with
-  // the same progress (the dialog closing right after the scrub frame) skips
+  // the same progress (the dialog closing right after the first frame) skips
   // its refresh.
   struct ShownDownloadFrame {
     bool valid = false;

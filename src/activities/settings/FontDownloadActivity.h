@@ -84,7 +84,6 @@ class FontDownloadActivity : public Activity {
   };
 
   State state_ = WIFI_SELECTION;
-  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
   ScreenTransitionRefresh screenTransitionRefresh_;
   FontInstaller fontInstaller_;
   ButtonNavigator buttonNavigator_;

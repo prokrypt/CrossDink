@@ -64,7 +64,6 @@ class NearbyBookTransferActivity final : public Activity {
   Mode mode_;
   State state_ = State::ChooseReceiveAction;
   ScreenTransitionRefresh screenTransitionRefresh_;
-  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
   std::string sourcePath_;
   bool returnToReader_ = false;
   bool radioUsed_ = false;

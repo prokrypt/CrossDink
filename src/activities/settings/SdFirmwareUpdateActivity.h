@@ -35,8 +35,7 @@ class SdFirmwareUpdateActivity : public Activity {
                                     std::string preselectedPath = {})
       : Activity("SdFirmwareUpdate", renderer, mappedInput),
         recoveryMode(recoveryMode),
-        preselectedPath(std::move(preselectedPath)),
-        scrubOpeningFrame(!this->preselectedPath.empty()) {}
+        preselectedPath(std::move(preselectedPath)) {}
 
   void onEnter() override;
   void onExit() override;
@@ -47,11 +46,8 @@ class SdFirmwareUpdateActivity : public Activity {
 
  private:
   State state = State::PICKING;
-  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
   bool recoveryMode = false;
   std::string preselectedPath;
-  // After a File Transfer exit the first frame DU-scrubs the old QR screen.
-  bool scrubOpeningFrame = false;  // render task only
 
   std::string firmwarePath;
   size_t firmwareSize = 0;

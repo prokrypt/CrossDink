@@ -55,10 +55,10 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_OTP_ON_OPEN = 64;
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
-  // Settings > Turbo keyboard: 1+2+4, opening with plain OTP Fast (64) and no
-  // close cleanup (the next screen's OTP Fast frame clears the keys).
-  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
-      KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_OTP_ON_OPEN;
+  // Settings > Turbo keyboard: 1+2 (windowed upload, no OLD resync) on the
+  // panel's OTP Fast. No DU LUT (4): it drives each pixel one way only, and
+  // repeated keystrokes build up charge. 64: plain first frame, no cleanup.
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_OTP_ON_OPEN;
   // DU LUT drive frames: 3 left heavy ghosting on the X4 Pro; 6 is the
   // setting tested on hardware ("63 6").
   static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;

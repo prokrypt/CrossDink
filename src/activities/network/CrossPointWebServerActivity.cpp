@@ -22,7 +22,6 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/BlackRedriveLut.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -332,7 +331,6 @@ void CrossPointWebServerActivity::startWebServer() {
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;
-    cleanFirstQrFrame.store(true, std::memory_order_release);
     // The pulse (and its 0% idle level) starts only once the server is up, so
     // the mode menu and Wi-Fi picker keep the user's brightness.
     transferLight.begin();
@@ -451,15 +449,6 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
       const auto height = renderer.getLineHeight(UI_10_FONT_ID);
       const auto top = (pageHeight - height) / 2;
       renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_STARTING_HOTSPOT));
-    }
-    // Progress repaints loop fast refreshes: re-drive still blacks (header fade).
-    const bool serverRunning = state == WebServerActivityState::SERVER_RUNNING;
-    // The QR appears over the Wi-Fi list or keyboard: that first frame stays
-    // OTP Fast (the one-way DU drive adds charge). Later repaints use DU.
-    const bool scrub = serverRunning && cleanFirstQrFrame.exchange(false, std::memory_order_acq_rel);
-    const BlackRedriveLut redriveLut(serverRunning, scrub);
-    if (serverRunning) {
-      LOG_DBG("WEBACT", "QR frame refresh=%s", scrub ? "otp-entry" : "du-redrive");
     }
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
   }

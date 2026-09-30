@@ -18,7 +18,6 @@ enum class CalibreConnectState { WIFI_SELECTION, SERVER_STARTING, SERVER_RUNNING
 class CalibreConnectActivity final : public Activity {
   CalibreConnectState state = CalibreConnectState::WIFI_SELECTION;
   ScreenTransitionRefresh screenTransitionRefresh;
-  bool redriveOn = false;  // render task only; see BlackRedriveLut::entering
 
   std::unique_ptr<CrossPointWebServer> webServer;
   TransferLightPulse transferLight;
