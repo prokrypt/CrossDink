@@ -89,8 +89,10 @@ class CrossPointWebServer {
 
   // Start the web server (call after WiFi is connected). Requests are served
   // on a dedicated task on the worker core; the server objects belong to that
-  // task until stop() returns.
-  void begin();
+  // task until stop() returns. `logOnly` serves just /api/psram-log (Goodies >
+  // Wi-Fi remote): no file, settings, status, WebSocket or discovery handlers,
+  // so nothing touches the SD card or I2C behind other screens.
+  void begin(bool logOnly = false);
 
   // Stop the web server. Waits for the serving task to finish its current
   // request, so never call it from a request handler.

@@ -5,6 +5,13 @@
 - **Display test** lists the built-in tests (`src/activities/goodies/DisplayScript.cpp`), then every
   `/debug/display/*.txt` on the SD card, sorted by file name. New tests need no reflash: drop a file in
   that folder.
+- **Wi-Fi remote** (value column: `OFF` or the device IP) opens the Wi-Fi picker, which joins a saved network,
+  then keeps Wi-Fi up in the background with a log-only web server: `GET /api/psram-log` (also
+  `http://crosspoint.local/api/psram-log`). It has no file, settings, upload or `/api/status` routes, so
+  nothing touches the SD card or the I2C bus behind other screens. Tap again to turn Wi-Fi off. Opening File Transfer or
+  Calibre Connect stops it; so do sleep and any screen that turns Wi-Fi off (OPDS, KOSync): the row then
+  reads `OFF`, tap to start it again. While on, the CPU stays at full clock (Wi-Fi blocks power saving), so
+  it costs battery, not latency.
 
 Back stops a running test; Back again leaves the result screen.
 

@@ -449,7 +449,7 @@ CrossPointWebServer::~CrossPointWebServer() {
   if (serverStopped) vSemaphoreDelete(serverStopped);
 }
 
-void CrossPointWebServer::begin() {
+void CrossPointWebServer::begin(const bool logOnly) {
   if (running) {
     LOG_DBG("WEB", "Web server already running");
     return;
@@ -505,75 +505,80 @@ void CrossPointWebServer::begin() {
   server->enableCORS(true);
 
   // Setup routes
-  server->on("/", HTTP_GET, [this] { handleRoot(); });
-  server->on("/files", HTTP_GET, [this] { handleFileList(); });
-  server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
-  server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
-  server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
-
-  server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
 #if CROSSDINK_PSRAM_LOG
   server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
 #endif
-  server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
-  server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
-  server->on("/download", HTTP_GET, [this] { handleDownload(); });
-
-  // Upload endpoint with special handling for multipart form data
-  server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
-
-  // Create folder endpoint
-  server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
-
-  // Rename file endpoint
-  server->on("/rename", HTTP_POST, [this] { handleRename(); });
-
-  // Move file endpoint
-  server->on("/move", HTTP_POST, [this] { handleMove(); });
-
-  // Delete file/folder endpoint
-  server->on("/delete", HTTP_POST, [this] { handleDelete(); });
-
-  // Settings endpoints
-  server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
-  server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
-  server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
-  server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
-  server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
-
-  // Font management endpoints
-  server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
-  server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
-  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
-  server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
-
-  // OPDS server endpoints
-  server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
-  server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
-  server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
-
-  // Wi-Fi credential endpoints
-  server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
-  server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
-  server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
-
   server->onNotFound([this] { handleNotFound(); });
+  if (logOnly) {
+    // Nothing else: no SD access behind other screens, and /api/status's
+    // battery and sensor I2C reads would race touch polling there.
+    server->begin();
+  } else {
+    server->on("/", HTTP_GET, [this] { handleRoot(); });
+    server->on("/files", HTTP_GET, [this] { handleFileList(); });
+    server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
+    server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
+    server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
-  // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
-  server->collectHeaders(davHeaders, 7);
-  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+    server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+    server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
+    server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+    server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
-  server->begin();
+    // Upload endpoint with special handling for multipart form data
+    server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
 
-  // Start WebSocket server for fast binary uploads
-  wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
-  wsInstance = const_cast<CrossPointWebServer*>(this);
-  wsServer->begin();
-  wsServer->onEvent(wsEventCallback);
+    // Create folder endpoint
+    server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
 
-  udpActive = udp.begin(LOCAL_UDP_PORT);
-  LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+    // Rename file endpoint
+    server->on("/rename", HTTP_POST, [this] { handleRename(); });
+
+    // Move file endpoint
+    server->on("/move", HTTP_POST, [this] { handleMove(); });
+
+    // Delete file/folder endpoint
+    server->on("/delete", HTTP_POST, [this] { handleDelete(); });
+
+    // Settings endpoints
+    server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
+    server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
+    server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+    server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
+    server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
+
+    // Font management endpoints
+    server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
+    server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
+    server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
+    server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+    // OPDS server endpoints
+    server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
+    server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
+    server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
+
+    // Wi-Fi credential endpoints
+    server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
+    server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
+    server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+
+    // Collect WebDAV headers and register handler
+    const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
+    server->collectHeaders(davHeaders, 7);
+    server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+
+    server->begin();
+
+    // Start WebSocket server for fast binary uploads
+    wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
+    wsInstance = const_cast<CrossPointWebServer*>(this);
+    wsServer->begin();
+    wsServer->onEvent(wsEventCallback);
+
+    udpActive = udp.begin(LOCAL_UDP_PORT);
+    LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+  }
   psramSmallAllocs.end();
 
   // Do not subscribe the serving task to the task watchdog. Arduino WebServer
