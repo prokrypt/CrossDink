@@ -61,6 +61,11 @@ class Activity {
   virtual bool preventAutoSleep() { return false; }
   // Owns the radio while on the stack (joins, scans, AP, ESP-NOW, its own server).
   virtual bool usesWifi() const { return false; }
+  // A usesWifi() screen that only makes HTTP/NTP requests on the station link
+  // (OPDS, OTA check, font download, clock sync, KOReader login): the Goodies
+  // Wi-Fi remote keeps serving beside it. Not for screens that need port 80,
+  // ESP-NOW, AP mode or scans.
+  virtual bool sharesWifiWithRemote() const { return false; }
   // Screens that mostly sit idle (file transfer and similar) switch the
   // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }

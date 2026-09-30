@@ -205,6 +205,8 @@ class ActivityManager {
   bool hasActivityNamed(const char* activityName) const;
   // Any activity on the stack (or pending) owns the radio. Main task only.
   bool anyActivityUsesWifi() const;
+  // Every Wi-Fi activity on the stack shares its link with the remote. Main task only.
+  bool wifiActivitiesShareRemote() const;
 #ifdef SIMULATOR
   bool isCurrentActivityNamed(const char* activityName) const;
 #endif
