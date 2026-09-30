@@ -104,11 +104,3 @@ TEST(OpdsPageCacheTest, SameFeedIgnoresUpdatedStamps) {
   EXPECT_FALSE(OpdsPageCache::sameFeed(a, d));
   EXPECT_TRUE(OpdsPageCache::sameFeed(pageOf("x<updated>1"), pageOf("x<updated>22")));
 }
-
-TEST(OpdsPageCacheTest, IsStaleByStoreTime) {
-  OpdsPageCache cache(1024 * 1024);
-  EXPECT_FALSE(cache.isStale("u", 100000, 30000));
-  ASSERT_TRUE(cache.store("u", makePage(10), true, 1000));
-  EXPECT_FALSE(cache.isStale("u", 30999, 30000));
-  EXPECT_TRUE(cache.isStale("u", 31000, 30000));
-}

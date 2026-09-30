@@ -58,6 +58,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // Set when Back (button or header tap) cancels a foreground feed fetch;
   // fetchFeed() then goes back instead of showing the fetch error.
   bool fetchCancelled = false;
+  // Set by loadFeed(): the page came straight from the cache, not the network.
+  bool shownFromCache = false;
   // PSRAM devices only (null on C3): raw feed pages for Back/Prev, and the
   // background downloads of the next page and the first page's feeds.
   // Declared so the pool is destroyed (joined) before the cache.
@@ -137,7 +139,9 @@ class OpdsBookBrowserActivity final : public Activity {
   void showLoadingBeforeFetch(const std::string& path);
   void pushHistory() { navigationHistory.push_back(HistoryEntry{currentPath, selectorIndex, topIndex}); }
   // restoreRow/restoreTop: selection and scroll to show once loaded (Back).
-  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0);
+  // recheck: refetch a page shown from the cache in the background (off for
+  // the redraw a recheck itself triggers).
+  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0, bool recheck = true);
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser);
