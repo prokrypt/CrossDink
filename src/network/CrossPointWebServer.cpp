@@ -511,6 +511,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
 #endif
 #if CROSSDINK_SERIAL_REMOTE
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
+  server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
 #endif
   server->onNotFound([this] { handleNotFound(); });
   if (logOnly) {
@@ -944,10 +945,28 @@ void CrossPointWebServer::handlePsramLog() const {
 // Debug builds: runs one serial-remote command (docs/serial-remote.md) on the
 // main task. Token and SD access stay on the main task too.
 void CrossPointWebServer::handleRemoteCmd() const {
+  if (server->arg("cmd") == "SCREENSHOT") return handleScreenshot();
   static char out[256];  // Static: server task only, keeps the reply off its stack
   const int status =
       SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(), out, sizeof(out), 12000);
   server->send(status, "text/plain; charset=utf-8", out);
+}
+
+// Debug builds: the current framebuffer as a PBM, captured on the main task
+// under the render lock (so never half-drawn) and sent from its static copy.
+void CrossPointWebServer::handleScreenshot() const {
+  static char out[64];
+  const int status =
+      SerialRemote::runFromOtherTask(server->arg("token").c_str(), "SCREENSHOT", out, sizeof(out), 12000);
+  if (status != 200) {
+    server->send(status, "text/plain; charset=utf-8", out);
+    return;
+  }
+  size_t len = 0;
+  const uint8_t* pbm = SerialRemote::screenshot(len);
+  server->setContentLength(len);
+  server->send(200, "image/x-portable-bitmap", "");
+  server->sendContent(reinterpret_cast<const char*>(pbm), len);
 }
 #endif
 

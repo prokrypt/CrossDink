@@ -21,6 +21,9 @@ void poll();
 // must match /debug/remote-token on the SD card (no file = disabled). Returns
 // an HTTP status: 200, 403 bad token, 404 unknown command, 503 busy/timeout.
 int runFromOtherTask(const char* token, const char* cmd, char* out, size_t outLen, uint32_t timeoutMs);
+// After runFromOtherTask(..., "SCREENSHOT", ...) returned 200: the PBM image the
+// main task captured. Server task only; valid until the next SCREENSHOT.
+const uint8_t* screenshot(size_t& len);
 #else
 inline bool handleLine(const char*) { return false; }
 inline void poll() {}

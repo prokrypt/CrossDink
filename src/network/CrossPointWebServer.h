@@ -185,6 +185,7 @@ class CrossPointWebServer {
 #if CROSSDINK_PSRAM_LOG
   void handlePsramLog() const;
   void handleRemoteCmd() const;
+  void handleScreenshot() const;
 #endif
   void handleExit();
   void handleFileList() const;
