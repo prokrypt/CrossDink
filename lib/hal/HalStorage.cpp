@@ -23,6 +23,19 @@
 
 #include "HalSpiBus.h"
 
+#if CROSSDINK_PERF_LOG
+// Debug trace of SD mutations ([SDW]); only successful ones, since a failed
+// remove or mkdir probe changed nothing on the card.
+#define SDW_LOG(ok, fmt, ...)                   \
+  do {                                          \
+    if (ok) LOG_DBG("SDW", fmt, ##__VA_ARGS__); \
+  } while (0)
+#else
+#define SDW_LOG(ok, fmt, ...) \
+  do {                        \
+  } while (0)
+#endif
+
 #define SDCard SDCardManager::getInstance()
 
 HalStorage HalStorage::instance;
@@ -358,10 +371,30 @@ size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t buffe
 
 bool HalStorage::writeFile(const char* path, const String& content) {
   if (affectsLibrary(path)) markLibraryContentChanged(path);
-  HAL_STORAGE_WRAPPED_CALL(writeFile, path, content);
+  bool ok;
+  {
+    StorageLock lock;
+    ok = SDCard.writeFile(path, content);
+  }
+  SDW_LOG(ok, "write - %s %u B", path, static_cast<unsigned>(content.length()));
+  return ok;
 }
 
-bool HalStorage::ensureDirectoryExists(const char* path) { HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path); }
+bool HalStorage::ensureDirectoryExists(const char* path) {
+#if CROSSDINK_PERF_LOG
+  bool ok;
+  bool existed;
+  {
+    StorageLock lock;
+    existed = SDCard.exists(path);
+    ok = SDCard.ensureDirectoryExists(path);
+  }
+  SDW_LOG(ok && !existed, "mkdir %s", path);
+  return ok;
+#else
+  HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path);
+#endif
+}
 
 void HalStorage::installDateTimeCallback(const UtcOffsetFn utcOffsetQuarterHoursAt) {
   if (!halClock.isAvailable()) return;
@@ -374,6 +407,20 @@ class HalFile::Impl {
  public:
   Impl(FsFile&& fsFile) : file(std::move(fsFile)) {}
   FsFile file;
+#if CROSSDINK_PERF_LOG
+  // [SDW] bookkeeping for handles opened to write: one line at close with the
+  // path tail, bytes written and time spent in write().
+  void tagWrite(const char* module, const char* path) {
+    writeModule = module ? module : "-";
+    const size_t len = path ? strlen(path) : 0;
+    const char* tail = len >= sizeof(writePath) ? path + len - (sizeof(writePath) - 1) : (path ? path : "");
+    snprintf(writePath, sizeof(writePath), "%s", tail);
+  }
+  const char* writeModule = nullptr;
+  char writePath[56] = "";
+  uint32_t writeBytes = 0;
+  uint32_t writeUs = 0;
+#endif
 };
 
 void HalFile::ImplDeleter::operator()(Impl* const impl) const {
@@ -433,25 +480,61 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
     failed.allocationFailed_ = true;
     return failed;
   }
+#if CROSSDINK_PERF_LOG
+  if ((oflag & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)) != 0) impl->tagWrite(nullptr, path);
+#endif
   return HalFile(std::move(impl));
 }
 
-bool HalStorage::mkdir(const char* path, const bool pFlag) { HAL_STORAGE_WRAPPED_CALL(mkdir, path, pFlag); }
+bool HalStorage::mkdir(const char* path, const bool pFlag) {
+#if CROSSDINK_PERF_LOG
+  bool ok;
+  bool existed;
+  {
+    StorageLock lock;
+    // Probe so the common mkdir of an existing directory is not logged.
+    existed = SDCard.exists(path);
+    ok = SDCard.mkdir(path, pFlag);
+  }
+  SDW_LOG(ok && !existed, "mkdir %s", path);
+  return ok;
+#else
+  HAL_STORAGE_WRAPPED_CALL(mkdir, path, pFlag);
+#endif
+}
 
 bool HalStorage::exists(const char* path) { HAL_STORAGE_WRAPPED_CALL(exists, path); }
 
 bool HalStorage::remove(const char* path) {
   if (affectsLibrary(path)) markLibraryContentChanged(path);
-  HAL_STORAGE_WRAPPED_CALL(remove, path);
+  bool ok;
+  {
+    StorageLock lock;
+    ok = SDCard.remove(path);
+  }
+  SDW_LOG(ok, "remove %s", path);
+  return ok;
 }
 bool HalStorage::rename(const char* oldPath, const char* newPath) {
   if (affectsLibrary(oldPath) || affectsLibrary(newPath)) markLibraryContentChanged(newPath);
-  HAL_STORAGE_WRAPPED_CALL(rename, oldPath, newPath);
+  bool ok;
+  {
+    StorageLock lock;
+    ok = SDCard.rename(oldPath, newPath);
+  }
+  SDW_LOG(ok, "rename %s -> %s", oldPath, newPath);
+  return ok;
 }
 
 bool HalStorage::rmdir(const char* path) {
   if (isFolderMutation(path)) markLibraryContentChanged(path);
-  HAL_STORAGE_WRAPPED_CALL(rmdir, path);
+  bool ok;
+  {
+    StorageLock lock;
+    ok = SDCard.rmdir(path);
+  }
+  SDW_LOG(ok, "rmdir %s", path);
+  return ok;
 }
 
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
@@ -526,6 +609,9 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
     fsFile.close();
     return false;
   }
+#if CROSSDINK_PERF_LOG
+  impl->tagWrite(moduleName, path);
+#endif
   file = HalFile(std::move(impl));
   return true;
 }
@@ -637,18 +723,43 @@ size_t HalFile::write(const void* buf, size_t count) {
   assert(impl != nullptr);
   const uint32_t startUs = micros();
   const size_t n = impl->file.write(buf, count);
-  PerfLog::noteSdWrite(static_cast<uint32_t>(n), micros() - startUs);
+  const uint32_t us = micros() - startUs;
+  PerfLog::noteSdWrite(static_cast<uint32_t>(n), us);
+  impl->writeBytes += n;
+  impl->writeUs += us;
   return n;
 #else
   HAL_FILE_WRAPPED_CALL(write, buf, count);
 #endif
 }
-size_t HalFile::write(uint8_t b) { HAL_FILE_WRAPPED_CALL(write, b); }
+size_t HalFile::write(uint8_t b) {
+#if CROSSDINK_PERF_LOG
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr);
+  const size_t n = impl->file.write(b);
+  impl->writeBytes += n;
+  return n;
+#else
+  HAL_FILE_WRAPPED_CALL(write, b);
+#endif
+}
 bool HalFile::sync() { HAL_FILE_WRAPPED_CALL(sync, ); }
 bool HalFile::rename(const char* newPath) {
   // The old name is unknown here; treat any handle rename as a content change.
   Storage.markLibraryContentChanged(newPath);
+#if CROSSDINK_PERF_LOG
+  bool ok;
+  {
+    HalStorage::StorageLock lock;
+    assert(impl != nullptr);
+    ok = impl->file.rename(newPath);
+  }
+  SDW_LOG(ok, "rename (handle) -> %s", newPath);
+  if (ok && impl->writeModule) impl->tagWrite(impl->writeModule, newPath);
+  return ok;
+#else
   HAL_FILE_WRAPPED_CALL(rename, newPath);
+#endif
 }
 bool HalFile::isDirectory() const { HAL_FILE_FORWARD_CALL(isDirectory, ); }  // already thread-safe, no need to wrap
 void HalFile::rewindDirectory() {
@@ -662,11 +773,26 @@ void HalFile::rewindDirectory() {
 }
 bool HalFile::close() {
   if (!impl) return true;
-  HalStorage::StorageLock lock;
-  const bool ok = impl->file.close();
-  impl.reset();
+#if CROSSDINK_PERF_LOG
+  const char* module = impl->writeModule;
+  char path[sizeof(impl->writePath)];
+  memcpy(path, impl->writePath, sizeof(path));
+  const uint32_t bytes = impl->writeBytes;
+  const uint32_t us = impl->writeUs;
+#endif
+  bool ok;
+  {
+    HalStorage::StorageLock lock;
+    ok = impl->file.close();
+    impl.reset();
+  }
   allocationFailed_ = false;
   iterationFailed_ = false;
+#if CROSSDINK_PERF_LOG
+  // Opened to write: a truncating open is a mutation even with no bytes.
+  SDW_LOG(path[0] != '\0', "write %s %s %lu B %lu ms", module ? module : "-", path, static_cast<unsigned long>(bytes),
+          static_cast<unsigned long>(us / 1000));
+#endif
   return ok;
 }
 HalFile HalFile::openNextFile() {
