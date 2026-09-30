@@ -86,7 +86,7 @@ bool generate(Epub& epub, const Spec& spec) {
   return false;
 }
 
-bool generate(Xtc& xtc, const Spec& spec) {
+bool generate(const Xtc& xtc, const Spec& spec) {
   const uint16_t width = spec.width != 0 ? spec.width : twoThirdsWidth(spec.height);
   return xtc.generateThumbBmp(width, spec.height);
 }

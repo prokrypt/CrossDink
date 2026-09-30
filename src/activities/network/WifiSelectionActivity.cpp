@@ -738,6 +738,7 @@ void WifiSelectionActivity::attemptConnection() {
   connectingScreenDueMs = 0;
   if (autoConnecting) {
     connectingScreenDueMs = connectionStartTime + CONNECTING_SCREEN_DELAY_MS;
+    // cppcheck-suppress knownConditionTrueFalse ; millis() + delay can wrap to 0, which means "not due"
     if (connectingScreenDueMs == 0) connectingScreenDueMs = 1;
   } else {
     requestUpdate();

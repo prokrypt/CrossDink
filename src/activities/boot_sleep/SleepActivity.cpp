@@ -599,6 +599,7 @@ void SleepActivity::onEnter() {
   // takes the reset + OEM power cycle instead of loading its power registers
   // into pumps that may have idled on since the last draw (auto-sleep only).
   freeink::setUc8179KbdExperiment(nullptr);
+  // cppcheck-suppress unreadVariable ; read by LOG_DBG, which release builds compile out
   const bool panelWasOn = display.powerOffIdle();
   LOG_DBG("SLP", "Sleep draw: timeout=%d panelWasOn=%d lastDrfAgoMs=%lu", fromTimeout ? 1 : 0, panelWasOn ? 1 : 0,
           static_cast<unsigned long>(millis() - freeink::uc8179KbdTiming().doneMs));

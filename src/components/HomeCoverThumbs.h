@@ -41,6 +41,6 @@ Specs forCoverGrid(const std::string& bookPath, int thumbWidth, int thumbHeight)
 // Where the spec's thumb lives; empty when it has no path.
 std::string path(const std::string& bookPath, const std::string& coverBmpPath, const Spec& spec);
 bool generate(Epub& epub, const Spec& spec);
-bool generate(Xtc& xtc, const Spec& spec);
+bool generate(const Xtc& xtc, const Spec& spec);
 
 }  // namespace HomeCoverThumbs
