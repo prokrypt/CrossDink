@@ -201,8 +201,8 @@ void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uin
 void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 
 // EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
-// picks "100 4" (flags 100, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
-// flags: 1 = retired (T2 skip OLD resync), 2 = retired (T3 windowed upload), 4 = T4 balanced DU LUT,
+// picks "101 4" (flags 101, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
+// flags: 1 = skip the OLD re-stream after DU frames, 2 = retired (T3 windowed upload), 4 = T4 balanced DU LUT,
 // 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
 // 32 = no tap highlight, 64 = plain OTP Fast first frame, 128 = light sleep during the refresh. Debug builds can
 // override all three values over serial (CMD:KBDEXP).
@@ -1227,7 +1227,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // left NEW stale outside the windows while OLD was resynced from the full
   // framebuffer, so the next refresh could drive those pixels off true state.
   freeink::Uc8179KbdExperiment exp;
-  exp.flags = static_cast<uint8_t>(kbdExpFlags & KBD_EXP_DU_LUT);
+  exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT));
   exp.lutFrames = kbdExpFrames;
   exp.pll = kbdExpPll;  // also on OTP Fast: PLL scales every frame alike, so balance holds
   // The first keyboard frame lands on the previous screen: plain OTP Fast (64)

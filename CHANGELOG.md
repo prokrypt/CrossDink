@@ -50,6 +50,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Turbo keyboard (X4 Pro): about 27 ms less per key when typing quickly; the panel keeps its own copy of the last frame, so the firmware no longer re-sends it after each key.
 - Wi-Fi: after a web request the device drops back to low power 0.5 s later instead of 2 s, and log tail and status polls (`/api/psram-log`, `/api/status`) drop it as soon as they are answered, so a log watcher no longer keeps the device awake. Uploads still run at full power until they finish.
 - X4 Pro: less flashing. Leaving a gray page, or opening a menu over it, repaints only the gray pixels and what changed instead of the whole screen.
 - X4 Pro: opening a book, a new chapter's first page, and returning to Home after Wi-Fi, OPDS, font download or update screens use a plain fast refresh instead of a full flash (about 0.9 s faster each).
