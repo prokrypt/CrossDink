@@ -47,6 +47,9 @@ void poll(uint32_t idleMs);
 void event(const char* name, const char* detail = nullptr);
 // Main loop only. Appends the unflushed rows to the SD file.
 bool flush();
+// Any task: hands the rows not yet on the SD card to sink, oldest first, in
+// chunks (they follow the file's last row). Read-only; the ring keeps them.
+void forEachPending(void (*sink)(void* ctx, const char* data, uint32_t len), void* ctx);
 const Stats& stats();
 // UTC seconds from the RTC, 0 when it is not set.
 uint32_t nowEpoch();

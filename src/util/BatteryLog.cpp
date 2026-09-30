@@ -180,8 +180,8 @@ void writeRow(const char* name, const char* detail) {
   }
   char row[160];
   int n = snprintf(row, sizeof(row), "%lu,%s,%lu,%u,%u,%u,%u,%s,%u,%s,%s\n", static_cast<unsigned long>(epoch), local,
-                   static_cast<unsigned long>(millis()), r.pct, r.mv, r.chg ? 1u : 0u, r.usb ? 1u : 0u, temp,
-                   r.light, name, detail ? detail : "");
+                   static_cast<unsigned long>(millis()), r.pct, r.mv, r.chg ? 1u : 0u, r.usb ? 1u : 0u, temp, r.light,
+                   name, detail ? detail : "");
   if (n <= 0) return;
   if (n >= static_cast<int>(sizeof(row))) {
     n = sizeof(row) - 1;
@@ -345,6 +345,22 @@ bool flush() {
   ring.writeBackHeader();
   LOG_DBG("BAT", "Flushed %lu bytes to %s", static_cast<unsigned long>(head - from), LOG_PATH);
   return true;
+}
+
+void forEachPending(void (*sink)(void*, const char*, uint32_t), void* ctx) {
+  if (!ensureRing()) return;
+  portENTER_CRITICAL_SAFE(&ringMux);
+  const uint32_t head = ring.head;
+  uint32_t at = ring.aux;
+  portEXIT_CRITICAL_SAFE(&ringMux);
+  if (head - at > kRingBytes) at = head - kRingBytes;
+  char chunk[256];
+  while (at != head) {
+    const uint32_t n = std::min(head - at, static_cast<uint32_t>(sizeof(chunk)));
+    ring.copyOut(at, chunk, n);
+    sink(ctx, chunk, n);
+    at += n;
+  }
 }
 
 const Stats& stats() { return st(); }
