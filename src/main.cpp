@@ -28,6 +28,7 @@
 #ifndef SIMULATOR
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
+#include <esp_system.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -411,6 +412,17 @@ static bool retainedPanelFramePresent() { return false; }
 static constexpr bool retainedPanelFrameSeeded = false;
 static void discardRetainedPanelFrame() {}
 static void seedRetainedPanelFrame() {}
+#endif
+
+#ifndef SIMULATOR
+// Every esp_restart() (silent restart, OTA, SD update, remote REBOOT) runs this:
+// it waits out any refresh, then powers the panel off (POF + deep sleep) so the
+// booster is not left on until the reset. The retained frame was already
+// copied by the caller; begin() resets the controller after the reboot.
+static void powerOffPanelOnRestart() {
+  display.deepSleep();
+  LOG_INF("MAIN", "Panel powered off before restart");
+}
 #endif
 
 void restartKeepingPanelFrame() {
@@ -1472,6 +1484,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
+  esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
   if (seamless) {
     seedRetainedPanelFrame();
   } else {
