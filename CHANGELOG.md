@@ -3,6 +3,7 @@
 ### Added
 - Debug builds (X4 Pro): a Goodies entry on Home. Its Display test menu runs built-in refresh tests (modes, ghosting, DU frames, windowed upload, scrubs) and any line-script tests placed in `/debug/display/` on the SD card, logs each refresh's timings, and can ask a Yes/No style question and log the answer. Format: `docs/goodies.md`.
 - Debug builds (X4 Pro): Goodies > Wi-Fi remote joins a saved Wi-Fi network and keeps it up in the background, serving the PSRAM log (`/api/psram-log`) from any screen without opening File Transfer. The row shows the device's address; tap again to turn Wi-Fi off. File Transfer and Calibre Connect take the radio over when opened.
+- Debug builds (X4 Pro): `POST /api/cmd` runs the serial remote commands (keys, touch, typing, `KBDEXP`, settings) over Wi-Fi, from Goodies > Wi-Fi remote or File Transfer. Off unless `/debug/remote-token` is on the SD card; requests must carry that token. Usage: `docs/serial-remote.md`.
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
 - OPDS: when a book download fails, a prompt offers Retry or Cancel (back to the list, deleting the partial file). Retry continues from where the download stopped when the server supports resuming (HTTP Range, checked with If-Range), and otherwise starts over. A full SD card still shows its own error.

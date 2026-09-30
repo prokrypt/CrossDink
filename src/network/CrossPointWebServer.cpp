@@ -38,6 +38,7 @@
 #include "OpdsServerStore.h"
 #include "QuickActions.h"
 #include "SdCardFontSystem.h"
+#include "SerialRemote.h"
 #include "SettingsList.h"
 #include "SilentRestart.h"
 #include "TaskCores.h"
@@ -508,6 +509,9 @@ void CrossPointWebServer::begin(const bool logOnly) {
 #if CROSSDINK_PSRAM_LOG
   server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
 #endif
+#if CROSSDINK_SERIAL_REMOTE
+  server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
+#endif
   server->onNotFound([this] { handleNotFound(); });
   if (logOnly) {
     // Nothing else: no SD access behind other screens, and /api/status's
@@ -933,6 +937,17 @@ void CrossPointWebServer::handlePsramLog() const {
     server->sendContent(chunk, len);
   }
   server->sendContent("");
+}
+#endif
+
+#if CROSSDINK_SERIAL_REMOTE
+// Debug builds: runs one serial-remote command (docs/serial-remote.md) on the
+// main task. Token and SD access stay on the main task too.
+void CrossPointWebServer::handleRemoteCmd() const {
+  static char out[256];  // Static: server task only, keeps the reply off its stack
+  const int status =
+      SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(), out, sizeof(out), 12000);
+  server->send(status, "text/plain; charset=utf-8", out);
 }
 #endif
 

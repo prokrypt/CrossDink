@@ -32,3 +32,16 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
 | `CMD:REBOOT` | `OK:REBOOT` | Software restart. |
 | `CMD:WAITIDLE [ms]` | `OK:WAITIDLE <elapsed_ms>` or `ERR:WAITIDLE:timeout` | Replies once injected input and typing are done, no render is queued or running, no refresh is pending, and that has held for 150 ms. Default timeout 10 s. |
+
+## Wi-Fi: POST /api/cmd
+
+The same commands (without `CMD:`) also run over Wi-Fi, on Goodies > Wi-Fi remote and in File Transfer.
+The endpoint is off until `/debug/remote-token` exists on the SD card (one line, up to 64 characters;
+a bad or missing token gets `403 ERR:token`). The command runs on the main loop and the reply line is
+the response body: 200 for `OK:`, 400 for `ERR:`, 404 unknown command, 503 busy or no reply within 12 s.
+`SCREENSHOT` and `PSRAMLOG` stay serial-only (use `GET /api/psram-log`).
+
+```sh
+openssl rand -hex 16 > remote-token        # copy to the SD card as /debug/remote-token
+curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=KBDEXP 15 6" http://10.0.1.67/api/cmd
+```
