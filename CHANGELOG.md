@@ -126,6 +126,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: with anti-aliasing on, reading no longer adds a periodic cleanup flash; each anti-aliased page already redraws every pixel. The manual Refresh Screen shortcut still works.
 - X4 Pro: turning from one anti-aliased page to another flashes once instead of twice.
 - X4 Pro: turning past a page with an image no longer adds a full-screen flash on the next page. The panel already repaints every pixel cleanly when it leaves the image's gray.
 - X3/X4 (SSD1677): anti-aliased text no longer pushes gray pixels one way on every AA page. The AA gray pass now drives each gray level both ways (about 21 frames instead of 12, no extra flash), and the firmware refuses to build if any SSD1677 waveform is DC-unbalanced.

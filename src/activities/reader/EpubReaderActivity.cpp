@@ -8171,6 +8171,13 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     }
   }
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
+  // UC8179 (X4 Pro) runs every gray page as direct gray, which drives each
+  // pixel absolutely: the page cleans itself, so the cadence Half is only an
+  // extra flash. Restart the countdown instead (a manual Refresh, <0, still runs).
+  if (needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
+      renderer.shouldSkipImageBlanking()) {
+    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+  }
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   const bool overlapRefresh =
       tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 && renderer.supportsAsyncGrayscaleBase();
