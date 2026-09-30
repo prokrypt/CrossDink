@@ -1830,7 +1830,12 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
 void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
   switch (row) {
     case RowId::TextAa:
-      draft.textAntiAliasing = !draft.textAntiAliasing;
+      if (draft.textAntiAliasing != CrossPointSettings::TEXT_AA_OFF) {
+        textAaOnStyle = draft.textAntiAliasing;
+        draft.textAntiAliasing = CrossPointSettings::TEXT_AA_OFF;
+      } else {
+        draft.textAntiAliasing = textAaOnStyle;
+      }
       break;
     case RowId::Focus:
       draft.focusReadingEnabled = !draft.focusReadingEnabled;
@@ -3174,7 +3179,7 @@ bool EpubReaderDrawerActivity::rowToggleValue(const RowId row) const {
     case RowId::TrackBookStats:
       return bookStatsEnabled;
     case RowId::TextAa:
-      return draft.textAntiAliasing;
+      return draft.textAntiAliasing != CrossPointSettings::TEXT_AA_OFF;
     case RowId::Focus:
       return draft.focusReadingEnabled;
     case RowId::GuideDots:

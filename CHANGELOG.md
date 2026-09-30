@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- X4 Pro: Text Anti-Aliasing has three choices: Off, Sharp (one full-screen flash per anti-aliased page, the previous behavior) and Smooth (no full-screen flash: text edges get a short gray pass over the black-and-white page, and leaving the page clears only those edges). The reader drawer switches it off and back to the chosen style. Other devices treat Smooth like Sharp.
 - Debug builds (X4 Pro): a Goodies entry on Home. Its Display test menu runs built-in refresh tests (modes, ghosting, DU frames, windowed upload, scrubs) and any line-script tests placed in `/debug/display/` on the SD card, logs each refresh's timings, and can ask a Yes/No style question and log the answer. Format: `docs/goodies.md`.
 - Debug builds (X4 Pro): Goodies > Wi-Fi remote joins a saved Wi-Fi network and keeps it up in the background, serving the PSRAM log (`/api/psram-log`) from any screen without opening File Transfer. The row shows the device's address; tap again to turn Wi-Fi off. File Transfer and Calibre Connect take the radio over when opened. The toggle is saved, so the remote reconnects in the background after every wake and restart; turning it on joins the saved network without opening the Wi-Fi screen.
 - The top status bar shows a Wi-Fi symbol left of the battery percentage while Wi-Fi is connected; the screen repaints once when the connection comes or goes (not in the reader).
