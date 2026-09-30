@@ -538,7 +538,7 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
-      BaseTheme::beginFrameWifiStatus();
+      BaseTheme::beginFrameStatus();
       currentActivity->render(std::move(lock));
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);

@@ -94,15 +94,22 @@ constexpr uint16_t WIFI_GLYPH_ROWS[] = {0x03E0, 0x1C1C, 0x3006, 0x43E1, 0x0E38, 
                                         0x01C0, 0x0220, 0x0000, 0x01C0, 0x01C0};
 
 std::atomic<int8_t> frameWifiStatus{-1};
+std::atomic<int16_t> frameBatteryPercent{-1};
 }  // namespace
 
-void BaseTheme::beginFrameWifiStatus() { frameWifiStatus.store(-1, std::memory_order_relaxed); }
+void BaseTheme::beginFrameStatus() {
+  frameWifiStatus.store(-1, std::memory_order_relaxed);
+  frameBatteryPercent.store(-1, std::memory_order_relaxed);
+}
 
 int BaseTheme::wifiStatusShown() { return frameWifiStatus.load(std::memory_order_relaxed); }
+
+int BaseTheme::batteryPercentShown() { return frameBatteryPercent.load(std::memory_order_relaxed); }
 
 int BaseTheme::wifiStatusReserve() {
   const bool connected = hasActiveStationWifiConnection();
   frameWifiStatus.store(connected ? 1 : 0, std::memory_order_relaxed);
+  frameBatteryPercent.store(static_cast<int16_t>(powerManager.getBatteryPercentage()), std::memory_order_relaxed);
   return connected ? wifiGlyphWidth + batteryPercentSpacing : 0;
 }
 
