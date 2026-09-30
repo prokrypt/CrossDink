@@ -2352,7 +2352,8 @@ static void loopPass() {
   }
   constexpr unsigned long LIGHT_FADE_MS = 1000;
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
-  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
+  // A running transfer pulse owns the light: each step resets the dim, so fading here would flicker it.
+  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0 && !TransferLightPulse::animating()) {
     const unsigned long idleMs = std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime);
     if (idleMs >= lightTimeoutMs) {
       const unsigned long fadeMs = idleMs - lightTimeoutMs;
