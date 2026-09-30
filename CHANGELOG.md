@@ -10,6 +10,8 @@
 - Debug builds (X4 Pro): `POST /api/ota` flashes a firmware image over the Wi-Fi remote or File Transfer with no confirm step: token-gated like `/api/cmd`, streamed straight into the update slot, verified before it is selected, then the device restarts. Usage: `docs/serial-remote.md`.
 - Debug builds (X4 Pro): the remote can open screens (`GOTO <screen>`, `GOTO list`: Home, Library, Settings, Wi-Fi networks, Goodies, File Transfer, Calibre, OPDS, Nearby, resume reading and more) grab the screen over Wi-Fi (`/api/screenshot`, a PBM image) and tail the log live over Wi-Fi (`/api/psram-log?since=`). Usage: `docs/serial-remote.md`.
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
+- OPDS: the search button also appears on catalogs that link their search through an OpenSearch description (such as a server's main page); the description is fetched on the first search and then cached.
+- OPDS: book rows already in the download folder read "Downloaded". Read-only: one scan of the download folder per page.
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
 - OPDS: when a book download fails, a prompt offers Retry or Cancel (back to the list, deleting the partial file). Retry continues from where the download stopped when the server supports resuming (HTTP Range, checked with If-Range), and otherwise starts over. A full SD card still shows its own error.
 - OPDS: Back, Previous page and a prefetched Next page open straight from memory without a Loading screen first, and Back returns to the row you opened, scrolled as you left it.

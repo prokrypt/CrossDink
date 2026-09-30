@@ -4,6 +4,7 @@
 #include <OpdsParser.h>
 
 #include <atomic>
+#include <bitset>
 #include <memory>
 #include <string>
 #include <utility>
@@ -75,6 +76,8 @@ class OpdsBookBrowserActivity final : public Activity {
   std::vector<HistoryEntry> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
+  std::string searchDescriptionUrl;  // OpenSearch description; fetched on first search
+  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> onSd;  // book rows already in the download folder
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
@@ -167,6 +170,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // After a failed download: Retry resumes the same book (from byte 0 when the
   // server cannot), Cancel removes the partial file and returns to the listing.
   void offerRetry(const std::string& path);
+  void markBooksOnSd();
+  bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;
