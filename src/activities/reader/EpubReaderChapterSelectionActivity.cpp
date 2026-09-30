@@ -33,6 +33,8 @@ int EpubReaderChapterSelectionActivity::getTotalItems() const { return epub->get
 
 void EpubReaderChapterSelectionActivity::onEnter() {
   Activity::onEnter();
+  // Like Home, keep the current chapter selected on touch: it is the "you are here" marker.
+  listSelectionRevealed = true;
   mappedInput.setReaderTouchscreenOverride(true);
 
   // epub is a required collaborator: the caller dereferences it before constructing
