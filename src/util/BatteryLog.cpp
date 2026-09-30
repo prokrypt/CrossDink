@@ -10,9 +10,9 @@
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <PsramRing.h>
 #include <WiFi.h>
 #include <esp_attr.h>
-#include <esp_cache.h>
 #include <esp_psram.h>
 #include <esp_sleep.h>
 #include <sdkconfig.h>
@@ -33,7 +33,8 @@
 namespace BatteryLog {
 namespace {
 constexpr uint32_t kRingBytes = 64 * 1024;
-constexpr uint32_t kRingMagic = 0x4241544C;   // "BATL"
+constexpr uint32_t kRingMagicA = 0x4241544C;  // "BATL"
+constexpr uint32_t kRingMagicB = 0xC0DE0930;
 constexpr uint32_t kStatsMagic = 0x42415453;  // "BATS"
 constexpr uint32_t kMaxFileBytes = 256 * 1024;
 constexpr char kOldPath[] = "/logs/battery.1.csv";
@@ -44,16 +45,7 @@ constexpr uint32_t kFlushIdleMs = 2000;
 constexpr uint32_t kLightSettleMs = 2000;
 constexpr uint16_t kLowPct = 5;
 
-// Same rules as PsramLog's ring (lib/Logging/PsramLog.cpp): .ext_ram_noinit
-// survives software restarts, and the S3 MSPI timing tuning writes 64 B at
-// physical PSRAM 0 on every boot, where this segment may start.
-struct Ring {
-  char tuningScratch[1024];
-  uint32_t magic;
-  uint32_t head;     // bytes ever written; position = head % kRingBytes
-  uint32_t flushed;  // bytes already on SD
-  char data[kRingBytes];
-};
+using Ring = PsramRing<kRingBytes>;  // aux: bytes already on SD
 EXT_RAM_NOINIT_ATTR Ring ring;
 RTC_NOINIT_ATTR Stats rtcStats;
 
@@ -89,44 +81,27 @@ Stats& st() {
   return rtcStats;
 }
 
-// PSRAM sits behind a write-back cache: push new bytes out so a panic or
-// restart still leaves them in PSRAM (as PsramLog does).
-void writeBack(const void* addr, const size_t len) {
-  esp_cache_msync(const_cast<void*>(addr), len, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
-}
-
-void writeBackHeader() { writeBack(&ring.magic, 3 * sizeof(uint32_t)); }
-
 // PSRAM is mapped after global constructors, so the ring is set up on first use.
 bool ensureRing() {
   if (ringReady) return true;
   if (!esp_psram_is_initialized()) return false;
   portENTER_CRITICAL_SAFE(&ringMux);
   if (!ringReady) {
-    if (ring.magic != kRingMagic || ring.flushed > ring.head) {
-      ring.magic = kRingMagic;
-      ring.head = 0;
-      ring.flushed = 0;
-    }
+    if (!ring.adopt(kRingMagicA, kRingMagicB) || ring.aux > ring.head) ring.aux = ring.head;
     ringReady = true;
   }
   portEXIT_CRITICAL_SAFE(&ringMux);
-  writeBackHeader();
+  ring.writeBackHeader();
   return true;
 }
 
 void append(const char* text, const uint32_t len) {
   if (!ensureRing()) return;
   portENTER_CRITICAL_SAFE(&ringMux);
-  const uint32_t pos = ring.head % kRingBytes;
-  const uint32_t first = std::min(len, kRingBytes - pos);
-  memcpy(ring.data + pos, text, first);
-  memcpy(ring.data, text + first, len - first);
-  ring.head += len;
+  const uint32_t startHead = ring.head;
+  ring.write(text, len);
   portEXIT_CRITICAL_SAFE(&ringMux);
-  writeBack(ring.data + pos, first);
-  if (len > first) writeBack(ring.data, len - first);
-  writeBackHeader();
+  ring.writeBack(startHead, len);
 }
 
 uint32_t toEpoch(uint32_t y, const uint32_t mo, const uint32_t d, const uint32_t h, const uint32_t mi,
@@ -301,7 +276,7 @@ void poll(const uint32_t idleMs) {
   }
 
   if (!ringReady || idleMs < kFlushIdleMs) return;
-  const uint32_t pending = ring.head - ring.flushed;
+  const uint32_t pending = ring.head - ring.aux;
   const bool low = !reading.usb && reading.pct <= kLowPct;
   if (pending != 0 && (bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) {
     bootFlushPending = false;
@@ -314,7 +289,7 @@ bool flush() {
   if (!ensureRing() || !Storage.ready()) return false;
   portENTER_CRITICAL_SAFE(&ringMux);
   const uint32_t head = ring.head;
-  uint32_t from = ring.flushed;
+  uint32_t from = ring.aux;
   portEXIT_CRITICAL_SAFE(&ringMux);
   if (from == head) return true;
   if (head - from > kRingBytes) {
@@ -341,9 +316,8 @@ bool flush() {
   // Through DRAM: the SD driver is not handed PSRAM buffers.
   char chunk[256];
   for (uint32_t at = from; ok && at != head;) {
-    const uint32_t pos = at % kRingBytes;
-    const uint32_t n = std::min({head - at, kRingBytes - pos, static_cast<uint32_t>(sizeof(chunk))});
-    memcpy(chunk, ring.data + pos, n);
+    const uint32_t n = std::min(head - at, static_cast<uint32_t>(sizeof(chunk)));
+    ring.copyOut(at, chunk, n);
     ok = file.write(chunk, n) == n;
     at += n;
   }
@@ -353,9 +327,9 @@ bool flush() {
     return false;
   }
   portENTER_CRITICAL_SAFE(&ringMux);
-  ring.flushed = head;
+  ring.aux = head;
   portEXIT_CRITICAL_SAFE(&ringMux);
-  writeBackHeader();
+  ring.writeBackHeader();
   LOG_DBG("BAT", "Flushed %lu bytes to %s", static_cast<unsigned long>(head - from), LOG_PATH);
   return true;
 }

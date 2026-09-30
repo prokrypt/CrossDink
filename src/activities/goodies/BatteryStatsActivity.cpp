@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include "MappedInputManager.h"
+#include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -40,22 +41,10 @@ const char* field(const char* row, int n) {
   return row;
 }
 
-// "2 d 4 h", "5 h 10 m", "12 m".
-void formatDuration(char* out, const size_t size, const uint32_t seconds) {
-  const uint32_t m = seconds / 60, h = m / 60, d = h / 24;
-  if (d > 0) {
-    snprintf(out, size, "%lu d %lu h", static_cast<unsigned long>(d), static_cast<unsigned long>(h % 24));
-  } else if (h > 0) {
-    snprintf(out, size, "%lu h %lu m", static_cast<unsigned long>(h), static_cast<unsigned long>(m % 60));
-  } else {
-    snprintf(out, size, "%lu m", static_cast<unsigned long>(m));
-  }
-}
-
-// "4.1 %/h over 5 h 10 m", or "-" with no drain seen yet.
+// "4.1 %/h over 5h 10 min", or "-" with no drain seen yet.
 void formatRate(char* out, const size_t size, const uint32_t dropPct, const uint32_t seconds) {
   char span[24];
-  formatDuration(span, sizeof(span), seconds);
+  BookReadingStats::formatDuration(seconds, span, sizeof(span));
   if (seconds < 60) {
     snprintf(out, size, "-");
     return;
@@ -134,7 +123,7 @@ void BatteryStatsActivity::buildLines() {
 
   const uint32_t now = BatteryLog::nowEpoch();
   if (s.unplugEpoch != 0 && now > s.unplugEpoch) {
-    formatDuration(a, sizeof(a), now - s.unplugEpoch);
+    BookReadingStats::formatDuration(now - s.unplugEpoch, a, sizeof(a));
     add("Unplugged %s ago at %u%%", a, s.unplugPct);
   } else {
     add("Unplugged: not seen since reset");
@@ -146,12 +135,12 @@ void BatteryStatsActivity::buildLines() {
   const uint32_t drop = s.dropAwakePct + s.dropAsleepPct;
   const uint32_t span = s.battAwakeS + s.battAsleepS;
   if (drop > 0 && span >= 60) {
-    formatDuration(a, sizeof(a), static_cast<uint32_t>(static_cast<uint64_t>(pct) * span / drop));
+    BookReadingStats::formatDuration(static_cast<uint32_t>(static_cast<uint64_t>(pct) * span / drop), a, sizeof(a));
     add("Est. left at that pace: %s", a);
   }
 
-  formatDuration(a, sizeof(a), s.awakeS);
-  formatDuration(b, sizeof(b), s.asleepS);
+  BookReadingStats::formatDuration(s.awakeS, a, sizeof(a));
+  BookReadingStats::formatDuration(s.asleepS, b, sizeof(b));
   add("Wakes %lu  Boots %lu  Awake %s  Asleep %s", static_cast<unsigned long>(s.wakes),
       static_cast<unsigned long>(s.boots), a, b);
   const auto& c = HalDisplay::refreshCounts().n;
@@ -161,7 +150,7 @@ void BatteryStatsActivity::buildLines() {
       static_cast<unsigned long>(c[HalDisplay::FLASHING]));
 
   const GlobalReadingStats reading = GlobalReadingStats::load();
-  formatDuration(a, sizeof(a), reading.totalReadingSeconds);
+  BookReadingStats::formatDuration(reading.totalReadingSeconds, a, sizeof(a));
   add("Reading: %lu pages, %s", static_cast<unsigned long>(reading.totalPagesTurned), a);
 
   int8_t panelC = 0;
@@ -172,7 +161,7 @@ void BatteryStatsActivity::buildLines() {
   } else {
     add("Chip %.0f C", chipC);
   }
-  formatDuration(a, sizeof(a), millis() / 1000);
+  BookReadingStats::formatDuration(millis() / 1000, a, sizeof(a));
   add("Up %s  reset %s  wake %s", a, resetReasonName(esp_reset_reason()),
       wakeupCauseName(esp_sleep_get_wakeup_cause()));
   add("Heap %lu KB (block %lu)  PSRAM %lu KB free", static_cast<unsigned long>(ESP.getFreeHeap() / 1024),
@@ -229,7 +218,7 @@ void BatteryStatsActivity::render(RenderLock&&) {
       if (p0.sleep) renderer.fillRect(px(p0.epoch), y + gh + 2, std::max(1, px(p1.epoch) - px(p0.epoch)), 4);
     }
     char spanText[40], ago[24];
-    formatDuration(ago, sizeof(ago), spanS);
+    BookReadingStats::formatDuration(spanS, ago, sizeof(ago));
     snprintf(spanText, sizeof(spanText), "%s  (bar = asleep)", ago);
     renderer.drawText(UI_10_FONT_ID, x, y + gh + 8, spanText);
   } else {
