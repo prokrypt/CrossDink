@@ -134,24 +134,37 @@ const BatteryMonitor& monitor() {
   return m;
 }
 
+// Only the main loop writes `reading`; rows from other tasks copy it under ringMux.
+void setReading(const Reading& r) {
+  portENTER_CRITICAL_SAFE(&ringMux);
+  reading = r;
+  portEXIT_CRITICAL_SAFE(&ringMux);
+}
+
 // Cheap reads, every poll.
 void readQuick() {
-  reading.pct = powerManager.getBatteryPercentage();
-  reading.chg = monitor().isCharging();
-  reading.usb = gpio.isUsbConnectedCached();
-  reading.light = Frontlight.present() && Frontlight.isOn()
-                      ? static_cast<uint8_t>(Frontlight.brightness() * Frontlight.idleDimPercent() / 100)
-                      : 0;
+  Reading r = reading;
+  r.pct = powerManager.getBatteryPercentage();
+  r.chg = monitor().isCharging();
+  r.usb = gpio.isUsbConnectedCached();
+  r.light = Frontlight.present() && Frontlight.isOn()
+                ? static_cast<uint8_t>(Frontlight.brightness() * Frontlight.idleDimPercent() / 100)
+                : 0;
+  setReading(r);
 }
 
 // Gauge I2C reads, only for rows the main loop writes.
 void readSlow() {
-  reading.mv = monitor().readMillivolts();
-  reading.tempKnown = monitor().readTemperatureDeciC(reading.tempDeciC);
+  Reading r = reading;
+  r.mv = monitor().readMillivolts();
+  r.tempKnown = monitor().readTemperatureDeciC(r.tempDeciC);
+  setReading(r);
 }
 
 void writeRow(const char* name, const char* detail) {
+  portENTER_CRITICAL_SAFE(&ringMux);
   const Reading r = reading;
+  portEXIT_CRITICAL_SAFE(&ringMux);
   const uint32_t epoch = epochNow();
   char local[20] = "";
   if (epoch != 0) {
