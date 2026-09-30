@@ -2,6 +2,10 @@
 
 ### Added
 - Debug builds (X4 Pro): a Goodies entry on Home. Its Display test menu runs built-in refresh tests (modes, ghosting, DU frames, windowed upload, scrubs) and any line-script tests placed in `/debug/display/` on the SD card, logs each refresh's timings, and can ask a Yes/No style question and log the answer. Format: `docs/goodies.md`.
+- Debug builds (X4 Pro): Goodies > Wi-Fi remote joins a saved Wi-Fi network and keeps it up in the background, serving the PSRAM log (`/api/psram-log`) from any screen without opening File Transfer. The row shows the device's address; tap again to turn Wi-Fi off. File Transfer and Calibre Connect take the radio over when opened. The toggle is saved, so the remote reconnects in the background after every wake and restart; turning it on joins the saved network without opening the Wi-Fi screen.
+- The top status bar shows a Wi-Fi symbol left of the battery percentage while Wi-Fi is connected.
+- Debug builds (X4 Pro): `POST /api/cmd` runs the serial remote commands (keys, touch, typing, `KBDEXP`, settings) over Wi-Fi, from Goodies > Wi-Fi remote or File Transfer. Off unless `/debug/remote-token` is on the SD card; requests must carry that token. Usage: `docs/serial-remote.md`.
+- Debug builds (X4 Pro): the remote can open screens (`GOTO <screen>`, `GOTO list`: Home, Library, Settings, Wi-Fi networks, Goodies, File Transfer, Calibre, OPDS, Nearby, resume reading and more) grab the screen over Wi-Fi (`/api/screenshot`, a PBM image) and tail the log live over Wi-Fi (`/api/psram-log?since=`). Usage: `docs/serial-remote.md`.
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
 - OPDS: when a book download fails, a prompt offers Retry or Cancel (back to the list, deleting the partial file). Retry continues from where the download stopped when the server supports resuming (HTTP Range, checked with If-Range), and otherwise starts over. A full SD card still shows its own error.
@@ -47,6 +51,8 @@
 - X4 Pro: the cleanup refresh (Half) no longer re-drives every white pixel black-to-white each time; it runs only the real changes from the previous screen.
 - Keyboard (X4 Pro): keys tapped while the screen is still updating now all appear together in the next update instead of one update per key.
 - X4 Pro: leaving a grayscale sleep image uses a charge-balanced drive for the first black-and-white screen.
+- OPDS (X4 Pro, Sticky): up to 64 catalog pages stay in memory for Back and Previous (was 24), and background page preloads no longer use the internal RAM that reading and leaving Wi-Fi without a restart need.
+- Turbo keyboard (X4 Pro): the screen's previous-frame memory is always refreshed after each key, so later cleanup refreshes never re-drive settled pixels.
 - X4 Pro: the reader's automatic cleanups no longer flash (Refresh Screen still does a full refresh). Opening a book, returning to it, the page after an image, and the regular ghost cleanup use a ~0.3 s no-flash scrub instead of the 1.5 s flashing refresh, and closing a menu over an image page skips the cleanup. Image pages also finish their anti-aliasing sooner, and a menu opened during an image cleanup shows ~0.6 s sooner.
 - X4 Pro: closing the Turbo keyboard cleans the screen with the same no-flash scrub.
 - X4 Pro: an OPDS book download switches the panel's power booster off after each progress update, like the transfer screens; interactive screens keep it on so input stays fast.
@@ -65,6 +71,7 @@
 - OPDS: every screen (loading, downloading, errors) uses the same header with the status bar; on touch its arrow goes back, or cancels a download. After a download the book list is drawn first, then the open prompt appears over it.
 - X4 Pro: the first File Transfer QR frame runs a longer scrub (no flash), so the Wi-Fi list or keyboard no longer shows through the QR. The first OPDS frame and the first download frame run a quick scrub that clears the previous screen's ghost.
 - File Transfer, Calibre and USB Drive keep a lit frontlight at your level for 10 seconds before the transfer pulse takes over.
+- File Transfer, Calibre, USB Drive and SD firmware update: if the frontlight was on, the transfer pulse runs between 10% and 25% and rests at 10% when idle instead of going dark. A light that was off pulses from off as before.
 - OPDS downloads write to the SD card in 32 KB blocks (PSRAM buffer) instead of one write per network packet.
 - File Transfer and Calibre Connect: the frontlight pulse starts once the server is running, so the mode menu and Wi-Fi picker keep your brightness.
 - KOReader sync reuses one TLS connection for the progress download, the second document-id check and the upload, instead of a new handshake for each. TLS handshakes (sync, OPDS, downloads) use faster elliptic-curve math.
@@ -128,22 +135,40 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- OPDS: Back (button or the top-left Back button) now cancels a catalog page that is still loading and returns to the previous list, instead of being ignored until the request finishes or times out after 60 s. A kept-alive connection idle more than 4 s is reopened instead of reused, so a page opened after a pause no longer hangs on a socket the server dropped.
+- Debug builds: after a task-watchdog reset, the SD crash report names the task each core was running.
+- X4 Pro: after a crash during start-up, a later restart no longer uses an out-of-date copy of the screen as its starting point, which could re-drive pixels that were already set.
+- With the Cover Grid Home, a large or imperfect library (for example more than 1024 books in one folder chain) no longer shows the "Scanning library" popup and rescans the card every time Home opens. A best-effort index is kept until the card changes; the Library still repairs it on its own visit.
+- X4 Pro: with anti-aliasing on, reading no longer adds a periodic cleanup flash; each anti-aliased page already redraws every pixel. The manual Refresh Screen shortcut still works.
 - X4 Pro: turning from one anti-aliased page to another flashes once instead of twice.
 - X4 Pro: turning past a page with an image no longer adds a full-screen flash on the next page. The panel already repaints every pixel cleanly when it leaves the image's gray.
 - X3/X4 (SSD1677): anti-aliased text no longer pushes gray pixels one way on every AA page. The AA gray pass now drives each gray level both ways (about 21 frames instead of 12, no extra flash), and the firmware refuses to build if any SSD1677 waveform is DC-unbalanced.
 - X4 Pro: the display no longer uses one-way (DC-unbalanced) drives, which built up charge and made screens dirtier over time and risked lasting image retention. Every refresh now uses the panel's own waveforms: screen entries, typing, File Transfer / OPDS / Calibre / Nearby / OTA / font download / SD firmware progress repaints are OTP Fast, and reader ghost cleanups are the balanced Half again (a short flash at your refresh-frequency setting). Typing is slower per key (about 0.55 s instead of 0.3 s ink), and headers on long transfer screens may fade slightly.
+- OPDS (X4 Pro, Sticky): leaving the catalog after browsing no longer restarts the device. The secure-connection session kept for the next visit now lives in PSRAM instead of splitting the internal RAM block that returning without a restart needs.
+- X4 Pro: the first time a page with a large image (such as a book's cover) opens, the image is unpacked and decoded in the background. The page shows its image frame at once and fills it in when ready; buttons, swipes and menus keep working meanwhile instead of freezing for several seconds.
 - After a KOReader Sync or Nearby sync, later Wi-Fi sessions in the same boot no longer run with Wi-Fi power saving off.
 - Using Wi-Fi once no longer leaves internal memory fragmented until the next reboot.
 - X4 Pro: the sleep screen no longer ghosts when the device falls asleep on its own after sitting idle. Every sleep screen now starts from a freshly powered panel with the keyboard fast waveform switched off, the same as a power-button sleep.
 - KOReader sync: pressing power or letting the device sleep during a slow sync no longer freezes it for up to ~16 seconds; it waits at most 3 seconds, then sleeps. The sync worker has a larger stack for the faster TLS math.
 - Debug builds: serial file downloads and CMD:PSRAMLOG dumps no longer lose bytes when the USB buffer is full, and a log line can no longer land inside a serial reply or binary stream. A reply to a host that has closed the port no longer stalls the device for half a second. Blank lines and xink-remote's ">>>>> " echo lines are ignored quietly.
 - Reader: a page whose anti-aliasing pass was cancelled by a page turn that was then dropped (for example "previous" on the first page) no longer stays without anti-aliasing until the next turn.
+- Background cover and image workers can no longer borrow the screen buffer while a book page is being built, so pages and cached covers are no longer corrupted when both happen at once.
+- Drawing the next reader page ahead of time no longer blanks the page on screen or leaves old text under the next page.
+- Check for update now looks at CrossDink's own GitHub releases instead of upstream CrossInk's, so an upstream release can no longer be offered and flashed over CrossDink. It only accepts a release firmware for this device (`firmware-<device>-v<version>.bin`).
+- X4 Pro: touch, the battery gauge and the clock share one I2C bus, and a battery or clock read from another task could overwrite a touch reading mid-copy (phantom taps, odd battery or temperature values). Each I2C transaction now holds the bus until its data is copied out, and the clock's cached time can no longer be read half-updated.
 - X4 Pro: the header and other still text no longer fade on screens that repaint progress over and over (file transfer, Calibre, Nearby transfer, OPDS and font downloads, OTA update). Those repaints now use the keyboard's fast waveform, which re-darkens unchanged black pixels.
 - OPDS: book downloads run in the background, so Back and the Cancel button stop them at any point (the partial file is deleted) and the screen shows Connecting until the first byte arrives. Downloads also start sooner: the free-space check no longer scans the whole SD card first.
 - Keyboard: kbd-exp.txt is only read by debug builds.
 - X4 Pro: joining Wi-Fi is about 1.5 s faster. The address conflict check that was meant to be off was still running on every join.
 - X4 Pro keyboard: keys you have not pressed no longer fade during long typing sessions; every keystroke now also re-darkens black pixels that stay black.
 
+- A chapter left half-indexed by an older firmware is re-indexed instead of resuming with outdated page positions.
+- Saving the reading position before opening Wi-Fi, Calibre, KOReader sign-in, file transfer or the light panel waits for the screen to finish drawing, so it can no longer read or close a chapter that is still being indexed.
+- Home no longer rebuilds the Library index over and over in the background when the result is degraded (for example more than 1024 books in one folder chain). That loop rewrote the index on the SD card on every pass and kept the device from auto-sleeping on Home. A degraded background index is now left for the Library to rebuild, and is retried only after the card changes. An index whose "Recent" (date added) order fell back is also left for the Library instead of being used as current.
+- File Transfer choices no longer appear preselected when opened on a touch device.
+- On the X4 Pro and Sticky, the Home screen no longer stalls waiting for the SD card while the Library indexes in the background.
+- Small images that are scaled up, such as a short progressive JPEG, are now cached after the first draw instead of being decoded again on every screen refresh.
+- The serial log no longer reports errors for normal events: a missing image, section or dictionary cache file on first open, an outdated section cache being rebuilt, and a device without a clock chip or motion sensor. Log lines that were missing a line break now end cleanly, and SD, display, TLS and frontlight messages use the standard log format.
 - X4 Pro light-sleep firmware shows its real version (for example `1.6.0-x4-pro`) instead of "dev" in Settings, on the boot screen, and in the web and OTA version checks.
 - Background Library indexing and the reader's next-page draw-ahead run at full CPU speed again instead of the lowest idle clock.
 - USB Drive no longer reads ahead into the sectors a computer is about to write, so copying files to the card is not slowed by background reads.

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 // Serial remote control for test automation (debug builds, CROSSDINK_SERIAL_REMOTE).
 // Line commands arrive on the USB serial "CMD:" channel owned by
 // UsbSerialFileTransfer; replies are single lines "OK:<VERB> ..." or
@@ -13,6 +16,14 @@ bool handleLine(const char* line);
 // Advances timed input injection, queued typing and pending WAITIDLE replies.
 // Main task, once per loop.
 void poll();
+// Wi-Fi remote (POST /api/cmd): hands one command ("KBDEXP 15 6", no "CMD:")
+// from another task to the main task and waits for its reply line. The token
+// must match /debug/remote-token on the SD card (no file = disabled). Returns
+// an HTTP status: 200, 403 bad token, 404 unknown command, 503 busy/timeout.
+int runFromOtherTask(const char* token, const char* cmd, char* out, size_t outLen, uint32_t timeoutMs);
+// After runFromOtherTask(..., "SCREENSHOT", ...) returned 200: the PBM image the
+// main task captured. Server task only; valid until the next SCREENSHOT.
+const uint8_t* screenshot(size_t& len);
 #else
 inline bool handleLine(const char*) { return false; }
 inline void poll() {}

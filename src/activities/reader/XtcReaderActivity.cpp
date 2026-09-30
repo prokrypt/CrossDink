@@ -167,7 +167,7 @@ void XtcReaderActivity::onExit() {
 
   // Generate Home's thumbnails while XTC is still loaded so the home screen
   // can display the cover on the very first render without generating it.
-  if (xtc && !UITheme::hasCoverGridHome()) {
+  if (xtc) {
     const auto specs =
         HomeCoverThumbs::forActiveTheme(xtc->getPath(), UITheme::getInstance().getMetrics().homeCoverHeight);
     for (uint8_t i = 0; i < specs.count; ++i) HomeCoverThumbs::generate(*xtc, specs.items[i]);

@@ -16,6 +16,7 @@
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/ActivityManager.h"
+#include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
@@ -67,6 +68,10 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
+#if CROSSDINK_GOODIES
+  // Port 80 and the radio pass to this screen's own server.
+  goodies_remote::pause();
+#endif
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The

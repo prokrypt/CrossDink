@@ -43,6 +43,7 @@ class CalibreConnectActivity final : public Activity {
       : Activity("CalibreConnect", renderer, mappedInput), returnToReader(returnToReader) {}
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   // Same power policy as File Transfer.

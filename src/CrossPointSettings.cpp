@@ -503,6 +503,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   doc["screenInverted"] = screenInverted;
+  doc["goodiesWifiRemote"] = goodiesWifiRemote;
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint) {
@@ -893,6 +894,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
   }
   clockDateHasBeenSynced = clamp(doc["clockDateHasBeenSynced"] | static_cast<uint8_t>(0), 2, 0);
+  goodiesWifiRemote = clamp(doc["goodiesWifiRemote"] | static_cast<uint8_t>(0), 2, 0);
 
   if (needsResave) requestResave();
   LOG_DBG("CPS", "Settings loaded from file");

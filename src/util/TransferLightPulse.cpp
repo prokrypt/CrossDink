@@ -8,6 +8,7 @@ namespace {
 constexpr uint32_t kCycleMs = 1000;
 constexpr uint32_t kWriteIntervalMs = 20;
 constexpr uint8_t kPeakPercent = 25;
+constexpr uint8_t kLitFloorPercent = 10;  // pulse floor when the light was already on
 }  // namespace
 
 void TransferLightPulse::begin(const uint32_t holdForMs) {
@@ -23,6 +24,7 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   stopAtMs = 0;
   held = false;
   armed = true;
+  floorPercent = savedOn && savedBrightness > 0 ? kLitFloorPercent : 0;
   if (holdForMs > 0 && savedOn && savedBrightness > 0) {
     // Write nothing: `written` still lets update() spot a user change.
     entryHold = true;
@@ -32,7 +34,7 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
     LOG_DBG("LIGHT", "Transfer light hold %u%% for %lu ms", savedBrightness, static_cast<unsigned long>(holdMs));
     return;
   }
-  write(0);
+  write(floorPercent);
   Frontlight.setOn(true);
 }
 
@@ -69,7 +71,7 @@ void TransferLightPulse::update(const bool transferActive) {
     stopAtMs = 0;  // data resumed while fading: keep the same waveform going
   } else if (pulsing) {
     if (stopAtMs == 0) {
-      // Finish the current cycle so the light ramps down to 0.
+      // Finish the current cycle so the light ramps down to the floor.
       const uint32_t cycles = (now - pulseStartMs) / kCycleMs + 1;
       stopAtMs = pulseStartMs + cycles * kCycleMs;
     }
@@ -80,14 +82,14 @@ void TransferLightPulse::update(const bool transferActive) {
     }
   }
 
-  uint8_t target = 0;
+  uint8_t target = floorPercent;
   if (pulsing) {
     const uint32_t phase = (now - pulseStartMs) % kCycleMs;
     const uint32_t half = kCycleMs / 2;
     const uint32_t ramp = phase < half ? phase : kCycleMs - phase;
-    target = static_cast<uint8_t>(ramp * kPeakPercent / half);
+    target = static_cast<uint8_t>(floorPercent + ramp * (kPeakPercent - floorPercent) / half);
   }
-  if (target != written && (target == 0 || now - lastWriteMs >= kWriteIntervalMs)) {
+  if (target != written && (target == floorPercent || now - lastWriteMs >= kWriteIntervalMs)) {
     write(target);
   }
 }

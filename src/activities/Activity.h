@@ -59,6 +59,8 @@ class Activity {
 
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
+  // Owns the radio while on the stack (joins, scans, AP, ESP-NOW, its own server).
+  virtual bool usesWifi() const { return false; }
   // Screens that mostly sit idle (file transfer and similar) switch the
   // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }

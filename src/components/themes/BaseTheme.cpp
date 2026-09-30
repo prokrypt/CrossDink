@@ -26,6 +26,7 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "fontIds.h"
+#include "network/WifiUtils.h"
 #include "util/LocalClock.h"
 
 // Internal constants
@@ -82,6 +83,29 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
     }
     if (percentage > 70) {
       renderer.fillRect(rect.x + 10, rect.y + 2, 3, rect.height - 4, foregroundBlack);
+    }
+  }
+}
+
+namespace {
+// 15x11, 1 px strokes like the battery outline; bit 14 is the left column.
+constexpr uint16_t WIFI_GLYPH_ROWS[] = {0x03E0, 0x1C1C, 0x3006, 0x43E1, 0x0E38, 0x1004,
+                                        0x01C0, 0x0220, 0x0000, 0x01C0, 0x01C0};
+}  // namespace
+
+int BaseTheme::wifiStatusReserve() {
+  return hasActiveStationWifiConnection() ? wifiGlyphWidth + batteryPercentSpacing : 0;
+}
+
+void BaseTheme::drawWifiStatus(const GfxRenderer& renderer, const int x, const int batteryY,
+                               const bool foregroundBlack) {
+  // Bottom-aligned with the battery icon (drawn at batteryY + 5, 12 px tall).
+  const int top = batteryY + 6;
+  for (int row = 0; row < static_cast<int>(sizeof(WIFI_GLYPH_ROWS) / sizeof(WIFI_GLYPH_ROWS[0])); ++row) {
+    for (int col = 0; col < wifiGlyphWidth; ++col) {
+      if (WIFI_GLYPH_ROWS[row] & (1u << (wifiGlyphWidth - 1 - col))) {
+        renderer.drawPixel(x + col, top + row, foregroundBlack);
+      }
     }
   }
 }
@@ -439,6 +463,8 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
         batteryReserve + batteryPercentSpacing +
         ui.target.measureText(fui::GfxRendererTarget::FONT_SMALL, percentText, tokens.smallText).width);
   }
+  const int wifiReserve = showStatus ? wifiStatusReserve() : 0;
+  batteryReserve = static_cast<int16_t>(batteryReserve + wifiReserve);
 
   fui::HeaderProps props;
   props.title = title;
@@ -504,6 +530,14 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     drawBatteryLeft(renderer, batteryRect, showBatteryPercentage);
   } else {
     drawBatteryRight(renderer, batteryRect, showBatteryPercentage);
+  }
+  if (wifiReserve > 0) {
+    const int percentWidth =
+        showBatteryPercentage ? batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, percentText) : 0;
+    drawWifiStatus(renderer,
+                   batteryLeft ? batteryRect.x + batteryRect.width + percentWidth + batteryPercentSpacing
+                               : batteryRect.x - percentWidth - wifiReserve,
+                   batteryRect.y);
   }
 
   drawTopStatusBarClock(renderer, rect.y, nullptr, readerContext, clockYOffset);

@@ -11,7 +11,9 @@
 
 namespace {
 // wolfSSL handshake plus the HTTP client need more than the 4 KB used by the
-// SD-bound workers; the stack is internal RAM and lives only while a job runs.
+// SD-bound workers. The stack is PSRAM (3 workers x 12 KB of internal RAM
+// fragmented the block the Wi-Fi exit needs); the job only does TLS/HTTP into
+// a PSRAM buffer and never writes flash (the one thing a PSRAM stack forbids).
 constexpr uint32_t PREFETCH_STACK_BYTES = 12 * 1024;
 }  // namespace
 
@@ -28,7 +30,7 @@ bool OpdsPagePrefetcher::start(Request&& request, const size_t maxBytes) {
   succeeded = false;
   cancelRequested.store(false, std::memory_order_release);
   if (!task.start([](void* self) { static_cast<OpdsPagePrefetcher*>(self)->run(); }, this, PREFETCH_STACK_BYTES,
-                  "OpdsPrefetch")) {
+                  "OpdsPrefetch", false, WorkerTask::Stack::Psram)) {
     page.reset();
     LOG_ERR("OPDS", "Prefetch task could not start");
     return false;
@@ -38,6 +40,7 @@ bool OpdsPagePrefetcher::start(Request&& request, const size_t maxBytes) {
 
 void OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict) {
   if (running()) return;
+  task.join();  // not running: returns at once and frees the parked task
   if (succeeded && !page.empty()) {
     LOG_DBG("OPDS", "Caching prefetched page (%zu bytes)", page.size());
     if (!cache.store(job.url, std::move(page), mayEvict)) LOG_DBG("OPDS", "Prefetched page not cached (full)");

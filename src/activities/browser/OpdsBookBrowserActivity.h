@@ -31,6 +31,7 @@ class OpdsBookBrowserActivity final : public Activity {
 
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   // Progress repaints come every few seconds: booster off between them.
@@ -53,6 +54,9 @@ class OpdsBookBrowserActivity final : public Activity {
   std::unique_ptr<freeink::SecureHttpClient> feedConnection;
   unsigned long feedConnectionLastUseMs = 0;
 #endif
+  // Set when Back (button or header tap) cancels a foreground feed fetch;
+  // fetchFeed() then goes back instead of showing the fetch error.
+  bool fetchCancelled = false;
   // PSRAM devices only (null on C3): raw feed pages for Back/Prev, and the
   // background downloads of the next page and the first page's feeds.
   // Declared so the pool is destroyed (joined) before the cache.
@@ -134,6 +138,7 @@ class OpdsBookBrowserActivity final : public Activity {
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser);
+  bool pollFetchCancel();
   void startNextPagePrefetch(const std::string& nextHref);
   // First page only: queues every navigation row's feed for the preload pool.
   void preloadFeedsOnPage();
@@ -154,8 +159,7 @@ class OpdsBookBrowserActivity final : public Activity {
   void requestDownload(const OpdsEntry& book);
   // filename: the SD destination from requestDownload. resumeValidator: set
   // on Retry to continue the failed attempt's .part file (may be empty).
-  void downloadBook(const OpdsEntry& book, const std::string& filename,
-                    const std::string* resumeValidator = nullptr);
+  void downloadBook(const OpdsEntry& book, const std::string& filename, const std::string* resumeValidator = nullptr);
   // DOWNLOADING state: forwards cancel input, redraws progress, and finishes
   // once the background task has exited.
   void pollDownload();

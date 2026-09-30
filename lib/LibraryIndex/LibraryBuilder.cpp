@@ -1461,9 +1461,11 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
       previous.header().foldVersion == CLIX_FOLD_VERSION &&
       previous.header().metadataEnabled == static_cast<uint8_t>(readMetadata) && st.books == priorCount &&
       st.reused == priorCount && stats.metadataReused == priorCount && st.creationTimesUnchanged &&
-      st.unreadableSkipped == 0 && !st.dedupDegraded &&
-      (previous.header().flags & (CLIX_FLAG_RANKS_DEGRADED | CLIX_FLAG_DEDUP_DEGRADED | CLIX_FLAG_ARRIVAL_DEGRADED)) ==
-          0) {
+      st.unreadableSkipped == 0 &&
+      (previous.header().flags & (CLIX_FLAG_RANKS_DEGRADED | CLIX_FLAG_ARRIVAL_DEGRADED)) == 0 &&
+      // The dedup cap degrades the same card the same way every time; with
+      // every book reused, rewriting would produce the same index.
+      ((previous.header().flags & CLIX_FLAG_DEDUP_DEGRADED) != 0) == st.dedupDegraded) {
     previous.close();
     Storage.remove(STAGE_PATH);
     Storage.remove(folderStagePath.c_str());
@@ -1687,11 +1689,14 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
                        const bool retryFailedMetadata) {
   // Clear before scanning, not after: a file mutation during the scan must
   // survive as a request for another reconciliation. A cancelled background
-  // build returns false, which marks the index dirty again.
+  // build returns false, which marks the index dirty again. A degraded or
+  // partial result (dedup cap, sort fallback, skipped entries) is published
+  // and final for this card: rebuilding it on the next Home entry would give
+  // the same result. The Library repairs heap-caused degradation on its own
+  // visit, which is keyed by Storage.libraryScanCurrent(), not by this flag.
   indexDirty.exchange(false, std::memory_order_relaxed);
   const bool ok = rebuildLibraryIndex(rootPath, stats, readMetadata, control, retryFailedMetadata);
-  if (!ok || stats.unreadableSkipped || stats.ranksDegraded || stats.dedupDegraded || stats.arrivalDegraded)
-    invalidateLibraryIndex();
+  if (!ok) invalidateLibraryIndex();
   return ok;
 }
 

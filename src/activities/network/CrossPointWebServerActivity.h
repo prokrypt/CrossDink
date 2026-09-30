@@ -89,6 +89,7 @@ class CrossPointWebServerActivity final : public Activity {
         networkBootReady(networkBootReady) {}
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   // The server runs on its own task; an idle STA-mode server lets the main

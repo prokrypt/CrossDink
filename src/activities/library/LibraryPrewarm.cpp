@@ -62,6 +62,10 @@ SkipReason lastSkip = SkipReason::None;
 // A build that failed on its own (not stopped) is not retried until the next
 // boot; the Library still scans in the foreground and reports the problem.
 bool gaveUp = false;
+// Content generation of the last degraded background build. The same card
+// would degrade the same way again (the dedup cap is deterministic), so Home
+// does not rebuild until the card changes; the Library still repairs it.
+std::optional<uint32_t> degradedAt;
 // Build task only. Held while the walk runs and dropped while it is paused:
 // the main loop's idle branch otherwise leaves it at the lowest CPU clock.
 std::optional<HalPowerManager::Lock> fullSpeed;
@@ -109,9 +113,10 @@ void finalize() {
     // counter ahead, so the Library rescans. A degraded index (sort or dedup
     // allocation failed under Home's heap) is left for the Library's own
     // build, which runs with Home's buffers freed and can repair it.
-    if (!lastStats.ranksDegraded && !lastStats.dedupDegraded) {
+    if (!lastStats.ranksDegraded && !lastStats.dedupDegraded && !lastStats.arrivalDegraded) {
       Storage.noteLibraryScanned(startGeneration);
     } else {
+      degradedAt = startGeneration;
       LOG_INF("LIBPW", "Background index is degraded; the Library will rebuild it");
     }
     LOG_INF("LIBPW", "Library index ready in the background: %u books, %u parsed, %ums total, %ums paused",
@@ -181,6 +186,7 @@ void tick(const bool idle) {
     return;
   }
   if (!idle || gaveUp || Storage.libraryScanCurrent()) return;
+  if (degradedAt == Storage.libraryContentGeneration()) return;
   if (ESP.getFreeHeap() < kMinFreeHeap || ESP.getMaxAllocHeap() < kMinMaxAlloc) {
     if (lastSkip != SkipReason::LowHeap) {
       lastSkip = SkipReason::LowHeap;

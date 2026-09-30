@@ -38,6 +38,7 @@
 #include "OpdsServerStore.h"
 #include "QuickActions.h"
 #include "SdCardFontSystem.h"
+#include "SerialRemote.h"
 #include "SettingsList.h"
 #include "SilentRestart.h"
 #include "TaskCores.h"
@@ -449,7 +450,7 @@ CrossPointWebServer::~CrossPointWebServer() {
   if (serverStopped) vSemaphoreDelete(serverStopped);
 }
 
-void CrossPointWebServer::begin() {
+void CrossPointWebServer::begin(const bool logOnly) {
   if (running) {
     LOG_DBG("WEB", "Web server already running");
     return;
@@ -505,75 +506,84 @@ void CrossPointWebServer::begin() {
   server->enableCORS(true);
 
   // Setup routes
-  server->on("/", HTTP_GET, [this] { handleRoot(); });
-  server->on("/files", HTTP_GET, [this] { handleFileList(); });
-  server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
-  server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
-  server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
-
-  server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
 #if CROSSDINK_PSRAM_LOG
   server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
 #endif
-  server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
-  server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
-  server->on("/download", HTTP_GET, [this] { handleDownload(); });
-
-  // Upload endpoint with special handling for multipart form data
-  server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
-
-  // Create folder endpoint
-  server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
-
-  // Rename file endpoint
-  server->on("/rename", HTTP_POST, [this] { handleRename(); });
-
-  // Move file endpoint
-  server->on("/move", HTTP_POST, [this] { handleMove(); });
-
-  // Delete file/folder endpoint
-  server->on("/delete", HTTP_POST, [this] { handleDelete(); });
-
-  // Settings endpoints
-  server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
-  server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
-  server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
-  server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
-  server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
-
-  // Font management endpoints
-  server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
-  server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
-  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
-  server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
-
-  // OPDS server endpoints
-  server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
-  server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
-  server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
-
-  // Wi-Fi credential endpoints
-  server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
-  server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
-  server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
-
+#if CROSSDINK_SERIAL_REMOTE
+  server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
+  server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
+#endif
   server->onNotFound([this] { handleNotFound(); });
+  if (logOnly) {
+    // Nothing else: no SD access behind other screens, and /api/status's
+    // battery and sensor I2C reads would race touch polling there.
+    server->begin();
+  } else {
+    server->on("/", HTTP_GET, [this] { handleRoot(); });
+    server->on("/files", HTTP_GET, [this] { handleFileList(); });
+    server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
+    server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
+    server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
-  // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
-  server->collectHeaders(davHeaders, 7);
-  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+    server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+    server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
+    server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+    server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
-  server->begin();
+    // Upload endpoint with special handling for multipart form data
+    server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
 
-  // Start WebSocket server for fast binary uploads
-  wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
-  wsInstance = const_cast<CrossPointWebServer*>(this);
-  wsServer->begin();
-  wsServer->onEvent(wsEventCallback);
+    // Create folder endpoint
+    server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
 
-  udpActive = udp.begin(LOCAL_UDP_PORT);
-  LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+    // Rename file endpoint
+    server->on("/rename", HTTP_POST, [this] { handleRename(); });
+
+    // Move file endpoint
+    server->on("/move", HTTP_POST, [this] { handleMove(); });
+
+    // Delete file/folder endpoint
+    server->on("/delete", HTTP_POST, [this] { handleDelete(); });
+
+    // Settings endpoints
+    server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
+    server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
+    server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+    server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
+    server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
+
+    // Font management endpoints
+    server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
+    server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
+    server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
+    server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+    // OPDS server endpoints
+    server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
+    server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
+    server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
+
+    // Wi-Fi credential endpoints
+    server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
+    server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
+    server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+
+    // Collect WebDAV headers and register handler
+    const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
+    server->collectHeaders(davHeaders, 7);
+    server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+
+    server->begin();
+
+    // Start WebSocket server for fast binary uploads
+    wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
+    wsInstance = const_cast<CrossPointWebServer*>(this);
+    wsServer->begin();
+    wsServer->onEvent(wsEventCallback);
+
+    udpActive = udp.begin(LOCAL_UDP_PORT);
+    LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+  }
   psramSmallAllocs.end();
 
   // Do not subscribe the serving task to the task watchdog. Arduino WebServer
@@ -912,22 +922,79 @@ void CrossPointWebServer::handleExit() {
 
 #if CROSSDINK_PSRAM_LOG
 // Debug builds: the PSRAM log ring, oldest first, including lines from before
-// the last software restarts.
+// the last software restarts. ?since=<offset> tails it: only bytes after that
+// offset (a "[psram-log gap ...]" line marks any the ring overwrote first), and
+// the X-Log-Next header is the offset for the next poll. &wait=<ms> (max 5000)
+// holds an empty reply until new text arrives; that parks only this server task.
 void CrossPointWebServer::handlePsramLog() const {
   EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
+  const bool tail = server->hasArg("since");
+  const uint32_t since = tail ? strtoul(server->arg("since").c_str(), nullptr, 10) : 0;
+  if (tail) {
+    const uint32_t waitMs = std::min<uint32_t>(strtoul(server->arg("wait").c_str(), nullptr, 10), 5000);
+    for (uint32_t waited = 0; PsramLog::end() == since && waited < waitMs; waited += 50) vTaskDelay(pdMS_TO_TICKS(50));
+  }
   uint32_t cursor = PsramLog::oldest();
+  // since > end: the ring restarted (power loss or deep sleep) after that offset.
+  const bool restarted = tail && since > PsramLog::end();
+  const uint32_t skipped = tail && !restarted && since < cursor ? cursor - since : 0;
+  if (tail && !restarted && since > cursor) cursor = since;
   const uint32_t end = PsramLog::end();
+  server->sendHeader("X-Log-Next", String(end));
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "text/plain; charset=utf-8", "");
-  // Fresh identity header first: the ring may have wrapped past the boot lines.
-  const size_t headerLen = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
-  if (headerLen > 0) server->sendContent(chunk, headerLen);
+  size_t len = 0;
+  if (!tail) {
+    // Fresh identity header first: the ring may have wrapped past the boot lines.
+    len = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+  } else if (restarted) {
+    len = snprintf(chunk, sizeof(chunk), "[psram-log restarted]\n");
+  } else if (skipped > 0) {
+    len = snprintf(chunk, sizeof(chunk), "[psram-log gap %lu bytes]\n", static_cast<unsigned long>(skipped));
+  }
+  if (len > 0) server->sendContent(chunk, len);
   while (cursor < end) {
-    const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+    const uint32_t before = cursor;
+    len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
     if (len == 0) break;
+    if (cursor - len != before) {  // lapped while streaming: read() skipped ahead
+      char gap[48];
+      const int n = snprintf(gap, sizeof(gap), "\n[psram-log gap %lu bytes]\n",
+                             static_cast<unsigned long>(cursor - len - before));
+      server->sendContent(gap, n);
+    }
     server->sendContent(chunk, len);
   }
   server->sendContent("");
+}
+#endif
+
+#if CROSSDINK_SERIAL_REMOTE
+// Debug builds: runs one serial-remote command (docs/serial-remote.md) on the
+// main task. Token and SD access stay on the main task too.
+void CrossPointWebServer::handleRemoteCmd() const {
+  if (server->arg("cmd") == "SCREENSHOT") return handleScreenshot();
+  static char out[256];  // Static: server task only, keeps the reply off its stack
+  const int status =
+      SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(), out, sizeof(out), 12000);
+  server->send(status, "text/plain; charset=utf-8", out);
+}
+
+// Debug builds: the current framebuffer as a PBM, captured on the main task
+// under the render lock (so never half-drawn) and sent from its static copy.
+void CrossPointWebServer::handleScreenshot() const {
+  static char out[64];
+  const int status =
+      SerialRemote::runFromOtherTask(server->arg("token").c_str(), "SCREENSHOT", out, sizeof(out), 12000);
+  if (status != 200) {
+    server->send(status, "text/plain; charset=utf-8", out);
+    return;
+  }
+  size_t len = 0;
+  const uint8_t* pbm = SerialRemote::screenshot(len);
+  server->setContentLength(len);
+  server->send(200, "image/x-portable-bitmap", "");
+  server->sendContent(reinterpret_cast<const char*>(pbm), len);
 }
 #endif
 

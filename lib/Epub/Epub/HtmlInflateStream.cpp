@@ -1,9 +1,10 @@
 #include "HtmlInflateStream.h"
 
 #include <Arduino.h>
+#include <BuildScratch.h>
 #include <Logging.h>
-#include <PerfLog.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <freertos/task.h>
 
 #include <algorithm>
@@ -73,6 +74,7 @@ bool HtmlInflateStream::start(const Epub& epub, const std::string& itemHref, con
     return false;
   }
   epub_ = &epub;
+  scratchLender_ = buildscratch::self();
   itemHref_ = itemHref;
   chunkSize_ = chunkSize;
   capacity_ = itemBytes;
@@ -103,7 +105,13 @@ void HtmlInflateStream::workerMain(void* param) {
   auto* self = static_cast<HtmlInflateStream*>(param);
   const uint32_t startedAt = millis();
   Sink sink(*self);
-  bool ok = self->epub_->readItemContentsToStream(self->itemHref_, sink, self->chunkSize_);
+  bool ok;
+  {
+    // The starter joins this worker before it ends its framebuffer loan, so
+    // the inflater may use the lent bytes like an inline build would.
+    buildscratch::HelperScope scratch(self->scratchLender_);
+    ok = self->epub_->readItemContentsToStream(self->itemHref_, sink, self->chunkSize_);
+  }
   const size_t bytes = self->written_.load(std::memory_order_relaxed);
   if (ok && bytes != self->capacity_) {
     LOG_ERR("SCT", "Inflated %u B of a %u B entry", static_cast<unsigned>(bytes),
