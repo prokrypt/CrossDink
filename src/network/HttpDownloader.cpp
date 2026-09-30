@@ -26,6 +26,7 @@
 #include "network/HttpRedirectPolicy.h"
 #include "network/SdWriteBehind.h"
 #include "network/WifiPowerSaveGuard.h"
+#include "util/UrlUtils.h"
 
 namespace {
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
@@ -38,8 +39,12 @@ KNOB_ALIAS(DOWNLOAD_IDLE_TIMEOUT_MS, downloadIdleMs);
 constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr uint8_t MAX_REDIRECTS = 5;
 
-// Length to log with %.*s: the query string can hold a signed download token.
-int pathOnly(const std::string& url) { return static_cast<int>(std::min(url.find('?'), url.size())); }
+// For logs: no userinfo, and no query string (it can hold a signed download token).
+std::string logUrl(const std::string& url) {
+  std::string out = UrlUtils::withoutUserInfo(url);
+  out.resize(std::min(out.find('?'), out.size()));
+  return out;
+}
 
 void logNetworkState(const char* phase) {
   LOG_DBG("HTTP", "%s: heap free=%u maxAlloc=%u wifi=%d rssi=%d", phase, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
@@ -194,7 +199,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
     if (!http.begin(currentUrl)) {
-      LOG_ERR("HTTP", "wolfSSL rejected URL: %.*s", pathOnly(currentUrl), currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", logUrl(currentUrl).c_str());
       return HttpDownloader::HTTP_ERROR;
     }
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
@@ -216,7 +221,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     }
 
     // "shared": a following request to the same host logs no new TLS handshake.
-    LOG_DBG("HTTP", "wolfSSL GET%s: %.*s", sharedHttp ? " (shared)" : "", pathOnly(currentUrl), currentUrl.c_str());
+    LOG_DBG("HTTP", "wolfSSL GET%s: %s", sharedHttp ? " (shared)" : "", logUrl(currentUrl).c_str());
     const int status = http.GET(
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
           const int responseStatus = http.getStatus();
@@ -275,7 +280,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
     if (status < 0) {
-      LOG_ERR("HTTP", "wolfSSL request failed: %.*s", pathOnly(currentUrl), currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL request failed: %s", logUrl(currentUrl).c_str());
       if (sink.downloaded > 0) logStallDiagnostics("Request failed", sink);
       logNetworkState("wolfSSL request failure");
       return HttpDownloader::HTTP_ERROR;
@@ -295,11 +300,11 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", redirect.host.c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", redirect.host.c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
       continue;
     }
 
@@ -396,12 +401,12 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", redirect.host.c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
         esp_http_client_cleanup(client);
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", redirect.host.c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
       esp_http_client_cleanup(client);
       continue;
     }

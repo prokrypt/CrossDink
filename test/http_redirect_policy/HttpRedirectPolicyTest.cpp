@@ -89,3 +89,12 @@ TEST(HttpRedirectPolicy, RejectsUnsupportedRedirectSchemes) {
   EXPECT_TRUE(HttpRedirectPolicy::buildRedirectUrl("https://catalog.example.test/opds", "ftp://files.example.test/book")
                   .empty());
 }
+
+TEST(UrlUtils, WithoutUserInfoStripsOnlyTheCredentials) {
+  EXPECT_EQ(UrlUtils::withoutUserInfo("https://u:p@host.pub/opds?q=a@b"), "https://host.pub/opds?q=a@b");
+  EXPECT_EQ(UrlUtils::withoutUserInfo("http://user@host:8080"), "http://host:8080");
+  EXPECT_EQ(UrlUtils::withoutUserInfo("u:p@host.pub"), "host.pub");
+  EXPECT_EQ(UrlUtils::withoutUserInfo("https://host.pub/a@b"), "https://host.pub/a@b");
+  EXPECT_EQ(UrlUtils::withoutUserInfo("https://p@ss:w@rd@host.pub/"), "https://host.pub/");
+  EXPECT_EQ(UrlUtils::withoutUserInfo(""), "");
+}

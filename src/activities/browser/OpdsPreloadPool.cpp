@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "util/UrlUtils.h"
+
 namespace {
 // Worker stacks are PSRAM (internal fallback when PSRAM is short, hence the
 // block check); each worker still costs an internal TCB and wolfSSL's small
@@ -140,7 +142,7 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
   active = true;
   LOG_INF("OPDS", "%s start: slot=%zu running=%zu queued=%zu internal free=%zu largest=%zu %s",
           next.revalidate ? "Recheck" : "Preload", slot, alreadyRunning + 1, queue.size(), internal.free,
-          internal.largest, next.url.c_str());
+          internal.largest, UrlUtils::withoutUserInfo(next.url).c_str());
   return true;
 }
 
