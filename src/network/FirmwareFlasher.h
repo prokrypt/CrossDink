@@ -85,6 +85,8 @@ Result streamBegin(size_t totalSize);
 Result streamWrite(const uint8_t* data, size_t len);
 Result streamFinish();
 void streamAbort();
+// A stream is open (begun, not yet finished or aborted). Any task.
+bool streamActive();
 
 const char* resultName(Result r);
 

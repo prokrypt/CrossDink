@@ -820,6 +820,7 @@ struct Stream {
   size_t erasedUpto = 0;
 };
 Stream stream;
+std::atomic<bool> streamOpen{false};  // read by the main loop (frontlight pulse)
 
 Result flushStream() {
   while (stream.erasedUpto < stream.written + stream.fill) {
@@ -856,6 +857,7 @@ Result streamBegin(const size_t totalSize) {
   stream.buf = makeUniqueNoThrow<uint8_t[]>(SEC);
   if (!stream.verifier || !stream.buf) return failStream(Result::OOM);
   stream.total = totalSize;
+  streamOpen.store(true, std::memory_order_relaxed);
   LOG_INF("FLASH", "stream: %u bytes -> %s @0x%x", static_cast<unsigned>(totalSize), stream.dest->label,
           static_cast<unsigned>(stream.dest->address));
   return Result::OK;
@@ -899,7 +901,12 @@ Result streamFinish() {
   return Result::OK;
 }
 
-void streamAbort() { stream = Stream{}; }
+void streamAbort() {
+  stream = Stream{};
+  streamOpen.store(false, std::memory_order_relaxed);
+}
+
+bool streamActive() { return streamOpen.load(std::memory_order_relaxed); }
 
 Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx) {
   // Resolve destination first so the header check can enforce the OTA
