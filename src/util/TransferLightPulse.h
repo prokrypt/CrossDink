@@ -4,11 +4,12 @@
 
 #include <cstdint>
 
-// Pulses the frontlight floor -> 25% -> floor (1 s cycle) while a Wi-Fi or USB
-// Drive file transfer is moving data, and holds it at the floor when idle. The
-// floor is 0% if the light was off at begin(), 10% if it was on. Every pulse
-// runs to the end of its cycle, so even a short request gives one full blink
-// and the light always ramps down to the floor instead of cutting off. Saves the user's
+// Pulses the frontlight from the user's level (0% if the light was off at
+// begin()) to 25% and back (1 s cycle) while a Wi-Fi or USB Drive file transfer
+// is moving data, and holds the user's level when idle. A level nearer 25% than
+// 10% pulses down to 10% instead. Every pulse runs to the end of its cycle, so
+// even a short request gives one full blink and the light always ramps back to
+// the user's level instead of cutting off. Saves the user's
 // brightness/on state on begin() and restores it on end(). A brightness or
 // on/off change the pulse did not make (swipe, frontlight panel) stops the
 // pulse until end() and is left as the user set it. Main loop only; never
@@ -44,7 +45,8 @@ class TransferLightPulse {
   uint32_t holdMs = 0;
   uint8_t savedBrightness = 0;
   uint8_t written = 0;
-  uint8_t floorPercent = 0;
+  uint8_t basePercent = 0;   // idle level: the user's brightness, 0 if off
+  uint8_t swingPercent = 0;  // the other end of each pulse
   bool savedOn = false;
   bool armed = false;
   bool userOverride = false;
