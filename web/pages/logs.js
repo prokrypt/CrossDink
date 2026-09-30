@@ -57,6 +57,8 @@ async function load() {
 })();
 $('src').onchange = load;
 $('q').oninput = show;
+$('q').onkeydown = (e) => e.key === 'Enter' && show();
+$('go').onclick = show;
 
 // Log text size, remembered in this browser.
 let fontPx = 14;
