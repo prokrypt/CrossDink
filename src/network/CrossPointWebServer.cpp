@@ -749,13 +749,11 @@ void CrossPointWebServer::handleClient() {
   // sends a whole download in one blocking call.
   const bool pending = server->requestPending();
   if (pending) {
-    holdTakenForRequest = !isTransferActive();
     noteTransferActivity();
     requestBusy.store(true, std::memory_order_relaxed);
   }
   server->handleClient();
   if (pending) {
-    holdTakenForRequest = false;
     lastTransferMs = millis();
     requestBusy.store(false, std::memory_order_relaxed);
   }
@@ -826,12 +824,12 @@ void CrossPointWebServer::endTransferHold() {
   LOG_DBG("WEB", "Transfer idle: modem and light sleep allowed");
 }
 
-// Log tail and status polls are a few KB: end the hold this request took
-// instead of lingering, so a poller cannot keep the device awake. A hold that
-// was already running (page load, upload) is left to its linger.
+// Log tail and status polls are a few KB: end the hold now instead of
+// lingering, so a poller cannot keep the device awake. This also ends a hold
+// an earlier request left lingering (the log watcher GETs /api/status, a 404
+// on the Wi-Fi remote, just before the log); the next request takes it again.
 void CrossPointWebServer::releasePollHold() {
-  if (!holdTakenForRequest || !isTransferActive() || wsUploadInProgress) return;
-  holdTakenForRequest = false;
+  if (!isTransferActive() || wsUploadInProgress) return;
   endTransferHold();
 }
 
