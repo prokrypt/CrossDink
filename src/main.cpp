@@ -2429,21 +2429,36 @@ static void loopPass() {
     activityManager.requestUpdate();
   }
 
-  // The header's Wi-Fi glyph: one ordinary repaint of the current screen when
-  // the link comes or goes. Only screens whose last frame drew a header status
-  // bar (never the reader); requestedFor stops a repeat if that repaint shows
-  // no header.
+  // The header's Wi-Fi glyph and battery percent: one ordinary repaint of the
+  // current screen when the link comes or goes or the percent changes. Only
+  // screens whose last frame drew a header status bar (never the reader), and
+  // the percent only once input has paused; requestedFor stops a repeat if that
+  // repaint shows no header.
   {
-    static unsigned long lastWifiGlyphPoll = 0;
+    static unsigned long lastHeaderStatusPoll = 0;
     static int requestedFor = -1;
-    if (millis() - lastWifiGlyphPoll >= 1000) {
-      lastWifiGlyphPoll = millis();
-      const int shown = BaseTheme::wifiStatusShown();
+    if (millis() - lastHeaderStatusPoll >= 1000) {
+      lastHeaderStatusPoll = millis();
+      const int shownWifi = BaseTheme::wifiStatusShown();
+      const int shownPercent = BaseTheme::batteryPercentShown();
       const int connected = hasActiveStationWifiConnection() ? 1 : 0;
-      if (shown < 0 || shown == connected) {
+      // Every 10 s: ADC boards smooth the percent on each read, so a faster
+      // poll would move it (gauge reads are cached for BATTERY_POLL_MS).
+      static int percent = -1;
+      static unsigned long lastPercentRead = 0;
+      // A mismatch re-reads first, so a frame drawn after the last read can't
+      // trigger a repaint of the value it already shows.
+      if (percent < 0 || millis() - lastPercentRead >= 10000 || (shownPercent >= 0 && shownPercent != percent)) {
+        lastPercentRead = millis();
+        percent = powerManager.getBatteryPercentage();
+      }
+      const bool inputPaused = millis() - lastActivityTime >= 2000;
+      const bool stale = shownWifi != connected || (inputPaused && shownPercent != percent);
+      const int want = connected << 8 | percent;
+      if (shownWifi < 0 || !stale) {
         requestedFor = -1;
-      } else if (requestedFor != connected) {
-        requestedFor = connected;
+      } else if (requestedFor != want) {
+        requestedFor = want;
         activityManager.requestUpdate();
       }
     }
