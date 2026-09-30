@@ -571,7 +571,8 @@ void LibraryActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<LibraryActivity*>(user);
   if (event.value < 0 || event.value >= self->rowCount()) return;
   self->selection = event.value + CONTROL_COUNT;
-  self->showSelection = false;
+  // A long press opens the action menu over the list: keep the row outlined.
+  self->showSelection = event.longPress;
   if (event.longPress)
     self->showBookActionMenu(event.value);
   else

@@ -106,6 +106,9 @@ class Activity {
   // After a full-screen child pops, ActivityManager must redraw that source
   // activity before pushing one of these overlays again.
   virtual bool requiresFreshBackdrop() const { return false; }
+  // Popup activities drawn over the source's last frame. Opened by a tap, the
+  // source repaints first so the tapped row shows selected under the popup.
+  virtual bool drawsOverSourceFrame() const { return false; }
   // A backdrop-only render must not make a paused reader count overlay time as
   // reading time. Readers clear that transient render timestamp here.
   virtual void onBackdropRenderedForOverlay() {}

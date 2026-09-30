@@ -152,6 +152,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Tapping a list row that opens a popup now shows the row selected before the popup appears, instead of only after it closes.
 - X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) ramps smoothly again instead of stepping, and File Transfer no longer pulses when the only traffic is log or status polling.
 - A two-finger or edge brightness slide that starts with the light off and ends at or below where it started now leaves the light off.
 - A brightness slide during a transfer light pulse now starts from your own brightness instead of the pulse level, and the level you slide to is kept when the transfer ends.

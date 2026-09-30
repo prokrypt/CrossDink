@@ -769,6 +769,13 @@ void ActivityManager::loop() {
         // restoredActivityNeedsRender. Preserve the overlay's paused timing
         // state either way before it becomes current.
         if (currentActivity) currentActivity->onBackdropRenderedForOverlay();
+      } else if (pendingAction == PendingAction::Push && pendingActivity->drawsOverSourceFrame() &&
+                 mappedInput.wasTapOrHeld()) {
+        // The tapped row is selected but not yet on screen: show it before the
+        // popup covers the frame, not after the popup closes.
+        if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+          LOG_ERR("ACT", "Could not show tapped row before opening %s", pendingActivity->name.c_str());
+        }
       }
       // Current activity has requested a new activity to be launched
       RenderLock lock;
