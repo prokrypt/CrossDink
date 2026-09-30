@@ -6,15 +6,15 @@
 // Included once per expansion (no include guard).
 
 // Display: SDK Uc8179Driver (setUc8179Tuning) and the Turbo keyboard
-X("Display", paintFrames, uint8_t, 12, 6, 24, 1, "fr")                 // exit paint / smooth base DU frames per phase
-X("Display", coldDivisor, uint8_t, 3, 0, 10, 1, "1/n")                 // cold panel adds frames / n, 0 = none
-X("Display", heldRedriveFrames, uint8_t, 3, 0, 16, 1, "fr")            // Softfast held-black (KK) re-drive, gated sets
-X("Display", coldC, int8_t, 15, -10, 40, 1, "C")                       // panel counts as cold below this
-X("Display", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          // idle temperature sample
-X("Display", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
-X("Display", tempMaxAgeMs, uint32_t, 600000, 60000, 3600000, 60000, "ms")        // older samples ignored
-X("Display", kbdFrames, uint8_t, 4, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
-X("Display", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo keyboard PLL: panel, 1 = 40 Hz, 2 = 50 Hz
+X("Panel", paintFrames, uint8_t, 12, 6, 24, 1, "fr")                 // exit paint / smooth base DU frames per phase
+X("Panel", coldDivisor, uint8_t, 3, 0, 10, 1, "1/n")                 // cold panel adds frames / n, 0 = none
+X("Panel", heldRedriveFrames, uint8_t, 3, 0, 16, 1, "fr")            // Softfast held-black (KK) re-drive, gated sets
+X("Panel", coldC, int8_t, 15, -10, 40, 1, "C")                       // panel counts as cold below this
+X("Panel", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          // idle temperature sample
+X("Panel", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
+X("Panel", tempMaxAgeMs, uint32_t, 600000, 60000, 3600000, 60000, "ms")        // older samples ignored
+X("Panel", kbdFrames, uint8_t, 4, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
+X("Panel", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo keyboard PLL: panel, 1 = 40 Hz, 2 = 50 Hz
 
 // Frontlight
 // Flash duck, per waveform: dark this much after the swing the driver reports, back up this much after
@@ -119,20 +119,20 @@ X("Heap", opdsPreloadPerWorker, size_t, 16384, 16384, 65536, 1024, "B")       //
 X("Heap", opdsPreloadMinBlock, size_t, 16384, 16384, 65536, 1024, "B")
 
 // Reader
-X("Reader", buildAheadPages, int, 5, 1, 20, 1, "pg")                  // incremental build runs this far ahead
-X("Reader", partialRebuildMargin, int, 15, 2, 50, 1, "pg")            // extend a partial section this near its end
-X("Reader", buildChunkPages, int, 8, 1, 32, 1, "pg")                  // non-interactive build batch
-X("Reader", popupPages, int, 20, 1, 200, 1, "pg")                     // indexing popup: target deeper than this
-X("Reader", popupBytes, size_t, 98304, 8192, 524288, 8192, "B")       // indexing popup: spine items this large
-X("Reader", popupDeadlineMs, unsigned long, 1000, 100, 5000, 100, "ms")  // indexing popup: build stalls this long
-X("Reader", pageTurnGapMs, unsigned long, 200, 0, 1000, 10, "ms")     // faster manual turns are queued
-X("Reader", progressSavePages, uint8_t, 30, 1, 255, 1, "pg")          // save progress every N turns (next book)
-X("Reader", progressSaveMaxMs, unsigned long, 900000, 60000, 3600000, 60000, "ms")  // and at least this often
-X("Reader", homeThumbIdleMs, unsigned long, 3000, 500, 30000, 500, "ms")  // idle before the Home cover thumb
-X("Reader", fontPrewarmDelayMs, unsigned long, 400, 0, 5000, 100, "ms")   // idle before the SD font prewarm
-X("Reader", pageLoadRetries, int, 3, 1, 10, 1, "")                        // page load retries
-X("Reader", pxcCacheCap, size_t, 131072, 32768, 131072, 8192, "B")        // decoded image cache (compiled max)
-X("Reader", opdsCacheCap, size_t, 2097152, 262144, 2097152, 262144, "B")  // OPDS page cache (compiled max)
+X("Book", buildAheadPages, int, 5, 1, 20, 1, "pg")                  // incremental build runs this far ahead
+X("Book", partialRebuildMargin, int, 15, 2, 50, 1, "pg")            // extend a partial section this near its end
+X("Book", buildChunkPages, int, 8, 1, 32, 1, "pg")                  // non-interactive build batch
+X("Book", popupPages, int, 20, 1, 200, 1, "pg")                     // indexing popup: target deeper than this
+X("Book", popupBytes, size_t, 98304, 8192, 524288, 8192, "B")       // indexing popup: spine items this large
+X("Book", popupDeadlineMs, unsigned long, 1000, 100, 5000, 100, "ms")  // indexing popup: build stalls this long
+X("Book", pageTurnGapMs, unsigned long, 200, 0, 1000, 10, "ms")     // faster manual turns are queued
+X("Book", progressSavePages, uint8_t, 30, 1, 255, 1, "pg")          // save progress every N turns (next book)
+X("Book", progressSaveMaxMs, unsigned long, 900000, 60000, 3600000, 60000, "ms")  // and at least this often
+X("Book", homeThumbIdleMs, unsigned long, 3000, 500, 30000, 500, "ms")  // idle before the Home cover thumb
+X("Book", fontPrewarmDelayMs, unsigned long, 400, 0, 5000, 100, "ms")   // idle before the SD font prewarm
+X("Book", pageLoadRetries, int, 3, 1, 10, 1, "")                        // page load retries
+X("Book", pxcCacheCap, size_t, 131072, 32768, 131072, 8192, "B")        // decoded image cache (compiled max)
+X("Book", opdsCacheCap, size_t, 2097152, 262144, 2097152, 262144, "B")  // OPDS page cache (compiled max)
 
 // Wi-Fi
 X("Wi-Fi", rejoinTimeoutMs, uint32_t, 20000, 5000, 60000, 1000, "ms")       // Goodies remote join timeout

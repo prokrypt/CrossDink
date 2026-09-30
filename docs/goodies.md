@@ -20,7 +20,7 @@
   starting the Wi-Fi driver) runs on its own task, so input and drawing never wait for it (logged as
   `join task N ms`). With no saved network, turning it on opens the Wi-Fi picker. While the idle server waits
   for requests, the device power saves as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
-- **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, grouped by area, as `id value unit`
+- **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, one tab per area (tap or long-press Up/Down to switch), as `id value unit`
   (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
   values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
   deletes the file. Three crash boots in a row (panic, watchdog or power cycle; wakes from sleep

@@ -17,9 +17,9 @@
 #include <atomic>
 #include <cstring>
 
+#include "BatteryStatsActivity.h"
 #include "CrossPointSettings.h"
 #include "DisplayScript.h"
-#include "BatteryStatsActivity.h"
 #include "DisplayTestActivity.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
@@ -39,6 +39,7 @@
 namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
+constexpr fui::ActionId ACTION_TAB = 2;
 constexpr char DISPLAY_TEST_DIR[] = "/debug/display";
 constexpr size_t MAX_SD_TESTS = 64;
 
@@ -362,9 +363,20 @@ void loop(const uint32_t idleMs) {
 namespace {
 // Knob rows are debug-only English (ids as in Knobs.def, CMD:KNOB and
 // knobs.json), like the display test names: no I18n strings in release builds.
-constexpr int KNOB_HEADER = -1;
 constexpr int KNOB_RESET_ALL = -2;
 constexpr int KNOB_DIM_LEVEL = -3;  // Flash Dim Level: the Display > Frontlight setting, not a knob
+constexpr int MAX_KNOB_TABS = 8;
+
+// Knob groups in Knobs.def order (rows of a group are contiguous): one tab each.
+int knobGroups(const char* (&out)[MAX_KNOB_TABS]) {
+  int n = 0;
+  for (int i = 0; i < knobs::COUNT; ++i) {
+    if (n > 0 && strcmp(out[n - 1], knobs::INFO[i].group) == 0) continue;
+    if (n == MAX_KNOB_TABS) break;
+    out[n++] = knobs::INFO[i].group;
+  }
+  return n;
+}
 const char* editUnit = "";  // unit of the knob being edited, for formatKnob
 
 void formatKnob(const int value, char* buf, const size_t len) { snprintf(buf, len, "%d %s", value, editUnit); }
@@ -390,6 +402,7 @@ void GoodiesActivity::onEnter() {
   applySharedUiTheme(app, uiTarget);
   goodies_remote::takePickerRequest();  // left over from a toggle made on an earlier visit
   app.on(ACTION_ROW, &GoodiesActivity::onRowEvent, this);
+  app.on(ACTION_TAB, &GoodiesActivity::onTabEvent, this);
   app.setScreen(&GoodiesActivity::listScreen, this);
   showLevel(Level::Root);
 }
@@ -407,13 +420,13 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
 #endif
   } else if (level == Level::Knobs) {
-    entries.reserve(knobs::COUNT + 16);
-    const char* group = "";
+    const char* groups[MAX_KNOB_TABS];
+    const int tabs = knobGroups(groups);
+    knobTab = std::clamp(knobTab, 0, tabs - 1);
     for (int i = 0; i < knobs::COUNT; ++i) {
-      if (strcmp(group, knobs::INFO[i].group) != 0) {
-        group = knobs::INFO[i].group;
-        entries.push_back({std::string("- ") + group + " -", KNOB_HEADER, {}});
-        if (strcmp(group, "Light") == 0) entries.push_back({"flashDimLevel", KNOB_DIM_LEVEL, {}, dimLevelRowValue()});
+      if (strcmp(knobs::INFO[i].group, groups[knobTab]) != 0) continue;
+      if (strcmp(groups[knobTab], "Light") == 0 && entries.empty()) {
+        entries.push_back({"flashDimLevel", KNOB_DIM_LEVEL, {}, dimLevelRowValue()});
       }
       entries.push_back({knobs::INFO[i].id, i, {}, knobRowValue(i)});
     }
@@ -618,6 +631,19 @@ void GoodiesActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   static_cast<GoodiesActivity*>(user)->pendingRow = event.value;
 }
 
+void GoodiesActivity::onTabEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<GoodiesActivity*>(user);
+  self->pendingTab = event.value;
+  self->app.clearTapFlash();  // taps never highlight a tab
+}
+
+void GoodiesActivity::switchKnobTab(const int tab) {
+  const char* groups[MAX_KNOB_TABS];
+  const int tabs = knobGroups(groups);
+  knobTab = (tab + tabs) % tabs;
+  showLevel(Level::Knobs);
+}
+
 void GoodiesActivity::loop() {
   if (goodies_remote::takePickerRequest()) {
     openRemotePicker();
@@ -638,8 +664,10 @@ void GoodiesActivity::loop() {
     const auto snapshot = touchSnapshotFrom(mappedInput);
     if (snapshot.touchPressed || snapshot.touchReleased) {
       pendingRow = -1;
+      pendingTab = -1;
       const auto event = app.route(snapshot);
       if (app.invalidated()) requestUpdate();
+      if (pendingTab >= 0) switchKnobTab(pendingTab);
       if (pendingRow >= 0) activate(pendingRow);
       if (event) return;
     }
@@ -669,6 +697,12 @@ void GoodiesActivity::loop() {
   buttonNavigator.onNextRelease([&move, this, count] { move(ButtonNavigator::nextIndex(selectedIndex, count)); });
   buttonNavigator.onPreviousRelease(
       [&move, this, count] { move(ButtonNavigator::previousIndex(selectedIndex, count)); });
+  // Knobs: long-press Up/Down switches tabs, as in Settings; Up/Down stay in the list.
+  if (level == Level::Knobs) {
+    buttonNavigator.onNextContinuous([this] { switchKnobTab(knobTab + 1); });
+    buttonNavigator.onPreviousContinuous([this] { switchKnobTab(knobTab - 1); });
+    return;
+  }
   buttonNavigator.onNextContinuous(
       [&move, this, count] { move(ButtonNavigator::nextPageIndex(selectedIndex, count, visibleRows)); });
   buttonNavigator.onPreviousContinuous(
@@ -685,6 +719,36 @@ void GoodiesActivity::buildListScreen(UiApp::ScreenType& screen) {
       fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
                   static_cast<int16_t>(metrics.buttonHintsHeight), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+
+  if (level == Level::Knobs) {
+    // Settings' tab bar: plain labels, the active tab underlined 3 px.
+    const char* groups[MAX_KNOB_TABS];
+    const int tabCount = knobGroups(groups);
+    fui::TabItem tabs[MAX_KNOB_TABS];
+    for (int i = 0; i < tabCount; ++i) {
+      tabs[i].label = groups[i];
+      tabs[i].value = static_cast<int16_t>(i);
+      tabs[i].selected = i == knobTab;
+    }
+    fui::TabBarProps tabProps;
+    tabProps.tabs = tabs;
+    tabProps.count = static_cast<uint8_t>(tabCount);
+    tabProps.action = ACTION_TAB;
+    tabProps.inputMask = fui::InputTouch;
+    tabProps.text = screen.theme().smallText;
+    tabProps.tabInset = fui::Insets{2, 2, 4, 2};
+    tabProps.contentInset = fui::Insets{2, 4, 2, 4};
+    tabProps.divider = true;
+    if (metrics.tabBarAppearance != ThemeTabBarAppearance::BorderedText) {
+      tabProps.tabStyles = fui::plainStyles();
+      tabProps.selectedUnderline = 3;
+    }
+    const int16_t lineHeight = screen.target().lineHeight(screen.theme().smallText.font);
+    const int16_t band = std::max<int16_t>(mappedInput.hasTouch() ? 50 : static_cast<int16_t>(metrics.tabBarHeight),
+                                           static_cast<int16_t>(lineHeight + 10));
+    drawUiTabBar(screen, tabProps, screen.takeTop(band), metrics.tabBarAppearance);
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
 
   const int count = static_cast<int>(rowItems.size());
   fui::ListProps props;
