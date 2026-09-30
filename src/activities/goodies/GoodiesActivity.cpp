@@ -18,6 +18,7 @@
 
 #include "CrossPointSettings.h"
 #include "DisplayScript.h"
+#include "BatteryStatsActivity.h"
 #include "DisplayTestActivity.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
@@ -376,6 +377,9 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
     remoteRowShown = remoteRowState();
+#ifndef SIMULATOR
+    entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
+#endif
   } else {
     entries.reserve(display_script::BUILT_IN_COUNT + 8);
     for (int i = 0; i < display_script::BUILT_IN_COUNT; ++i) {
@@ -420,8 +424,16 @@ void GoodiesActivity::activate(const int index) {
   if (level == Level::Root) {
     if (index == 0) {
       showLevel(Level::DisplayTests);
-    } else {
+    } else if (index == 1) {
       toggleRemote();
+    } else {
+#ifndef SIMULATOR
+      startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) {
+                               mappedInput.suppressNextConfirmRelease();
+                               requestUpdate();
+                             });
+#endif
     }
     return;
   }

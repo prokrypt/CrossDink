@@ -128,6 +128,15 @@ class HalDisplay {
   // planes started loading), 0 while none runs. The main loop dims the
   // frontlight meanwhile.
   uint32_t flashStartedMs() const { return flashStart.load(std::memory_order_relaxed); }
+  // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
+  // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
+  // then gray passes, then refreshes that flash (as marked for the flash duck).
+  enum { GRAY_PASSES = 3, FLASHING = 4 };
+  struct RefreshCounts {
+    uint32_t magic;
+    uint32_t n[5];
+  };
+  static RefreshCounts& refreshCounts();
 
   // Tiled grayscale: stream one band of a plane (lsbPlane selects LSB/MSB RAM)
   // straight to the controller; supportsStripGrayscale() gates the path. See
@@ -151,6 +160,7 @@ class HalDisplay {
 
  private:
   void markFlash(bool flashes);
+  static void count(int kind);
   // Marks a synchronous refresh (if it flashes) and clears the mark when it returns.
   struct FlashScope {
     HalDisplay& d;
