@@ -478,7 +478,10 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
     // One mark for "no network needed": a downloaded book or a cached feed page.
-    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) item.icon = fui::bitmapFromIcon(icon_check_24);
+    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) {
+      item.icon = fui::bitmapFromIcon(icon_check_24);
+      item.iconTrailing = true;  // right side, before the "(N) >" value
+    }
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
         snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
