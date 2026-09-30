@@ -132,6 +132,9 @@ class HalDisplay {
   bool flashMarked() const { return flashStart.load(std::memory_order_relaxed) != 0; }
   // When that refresh is expected to end (UC8179), 0 when unknown.
   uint32_t flashEndsMs() const;
+  // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
+  enum class FlashKind : uint8_t { Gray, Full, Paint };
+  FlashKind flashKind() const;
   // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
   // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
   // then gray passes, then refreshes that flash (as marked for the flash duck).

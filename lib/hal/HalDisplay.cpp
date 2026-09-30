@@ -304,6 +304,16 @@ uint32_t HalDisplay::flashEndsMs() const {
   return 0;
 }
 
+HalDisplay::FlashKind HalDisplay::flashKind() const {
+#ifndef SIMULATOR
+  if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) {
+    static_assert(static_cast<int>(freeink::Uc8179FlashKind::Paint) == static_cast<int>(FlashKind::Paint));
+    return static_cast<FlashKind>(freeink::uc8179FlashKind());
+  }
+#endif
+  return FlashKind::Full;
+}
+
 uint32_t HalDisplay::flashStartedMs() const {
 #ifndef SIMULATOR
   if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) {

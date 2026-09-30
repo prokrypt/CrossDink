@@ -2067,7 +2067,8 @@ static bool radioMayIdle() {
 // UC8179 the driver's DRF time plus the waveform's own offset, e.g. direct gray
 // holds white for 24 of 50 frames), and back up over FLASH_DUCK_UP_MS once the
 // refresh ends. A swing that shows at once (OTP Full/Half) cuts the light at
-// DRF. Goodies > Knobs flashDimMs / flashRestoreMs shift both ends. Runs
+// DRF. Goodies > Knobs flash*DimMs / flash*RestoreMs shift both ends, per
+// waveform (HalDisplay::flashKind: AA page, Half/Full, DU paint). Runs
 // alongside the refresh (render task) and never waits on it. A mark older than
 // FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends. The
 // times are Goodies > Knobs; a zero fade never divides (both ramps test it first).
@@ -2089,19 +2090,23 @@ static uint32_t liveFlashStartMs() {
 static void updateFlashDuck() {
   const unsigned long now = millis();
   const uint32_t swingMs = liveFlashStartMs();
-  // Goodies offsets (later is positive). The refresh never waits on either: an
-  // earlier dim than the driver can announce just cuts the light at DRF.
-  const int32_t dimMs = KNOBS.flashDimMs;
-  const int32_t restoreMs = KNOBS.flashRestoreMs;
   static uint32_t swingEndMs = 0;   // expected end of the swing being tracked
   static uint32_t swingGoneMs = 0;  // when it ended (for a later restore)
+  static auto kind = HalDisplay::FlashKind::Full;  // of that swing, kept for a late restore
   if (swingMs != 0) {
     swingEndMs = display.flashEndsMs();
     swingGoneMs = 0;
+    kind = display.flashKind();
   } else if (swingEndMs != 0) {
     swingEndMs = 0;
     swingGoneMs = now | 1;
   }
+  // Goodies offsets (later is positive). The refresh never waits on either: an
+  // earlier dim than the driver can announce just cuts the light at DRF.
+  const bool gray = kind == HalDisplay::FlashKind::Gray, full = kind == HalDisplay::FlashKind::Full;
+  const int32_t dimMs = gray ? KNOBS.flashGrayDimMs : full ? KNOBS.flashFullDimMs : KNOBS.flashPaintDimMs;
+  const int32_t restoreMs =
+      gray ? KNOBS.flashGrayRestoreMs : full ? KNOBS.flashFullRestoreMs : KNOBS.flashPaintRestoreMs;
   // Up early: before the expected end (negative restore). Up late: hold dark
   // after the refresh ended (positive restore).
   const bool restoreEarly =
