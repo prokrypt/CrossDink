@@ -59,6 +59,18 @@ class Activity {
 
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
+  // Owns the radio while on the stack (joins, scans, AP, ESP-NOW, its own server).
+  virtual bool usesWifi() const { return false; }
+  // Screens that mostly sit idle (file transfer and similar) switch the
+  // panel's booster off right after each frame's refresh finishes.
+  virtual bool powerOffPanelWhenIdle() const { return false; }
+  // Input arriving mid-refresh waits for the waveform to end, then all of it
+  // lands in one frame (typing). Default: the next frame draws at once and
+  // overlaps the waveform's tail.
+  virtual bool batchesInputDuringRefresh() const { return false; }
+  // Serial remote control: insert text as if typed. False when the screen has
+  // no text entry.
+  virtual bool injectText(const char*) { return false; }
   // A Wi-Fi screen that is idle between transfers: the main loop may power
   // save and light-sleep between ticks even though the radio is up.
   virtual bool allowsRadioIdleSleep() { return false; }
@@ -68,6 +80,10 @@ class Activity {
   // Called by the app-wide Quick Lock. Reader activities use it to exclude
   // locked time from reading statistics; other activities have no state to change.
   virtual void onInputLockChanged(bool) {}
+  // Called from the main loop before an event (sleep, network entry, forced
+  // refresh) takes the render lock, so a render can drop optional work (the
+  // reader's AA pass) instead of making the event wait. Must be thread-safe.
+  virtual void cancelOptionalRenderWork(const char* /*reason*/) {}
   // Called from the main loop as soon as raw input arrives, before a global
   // shortcut or gesture can consume it instead of entering activity loop().
   virtual void onUserInput() {}

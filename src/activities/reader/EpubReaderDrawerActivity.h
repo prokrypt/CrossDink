@@ -30,8 +30,8 @@ class EpubReaderDrawerActivity final : public Activity {
       const EpubReaderPreviewModel* previewModel, float bookProgressPercent, uint32_t chapterPage,
       uint32_t chapterPageCount, bool chapterPageCountEstimated, bool hasFootnotes, bool hasDictionary,
       bool hasBookmarks, bool hasClippings, bool isCurrentPageBookmarked, bool isBookCompleted,
-      bool showReadingPaceReset, uint32_t stableCurrentPage, uint32_t stablePageCount,
-      uint16_t autoPageTurnIntervalSeconds, bool automaticPageTurnActive,
+      bool showReadingPaceReset, bool globalStatsEnabled, bool bookStatsEnabled, uint32_t stableCurrentPage,
+      uint32_t stablePageCount, uint16_t autoPageTurnIntervalSeconds, bool automaticPageTurnActive,
       ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback = nullptr,
       void* saveReaderSettingsContext = nullptr,
       ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr,
@@ -120,6 +120,8 @@ class EpubReaderDrawerActivity final : public Activity {
   bool hasDictionary = false;
   bool hasBookmarks = false;
   bool hasClippings = false;
+  bool globalStatsEnabled = true;
+  bool bookStatsEnabled = true;
   bool isCurrentPageBookmarked = false;
   bool isBookCompleted = false;
   bool showReadingPaceReset = false;

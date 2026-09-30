@@ -225,6 +225,9 @@ class GfxRenderer {
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { orientation = o; }
   Orientation getOrientation() const { return orientation; }
+  // Logical rect -> framebuffer (panel) rect with x and w 8-pixel aligned.
+  // False when the rect is empty or off screen.
+  bool toFrameBufferRect(int x, int y, int w, int h, uint16_t& fx, uint16_t& fy, uint16_t& fw, uint16_t& fh) const;
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }

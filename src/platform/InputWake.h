@@ -16,4 +16,7 @@ void wait(uint32_t timeoutMs);
 // cannot delay or drop a press. ADC-ladder keys and touch controllers other
 // than the GT911 still depend on the poll tick.
 bool coversAllInputs();
+
+// Debug: button and touch line interrupts since the previous call (cleared).
+void takeWakeCounts(uint32_t& buttons, uint32_t& touch);
 }  // namespace InputWake

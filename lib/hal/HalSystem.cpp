@@ -11,6 +11,9 @@
 #include "esp_private/esp_cpu_internal.h"
 #include "esp_private/esp_system_attr.h"
 #include "esp_private/panic_internal.h"
+#include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
 #include "esp_cpu_utils.h"
@@ -164,23 +167,49 @@ void IRAM_ATTR captureRiscvPanicRegisters(const void* frame) {
 }
 #endif
 
-void IRAM_ATTR __wrap_panic_abort(const char* message) {
+// IRAM-safe bounded append (strncat is not IRAM-safe in panic context).
+static size_t IRAM_ATTR appendPanicMessage(size_t at, const char* text) {
+  for (; at < sizeof(panicMessage) - 1 && *text; ++at, ++text) panicMessage[at] = *text;
+  panicMessage[at] = '\0';
+  return at;
+}
+
+static void IRAM_ATTR beginPanicMessage() {
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
   if (panicCaptureMarker != PANIC_CAPTURE_MAGIC) {
     panicCoreCaptureCount = 0;
     resetXtensaPanicCapture();
   }
 #endif
-  if (!message) message = PANIC_REASON_UNKNOWN;
-  // IRAM-safe bounded copy (strncpy is not IRAM-safe in panic context)
-  int i = 0;
-  for (; i < (int)sizeof(panicMessage) - 1 && message[i]; i++) {
-    panicMessage[i] = message[i];
-  }
-  panicMessage[i] = '\0';
+  panicMessage[0] = '\0';
+}
+
+void IRAM_ATTR __wrap_panic_abort(const char* message) {
+  beginPanicMessage();
+  appendPanicMessage(0, message ? message : PANIC_REASON_UNKNOWN);
   panicCaptureMarker = PANIC_CAPTURE_MAGIC;
 
   __real_panic_abort(message);
+}
+
+// Task watchdog timeout (ISR, before the abort). The abort path records no
+// message and the backtrace covers only the aborting core, so name the task
+// each core was running, as IDF prints to the console.
+void IRAM_ATTR esp_task_wdt_isr_user_handler(void) {
+  static DRAM_ATTR const char PREFIX[] = "task_wdt: running";
+  static DRAM_ATTR const char CPU_LABEL[] = " CPU";
+  static DRAM_ATTR const char UNKNOWN[] = "?";
+  beginPanicMessage();
+  size_t at = appendPanicMessage(0, PREFIX);
+  for (int core = 0; core < portNUM_PROCESSORS; ++core) {
+    const char digit[3] = {static_cast<char>('0' + core), '=', '\0'};
+    at = appendPanicMessage(at, CPU_LABEL);
+    at = appendPanicMessage(at, digit);
+    const TaskHandle_t task = xTaskGetCurrentTaskHandleForCore(core);
+    const char* name = task ? pcTaskGetName(task) : nullptr;
+    at = appendPanicMessage(at, name ? name : UNKNOWN);
+  }
+  panicCaptureMarker = PANIC_CAPTURE_MAGIC;
 }
 
 void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {

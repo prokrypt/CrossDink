@@ -1,6 +1,7 @@
 #pragma once
 #include <Epub.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -55,9 +56,12 @@ class KOReaderSyncActivity final : public Activity {
 
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return state == CONNECTING || state == SYNCING || state == UPLOADING; }
+  // Result and prompt screens keep Wi-Fi up but idle: allow light sleep.
+  bool allowsRadioIdleSleep() override { return !preventAutoSleep(); }
   bool isReaderActivity() const override { return true; }
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
 
@@ -89,6 +93,7 @@ class KOReaderSyncActivity final : public Activity {
   ScreenTransitionRefresh screenTransitionRefresh;
   std::string statusMessage;
   std::string documentHash;
+  std::string primaryHash;
 
   // Remote progress data
   bool hasRemoteProgress = false;
@@ -118,6 +123,28 @@ class KOReaderSyncActivity final : public Activity {
   bool wifiActivated = false;
   bool lockInitialConfirmRelease = false;
   bool touchOverrideActive = false;
+
+  // Phase timings (ms) of one network run, logged as one [SYNC] line when it ends.
+  struct SyncTiming {
+    unsigned long start = 0;
+    uint32_t wifi = 0;
+    uint32_t ntp = 0;
+    uint32_t get = 0;
+    uint32_t put = 0;
+  };
+  SyncTiming timing;
+  void logSyncTiming();
+
+  // Sync requests run on a worker task so a slow server never stalls the main
+  // loop (8.5 s seen on a failed GET). The task works only on file-static job
+  // state, so a request still running when sleep abandons it never touches `this`.
+  bool netJobPending = false;  // main loop only: a started job not yet polled
+  bool abandonNetJob = false;  // Back during a request: reboot drops it
+  static constexpr uint32_t NET_JOIN_TIMEOUT_MS = 3000;
+  void startNetJob();
+  void pollNetJob();
+  void finishSync();
+  void finishUpload();
 
   void onWifiSelectionComplete(bool success);
   void performSync();

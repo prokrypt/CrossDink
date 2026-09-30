@@ -16,8 +16,10 @@
 #include <string>
 
 #include "CrossPointSettings.h"
+#include "SerialRemote.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
+#include "util/DeviceIdentity.h"
 
 #if defined(FREEINK_DEVICE_X4PRO) && FREEINK_DEVICE_X4PRO && ARDUINO_USB_CDC_ON_BOOT && !ARDUINO_USB_MODE && \
     !defined(SIMULATOR)
@@ -33,12 +35,19 @@ constexpr uint8_t ACK = 0x06;
 constexpr size_t SERIAL_CHUNK_SIZE = 256;
 constexpr size_t FILE_BUFFER_SIZE = 4096;
 constexpr size_t PATH_BUFFER_SIZE = 256;
+#if CROSSDINK_SERIAL_REMOTE
+constexpr size_t LINE_BUFFER_SIZE = 256;  // room for CMD:TYPE / CMD:OPEN arguments
+#else
 constexpr size_t LINE_BUFFER_SIZE = 80;
+#endif
 constexpr size_t REMOVE_RECURSIVE_MAX_DEPTH = 8;
 constexpr uint32_t SHORT_TIMEOUT_MS = 1000;
 constexpr uint32_t HEADER_TIMEOUT_MS = 2000;
 constexpr uint32_t CHECKSUM_TIMEOUT_MS = 10000;
 constexpr uint32_t CHUNK_TIMEOUT_MS = 45000;
+// Per binary write: how long a host may stop reading before a download aborts.
+constexpr uint32_t BULK_WRITE_BUDGET_MS = 3000;
+constexpr unsigned long IDLE_EVERY_MS = 100;
 constexpr const char* TEMP_UPLOAD_PATH = "/.crosspoint/usb-upload.tmp";
 constexpr const char* INTERNAL_DIR = "/.crosspoint";
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -51,6 +60,21 @@ constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 #endif
 
 uint8_t commandMatchPos = 0;
+
+// loopTask outranks the idle tasks the task watchdog watches, and yield() only
+// hands the CPU to tasks of equal or higher priority. Block for a tick at least
+// every IDLE_EVERY_MS so a long transfer or listing cannot starve them into a
+// watchdog reboot; yielding in between keeps 256-byte chunks at full speed.
+void letIdleRun() {
+  static unsigned long lastBlockMs = 0;
+  if (millis() - lastBlockMs >= IDLE_EVERY_MS) {
+    vTaskDelay(1);
+    lastBlockMs = millis();
+  } else {
+    yield();
+  }
+}
+
 char lineBuffer[LINE_BUFFER_SIZE] = {};
 size_t lineBufferPos = 0;
 uint8_t transferBuffer[SERIAL_CHUNK_SIZE];
@@ -85,9 +109,12 @@ void writeRxOverflowError(const uint32_t snapshot) {
 }
 #endif
 
-void writeLine(const char* line) { logSerial.print(line); }
+void writeLine(const char* line) { (void)logSerialWriteAll(line, strlen(line)); }
 
-void writeRaw(const uint8_t* data, size_t length) { logSerial.write(data, length); }
+// Binary data: a short write would desync the host, which counts bytes.
+bool writeRaw(const uint8_t* data, size_t length) {
+  return logSerialWriteAll(data, length, BULK_WRITE_BUDGET_MS, BULK_WRITE_BUDGET_MS);
+}
 
 void writeAck() { writeRaw(&ACK, 1); }
 
@@ -96,10 +123,10 @@ uint32_t readLe32(const uint8_t* data) {
          (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
 }
 
-void writeLe32(uint32_t value) {
+bool writeLe32(uint32_t value) {
   uint8_t data[4] = {static_cast<uint8_t>(value), static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value >> 16),
                      static_cast<uint8_t>(value >> 24)};
-  writeRaw(data, sizeof(data));
+  return writeRaw(data, sizeof(data));
 }
 
 bool readExact(uint8_t* buffer, size_t length, uint32_t timeoutMs, size_t* receivedOut = nullptr,
@@ -130,9 +157,9 @@ bool readExact(uint8_t* buffer, size_t length, uint32_t timeoutMs, size_t* recei
       nextBusyAt = millis() + 5000;
     }
 
-    // USB transfers run on the Arduino loop task, which is intentionally not
-    // subscribed to the task watchdog. Yielding lets the watched idle tasks run.
-    yield();
+    // Nothing to read: sleep a tick so the watched idle tasks run while the
+    // host is slow (waits here can last CHUNK_TIMEOUT_MS).
+    vTaskDelay(1);
   }
   if (receivedOut) *receivedOut = received;
   return true;
@@ -299,7 +326,7 @@ bool removeRecursive(const char* path, size_t depth = 0) {
       return false;
     }
 
-    yield();
+    letIdleRun();
     child = file.openNextFile();
   }
   file.close();
@@ -358,7 +385,7 @@ void handleList() {
       }
     }
     file.close();
-    yield();
+    letIdleRun();
     file = root.openNextFile();
   }
   if (FsHelpers::directoryIterationFailed(root)) {
@@ -529,7 +556,7 @@ void handleWrite() {
     if (remaining > 0) {
       writeAck();
     }
-    yield();
+    letIdleRun();
   }
 
   if (!flushFileBuffer()) {
@@ -678,25 +705,31 @@ void handleRead() {
     return;
   }
 
-  writeLine("READY\n");
-  writeLe32(static_cast<uint32_t>(fileSize64));
+  bool sent = true;
+  {
+    // Hold the port for the whole stream so no log line lands inside it.
+    const LogSerialGuard port(BULK_WRITE_BUDGET_MS);
+    writeLine("READY\n");
+    sent = writeLe32(static_cast<uint32_t>(fileSize64));
 
-  uint32_t crc = 0;
-  while (file.available() > 0) {
-    const int read = file.read(transferBuffer, sizeof(transferBuffer));
-    if (read < 0) {
-      file.close();
-      writeLine("ERR:read\n");
-      return;
+    uint32_t crc = 0;
+    while (sent && file.available() > 0) {
+      const int read = file.read(transferBuffer, sizeof(transferBuffer));
+      if (read < 0) {
+        file.close();
+        writeLine("ERR:read\n");
+        return;
+      }
+      if (read == 0) break;
+
+      sent = writeRaw(transferBuffer, static_cast<size_t>(read));
+      crc = esp_rom_crc32_le(crc, transferBuffer, static_cast<uint32_t>(read));
+      letIdleRun();
     }
-    if (read == 0) break;
-
-    writeRaw(transferBuffer, static_cast<size_t>(read));
-    crc = esp_rom_crc32_le(crc, transferBuffer, static_cast<uint32_t>(read));
-    yield();
+    if (sent) sent = writeLe32(crc);
   }
   file.close();
-  writeLe32(crc);
+  if (!sent) LOG_ERR("USB", "Read aborted: host stopped reading");
 }
 
 void handleCommand() {
@@ -739,25 +772,43 @@ void handleCommand() {
 ProcessResult handleLine() {
   lineBuffer[lineBufferPos] = '\0';
   lineBufferPos = 0;
+  // Blank lines and xink-remote's ">>>>> " operator echoes are for people only.
+  if (lineBuffer[0] == '\0' || strncmp(lineBuffer, ">>>>> ", 6) == 0) return ProcessResult::None;
 
   if (strcmp(lineBuffer, "CMD:SCREENSHOT") == 0) {
     return ProcessResult::ScreenshotRequested;
   }
+  if (SerialRemote::handleLine(lineBuffer)) return ProcessResult::None;
 #if CROSSDINK_PSRAM_LOG
   if (strcmp(lineBuffer, "CMD:PSRAMLOG") == 0) {
     // Debug builds: dump the PSRAM log ring (survives software restarts).
     EXT_RAM_NOINIT_ATTR static char chunk[1024];
     uint32_t cursor = PsramLog::oldest();
     const uint32_t end = PsramLog::end();
-    logSerial.printf("PSRAMLOG_START:%lu\n", static_cast<unsigned long>(end - cursor));
-    while (cursor < end) {
-      const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
-      if (len == 0) break;
-      logSerial.write(reinterpret_cast<const uint8_t*>(chunk), len);
+    // Fresh identity header first (counted in the length): the ring may have
+    // wrapped past the boot lines.
+    const size_t headerLen = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+    bool sent = false;
+    {
+      // Hold the port for the whole dump: the host counts the announced bytes.
+      const LogSerialGuard port(BULK_WRITE_BUDGET_MS);
+      char start[32];
+      const int startLen = snprintf(start, sizeof(start), "PSRAMLOG_START:%lu\n",
+                                    static_cast<unsigned long>(headerLen + (end - cursor)));
+      sent = logSerialWriteAll(start, static_cast<size_t>(startLen)) &&
+             writeRaw(reinterpret_cast<const uint8_t*>(chunk), headerLen);
+      while (sent && cursor < end) {
+        const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+        if (len == 0) break;
+        sent = writeRaw(reinterpret_cast<const uint8_t*>(chunk), len);
+      }
+      if (sent) sent = logSerialWriteAll("\nPSRAMLOG_END\n", 14);
     }
-    logSerial.printf("\nPSRAMLOG_END\n");
+    if (!sent) LOG_ERR("USB", "PSRAMLOG dump aborted: host stopped reading");
+    return ProcessResult::None;
   }
 #endif
+  if (strstr(lineBuffer, "CMD:")) LOG_DBG("SER", "unhandled line: %.48s", lineBuffer);
   return ProcessResult::None;
 }
 
@@ -770,7 +821,14 @@ void registerUsbCdcOverflowHandler() {
 }
 
 ProcessResult process(bool allowed) {
-  if (!logSerial) return ProcessResult::None;
+  SerialRemote::poll();
+  // Read even when the host looks gone: the HWCDC connected flag flaps (SOF
+  // timer, light sleep) and gating on it dropped whole commands.
+  static bool hostConnected = false;
+  if (static_cast<bool>(logSerial) != hostConnected) {
+    hostConnected = !hostConnected;
+    LOG_DBG("SER", "host %s", hostConnected ? "connected" : "disconnected");
+  }
   fileTransferAllowed = allowed;
 
   while (logSerial.available() > 0) {

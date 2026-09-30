@@ -13,17 +13,22 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <PsramLog.h>
 #include <WiFi.h>
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
 #ifndef SIMULATOR
+#include <EnvironmentSensor.h>
+#include <FreeInkDisplay.h>
+#include <esp_heap_caps.h>
 #include <esp_image_format.h>
 #include <esp_ota_ops.h>
 #endif
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <iterator>
 
@@ -33,6 +38,7 @@
 #include "OpdsServerStore.h"
 #include "QuickActions.h"
 #include "SdCardFontSystem.h"
+#include "SerialRemote.h"
 #include "SettingsList.h"
 #include "SilentRestart.h"
 #include "TaskCores.h"
@@ -46,14 +52,33 @@
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
+#include "network/SdWriteBehind.h"
 #include "util/BookCacheUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
+#include "util/DeviceIdentity.h"
+#include "util/DeviceSecurity.h"
 #include "util/FontFamilyLabel.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/StringUtils.h"
 
 namespace {
+// While alive, plain malloc of any size tries PSRAM first (restores the
+// sdkconfig threshold on end() or scope exit). Global: keep the window short.
+struct PsramSmallAllocScope {
+#if CONFIG_SPIRAM_USE_MALLOC && !defined(SIMULATOR)
+  bool active = true;
+  PsramSmallAllocScope() { heap_caps_malloc_extmem_enable(0); }
+  ~PsramSmallAllocScope() { end(); }
+  void end() {
+    if (!active) return;
+    active = false;
+    heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+  }
+#else
+  void end() {}
+#endif
+};
 // Folders/files to hide from the web interface file browser.
 // Dot-prefixed items are hidden unless showHiddenFiles is enabled.
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -88,6 +113,14 @@ bool isWebEnumOptionAvailable(const SettingInfo& setting, size_t optionIndex) {
   if (optionIndex >= setting.enumValues.size()) return true;
 
   const StrId option = setting.enumValues[optionIndex];
+  if (!SETTINGS.shouldTrackReadingStats()) {
+    if (option == StrId::STR_READING_STATS) return false;
+    if (setting.valuePtr == &CrossPointSettings::sleepScreen && optionIndex < setting.enumRawValues.size()) {
+      const uint8_t raw = setting.enumRawValues[optionIndex];
+      if (raw == CrossPointSettings::READING_STATS_SLEEP || raw == CrossPointSettings::MINIMAL_STATS_SLEEP)
+        return false;
+    }
+  }
   if (option == StrId::STR_TOGGLE_TOUCHSCREEN && !gpio.hasTouch()) return false;
 
   if (!Frontlight.present()) {
@@ -259,6 +292,11 @@ class FontListJsonWriter {
 
 // WebSocket upload state
 HalFile wsUploadFile;
+
+// Write-behind for WebSocket uploads (SdWriteBehind.h): frames land in PSRAM
+// while a task on the other core writes the previous 32 KB to wsUploadFile.
+static bool writeWsUploadChunk(void*, const uint8_t* data, size_t len) { return wsUploadFile.write(data, len) == len; }
+SdWriteBehind wsWriteBehind;
 String wsUploadFileName;
 String wsUploadPath;
 size_t wsUploadSize = 0;
@@ -412,7 +450,7 @@ CrossPointWebServer::~CrossPointWebServer() {
   if (serverStopped) vSemaphoreDelete(serverStopped);
 }
 
-void CrossPointWebServer::begin() {
+void CrossPointWebServer::begin(const bool logOnly) {
   if (running) {
     LOG_DBG("WEB", "Web server already running");
     return;
@@ -435,6 +473,12 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
 
   LOG_DBG("WEB", "Creating web server on port %d...", port);
+  // The server objects, route handlers and their strings are small blocks that
+  // plain malloc keeps in internal RAM (SPIRAM_MALLOC_ALWAYSINTERNAL). None is
+  // used by DMA, an ISR or with the flash cache off, so place them in PSRAM
+  // while the server is built (~7 KB of internal heap). The serving task's
+  // stack is created later with internal RAM, and lwIP picks its own caps.
+  PsramSmallAllocScope psramSmallAllocs;
   server.reset(new PendingAwareWebServer(port));
 
   // STA mode starts idle: the modem sleeps between DTIM beacons and the
@@ -462,75 +506,85 @@ void CrossPointWebServer::begin() {
   server->enableCORS(true);
 
   // Setup routes
-  server->on("/", HTTP_GET, [this] { handleRoot(); });
-  server->on("/files", HTTP_GET, [this] { handleFileList(); });
-  server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
-  server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
-  server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
-
-  server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
 #if CROSSDINK_PSRAM_LOG
   server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
 #endif
-  server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
-  server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
-  server->on("/download", HTTP_GET, [this] { handleDownload(); });
-
-  // Upload endpoint with special handling for multipart form data
-  server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
-
-  // Create folder endpoint
-  server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
-
-  // Rename file endpoint
-  server->on("/rename", HTTP_POST, [this] { handleRename(); });
-
-  // Move file endpoint
-  server->on("/move", HTTP_POST, [this] { handleMove(); });
-
-  // Delete file/folder endpoint
-  server->on("/delete", HTTP_POST, [this] { handleDelete(); });
-
-  // Settings endpoints
-  server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
-  server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
-  server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
-  server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
-  server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
-
-  // Font management endpoints
-  server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
-  server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
-  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
-  server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
-
-  // OPDS server endpoints
-  server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
-  server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
-  server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
-
-  // Wi-Fi credential endpoints
-  server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
-  server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
-  server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
-
+#if CROSSDINK_SERIAL_REMOTE
+  server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
+  server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
+#endif
   server->onNotFound([this] { handleNotFound(); });
+  if (logOnly) {
+    // Nothing else: no SD access behind other screens, and /api/status's
+    // battery and sensor I2C reads would race touch polling there.
+    server->begin();
+  } else {
+    server->on("/", HTTP_GET, [this] { handleRoot(); });
+    server->on("/files", HTTP_GET, [this] { handleFileList(); });
+    server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
+    server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
+    server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
-  // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
-  server->collectHeaders(davHeaders, 7);
-  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+    server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+    server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
+    server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+    server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
-  server->begin();
+    // Upload endpoint with special handling for multipart form data
+    server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
 
-  // Start WebSocket server for fast binary uploads
-  wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
-  wsInstance = const_cast<CrossPointWebServer*>(this);
-  wsServer->begin();
-  wsServer->onEvent(wsEventCallback);
+    // Create folder endpoint
+    server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
 
-  udpActive = udp.begin(LOCAL_UDP_PORT);
-  LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+    // Rename file endpoint
+    server->on("/rename", HTTP_POST, [this] { handleRename(); });
+
+    // Move file endpoint
+    server->on("/move", HTTP_POST, [this] { handleMove(); });
+
+    // Delete file/folder endpoint
+    server->on("/delete", HTTP_POST, [this] { handleDelete(); });
+
+    // Settings endpoints
+    server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
+    server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
+    server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+    server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
+    server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
+
+    // Font management endpoints
+    server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
+    server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
+    server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
+    server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+    // OPDS server endpoints
+    server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
+    server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
+    server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
+
+    // Wi-Fi credential endpoints
+    server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
+    server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
+    server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+
+    // Collect WebDAV headers and register handler
+    const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
+    server->collectHeaders(davHeaders, 7);
+    server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+
+    server->begin();
+
+    // Start WebSocket server for fast binary uploads
+    wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
+    wsInstance = const_cast<CrossPointWebServer*>(this);
+    wsServer->begin();
+    wsServer->onEvent(wsEventCallback);
+
+    udpActive = udp.begin(LOCAL_UDP_PORT);
+    LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+  }
+  psramSmallAllocs.end();
 
   // Do not subscribe the serving task to the task watchdog. Arduino WebServer
   // permits five-second client and ACK waits, which can consume the entire
@@ -543,9 +597,11 @@ void CrossPointWebServer::begin() {
   running.store(true, std::memory_order_release);
   // Internal-RAM stack (8 KB) only while the server runs: handlers write to
   // the SD card, and task stacks must stay reachable while flash is busy.
+  // UI core: on core 0 with Wi-Fi, lwIP and the loop, uploads held core 0 at
+  // 92% (WebServer 36%) while core 1 did ~20%. The upload writer takes core 0.
   if (!stateMutex || !serverStopped ||
       xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
-                              TaskCores::kWorker) != pdPASS) {
+                              TaskCores::kUi) != pdPASS) {
     LOG_ERR("WEB", "Failed to start web server task");
     serverTask = nullptr;
     stop();
@@ -558,6 +614,7 @@ void CrossPointWebServer::begin() {
 }
 
 void CrossPointWebServer::abortWsUpload(const char* tag) {
+  wsWriteBehind.abort();  // the writer task must be done with the file first
   // Explicit close() required: file-scope global persists beyond function scope
   wsUploadFile.close();
   String filePath = wsUploadPath;
@@ -625,6 +682,7 @@ void CrossPointWebServer::stop() {
 
 void CrossPointWebServer::serverTaskMain(void* param) {
   static_cast<CrossPointWebServer*>(param)->serveUntilStopped();
+  PerfLog::noteTaskExit("WebServer");
   vTaskDelete(nullptr);
 }
 
@@ -657,7 +715,7 @@ std::string CrossPointWebServer::takeExitFlashPath() {
 }
 
 void CrossPointWebServer::handleClient() {
-  static unsigned long lastDebugPrint = 0;
+  static bool loggedActive = false;
 
   // Check running flag FIRST before accessing server
   if (!isRunning()) {
@@ -670,18 +728,24 @@ void CrossPointWebServer::handleClient() {
     return;
   }
 
-  // Print debug every 10 seconds to confirm the server task is alive
-  if (millis() - lastDebugPrint > 10000) {
+  // Confirm once that the handler loop is running.
+  if (!loggedActive) {
     LOG_DBG("WEB", "handleClient active, server running on port %d", port);
-    lastDebugPrint = millis();
+    loggedActive = true;
   }
 
   // Take the power hold before handleClient(): it reads a whole upload or
   // sends a whole download in one blocking call.
   const bool pending = server->requestPending();
-  if (pending) noteTransferActivity();
+  if (pending) {
+    noteTransferActivity();
+    requestBusy.store(true, std::memory_order_relaxed);
+  }
   server->handleClient();
-  if (pending) lastTransferMs = millis();
+  if (pending) {
+    lastTransferMs = millis();
+    requestBusy.store(false, std::memory_order_relaxed);
+  }
 
   // Handle WebSocket events
   if (wsServer) {
@@ -858,19 +922,79 @@ void CrossPointWebServer::handleExit() {
 
 #if CROSSDINK_PSRAM_LOG
 // Debug builds: the PSRAM log ring, oldest first, including lines from before
-// the last software restarts.
+// the last software restarts. ?since=<offset> tails it: only bytes after that
+// offset (a "[psram-log gap ...]" line marks any the ring overwrote first), and
+// the X-Log-Next header is the offset for the next poll. &wait=<ms> (max 5000)
+// holds an empty reply until new text arrives; that parks only this server task.
 void CrossPointWebServer::handlePsramLog() const {
   EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
+  const bool tail = server->hasArg("since");
+  const uint32_t since = tail ? strtoul(server->arg("since").c_str(), nullptr, 10) : 0;
+  if (tail) {
+    const uint32_t waitMs = std::min<uint32_t>(strtoul(server->arg("wait").c_str(), nullptr, 10), 5000);
+    for (uint32_t waited = 0; PsramLog::end() == since && waited < waitMs; waited += 50) vTaskDelay(pdMS_TO_TICKS(50));
+  }
   uint32_t cursor = PsramLog::oldest();
+  // since > end: the ring restarted (power loss or deep sleep) after that offset.
+  const bool restarted = tail && since > PsramLog::end();
+  const uint32_t skipped = tail && !restarted && since < cursor ? cursor - since : 0;
+  if (tail && !restarted && since > cursor) cursor = since;
   const uint32_t end = PsramLog::end();
+  server->sendHeader("X-Log-Next", String(end));
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "text/plain; charset=utf-8", "");
+  size_t len = 0;
+  if (!tail) {
+    // Fresh identity header first: the ring may have wrapped past the boot lines.
+    len = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+  } else if (restarted) {
+    len = snprintf(chunk, sizeof(chunk), "[psram-log restarted]\n");
+  } else if (skipped > 0) {
+    len = snprintf(chunk, sizeof(chunk), "[psram-log gap %lu bytes]\n", static_cast<unsigned long>(skipped));
+  }
+  if (len > 0) server->sendContent(chunk, len);
   while (cursor < end) {
-    const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+    const uint32_t before = cursor;
+    len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
     if (len == 0) break;
+    if (cursor - len != before) {  // lapped while streaming: read() skipped ahead
+      char gap[48];
+      const int n = snprintf(gap, sizeof(gap), "\n[psram-log gap %lu bytes]\n",
+                             static_cast<unsigned long>(cursor - len - before));
+      server->sendContent(gap, n);
+    }
     server->sendContent(chunk, len);
   }
   server->sendContent("");
+}
+#endif
+
+#if CROSSDINK_SERIAL_REMOTE
+// Debug builds: runs one serial-remote command (docs/serial-remote.md) on the
+// main task. Token and SD access stay on the main task too.
+void CrossPointWebServer::handleRemoteCmd() const {
+  if (server->arg("cmd") == "SCREENSHOT") return handleScreenshot();
+  static char out[256];  // Static: server task only, keeps the reply off its stack
+  const int status =
+      SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(), out, sizeof(out), 12000);
+  server->send(status, "text/plain; charset=utf-8", out);
+}
+
+// Debug builds: the current framebuffer as a PBM, captured on the main task
+// under the render lock (so never half-drawn) and sent from its static copy.
+void CrossPointWebServer::handleScreenshot() const {
+  static char out[64];
+  const int status =
+      SerialRemote::runFromOtherTask(server->arg("token").c_str(), "SCREENSHOT", out, sizeof(out), 12000);
+  if (status != 200) {
+    server->send(status, "text/plain; charset=utf-8", out);
+    return;
+  }
+  size_t len = 0;
+  const uint8_t* pbm = SerialRemote::screenshot(len);
+  server->setContentLength(len);
+  server->send(200, "image/x-portable-bitmap", "");
+  server->sendContent(reinterpret_cast<const char*>(pbm), len);
 }
 #endif
 
@@ -945,6 +1069,19 @@ void CrossPointWebServer::handleStatus() const {
   chip["cpuMHz"] = ESP.getCpuFreqMHz();
   chip["flashSize"] = ESP.getFlashChipSize();
 
+#ifndef SIMULATOR
+  const DeviceSecurity::State& sec = DeviceSecurity::get();
+  if (sec.read) {
+    JsonObject security = doc["security"].to<JsonObject>();
+    security["flashEnc"] = sec.flashEnc;
+    security["secureBoot"] = sec.secureBoot;
+    security["usbSerialJtagDisabled"] = sec.usbSerialJtagDisabled;
+    security["jtagDisabled"] = sec.jtagDisabled;
+    security["download"] = sec.download;
+    security["locked"] = sec.locked;
+  }
+#endif
+
   JsonObject memory = doc["memory"].to<JsonObject>();
   memory["freeHeap"] = ESP.getFreeHeap();
   memory["minFreeHeap"] = ESP.getMinFreeHeap();
@@ -975,6 +1112,58 @@ void CrossPointWebServer::handleStatus() const {
     static const BatteryMonitor monitor;
     battery["millivolts"] = monitor.readMillivolts();
     battery["charging"] = monitor.isCharging();
+  }
+#endif
+
+  // Every temperature the board can report, in C; null when the read failed. The panel value is the UC8179's own
+  // sensor, sampled after a refresh at most once a minute; ageMs says how old it is.
+  JsonObject temps = doc["temperatures"].to<JsonObject>();
+  const auto addTemp = [&temps](const char* role, const char* source, const bool known, const float celsius) {
+    JsonObject t = temps[role].to<JsonObject>();
+    t["source"] = source;
+    if (known) {
+      t["c"] = std::round(celsius * 10.0f) / 10.0f;
+    } else {
+      t["c"] = nullptr;
+    }
+  };
+#ifdef SIMULATOR
+  addTemp("chip", "simulator", false, 0.0f);
+  addTemp("panel", "uc8179", false, 0.0f);
+#else
+  {
+    const float chipC = temperatureRead();
+    addTemp("chip", CONFIG_IDF_TARGET, !std::isnan(chipC), chipC);
+    // Main-loop only, like the battery block above: the gauge shares its I2C bus
+    // with touch and the RTC.
+    static const BatteryMonitor gauge;
+    int16_t gaugeDeciC = 0;
+    const bool gaugeKnown = gauge.readTemperatureDeciC(gaugeDeciC);
+    const auto& gaugeCfg = BoardConfig::ACTIVE.batteryGauge;
+    const char* gaugeName = gaugeCfg.gaugeAddr == 0                                 ? "none"
+                            : gaugeCfg.gaugeType == BoardConfig::GaugeType::Cw2017  ? "cw2017"
+                            : gaugeCfg.gaugeType == BoardConfig::GaugeType::Bq27220 ? "bq27220"
+                                                                                    : "axp2101";
+    addTemp("battery", gaugeName, gaugeKnown, gaugeDeciC / 10.0f);
+    static EnvironmentSensor ambient;
+    static bool ambientTried = false;
+    if (!ambientTried) {
+      ambientTried = true;
+      ambient.begin();
+    }
+    if (ambient.present()) {  // only boards that carry an SHT40 list it
+      float ambientC = 0.0f;
+      float humidity = 0.0f;
+      const bool ambientKnown = ambient.read(ambientC, humidity);
+      addTemp("ambient", "sht40", ambientKnown, ambientC);
+    }
+#if FREEINK_UC8179_PANEL_TEMP  // UC8179 boards only (not Sticky)
+    int8_t panelC = 0;
+    uint32_t panelAgeMs = 0;
+    const bool panelKnown = freeink::uc8179PanelTemperature(panelC, panelAgeMs);
+    addTemp("panel", "uc8179", panelKnown, panelC);
+    if (panelKnown) temps["panel"]["ageMs"] = panelAgeMs;
+#endif
   }
 #endif
 
@@ -1889,7 +2078,12 @@ void CrossPointWebServer::handleGetSettings() const {
 
     doc.clear();
     doc["key"] = s.key;
-    doc["name"] = I18N.get(s.nameId);
+    if (isSideButtonActionSetting(s)) {
+      const bool up = settingKeyIs(s, "sideButtonUpShort") || settingKeyIs(s, "sideButtonUpLong");
+      doc["name"] = sideButtonGroupLabel(up) + " " + I18N.get(s.nameId);
+    } else {
+      doc["name"] = I18N.get(s.nameId);
+    }
     doc["category"] = I18N.get(s.category);
 
     switch (s.type) {
@@ -1902,6 +2096,12 @@ void CrossPointWebServer::handleGetSettings() const {
       }
       case SettingType::ENUM: {
         doc["type"] = "enum";
+        if (s.valuePtr == &CrossPointSettings::shortPwrBtn || s.valuePtr == &CrossPointSettings::longPwrBtn) {
+          doc["footnotesIndex"] = enumDisplayIndexForWeb(s, CrossPointSettings::FOOTNOTES);
+        } else if (s.valuePtr == &CrossPointSettings::longPressMenuAction ||
+                   s.valuePtr == &CrossPointSettings::longPressBackAction) {
+          doc["footnotesIndex"] = enumDisplayIndexForWeb(s, CrossPointSettings::LONG_MENU_FOOTNOTES);
+        }
         if (s.nameId == StrId::STR_FONT_FAMILY && !fontFamilies.empty()) {
           uint8_t selected = SETTINGS.fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT ? SETTINGS.fontFamily : 0;
           if (selectedSdFamily) {
@@ -1946,7 +2146,7 @@ void CrossPointWebServer::handleGetSettings() const {
         } else {
           for (size_t optionIndex = 0; optionIndex < s.enumValues.size(); ++optionIndex) {
             if (isWebEnumOptionAvailable(s, optionIndex)) {
-              options.add(I18N.get(s.enumValues[optionIndex]));
+              options.add(sideButtonOptionLabel(s, static_cast<uint8_t>(optionIndex)));
             }
           }
         }
@@ -2473,6 +2673,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
           wsUploadClientNum = num;
           wsUploadInProgress = true;
+          wsWriteBehind.begin(&writeWsUploadChunk, nullptr, "WsWriter", TaskCores::kWorker);
           wsUploadPowerSaveGuard = makeUniqueNoThrow<WifiPowerSaveGuard>();
           wsServer->sendTXT(num, "READY");
         } else {
@@ -2495,15 +2696,15 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         wsServer->sendTXT(num, "ERROR:Upload overflow");
         return;
       }
-      size_t written = wsUploadFile.write(payload, length);
-
-      if (written != length) {
+      const bool written = wsWriteBehind.active() ? wsWriteBehind.append(payload, length)
+                                                  : wsUploadFile.write(payload, length) == length;
+      if (!written) {
         abortWsUpload("WS");
         wsServer->sendTXT(num, "ERROR:Write failed - disk full?");
         return;
       }
 
-      wsUploadReceived += written;
+      wsUploadReceived += length;
 
       // Send progress update (every 64KB or at end)
       if (wsUploadReceived - wsLastProgressSent >= 65536 || wsUploadReceived >= wsUploadSize) {
@@ -2514,6 +2715,11 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
       // Check if upload complete
       if (wsUploadReceived >= wsUploadSize) {
+        if (wsWriteBehind.active() && !wsWriteBehind.finish()) {
+          abortWsUpload("WS");
+          wsServer->sendTXT(num, "ERROR:Write failed - disk full?");
+          return;
+        }
         // Explicit close() required: file-scope global persists beyond function scope
         wsUploadFile.close();
         wsUploadInProgress = false;

@@ -9,6 +9,8 @@
 #include <freertos/task.h>
 #ifndef SIMULATOR
 #include <esp_mac.h>
+#include <esp_netif_net_stack.h>
+#include <lwip/dhcp.h>
 #endif
 
 #include <algorithm>
@@ -43,6 +45,68 @@ TouchActionButtons::Layout promptActionLayout(const Rect& screen, const ThemeMet
 uint8_t sLastStaDisconnectReason = 0;
 bool sConnectionAttemptLoggingActive = false;
 bool sWifiEventLoggingRegistered = false;
+// Connect phases: WiFi.begin() -> associated (includes the channel scan) -> DHCP lease.
+unsigned long sBeginMs = 0;
+unsigned long sAssocMs = 0;
+
+// The AP of the last successful connection. Joining it by BSSID and channel
+// skips the all-channel scan (~2 s of the ~4 s connect); silent network
+// reboots keep it (RTC memory), power loss clears it. A failed hinted attempt
+// drops the hint and retries once with the full scan.
+struct WifiApHint {
+  static constexpr uint32_t MAGIC = 0x57415031;  // "WAP1"
+  uint32_t magic;
+  uint32_t ssidHash;
+  uint8_t bssid[6];
+  uint8_t channel;
+};
+RTC_NOINIT_ATTR WifiApHint sWifiApHint;
+bool sHintedAttempt = false;
+constexpr unsigned long HINTED_CONNECTION_TIMEOUT_MS = 6000;
+
+uint32_t ssidHash(const std::string& ssid) {
+  uint32_t hash = 2166136261u;  // FNV-1a
+  // cppcheck-suppress useStlAlgorithm ; FNV-1a reads clearer as a loop
+  for (const char c : ssid) hash = (hash ^ static_cast<uint8_t>(c)) * 16777619u;
+  return hash;
+}
+
+const WifiApHint* apHintFor(const std::string& ssid) {
+  const WifiApHint& hint = sWifiApHint;
+  if (hint.magic != WifiApHint::MAGIC || hint.ssidHash != ssidHash(ssid) || hint.channel == 0 || hint.channel > 14) {
+    return nullptr;
+  }
+  return &hint;
+}
+
+void saveApHint(const std::string& ssid) {
+  sWifiApHint.magic = 0;
+  const uint8_t* bssid = WiFi.BSSID();
+  const int32_t channel = WiFi.channel();
+  if (!bssid || channel <= 0 || channel > 14) return;
+  memcpy(sWifiApHint.bssid, bssid, sizeof(sWifiApHint.bssid));
+  sWifiApHint.channel = static_cast<uint8_t>(channel);
+  sWifiApHint.ssidHash = ssidHash(ssid);
+  sWifiApHint.magic = WifiApHint::MAGIC;
+}
+
+// DHCP always took 511-517 ms after association (log 0929): lwIP's 500 ms
+// timer, so either the first REQUEST is lost and resent or a post-ACK check
+// still runs. Logs each client state change (lwIP DHCP_STATE_*: 1 REQUESTING,
+// 3 REBOOTING, 6 SELECTING, 8 CHECKING = ARP probe, 10 BOUND) with its
+// retry count, so the next log shows which.
+int sDhcpLoggedState = -1;
+int sDhcpLoggedTries = -1;
+void logDhcpProgress(const unsigned long elapsedMs) {
+  auto* lwipNetif = static_cast<struct netif*>(esp_netif_get_netif_impl(WiFi.STA.netif()));
+  const struct dhcp* dhcp = lwipNetif ? netif_dhcp_data(lwipNetif) : nullptr;
+  if (!dhcp) return;
+  if (dhcp->state == sDhcpLoggedState && dhcp->tries == sDhcpLoggedTries) return;
+  LOG_INF("WIFI", "dhcp state %d->%u tries=%u at %lums", sDhcpLoggedState, static_cast<unsigned>(dhcp->state),
+          static_cast<unsigned>(dhcp->tries), elapsedMs);
+  sDhcpLoggedState = dhcp->state;
+  sDhcpLoggedTries = dhcp->tries;
+}
 #endif
 
 std::string getDisplayMacAddress() {
@@ -69,12 +133,24 @@ void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   }
 
   switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_START:
+      LOG_INF("WIFI", "STA event: started (%lu ms after begin)", millis() - sBeginMs);
+      break;
+    case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
+      LOG_INF("WIFI", "STA event: authmode %u -> %u (%lu ms)", info.wifi_sta_authmode_change.old_mode,
+              info.wifi_sta_authmode_change.new_mode, millis() - sBeginMs);
+      break;
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-      LOG_INF("WIFI", "STA event: connected to AP");
+      sAssocMs = millis();
+      // Scan, auth, association and the WPA 4-way handshake all end here.
+      LOG_INF("WIFI", "STA event: connected to AP ch %u authmode %u (assoc %lu ms)", info.wifi_sta_connected.channel,
+              info.wifi_sta_connected.authmode, sAssocMs - sBeginMs);
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
       const uint8_t* ip = reinterpret_cast<const uint8_t*>(&info.got_ip.ip_info.ip.addr);
-      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+      const unsigned long now = millis();
+      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u (dhcp %lu ms, total %lu ms)", ip[0], ip[1], ip[2], ip[3],
+              sAssocMs != 0 ? now - sAssocMs : 0UL, now - sBeginMs);
       break;
     }
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
@@ -83,8 +159,9 @@ void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
         reason = WIFI_REASON_UNSPECIFIED;
       }
       sLastStaDisconnectReason = reason;
-      LOG_INF("WIFI", "STA event: disconnected reason=%u(%s)", reason,
-              WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)));
+      LOG_INF("WIFI", "STA event: disconnected reason=%u(%s) rssi=%d (%lu ms)", reason,
+              WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)), info.wifi_sta_disconnected.rssi,
+              millis() - sBeginMs);
       break;
     }
     case ARDUINO_EVENT_WIFI_STA_LOST_IP:
@@ -99,6 +176,8 @@ void ensureWifiEventLoggingRegistered() {
   if (sWifiEventLoggingRegistered) {
     return;
   }
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_START);
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_CONNECTED);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
@@ -262,8 +341,6 @@ void WifiSelectionActivity::onEnter() {
   app.on(ACTION_ROW, &WifiSelectionActivity::onRowEvent, this);
   app.setScreen(&WifiSelectionActivity::listScreen, this);
 
-  // Trigger first update to show scanning message
-  requestUpdate();
   LOG_INF("WIFI", "starting auto-connect/scan free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   // Attempt to auto-connect to known networks. Try the last successful
@@ -274,7 +351,7 @@ void WifiSelectionActivity::onEnter() {
     if (!lastSsid.empty()) {
       const auto cred = WIFI_STORE.findCredential(lastSsid);
       if (cred && tryAutoConnectCredential(*cred)) {
-        return;
+        return;  // draws Connecting only if the join is slow (attemptConnection)
       }
     }
 
@@ -592,7 +669,6 @@ bool WifiSelectionActivity::tryAutoConnectCredential(const WifiCredential& cred)
   autoConnecting = true;
   manualNetworkListRequested = false;
   attemptConnection();
-  requestUpdate();
   return true;
 }
 
@@ -656,7 +732,17 @@ void WifiSelectionActivity::attemptConnection() {
   sLastStaDisconnectReason = 0;
   sConnectionAttemptLoggingActive = false;
 #endif
-  requestUpdate();
+  // A saved network usually joins in ~0.6 s: draw Connecting only if the join
+  // is still running after CONNECTING_SCREEN_DELAY_MS, so a fast join skips
+  // one refresh and goes straight to the next screen.
+  connectingScreenDueMs = 0;
+  if (autoConnecting) {
+    connectingScreenDueMs = connectionStartTime + CONNECTING_SCREEN_DELAY_MS;
+    // cppcheck-suppress knownConditionTrueFalse ; millis() + delay can wrap to 0, which means "not due"
+    if (connectingScreenDueMs == 0) connectingScreenDueMs = 1;
+  } else {
+    requestUpdate();
+  }
 
   LOG_INF("WIFI", "Connecting to ssid=%s auto=%d saved=%d encrypted=%d passProvided=%d heap=%u maxAlloc=%u",
           selectedSSID.c_str(), autoConnecting, usedSavedPassword, selectedRequiresPassword, !enteredPassword.empty(),
@@ -680,13 +766,18 @@ void WifiSelectionActivity::attemptConnection() {
   // Abort any in-progress SDK auto-connect before our explicit begin().
   // Do not erase the AP config or power-cycle the radio; some routers fail the
   // next WPA handshake after that heavier reset.
+  const bool wasAssociated = WiFi.status() == WL_CONNECTED;
   if (!WiFi.disconnect(false, false, 1000)) {
     LOG_DBG("WIFI", "Disconnect before begin timed out; continuing with explicit begin");
   }
-  delay(100);
+  // Settle only after dropping a live association; an idle station has
+  // nothing to tear down.
+  if (wasAssociated) delay(100);
 #ifndef SIMULATOR
   sLastStaDisconnectReason = 0;
   sConnectionAttemptLoggingActive = true;
+  sDhcpLoggedState = -1;
+  sDhcpLoggedTries = -1;
 #endif
 
   // Scan all channels so networks with multiple APs use the strongest matching
@@ -701,10 +792,26 @@ void WifiSelectionActivity::attemptConnection() {
   WiFi.setHostname(hostname.c_str());
 
   wl_status_t beginStatus = WL_IDLE_STATUS;
-  if (selectedRequiresPassword && !enteredPassword.empty()) {
-    beginStatus = WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());
-  } else {
-    beginStatus = WiFi.begin(selectedSSID.c_str());
+  const char* const passphrase =
+      selectedRequiresPassword && !enteredPassword.empty() ? enteredPassword.c_str() : nullptr;
+#ifndef SIMULATOR
+  sBeginMs = millis();
+  sAssocMs = 0;
+  const WifiApHint* hint = apHintFor(selectedSSID);
+  sHintedAttempt = hint != nullptr;
+  if (hint) {
+    // WIFI_ALL_CHANNEL_SCAN (set above) makes the driver sweep every channel
+    // even with a channel and BSSID given, which cost a fixed ~2.4 s per join.
+    // A fast scan starts on the hinted channel and stops at the first match;
+    // a stale hint fails and checkConnectionStatus() retries with a full scan.
+    WiFi.setScanMethod(WIFI_FAST_SCAN);
+    LOG_INF("WIFI", "Joining saved AP %02x:%02x:%02x:%02x:%02x:%02x on channel %u (fast scan)", hint->bssid[0],
+            hint->bssid[1], hint->bssid[2], hint->bssid[3], hint->bssid[4], hint->bssid[5], hint->channel);
+    beginStatus = WiFi.begin(selectedSSID.c_str(), passphrase, hint->channel, hint->bssid);
+  } else
+#endif
+  {
+    beginStatus = WiFi.begin(selectedSSID.c_str(), passphrase);
   }
   LOG_INF("WIFI", "WiFi.begin returned status=%d/%s", static_cast<int>(beginStatus), wifiStatusName(beginStatus));
 }
@@ -724,6 +831,9 @@ void WifiSelectionActivity::checkConnectionStatus() {
     lastLoggedWifiStatus = static_cast<int>(status);
     lastConnectionStatusLogTime = now;
   }
+#ifndef SIMULATOR
+  logDhcpProgress(now - connectionStartTime);
+#endif
 
   if (status == WL_CONNECTED) {
     // Successfully connected
@@ -736,6 +846,10 @@ void WifiSelectionActivity::checkConnectionStatus() {
     sConnectionAttemptLoggingActive = false;
 #endif
     LOG_INF("WIFI", "Connected to ssid=%s ip=%s rssi=%d", selectedSSID.c_str(), connectedIP.c_str(), WiFi.RSSI());
+#ifndef SIMULATOR
+    saveApHint(selectedSSID);
+    sHintedAttempt = false;
+#endif
 
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
     uint8_t connectedBssid[6] = {};
@@ -787,6 +901,28 @@ void WifiSelectionActivity::checkConnectionStatus() {
     }
     return;
   }
+
+#ifndef SIMULATOR
+  // The saved AP moved channel or went away: forget it and connect the normal
+  // way, scan included, within the same attempt. Once associated the AP is
+  // right, so a slow DHCP lease runs on the normal timeout, and a rejected
+  // password is not the hint's fault (the normal failure path reports it).
+  const bool authRejected = sLastStaDisconnectReason == WIFI_REASON_AUTH_FAIL ||
+                            sLastStaDisconnectReason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+                            sLastStaDisconnectReason == WIFI_REASON_HANDSHAKE_TIMEOUT ||
+                            sLastStaDisconnectReason == WIFI_REASON_802_1X_AUTH_FAILED;
+  const bool hintedTimedOut =
+      sHintedAttempt && sAssocMs == 0 && now - connectionStartTime > HINTED_CONNECTION_TIMEOUT_MS;
+  const bool hintedFailed = sHintedAttempt && sAssocMs == 0 && !authRejected && wifiStatusIsConnectionFailure(status);
+  if (hintedTimedOut || hintedFailed) {
+    LOG_INF("WIFI", "Saved-AP join failed (status=%d/%s elapsed=%lums); retrying with a full scan",
+            static_cast<int>(status), wifiStatusName(status), now - connectionStartTime);
+    sWifiApHint.magic = 0;
+    sHintedAttempt = false;
+    attemptConnection();  // disconnects the hinted attempt first
+    return;
+  }
+#endif
 
   if (wifiStatusIsConnectionFailure(status)) {
     connectionError = tr(STR_ERROR_GENERAL_FAILURE);
@@ -913,6 +1049,10 @@ void WifiSelectionActivity::loop() {
         showNetworkListFromAutoConnect();
         return;
       }
+    }
+    if (connectingScreenDueMs != 0 && static_cast<long>(millis() - connectingScreenDueMs) >= 0) {
+      connectingScreenDueMs = 0;
+      requestUpdate();
     }
     checkConnectionStatus();
     return;
@@ -1208,11 +1348,7 @@ void WifiSelectionActivity::render(RenderLock&&) {
   snprintf(countStr, sizeof(countStr), tr(STR_NETWORKS_FOUND), realNetworkCount);
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_WIFI_NETWORKS), false, 150, countStr);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_WIFI_NETWORKS), countStr);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_WIFI_NETWORKS), false, 150, countStr);
   GUI.drawSubHeader(renderer,
                     Rect{screen.x, screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput),
                          screen.width, metrics.tabBarHeight},

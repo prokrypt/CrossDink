@@ -212,7 +212,6 @@ def get_hardware_version(project_dir, pioenv):
     device_suffix = {
         'sticky': '-sticky',
         'x4-pro': '-x4-pro',
-        'x4-pro-light-sleep': '-x4-pro',
         'x4-classic': '-x4-classic',
     }[pioenv]
     return f'{base_version}{device_suffix}'
@@ -232,7 +231,7 @@ def inject_version(env):
     if hasattr(env, 'AddBuildMiddleware'):
         register_build_info(env, project_dir)
 
-    if pioenv in {'default', 'sticky', 'x4-pro', 'x4-pro-light-sleep', 'x4-classic'}:
+    if pioenv in {'default', 'sticky', 'x4-pro', 'x4-classic'}:
         version_string = get_hardware_version(project_dir, pioenv)
         if os.environ.get('CROSSDINK_RC_HASH'):
             print(f'CrossDink RC build version: {version_string}')
@@ -266,7 +265,7 @@ def inject_version(env):
         ])
         print(f'CrossDink test build version: {ci_version}{suffix}')
 
-    elif pioenv in {'x4-pro-debug', 'x4-pro-light-sleep-debug', 'x4-classic-debug'}:
+    elif pioenv in {'x4-pro-debug', 'x4-classic-debug'}:
         branch = get_git_branch(project_dir)
         short_hash = get_git_short_hash(project_dir)
         ci_version = get_crossdink_version(project_dir)

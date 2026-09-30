@@ -4,6 +4,7 @@
 #include <PsramLog.h>
 #include <esp_rom_sys.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
@@ -18,6 +19,8 @@ void MySerialImpl::flush() { logSerial.flush(); }
 #endif
 
 #define MAX_ENTRY_LEN 256
+// A log line waits at most this long for a reply or stream holding the port.
+static constexpr uint32_t LOG_LINE_LOCK_WAIT_MS = 2;
 #define MAX_LOG_LINES 16
 
 // Simple ring buffer log, useful for error reporting when we encounter a crash
@@ -96,13 +99,69 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   // otherwise be silently dropped (e.g. Sticky).
   esp_rom_printf("%s", buf);
 #else
-  if (logSerial) {
+  if (logSerial && logSerialLock(LOG_LINE_LOCK_WAIT_MS)) {
     logSerial.print(buf);
+    logSerialUnlock();
   }
 #endif
   addToLogRingBuffer(buf);
   PsramLog::append(buf, strnlen(buf, sizeof(buf)));
 }
+
+#if defined(SIMULATOR)
+void logSerialInit() {}
+bool logSerialLock(uint32_t) { return true; }
+void logSerialUnlock() {}
+
+bool logSerialWriteAll(const uint8_t* data, const size_t len, uint32_t, uint32_t) {
+  return logSerial.write(data, len) == len;  // the simulator transport never drops
+}
+#else
+namespace {
+constexpr uint32_t NO_HOST_STALL_MS = 10;
+
+// Before the scheduler runs, or in an ISR, there is no task to own a mutex;
+// writes there go straight out, as before.
+bool canUseLogSerialMutex() { return xTaskGetSchedulerState() == taskSCHEDULER_RUNNING && !xPortInIsrContext(); }
+
+StaticSemaphore_t logSerialMutexStorage;
+SemaphoreHandle_t logSerialMutex = nullptr;  // null until logSerialInit()
+}  // namespace
+
+void logSerialInit() {
+  if (logSerialMutex == nullptr) logSerialMutex = xSemaphoreCreateRecursiveMutexStatic(&logSerialMutexStorage);
+}
+
+bool logSerialLock(const uint32_t waitMs) {
+  if (logSerialMutex == nullptr || !canUseLogSerialMutex()) return true;
+  return xSemaphoreTakeRecursive(logSerialMutex, pdMS_TO_TICKS(waitMs)) == pdTRUE;
+}
+
+void logSerialUnlock() {
+  if (logSerialMutex != nullptr && canUseLogSerialMutex()) xSemaphoreGiveRecursive(logSerialMutex);
+}
+
+bool logSerialWriteAll(const uint8_t* data, const size_t len, const uint32_t budgetMs, const uint32_t stallMs) {
+  const uint32_t startMs = millis();
+  const LogSerialGuard guard(budgetMs);  // no log line lands between fragments
+  if (!guard) return false;
+  // No host attached: a short stall allowance only. Not zero, because the
+  // HWCDC connected flag flaps for a moment after light sleep.
+  const uint32_t stallLimitMs = logSerial ? stallMs : std::min<uint32_t>(stallMs, NO_HOST_STALL_MS);
+  size_t sent = 0;
+  uint32_t lastProgressMs = startMs;
+  while (sent < len) {
+    const size_t n = logSerial.write(data + sent, len - sent);
+    sent += n;
+    if (sent >= len) break;
+    const uint32_t nowMs = millis();
+    if (n > 0) lastProgressMs = nowMs;
+    if (nowMs - startMs >= budgetMs || nowMs - lastProgressMs >= stallLimitMs) return false;
+    delay(1);  // let the USB ISR drain the TX ring
+  }
+  return true;
+}
+#endif
 
 std::string getLastLogs() {
   if (rtcLogMagic != LOG_RTC_MAGIC) {

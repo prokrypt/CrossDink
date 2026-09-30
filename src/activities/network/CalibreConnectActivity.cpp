@@ -10,7 +10,9 @@
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
+#include "activities/goodies/GoodiesActivity.h"
 #include "components/CompactHeader.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -20,6 +22,10 @@ constexpr const char* HOSTNAME = "crosspoint";
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
+#if CROSSDINK_GOODIES
+  // Port 80 and the radio pass to this screen's own server.
+  goodies_remote::pause();
+#endif
   sdFontSystem.releaseLoadedFont(renderer);
 
   requestUpdate();
@@ -54,6 +60,7 @@ void CalibreConnectActivity::onEnter() {
 void CalibreConnectActivity::onExit() {
   library::invalidateLibraryIndex();
   Activity::onExit();
+  transferLight.end();
 
   // Wi-Fi belongs to the parent File Transfer screen, which leaves it (in
   // place or by restart) on its own exit.
@@ -85,6 +92,8 @@ void CalibreConnectActivity::startWebServer() {
 
   if (webServer->isRunning()) {
     state = CalibreConnectState::SERVER_RUNNING;
+    // Pulse only once the server is up; Wi-Fi selection keeps the user's brightness.
+    transferLight.begin();
     requestUpdate();
   } else {
     state = CalibreConnectState::ERROR;
@@ -93,6 +102,7 @@ void CalibreConnectActivity::startWebServer() {
 }
 
 void CalibreConnectActivity::stopWebServer() {
+  transferLight.end();  // restores the user's brightness
   if (webServer) {
     webServer->stop();
     webServer.reset();
@@ -100,7 +110,9 @@ void CalibreConnectActivity::stopWebServer() {
 }
 
 void CalibreConnectActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+  transferLight.update(webServer && webServer->isMovingData(TransferLightPulse::TAIL_MS));
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
     exitRequested = true;
   }
 
@@ -154,7 +166,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  CompactHeader::drawTitle(renderer, tr(STR_CALIBRE_WIRELESS));
+  TouchHeaderBackButton::drawCompact(renderer, tr(STR_CALIBRE_WIRELESS));
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - height) / 2;
 

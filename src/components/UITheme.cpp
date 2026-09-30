@@ -6,6 +6,7 @@
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -66,13 +67,34 @@ void UITheme::reload() {
   setTheme(themeType);
 }
 
+bool UITheme::supportsCoverGrid() {
+#if defined(SIMULATOR)
+  return
+#if defined(SIMULATOR_DEVICE_STICKY) || defined(SIMULATOR_DEVICE_X4_PRO) || defined(SIMULATOR_DEVICE_X4_CLASSIC)
+      true;
+#else
+      false;
+#endif
+#else
+  return psramHeapAvailable();
+#endif
+}
+
+bool UITheme::hasCoverGridHome() {
+  return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::COVER_GRID && supportsCoverGrid();
+}
+
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
+  if (type == CrossPointSettings::UI_THEME::COVER_GRID && !supportsCoverGrid()) {
+    type = CrossPointSettings::UI_THEME::LYRA;
+  }
   switch (type) {
     case CrossPointSettings::UI_THEME::CLASSIC:
       LOG_DBG("UI", "Using Classic theme");
       currentTheme = std::make_unique<BaseTheme>();
       currentMetrics = &BaseMetrics::values;
       break;
+    case CrossPointSettings::UI_THEME::COVER_GRID:
     case CrossPointSettings::UI_THEME::LYRA:
       LOG_DBG("UI", "Using Lyra theme");
       currentTheme = std::make_unique<LyraTheme>();
@@ -196,7 +218,8 @@ std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int cove
   return getCoverThumbPath(coverBmpPath, coverWidth, coverHeight);
 }
 
-std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int width, int height) {
+std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int width, int height,
+                                       bool allowLegacyFallback) {
   if (width <= 0 || height <= 0) {
     return "";
   }
@@ -231,7 +254,7 @@ std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int widt
       std::string legacyPath = thumbPath;
       legacyPath.replace(pos, kHeightPlaceholderLength, std::to_string(height));
       thumbPath.replace(pos, kHeightPlaceholderLength, std::to_string(width) + "x" + std::to_string(height));
-      if (!Storage.exists(thumbPath.c_str()) && Storage.exists(legacyPath.c_str())) {
+      if (allowLegacyFallback && !Storage.exists(thumbPath.c_str()) && Storage.exists(legacyPath.c_str())) {
         return legacyPath;
       }
     }

@@ -3,6 +3,9 @@
 #include <BitmapHelpers.h>
 #include <BoardConfig.h>
 #include <Epub.h>
+#ifndef SIMULATOR
+#include <FreeInkDisplay.h>
+#endif
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
@@ -23,6 +26,7 @@
 #include <string_view>
 
 #include "../home/RecentBookProgress.h"
+#include "../reader/BookStatsTracking.h"
 #include "../reader/BookStatsView.h"
 #include "../reader/EpubReaderActivity.h"
 #include "../reader/EpubReaderUtils.h"
@@ -330,7 +334,15 @@ BookReadingStats loadBookStatsForPath(const std::string& path) {
   if (cachePath.empty()) {
     return BookReadingStats{};
   }
-  return BookReadingStats::load(cachePath);
+  BookReadingStats stats = BookReadingStats::load(cachePath);
+  if (!BookStatsTracking::isEnabled(cachePath)) {
+    BookReadingStats paceOnly;
+    paceOnly.avgSecondsPerForwardPage = stats.avgSecondsPerForwardPage;
+    paceOnly.paceSampleCount = stats.paceSampleCount;
+    paceOnly.estimatedTimeLeftSeconds = stats.estimatedTimeLeftSeconds;
+    return paceOnly;
+  }
+  return stats;
 }
 
 std::string loadChapterTitleForPath(const std::string& path) {
@@ -580,6 +592,19 @@ void SleepActivity::onEnter() {
     return renderLastScreenSleepScreen();
   }
 
+#ifndef SIMULATOR
+  // Start every generated sleep screen from the same panel state, however long
+  // the outgoing screen sat idle. Drop any keyboard/DU waveform tweak and cut
+  // the booster, so the next refresh powers on fresh and a Direct gray cover
+  // takes the reset + OEM power cycle instead of loading its power registers
+  // into pumps that may have idled on since the last draw (auto-sleep only).
+  freeink::setUc8179KbdExperiment(nullptr);
+  // cppcheck-suppress unreadVariable ; read by LOG_DBG, which release builds compile out
+  const bool panelWasOn = display.powerOffIdle();
+  LOG_DBG("SLP", "Sleep draw: timeout=%d panelWasOn=%d lastDrfAgoMs=%lu", fromTimeout ? 1 : 0, panelWasOn ? 1 : 0,
+          static_cast<unsigned long>(millis() - freeink::uc8179KbdTiming().doneMs));
+#endif
+
   const auto sleepScreen = SETTINGS.sleepScreen;
   const bool sleepScreenUsesRecentBooks = sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP ||
                                           sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP ||
@@ -625,10 +650,12 @@ void SleepActivity::onEnter() {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY):
       return renderOverlaySleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP):
+      if (!BookStatsTracking::isEnabled(bookStatsCachePathFor(recentBookPath))) return renderMinimalSleepScreen();
       return renderReadingStatsSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP):
       return renderMinimalSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_STATS_SLEEP):
+      if (!BookStatsTracking::isEnabled(bookStatsCachePathFor(recentBookPath))) return renderMinimalSleepScreen();
       return renderMinimalStatsSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::DASHBOARD_SLEEP):
       return renderDashboardSleepScreen();
@@ -988,7 +1015,9 @@ void SleepActivity::renderMinimalSleepScreen() const {
   const BookReadingStats bookStats = loadBookStatsForPath(path);
   const float progressPercent = RecentBookProgress::loadPercent(book);
   MinimalTheme theme;
-  theme.drawSleepScreen(renderer, book, &bookStats, progressPercent, sleepCoverFilterInvertsGeneratedScreen());
+  theme.drawSleepScreen(renderer, book,
+                        BookStatsTracking::isEnabled(bookStatsCachePathFor(path)) ? &bookStats : nullptr,
+                        progressPercent, sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
@@ -1046,12 +1075,12 @@ void SleepActivity::renderLastScreenSleepScreen() const {
   } else {
     renderer.drawImage(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
   }
+  // Only the moon differs from the displayed frame, so a differential FAST
+  // update avoids the flashing clean pass on an inverted night-mode page.
   if (gpio.deviceIsX3()) {
-    // The controller still holds the displayed page, so its differential base
-    // waveform can add the moon without a full-screen flash.
     renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
   } else {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   }
 }
 

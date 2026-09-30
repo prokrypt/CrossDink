@@ -7,6 +7,7 @@
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
 #include "network/CrossPointWebServer.h"
+#include "util/TransferLightPulse.h"
 
 enum class CalibreConnectState { WIFI_SELECTION, SERVER_STARTING, SERVER_RUNNING, ERROR };
 
@@ -19,6 +20,7 @@ class CalibreConnectActivity final : public Activity {
   ScreenTransitionRefresh screenTransitionRefresh;
 
   std::unique_ptr<CrossPointWebServer> webServer;
+  TransferLightPulse transferLight;
   std::string connectedIP;
   std::string connectedSSID;
   size_t lastProgressReceived = 0;
@@ -41,11 +43,13 @@ class CalibreConnectActivity final : public Activity {
       : Activity("CalibreConnect", renderer, mappedInput), returnToReader(returnToReader) {}
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   // Same power policy as File Transfer.
   bool allowsRadioIdleSleep() override {
     return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
   }
+  bool powerOffPanelWhenIdle() const override { return true; }
   bool preventAutoSleep() override { return webServer && webServer->isRunning(); }
 };

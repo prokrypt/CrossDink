@@ -16,6 +16,7 @@
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/ActivityManager.h"
+#include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
@@ -67,11 +68,20 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
+#if CROSSDINK_GOODIES
+  // Port 80 and the radio pass to this screen's own server.
+  goodies_remote::pause();
+#endif
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
   // C3 has substantially more contiguous heap here than while serving HTTP.
-  sdFontSystem.ensureRegistry();
+  // The in-place relaunch after the mode picker follows a scan made moments
+  // ago on the previous entry, so it skips a second one.
+  constexpr uint32_t REGISTRY_FRESH_MS = 30000;
+  if (!networkBootReady || !sdFontSystem.registryRefreshedWithin(REGISTRY_FRESH_MS)) {
+    sdFontSystem.ensureRegistry();
+  }
   sdFontSystem.releaseForNetwork(renderer);
 
   LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
@@ -103,6 +113,7 @@ void CrossPointWebServerActivity::onEnter() {
 void CrossPointWebServerActivity::onExit() {
   library::invalidateLibraryIndex();
   Activity::onExit();
+  transferLight.end();
 
   state = WebServerActivityState::SHUTTING_DOWN;
 
@@ -119,7 +130,9 @@ void CrossPointWebServerActivity::onExit() {
     delete dnsServer;
     dnsServer = nullptr;
   }
-  delay(50);
+  // Let sockets close before Wi-Fi goes down; nothing to wait for when the
+  // exit comes straight from the mode picker (no radio, no services).
+  if (wifiWasActive) delay(50);
 
   // Wi-Fi goes down after local services have released their sockets. A
   // session that left the internal heap too fragmented, or changed the UI
@@ -318,6 +331,9 @@ void CrossPointWebServerActivity::startWebServer() {
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;
+    // The pulse (and its 0% idle level) starts only once the server is up, so
+    // the mode menu and Wi-Fi picker keep the user's brightness.
+    transferLight.begin();
     lastWifiBars = isApMode ? 0 : barsForRssi(WiFi.RSSI(), 0);
 
     // Force an immediate render since we're transitioning from a subactivity
@@ -350,6 +366,7 @@ void CrossPointWebServerActivity::exitToOrigin() {
 }
 
 void CrossPointWebServerActivity::stopWebServer() {
+  transferLight.end();  // restores the user's brightness
   if (webServer && webServer->isRunning()) {
     webServer->stop();
   }
@@ -357,6 +374,7 @@ void CrossPointWebServerActivity::stopWebServer() {
 }
 
 void CrossPointWebServerActivity::loop() {
+  transferLight.update(webServer && webServer->isMovingData(TransferLightPulse::TAIL_MS));
   if ((state == WebServerActivityState::SERVER_RUNNING || state == WebServerActivityState::AP_STARTING) &&
       exitRequested()) {
     exitToOrigin();
@@ -438,11 +456,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
 
 void CrossPointWebServerActivity::renderHeader() const {
   const char* title = isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::drawCompact(renderer, title);
-  } else {
-    CompactHeader::drawTitle(renderer, title);
-  }
+  TouchHeaderBackButton::drawCompact(renderer, title);
 }
 
 bool CrossPointWebServerActivity::exitRequested() const {

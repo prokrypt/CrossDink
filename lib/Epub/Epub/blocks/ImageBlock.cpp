@@ -5,9 +5,11 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <Serialization.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <utility>
 
@@ -148,6 +150,16 @@ bool imageFailedThisSession(const std::string& path) {
 void rememberImageFailure(const std::string& path) {
   if (failedImageCount == MAX_SESSION_IMAGE_FAILURES || imageFailedThisSession(path)) return;
   failedImageHashes[failedImageCount++] = imagePathHash(path);
+}
+
+// The image a background cache build is writing (0 = none). Renders of it
+// draw the placeholder instead of decoding into the same files.
+std::atomic<uint32_t> backgroundBuildKey{0};
+
+uint32_t backgroundKey(const std::string& path) { return static_cast<uint32_t>(imagePathHash(path)) | 1U; }
+
+bool backgroundBuildOwns(const std::string& path) {
+  return backgroundBuildKey.load(std::memory_order_acquire) == backgroundKey(path);
 }
 
 void clearRetainedPxcEntry(RetainedPxcEntry& entry) {
@@ -292,7 +304,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   }
 
   FsFile cacheFile;
-  if (!Storage.openFileForRead("IMG", cachePath, cacheFile)) {
+  if (!Storage.openFileForReadIfPresent("IMG", cachePath, cacheFile)) {
     invalidateRetainedPxcPath(cachePath);
     return false;
   }
@@ -413,7 +425,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
 bool ImageBlock::hasValidCache() const {
   const auto cachePath = getCachePath(imagePath);
   FsFile cacheFile;
-  if (!Storage.openFileForRead("IMG", cachePath, cacheFile)) {
+  if (!Storage.openFileForReadIfPresent("IMG", cachePath, cacheFile)) {
     return false;
   }
 
@@ -424,6 +436,7 @@ bool ImageBlock::hasValidCache() const {
 }
 
 void ImageBlock::prepareCache() const {
+  if (backgroundBuildOwns(imagePath)) return;
   if (hasValidCache()) {
     LOG_DBG("IMG", "Local image cache hit: %s", imagePath.c_str());
     return;
@@ -442,7 +455,58 @@ void ImageBlock::prepareCache() const {
   }
 }
 
-bool ImageBlock::needsDecode() const { return !imageFailedThisSession(imagePath) && !hasValidCache(); }
+bool ImageBlock::needsDecode() const {
+  // A background build owns the half-written cache: still needed, not probed.
+  return backgroundBuildOwns(imagePath) || (!imageFailedThisSession(imagePath) && !hasValidCache());
+}
+
+void ImageBlock::beginBackgroundCache() const {
+  invalidateRetainedPxcPath(getCachePath(imagePath));
+  // Creates the shared decoder here, so the worker never races its lazy init.
+  ImageDecoderFactory::getDecoder(imagePath);
+}
+
+void ImageBlock::rememberFailure() const { rememberImageFailure(imagePath); }
+
+ImageBlock::CacheBuild ImageBlock::buildCacheInBackground(GfxRenderer& target, const int x, const int y, void* context,
+                                                          const ExtractFn extract, const SeedCacheFn seedCache,
+                                                          const std::atomic<bool>& cancel) const {
+  const std::string cache = getCachePath(imagePath);
+  backgroundBuildKey.store(backgroundKey(imagePath), std::memory_order_release);
+  struct ClearKey {
+    ~ClearKey() { backgroundBuildKey.store(0, std::memory_order_release); }
+  } clearKey;
+  if (hasValidCache()) return CacheBuild::Built;
+
+  if (!sourcePath.empty()) {
+    Storage.remove((cache + ".optimizer.tmp").c_str());
+    Storage.remove((cache + ".optimizer.source").c_str());
+    if (seedCache && seedCache(context, sourcePath.c_str(), width, height, cache.c_str())) return CacheBuild::Built;
+    if (extract && !Storage.exists(imagePath.c_str()) && !extract(context, sourcePath.c_str(), imagePath.c_str())) {
+      if (cancel.load()) return CacheBuild::Cancelled;
+      LOG_ERR("IMG", "Background extraction failed: %s", sourcePath.c_str());
+      return CacheBuild::Failed;
+    }
+  }
+  if (cancel.load()) return CacheBuild::Cancelled;
+
+  ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(imagePath);
+  if (!decoder) return CacheBuild::Failed;
+  RenderConfig config;
+  config.x = x;
+  config.y = y;
+  config.maxWidth = width;
+  config.maxHeight = height;
+  config.useExactDimensions = true;
+  config.cachePath = cache;
+  config.cancel = &cancel;
+  const uint32_t startedMs = millis();
+  const bool decoded = decoder->decodeToFramebuffer(imagePath, target, config);
+  LOG_DBG("IMG", "Background decode %dx%d in %lu ms: ok=%d", width, height,
+          static_cast<unsigned long>(millis() - startedMs), decoded ? 1 : 0);
+  if (decoded) return CacheBuild::Built;
+  return cancel.load() ? CacheBuild::Cancelled : CacheBuild::Failed;
+}
 
 void ImageBlock::clearSessionRenderFailures() {
   failedImageCount = 0;
@@ -506,7 +570,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     return;
   }
 
-  if (imageFailedThisSession(imagePath)) {
+  if (imageFailedThisSession(imagePath) || backgroundBuildOwns(imagePath)) {
     renderPlaceholder(renderer, x, y, foregroundBlack);
     return;
   }
@@ -514,6 +578,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   // Try to render from cache first
   std::string cachePath = getCachePath(imagePath);
   if (renderFromCache(renderer, cachePath, x, y, width, height)) {
+    PerfLog::noteImage(/*cacheHit=*/true, 0);
     renderer.preserveImagePolarity(x, y, width, height);
     return;  // Successfully rendered from cache
   }
@@ -561,7 +626,12 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     return;
   }
 
+  const uint32_t decodeStartedMs = millis();
   bool success = decoder->decodeToFramebuffer(imagePath, renderer, config);
+  const uint32_t decodeMs = millis() - decodeStartedMs;
+  PerfLog::noteImage(/*cacheHit=*/false, decodeMs);
+  LOG_DBG("IMG", "Decoded %dx%d in %lu ms (cache %s)", width, height, static_cast<unsigned long>(decodeMs),
+          config.cachePath.empty() ? "off" : "write");
   if (!success) {
     LOG_ERR("IMG", "Failed to decode image: %s", imagePath.c_str());
     rememberImageFailure(imagePath);

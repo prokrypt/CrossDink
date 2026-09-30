@@ -34,6 +34,7 @@ class KeyboardEntryActivity : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
+  bool batchesInputDuringRefresh() const override { return true; }
 
  private:
   std::string title;
@@ -42,6 +43,55 @@ class KeyboardEntryActivity : public Activity {
   InputType inputType;
   size_t minLength;
   bool passwordVisible = false;
+
+  // EXPERIMENT (test/kbd-uc8179): UC8179 keyboard refresh toggles.
+  // 1 was T2 (skip the OLD-plane resync); retired, the SDK always resyncs.
+  static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
+  static constexpr uint8_t KBD_EXP_DU_LUT = 4;
+  static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
+  static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
+  // No key highlight on touch taps: a keystroke changes only the text field.
+  static constexpr uint8_t KBD_EXP_NO_TAP_HIGHLIGHT = 32;
+  // Open with a plain OTP Fast first frame (no DU): the one-way DU drive adds
+  // charge over the previous screen instead of clearing it, and 16 flashes.
+  static constexpr uint8_t KBD_EXP_OTP_ON_OPEN = 64;
+  // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
+  static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
+  // Settings > Turbo keyboard: 2 (windowed upload), DU typing
+  // (4; the SDK's DU LUT is charge-balanced, two phases), no tap highlight (32),
+  // OTP Fast first frame (64); the screen below redraws with OTP Fast on exit.
+  // CMD:KBDEXP 66 = the previous OTP Fast typing with highlight.
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
+      KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
+  // DU frames per phase (two phases). Untested on hardware; the old one-way
+  // LUT needed 6 single-phase frames.
+  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 4;
+  uint8_t kbdExpFlags = 0;
+  uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
+  uint8_t kbdExpPll = 0;
+  bool kbdExpFirstFrame = true;
+  std::atomic<unsigned long> strokeAtMs{0};
+  // What queued the next keyboard frame, for the [KBD] line.
+  enum class StrokeCause : uint8_t { Redraw, Key, Press, Release };
+  std::atomic<uint8_t> strokeCause{0};
+  uint32_t kbdFrame = 0;
+  unsigned long prevFrameStrokeMs = 0;  // stroke behind the previous frame; 0 = none
+  // Touch-down highlight is held back briefly: a quick tap releases first, and
+  // its activation frame is then the keystroke's only refresh.
+  static constexpr uint16_t TOUCH_HIGHLIGHT_DELAY_MS = 120;
+  bool highlightPending = false;
+  unsigned long highlightDueMs = 0;
+  void loadKbdExperiment();
+
+ public:
+  // Debug builds (serial CMD:KBDEXP): overrides the Turbo keyboard preset at
+  // the next keyboard open, so the trial bits (64, 128) and a PLL value stay
+  // reachable without a file. Held in RAM until cleared or reboot.
+  static void setExperimentOverride(uint8_t flags, uint8_t frames, uint8_t pll);
+  static void clearExperimentOverride();
+
+ private:
+  void requestStrokeUpdate(StrokeCause cause = StrokeCause::Key);
 
   ButtonNavigator buttonNavigator;
 
@@ -63,6 +113,11 @@ class KeyboardEntryActivity : public Activity {
   // the bottom action row is just the last row).
   int selRow = 0;
   int selCol = 0;
+  bool selectionShown = true;  // false on touch until a button moves the selection
+  // Shows a hidden selection; true when it did (the press only reveals it).
+  bool revealSelection();
+  // Button devices: Up/Down move the key row; long Up enters cursor mode.
+  void handleUpDownButtons();
 
   bool confirmHeld = false;
   bool confirmLongHandled = false;
@@ -97,6 +152,7 @@ class KeyboardEntryActivity : public Activity {
   enum class InputFieldTouchTarget { None, Cursor, PasswordToggle };
 
   void onComplete(std::string text);
+  bool injectText(const char* utf8) override;
   void onCancel();
   InputFieldTouchTarget inputFieldTouchTargetFromPoint(int x, int y, size_t& position) const;
   std::string displayTextForCurrentState() const;

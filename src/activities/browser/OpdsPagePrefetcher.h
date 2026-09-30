@@ -5,6 +5,11 @@
 #include <string>
 
 #include "OpdsPageCache.h"
+#include "util/WorkerTask.h"
+
+namespace freeink {
+class SecureHttpClient;
+}
 
 /**
  * Downloads one OPDS feed page on a background task (core 0) so the next page
@@ -23,6 +28,9 @@ class OpdsPagePrefetcher {
     std::string username;
     std::string password;
     std::string authorizationOrigin;
+    // The activity's kept-alive feed connection (may be null). The task owns
+    // it until join(); the main loop never touches it while a job runs.
+    freeink::SecureHttpClient* connection = nullptr;
   };
 
   OpdsPagePrefetcher() = default;
@@ -35,24 +43,24 @@ class OpdsPagePrefetcher {
   bool start(Request&& request, size_t maxBytes);
 
   // True while the background task is alive.
-  bool running() const { return active.load(std::memory_order_acquire); }
+  bool running() const { return task.running(); }
   // URL of the running or last finished job; stable while running.
   const std::string& url() const { return job.url; }
 
   void cancel() { cancelRequested.store(true, std::memory_order_release); }
   // Blocks the caller until the background task has exited.
-  void join() const;
+  void join() { task.join(); }
 
-  // After join(): moves a successfully downloaded page into cache.
-  void harvestInto(OpdsPageCache& cache);
+  // After join(): moves a successfully downloaded page into cache (see
+  // OpdsPageCache::store for mayEvict).
+  void harvestInto(OpdsPageCache& cache, bool mayEvict = true);
 
  private:
-  static void taskEntry(void* context);
   void run();
 
   Request job;
   OpdsPageBuffer page;
-  bool succeeded = false;  // written by the task before `active` clears
+  bool succeeded = false;  // written by the task before running() clears
   std::atomic<bool> cancelRequested{false};
-  std::atomic<bool> active{false};
+  WorkerTask task;
 };

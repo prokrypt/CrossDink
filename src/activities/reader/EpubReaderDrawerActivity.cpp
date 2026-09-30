@@ -378,8 +378,9 @@ EpubReaderDrawerActivity::EpubReaderDrawerActivity(
     const EpubReaderPreviewModel* previewModel, const float bookProgressPercent, const uint32_t chapterPage,
     const uint32_t chapterPageCount, const bool chapterPageCountEstimated, const bool hasFootnotes,
     const bool hasDictionary, const bool hasBookmarks, const bool hasClippings, const bool isCurrentPageBookmarked,
-    const bool isBookCompleted, const bool showReadingPaceReset, const uint32_t stableCurrentPage,
-    const uint32_t stablePageCount, const uint16_t autoPageTurnIntervalSeconds, const bool automaticPageTurnActive,
+    const bool isBookCompleted, const bool showReadingPaceReset, const bool globalStatsEnabled,
+    const bool bookStatsEnabled, const uint32_t stableCurrentPage, const uint32_t stablePageCount,
+    const uint16_t autoPageTurnIntervalSeconds, const bool automaticPageTurnActive,
     ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback, void* saveReaderSettingsContext,
     ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback, void* saveGlobalSettingsContext,
     ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback,
@@ -408,6 +409,8 @@ EpubReaderDrawerActivity::EpubReaderDrawerActivity(
       hasDictionary(hasDictionary),
       hasBookmarks(hasBookmarks),
       hasClippings(hasClippings),
+      globalStatsEnabled(globalStatsEnabled),
+      bookStatsEnabled(bookStatsEnabled),
       isCurrentPageBookmarked(isCurrentPageBookmarked),
       isBookCompleted(isBookCompleted),
       showReadingPaceReset(showReadingPaceReset),
@@ -445,9 +448,9 @@ void EpubReaderDrawerActivity::onEnter() {
   Activity::onEnter();
   if (mappedInput.hasTouchHardware()) mappedInput.setReaderTouchscreenOverride(true);
 
-  const ReaderDrawerCatalog catalog =
-      makeReaderDrawerCatalog({hasFootnotes, hasDictionary, hasBookmarks, hasClippings, showReadingPaceReset,
-                               stablePageCount > 0, !mappedInput.hasTouchHardware()});
+  const ReaderDrawerCatalog catalog = makeReaderDrawerCatalog(
+      {hasFootnotes, hasDictionary, hasBookmarks, hasClippings, showReadingPaceReset, stablePageCount > 0,
+       !mappedInput.hasTouchHardware(), globalStatsEnabled, bookStatsEnabled});
   for (size_t tab = 0; tab < rootRows.size(); ++tab) {
     rootRows[tab].reserve(catalog[tab].count);
     rootRows[tab].assign(catalog[tab].items.begin(), catalog[tab].items.begin() + catalog[tab].count);
@@ -871,10 +874,12 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
     const fui::Rect sheetContent = screen.sheet(sheet, drawerHeight());
     drawerHandleRect = DrawerHandle::registerTap(screen.frame(), sheetContent, sheet, ACTION_DISMISS);
   }
+  int16_t buttonHeaderHeight = 0;
   if (buttonDevice) {
     const auto& metrics = UITheme::getInstance().getMetrics();
-    screen.takeTop(static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                        metrics.tabBarHeight));
+    buttonHeaderHeight = static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
+                                              metrics.tabBarHeight);
+    screen.takeTop(buttonHeaderHeight);
   }
   // Give every tab row four pixels of white space above and below its icons.
   // The tab pill keeps its previous size so the selected background does not
@@ -885,7 +890,11 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on builds without the sample preview
   if (showsSamplePreview()) {
     const auto& metrics = UITheme::getInstance().getMetrics();
-    int previewHeight = screen.body().height * metrics.previewHeightPercent / 100;
+    // In portrait, keep the sample at its pre-header height so the new book
+    // progress row does not remove a line. Landscape needs room for its rows.
+    const int previewBaseHeight =
+        screen.body().height + (isLandscapeOrientation(renderer.getOrientation()) ? 0 : buttonHeaderHeight);
+    int previewHeight = previewBaseHeight * metrics.previewHeightPercent / 100;
     if (readerDrawerSliderPreviewsText(state.pane)) {
       // Leave both controls and both translated help lines usable in landscape.
       ReaderSliderRowProps row;
@@ -1755,6 +1764,9 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
       isBookCompleted = !isBookCompleted;
       closeAndReturn(false, EpubReaderMenuAction::TOGGLE_COMPLETED);
       return;
+    case RowId::TrackBookStats:
+      closeAndReturn(false, EpubReaderMenuAction::TOGGLE_BOOK_STATS_TRACKING, true);
+      return;
     case RowId::DeleteBookmarks:
       closeAndReturn(false, EpubReaderMenuAction::DELETE_BOOKMARKS);
       return;
@@ -2414,17 +2426,23 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
   if (CROSSDINK_APP_READER_SAMPLE_PREVIEW) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
+    const int noteHeight = previewSettings.textAntiAliasing ? labelTextHeight + 2 : 0;
     const char* name = previewSettings.sdFontFamilyName[0]
                            ? previewSettings.sdFontFamilyName.data()
                            : (previewSettings.fontFamily == 0 ? tr(STR_LEXEND_DECA) : tr(STR_BITTER));
     char label[128];
     std::snprintf(label, sizeof(label), "%s \"%s\", %upt", tr(STR_PREVIEW), name, previewSettings.readerFontPointSize);
-    const int separatorY = preview.bottom() - metrics.previewPadding - labelTextHeight - 4;
+    const int labelY = preview.bottom() - metrics.previewPadding - labelTextHeight - noteHeight;
+    const int separatorY = labelY - 4;
     renderer.drawLine(preview.x, separatorY, preview.right() - 1, separatorY, ReaderUtils::readerForegroundBlack());
     renderer.beginTextClip(preview.x, preview.y, preview.width, preview.height);
-    renderer.drawText(UI_10_FONT_ID, preview.x + metrics.previewPadding,
-                      preview.bottom() - metrics.previewPadding - labelTextHeight, label,
+    renderer.drawText(UI_10_FONT_ID, preview.x + metrics.previewPadding, labelY, label,
                       ReaderUtils::readerForegroundBlack());
+    if (previewSettings.textAntiAliasing) {
+      std::snprintf(label, sizeof(label), "%s: %s", tr(STR_TEXT_AA), tr(STR_PREVIEW_UNAVAILABLE));
+      renderer.drawText(SMALL_FONT_ID, preview.x + metrics.previewPadding, labelY + labelTextHeight + 6, label,
+                        ReaderUtils::readerForegroundBlack());
+    }
     renderer.endTextClip();
     renderer.drawLine(preview.x, preview.bottom() - 1, preview.right() - 1, preview.bottom() - 1,
                       ReaderUtils::readerForegroundBlack());
@@ -2480,7 +2498,9 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
   if (!previewModel || !previewModel->valid()) return;
   const auto& metrics = UITheme::getInstance().getMetrics();
   const fui::Rect area = previewBounds();
-  const int labelHeight = renderer.getTextHeight(UI_10_FONT_ID) + metrics.previewPadding + 8;
+  const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
+  const int labelHeight =
+      labelTextHeight + (settings.textAntiAliasing ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
   const int textHeight = std::max(0, area.height - labelHeight - metrics.previewPadding);
   // The sample is a short page: show top AND bottom margins proportionally
   // to its height, while horizontal margins and font sizes remain actual pixels.
@@ -2801,7 +2821,7 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
   }
   previousDrawerEdge = drawerEdge;
   int previewFontId = -1;
-  // Keep prewarmed glyphs resident through the BW and optional grayscale passes.
+  // Keep prewarmed glyphs resident through the BW and optional touch grayscale passes.
   std::optional<FontCacheManager::PrewarmScope> previewPrewarmScope;
   bool previewRendered = !CROSSDINK_APP_READER_SAMPLE_PREVIEW && renderPreview(previewFontId, previewPrewarmScope);
   uiReady = false;
@@ -2855,7 +2875,10 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  if (shouldRenderReaderDrawerAntiAliasing(previewRendered, draft.textAntiAliasing,
+  // Button menus repaint the sample on every navigation step. A grayscale pass
+  // here would add a second panel refresh and flash the preview each time.
+  if (!CROSSDINK_APP_READER_SAMPLE_PREVIEW &&
+      shouldRenderReaderDrawerAntiAliasing(previewRendered, draft.textAntiAliasing,
                                            ReaderUtils::readerForegroundBlack()) &&
       !sdFontSystem.fontUsesMonochromeRaster(renderer, previewFontId, draft.sdFontFamilyName.data())) {
     renderPreviewWithAntiAliasing(previewFontId);
@@ -2968,6 +2991,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_INDEXING_METHOD);
     case RowId::ToggleCompleted:
       return isBookCompleted ? tr(STR_MARK_UNFINISHED) : tr(STR_MARK_FINISHED);
+    case RowId::TrackBookStats:
+      return tr(STR_TRACK_READING_STATS);
     case RowId::Controls:
       return tr(STR_CAT_CONTROLS);
     case RowId::ResetReadingPace:
@@ -3101,6 +3126,7 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
 
 bool EpubReaderDrawerActivity::rowIsToggle(const RowId row) {
   switch (row) {
+    case RowId::TrackBookStats:
     case RowId::TextAa:
     case RowId::Focus:
     case RowId::GuideDots:
@@ -3145,6 +3171,8 @@ bool EpubReaderDrawerActivity::rowShowsNavigationCaret(const RowId row) const {
 
 bool EpubReaderDrawerActivity::rowToggleValue(const RowId row) const {
   switch (row) {
+    case RowId::TrackBookStats:
+      return bookStatsEnabled;
     case RowId::TextAa:
       return draft.textAntiAliasing;
     case RowId::Focus:

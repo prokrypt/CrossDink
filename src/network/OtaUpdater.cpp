@@ -28,7 +28,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback, void*, s
 
 namespace {
 #ifndef CROSSDINK_OTA_RELEASE_URL
-#define CROSSDINK_OTA_RELEASE_URL "https://api.github.com/repos/uxjulia/CrossInk/releases/latest"
+#define CROSSDINK_OTA_RELEASE_URL "https://api.github.com/repos/prokrypt/CrossDink/releases/latest"
 #endif
 
 constexpr char latestReleaseUrl[] = CROSSDINK_OTA_RELEASE_URL;
@@ -162,7 +162,10 @@ bool isMatchingFirmwareAssetName(const char* assetName) {
   if (assetName == nullptr) return false;
   if (strcmp(assetName, firmwareAssetName) == 0) return true;
   if (!startsWith(assetName, firmwareAssetStem)) return false;
-  if (assetName[strlen(firmwareAssetStem)] != '-') return false;
+  // Release assets are "<stem>-v<version>.bin"; this rejects other stems that share
+  // the prefix (e.g. x4-pro-light-sleep) and RC/debug names.
+  const char* rest = assetName + strlen(firmwareAssetStem);
+  if (rest[0] != '-' || rest[1] != 'v' || !isDigit(rest[2])) return false;
   return endsWith(assetName, binSuffix);
 }
 

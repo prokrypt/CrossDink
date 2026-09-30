@@ -383,11 +383,7 @@ void DictionarySelectActivity::render(RenderLock&&) {
   }
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_DICTIONARY), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_DICTIONARY));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_DICTIONARY), false);
   uiReady = false;
   app.render();
   uiReady = true;

@@ -225,11 +225,7 @@ void SavedItemsHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
 void SavedItemsHomeActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::drawCompact(renderer, tr(STR_BOOKMARKS_AND_CLIPPINGS));
-  } else {
-    CompactHeader::drawTitle(renderer, tr(STR_BOOKMARKS_AND_CLIPPINGS));
-  }
+  TouchHeaderBackButton::drawCompact(renderer, tr(STR_BOOKMARKS_AND_CLIPPINGS));
   uiReady = false;
   app.render();
   uiReady = true;

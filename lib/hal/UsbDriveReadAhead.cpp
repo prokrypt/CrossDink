@@ -2,6 +2,7 @@
 
 #if FREEINK_CAP_USB_MSC
 
+#include <Arduino.h>
 #include <Logging.h>
 #include <TaskCores.h>
 #include <esp_heap_caps.h>
@@ -9,21 +10,39 @@
 #include <algorithm>
 #include <cstring>
 
+#include "UsbDriveIo.h"
+
 namespace {
 // Holding the device mutex across one 4 KB SD read is ~2 ms, so a reader that
 // catches the prefetch mid-chunk waits at most a few ticks before falling back.
 constexpr int kPendingWaitTicks = 5;
+constexpr uint32_t kStopWaitMs = 1000;
 }  // namespace
 
 bool UsbDriveReadAhead::begin(FsBlockDeviceInterface* innerDevice) {
   inner = innerDevice;
+  prefetchEnabled = false;
+  if (task) {
+    // A previous end() left the task finishing a stalled card read; it exits
+    // on its own once that read returns and still owns the buffers until then.
+    if (xSemaphoreTake(stopDone, pdMS_TO_TICKS(kStopWaitMs)) != pdTRUE) {
+      LOG_ERR("USB", "USB Drive read-ahead task still stuck; reading directly");
+      return false;
+    }
+    task = nullptr;
+    freeBuffers();
+  }
   generation = 0;
   windowBase = 0;
   windowCount = 0;
   windowHead = 0;
   readAheadArmed = false;
+  firstIoMs.store(0, std::memory_order_relaxed);
+  lastIoMs.store(0, std::memory_order_relaxed);
+  hostOps.store(0, std::memory_order_relaxed);
+  hostReadBytes.store(0, std::memory_order_relaxed);
+  hostWriteBytes.store(0, std::memory_order_relaxed);
   stopRequested = false;
-  prefetchEnabled = false;
   if (!deviceMutex) deviceMutex = xSemaphoreCreateMutex();
   if (!windowMutex) windowMutex = xSemaphoreCreateMutex();
   if (!stopDone) stopDone = xSemaphoreCreateBinary();
@@ -61,15 +80,22 @@ void UsbDriveReadAhead::end() {
   if (task) {
     stopRequested = true;
     xTaskNotifyGive(task);
-    if (xSemaphoreTake(stopDone, pdMS_TO_TICKS(1000)) != pdTRUE) {
-      LOG_ERR("USB", "USB Drive read-ahead task did not stop; deleting it");
-      lockDevice();
-      vTaskDelete(task);
-      unlockDevice();
+    if (xSemaphoreTake(stopDone, pdMS_TO_TICKS(kStopWaitMs)) != pdTRUE) {
+      // The task only blocks this long inside inner->readSectors() on a
+      // stalled card, holding deviceMutex. Deleting it there would leave that
+      // mutex owned by a dead task and hang every later card access, so let it
+      // finish the read and exit; begin() reaps it and its buffers.
+      LOG_ERR("USB", "USB Drive read-ahead task did not stop; leaving it to exit");
+      prefetchEnabled = false;
+      return;
     }
     task = nullptr;
   }
   prefetchEnabled = false;
+  freeBuffers();
+}
+
+void UsbDriveReadAhead::freeBuffers() {
   heap_caps_free(window);
   window = nullptr;
   heap_caps_free(staging);
@@ -135,7 +161,25 @@ void UsbDriveReadAhead::resetWindow(const Sector_t nextSector) {
   windowHead = 0;
 }
 
+void UsbDriveReadAhead::hostIo(UsbDriveIo& out) const {
+  out.firstIoMs = firstIoMs.load(std::memory_order_relaxed);
+  out.lastIoMs = lastIoMs.load(std::memory_order_relaxed);
+  out.readBytes = hostReadBytes.load(std::memory_order_relaxed);
+  out.writeBytes = hostWriteBytes.load(std::memory_order_relaxed);
+  out.ops = hostOps.load(std::memory_order_relaxed);
+}
+
+void UsbDriveReadAhead::noteHostIo() {
+  const uint32_t now = millis();
+  uint32_t none = 0;
+  firstIoMs.compare_exchange_strong(none, now, std::memory_order_relaxed);
+  lastIoMs.store(now, std::memory_order_relaxed);
+  hostOps.fetch_add(1, std::memory_order_relaxed);
+}
+
 bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const size_t ns) {
+  noteHostIo();
+  hostReadBytes.fetch_add(ns * kSectorSize, std::memory_order_relaxed);
   if (prefetchEnabled && ns <= kWindowSectors) {
     for (int attempt = 0;; attempt++) {
       xSemaphoreTake(windowMutex, portMAX_DELAY);
@@ -176,6 +220,8 @@ bool UsbDriveReadAhead::readSectors(const Sector_t sector, uint8_t* dst, const s
 }
 
 bool UsbDriveReadAhead::writeSectors(const Sector_t sector, const uint8_t* src, const size_t ns) {
+  noteHostIo();
+  hostWriteBytes.fetch_add(ns * kSectorSize, std::memory_order_relaxed);
   if (prefetchEnabled) {
     // Any read-ahead is about to go stale, and the sectors past this write are
     // the ones a copy writes next. Drop the window and stop prefetching before

@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include "CrossPointState.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -19,7 +20,8 @@ void AlertActivity::onEnter() {
 }
 
 void AlertActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+      TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
     if (goHomeOnBack) {
       onGoHome();
     } else {
@@ -37,9 +39,10 @@ void AlertActivity::render(RenderLock&&) {
   const auto x = metrics.contentSidePadding;
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
 
-  int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  int y = header.y + header.height + metrics.verticalSpacing;
 
   auto bodyLines = renderer.wrappedText(UI_10_FONT_ID, body.c_str(), contentWidth, 10);
   for (const auto& line : bodyLines) {

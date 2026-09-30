@@ -56,7 +56,13 @@ struct PixelCache {
   PixelCache& operator=(const PixelCache&) = delete;
 
   static constexpr int MIN_BAND_ROWS = 16;
+#if defined(FREEINK_FB_PSRAM)
+  // PSRAM builds: plain malloc above 1 KB lands in PSRAM, so a taller band lets
+  // large upscaled images cache instead of re-decoding on every render.
+  static constexpr size_t MAX_BAND_BYTES = 128 * 1024;
+#else
   static constexpr size_t MAX_BAND_BYTES = 24 * 1024;  // band working-set ceiling
+#endif
 
   // Open the cache file, write the header, and allocate a band buffer big enough
   // to hold the tallest single decode block (maxBlockDstRows output rows).
@@ -79,10 +85,13 @@ struct PixelCache {
     if ((size_t)wantRows > maxRowsByMem) wantRows = (int)maxRowsByMem;
 
     // A single decode block must fit inside the band, otherwise streaming would
-    // drop rows. This only fails for pathological upscales that could not be
-    // cached at all; fall back to the no-cache path.
-    if (wantRows < maxBlockDstRows) {
-      LOG_ERR("IMG", "Cache band too small (%d < %d rows) for %dx%d", wantRows, maxBlockDstRows, w, h);
+    // drop rows. A block never writes past the image's last row (the writer
+    // skips rows outside the band), so a band holding the whole image is
+    // always enough. This only fails for pathological upscales that could not
+    // be cached at all; fall back to the no-cache path.
+    const int neededRows = maxBlockDstRows < h ? maxBlockDstRows : h;
+    if (wantRows < neededRows) {
+      LOG_ERR("IMG", "Cache band too small (%d < %d rows) for %dx%d", wantRows, neededRows, w, h);
       return false;
     }
     bandRows = wantRows;

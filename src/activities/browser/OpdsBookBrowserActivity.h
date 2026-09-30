@@ -9,8 +9,9 @@
 #include <utility>
 #include <vector>
 
+#include "OpdsBookDownloader.h"
 #include "OpdsPageCache.h"
-#include "OpdsPagePrefetcher.h"
+#include "OpdsPreloadPool.h"
 #include "OpdsServerStore.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
@@ -25,11 +26,16 @@ class OpdsBookBrowserActivity final : public Activity {
   enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server);
+  // Out of line: feedConnection's type is only forward-declared here.
+  ~OpdsBookBrowserActivity() override;
 
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
+  // Progress repaints come every few seconds: booster off between them.
+  bool powerOffPanelWhenIdle() const override { return state == BrowserState::DOWNLOADING; }
 
  private:
   // FreeInkUI app runtime for the browsing screen: owns the interaction table,
@@ -42,17 +48,32 @@ class OpdsBookBrowserActivity final : public Activity {
   BrowserState state = BrowserState::LOADING;
   ScreenTransitionRefresh screenTransitionRefresh;
   std::unique_ptr<OpdsEntry[]> entries;
+#if defined(FREEINK_NET_WOLFSSL)
+  // Kept-alive HTTPS connection for foreground feed fetches. Background
+  // preloads use the pool's own connections.
+  std::unique_ptr<freeink::SecureHttpClient> feedConnection;
+  unsigned long feedConnectionLastUseMs = 0;
+#endif
+  // Set when Back (button or header tap) cancels a foreground feed fetch;
+  // fetchFeed() then goes back instead of showing the fetch error.
+  bool fetchCancelled = false;
   // PSRAM devices only (null on C3): raw feed pages for Back/Prev, and the
-  // background download of the next page. Declared so the prefetcher is
-  // destroyed (joined) before the cache.
+  // background downloads of the next page and the first page's feeds.
+  // Declared so the pool is destroyed (joined) before the cache.
   std::unique_ptr<OpdsPageCache> pageCache;
-  std::unique_ptr<OpdsPagePrefetcher> prefetcher;
+  std::unique_ptr<OpdsPreloadPool> preload;
   size_t entryCount = 0;
   // Whether entries[0] / entries[entryCount - 1] are the synthetic Prev / Next
   // page rows added from the feed's rel="previous" / rel="next" links.
   bool hasPrevPageRow = false;
   bool hasNextPageRow = false;
-  std::vector<std::string> navigationHistory;
+  // Feeds Back returns to, with the row and scroll position to restore there.
+  struct HistoryEntry {
+    std::string path;
+    int selectorIndex = 0;
+    int topIndex = 0;
+  };
+  std::vector<HistoryEntry> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
   int selectorIndex = 0;
@@ -60,6 +81,13 @@ class OpdsBookBrowserActivity final : public Activity {
   std::string statusMessage;
   size_t downloadProgress = 0;
   size_t downloadTotal = 0;
+  // False until the first body byte: the screen says Connecting meanwhile.
+  bool downloadReceiving = false;
+  int lastRenderedPercent = -1;
+  unsigned long lastProgressUpdateMs = 0;
+  // Book downloads run on a background task; loop() polls it for progress
+  // and completion and forwards cancel requests.
+  OpdsBookDownloader bookDownloader;
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
 
@@ -68,14 +96,23 @@ class OpdsBookBrowserActivity final : public Activity {
   // render() rebuilds the app's interaction table; loop() only routes touch
   // snapshots against it while this is true (the two run on different tasks).
   std::atomic<bool> uiReady{false};
+  // Last download frame sent to the panel (render task only). A re-render with
+  // the same progress (the dialog closing right after the first frame) skips
+  // its refresh.
+  struct ShownDownloadFrame {
+    bool valid = false;
+    bool receiving = false;
+    size_t progress = 0;
+    size_t total = 0;
+  };
+  ShownDownloadFrame shownDownloadFrame;
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
-  // Read by HttpDownloader between chunks; set by the Cancel button handler or
-  // a Back press, both pumped from the download's progress callback.
+  // Set by the Cancel button handler; loop() forwards it to bookDownloader.
   bool cancelDownload = false;
-  // A blocking downloader consumes the one-shot Home event itself. Defer the
-  // activity exit until HttpDownloader has unwound and closed the partial file.
-  bool goHomeAfterCancel = false;
+  // Book the user chose to open after its download; onExit() reboots into it
+  // when Wi-Fi cannot be left in place.
+  std::string openAfterExit;
 
   // Single screen fn dispatching on `state`: every state shares the themed
   // header and gets built through FreeInkUI.
@@ -92,13 +129,24 @@ class OpdsBookBrowserActivity final : public Activity {
   void checkAndConnectWifi();
   void launchWifiSelection();
   void onWifiSelectionComplete(bool connected);
-  void showLoadingBeforeFetch();
-  void fetchFeed(const std::string& path);
+  // Skipped when path is already in the page cache: the list then replaces the
+  // current screen directly.
+  void showLoadingBeforeFetch(const std::string& path);
+  void pushHistory() { navigationHistory.push_back(HistoryEntry{currentPath, selectorIndex, topIndex}); }
+  // restoreRow/restoreTop: selection and scroll to show once loaded (Back).
+  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0);
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser);
+  bool pollFetchCancel();
   void startNextPagePrefetch(const std::string& nextHref);
+  // First page only: queues every navigation row's feed for the preload pool.
+  void preloadFeedsOnPage();
   void stopPrefetch();
+  // The shared feed connection for the next request, or null. Drops a
+  // connection idle long enough that a router or server may have silently
+  // forgotten it (a dead socket would stall the request for its full timeout).
+  freeink::SecureHttpClient* feedConnectionForRequest();
   bool ensureEntryBuffer();
   void clearEntries();
   bool appendEntry(OpdsEntry&& entry);
@@ -109,9 +157,21 @@ class OpdsBookBrowserActivity final : public Activity {
   // Asks before replacing a book already on SD (showing its size and date),
   // otherwise downloads straight away.
   void requestDownload(const OpdsEntry& book);
-  // filename: the SD destination from requestDownload.
-  void downloadBook(const OpdsEntry& book, const std::string& filename);
+  // filename: the SD destination from requestDownload. resumeValidator: set
+  // on Retry to continue the failed attempt's .part file (may be empty).
+  void downloadBook(const OpdsEntry& book, const std::string& filename, const std::string* resumeValidator = nullptr);
+  // DOWNLOADING state: forwards cancel input, redraws progress, and finishes
+  // once the background task has exited.
+  void pollDownload();
+  // After a finished download: asks whether to open the book now.
+  void offerToOpen(const std::string& path);
+  // After a failed download: Retry resumes the same book (from byte 0 when the
+  // server cannot), Cancel removes the partial file and returns to the listing.
+  void offerRetry(const std::string& path);
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;
+  // While the list just sits there, the loop may drop the CPU clock and light
+  // sleep with Wi-Fi up (each fetch turns Wi-Fi power save off for itself).
+  bool allowsRadioIdleSleep() override;
 };

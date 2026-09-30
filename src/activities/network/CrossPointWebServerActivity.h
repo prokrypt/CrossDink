@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -9,6 +10,7 @@
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
 #include "network/CrossPointWebServer.h"
+#include "util/TransferLightPulse.h"
 
 // Web server activity states
 enum class WebServerActivityState {
@@ -45,6 +47,7 @@ class CrossPointWebServerActivity final : public Activity {
 
   // Web server - owned by this activity
   std::unique_ptr<CrossPointWebServer> webServer;
+  TransferLightPulse transferLight;
 
   // Server status
   std::string connectedIP;
@@ -86,6 +89,7 @@ class CrossPointWebServerActivity final : public Activity {
         networkBootReady(networkBootReady) {}
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   // The server runs on its own task; an idle STA-mode server lets the main
@@ -93,5 +97,6 @@ class CrossPointWebServerActivity final : public Activity {
   bool allowsRadioIdleSleep() override {
     return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
   }
+  bool powerOffPanelWhenIdle() const override { return true; }
   bool preventAutoSleep() override { return webServer && webServer->isRunning(); }
 };

@@ -60,15 +60,16 @@ class OpdsPageBuffer {
  */
 class OpdsPageCache {
  public:
-  static constexpr size_t MAX_PAGES = 12;
+  static constexpr size_t MAX_PAGES = 64;
 
   explicit OpdsPageCache(size_t byteBudget) : byteBudget(byteBudget) {}
 
   // Returns the cached page and marks it most recently used, or nullptr.
   const OpdsPageBuffer* find(const std::string& url);
   // Takes ownership; evicts least recently used pages to fit the budget.
-  // Returns false (and drops the page) when it alone exceeds the budget.
-  bool store(const std::string& url, OpdsPageBuffer&& page);
+  // Returns false (and drops the page) when it alone exceeds the budget, or,
+  // with mayEvict false (background preloads), when it does not fit as is.
+  bool store(const std::string& url, OpdsPageBuffer&& page, bool mayEvict = true);
   bool contains(const std::string& url) const;
   void erase(const std::string& url);
   void clear();

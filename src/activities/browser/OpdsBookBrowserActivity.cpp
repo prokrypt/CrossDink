@@ -9,8 +9,10 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <OpdsStream.h>
+#if defined(FREEINK_NET_WOLFSSL)
+#include <SecureHttpClient.h>
+#endif
 #include <WiFi.h>
-#include <ZipFile.h>
 
 #include <algorithm>
 #include <array>
@@ -18,9 +20,10 @@
 #include <utility>
 
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "OpdsPageCache.h"
-#include "OpdsPagePrefetcher.h"
+#include "OpdsPreloadPool.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -43,7 +46,6 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr size_t OPDS_BROWSER_ENTRY_CAPACITY = MAX_OPDS_FEED_ENTRIES + 2;
-constexpr size_t OPDS_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SEARCH = 2;
 constexpr fui::ActionId ACTION_CANCEL = 3;
@@ -53,11 +55,12 @@ constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 // prefetched next page parse locally instead of refetching.
 constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
-// Prefetch needs its 12 KB task stack as one internal block, plus internal
-// headroom for wolfSSL's small allocations (larger ones go to PSRAM on these
-// boards via CONFIG_SPIRAM_USE_MALLOC); skip it below these.
-constexpr size_t OPDS_PREFETCH_MIN_INTERNAL_FREE = 48 * 1024;
-constexpr size_t OPDS_PREFETCH_MIN_INTERNAL_BLOCK = 16 * 1024;
+// A kept-alive feed connection idle longer than this is closed before the
+// next request. Some servers and load balancers drop an idle socket without a
+// FIN; the request then waits out the whole header timeout before the retry
+// on a fresh connection. Reuse after 1.4 s and 3.5 s idle worked on
+// mayberry.pub, after 10.5 s it never answered (crash log 2026-09-30).
+constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
   if (book.author.empty()) return book.title;
@@ -133,6 +136,8 @@ OpdsBookBrowserActivity::OpdsBookBrowserActivity(GfxRenderer& renderer, MappedIn
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {}
 
+OpdsBookBrowserActivity::~OpdsBookBrowserActivity() = default;
+
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();
 
@@ -166,7 +171,10 @@ void OpdsBookBrowserActivity::onEnter() {
   if (psramHeapAvailable()) {
     const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
     pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
-    if (pageCache) prefetcher = makeUniqueNoThrow<OpdsPagePrefetcher>();
+    if (pageCache) {
+      preload = makeUniqueNoThrow<OpdsPreloadPool>(*pageCache, OPDS_PAGE_MAX_BYTES, server.username, server.password,
+                                                   UrlUtils::ensureProtocol(server.url));
+    }
     LOG_DBG("OPDS", "Page cache %s (budget %zu bytes)", pageCache ? "on" : "off", budget);
   }
 
@@ -181,10 +189,17 @@ void OpdsBookBrowserActivity::onEnter() {
 void OpdsBookBrowserActivity::onExit() {
   library::invalidateLibraryIndex();
   Activity::onExit();
+  // A book download in flight is cancelled (its .part file removed) and
+  // joined before Wi-Fi goes down.
+  bookDownloader.cancel();
+  bookDownloader.join();
   // Joins the background download before Wi-Fi goes down and before the
   // cache it would hand its page to is freed.
-  prefetcher.reset();
+  preload.reset();
   pageCache.reset();
+#if defined(FREEINK_NET_WOLFSSL)
+  feedConnection.reset();  // closes the kept-alive socket before Wi-Fi goes down
+#endif
   clearEntries();
   entries.reset();
   navigationHistory.clear();
@@ -192,7 +207,16 @@ void OpdsBookBrowserActivity::onExit() {
 #ifndef SIMULATOR
   // OPDS launches from minimal network boot, so the full app state is
   // restored even if setup failed before WiFi was started.
-  if (!leaveNetworkInPlace()) silentRestart();
+  if (!leaveNetworkInPlace()) {
+    if (!openAfterExit.empty()) {
+      // goToReader() is lost across the reboot: reopen the book from APP_STATE.
+      APP_STATE.openEpubPath = openAfterExit;
+      APP_STATE.saveToFile();
+      silentRestartToReader();
+    } else {
+      silentRestart();
+    }
+  }
 #endif
 }
 
@@ -239,11 +263,15 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::ERROR) {
+    if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+      navigateBack();
+      return;
+    }
     int tx = 0;
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-        showLoadingBeforeFetch();
+        showLoadingBeforeFetch(currentPath);
         fetchFeed(currentPath);
       } else {
         launchWifiSelection();
@@ -255,7 +283,8 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::CHECK_WIFI || state == BrowserState::LOADING) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+        TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       state == BrowserState::CHECK_WIFI ? onGoHome() : navigateBack();
     }
     return;
@@ -272,11 +301,16 @@ void OpdsBookBrowserActivity::loop() {
       state = BrowserState::BROWSING;
       requestUpdate();
     }
+#else
+    pollDownload();
 #endif
     return;
   }
 
   if (state == BrowserState::BROWSING) {
+    // Queued feed downloads start only from the browsing list; a network
+    // fetch or a book download pauses them.
+    if (preload) preload->pump();
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       navigateBack();
       return;
@@ -353,6 +387,11 @@ bool OpdsBookBrowserActivity::preventAutoSleep() {
   return false;
 }
 
+bool OpdsBookBrowserActivity::allowsRadioIdleSleep() {
+  if (state != BrowserState::BROWSING && state != BrowserState::ERROR) return false;
+  return !(preload && preload->busy());
+}
+
 void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) {
   auto* self = static_cast<OpdsBookBrowserActivity*>(user);
   switch (self->state) {
@@ -372,15 +411,16 @@ void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) 
 // draw the themed header (padding, centering, and rule come from the theme).
 void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool withSearch) {
   screen.takeBottom(static_cast<int16_t>(UITheme::getInstance().getMetrics().buttonHintsHeight));
-  const bool useTouchBackHeader = state == BrowserState::BROWSING && mappedInput.hasTouchHardware();
-  if (useTouchBackHeader) {
-    const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const char* title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
+  // One header for every state, so the title and status row never jump. On
+  // touch its arrow is Back, or Cancel while downloading.
+  const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (mappedInput.hasTouchHardware()) {
     const auto backLayout = TouchHeaderBackButton::layout(headerRect);
     const bool showSearch = withSearch && !searchTemplate.empty();
-    TouchHeaderBackButton::draw(renderer, uiTarget, headerRect,
-                                server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str(), false,
+    TouchHeaderBackButton::draw(renderer, uiTarget, headerRect, title, false,
                                 showSearch ? static_cast<int>(backLayout.iconRect.width + 8) : 0);
-    screen.takeTop(static_cast<int16_t>(headerRect.height));
+    screen.takeTop(static_cast<int16_t>(headerRect.y + headerRect.height));
 
     if (showSearch) {
       fui::ButtonProps search;
@@ -404,19 +444,8 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
           fui::bitmapFromIcon(icon_search_32), fui::BitmapMode::Center, fui::Paint::solid(fui::Color::Black));
     }
   } else {
-    fui::HeaderProps header;
-    header.title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
-    header.borderEdges = fui::EdgeBottom;
-    if (withSearch && !searchTemplate.empty()) {
-      header.trailingIcon = fui::bitmapFromIcon(icon_search_32);
-      header.trailingAction = ACTION_SEARCH;
-      // Optically align the icon with the title glyphs: text hangs low in its
-      // line cell by the font's internal leading; drop the button to match.
-      const int titleFontId = uiScaleSpec().titleFontId;
-      header.actionOffsetY =
-          static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
-    }
-    screen.header(header);
+    GUI.drawHeader(renderer, headerRect, title);
+    screen.takeTop(static_cast<int16_t>(headerRect.y + headerRect.height));
   }
   // Same breathing room between header and content as the legacy screens.
   screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().verticalSpacing));
@@ -480,11 +509,11 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiApp::ScreenType& screen) {
   const int16_t gap = theme.spaceMd;
   const int16_t barH = 16;
   const int16_t btnH = theme.rowHeight;
-  const int16_t blockH = static_cast<int16_t>(lh * 2 + barH + btnH + gap * 3);
+  const int16_t blockH = static_cast<int16_t>(lh * 3 + barH + btnH + gap * 4);
   const fui::Rect body = screen.body();
   if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
 
-  screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
+  screen.target().text(screen.takeTop(lh, gap), downloadReceiving ? tr(STR_DOWNLOADING) : tr(STR_CONNECTING), centered);
   screen.target().text(screen.takeTop(lh, gap), statusMessage.c_str(), centered);
 
   const fui::Rect bar = screen.takeTop(barH, gap).inset(fui::Insets{0, 50, 0, 50});
@@ -496,6 +525,20 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiApp::ScreenType& screen) {
     progress.borderWidth = 1;
     fui::progressBar(screen.frame(), bar, progress);
   }
+  // "12.3 / 33.0 MB": shows whether a stalled bar is still moving.
+  char sizeLine[40] = "";
+  if (downloadReceiving) {
+    char done[16];
+    formatFileSize(downloadProgress, done, sizeof(done));
+    if (downloadTotal > 0) {
+      char total[16];
+      formatFileSize(downloadTotal, total, sizeof(total));
+      snprintf(sizeLine, sizeof(sizeLine), "%s / %s", done, total);
+    } else {
+      snprintf(sizeLine, sizeof(sizeLine), "%s", done);
+    }
+  }
+  screen.target().text(screen.takeTop(lh, gap), sizeLine, centered);
 
   const fui::Rect btnArea = screen.takeTop(btnH);
   const int16_t btnW = static_cast<int16_t>(btnArea.width / 3);
@@ -554,10 +597,32 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   uiReady = false;
   app.render();
   uiReady = true;
+  if (state == BrowserState::DOWNLOADING) {
+    const ShownDownloadFrame frame{true, downloadReceiving, downloadProgress, downloadTotal};
+    const bool same = shownDownloadFrame.valid && frame.receiving == shownDownloadFrame.receiving &&
+                      frame.progress == shownDownloadFrame.progress && frame.total == shownDownloadFrame.total;
+    shownDownloadFrame = frame;
+    if (same) {
+      LOG_DBG("OPDS", "Download frame unchanged, refresh skipped");
+      return;
+    }
+  } else {
+    shownDownloadFrame.valid = false;
+  }
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }
 
-void OpdsBookBrowserActivity::showLoadingBeforeFetch() {
+void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
+  // A cached page parses in tens of ms, so a Loading frame would only add one
+  // e-ink refresh (~600 ms) ahead of the list.
+  if (pageCache) {
+    if (preload) preload->collect();
+    const std::string url = UrlUtils::buildUrl(server.url, path);
+    if (pageCache->contains(url)) {
+      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", url.c_str());
+      return;
+    }
+  }
   state = BrowserState::LOADING;
   statusMessage = tr(STR_LOADING);
   if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
@@ -566,7 +631,7 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch() {
   }
 }
 
-void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
+void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_MEMORY_ERROR);
@@ -609,7 +674,15 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   clearEntries();
   const std::string url = UrlUtils::buildUrl(server.url, path);
   OpdsParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
+  fetchCancelled = false;
   if (!loadFeed(url, parser)) {
+    if (fetchCancelled) {
+      // pollFetchCancel() consumed the Back press, so act on it here.
+      LOG_INF("OPDS", "Feed fetch cancelled by Back");
+      fetchCancelled = false;
+      navigateBack();
+      return;
+    }
     state = BrowserState::ERROR;
     errorMessage = tr(STR_FETCH_FEED_FAILED);
     requestUpdate();
@@ -656,8 +729,11 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     if (!hasNextPageRow) LOG_DBG("OPDS", "No room for next-page entry");
   }
 
-  selectorIndex = 0;
-  topIndex = 0;
+  // The feed may have changed since the row was saved: clamp the row here and
+  // leave topIndex to render()'s clamp.
+  selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
+  topIndex = restoreTop;
+  if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
@@ -668,23 +744,23 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   requestUpdate();
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
+  if (currentPath.empty()) preloadFeedsOnPage();
+  if (preload) preload->pump();
 }
 
 bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parser) {
-  // A foreground request never overlaps the background one: finish the
-  // prefetch when it is this very page, otherwise cancel it. Either way a
-  // completed page lands in the cache.
-  if (prefetcher) {
-    if (prefetcher->running() && prefetcher->url() != url) prefetcher->cancel();
-    const unsigned long joinStart = millis();
-    const bool waited = prefetcher->running();
-    prefetcher->join();
-    if (waited) LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
-    prefetcher->harvestInto(*pageCache);
-  }
-
+  // A cache hit needs no network, so background downloads keep going.
+  // Otherwise a foreground request never overlaps them: finish the one for
+  // this very page, pause the rest. Either way completed pages land in the
+  // cache.
   if (pageCache) {
-    if (const OpdsPageBuffer* cached = pageCache->find(url)) {
+    const OpdsPageBuffer* cached = pageCache->find(url);
+    if (!cached && preload) {
+      const unsigned long joinStart = millis();
+      if (preload->pause(url)) LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
+      cached = pageCache->find(url);
+    }
+    if (cached) {
       LOG_INF("OPDS", "Cached: %s (%zu bytes)", url.c_str(), cached->size());
       parser.parse(cached->data(), cached->size());
       return true;
@@ -704,6 +780,8 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
+    downloadOptions.connection = feedConnectionForRequest();
+    downloadOptions.shouldCancel = [this]() { return pollFetchCancel(); };
     const auto result = HttpDownloader::streamUrl(
         url,
         [&stream, &page, cachePage](const uint8_t* data, const size_t len) {
@@ -718,33 +796,64 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   return true;
 }
 
+// Runs on this task while loadFeed() blocks the loop: Back is the only way
+// out of a slow or dead request, as in the LOADING state of loop().
+bool OpdsBookBrowserActivity::pollFetchCancel() {
+  if (fetchCancelled) return true;
+  mappedInput.update();
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+      TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    fetchCancelled = true;
+  }
+  return fetchCancelled;
+}
+
 void OpdsBookBrowserActivity::startNextPagePrefetch(const std::string& nextHref) {
-  if (!prefetcher) return;
+  if (!preload) return;
   // Same resolution navigateToEntry() and fetchFeed() apply, so the cache key
   // matches when the user selects the Next page row.
   const std::string nextPath = UrlUtils::buildUrl(UrlUtils::buildUrl(server.url, currentPath), nextHref);
-  const std::string nextFeedUrl = UrlUtils::buildUrl(server.url, nextPath);
-  if (pageCache->contains(nextFeedUrl)) return;
+  preload->enqueue(UrlUtils::buildUrl(server.url, nextPath), true);
+}
 
-  const ByteHeapSnapshot internal = byteHeapSnapshot(MemoryPool::Internal);
-  if (internal.free < OPDS_PREFETCH_MIN_INTERNAL_FREE || internal.largest < OPDS_PREFETCH_MIN_INTERNAL_BLOCK) {
-    LOG_INF("OPDS", "Prefetch skipped: internal free=%zu largest=%zu", internal.free, internal.largest);
-    return;
+void OpdsBookBrowserActivity::preloadFeedsOnPage() {
+  if (!preload) return;
+  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+  // Skips the synthetic Prev/Next rows (Next is already queued first) and
+  // books, whose links are downloads rather than feeds.
+  const size_t first = hasPrevPageRow ? 1 : 0;
+  const size_t last = hasNextPageRow ? entryCount - 1 : entryCount;
+  size_t queuedCount = 0;
+  for (size_t i = first; i < last; ++i) {
+    if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
+    const std::string path = UrlUtils::buildUrl(feedUrl, entries[i].href);
+    preload->enqueue(UrlUtils::buildUrl(server.url, path), false);
+    ++queuedCount;
   }
+  LOG_INF("OPDS", "Preload queued %zu feeds from the first page", queuedCount);
+}
 
-  OpdsPagePrefetcher::Request request;
-  request.url = nextFeedUrl;
-  request.username = server.username;
-  request.password = server.password;
-  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
-  prefetcher->start(std::move(request), OPDS_PAGE_MAX_BYTES);
+freeink::SecureHttpClient* OpdsBookBrowserActivity::feedConnectionForRequest() {
+#if defined(FREEINK_NET_WOLFSSL)
+  const unsigned long now = millis();
+  if (feedConnection && now - feedConnectionLastUseMs > OPDS_KEEPALIVE_MAX_IDLE_MS) {
+    LOG_DBG("OPDS", "Closing feed connection idle %lu ms", now - feedConnectionLastUseMs);
+    feedConnection->end();
+  }
+  // Small object (no buffers until it connects); on failure every request
+  // just opens its own connection as before.
+  if (!feedConnection) feedConnection = makeUniqueNoThrow<freeink::SecureHttpClient>();
+  feedConnectionLastUseMs = now;
+  return feedConnection.get();
+#else
+  return nullptr;
+#endif
 }
 
 void OpdsBookBrowserActivity::stopPrefetch() {
-  if (!prefetcher) return;
-  prefetcher->cancel();
-  prefetcher->join();
-  prefetcher->harvestInto(*pageCache);
+  if (!preload) return;
+  preload->pause("");
+  preload->closeConnections();
 }
 
 bool OpdsBookBrowserActivity::ensureEntryBuffer() {
@@ -774,14 +883,14 @@ bool OpdsBookBrowserActivity::appendEntry(OpdsEntry&& entry) {
 void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool pageLink) {
   // Prev/Next page stay at the same level: Back goes up to the feed that
   // opened this listing, not through every page visited.
-  if (!pageLink) navigationHistory.push_back(currentPath);
+  if (!pageLink) pushHistory();
   // Resolve to a full URL so sub-sub-navigation retains parent path context
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
 
   clearEntries();
   selectorIndex = 0;
-  showLoadingBeforeFetch();
+  showLoadingBeforeFetch(currentPath);
   fetchFeed(currentPath);
 }
 
@@ -789,12 +898,14 @@ void OpdsBookBrowserActivity::navigateBack() {
   if (navigationHistory.empty()) {
     onGoHome();
   } else {
-    currentPath = navigationHistory.back();
+    const HistoryEntry previous = std::move(navigationHistory.back());
     navigationHistory.pop_back();
+    currentPath = previous.path;
     clearEntries();
     selectorIndex = 0;
-    showLoadingBeforeFetch();
-    fetchFeed(currentPath);
+    showLoadingBeforeFetch(currentPath);
+    // Back lands on the row that was opened, scrolled as it was.
+    fetchFeed(currentPath, previous.selectorIndex, previous.topIndex);
   }
 }
 
@@ -837,30 +948,33 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   });
 }
 
-void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename) {
+void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename,
+                                           const std::string* resumeValidator) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
+  downloadReceiving = false;
+  lastRenderedPercent = -1;
+  lastProgressUpdateMs = millis();
   cancelDownload = false;
-  goHomeAfterCancel = false;
   requestUpdate(true);
 
 #ifdef SIMULATOR
   downloadProgress = 1;
   downloadTotal = 2;
+  downloadReceiving = true;
   requestUpdate(true);
   return;
 #endif
 
-  // The book download must not share the network with a page prefetch.
+  // The book download must not share the network or RAM with page preloads.
   stopPrefetch();
+#if defined(FREEINK_NET_WOLFSSL)
+  // The book goes over its own connection; don't hold a second TLS session's
+  // RAM open for the whole download.
+  if (feedConnection) feedConnection->end();
+#endif
 
-  // Build full download URL relative to the current feed, not the root server URL
-  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  std::string downloadUrl = UrlUtils::buildUrl(feedUrl, book.href);
-  // This temporary is intentionally retained until downloadToFile returns;
-  // DownloadOptions borrows it to avoid copying the server URL per transfer.
-  const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
   const char* downloadFolder = SETTINGS.opdsDownloadFolder;
   if (downloadFolder[0] != '\0' && !Storage.exists(downloadFolder) && !Storage.mkdir(downloadFolder)) {
     LOG_ERR("OPDS", "Could not create download folder %s", downloadFolder);
@@ -870,86 +984,135 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
     return;
   }
 
-  LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
+  // Build full download URL relative to the current feed, not the root server URL
+  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+  OpdsBookDownloader::Request request;
+  request.url = UrlUtils::buildUrl(feedUrl, book.href);
+  request.path = filename;
+  request.username = server.username;
+  request.password = server.password;
+  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  if (resumeValidator) {
+    request.resume = true;
+    request.validator = *resumeValidator;
+  }
+  if (!bookDownloader.start(std::move(request))) {
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+  }
+  // loop() -> pollDownload() takes it from here.
+}
 
-  bool cancelRequested = false;
-  auto pollCancel = [this, &cancelRequested] {
-    if (cancelRequested || cancelDownload) {
-      cancelRequested = true;
-      return true;
-    }
-    mappedInput.update();
-    if (mappedInput.wasHomeGesture()) {
-      goHomeAfterCancel = true;
-      cancelRequested = true;
-    }
-    if (mappedInput.isPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      cancelRequested = true;
-    }
-    // Route touch in the same poll that latched it. This runs before every
-    // read; a tap left for the much rarer progress callback could be cleared
-    // by the next update() first. A Cancel tap sets cancelDownload.
-    if (uiReady) {
-      const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
-      if (snap.touchPressed || snap.touchReleased) app.route(snap);
-    }
-    // cppcheck-suppress knownConditionTrueFalse ; app.route() can set cancelDownload via the Cancel button callback
-    return cancelRequested || cancelDownload;
-  };
-  HttpDownloader::DownloadOptions downloadOptions;
-  downloadOptions.shouldCancel = pollCancel;
-  downloadOptions.bufferSize = OPDS_DOWNLOAD_BUFFER_SIZE;
-  downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
-  downloadOptions.authorizationOrigin = authorizationOrigin;
-  downloadOptions.stageAsPart = true;
-  downloadOptions.checkFreeSpace = true;
-  // A response with no Content-Length can end early and still look complete;
-  // a truncated EPUB has no central directory to find container.xml in.
-  downloadOptions.validate = [](const std::string& path) {
-    ZipFile zip(path);
-    size_t size = 0;
-    return zip.getInflatedFileSize("META-INF/container.xml", &size);
-  };
-  int lastRenderedPercent = -1;
-  unsigned long lastProgressUpdateMs = 0;
+void OpdsBookBrowserActivity::pollDownload() {
+  // Touch goes through the app (the Cancel button sets cancelDownload). Back
+  // cancels on press; its release must not also leave the listing.
+  if (uiReady) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) app.route(snap);
+  }
+  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) cancelDownload = true;
+  const bool backPressed = mappedInput.wasPressed(MappedInputManager::Button::Back);
+  // cppcheck-suppress knownConditionTrueFalse ; app.route() can set cancelDownload via the Cancel button callback
+  if ((cancelDownload || backPressed) && bookDownloader.running() && !bookDownloader.cancelling()) {
+    LOG_INF("OPDS", "Download cancel requested");
+    bookDownloader.cancel();
+    if (backPressed) mappedInput.suppressNextBackRelease();
+  }
+  cancelDownload = false;
 
-  const auto result = HttpDownloader::downloadToFile(
-      downloadUrl, filename,
-      [this, &lastRenderedPercent, &lastProgressUpdateMs](const size_t downloaded, const size_t total) {
-        // Input (Back, home gesture, the Cancel button) is polled by
-        // pollCancel before every read; this callback only drives the screen.
-        downloadProgress = downloaded;
-        downloadTotal = total;
-        const int percent = total > 0 ? static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;
-        const unsigned long now = millis();
-        if (percent >= 100 || lastRenderedPercent < 0 ||
-            percent >= lastRenderedPercent + DOWNLOAD_PROGRESS_STEP_PERCENT ||
-            now - lastProgressUpdateMs >= DOWNLOAD_PROGRESS_MIN_UPDATE_MS) {
-          lastRenderedPercent = percent;
-          lastProgressUpdateMs = now;
-          requestUpdate(true);
-        }
-      },
-      &cancelRequested, server.username, server.password, downloadOptions);
+  if (bookDownloader.running()) {
+    const bool receiving = bookDownloader.receiving();
+    const size_t total = bookDownloader.total();
+    const size_t downloaded = bookDownloader.downloaded();
+    const int percent = total > 0 ? static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;
+    const unsigned long now = millis();
+    // Redraw on the first byte, every few percent, and at least every few
+    // seconds; each redraw is a full panel refresh.
+    if (receiving != downloadReceiving ||
+        (receiving && (percent >= lastRenderedPercent + DOWNLOAD_PROGRESS_STEP_PERCENT ||
+                       now - lastProgressUpdateMs >= DOWNLOAD_PROGRESS_MIN_UPDATE_MS))) {
+      downloadReceiving = receiving;
+      downloadProgress = downloaded;
+      downloadTotal = total;
+      lastRenderedPercent = percent;
+      lastProgressUpdateMs = now;
+      requestUpdate();
+    }
+    return;
+  }
 
+  const auto result = bookDownloader.result();
+  const std::string& filename = bookDownloader.path();
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
     state = BrowserState::BROWSING;
+    // The prompt draws over the last frame: show the list under it, not the
+    // download screen (this also replaces the download frame's ghost).
+    if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+      LOG_ERR("OPDS", "List could not be rendered before the open prompt");
+    }
+    offerToOpen(filename);
   } else if (result == HttpDownloader::ABORTED) {
     LOG_INF("OPDS", "Download cancelled");
-    if (goHomeAfterCancel) {
-      onGoHome();
-      return;
-    }
-    mappedInput.suppressNextBackRelease();
     state = BrowserState::BROWSING;
-  } else {
+  } else if (result == HttpDownloader::INSUFFICIENT_SPACE) {
     state = BrowserState::ERROR;
-    errorMessage = result == HttpDownloader::INSUFFICIENT_SPACE ? tr(STR_SD_CARD_FULL) : tr(STR_DOWNLOAD_FAILED);
+    errorMessage = tr(STR_SD_CARD_FULL);
+  } else {
+    state = BrowserState::BROWSING;
+    if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+      LOG_ERR("OPDS", "List could not be rendered before the retry prompt");
+    }
+    offerRetry(filename);
+    return;
   }
   requestUpdate();
+}
+
+void OpdsBookBrowserActivity::offerRetry(const std::string& path) {
+  LOG_INF("OPDS", "Download failed (error=%d), offering retry: %s", static_cast<int>(bookDownloader.result()),
+          path.c_str());
+  std::string heading = tr(STR_DOWNLOAD_FAILED);
+  heading += ':';
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, statusMessage);
+  if (!dialog) {
+    LOG_ERR("OPDS", "Cannot allocate retry dialog");
+    Storage.remove((path + ".part").c_str());
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+    return;
+  }
+  dialog->setConfirmOption(tr(STR_RETRY), true);
+  // As in requestDownload(): entries and selectorIndex stay put under the
+  // dialog, so the index still names the failed book.
+  const int bookIndex = selectorIndex;
+  startActivityForResult(
+      std::move(dialog), [this, bookIndex, path, validator = bookDownloader.validator()](const ActivityResult& result) {
+        if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
+          LOG_INF("OPDS", "Download retry declined; removing partial file");
+          Storage.remove((path + ".part").c_str());
+          return;
+        }
+        LOG_INF("OPDS", "Retrying download: %s", path.c_str());
+        downloadBook(entries[bookIndex], path, &validator);
+      });
+}
+
+void OpdsBookBrowserActivity::offerToOpen(const std::string& path) {
+  auto dialog =
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_OPEN_DOWNLOADED_BOOK), statusMessage);
+  if (!dialog) {
+    LOG_ERR("OPDS", "Cannot allocate open-book dialog");
+    return;
+  }
+  startActivityForResult(std::move(dialog), [this, path](const ActivityResult& result) {
+    if (result.isCancelled) return;
+    LOG_INF("OPDS", "Opening downloaded book: %s", path.c_str());
+    openAfterExit = path;
+    onSelectBook(path);
+  });
 }
 
 void OpdsBookBrowserActivity::launchSearch() {
@@ -994,18 +1157,18 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   const size_t pos = url.find(placeholder);
   if (pos != std::string::npos) url.replace(pos, placeholder.length(), urlEncode(query));
 
-  navigationHistory.push_back(currentPath);
+  pushHistory();
   currentPath = url;
 
   clearEntries();
   selectorIndex = 0;
-  showLoadingBeforeFetch();
+  showLoadingBeforeFetch(url);
   fetchFeed(url);
 }
 
 void OpdsBookBrowserActivity::checkAndConnectWifi() {
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-    showLoadingBeforeFetch();
+    showLoadingBeforeFetch(currentPath);
     fetchFeed(currentPath);
     return;
   }
@@ -1022,7 +1185,7 @@ void OpdsBookBrowserActivity::launchWifiSelection() {
 
 void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
   if (connected) {
-    showLoadingBeforeFetch();
+    showLoadingBeforeFetch(currentPath);
     fetchFeed(currentPath);
   } else {
     // Leave WiFi up; onExit's silent reboot handles teardown without fragmenting.

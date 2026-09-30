@@ -471,6 +471,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["librarySortMethod"] = librarySortMethod;
   doc["librarySortDescending"] = librarySortDescending;
   doc["libraryListExpanded"] = libraryListExpanded;
+  doc["recentBooksView"] = recentBooksView;
   doc["libraryShowSeries"] = libraryShowSeries;
   doc["libraryShowGenre"] = libraryShowGenre;
   doc["libraryShowEpub"] = libraryShowEpub;
@@ -502,6 +503,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   doc["screenInverted"] = screenInverted;
+  doc["goodiesWifiRemote"] = goodiesWifiRemote;
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint) {
@@ -609,6 +611,49 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     this->*(info.valuePtr) = value;
   }
 
+  // Old settings assigned one layout and one long-press mode to both side
+  // buttons. Populate only missing new keys so partially upgraded settings
+  // keep the user's individual choices.
+  const uint8_t legacySideLayout =
+      clamp(doc["sideButtonLayout"] | static_cast<uint8_t>(PREV_NEXT), SIDE_BUTTON_LAYOUT_COUNT, PREV_NEXT);
+  const uint8_t legacySideLong = clamp(doc["sideButtonLongPress"] | static_cast<uint8_t>(SIDE_LONG_CHAPTER_SKIP),
+                                       SIDE_LONG_PRESS_COUNT, SIDE_LONG_CHAPTER_SKIP);
+  const uint8_t legacyUpShort = legacySideLayout == SIDE_BUTTONS_DISABLED ? IGNORE
+                                : legacySideLayout == PREV_NEXT           ? PREVIOUS_PAGE
+                                                                          : PAGE_TURN;
+  const uint8_t legacyDownShort = legacySideLayout == SIDE_BUTTONS_DISABLED ? IGNORE
+                                  : legacySideLayout == NEXT_PREV           ? PREVIOUS_PAGE
+                                                                            : PAGE_TURN;
+  const auto legacyLongAction = [&](const bool up) -> uint8_t {
+    switch (legacySideLong) {
+      case SIDE_LONG_CHAPTER_SKIP:
+        if (legacySideLayout == SIDE_BUTTONS_DISABLED) return IGNORE;
+        return (up ? legacyUpShort : legacyDownShort) == PREVIOUS_PAGE ? SIDE_PREVIOUS_CHAPTER : SIDE_NEXT_CHAPTER;
+      case SIDE_LONG_FONT_SIZE:
+        return up ? SIDE_INCREASE_FONT : SIDE_DECREASE_FONT;
+      case SIDE_LONG_ORIENTATION_CHANGE:
+        return up ? SIDE_ROTATE_COUNTERCLOCKWISE : SIDE_ROTATE_CLOCKWISE;
+      default:
+        return IGNORE;
+    }
+  };
+  if (doc["sideButtonUpShort"].isNull()) {
+    sideButtonUpShort = legacyUpShort;
+    needsResave = true;
+  }
+  if (doc["sideButtonDownShort"].isNull()) {
+    sideButtonDownShort = legacyDownShort;
+    needsResave = true;
+  }
+  if (doc["sideButtonUpLong"].isNull()) {
+    sideButtonUpLong = legacyLongAction(true);
+    needsResave = true;
+  }
+  if (doc["sideButtonDownLong"].isNull()) {
+    sideButtonDownLong = legacyLongAction(false);
+    needsResave = true;
+  }
+
   const auto readLibraryChoice = [&](const char* key, uint8_t& choice, const int optionCount) {
     const int stored = doc[key] | static_cast<int>(choice);
     if (stored < 0 || stored >= optionCount) {
@@ -620,6 +665,9 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   readLibraryChoice("librarySortMethod", librarySortMethod, 7);
   readLibraryChoice("librarySortDescending", librarySortDescending, 2);
   readLibraryChoice("libraryListExpanded", libraryListExpanded, 2);
+  // A missing or corrupt legacy choice uses List, even if this object loaded another document earlier.
+  recentBooksView = RECENT_BOOKS_LIST;
+  readLibraryChoice("recentBooksView", recentBooksView, RECENT_BOOKS_VIEW_COUNT);
   readLibraryChoice("libraryShowSeries", libraryShowSeries, 2);
   readLibraryChoice("libraryShowGenre", libraryShowGenre, 2);
   readLibraryChoice("libraryShowEpub", libraryShowEpub, 2);
@@ -818,7 +866,8 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   const bool unavailableHomeTrigger =
       !gpio.hasHomeKey() && persistedQuickActionsTrigger >= static_cast<uint8_t>(QuickActions::Trigger::TapHome) &&
       persistedQuickActionsTrigger <= static_cast<uint8_t>(QuickActions::Trigger::DoubleTapHome);
-  if (persistedQuickActionsTrigger <= static_cast<uint8_t>(QuickActions::Trigger::UpDown) && !unavailableHomeTrigger) {
+  if (persistedQuickActionsTrigger <= static_cast<uint8_t>(QuickActions::Trigger::SideDownLong) &&
+      !unavailableHomeTrigger) {
     quickActionsTrigger = persistedQuickActionsTrigger;
   } else {
     quickActionsTrigger = static_cast<uint8_t>(QuickActions::Trigger::None);
@@ -845,6 +894,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
   }
   clockDateHasBeenSynced = clamp(doc["clockDateHasBeenSynced"] | static_cast<uint8_t>(0), 2, 0);
+  goodiesWifiRemote = clamp(doc["goodiesWifiRemote"] | static_cast<uint8_t>(0), 2, 0);
 
   if (needsResave) requestResave();
   LOG_DBG("CPS", "Settings loaded from file");
@@ -879,11 +929,13 @@ bool CrossPointSettings::loadFromFile() {
       }
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile()) {
-          LOG_DBG("CPS", migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
-                                              : "Resaved settings to update format");
+          LOG_DBG("CPS", "%s",
+                  migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
+                                       : "Resaved settings to update format");
         } else {
-          LOG_ERR("CPS", migrateToCurrentPath ? "Failed to save migrated settings to crossink-settings.json"
-                                              : "Failed to resave settings after format update");
+          LOG_ERR("CPS", "%s",
+                  migrateToCurrentPath ? "Failed to save migrated settings to crossink-settings.json"
+                                       : "Failed to resave settings after format update");
         }
       }
       migrateLanguageBinaryFile();
@@ -1058,6 +1110,29 @@ bool CrossPointSettings::loadFromBinaryFile() {
     CrossPointSettings::validateFrontButtonMapping(*this);
   } else {
     applyLegacyFrontButtonLayout(*this);
+  }
+
+  switch (sideButtonLayout) {
+    case NEXT_PREV:
+      sideButtonUpShort = PAGE_TURN;
+      sideButtonDownShort = PREVIOUS_PAGE;
+      sideButtonUpLong = SIDE_NEXT_CHAPTER;
+      sideButtonDownLong = SIDE_PREVIOUS_CHAPTER;
+      break;
+    case SIDE_BUTTONS_DISABLED:
+      sideButtonUpShort = IGNORE;
+      sideButtonDownShort = IGNORE;
+      sideButtonUpLong = IGNORE;
+      sideButtonDownLong = IGNORE;
+      break;
+    case NEXT_NEXT:
+      sideButtonUpShort = PAGE_TURN;
+      sideButtonDownShort = PAGE_TURN;
+      sideButtonUpLong = SIDE_NEXT_CHAPTER;
+      sideButtonDownLong = SIDE_NEXT_CHAPTER;
+      break;
+    default:
+      break;
   }
 
   lineHeightPercent = legacyLineSpacingToPercent(lineSpacing, fontFamily, sdFontFamilyName[0] != '\0');

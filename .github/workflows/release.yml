@@ -83,18 +83,14 @@ jobs:
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Pin pioarduino core inside the platform penv
+        env:
+          PIO_ENV: ${{ matrix.environment }}
         run: |
           set -euo pipefail
-          # Envs with custom_sdkconfig (all DualPoint firmware envs) run a
-          # nested `pio run` from ~/.platformio/penv, which the platform creates
-          # with an open-ended "pioarduino>=6.1.19". That now resolves to 6.2.0,
-          # which needs SCons 4.11 while the platform installs SCons 4.8.1; the
-          # two reinstall over each other mid-build and the link fails with
-          # "No module named 'SCons.Tool.FortranCommon'". Pin the penv core to
-          # the outer core's version. The platform leaves a satisfying version
-          # alone. See crosspoint-reader/crosspoint-reader#3594 and
-          # pioarduino/platform-espressif32#529.
-          pio pkg install -e ${{ matrix.environment }}
+          # custom_sdkconfig runs a nested `pio run` from ~/.platformio/penv.
+          # Keep that core on the same version as the outer core.
+          # See https://github.com/pioarduino/platform-espressif32/issues/529
+          pio pkg install -e "$PIO_ENV"
           uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
           ~/.platformio/penv/bin/pio --version
 

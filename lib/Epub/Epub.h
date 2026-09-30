@@ -1,6 +1,7 @@
 #pragma once
 #include <Print.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -171,6 +172,9 @@ class Epub {
   // thumbnail height.
   // Returns false on missing cache/cover, unsupported image format, or conversion failure.
   bool generateThumbBmp(int width, int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0) const;
+  // Generate a Home thumbnail from the EPUB cover without building reader pages or indexes.
+  bool generateThumbBmpFromSource(int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0);
+  bool generateThumbBmpFromSource(int width, int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0);
   // Writes a thumbnail that can either crop-to-fill or contain unusual cover
   // ratios, depending on the source image dimensions.
   bool generateAdaptiveThumbBmp(int width, int height, const GfxRenderer* renderer = nullptr,
@@ -179,7 +183,9 @@ class Epub {
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
                                 bool allowEarlyStop = false) const;
-  bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096) const;
+  // Stops early and fails, removing destPath, once *cancel turns true.
+  bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096,
+                         const std::atomic<bool>* cancel = nullptr) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
   bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
   // Seeds the normal local cache from an exact optimizer sidecar, or streams a
@@ -225,5 +231,5 @@ class Epub {
   std::string getCachedCoverImagePath(const std::string& coverImageHref) const;
   bool ensureCachedCoverImage(const std::string& coverImageHref, std::string& outPath) const;
   bool generateThumbBmpInternal(int width, int height, bool adaptiveContain, const GfxRenderer* renderer,
-                                int readerFontId) const;
+                                int readerFontId, const std::string* coverHrefOverride = nullptr) const;
 };

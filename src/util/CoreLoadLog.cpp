@@ -14,7 +14,9 @@
 #error "CROSSDINK_CORE_LOAD_LOG needs CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER (microsecond counter)"
 #endif
 
+#include <Arduino.h>
 #include <Logging.h>
+#include <PerfLog.h>
 #include <esp_attr.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -22,6 +24,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace {
 // Static so sampling never touches the heap; debug builds only.
@@ -58,6 +61,7 @@ char coreTag(const TaskHandle_t handle) {
 // every 30 s (the caller samples every 2 s).
 constexpr uint32_t kStackLogEverySamples = 15;
 constexpr int kLowestStacks = 8;
+constexpr unsigned kStackWarnBytes = 1536;  // loop/render tasks: log an error below this
 uint32_t samplesSinceStackLog = kStackLogEverySamples;
 
 // The tasks closest to overflowing: minimum free stack ever (bytes on ESP-IDF,
@@ -85,7 +89,25 @@ void logLowestStackHeadroom(const UBaseType_t count) {
     if (written < 0 || static_cast<size_t>(written) >= sizeof(line) - used) break;
     used += static_cast<size_t>(written);
   }
-  LOG_INF("STK", "lowest free stack (bytes):%s", line);
+  // The loop and render tasks always, whatever their rank: their sizes are
+  // set by this app (loopTask via getArduinoLoopTaskStackSize(), the render
+  // task by ActivityManager::begin), so these are the numbers to tune them by.
+  used = 0;
+  char watched[96];
+  watched[0] = '\0';
+  for (UBaseType_t i = 0; i < count; i++) {
+    const char* name = statuses[i].pcTaskName;
+    const bool isLoop = strcmp(name, "loopTask") == 0;
+    if (!isLoop && strncmp(name, "ActivityManager", 15) != 0) continue;
+    const unsigned freeBytes = static_cast<unsigned>(statuses[i].usStackHighWaterMark);
+    const int written = isLoop ? snprintf(watched + used, sizeof(watched) - used, " loopTask:%u/%u", freeBytes,
+                                          static_cast<unsigned>(getArduinoLoopTaskStackSize()))
+                               : snprintf(watched + used, sizeof(watched) - used, " render:%u", freeBytes);
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(watched) - used) break;
+    used += static_cast<size_t>(written);
+    if (freeBytes < kStackWarnBytes) LOG_ERR("STK", "%s has only %u bytes of stack left", name, freeBytes);
+  }
+  LOG_INF("STK", "lowest free stack (bytes):%s |%s", line, watched);
 }
 }  // namespace
 
@@ -145,8 +167,64 @@ void logSinceLast() {
     deltas[best] = 0;
   }
 
-  LOG_INF("CPU", "core0 %u%% core1 %u%% over %lu ms |%s", static_cast<unsigned>(loadPct[0]),
-          static_cast<unsigned>(loadPct[1]), static_cast<unsigned long>(elapsedUs / 1000), top);
+  char act[24];
+  PerfLog::currentActivity(act, sizeof(act));
+  LOG_INF("CPU", "core0 %u%% core1 %u%% over %lu ms act=%s |%s", static_cast<unsigned>(loadPct[0]),
+          static_cast<unsigned>(loadPct[1]), static_cast<unsigned long>(elapsedUs / 1000), act, top);
+}
+
+// Separate baseline from logSinceLast(): one per [PM] window.
+namespace {
+EXT_RAM_NOINIT_ATTR PreviousRunTime windowPrevious[kMaxTasks];
+UBaseType_t windowPreviousCount = 0;
+int64_t windowPreviousUs = 0;
+constexpr unsigned kQuietBusyPct = 5;
+}  // namespace
+
+void logQuietWindowTasks(const unsigned rtos0Pct, const unsigned rtos1Pct, const long gpioWakes) {
+  const UBaseType_t count = uxTaskGetSystemState(statuses, kMaxTasks, nullptr);
+  if (count == 0) return;
+  const int64_t nowUs = esp_timer_get_time();
+  const int64_t elapsedUs = nowUs - windowPreviousUs;
+  const bool report = windowPreviousUs != 0 && elapsedUs > 0 && gpioWakes == 0 &&
+                      (rtos0Pct >= kQuietBusyPct || rtos1Pct >= kQuietBusyPct);
+  const TaskHandle_t idle0 = xTaskGetIdleTaskHandleForCore(0);
+  const TaskHandle_t idle1 = xTaskGetIdleTaskHandleForCore(1);
+  configRUN_TIME_COUNTER_TYPE totalUs = 0;
+  for (UBaseType_t i = 0; i < count; i++) {
+    configRUN_TIME_COUNTER_TYPE before = statuses[i].ulRunTimeCounter;
+    for (UBaseType_t j = 0; j < windowPreviousCount; j++) {
+      if (windowPrevious[j].handle == statuses[i].xHandle) before = windowPrevious[j].runTime;
+    }
+    deltas[i] = statuses[i].ulRunTimeCounter - before;
+    if (statuses[i].xHandle == idle0 || statuses[i].xHandle == idle1) deltas[i] = 0;
+    totalUs += deltas[i];
+  }
+  for (UBaseType_t i = 0; i < count; i++) windowPrevious[i] = {statuses[i].xHandle, statuses[i].ulRunTimeCounter};
+  windowPreviousCount = count;
+  windowPreviousUs = nowUs;
+  if (!report) return;
+
+  // No input, yet a core stayed out of idle: name the tasks. Task time well
+  // below the rtos share means interrupts (counted as idle time) did the work.
+  char top[200];
+  size_t used = 0;
+  top[0] = '\0';
+  for (int rank = 0; rank < kTopTasks; rank++) {
+    int best = -1;
+    for (UBaseType_t i = 0; i < count; i++) {
+      if (deltas[i] == 0) continue;
+      if (best < 0 || deltas[i] > deltas[best]) best = static_cast<int>(i);
+    }
+    if (best < 0) break;
+    const int written = snprintf(top + used, sizeof(top) - used, " %s(%c)%lums", statuses[best].pcTaskName,
+                                 coreTag(statuses[best].xHandle), static_cast<unsigned long>(deltas[best] / 1000));
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(top) - used) break;
+    used += static_cast<size_t>(written);
+    deltas[best] = 0;
+  }
+  LOG_INF("PM", "quiet window busy: rtos0=%u%% rtos1=%u%% tasks=%lums of %lums |%s", rtos0Pct, rtos1Pct,
+          static_cast<unsigned long>(totalUs / 1000), static_cast<unsigned long>(elapsedUs / 1000), top);
 }
 
 }  // namespace CoreLoadLog

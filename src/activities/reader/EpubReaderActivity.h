@@ -21,11 +21,14 @@
 #include "BookmarkStore.h"
 #include "EndOfBookOptions.h"
 #include "EpubReaderMenuModel.h"
+#include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
+#include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "activities/reader/ReaderPinchGesture.h"
@@ -127,6 +130,17 @@ class EpubReaderActivity final : public Activity {
   // one-shot clean base for its first image page; normal image-page cleanup
   // uses pagesUntilFullRefresh independently.
   bool cleanImageBasePending = false;
+  // The image page whose grayscale pass last reached the panel. Redrawing that
+  // same page (an overlay closed) needs no gray-residue cleanup.
+  struct GrayImageOnPanel {
+    int spine = -1;
+    int page = -1;
+    int16_t x = 0, y = 0, w = 0, h = 0;
+    bool operator==(const GrayImageOnPanel& o) const {
+      return spine == o.spine && page == o.page && x == o.x && y == o.y && w == o.w && h == o.h;
+    }
+  };
+  GrayImageOnPanel grayImageOnPanel;
   bool skipRecentBookUpdateOnEntry = false;
   int cachedSpineIndex = 0;
   int cachedChapterPageNumber = 0;
@@ -160,6 +174,17 @@ class EpubReaderActivity final : public Activity {
   unsigned long pageTurnDuration = 0UL;
   ManualPageTurnQueue pendingManualPageTurns;
   QueuedTurnRenderingState queuedTurnRendering;
+  // Any event that makes the current AA pass moot (menu, rotation, sleep, ...)
+  // bumps this from the input loop; the render task compares it with the value
+  // it saw when its render began. Unlike the turn queue, clearing queued turns
+  // can't erase it.
+  std::atomic<uint32_t> aaCancelEpoch{0};
+  std::atomic<const char*> aaCancelReason{"event"};
+  uint32_t aaRenderEpoch = 0;   // render task only
+  bool aaCancelLogged = false;  // render task only
+  // Set by the render task when it cancels an AA pass, cleared when a render
+  // starts; the input loop redraws the page once it is foreground and idle.
+  std::atomic<bool> aaRedrawPending{false};
   unsigned long pageShownAtMs = 0UL;
   unsigned long lastRenderCompleteMs = 0UL;
   int idlePrewarmSpine = -1;
@@ -192,8 +217,13 @@ class EpubReaderActivity final : public Activity {
   ReaderSettingsSnapshot suspendedBookReaderSettings;
   BookReadingStats stats;
   GlobalReadingStats globalStats;
+  bool bookStatsEnabled = true;
+  bool statsTrackingActive = true;
+  bool paceDirty = false;
+  bool pendingStatsCommit = false;
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
+  void syncStatsTrackingState();
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
@@ -220,7 +250,7 @@ class EpubReaderActivity final : public Activity {
   bool longPressBackHandled = false;
   bool longPowerButtonHandled = false;
   OptionPopup quickActionsPopup;
-  bool sideButtonLongPressHandled = false;
+  SideButtonShortcuts sideButtonShortcuts;
   bool frontButtonLongPressHandled = false;
   bool touchDictionaryLookupHandled = false;
   int pageLoadRetryCount = 0;
@@ -272,13 +302,7 @@ class EpubReaderActivity final : public Activity {
   std::vector<FootnoteEntry> currentPageFootnotes;
 #if CROSSDINK_APP_CAP_TOUCH
   ReaderPinchGesture pinchFontGesture;
-  struct FootnoteTouchTarget {
-    int16_t x = 0;
-    int16_t y = 0;
-    int16_t width = 0;
-    int16_t height = 0;
-  };
-  std::array<FootnoteTouchTarget, EPUB_MAX_FOOTNOTES_PER_PAGE> currentPageFootnoteTouchTargets{};
+  FootnoteLinkTargets currentPageFootnoteTouchTargets{};
 #endif
   struct SavedPosition {
     int spineIndex;
@@ -369,6 +393,53 @@ class EpubReaderActivity final : public Activity {
   void waitSilentIndexWorker(bool cancel);
   bool silentIndexWorkerBusy();
   void applySilentIndexWorkerOutcome();
+
+  // Home's cover thumbs for this book, made once per open on the worker core
+  // at idle priority after the page has been still for a moment, so returning
+  // Home finds them ready. Loop task only.
+  struct HomeThumbWorker {
+    TaskHandle_t task = nullptr;
+    SemaphoreHandle_t done = nullptr;
+    HomeCoverThumbs::Specs specs;
+    bool attempted = false;
+  };
+  HomeThumbWorker homeThumbWorker;
+  static constexpr unsigned long HOME_THUMB_IDLE_MS = 3000;
+  void maybeStartHomeThumbWorker();
+  static void homeThumbWorkerMain(void* param);
+  void waitHomeThumbWorker();
+
+  // A page's first-view image caches (ZIP extract + decode, seconds for a big
+  // cover) are built on the worker core below the loop task's priority, so the
+  // render task never holds RenderLock through them and input stays live. The
+  // page shows placeholders, then redraws once the caches exist.
+  struct ImageCacheWorker {
+    static constexpr uint8_t MAX_IMAGES = 4;
+    struct Item {
+      std::unique_ptr<ImageBlock> block;  // copy: the page is gone after its render
+      int16_t x = 0;
+      int16_t y = 0;
+      ImageBlock::CacheBuild result = ImageBlock::CacheBuild::Cancelled;
+    };
+    Item items[MAX_IMAGES];
+    uint8_t count = 0;
+    int spine = -1;  // the page the job was started for
+    int pageIndex = -1;
+    std::unique_ptr<GfxRenderer> renderer;  // offscreen; kept for the session
+    HeapByteBuffer frame;                   // PSRAM scratch the decoder draws into
+    TaskHandle_t task = nullptr;            // render task (and onExit) only
+    SemaphoreHandle_t done = nullptr;
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> redraw{false};  // worker -> loop: caches ready, draw the page again
+  };
+  ImageCacheWorker imageCacheWorker;
+  // Render task: true when the page's missing image caches are (still) being
+  // built in the background and the page should draw placeholders for now.
+  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop);
+  static void imageCacheWorkerMain(void* param);
+  // Joins a finished job (all of it when cancel), applying its failures.
+  // False while it still runs. Render task or onExit.
+  bool joinImageCacheWorker(bool cancel);
 
   // Draw-ahead on the worker core: right after a page is shown, the next page
   // is drawn into prerenderFrameBuffer with an offscreen renderer and its own
@@ -513,6 +584,7 @@ class EpubReaderActivity final : public Activity {
                                 QuickLockTrigger quickLockTrigger = QuickLockTrigger::LongMenu);
   void openQuickActionsPopup();
   void executeFootnoteQuickAction(bool suppressInitialPowerRelease = false);
+  void openFootnoteSelect(bool returnToReaderMenu);
 #if CROSSDINK_APP_CAP_TOUCH
   bool handlePinchFontResize();
   void resetPinchFontGesture();
@@ -537,7 +609,12 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void requestManualPageTurn(bool isForwardTurn, const char* source);
   bool drainPendingManualPageTurn();
-  void clearPendingManualPageTurns(bool requestRecoveryRedraw = true);
+  // Also cancels a running AA pass; `aaReason` names the event in the log.
+  void clearPendingManualPageTurns(bool requestRecoveryRedraw = true, const char* aaReason = "turns-cleared");
+  void cancelGrayscalePass(const char* reason);
+  // Render task: true when the AA pass should stop at `checkpoint` (a queued
+  // turn or a cancel event since the render began). Flags a recovery redraw.
+  bool grayscalePassCancelled(const char* checkpoint);
   void finishManualPageTurnBrakeIfReady();
   void cancelSilentNextChapterPrefetchForForwardTurn();
   bool isAtBookStart() const;
@@ -617,6 +694,7 @@ class EpubReaderActivity final : public Activity {
   bool isReaderActivity() const override { return true; }
   bool isEpubReaderActivity() const override { return true; }
   void onInputLockChanged(bool locked) override;
+  void cancelOptionalRenderWork(const char* reason) override { cancelGrayscalePass(reason); }
   void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }

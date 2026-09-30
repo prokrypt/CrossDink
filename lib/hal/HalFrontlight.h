@@ -24,6 +24,8 @@ class HalFrontlight {
   void setOn(bool on);
   void prepareForDeepSleep();
   void releaseAfterWake();
+  // Prints the settled duty after a ramp (see FrontlightManager::flushLog). Main loop.
+  void flushLog() { manager.flushLog(); }
 
   uint8_t brightness() const { return lastBrightness; }
   uint8_t warmth() const { return manager.colorTemperature(); }

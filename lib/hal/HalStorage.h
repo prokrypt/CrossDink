@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "UsbDriveIo.h"
+
 class HalFile;
 
 enum class UsbDriveState : uint8_t {
@@ -56,6 +58,8 @@ class HalStorage {
   void endUsbDrive();
   UsbDriveState usbDriveState() const;
   bool usbDriveHostSuspended() const;
+  // False when USB Drive is unsupported.
+  bool usbDriveIo(UsbDriveIo& out) const;
 
   HalFile open(const char* path, const oflag_t oflag = O_RDONLY);
   bool mkdir(const char* path, const bool pFlag = true);
@@ -67,6 +71,10 @@ class HalStorage {
   bool openFileForRead(const char* moduleName, const char* path, HalFile& file);
   bool openFileForRead(const char* moduleName, const std::string& path, HalFile& file);
   bool openFileForRead(const char* moduleName, const String& path, HalFile& file);
+  // Same, for probes where a missing file is expected (caches, optional data):
+  // no failure log and no separate exists() lookup.
+  bool openFileForReadIfPresent(const char* moduleName, const char* path, HalFile& file);
+  bool openFileForReadIfPresent(const char* moduleName, const std::string& path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const char* path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const std::string& path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const String& path, HalFile& file);
@@ -89,6 +97,7 @@ class HalStorage {
   class StorageLock;  // private class, used internally
 
  private:
+  bool openFileForRead(const char* moduleName, const char* path, HalFile& file, bool quietMiss);
 #if FREEINK_CAP_USB_MSC
   class UsbDriveContext;
 #endif

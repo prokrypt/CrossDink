@@ -320,13 +320,21 @@ void SdCardFontSystem::ensureRegistry() {
   if (dirty) fontReloadPending_ = true;
   if (registryLoaded_ && !dirty && !registry_.needsRefresh()) return;
   if (dirty) LOG_DBG("SDFS", "Registry dirty — re-discovering fonts");
+  fontFilesChanged_.store(false, std::memory_order_release);
   registry_.loadNames();
   if (registry_.lastDiscoveryFailed()) {
     LOG_ERR("SDFS", "SD font registry scan failed (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     registryDirty_.store(true, std::memory_order_release);
+    registryRefreshMs_ = 0;
     return;
   }
   registryLoaded_ = true;
+  registryRefreshMs_ = millis() | 1;
+}
+
+bool SdCardFontSystem::registryRefreshedWithin(const uint32_t maxAgeMs) const {
+  return registryRefreshMs_ != 0 && millis() - registryRefreshMs_ < maxAgeMs &&
+         !fontFilesChanged_.load(std::memory_order_acquire);
 }
 
 void SdCardFontSystem::releaseRegistry() {

@@ -12,7 +12,9 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <TaskCores.h>
+#include <Xtc.h>
 
 #include <algorithm>
 
@@ -22,6 +24,9 @@
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
 #include "boot_sleep/BootActivity.h"
+#if CROSSDINK_GOODIES
+#include "goodies/GoodiesActivity.h"
+#endif
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/TouchRegistry.h"
@@ -37,6 +42,7 @@
 #include "network/UsbDriveActivity.h"
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
+#include "reader/BookStatsTracking.h"
 #include "reader/GlobalReadingStats.h"
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
@@ -85,7 +91,14 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   const bool lastValid = !APP_STATE.openEpubPath.empty() && FsHelpers::hasEpubExtension(APP_STATE.openEpubPath) &&
                          Storage.exists(APP_STATE.openEpubPath.c_str());
   context.activeReaderBook = hasFrontlightActiveReaderBook(activity.isReaderActivity(), currentBookValid);
+  context.showReadingStatsAction = SETTINGS.shouldTrackReadingStats();
   if (context.activeReaderBook) {
+    if (FsHelpers::hasEpubExtension(currentPath)) {
+      context.showReadingStatsAction =
+          BookStatsTracking::isEnabled(Epub::cachePathForFilePath(currentPath, "/.crosspoint"));
+    } else if (FsHelpers::hasXtcExtension(currentPath)) {
+      context.showReadingStatsAction = BookStatsTracking::isEnabled(Xtc(currentPath, "/.crosspoint").getCachePath());
+    }
     context.bookTitle = activity.getCurrentBookTitle();
     context.bookPath = currentPath;
     context.activeEpub = activity.isEpubReaderActivity() && currentEpubValid;
@@ -94,7 +107,7 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
           shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook);
       context.bookTitle = context.bookDetails.title;
     }
-    context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
+    if (context.showReadingStatsAction) context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
     if (context.activeEpub) {
       context.bookPath = currentPath;
       return context;
@@ -102,8 +115,9 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     if (context.readingStatsActivity) return context;
   }
 
-  const FrontlightBookSource source = chooseFrontlightBookSource(false, false, lastValid);
+  const FrontlightBookSource source = chooseFrontlightBookSource(false, false, lastValid && !context.activeReaderBook);
 
+  if (!SETTINGS.shouldTrackReadingStats()) return context;
   const GlobalReadingStats global = GlobalReadingStats::load();
   std::string cachePath;
   std::string statsTitle;
@@ -114,7 +128,12 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     context.bookTitle = fileNameFromPath(context.bookPath);
     statsTitle = context.bookTitle;
     cachePath = Epub::cachePathForFilePath(context.bookPath, "/.crosspoint");
-    bookStats = BookReadingStats::load(cachePath);
+    if (BookStatsTracking::isBookEnabled(cachePath))
+      bookStats = BookReadingStats::load(cachePath);
+    else {
+      cachePath.clear();
+      statsTitle = tr(STR_READING_STATS);
+    }
     const RecentBook book{context.bookPath, context.bookTitle, {}, {}};
     progress = RecentBookProgress::loadCachedEpubPercent(book);
   } else {
@@ -452,8 +471,44 @@ void ActivityManager::renderTaskTrampoline(void* param) {
 void ActivityManager::renderTaskLoop() {
   bool renderQueued = false;
   bool displayPmHeld = false;
+  bool idlePanelOffArmed = false;
+  uint32_t idlePanelOffMs = PANEL_OFF_POLL_MS;
   while (true) {
-    if (!renderQueued) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (!renderQueued) {
+      const uint32_t notified =
+          ulTaskNotifyTake(pdTRUE, idlePanelOffArmed ? pdMS_TO_TICKS(idlePanelOffMs) : portMAX_DELAY);
+      if (notified == 0) {
+        // No new frame within the idle delay (right after the draw on screens
+        // that opted in): switch the booster off. The next refresh, or an
+        // early wake on input, powers it back on.
+        idlePanelOffArmed = false;
+#ifndef SIMULATOR  // the simulator HAL has no panel power
+        RenderLock offLock;
+        if (display.isRefreshPending() || display.isRefreshBusy()) {
+          // A deferred refresh is still driving the panel: never cut the
+          // booster mid-waveform; poll again until it ends.
+          idlePanelOffArmed = true;
+          idlePanelOffMs = PANEL_OFF_POLL_MS;
+        } else if (currentActivity && display.powerOffIdle()) {
+          panelBoosterOff.store(true, std::memory_order_release);
+          LOG_DBG("ACT", "Panel booster off after %s", idlePanelOffMs == PANEL_IDLE_OFF_MS ? "idle" : "draw");
+        }
+#endif
+        continue;
+      }
+      if (notified == PANEL_WAKE_BIT) {
+        // Input with no frame requested yet (finger down, button press):
+        // power the booster on now, so the coming refresh skips its ~127 ms
+        // power-on. Nothing drawn: switch it off again after the idle delay.
+#ifndef SIMULATOR
+        RenderLock wakeLock;
+        if (display.powerOnIdle()) LOG_DBG("ACT", "Panel booster on early");
+#endif
+        idlePanelOffArmed = true;
+        idlePanelOffMs = PANEL_IDLE_OFF_MS;
+        continue;
+      }
+    }
     renderQueued = false;
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
@@ -461,6 +516,7 @@ void ActivityManager::renderTaskLoop() {
     TouchRegistry::getInstance().setEnabled(mappedInput.hasTouch());
     TouchRegistry::getInstance().beginFrame();
     bool deferredRender = false;
+    bool batchInput = false;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
       // Apply Night Mode to each activity's normal-polarity frame. SleepActivity
@@ -474,8 +530,15 @@ void ActivityManager::renderTaskLoop() {
       // Always false on boards without PSRAM, where deferred refresh is off.
       // cppcheck-suppress knownConditionTrueFalse
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
+      batchInput = currentActivity->batchesInputDuringRefresh();
       renderer.setDeferFastRefresh(deferredRender);
+      PerfLog::noteRenderStart(currentActivity->name.c_str());
+      // Interactive screens keep the booster on so input never waits on PON.
+      idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
+      idlePanelOffMs = PANEL_OFF_POLL_MS;
+      panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       currentActivity->render(std::move(lock));
+      PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
       restoredActivityNeedsRender = false;
     }
@@ -493,17 +556,20 @@ void ActivityManager::renderTaskLoop() {
     // A deferred menu refresh is still running on the panel. Release the render
     // lock so input and screen changes proceed meanwhile, and finish the refresh
     // once the waveform ends. A new render request goes first: its own display
-    // call finishes this refresh before sending the next frame.
+    // call finishes this refresh before sending the next frame. Screens that
+    // batch input keep collecting requests until the waveform ends, so the next
+    // frame shows every keystroke made meanwhile instead of only the first.
     if (deferredRender && renderer.isRefreshPending()) {
       if (!displayPmHeld) {
         powerManager.beginDisplayRefreshHold();  // no light sleep mid-waveform
         displayPmHeld = true;
       }
       lock.unlock();
-      while (!renderQueued) {
-        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) > 0) {
+      while (true) {
+        // An early-wake bit alone is no frame: the booster is on mid-refresh.
+        if ((ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) & ~PANEL_WAKE_BIT) != 0) {
           renderQueued = true;
-          break;
+          if (!batchInput) break;
         }
         RenderLock finishLock;
         // The refresh can complete while this task waits for the notification.
@@ -511,6 +577,8 @@ void ActivityManager::renderTaskLoop() {
         if (!renderer.isRefreshPending()) break;
         if (!renderer.isRefreshBusy()) {
           renderer.waitRefreshComplete();
+          // Already over, so the busy-wait hook that marks ink never fired.
+          PerfLog::noteInk();
           break;
         }
       }
@@ -703,6 +771,10 @@ void ActivityManager::loop() {
       currentActivity = std::move(pendingActivity);
 
       lock.unlock();  // onEnter may acquire its own lock
+#if CROSSDINK_GOODIES
+      // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
+      if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
+#endif
       currentActivity->onEnter();
 
       // cppcheck-suppress knownConditionTrueFalse ; onEnter() above may queue another navigation
@@ -855,6 +927,10 @@ void ActivityManager::notifyInputLockChanged(const bool locked) {
   }
 }
 
+void ActivityManager::cancelOptionalRenderWork(const char* reason) {
+  if (currentActivity) currentActivity->cancelOptionalRenderWork(reason);
+}
+
 void ActivityManager::notifyUserInput() {
   if (currentActivity) currentActivity->onUserInput();
 }
@@ -968,6 +1044,7 @@ bool ActivityManager::resumeFileTransferFromNetworkBoot(const uint32_t payload) 
 }
 
 void ActivityManager::goToNearbyStatsSync() {
+  if (!SETTINGS.shouldTrackReadingStats()) return;
   replaceActivity(std::make_unique<NearbyStatsSyncActivity>(renderer, mappedInput));
 }
 
@@ -1053,6 +1130,8 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {
+  // The sleep screen waits on the render lock; don't make it wait on AA.
+  cancelOptionalRenderWork(fromTimeout ? "auto-sleep" : "sleep");
   const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
   const GfxRenderer::Orientation sleepPopupOrientation = renderer.getOrientation();
   std::string currentBookPath = getCurrentBookPath();
@@ -1144,6 +1223,12 @@ bool ActivityManager::requiresExclusiveStorageLoop() const {
 
 bool ActivityManager::blocksGlobalInput() const { return currentActivity && currentActivity->blocksGlobalInput(); }
 
+bool ActivityManager::isRenderIdle() const {
+  if (requestedUpdate.load() || RenderLock::peek() || renderer.isRefreshPending()) return false;
+  // Notified-but-not-yet-running shows as Ready; waiting for work is Blocked.
+  return renderTaskHandle == nullptr || eTaskGetState(renderTaskHandle) == eBlocked;
+}
+
 bool ActivityManager::isHomeActivity() const { return currentActivity && currentActivity->name == "Home"; }
 
 bool ActivityManager::isReaderActivity() const {
@@ -1168,6 +1253,12 @@ bool ActivityManager::openReaderSettingsForTouchscreenEscapeHatch() {
   return true;
 }
 
+bool ActivityManager::anyActivityUsesWifi() const {
+  const auto uses = [](const auto& activity) { return activity && activity->usesWifi(); };
+  return uses(currentActivity) || uses(pendingActivity) ||
+         std::any_of(stackActivities.begin(), stackActivities.end(), uses);
+}
+
 bool ActivityManager::hasActivityNamed(const char* activityName) const {
   const auto matches = [activityName](const auto& activity) { return activity && activity->name == activityName; };
   if (matches(currentActivity) || matches(pendingActivity)) {
@@ -1188,6 +1279,7 @@ bool ActivityManager::canSnapshotForSleepOverlay() const {
 }
 
 bool ActivityManager::requestManualReaderRefresh() {
+  cancelOptionalRenderWork("refresh");
   RenderLock lock;
   if (!currentActivity || !currentActivity->isReaderActivity() || !currentActivity->prepareManualRefresh()) {
     return false;
@@ -1279,6 +1371,14 @@ ScreenshotInfo ActivityManager::getScreenshotInfo() const {
   return {};
 }
 
+void ActivityManager::wakePanelEarly() {
+#ifndef SIMULATOR
+  if (renderTaskHandle && panelBoosterOff.exchange(false, std::memory_order_acq_rel)) {
+    xTaskNotify(renderTaskHandle, PANEL_WAKE_BIT, eSetBits);
+  }
+#endif
+}
+
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {
     if (renderTaskHandle) {
@@ -1359,3 +1459,9 @@ void RenderLock::unlock() {
  * @note Must not be called from ISR context — xSemaphoreGetMutexHolder is not ISR-safe.
  */
 bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
+
+const char* ActivityManager::currentActivityName() const {
+  return currentActivity ? currentActivity->name.c_str() : "";
+}
+
+bool ActivityManager::injectText(const char* utf8) { return currentActivity && currentActivity->injectText(utf8); }

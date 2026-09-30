@@ -1516,3 +1516,5 @@ h2 {
 .log-summary-table .increased {
       color: #f39c12;
     }
+
+th.sortable { cursor: pointer; user-select: none; }

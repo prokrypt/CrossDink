@@ -36,6 +36,7 @@ The main data directory is `.crosspoint` on the SD card. It stores render caches
 │   ├── progress.bin.bak    # Reading position slot B; the newer valid slot wins
 │   ├── stats.bin           # Legacy per-book reading stats
 │   ├── stats_v5.bin        # Version 5 per-book reading stats
+│   ├── reading_stats_off   # Present when stats tracking is disabled for this book
 │   ├── reader_settings.bin # Per-book reader settings, render mode, and auto-page-turn interval
 │   ├── cover.bmp           # Book cover image, once generated
 │   ├── cover_absolute.bmp  # Four-tone image-mode cover (generated separately)

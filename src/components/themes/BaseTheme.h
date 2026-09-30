@@ -169,7 +169,8 @@ enum UIIcon {
   Opds,
   Wifi,
   Hotspot,
-  Chart
+  Chart,
+  Flask
 };
 
 // Default theme implementation (Classic Theme)
@@ -336,4 +337,10 @@ class BaseTheme {
   static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight,
                                  bool foregroundBlack = true);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY, bool foregroundBlack = false);
+  // Header Wi-Fi glyph, beside the battery group while a station link is up.
+  // Width including its gap to the battery group, or 0 when not connected.
+  static int wifiStatusReserve();
+  // x is the glyph's left edge, batteryY the battery rect's y.
+  static void drawWifiStatus(const GfxRenderer& renderer, int x, int batteryY, bool foregroundBlack = true);
+  static constexpr int wifiGlyphWidth = 15;
 };

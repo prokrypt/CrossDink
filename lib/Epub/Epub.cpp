@@ -304,6 +304,16 @@ std::string getAdaptiveThumbBmpPathForDimensions(const std::string& cachePath, i
   return cachePath + "/thumb_" + std::to_string(width) + "x" + std::to_string(height) + "_fit.bmp";
 }
 
+bool finalizeThumbBmp(const std::string& tmpPath, const std::string& thumbPath) {
+  if (Storage.exists(thumbPath.c_str())) Storage.remove(thumbPath.c_str());
+  if (!Storage.rename(tmpPath.c_str(), thumbPath.c_str())) {
+    LOG_ERR("EBP", "Failed to finalize thumb BMP: %s", thumbPath.c_str());
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+  return true;
+}
+
 std::string legacyCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
   return cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(filepath));
 }
@@ -1318,6 +1328,27 @@ bool Epub::generateThumbBmp(int width, int height, const GfxRenderer* renderer, 
   return generateThumbBmpInternal(width, height, false, renderer, readerFontId);
 }
 
+bool Epub::generateThumbBmpFromSource(int height, const GfxRenderer* renderer, const int readerFontId) {
+  return generateThumbBmpFromSource(0, height, renderer, readerFontId);
+}
+
+bool Epub::generateThumbBmpFromSource(int width, int height, const GfxRenderer* renderer, const int readerFontId) {
+  normalizeThumbDimensions(width, height);
+  const std::string thumbPath = getThumbBmpPathForDimensions(cachePath, width, height);
+  if (cachedBmpMatchesDimensions(thumbPath, width, height)) return true;
+
+  auto metadata = makeUniqueNoThrow<BookMetadataCache::BookMetadata>();
+  if (!metadata) {
+    LOG_ERR("EBP", "Cannot allocate cover metadata");
+    return false;
+  }
+  setupCacheDir();
+  if (!parseContentOpf(*metadata, /*writeSpineEntries=*/false, /*collectCssFiles=*/false)) {
+    return false;
+  }
+  return generateThumbBmpInternal(width, height, false, renderer, readerFontId, &metadata->coverItemHref);
+}
+
 bool Epub::generateAdaptiveThumbBmp(int width, int height, const GfxRenderer* renderer, const int readerFontId) const {
   return generateThumbBmpInternal(width, height, true, renderer, readerFontId);
 }
@@ -1372,7 +1403,7 @@ bool Epub::ensureCachedCoverImage(const std::string& coverImageHref, std::string
 }
 
 bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveContain, const GfxRenderer* renderer,
-                                    const int readerFontId) const {
+                                    const int readerFontId, const std::string* coverHrefOverride) const {
   if (height <= 0) {
     LOG_DBG("EBP", "Using default thumb BMP height for requested dimensions: %dx%d", width, height);
   }
@@ -1384,13 +1415,16 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
   if (cachedBmpMatchesDimensions(thumbPath, width, height, adaptiveContain)) {
     return true;
   }
+  // Written beside the final path and renamed: Home may draw this thumb while
+  // a background job makes it.
+  const std::string tmpPath = thumbPath + ".tmp";
 
-  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+  if (!coverHrefOverride && (!bookMetadataCache || !bookMetadataCache->isLoaded())) {
     LOG_ERR("EBP", "Cannot generate thumb BMP, cache not loaded");
     return false;
   }
 
-  const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  const auto& coverImageHref = coverHrefOverride ? *coverHrefOverride : bookMetadataCache->coreMetadata.coverItemHref;
   if (coverImageHref.empty()) {
     LOG_DBG("EBP", "No known cover image for thumbnail");
   } else if (FsHelpers::hasJpgExtension(coverImageHref)) {
@@ -1405,7 +1439,7 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     }
 
     FsFile thumbBmp;
-    if (!Storage.openFileForWrite("EBP", thumbPath, thumbBmp)) {
+    if (!Storage.openFileForWrite("EBP", tmpPath, thumbBmp)) {
       coverJpg.close();
       return false;
     }
@@ -1420,9 +1454,10 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
 
     if (!success) {
       LOG_ERR("EBP", "Failed to generate thumb BMP from JPG cover image");
-      Storage.remove(thumbPath.c_str());
+      Storage.remove(tmpPath.c_str());
+      return false;
     }
-    return success;
+    return finalizeThumbBmp(tmpPath, thumbPath);
   } else if (FsHelpers::hasPngExtension(coverImageHref)) {
     std::string coverPngPath;
     if (!ensureCachedCoverImage(coverImageHref, coverPngPath)) {
@@ -1435,7 +1470,7 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     }
 
     FsFile thumbBmp;
-    if (!Storage.openFileForWrite("EBP", thumbPath, thumbBmp)) {
+    if (!Storage.openFileForWrite("EBP", tmpPath, thumbBmp)) {
       coverPng.close();
       return false;
     }
@@ -1450,9 +1485,10 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
 
     if (!success) {
       LOG_ERR("EBP", "Failed to generate thumb BMP from PNG cover image");
-      Storage.remove(thumbPath.c_str());
+      Storage.remove(tmpPath.c_str());
+      return false;
     }
-    return success;
+    return finalizeThumbBmp(tmpPath, thumbPath);
   } else {
     LOG_ERR("EBP", "Cover image is not a supported format, skipping thumbnail");
   }
@@ -1488,14 +1524,37 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   return ZipFile(filepath).readFileToStream(path.c_str(), out, chunkSize, allowEarlyStop);
 }
 
-bool Epub::extractItemToFile(const std::string& itemHref, const std::string& destPath, const size_t chunkSize) const {
+namespace {
+// Forwards to the file until cancelled; a short write then ends the ZIP stream.
+class CancellableSink final : public Print {
+ public:
+  CancellableSink(Print& out, const std::atomic<bool>& cancel) : out(out), cancel(cancel) {}
+  size_t write(uint8_t byte) override { return cancel.load(std::memory_order_relaxed) ? 0 : out.write(byte); }
+  size_t write(const uint8_t* buffer, size_t size) override {
+    return cancel.load(std::memory_order_relaxed) ? 0 : out.write(buffer, size);
+  }
+
+ private:
+  Print& out;
+  const std::atomic<bool>& cancel;
+};
+}  // namespace
+
+bool Epub::extractItemToFile(const std::string& itemHref, const std::string& destPath, const size_t chunkSize,
+                             const std::atomic<bool>* cancel) const {
   FsFile out;
   if (!Storage.openFileForWrite("EBP", destPath, out)) {
     return false;
   }
 
   const uint32_t start = millis();
-  const bool success = readItemContentsToStream(itemHref, out, chunkSize);
+  bool success;
+  if (cancel) {
+    CancellableSink sink(out, *cancel);
+    success = readItemContentsToStream(itemHref, sink, chunkSize);
+  } else {
+    success = readItemContentsToStream(itemHref, out, chunkSize);
+  }
   const uint32_t written = millis();
   const size_t bytes = out.size();
   out.flush();
@@ -1588,7 +1647,7 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
   // Existing exact-layout output always wins, even if the optional transport is corrupt.
   FsFile existing;
   uint16_t w = 0, h = 0;
-  bool cached = Storage.openFileForRead("EBP", destPxcPath, existing) && readPxcHeader(existing, w, h) &&
+  bool cached = Storage.openFileForReadIfPresent("EBP", destPxcPath, existing) && readPxcHeader(existing, w, h) &&
                 w == expectedWidth && h == expectedHeight && existing.size() == pxcByteCount(w, h);
   existing.close();
   if (cached) {

@@ -1847,6 +1847,11 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
       break;
   }
   // TODO: Rotate bits
+  // The display blits into the panel's frame only; refuse other targets.
+  if (frameBuffer != display.getFrameBuffer()) {
+    LOG_ERR("GFX", "drawImage: offscreen target unsupported");
+    return;
+  }
   display.drawImage(bitmap, rotatedX, rotatedY, width, height);
 }
 
@@ -2315,7 +2320,9 @@ void GfxRenderer::clearScreen(const uint8_t color) const {
     memset(_stripBuf, color, static_cast<size_t>(panelWidthBytes) * _stripRows);
     return;
   }
-  display.clearScreen(color);
+  // Our own target, not the panel's: an offscreen renderer (makeOffscreen)
+  // must not wipe the live frame, and a lent framebuffer is null here.
+  if (frameBuffer) memset(frameBuffer, color, frameBufferSize);
 }
 
 void GfxRenderer::beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const {
@@ -2427,6 +2434,16 @@ bool GfxRenderer::isRefreshBusy() const {
 #endif
 }
 
+bool GfxRenderer::toFrameBufferRect(const int x, const int y, const int w, const int h, uint16_t& fx, uint16_t& fy,
+                                    uint16_t& fw, uint16_t& fh) const {
+  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  fx = mem.x;
+  fy = mem.y;
+  fw = mem.w;
+  fh = mem.h;
+  return mem.valid;
+}
+
 size_t GfxRenderer::readFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t* dst,
                                           size_t dstCapacity) const {
   if (frameBuffer == nullptr || dst == nullptr || w == 0 || h == 0) return 0;
@@ -2489,11 +2506,38 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
     return item;
   }
 
-  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) >= maxWidth) {
-    utf8RemoveLastChar(item);
+  size_t charCount = 0;
+  for (const unsigned char c : item) {
+    if ((c & 0xC0) != 0x80) ++charCount;
   }
 
-  return item.empty() ? ellipsis : item + ellipsis;
+  std::string candidate;
+  candidate.reserve(item.size() + 3);
+  const auto setCandidate = [&](const size_t characterCount) {
+    size_t end = 0;
+    for (size_t count = 0; end < item.size() && count < characterCount; ++count) {
+      ++end;
+      while (end < item.size() && (static_cast<unsigned char>(item[end]) & 0xC0) == 0x80) ++end;
+    }
+    candidate.assign(item.data(), end);
+    candidate += ellipsis;
+  };
+
+  // Binary search avoids repeatedly measuring nearly the entire long title.
+  size_t low = 0;
+  size_t high = charCount;
+  while (low < high) {
+    const size_t mid = low + (high - low + 1) / 2;
+    setCandidate(mid);
+    if (getTextWidth(fontId, candidate.c_str(), style) < maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  setCandidate(low);
+  return candidate;
 }
 
 std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* text, const int maxWidth,

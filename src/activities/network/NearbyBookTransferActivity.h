@@ -25,8 +25,10 @@ class NearbyBookTransferActivity final : public Activity {
 
   void onEnter() override;
   void onExit() override;
+  bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
+  bool powerOffPanelWhenIdle() const override { return true; }
   bool preventAutoSleep() override { return true; }
   bool skipLoopDelay() override;
 

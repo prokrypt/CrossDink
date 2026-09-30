@@ -304,3 +304,25 @@ TEST_F(EpubGrayscaleTest, MissingScratchAndUnsupportedPathsPreserveFallbackContr
   }
 }
 }  // namespace
+
+TEST_F(EpubGrayscaleTest, CancelCallbackNamesCheckpointAndAborts) {
+  GfxRenderer r;
+  Page page;
+  std::vector<uint8_t> scratch(r.stride * 80);
+  const auto live = r.bw;
+  std::vector<std::string> seen;
+  // Cancel at the first strip: the pass stops before any plane is written.
+  EXPECT_TRUE(EpubGrayscale::runTiledGrayscalePass(
+      r, page, 1, 0, 0, true, true, false, scratch.data(), scratch.size(), false,
+      [](void* context, const char* checkpoint) {
+        auto* checkpoints = static_cast<std::vector<std::string>*>(context);
+        checkpoints->emplace_back(checkpoint);
+        return checkpoints->size() >= 2;
+      },
+      &seen));
+  EXPECT_EQ(seen, (std::vector<std::string>{"tiled-start", "strip"}));
+  EXPECT_EQ(r.bw, live);
+  EXPECT_EQ(r.mode, GfxRenderer::BW);
+  EXPECT_FALSE(r.active);
+  EXPECT_EQ(r.events, std::vector<std::string>{"cleanup"});
+}

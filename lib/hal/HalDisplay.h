@@ -29,6 +29,10 @@ class HalDisplay {
   // counter; otherwise the first two paints get promoted to FULL
   // (~770ms each on X3).
   void begin(bool seamless = false);
+  // After a silent restart: the panel still shows `frame`, so the driver can
+  // use it as the previous frame and make the first paint Fast. Call after
+  // begin(). False when the panel driver cannot use it.
+  bool seedDisplayedFrame(const uint8_t* frame);
 
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
@@ -75,6 +79,12 @@ class HalDisplay {
 
   // Power management
   void deepSleep();
+  // Booster off between refreshes on idle screens; false when nothing changed.
+  bool powerOffIdle();
+  // Booster on ahead of the next refresh (touch-down); false when nothing changed.
+  bool powerOnIdle();
+  // Trial: light-sleep through refresh busy-waits (HalPowerManager::setRefreshLightSleep).
+  void setRefreshLightSleep(bool allowed);
 
   // Access to frame buffer
   uint8_t* getFrameBuffer() const;

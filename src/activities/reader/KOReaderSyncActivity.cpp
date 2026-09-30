@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <new>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -33,6 +34,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/WifiUtils.h"
+#include "util/WorkerTask.h"
 
 namespace {
 constexpr int RESULT_LOCAL_PAGE_Y_OFFSET = 200;
@@ -104,19 +106,30 @@ const char* matchMethodName(const DocumentMatchMethod method) {
   return method == DocumentMatchMethod::FILENAME ? "filename" : "binary";
 }
 
-void syncTimeWithNTP() {
+// TLS runs with setInsecure(), so the clock only matters for timestamps; the
+// Wi-Fi join already syncs an untrusted clock. Returns true when NTP ran.
+bool syncTimeWithNTP() {
 #ifndef SIMULATOR
+  if (halClock.hasTrustedDateTime()) return false;
   if (!halClock.syncSystemTimeFromNTP()) {
     LOG_DBG("KOSync", "NTP sync unavailable, using fallback");
   }
+  return true;
+#else
+  return false;
 #endif
 }
 
+// wolfSSL handshake plus HTTPClient, as for the OPDS downloader (14 KB; SP math
+// is no longer built small). Internal RAM, held only while a request runs.
+constexpr uint32_t NET_TASK_STACK_BYTES = 14 * 1024;
+
+// Drops the radio while the result shows; leaveNetworkInPlace() does the full
+// teardown on exit, so no settle delays here.
 void wifiOff() {
+  KOReaderSyncClient::endSession();
   WiFi.disconnect(false);
-  delay(100);
   WiFi.mode(WIFI_OFF);
-  delay(100);
 }
 }  // namespace
 
@@ -186,7 +199,93 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
   returnToReader();
 }
 
-void KOReaderSyncActivity::returnToReader() { activityManager.goToReader(epubPath, false, false, true); }
+namespace {
+// One sync request at a time. Static, not a member: a request abandoned at
+// sleep keeps writing here after the activity is gone (deep sleep follows, so
+// no later job reuses it).
+enum class NetJobKind : uint8_t { Fetch, Upload };
+struct NetJob {
+  NetJobKind kind = NetJobKind::Fetch;
+  DocumentMatchMethod method = DocumentMatchMethod::FILENAME;  // logs only
+  std::string hash;
+  std::string altHash;          // empty: no alternate probe
+  KOReaderProgress progress{};  // Fetch: primary result; Upload: what to send
+  KOReaderProgress altProgress{};
+  KOReaderSyncClient::Error result = KOReaderSyncClient::OK;
+  KOReaderSyncClient::Error altResult = KOReaderSyncClient::NOT_FOUND;
+  uint32_t elapsedMs = 0;
+};
+NetJob netJob;
+WorkerTask netTask;
+
+void runNetJob() {
+  NetJob& job = netJob;
+  const unsigned long start = millis();
+  // One request on a fresh connection after a transport failure: a GET once
+  // hung 8 s after a good handshake (http=-1) and the user's retry right after
+  // took 1.2 s. The failed connection is already closed (releaseClient).
+  const auto retriedOnce = [](const char* what, auto&& request) {
+    KOReaderSyncClient::Error result = request();
+    if (result == KOReaderSyncClient::NETWORK_ERROR) {
+      LOG_INF("KOSync", "%s failed (http=%d); retrying once", what, KOReaderSyncClient::lastHttpCode);
+      result = request();
+    }
+    return result;
+  };
+  if (job.kind == NetJobKind::Upload) {
+    job.result = retriedOnce("Upload", [&job]() { return KOReaderSyncClient::updateProgress(job.progress); });
+  } else {
+    job.result =
+        retriedOnce("Get progress", [&job]() { return KOReaderSyncClient::getProgress(job.hash, job.progress); });
+    LOG_DBG("KOSync", "Primary remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s", matchMethodName(job.method),
+            job.result, KOReaderSyncClient::lastHttpCode, job.hash.c_str(), job.progress.percentage,
+            job.progress.progress.c_str());
+    // A network or auth failure would fail the alternate probe too; skip its handshake.
+    if (!job.altHash.empty() && job.result != KOReaderSyncClient::NETWORK_ERROR &&
+        job.result != KOReaderSyncClient::AUTH_FAILED && job.result != KOReaderSyncClient::LOW_MEMORY) {
+      job.altResult = KOReaderSyncClient::getProgress(job.altHash, job.altProgress);
+      LOG_DBG("KOSync", "Alternate remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s",
+              matchMethodName(alternateMatchMethod(job.method)), job.altResult, KOReaderSyncClient::lastHttpCode,
+              job.altHash.c_str(), job.altProgress.percentage, job.altProgress.progress.c_str());
+    }
+  }
+  job.elapsedMs = millis() - start;
+}
+}  // namespace
+
+void KOReaderSyncActivity::returnToReader() {
+  if (netTask.running()) abandonNetJob = true;
+  activityManager.goToReader(epubPath, false, false, true);
+}
+
+void KOReaderSyncActivity::startNetJob() {
+  netJobPending = true;
+  if (netTask.start(
+          [](void*) {
+            runNetJob();
+            LOG_DBG("KOSync", "net task stack free min=%u of %u",
+                    static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
+                    static_cast<unsigned>(NET_TASK_STACK_BYTES));
+          },
+          nullptr, NET_TASK_STACK_BYTES, "KOSyncNet")) {
+    return;
+  }
+#ifndef SIMULATOR
+  LOG_ERR("KOSync", "Net task could not start; running request on the main loop");
+#endif
+  runNetJob();  // loop() picks the result up on its next pass
+}
+
+void KOReaderSyncActivity::pollNetJob() {
+  if (!netJobPending || netTask.running()) return;
+  netJobPending = false;
+  if (netJob.kind == NetJobKind::Upload) {
+    finishUpload();
+    return;
+  }
+  finishSync();
+  if (!netJobPending) logSyncTiming();  // an upload logs the run itself
+}
 
 bool KOReaderSyncActivity::consumeInitialConfirmRelease() {
   if (!lockInitialConfirmRelease) {
@@ -202,6 +301,14 @@ bool KOReaderSyncActivity::consumeInitialConfirmRelease() {
 
 bool KOReaderSyncActivity::smartSyncEnabled() const {
   return KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART;
+}
+
+void KOReaderSyncActivity::logSyncTiming() {
+  if (timing.start == 0) return;
+  LOG_INF("SYNC", "t wifi=%u ntp=%u get=%u put=%u total=%lu", static_cast<unsigned>(timing.wifi),
+          static_cast<unsigned>(timing.ntp), static_cast<unsigned>(timing.get), static_cast<unsigned>(timing.put),
+          millis() - timing.start);
+  timing = SyncTiming{};
 }
 
 void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
@@ -222,28 +329,27 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
     return;
   }
 
+  if (timing.start != 0) timing.wifi = millis() - timing.start;
   WiFi.setSleep(false);
   LOG_DBG("KOSync", "WiFi sleep disabled for sync");
 
   sdFontSystem.releaseForNetwork(renderer);
 
+  // One status screen for the whole fetch; each extra screen is a panel refresh.
   {
     RenderLock lock(*this);
     state = SYNCING;
-    statusMessage = tr(STR_SYNCING_TIME);
+    statusMessage = tr(STR_FETCH_PROGRESS);
   }
   requestUpdate(true);
 
-  // Sync time with NTP before making API requests
-  syncTimeWithNTP();
+  const unsigned long ntpStart = millis();
+  if (syncTimeWithNTP()) timing.ntp = millis() - ntpStart;
 
-  {
-    RenderLock lock(*this);
-    statusMessage = tr(STR_CALC_HASH);
-  }
-  requestUpdate(true);
-
+  // GET, the alternate GET and the PUT reuse one TLS connection.
+  KOReaderSyncClient::beginSession();
   performSync();
+  if (!netJobPending) logSyncTiming();  // failed before any request
 }
 
 void KOReaderSyncActivity::performSync() {
@@ -259,51 +365,32 @@ void KOReaderSyncActivity::performSync() {
     requestUpdate(true);
     return;
   }
-  const std::string primaryHash = documentHash;
+  primaryHash = documentHash;
 
-  {
-    RenderLock lock(*this);
-    statusMessage = tr(STR_FETCH_PROGRESS);
-  }
-  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
-    LOG_ERR("KOSync", "Fetch progress screen could not be rendered synchronously; aborting sync");
-    wifiOff();
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      statusMessage = tr(STR_SYNC_FAILED_MSG);
-    }
-    requestUpdate(true);
-    return;
-  }
-
-  // Fetch remote progress. In smart mode, also probe the alternate document-id
-  // method and use the furthest remote state we can find. This avoids a stale
-  // local upload when another KOReader device synced the same book with a
-  // different document matching method.
-  auto result = KOReaderSyncClient::getProgress(documentHash, remoteProgress);
-  LOG_DBG("KOSync", "Primary remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s",
-          matchMethodName(primaryMethod), result, KOReaderSyncClient::lastHttpCode, documentHash.c_str(),
-          remoteProgress.percentage, remoteProgress.progress.c_str());
-
+  // In smart mode, also probe the alternate document-id method and use the
+  // furthest remote state found. This avoids a stale local upload when another
+  // KOReader device synced the same book with a different matching method.
+  netJob = NetJob{};
+  netJob.method = primaryMethod;
+  netJob.hash = documentHash;
   if (smartSyncEnabled()) {
-    const DocumentMatchMethod altMethod = alternateMatchMethod(primaryMethod);
-    const std::string altHash = calculateDocumentHashForMethod(epubPath, altMethod);
-    if (!altHash.empty() && altHash != documentHash) {
-      KOReaderProgress altProgress;
-      const auto altResult = KOReaderSyncClient::getProgress(altHash, altProgress);
-      LOG_DBG("KOSync", "Alternate remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s",
-              matchMethodName(altMethod), altResult, KOReaderSyncClient::lastHttpCode, altHash.c_str(),
-              altProgress.percentage, altProgress.progress.c_str());
+    netJob.altHash = calculateDocumentHashForMethod(epubPath, alternateMatchMethod(primaryMethod));
+    if (netJob.altHash == documentHash) netJob.altHash.clear();
+  }
+  startNetJob();
+}
 
-      if (altResult == KOReaderSyncClient::OK &&
-          (result == KOReaderSyncClient::NOT_FOUND || altProgress.percentage > remoteProgress.percentage)) {
-        documentHash = altHash;
-        remoteProgress = std::move(altProgress);
-        remoteMatchMethod = altMethod;
-        result = KOReaderSyncClient::OK;
-      }
-    }
+void KOReaderSyncActivity::finishSync() {
+  NetJob& job = netJob;
+  timing.get = job.elapsedMs;
+  auto result = job.result;
+  remoteProgress = std::move(job.progress);
+  if (job.altResult == KOReaderSyncClient::OK &&
+      (result == KOReaderSyncClient::NOT_FOUND || job.altProgress.percentage > remoteProgress.percentage)) {
+    documentHash = std::move(job.altHash);
+    remoteProgress = std::move(job.altProgress);
+    remoteMatchMethod = alternateMatchMethod(primaryMatchMethod);
+    result = KOReaderSyncClient::OK;
   }
 
   // A minimal network boot intentionally reaches this point without loading the EPUB.
@@ -485,29 +572,38 @@ void KOReaderSyncActivity::performSync() {
 }
 
 void KOReaderSyncActivity::performUpload() {
+  // A user-chosen upload starts a new timed run; smart sync continues its own.
+  if (timing.start == 0) timing.start = millis();
   {
     RenderLock lock(*this);
     state = UPLOADING;
     statusMessage = tr(STR_UPLOAD_PROGRESS);
   }
-  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
-    LOG_ERR("KOSync", "Upload progress screen could not be rendered synchronously; aborting upload");
-    wifiOff();
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      statusMessage = tr(STR_SYNC_FAILED_MSG);
-    }
-    requestUpdate(true);
-    return;
-  }
-
-  if (epub) {
-    epub.reset();
-  }
+  // The render task draws this while the request runs.
+  requestUpdate(true);
 
   // localProgress was pre-computed in EpubReaderActivity before the Epub was released.
   KOReaderProgress progress;
+
+  // Optionally include document metadata (KOReader PR #15306)
+  if (KOREADER_STORE.getSendMetadata()) {
+    // Read title/author before the Epub is released below: smart sync still has
+    // it loaded from progress mapping, and releasing it first (as this function
+    // used to) cost a ~0.3 s reload before the PUT. From NO_REMOTE_PROGRESS the Epub is null, so this
+    // loads it; guard the reads in case that fails. Filename is always safe.
+    ensureEpubLoaded();
+    KOReaderMetadata meta;
+    const auto lastSlash = epubPath.rfind('/');
+    meta.filename = (lastSlash != std::string::npos) ? epubPath.substr(lastSlash + 1) : epubPath;
+    if (epub) {
+      meta.title = epub->getTitle();
+      meta.authors = epub->getAuthor();
+    } else {
+      LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
+    }
+    progress.metadata = std::move(meta);
+  }
+
   progress.document = documentHash;
   progress.progress = localProgress.xpath;
   progress.percentage = localProgress.percentage;
@@ -530,33 +626,24 @@ void KOReaderSyncActivity::performUpload() {
     progress.position = std::move(pos);
   }
 
-  // Optionally include document metadata (KOReader PR #15306)
-  if (KOREADER_STORE.getSendMetadata()) {
-    // The Epub is released before the sync network calls and is only reloaded on the
-    // remote-progress path (performSync). When uploading from NO_REMOTE_PROGRESS the
-    // Epub is still null, so reload it here and guard the title/author reads to avoid
-    // dereferencing a null Epub. Filename is derived from the path and is always safe.
-    ensureEpubLoaded();
-    KOReaderMetadata meta;
-    const auto lastSlash = epubPath.rfind('/');
-    meta.filename = (lastSlash != std::string::npos) ? epubPath.substr(lastSlash + 1) : epubPath;
-    if (epub) {
-      meta.title = epub->getTitle();
-      meta.authors = epub->getAuthor();
-    } else {
-      LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
-    }
-    progress.metadata = std::move(meta);
-  }
-
   // Release the Epub before the network call so the TLS handshake has enough free heap
   // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
   epub.reset();
 
-  const auto result = KOReaderSyncClient::updateProgress(progress);
+  netJob = NetJob{};
+  netJob.kind = NetJobKind::Upload;
+  netJob.progress = std::move(progress);
+  startNetJob();
+}
+
+void KOReaderSyncActivity::finishUpload() {
+  const NetJob& job = netJob;
+  timing.put = job.elapsedMs;
+  const auto result = job.result;
 
   // Drop the radio while user reads the result; full teardown happens at silent reboot.
   wifiOff();
+  logSyncTiming();
 
   if (result != KOReaderSyncClient::OK) {
     {
@@ -630,6 +717,7 @@ void KOReaderSyncActivity::onEnter() {
   // Past this point every path uses WiFi.
   sdFontSystem.releaseLoadedFont(renderer);
   wifiActivated = true;
+  timing.start = millis();
 
   // Check if already connected (e.g. from settings page auth)
   if (hasActiveStationWifiConnection()) {
@@ -650,6 +738,17 @@ void KOReaderSyncActivity::onExit() {
     touchOverrideActive = false;
   }
   Activity::onExit();
+  if (netTask.running()) {
+    // Back mid-request: the reboot drops it at once. Other exits (sleep) wait
+    // a little for it, then leave it running: deep sleep drops it.
+    if (abandonNetJob) silentRestartToReader(true);
+    if (!netTask.join(NET_JOIN_TIMEOUT_MS)) {
+      silentRestartToReader(true);  // returns only during deep sleep
+      LOG_ERR("KOSync", "Net job still running at exit; left to deep sleep");
+      return;  // its TLS session stays open
+    }
+  }
+  KOReaderSyncClient::endSession();  // before the radio goes down
 
   if (wifiActivated && !leaveNetworkInPlace()) silentRestartToReader(true);
 }
@@ -683,6 +782,8 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
   if (state == SYNCING || state == UPLOADING) {
     UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top, statusMessage.c_str(), true, EpdFontFamily::BOLD);
+    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
     return;
   }
@@ -810,6 +911,15 @@ void KOReaderSyncActivity::loop() {
                     TouchHeaderBackButton::height(metrics, mappedInput)};
   if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
     returnToReader();
+    return;
+  }
+
+  if (state == SYNCING || state == UPLOADING) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      returnToReader();
+      return;
+    }
+    pollNetJob();
     return;
   }
 

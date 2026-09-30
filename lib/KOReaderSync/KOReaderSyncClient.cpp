@@ -11,6 +11,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #else
+#include <Memory.h>
 #include <SecureHttpClient.h>
 #include <base64.h>
 #endif
@@ -22,6 +23,7 @@
 #include <string>
 
 #include "KOReaderCredentialStore.h"
+#include "Memory.h"
 
 #if !defined(SIMULATOR) && defined(FREEINK_WOLFSSL_DEBUG)
 // With FREEINK_WOLFSSL_DEBUG, wolfSSL is built with DEBUG_WOLFSSL, whose Arduino
@@ -116,6 +118,10 @@ KOReaderSyncClient::Error validateAuthResponse(const char* body) {
   return KOReaderSyncClient::OK;
 }
 
+// Sync runs on the main loop; a dead server should fail in seconds, not the
+// client's 15 s default per stage.
+constexpr uint32_t SYNC_HTTP_TIMEOUT_MS = 8000;
+
 // KOSync's TLS-1.3 servers can't be reached through the precompiled system
 // mbedTLS (TLS 1.3 is stubbed out), so requests run over wolfSSL via
 // SecureHttpClient. The handshake still needs working heap; gate on it. wolfSSL's
@@ -123,6 +129,9 @@ KOReaderSyncClient::Error validateAuthResponse(const char* body) {
 // floors for total free heap and the largest contiguous block.
 constexpr uint32_t MIN_FREE_HEAP_FOR_TLS = 35000;
 constexpr uint32_t MIN_MAX_ALLOC_HEAP_FOR_TLS = 20000;
+// Authentication returns a small JSON object. Cap unexpected HTML/error pages
+// before they can exhaust the C3 heap while the TLS connection is still open.
+constexpr size_t MAX_AUTH_RESPONSE_BYTES = 4096;
 
 #ifdef SIMULATOR
 void addAuthHeaders(HTTPClient& http) {
@@ -134,6 +143,22 @@ void addAuthHeaders(HTTPClient& http) {
 
 bool isHttpsUrl(const std::string& url) { return url.rfind("https://", 0) == 0; }
 #else
+// Set between beginSession() and endSession(): the sync's GET / GET-alt / PUT
+// share one keep-alive TLS connection instead of a handshake each. Heap, since
+// it owns the wolfSSL connection; freed when the sync ends.
+std::unique_ptr<freeink::SecureHttpClient> gSessionClient;
+
+freeink::SecureHttpClient& sessionClientOr(freeink::SecureHttpClient& local) {
+  return gSessionClient ? *gSessionClient : local;
+}
+
+// Closes a per-request connection, or any connection after a transport error.
+// A session keeps a healthy connection for the next request (the client
+// reconnects by itself if the server closed it).
+void releaseClient(freeink::SecureHttpClient& http, const int httpCode) {
+  if (httpCode <= 0 || &http != gSessionClient.get()) http.end();
+}
+
 // Apply the shared KOSync auth headers after begin(). x-auth-* is the native
 // KOSync scheme; Basic auth is added for Calibre-Web-Automated compatibility.
 void applyAuthHeaders(freeink::SecureHttpClient& http) {
@@ -192,6 +217,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   LOG_DBG("KOSync", "Auth response: %d", httpCode);
 
   if (httpCode == 200) {
+    if (http.getSize() > static_cast<int>(MAX_AUTH_RESPONSE_BYTES)) {
+      LOG_ERR("KOSync", "Auth response exceeded %u bytes (HTTP %d)", static_cast<unsigned>(MAX_AUTH_RESPONSE_BYTES),
+              httpCode);
+      http.end();
+      return INVALID_AUTH_RESPONSE;
+    }
     String responseBody = http.getString();
     http.end();
     return validateAuthResponse(responseBody.c_str());
@@ -207,12 +238,35 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 #else
   freeink::SecureHttpClient http;
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
   }
   applyAuthHeaders(http);
-  const int httpCode = http.GET();
+  std::unique_ptr<char[]> responseBody;
+  size_t responseSize = 0;
+  bool responseTooLarge = false;
+  bool responseOutOfMemory = false;
+  const int httpCode = http.GET([&](const uint8_t* data, size_t len) {
+    // Only HTTP 200 needs its JSON body; other statuses are handled below.
+    if (http.getStatus() != 200) return true;
+    if (len > MAX_AUTH_RESPONSE_BYTES - responseSize) {
+      responseTooLarge = true;
+      return false;
+    }
+    if (!responseBody) {
+      responseBody = makeUniqueNoThrow<char[]>(MAX_AUTH_RESPONSE_BYTES + 1);
+      if (!responseBody) {
+        responseOutOfMemory = true;
+        return false;
+      }
+    }
+    std::memcpy(responseBody.get() + responseSize, data, len);
+    responseSize += len;
+    responseBody[responseSize] = '\0';
+    return true;
+  });
   lastHttpCode = httpCode;
   lastTransportError = (httpCode < 0) ? httpCode : 0;
 
@@ -222,8 +276,24 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
     http.end();
     return NETWORK_ERROR;
   }
+  if (responseTooLarge) {
+    LOG_ERR("KOSync", "Auth response exceeded %u bytes (HTTP %d)", static_cast<unsigned>(MAX_AUTH_RESPONSE_BYTES),
+            httpCode);
+    http.end();
+    return INVALID_AUTH_RESPONSE;
+  }
+  if (responseOutOfMemory) {
+    LOG_ERR("KOSync", "Not enough memory for auth response (HTTP %d)", httpCode);
+    http.end();
+    return LOW_MEMORY;
+  }
   if (httpCode == 200) {
-    const Error result = validateAuthResponse(http.getString().c_str());
+    if (!http.responseComplete()) {
+      LOG_ERR("KOSync", "Auth response incomplete");
+      http.end();
+      return NETWORK_ERROR;
+    }
+    const Error result = validateAuthResponse(responseBody ? responseBody.get() : "");
     http.end();
     return result;
   }
@@ -255,6 +325,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
 
   freeink::SecureHttpClient http;
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -347,8 +418,10 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   if (httpCode < 0) return NETWORK_ERROR;
   return SERVER_ERROR;
 #else
-  freeink::SecureHttpClient http;
+  freeink::SecureHttpClient localHttp;
+  freeink::SecureHttpClient& http = sessionClientOr(localHttp);
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -361,7 +434,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   LOG_DBG("KOSync", "Get progress response: %d", httpCode);
 
   if (httpCode <= 0) {
-    http.end();
+    releaseClient(http, httpCode);
     return NETWORK_ERROR;
   }
 
@@ -370,7 +443,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   // object instead). Map it to the same graceful no-remote-progress path as
   // 404 rather than falling through to SERVER_ERROR — see issue #2876.
   if (httpCode == 204) {
-    http.end();
+    releaseClient(http, httpCode);
     return NOT_FOUND;
   }
 
@@ -381,12 +454,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
 
     if (error) {
       logJsonParseFailure("Get progress", error, body.c_str());
-      http.end();
+      releaseClient(http, httpCode);
       return JSON_ERROR;
     }
 
     if (doc["progress"].isNull()) {
-      http.end();
+      releaseClient(http, httpCode);
       LOG_DBG("KOSync", "No stored progress in successful response");
       return NOT_FOUND;
     }
@@ -417,12 +490,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
       }
     }
 
-    http.end();
+    releaseClient(http, httpCode);
     LOG_DBG("KOSync", "Got progress: %.2f%% at %s", outProgress.percentage * 100, outProgress.progress.c_str());
     return OK;
   }
 
-  http.end();
+  releaseClient(http, httpCode);
   if (httpCode == 401) return AUTH_FAILED;
   if (httpCode == 404) return NOT_FOUND;
   return SERVER_ERROR;
@@ -497,8 +570,10 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   if (httpCode < 0) return NETWORK_ERROR;
   return SERVER_ERROR;
 #else
-  freeink::SecureHttpClient http;
+  freeink::SecureHttpClient localHttp;
+  freeink::SecureHttpClient& http = sessionClientOr(localHttp);
   http.setInsecure();
+  http.setTimeout(SYNC_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -506,7 +581,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   applyAuthHeaders(http);
   http.addHeader("Content-Type", "application/json");
   const int httpCode = http.sendRequest("PUT", body);
-  http.end();
+  releaseClient(http, httpCode);
   lastHttpCode = httpCode;
   lastTransportError = (httpCode < 0) ? httpCode : 0;
 
@@ -520,6 +595,22 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   if (isSuccessfulHttpCode(httpCode)) return OK;
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
+#endif
+}
+
+void KOReaderSyncClient::beginSession() {
+#ifndef SIMULATOR
+  if (gSessionClient) return;
+  gSessionClient = makeUniqueNoThrow<freeink::SecureHttpClient>();
+  if (!gSessionClient) LOG_ERR("KOSync", "Session client allocation failed; one connection per request");
+#endif
+}
+
+void KOReaderSyncClient::endSession() {
+#ifndef SIMULATOR
+  if (!gSessionClient) return;
+  gSessionClient->end();
+  gSessionClient.reset();
 #endif
 }
 

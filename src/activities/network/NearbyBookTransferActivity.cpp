@@ -829,11 +829,7 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
   const Rect header{0, metrics.topPadding, width, TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_NEARBY_BOOK_TRANSFER), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_NEARBY_BOOK_TRANSFER));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_NEARBY_BOOK_TRANSFER), false);
 
   const Rect textArea{metrics.contentSidePadding, 0, width - metrics.contentSidePadding * 2, height};
   auto centered = [this, height, textArea](const char* text, const int offset = 0, const int font = UI_10_FONT_ID) {

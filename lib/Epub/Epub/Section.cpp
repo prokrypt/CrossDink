@@ -29,11 +29,24 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v76: Paragraphs without source CSS indentation no longer receive a synthetic indent.
 // v77: Ordered lists, marker suppression, and list-container insets affect page layout.
 // v78: Inline CSS padding affects dialogue and other styled text positions.
-constexpr uint8_t SECTION_FILE_VERSION = 78;
+// v79: Hangul word boundaries and line-end splits change cached page positions.
+constexpr uint8_t SECTION_FILE_VERSION = 79;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
-// under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF2;
+// under a different layout contract. Never reuse a retired sentinel: an old
+// partial on SD would resume with stale page positions. Pick below the lowest.
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF1;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+                                                        0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
+constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
+  for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
+    if (retired == v) return true;
+  }
+  return false;
+}
+static_assert(!isRetiredSectionPartialVersion(SECTION_FILE_PARTIAL_VERSION),
+              "SECTION_FILE_PARTIAL_VERSION reuses a retired partial sentinel");
+static_assert(SECTION_FILE_PARTIAL_VERSION > SECTION_FILE_VERSION, "partial sentinel collides with full versions");
 constexpr uint32_t HEADER_SIZE =
     sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
     sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
@@ -256,7 +269,7 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
 }
 
 bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
-  if (!Storage.openFileForRead("SCT", filePath, file)) {
+  if (!Storage.openFileForReadIfPresent("SCT", filePath, file)) {
     return false;
   }
 
@@ -287,7 +300,8 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     if (version != SECTION_FILE_VERSION && version != SECTION_FILE_PARTIAL_VERSION) {
       // Explicit close() required: member variable persists beyond function scope
       file.close();
-      LOG_ERR("SCT", "Deserialization failed: Unknown version %u", version);
+      // Expected after a firmware update changes the layout format.
+      LOG_INF("SCT", "Stale section cache v%u (current v%u), rebuilding", version, SECTION_FILE_VERSION);
       clearCache();
       return false;
     }
@@ -421,6 +435,7 @@ bool Section::clearCache() const {
 bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::function<void()>& popupFn,
                                 bool* imagesWereSuppressed, bool* layoutAbortedForLowMemory,
                                 const SectionBuildOptions buildOptions) {
+  [[maybe_unused]] const uint32_t buildStartedMs = millis();
   const int fontId = spec.fontId;
   const float lineCompression = spec.lineCompression;
   const bool extraParagraphSpacing = spec.extraParagraphSpacing;
@@ -789,6 +804,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     }
     return false;
   }
+  [[maybe_unused]] const uint32_t sectionBytes = static_cast<uint32_t>(file.size());
   // Explicit close() required: member variable persists beyond function scope
   file.close();
   if (!promoteSectionCache(tmpSectionPath, filePath)) {
@@ -805,11 +821,14 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   partial_ = false;
   partialPageCount_ = 0;
   partialProtectedImageUnits_ = 0;
+  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu ms=%lu", spineIndex, pageCount,
+          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(millis() - buildStartedMs));
   return true;
 }
 
 bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions buildOptions,
                          const std::function<void()>& popupFn) {
+  [[maybe_unused]] const uint32_t buildStartedMs = millis();  // includes HTML inflate
   const int fontId = spec.fontId;
   const float lineCompression = spec.lineCompression;
   const bool extraParagraphSpacing = spec.extraParagraphSpacing;
@@ -1015,6 +1034,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   }
 
   Hyphenator::setPreferredLanguage(epub->getLanguage());
+  ctx->startedMs = buildStartedMs;
   build_ = std::move(ctx);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
@@ -1213,6 +1233,7 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
     LOG_ERR("SCT", "Failed to commit section cache");
     return failCommit();
   }
+  [[maybe_unused]] const uint32_t sectionBytes = static_cast<uint32_t>(file.size());
   // Explicit close() required: member variable persists beyond function scope
   file.close();
 
@@ -1223,6 +1244,9 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
     Storage.remove(build_->tmpSectionPath.c_str());
     return false;
   }
+  LOG_DBG("SCT", "Section %s: spine=%d pages=%u bytes=%lu wall_ms=%lu", asPartial ? "partial" : "built", spineIndex,
+          builtPageCount_, static_cast<unsigned long>(sectionBytes),
+          static_cast<unsigned long>(millis() - build_->startedMs));
   return true;
 }
 
