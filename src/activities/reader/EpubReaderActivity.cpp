@@ -8375,7 +8375,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // ghosts (#2190). Force the next page onto the HALF ghost-cleanup path.
   const auto markGrayscaleShown = [&]() {
     if (needsImageGrayscale) {
-      pagesUntilFullRefresh = 1;
+      // UC8179 leaves its direct gray with a balanced DU paint of every pixel,
+      // which clears the residue: a forced Half there is only an extra flash.
+      if (!renderer.shouldSkipImageBlanking()) pagesUntilFullRefresh = 1;
       grayImageOnPanel = {currentSpineIndex, section ? section->currentPage : -1, imgX, imgY, imgW, imgH};
     }
   };
