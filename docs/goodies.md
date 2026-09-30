@@ -31,12 +31,10 @@ commands are rejected, and the result screen shows the failing line.
 | `pattern text` | Sample text lines over the whole screen. |
 | `box X Y W H [white]` | Filled rectangle (black unless `white`). |
 | `invert` | Invert the whole framebuffer. |
-| `label A \| B \| C` | White band across the top with up to 3 lines (A bold), shown by the next refresh. Convention: what this is \| what to look for \| what is next. |
-| `refresh full\|half\|fast\|du` | Show the framebuffer. `du` is a Fast refresh with the keyboard DU LUT. |
+| `label A \| B \| C` | White band across the top with up to 3 parts (A bold), word-wrapped to the width, shown by the next refresh. Convention: what this is \| what to look for \| what is next. |
+| `refresh full\|half\|fast\|du` | Show the framebuffer. `du` is a Fast refresh with the keyboard's balanced DU LUT (compile-time DC-balance checked); the others run the panel's OTP waveforms. |
 | `frames N` | DU LUT frames (1..63, default 6). |
 | `pll 0xNN` | PLL (0x30) value during DU refreshes; `0` keeps the default. |
-| `window X Y W H` / `window off` | Fast/DU refreshes upload only this rectangle (the panel still scans all rows). |
-| `resync on\|off` | `off` skips the OLD-plane resync after Fast/DU refreshes. |
 | `scrub half\|du` | The next Fast/DU refresh runs as a Half scrub, or a DU scrub (DU needs `refresh du`). |
 | `wait MS` | Pause (0..60000 ms). |
 | `repeat N` ... `end` | Loop N times (1..1000, nesting up to 4). |
@@ -45,7 +43,8 @@ commands are rejected, and the result screen shows the failing line.
 | `note <text>` | Write a line to the log. |
 | `ask <question> \| A \| B` | Show the question over the test image; Left/left half = A, Right/right half = B. The answer is logged. |
 
-`window`, `resync`, `frames` and `pll` stay in effect until changed.
+`frames` and `pll` stay in effect until changed. `window` and `resync` were removed: both could leave the
+controller's OLD plane unlike the panel, so the next refresh would drive pixels one way.
 
 ## Log lines
 
@@ -53,9 +52,9 @@ Every line is tagged `[GDY]` and starts with `test="<name>"`:
 
 ```
 test="Moving box" start ops=41
-test="Moving box" n=3 mode=fast upload=38 drf=262 sync=31 rows=480 total=335 frames=6 pll=0x00 win=0 resync=1
+test="Moving box" n=3 mode=fast upload=38 drf=262 sync=31 rows=480 total=335 frames=6 pll=0x00
 test="Moving box" note full
-test="Moving box" ask="Trail left behind?" answer="No"
+test="Moving box" ask="After 12 Fast moves: gray boxes where it had been?" answer="No"
 test="Moving box" done refreshes=14
 ```
 

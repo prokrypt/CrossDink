@@ -9,6 +9,7 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <utility>
@@ -127,10 +128,10 @@ void DisplayTestActivity::answer(const int option) {
   if (op.code == OpCode::Pick) {
     LOG_INF("GDY", "test=\"%s\" pick=\"%s\" square=%d variant=\"%s\"", title.c_str(), op.text.c_str(), option + 1,
             op.options[option].c_str());
-    answers.push_back(op.text + " " + std::to_string(option + 1) + " (" + op.options[option] + ")");
+    answers.push_back(op.text + " -> " + std::to_string(option + 1) + " (" + op.options[option] + ")");
   } else {
     LOG_INF("GDY", "test=\"%s\" ask=\"%s\" answer=\"%s\"", title.c_str(), op.text.c_str(), op.options[option].c_str());
-    answers.push_back(op.text + " " + op.options[option]);
+    answers.push_back(op.text + " -> " + op.options[option]);
   }
   pickIndex = 0;
   ++pc;
@@ -166,13 +167,6 @@ void DisplayTestActivity::runOps() {
         break;
       case OpCode::Pll:
         pll = static_cast<uint8_t>(op.a[0]);
-        break;
-      case OpCode::Resync:
-        resync = op.a[0] != 0;
-        break;
-      case OpCode::Window:
-        windowOn = op.a[2] > 0;
-        for (int i = 0; i < 4; ++i) window[i] = op.a[i];
         break;
       case OpCode::Scrub:
 #ifndef SIMULATOR
@@ -227,6 +221,7 @@ void DisplayTestActivity::drawOp(const Op& op) {
   switch (op.code) {
     case OpCode::Fill:
       renderer.clearScreen(op.a[0] ? 0x00 : 0xFF);
+      bandH = 0;
       break;
     case OpCode::Checker: {
       const int n = op.a[0];
@@ -245,8 +240,13 @@ void DisplayTestActivity::drawOp(const Op& op) {
       renderer.fillRect(op.a[0], op.a[1], op.a[2], op.a[3], op.a[4] == 0);
       break;
     case OpCode::Text: {
+      // Wrapped to the width so no line runs off the edge in either orientation.
+      const auto lines = renderer.wrappedText(UI_12_FONT_ID, SAMPLE_TEXT, w - 16, 4);
       const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-      for (int y = 4; y + lineHeight <= h; y += lineHeight) renderer.drawText(UI_12_FONT_ID, 8, y, SAMPLE_TEXT);
+      size_t i = 0;
+      for (int y = 4; !lines.empty() && y + lineHeight <= h; y += lineHeight) {
+        renderer.drawText(UI_12_FONT_ID, 8, y, lines[i++ % lines.size()].c_str());
+      }
       break;
     }
     case OpCode::Invert:
@@ -267,13 +267,9 @@ void DisplayTestActivity::drawOp(const Op& op) {
         lines[count].erase(lines[count].find_last_not_of(' ') + 1);
         start = stop + 1;
       }
-      const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-      const int bandH = count * lineHeight + 12;
-      renderer.fillRect(0, 0, w, bandH, false);
-      renderer.fillRect(0, bandH - 2, w, 2);
-      for (int i = 0; i < count; ++i) {
-        drawFittedLine(lines[i].c_str(), 5 + i * lineHeight, i == 0);
-      }
+      std::vector<BandLine> wrapped;
+      wrapBand(lines, count, wrapped);
+      drawBand(wrapped, 0);
       break;
     }
     default:
@@ -285,23 +281,14 @@ void DisplayTestActivity::refresh(const Mode mode) {
   HalDisplay::RefreshMode halMode = HalDisplay::FAST_REFRESH;
   if (mode == Mode::Full) halMode = HalDisplay::FULL_REFRESH;
   if (mode == Mode::Half) halMode = HalDisplay::HALF_REFRESH;
-  unsigned windows = 0;
 #ifndef SIMULATOR
-  // Window, resync and DU only apply to Fast-mode refreshes (the kbd-exp hooks).
+  // DU only applies to Fast-mode refreshes (the kbd-exp hook): the gated,
+  // balanced KW/WK register LUT; every other mode runs the panel OTP waveform.
   freeink::Uc8179KbdExperiment exp;
-  if (!resync) exp.flags |= freeink::Uc8179KbdExperiment::SkipOldResync;
   if (mode == Mode::Du) {
     exp.flags |= freeink::Uc8179KbdExperiment::KbdLut;
     exp.lutFrames = duFrames;
     exp.pll = pll;
-  }
-  if (windowOn) {
-    auto& win = exp.windows[0];
-    if (renderer.toFrameBufferRect(window[0], window[1], window[2], window[3], win.x, win.y, win.w, win.h)) {
-      exp.flags |= freeink::Uc8179KbdExperiment::TwoWindow;
-      exp.windowCount = 1;
-      windows = 1;
-    }
   }
   freeink::setUc8179KbdExperiment(exp.flags ? &exp : nullptr);
   const uint32_t countBefore = freeink::uc8179KbdTiming().count;
@@ -323,52 +310,66 @@ void DisplayTestActivity::refresh(const Mode mode) {
     s.drf += t.drfMs;
     s.sync += t.syncMs;
   }
-  LOG_INF("GDY",
-          "test=\"%s\" n=%d mode=%s upload=%ld drf=%ld sync=%ld rows=%u total=%u frames=%u pll=0x%02x win=%u "
-          "resync=%d",
+  LOG_INF("GDY", "test=\"%s\" n=%d mode=%s upload=%ld drf=%ld sync=%ld rows=%u total=%u frames=%u pll=0x%02x",
           title.c_str(), refreshCount, display_script::modeName(mode), measured ? static_cast<long>(t.uploadMs) : -1L,
           measured ? static_cast<long>(t.drfMs) : -1L, measured ? static_cast<long>(t.syncMs) : -1L,
-          static_cast<unsigned>(t.drfRows), static_cast<unsigned>(totalMs), duFrames, pll, windows, resync ? 1 : 0);
+          static_cast<unsigned>(t.drfRows), static_cast<unsigned>(totalMs), duFrames, pll);
 #else
-  (void)windows;
   LOG_INF("GDY", "test=\"%s\" n=%d mode=%s total=%u", title.c_str(), refreshCount, display_script::modeName(mode),
           static_cast<unsigned>(totalMs));
 #endif
 }
 
-// Centered line in UI_12, or UI_10 when UI_12 would not fit the width.
-void DisplayTestActivity::drawFittedLine(const char* text, const int y, const bool bold) {
-  const auto style = bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
-  const bool fits = renderer.getTextWidth(UI_12_FONT_ID, text, style) <= renderer.getScreenWidth() - 16;
-  renderer.drawCenteredText(fits ? UI_12_FONT_ID : UI_10_FONT_ID, y, text, true, style);
+// Word-wraps band parts (the first bold) to the screen width in UI_12, up to 3
+// lines per part.
+void DisplayTestActivity::wrapBand(const std::string* parts, const int count, std::vector<BandLine>& out) const {
+  const int maxWidth = renderer.getScreenWidth() - 16;
+  for (int i = 0; i < count; ++i) {
+    auto wrapped = renderer.wrappedText(UI_12_FONT_ID, parts[i].c_str(), maxWidth, 3,
+                                        i == 0 ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    for (auto& line : wrapped) out.push_back({std::move(line), i == 0});
+  }
+}
+
+// White band across the top: `lines` centered, then `extraH` px free below
+// them. It also covers the previous band. Returns the y under the last line.
+int DisplayTestActivity::drawBand(const std::vector<BandLine>& lines, const int extraH) {
+  const int w = renderer.getScreenWidth();
+  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int textBottom = 6 + static_cast<int>(lines.size()) * lineHeight;
+  bandH = std::max(bandH, textBottom + extraH + 6);
+  renderer.fillRect(0, 0, w, bandH, false);
+  renderer.fillRect(0, bandH - 2, w, 2);
+  int y = 6;
+  for (const auto& line : lines) {
+    renderer.drawCenteredText(UI_12_FONT_ID, y, line.text.c_str(), true,
+                              line.bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    y += lineHeight;
+  }
+  return textBottom;
 }
 
 void DisplayTestActivity::drawAsk() {
   // A band over the test image; the left/right halves are the two answers.
   const Op& op = script.ops[pc];
   const int w = renderer.getScreenWidth();
-  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int bandH = lineHeight * 3 + 16;
-  renderer.fillRect(0, 0, w, bandH, false);
-  renderer.drawRect(0, 0, w, bandH);
-  drawFittedLine(op.text.c_str(), 6, true);
+  std::vector<BandLine> lines;
+  wrapBand(&op.text, 1, lines);
+  const int y = drawBand(lines, renderer.getLineHeight(UI_12_FONT_ID) + 8) + 4;
   if (op.code == OpCode::Pick) {
     // Only the band changes; the squares are left as the test drew them.
     char line[64];
     snprintf(line, sizeof(line), "Tap a square, or < > then OK: %d", pickIndex + 1);
-    drawFittedLine(line, 10 + lineHeight * 2, false);
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    renderer.waitRefreshComplete();
-    askDrawn = true;
-    return;
+    renderer.drawCenteredText(UI_12_FONT_ID, y, line);
+  } else {
+    char left[48];
+    char right[48];
+    snprintf(left, sizeof(left), "< %s", op.options[0].c_str());
+    snprintf(right, sizeof(right), "%s >", op.options[1].c_str());
+    renderer.drawText(UI_12_FONT_ID, 16, y, left, true, EpdFontFamily::BOLD);
+    renderer.drawText(UI_12_FONT_ID, w - 16 - renderer.getTextWidth(UI_12_FONT_ID, right, EpdFontFamily::BOLD), y,
+                      right, true, EpdFontFamily::BOLD);
   }
-  char left[48];
-  char right[48];
-  snprintf(left, sizeof(left), "< %s", op.options[0].c_str());
-  snprintf(right, sizeof(right), "%s >", op.options[1].c_str());
-  const int y = 10 + lineHeight * 2;
-  renderer.drawText(UI_12_FONT_ID, 16, y, left);
-  renderer.drawText(UI_12_FONT_ID, w - 16 - renderer.getTextWidth(UI_12_FONT_ID, right), y, right);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   renderer.waitRefreshComplete();
   askDrawn = true;
@@ -384,8 +385,18 @@ void DisplayTestActivity::drawResult() {
     GUI.drawHeader(renderer, header, title.c_str());
   }
   const int x = metrics.contentSidePadding;
+  const int maxWidth = renderer.getScreenWidth() - 2 * x;
+  const int bottom = renderer.getScreenHeight() - metrics.buttonHintsHeight;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID) + 6;
   int y = header.y + header.height + metrics.verticalSpacing;
+  // Word-wrapped to the width, a hanging indent on continuation lines.
+  auto drawWrapped = [&](const char* text, const EpdFontFamily::Style style) {
+    const auto lines = renderer.wrappedText(UI_10_FONT_ID, text, maxWidth, 3, style);
+    for (size_t i = 0; i < lines.size() && y + lineHeight <= bottom; ++i) {
+      renderer.drawText(UI_10_FONT_ID, i == 0 ? x : x + 16, y, lines[i].c_str(), true, style);
+      y += lineHeight;
+    }
+  };
   char line[128];
 
   if (script.error) {
@@ -394,8 +405,8 @@ void DisplayTestActivity::drawResult() {
     snprintf(line, sizeof(line), "%s  %s: %d", stopped ? tr(STR_TEST_STOPPED) : tr(STR_DONE), tr(STR_REFRESHES),
              refreshCount);
   }
-  renderer.drawText(UI_10_FONT_ID, x, y, line, true, EpdFontFamily::BOLD);
-  y += lineHeight * 3 / 2;
+  drawWrapped(line, EpdFontFamily::BOLD);
+  y += lineHeight / 2;
 
   // Average ms per mode: upload / drf / sync / total.
   for (int m = 0; m < 4; ++m) {
@@ -405,17 +416,13 @@ void DisplayTestActivity::drawResult() {
              display_script::modeName(static_cast<Mode>(m)), static_cast<unsigned>(s.count),
              static_cast<unsigned long>(s.upload / s.count), static_cast<unsigned long>(s.drf / s.count),
              static_cast<unsigned long>(s.sync / s.count), static_cast<unsigned long>(s.total / s.count));
-    renderer.drawText(UI_10_FONT_ID, x, y, line);
-    y += lineHeight;
+    drawWrapped(line, EpdFontFamily::REGULAR);
   }
   if (refreshCount > 0) {
-    renderer.drawText(UI_10_FONT_ID, x, y, "upload / drf / sync / total (avg)", true, EpdFontFamily::ITALIC);
-    y += lineHeight * 3 / 2;
+    drawWrapped("upload / drf / sync / total (avg)", EpdFontFamily::ITALIC);
+    y += lineHeight / 2;
   }
-  for (const auto& a : answers) {
-    renderer.drawText(UI_10_FONT_ID, x, y, a.c_str());
-    y += lineHeight;
-  }
+  for (const auto& a : answers) drawWrapped(a.c_str(), EpdFontFamily::REGULAR);
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
