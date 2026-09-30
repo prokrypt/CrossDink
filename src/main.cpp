@@ -104,6 +104,7 @@
 #include "util/LocalClock.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SleepWakePolicy.h"
+#include "util/TransferLightPulse.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -2081,6 +2082,7 @@ static void updateFlashDuck() {
 }
 
 uint32_t idleWaitMs(const unsigned long idleMs) {
+  if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
   if (flashDuckActive || (liveFlashStartMs() != 0 && SETTINGS.frontlightFlashDuck)) return FLASH_DUCK_TICK_MS;
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
   // Light timeout: wake on time for the fade and step it at the fast tick.
@@ -2642,7 +2644,7 @@ static void loopPass() {
       // A radio exchange (Wi-Fi join, sync, download) runs on its own task and
       // the screen only polls it. At a 10 ms tick the loop cost ~11% of core 0,
       // the Wi-Fi/lwIP core, for the whole transfer.
-      InputTask::waitForInput(IDLE_WAIT_MS);
+      InputTask::waitForInput(TransferLightPulse::animating() ? TransferLightPulse::WRITE_INTERVAL_MS : IDLE_WAIT_MS);
     } else {
       // Short delay to prevent tight loop while still being responsive
       InputTask::waitForInput(10);

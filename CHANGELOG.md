@@ -144,6 +144,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) ramps smoothly again instead of stepping, and File Transfer no longer pulses when the only traffic is log or status polling.
 - X4 Pro: every reboot (update, restart into Wi-Fi or the reader, remote reboot) now switches the screen's power off first, instead of leaving it powered until the reset.
 - X4 Pro (Softfast): black and white pixels that stay the same across page turns (the status bar, overlapping text, the background) get a short balanced re-drive at the end of each turn, so they no longer fade or get dirty; a turn right after a skipped gray pass draws its text as dark as a regular turn; register waveforms run at the panel's own voltages and VCOM; balanced repaints run longer on a cold panel.
 - OPDS: loading catalog pages and downloads uses 2 KB less of the main task's stack (the network read buffer moved off the stack).

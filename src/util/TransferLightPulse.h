@@ -15,6 +15,10 @@ class TransferLightPulse {
  public:
   // How long after the last data a caller should still report activity.
   static constexpr unsigned long TAIL_MS = 250;
+  static constexpr uint32_t WRITE_INTERVAL_MS = 20;
+  // A pulse wrote within the last few steps: the main loop ticks at
+  // WRITE_INTERVAL_MS meanwhile, else a 50-250 ms idle tick makes it step.
+  static bool animating();
 
   // A light that is on keeps its level for holdMs before pulsing starts (0 =
   // pulse at once). A user change during the hold is kept as usual.

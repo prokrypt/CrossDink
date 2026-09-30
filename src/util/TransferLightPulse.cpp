@@ -6,7 +6,7 @@
 
 namespace {
 constexpr uint32_t kCycleMs = 1000;
-constexpr uint32_t kWriteIntervalMs = 20;
+uint32_t lastAnyWriteMs = 0;
 constexpr uint8_t kPeakPercent = 25;
 constexpr uint8_t kLitFloorPercent = 10;  // pulse floor when the light was already on
 }  // namespace
@@ -42,7 +42,10 @@ void TransferLightPulse::write(const uint8_t percent) {
   Frontlight.setBrightness(percent);
   written = percent;
   lastWriteMs = millis();
+  lastAnyWriteMs = lastWriteMs;
 }
+
+bool TransferLightPulse::animating() { return millis() - lastAnyWriteMs < 5 * WRITE_INTERVAL_MS; }
 
 void TransferLightPulse::update(const bool transferActive) {
   if (!armed || userOverride || held) {
@@ -89,7 +92,7 @@ void TransferLightPulse::update(const bool transferActive) {
     const uint32_t ramp = phase < half ? phase : kCycleMs - phase;
     target = static_cast<uint8_t>(floorPercent + ramp * (kPeakPercent - floorPercent) / half);
   }
-  if (target != written && (target == floorPercent || now - lastWriteMs >= kWriteIntervalMs)) {
+  if (target != written && (target == floorPercent || now - lastWriteMs >= WRITE_INTERVAL_MS)) {
     write(target);
   }
 }
