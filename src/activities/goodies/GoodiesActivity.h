@@ -47,8 +47,7 @@ class GoodiesActivity final : public Activity {
  public:
   GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
   // Root rows after Display test and Wi-Fi remote (frontlight boards only).
-  static constexpr int FLASH_DIM_ROW = 2;
-  static constexpr int FLASH_RESTORE_ROW = 3;
+  static constexpr int FLASH_DEPTH_ROW = 2;  // then dim offset, restore offset
 
   void onEnter() override;
   void loop() override;

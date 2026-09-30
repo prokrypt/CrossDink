@@ -370,15 +370,31 @@ void formatFlashDuckMs(const int value, char* buf, const size_t len) {
   snprintf(buf, len, ms > 0 ? "+%ld ms" : "%ld ms", static_cast<long>(ms));
 }
 
-std::string flashDuckRowValue(const uint8_t value) {
-  char buf[16];
-  formatFlashDuckMs(value, buf, sizeof(buf));
-  return buf;
-}
+// Flash dim level: 0-90 % of the light while ducked, same value as Display > Frontlight.
+void formatFlashDuckDepth(const int value, char* buf, const size_t len) { snprintf(buf, len, "%d%%", value); }
 
-uint8_t CrossPointSettings::* flashDuckKnob(const int index) {
-  return index == GoodiesActivity::FLASH_DIM_ROW ? &CrossPointSettings::flashDuckDim
-                                                 : &CrossPointSettings::flashDuckRestore;
+// The three flash duck rows, in row order from FLASH_DEPTH_ROW.
+struct FlashDuckKnob {
+  uint8_t CrossPointSettings::* field;
+  StrId name;
+  int max;
+  int step;
+  int largeStep;
+  void (*format)(int, char*, size_t);
+};
+constexpr FlashDuckKnob FLASH_DUCK_KNOBS[] = {
+    {&CrossPointSettings::flashDuckDepth, StrId::STR_FLASH_DUCK_DEPTH, CrossPointSettings::FLASH_DUCK_DEPTH_MAX,
+     CrossPointSettings::FLASH_DUCK_DEPTH_STEP, CrossPointSettings::FLASH_DUCK_DEPTH_STEP, formatFlashDuckDepth},
+    {&CrossPointSettings::flashDuckDim, StrId::STR_FLASH_DUCK_DIM, CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1, 5,
+     formatFlashDuckMs},
+    {&CrossPointSettings::flashDuckRestore, StrId::STR_FLASH_DUCK_RESTORE, CrossPointSettings::FLASH_DUCK_TIMING_MAX,
+     1, 5, formatFlashDuckMs},
+};
+
+std::string flashDuckRowValue(const FlashDuckKnob& knob) {
+  char buf[16];
+  knob.format(SETTINGS.*knob.field, buf, sizeof(buf));
+  return buf;
 }
 }  // namespace
 
@@ -399,8 +415,9 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
     if (Frontlight.present()) {
-      entries.push_back({tr(STR_FLASH_DUCK_DIM), -1, {}, flashDuckRowValue(SETTINGS.flashDuckDim)});
-      entries.push_back({tr(STR_FLASH_DUCK_RESTORE), -1, {}, flashDuckRowValue(SETTINGS.flashDuckRestore)});
+      for (const auto& knob : FLASH_DUCK_KNOBS) {
+        entries.push_back({I18n::getInstance().get(knob.name), -1, {}, flashDuckRowValue(knob)});
+      }
     }
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
@@ -452,7 +469,8 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::DisplayTests);
     } else if (index == 1) {
       toggleRemote();
-    } else if (Frontlight.present() && (index == FLASH_DIM_ROW || index == FLASH_RESTORE_ROW)) {
+    } else if (Frontlight.present() && index >= FLASH_DEPTH_ROW &&
+               index < FLASH_DEPTH_ROW + static_cast<int>(std::size(FLASH_DUCK_KNOBS))) {
       openFlashDuckKnob(index);
     } else {
 #ifndef SIMULATOR
@@ -482,22 +500,21 @@ int GoodiesActivity::remoteRowState() {
 
 // Live: the main loop reads the value on its next tick, so the next flash uses it.
 void GoodiesActivity::openFlashDuckKnob(const int index) {
-  uint8_t CrossPointSettings::* const knob = flashDuckKnob(index);
+  const FlashDuckKnob& knob = FLASH_DUCK_KNOBS[index - FLASH_DEPTH_ROW];
   startActivityForResult(
       std::make_unique<IntervalSelectionActivity>(
-          renderer, mappedInput, "FlashDuckKnob",
-          index == FLASH_DIM_ROW ? StrId::STR_FLASH_DUCK_DIM : StrId::STR_FLASH_DUCK_RESTORE, SETTINGS.*knob, 0,
-          CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1, 5, StrId::STR_NONE_OPT, /*readerActivity=*/false,
-          /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/false,
-          StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
-          formatFlashDuckMs, /*tapStep=*/1, /*useReaderSlider=*/true),
-      [this, index, knob](const ActivityResult& result) {
+          renderer, mappedInput, "FlashDuckKnob", knob.name, SETTINGS.*knob.field, 0, knob.max, knob.step,
+          knob.largeStep, StrId::STR_NONE_OPT, /*readerActivity=*/false, /*allowPowerAsConfirm=*/false,
+          /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/false, StrId::STR_NONE_OPT,
+          /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true, knob.format,
+          /*tapStep=*/knob.step, /*useReaderSlider=*/true),
+      [this, index, &knob](const ActivityResult& result) {
         mappedInput.suppressNextConfirmRelease();
         if (!result.isCancelled) {
-          SETTINGS.*knob = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+          SETTINGS.*knob.field = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
           SETTINGS.saveToFile();
           RenderLock lock(*this);
-          entries[index].value = flashDuckRowValue(SETTINGS.*knob);
+          entries[index].value = flashDuckRowValue(knob);
           rowItems[index].value = entries[index].value.c_str();
         }
         requestUpdate();
