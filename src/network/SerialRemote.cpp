@@ -3,6 +3,7 @@
 #if CROSSDINK_SERIAL_REMOTE
 
 #include <Arduino.h>
+#include <FreeInkDisplay.h>
 #include <FsHelpers.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
@@ -509,6 +510,14 @@ bool handleLine(const char* line) {
     cmdKbdExp(args);
   } else if (strcmp(verb, "REFRESH") == 0) {
     cmdRefresh(args);
+  } else if (strcmp(verb, "OTPREAD") == 0) {
+    // PROBE (read-only): UC8179 OTP voltage/VCOM headers; run on a B/W screen (Home).
+    freeink::requestUc8179OtpReadNext();
+    {
+      RenderLock lock;
+      display.displayBuffer(HalDisplay::FAST_REFRESH);
+    }
+    reply("OK:OTPREAD %s", freeink::uc8179OtpReport());
   } else if (strcmp(verb, "HOME") == 0) {
     activityManager.goHome();
     reply("OK:HOME");
