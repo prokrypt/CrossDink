@@ -861,8 +861,6 @@ struct FlashWorker {
   TaskHandle_t task = nullptr;
   SemaphoreHandle_t go = nullptr;
   SemaphoreHandle_t done = nullptr;
-  StaticSemaphore_t goBuf;
-  StaticSemaphore_t doneBuf;
   Result (*fn)(void*) = nullptr;  // nullptr: exit
   void* arg = nullptr;
   Result result = Result::OK;
@@ -886,8 +884,13 @@ Result onInternalStack(Result (*fn)(void*), void* arg) {
   volatile int probe = 0;
   if (esp_ptr_internal(const_cast<int*>(&probe))) return fn(arg);
   if (!worker.task) {
-    if (!worker.go) worker.go = xSemaphoreCreateBinaryStatic(&worker.goBuf);
-    if (!worker.done) worker.done = xSemaphoreCreateBinaryStatic(&worker.doneBuf);
+    // Created on the first remote OTA and kept (no static RAM in builds without it).
+    if (!worker.go) worker.go = xSemaphoreCreateBinary();
+    if (!worker.done) worker.done = xSemaphoreCreateBinary();
+    if (!worker.go || !worker.done) {
+      LOG_ERR("FLASH", "stream: no memory for the flash worker");
+      return Result::OOM;
+    }
     // Same priority and core as the caller, which blocks while it runs.
     if (xTaskCreatePinnedToCore(flashWorkerMain, "OtaFlash", FLASH_WORKER_STACK_BYTES, nullptr,
                                 uxTaskPriorityGet(nullptr), &worker.task, xPortGetCoreID()) != pdPASS) {
