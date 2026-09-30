@@ -1998,6 +1998,12 @@ static bool radioMayIdle() {
 // longer the device sits untouched. Anything still polled keeps 50 ms.
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
+  // Light timeout: wake on time for the fade and step it at the fast tick.
+  const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
+  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0 &&
+      idleMs + IDLE_WAIT_LONG_MS >= lightTimeoutMs) {
+    return IDLE_WAIT_MS;
+  }
   const bool tiltPolling = SETTINGS.tiltPageTurn != CrossPointSettings::TILT_OFF && halTiltSensor.isAvailable() &&
                            activityManager.isReaderActivity();
 #ifdef SIMULATOR
@@ -2235,6 +2241,37 @@ static void loopPass() {
   }
   if (userInputReceived) {
     activityManager.notifyUserInput();
+  }
+
+  // Light timeout. The first input after the light dimmed only brings it back:
+  // eat that whole gesture (held keys, their releases, a Home-key tap that
+  // fires on release) so it never also turns a page.
+  static bool lightWakeSwallow = false;
+  static unsigned long lightWakeHomeKeyUntil = 0;
+  if (userInputReceived && Frontlight.idleDimPercent() < 100) {
+    Frontlight.setIdleDim(100);
+    mappedInputManager.suppressCurrentTouchContact();
+    lightWakeSwallow = true;
+    lightWakeHomeKeyUntil = gpio.wasHomeKeyPressed() ? millis() + 1000 : 0;
+    LOG_DBG("LIGHT", "Light timeout: restored by input");
+  }
+  if (lightWakeSwallow) {
+    if (gpio.wasHomeKeyTapped() || gpio.wasHomeKeyLongPressed()) lightWakeHomeKeyUntil = 0;
+    if (userInputReceived || anyInputHeld() || static_cast<long>(lightWakeHomeKeyUntil - millis()) > 0) return;
+    lightWakeSwallow = false;
+  }
+  constexpr unsigned long LIGHT_FADE_MS = 1000;
+  const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
+  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
+    const unsigned long idleMs = std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime);
+    if (idleMs >= lightTimeoutMs) {
+      const unsigned long fadeMs = idleMs - lightTimeoutMs;
+      const uint8_t level = fadeMs >= LIGHT_FADE_MS ? 0 : static_cast<uint8_t>(100 - fadeMs * 100 / LIGHT_FADE_MS);
+      if (level < Frontlight.idleDimPercent()) {
+        if (Frontlight.idleDimPercent() == 100) LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
+        Frontlight.setIdleDim(level);
+      }
+    }
   }
 
   // Let wake continue as soon as its hold has been verified. The release can

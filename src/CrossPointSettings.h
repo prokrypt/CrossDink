@@ -685,6 +685,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightScheduleEnabled = 0;
   uint16_t frontlightScheduleStart = 0xFFFF;
   uint16_t frontlightScheduleEnd = 0xFFFF;
+  // Idle light timeout: 1 / 2 / 5 / 10 min / Never (getFrontlightTimeoutMs).
+  uint8_t frontlightTimeout = 4;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Enabled keyboard layouts. Zero derives a default from the UI language;
@@ -804,6 +806,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  public:
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
+  unsigned long getFrontlightTimeoutMs() const;
   int getRefreshFrequency() const;
 };
 

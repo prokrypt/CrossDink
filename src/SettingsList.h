@@ -640,6 +640,9 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
                             StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Toggle(StrId::STR_RESTORE_LIGHT_ON_WAKE, &CrossPointSettings::frontlightRestoreOnWake,
                             "frontlightRestoreOnWake", StrId::STR_CAT_DISPLAY));
+    add(SettingInfo::Enum(StrId::STR_LIGHT_TIMEOUT, &CrossPointSettings::frontlightTimeout,
+                          {StrId::STR_1_MIN, StrId::STR_2_MIN, StrId::STR_5_MIN, StrId::STR_10_MIN, StrId::STR_NEVER},
+                          "frontlightTimeout", StrId::STR_CAT_DISPLAY));
     // Kept in the shared catalog for persistence and the web API. On-device,
     // these values are presented only by Display > Frontlight.
     add(SettingInfo::Toggle(StrId::STR_FRONTLIGHT_SCHEDULE, &CrossPointSettings::frontlightScheduleEnabled,
@@ -1425,7 +1428,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
 
 inline std::vector<SettingInfo> buildDisplayFrontlightSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(4);
+  settings.reserve(5);
 
   auto addDisplaySetting = [&](const StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
@@ -1434,6 +1437,7 @@ inline std::vector<SettingInfo> buildDisplayFrontlightSettingsList(const std::ve
   };
 
   addDisplaySetting(StrId::STR_RESTORE_LIGHT_ON_WAKE);
+  addDisplaySetting(StrId::STR_LIGHT_TIMEOUT);
   if (halClock.isAvailable()) {
     addDisplaySetting(StrId::STR_FRONTLIGHT_SCHEDULE);
     addDisplaySetting(StrId::STR_START);
