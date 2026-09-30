@@ -40,6 +40,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- X4 Pro: pages with gray (anti-aliased text, gray images) now use the full balanced gray waveform instead of the stock quick gray pass, which pushed the panel one way on every gray page. Each gray page now flashes once and takes about 1 s longer.
 - Turbo keyboard (X4 Pro): typing redraws only the letters that change, with a charge-balanced quick refresh (no one-way drive, pixels that stay the same are not driven), and tapped keys are no longer highlighted. The screen below redraws with the normal refresh when the keyboard closes.
 - X4 Pro: the cleanup refresh (Half) no longer re-drives every white pixel black-to-white each time; it runs only the real changes from the previous screen.
 - Keyboard (X4 Pro): keys tapped while the screen is still updating now all appear together in the next update instead of one update per key.
@@ -126,6 +127,10 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: with anti-aliasing on, reading no longer adds a periodic cleanup flash; each anti-aliased page already redraws every pixel. The manual Refresh Screen shortcut still works.
+- X4 Pro: turning from one anti-aliased page to another flashes once instead of twice.
+- X4 Pro: turning past a page with an image no longer adds a full-screen flash on the next page. The panel already repaints every pixel cleanly when it leaves the image's gray.
+- X3/X4 (SSD1677): anti-aliased text no longer pushes gray pixels one way on every AA page. The AA gray pass now drives each gray level both ways (about 21 frames instead of 12, no extra flash), and the firmware refuses to build if any SSD1677 waveform is DC-unbalanced.
 - X4 Pro: the display no longer uses one-way (DC-unbalanced) drives, which built up charge and made screens dirtier over time and risked lasting image retention. Every refresh now uses the panel's own waveforms: screen entries, typing, File Transfer / OPDS / Calibre / Nearby / OTA / font download / SD firmware progress repaints are OTP Fast, and reader ghost cleanups are the balanced Half again (a short flash at your refresh-frequency setting). Typing is slower per key (about 0.55 s instead of 0.3 s ink), and headers on long transfer screens may fade slightly.
 - After a KOReader Sync or Nearby sync, later Wi-Fi sessions in the same boot no longer run with Wi-Fi power saving off.
 - Using Wi-Fi once no longer leaves internal memory fragmented until the next reboot.
