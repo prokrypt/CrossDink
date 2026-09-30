@@ -50,6 +50,7 @@ class CalibreConnectActivity final : public Activity {
   bool allowsRadioIdleSleep() override {
     return webServer && webServer->allowsIdleSleep() && !webServer->isTransferActive();
   }
-  bool powerOffPanelWhenIdle() const override { return true; }
+  // Live upload progress keeps the panel powered (log 20260930T082014Z-2557c0fd-wifi-opds).
+  bool powerOffPanelWhenIdle() const override { return lastProgressTotal == 0; }
   bool preventAutoSleep() override { return webServer && webServer->isRunning(); }
 };

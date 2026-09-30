@@ -135,6 +135,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: the OPDS download page, Calibre upload progress and Nearby send/receive progress keep the screen powered while the progress updates. Switching the screen off between updates left heavy ghosting on a large OPDS download.
 - OPDS: Back (button or the top-left Back button) now cancels a catalog page that is still loading and returns to the previous list, instead of being ignored until the request finishes or times out after 60 s. A kept-alive connection idle more than 4 s is reopened instead of reused, so a page opened after a pause no longer hangs on a socket the server dropped.
 - Debug builds: after a task-watchdog reset, the SD crash report names the task each core was running.
 - X4 Pro: after a crash during start-up, a later restart no longer uses an out-of-date copy of the screen as its starting point, which could re-drive pixels that were already set.
