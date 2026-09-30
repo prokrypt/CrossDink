@@ -75,17 +75,24 @@ void HalClock::begin() {
 bool HalClock::refresh(const bool needDate) const {
   if (!_available) return false;
 
-  const bool hasCached = needDate ? _hasCachedDate : _hasCachedTime;
   const unsigned long now = millis();
-  if (_lastPollMs != 0 && (now - _lastPollMs) < CLOCK_POLL_MS && hasCached) return true;
+  taskENTER_CRITICAL(&_cacheMux);
+  const bool hasCached = needDate ? _hasCachedDate : _hasCachedTime;
+  const bool fresh = _lastPollMs != 0 && (now - _lastPollMs) < CLOCK_POLL_MS && hasCached;
+  taskEXIT_CRITICAL(&_cacheMux);
+  if (fresh) return true;
 
   Rtc::DateTime dt;
   if (!_sdkRtc.now(dt)) {
     if (!hasCached) return false;
+    taskENTER_CRITICAL(&_cacheMux);
     _lastPollMs = now;
+    taskEXIT_CRITICAL(&_cacheMux);
     return true;
   }
 
+  const bool validDate = isValidDate(dt.year, dt.month, dt.day);
+  taskENTER_CRITICAL(&_cacheMux);
   _cachedYear = dt.year;
   _cachedMonth = dt.month;
   _cachedDay = dt.day;
@@ -95,22 +102,33 @@ bool HalClock::refresh(const bool needDate) const {
   _cachedAtMs = now;
   _lastPollMs = now;
   _hasCachedTime = true;
-  _hasCachedDate = isValidDate(_cachedYear, _cachedMonth, _cachedDay);
-  return needDate ? _hasCachedDate : true;
+  _hasCachedDate = validDate;
+  taskEXIT_CRITICAL(&_cacheMux);
+  return needDate ? validDate : true;
 }
 
 void HalClock::readCached(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute,
                           uint8_t& second) const {
-  // Advance the last RTC reading by the time since it was taken, so reads
-  // between polls keep ticking and carry whole seconds.
-  uint32_t secondOfDay = static_cast<uint32_t>(_cachedHour) * 3600u + static_cast<uint32_t>(_cachedMinute) * 60u +
-                         _cachedSecond + (millis() - _cachedAtMs) / 1000u;
-  uint32_t days = secondOfDay / 86400u;
-  secondOfDay %= 86400u;
+  taskENTER_CRITICAL(&_cacheMux);
   year = _cachedYear;
   month = _cachedMonth;
   day = _cachedDay;
-  if (_hasCachedDate) {
+  hour = _cachedHour;
+  minute = _cachedMinute;
+  second = _cachedSecond;
+  const unsigned long cachedAtMs = _cachedAtMs;
+  const bool hasDate = _hasCachedDate;
+  // Read millis() after the snapshot so it can't predate _cachedAtMs.
+  const unsigned long elapsedMs = millis() - cachedAtMs;
+  taskEXIT_CRITICAL(&_cacheMux);
+
+  // Advance the last RTC reading by the time since it was taken, so reads
+  // between polls keep ticking and carry whole seconds.
+  uint32_t secondOfDay = static_cast<uint32_t>(hour) * 3600u + static_cast<uint32_t>(minute) * 60u + second +
+                         elapsedMs / 1000u;
+  uint32_t days = secondOfDay / 86400u;
+  secondOfDay %= 86400u;
+  if (hasDate) {
     for (; days > 0; days--) adjustDateByDays(year, month, day, 1);
   }
   hour = static_cast<uint8_t>(secondOfDay / 3600u);
@@ -209,6 +227,7 @@ bool HalClock::writeDateTimeToRTC(uint16_t year, uint8_t month, uint8_t day, uin
     return false;
   }
 
+  taskENTER_CRITICAL(&_cacheMux);
   _lastPollMs = 0;
   _cachedHour = hour;
   _cachedMinute = minute;
@@ -219,6 +238,7 @@ bool HalClock::writeDateTimeToRTC(uint16_t year, uint8_t month, uint8_t day, uin
   _cachedAtMs = millis();
   _hasCachedTime = true;
   _hasCachedDate = true;
+  taskEXIT_CRITICAL(&_cacheMux);
   return true;
 }
 
