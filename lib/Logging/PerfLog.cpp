@@ -42,6 +42,12 @@ volatile bool inputPending = false;
 char renderActivity[24] = "-";
 const char* volatile pagePath = "-";
 const char* volatile inputKind = "-";
+volatile uint32_t sampleSeq = 0;
+// An input with no render start this long after it drew nothing (ignored
+// presses); a later render belongs to something else. Slow first renders
+// (opening a book with a long section build) stay well under this.
+constexpr uint32_t NO_RENDER_MS = 15000;
+std::atomic<uint32_t> inputSeq{0};
 bool firstInkLogged = false;
 // Last rendered activity (render task writes, main loop reads; a torn read
 // only mislabels one debug line) and the one the open [PM] window belongs to.
@@ -60,6 +66,13 @@ int bootPhaseCount = 0;
 constexpr uint32_t RESTART_MAGIC = 0x52535431;  // "RST1"
 RTC_NOINIT_ATTR uint32_t restartMagic;
 RTC_NOINIT_ATTR uint64_t restartRequestedUs;
+
+constexpr uint32_t SLEEP_MAGIC = 0x534C5031;  // "SLP1"
+RTC_NOINIT_ATTR uint32_t sleepMagic;
+RTC_NOINIT_ATTR uint64_t sleepEnteredUs;
+RTC_NOINIT_ATTR uint32_t sleepAwakeMs;
+RTC_NOINIT_ATTR char sleepReason[20];
+RTC_NOINIT_ATTR char sleepActivity[24];
 
 uint32_t take(std::atomic<uint32_t>& counter) { return counter.exchange(0, std::memory_order_relaxed); }
 void add(std::atomic<uint32_t>& counter, const uint32_t value) { counter.fetch_add(value, std::memory_order_relaxed); }
@@ -206,9 +219,24 @@ void logPmLocks(const char* act) {
 #endif
 }  // namespace
 
-void noteInput(const bool release, const char* kind) {
-  if (release && inputPending && renderStartMs != 0) return;
-  inputKind = kind ? kind : "-";
+uint32_t nextInputSeq() { return inputSeq.fetch_add(1, std::memory_order_relaxed) + 1; }
+
+void noteInput(const bool release, const char* kind, const uint32_t seq) {
+  if (!kind) kind = "-";
+  if (inputPending) {
+    if (release && renderStartMs != 0) return;
+    // Finger moves before a tap or swipe lands, or while a refresh runs, must
+    // not steal the sample of the action already waiting for ink.
+    if (strcmp(kind, "touch") == 0) return;
+    // A replaced sample still gets its line, so every #N is accounted for. A
+    // release restarting its own press, and bare contact moves, are not actions.
+    if (strcmp(inputKind, "touch") != 0 && !release) {
+      LOG_DBG("LAT", "#%lu in=%s act=%s superseded by #%lu", static_cast<unsigned long>(sampleSeq), inputKind,
+              renderStartMs != 0 ? renderActivity : "-", static_cast<unsigned long>(seq));
+    }
+  }
+  sampleSeq = seq;
+  inputKind = kind;
   renderStartMs = 0;
   renderEndMs = 0;
   pagePath = "-";
@@ -218,6 +246,13 @@ void noteInput(const bool release, const char* kind) {
 
 void noteRenderStart(const char* activity) {
   snprintf(currentAct, sizeof(currentAct), "%s", activity ? activity : "-");
+  if (inputPending && renderStartMs == 0 && millis() - inputMs > NO_RENDER_MS) {
+    // Nothing drew for the input; do not bill this unrelated render to it.
+    inputPending = false;
+    if (strcmp(inputKind, "touch") != 0) {
+      LOG_DBG("LAT", "#%lu in=%s act=- no render", static_cast<unsigned long>(sampleSeq), inputKind);
+    }
+  }
   if (inputPending && renderStartMs == 0) {
     renderStartMs = millis();
     snprintf(renderActivity, sizeof(renderActivity), "%s", activity ? activity : "-");
@@ -270,6 +305,9 @@ void noteInk() {
     }
   }
   if (!inputPending) return;
+  // No render since the input: this ink is a frame drawn before it (a deferred
+  // refresh ending, or finished by the next display call). Keep waiting.
+  if (renderStartMs == 0) return;
   inputPending = false;
   // The keyboard logs its own per-keystroke key-to-ink ([KBD] prev_key_to_ink);
   // [LAT] drops samples there when strokes overlap.
@@ -278,13 +316,35 @@ void noteInk() {
   const uint32_t rs = renderStartMs;
   // A blocking refresh finishes inside render(), before its end is noted.
   const uint32_t re = renderEndMs != 0 ? renderEndMs : now;
-  if (rs == 0) {
-    LOG_DBG("LAT", "in=%s act=- total=%lu", inputKind, static_cast<unsigned long>(now - in));
-    return;
-  }
-  LOG_DBG("LAT", "in=%s act=%s path=%s queue=%lu render=%lu ink=%lu total=%lu", inputKind, renderActivity, pagePath,
+  LOG_DBG("LAT", "#%lu in=%s act=%s path=%s queue=%lu render=%lu ink=%lu total=%lu",
+          static_cast<unsigned long>(sampleSeq), inputKind, renderActivity, pagePath,
           static_cast<unsigned long>(rs - in), static_cast<unsigned long>(re - rs),
           static_cast<unsigned long>(now - re), static_cast<unsigned long>(now - in));
+}
+
+void noteDeepSleep(const char* reason, const char* activity) {
+  snprintf(sleepReason, sizeof(sleepReason), "%s", reason ? reason : "-");
+  snprintf(sleepActivity, sizeof(sleepActivity), "%s", activity ? activity : "-");
+  sleepAwakeMs = millis();
+  sleepEnteredUs = esp_rtc_get_time_us();
+  sleepMagic = SLEEP_MAGIC;
+  LOG_DBG("SLP", "deep sleep: reason=%s act=%s awake=%lu s", sleepReason, sleepActivity,
+          static_cast<unsigned long>(sleepAwakeMs / 1000));
+}
+
+void logLastSleep() {
+  if (sleepMagic != SLEEP_MAGIC) {
+    LOG_INF("BOOT", "last sleep: none recorded (cold boot, power loss or restart)");
+    return;
+  }
+  sleepMagic = 0;
+  sleepReason[sizeof(sleepReason) - 1] = '\0';
+  sleepActivity[sizeof(sleepActivity) - 1] = '\0';
+  // RTC time keeps counting through deep sleep; this span also covers the boot
+  // up to this line.
+  const uint64_t sleptUs = esp_rtc_get_time_us() - sleepEnteredUs;
+  LOG_INF("BOOT", "last sleep: reason=%s act=%s awake=%lu s slept=%lu s", sleepReason, sleepActivity,
+          static_cast<unsigned long>(sleepAwakeMs / 1000), static_cast<unsigned long>(sleptUs / 1000000ULL));
 }
 
 void noteRestart() {

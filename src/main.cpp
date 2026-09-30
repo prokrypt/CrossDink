@@ -1371,6 +1371,10 @@ void enterDeepSleep(bool fromTimeout) {
   {
     HalPowerManager::Lock powerLock;
     APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+    // "request" = power button or a Sleep menu/quick action.
+    PerfLog::noteDeepSleep(
+        fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
+        activityManager.currentActivityName());
 
     const bool isQuickResumeSleep =
         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
@@ -1554,6 +1558,7 @@ void setup() {
           BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
+  PerfLog::logLastSleep();
 #ifndef SIMULATOR
   {
     char sec[96];
@@ -1606,6 +1611,7 @@ void setup() {
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton &&
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
+    PerfLog::noteDeepSleep("wake-not-held", "boot");
     powerManager.startDeepSleep(gpio);
   }
 #endif
@@ -2021,16 +2027,22 @@ void updateTouchControllerSleep() {
 // presses, swipes, the home key and tilt turns. Drag samples are left out.
 // Touch coordinates are panel-normalized per mille (0-1000). Returns the kind
 // of this frame's event for the [LAT] line.
-static const char* logInputEvents() {
+static const char* logInputEvents(uint32_t& seq) {
   static constexpr const char* BUTTON_NAMES[] = {"back", "confirm", "left", "right", "up", "down", "power"};
+  // #N is taken by the first [IN] line of the frame; contact moves alone stay #0.
+  seq = 0;
+  const auto id = [&seq] {
+    if (seq == 0) seq = PerfLog::nextInputSeq();
+    return static_cast<unsigned long>(seq);
+  };
   const char* kind = "touch";  // contact moves only
   for (uint8_t i = 0; i < sizeof(BUTTON_NAMES) / sizeof(BUTTON_NAMES[0]); i++) {
     if (gpio.wasPressed(i)) {
-      LOG_DBG("IN", "btn %s down", BUTTON_NAMES[i]);
+      LOG_DBG("IN", "#%lu btn %s down", id(), BUTTON_NAMES[i]);
       kind = "btn";
     }
     if (gpio.wasReleased(i)) {
-      LOG_DBG("IN", "btn %s up", BUTTON_NAMES[i]);
+      LOG_DBG("IN", "#%lu btn %s up", id(), BUTTON_NAMES[i]);
       kind = "btn";
     }
   }
@@ -2038,7 +2050,7 @@ static const char* logInputEvents() {
   const auto permille = [](const float n) { return static_cast<int>(n * 1000.0f); };
   float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
   if (gpio.wasHomeKeyTapped()) {
-    LOG_DBG("IN", "home key");
+    LOG_DBG("IN", "#%lu home key", id());
     kind = "home";
   }
   // Screen px in the current orientation (what the UI acts on), then the raw
@@ -2047,11 +2059,11 @@ static const char* logInputEvents() {
   int lx0 = 0, ly0 = 0, lx1 = 0, ly1 = 0;
   if (gpio.wasTouchTap(x0, y0)) {
     renderer.tapToLogical(x0, y0, lx0, ly0);
-    LOG_DBG("IN", "tap %d,%d (panel %d,%d)", lx0, ly0, permille(x0), permille(y0));
+    LOG_DBG("IN", "#%lu tap %d,%d (panel %d,%d)", id(), lx0, ly0, permille(x0), permille(y0));
     kind = "tap";
   } else if (gpio.wasTouchLongPress(x0, y0)) {
     renderer.tapToLogical(x0, y0, lx0, ly0);
-    LOG_DBG("IN", "long %d,%d (panel %d,%d)", lx0, ly0, permille(x0), permille(y0));
+    LOG_DBG("IN", "#%lu long %d,%d (panel %d,%d)", id(), lx0, ly0, permille(x0), permille(y0));
     kind = "long";
   } else if (gpio.wasSwipe(x0, y0, x1, y1)) {
     renderer.tapToLogical(x0, y0, lx0, ly0);
@@ -2059,8 +2071,8 @@ static const char* logInputEvents() {
     const int dx = lx1 - lx0;
     const int dy = ly1 - ly0;
     const char* dir = std::abs(dx) >= std::abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
-    LOG_DBG("IN", "swipe %s %d,%d->%d,%d (panel %d,%d->%d,%d)", dir, lx0, ly0, lx1, ly1, permille(x0), permille(y0),
-            permille(x1), permille(y1));
+    LOG_DBG("IN", "#%lu swipe %s %d,%d->%d,%d (panel %d,%d->%d,%d)", id(), dir, lx0, ly0, lx1, ly1, permille(x0),
+            permille(y0), permille(x1), permille(y1));
     kind = "swipe";
   }
 #endif
@@ -2071,7 +2083,7 @@ static const char* logInputEvents() {
   touchActivity = gpio.wasTouchActivity();
 #endif
   if (strcmp(kind, "touch") == 0 && !touchActivity) {
-    LOG_DBG("IN", "tilt");
+    LOG_DBG("IN", "#%lu tilt", id());
     kind = "tilt";
   }
   return kind;
@@ -2159,7 +2171,9 @@ static void loopPass() {
                                  || halTiltSensor.hadActivity();
 #if CROSSDINK_PERF_LOG
   if (userInputReceived) {
-    PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), logInputEvents());
+    uint32_t inputSeq = 0;
+    const char* inputKind = logInputEvents(inputSeq);
+    PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), inputKind, inputSeq);
   }
 #endif
 
