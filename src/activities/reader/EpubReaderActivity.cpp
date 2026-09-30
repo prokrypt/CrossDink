@@ -2262,9 +2262,14 @@ bool EpubReaderActivity::beginGlobalSettingsEdit() {
 }
 
 void EpubReaderActivity::endGlobalSettingsEdit() {
+  // Locked first: a render between the join and the reload would start new
+  // workers on the fonts about to be unloaded.
+  RenderLock lock(*this);
   uint32_t effectiveChanges = 0;
   const bool restoreBookFont = bookReaderSettingsSuspendedForGlobalEdit;
   if (restoreBookFont) {
+    waitSilentIndexWorker(/*cancel=*/true);
+    waitDrawAhead(/*publish=*/false);
     // Global Settings is editing SETTINGS while the book-specific reader values
     // are suspended. Retain every edited reader default before restoring this
     // book, otherwise the stale snapshot is written back on a later save or
@@ -2292,10 +2297,12 @@ void EpubReaderActivity::endGlobalSettingsEdit() {
     bookReaderSettingsSuspendedForGlobalEdit = false;
   }
 
-  RenderLock lock(*this);
   // The global font picker may have unloaded this book's SD font even when
   // its override kept the effective font setting unchanged.
-  if (restoreBookFont) ensureReaderSdFontLoaded(renderer);
+  if (restoreBookFont) {
+    ensureReaderSdFontLoaded(renderer);
+    workerLaneMissFontId = 0;
+  }
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
   const ReaderViewportLayout layout = computeReaderViewportLayout(
       renderer, automaticPageTurnActive, activeFootnotePreview || !pendingFootnotePreviewAnchor.empty());
@@ -4494,7 +4501,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
         bool settingsReset = false;
         if (epub) {
           {
+            // Locked first: a render between the join and the reload would start new
+            // workers on the fonts about to be unloaded.
             RenderLock lock(*this);
+            waitSilentIndexWorker(/*cancel=*/true);
+            waitDrawAhead(/*publish=*/false);
             settingsReset = resetBookReaderSettings(epub->getPath());
             if (settingsReset) {
               if (section) prepareCurrentSectionForRelayout();
@@ -4507,15 +4518,13 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
               }
               ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
               section.reset();
+              ensureReaderSdFontLoaded(renderer);
+              workerLaneMissFontId = 0;
+              drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
             }
           }
 
           if (settingsReset) {
-            waitSilentIndexWorker(/*cancel=*/true);
-            waitDrawAhead(/*publish=*/false);
-            ensureReaderSdFontLoaded(renderer);
-            workerLaneMissFontId = 0;
-            drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
             delay(1000);
           } else {
             LOG_ERR("ERS", "Failed to reset reader settings for current book");
