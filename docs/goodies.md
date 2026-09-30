@@ -43,12 +43,15 @@ commands are rejected, and the result screen shows the failing line.
 | `frames N` | DU LUT frames (1..63, default 6). |
 | `pll 0xNN` | PLL (0x30) value during DU refreshes; `0` keeps the default. |
 | `scrub half\|du` | The next Fast/DU refresh runs as a Half scrub, or a DU scrub (DU needs `refresh du`). |
+| `swing N` | UC8179: refresh to the framebuffer with a balanced N-frame DU swing of every pixel (1..120). |
+| `null N` | UC8179: null discharge, sources at GND and VCOM at VCOM_DC for 2 x N frames; pixels do not move (1..120). |
 | `wait MS` | Pause (0..60000 ms). |
 | `repeat N` ... `end` | Loop N times (1..1000, nesting up to 4). |
 | `text X Y <text>` | Draw bold text at X,Y. |
 | `pick X Y CW CH COLS ROWS \| question \| name1 \| ...` | Wait for a tap on one cell of a COLS x ROWS grid of CW x CH cells at X,Y (or Left/Right then Confirm); logs the square number and its name. |
 | `note <text>` | Write a line to the log. |
 | `ask <question> \| A \| B` | Show the question over the test image; Left/left half = A, Right/right half = B. The answer is logged. |
+| `confirm <question> \| stop \| go` | Like `ask`; the first answer stops the test. |
 
 `frames` and `pll` stay in effect until changed. `window` and `resync` were removed: both could leave the
 controller's OLD plane unlike the panel, so the next refresh would drive pixels one way.

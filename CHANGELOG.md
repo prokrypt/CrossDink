@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- X4 Pro (debug builds): Goodies > Display test > Panel conditioning. After a confirm, about 30 s of balanced black/white swings with null discharges in between, ending on white, to even out charge left on the panel. Back stops it between swings.
 - X4 Pro: Reader > Dim Light on Flash (off by default). While the panel flashes (anti-aliased and image pages in Sharpflash, Softfast's full swings, Half/Full refreshes, opening or closing a menu or panel over a gray page), a lit frontlight fades out and then fades back up to your level over 0.3 s. It never turns on a light that was off and saves nothing to the SD card.
 - X4 Pro: Text Anti-Aliasing has three choices: Off, Sharpflash (one full-screen flash per anti-aliased page, the previous behavior) and Softfast (no full-screen flash on text pages: the page shows in black and white first, then only its light-gray edge pixels turn gray, for bolder text; slower; image pages, the first page after opening a book and the first page after a menu refresh like Sharpflash). The in-reader menu offers the same three choices. Other devices treat Softfast like Sharpflash.
 - X4 Pro: Display > Frontlight > Light Timeout (1 / 2 / 5 / 10 min / Never, default Never). With no input for that long, the frontlight fades out over 1 s. The next key or touch brings it back at once and does nothing else. It never turns on a light that was off, and it waits while File Transfer, Calibre or USB Drive keep the device awake.

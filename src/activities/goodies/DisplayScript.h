@@ -30,6 +30,9 @@ enum class OpCode : uint8_t {
   Label,     // text drawn in a white band at the top
   DrawText,  // a0 a1: x y; text
   Pick,      // a0..a5: grid x y cellW cellH cols rows; text = question; options = one name per cell
+  Confirm,   // as Ask; the first answer stops the test
+  Swing,     // a0: frames; balanced DU swing of every pixel to the framebuffer (UC8179 Half-as-scrub)
+  Null,      // a0: frames per phase; sources at GND, VCOM at VCOM_DC (UC8179 null discharge)
 };
 
 enum class Mode : uint8_t { Full, Half, Fast, Du };
