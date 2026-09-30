@@ -28,7 +28,8 @@ class NearbyBookTransferActivity final : public Activity {
   bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
-  bool powerOffPanelWhenIdle() const override { return true; }
+  // Live transfer progress keeps the panel powered (log 20260930T082014Z-2557c0fd-wifi-opds).
+  bool powerOffPanelWhenIdle() const override { return state_ != State::Sending && state_ != State::Receiving; }
   bool preventAutoSleep() override { return true; }
   bool skipLoopDelay() override;
 
