@@ -156,6 +156,10 @@ class CrossPointWebServer {
   static constexpr uint32_t IDLE_POLL_MS = 100;
   static constexpr int ACTIVE_PASSES_PER_TICK = 64;
   TaskHandle_t serverTask = nullptr;
+  // Log-only server (Goodies remote): stack in PSRAM. None of its handlers
+  // touch the SD card, and /api/ota's flash writes run on firmware_flash's
+  // internal-stack worker. Such a task parks at exit; stop() deletes it.
+  bool serverTaskPsram = false;
   SemaphoreHandle_t serverStopped = nullptr;
   std::atomic<bool> stopRequested{false};
   static void serverTaskMain(void* param);

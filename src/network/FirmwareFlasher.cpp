@@ -6,6 +6,7 @@
 #include <Memory.h>
 #include <TaskCores.h>
 #include <esp_heap_caps.h>
+#include <esp_memory_utils.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <mbedtls/sha256.h>
@@ -840,15 +841,84 @@ Result flushStream() {
   return Result::OK;
 }
 
+void closeStream() {
+  stream = Stream{};
+  streamOpen.store(false, std::memory_order_relaxed);
+}
+
 Result failStream(const Result r) {
   LOG_ERR("FLASH", "stream stopped: %s; otadata left unchanged", resultName(r));
-  streamAbort();
+  closeStream();
   return r;
 }
-}  // namespace
 
-Result streamBegin(const size_t totalSize) {
-  streamAbort();
+// Flash erase and write switch the cache off, so they must never run on a
+// task whose stack is in PSRAM (the Goodies remote's server task). Such a
+// caller hands each stream step to this internal-stack task and waits; it
+// lives from the first step until the stream closes. Internal-stack callers
+// (File Transfer) run the steps directly.
+struct FlashWorker {
+  TaskHandle_t task = nullptr;
+  SemaphoreHandle_t go = nullptr;
+  SemaphoreHandle_t done = nullptr;
+  StaticSemaphore_t goBuf;
+  StaticSemaphore_t doneBuf;
+  Result (*fn)(void*) = nullptr;  // nullptr: exit
+  void* arg = nullptr;
+  Result result = Result::OK;
+};
+FlashWorker worker;
+constexpr uint32_t FLASH_WORKER_STACK_BYTES = 4096;
+
+void flashWorkerMain(void*) {
+  for (;;) {
+    xSemaphoreTake(worker.go, portMAX_DELAY);
+    if (!worker.fn) break;
+    worker.result = worker.fn(worker.arg);
+    xSemaphoreGive(worker.done);
+  }
+  LOG_INF("FLASH", "stream worker: stack min free %u", static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  xSemaphoreGive(worker.done);
+  vTaskDelete(nullptr);
+}
+
+Result onInternalStack(Result (*fn)(void*), void* arg) {
+  volatile int probe = 0;
+  if (esp_ptr_internal(const_cast<int*>(&probe))) return fn(arg);
+  if (!worker.task) {
+    if (!worker.go) worker.go = xSemaphoreCreateBinaryStatic(&worker.goBuf);
+    if (!worker.done) worker.done = xSemaphoreCreateBinaryStatic(&worker.doneBuf);
+    // Same priority and core as the caller, which blocks while it runs.
+    if (xTaskCreatePinnedToCore(flashWorkerMain, "OtaFlash", FLASH_WORKER_STACK_BYTES, nullptr,
+                                uxTaskPriorityGet(nullptr), &worker.task, xPortGetCoreID()) != pdPASS) {
+      worker.task = nullptr;
+      LOG_ERR("FLASH", "stream: flash worker did not start");
+      return Result::OOM;
+    }
+  }
+  worker.fn = fn;
+  worker.arg = arg;
+  xSemaphoreGive(worker.go);
+  xSemaphoreTake(worker.done, portMAX_DELAY);
+  return worker.result;
+}
+
+void stopFlashWorker() {
+  if (!worker.task) return;
+  worker.fn = nullptr;
+  xSemaphoreGive(worker.go);
+  xSemaphoreTake(worker.done, portMAX_DELAY);
+  worker.task = nullptr;
+}
+
+// A closed stream (finished or failed) no longer needs the worker.
+Result endStep(const Result r) {
+  if (!streamOpen.load(std::memory_order_relaxed)) stopFlashWorker();
+  return r;
+}
+
+Result beginHere(const size_t totalSize) {
+  closeStream();
   stream.dest = esp_ota_get_next_update_partition(nullptr);
   if (!stream.dest) return failStream(Result::NO_PARTITION);
   if (totalSize < MIN_FIRMWARE_SIZE) return failStream(Result::TOO_SMALL);
@@ -863,7 +933,7 @@ Result streamBegin(const size_t totalSize) {
   return Result::OK;
 }
 
-Result streamWrite(const uint8_t* data, size_t len) {
+Result writeHere(const uint8_t* data, size_t len) {
   if (!stream.verifier) return Result::OPEN_FAIL;
   if (stream.written + stream.fill + len > stream.total) return failStream(Result::BAD_SIZE);
   stream.verifier->feed(data, len);
@@ -882,7 +952,7 @@ Result streamWrite(const uint8_t* data, size_t len) {
   return Result::OK;
 }
 
-Result streamFinish() {
+Result finishHere() {
   if (!stream.verifier) return Result::OPEN_FAIL;
   if (stream.written + stream.fill != stream.total) return failStream(Result::BAD_SIZE);
   if (stream.fill > 0) {
@@ -892,7 +962,7 @@ Result streamFinish() {
   const Result verified = stream.verifier->finish();
   if (verified != Result::OK) return failStream(verified);
   const esp_partition_t* dest = stream.dest;
-  streamAbort();
+  closeStream();
   if (!ota_boot::switchTo(dest)) {
     LOG_ERR("FLASH", "stream: otadata switch failed");
     return Result::OTADATA_FAIL;
@@ -901,9 +971,32 @@ Result streamFinish() {
   return Result::OK;
 }
 
+}  // namespace
+
+Result streamBegin(size_t totalSize) {
+  return endStep(onInternalStack([](void* size) { return beginHere(*static_cast<size_t*>(size)); }, &totalSize));
+}
+
+Result streamWrite(const uint8_t* data, const size_t len) {
+  struct Chunk {
+    const uint8_t* data;
+    size_t len;
+  } chunk{data, len};
+  return endStep(onInternalStack(
+      [](void* c) {
+        const auto* chunk = static_cast<Chunk*>(c);
+        return writeHere(chunk->data, chunk->len);
+      },
+      &chunk));
+}
+
+Result streamFinish() {
+  return endStep(onInternalStack([](void*) { return finishHere(); }, nullptr));
+}
+
 void streamAbort() {
-  stream = Stream{};
-  streamOpen.store(false, std::memory_order_relaxed);
+  closeStream();
+  stopFlashWorker();
 }
 
 bool streamActive() { return streamOpen.load(std::memory_order_relaxed); }
