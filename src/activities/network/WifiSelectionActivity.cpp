@@ -966,6 +966,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
 #endif
 
   if (wifiStatusIsConnectionFailure(status)) {
+    WiFi.setSleep(true);  // the join is over; attemptConnection() turns it off again for a retry
     connectionError = tr(STR_ERROR_GENERAL_FAILURE);
     if (status == WL_NO_SSID_AVAIL) {
       connectionError = tr(STR_ERROR_NETWORK_NOT_FOUND);
@@ -992,6 +993,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
   const unsigned long timeoutMs = autoConnecting ? AUTO_CONNECTION_TIMEOUT_MS : CONNECTION_TIMEOUT_MS;
   if (millis() - connectionStartTime > timeoutMs) {
     WiFi.disconnect();
+    WiFi.setSleep(true);
     connectionError = tr(STR_ERROR_CONNECTION_TIMEOUT);
     LOG_INF("WIFI", "Connection timed out: ssid=%s elapsed=%lums lastStatus=%d/%s", selectedSSID.c_str(),
             millis() - connectionStartTime, static_cast<int>(status), wifiStatusName(status));
