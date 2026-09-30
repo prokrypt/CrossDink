@@ -25,6 +25,14 @@
 #include "util/FontFamilyLabel.h"
 #include "util/FrontlightSchedule.h"
 
+// Time to Sleep labels, one per CrossPointSettings::SLEEP_TIMEOUT_STEP_MINUTES entry, then Never.
+inline constexpr StrId SLEEP_TIMEOUT_STEP_LABELS[] = {
+    StrId::STR_1_MIN,    StrId::STR_2_MIN,    StrId::STR_3_MIN,    StrId::STR_4_MIN,     StrId::STR_5_MIN,
+    StrId::STR_10_MIN,   StrId::STR_20_MIN,   StrId::STR_30_MIN,   StrId::STR_1_HOUR,    StrId::STR_2_HOURS,
+    StrId::STR_4_HOURS,  StrId::STR_6_HOURS,  StrId::STR_8_HOURS,  StrId::STR_10_HOURS,  StrId::STR_12_HOURS,
+    StrId::STR_SLEEP_NEVER};
+static_assert(std::size(SLEEP_TIMEOUT_STEP_LABELS) == CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP + 1);
+
 inline std::string fontSizePointLabel(const uint8_t pointSize) { return std::to_string(pointSize) + " pt"; }
 
 inline SettingInfo buildBuiltinFontSizeSetting() {
@@ -835,10 +843,9 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     // --- System ---
     add(SettingInfo::String(StrId::STR_DEVICE_NAME, SETTINGS.deviceName, sizeof(SETTINGS.deviceName), "deviceName",
                             StrId::STR_CAT_SYSTEM));
-    add(SettingInfo::Value(
-        StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeoutMinutes,
-        {CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES, CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1},
-        "sleepTimeoutMinutes", StrId::STR_CAT_SYSTEM));
+    add(SettingInfo::Enum(StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeoutStep,
+                          {std::begin(SLEEP_TIMEOUT_STEP_LABELS), std::end(SLEEP_TIMEOUT_STEP_LABELS)},
+                          "sleepTimeoutStep", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_CUSTOM_BOOTSCREEN, &CrossPointSettings::customBootscreenEnabled,
                             "customBootscreenEnabled", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_TURBO_KEYBOARD, &CrossPointSettings::turboKeyboard, "turboKeyboard",
