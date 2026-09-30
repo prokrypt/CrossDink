@@ -14,9 +14,10 @@
   saved in `crossink-settings.json` (`goodiesWifiRemote`), written only when it changes. Wi-Fi screens (File
   Transfer, Calibre Connect, OPDS, Nearby) take the radio while open; afterwards, and after every sleep wake,
   restart or power-on, the remote rejoins in the background: 5 s after boot, once input has paused for 2 s,
-  retrying after 1, 2, 4... up to 10 min when the network is out of reach. Starting a join blocks the main task
-  briefly (logged as `main task blocked N ms`). While the idle server waits for requests, the device power saves
-  as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
+  retrying after 1, 2, 4... up to 10 min when the network is out of reach. The join (reading `wifi.json`,
+  starting the Wi-Fi driver) runs on its own task, so input and drawing never wait for it (logged as
+  `join task N ms`). With no saved network, turning it on opens the Wi-Fi picker. While the idle server waits
+  for requests, the device power saves as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
 
 Back stops a running test; Back again leaves the result screen.
 

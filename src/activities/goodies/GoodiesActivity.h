@@ -18,8 +18,13 @@ bool running();
 // The toggle (SETTINGS.goodiesWifiRemote): on, whether or not connected yet.
 bool wanted();
 // Toggle on without a Wi-Fi screen: joins the saved network in the background.
-// False (nothing changed) when no network is saved.
-bool startInBackground();
+// With no saved network the toggle turns back off and takePickerRequest() is
+// set once, so Goodies can open the Wi-Fi picker.
+void startInBackground();
+bool takePickerRequest();
+// Blocks until a running join task is done. Called before a Wi-Fi screen's
+// onEnter() and before deep sleep, so no Wi-Fi call overlaps the task's.
+void waitForJoin();
 // Toggle off: server and Wi-Fi off, forgets the toggle.
 void stop();
 // A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
@@ -72,6 +77,7 @@ class GoodiesActivity final : public Activity {
   int remoteRowShown = -1;
 
   void toggleRemote();
+  void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();
   static void listScreen(UiApp::ScreenType& screen, void* user);
