@@ -45,7 +45,7 @@ class KeyboardEntryActivity : public Activity {
   bool passwordVisible = false;
 
   // EXPERIMENT (test/kbd-uc8179): UC8179 keyboard refresh toggles.
-  static constexpr uint8_t KBD_EXP_SKIP_RESYNC = 1;
+  // 1 was T2 (skip the OLD-plane resync); retired, the SDK always resyncs.
   static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
@@ -57,12 +57,12 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_OTP_ON_OPEN = 64;
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
-  // Settings > Turbo keyboard: 1+2 (windowed upload, no OLD resync), DU typing
+  // Settings > Turbo keyboard: 2 (windowed upload), DU typing
   // (4; the SDK's DU LUT is charge-balanced, two phases), no tap highlight (32),
   // OTP Fast first frame (64); the screen below redraws with OTP Fast on exit.
-  // CMD:KBDEXP 67 = the previous OTP Fast typing with highlight.
-  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT |
-                                                    KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
+  // CMD:KBDEXP 66 = the previous OTP Fast typing with highlight.
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
+      KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
   // DU frames per phase (two phases). Untested on hardware; the old one-way
   // LUT needed 6 single-phase frames.
   static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 4;

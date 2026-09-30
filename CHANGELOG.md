@@ -44,6 +44,7 @@
 - X4 Pro: the cleanup refresh (Half) no longer re-drives every white pixel black-to-white each time; it runs only the real changes from the previous screen.
 - Keyboard (X4 Pro): keys tapped while the screen is still updating now all appear together in the next update instead of one update per key.
 - X4 Pro: leaving a grayscale sleep image uses a charge-balanced drive for the first black-and-white screen.
+- Turbo keyboard (X4 Pro): the screen's previous-frame memory is always refreshed after each key, so later cleanup refreshes never re-drive settled pixels.
 - X4 Pro: the reader's automatic cleanups no longer flash (Refresh Screen still does a full refresh). Opening a book, returning to it, the page after an image, and the regular ghost cleanup use a ~0.3 s no-flash scrub instead of the 1.5 s flashing refresh, and closing a menu over an image page skips the cleanup. Image pages also finish their anti-aliasing sooner, and a menu opened during an image cleanup shows ~0.6 s sooner.
 - X4 Pro: closing the Turbo keyboard cleans the screen with the same no-flash scrub.
 - X4 Pro: an OPDS book download switches the panel's power booster off after each progress update, like the transfer screens; interactive screens keep it on so input stays fast.
