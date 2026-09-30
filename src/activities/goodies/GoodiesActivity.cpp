@@ -443,7 +443,8 @@ int GoodiesActivity::remoteRowState() {
 std::string GoodiesActivity::remoteRowValue() {
   switch (remoteRowState()) {
     case 2:
-      return remoteIp;
+      // The state stays readable next to the address: "ON 10.0.1.67".
+      return std::string(tr(STR_STATE_ON)) + " " + remoteIp;
     case 1:
       return tr(STR_CONNECTING);
     default:
