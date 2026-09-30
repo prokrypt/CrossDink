@@ -1159,6 +1159,17 @@ void ActivityManager::goToSleep(bool fromTimeout) {
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 
+void ActivityManager::exitAllActivities() {
+  RenderLock lock;
+  exitActivity(lock);
+  while (!stackActivities.empty()) {
+    stackActivities.back()->onExit();
+    stackActivities.pop_back();
+  }
+  pendingActivity.reset();
+  pendingAction = PendingAction::None;
+}
+
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::Style style) {

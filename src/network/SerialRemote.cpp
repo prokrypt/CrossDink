@@ -526,6 +526,8 @@ bool handleLine(const char* line) {
   } else if (strcmp(verb, "REBOOT") == 0) {
     reply("OK:REBOOT");
     logSerial.flush();
+    // /api/ota lands here too: save what the open screens save on exit first.
+    activityManager.exitAllActivities();
     silentRestart();  // intentional: remote-control reboot for test runs, no logo
   } else if (strcmp(verb, "WAITIDLE") == 0) {
     cmdWaitIdle(args);
