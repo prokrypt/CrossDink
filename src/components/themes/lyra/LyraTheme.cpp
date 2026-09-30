@@ -264,8 +264,14 @@ void LyraTheme::drawListWithMetrics(const GfxRenderer& renderer, Rect rect, int 
       selY += visualRowHeight(j);
       if (isHeaderRow(j + 1)) selY += sectionHeaderTopPadding;
     }
-    renderer.fillRoundedRect(rect.x + metrics.contentSidePadding, selY, contentWidth - metrics.contentSidePadding * 2,
-                             rowHeight, cornerRadius, invertSelectedRows ? Color::Black : Color::LightGray);
+    const int selX = rect.x + metrics.contentSidePadding;
+    const int selW = contentWidth - metrics.contentSidePadding * 2;
+    if (invertSelectedRows) {
+      renderer.fillRoundedRect(selX, selY, selW, rowHeight, cornerRadius, Color::Black);
+    } else {
+      // Outline, not a dither fill: fewer pixels change per move, all in lines, so less ghosting.
+      renderer.drawRoundedRect(selX, selY, selW, rowHeight, 2, cornerRadius, true);
+    }
   }
 
   int textX = rect.x + metrics.contentSidePadding + hPaddingInSelection;
