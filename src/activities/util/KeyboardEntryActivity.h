@@ -49,19 +49,22 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
-  static constexpr uint8_t KBD_EXP_WINDOW_DRF = 32;  // retired T6 windowed DRF; ignored
+  // No key highlight on touch taps: a keystroke changes only the text field.
+  static constexpr uint8_t KBD_EXP_NO_TAP_HIGHLIGHT = 32;
   // Open with a plain OTP Fast first frame (no DU): the one-way DU drive adds
   // charge over the previous screen instead of clearing it, and 16 flashes.
   static constexpr uint8_t KBD_EXP_OTP_ON_OPEN = 64;
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
-  // Settings > Turbo keyboard: 1+2 (windowed upload, no OLD resync) on the
-  // panel's OTP Fast. No DU LUT (4): it drives each pixel one way only, and
-  // repeated keystrokes build up charge. 64: plain first frame, no cleanup.
-  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_OTP_ON_OPEN;
-  // DU LUT drive frames: 3 left heavy ghosting on the X4 Pro; 6 is the
-  // setting tested on hardware ("63 6").
-  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
+  // Settings > Turbo keyboard: 1+2 (windowed upload, no OLD resync), DU typing
+  // (4; the SDK's DU LUT is charge-balanced, two phases), no tap highlight (32),
+  // OTP Fast first frame (64); the screen below redraws with OTP Fast on exit.
+  // CMD:KBDEXP 67 = the previous OTP Fast typing with highlight.
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = KBD_EXP_SKIP_RESYNC | KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT |
+                                                    KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
+  // DU frames per phase (two phases). Untested on hardware; the old one-way
+  // LUT needed 6 single-phase frames.
+  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 4;
   uint8_t kbdExpFlags = 0;
   uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   uint8_t kbdExpPll = 0;

@@ -201,10 +201,10 @@ void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uin
 void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 
 // EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
-// picks "67" (flags 67, OTP Fast) or 0 (T1 baseline, timing only).
-// flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 DU LUT (+pll),
+// picks "103 4" (flags 103, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
+// flags: 1 = T2 skip OLD resync, 2 = T3 two windows, 4 = T4 balanced DU LUT (+pll),
 // 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
-// 64 = plain OTP Fast first frame, 128 = light sleep during the refresh. Debug builds can
+// 32 = no tap highlight, 64 = plain OTP Fast first frame, 128 = light sleep during the refresh. Debug builds can
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
@@ -670,16 +670,18 @@ void KeyboardEntryActivity::loop() {
     const fui::TouchHoldRouter::Result result =
         touchRouter.update(interactions, tapCandidate, static_cast<int16_t>(tx), static_cast<int16_t>(ty), tapped,
                            static_cast<int16_t>(tapX), static_cast<int16_t>(tapY), inContact, millis());
+    const bool tapHighlight = !(kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT);
     if (result.event) {
       highlightPending = false;
-      selectionShown = true;  // the tapped key keeps the highlight; only the initial preselect is hidden
+      // The tapped key keeps the highlight; only the initial preselect is hidden.
+      if (tapHighlight) selectionShown = true;
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestStrokeUpdate();
       }
       return;
     }
-    if (result.activeChanged) {
+    if (result.activeChanged && tapHighlight) {
       if (interactions.activeIndex() >= 0) {
         highlightPending = true;
         highlightDueMs = millis() + TOUCH_HIGHLIGHT_DELAY_MS;

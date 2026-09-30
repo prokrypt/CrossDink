@@ -40,6 +40,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Turbo keyboard (X4 Pro): typing redraws only the letters that change, with a charge-balanced quick refresh (no one-way drive, pixels that stay the same are not driven), and tapped keys are no longer highlighted. The screen below redraws with the normal refresh when the keyboard closes.
 - X4 Pro: the reader's automatic cleanups no longer flash (Refresh Screen still does a full refresh). Opening a book, returning to it, the page after an image, and the regular ghost cleanup use a ~0.3 s no-flash scrub instead of the 1.5 s flashing refresh, and closing a menu over an image page skips the cleanup. Image pages also finish their anti-aliasing sooner, and a menu opened during an image cleanup shows ~0.6 s sooner.
 - X4 Pro: closing the Turbo keyboard cleans the screen with the same no-flash scrub.
 - X4 Pro: an OPDS book download switches the panel's power booster off after each progress update, like the transfer screens; interactive screens keep it on so input stays fast.
