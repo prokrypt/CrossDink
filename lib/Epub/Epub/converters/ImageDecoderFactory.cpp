@@ -6,6 +6,7 @@
 #include <Memory.h>
 
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "JpegToFramebufferConverter.h"
@@ -13,6 +14,11 @@
 
 std::unique_ptr<JpegToFramebufferConverter> ImageDecoderFactory::jpegDecoder = nullptr;
 std::unique_ptr<PngToFramebufferConverter> ImageDecoderFactory::pngDecoder = nullptr;
+
+namespace {
+// The render task and the next-chapter worker can both make the first call.
+std::mutex decoderInitMutex;
+}  // namespace
 
 ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string& imagePath) {
   std::string ext = imagePath;
@@ -26,6 +32,7 @@ ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string& im
     ext = "";
   }
 
+  std::lock_guard<std::mutex> guard(decoderInitMutex);
   if (JpegToFramebufferConverter::supportsFormat(ext)) {
     if (!jpegDecoder) {
       jpegDecoder = makeUniqueNoThrow<JpegToFramebufferConverter>();
