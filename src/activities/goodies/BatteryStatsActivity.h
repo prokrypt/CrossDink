@@ -5,7 +5,7 @@
 #include "activities/Activity.h"
 
 // Goodies > Battery & stats: a battery % graph from the tail of
-// /logs/battery.csv (bar under it = asleep) and a page of counters. Everything
+// /debug/logs/battery.csv (bar under it = asleep) and a page of counters. Everything
 // is read on the main loop in onEnter()/reset; render() only draws.
 class BatteryStatsActivity final : public Activity {
  public:
