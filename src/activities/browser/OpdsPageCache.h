@@ -69,19 +69,27 @@ class OpdsPageCache {
   // Takes ownership; evicts least recently used pages to fit the budget.
   // Returns false (and drops the page) when it alone exceeds the budget, or,
   // with mayEvict false (background preloads), when it does not fit as is.
-  bool store(const std::string& url, OpdsPageBuffer&& page, bool mayEvict = true);
+  // nowMs stamps the page for isStale().
+  bool store(const std::string& url, OpdsPageBuffer&& page, bool mayEvict = true, uint32_t nowMs = 0);
   bool contains(const std::string& url) const;
+  // True when url is cached and was stored at least minAgeMs before nowMs.
+  bool isStale(const std::string& url, uint32_t nowMs, uint32_t minAgeMs) const;
   void erase(const std::string& url);
   void clear();
 
   size_t pageCount() const;
   size_t bytesUsed() const { return usedBytes; }
 
+  // Same feed bytes, ignoring <updated> elements: dynamic servers stamp the
+  // generation time there, which would make every recheck look like a change.
+  static bool sameFeed(const OpdsPageBuffer& a, const OpdsPageBuffer& b);
+
  private:
   struct Slot {
     PsramString url;  // PSRAM: 64 keys otherwise pin internal RAM
     OpdsPageBuffer page;
     uint32_t lastUse = 0;
+    uint32_t storedMs = 0;
     bool used = false;
   };
 

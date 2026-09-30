@@ -3,10 +3,31 @@
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <string_view>
 #include <utility>
 
 namespace {
 constexpr size_t INITIAL_PAGE_CAPACITY = 16 * 1024;
+constexpr std::string_view UPDATED_OPEN = "<updated>";
+constexpr std::string_view UPDATED_CLOSE = "</updated>";
+
+// The bytes from pos up to the next <updated> element; moves pos past that
+// element (or to the end).
+std::string_view nextRunOutsideUpdated(const std::string_view body, size_t& pos) {
+  const size_t start = pos;
+  const size_t open = body.find(UPDATED_OPEN, start);
+  if (open == std::string_view::npos) {
+    pos = body.size();
+    return body.substr(start);
+  }
+  const size_t close = body.find(UPDATED_CLOSE, open);
+  pos = close == std::string_view::npos ? body.size() : close + UPDATED_CLOSE.size();
+  return body.substr(start, open - start);
+}
+
+std::string_view bodyOf(const OpdsPageBuffer& page) {
+  return {reinterpret_cast<const char*>(page.data()), page.size()};
+}
 }  // namespace
 
 bool OpdsPageBuffer::append(const uint8_t* data, const size_t len) {
@@ -69,6 +90,22 @@ const OpdsPageBuffer* OpdsPageCache::find(const std::string& url) {
 
 bool OpdsPageCache::contains(const std::string& url) const { return findSlot(url) != nullptr; }
 
+bool OpdsPageCache::isStale(const std::string& url, const uint32_t nowMs, const uint32_t minAgeMs) const {
+  const Slot* slot = findSlot(url);
+  return slot && nowMs - slot->storedMs >= minAgeMs;
+}
+
+bool OpdsPageCache::sameFeed(const OpdsPageBuffer& a, const OpdsPageBuffer& b) {
+  const std::string_view x = bodyOf(a);
+  const std::string_view y = bodyOf(b);
+  size_t i = 0;
+  size_t j = 0;
+  while (i < x.size() || j < y.size()) {
+    if (nextRunOutsideUpdated(x, i) != nextRunOutsideUpdated(y, j)) return false;
+  }
+  return true;
+}
+
 void OpdsPageCache::erase(const std::string& url) {
   if (Slot* slot = findSlot(url)) evict(*slot);
 }
@@ -90,7 +127,7 @@ OpdsPageCache::Slot* OpdsPageCache::evictLeastRecentlyUsed() {
   return oldest;
 }
 
-bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const bool mayEvict) {
+bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const bool mayEvict, const uint32_t nowMs) {
   if (page.empty() || page.failed() || page.size() > byteBudget) return false;
   if (!mayEvict && (usedBytes + page.size() > byteBudget || pageCount() >= MAX_PAGES) && !findSlot(url)) {
     return false;
@@ -106,6 +143,7 @@ bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const b
   target->url.assign(url.data(), url.size());
   target->page = std::move(page);
   target->lastUse = ++useClock;
+  target->storedMs = nowMs;
   target->used = true;
   usedBytes += target->page.size();
   return true;

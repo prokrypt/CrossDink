@@ -17,6 +17,7 @@
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
 - OPDS: when a book download fails, a prompt offers Retry or Cancel (back to the list, deleting the partial file). Retry continues from where the download stopped when the server supports resuming (HTTP Range, checked with If-Range), and otherwise starts over. A full SD card still shows its own error.
 - OPDS: Back, Previous page and a prefetched Next page open straight from memory without a Loading screen first, and Back returns to the row you opened, scrolled as you left it.
+- OPDS (X4 Pro): a catalog page shown from memory that is at least 30 s old is fetched again in the background; if the server's copy changed (ignoring feed timestamps), the list redraws in place, keeping your row and scroll position.
 - OPDS: catalog pages reuse one open connection to the server instead of a new secure handshake per page.
 - OPDS: a book download that stops arriving is noticed after 10 s instead of 60 s and continues on its own from where it stopped (up to 4 times, while each attempt makes progress) before the Retry prompt appears. Large books from servers that cut long transfers now finish without a tap.
 
