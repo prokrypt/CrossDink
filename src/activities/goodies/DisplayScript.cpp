@@ -178,6 +178,10 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
     op.a[0] = argc == 1 && args[0] == "du";
     return argc == 1 && (args[0] == "half" || args[0] == "du") ? nullptr : "scrub half|du";
   }
+  if (verb == "probe") {
+    op.code = OpCode::Probe;
+    return argc == 1 && args[0] == "n2ocp" ? nullptr : "probe n2ocp";
+  }
   if (verb == "wait") {
     op.code = OpCode::Wait;
     return numbers(args, argc, 0, 1, op) && op.a[0] <= 60000 ? nullptr : "wait 0..60000";
@@ -467,6 +471,31 @@ const BuiltIn BUILT_INS[] = {
      "refresh du\n"
      "wait 2000\n"
      "ask After the 20-frame scrub: old text under the squares? | Yes | No\n"},
+    // Does the UC8179 copy NEW into OLD by itself after a refresh (CDI N2OCP)?
+    // Each probe refresh is followed, inside the driver, by a second balanced DU
+    // refresh of the same picture with no OLD resync between. Copy: nothing
+    // moves. No copy: the moved box's pixels run KW/WK again and blink. Every
+    // row nets zero whatever OLD holds, and OLD is resynced right after.
+    {"N2OCP probe",
+     "fill white\n"
+     "label N2OCP probe | Box on the LEFT | Next: box moves RIGHT, then a re-check\n"
+     "box 40 300 160 160\n"
+     "refresh full\n"
+     "wait 2500\n"
+     "frames 10\n"
+     "fill white\n"
+     "label N2OCP 1/2: box moves RIGHT | 1.5 s later: re-check, same picture | Blink of either box = no copy\n"
+     "box 280 300 160 160\n"
+     "probe n2ocp\n"
+     "refresh du\n"
+     "wait 1500\n"
+     "fill white\n"
+     "label N2OCP 2/2: box moves LEFT | 1.5 s later: re-check, same picture | Blink of either box = no copy\n"
+     "box 40 300 160 160\n"
+     "probe n2ocp\n"
+     "refresh du\n"
+     "wait 1500\n"
+     "ask In either re-check, did a box blink? | Yes | No\n"},
 };
 const int BUILT_IN_COUNT = sizeof(BUILT_INS) / sizeof(BUILT_INS[0]);
 

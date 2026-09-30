@@ -50,6 +50,7 @@ class DisplayTestActivity final : public Activity {
   // Refresh parameters set by the script.
   uint8_t duFrames = 6;
   uint8_t pll = 0;
+  bool n2ocpNext = false;  // `probe n2ocp`: the next DU refresh runs the N2OCP probe
 
   int refreshCount = 0;
   ModeStats stats[4];

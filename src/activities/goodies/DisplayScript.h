@@ -30,6 +30,7 @@ enum class OpCode : uint8_t {
   Label,     // text drawn in a white band at the top
   DrawText,  // a0 a1: x y; text
   Pick,      // a0..a5: grid x y cellW cellH cols rows; text = question; options = one name per cell
+  Probe,     // the next DU refresh runs the N2OCP probe (UC8179)
 };
 
 enum class Mode : uint8_t { Full, Half, Fast, Du };

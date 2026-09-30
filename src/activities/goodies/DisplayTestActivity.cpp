@@ -165,6 +165,9 @@ void DisplayTestActivity::runOps() {
       case OpCode::Frames:
         duFrames = static_cast<uint8_t>(op.a[0]);
         break;
+      case OpCode::Probe:
+        n2ocpNext = true;
+        break;
       case OpCode::Pll:
         pll = static_cast<uint8_t>(op.a[0]);
         break;
@@ -289,6 +292,8 @@ void DisplayTestActivity::refresh(const Mode mode) {
     exp.flags |= freeink::Uc8179KbdExperiment::KbdLut;
     exp.lutFrames = duFrames;
     exp.pll = pll;
+    if (n2ocpNext) exp.flags |= freeink::Uc8179KbdExperiment::N2ocpProbe;
+    n2ocpNext = false;
   }
   freeink::setUc8179KbdExperiment(exp.flags ? &exp : nullptr);
   const uint32_t countBefore = freeink::uc8179KbdTiming().count;

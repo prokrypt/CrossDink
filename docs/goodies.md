@@ -40,6 +40,7 @@ commands are rejected, and the result screen shows the failing line.
 | `refresh full\|half\|fast\|du` | Show the framebuffer. `du` is a Fast refresh with the keyboard's balanced DU LUT (compile-time DC-balance checked); the others run the panel's OTP waveforms. |
 | `frames N` | DU LUT frames (1..63, default 6). |
 | `pll 0xNN` | PLL (0x30) value during DU refreshes; `0` keeps the default. |
+| `probe n2ocp` | The next DU refresh re-runs itself 1.5 s later with no OLD resync between (UC8179 N2OCP check; a blink = no copy). |
 | `scrub half\|du` | The next Fast/DU refresh runs as a Half scrub, or a DU scrub (DU needs `refresh du`). |
 | `wait MS` | Pause (0..60000 ms). |
 | `repeat N` ... `end` | Loop N times (1..1000, nesting up to 4). |
