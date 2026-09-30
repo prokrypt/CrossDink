@@ -133,7 +133,6 @@ class EpubReaderActivity final : public Activity {
   // Softfast holds B/W over the Fast base. Book open and the first page after a
   // covering screen (drawer, menus) swing fully so nothing of it ghosts.
   bool smoothFullSwingPending = true;
-  uint8_t smoothPagesSinceSwing = 0;  // held Softfast pages since the last full swing
   // The image page whose grayscale pass last reached the panel. Redrawing that
   // same page (an overlay closed) needs no gray-residue cleanup.
   struct GrayImageOnPanel {
