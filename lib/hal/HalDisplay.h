@@ -124,10 +124,14 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
-  // millis() when a flashing refresh started (a full-swing gray pass: when its
-  // planes started loading), 0 while none runs. The main loop dims the
-  // frontlight meanwhile.
-  uint32_t flashStartedMs() const { return flashStart.load(std::memory_order_relaxed); }
+  // millis() when the running refresh's full-screen swing shows (UC8179: from
+  // the driver, per waveform; it may lie ahead), 0 while none runs. The main
+  // loop dims the frontlight around it.
+  uint32_t flashStartedMs() const;
+  // A refresh that may flash is running (the loop ticks fast meanwhile).
+  bool flashMarked() const { return flashStart.load(std::memory_order_relaxed) != 0; }
+  // When that refresh is expected to end (UC8179), 0 when unknown.
+  uint32_t flashEndsMs() const;
   // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
   // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
   // then gray passes, then refreshes that flash (as marked for the flash duck).

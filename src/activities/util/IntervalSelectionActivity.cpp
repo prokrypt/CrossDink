@@ -139,7 +139,9 @@ void IntervalSelectionActivity::formatValue(char* const buf, const size_t len) c
 
 #if CROSSDINK_APP_CAP_TOUCH
 void IntervalSelectionActivity::formatEndpoint(const int endpoint, char* const buf, const size_t len) const {
-  if (maxBoundaryLabelId != StrId::STR_NONE_OPT && endpoint == maxValue) {
+  if (valueFormatter != nullptr) {
+    valueFormatter(endpoint, buf, len);
+  } else if (maxBoundaryLabelId != StrId::STR_NONE_OPT && endpoint == maxValue) {
     snprintf(buf, len, "%s", I18N.get(maxBoundaryLabelId));
   } else if (showPercentValue) {
     snprintf(buf, len, "%d%%", endpoint);

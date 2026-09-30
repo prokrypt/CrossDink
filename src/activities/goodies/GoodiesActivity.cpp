@@ -2,6 +2,7 @@
 
 #if CROSSDINK_GOODIES
 
+#include <CrossDinkHalFrontlight.h>
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -24,6 +25,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/util/IntervalSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -360,6 +362,25 @@ GoodiesActivity::GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mapp
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {}
 
+namespace {
+// Flash dim / restore offsets: signed ms, later is positive.
+void formatFlashDuckMs(const int value, char* buf, const size_t len) {
+  const int32_t ms = CrossPointSettings::flashDuckMs(static_cast<uint8_t>(value));
+  snprintf(buf, len, ms > 0 ? "+%ld ms" : "%ld ms", static_cast<long>(ms));
+}
+
+std::string flashDuckRowValue(const uint8_t value) {
+  char buf[16];
+  formatFlashDuckMs(value, buf, sizeof(buf));
+  return buf;
+}
+
+uint8_t CrossPointSettings::* flashDuckKnob(const int index) {
+  return index == GoodiesActivity::FLASH_DIM_ROW ? &CrossPointSettings::flashDuckDim
+                                                 : &CrossPointSettings::flashDuckRestore;
+}
+}  // namespace
+
 void GoodiesActivity::onEnter() {
   Activity::onEnter();
   applySharedUiTheme(app, uiTarget);
@@ -376,6 +397,10 @@ void GoodiesActivity::showLevel(const Level next) {
   if (level == Level::Root) {
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
+    if (Frontlight.present()) {
+      entries.push_back({tr(STR_FLASH_DUCK_DIM), -1, {}, flashDuckRowValue(SETTINGS.flashDuckDim)});
+      entries.push_back({tr(STR_FLASH_DUCK_RESTORE), -1, {}, flashDuckRowValue(SETTINGS.flashDuckRestore)});
+    }
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
@@ -426,6 +451,8 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::DisplayTests);
     } else if (index == 1) {
       toggleRemote();
+    } else if (Frontlight.present() && (index == FLASH_DIM_ROW || index == FLASH_RESTORE_ROW)) {
+      openFlashDuckKnob(index);
     } else {
 #ifndef SIMULATOR
       startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
@@ -449,6 +476,31 @@ void GoodiesActivity::activate(const int index) {
 int GoodiesActivity::remoteRowState() {
   if (goodies_remote::running()) return 2;
   return goodies_remote::wanted() ? 1 : 0;
+}
+
+
+// Live: the main loop reads the value on its next tick, so the next flash uses it.
+void GoodiesActivity::openFlashDuckKnob(const int index) {
+  uint8_t CrossPointSettings::* const knob = flashDuckKnob(index);
+  startActivityForResult(
+      std::make_unique<IntervalSelectionActivity>(
+          renderer, mappedInput, "FlashDuckKnob",
+          index == FLASH_DIM_ROW ? StrId::STR_FLASH_DUCK_DIM : StrId::STR_FLASH_DUCK_RESTORE, SETTINGS.*knob, 0,
+          CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1, 5, StrId::STR_NONE_OPT, /*readerActivity=*/false,
+          /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/false,
+          StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
+          formatFlashDuckMs, /*tapStep=*/1, /*useReaderSlider=*/true),
+      [this, index, knob](const ActivityResult& result) {
+        mappedInput.suppressNextConfirmRelease();
+        if (!result.isCancelled) {
+          SETTINGS.*knob = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+          SETTINGS.saveToFile();
+          RenderLock lock(*this);
+          entries[index].value = flashDuckRowValue(SETTINGS.*knob);
+          rowItems[index].value = entries[index].value.c_str();
+        }
+        requestUpdate();
+      });
 }
 
 std::string GoodiesActivity::remoteRowValue() {

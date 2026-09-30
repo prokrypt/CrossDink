@@ -224,7 +224,8 @@ std::string formatSettingValue(const SettingInfo& setting) {
              static_cast<unsigned int>(SETTINGS.*(setting.valuePtr)));
     return valueBuffer;
   }
-  if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
+  if (setting.valuePtr == &CrossPointSettings::lineHeightPercent ||
+      setting.valuePtr == &CrossPointSettings::flashDuckDepth) {
     return std::to_string(SETTINGS.*(setting.valuePtr)) + "%";
   }
   if (setting.valuePtr == &CrossPointSettings::readingIdleTimeThresholdUnits) {
@@ -1060,6 +1061,25 @@ void SettingsActivity::toggleCurrentSetting() {
   }
   if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
     openLineHeightPicker();
+    return;
+  }
+  if (setting.valuePtr == &CrossPointSettings::flashDuckDepth) {
+    startActivityForResult(
+        std::make_unique<IntervalSelectionActivity>(
+            renderer, mappedInput, "FlashDuckDepth", StrId::STR_FLASH_DUCK_DEPTH, SETTINGS.flashDuckDepth, 0,
+            CrossPointSettings::FLASH_DUCK_DEPTH_MAX, CrossPointSettings::FLASH_DUCK_DEPTH_STEP,
+            CrossPointSettings::FLASH_DUCK_DEPTH_STEP, StrId::STR_NONE_OPT, /*readerActivity=*/false,
+            /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/true,
+            StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
+            /*valueFormatter=*/nullptr, /*tapStep=*/CrossPointSettings::FLASH_DUCK_DEPTH_STEP,
+            /*useReaderSlider=*/true),
+        [this](const ActivityResult& result) {
+          if (!result.isCancelled) {
+            SETTINGS.flashDuckDepth = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+            SETTINGS.saveToFile();
+          }
+          requestUpdate();
+        });
     return;
   }
   if (setting.valuePtr == &CrossPointSettings::wordSpacing) {
