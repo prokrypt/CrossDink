@@ -918,7 +918,8 @@ TEST_F(LibraryBuilderTest, CreationSortAllocationFailureRetriesOnNextScan) {
     ASSERT_TRUE(index.open(INDEX));
     foundArrivalFallback = (index.header().flags & CLIX_FLAG_ARRIVAL_DEGRADED) != 0;
     if (!foundArrivalFallback) continue;
-    EXPECT_TRUE(libraryIndexNeedsRefresh());
+    // Degraded is published, not dirty: Home must not rebuild it on every entry.
+    EXPECT_FALSE(libraryIndexNeedsRefresh());
     EXPECT_FALSE(stats.ranksDegraded);
     EXPECT_EQ(pathAt(index, SortOrder::RecentAsc, 0), "/a.txt");
     index.close();
@@ -996,6 +997,7 @@ TEST_F(LibraryBuilderTest, DuplicateDetectionRemainsBoundedAndFindsTrackedKeysAf
   EXPECT_EQ(stats.books, LIBRARY_MAX_DEDUP_KEYS + 1);
   EXPECT_EQ(stats.duplicatesDropped, 1);
   EXPECT_TRUE(stats.dedupDegraded);
+  EXPECT_FALSE(libraryIndexNeedsRefresh());
   EXPECT_LT(fake::delays, 2000u);
 }
 
@@ -1078,6 +1080,7 @@ TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndAtFormatCeilingKeepAllOrders) 
       // instead of being rewritten to SD on every background pass.
       EXPECT_FALSE(stats.indexReplaced);
       EXPECT_TRUE(stats.dedupDegraded);
+      EXPECT_FALSE(libraryIndexNeedsRefresh());
       EXPECT_LT(fake::delays, 10000u);
     }
 
@@ -1119,6 +1122,7 @@ TEST_F(LibraryBuilderTest, SortAllocationFailureProducesValidDegradedIndex) {
   ASSERT_TRUE(buildLibraryIndex("/", stats, false));
   EXPECT_TRUE(fake::failureTriggered);
   EXPECT_TRUE(stats.ranksDegraded);
+  EXPECT_FALSE(libraryIndexNeedsRefresh());
   EXPECT_TRUE(stats.indexReplaced);
 
   LibraryIndexFile index;
