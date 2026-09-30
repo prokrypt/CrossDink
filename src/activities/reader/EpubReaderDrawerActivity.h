@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "CrossPointSettings.h"
 #include "EpubReaderMenuModel.h"
 #include "ReaderOptionsActivity.h"
 #include "TouchReaderPreviewModel.h"
@@ -140,6 +141,8 @@ class EpubReaderDrawerActivity final : public Activity {
 
   ReaderDrawerState state{};
   ReaderSettingsDraft draft{};
+  // Style restored when the drawer switches text AA back on (Settings picks Sharp/Smooth).
+  uint8_t textAaOnStyle = CrossPointSettings::TEXT_AA_SHARP;
   const ReaderSettingsDraft sourceSettings;
   ReaderSettingsDraft lastGoodPreviewSettings{};
   ReaderSettingsChangeMask changeMask = ReaderSettingsChangeMask::None;

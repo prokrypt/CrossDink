@@ -390,6 +390,7 @@ class GfxRenderer {
   void displayGrayBuffer(bool turnOffScreen = false) const;
   void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const;
   bool shouldSkipImageBlanking() const;
+  void setSmoothGray(bool smooth) { display.setSmoothGray(smooth); }
   bool supportsStripGrayscale() const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
