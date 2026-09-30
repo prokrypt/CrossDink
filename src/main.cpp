@@ -71,6 +71,7 @@
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
+#include "activities/reader/ReaderExitSave.h"
 #include "activities/reader/ReaderProgressShadow.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
@@ -1474,6 +1475,7 @@ void enterDeepSleep(bool fromTimeout) {
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
     activityManager.goToSleep(fromTimeout);
+    ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     // Persist after the sleep screen is up so the write does not delay it. The
     // reader's onExit() usually saves the same state already, so this write is
     // then skipped as unchanged.
@@ -1534,6 +1536,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
 #else
   display.begin(seamless);
   esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
+  esp_register_shutdown_handler(ReaderExitSave::flush);   // every restart writes held reader exit data first
   if (seamless) {
     seedRetainedPanelFrame();
   } else {
