@@ -48,7 +48,6 @@
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
-#include "activities/reader/GlobalReadingStats.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -1260,9 +1259,6 @@ void CrossPointWebServer::handleStatus() const {
     refresh["full"] = c[HalDisplay::FULL_REFRESH];
     refresh["gray"] = c[HalDisplay::GRAY_PASSES];
     refresh["flash"] = c[HalDisplay::FLASHING];
-    const GlobalReadingStats reading = GlobalReadingStats::load();
-    st["pagesRead"] = reading.totalPagesTurned;
-    st["readingS"] = reading.totalReadingSeconds;
   }
 #endif
 

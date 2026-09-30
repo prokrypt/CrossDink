@@ -251,8 +251,7 @@ function summary() {
       ['Est. left at that pace', drop > 0 && span >= 60 ? hrs((b.percent * span) / drop) : '-'],
       ['Wakes / boots', st.wakes + ' / ' + st.boots],
       ['Awake / asleep', hrs(st.awakeS) + ' / ' + hrs(st.asleepS)],
-      ['Refreshes', Object.entries(st.refresh || {}).map(([k, v]) => k + ' ' + v).join(', ')],
-      ['Reading', `${st.pagesRead} pages, ${hrs(st.readingS)}`]
+      ['Refreshes', Object.entries(st.refresh || {}).map(([k, v]) => k + ' ' + v).join(', ')]
     );
   }
   const boot = status.boot || {};
