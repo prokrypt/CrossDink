@@ -9,10 +9,10 @@
 #include <utility>
 
 namespace {
-// The first worker needs its 12 KB task stack as one internal block plus
-// headroom for wolfSSL's small allocations (larger ones go to PSRAM via
-// CONFIG_SPIRAM_USE_MALLOC). Each further worker raises the floor by about one
-// more stack and TLS session, so parallelism backs off as the heap shrinks.
+// Worker stacks are PSRAM (internal fallback when PSRAM is short, hence the
+// block check); each worker still costs an internal TCB and wolfSSL's small
+// allocations (larger ones go to PSRAM via CONFIG_SPIRAM_USE_MALLOC). Each
+// further worker raises the floor, so parallelism backs off as the heap shrinks.
 constexpr size_t PRELOAD_MIN_INTERNAL_FREE = 48 * 1024;
 constexpr size_t PRELOAD_INTERNAL_PER_WORKER = 16 * 1024;
 constexpr size_t PRELOAD_MIN_INTERNAL_BLOCK = 16 * 1024;
