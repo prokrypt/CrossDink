@@ -318,6 +318,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
     return 1;
   }
 
+  if (ctx->config->cancel && ctx->config->cancel->load(std::memory_order_relaxed)) return 0;
   ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
   if (!pngOutputRows(*ctx, pDraw->y, ctx->lastDstY, firstDstY, endDstY)) return 1;
 
