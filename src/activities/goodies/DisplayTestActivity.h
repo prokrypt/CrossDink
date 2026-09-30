@@ -20,6 +20,8 @@ class DisplayTestActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return phase.load() != Phase::Finished; }
+  // The result screen is static: idle power-off drops the booster after a test.
+  bool powerOffPanelWhenIdle() const override { return phase.load() == Phase::Finished; }
 
  private:
   enum class Phase : uint8_t { Running, Waiting, Asking, Finished };
