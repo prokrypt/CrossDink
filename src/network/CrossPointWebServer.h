@@ -144,7 +144,6 @@ class CrossPointWebServer {
   std::atomic<bool> transferActive{false};
   std::atomic<unsigned long> lastTransferMs{0};
   std::atomic<bool> requestBusy{false};  // handleClient() is serving a request
-  bool holdTakenForRequest = false;      // serving task only: the current request started the hold
   void noteTransferActivity();
   void updateTransferIdle();
   void endTransferHold();
