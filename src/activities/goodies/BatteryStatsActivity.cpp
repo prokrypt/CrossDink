@@ -115,6 +115,7 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
       }
       loading = false;
       buf.reset();
+      endStretch(st);
       LOG_INF("BAT", "Stats page read %lu B of log in %lu ms", static_cast<unsigned long>(loadBytes),
               static_cast<unsigned long>(millis() - loadStartMs));
       buildLines();
@@ -134,6 +135,17 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
     memmove(buf.get(), line, fill);
     if (fill == LOAD_BUF_BYTES - 1) fill = 0;  // no row is this long; drop it
   }
+}
+
+void BatteryStatsActivity::endStretch(LogStats& s) {
+  for (int k = 0; k < 2; ++k) {
+    if (s.netC[k] > 0) {
+      s.dropC[k] += static_cast<uint32_t>(s.netC[k]);
+      s.coarseC[k] += static_cast<uint32_t>(std::clamp<int32_t>(s.netCoarseC[k], 0, s.netC[k]));
+    }
+    s.netC[k] = s.netCoarseC[k] = 0;
+  }
+  s.run = -1;
 }
 
 void BatteryStatsActivity::parseRow(const char* line) {
@@ -158,11 +170,10 @@ void BatteryStatsActivity::parseRow(const char* line) {
   if (is("stats_reset")) {
     st = {};
     st.reset = true;
-    st.run = -1;
   } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
     // The span from the previous row is awake or asleep; before a cold boot it was off.
     const uint32_t dt = epoch - prev.epoch;
-    const uint32_t drop = prevC > pctC ? prevC - pctC : 0;
+    const int32_t drop = static_cast<int32_t>(prevC) - pctC;  // negative: the gauge rose
     (prev.awake ? st.awakeS : st.asleepS) += dt;
     // Drops come from rows of one precision: a whole row (a charger event
     // logged asleep) inside fractional data counts its time, and the drop is
@@ -171,18 +182,18 @@ void BatteryStatsActivity::parseRow(const char* line) {
     const int cat = prev.awake ? 0 : 1;
     if (!prevUsb && !usb && fine == prevFine) {
       st.battS[cat] += dt;
-      st.dropC[cat] += drop;
-      if (!fine) st.coarseC[cat] += drop;
+      st.netC[cat] += drop;
+      if (!fine) st.netCoarseC[cat] += drop;
       if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
       st.run = static_cast<int8_t>(cat);
       st.runFine = fine;
     } else if (!prevUsb && !usb && prevFine) {
       st.battS[cat] += dt;
     } else {
-      st.run = -1;
+      endStretch(st);
     }
   } else {
-    st.run = -1;
+    endStretch(st);
   }
   if (st.first == 0) st.first = epoch;
   st.last = epoch;

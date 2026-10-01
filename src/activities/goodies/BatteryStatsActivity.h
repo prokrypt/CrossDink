@@ -45,7 +45,12 @@ class BatteryStatsActivity final : public Activity {
     uint32_t battS[2], dropC[2], coarseC[2], errC[2];
     int8_t run;  // category of the run the last step extended, -1 = none
     bool runFine;
+    // The open stretch of on-battery steps: net drop per category, signed, so
+    // the gauge's rise after an unplug cancels drops instead of being ignored.
+    // Added to dropC (a negative net as 0) when the stretch ends.
+    int32_t netC[2], netCoarseC[2];
   };
+  static void endStretch(LogStats& s);
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 16;
 

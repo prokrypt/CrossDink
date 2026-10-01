@@ -255,6 +255,24 @@ void writeRow(const char* name, const char* detail) {
   writeRowAt(epochNow(), r, name, detail);
 }
 
+// Sleep and restarts end Wi-Fi without the poll seeing it: say so, so every
+// wifi_on has its wifi_off. No gauge read here (a restart may be mid-I2C).
+void wifiEnded(const char* why) {
+  if (!wifiOn) return;
+  wifiOn = false;
+  portENTER_CRITICAL_SAFE(&ringMux);
+  const Reading r = reading;
+  portEXIT_CRITICAL_SAFE(&ringMux);
+  writeRowAt(epochNow(), r, "wifi_off", why);
+}
+
+}  // namespace
+
+// The row stays in the PSRAM ring; the next boot flushes it.
+void onRestart() { wifiEnded("restart"); }
+
+namespace {
+
 // Adds the sleep since sleepEpoch to the counters and restarts it at epoch.
 void settleSleep(Stats& s, const uint32_t epoch, const uint16_t pct, const bool usbNow) {
   if (s.sleepEpoch != 0 && epoch > s.sleepEpoch) {
@@ -347,6 +365,7 @@ void onSleep(const char* why) {
   tick(reading.usb);
   readQuick();
   readSlow();
+  wifiEnded("sleep");
   Stats& s = st();
   s.sleepEpoch = epochNow();
   s.sleepPct = reading.pct;
