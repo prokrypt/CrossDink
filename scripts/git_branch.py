@@ -133,7 +133,13 @@ def register_build_info(env, project_dir, scoped_defines):
     if branch == 'HEAD':
         branch = 'detached'
     branch = re.sub(r'[^A-Za-z0-9._/-]+', '-', branch) or 'unknown'
-    build_time = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%MZ')
+    # Commit time, not wall-clock: a per-build stamp recompiled BuildInfo.cpp and
+    # forced a full relink (~80 s) on every run, even with nothing changed.
+    commit_time = run_git_value(project_dir, ['log', '-1', '--format=%ct'], 'commit time')
+    build_time = (
+        datetime.datetime.fromtimestamp(int(commit_time), datetime.timezone.utc).strftime('%Y-%m-%dT%H:%MZ')
+        if commit_time.isdigit() else 'unknown'
+    )
     defines = [
         ('CROSSDINK_GIT_BRANCH', f'\\"{branch}\\"'),
         ('CROSSDINK_GIT_BRANCH_SHORT', f'\\"{short_branch_label(branch)}\\"'),
