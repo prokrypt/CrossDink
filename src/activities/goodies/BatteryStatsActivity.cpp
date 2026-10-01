@@ -44,8 +44,8 @@ const char* field(const char* row, int n) {
 
 // A logged % is whole ("71", older rows and rows logged asleep) or has the
 // CW2017 fraction ("71.43"), so a drop is exact to ±1 or ±0.01: rates and
-// estimates carry that ±, and wait for a 2% drop.
-constexpr uint32_t MIN_DROP_C = 200;
+// estimates carry that ±, and wait for a 2% drop (0.2% when mostly fractional).
+uint32_t minDropC(const uint32_t dropC, const uint32_t coarseC) { return coarseC * 2 >= dropC ? 200 : 20; }
 constexpr char NOT_ENOUGH[] = "not enough data";
 
 // "71.43" -> 7143; fine = the field had a fraction.
@@ -57,23 +57,22 @@ uint16_t parseCenti(const char* field, bool& fine) {
 }
 
 // "4.12±0.20%/h over 5h 10 min".
-void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t seconds, const bool coarse) {
-  if (dropC < MIN_DROP_C || seconds < 60) {
+void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t coarseC, const uint32_t errC,
+                const uint32_t seconds) {
+  if (dropC < minDropC(dropC, coarseC) || seconds < 60) {
     snprintf(out, size, "%s", NOT_ENOUGH);
     return;
   }
   char span[24];
   BookReadingStats::formatDuration(seconds, span, sizeof(span));
-  snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, (coarse ? 100 : 1) * 36.0f / seconds,
-           span);
+  snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, errC * 36.0f / seconds, span);
 }
 }  // namespace
 
 void BatteryStatsActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::flush();  // so the graph includes this session
-  startLoad();
-  step(LOAD_FIRST_MS);  // a short log is done before the first draw
+  startLoad();          // the page draws at once; the log rows fill in when it is read
   requestUpdate();
 }
 
@@ -94,16 +93,12 @@ void BatteryStatsActivity::startLoad() {
   fileIndex = 0;
   // Heap, not stack: 4 KB reads are multi-sector, far faster than 512 B ones.
   if (!buf) buf = makeUniqueNoThrow<char[]>(LOAD_BUF_BYTES);
-  if (!buf) {
-    LOG_ERR("BAT", "Cannot allocate log buffer");
-    loading = false;
-    buildLines();
-    return;
-  }
-  file = Storage.open(BatteryLog::OLD_PATH, O_RDONLY);  // only exists after the first rotation
-  loading = true;
+  if (!buf) LOG_ERR("BAT", "Cannot allocate log buffer");
+  if (buf) file = Storage.open(BatteryLog::OLD_PATH, O_RDONLY);  // only exists after the first rotation
+  loading = buf != nullptr;
   loadStartMs = millis();
   loadBytes = 0;
+  buildLines();
 }
 
 void BatteryStatsActivity::step(const uint32_t budgetMs) {
@@ -163,16 +158,31 @@ void BatteryStatsActivity::parseRow(const char* line) {
   if (is("stats_reset")) {
     st = {};
     st.reset = true;
+    st.run = -1;
   } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
     // The span from the previous row is awake or asleep; before a cold boot it was off.
     const uint32_t dt = epoch - prev.epoch;
     const uint32_t drop = prevC > pctC ? prevC - pctC : 0;
     (prev.awake ? st.awakeS : st.asleepS) += dt;
-    if (!prevUsb && !usb) {
-      (prev.awake ? st.battAwakeS : st.battAsleepS) += dt;
-      (prev.awake ? st.dropAwakeC : st.dropAsleepC) += drop;
-      if (!prevFine || !fine) st.coarse = true;
+    // Drops come from rows of one precision: a whole row (a charger event
+    // logged asleep) inside fractional data counts its time, and the drop is
+    // taken across it from prevC; the step from a whole row to a fractional
+    // one is skipped (its rounding would be a drop of up to 1%).
+    const int cat = prev.awake ? 0 : 1;
+    if (!prevUsb && !usb && fine == prevFine) {
+      st.battS[cat] += dt;
+      st.dropC[cat] += drop;
+      if (!fine) st.coarseC[cat] += drop;
+      if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
+      st.run = static_cast<int8_t>(cat);
+      st.runFine = fine;
+    } else if (!prevUsb && !usb && prevFine) {
+      st.battS[cat] += dt;
+    } else {
+      st.run = -1;
     }
+  } else {
+    st.run = -1;
   }
   if (st.first == 0) st.first = epoch;
   st.last = epoch;
@@ -183,18 +193,18 @@ void BatteryStatsActivity::parseRow(const char* line) {
     st.chargedEpoch = epoch;
     st.chargedPct = pct;
   }
-  if (is("charged") || is("chg_off")) {
-    st.battAwakeS = st.battAsleepS = st.dropAwakeC = st.dropAsleepC = 0;
-    st.coarse = false;
-  }
 
   if (pointCount == MAX_POINTS) {
     std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
     pointCount = MAX_POINTS / 2;
   }
   prev = {epoch, pct, !asleep};
-  prevC = pctC;
-  prevFine = fine;
+  // A whole row after fractional ones is not a drop reference, unless a USB
+  // step, power-off gap or reset breaks the chain there.
+  if (fine || !prevFine || usb || prevUsb || is("stats_reset") || cold) {
+    prevC = pctC;
+    prevFine = fine;
+  }
   prevUsb = usb;
   points[pointCount++] = prev;
 }
@@ -217,40 +227,46 @@ void BatteryStatsActivity::buildLines() {
              "  %.1fC", tempDeci / 10.0f);
   }
 
-  const uint32_t now = BatteryLog::nowEpoch();
-  if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
-    BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
-    add("Last charged %s ago at %u%%", a, st.chargedPct);
+  if (loading) {
+    // Read from loop() in slices (step()); these fill in when it is done.
+    for (const char* name : {"Last charged", "Awake drain", "Asleep drain", "Est. left"})
+      add("%s: calculating...", name);
   } else {
-    add("Last charged: not in the log");
-  }
-  formatRate(a, sizeof(a), st.dropAwakeC, st.battAwakeS, st.coarse);
-  add("Awake drain: %s", a);
-  formatRate(a, sizeof(a), st.dropAsleepC, st.battAsleepS, st.coarse);
-  add("Asleep drain: %s", a);
-  const uint32_t drop = st.dropAwakeC + st.dropAsleepC;
-  const uint32_t span = st.battAwakeS + st.battAsleepS;
-  if (drop >= MIN_DROP_C && span >= 60) {
-    // The drop's ± (1% or 0.01%) moves the estimate by about left * ± / drop.
-    const uint64_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
-    const uint32_t left = static_cast<uint32_t>(pctC * span / drop);
-    char err[24];
-    BookReadingStats::formatDuration(left, a, sizeof(a));
-    BookReadingStats::formatDuration(static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.coarse ? 100 : 1) / drop),
-                                     err, sizeof(err));
-    add("Est. left at that pace: %s \xC2\xB1%s", a, err);
-  } else {
-    add("Est. left: %s", NOT_ENOUGH);
-  }
+    const uint32_t now = BatteryLog::nowEpoch();
+    if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
+      BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
+      add("Last charged %s ago at %u%%", a, st.chargedPct);
+    } else {
+      add("Last charged: not in the log");
+    }
+    formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
+    add("Awake drain: %s", a);
+    formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1]);
+    add("Asleep drain: %s", a);
+    const uint32_t drop = st.dropC[0] + st.dropC[1];
+    const uint32_t span = st.battS[0] + st.battS[1];
+    if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
+      // The drop's ± moves the estimate by about left * ± / drop.
+      const uint64_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
+      const uint32_t left = static_cast<uint32_t>(pctC * span / drop);
+      char err[24];
+      BookReadingStats::formatDuration(left, a, sizeof(a));
+      BookReadingStats::formatDuration(
+          static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err, sizeof(err));
+      add("Est. left at that pace: %s \xC2\xB1%s", a, err);
+    } else {
+      add("Est. left: %s", NOT_ENOUGH);
+    }
 
-  BookReadingStats::formatDuration(st.last - st.first, a, sizeof(a));
-  add("Log: %s%s", st.first ? a : "empty", st.reset ? " since reset" : "");
-  add("Wakes %lu  False %lu  Cold boots %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
-      static_cast<unsigned long>(st.falseWakes), static_cast<unsigned long>(st.coldBoots),
-      static_cast<unsigned long>(st.restarts));
-  BookReadingStats::formatDuration(st.awakeS, a, sizeof(a));
-  BookReadingStats::formatDuration(st.asleepS, b, sizeof(b));
-  add("Awake %s  Asleep %s", a, b);
+    BookReadingStats::formatDuration(st.last - st.first, a, sizeof(a));
+    add("Log: %s%s", st.first ? a : "empty", st.reset ? " since reset" : "");
+    add("Wakes %lu  False %lu  Cold boots %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
+        static_cast<unsigned long>(st.falseWakes), static_cast<unsigned long>(st.coldBoots),
+        static_cast<unsigned long>(st.restarts));
+    BookReadingStats::formatDuration(st.awakeS, a, sizeof(a));
+    BookReadingStats::formatDuration(st.asleepS, b, sizeof(b));
+    add("Awake %s  Asleep %s", a, b);
+  }
   const auto& c = HalDisplay::refreshCounts().n;
   add("Refresh since power-on: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
       static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),

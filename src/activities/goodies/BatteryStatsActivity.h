@@ -39,16 +39,17 @@ class BatteryStatsActivity final : public Activity {
     uint32_t awakeS, asleepS;  // power-off gaps before a cold boot count as neither
     uint32_t chargedEpoch;     // last "charged" row, 0 = none
     uint8_t chargedPct;
-    // On battery since charging last stopped ("charged" or "chg_off"). Drops in
-    // 0.01 %; coarse: some of it came from whole-percent rows (±1 instead of ±0.01).
-    uint32_t battAwakeS, battAsleepS, dropAwakeC, dropAsleepC;
-    bool coarse;
+    // On battery, over the whole log; [0] awake, [1] asleep. In 0.01 %: drop,
+    // the part of it from whole-percent rows, and its ± (each unbroken run of
+    // steps adds its rows' precision, 1 or 100: inside a run the roundings cancel).
+    uint32_t battS[2], dropC[2], coarseC[2], errC[2];
+    int8_t run;  // category of the run the last step extended, -1 = none
+    bool runFine;
   };
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 16;
 
   static constexpr size_t LOAD_BUF_BYTES = 4096;
-  static constexpr uint32_t LOAD_FIRST_MS = 150;  // onEnter, before the first draw
   static constexpr uint32_t LOAD_STEP_MS = 20;    // per loop(), so input stays responsive
 
   void startLoad();
@@ -61,8 +62,8 @@ class BatteryStatsActivity final : public Activity {
   Point points[MAX_POINTS];
   LogStats st{};
   Point prev{};  // last row read, carried across the two files
-  uint16_t prevC = 0;     // its % in 0.01 %
-  bool prevFine = false;  // its % had a fraction
+  uint16_t prevC = 0;     // drop reference % in 0.01 % (the previous row, or the last fractional one)
+  bool prevFine = false;  // that % had a fraction
   bool prevUsb = false;
   HalFile file;
   std::unique_ptr<char[]> buf;
