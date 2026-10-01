@@ -15,10 +15,11 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/NetworkName.h"
 #include "util/BatteryLog.h"
 
 namespace {
-constexpr const char* HOSTNAME = "crosspoint";
+constexpr const char* HOSTNAME = NET_HOSTNAME;
 }  // namespace
 
 void CalibreConnectActivity::onEnter() {
