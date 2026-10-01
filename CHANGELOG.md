@@ -164,6 +164,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro (Softfast): text edges no longer bounce between gray and black during a page turn (black and white, then gray, black, gray). The light-gray edge pixels now go straight from the black-and-white page to gray in one step; the gray shade may be slightly different.
 - X4 Pro: an edge slide that turns an off frontlight on keeps it on at the level you let go at, even if you slid back below where you started. Only 0% turns it off.
 - X4 Pro: an edge slide set to lower the brightness does nothing while the frontlight is off: the light stays off and keeps its brightness. A slide set to raise it still turns it on.
 - X4 Pro: the frontlight no longer turns on after a firmware update over Wi-Fi when it was off: the restart that follows put back the transfer light pulse's state instead of yours.
