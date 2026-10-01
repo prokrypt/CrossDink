@@ -238,6 +238,8 @@ class ActivityManager {
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.
   void requestUpdate(bool immediate = false);
+  // The light changed from outside the current screen (remote SET).
+  void notifyExternalFrontlightChange();
 
   // Trigger a render and block until it completes.
   // Returns Rejected when a synchronous render would be unsafe, such as from the render task,
