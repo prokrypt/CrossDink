@@ -1535,10 +1535,13 @@ const WS_PORT = HTTP_PORT + 1;
 // 12 KB frames (the device accepts up to 15 KB): a third of the per-frame
 // WebSocket and SD overhead of the old 4 KB chunks.
 const WS_CHUNK_SIZE = 12 * 1024;
-// Max bytes allowed in flight before pausing sends. Throughput is capped at
-// roughly WS_MAX_BUFFERED / RTT, so a small window starves high-latency links
-// (e.g. a phone's WiFi) much more than low-latency ones (e.g. Ethernet).
+// Max bytes sent but not yet confirmed by the device's PROGRESS messages (sent
+// every 64 KB). Throughput is capped at roughly WS_MAX_BUFFERED / RTT, so a
+// small window starves high-latency links (e.g. a phone's WiFi).
 const WS_MAX_BUFFERED = WS_CHUNK_SIZE * 16;
+// File bytes read per Blob read: one async read per 16 frames instead of per
+// frame, which is slow on mobile browsers.
+const WS_READ_SIZE = WS_MAX_BUFFERED;
 
 // ============================================================================
 // EPUB Image Conversion Functions (from Baseline JPEG Converter)
@@ -5066,6 +5069,12 @@ function uploadFileWebSocket(file, onProgress, onComplete, onError) {
     let uploadStarted = false;
     let sendingChunks = false;
     let uploadComplete = false; // set only when DONE is received and resolve() called
+    let serverReceived = 0; // bytes the device confirmed via PROGRESS
+    let wakeSender = null; // resolves the send loop's flow-control wait
+    const wake = () => {
+      if (wakeSender) wakeSender();
+      wakeSender = null;
+    };
 
     ws.binaryType = "arraybuffer";
 
@@ -5091,27 +5100,32 @@ function uploadFileWebSocket(file, onProgress, onComplete, onError) {
           const totalSize = file.size;
           let offset = 0;
 
+          const read = (at) => file.slice(at, at + WS_READ_SIZE).arrayBuffer();
+          let nextRead = read(0);
+
           while (offset < totalSize && ws.readyState === WebSocket.OPEN) {
-            const chunkSize = Math.min(WS_CHUNK_SIZE, totalSize - offset);
-            const chunk = file.slice(offset, offset + chunkSize);
-            const buffer = await chunk.arrayBuffer();
+            const buffer = await nextRead;
+            // Read the next slice while this one is sent
+            if (offset + buffer.byteLength < totalSize) nextRead = read(offset + buffer.byteLength);
+            for (let pos = 0; pos < buffer.byteLength; pos += WS_CHUNK_SIZE) {
+              // Flow control: wait for the device to confirm bytes, no timer polling
+              while (offset - serverReceived > WS_MAX_BUFFERED && ws.readyState === WebSocket.OPEN) {
+                await new Promise((r) => (wakeSender = r));
+              }
 
-            // Wait for buffer to clear before sending more (flow control)
-            while (ws.bufferedAmount > WS_MAX_BUFFERED && ws.readyState === WebSocket.OPEN) {
-              await new Promise((r) => setTimeout(r, 5));
-            }
+              if (ws.readyState !== WebSocket.OPEN) {
+                throw new Error("WebSocket closed during upload");
+              }
 
-            if (ws.readyState !== WebSocket.OPEN) {
-              throw new Error("WebSocket closed during upload");
-            }
+              const chunkSize = Math.min(WS_CHUNK_SIZE, buffer.byteLength - pos);
+              ws.send(new Uint8Array(buffer, pos, chunkSize));
+              offset += chunkSize;
 
-            ws.send(buffer);
-            offset += chunkSize;
-
-            // Update local progress with real transfer progress
-            // Server will confirm 100% with DONE message
-            if (onProgress) {
-              onProgress(offset, totalSize);
+              // Update local progress with real transfer progress
+              // Server will confirm 100% with DONE message
+              if (onProgress) {
+                onProgress(offset, totalSize);
+              }
             }
           }
 
@@ -5124,9 +5138,10 @@ function uploadFileWebSocket(file, onProgress, onComplete, onError) {
           reject(err);
         }
       } else if (msg.startsWith("PROGRESS:")) {
-        // Server confirmed progress - log for debugging but don't update UI
-        // (local progress is smoother, server progress causes jumping)
-        console.log("[WS] Server progress:", msg);
+        // Server confirmed progress: opens the send window. UI keeps local
+        // progress (smoother; server progress causes jumping).
+        serverReceived = Number(msg.split(":")[1]) || serverReceived;
+        wake();
       } else if (msg === "DONE") {
         // Show 100% when server confirms completion
         if (onProgress) onProgress(file.size, file.size);
@@ -5158,6 +5173,7 @@ function uploadFileWebSocket(file, onProgress, onComplete, onError) {
 
     ws.onclose = function (event) {
       console.log("[WS] Connection closed, code:", event.code, "reason:", event.reason);
+      wake();
       // Reject for any close before upload was confirmed complete (covers both
       // mid-chunk-send closes and the "all chunks sent, waiting for DONE" window)
       if (!uploadComplete) {
