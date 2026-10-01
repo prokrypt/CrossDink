@@ -37,8 +37,11 @@ class BatteryStatsActivity final : public Activity {
     bool reset;            // first is a stats_reset row
     uint32_t coldBoots, restarts, wakes, falseWakes;
     uint32_t awakeS, asleepS;  // power-off gaps before a cold boot count as neither
-    uint32_t chargedEpoch;     // last "charged" row, 0 = none
-    uint8_t chargedPct;
+    // Last charge session: rows with USB or charging, merged across gaps under
+    // CHARGE_MERGE_S (USB flapping). chargedEpoch is its end, 0 = none yet.
+    uint32_t chargedEpoch;
+    uint16_t chargeFromC, chargeToC;  // 0.01 %
+    bool chargeFromFine, chargeToFine, charging;
     // On battery, over the whole log; [0] awake, [1] asleep. In 0.01 %: drop,
     // the part of it from whole-percent rows, and its ± (each unbroken run of
     // steps adds its rows' precision, 1 or 100: inside a run the roundings cancel).
@@ -51,6 +54,7 @@ class BatteryStatsActivity final : public Activity {
     int32_t netC[2], netCoarseC[2];
   };
   static void endStretch(LogStats& s);
+  static constexpr uint32_t CHARGE_MERGE_S = 60;
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 16;
 
