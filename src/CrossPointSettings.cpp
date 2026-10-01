@@ -826,6 +826,9 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(legacyValue));
       needsResave = true;
     }
+  } else if (importingCrossPoint && sleepTimeoutStep >= 6) {
+    // Imported files predate the 15 min step (index 6); shift 20 min..Never up one.
+    sleepTimeoutStep = std::min<uint8_t>(sleepTimeoutStep + 1, SLEEP_TIMEOUT_NEVER_STEP);
   }
 
   frontButtonBack =
@@ -1243,8 +1246,9 @@ bool CrossPointSettings::verifySleepTimeoutMigrationContract() {
   settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(SLEEP_5_MIN));
   const bool migratedValueDrivesTimeout = settings.getSleepTimeoutMs() == 5UL * 60UL * 1000UL;
 
-  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(15);  // between 10 and 20: the shorter
-  const bool oldMinutesTakeNearestStep = settings.getSleepTimeoutMs() == 10UL * 60UL * 1000UL;
+  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(25);  // between 20 and 30: the shorter
+  const bool oldMinutesTakeNearestStep = settings.getSleepTimeoutMs() == 20UL * 60UL * 1000UL &&
+                                         sleepTimeoutStepForMinutes(15) == 6;
 
   settings.sleepTimeoutStep = SLEEP_TIMEOUT_NEVER_STEP - 1;
   const bool longestIsTwelveHours = settings.getSleepTimeoutMs() == 12UL * 60UL * 60UL * 1000UL;

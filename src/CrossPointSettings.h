@@ -717,7 +717,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
   static constexpr uint16_t POWER_BUTTON_WAKE_LONG_MS = POWER_BUTTON_LONG_PRESS_MS;
-  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1, 2, 3, 4, 5, 10, 20, 30, 60, 120, 240, 360, 480, 600, 720};
+  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1, 2, 3, 4, 5, 10, 15, 20, 30, 60, 120, 240, 360, 480, 600, 720};
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_STEP = std::size(SLEEP_TIMEOUT_STEP_MINUTES);
   static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
   static constexpr uint8_t MIN_READER_FONT_POINT_SIZE = 8;
