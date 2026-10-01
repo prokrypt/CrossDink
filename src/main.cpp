@@ -2067,19 +2067,20 @@ static bool radioMayIdle() {
 // Longest idle wait for the power-saving branch of loop(). When every input
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
-// Flash duck: fade the frontlight out from the input that starts a flashing
-// refresh (HalDisplay::flashPlannedMs: on UC8179 the driver plans the swing at
-// refresh entry, before its power and SPI work) so it reaches the Flash Dim Level as the swing shows
+// Flash duck: fade the frontlight out from when the driver plans a flashing
+// refresh (HalDisplay::flashPlannedMs: on UC8179 at refresh entry, before its
+// power and SPI work) so it reaches the Flash Dim Level as the swing shows
 // (HalDisplay::flashStartedMs: on UC8179 the driver's DRF time plus the
-// waveform's own offset, e.g. direct gray holds white for 24 of 50 frames), and
-// back up over FLASH_DUCK_UP_MS once the refresh ends. Until DRF the swing time
-// is the plan time plus the last measured plan-to-dark time of that kind, then
-// the fade retargets from where it is. A flash no input started fades over at least
-// FLASH_DUCK_DOWN_MS. Goodies > Knobs flash*DimMs / flash*RestoreMs shift both
-// ends, per waveform (HalDisplay::flashKind: AA page, Half/Full, DU paint). Runs
-// alongside the refresh (render task) and never waits on it. A mark older than
-// FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends. The
-// times are Goodies > Knobs; a zero fade never divides (both ramps test it first).
+// waveform's own offset: direct gray drives the background black from frame
+// 24 of 50), and back up over FLASH_DUCK_UP_MS once the refresh ends. Until DRF
+// the swing time is the plan time plus the last measured plan-to-dark time of
+// that kind, then the fade retargets from where it is. An unplanned flash
+// fades over at least FLASH_DUCK_DOWN_MS. Goodies > Knobs flash*DimMs /
+// flash*RestoreMs shift both ends, per waveform (HalDisplay::flashKind: AA
+// page, Half/Full, DU paint). Runs alongside the refresh (render task) and
+// never waits on it. A mark older than FLASH_DUCK_MAX_MS is an async refresh
+// nobody waited on, so it ends. The times are Goodies > Knobs; a zero fade
+// never divides (both ramps test it first).
 KNOB_ALIAS(FLASH_DUCK_DOWN_MS, flashDownMs);
 KNOB_ALIAS(FLASH_DUCK_MAX_MS, flashMaxMs);
 KNOB_ALIAS(FLASH_DUCK_UP_MS, flashUpMs);
@@ -2139,9 +2140,8 @@ static void updateFlashDuck() {
   constexpr uint32_t kMaxLeadMs = 600;
   static uint16_t leadMs[3] = {75, 60, 330};
   static uint8_t leadKind = 0;
-  static bool byInput = false;      // the fade started at the input
   static bool learned = false;      // this flash's lead is stored
-  static uint32_t fadeStartMs = 0;  // input (or the start) the fade counts from
+  static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
   static uint32_t planMs = 0;       // when the driver planned this flash (0: unplanned)
   static uint32_t fromMs = 0, darkMs = 0;
   static uint8_t fromLevel = 100;  // the fade runs from (fromMs, fromLevel) to the floor at darkMs
@@ -2163,14 +2163,16 @@ static void updateFlashDuck() {
   unsigned long level;
   if (ducking) {
     if (fresh && !holdLate) {
-      byInput = now - inputMs < kMaxLeadMs;
-      fadeStartMs = byInput ? inputMs : now;
+      // From the plan, the earliest sign of a flash (input to plan is render
+      // time, ~150 ms: a fade from the input stepped down ~60% at the plan,
+      // logs/device/20261001T041615Z-32cc8fdd L6350->L6357).
+      planMs = marked ? markMs : 0;
+      fadeStartMs = planMs != 0 ? planMs : now;
       fromMs = fadeStartMs;
       fromLevel = flashDuckLevel;
       darkMs = 0;
       learned = false;
       leadKind = static_cast<uint8_t>(kind);
-      planMs = marked ? markMs : 0;
     }
     uint32_t target = swingMs != 0 ? swingMs + dimMs : planMs + leadMs[leadKind];
     if (swingMs != 0 && planMs != 0 && !learned) {
@@ -2180,7 +2182,7 @@ static void updateFlashDuck() {
       LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)", static_cast<long>(lead),
               static_cast<long>(target - inputMs), leadKind);
     }
-    if (!byInput && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
+    if (planMs == 0 && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
       target = fadeStartMs + FLASH_DUCK_DOWN_MS;
     }
     if (darkMs == 0) {
