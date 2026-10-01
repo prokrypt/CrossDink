@@ -1564,6 +1564,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   esp_register_shutdown_handler([] {
     ReaderExitSave::flush();
     flushSettingsStores();
+    BatteryLog::onRestart();
   });
   if (seamless) {
     seedRetainedPanelFrame();

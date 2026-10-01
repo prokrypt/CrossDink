@@ -56,6 +56,15 @@ uint16_t parseCenti(const char* field, bool& fine) {
   return static_cast<uint16_t>(std::clamp(lroundf(v * 100), 0L, 10000L));
 }
 
+// 7143 -> "71.43" (fine) or "71".
+void formatPct(char* out, const size_t size, const uint16_t centi, const bool fine) {
+  if (fine) {
+    snprintf(out, size, "%u.%02u", centi / 100, centi % 100);
+  } else {
+    snprintf(out, size, "%u", centi / 100);
+  }
+}
+
 // "4.12±0.20%/h over 5h 10 min".
 void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t coarseC, const uint32_t errC,
                 const uint32_t seconds) {
@@ -115,6 +124,7 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
       }
       loading = false;
       buf.reset();
+      endStretch(st);
       LOG_INF("BAT", "Stats page read %lu B of log in %lu ms", static_cast<unsigned long>(loadBytes),
               static_cast<unsigned long>(millis() - loadStartMs));
       buildLines();
@@ -136,12 +146,24 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
   }
 }
 
+void BatteryStatsActivity::endStretch(LogStats& s) {
+  for (int k = 0; k < 2; ++k) {
+    if (s.netC[k] > 0) {
+      s.dropC[k] += static_cast<uint32_t>(s.netC[k]);
+      s.coarseC[k] += static_cast<uint32_t>(std::clamp<int32_t>(s.netCoarseC[k], 0, s.netC[k]));
+    }
+    s.netC[k] = s.netCoarseC[k] = 0;
+  }
+  s.run = -1;
+}
+
 void BatteryStatsActivity::parseRow(const char* line) {
   const uint32_t epoch = strtoul(line, nullptr, 10);
   const char* pctField = field(line, 3);
+  const char* chgField = field(line, 5);
   const char* usbField = field(line, 6);
   const char* event = field(line, 9);
-  if (epoch == 0 || !pctField || !usbField || !event) return;  // header, or no RTC time
+  if (epoch == 0 || !pctField || !chgField || !usbField || !event) return;  // header, or no RTC time
   const char* detail = field(line, 10);
   auto is = [event](const char* name) {
     const size_t len = strlen(name);
@@ -158,11 +180,10 @@ void BatteryStatsActivity::parseRow(const char* line) {
   if (is("stats_reset")) {
     st = {};
     st.reset = true;
-    st.run = -1;
   } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
     // The span from the previous row is awake or asleep; before a cold boot it was off.
     const uint32_t dt = epoch - prev.epoch;
-    const uint32_t drop = prevC > pctC ? prevC - pctC : 0;
+    const int32_t drop = static_cast<int32_t>(prevC) - pctC;  // negative: the gauge rose
     (prev.awake ? st.awakeS : st.asleepS) += dt;
     // Drops come from rows of one precision: a whole row (a charger event
     // logged asleep) inside fractional data counts its time, and the drop is
@@ -171,27 +192,37 @@ void BatteryStatsActivity::parseRow(const char* line) {
     const int cat = prev.awake ? 0 : 1;
     if (!prevUsb && !usb && fine == prevFine) {
       st.battS[cat] += dt;
-      st.dropC[cat] += drop;
-      if (!fine) st.coarseC[cat] += drop;
+      st.netC[cat] += drop;
+      if (!fine) st.netCoarseC[cat] += drop;
       if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
       st.run = static_cast<int8_t>(cat);
       st.runFine = fine;
     } else if (!prevUsb && !usb && prevFine) {
       st.battS[cat] += dt;
     } else {
-      st.run = -1;
+      endStretch(st);
     }
   } else {
-    st.run = -1;
+    endStretch(st);
   }
   if (st.first == 0) st.first = epoch;
   st.last = epoch;
   if (boot) ++(cold ? st.coldBoots : st.restarts);
   if (is("wake")) ++st.wakes;
   if (const char* f = detail ? strstr(detail, "false_wakes=") : nullptr) st.falseWakes += strtoul(f + 12, nullptr, 10);
-  if (is("charged")) {
+  if (usb || *chgField == '1') {
+    if (!st.charging && (st.chargedEpoch == 0 || epoch - st.chargedEpoch >= CHARGE_MERGE_S)) {
+      st.chargeFromC = pctC;
+      st.chargeFromFine = fine;
+    }
+    st.charging = true;
+  } else if (st.charging) {
+    st.charging = false;
     st.chargedEpoch = epoch;
-    st.chargedPct = pct;
+  }
+  if (st.charging || st.chargedEpoch == epoch) {
+    st.chargeToC = pctC;
+    st.chargeToFine = fine;
   }
 
   if (pointCount == MAX_POINTS) {
@@ -233,9 +264,14 @@ void BatteryStatsActivity::buildLines() {
       add("%s: calculating...", name);
   } else {
     const uint32_t now = BatteryLog::nowEpoch();
-    if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
+    char from[8], to[8];
+    formatPct(from, sizeof(from), st.chargeFromC, st.chargeFromFine);
+    formatPct(to, sizeof(to), st.chargeToC, st.chargeToFine);
+    if (st.charging) {
+      add("Charging from %s%% (now %s%%)", from, to);
+    } else if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
       BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
-      add("Last charged %s ago at %u%%", a, st.chargedPct);
+      add("Last charged %s ago from %s%% to %s%%", a, from, to);
     } else {
       add("Last charged: not in the log");
     }

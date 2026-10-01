@@ -218,7 +218,7 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
   const svg = $(id);
   const VW = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
   svg.setAttribute('viewBox', `0 0 ${VW} ${h}`);
-  svg.dataset.r = key2 ? 40 : 0; // right gutter for the second scale
+  svg.dataset.r = 40; // right gutter for the second scale; every chart keeps it so the time axes line up
   const W = VW - svg.dataset.r; // plot's right edge
   const ticks = W < 600 ? 1 : 4;
   const [t0, t1] = win();
@@ -381,7 +381,17 @@ function sessions() {
 // The Summary counters, counted from the log like Goodies > Battery & stats does
 // (BatteryStatsActivity::parseRow): from the last stats_reset row, or the first row.
 function logStats() {
-  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: null, b: [0, 0], d: [0, 0], dc: [0, 0], e: [0, 0], run: -1, runQ: 0 });
+  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], dc: [0, 0], e: [0, 0], run: -1, runQ: 0, n: [0, 0], nc: [0, 0] });
+  // The open stretch of on-battery steps keeps a signed net drop per category (n,
+  // nc), so the gauge's rise after an unplug cancels drops; it is added to d
+  // (a negative net as 0) when the stretch ends.
+  const end = (s) => {
+    for (const k of [0, 1]) {
+      if (s.n[k] > 0) (s.d[k] += s.n[k]), (s.dc[k] += Math.min(Math.max(s.nc[k], 0), s.n[k]));
+      s.n[k] = s.nc[k] = 0;
+    }
+    s.run = -1;
+  };
   let s = zero(false);
   let prev = null;
   let ref = null; // drop reference: as prev, but a whole-% row after fractional ones is skipped
@@ -391,7 +401,7 @@ function logStats() {
     else if (s.first && prev && r.t >= prev.t && !c) {
       // The span from the previous row is awake or asleep; before a cold boot it was off.
       const dt = r.t - prev.t;
-      const drop = Math.max(0, ref.pct - r.pct);
+      const drop = ref.pct - r.pct; // negative: the gauge rose
       const awake = !(prev.ev === 'sleep' || prev.det.startsWith('asleep'));
       s[awake ? 'awake' : 'asleep'] += dt;
       // Same rule as the device, over the whole log: drops between rows of one
@@ -401,23 +411,29 @@ function logStats() {
       const k = awake ? 0 : 1;
       if (!prev.usb && !r.usb && ref.q === r.q) {
         s.b[k] += dt;
-        s.d[k] += drop;
-        if (r.q === 1) s.dc[k] += drop;
+        s.n[k] += drop;
+        if (r.q === 1) s.nc[k] += drop;
         if (s.run !== k || s.runQ !== r.q) s.e[k] += r.q;
         (s.run = k), (s.runQ = r.q);
       } else if (!prev.usb && !r.usb && ref.q < r.q) s.b[k] += dt;
-      else s.run = -1;
-    } else s.run = -1;
+      else end(s);
+    } else end(s);
     s.first ||= r.t;
     s.last = r.t;
     if (r.ev === 'boot') c ? s.cold++ : s.rst++;
     if (r.ev === 'wake') s.wakes++;
     const f = /false_wakes=(\d+)/.exec(r.det);
     if (f) s.falseWakes += +f[1];
-    if (r.ev === 'charged') s.charged = r;
+    // Last charge session: USB or charging rows, merged across gaps under 60 s (USB flapping).
+    if (r.usb || r.chg) {
+      if (!s.charging && (!s.charged || r.t - s.charged >= 60)) s.from = r;
+      s.charging = true;
+    } else if (s.charging) (s.charging = false), (s.charged = r.t);
+    if (s.charging || s.charged === r.t) s.to = r;
     if (!ref || r.q <= ref.q || r.usb || prev.usb || r.ev === 'stats_reset' || c) ref = r;
     prev = r;
   }
+  end(s);
   return s;
 }
 
@@ -442,13 +458,14 @@ function summary() {
     const span = s.b[0] + s.b[1];
     // Minimum drop: 2% when mostly from whole-% rows, else 0.2% (as on the device).
     const min = (d, dc) => (dc * 2 >= d ? 2 : 0.2);
+    const p = (r) => (r.q < 1 ? r.pct.toFixed(2) : r.pct) + '%';
     const drain = (k) => {
       const m = min(s.d[k], s.dc[k]);
       return s.d[k] >= m && s.b[k] >= 60 ? rate(s.d[k], s.b[k], s.e[k], m) + ' over ' + hrs(s.b[k]) : NOT_ENOUGH;
     };
     const m = min(drop, s.dc[0] + s.dc[1]);
     rows.push(
-      ['Last charged', s.charged && now > s.charged.t ? `${hrs(now - s.charged.t)} ago at ${s.charged.pct}%` : 'not in the log'],
+      ['Last charged', s.charging ? `charging from ${p(s.from)} (now ${p(s.to)})` : s.charged && now > s.charged ? `${hrs(now - s.charged)} ago from ${p(s.from)} to ${p(s.to)}` : 'not in the log'],
       ['Awake drain', drain(0)],
       ['Asleep drain', drain(1)],
       ['Est. left at that pace', drop >= m && span >= 60 ? left(pct, drop, span, s.e[0] + s.e[1], m) : NOT_ENOUGH],

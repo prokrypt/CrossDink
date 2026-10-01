@@ -58,6 +58,8 @@ struct Stats {
 void onBoot();
 // Last thing before Storage.shutdown(): the sleep row, then a flush.
 void onSleep(const char* why);
+// From the restart shutdown handler: wifi_off if Wi-Fi was on.
+void onRestart();
 // Early in setup, on a charger STAT wake: note the charge start/stop in RTC
 // memory, then the caller sleeps again (no display, SD or settings).
 void onChargeWake();
@@ -85,6 +87,7 @@ void reset();
 #else
 inline void onBoot() {}
 inline void onSleep(const char*) {}
+inline void onRestart() {}
 inline void onChargeWake() {}
 inline void noteFalseWake() {}
 inline void poll(uint32_t) {}

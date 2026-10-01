@@ -16,6 +16,8 @@
 #include <esp_psram.h>
 #include <esp_rom_crc.h>
 #include <esp_sleep.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <sdkconfig.h>
 
 #include <algorithm>
@@ -46,7 +48,11 @@ constexpr uint32_t kClockMs = 60 * 1000;
 constexpr uint32_t kFlushIdleMs = 2000;
 constexpr uint16_t kLowPct = 5;
 constexpr uint32_t kMaxSleepEvents = sizeof(Stats::sleepEvents) / sizeof(Stats::SleepEvent);
-constexpr uint16_t kFullPct = 99;  // charging stopped at or above this: charge done, cable likely still in
+constexpr uint16_t kFullPct = 95;  // charging stopped at or above this, cable in: "charged"
+// A USB or charger change is logged once it has held this long: a loose plug
+// flapped both every ~3 s for 2 min (20261001T190824Z-0910d7fc-battery.csv L389-415).
+constexpr uint32_t kDebounceMs = 5000;
+constexpr uint32_t kSlowMaxAgeMs = 5000;  // mV/temp reused this long (light slider bursts)
 
 using Ring = PsramRing<kRingBytes>;  // aux: bytes already on SD
 EXT_RAM_NOINIT_ATTR Ring ring;
@@ -72,6 +78,10 @@ uint32_t epochBaseMs = 0;
 int32_t localOffsetS = 0;
 
 uint32_t lastPollMs = 0;
+uint32_t slowAtMs = 0;            // last mV/temp read
+uint32_t usbSinceMs = 0;          // raw USB has differed from reading.usb since; 0 = same
+uint32_t chgSinceMs = 0;          // same for charging
+TaskHandle_t mainTask = nullptr;  // gauge I2C only from here (touch polls the bus too)
 uint32_t lastTickMs = 0;
 uint32_t carryMs = 0;
 bool bootFlushPending = false;
@@ -158,13 +168,36 @@ void setReading(const Reading& r) {
   portEXIT_CRITICAL_SAFE(&ringMux);
 }
 
-// Cheap reads, every poll.
-void readQuick() {
+// A raw state that differs from the logged one becomes it after kDebounceMs.
+bool settle(const bool raw, bool& logged, uint32_t& sinceMs, const uint32_t nowMs) {
+  if (raw == logged) {
+    sinceMs = 0;
+    return false;
+  }
+  if (sinceMs == 0) sinceMs = nowMs | 1;
+  if (nowMs - sinceMs < kDebounceMs) return false;
+  logged = raw;
+  sinceMs = 0;
+  return true;
+}
+
+// Cheap reads, every poll. debounce: USB and charging go through settle();
+// otherwise (boot, sleep) they are taken as read.
+void readQuick(const bool debounce = false) {
   Reading r = reading;
   r.pct256 = powerManager.getBatteryPercent256();
   r.pct = r.pct256 >> 8;
-  r.chg = monitor().isCharging();
-  r.usb = gpio.isUsbConnectedCached();
+  const bool chg = monitor().isCharging();
+  const bool usb = gpio.isUsbConnectedCached();
+  if (debounce) {
+    const uint32_t nowMs = millis();
+    settle(chg, r.chg, chgSinceMs, nowMs);
+    settle(usb, r.usb, usbSinceMs, nowMs);
+  } else {
+    r.chg = chg;
+    r.usb = usb;
+    chgSinceMs = usbSinceMs = 0;
+  }
   setReading(r);
 }
 
@@ -176,6 +209,7 @@ void readSlow() {
   r.mv = monitor().readMillivolts();
   r.tempKnown = monitor().readTemperatureDeciC(r.tempDeciC);
   setReading(r);
+  slowAtMs = millis() | 1;
 }
 
 void writeRowAt(const uint32_t epoch, const Reading& r, const char* name, const char* detail) {
@@ -212,11 +246,32 @@ void writeRowAt(const uint32_t epoch, const Reading& r, const char* name, const 
 }
 
 void writeRow(const char* name, const char* detail) {
+  // Fresh mV/temp on every row the main loop writes; rows from other tasks
+  // (firmware flasher) reuse the last read.
+  if (xTaskGetCurrentTaskHandle() == mainTask && (slowAtMs == 0 || millis() - slowAtMs >= kSlowMaxAgeMs)) readSlow();
   portENTER_CRITICAL_SAFE(&ringMux);
   const Reading r = reading;
   portEXIT_CRITICAL_SAFE(&ringMux);
   writeRowAt(epochNow(), r, name, detail);
 }
+
+// Sleep and restarts end Wi-Fi without the poll seeing it: say so, so every
+// wifi_on has its wifi_off. No gauge read here (a restart may be mid-I2C).
+void wifiEnded(const char* why) {
+  if (!wifiOn) return;
+  wifiOn = false;
+  portENTER_CRITICAL_SAFE(&ringMux);
+  const Reading r = reading;
+  portEXIT_CRITICAL_SAFE(&ringMux);
+  writeRowAt(epochNow(), r, "wifi_off", why);
+}
+
+}  // namespace
+
+// The row stays in the PSRAM ring; the next boot flushes it.
+void onRestart() { wifiEnded("restart"); }
+
+namespace {
 
 // Adds the sleep since sleepEpoch to the counters and restarts it at epoch.
 void settleSleep(Stats& s, const uint32_t epoch, const uint16_t pct, const bool usbNow) {
@@ -253,6 +308,7 @@ void tick(const bool onUsb) {
 }  // namespace
 
 void onBoot() {
+  mainTask = xTaskGetCurrentTaskHandle();
   lastTickMs = millis();
   readClock();
   readQuick();
@@ -270,9 +326,16 @@ void onBoot() {
     s.boots++;
   }
   s.sleepEpoch = 0;
-  // Charge starts/stops that woke the device briefly while it slept.
-  for (uint32_t i = 0; i < std::min(s.sleepEventCount, kMaxSleepEvents); ++i) {
+  // Charge starts/stops that woke the device briefly while it slept. A change
+  // undone within kDebounceMs (a flapping STAT line) is dropped with its undo.
+  const uint32_t events = std::min(s.sleepEventCount, kMaxSleepEvents);
+  for (uint32_t i = 0; i < events; ++i) {
     const Stats::SleepEvent& e = s.sleepEvents[i];
+    if (i + 1 < events && s.sleepEvents[i + 1].chg != e.chg &&
+        s.sleepEvents[i + 1].epoch - e.epoch < kDebounceMs / 1000) {
+      ++i;
+      continue;
+    }
     Reading r = reading;
     r.pct = e.pct;
     r.pct256 = 0;
@@ -302,6 +365,7 @@ void onSleep(const char* why) {
   tick(reading.usb);
   readQuick();
   readSlow();
+  wifiEnded("sleep");
   Stats& s = st();
   s.sleepEpoch = epochNow();
   s.sleepPct = reading.pct;
@@ -318,21 +382,18 @@ void poll(const uint32_t idleMs) {
   if (nowMs - epochBaseMs >= kClockMs) readClock();
 
   const Reading before = reading;
-  readQuick();
+  readQuick(/*debounce=*/true);
   tick(before.usb);
   Stats& s = st();
-  if (reading.usb != before.usb) {
-    readSlow();
-    writeRow(reading.usb ? "usb_in" : "usb_out", nullptr);
-  }
+  if (reading.usb != before.usb) writeRow(reading.usb ? "usb_in" : "usb_out", nullptr);
   if (reading.chg != before.chg) {
-    readSlow();
     if (!reading.chg) markCharged(s, epochNow(), reading.pct);
-    writeRow(reading.chg ? "chg_on" : reading.usb ? "charged" : "chg_off", nullptr);
+    // "charged": charging stopped near full with the cable in and settled.
+    const bool full = reading.usb && usbSinceMs == 0 && reading.pct >= kFullPct;
+    writeRow(reading.chg ? "chg_on" : full ? "charged" : "chg_off", nullptr);
   }
   if (reading.pct != before.pct) {
     if (reading.pct < before.pct && !reading.usb) s.dropAwakePct += before.pct - reading.pct;
-    readSlow();
     writeRow("pct", nullptr);
   }
   const bool wifi = WiFi.getMode() != WIFI_OFF;
