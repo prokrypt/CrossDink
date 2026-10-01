@@ -3,9 +3,10 @@
 const $ = (id) => document.getElementById(id);
 let text = '';
 
-function add(label, url, dl) {
+function add(label, url, dl, zp = dl) {
   const o = new Option(label, url);
   o.dataset.dl = dl;
+  o.dataset.zp = zp;
   $('src').add(o);
 }
 
@@ -17,7 +18,7 @@ async function walk(dir, depth) {
     if (f.isDirectory) {
       if (depth < 3) await walk(p, depth + 1);
     } else if (f.name.toLowerCase() !== 'remote-token') {
-      add(p.slice(1) + ' (' + f.size.toLocaleString() + ' B)', '/download?path=' + encodeURIComponent(p), f.name);
+      add(p.slice(1) + ' (' + f.size.toLocaleString() + ' B)', '/download?path=' + encodeURIComponent(p), f.name, p.slice(1));
     }
   }
 }
@@ -56,6 +57,31 @@ async function load() {
   load();
 })();
 $('src').onchange = load;
+// Download all: the browser zips every source with the File Manager's JSZip,
+// fetching one at a time since the SD card serves one reader.
+$('all').onclick = async () => {
+  $('all').disabled = true;
+  try {
+    if (!window.JSZip)
+      await new Promise((ok, no) => document.head.append(Object.assign(document.createElement('script'), { src: '/js/jszip.min.js', onload: ok, onerror: no })));
+    const zip = new JSZip();
+    const srcs = [...$('src').options].map((o) => [o.value, o.dataset.zp]).concat([['/api/battery-pending', 'battery-pending.csv']]);
+    for (const [u, name] of srcs) {
+      $('meta').textContent = 'Zipping ' + name + '...';
+      const r = await fetch(u).catch(() => null);
+      if (r && r.ok) zip.file(name, await r.blob());
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }));
+    a.download = 'crossdink-logs-' + new Date().toISOString().slice(0, 16).replace(/\D/g, '') + '.zip';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    show();
+  } catch (e) {
+    $('meta').textContent = 'Zip failed: ' + e;
+  }
+  $('all').disabled = false;
+};
 $('q').oninput = show;
 $('q').onkeydown = (e) => e.key === 'Enter' && show();
 $('go').onclick = show;
@@ -103,7 +129,8 @@ function segments() {
     if (['wifi_off', 'boot', 'wake', 'sleep'].includes(a.ev)) wifi = false;
     const dt = b.t - a.t;
     if (dt < 0) continue; // clock set backwards
-    const state = a.ev === 'sleep' ? 'asleep' : b.ev === 'boot' ? 'off' : a.usb ? 'usb' : 'awake';
+    // Charger rows logged while asleep carry detail "asleep" and keep the sleep going.
+    const state = a.ev === 'sleep' || a.det === 'asleep' ? 'asleep' : b.ev === 'boot' ? 'off' : a.usb ? 'usb' : 'awake';
     segs.push({ a, b, dt, state, wifi: wifi && state !== 'asleep', light: a.light > 0, batt: !a.usb && !b.usb });
   }
 }
@@ -118,7 +145,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
   const t1 = bat[bat.length - 1].t;
   const t0 = span ? Math.max(bat[0].t, t1 - span) : bat[0].t;
   const pts = bat.filter((r, i) => r.t >= t0 || (bat[i + 1] && bat[i + 1].t >= t0)).filter((r) => r[key] != null);
-  svg.style.display = pts.length ? '' : 'none';
+  svg.parentNode.style.display = pts.length ? '' : 'none';
   if (!pts.length) return;
   if (key !== 'pct') {
     lo = Math.min(...pts.map((r) => r[key]));
@@ -151,13 +178,15 @@ function chart(id, h, key, lo, hi, fmt, bands) {
     const anchor = q === 0 ? 'start' : q === ticks ? 'end' : 'middle';
     s += `<text x="${x(t)}" y="${h - 2}" text-anchor="${anchor}">${when(t)}</text>`;
   }
-  s += `<polyline class="line" points="${pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ')}"/>`;
+  const P = pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ');
+  if (key === 'pct') s += `<polygon class="area" points="${x(pts[0].t).toFixed(1)},${y(lo)} ${P} ${x(pts[pts.length - 1].t).toFixed(1)},${y(lo)}"/>`;
+  s += `<polyline class="line" points="${P}"/>`;
   svg.innerHTML = s;
   svg.onmousemove = (e) => {
     const box = svg.getBoundingClientRect();
     const t = t0 + (((e.clientX - box.left) / box.width) * W - L) * (Math.max(1, t1 - t0) / (W - L));
     const r = bat.reduce((best, c) => (Math.abs(c.t - t) < Math.abs(best.t - t) ? c : best), bat[0]);
-    $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
+    $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
   };
 }
 
@@ -237,6 +266,11 @@ function summary() {
   const st = b.stats || {};
   const t = status.temperatures || {};
   const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' C' : '-');
+  $('hero').innerHTML = [
+    [(b.percent ?? '-') + '%', b.charging ? 'charging' : b.usb ? 'on USB' : 'on battery'],
+    [(b.millivolts ?? '-') + ' mV', 'voltage'],
+    [c('battery'), 'battery temp'],
+  ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
   const rows = [
     ['Now', `${b.percent ?? '-'}%  ${b.millivolts ?? '-'} mV  ${b.charging ? 'charging ' : ''}${b.usb ? 'USB' : 'on battery'}`],
     ['Temperatures', `battery ${c('battery')}, chip ${c('chip')}, panel ${c('panel')}`],
@@ -262,6 +296,19 @@ function summary() {
   table('sum', null, rows);
 }
 
+// Battery and Logs are two nav tabs on one page: /logs#battery and /logs.
+// A build without battery data falls back to the log viewer.
+let hasBat = null; // null until the battery data has loaded
+function tab() {
+  const b = location.hash === '#battery' && hasBat !== false;
+  $('bat').hidden = !(b && hasBat);
+  $('lg').hidden = b;
+  for (const a of document.querySelectorAll('.nav-links a')) a.classList.toggle('active', a.getAttribute('href') === (b ? '/logs#battery' : '/logs'));
+  if (b && bat.length > 1) draw(); // charts size to the card, so draw once it is visible
+}
+window.onhashchange = tab;
+tab();
+
 (async () => {
   const get = async (u) => {
     const r = await fetch(u).catch(() => null);
@@ -281,14 +328,14 @@ function summary() {
       t: +f[0], local: f[1], pct: +f[3], mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
       temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
     }));
-  if (!bat.length && !(status.battery && status.battery.stats)) return;
-  $('bat').hidden = false;
-  summary();
-  if (bat.length < 2) return;
-  segments();
-  draw();
-  stateTable();
-  sessions();
-  $('range').onchange = draw;
-  window.onresize = draw;
+  hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);
+  if (hasBat) summary();
+  if (bat.length > 1) {
+    segments();
+    stateTable();
+    sessions();
+    $('range').onchange = draw;
+    window.onresize = () => $('bat').hidden || draw();
+  }
+  tab();
 })();

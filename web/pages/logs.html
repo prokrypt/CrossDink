@@ -1,6 +1,7 @@
 <div class="card" id="bat" hidden>
-      <h2>Battery</h2>
-      <div class="row">
+      <div class="hd">
+        <h2>Battery</h2>
+        <label class="meta" for="range">Range</label>
         <select id="range">
           <option value="21600">6 h</option>
           <option value="86400" selected>24 h</option>
@@ -9,34 +10,42 @@
           <option value="0">All</option>
         </select>
       </div>
-      <p id="readout" class="meta">&nbsp;</p>
-      <svg id="gp"></svg>
-      <svg id="gv"></svg>
-      <svg id="gt"></svg>
+      <div id="hero" class="hero"></div>
+      <p id="readout" class="ro"></p>
+      <div class="ch"><span>Charge %</span><svg id="gp"></svg></div>
+      <div class="ch"><span>Voltage mV</span><svg id="gv"></svg></div>
+      <div class="ch"><span>Temperature &deg;C</span><svg id="gt"></svg></div>
       <p class="meta">
         <span class="key asleep"></span>asleep <span class="key usb"></span>on USB <span class="key wifi"></span>Wi-Fi
-        <span class="key off"></span>off / lost power &nbsp;|&nbsp; lines: <b class="c-boot">boot</b>,
-        <b class="c-fw">firmware</b>, <b class="c-xfer">transfer</b>
+        <span class="key off"></span>off / lost power
+        <span class="key ln c-boot"></span>boot <span class="key ln c-fw"></span>firmware <span class="key ln c-xfer"></span>transfer
       </p>
       <h3>Summary</h3>
-      <table id="sum"></table>
-      <h3>Drain by state (on battery, whole log)</h3>
-      <table id="states"></table>
+      <div class="tw"><table id="sum"></table></div>
+      <h3>Drain by state <small>on battery, whole log</small></h3>
+      <div class="tw"><table id="states"></table></div>
       <h3>Discharge sessions</h3>
-      <table id="dis"></table>
+      <div class="tw"><table id="dis"></table></div>
       <h3>Charge sessions</h3>
-      <table id="chg"></table>
+      <div class="tw"><table id="chg"></table></div>
     </div>
 
-    <div class="card">
-      <h2>Logs</h2>
+    <div class="card" id="lg">
+      <div class="hd">
+        <h2>Logs</h2>
+        <a id="dl" class="btn ghost" download>Download</a>
+        <button id="all" class="btn ghost">Download all (.zip)</button>
+      </div>
       <div class="row">
-        <select id="src"><option value="">Loading...</option></select>
-        <input id="q" type="search" placeholder="Search" />
-        <button id="go" class="btn">Search</button>
-        <button id="fm" class="btn" title="Smaller text">A−</button>
-        <button id="fp" class="btn" title="Larger text">A+</button>
-        <a id="dl" class="btn" download>Download</a>
+        <select id="src" aria-label="Log source"><option value="">Loading...</option></select>
+        <div class="grp">
+          <input id="q" type="search" placeholder="Search lines" aria-label="Search lines" />
+          <button id="go" class="btn">Search</button>
+        </div>
+        <div class="grp">
+          <button id="fm" class="btn ghost" title="Smaller text" aria-label="Smaller text">A−</button>
+          <button id="fp" class="btn ghost" title="Larger text" aria-label="Larger text">A+</button>
+        </div>
       </div>
       <p id="meta" class="meta"></p>
       <pre id="out"></pre>
