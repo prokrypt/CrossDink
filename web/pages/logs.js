@@ -1,6 +1,8 @@
 // Sources: /api/status, the PSRAM ring (debug builds) and every file under /debug.
 // Missing sources are left out. Search filters the loaded text line by line.
 const $ = (id) => document.getElementById(id);
+// A boot row is a cold boot after power-on; any other reset (OTA, panic, watchdog) is a restart.
+const cold = (s) => s.includes('reset=POWERON');
 let text = '';
 
 function add(label, url, dl, zp = dl) {
@@ -41,7 +43,7 @@ function show() {
   // Battery CSV: the row's event picks the chart's colors.
   const ev = (l) => {
     const e = l.split(',')[9] || '';
-    return e === 'boot' ? 'c-boot' : e.startsWith('fw_') ? 'c-fw' : e.startsWith('xfer') ? 'c-xfer'
+    return e === 'boot' ? (cold(l) ? 'c-boot' : 'c-rst') : e.startsWith('fw_') ? 'c-fw' : e.startsWith('xfer') ? 'c-xfer'
       : /^(chg_|charged|usb_)/.test(e) ? 'c-usb' : e.startsWith('wifi') ? 'c-wifi' : /^(sleep|wake)$/.test(e) ? 'c-sleep' : '';
   };
   const fmt = kind.endsWith('.json') ? json : kind.endsWith('.csv') ? (l) => wrap(ev(l), l) : (l) => wrap(lvl(l), tag(l));
@@ -151,7 +153,7 @@ function segments() {
     const dt = b.t - a.t;
     if (dt < 0) continue; // clock set backwards
     // Charger rows logged while asleep carry detail "asleep" and keep the sleep going.
-    const state = a.ev === 'sleep' || a.det === 'asleep' ? 'asleep' : b.ev === 'boot' ? 'off' : a.usb ? 'usb' : 'awake';
+    const state = a.ev === 'sleep' || a.det === 'asleep' ? 'asleep' : b.ev === 'boot' && cold(b.det) ? 'off' : a.usb ? 'usb' : 'awake';
     segs.push({ a, b, dt, state, wifi: wifi && state !== 'asleep', light: a.light > 0, batt: !a.usb && !b.usb });
   }
 }
@@ -240,7 +242,7 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
     }
     for (const r of bat) {
       if (r.t < t0 || r.t > t1) continue;
-      const m = r.ev === 'boot' ? 'boot' : r.ev.startsWith('fw_') ? 'fw' : r.ev.startsWith('xfer') ? 'xfer' : '';
+      const m = r.ev === 'boot' ? (cold(r.det) ? 'boot' : 'rst') : r.ev.startsWith('fw_') ? 'fw' : r.ev.startsWith('xfer') ? 'xfer' : '';
       if (m) s += `<line class="m-${m}" x1="${x(r.t)}" x2="${x(r.t)}" y1="6" y2="${h - 16}"><title>${r.local} ${r.ev} ${r.det}</title></line>`;
     }
   }
@@ -390,7 +392,7 @@ function summary() {
   const boot = status.boot || {};
   rows.push(
     ['Up', `${hrs((boot.uptimeMs || 0) / 1000)}, reset ${boot.resetReason}, wake ${boot.wakeCause}`],
-    ['Log', bat.length ? `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}, ${bat.filter((r) => r.ev === 'boot').length} boots, ${bat.filter((r) => r.ev === 'wake').length} wakes` : 'no rows with a clock time']
+    ['Log', bat.length ? `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}, ${bat.filter((r) => r.ev === 'boot' && cold(r.det)).length} cold boots, ${bat.filter((r) => r.ev === 'boot' && !cold(r.det)).length} restarts, ${bat.filter((r) => r.ev === 'wake').length} wakes` : 'no rows with a clock time']
   );
   table('sum', null, rows);
 }
