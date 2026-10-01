@@ -29,8 +29,10 @@ void poll();
 // Wi-Fi remote (POST /api/cmd): hands one command ("KBDEXP 15 6", no "CMD:")
 // from another task to the main task and waits for its reply line. The token
 // must match /debug/remote-token on the SD card (no file = disabled). Returns
-// an HTTP status: 200, 403 bad token, 404 unknown command, 503 busy/timeout.
-int runFromOtherTask(const char* token, const char* cmd, char* out, size_t outLen, uint32_t timeoutMs);
+// an HTTP status: 200, 403 bad token, 404 unknown command, 429 clientIp locked
+// out after bad tokens, 503 busy/timeout.
+int runFromOtherTask(const char* token, const char* cmd, uint32_t clientIp, char* out, size_t outLen,
+                     uint32_t timeoutMs);
 // After runFromOtherTask(..., "SCREENSHOT", ...) returned 200: the PBM image the
 // main task captured. Server task only; valid until the next SCREENSHOT.
 const uint8_t* screenshot(size_t& len);
