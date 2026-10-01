@@ -1584,7 +1584,12 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   }
 }
 
+namespace {
+void installFlashDuckRenderWait();
+}  // namespace
+
 void setup() {
+  installFlashDuckRenderWait();
 #ifdef SIMULATOR
   SimulatorLifecycle::restoreSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
 #else
@@ -2082,6 +2087,7 @@ KNOB_ALIAS(FLASH_DUCK_TICK_MS, flashTickMs);
 static bool flashDuckActive = false;
 static uint8_t flashDuckLevel = 100;
 static unsigned long flashDuckUpStartMs = 0;
+static unsigned long flashDuckInputMs = 0;  // last user input (the fade starts there)
 
 static uint32_t liveFlashStartMs() {
   const uint32_t startMs = display.flashStartedMs();
@@ -2090,8 +2096,9 @@ static uint32_t liveFlashStartMs() {
                                                                                                              : 0;
 }
 
-static void updateFlashDuck(const unsigned long inputMs) {
+static void updateFlashDuck() {
   const unsigned long now = millis();
+  const unsigned long inputMs = flashDuckInputMs;
   const uint32_t swingMs = liveFlashStartMs();
   const uint32_t markMs = display.flashMarkedMs();
   static uint32_t swungMarkMs = 0;  // the mark whose swing showed (its mark no longer ducks)
@@ -2201,6 +2208,18 @@ static void updateFlashDuck(const unsigned long inputMs) {
     Frontlight.setIdleDim(flashDuckLevel);
   }
   if (!ducking && flashDuckLevel == 100) flashDuckActive = false;
+}
+
+// The main loop can block in a render wait through a whole refresh (a reader
+// redraw under the drawer: log 20261001T021833Z-2c6751af L3220-3227, loop 1377
+// ms), so RenderLock's waits step the duck too, on this task only.
+static TaskHandle_t mainLoopTask = nullptr;
+static void flashDuckRenderWait() {
+  if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
+}
+void installFlashDuckRenderWait() {
+  mainLoopTask = xTaskGetCurrentTaskHandle();  // setup() and loop() share the Arduino loop task
+  RenderLock::waitTick = &flashDuckRenderWait;
 }
 
 // A running transfer pulse owns the light (each step resets the dim), so the
@@ -2454,6 +2473,7 @@ static void loopPass() {
   if (userInputReceived) {
     activityManager.wakePanelEarly();    // PON while the finger is still down
     lastActivityTime = millis();         // Reset inactivity timer
+    flashDuckInputMs = lastActivityTime;
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
   if (activityManager.preventAutoSleep()) {
@@ -2497,7 +2517,7 @@ static void loopPass() {
       }
     }
   }
-  updateFlashDuck(lastActivityTime);
+  updateFlashDuck();
   BatteryLog::poll(millis() - lastActivityTime);
 
   // Let wake continue as soon as its hold has been verified. The release can
