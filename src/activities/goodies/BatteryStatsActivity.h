@@ -52,9 +52,16 @@ class BatteryStatsActivity final : public Activity {
     // the gauge's rise after an unplug cancels drops instead of being ignored.
     // Added to dropC (a negative net as 0) when the stretch ends.
     int32_t netC[2], netCoarseC[2];
+    // Awake on battery, between fractional rows, by state [Wi-Fi * 2 + light on]:
+    // signed drop in 0.01 %, seconds, and light % x seconds. The first
+    // UNPLUG_SKIP_S after a charge is left out (the gauge rises then).
+    int32_t stateDropC[4];
+    uint32_t stateS[4];
+    uint64_t stateLight[4];
   };
   static void endStretch(LogStats& s);
   static constexpr uint32_t CHARGE_MERGE_S = 60;
+  static constexpr uint32_t UNPLUG_SKIP_S = 1800;
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 16;
 
@@ -74,6 +81,10 @@ class BatteryStatsActivity final : public Activity {
   uint16_t prevC = 0;     // drop reference % in 0.01 % (the previous row, or the last fractional one)
   bool prevFine = false;  // that % had a fraction
   bool prevUsb = false;
+  uint16_t prevRowC = 0;  // the previous row's % in 0.01 %, its precision, Wi-Fi and light
+  bool prevRowFine = false;
+  bool prevWifi = false;
+  uint8_t prevLight = 0;
   HalFile file;
   std::unique_ptr<char[]> buf;
   size_t fill = 0;
