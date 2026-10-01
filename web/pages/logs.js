@@ -20,7 +20,7 @@ async function walk(dir, depth) {
     if (f.isDirectory) {
       if (depth < 3) await walk(p, depth + 1);
     } else if (f.name.toLowerCase() !== 'remote-token') {
-      add(p.slice(1) + ' (' + f.size.toLocaleString() + ' B)', '/download?path=' + encodeURIComponent(p), f.name, p.slice(1));
+      add(p.slice(1) + ' (' + f.size.toLocaleString() + 'B)', '/download?path=' + encodeURIComponent(p), f.name, p.slice(1));
     }
   }
 }
@@ -74,7 +74,7 @@ async function load() {
   const p = await fetch('/api/psram-log?since=4294967295').catch(() => null);
   if (p && p.ok) {
     const size = p.headers.get('X-Log-Next') - p.headers.get('X-Log-Oldest');
-    add('PSRAM log (' + size.toLocaleString() + ' B)', '/api/psram-log', 'psram-log.txt');
+    add('PSRAM log (' + size.toLocaleString() + 'B)', '/api/psram-log', 'psram-log.txt');
   }
   await walk('/debug', 1);
   load();
@@ -130,8 +130,8 @@ let bat = [];
 let segs = [];
 let status = {};
 
-const hrs = (s) => (s < 3600 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1) + ' h');
-const rate = (drop, s) => (s >= 60 ? ((drop * 3600) / s).toFixed(2) + ' %/h' : '-');
+const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1) + 'h');
+const rate = (drop, s) => (s >= 60 ? ((drop * 3600) / s).toFixed(2) + '%/h' : '-');
 const when = (t) => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const table = (id, head, rows) => {
   $(id).innerHTML =
@@ -196,7 +196,7 @@ function tAt(svg, cx) {
 function hover(t) {
   hoverT = t;
   const r = bat.reduce((best, c) => (Math.abs(c.t - t) < Math.abs(best.t - t) ? c : best), bat[0]);
-  $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} °C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${bat.filter((c) => c.t === r.t).map((c) => (c.ev + ' ' + c.det).trim()).join(', ')}`; // every event at that second, e.g. wifi_on + xfer_start
+  $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv}mV  ${r.temp ?? '-'}°C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${bat.filter((c) => c.t === r.t).map((c) => (c.ev + ' ' + c.det).trim()).join(', ')}`; // every event at that second, e.g. wifi_on + xfer_start
   const [a, b] = win();
   for (const svg of document.querySelectorAll('.ch svg')) {
     const W = svg.viewBox.baseVal.width - svg.dataset.r;
@@ -362,7 +362,7 @@ function sessions() {
       when(s.a.t),
       hrs(s.b.t - s.a.t),
       s.a.pct + ' → ' + s.max,
-      rate(s.max - s.a.pct, s.b.t - s.a.t).replace(' %/h', ' %/h gained'),
+      rate(s.max - s.a.pct, s.b.t - s.a.t).replace('%/h', '%/h gained'),
       s.full ? hrs(s.full - s.a.t) : '-',
     ])
   );
@@ -401,14 +401,14 @@ function logStats() {
 function summary() {
   const b = status.battery || {};
   const t = status.temperatures || {};
-  const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' °C' : '-');
+  const c = (k) => (t[k] && t[k].c != null ? t[k].c + '°C' : '-');
   $('hero').innerHTML = [
     [(b.percent ?? '-') + '%', b.charging ? 'charging' : b.usb ? 'on USB' : 'on battery'],
-    [(b.millivolts ?? '-') + ' mV', 'voltage'],
+    [(b.millivolts ?? '-') + 'mV', 'voltage'],
     [c('battery'), 'battery temp'],
   ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
   const rows = [
-    ['Now', `${b.percent ?? '-'}%  ${b.millivolts ?? '-'} mV  ${b.charging ? 'charging ' : ''}${b.usb ? 'USB' : 'on battery'}`],
+    ['Now', `${b.percent ?? '-'}%  ${b.millivolts ?? '-'}mV  ${b.charging ? 'charging ' : ''}${b.usb ? 'USB' : 'on battery'}`],
     ['Temperatures', `battery ${c('battery')}, chip ${c('chip')}, panel ${c('panel')}`],
   ];
   if (bat.length) {
