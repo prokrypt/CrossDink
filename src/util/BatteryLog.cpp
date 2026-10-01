@@ -40,7 +40,6 @@ constexpr uint32_t kRingMagicB = 0xC0DE0930;
 constexpr uint32_t kStatsMagic = 0x42415454;  // "BATT", CrossDink-only
 constexpr uint16_t kStatsVersion = 1;         // bump on any Stats layout change
 constexpr uint32_t kMaxFileBytes = 256 * 1024;
-constexpr char kOldPath[] = "/debug/logs/battery.1.csv";
 constexpr char kHeader[] = "epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c,light_pct,event,detail\n";
 constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kClockMs = 60 * 1000;
@@ -405,8 +404,8 @@ bool flush() {
   }
   if (file.fileSize() >= kMaxFileBytes) {
     file.close();
-    Storage.remove(kOldPath);
-    if (!Storage.rename(LOG_PATH, kOldPath)) {
+    Storage.remove(OLD_PATH);
+    if (!Storage.rename(LOG_PATH, OLD_PATH)) {
       LOG_ERR("BAT", "Failed to rotate %s", LOG_PATH);
       return false;
     }

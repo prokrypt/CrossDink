@@ -88,5 +88,6 @@ inline void event(const char*, const char* = nullptr) {}
 #endif
 
 constexpr char LOG_PATH[] = "/debug/logs/battery.csv";
+constexpr char OLD_PATH[] = "/debug/logs/battery.1.csv";  // LOG_PATH rotates here at 256 KB
 
 }  // namespace BatteryLog

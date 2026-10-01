@@ -31,7 +31,6 @@
 #include "util/BuildInfo.h"
 
 namespace {
-constexpr uint32_t GRAPH_TAIL_BYTES = 32 * 1024;  // ~450 rows
 
 // Pointer to field n (0-based) of a CSV row, or nullptr.
 const char* field(const char* row, int n) {
@@ -59,21 +58,26 @@ void formatRate(char* out, const size_t size, const uint32_t dropPct, const uint
 void BatteryStatsActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::flush();  // so the graph includes this session
-  loadGraph();
+  loadLog();
   buildLines();
   requestUpdate();
 }
 
-void BatteryStatsActivity::loadGraph() {
+void BatteryStatsActivity::loadLog() {
   pointCount = 0;
-  HalFile file = Storage.open(BatteryLog::LOG_PATH, O_RDONLY);
-  if (!file) return;
-  const size_t size = file.fileSize();
-  const bool partial = size > GRAPH_TAIL_BYTES;
-  file.seekSet(partial ? size - GRAPH_TAIL_BYTES : 0);
+  st = {};
+  prev = {};
+  readLog(BatteryLog::OLD_PATH);
+  readLog(BatteryLog::LOG_PATH);
+}
+
+// ponytail: reads up to 2 x 256 KB of CSV on every open; keep a running summary
+// in a file if this gets slow on SPI SD.
+void BatteryStatsActivity::readLog(const char* path) {
+  HalFile file = Storage.open(path, O_RDONLY);
+  if (!file) return;  // battery.1.csv only exists after the first rotation
   char buf[512];
   size_t fill = 0;
-  bool skipLine = partial;  // the first line of a tail read starts mid-row
   for (;;) {
     const int n = file.read(buf + fill, sizeof(buf) - 1 - fill);
     if (n <= 0) break;
@@ -82,21 +86,54 @@ void BatteryStatsActivity::loadGraph() {
     char* line = buf;
     for (char* nl; (nl = strchr(line, '\n')) != nullptr; line = nl + 1) {
       *nl = '\0';
-      if (skipLine) {
-        skipLine = false;
-        continue;
-      }
       const uint32_t epoch = strtoul(line, nullptr, 10);
-      const char* pct = field(line, 3);
+      const char* pctField = field(line, 3);
+      const char* usbField = field(line, 6);
       const char* event = field(line, 9);
-      if (epoch == 0 || !pct || !event) continue;  // header, or no RTC time
+      if (epoch == 0 || !pctField || !usbField || !event) continue;  // header, or no RTC time
+      const char* detail = field(line, 10);
+      auto is = [event](const char* name) {
+        const size_t len = strlen(name);
+        return strncmp(event, name, len) == 0 && (event[len] == ',' || event[len] == '\0');
+      };
+      const uint8_t pct = static_cast<uint8_t>(std::min(100L, strtol(pctField, nullptr, 10)));
+      const bool usb = *usbField == '1';
+      const bool asleep = is("sleep") || (detail && strncmp(detail, "asleep", 6) == 0);
+      const bool boot = is("boot");
+      const bool cold = boot && detail && strstr(detail, "reset=POWERON");
+
+      if (is("stats_reset")) {
+        st = {};
+        st.reset = true;
+      } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
+        // The span from the previous row is awake or asleep; before a cold boot it was off.
+        const uint32_t dt = epoch - prev.epoch;
+        const uint32_t drop = prev.pct > pct ? prev.pct - pct : 0;
+        (prev.awake ? st.awakeS : st.asleepS) += dt;
+        if (!prevUsb && !usb) {
+          (prev.awake ? st.battAwakeS : st.battAsleepS) += dt;
+          (prev.awake ? st.dropAwakePct : st.dropAsleepPct) += drop;
+        }
+      }
+      if (st.first == 0) st.first = epoch;
+      st.last = epoch;
+      if (boot) ++(cold ? st.coldBoots : st.restarts);
+      if (is("wake")) ++st.wakes;
+      if (const char* f = detail ? strstr(detail, "false_wakes=") : nullptr)
+        st.falseWakes += strtoul(f + 12, nullptr, 10);
+      if (is("charged")) {
+        st.chargedEpoch = epoch;
+        st.chargedPct = pct;
+      }
+      if (is("charged") || is("chg_off")) st.battAwakeS = st.battAsleepS = st.dropAwakePct = st.dropAsleepPct = 0;
+
       if (pointCount == MAX_POINTS) {
         std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
         pointCount = MAX_POINTS / 2;
       }
-      const char* detail = field(line, 10);
-      const bool asleep = strncmp(event, "sleep", 5) == 0 || (detail && strncmp(detail, "asleep", 6) == 0);
-      points[pointCount++] = {epoch, static_cast<uint8_t>(std::min(100L, strtol(pct, nullptr, 10))), !asleep};
+      prev = {epoch, pct, !asleep};
+      prevUsb = usb;
+      points[pointCount++] = prev;
     }
     fill = strlen(line);
     memmove(buf, line, fill);
@@ -111,7 +148,6 @@ void BatteryStatsActivity::buildLines() {
     if (lineCount < MAX_LINES) snprintf(lines[lineCount++], sizeof(lines[0]), fmt, args...);
   };
   char a[40], b[40];
-  const BatteryLog::Stats& s = BatteryLog::stats();
 
   static const BatteryMonitor monitor;
   int16_t tempDeci = 0;
@@ -125,29 +161,33 @@ void BatteryStatsActivity::buildLines() {
   }
 
   const uint32_t now = BatteryLog::nowEpoch();
-  if (s.chargedEpoch != 0 && now > s.chargedEpoch) {
-    BookReadingStats::formatDuration(now - s.chargedEpoch, a, sizeof(a));
-    add("Last charged %s ago at %u%%", a, s.chargedPct);
+  if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
+    BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
+    add("Last charged %s ago at %u%%", a, st.chargedPct);
   } else {
-    add("Last charged: not seen since reset");
+    add("Last charged: not in the log");
   }
-  formatRate(a, sizeof(a), s.dropAwakePct, s.battAwakeS);
+  formatRate(a, sizeof(a), st.dropAwakePct, st.battAwakeS);
   add("Awake drain: %s", a);
-  formatRate(a, sizeof(a), s.dropAsleepPct, s.battAsleepS);
+  formatRate(a, sizeof(a), st.dropAsleepPct, st.battAsleepS);
   add("Asleep drain: %s", a);
-  const uint32_t drop = s.dropAwakePct + s.dropAsleepPct;
-  const uint32_t span = s.battAwakeS + s.battAsleepS;
+  const uint32_t drop = st.dropAwakePct + st.dropAsleepPct;
+  const uint32_t span = st.battAwakeS + st.battAsleepS;
   if (drop > 0 && span >= 60) {
     BookReadingStats::formatDuration(static_cast<uint32_t>(static_cast<uint64_t>(pct) * span / drop), a, sizeof(a));
     add("Est. left at that pace: %s", a);
   }
 
-  BookReadingStats::formatDuration(s.awakeS, a, sizeof(a));
-  BookReadingStats::formatDuration(s.asleepS, b, sizeof(b));
-  add("Wakes %lu  False %lu  Boots %lu  Awake %s  Asleep %s", static_cast<unsigned long>(s.wakes),
-      static_cast<unsigned long>(s.falseWakes + s.pendingFalseWakes), static_cast<unsigned long>(s.boots), a, b);
+  BookReadingStats::formatDuration(st.last - st.first, a, sizeof(a));
+  add("Log: %s%s", st.first ? a : "empty", st.reset ? " since reset" : "");
+  add("Wakes %lu  False %lu  Cold boots %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
+      static_cast<unsigned long>(st.falseWakes), static_cast<unsigned long>(st.coldBoots),
+      static_cast<unsigned long>(st.restarts));
+  BookReadingStats::formatDuration(st.awakeS, a, sizeof(a));
+  BookReadingStats::formatDuration(st.asleepS, b, sizeof(b));
+  add("Awake %s  Asleep %s", a, b);
   const auto& c = HalDisplay::refreshCounts().n;
-  add("Refresh: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
+  add("Refresh since power-on: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
       static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),
       static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]), static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]),
       static_cast<unsigned long>(c[HalDisplay::FLASHING]));
@@ -188,8 +228,11 @@ void BatteryStatsActivity::confirmReset() {
   }
   startActivityForResult(std::move(dialog), [this](const ActivityResult& res) {
     if (res.isCancelled) return;
-    RenderLock lock(*this);  // render() reads lines
+    BatteryLog::event("stats_reset");
     BatteryLog::reset();
+    BatteryLog::flush();
+    RenderLock lock(*this);  // render() reads points and lines
+    loadLog();
     buildLines();
     scroll = 0;
     lock.unlock();
