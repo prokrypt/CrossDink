@@ -103,7 +103,8 @@ function segments() {
     if (['wifi_off', 'boot', 'wake', 'sleep'].includes(a.ev)) wifi = false;
     const dt = b.t - a.t;
     if (dt < 0) continue; // clock set backwards
-    const state = a.ev === 'sleep' ? 'asleep' : b.ev === 'boot' ? 'off' : a.usb ? 'usb' : 'awake';
+    // Charger rows logged while asleep carry detail "asleep" and keep the sleep going.
+    const state = a.ev === 'sleep' || a.det === 'asleep' ? 'asleep' : b.ev === 'boot' ? 'off' : a.usb ? 'usb' : 'awake';
     segs.push({ a, b, dt, state, wifi: wifi && state !== 'asleep', light: a.light > 0, batt: !a.usb && !b.usb });
   }
 }
@@ -118,7 +119,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
   const t1 = bat[bat.length - 1].t;
   const t0 = span ? Math.max(bat[0].t, t1 - span) : bat[0].t;
   const pts = bat.filter((r, i) => r.t >= t0 || (bat[i + 1] && bat[i + 1].t >= t0)).filter((r) => r[key] != null);
-  svg.style.display = pts.length ? '' : 'none';
+  svg.parentNode.style.display = pts.length ? '' : 'none';
   if (!pts.length) return;
   if (key !== 'pct') {
     lo = Math.min(...pts.map((r) => r[key]));
@@ -151,13 +152,15 @@ function chart(id, h, key, lo, hi, fmt, bands) {
     const anchor = q === 0 ? 'start' : q === ticks ? 'end' : 'middle';
     s += `<text x="${x(t)}" y="${h - 2}" text-anchor="${anchor}">${when(t)}</text>`;
   }
-  s += `<polyline class="line" points="${pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ')}"/>`;
+  const P = pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ');
+  if (key === 'pct') s += `<polygon class="area" points="${x(pts[0].t).toFixed(1)},${y(lo)} ${P} ${x(pts[pts.length - 1].t).toFixed(1)},${y(lo)}"/>`;
+  s += `<polyline class="line" points="${P}"/>`;
   svg.innerHTML = s;
   svg.onmousemove = (e) => {
     const box = svg.getBoundingClientRect();
     const t = t0 + (((e.clientX - box.left) / box.width) * W - L) * (Math.max(1, t1 - t0) / (W - L));
     const r = bat.reduce((best, c) => (Math.abs(c.t - t) < Math.abs(best.t - t) ? c : best), bat[0]);
-    $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
+    $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
   };
 }
 
@@ -237,6 +240,11 @@ function summary() {
   const st = b.stats || {};
   const t = status.temperatures || {};
   const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' C' : '-');
+  $('hero').innerHTML = [
+    [(b.percent ?? '-') + '%', b.charging ? 'charging' : b.usb ? 'on USB' : 'on battery'],
+    [(b.millivolts ?? '-') + ' mV', 'voltage'],
+    [c('battery'), 'battery temp'],
+  ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
   const rows = [
     ['Now', `${b.percent ?? '-'}%  ${b.millivolts ?? '-'} mV  ${b.charging ? 'charging ' : ''}${b.usb ? 'USB' : 'on battery'}`],
     ['Temperatures', `battery ${c('battery')}, chip ${c('chip')}, panel ${c('panel')}`],
