@@ -3,6 +3,7 @@
 #if CROSSDINK_GOODIES && !defined(SIMULATOR)
 
 #include <BatteryMonitor.h>
+#include <CrossDinkHalFrontlight.h>
 #include <FreeInkDisplay.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
@@ -11,6 +12,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <WiFi.h>
 #include <esp_sleep.h>
 
 #include <algorithm>
@@ -21,7 +23,6 @@
 
 #include "MappedInputManager.h"
 #include "activities/reader/BookReadingStats.h"
-#include "activities/reader/GlobalReadingStats.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -190,6 +191,13 @@ void BatteryStatsActivity::parseRow(const char* line) {
     // taken across it from prevC; the step from a whole row to a fractional
     // one is skipped (its rounding would be a drop of up to 1%).
     const int cat = prev.awake ? 0 : 1;
+    if (prev.awake && !prevUsb && !usb && fine && prevRowFine &&
+        (st.chargedEpoch == 0 || prev.epoch >= st.chargedEpoch + UNPLUG_SKIP_S)) {
+      const int k = (prevWifi ? 2 : 0) + (prevLight ? 1 : 0);
+      st.stateDropC[k] += static_cast<int32_t>(prevRowC) - pctC;
+      st.stateS[k] += dt;
+      st.stateLight[k] += static_cast<uint64_t>(prevLight) * dt;
+    }
     if (!prevUsb && !usb && fine == prevFine) {
       st.battS[cat] += dt;
       st.netC[cat] += drop;
@@ -237,6 +245,12 @@ void BatteryStatsActivity::parseRow(const char* line) {
     prevFine = fine;
   }
   prevUsb = usb;
+  prevRowC = pctC;
+  prevRowFine = fine;
+  if (boot || is("wake") || is("sleep") || is("wifi_off")) prevWifi = false;
+  if (is("wifi_on")) prevWifi = true;
+  const char* lightField = field(line, 8);
+  prevLight = lightField ? static_cast<uint8_t>(atoi(lightField)) : 0;
   points[pointCount++] = prev;
 }
 
@@ -260,7 +274,7 @@ void BatteryStatsActivity::buildLines() {
 
   if (loading) {
     // Read from loop() in slices (step()); these fill in when it is done.
-    for (const char* name : {"Last charged", "Awake drain", "Asleep drain", "Est. left"})
+    for (const char* name : {"Last chg", "Awake drain", "Asleep drain", "Est to empty"})
       add("%s: calculating...", name);
   } else {
     const uint32_t now = BatteryLog::nowEpoch();
@@ -271,32 +285,53 @@ void BatteryStatsActivity::buildLines() {
       add("Charging from %s%% (now %s%%)", from, to);
     } else if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
       BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
-      add("Last charged %s ago from %s%% to %s%%", a, from, to);
+      add("Last chg: %s ago from %s%% to %s%%", a, from, to);
     } else {
-      add("Last charged: not in the log");
+      add("Last chg: not in the log");
     }
     formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
     add("Awake drain: %s", a);
     formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1]);
     add("Asleep drain: %s", a);
+    // Awake drain for the live Wi-Fi and light state; the light's share scales
+    // with brightness against the state's logged average.
+    const bool wifiNow = WiFi.getMode() != WIFI_OFF;
+    const uint8_t lightNow = Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0;
+    const int k = (wifiNow ? 2 : 0) + (lightNow ? 1 : 0);
+    auto rateOf = [this](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
+      return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
+    };
+    float rate = rateOf(k);
+    if (rate > 0 && lightNow != 0 && rateOf(k - 1) > 0) {
+      const float avgLight = static_cast<float>(st.stateLight[k]) / st.stateS[k];
+      rate = rateOf(k - 1) + (rate - rateOf(k - 1)) * lightNow / std::max(avgLight, 1.0f);
+    }
+    const uint32_t pctNowC = powerManager.getBatteryPercent256() * 100u / 256u;
     const uint32_t drop = st.dropC[0] + st.dropC[1];
     const uint32_t span = st.battS[0] + st.battS[1];
-    if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
+    if (rate > 0) {
+      BookReadingStats::formatDuration(static_cast<uint32_t>(pctNowC / rate), a, sizeof(a));
+      snprintf(b, sizeof(b), "%u%%", lightNow);
+      add("Est to empty: %s (Wi-Fi %s, light %s)", a, wifiNow ? "on" : "off", lightNow ? b : "off");
+    } else if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
       // The drop's ± moves the estimate by about left * ± / drop.
-      const uint64_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
-      const uint32_t left = static_cast<uint32_t>(pctC * span / drop);
+      const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pctNowC) * span / drop);
       char err[24];
       BookReadingStats::formatDuration(left, a, sizeof(a));
       BookReadingStats::formatDuration(
           static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err, sizeof(err));
-      add("Est. left at that pace: %s \xC2\xB1%s", a, err);
+      add("Est to empty: %s \xC2\xB1%s (avg)", a, err);
     } else {
-      add("Est. left: %s", NOT_ENOUGH);
+      add("Est to empty: %s", NOT_ENOUGH);
     }
 
-    BookReadingStats::formatDuration(st.last - st.first, a, sizeof(a));
-    add("Log: %s%s", st.first ? a : "empty", st.reset ? " since reset" : "");
-    add("Wakes %lu  False %lu  Cold boots %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
+    if (st.first != 0 && now > st.first) {
+      BookReadingStats::formatDuration(now - st.first, a, sizeof(a));
+      add("Earliest log: %s ago%s", a, st.reset ? " (reset)" : "");
+    } else {
+      add("Earliest log: none");
+    }
+    add("Wakes %lu  False %lu  Cold %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
         static_cast<unsigned long>(st.falseWakes), static_cast<unsigned long>(st.coldBoots),
         static_cast<unsigned long>(st.restarts));
     BookReadingStats::formatDuration(st.awakeS, a, sizeof(a));
@@ -304,14 +339,10 @@ void BatteryStatsActivity::buildLines() {
     add("Awake %s  Asleep %s", a, b);
   }
   const auto& c = HalDisplay::refreshCounts().n;
-  add("Refresh since power-on: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
+  add("Session refresh counts: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
       static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),
       static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]), static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]),
       static_cast<unsigned long>(c[HalDisplay::FLASHING]));
-
-  const GlobalReadingStats reading = GlobalReadingStats::load();
-  BookReadingStats::formatDuration(reading.totalReadingSeconds, a, sizeof(a));
-  add("Reading: %lu pages, %s", static_cast<unsigned long>(reading.totalPagesTurned), a);
 
   int8_t panelC = 0;
   uint32_t panelAgeMs = 0;
@@ -324,8 +355,6 @@ void BatteryStatsActivity::buildLines() {
   BookReadingStats::formatDuration(millis() / 1000, a, sizeof(a));
   add("Up %s  reset %s  wake %s", a, resetReasonName(esp_reset_reason()),
       wakeupCauseName(esp_sleep_get_wakeup_cause()));
-  add("Heap %luKB (block %lu)  PSRAM %luKB free", static_cast<unsigned long>(ESP.getFreeHeap() / 1024),
-      static_cast<unsigned long>(ESP.getMaxAllocHeap() / 1024), static_cast<unsigned long>(ESP.getFreePsram() / 1024));
   add("%s  log %s", BuildInfo::gitSha(), BatteryLog::LOG_PATH);
 }
 
