@@ -513,9 +513,13 @@ void GoodiesActivity::activate(const int index) {
     } else if (index == 1) {
       toggleRemote();
     } else if (index == TOKEN_ROW) {
-      // Full token for 10 s (loop() hides it again); never logged.
-      tokenShownUntil = millis() + 10000;
-      setRowValue(TOKEN_ROW, tokenRowValue());
+      // First tap: the full token for 10 s (loop() hides it again). Second: a new PIN.
+      if (tokenShownUntil == 0) {
+        tokenShownUntil = millis() + 10000;
+        setRowValue(TOKEN_ROW, tokenRowValue());
+      } else {
+        confirmNewPin();
+      }
     } else if (index == KNOBS_ROW) {
       showLevel(Level::Knobs);
     } else {
@@ -655,14 +659,31 @@ void GoodiesActivity::setRowValue(const int row, std::string value) {
   requestUpdate();
 }
 
-// /api/cmd, /api/screenshot and /api/ota token (/debug/remote-token on the SD card).
-std::string GoodiesActivity::tokenRowValue() const {
+void GoodiesActivity::confirmNewPin() {
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "New API PIN?",
+                                                                "Clients with the old PIN or token get locked out."),
+                         [this](const ActivityResult& result) {
+                           mappedInput.suppressNextConfirmRelease();
+                           if (!result.isCancelled) {
+                             char pin[SerialRemote::TOKEN_BUF];
+                             SerialRemote::newPin(pin);
+                             memset(pin, 0, sizeof(pin));
+                             tokenShownUntil = millis() + 10000;
+                           }
+                           setRowValue(TOKEN_ROW, tokenRowValue());
+                         });
+}
+
+// /api/cmd, /api/screenshot and /api/ota token (/debug/remote-token on the SD
+// card). Missing or empty: the device makes a 6-digit PIN for clients to copy.
+std::string GoodiesActivity::tokenRowValue() {
   char token[SerialRemote::TOKEN_BUF];
-  const size_t n = SerialRemote::readToken(token);
-  std::string value = n == 0                 ? "none"
-                      : tokenShownUntil != 0 ? token
+  size_t n = SerialRemote::readToken(token);
+  if (n == 0) n = SerialRemote::newPin(token);
+  std::string value = n == 0                 ? "none (SD write failed)"
+                      : tokenShownUntil != 0 ? std::string(token) + "  (tap: new PIN)"
                       : n > 8                ? std::string("set ...") + (token + n - 4)
-                                             : "set";
+                                             : "tap to show";
   memset(token, 0, sizeof(token));
   return value;
 }

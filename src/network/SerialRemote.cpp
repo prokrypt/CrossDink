@@ -38,6 +38,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include <Knobs.h>
 #include <Logging.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -584,6 +585,23 @@ size_t readToken(char (&out)[TOKEN_BUF]) {
   if (n > TOKEN_MAX) n = 0;
   if (n == 0) memset(out, 0, TOKEN_BUF);
   return n;
+}
+
+size_t newPin(char (&out)[TOKEN_BUF]) {
+  uint32_t r;
+  do {
+    r = esp_random();
+  } while (r >= 4294000000u);  // whole millions only, so every PIN is equally likely
+  memset(out, 0, TOKEN_BUF);
+  snprintf(out, TOKEN_BUF, "%06lu", static_cast<unsigned long>(r % 1000000));
+  if (!Storage.ensureDirectoryExists("/debug") || !Storage.writeFile(TOKEN_PATH, String(out) + "\n")) {
+    LOG_ERR("SER", "Wi-Fi remote: could not write a new PIN");
+    memset(out, 0, TOKEN_BUF);
+    return 0;
+  }
+  for (Strikes& s : strikes) s = {};
+  LOG_INF("SER", "Wi-Fi remote: new PIN written");
+  return 6;
 }
 
 bool handleLine(const char* line) {

@@ -20,6 +20,10 @@ constexpr size_t TOKEN_BUF = TOKEN_MAX + 2;
 // Main task: the trimmed /debug/remote-token, zero-padded into out. Returns its
 // length, 0 when missing, empty or longer than TOKEN_MAX. Never log it.
 size_t readToken(char (&out)[TOKEN_BUF]);
+// Main task: a new random 6-digit PIN, written to /debug/remote-token (old
+// token gone, bad-token lockouts cleared) and returned in out. 0 on a write
+// failure. Never log it.
+size_t newPin(char (&out)[TOKEN_BUF]);
 // Handles one received line (without the newline). False when the line is not
 // a remote-control command, so the caller can try its own commands.
 bool handleLine(const char* line);
