@@ -161,6 +161,7 @@
 
 ### Fixed
 - X4 Pro: fast typing with two thumbs on the on-screen keyboard no longer closes it. When one thumb lifted as the other touched, the touch panel reported one finger jumping from key to key, which read as a Back swipe from the left edge. A still touch that jumps more than 120 px between reads now ends as a tap where it was, and the new finger starts its own touch (debug builds: Knobs > Touch > contactJumpPx). Moving swipes are never split.
+- X4 Pro: Turbo keyboard no longer leaves an even gray film over the screen while typing. Its fast keyboard waveform now runs at the same panel VCOM as the stock fast refresh (from the panel's own calibration) instead of a 0.4 V more negative one that nudged unchanged white pixels toward black on every key.
 - Settings: the first Up/Down press after opening Settings (or switching tabs) selects the first/last item instead of doing nothing. Confirm with nothing selected no longer switches tabs; long-press Up/Down does.
 - Tapping a list row that opens a popup now shows the row selected before the popup appears, instead of only after it closes.
 - Web portal and WebDAV: `/debug/remote-token` (the Wi-Fi remote token) can no longer be downloaded, replaced, renamed or deleted over the network, under any spelling of its name, even with Show Hidden Files on; the `/debug` folder itself can no longer be renamed, moved or copied there, which would carry the token out with it.
