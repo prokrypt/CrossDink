@@ -51,7 +51,7 @@ void formatRate(char* out, const size_t size, const uint32_t dropPct, const uint
     return;
   }
   const float rate = dropPct * 3600.0f / seconds;
-  snprintf(out, size, "%.1f %%/h over %s", rate, span);
+  snprintf(out, size, "%.1f%%/h over %s", rate, span);
 }
 }  // namespace
 
@@ -188,11 +188,11 @@ void BatteryStatsActivity::buildLines() {
   int16_t tempDeci = 0;
   const bool tempKnown = monitor.readTemperatureDeciC(tempDeci);
   const uint16_t pct = powerManager.getBatteryPercentage();
-  add("%u%%  %u mV  %s  %s", pct, monitor.readMillivolts(), monitor.isCharging() ? "charging" : "",
+  add("%u%%  %umV  %s  %s", pct, monitor.readMillivolts(), monitor.isCharging() ? "charging" : "",
       gpio.isUsbConnectedCached() ? "USB" : "on battery");
   if (tempKnown) {
     snprintf(lines[lineCount - 1] + strlen(lines[lineCount - 1]), sizeof(lines[0]) - strlen(lines[lineCount - 1]),
-             "  %.1f C", tempDeci / 10.0f);
+             "  %.1fC", tempDeci / 10.0f);
   }
 
   const uint32_t now = BatteryLog::nowEpoch();
@@ -235,14 +235,14 @@ void BatteryStatsActivity::buildLines() {
   uint32_t panelAgeMs = 0;
   const float chipC = temperatureRead();
   if (freeink::uc8179PanelTemperature(panelC, panelAgeMs)) {
-    add("Chip %.0f C  Panel %d C", chipC, panelC);
+    add("Chip %.0fC  Panel %dC", chipC, panelC);
   } else {
-    add("Chip %.0f C", chipC);
+    add("Chip %.0fC", chipC);
   }
   BookReadingStats::formatDuration(millis() / 1000, a, sizeof(a));
   add("Up %s  reset %s  wake %s", a, resetReasonName(esp_reset_reason()),
       wakeupCauseName(esp_sleep_get_wakeup_cause()));
-  add("Heap %lu KB (block %lu)  PSRAM %lu KB free", static_cast<unsigned long>(ESP.getFreeHeap() / 1024),
+  add("Heap %luKB (block %lu)  PSRAM %luKB free", static_cast<unsigned long>(ESP.getFreeHeap() / 1024),
       static_cast<unsigned long>(ESP.getMaxAllocHeap() / 1024), static_cast<unsigned long>(ESP.getFreePsram() / 1024));
   add("%s  log %s", BuildInfo::gitSha(), BatteryLog::LOG_PATH);
 }
