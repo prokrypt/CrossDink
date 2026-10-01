@@ -16,6 +16,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include "platform/PinMon.h"
+
 Knobs KNOBS;
 
 namespace knobs {
@@ -101,6 +103,7 @@ void apply() {
   t.touchLongPressMs = KNOBS.touchLongPressMs;
   t.touchContactJumpPx = KNOBS.contactJumpPx;
   InputManager::setTuning(t);
+  PinMon::setEnabled(KNOBS.pinMon != 0);
 }
 
 std::atomic<bool> dirty{false};

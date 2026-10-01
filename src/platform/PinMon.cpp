@@ -18,6 +18,7 @@
 namespace {
 constexpr uint8_t PINS[] = {15, 16, 17, 45, 46, 47, 48};  // unused on the X4 Pro
 constexpr size_t N = sizeof(PINS);
+static_assert(N == PinMon::PIN_COUNT);
 constexpr uint32_t CHATTER_PER_MIN = 20;
 constexpr uint32_t SUMMARY_MS = 60000;
 
@@ -26,13 +27,13 @@ struct Edge {
   uint8_t level;
   bool wake;
 };
-Edge edges[N];                   // ISR writes slot i, then sets bit i of fired
-std::atomic<uint32_t> fired{0};  // slots holding an unread edge
-uint8_t armedFor[N];             // level each pin waits for (ISR reads; DRAM)
+Edge edges[N];                             // ISR writes slot i, then sets bit i of fired
+std::atomic<uint32_t> fired{0};            // slots holding an unread edge
+uint8_t armedFor[N];                       // level each pin waits for (ISR reads; DRAM)
 volatile uint32_t wokeLo = 0, wokeHi = 0;  // our pins pending at light-sleep exit
 uint32_t maskLo = 0, maskHi = 0;
 TaskHandle_t task = nullptr;
-std::atomic<bool> want{true};
+std::atomic<bool> want{false};
 bool on = false;
 uint32_t chatter = 0;  // bit i: released until reboot
 uint32_t perMin[N], total[N], wakes[N], mux[N];
@@ -166,11 +167,16 @@ void PinMon::setEnabled(const bool enable) {
 
 bool PinMon::enabled() { return want; }
 
+PinMon::PinStat PinMon::stat(const size_t i) {
+  return {PINS[i], gpio_get_level(static_cast<gpio_num_t>(PINS[i])), total[i], wakes[i], (chatter & 1u << i) != 0};
+}
+
 void PinMon::status(char* out, const size_t len) {
   size_t n = snprintf(out, len, "%s", want ? "on" : "off");
   for (size_t i = 0; i < N && n < len; ++i) {
-    n += snprintf(out + n, len - n, " %u:%d/%lu/%lu", PINS[i], gpio_get_level(static_cast<gpio_num_t>(PINS[i])),
-                  static_cast<unsigned long>(total[i]), static_cast<unsigned long>(wakes[i]));
+    const PinStat p = stat(i);
+    n += snprintf(out + n, len - n, " %u:%d/%lu/%lu", p.gpio, p.level, static_cast<unsigned long>(p.changes),
+                  static_cast<unsigned long>(p.wakes));
   }
   if (n < len) snprintf(out + n, len - n, " chatter=0x%02lX", static_cast<unsigned long>(chatter));
 }
