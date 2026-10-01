@@ -60,6 +60,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Image viewer: the loading popup no longer refreshes twice more for its progress bar (about 1.2 s sooner to the image). On X4 Pro the gray pass renders into PSRAM, so a gray image finishes one decode sooner (no second B/W decode before the cleanup), and Back, swipes and taps during loading wait at most one decode pass instead of the whole gray pass. Back during the gray pass leaves the image in black and white and goes straight to the exit refresh.
 - Debug builds (X4 Pro): the serial `KBDEXP` command and the display test `pll` step take only the three Knobs > kbdPll choices (0 = panel default, 1 = 40 Hz, 2 = 50 Hz) and refuse anything else, instead of any raw PLL byte.
 - Web file manager: the first click on a column header sorts largest, newest or Z first; a second click flips it. Folders stay on top.
 - X4 Pro: less power while Wi-Fi idles. The web server sleeps until traffic arrives instead of checking 10 times a second, the debug log tail waits for new lines instead of checking every 50 ms, mDNS wakes 2 times a second instead of 10, and a 404 (such as a log watcher probing a route) no longer holds full power for half a second. Debug builds: the Goodies Wi-Fi remote idles in the deepest modem sleep (Goodies > Knobs > Wi-Fi: wifiMaxModem, wifiListenInterval), the main loop ticks once a second while only the remote holds Wi-Fi (remote commands wake it at once), and the remote's server answers `/api/status`.
