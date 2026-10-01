@@ -20,6 +20,7 @@
 namespace {
 std::array<gpio_num_t, 10> wakePins{};  // keys, touch INT, charger STAT
 size_t wakePinCount = 0;
+std::array<bool, 10> armedHigh{};  // level each line was last armed for
 SemaphoreHandle_t wakeSignal = nullptr;
 bool allInputsCovered = false;
 // Charger STAT: not an input, but a charge start or stop should end the wait
@@ -136,6 +137,7 @@ void InputWake::wait(const uint32_t timeoutMs) {
     // Trigger on the opposite of the level present now, so a press, a release
     // and a touch INT pulse of either polarity all end the wait.
     const gpio_int_type_t level = gpio_get_level(pin) ? GPIO_INTR_LOW_LEVEL : GPIO_INTR_HIGH_LEVEL;
+    armedHigh[i] = level == GPIO_INTR_HIGH_LEVEL;
     if (static_cast<int>(pin) == chargePin) {
       gpio_set_intr_type(pin, level);
     } else {
@@ -153,6 +155,18 @@ void InputWake::wake() {
 bool InputWake::coversAllInputs() { return allInputsCovered; }
 
 bool InputWake::takeChargeWake() { return chargeWoke.exchange(false, std::memory_order_relaxed); }
+
+void InputWake::describePins(char* out, const uint32_t size) {
+  size_t used = 0;
+  if (size > 0) out[0] = '\0';
+  for (size_t i = 0; i < wakePinCount && used < size; ++i) {
+    const int pin = wakePins[i];
+    const int n = snprintf(out + used, size - used, "%s%d %s%c/%d", i ? " " : "", pin, pin == chargePin ? "int:" : "",
+                           armedHigh[i] ? 'H' : 'L', gpio_get_level(wakePins[i]));
+    if (n <= 0) break;
+    used += static_cast<size_t>(n);
+  }
+}
 
 void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
 #if CROSSDINK_PERF_LOG
@@ -175,6 +189,10 @@ void InputWake::wake() {}
 bool InputWake::coversAllInputs() { return false; }
 
 bool InputWake::takeChargeWake() { return false; }
+
+void InputWake::describePins(char* out, const uint32_t size) {
+  if (size > 0) out[0] = '\0';
+}
 
 void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
   buttons = 0;

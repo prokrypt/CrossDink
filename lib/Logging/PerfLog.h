@@ -2,6 +2,15 @@
 
 #include <cstdint>
 
+namespace PerfLog {
+struct LightSleepStats {
+  uint32_t sleeps, rejects, upS;
+  uint8_t sleepPct;             // share of upS spent in light sleep
+  uint32_t rejectCause;         // rjc= bits of the last rejected sleep, 0 = none
+  const char* rejectCauseName;  // its lowest bit ("GPIO", "timer", ...), "-" for none
+};
+}  // namespace PerfLog
+
 // Debug-only timing and I/O counters behind compact, greppable log lines
 // (recipes in the device LOG-GUIDE):
 //   [LAT]  input -> render -> ink per user action
@@ -69,9 +78,17 @@ void noteLoopPass();
 // and its GPIO wakes, so the app can name the tasks behind a busy idle window.
 using PmWindowFn = void (*)(unsigned rtos0Pct, unsigned rtos1Pct, long gpioWakes);
 void setPmWindowHook(PmWindowFn fn);
+// Writes the armed wake lines ("pin armed/now" each) for the line [PM] logs
+// when a window's sleeps were all rejected.
+using WakePinsFn = void (*)(char* out, uint32_t size);
+void setWakePinsDescriber(WakePinsFn fn);
+// Light sleep since boot, as of the last [PM] window (every 30 s and on each
+// activity change). False without CONFIG_PM_PROFILING or before the first window.
+bool lightSleepStats(LightSleepStats& out);
 }  // namespace PerfLog
 #else
 namespace PerfLog {
+inline bool lightSleepStats(LightSleepStats&) { return false; }
 inline uint32_t nextInputSeq() { return 0; }
 inline void noteInput(bool, const char*, uint32_t) {}
 inline void noteRenderStart(const char*) {}
@@ -96,5 +113,7 @@ inline void noteTaskExit(const char*) {}
 inline void noteLoopPass() {}
 using PmWindowFn = void (*)(unsigned rtos0Pct, unsigned rtos1Pct, long gpioWakes);
 inline void setPmWindowHook(PmWindowFn) {}
+using WakePinsFn = void (*)(char* out, uint32_t size);
+inline void setWakePinsDescriber(WakePinsFn) {}
 }  // namespace PerfLog
 #endif
