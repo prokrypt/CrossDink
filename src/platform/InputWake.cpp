@@ -106,12 +106,17 @@ void InputWake::begin() {
   allInputsCovered =
       allArmed && board.inputStyle == BoardConfig::InputStyle::DigitalButtons && touchCovered && wakePinCount > 0;
   // A charger with no input power leaves STAT floating; pull it toward "not
-  // charging" (as the deep-sleep ext0 wake does) so the level wake can't chatter.
+  // charging" (as the deep-sleep ext0 wake does) so the level interrupt can't chatter.
+  // STAT ends the wait while awake but is not a light-sleep wake: armed as one
+  // after a deep sleep that used it for ext0, every light sleep was rejected
+  // (ls=0, ~600 rejects/s; inferred from 20261001T223751Z). The 1 s idle tick
+  // still sees charge changes.
   const int8_t stat = board.batteryChargeStatus;
   if (stat >= 0 && addWakePin(stat)) {
     chargePin = stat;
     const auto pin = static_cast<gpio_num_t>(stat);
     board.batteryChargeStatusActiveHigh ? gpio_pulldown_en(pin) : gpio_pullup_en(pin);
+    gpio_wakeup_disable(pin);  // also clears the RTC IO wake an earlier firmware left armed
   }
 
   if (wakePinCount > 0 && esp_sleep_enable_gpio_wakeup() != ESP_OK) {
@@ -130,7 +135,12 @@ void InputWake::wait(const uint32_t timeoutMs) {
     const gpio_num_t pin = wakePins[i];
     // Trigger on the opposite of the level present now, so a press, a release
     // and a touch INT pulse of either polarity all end the wait.
-    gpio_wakeup_enable(pin, gpio_get_level(pin) ? GPIO_INTR_LOW_LEVEL : GPIO_INTR_HIGH_LEVEL);
+    const gpio_int_type_t level = gpio_get_level(pin) ? GPIO_INTR_LOW_LEVEL : GPIO_INTR_HIGH_LEVEL;
+    if (static_cast<int>(pin) == chargePin) {
+      gpio_set_intr_type(pin, level);
+    } else {
+      gpio_wakeup_enable(pin, level);
+    }
     gpio_intr_enable(pin);
   }
   xSemaphoreTake(wakeSignal, pdMS_TO_TICKS(timeoutMs));

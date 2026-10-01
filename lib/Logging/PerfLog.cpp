@@ -17,6 +17,7 @@
 #if CONFIG_PM_PROFILING
 #include <esp_pm.h>
 #include <esp_sleep.h>
+#include <soc/rtc_cntl_reg.h>
 #endif
 
 // [PM] needs x4-pro-debug's custom_sdkconfig. Bins built against a framework
@@ -213,12 +214,21 @@ void logPmLocks(const char* act) {
   if (wakeCounter) wakeCounter(wakeButtons, wakeTouch);
   const long lsWindow = sleeps - pmPrevSleeps;
   const long gpioWakes = static_cast<long>(wakeButtons + wakeTouch);
-  char causeText[48] = "";
+  char causeText[64] = "";
 #if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
   // Sleep exits by cause (several can share one exit).
   snprintf(causeText, sizeof(causeText), " cause=t:%lu g:%lu w:%lu o:%lu", static_cast<unsigned long>(take(wakeTimer)),
            static_cast<unsigned long>(take(wakeGpio)), static_cast<unsigned long>(take(wakeWifi)),
            static_cast<unsigned long>(take(wakeOther)));
+#endif
+#ifdef RTC_CNTL_SLP_REJECT_CAUSE_REG
+  // The last rejected sleep's cause, in wakeup-trigger bits (S3: 0 ext0, 1 ext1,
+  // 2 GPIO, 3 timer, 5 Wi-Fi, 6/7 UART, 8 touch).
+  if (rejects != pmPrevRejects) {
+    const size_t used = strlen(causeText);
+    snprintf(causeText + used, sizeof(causeText) - used, " rjc=0x%lx",
+             static_cast<unsigned long>(REG_READ(RTC_CNTL_SLP_REJECT_CAUSE_REG) & RTC_CNTL_REJECT_CAUSE));
+  }
 #endif
   LOG_DBG("PM",
           "%lus: act=%s sleep=%u%% cpumax=%u%% ls=%ld rej=%ld wake=gpio:%ld(btn %lu,touch %lu) timer:%ld%s loop=%lu "
