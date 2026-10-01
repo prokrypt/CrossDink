@@ -22,7 +22,6 @@
 #include <cstring>
 
 #include "MappedInputManager.h"
-#include "activities/reader/BookReadingStats.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UIScale.h"
@@ -58,6 +57,18 @@ uint16_t parseCenti(const char* field, bool& fine) {
   return static_cast<uint16_t>(std::clamp(lroundf(v * 100), 0L, 10000L));
 }
 
+// "12m", "1h 21m", "2d 3h".
+void formatDur(const uint32_t seconds, char* out, const size_t size) {
+  const unsigned long d = seconds / 86400, h = seconds % 86400 / 3600, m = seconds % 3600 / 60;
+  if (d != 0) {
+    snprintf(out, size, "%lud %luh", d, h);
+  } else if (h != 0) {
+    snprintf(out, size, "%luh %lum", h, m);
+  } else {
+    snprintf(out, size, "%lum", m);
+  }
+}
+
 // 7143 -> "71.43" (fine) or "71".
 void formatPct(char* out, const size_t size, const uint16_t centi, const bool fine) {
   if (fine) {
@@ -75,7 +86,7 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32
     return;
   }
   char span[24];
-  BookReadingStats::formatDuration(seconds, span, sizeof(span));
+  formatDur(seconds, span, sizeof(span));
   snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, errC * 36.0f / seconds, span);
 }
 }  // namespace
@@ -222,6 +233,7 @@ void BatteryStatsActivity::parseRow(const char* line) {
   if (usb || *chgField == '1') {
     if (!st.charging && (st.chargedEpoch == 0 || epoch - st.chargedEpoch >= CHARGE_MERGE_S)) {
       st.chargeFromC = pctC;
+      st.chargeStartEpoch = epoch;
       st.chargeFromFine = fine;
     }
     st.charging = true;
@@ -275,8 +287,7 @@ void BatteryStatsActivity::buildLines() {
 
   if (loading) {
     // Read from loop() in slices (step()); these fill in when it is done.
-    for (const char* name : {"Last chg", "Awake drain", "Asleep drain", "Est to empty"})
-      add("%s: calculating...", name);
+    for (const char* name : {"Chg", "Awake drain", "Asleep drain", "Est to empty"}) add("%s: calculating...", name);
   } else {
     const uint32_t now = BatteryLog::nowEpoch();
     char from[8], to[8];
@@ -285,10 +296,11 @@ void BatteryStatsActivity::buildLines() {
     if (st.charging) {
       add("Charging from %s%% (now %s%%)", from, to);
     } else if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
-      BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
-      add("Last chg: %s ago from %s%% to %s%%", a, from, to);
+      formatDur(st.chargedEpoch - st.chargeStartEpoch, a, sizeof(a));
+      formatDur(now - st.chargedEpoch, b, sizeof(b));
+      add("Chg: %s%% to %s%% over %s, %s ago", from, to, a, b);
     } else {
-      add("Last chg: not in the log");
+      add("Chg: not in the log");
     }
     formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
     add("Awake drain: %s", a);
@@ -311,23 +323,23 @@ void BatteryStatsActivity::buildLines() {
     const uint32_t drop = st.dropC[0] + st.dropC[1];
     const uint32_t span = st.battS[0] + st.battS[1];
     if (rate > 0) {
-      BookReadingStats::formatDuration(static_cast<uint32_t>(pctNowC / rate), a, sizeof(a));
+      formatDur(static_cast<uint32_t>(pctNowC / rate), a, sizeof(a));
       snprintf(b, sizeof(b), "%u%%", lightNow);
       add("Est to empty: %s (Wi-Fi %s, light %s)", a, wifiNow ? "on" : "off", lightNow ? b : "off");
     } else if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
       // The drop's ± moves the estimate by about left * ± / drop.
       const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pctNowC) * span / drop);
       char err[24];
-      BookReadingStats::formatDuration(left, a, sizeof(a));
-      BookReadingStats::formatDuration(
-          static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err, sizeof(err));
+      formatDur(left, a, sizeof(a));
+      formatDur(static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err,
+                sizeof(err));
       add("Est to empty: %s \xC2\xB1%s (avg)", a, err);
     } else {
       add("Est to empty: %s", NOT_ENOUGH);
     }
 
     if (st.first != 0 && now > st.first) {
-      BookReadingStats::formatDuration(now - st.first, a, sizeof(a));
+      formatDur(now - st.first, a, sizeof(a));
       add("Earliest log: %s ago%s", a, st.reset ? " (reset)" : "");
     } else {
       add("Earliest log: none");
@@ -335,8 +347,8 @@ void BatteryStatsActivity::buildLines() {
     add("Wakes %lu  False %lu  Cold %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
         static_cast<unsigned long>(st.falseWakes), static_cast<unsigned long>(st.coldBoots),
         static_cast<unsigned long>(st.restarts));
-    BookReadingStats::formatDuration(st.awakeS, a, sizeof(a));
-    BookReadingStats::formatDuration(st.asleepS, b, sizeof(b));
+    formatDur(st.awakeS, a, sizeof(a));
+    formatDur(st.asleepS, b, sizeof(b));
     add("Awake %s  Asleep %s", a, b);
   }
   const auto& c = HalDisplay::refreshCounts().n;
@@ -353,7 +365,7 @@ void BatteryStatsActivity::buildLines() {
   } else {
     add("CPU %.0fC", chipC);
   }
-  BookReadingStats::formatDuration(millis() / 1000, a, sizeof(a));
+  formatDur(millis() / 1000, a, sizeof(a));
   add("Up %s  reset %s  wake %s", a, resetReasonName(esp_reset_reason()),
       wakeupCauseName(esp_sleep_get_wakeup_cause()));
   add("%s  log %s", BuildInfo::gitSha(), BatteryLog::LOG_PATH);
@@ -458,7 +470,7 @@ void BatteryStatsActivity::render(RenderLock&&) {
       if (p0.awake) renderer.fillRect(px(p0.epoch), y + gh + 2, std::max(1, px(p1.epoch) - px(p0.epoch)), 4);
     }
     char spanText[40], ago[24];
-    BookReadingStats::formatDuration(spanS, ago, sizeof(ago));
+    formatDur(spanS, ago, sizeof(ago));
     snprintf(spanText, sizeof(spanText), "%s  (bar = awake)", ago);
     renderer.drawText(font, x, y + gh + 8, spanText);
   } else {
