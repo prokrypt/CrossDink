@@ -301,6 +301,12 @@ bool settingValue(const SettingInfo& s, char* out, const size_t len) {
     case SettingType::TOGGLE:
     case SettingType::ENUM:
     case SettingType::VALUE:
+      // The light as it is now (the panel and gestures set it apart from SETTINGS).
+      if (s.valuePtr == &CrossPointSettings::frontlightBrightness)
+        return snprintf(out, len, "%u", Frontlight.brightness()) > 0;
+      if (s.valuePtr == &CrossPointSettings::frontlightWarmth) return snprintf(out, len, "%u", Frontlight.warmth()) > 0;
+      if (s.valuePtr == &CrossPointSettings::frontlightOn)
+        return snprintf(out, len, "%u", Frontlight.isOn() ? 1 : 0) > 0;
       if (s.valuePtr) return snprintf(out, len, "%u", SETTINGS.*(s.valuePtr)) > 0;
       if (s.value16Ptr) return snprintf(out, len, "%u", SETTINGS.*(s.value16Ptr)) > 0;
       if (s.valueGetter) return snprintf(out, len, "%u", s.valueGetter()) > 0;
@@ -411,6 +417,17 @@ void cmdSet(char* args) {
         break;
       default:
         return reply("ERR:SET:unsupported");
+    }
+    // Applied now, as the on-device controls do: the light holds its own state,
+    // and enum shortcuts keep their option lists in step.
+    if (s.valuePtr == &CrossPointSettings::frontlightBrightness) {
+      Frontlight.setBrightness(SETTINGS.frontlightBrightness);
+    } else if (s.valuePtr == &CrossPointSettings::frontlightWarmth) {
+      Frontlight.setWarmth(SETTINGS.frontlightWarmth);
+    } else if (s.valuePtr == &CrossPointSettings::frontlightOn) {
+      Frontlight.setOn(SETTINGS.frontlightOn != 0);
+    } else if (s.type == SettingType::ENUM && s.valuePtr) {
+      QuickActions::settingChanged(SETTINGS, s.valuePtr);
     }
     if (!SETTINGS.saveToFile()) return reply("ERR:SET:save");
     return reply("OK:SET %s %ld", key, value);
