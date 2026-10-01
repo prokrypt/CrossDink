@@ -20,7 +20,7 @@ a.btn { display: inline-flex; align-items: center; }
 :focus-visible { outline: 2px solid var(--accent-color); outline-offset: 1px; }
 .meta { color: var(--label-color); font-size: 0.9em; margin: 8px 0; }
 .ro { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--font-color); background: var(--bg); border-radius: var(--radius-sm); padding: 6px 10px; margin: 0 0 12px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
-.ro:empty::before { content: "Hover a chart for a reading"; color: var(--label-color); }
+.ro:empty::before { content: "Hover for a reading. Scroll or pinch to zoom, drag to pan, double-click to reset"; color: var(--label-color); }
 .hero { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .hero div { flex: 1 1 80px; min-width: 0; background: var(--bg); border-radius: var(--radius-sm); padding: 8px 10px; }
 .hero b { display: block; font-size: 1.4em; color: var(--title-color); letter-spacing: -0.02em; line-height: 1.2; }
@@ -28,7 +28,8 @@ a.btn { display: inline-flex; align-items: center; }
 .ch { margin-bottom: 10px; }
 .ch span, th { font-size: 0.78em; color: var(--label-color); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 pre { max-height: 70vh; overflow: auto; margin: 0; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border-color); border-radius: var(--radius-sm); font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
-svg { width: 100%; display: block; font-size: 11px; }
+svg { width: 100%; display: block; font-size: 11px; touch-action: pan-y; cursor: grab; user-select: none; }
+.xh { stroke: var(--label-color); stroke-dasharray: 2 2; }
 svg text { fill: var(--label-color); }
 .grid { stroke: var(--border-color); stroke-dasharray: 3 3; }
 .line { fill: none; stroke: var(--accent-color); stroke-width: 2; stroke-linejoin: round; }

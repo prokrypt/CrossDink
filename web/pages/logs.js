@@ -156,16 +156,57 @@ function segments() {
   }
 }
 
+// Zoom and pan: wheel or pinch zooms around the pointer, dragging pans, double-click
+// or Reset zoom returns to the Range window. All three charts share one view.
+const L = 44; // left gutter for the value labels
+let view = null; // zoomed [t0, t1]; null = the Range select's window
+let raf = 0;
+let hoverT = null; // last hovered time, so the crosshair survives a redraw
+const ptrs = new Map(); // pointerId -> last clientX
+const redraw = () => raf || (raf = requestAnimationFrame(() => ((raf = 0), draw())));
+function win() {
+  const t1 = bat[bat.length - 1].t;
+  const span = +$('range').value;
+  return view || [span ? Math.max(bat[0].t, t1 - span) : bat[0].t, t1];
+}
+function setView(a, b) {
+  const lo = bat[0].t;
+  const hi = bat[bat.length - 1].t;
+  if (b - a < 300) [a, b] = [(a + b) / 2 - 150, (a + b) / 2 + 150]; // 5 min at most zoom
+  if (b - a >= hi - lo) [a, b] = [lo, hi];
+  if (a < lo) [a, b] = [lo, b + lo - a];
+  if (b > hi) [a, b] = [a - (b - hi), hi];
+  view = [a, b];
+  redraw();
+}
+// Pointer x -> time, in the chart's own viewBox units.
+function tAt(svg, cx) {
+  const box = svg.getBoundingClientRect();
+  const W = svg.viewBox.baseVal.width;
+  const [a, b] = win();
+  return a + (((cx - box.left) / box.width) * W - L) * ((b - a) / (W - L));
+}
+function hover(t) {
+  hoverT = t;
+  const r = bat.reduce((best, c) => (Math.abs(c.t - t) < Math.abs(best.t - t) ? c : best), bat[0]);
+  $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
+  const [a, b] = win();
+  for (const svg of document.querySelectorAll('.ch svg')) {
+    const W = svg.viewBox.baseVal.width;
+    const xh = svg.querySelector('.xh');
+    if (xh) xh.setAttribute('transform', `translate(${(L + ((r.t - a) * (W - L)) / Math.max(1, b - a)).toFixed(1)})`);
+  }
+}
+
 function chart(id, h, key, lo, hi, fmt, bands) {
   const svg = $(id);
   const W = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
   svg.setAttribute('viewBox', `0 0 ${W} ${h}`);
   const ticks = W < 600 ? 1 : 4;
-  const L = 44;
-  const span = +$('range').value;
-  const t1 = bat[bat.length - 1].t;
-  const t0 = span ? Math.max(bat[0].t, t1 - span) : bat[0].t;
-  const pts = bat.filter((r, i) => r.t >= t0 || (bat[i + 1] && bat[i + 1].t >= t0)).filter((r) => r[key] != null);
+  const [t0, t1] = win();
+  const pts = bat
+    .filter((r, i) => (r.t >= t0 || (bat[i + 1] && bat[i + 1].t >= t0)) && (r.t <= t1 || (bat[i - 1] && bat[i - 1].t <= t1)))
+    .filter((r) => r[key] != null);
   svg.parentNode.style.display = pts.length ? '' : 'none';
   if (!pts.length) return;
   if (key !== 'pct') {
@@ -173,19 +214,19 @@ function chart(id, h, key, lo, hi, fmt, bands) {
     hi = Math.max(...pts.map((r) => r[key]));
     if (hi - lo < 1) hi = lo + 1;
   }
-  const x = (t) => L + ((Math.max(t, t0) - t0) * (W - L)) / Math.max(1, t1 - t0);
+  const x = (t) => L + ((Math.min(Math.max(t, t0), t1) - t0) * (W - L)) / Math.max(1, t1 - t0);
   const y = (v) => h - 16 - ((v - lo) * (h - 22)) / (hi - lo);
   let s = '';
   if (bands) {
     for (const g of segs) {
-      if (g.b.t < t0) continue;
+      if (g.b.t < t0 || g.a.t > t1) continue;
       const w = Math.max(1, x(g.b.t) - x(g.a.t)).toFixed(1);
       const cls = g.state === 'asleep' ? '' : g.state; // shade awake time, like the Goodies graph's bar
       if (cls) s += `<rect class="${cls}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${g.state} ${hrs(g.dt)}</title></rect>`;
       if (g.wifi) s += `<rect class="wifi" x="${x(g.a.t).toFixed(1)}" y="${h - 20}" width="${w}" height="4"/>`;
     }
     for (const r of bat) {
-      if (r.t < t0) continue;
+      if (r.t < t0 || r.t > t1) continue;
       const m = r.ev === 'boot' ? 'boot' : r.ev.startsWith('fw_') ? 'fw' : r.ev.startsWith('xfer') ? 'xfer' : '';
       if (m) s += `<line class="m-${m}" x1="${x(r.t)}" x2="${x(r.t)}" y1="6" y2="${h - 16}"><title>${r.local} ${r.ev} ${r.det}</title></line>`;
     }
@@ -201,20 +242,45 @@ function chart(id, h, key, lo, hi, fmt, bands) {
   }
   const P = pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ');
   if (key === 'pct') s += `<polygon class="area" points="${x(pts[0].t).toFixed(1)},${y(lo)} ${P} ${x(pts[pts.length - 1].t).toFixed(1)},${y(lo)}"/>`;
-  s += `<polyline class="line" points="${P}"/>`;
+  s += `<polyline class="line" points="${P}"/><line class="xh" x1="0" x2="0" y1="6" y2="${h - 16}" transform="translate(-9)"/>`;
   svg.innerHTML = s;
-  svg.onmousemove = (e) => {
-    const box = svg.getBoundingClientRect();
-    const t = t0 + (((e.clientX - box.left) / box.width) * W - L) * (Math.max(1, t1 - t0) / (W - L));
-    const r = bat.reduce((best, c) => (Math.abs(c.t - t) < Math.abs(best.t - t) ? c : best), bat[0]);
-    $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
+  svg.onwheel = (e) => {
+    e.preventDefault();
+    const tc = tAt(svg, e.clientX);
+    const f = e.deltaY > 0 ? 1.25 : 0.8;
+    const [a, b] = win();
+    setView(tc - (tc - a) * f, tc + (b - tc) * f);
   };
+  svg.onpointerdown = (e) => {
+    svg.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, e.clientX);
+  };
+  svg.onpointermove = (e) => {
+    hover(tAt(svg, e.clientX));
+    if (!ptrs.has(e.pointerId)) return;
+    const [a, b] = win();
+    const other = [...ptrs].find(([id]) => id !== e.pointerId);
+    if (!other) {
+      const dt = ((ptrs.get(e.pointerId) - e.clientX) * (b - a)) / (svg.getBoundingClientRect().width * (1 - L / W));
+      setView(a + dt, b + dt);
+    } else {
+      const d0 = Math.abs(ptrs.get(e.pointerId) - other[1]);
+      const d1 = Math.abs(e.clientX - other[1]);
+      const tc = tAt(svg, (e.clientX + other[1]) / 2);
+      if (d0 > 10 && d1 > 10) setView(tc - ((tc - a) * d0) / d1, tc + ((b - tc) * d0) / d1);
+    }
+    ptrs.set(e.pointerId, e.clientX);
+  };
+  svg.onpointerup = svg.onpointercancel = (e) => ptrs.delete(e.pointerId);
+  svg.ondblclick = () => ((view = null), draw());
 }
 
 function draw() {
+  $('rz').hidden = !view;
   chart('gp', 220, 'pct', 0, 100, (v) => Math.round(v) + '%', true);
   chart('gv', 120, 'mv', 0, 0, (v) => Math.round(v) + '', false);
   chart('gt', 120, 'temp', 0, 0, (v) => v.toFixed(1) + ' C', false);
+  if (hoverT !== null) hover(hoverT);
 }
 
 function stateTable() {
@@ -355,7 +421,8 @@ tab();
     segments();
     stateTable();
     sessions();
-    $('range').onchange = draw;
+    $('range').onchange = () => ((view = null), draw());
+    $('rz').onclick = () => ((view = null), draw());
     window.onresize = () => $('bat').hidden || draw();
   }
   tab();
