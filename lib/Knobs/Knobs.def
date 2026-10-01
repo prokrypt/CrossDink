@@ -97,7 +97,6 @@ X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC 
 X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
 X("Power", tiltCooldownMs, unsigned long, 600, 100, 3000, 50, "ms")      // min time between tilt flicks
 X("Power", bootSleepGraceMs, unsigned long, 2000, 1000, 10000, 500, "ms") // power actions ignored after boot
-X("Power", pinMon, uint8_t, 0, 0, 1, 1, "")  // debug: PINMON unused-pin monitor and wakes, 1 = on
 
 // Memory gates: raise only (the default is the floor); a lower gate lets an
 // allocation run short, and a bare new aborts.

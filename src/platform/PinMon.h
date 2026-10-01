@@ -9,8 +9,8 @@
 // wake pin <pin> ..." when it ended a light sleep), plus a per-minute summary.
 // The pins are inputs only, never driven, and are light-sleep wake sources. A pin
 // with more than 20 changes in a minute is floating or chattering: it is released
-// until reboot so it cannot keep the device awake. Off by default; switched by
-// the pinMon knob (Goodies > Pin monitor, or CMD:PINMON).
+// until reboot so it cannot keep the device awake. Off at every boot and never
+// saved, in case it misbehaves; switched from Goodies > Pin monitor or CMD:PINMON.
 namespace PinMon {
 constexpr size_t PIN_COUNT = 7;
 struct PinStat {

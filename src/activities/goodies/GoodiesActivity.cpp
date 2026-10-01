@@ -471,14 +471,14 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({"API token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}});
     entries.push_back({"Keyboard test", -1, {}});
-    entries.push_back({"Pin monitor", -1, {}, KNOBS.pinMon ? "On" : "Off"});
+    entries.push_back({"Pin monitor", -1, {}, PinMon::enabled() ? "On" : "Off"});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
 #endif
   } else if (level == Level::PinMon) {
     // Read when opened: the toggle, then per pin level, changes and wakes since boot.
-    entries.push_back({"Monitor", -1, {}, KNOBS.pinMon ? "On" : "Off"});
+    entries.push_back({"Monitor", -1, {}, PinMon::enabled() ? "On" : "Off"});
     for (size_t i = 0; i < PinMon::PIN_COUNT; ++i) {
       const PinMon::PinStat p = PinMon::stat(i);
       char label[12], value[48];
@@ -578,8 +578,8 @@ void GoodiesActivity::activate(const int index) {
     return;
   }
   if (level == Level::PinMon) {
-    // Monitor: switches now (PinMon arms or releases the pins); knobs.json on exit. Other rows: refresh.
-    if (index == 0) knobs::set(knobs::find("pinMon"), !KNOBS.pinMon);
+    // Monitor: switches now (PinMon arms or releases the pins), RAM only. Other rows: refresh.
+    if (index == 0) PinMon::setEnabled(!PinMon::enabled());
     showLevel(Level::PinMon);
     return;
   }

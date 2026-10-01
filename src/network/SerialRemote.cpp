@@ -398,24 +398,15 @@ void cmdGaugeInt(const char* args) {
 }
 
 // PINMON [on|off|status]: the passive unused-pin monitor (src/platform/PinMon.h).
-// on/off go through the pinMon knob, so Goodies shows it and knobs.json keeps it.
-void setPinMon(const bool on) {
-#if CROSSDINK_GOODIES
-  knobs::set(knobs::find("pinMon"), on);
-#else
-  PinMon::setEnabled(on);
-#endif
-}
-
 void cmdPinMon(const char* args) {
   if (strcmp(args, "on") == 0) {
     if (gaugeint::running) {
       reply("ERR:PINMON:gaugeint_running");
       return;
     }
-    setPinMon(true);
+    PinMon::setEnabled(true);
   } else if (strcmp(args, "off") == 0) {
-    setPinMon(false);
+    PinMon::setEnabled(false);
   } else if (*args && strcmp(args, "status") != 0) {
     reply("ERR:PINMON:on_off_status");
     return;
