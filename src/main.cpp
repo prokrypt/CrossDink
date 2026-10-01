@@ -913,6 +913,7 @@ void notifyQuickLockChanged() {
   if (locked) {
     APP_STATE.quickLockRestoreFrontlight = Frontlight.isOn();
     Frontlight.setOn(false);
+    BatteryLog::lightChanged();
     activityManager.notifyInputLockChanged(true);
     int top = 0;
     int right = 0;
@@ -944,6 +945,7 @@ void notifyQuickLockChanged() {
     }
     if (APP_STATE.quickLockRestoreFrontlight) {
       Frontlight.setOn(true);
+      BatteryLog::lightChanged();
       APP_STATE.quickLockRestoreFrontlight = false;
     }
     if (!restoredBadgeBackdrop) (void)activityManager.requestUpdateAndWait();
@@ -1840,6 +1842,7 @@ void setup() {
   }
   Frontlight.releaseAfterWake();
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  BatteryLog::lightChanged();  // onBoot ran before the light was set up
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
@@ -2495,6 +2498,7 @@ static void loopPass() {
   if (userInputReceived && lightTimedOut) {
     lightTimedOut = false;
     Frontlight.setIdleDim(100);
+    BatteryLog::lightChanged();
     mappedInputManager.suppressCurrentTouchContact();
     lightWakeSwallow = true;
     lightWakeHomeKeyUntil = gpio.wasHomeKeyPressed() ? millis() + 1000 : 0;
@@ -2516,11 +2520,12 @@ static void loopPass() {
         if (Frontlight.idleDimPercent() == 100) LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
         Frontlight.setIdleDim(level);
         lightTimedOut = true;
+        if (level == 0) BatteryLog::lightChanged(true);
       }
     }
   }
   updateFlashDuck();
-  BatteryLog::poll(millis() - lastActivityTime, flashDuckActive || TransferLightPulse::owning());
+  BatteryLog::poll(millis() - lastActivityTime);
 
   // Let wake continue as soon as its hold has been verified. The release can
   // arrive after setup, so consume that one input frame rather than making it

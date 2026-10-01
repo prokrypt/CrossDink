@@ -25,8 +25,6 @@ class TransferLightPulse {
   // A user slide is starting: put back the level the pulse saved so the slide
   // starts from it, and stop the pulse so end() keeps what the user sets.
   static void yieldToUser();
-  // A pulse is driving the light (no user change since it began).
-  static bool owning();
 
   // A light that is on keeps its level for holdMs before pulsing starts (0 =
   // pulse at once). A user change during the hold is kept as usual.

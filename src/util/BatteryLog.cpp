@@ -42,7 +42,6 @@ constexpr char kHeader[] = "epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c
 constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kClockMs = 60 * 1000;
 constexpr uint32_t kFlushIdleMs = 2000;
-constexpr uint32_t kLightSettleMs = 2000;
 constexpr uint16_t kLowPct = 5;
 
 using Ring = PsramRing<kRingBytes>;  // aux: bytes already on SD
@@ -72,9 +71,6 @@ uint32_t lastTickMs = 0;
 uint32_t carryMs = 0;
 bool bootFlushPending = false;
 bool wifiOn = false;
-uint8_t loggedLight = 0;
-uint8_t pendingLight = 0;
-uint32_t pendingLightMs = 0;
 
 Stats& st() {
   if (rtcStats.magic != kStatsMagic) rtcStats = Stats{kStatsMagic};
@@ -147,11 +143,10 @@ void readQuick() {
   r.pct = powerManager.getBatteryPercentage();
   r.chg = monitor().isCharging();
   r.usb = gpio.isUsbConnectedCached();
-  r.light = Frontlight.present() && Frontlight.isOn()
-                ? static_cast<uint8_t>(Frontlight.brightness() * Frontlight.idleDimPercent() / 100)
-                : 0;
   setReading(r);
 }
+
+uint8_t userLight() { return Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0; }
 
 // Gauge I2C reads, only for rows the main loop writes.
 void readSlow() {
@@ -209,7 +204,7 @@ void onBoot() {
   readQuick();
   readSlow();
   wifiOn = WiFi.getMode() != WIFI_OFF;
-  loggedLight = pendingLight = reading.light;
+  reading.light = userLight();
   Stats& s = st();
   const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   const bool wake = cause != ESP_SLEEP_WAKEUP_UNDEFINED;
@@ -246,7 +241,7 @@ void onSleep(const char* why) {
   flush();
 }
 
-void poll(const uint32_t idleMs, const bool lightAuto) {
+void poll(const uint32_t idleMs) {
   const uint32_t nowMs = millis();
   if (nowMs - lastPollMs < kPollMs) return;
   lastPollMs = nowMs;
@@ -279,16 +274,6 @@ void poll(const uint32_t idleMs, const bool lightAuto) {
     wifiOn = wifi;
     writeRow(wifi ? "wifi_on" : "wifi_off", nullptr);
   }
-  // Logged once it holds for 2 s: a slider drag is one row, not dozens. A duck or
-  // pulse never settles, and the light it restores matches the logged row.
-  if (reading.light != pendingLight || lightAuto) {
-    pendingLight = reading.light;
-    pendingLightMs = nowMs;
-  } else if (pendingLight != loggedLight && nowMs - pendingLightMs >= kLightSettleMs) {
-    loggedLight = pendingLight;
-    writeRow("light", nullptr);
-  }
-
   if (!ringReady || idleMs < kFlushIdleMs) return;
   const uint32_t pending = ring.head - ring.aux;
   const bool low = !reading.usb && reading.pct <= kLowPct;
@@ -298,6 +283,14 @@ void poll(const uint32_t idleMs, const bool lightAuto) {
 }
 
 void event(const char* name, const char* detail) { writeRow(name, detail); }
+
+void lightChanged(const bool timedOut) {
+  Reading r = reading;
+  r.light = timedOut ? 0 : userLight();
+  if (r.light == reading.light) return;
+  setReading(r);
+  writeRow("light", nullptr);
+}
 
 bool flush() {
   if (!ensureRing() || !Storage.ready()) return false;

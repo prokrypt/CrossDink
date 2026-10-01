@@ -61,8 +61,6 @@ void TransferLightPulse::yieldToUser() {
   LOG_DBG("LIGHT", "Transfer pulse stopped: user slide from %u%%", active->savedBrightness);
 }
 
-bool TransferLightPulse::owning() { return active && !active->userOverride; }
-
 bool TransferLightPulse::animating() { return millis() - lastAnyWriteMs < 5 * WRITE_INTERVAL_MS; }
 
 void TransferLightPulse::update(const bool transferActive) {
