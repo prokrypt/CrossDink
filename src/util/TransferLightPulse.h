@@ -22,8 +22,8 @@ class TransferLightPulse {
   // A pulse wrote within the last few steps: the main loop ticks at
   // WRITE_INTERVAL_MS meanwhile, else a 50-250 ms idle tick makes it step.
   static bool animating();
-  // A user slide is starting: put back the level the pulse saved so the slide
-  // starts from it, and stop the pulse so end() keeps what the user sets.
+  // A user slide or a silent restart: put back the level and on/off the pulse
+  // saved, and stop the pulse so end() keeps what the user sets.
   static void yieldToUser();
 
   // A light that is on keeps its level for holdMs before pulsing starts (0 =
