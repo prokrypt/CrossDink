@@ -233,8 +233,9 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
     for (const g of segs) {
       if (g.b.t < t0 || g.a.t > t1) continue;
       const w = Math.max(1, x(g.b.t) - x(g.a.t)).toFixed(1);
-      const cls = g.state === 'asleep' ? '' : g.state; // shade awake time, like the Goodies graph's bar
-      if (cls) s += `<rect class="${cls}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${g.state} ${hrs(g.dt)}</title></rect>`;
+      // Shade awake time like the Goodies graph's bar; charging (awake or asleep) and off win.
+      const cls = g.state === 'off' ? 'off' : g.a.chg ? 'charging' : g.state === 'asleep' ? '' : 'awake';
+      if (cls) s += `<rect class="${cls}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${cls}${g.state === 'asleep' ? ', asleep' : ''} ${hrs(g.dt)}</title></rect>`;
       if (g.wifi) s += `<rect class="wifi" x="${x(g.a.t).toFixed(1)}" y="${h - 20}" width="${w}" height="4"/>`;
     }
     for (const r of bat) {

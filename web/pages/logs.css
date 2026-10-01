@@ -38,7 +38,7 @@ svg text { fill: var(--label-color); }
 .ch .t2, svg .t2 { color: #0891b2; fill: #0891b2; }
 .area { fill: var(--accent-color); opacity: 0.12; }
 .awake { fill: #9ca3af; background: #9ca3af; opacity: 0.25; }
-.usb { fill: #16a34a; background: #16a34a; opacity: 0.22; }
+.charging { fill: #16a34a; background: #16a34a; opacity: 0.22; }
 .wifi { fill: #3b82f6; background: #3b82f6; opacity: 0.35; }
 .off { fill: #dc2626; background: #dc2626; opacity: 0.3; }
 .key { display: inline-block; width: 12px; height: 12px; margin: 0 4px 0 10px; vertical-align: middle; border-radius: 3px; }
