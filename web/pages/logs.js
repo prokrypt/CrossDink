@@ -191,7 +191,7 @@ function tAt(svg, cx) {
 function hover(t) {
   hoverT = t;
   const r = bat.reduce((best, c) => (Math.abs(c.t - t) < Math.abs(best.t - t) ? c : best), bat[0]);
-  $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
+  $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} °C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
   const [a, b] = win();
   for (const svg of document.querySelectorAll('.ch svg')) {
     const W = svg.viewBox.baseVal.width - svg.dataset.r;
@@ -293,7 +293,7 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
 function draw() {
   $('rz').hidden = !view;
   chart('gp', 220, 'pct', 0, 100, (v) => Math.round(v) + '%', true, 'mv', (v) => Math.round(v) + '');
-  chart('gt', 120, 'temp', 0, 0, (v) => v.toFixed(1) + ' C', false);
+  chart('gt', 120, 'temp', 0, 0, (v) => v.toFixed(1) + '°', false);
   if (hoverT !== null) hover(hoverT);
 }
 
@@ -366,7 +366,7 @@ function summary() {
   const b = status.battery || {};
   const st = b.stats || {};
   const t = status.temperatures || {};
-  const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' C' : '-');
+  const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' °C' : '-');
   $('hero').innerHTML = [
     [(b.percent ?? '-') + '%', b.charging ? 'charging' : b.usb ? 'on USB' : 'on battery'],
     [(b.millivolts ?? '-') + ' mV', 'voltage'],
