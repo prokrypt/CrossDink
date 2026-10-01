@@ -2194,13 +2194,27 @@ static void updateFlashDuck() {
         Frontlight.idleDimPercent() != 100) {
       return;
     }
+    if (Frontlight.brightness() <= KNOBS.flashDuckMinPct) {
+      static uint32_t skippedMs = 0;  // logged once per flash
+      const uint32_t flashMs = markMs != 0 ? markMs : swingMs;
+      if (flashMs != skippedMs) {
+        skippedMs = flashMs;
+        LOG_DBG("LIGHT", "Flash duck: skipped (below floor)");
+      }
+      return;
+    }
     flashDuckActive = true;
     flashDuckLevel = 100;
     flashDuckUpStartMs = 0;
   }
   // Each ramp moves only one way from where the light is, between 100% and
-  // the Flash Dim Level (a % of the user's brightness; 0 = dark).
-  const unsigned long floor = std::min<unsigned long>(SETTINGS.flashDuckDepth, 90);
+  // the Flash Dim Level (a % of the user's brightness; 0 = dark), but never
+  // below flashDuckMinPct of full (rounded up; at 100 the duck is over).
+  const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
+  const unsigned long floor = std::min<unsigned long>(
+      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (KNOBS.flashDuckMinPct * 100 + b - 1) / b),
+      100);
+  static bool darkLogged = false;
   unsigned long level;
   if (ducking) {
     if (fresh && !holdLate) {
@@ -2212,6 +2226,7 @@ static void updateFlashDuck() {
       fromMs = fadeStartMs;
       fromLevel = flashDuckLevel;
       darkMs = 0;
+      darkLogged = false;
       learned = false;
       leadKind = static_cast<uint8_t>(kind);
     }
@@ -2234,8 +2249,17 @@ static void updateFlashDuck() {
     }
     darkMs = target;
     const int32_t left = static_cast<int32_t>(target - now);
-    level = std::min<unsigned long>(
-        flashDuckLevel, left <= 0 ? floor : floor + (fromLevel - floor) * left / (target - fromMs));
+    const unsigned long from = std::max<unsigned long>(fromLevel, floor);
+    level = std::max(floor, std::min<unsigned long>(flashDuckLevel,
+                                                    left <= 0 ? floor : floor + (from - floor) * left / (target - fromMs)));
+    if (level == floor && !darkLogged) {
+      darkLogged = true;
+      if (swingMs != 0) {
+        LOG_DBG("LIGHT", "Flash duck: dark at %lu (DRF%+ld)", now, static_cast<long>(now - swingMs));
+      } else {
+        LOG_DBG("LIGHT", "Flash duck: dark at %lu (DRF pending)", now);
+      }
+    }
     flashDuckUpStartMs = 0;  // a back-to-back flash keeps it down
   } else {
     if (flashDuckUpStartMs == 0) {
@@ -2247,6 +2271,11 @@ static void updateFlashDuck() {
         flashDuckLevel, elapsed >= FLASH_DUCK_UP_MS ? 100 : floor + (100 - floor) * elapsed / FLASH_DUCK_UP_MS);
   }
   if (level != flashDuckLevel) {
+    if (level == 100) {
+      const uint32_t endMs = swingMs != 0 ? swingEndMs : swingGoneMs;
+      LOG_DBG("LIGHT", "Flash duck: restored at %lu (end%+ld), duty %u%%", now, static_cast<long>(now - endMs),
+              Frontlight.brightness());
+    }
     flashDuckLevel = static_cast<uint8_t>(level);
     Frontlight.setIdleDim(flashDuckLevel);
   }
