@@ -31,6 +31,8 @@
   only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
   PLL bytes are never knobs (`kbdPll` picks panel default / 40 Hz / 50 Hz only). To add one: an `X(...)` row
   whose default equals the constant, then read `KNOBS.<id>` where the constant was.
+  The Panel tab also has **Keyboard test** (the on-screen keyboard on a scratch field; Back discards) and
+  **turboKeyboard** (toggles the Turbo Keyboard setting) next to `kbdFrames`.
 
 Back stops a running test; Back again leaves the result screen.
 
