@@ -31,8 +31,9 @@ std::string encodeUnsafeUrlChars(const std::string& url);
 std::string buildUrl(const std::string& serverUrl, const std::string& path);
 
 /**
- * For logs: the URL (or bare host) without a "user:pass@" userinfo part.
+ * For logs: the URL (or bare host) with its userinfo masked, "user:pass@" ->
+ * "****:****@" ("****@" without a password), so it shows credentials were sent.
  */
-std::string withoutUserInfo(const std::string& url);
+std::string maskUserInfo(const std::string& url);
 
 }  // namespace UrlUtils

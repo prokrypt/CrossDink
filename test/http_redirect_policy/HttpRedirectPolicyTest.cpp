@@ -90,11 +90,12 @@ TEST(HttpRedirectPolicy, RejectsUnsupportedRedirectSchemes) {
                   .empty());
 }
 
-TEST(UrlUtils, WithoutUserInfoStripsOnlyTheCredentials) {
-  EXPECT_EQ(UrlUtils::withoutUserInfo("https://u:p@host.pub/opds?q=a@b"), "https://host.pub/opds?q=a@b");
-  EXPECT_EQ(UrlUtils::withoutUserInfo("http://user@host:8080"), "http://host:8080");
-  EXPECT_EQ(UrlUtils::withoutUserInfo("u:p@host.pub"), "host.pub");
-  EXPECT_EQ(UrlUtils::withoutUserInfo("https://host.pub/a@b"), "https://host.pub/a@b");
-  EXPECT_EQ(UrlUtils::withoutUserInfo("https://p@ss:w@rd@host.pub/"), "https://host.pub/");
-  EXPECT_EQ(UrlUtils::withoutUserInfo(""), "");
+TEST(UrlUtils, MaskUserInfoMasksOnlyTheCredentials) {
+  EXPECT_EQ(UrlUtils::maskUserInfo("https://u:p@host.pub/opds?q=a@b"), "https://****:****@host.pub/opds?q=a@b");
+  EXPECT_EQ(UrlUtils::maskUserInfo("http://user@host:8080"), "http://****@host:8080");
+  EXPECT_EQ(UrlUtils::maskUserInfo("u:p@host.pub"), "****:****@host.pub");
+  EXPECT_EQ(UrlUtils::maskUserInfo("https://host.pub/a@b"), "https://host.pub/a@b");
+  EXPECT_EQ(UrlUtils::maskUserInfo("https://host.pub:8443/"), "https://host.pub:8443/");
+  EXPECT_EQ(UrlUtils::maskUserInfo("https://p@ss:w@rd@host.pub/"), "https://****:****@host.pub/");
+  EXPECT_EQ(UrlUtils::maskUserInfo(""), "");
 }

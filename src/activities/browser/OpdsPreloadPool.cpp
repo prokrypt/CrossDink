@@ -142,7 +142,7 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
   active = true;
   LOG_INF("OPDS", "%s start: slot=%zu running=%zu queued=%zu internal free=%zu largest=%zu %s",
           next.revalidate ? "Recheck" : "Preload", slot, alreadyRunning + 1, queue.size(), internal.free,
-          internal.largest, UrlUtils::withoutUserInfo(next.url).c_str());
+          internal.largest, UrlUtils::maskUserInfo(next.url).c_str());
   return true;
 }
 

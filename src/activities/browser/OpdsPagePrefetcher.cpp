@@ -46,10 +46,10 @@ bool OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict, 
   if (succeeded && !page.empty()) {
     const OpdsPageBuffer* cached = onlyIfChanged ? cache.find(job.url) : nullptr;
     if (cached && OpdsPageCache::sameFeed(*cached, page)) {
-      LOG_INF("OPDS", "Recheck unchanged: %s", UrlUtils::withoutUserInfo(job.url).c_str());
+      LOG_INF("OPDS", "Recheck unchanged: %s", UrlUtils::maskUserInfo(job.url).c_str());
     } else {
       if (onlyIfChanged) {
-        LOG_INF("OPDS", "Recheck changed (%zu bytes): %s", page.size(), UrlUtils::withoutUserInfo(job.url).c_str());
+        LOG_INF("OPDS", "Recheck changed (%zu bytes): %s", page.size(), UrlUtils::maskUserInfo(job.url).c_str());
       } else {
         LOG_DBG("OPDS", "Caching prefetched page (%zu bytes)", page.size());
       }
@@ -63,7 +63,7 @@ bool OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict, 
 }
 
 void OpdsPagePrefetcher::run() {
-  LOG_DBG("OPDS", "Prefetching: %s", UrlUtils::withoutUserInfo(job.url).c_str());
+  LOG_DBG("OPDS", "Prefetching: %s", UrlUtils::maskUserInfo(job.url).c_str());
   HttpDownloader::DownloadOptions options;
   options.transport = HttpDownloader::Transport::WOLFSSL;
   options.authorizationOrigin = job.authorizationOrigin;

@@ -631,7 +631,7 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
     if (preload) preload->collect();
     const std::string url = UrlUtils::buildUrl(server.url, path);
     if (pageCache->contains(url)) {
-      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", UrlUtils::withoutUserInfo(url).c_str());
+      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", UrlUtils::maskUserInfo(url).c_str());
       return;
     }
   }
@@ -781,7 +781,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
       cached = pageCache->find(url);
     }
     if (cached) {
-      LOG_INF("OPDS", "Cached: %s (%zu bytes)", UrlUtils::withoutUserInfo(url).c_str(), cached->size());
+      LOG_INF("OPDS", "Cached: %s (%zu bytes)", UrlUtils::maskUserInfo(url).c_str(), cached->size());
       parser.parse(cached->data(), cached->size());
       return true;
     }
@@ -790,7 +790,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   // Keep the normalized server URL alive for the synchronous fetch so
   // HttpDownloader can scope Basic auth even for legacy scheme-less entries.
   const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
-  LOG_DBG("OPDS", "Fetching: %s", UrlUtils::withoutUserInfo(url).c_str());
+  LOG_DBG("OPDS", "Fetching: %s", UrlUtils::maskUserInfo(url).c_str());
   // Tee the response into PSRAM so this page is cached before the user moves
   // on; the parser still consumes it as it streams.
   OpdsPageBuffer page(MemoryPool::Psram, OPDS_PAGE_MAX_BYTES);
@@ -1220,7 +1220,7 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
       searchTemplate = description.getSearchTemplate();
     }
     if (searchTemplate.empty())
-      LOG_ERR("OPDS", "No search template in %s", UrlUtils::withoutUserInfo(searchDescriptionUrl).c_str());
+      LOG_ERR("OPDS", "No search template in %s", UrlUtils::maskUserInfo(searchDescriptionUrl).c_str());
   }
   if (query.empty() || searchTemplate.empty()) {
     state = BrowserState::BROWSING;

@@ -39,9 +39,9 @@ KNOB_ALIAS(DOWNLOAD_IDLE_TIMEOUT_MS, downloadIdleMs);
 constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr uint8_t MAX_REDIRECTS = 5;
 
-// For logs: no userinfo, and no query string (it can hold a signed download token).
+// For logs: masked userinfo, and no query string (it can hold a signed download token).
 std::string logUrl(const std::string& url) {
-  std::string out = UrlUtils::withoutUserInfo(url);
+  std::string out = UrlUtils::maskUserInfo(url);
   out.resize(std::min(out.find('?'), out.size()));
   return out;
 }
@@ -300,11 +300,11 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::maskUserInfo(redirect.host).c_str());
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::maskUserInfo(redirect.host).c_str());
       continue;
     }
 
@@ -401,12 +401,12 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::maskUserInfo(redirect.host).c_str());
         esp_http_client_cleanup(client);
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::withoutUserInfo(redirect.host).c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::maskUserInfo(redirect.host).c_str());
       esp_http_client_cleanup(client);
       continue;
     }
