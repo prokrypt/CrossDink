@@ -85,6 +85,9 @@ class HttpDownloader {
     // long with no new bytes (0 = the 60 s request timeout). A server that
     // drops a long response without closing otherwise costs the full timeout.
     uint32_t stallTimeoutMs = 0;
+    // WOLFSSL only: send HEAD instead of GET. No body is read; the progress
+    // callback reports (0, Content-Length) once, when the response is 200.
+    bool headOnly = false;
   };
 
   /**

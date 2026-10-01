@@ -64,22 +64,14 @@ void OpdsBookDownloader::run() {
   const unsigned long startMs = millis();
 
   if (job.sizeOnly) {
-    // The first progress report carries Content-Length and arrives with the
-    // first chunk; shouldCancel then ends the request. A second chunk with no
-    // length known yet ends it as well.
-    bool firstChunk = true;
+    // HEAD through the same redirects as the download; its Content-Length is the size.
     HttpDownloader::DownloadOptions options;
-    options.shouldCancel = [this]() { return cancelling() || total() > 0; };
-    options.bufferSize = DOWNLOAD_BUFFER_SIZE;
+    options.shouldCancel = [this]() { return cancelling(); };
     options.transport = HttpDownloader::Transport::WOLFSSL;
     options.authorizationOrigin = job.authorizationOrigin;
+    options.headOnly = true;
     HttpDownloader::streamUrl(
-        job.url,
-        [&firstChunk](const uint8_t*, size_t) {
-          const bool more = firstChunk;
-          firstChunk = false;
-          return more;
-        },
+        job.url, [](const uint8_t*, size_t) { return true; },
         [this](size_t, const size_t total) { bytesTotal.store(total, std::memory_order_release); }, job.username,
         job.password, std::move(options));
     LOG_INF("OPDS", "Size probe: %zu bytes in %lu ms", total(), millis() - startMs);
