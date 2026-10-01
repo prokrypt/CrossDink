@@ -52,7 +52,10 @@ async function load() {
   add('Device status (/api/status)', '/api/status', 'status.json');
   // since=max returns a one-line reply instead of the whole ring: a cheap probe.
   const p = await fetch('/api/psram-log?since=4294967295').catch(() => null);
-  if (p && p.ok) add('PSRAM log', '/api/psram-log', 'psram-log.txt');
+  if (p && p.ok) {
+    const size = p.headers.get('X-Log-Next') - p.headers.get('X-Log-Oldest');
+    add('PSRAM log (' + size.toLocaleString() + ' B)', '/api/psram-log', 'psram-log.txt');
+  }
   await walk('/debug', 1);
   load();
 })();
