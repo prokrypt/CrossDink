@@ -62,6 +62,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "util/UrlUtils.h"
 
 extern GfxRenderer renderer;
 extern MappedInputManager mappedInputManager;
@@ -292,10 +293,81 @@ void cmdStatus() {
       static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)), std::isnan(chipC) ? -999.0f : chipC);
 }
 
+// A setting's value as SET takes it (enums raw). Strings are quoted, and only
+// these are readable; any other string (credentials) reads "****". False:
+// nothing to read (actions, headers).
+bool settingValue(const SettingInfo& s, char* out, const size_t len) {
+  switch (s.type) {
+    case SettingType::TOGGLE:
+    case SettingType::ENUM:
+    case SettingType::VALUE:
+      if (s.valuePtr) return snprintf(out, len, "%u", SETTINGS.*(s.valuePtr)) > 0;
+      if (s.value16Ptr) return snprintf(out, len, "%u", SETTINGS.*(s.value16Ptr)) > 0;
+      if (s.valueGetter) return snprintf(out, len, "%u", s.valueGetter()) > 0;
+      return false;
+    case SettingType::STRING: {
+      static const char* const READABLE[] = {"deviceName", "opdsDownloadFolder", "nearbyReceiveFolder", "koServerUrl"};
+      bool readable = false;
+      for (const char* k : READABLE) readable = readable || strcmp(s.key, k) == 0;
+      if (!readable) return snprintf(out, len, "\"****\"") > 0;
+      std::string v = s.stringGetter       ? s.stringGetter()
+                      : s.stringMaxLen > 0 ? std::string(reinterpret_cast<const char*>(&SETTINGS) + s.stringOffset)
+                                           : std::string();
+      return snprintf(out, len, "\"%s\"", UrlUtils::maskUserInfo(v).c_str()) > 0;
+    }
+    default:
+      return false;
+  }
+}
+
+// SET <key> <value> | SET get <key> | SET list [from]: settings by web API
+// key, as cmdKnob pages its list.
 void cmdSet(char* args) {
   char* save = nullptr;
   const char* key = strtok_r(args, " ", &save);
   const char* valueArg = strtok_r(nullptr, " ", &save);
+  if (key != nullptr && strcasecmp(key, "list") == 0) {
+    const auto& list = getBaseSettingsList();
+    char out[232];
+    char value[96];
+    int n = 0;
+    size_t i = valueArg ? std::max(0, atoi(valueArg)) : 0;
+    for (; i < list.size(); ++i) {
+      if (list[i].key == nullptr || !settingValue(list[i], value, sizeof(value))) continue;
+      const int w = snprintf(out + n, sizeof(out) - n, " %s=%s", list[i].key, value);
+      if (w < 0 || n + w >= static_cast<int>(sizeof(out)) - 12) break;
+      n += w;
+    }
+    out[n] = '\0';
+    return i < list.size() ? reply("OK:SET%s next=%u", out, static_cast<unsigned>(i)) : reply("OK:SET%s", out);
+  }
+  if (key != nullptr && strcasecmp(key, "get") == 0) {
+    char value[160];
+    for (const auto& s : getBaseSettingsList()) {
+      if (s.key == nullptr || valueArg == nullptr || strcmp(s.key, valueArg) != 0) continue;
+      if (!settingValue(s, value, sizeof(value))) return reply("ERR:SET:unsupported");
+      if (s.type == SettingType::VALUE) {
+        return reply("OK:SET %s %s min=%d max=%d step=%d", s.key, value, s.valueRange.min, s.valueRange.max,
+                     s.valueRange.step);
+      }
+      if (s.type == SettingType::ENUM && !s.enumRawValues.empty()) {
+        char raws[64];
+        int n = 0;
+        for (const uint8_t raw : s.enumRawValues) {
+          const int w = snprintf(raws + n, sizeof(raws) - n, "%s%u", n ? "," : "", raw);
+          if (w < 0 || n + w >= static_cast<int>(sizeof(raws))) break;
+          n += w;
+        }
+        return reply("OK:SET %s %s values=%s", s.key, value, n ? raws : "-");
+      }
+      if (s.type == SettingType::ENUM) {
+        const size_t count = s.enumStringValues.empty() ? s.enumValues.size() : s.enumStringValues.size();
+        return reply("OK:SET %s %s values=0-%u", s.key, value, static_cast<unsigned>(count ? count - 1 : 0));
+      }
+      return reply("OK:SET %s %s", s.key, value);
+    }
+    return reply("ERR:SET:unknown_key");
+  }
   if (key == nullptr || valueArg == nullptr) return reply("ERR:SET:args");
   const long value = strtol(valueArg, nullptr, 0);
   for (const auto& s : getBaseSettingsList()) {
