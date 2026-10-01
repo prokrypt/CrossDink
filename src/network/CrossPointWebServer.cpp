@@ -1025,7 +1025,7 @@ void CrossPointWebServer::handleExit() {
 // Debug builds: the PSRAM log ring, oldest first, including lines from before
 // the last software restarts. ?since=<offset> tails it: only bytes after that
 // offset (a "[psram-log gap ...]" line marks any the ring overwrote first), and
-// the X-Log-Next header is the offset for the next poll. &wait=<ms> (max 5000)
+// the X-Log-Next header is the offset for the next poll (X-Log-Oldest: the oldest byte held). &wait=<ms> (max 5000)
 // holds an empty reply until new text arrives; that parks only this server task.
 void CrossPointWebServer::handlePsramLog() const {
   EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
@@ -1042,6 +1042,7 @@ void CrossPointWebServer::handlePsramLog() const {
   if (tail && !restarted && since > cursor) cursor = since;
   const uint32_t end = PsramLog::end();
   server->sendHeader("X-Log-Next", String(end));
+  server->sendHeader("X-Log-Oldest", String(PsramLog::oldest()));  // Logs page shows next - oldest as the size
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "text/plain; charset=utf-8", "");
   size_t len = 0;

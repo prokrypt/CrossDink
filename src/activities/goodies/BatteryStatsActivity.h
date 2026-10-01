@@ -21,7 +21,7 @@ class BatteryStatsActivity final : public Activity {
   struct Point {
     uint32_t epoch;
     uint8_t pct;
-    bool sleep;  // this row went to sleep; the next row woke
+    bool awake;  // awake until the next row (not a sleep row or a charger row logged "asleep")
   };
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 12;

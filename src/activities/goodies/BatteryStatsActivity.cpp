@@ -92,8 +92,9 @@ void BatteryStatsActivity::loadGraph() {
         std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
         pointCount = MAX_POINTS / 2;
       }
-      points[pointCount++] = {epoch, static_cast<uint8_t>(std::min(100L, strtol(pct, nullptr, 10))),
-                              strncmp(event, "sleep", 5) == 0};
+      const char* detail = field(line, 10);
+      const bool asleep = strncmp(event, "sleep", 5) == 0 || (detail && strncmp(detail, "asleep", 6) == 0);
+      points[pointCount++] = {epoch, static_cast<uint8_t>(std::min(100L, strtol(pct, nullptr, 10))), !asleep};
     }
     fill = strlen(line);
     memmove(buf, line, fill);
@@ -198,7 +199,7 @@ void BatteryStatsActivity::render(RenderLock&&) {
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID) + 6;
   int y = header.y + header.height + metrics.verticalSpacing;
 
-  // Graph: % over time, 25% gridlines; a bar under it marks asleep spans.
+  // Graph: % over time, 25% gridlines; a bar under it marks awake spans.
   const int gh = renderer.getScreenHeight() / 5;
   renderer.drawRect(x, y, w, gh);
   for (int q = 1; q < 4; ++q) {
@@ -215,11 +216,11 @@ void BatteryStatsActivity::render(RenderLock&&) {
       const Point& p1 = points[i];
       if (p1.epoch < p0.epoch) continue;  // clock set backwards
       renderer.drawLine(px(p0.epoch), py(p0.pct), px(p1.epoch), py(p1.pct), 2, true);
-      if (p0.sleep) renderer.fillRect(px(p0.epoch), y + gh + 2, std::max(1, px(p1.epoch) - px(p0.epoch)), 4);
+      if (p0.awake) renderer.fillRect(px(p0.epoch), y + gh + 2, std::max(1, px(p1.epoch) - px(p0.epoch)), 4);
     }
     char spanText[40], ago[24];
     BookReadingStats::formatDuration(spanS, ago, sizeof(ago));
-    snprintf(spanText, sizeof(spanText), "%s  (bar = asleep)", ago);
+    snprintf(spanText, sizeof(spanText), "%s  (bar = awake)", ago);
     renderer.drawText(UI_10_FONT_ID, x, y + gh + 8, spanText);
   } else {
     renderer.drawText(UI_10_FONT_ID, x + 8, y + gh / 2 - lineHeight / 2, "No battery log yet");
