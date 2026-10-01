@@ -106,8 +106,6 @@ $('all').onclick = async () => {
   $('all').disabled = false;
 };
 $('q').oninput = show;
-$('q').onkeydown = (e) => e.key === 'Enter' && show();
-$('go').onclick = show;
 
 // Log text size, remembered in this browser.
 let fontPx = 14;
@@ -126,8 +124,8 @@ $('fp').onclick = () => font(2);
 font(0);
 
 // Battery: /debug/logs/battery.1.csv + battery.csv + rows still in PSRAM
-// (/api/battery-pending), columns as BatteryLog.h, plus the Goodies counters
-// from /api/status. Rows without an RTC time (epoch 0) are left out.
+// (/api/battery-pending), columns as BatteryLog.h, plus live readings and
+// refresh counts from /api/status. Rows without an RTC time (epoch 0) are left out.
 let bat = [];
 let segs = [];
 let status = {};
@@ -256,7 +254,7 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
   }
   for (let q = 0; q <= 4; q++) {
     const v = lo + ((hi - lo) * q) / 4;
-    s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="0" y="${y(v) + 4}">${fmt(v)}</text>`;
+    s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text${key2 ? ' class="t1"' : ''} x="0" y="${y(v) + 4}">${fmt(v)}</text>`;
   }
   for (let q = 0; q <= ticks; q++) {
     const t = t0 + ((t1 - t0) * q) / ticks;
@@ -370,9 +368,38 @@ function sessions() {
   );
 }
 
+// The Summary counters, counted from the log like Goodies > Battery & stats does
+// (BatteryStatsActivity::parseRow): from the last stats_reset row, or the first row.
+function logStats() {
+  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: null, bA: 0, bS: 0, dA: 0, dS: 0 });
+  let s = zero(false);
+  let prev = null;
+  for (const r of bat) {
+    const c = r.ev === 'boot' && cold(r.det);
+    if (r.ev === 'stats_reset') s = zero(true);
+    else if (s.first && prev && r.t >= prev.t && !c) {
+      // The span from the previous row is awake or asleep; before a cold boot it was off.
+      const dt = r.t - prev.t;
+      const drop = Math.max(0, prev.pct - r.pct);
+      const awake = !(prev.ev === 'sleep' || prev.det.startsWith('asleep'));
+      s[awake ? 'awake' : 'asleep'] += dt;
+      if (!prev.usb && !r.usb) awake ? ((s.bA += dt), (s.dA += drop)) : ((s.bS += dt), (s.dS += drop));
+    }
+    s.first ||= r.t;
+    s.last = r.t;
+    if (r.ev === 'boot') c ? s.cold++ : s.rst++;
+    if (r.ev === 'wake') s.wakes++;
+    const f = /false_wakes=(\d+)/.exec(r.det);
+    if (f) s.falseWakes += +f[1];
+    if (r.ev === 'charged') s.charged = r;
+    if (r.ev === 'charged' || r.ev === 'chg_off') s.bA = s.bS = s.dA = s.dS = 0;
+    prev = r;
+  }
+  return s;
+}
+
 function summary() {
   const b = status.battery || {};
-  const st = b.stats || {};
   const t = status.temperatures || {};
   const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' °C' : '-');
   $('hero').innerHTML = [
@@ -384,24 +411,26 @@ function summary() {
     ['Now', `${b.percent ?? '-'}%  ${b.millivolts ?? '-'} mV  ${b.charging ? 'charging ' : ''}${b.usb ? 'USB' : 'on battery'}`],
     ['Temperatures', `battery ${c('battery')}, chip ${c('chip')}, panel ${c('panel')}`],
   ];
-  if (st.now != null) {
-    const drop = st.dropAwakePct + st.dropAsleepPct;
-    const span = st.battAwakeS + st.battAsleepS;
+  if (bat.length) {
+    const s = logStats();
+    const now = (b.stats && b.stats.now) || Date.now() / 1000;
+    const pct = b.percent ?? bat[bat.length - 1].pct;
+    const drop = s.dA + s.dS;
+    const span = s.bA + s.bS;
     rows.push(
-      ['Last charged', st.chargedEpoch && st.now > st.chargedEpoch ? `${hrs(st.now - st.chargedEpoch)} ago at ${st.chargedPct}%` : 'not seen since reset'],
-      ['Awake drain', rate(st.dropAwakePct, st.battAwakeS) + ' over ' + hrs(st.battAwakeS)],
-      ['Asleep drain', rate(st.dropAsleepPct, st.battAsleepS) + ' over ' + hrs(st.battAsleepS)],
-      ['Est. left at that pace', drop > 0 && span >= 60 ? hrs((b.percent * span) / drop) : '-'],
-      ['Wakes / false wakes / boots', `${st.wakes} / ${st.falseWakes} / ${st.boots}`],
-      ['Awake / asleep', hrs(st.awakeS) + ' / ' + hrs(st.asleepS)],
-      ['Refreshes', Object.entries(st.refresh || {}).map(([k, v]) => k + ' ' + v).join(', ')]
+      ['Last charged', s.charged && now > s.charged.t ? `${hrs(now - s.charged.t)} ago at ${s.charged.pct}%` : 'not in the log'],
+      ['Awake drain', rate(s.dA, s.bA) + ' over ' + hrs(s.bA)],
+      ['Asleep drain', rate(s.dS, s.bS) + ' over ' + hrs(s.bS)],
+      ['Est. left at that pace', drop > 0 && span >= 60 ? hrs((pct * span) / drop) : '-'],
+      ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
+      ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
+      ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
+      ['Log', `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}` + (s.reset ? `, counters since reset ${when(s.first)}` : '')]
     );
-  }
+  } else rows.push(['Log', 'no rows with a clock time']);
+  if (b.stats && b.stats.refresh) rows.push(['Refreshes since power-on', Object.entries(b.stats.refresh).map(([k, v]) => k + ' ' + v).join(', ')]);
   const boot = status.boot || {};
-  rows.push(
-    ['Up', `${hrs((boot.uptimeMs || 0) / 1000)}, reset ${boot.resetReason}, wake ${boot.wakeCause}`],
-    ['Log', bat.length ? `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}, ${bat.filter((r) => r.ev === 'boot' && cold(r.det)).length} cold boots, ${bat.filter((r) => r.ev === 'boot' && !cold(r.det)).length} restarts, ${bat.filter((r) => r.ev === 'wake').length} wakes` : 'no rows with a clock time']
-  );
+  rows.push(['Up', `${hrs((boot.uptimeMs || 0) / 1000)}, reset ${boot.resetReason}, wake ${boot.wakeCause}`]);
   table('sum', null, rows);
 }
 
