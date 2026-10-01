@@ -437,20 +437,15 @@ bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, A
       break;
   }
   if (state.active) {
-    if (progress.finished) {
-      // Keep the level the finger last showed: the lift-off point can jump
-      // (12% slid to 6% read 0% on release, which turned the light off).
-      LOG_DBG("LIGHT", "Edge slide end: kept %u%% %s (lift-off dy %d)", Frontlight.brightness(),
-              Frontlight.isOn() ? "on" : "off", progress.deltaY);
-      mappedInput.suppressCurrentTouchContact();
-      finishLiveLightSwipe(state, activityManager);
-      return true;
-    }
     // Track the finger in both directions: reversing through the touch-down
     // point keeps moving the value instead of holding at the starting value.
     const int amount =
         SwipeAdjustment::liveAmount(state.movementSign * progress.deltaY, mappedInput.getRenderer().getScreenHeight());
     updateLiveLightSwipe(activity, activityManager, state, amount);
+    if (progress.finished) {
+      mappedInput.suppressCurrentTouchContact();
+      finishLiveLightSwipe(state, activityManager);
+    }
     return true;
   }
   if (action == CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET) return false;
