@@ -128,13 +128,19 @@ class HalDisplay {
   // the driver, per waveform; it may lie ahead), 0 while none runs. The main
   // loop dims the frontlight around it.
   uint32_t flashStartedMs() const;
-  // A refresh that may flash is running (the loop ticks fast meanwhile).
-  bool flashMarked() const { return flashStart.load(std::memory_order_relaxed) != 0; }
+  // millis() when a refresh that may flash was entered (0: none); the loop
+  // ticks fast meanwhile.
+  uint32_t flashMarkedMs() const { return flashStart.load(std::memory_order_relaxed); }
   // When that refresh is expected to end (UC8179), 0 when unknown.
   uint32_t flashEndsMs() const;
   // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
   enum class FlashKind : uint8_t { Gray, Full, Paint };
   FlashKind flashKind() const;
+  // millis() when the refresh now starting was planned to flash (0: none, or
+  // flashStartedMs has it), and its kind: the duck's fade starts here. UC8179:
+  // the driver's own swing decision, before its power and SPI work.
+  uint32_t flashPlannedMs() const;
+  FlashKind flashPlannedKind() const;
   // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
   // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
   // then gray passes, then refreshes that flash (as marked for the flash duck).
@@ -166,15 +172,20 @@ class HalDisplay {
   uint32_t getBufferSize() const;
 
  private:
-  void markFlash(bool flashes);
+  void markFlash(bool flashes, FlashKind kind = FlashKind::Full);
+  void markFlash(RefreshMode mode);
   static void count(int kind);
   // Marks a synchronous refresh (if it flashes) and clears the mark when it returns.
   struct FlashScope {
     HalDisplay& d;
-    FlashScope(HalDisplay& display, const bool flashes) : d(display) { d.markFlash(flashes); }
+    FlashScope(HalDisplay& display, const bool flashes, const FlashKind kind = FlashKind::Full) : d(display) {
+      d.markFlash(flashes, kind);
+    }
+    FlashScope(HalDisplay& display, const RefreshMode mode) : d(display) { d.markFlash(mode); }
     ~FlashScope() { d.flashStart.store(0, std::memory_order_relaxed); }
   };
   std::atomic<uint32_t> flashStart{0};
+  std::atomic<FlashKind> markKind{FlashKind::Full};
   bool smoothGray = false;
   EInkDisplay einkDisplay;
 };

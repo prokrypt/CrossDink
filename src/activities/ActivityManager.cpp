@@ -1530,15 +1530,21 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
   }
 
   xTaskNotify(renderTaskHandle, 1, eIncrement);
-  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+  while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(RenderLock::WAIT_TICK_MS)) == 0) {
+    if (RenderLock::waitTick) RenderLock::waitTick();
+  }
   return RequestUpdateResult::Rendered;
 }
 
 // RenderLock
 
+void (*RenderLock::waitTick)() = nullptr;
+
 RenderLock::RenderLock(const Mode mode) {
-  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
-  assert(mode == Mode::Try || isLocked);
+  const TickType_t slice = mode == Mode::Try ? 0 : pdMS_TO_TICKS(WAIT_TICK_MS);
+  while (!(isLocked = xSemaphoreTake(activityManager.renderingMutex, slice) == pdTRUE) && mode != Mode::Try) {
+    if (waitTick) waitTick();
+  }
 }
 
 RenderLock::RenderLock([[maybe_unused]] Activity&, const Mode mode) : RenderLock(mode) {}
