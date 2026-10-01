@@ -42,6 +42,7 @@
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
 #include "network/UsbDriveActivity.h"
+#include "platform/InputTask.h"
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
@@ -634,6 +635,10 @@ void ActivityManager::renderTaskLoop() {
       powerManager.endDisplayRefreshHold();
       displayPmHeld = false;
     }
+    // Renders leave work for the loop (queued page turns, toasts, alerts,
+    // prerender timers): one pass now, and its idle wait restarts short.
+    lastRenderEndMs.store(millis(), std::memory_order_relaxed);
+    InputTask::wakeLoop();
   }
 }
 
@@ -1485,6 +1490,10 @@ void ActivityManager::wakePanelEarly() {
 #endif
 }
 
+unsigned long ActivityManager::msSinceRender() const {
+  return millis() - lastRenderEndMs.load(std::memory_order_relaxed);
+}
+
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {
     if (renderTaskHandle) {
@@ -1494,6 +1503,7 @@ void ActivityManager::requestUpdate(bool immediate) {
     // Deferring the update until current loop is finished
     // This is to avoid multiple updates being requested in the same loop
     requestedUpdate = true;
+    InputTask::wakeLoop();  // from another task: the loop may be in a long idle wait
   }
 }
 RequestUpdateResult ActivityManager::requestUpdateAndWait() {

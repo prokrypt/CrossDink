@@ -50,6 +50,9 @@ bool allowsRadioIdleSleep();
 // input; failures back off 1 to 10 min. Beside screens that share their link
 // (sharesWifiWithRemote) it only starts the server. No-op while the toggle is off.
 void loop(uint32_t idleMs);
+// Idle wait bound for loop(): 0 while a join or teardown is in flight or due,
+// the time until the next rejoin attempt, UINT32_MAX when none is pending.
+uint32_t msUntilRejoin(uint32_t idleMs);
 }  // namespace goodies_remote
 
 // Debug-build Goodies menu (CROSSDINK_GOODIES). Root lists the tools; the

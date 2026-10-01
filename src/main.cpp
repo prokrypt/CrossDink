@@ -2059,11 +2059,19 @@ void setup() {
 namespace {
 KNOB_ALIAS(IDLE_WAIT_MS, idleWaitMs);  // Goodies > Knobs, as the two below
 KNOB_ALIAS(IDLE_WAIT_SETTLED_MS, idleWaitSettledMs);
-KNOB_ALIAS(IDLE_WAIT_LONG_MS, idleWaitLongMs);
+KNOB_ALIAS(IDLE_WAIT_MAX_MS, idleWaitMaxMs);
 // Toasts, hold thresholds and the Home double tap all resolve within a couple
 // of seconds of the last input, so the idle tick stays short until then.
 KNOB_ALIAS(IDLE_WAIT_BACKOFF_AFTER_MS, idleBackoffAfterMs);
+// Timers armed by a render or a worker (prerender, Home thumbnails, library
+// prewarm) run within ~10 s, so deadline waits start only after that.
 KNOB_ALIAS(IDLE_WAIT_LONG_AFTER_MS, idleLongAfterMs);
+
+#if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
+// updateTouchControllerSleep(): a refused GT911 sleep or wake retries at touchRetryAt.
+unsigned long touchRetryAt = 0;
+bool touchRetryPending = false;
+#endif
 
 bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
@@ -2253,18 +2261,16 @@ static unsigned long lightIdleMs(const unsigned long idleMs) {
   return std::min(idleMs, millis() - lastPulseMs);
 }
 
-uint32_t idleWaitMs(const unsigned long idleMs) {
+// sleepIdleMs: time since input or the last sleep block, whichever is later
+// (what the auto-sleep check measures).
+uint32_t idleWaitMs(const unsigned long idleMs, const unsigned long sleepIdleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
   if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) && SETTINGS.frontlightFlashDuck)) {
     return FLASH_DUCK_TICK_MS;
   }
-  if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
-  // Light timeout: wake on time for the fade and step it at the fast tick.
-  const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
-  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0 &&
-      lightIdleMs(idleMs) + IDLE_WAIT_LONG_MS >= lightTimeoutMs) {
-    return IDLE_WAIT_MS;
-  }
+  // Input and renders both start the short-tick phases below.
+  const unsigned long settledMs = std::min(idleMs, activityManager.msSinceRender());
+  if (!InputWake::coversAllInputs() || settledMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
   const bool tiltPolling = SETTINGS.tiltPageTurn != CrossPointSettings::TILT_OFF && halTiltSensor.isAvailable() &&
                            activityManager.isReaderActivity();
 #ifdef SIMULATOR
@@ -2283,7 +2289,28 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   // into radio idle (OPDS list, KOSync result) only needs the loop for input,
   // exit requests and link checks: 4 wakes/s instead of 20.
   if (radioIdle) return IDLE_WAIT_SETTLED_MS;
-  return idleMs < IDLE_WAIT_LONG_AFTER_MS ? IDLE_WAIT_SETTLED_MS : IDLE_WAIT_LONG_MS;
+  if (settledMs < IDLE_WAIT_LONG_AFTER_MS || powerManager.hasBackgroundWork()) return IDLE_WAIT_SETTLED_MS;
+  // Otherwise nothing runs on a timer: auto light sleep holds until the next
+  // deadline (auto-sleep, light timeout), a key, touch or charger STAT edge, or
+  // IDLE_WAIT_MAX_MS, which bounds the header battery % repaint and battery log rows.
+  uint32_t waitMs = IDLE_WAIT_MAX_MS;
+  const auto until = [&waitMs](const unsigned long elapsedMs, const unsigned long deadlineMs) {
+    waitMs = std::min<unsigned long>(waitMs, deadlineMs > elapsedMs ? deadlineMs - elapsedMs : 0);
+  };
+  const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
+  if (sleepTimeoutMs > 0) until(sleepIdleMs, sleepTimeoutMs);
+  // Light timeout: wake on time for the fade and step it at the fast tick.
+  const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
+  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
+    until(lightIdleMs(idleMs), lightTimeoutMs);
+  }
+#if CROSSDINK_GOODIES
+  waitMs = std::min(waitMs, goodies_remote::msUntilRejoin(idleMs));
+#endif
+#if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
+  if (touchRetryPending) until(millis(), touchRetryAt);
+#endif
+  return std::max(waitMs, IDLE_WAIT_MS);
 }
 
 #if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
@@ -2307,8 +2334,6 @@ bool quickLockUnlocksWithKeys(const QuickLockTrigger trigger) {
 // locked (the Home key is part of the GT911). The keys stay on InputWake, and
 // any change that needs touch again wakes it on the next loop.
 void updateTouchControllerSleep() {
-  static unsigned long retryAt = 0;
-  static bool retryPending = false;
   if (!gpio.hasTouch()) return;
   const bool quickLockedByKeys =
       buttonShortcutController.isQuickLocked() && quickLockUnlocksWithKeys(buttonShortcutController.quickLockTrigger());
@@ -2316,17 +2341,17 @@ void updateTouchControllerSleep() {
                               (!mappedInputManager.hasHomeKey() || mappedInputManager.isHomeButtonLockedInReader());
   const bool wantAsleep = quickLockedByKeys || readerTouchOff;
   if (wantAsleep == gpio.isTouchAsleep()) {
-    retryPending = false;
+    touchRetryPending = false;
     return;
   }
-  if (retryPending && static_cast<long>(millis() - retryAt) < 0) return;
+  if (touchRetryPending && static_cast<long>(millis() - touchRetryAt) < 0) return;
   if (gpio.setTouchSleep(wantAsleep)) {
-    retryPending = false;
+    touchRetryPending = false;
     LOG_DBG("TOUCH", "Touch controller %s", wantAsleep ? "asleep" : "awake");
   } else {
     // Refused while a finger or the Home key is down, or no answer on I2C.
-    retryPending = true;
-    retryAt = millis() + 1000;
+    touchRetryPending = true;
+    touchRetryAt = millis() + 1000;
   }
 }
 #endif
@@ -2621,9 +2646,18 @@ static void loopPass() {
       lastActivityTime = millis();
     }
     mappedInputManager.clearInjectedReleases();
-    // Nothing draws while locked; wait like an idle pass (ends early on input).
+    // Nothing draws while locked: wait for input, the Quick Lock sleep or an
+    // idle deadline (light timeout). Unlock holds and unwired inputs keep the fast tick.
     loopPassBlocked = true;
-    InputTask::waitForInput(10);
+    const unsigned long nowMs = millis();
+    const uint32_t lockWaitMs =
+        !InputWake::coversAllInputs() || anyInputHeld()
+            ? 10
+            : std::max<uint32_t>(
+                  10, std::min<uint32_t>(idleWaitMs(nowMs - lastActivityTime,
+                                                    std::min(nowMs - lastActivityTime, nowMs - lastSleepBlockTime)),
+                                         buttonShortcutController.msUntilQuickLockSleep(nowMs, sleepTimeoutMs)));
+    InputTask::waitForInput(lockWaitMs);
     return;
   }
 
@@ -2805,7 +2839,8 @@ static void loopPass() {
     if (!radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
-      InputTask::waitForInput(idleWaitMs(millis() - lastActivityTime));
+      InputTask::waitForInput(idleWaitMs(millis() - lastActivityTime,
+                                         std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime)));
     } else if (radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // A radio exchange (Wi-Fi join, sync, download) runs on its own task and
       // the screen only polls it. At a 10 ms tick the loop cost ~11% of core 0,

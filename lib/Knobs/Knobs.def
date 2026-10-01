@@ -89,9 +89,9 @@ X("Touch", inputActivePollMs, uint32_t, 8, 4, 50, 1, "ms")          // input tas
 X("Power", idlePowerSaveMs, unsigned long, 250, 50, 5000, 50, "ms")    // idle before low clock and long waits
 X("Power", idleWaitMs, uint32_t, 50, 10, 250, 10, "ms")                // fast idle tick
 X("Power", idleWaitSettledMs, uint32_t, 250, 50, 1000, 50, "ms")       // settled idle tick
-X("Power", idleWaitLongMs, uint32_t, 1000, 250, 5000, 250, "ms")       // deep idle tick
+X("Power", idleWaitMaxMs, uint32_t, 60000, 1000, 300000, 1000, "ms")  // longest idle wait (no deadline sooner)
 X("Power", idleBackoffAfterMs, unsigned long, 2000, 2000, 10000, 500, "ms")  // idle before backing off
-X("Power", idleLongAfterMs, unsigned long, 10000, 2000, 60000, 1000, "ms")   // idle before the deep tick
+X("Power", idleLongAfterMs, unsigned long, 10000, 2000, 60000, 1000, "ms")   // idle before deadline waits
 X("Power", panelIdleOffMs, uint32_t, 10000, 2000, 60000, 1000, "ms")   // booster off after an early wake
 X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // battery gauge cache
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache

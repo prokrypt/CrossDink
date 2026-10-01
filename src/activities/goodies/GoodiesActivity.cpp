@@ -393,6 +393,19 @@ void loop(const uint32_t idleMs) {
   rejoinAfterPause = false;
   beginRejoin();
 }
+
+uint32_t msUntilRejoin(const uint32_t idleMs) {
+  if (shutdownQueued || joinPending || radioTask.running()) return 0;
+  // Joined, joining or a Wi-Fi screen: the radio is on and the loop ticks anyway.
+  if (!remoteWanted() || rejoining || remoteServer || activityManager.anyActivityUsesWifi()) return UINT32_MAX;
+  if (rejoinNow || rejoinAfterPause) return 0;
+  const auto left = [](const uint32_t elapsedMs, const uint32_t needMs) {
+    return elapsedMs < needMs ? needMs - elapsedMs : 0;
+  };
+  uint32_t ms = std::max(left(millis(), REJOIN_BOOT_DELAY_MS), left(idleMs, REJOIN_IDLE_MS));
+  if (rejoinAt != 0) ms = std::max(ms, left(millis() - rejoinAt, rejoinRetryMs));
+  return ms;
+}
 }  // namespace goodies_remote
 
 namespace {

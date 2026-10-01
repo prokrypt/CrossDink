@@ -93,6 +93,9 @@ class HalPowerManager {
   // idle can light-sleep through the waveform. Set between refreshes.
   void setRefreshLightSleep(bool allowed) { refreshLightSleep = allowed; }
   bool refreshLightSleepAllowed() const { return refreshLightSleep; }
+  // A worker between beginBackgroundWork() and endBackgroundWork() (image
+  // cache, Home thumbnails). Unlocked read: a stale answer costs one idle tick.
+  bool hasBackgroundWork() const { return backgroundWorkCount > 0; }
 
   // Keeps light sleep off while a refresh runs in the background and the
   // render task goes on working, as the deferred menu refresh does. Unlike the

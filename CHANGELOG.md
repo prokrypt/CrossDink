@@ -59,6 +59,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- X4 Pro: idle power. After 10 s with no input, render or background work, the main loop sleeps until its next deadline (auto-sleep, Light Timeout fade, Wi-Fi remote rejoin), up to 60 s, instead of waking every second. Keys, touch and the charger starting or stopping still wake it at once. Debug builds tune the cap in Goodies > Knobs > Power (idleWaitMaxMs).
 - A brightness slide or two-finger swipe that ends at 0% turns the frontlight off. Turning it back on restores the brightness from before the slide.
 - Touch devices: lists open with no row highlighted. The first Up, Down or Confirm press shows the highlight without moving or opening anything; a row tapped to open a popup stays highlighted while the popup is up. The Home screen keeps its highlight.
 - Settings: the selected tab is marked by a bar under its name instead of a black (inverted) highlight, and tapping a tab no longer highlights it; the box around the tab bar stays. Up/Down now wrap within the list and no longer move onto the tabs; long-press Up/Down still switches tabs.

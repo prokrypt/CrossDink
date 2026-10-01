@@ -14,4 +14,8 @@ void begin();
 // Loop idle wait: returns as soon as an input event is queued, or after
 // timeoutMs.
 void waitForInput(uint32_t timeoutMs);
+
+// Ends the loop's idle wait early: another task (render, a worker) left work
+// for the next loop pass. No-op on the loop task itself.
+void wakeLoop();
 }  // namespace InputTask

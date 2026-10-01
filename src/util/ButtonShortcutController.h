@@ -152,6 +152,9 @@ class ButtonShortcutController {
   bool shouldQuickLockSleep(uint32_t nowMs, uint32_t timeoutMs) const {
     return quickLockState_.shouldSleep(nowMs, timeoutMs);
   }
+  uint32_t msUntilQuickLockSleep(uint32_t nowMs, uint32_t timeoutMs) const {
+    return quickLockState_.msUntilSleep(nowMs, timeoutMs);
+  }
 
  private:
   struct SideUnlockState {

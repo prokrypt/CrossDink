@@ -134,6 +134,7 @@ class ActivityManager {
   // Set by the render task once the current activity has drawn a frame. Home
   // holds the reader's exit writes (ReaderExitSave) until then.
   std::atomic<bool> currentActivityPainted{false};
+  std::atomic<unsigned long> lastRenderEndMs{0};  // millis() after the last render task pass
   // Render task only: the activity the last frame came from (ListSelection).
   const Activity* listSelectionOwner = nullptr;
 
@@ -231,6 +232,7 @@ class ActivityManager {
   void cancelOptionalRenderWork(const char* reason);
   void notifyUserInput();
   bool skipLoopDelay() const;
+  unsigned long msSinceRender() const;
   bool allowsRadioIdleSleep() const;
   std::string getCurrentBookPath() const;
   ScreenshotInfo getScreenshotInfo() const;

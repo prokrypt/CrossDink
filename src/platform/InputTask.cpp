@@ -19,8 +19,8 @@ namespace {
 // Matches the loop's active tick and InputManager's debounce and GT911 poll
 // cadence while a key or contact is down.
 KNOB_ALIAS(ACTIVE_POLL_MS, inputActivePollMs);  // Goodies > Knobs
-// With every input on a wake line the idle wait only bounds a missed edge.
-constexpr uint32_t IDLE_COVERED_WAIT_MS = 1000;
+// With every input on a wake line the idle wait only bounds a missed edge, so it
+// matches the loop's longest idle wait (the chip light-sleeps through both).
 constexpr uint32_t IDLE_POLLED_WAIT_MS = 20;
 // InputManager::update() plus a GT911/I2C read; same budget as the SDK's own
 // async input task.
@@ -30,16 +30,17 @@ constexpr UBaseType_t PRIORITY = 3;
 
 SemaphoreHandle_t loopWake = nullptr;
 TaskHandle_t inputTask = nullptr;
+TaskHandle_t loopTask = nullptr;
 
 void inputTaskMain(void*) {
-  const uint32_t idleWaitMs = InputWake::coversAllInputs() ? IDLE_COVERED_WAIT_MS : IDLE_POLLED_WAIT_MS;
+  const bool covered = InputWake::coversAllInputs();
   for (;;) {
     const HalGPIO::SampleResult result = gpio.sampleInput();
-    if (result.events) xSemaphoreGive(loopWake);
+    if (result.events || InputWake::takeChargeWake()) xSemaphoreGive(loopWake);
     if (result.active) {
       vTaskDelay(pdMS_TO_TICKS(ACTIVE_POLL_MS));
     } else {
-      InputWake::wait(idleWaitMs);
+      InputWake::wait(covered ? KNOBS.idleWaitMaxMs : IDLE_POLLED_WAIT_MS);
     }
   }
 }
@@ -47,6 +48,7 @@ void inputTaskMain(void*) {
 
 void InputTask::begin() {
   if (inputTask) return;
+  loopTask = xTaskGetCurrentTaskHandle();
   loopWake = xSemaphoreCreateBinary();
   if (!loopWake || !gpio.startLatchedInput()) {
     LOG_ERR("INPUT", "Input task unavailable; sampling on the loop");
@@ -70,10 +72,21 @@ void InputTask::waitForInput(const uint32_t timeoutMs) {
   xSemaphoreTake(loopWake, pdMS_TO_TICKS(timeoutMs));
 }
 
+void InputTask::wakeLoop() {
+  if (!loopTask || xTaskGetCurrentTaskHandle() == loopTask) return;
+  if (inputTask) {
+    xSemaphoreGive(loopWake);
+  } else {
+    InputWake::wake();
+  }
+}
+
 #else
 
 void InputTask::begin() {}
 
 void InputTask::waitForInput(const uint32_t timeoutMs) { InputWake::wait(timeoutMs); }
+
+void InputTask::wakeLoop() {}
 
 #endif

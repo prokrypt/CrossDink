@@ -18,6 +18,13 @@ class QuickLockState {
     return locked_ && timeoutMs != 0U && static_cast<uint32_t>(nowMs - lockedAtMs_) >= timeoutMs;
   }
 
+  // ms until shouldSleep() turns true; UINT32_MAX when it never will.
+  uint32_t msUntilSleep(uint32_t nowMs, uint32_t timeoutMs) const {
+    if (!locked_ || timeoutMs == 0U) return UINT32_MAX;
+    const uint32_t elapsed = nowMs - lockedAtMs_;
+    return elapsed >= timeoutMs ? 0U : timeoutMs - elapsed;
+  }
+
  private:
   bool locked_ = false;
   uint32_t lockedAtMs_ = 0U;
