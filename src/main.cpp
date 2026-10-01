@@ -1785,13 +1785,6 @@ void setup() {
   }
 #endif
 
-  // One-shot, consumed only once the wake is real (a press too short to wake
-  // goes back to sleep above with the flag still armed). Cleared before any
-  // painting so a hang in the blocking paint path resets into a normal splash
-  // boot instead of a splashless loop with no frame.
-  const bool splashlessWakeArmed = splashlessWakeMagic == SPLASHLESS_WAKE_MAGIC;
-  splashlessWakeMagic = 0;
-
 #ifndef SIMULATOR
   // X4 Pro and X4 Classic both map Up to the GPIO0 boot strap. Use Down for
   // recovery so holding the recovery chord cannot strand either S3 board in a
@@ -1816,6 +1809,13 @@ void setup() {
     powerManager.startDeepSleep(gpio);
   }
 #endif
+
+  // One-shot, consumed only once the wake is real (a press too short to wake and
+  // a charger wake go back to sleep above with the flag still armed). Cleared
+  // before any painting so a hang in the blocking paint path resets into a
+  // normal splash boot instead of a splashless loop with no frame.
+  const bool splashlessWakeArmed = splashlessWakeMagic == SPLASHLESS_WAKE_MAGIC;
+  splashlessWakeMagic = 0;
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
