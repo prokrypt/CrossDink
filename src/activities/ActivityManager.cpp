@@ -42,6 +42,7 @@
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
 #include "network/UsbDriveActivity.h"
+#include "platform/InputTask.h"
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
@@ -634,6 +635,9 @@ void ActivityManager::renderTaskLoop() {
       powerManager.endDisplayRefreshHold();
       displayPmHeld = false;
     }
+    // Renders leave work for the loop (queued page turns, toasts, alerts,
+    // prerender timers): one pass now instead of at the next idle tick.
+    InputTask::wakeLoop();
   }
 }
 
@@ -1494,6 +1498,7 @@ void ActivityManager::requestUpdate(bool immediate) {
     // Deferring the update until current loop is finished
     // This is to avoid multiple updates being requested in the same loop
     requestedUpdate = true;
+    InputTask::wakeLoop();  // from another task: the loop may be in an idle wait
   }
 }
 RequestUpdateResult ActivityManager::requestUpdateAndWait() {
