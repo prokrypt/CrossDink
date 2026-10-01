@@ -32,6 +32,7 @@
 #include "components/UiAppHelpers.h"
 #include "network/CrossPointWebServer.h"
 #include "network/FirmwareFlasher.h"
+#include "network/SerialRemote.h"
 #include "network/WifiUtils.h"
 #include "util/TransferLightPulse.h"
 #include "util/WorkerTask.h"
@@ -442,10 +443,12 @@ void GoodiesActivity::onEnter() {
 void GoodiesActivity::showLevel(const Level next) {
   RenderLock lock(*this);
   level = next;
+  tokenShownUntil = 0;
   entries.clear();
   if (level == Level::Root) {
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
+    entries.push_back({"API token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
@@ -509,6 +512,10 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::DisplayTests);
     } else if (index == 1) {
       toggleRemote();
+    } else if (index == TOKEN_ROW) {
+      // Full token for 10 s (loop() hides it again); never logged.
+      tokenShownUntil = millis() + 10000;
+      setRowValue(TOKEN_ROW, tokenRowValue());
     } else if (index == KNOBS_ROW) {
       showLevel(Level::Knobs);
     } else {
@@ -636,12 +643,28 @@ void GoodiesActivity::toggleRemote() {
 
 // Updates the remote row in place; showLevel() would move the selection back to the top.
 void GoodiesActivity::refreshRemoteRow() {
-  RenderLock lock(*this);
   remoteRowShown = remoteRowState();
-  entries[1].value = remoteRowValue();
-  rowItems[1].value = entries[1].value.c_str();
+  setRowValue(1, remoteRowValue());
+}
+
+void GoodiesActivity::setRowValue(const int row, std::string value) {
+  RenderLock lock(*this);
+  entries[row].value = std::move(value);
+  rowItems[row].value = entries[row].value.c_str();
   lock.unlock();
   requestUpdate();
+}
+
+// /api/cmd, /api/screenshot and /api/ota token (/debug/remote-token on the SD card).
+std::string GoodiesActivity::tokenRowValue() const {
+  char token[SerialRemote::TOKEN_BUF];
+  const size_t n = SerialRemote::readToken(token);
+  std::string value = n == 0                 ? "none"
+                      : tokenShownUntil != 0 ? token
+                      : n > 8                ? std::string("set ...") + (token + n - 4)
+                                             : "set";
+  memset(token, 0, sizeof(token));
+  return value;
 }
 
 void GoodiesActivity::openRemotePicker() {
@@ -683,6 +706,10 @@ void GoodiesActivity::loop() {
   }
   // The background join finishes (or drops) while this screen is open.
   if (level == Level::Root && entries.size() > 1 && remoteRowState() != remoteRowShown) refreshRemoteRow();
+  if (tokenShownUntil != 0 && static_cast<long>(millis() - tokenShownUntil) >= 0) {
+    tokenShownUntil = 0;
+    setRowValue(TOKEN_ROW, tokenRowValue());
+  }
   if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
       mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     if (level == Level::Root) {

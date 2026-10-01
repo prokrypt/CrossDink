@@ -15,6 +15,11 @@ namespace SerialRemote {
 bool isTokenPath(const char* path, bool orFolder = false);
 
 #if CROSSDINK_SERIAL_REMOTE
+constexpr size_t TOKEN_MAX = 64;
+constexpr size_t TOKEN_BUF = TOKEN_MAX + 2;
+// Main task: the trimmed /debug/remote-token, zero-padded into out. Returns its
+// length, 0 when missing, empty or longer than TOKEN_MAX. Never log it.
+size_t readToken(char (&out)[TOKEN_BUF]);
 // Handles one received line (without the newline). False when the line is not
 // a remote-control command, so the caller can try its own commands.
 bool handleLine(const char* line);

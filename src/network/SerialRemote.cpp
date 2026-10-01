@@ -110,7 +110,6 @@ uint32_t idleSince = 0;
 // ponytail: one command at a time; a serial reply landing while state is 2
 // goes to HTTP instead. Fine for a single tester.
 constexpr const char* TOKEN_PATH = "/debug/remote-token";
-constexpr size_t TOKEN_MAX = 64;
 std::atomic<uint8_t> httpState{0};
 SemaphoreHandle_t httpDone = nullptr;
 char httpLine[260];
@@ -431,12 +430,9 @@ void takeSnapshot() {
 
 // Constant time over the whole buffer; empty or missing token file = disabled.
 bool tokenMatches(const char* given) {
-  static char stored[TOKEN_MAX + 2];
-  memset(stored, 0, sizeof(stored));
-  if (!Storage.exists(TOKEN_PATH)) return false;
-  size_t n = Storage.readFileToBuffer(TOKEN_PATH, stored, sizeof(stored));
-  while (n > 0 && isspace(static_cast<unsigned char>(stored[n - 1]))) stored[--n] = '\0';
-  if (n == 0 || n > TOKEN_MAX) return false;
+  static char stored[TOKEN_BUF];
+  const size_t n = readToken(stored);
+  if (n == 0) return false;
   uint8_t diff = strlen(given) != n;
   for (size_t i = 0; i < sizeof(stored); i++) diff |= static_cast<uint8_t>(stored[i] ^ given[i]);
   return diff == 0;
@@ -537,6 +533,16 @@ void cmdWaitIdle(const char* arg) {
 }
 
 }  // namespace
+
+size_t readToken(char (&out)[TOKEN_BUF]) {
+  memset(out, 0, TOKEN_BUF);
+  if (!Storage.exists(TOKEN_PATH)) return 0;
+  size_t n = Storage.readFileToBuffer(TOKEN_PATH, out, TOKEN_BUF);
+  while (n > 0 && isspace(static_cast<unsigned char>(out[n - 1]))) out[--n] = '\0';
+  if (n > TOKEN_MAX) n = 0;
+  if (n == 0) memset(out, 0, TOKEN_BUF);
+  return n;
+}
 
 bool handleLine(const char* line) {
   if (strncmp(line, "CMD:", 4) != 0) return false;
