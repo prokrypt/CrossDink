@@ -145,10 +145,12 @@ void load(const bool skipFile) {
     if (bootRecordValid()) record = "reset";
     setBadBoots(0);
   }
-  // One line per boot: record state, crash-boot count, what happened to the file.
+  // One line per boot: record state, earlier boots that never reached 30 s
+  // (this boot is not one of them yet), what happened to the file.
+  const uint32_t unfinished = bootRecord.badBoots;
   const auto logBoot = [&](const char* file) {
-    LOG_INF("KNOB", "boot: record %s (reset %d), bad boots %lu, knobs.json %s", record, static_cast<int>(reason),
-            static_cast<unsigned long>(bootRecord.badBoots), file);
+    LOG_INF("KNOB", "boot: record %s (reset %d), unfinished boots before this %lu, knobs.json %s", record,
+            static_cast<int>(reason), static_cast<unsigned long>(unfinished), file);
   };
   if (skipFile) {
     // Safe boot: the file stays; the next boot without Back loads it again.
