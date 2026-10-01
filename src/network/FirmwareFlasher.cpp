@@ -18,6 +18,7 @@
 #include <memory>
 
 #include "FirmwareBoardTag.h"
+#include "GlobalActions.h"
 #include "OtaBootSwitch.h"
 #include "util/BatteryLog.h"
 
@@ -814,6 +815,7 @@ Result flashValidatedFileImpl(HalFile& file, ProgressCb onProgress, void* ctx) {
 }  // namespace
 
 Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
+  flushSettingsStores();  // deferred settings land before a flash that may end in a power cut
   BatteryLog::event("fw_start", "sd");
   const Result r = flashValidatedFileImpl(file, onProgress, ctx);
   BatteryLog::event(r == Result::OK ? "fw_ok" : "fw_fail", resultName(r));
@@ -991,6 +993,7 @@ Result finishHere() {
 }  // namespace
 
 Result streamBegin(size_t totalSize) {
+  flushSettingsStores();
   return endStep(onInternalStack([](void* size) { return beginHere(*static_cast<size_t*>(size)); }, &totalSize));
 }
 

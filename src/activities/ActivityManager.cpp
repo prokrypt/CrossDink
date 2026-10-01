@@ -20,6 +20,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "GlobalActions.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
@@ -772,6 +773,7 @@ void ActivityManager::loop() {
 
       // Destroy the current activity
       exitActivity(lock);
+      settingsFlushPending = true;
       pendingAction = PendingAction::None;
 
       if (stackActivities.empty()) {
@@ -837,6 +839,7 @@ void ActivityManager::loop() {
       if (pendingAction == PendingAction::Replace) {
         // Destroy the current activity
         exitActivity(lock);
+        settingsFlushPending = true;
         // Clear the stack
         while (!stackActivities.empty()) {
           stackActivities.back()->onExit();
@@ -911,6 +914,12 @@ void ActivityManager::loop() {
   if (!currentActivity || !currentActivity->isHomeActivity() ||
       currentActivityPainted.load(std::memory_order_acquire)) {
     ReaderExitSave::flush();
+    // Settings changed on a screen or panel are written once it has closed,
+    // while the screen below refreshes.
+    if (settingsFlushPending) {
+      settingsFlushPending = false;
+      flushSettingsStores();
+    }
   }
 
   if (APP_STATE.hasPendingAlert.load(std::memory_order_acquire) && pendingAction == PendingAction::None) {

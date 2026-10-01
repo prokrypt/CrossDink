@@ -911,7 +911,20 @@ bool CrossPointSettings::saveToFile() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   JsonDocument doc;
   toJson(doc);
-  return PersistableStoreBase::writeDocToFileAtomically(SETTINGS_FILE_JSON, doc);
+  pendingJson = "";
+  serializeJson(doc, pendingJson);
+  return true;
+}
+
+bool CrossPointSettings::flush() const {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (pendingJson.isEmpty()) return true;
+  if (!PersistableStoreBase::writeStringToFileAtomically(SETTINGS_FILE_JSON, pendingJson)) {
+    LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
+    return false;
+  }
+  pendingJson = String();
+  return true;
 }
 
 bool CrossPointSettings::loadFromFile() {
@@ -934,7 +947,7 @@ bool CrossPointSettings::loadFromFile() {
         if (restoreLegacyRtcDateSyncState(*this)) resave = true;
       }
       if (result && (resave || migrateToCurrentPath)) {
-        if (saveToFile()) {
+        if (saveToFile() && flush()) {
           LOG_DBG("CPS", "%s",
                   migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
                                        : "Resaved settings to update format");
@@ -973,7 +986,7 @@ bool CrossPointSettings::loadFromFile() {
            statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,
            statusBarProgressBarThickness});
       migrateLanguageBinaryFile();
-      if (saveToFile()) {
+      if (saveToFile() && flush()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
         LOG_DBG("CPS", "Migrated settings.bin to crossink-settings.json");
         return true;
@@ -1007,6 +1020,7 @@ bool CrossPointSettings::migrateLanguageBinaryFile() {
   }
   Storage.rename(LANG_FILE_BIN, LANG_FILE_BAK);
   saveToFile();
+  flush();
   LOG_DBG("CPS", "Migrated language.bin into crossink-settings.json");
   return true;
 }

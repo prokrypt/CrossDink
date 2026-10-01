@@ -1458,6 +1458,13 @@ void mirrorWakeShortPressToNvs() {
 #endif
 }
 
+void flushSettingsStores() {
+  SETTINGS.flush();
+#if CROSSDINK_GOODIES
+  knobs::flush();
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
 #if CROSSDINK_GOODIES
@@ -1488,6 +1495,7 @@ void enterDeepSleep(bool fromTimeout) {
     deepSleepInProgress = true;
     activityManager.goToSleep(fromTimeout);
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
+    flushSettingsStores();
     // Persist after the sleep screen is up so the write does not delay it. The
     // reader's onExit() usually saves the same state already, so this write is
     // then skipped as unchanged.
@@ -1548,7 +1556,12 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
 #else
   display.begin(seamless);
   esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
-  esp_register_shutdown_handler(ReaderExitSave::flush);   // every restart writes held reader exit data first
+  // Every restart writes held reader exit data and deferred settings first.
+  // One handler: IDF has 5 slots and Wi-Fi takes one.
+  esp_register_shutdown_handler([] {
+    ReaderExitSave::flush();
+    flushSettingsStores();
+  });
   if (seamless) {
     seedRetainedPanelFrame();
   } else {

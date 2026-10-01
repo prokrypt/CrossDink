@@ -20,6 +20,7 @@
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PerfLog.h>
+#include <PersistableStore.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -1361,8 +1362,9 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   data.dictionarySdFontFamilyName[sizeof(data.dictionarySdFontFamilyName) - 1] = '\0';
   data.dictionaryFontPointSize = SETTINGS.dictionaryFontPointSize;
 
+  const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
   FsFile file;
-  if (!Storage.openFileForRead("ERS", cachePath + READER_SETTINGS_FILE_NAME, file)) {
+  if (!PersistableStoreBase::recoverBackup(path.c_str()) || !Storage.openFileForRead("ERS", path, file)) {
     return data;
   }
 
@@ -1460,8 +1462,10 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
 }
 
 bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSettingsData& data) {
+  // Written to .tmp and moved over the old file, so a power cut never leaves it truncated.
+  const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
   FsFile file;
-  if (!Storage.openFileForWrite("ERS", cachePath + READER_SETTINGS_FILE_NAME, file)) {
+  if (!Storage.openFileForWrite("ERS", path + ".tmp", file)) {
     LOG_ERR("ERS", "Could not open reader settings file for write");
     return false;
   }
@@ -1486,8 +1490,10 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
   file.close();
   if (!ok) {
     LOG_ERR("ERS", "Short write saving reader settings");
+    Storage.remove((path + ".tmp").c_str());
+    return false;
   }
-  return ok;
+  return PersistableStoreBase::replaceWithTemp(path.c_str());
 }
 
 bool saveBookRenderModeForCache(const std::string& cachePath, const uint8_t renderMode) {
