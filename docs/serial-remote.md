@@ -24,6 +24,7 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:STATUS` | `OK:STATUS {json}` | Activity, uptime, render idle, framebuffer size, heap, chip temperature. The full status is `/api/status` over Wi-Fi. |
 | `CMD:ACTIVITY` | `OK:ACTIVITY <name>` | |
 | `CMD:HEAP` | `OK:HEAP internal_free=.. internal_min=.. internal_largest=.. psram_free=.. psram_largest=..` | |
+| `CMD:GAUGEINT` | `OK:GAUGEINT armed=1 tmx=1 restored=1 edges(base/trig): <pin>:<n>/<n> ...` | X4 Pro: finds the CW2017 INT_N pin. Forces a temperature alert for 3.5 s (TEMP_MAX below the current temperature) and counts falling edges per GPIO against a 1.5 s baseline; the INT pin has edges only in the trigger column, about one per second. Restores the gauge registers and pads; blocks the loop ~5 s. |
 | `CMD:SET <key> <value>` | `OK:SET <key> <value>` | Toggle, enum (raw value) or numeric setting by its web API key; saved to SD. |
 | `CMD:KBDEXP <flags> [frames] [pll]` / `CMD:KBDEXP off` | `OK:KBDEXP ...` | Sets or clears a keyboard refresh override in RAM (no SD write); applied at the next keyboard open, kept until `off` or reboot. `pll` (0x30 value) applies with or without flag 4. |
 | `CMD:REFRESH [fast\|half\|full]` | `OK:REFRESH` | Re-sends the current framebuffer. |
