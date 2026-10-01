@@ -31,7 +31,7 @@ void ConfirmationActivity::onEnter() {
     res.isCancelled = (idx != 1);
     setResult(std::move(res));
     finish();
-  });
+  }, OptionPopup::Note(noteLabel, noteLabel ? noteBody.c_str() : nullptr));
   confirmPopup.setPrimaryOptionIndex(1);
 
   requestUpdate(true);
@@ -54,6 +54,19 @@ void ConfirmationActivity::loop() {
     if (confirmReleased || !mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
       ignoreConfirmRelease = false;
       return;
+    }
+  }
+
+  if (notePoll) {
+    std::string body = noteBody;
+    if (notePoll(notePollCtx, body)) {
+      {
+        // render() reads the note on the render task.
+        RenderLock lock(*this);
+        noteBody = std::move(body);
+        confirmPopup.setNote(OptionPopup::Note(noteLabel, noteBody.c_str()));
+      }
+      requestUpdate();
     }
   }
 
