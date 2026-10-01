@@ -184,7 +184,7 @@ function tAt(svg, cx) {
   const box = svg.getBoundingClientRect();
   const W = svg.viewBox.baseVal.width;
   const [a, b] = win();
-  return a + (((cx - box.left) / box.width) * W - L) * ((b - a) / (W - L));
+  return a + (((cx - box.left) / box.width) * W - L) * ((b - a) / (W - L - svg.dataset.r));
 }
 function hover(t) {
   hoverT = t;
@@ -192,16 +192,19 @@ function hover(t) {
   $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
   const [a, b] = win();
   for (const svg of document.querySelectorAll('.ch svg')) {
-    const W = svg.viewBox.baseVal.width;
+    const W = svg.viewBox.baseVal.width - svg.dataset.r;
     const xh = svg.querySelector('.xh');
     if (xh) xh.setAttribute('transform', `translate(${(L + ((r.t - a) * (W - L)) / Math.max(1, b - a)).toFixed(1)})`);
   }
 }
 
-function chart(id, h, key, lo, hi, fmt, bands) {
+// key2/fmt2: an optional second series on its own right-hand scale.
+function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
   const svg = $(id);
-  const W = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
-  svg.setAttribute('viewBox', `0 0 ${W} ${h}`);
+  const VW = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
+  svg.setAttribute('viewBox', `0 0 ${VW} ${h}`);
+  svg.dataset.r = key2 ? 40 : 0; // right gutter for the second scale
+  const W = VW - svg.dataset.r; // plot's right edge
   const ticks = W < 600 ? 1 : 4;
   const [t0, t1] = win();
   const pts = bat
@@ -217,6 +220,15 @@ function chart(id, h, key, lo, hi, fmt, bands) {
   const x = (t) => L + ((Math.min(Math.max(t, t0), t1) - t0) * (W - L)) / Math.max(1, t1 - t0);
   const y = (v) => h - 16 - ((v - lo) * (h - 22)) / (hi - lo);
   let s = '';
+  let s2 = ''; // second series, drawn over the bands
+  if (key2) {
+    const p2 = pts.filter((r) => r[key2] != null);
+    const lo2 = Math.min(...p2.map((r) => r[key2]));
+    const hi2 = Math.max(lo2 + 1, ...p2.map((r) => r[key2]));
+    const y2 = (v) => h - 16 - ((v - lo2) * (h - 22)) / (hi2 - lo2);
+    for (let q = 0; q <= 4; q++) s += `<text class="t2" x="${VW}" y="${y2(lo2 + ((hi2 - lo2) * q) / 4) + 4}" text-anchor="end">${fmt2(lo2 + ((hi2 - lo2) * q) / 4)}</text>`;
+    s2 = `<polyline class="line2" points="${p2.map((r) => x(r.t).toFixed(1) + ',' + y2(r[key2]).toFixed(1)).join(' ')}"/>`;
+  }
   if (bands) {
     for (const g of segs) {
       if (g.b.t < t0 || g.a.t > t1) continue;
@@ -242,7 +254,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
   }
   const P = pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ');
   if (key === 'pct') s += `<polygon class="area" points="${x(pts[0].t).toFixed(1)},${y(lo)} ${P} ${x(pts[pts.length - 1].t).toFixed(1)},${y(lo)}"/>`;
-  s += `<polyline class="line" points="${P}"/><line class="xh" x1="0" x2="0" y1="6" y2="${h - 16}" transform="translate(-9)"/>`;
+  s += s2 + `<polyline class="line" points="${P}"/><line class="xh" x1="0" x2="0" y1="6" y2="${h - 16}" transform="translate(-9)"/>`;
   svg.innerHTML = s;
   svg.onwheel = (e) => {
     e.preventDefault();
@@ -261,7 +273,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
     const [a, b] = win();
     const other = [...ptrs].find(([id]) => id !== e.pointerId);
     if (!other) {
-      const dt = ((ptrs.get(e.pointerId) - e.clientX) * (b - a)) / (svg.getBoundingClientRect().width * (1 - L / W));
+      const dt = ((ptrs.get(e.pointerId) - e.clientX) * (b - a)) / ((svg.getBoundingClientRect().width * (W - L)) / VW);
       setView(a + dt, b + dt);
     } else {
       const d0 = Math.abs(ptrs.get(e.pointerId) - other[1]);
@@ -277,8 +289,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
 
 function draw() {
   $('rz').hidden = !view;
-  chart('gp', 220, 'pct', 0, 100, (v) => Math.round(v) + '%', true);
-  chart('gv', 120, 'mv', 0, 0, (v) => Math.round(v) + '', false);
+  chart('gp', 220, 'pct', 0, 100, (v) => Math.round(v) + '%', true, 'mv', (v) => Math.round(v) + '');
   chart('gt', 120, 'temp', 0, 0, (v) => v.toFixed(1) + ' C', false);
   if (hoverT !== null) hover(hoverT);
 }
