@@ -473,9 +473,9 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   // book count; same lifetime as `items`.
   using CountLabel = std::array<char, 16>;
   std::vector<CountLabel> countLabels(entryCount);
-  // The biggest check that fits the theme's row padding (8 px Lyra, 20 px others).
-  // 10 px bold check, ending where the title starts (picked from mockups).
-  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_10);
+  // 20 px bold check in the row inset left of the title (Lyra: 20 inset + 8
+  // padding); the list clamps it to that room, so titles never move.
+  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_20);
   for (size_t i = 0; i < entryCount; ++i) {
     const auto& entry = entries[i];
     fui::ListItem item;
