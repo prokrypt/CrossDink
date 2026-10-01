@@ -2079,6 +2079,7 @@ KNOB_ALIAS(FLASH_DUCK_TICK_MS, flashTickMs);
 static bool flashDuckActive = false;
 static uint8_t flashDuckLevel = 100;
 static unsigned long flashDuckUpStartMs = 0;
+static unsigned long flashDuckDownStartMs = 0;
 
 static uint32_t liveFlashStartMs() {
   const uint32_t startMs = display.flashStartedMs();
@@ -2126,6 +2127,7 @@ static void updateFlashDuck() {
     flashDuckActive = true;
     flashDuckLevel = 100;
     flashDuckUpStartMs = 0;
+    flashDuckDownStartMs = now;
     LOG_DBG("LIGHT", "Flash duck: down, dark in %ld ms", static_cast<long>(toDark));
   }
   // Each ramp moves only one way from where the light is, between 100% and
@@ -2133,8 +2135,15 @@ static void updateFlashDuck() {
   const unsigned long floor = std::min<unsigned long>(SETTINGS.flashDuckDepth, 90);
   unsigned long level;
   if (ducking) {
-    const unsigned long left = toDark <= 0 ? 0 : std::min<unsigned long>(toDark, FLASH_DUCK_DOWN_MS);
-    level = std::min<unsigned long>(flashDuckLevel, floor + (100 - floor) * left / FLASH_DUCK_DOWN_MS);
+    if (flashDuckUpStartMs != 0) flashDuckDownStartMs = now;  // a back-to-back flash fades down again
+    // The fade takes at least DOWN_MS from its start: a dark time at or before
+    // the driver announces the swing (DRF: the default dims, a Full's frame 0)
+    // would otherwise cut the light in one step.
+    const int32_t fadeLeft = std::max<int32_t>(
+        toDark, static_cast<int32_t>(FLASH_DUCK_DOWN_MS) - static_cast<int32_t>(now - flashDuckDownStartMs));
+    const unsigned long left = fadeLeft <= 0 ? 0 : std::min<unsigned long>(fadeLeft, FLASH_DUCK_DOWN_MS);
+    level = std::min<unsigned long>(flashDuckLevel,
+                                    left == 0 ? floor : floor + (100 - floor) * left / FLASH_DUCK_DOWN_MS);
     flashDuckUpStartMs = 0;  // a back-to-back flash keeps it down
   } else {
     if (flashDuckUpStartMs == 0) {
