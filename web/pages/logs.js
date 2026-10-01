@@ -131,7 +131,11 @@ let segs = [];
 let status = {};
 
 const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1) + 'h');
-const rate = (drop, s) => (s >= 60 ? ((drop * 3600) / s).toFixed(2) + '%/h' : '-');
+// The gauge reports whole percents, so a drop of N% means N±1: rates and
+// estimates carry that ±, and wait for a 2% drop ('-' until then).
+const rate = (drop, s) => (drop >= 2 && s >= 60 ? ((drop * 3600) / s).toFixed(2) + '±' + (3600 / s).toFixed(2) + '%/h' : '-');
+const left = (pct, drop, s) => (drop >= 2 && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s) / drop / drop) : '-');
+const NOT_ENOUGH = 'not enough data (needs a 2% drop)';
 const when = (t) => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const table = (id, head, rows) => {
   $(id).innerHTML =
@@ -316,7 +320,7 @@ function stateTable() {
   table(
     'states',
     ['State', 'Time', 'Drop', 'Rate', `Runtime from ${pct}%`],
-    Object.entries(by).map(([k, o]) => [k, hrs(o.s), o.drop + '%', rate(o.drop, o.s), o.drop ? hrs((pct * o.s) / o.drop) : '-'])
+    Object.entries(by).map(([k, o]) => [k, hrs(o.s), o.drop + '%', rate(o.drop, o.s), left(pct, o.drop, o.s)])
   );
 }
 
@@ -419,9 +423,9 @@ function summary() {
     const span = s.bA + s.bS;
     rows.push(
       ['Last charged', s.charged && now > s.charged.t ? `${hrs(now - s.charged.t)} ago at ${s.charged.pct}%` : 'not in the log'],
-      ['Awake drain', rate(s.dA, s.bA) + ' over ' + hrs(s.bA)],
-      ['Asleep drain', rate(s.dS, s.bS) + ' over ' + hrs(s.bS)],
-      ['Est. left at that pace', drop > 0 && span >= 60 ? hrs((pct * span) / drop) : '-'],
+      ['Awake drain', s.dA >= 2 && s.bA >= 60 ? rate(s.dA, s.bA) + ' over ' + hrs(s.bA) : NOT_ENOUGH],
+      ['Asleep drain', s.dS >= 2 && s.bS >= 60 ? rate(s.dS, s.bS) + ' over ' + hrs(s.bS) : NOT_ENOUGH],
+      ['Est. left at that pace', drop >= 2 && span >= 60 ? left(pct, drop, span) : NOT_ENOUGH],
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],

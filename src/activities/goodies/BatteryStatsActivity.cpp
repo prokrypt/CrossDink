@@ -42,16 +42,20 @@ const char* field(const char* row, int n) {
   return row;
 }
 
-// "4.1 %/h over 5h 10 min", or "-" with no drain seen yet.
+// The gauge reports whole percents, so a drop of N% means N±1: rates and
+// estimates carry that ±, and wait for a 2% drop (1% could be 0 to 2).
+constexpr uint32_t MIN_DROP_PCT = 2;
+constexpr char NOT_ENOUGH[] = "not enough data (needs a 2% drop)";
+
+// "4.1±0.2%/h over 5h 10 min".
 void formatRate(char* out, const size_t size, const uint32_t dropPct, const uint32_t seconds) {
-  char span[24];
-  BookReadingStats::formatDuration(seconds, span, sizeof(span));
-  if (seconds < 60) {
-    snprintf(out, size, "-");
+  if (dropPct < MIN_DROP_PCT || seconds < 60) {
+    snprintf(out, size, "%s", NOT_ENOUGH);
     return;
   }
-  const float rate = dropPct * 3600.0f / seconds;
-  snprintf(out, size, "%.1f%%/h over %s", rate, span);
+  char span[24];
+  BookReadingStats::formatDuration(seconds, span, sizeof(span));
+  snprintf(out, size, "%.1f\xC2\xB1%.1f%%/h over %s", dropPct * 3600.0f / seconds, 3600.0f / seconds, span);
 }
 }  // namespace
 
@@ -208,9 +212,15 @@ void BatteryStatsActivity::buildLines() {
   add("Asleep drain: %s", a);
   const uint32_t drop = st.dropAwakePct + st.dropAsleepPct;
   const uint32_t span = st.battAwakeS + st.battAsleepS;
-  if (drop > 0 && span >= 60) {
-    BookReadingStats::formatDuration(static_cast<uint32_t>(static_cast<uint64_t>(pct) * span / drop), a, sizeof(a));
-    add("Est. left at that pace: %s", a);
+  if (drop >= MIN_DROP_PCT && span >= 60) {
+    // ±1% on the drop moves the estimate by about left/drop.
+    const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pct) * span / drop);
+    char err[24];
+    BookReadingStats::formatDuration(left, a, sizeof(a));
+    BookReadingStats::formatDuration(left / drop, err, sizeof(err));
+    add("Est. left at that pace: %s \xC2\xB1%s", a, err);
+  } else {
+    add("Est. left: %s", NOT_ENOUGH);
   }
 
   BookReadingStats::formatDuration(st.last - st.first, a, sizeof(a));
