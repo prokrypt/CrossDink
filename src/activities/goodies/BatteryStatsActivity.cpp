@@ -58,88 +58,123 @@ void formatRate(char* out, const size_t size, const uint32_t dropPct, const uint
 void BatteryStatsActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::flush();  // so the graph includes this session
-  loadLog();
-  buildLines();
+  startLoad();
+  step(LOAD_FIRST_MS);  // a short log is done before the first draw
   requestUpdate();
 }
 
-void BatteryStatsActivity::loadLog() {
+void BatteryStatsActivity::onExit() {
+  file.close();
+  buf.reset();
+  Activity::onExit();
+}
+
+// The log is read a few KB at a time from loop() so the page draws and takes
+// input right away; up to 2 x 256 KB of CSV is too much to read in one go.
+void BatteryStatsActivity::startLoad() {
+  file.close();
   pointCount = 0;
   st = {};
   prev = {};
-  readLog(BatteryLog::OLD_PATH);
-  readLog(BatteryLog::LOG_PATH);
+  fill = 0;
+  fileIndex = 0;
+  // Heap, not stack: 4 KB reads are multi-sector, far faster than 512 B ones.
+  if (!buf) buf = makeUniqueNoThrow<char[]>(LOAD_BUF_BYTES);
+  if (!buf) {
+    LOG_ERR("BAT", "Cannot allocate log buffer");
+    loading = false;
+    buildLines();
+    return;
+  }
+  file = Storage.open(BatteryLog::OLD_PATH, O_RDONLY);  // only exists after the first rotation
+  loading = true;
+  loadStartMs = millis();
+  loadBytes = 0;
 }
 
-// ponytail: reads up to 2 x 256 KB of CSV on every open; keep a running summary
-// in a file if this gets slow on SPI SD.
-void BatteryStatsActivity::readLog(const char* path) {
-  HalFile file = Storage.open(path, O_RDONLY);
-  if (!file) return;  // battery.1.csv only exists after the first rotation
-  char buf[512];
-  size_t fill = 0;
-  for (;;) {
-    const int n = file.read(buf + fill, sizeof(buf) - 1 - fill);
-    if (n <= 0) break;
+void BatteryStatsActivity::step(const uint32_t budgetMs) {
+  const uint32_t start = millis();
+  RenderLock lock(*this);  // render() reads points and lines
+  while (loading && millis() - start < budgetMs) {
+    const int n = file ? file.read(buf.get() + fill, LOAD_BUF_BYTES - 1 - fill) : 0;
+    if (n <= 0) {
+      file.close();
+      fill = 0;  // a last row without a newline is still being written
+      if (++fileIndex == 1) {
+        file = Storage.open(BatteryLog::LOG_PATH, O_RDONLY);
+        continue;
+      }
+      loading = false;
+      buf.reset();
+      LOG_INF("BAT", "Stats page read %lu B of log in %lu ms", static_cast<unsigned long>(loadBytes),
+              static_cast<unsigned long>(millis() - loadStartMs));
+      buildLines();
+      lock.unlock();
+      requestUpdate();
+      return;
+    }
     fill += static_cast<size_t>(n);
+    loadBytes += static_cast<uint32_t>(n);
     buf[fill] = '\0';
-    char* line = buf;
+    char* line = buf.get();
     for (char* nl; (nl = strchr(line, '\n')) != nullptr; line = nl + 1) {
       *nl = '\0';
-      const uint32_t epoch = strtoul(line, nullptr, 10);
-      const char* pctField = field(line, 3);
-      const char* usbField = field(line, 6);
-      const char* event = field(line, 9);
-      if (epoch == 0 || !pctField || !usbField || !event) continue;  // header, or no RTC time
-      const char* detail = field(line, 10);
-      auto is = [event](const char* name) {
-        const size_t len = strlen(name);
-        return strncmp(event, name, len) == 0 && (event[len] == ',' || event[len] == '\0');
-      };
-      const uint8_t pct = static_cast<uint8_t>(std::min(100L, strtol(pctField, nullptr, 10)));
-      const bool usb = *usbField == '1';
-      const bool asleep = is("sleep") || (detail && strncmp(detail, "asleep", 6) == 0);
-      const bool boot = is("boot");
-      const bool cold = boot && detail && strstr(detail, "reset=POWERON");
-
-      if (is("stats_reset")) {
-        st = {};
-        st.reset = true;
-      } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
-        // The span from the previous row is awake or asleep; before a cold boot it was off.
-        const uint32_t dt = epoch - prev.epoch;
-        const uint32_t drop = prev.pct > pct ? prev.pct - pct : 0;
-        (prev.awake ? st.awakeS : st.asleepS) += dt;
-        if (!prevUsb && !usb) {
-          (prev.awake ? st.battAwakeS : st.battAsleepS) += dt;
-          (prev.awake ? st.dropAwakePct : st.dropAsleepPct) += drop;
-        }
-      }
-      if (st.first == 0) st.first = epoch;
-      st.last = epoch;
-      if (boot) ++(cold ? st.coldBoots : st.restarts);
-      if (is("wake")) ++st.wakes;
-      if (const char* f = detail ? strstr(detail, "false_wakes=") : nullptr)
-        st.falseWakes += strtoul(f + 12, nullptr, 10);
-      if (is("charged")) {
-        st.chargedEpoch = epoch;
-        st.chargedPct = pct;
-      }
-      if (is("charged") || is("chg_off")) st.battAwakeS = st.battAsleepS = st.dropAwakePct = st.dropAsleepPct = 0;
-
-      if (pointCount == MAX_POINTS) {
-        std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
-        pointCount = MAX_POINTS / 2;
-      }
-      prev = {epoch, pct, !asleep};
-      prevUsb = usb;
-      points[pointCount++] = prev;
+      parseRow(line);
     }
     fill = strlen(line);
-    memmove(buf, line, fill);
-    if (fill == sizeof(buf) - 1) fill = 0;  // no row is this long; drop it
+    memmove(buf.get(), line, fill);
+    if (fill == LOAD_BUF_BYTES - 1) fill = 0;  // no row is this long; drop it
   }
-  file.close();
+}
+
+void BatteryStatsActivity::parseRow(const char* line) {
+  const uint32_t epoch = strtoul(line, nullptr, 10);
+  const char* pctField = field(line, 3);
+  const char* usbField = field(line, 6);
+  const char* event = field(line, 9);
+  if (epoch == 0 || !pctField || !usbField || !event) return;  // header, or no RTC time
+  const char* detail = field(line, 10);
+  auto is = [event](const char* name) {
+    const size_t len = strlen(name);
+    return strncmp(event, name, len) == 0 && (event[len] == ',' || event[len] == '\0');
+  };
+  const uint8_t pct = static_cast<uint8_t>(std::min(100L, strtol(pctField, nullptr, 10)));
+  const bool usb = *usbField == '1';
+  const bool asleep = is("sleep") || (detail && strncmp(detail, "asleep", 6) == 0);
+  const bool boot = is("boot");
+  const bool cold = boot && detail && strstr(detail, "reset=POWERON");
+
+  if (is("stats_reset")) {
+    st = {};
+    st.reset = true;
+  } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
+    // The span from the previous row is awake or asleep; before a cold boot it was off.
+    const uint32_t dt = epoch - prev.epoch;
+    const uint32_t drop = prev.pct > pct ? prev.pct - pct : 0;
+    (prev.awake ? st.awakeS : st.asleepS) += dt;
+    if (!prevUsb && !usb) {
+      (prev.awake ? st.battAwakeS : st.battAsleepS) += dt;
+      (prev.awake ? st.dropAwakePct : st.dropAsleepPct) += drop;
+    }
+  }
+  if (st.first == 0) st.first = epoch;
+  st.last = epoch;
+  if (boot) ++(cold ? st.coldBoots : st.restarts);
+  if (is("wake")) ++st.wakes;
+  if (const char* f = detail ? strstr(detail, "false_wakes=") : nullptr) st.falseWakes += strtoul(f + 12, nullptr, 10);
+  if (is("charged")) {
+    st.chargedEpoch = epoch;
+    st.chargedPct = pct;
+  }
+  if (is("charged") || is("chg_off")) st.battAwakeS = st.battAsleepS = st.dropAwakePct = st.dropAsleepPct = 0;
+
+  if (pointCount == MAX_POINTS) {
+    std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
+    pointCount = MAX_POINTS / 2;
+  }
+  prev = {epoch, pct, !asleep};
+  prevUsb = usb;
+  points[pointCount++] = prev;
 }
 
 void BatteryStatsActivity::buildLines() {
@@ -231,11 +266,11 @@ void BatteryStatsActivity::confirmReset() {
     BatteryLog::event("stats_reset");
     BatteryLog::reset();
     BatteryLog::flush();
-    RenderLock lock(*this);  // render() reads points and lines
-    loadLog();
-    buildLines();
-    scroll = 0;
-    lock.unlock();
+    {
+      RenderLock lock(*this);  // render() reads points and lines
+      startLoad();
+      scroll = 0;
+    }
     requestUpdate();
   });
 }
@@ -257,6 +292,7 @@ void BatteryStatsActivity::loop() {
       return;
     }
   }
+  if (loading) step(LOAD_STEP_MS);
   const auto swipe = mappedInput.wasSwipe();
   const bool down =
       mappedInput.wasReleased(MappedInputManager::Button::Down) || swipe == MappedInputManager::SwipeDir::Up;
@@ -312,7 +348,8 @@ void BatteryStatsActivity::render(RenderLock&&) {
     snprintf(spanText, sizeof(spanText), "%s  (bar = awake)", ago);
     renderer.drawText(UI_10_FONT_ID, x, y + gh + 8, spanText);
   } else {
-    renderer.drawText(UI_10_FONT_ID, x + 8, y + gh / 2 - lineHeight / 2, "No battery log yet");
+    renderer.drawText(UI_10_FONT_ID, x + 8, y + gh / 2 - lineHeight / 2,
+                      loading ? "Reading battery log..." : "No battery log yet");
   }
   y += gh + 8 + lineHeight + metrics.verticalSpacing;
 

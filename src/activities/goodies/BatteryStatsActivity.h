@@ -1,6 +1,9 @@
 #pragma once
 
+#include <HalStorage.h>
+
 #include <cstdint>
+#include <memory>
 
 #include "activities/Activity.h"
 #include "components/themes/BaseTheme.h"
@@ -15,6 +18,7 @@ class BatteryStatsActivity final : public Activity {
       : Activity("BatteryStats", renderer, mappedInput) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool powerOffPanelWhenIdle() const override { return true; }
@@ -39,8 +43,13 @@ class BatteryStatsActivity final : public Activity {
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 16;
 
-  void loadLog();
-  void readLog(const char* path);
+  static constexpr size_t LOAD_BUF_BYTES = 4096;
+  static constexpr uint32_t LOAD_FIRST_MS = 150;  // onEnter, before the first draw
+  static constexpr uint32_t LOAD_STEP_MS = 20;    // per loop(), so input stays responsive
+
+  void startLoad();
+  void step(uint32_t budgetMs);
+  void parseRow(const char* line);
   void buildLines();
   Rect resetRect() const;  // touch builds: "Reset" at the header's right end
   void confirmReset();
@@ -49,6 +58,13 @@ class BatteryStatsActivity final : public Activity {
   LogStats st{};
   Point prev{};  // last row read, carried across the two files
   bool prevUsb = false;
+  HalFile file;
+  std::unique_ptr<char[]> buf;
+  size_t fill = 0;
+  int fileIndex = 0;  // 0 = battery.1.csv, 1 = battery.csv
+  bool loading = false;
+  uint32_t loadStartMs = 0;  // for the "read N B in M ms" log line
+  uint32_t loadBytes = 0;
   int pointCount = 0;
   char lines[MAX_LINES][80];
   int lineCount = 0;
