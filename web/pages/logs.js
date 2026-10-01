@@ -145,16 +145,23 @@ const table = (id, head, rows) => {
 function segments() {
   segs = [];
   let wifi = false;
+  let xfer = false; // xfer_start .. xfer_end
+  let fw = false; // fw_start .. fw_ok / fw_fail
   for (let i = 0; i + 1 < bat.length; i++) {
     const a = bat[i];
     const b = bat[i + 1];
+    const reset = ['boot', 'wake', 'sleep'].includes(a.ev);
     if (a.ev === 'wifi_on') wifi = true;
-    if (['wifi_off', 'boot', 'wake', 'sleep'].includes(a.ev)) wifi = false;
+    if (a.ev === 'wifi_off' || reset) wifi = false;
+    if (a.ev === 'xfer_start') xfer = true;
+    if (a.ev === 'xfer_end' || reset) xfer = false;
+    if (a.ev === 'fw_start') fw = true;
+    if (a.ev === 'fw_ok' || a.ev === 'fw_fail' || reset) fw = false;
     const dt = b.t - a.t;
     if (dt < 0) continue; // clock set backwards
     // Charger rows logged while asleep carry detail "asleep" and keep the sleep going.
     const state = a.ev === 'sleep' || a.det === 'asleep' ? 'asleep' : b.ev === 'boot' && cold(b.det) ? 'off' : a.usb ? 'usb' : 'awake';
-    segs.push({ a, b, dt, state, wifi: wifi && state !== 'asleep', light: a.light > 0, batt: !a.usb && !b.usb });
+    segs.push({ a, b, dt, state, xfer, fw, wifi: wifi && state !== 'asleep', light: a.light > 0, batt: !a.usb && !b.usb });
   }
 }
 
@@ -238,11 +245,12 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
       // Shade awake time like the Goodies graph's bar; charging (awake or asleep) and off win.
       const cls = g.state === 'off' ? 'off' : g.a.chg ? 'charging' : g.state === 'asleep' ? '' : 'awake';
       if (cls) s += `<rect class="${cls}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${cls}${g.state === 'asleep' ? ', asleep' : ''} ${hrs(g.dt)}</title></rect>`;
+      for (const k of ['xfer', 'fw']) if (g[k]) s += `<rect class="${k}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${k === 'fw' ? 'firmware update' : 'transfer'} ${hrs(g.dt)}</title></rect>`;
       if (g.wifi) s += `<rect class="wifi" x="${x(g.a.t).toFixed(1)}" y="${h - 20}" width="${w}" height="4"/>`;
     }
     for (const r of bat) {
       if (r.t < t0 || r.t > t1) continue;
-      const m = r.ev === 'boot' ? (cold(r.det) ? 'boot' : 'rst') : r.ev.startsWith('fw_') ? 'fw' : r.ev.startsWith('xfer') ? 'xfer' : '';
+      const m = r.ev === 'boot' ? (cold(r.det) ? 'boot' : 'rst') : '';
       if (m) s += `<line class="m-${m}" x1="${x(r.t)}" x2="${x(r.t)}" y1="6" y2="${h - 16}"><title>${r.local} ${r.ev} ${r.det}</title></line>`;
     }
   }
