@@ -1717,6 +1717,7 @@ void setup() {
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     PerfLog::noteDeepSleep("wake-not-held", "boot");
+    BatteryLog::noteFalseWake();
     powerManager.startDeepSleep(gpio);
   }
 #endif
@@ -1743,6 +1744,14 @@ void setup() {
 
   halTiltSensor.begin();
   halClock.begin();
+#ifndef SIMULATOR
+  // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+    BatteryLog::onChargeWake();
+    PerfLog::noteDeepSleep("charge-wake", "boot");
+    powerManager.startDeepSleep(gpio);
+  }
+#endif
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");

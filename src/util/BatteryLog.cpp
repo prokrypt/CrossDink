@@ -14,10 +14,12 @@
 #include <WiFi.h>
 #include <esp_attr.h>
 #include <esp_psram.h>
+#include <esp_rom_crc.h>
 #include <esp_sleep.h>
 #include <sdkconfig.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -35,7 +37,8 @@ namespace {
 constexpr uint32_t kRingBytes = 64 * 1024;
 constexpr uint32_t kRingMagicA = 0x4241544C;  // "BATL"
 constexpr uint32_t kRingMagicB = 0xC0DE0930;
-constexpr uint32_t kStatsMagic = 0x42415453;  // "BATS"
+constexpr uint32_t kStatsMagic = 0x42415454;  // "BATT", CrossDink-only
+constexpr uint16_t kStatsVersion = 1;         // bump on any Stats layout change
 constexpr uint32_t kMaxFileBytes = 256 * 1024;
 constexpr char kOldPath[] = "/debug/logs/battery.1.csv";
 constexpr char kHeader[] = "epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c,light_pct,event,detail\n";
@@ -44,6 +47,8 @@ constexpr uint32_t kClockMs = 60 * 1000;
 constexpr uint32_t kFlushIdleMs = 2000;
 constexpr uint32_t kLightSettleMs = 2000;
 constexpr uint16_t kLowPct = 5;
+constexpr uint32_t kMaxSleepEvents = sizeof(Stats::sleepEvents) / sizeof(Stats::SleepEvent);
+constexpr uint16_t kFullPct = 99;  // charging stopped at or above this: charge done, cable likely still in
 
 using Ring = PsramRing<kRingBytes>;  // aux: bytes already on SD
 EXT_RAM_NOINIT_ATTR Ring ring;
@@ -76,8 +81,24 @@ uint8_t loggedLight = 0;
 uint8_t pendingLight = 0;
 uint32_t pendingLightMs = 0;
 
+uint32_t statsCrc() { return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&rtcStats), offsetof(Stats, crc)); }
+
+// After every change to rtcStats.
+void seal() { rtcStats.crc = statsCrc(); }
+
+// Checked once per boot. RTC bytes are never trusted after a power-on (they are
+// noise), or when another firmware (CrossPoint, crossink, an older build) left
+// something else there: magic and CRC must both match, else start from zero.
+bool statsChecked = false;
 Stats& st() {
-  if (rtcStats.magic != kStatsMagic) rtcStats = Stats{kStatsMagic};
+  if (!statsChecked) {
+    statsChecked = true;
+    if (rtcStats.magic != kStatsMagic || rtcStats.version != kStatsVersion || rtcStats.size != sizeof(Stats) ||
+        rtcStats.crc != statsCrc() || esp_reset_reason() == ESP_RST_POWERON) {
+      rtcStats = Stats{kStatsMagic, kStatsVersion, sizeof(Stats)};
+      seal();
+    }
+  }
   return rtcStats;
 }
 
@@ -161,11 +182,7 @@ void readSlow() {
   setReading(r);
 }
 
-void writeRow(const char* name, const char* detail) {
-  portENTER_CRITICAL_SAFE(&ringMux);
-  const Reading r = reading;
-  portEXIT_CRITICAL_SAFE(&ringMux);
-  const uint32_t epoch = epochNow();
+void writeRowAt(const uint32_t epoch, const Reading& r, const char* name, const char* detail) {
   char local[20] = "";
   if (epoch != 0) {
     const time_t t = static_cast<time_t>(epoch) + localOffsetS;
@@ -180,8 +197,8 @@ void writeRow(const char* name, const char* detail) {
   }
   char row[160];
   int n = snprintf(row, sizeof(row), "%lu,%s,%lu,%u,%u,%u,%u,%s,%u,%s,%s\n", static_cast<unsigned long>(epoch), local,
-                   static_cast<unsigned long>(millis()), r.pct, r.mv, r.chg ? 1u : 0u, r.usb ? 1u : 0u, temp,
-                   r.light, name, detail ? detail : "");
+                   static_cast<unsigned long>(millis()), r.pct, r.mv, r.chg ? 1u : 0u, r.usb ? 1u : 0u, temp, r.light,
+                   name, detail ? detail : "");
   if (n <= 0) return;
   if (n >= static_cast<int>(sizeof(row))) {
     n = sizeof(row) - 1;
@@ -189,6 +206,35 @@ void writeRow(const char* name, const char* detail) {
   }
   append(row, static_cast<uint32_t>(n));
   LOG_INF("BAT", "%.*s", n - 1, row);
+}
+
+void writeRow(const char* name, const char* detail) {
+  portENTER_CRITICAL_SAFE(&ringMux);
+  const Reading r = reading;
+  portEXIT_CRITICAL_SAFE(&ringMux);
+  writeRowAt(epochNow(), r, name, detail);
+}
+
+// Adds the sleep since sleepEpoch to the counters and restarts it at epoch.
+void settleSleep(Stats& s, const uint32_t epoch, const uint16_t pct, const bool usbNow) {
+  if (s.sleepEpoch != 0 && epoch > s.sleepEpoch) {
+    const uint32_t slept = epoch - s.sleepEpoch;
+    s.asleepS += slept;
+    if (!s.sleepUsb && !usbNow) {
+      s.battAsleepS += slept;
+      if (pct < s.sleepPct) s.dropAsleepPct += s.sleepPct - pct;
+    }
+  }
+  s.sleepEpoch = epoch;
+  s.sleepPct = pct;
+  s.sleepUsb = usbNow;
+}
+
+// Charging stopped: the "since last charged" counters start over.
+void markCharged(Stats& s, const uint32_t epoch, const uint16_t pct) {
+  s.chargedEpoch = epoch;
+  s.chargedPct = pct;
+  s.battAwakeS = s.battAsleepS = s.dropAwakePct = s.dropAsleepPct = 0;
 }
 
 // Adds the time since the last tick to the awake counters.
@@ -216,21 +262,35 @@ void onBoot() {
   if (wake) {
     s.wakes++;
     const uint32_t epoch = epochNow();
-    if (s.sleepEpoch != 0 && epoch > s.sleepEpoch) {
-      const uint32_t slept = epoch - s.sleepEpoch;
-      s.asleepS += slept;
-      if (!s.sleepUsb && !reading.usb) {
-        s.battAsleepS += slept;
-        if (reading.pct < s.sleepPct) s.dropAsleepPct += s.sleepPct - reading.pct;
-      }
-    }
+    if (epoch != 0) settleSleep(s, epoch, reading.pct, reading.usb);
   } else {
     s.boots++;
   }
   s.sleepEpoch = 0;
-  char detail[64];
-  snprintf(detail, sizeof(detail), "reset=%s wake=%s", resetReasonName(esp_reset_reason()), wakeupCauseName(cause));
+  // Charge starts/stops that woke the device briefly while it slept.
+  for (uint32_t i = 0; i < std::min(s.sleepEventCount, kMaxSleepEvents); ++i) {
+    const Stats::SleepEvent& e = s.sleepEvents[i];
+    Reading r = reading;
+    r.pct = e.pct;
+    r.mv = e.mv;
+    r.chg = r.usb = e.chg;
+    r.tempKnown = false;
+    r.light = 0;
+    writeRowAt(e.epoch, r, e.chg ? "chg_on" : e.pct >= kFullPct ? "charged" : "chg_off", "asleep");
+  }
+  s.sleepEventCount = 0;
+  char detail[96];
+  int n =
+      snprintf(detail, sizeof(detail), "reset=%s wake=%s", resetReasonName(esp_reset_reason()), wakeupCauseName(cause));
+  if (s.pendingFalseWakes != 0 && n > 0 && n < static_cast<int>(sizeof(detail))) {
+    snprintf(detail + n, sizeof(detail) - n, " false_wakes=%lu awake_ms=%lu",
+             static_cast<unsigned long>(s.pendingFalseWakes), static_cast<unsigned long>(s.pendingFalseWakeMs));
+  }
+  s.falseWakes += s.pendingFalseWakes;
+  s.pendingFalseWakes = s.pendingFalseWakeMs = 0;
+  seal();
   writeRow(wake ? "wake" : "boot", detail);
+  powerManager.wakeOnChargeChange = true;
   bootFlushPending = true;  // also saves rows a restart or crash left in the ring
 }
 
@@ -242,6 +302,7 @@ void onSleep(const char* why) {
   s.sleepEpoch = epochNow();
   s.sleepPct = reading.pct;
   s.sleepUsb = reading.usb;
+  seal();
   writeRow("sleep", why);
   flush();
 }
@@ -258,15 +319,11 @@ void poll(const uint32_t idleMs) {
   Stats& s = st();
   if (reading.usb != before.usb) {
     readSlow();
-    if (!reading.usb) {
-      s.unplugEpoch = epochNow();
-      s.unplugPct = reading.pct;
-      s.battAwakeS = s.battAsleepS = s.dropAwakePct = s.dropAsleepPct = 0;
-    }
     writeRow(reading.usb ? "usb_in" : "usb_out", nullptr);
   }
   if (reading.chg != before.chg) {
     readSlow();
+    if (!reading.chg) markCharged(s, epochNow(), reading.pct);
     writeRow(reading.chg ? "chg_on" : reading.usb ? "charged" : "chg_off", nullptr);
   }
   if (reading.pct != before.pct) {
@@ -288,12 +345,43 @@ void poll(const uint32_t idleMs) {
     writeRow("light", nullptr);
   }
 
+  seal();
   if (!ringReady || idleMs < kFlushIdleMs) return;
   const uint32_t pending = ring.head - ring.aux;
   const bool low = !reading.usb && reading.pct <= kLowPct;
   if (pending != 0 && (bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) {
     bootFlushPending = false;
   }
+}
+
+void onChargeWake() {
+  Stats& s = st();
+  readClock();
+  Reading r = reading;
+  r.pct = powerManager.getBatteryPercentage();
+  r.chg = monitor().isCharging();
+  r.mv = monitor().readMillivolts();
+  setReading(r);
+  const uint32_t epoch = epochNow();
+  if (s.sleepEventCount < kMaxSleepEvents) {
+    s.sleepEvents[s.sleepEventCount++] = {epoch, r.mv, static_cast<uint8_t>(std::min<uint16_t>(r.pct, 100)), r.chg};
+  }
+  if (epoch != 0) {
+    settleSleep(s, epoch, r.pct, r.chg || r.pct >= kFullPct);
+    if (!r.chg) markCharged(s, epoch, r.pct);
+  }
+  seal();
+  // A flapping STAT line (charger fault blink) stops waking the device once the list is full.
+  powerManager.wakeOnChargeChange = s.sleepEventCount < kMaxSleepEvents;
+  LOG_INF("BAT", "Charge wake: %s at %u%%", r.chg ? "charging" : "stopped", r.pct);
+}
+
+void noteFalseWake() {
+  Stats& s = st();
+  s.pendingFalseWakes++;
+  s.pendingFalseWakeMs += millis();
+  seal();
+  powerManager.wakeOnChargeChange = s.sleepEventCount < kMaxSleepEvents;
 }
 
 void event(const char* name, const char* detail) { writeRow(name, detail); }
@@ -347,12 +435,29 @@ bool flush() {
   return true;
 }
 
+void forEachPending(void (*sink)(void*, const char*, uint32_t), void* ctx) {
+  if (!ensureRing()) return;
+  portENTER_CRITICAL_SAFE(&ringMux);
+  const uint32_t head = ring.head;
+  uint32_t at = ring.aux;
+  portEXIT_CRITICAL_SAFE(&ringMux);
+  if (head - at > kRingBytes) at = head - kRingBytes;
+  char chunk[256];
+  while (at != head) {
+    const uint32_t n = std::min(head - at, static_cast<uint32_t>(sizeof(chunk)));
+    ring.copyOut(at, chunk, n);
+    sink(ctx, chunk, n);
+    at += n;
+  }
+}
+
 const Stats& stats() { return st(); }
 
 uint32_t nowEpoch() { return epochNow(); }
 
 void reset() {
-  rtcStats = Stats{kStatsMagic};
+  rtcStats = Stats{kStatsMagic, kStatsVersion, sizeof(Stats)};
+  seal();
   auto& counts = HalDisplay::refreshCounts();
   std::fill(std::begin(counts.n), std::end(counts.n), 0u);
   LOG_INF("BAT", "Stats reset");

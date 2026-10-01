@@ -8,6 +8,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <HalClock.h>
+#include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
@@ -57,6 +58,7 @@
 #include "html/js/jszip_minJs.generated.h"
 #include "network/NetworkName.h"
 #include "network/SdWriteBehind.h"
+#include "util/BatteryLog.h"
 #include "util/BookCacheUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
@@ -583,6 +585,17 @@ void CrossPointWebServer::registerFullRoutes() {
     handleStatus();
   });
   server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
+#if CROSSDINK_GOODIES && !defined(SIMULATOR)
+  // Battery log rows still in PSRAM, after the last row of /debug/logs/battery.csv.
+  server->on("/api/battery-pending", HTTP_GET, [this] {
+    server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server->send(200, "text/csv", "");
+    BatteryLog::forEachPending(
+        [](void* s, const char* data, const uint32_t len) { static_cast<WebServer*>(s)->sendContent(data, len); },
+        server.get());
+    server->sendContent("");
+  });
+#endif
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
@@ -1262,6 +1275,32 @@ void CrossPointWebServer::handleStatus() const {
     static const BatteryMonitor monitor;
     battery["millivolts"] = monitor.readMillivolts();
     battery["charging"] = monitor.isCharging();
+  }
+#endif
+#if CROSSDINK_GOODIES && !defined(SIMULATOR)
+  {
+    // The Goodies > Battery & stats counters (RTC memory), for the web Logs page.
+    const BatteryLog::Stats& s = BatteryLog::stats();
+    JsonObject st = battery["stats"].to<JsonObject>();
+    st["now"] = BatteryLog::nowEpoch();
+    st["boots"] = s.boots;
+    st["wakes"] = s.wakes;
+    st["awakeS"] = s.awakeS;
+    st["asleepS"] = s.asleepS;
+    st["chargedEpoch"] = s.chargedEpoch;
+    st["chargedPct"] = s.chargedPct;
+    st["falseWakes"] = s.falseWakes + s.pendingFalseWakes;
+    st["battAwakeS"] = s.battAwakeS;
+    st["battAsleepS"] = s.battAsleepS;
+    st["dropAwakePct"] = s.dropAwakePct;
+    st["dropAsleepPct"] = s.dropAsleepPct;
+    const auto& c = HalDisplay::refreshCounts().n;
+    JsonObject refresh = st["refresh"].to<JsonObject>();
+    refresh["fast"] = c[HalDisplay::FAST_REFRESH];
+    refresh["half"] = c[HalDisplay::HALF_REFRESH];
+    refresh["full"] = c[HalDisplay::FULL_REFRESH];
+    refresh["gray"] = c[HalDisplay::GRAY_PASSES];
+    refresh["flash"] = c[HalDisplay::FLASHING];
   }
 #endif
 

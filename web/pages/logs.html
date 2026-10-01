@@ -1,8 +1,41 @@
-<div class="card">
+<div class="card" id="bat" hidden>
+      <h2>Battery</h2>
+      <div class="row">
+        <select id="range">
+          <option value="21600">6 h</option>
+          <option value="86400" selected>24 h</option>
+          <option value="259200">3 days</option>
+          <option value="604800">7 days</option>
+          <option value="0">All</option>
+        </select>
+      </div>
+      <p id="readout" class="meta">&nbsp;</p>
+      <svg id="gp"></svg>
+      <svg id="gv"></svg>
+      <svg id="gt"></svg>
+      <p class="meta">
+        <span class="key asleep"></span>asleep <span class="key usb"></span>on USB <span class="key wifi"></span>Wi-Fi
+        <span class="key off"></span>off / lost power &nbsp;|&nbsp; lines: <b class="c-boot">boot</b>,
+        <b class="c-fw">firmware</b>, <b class="c-xfer">transfer</b>
+      </p>
+      <h3>Summary</h3>
+      <table id="sum"></table>
+      <h3>Drain by state (on battery, whole log)</h3>
+      <table id="states"></table>
+      <h3>Discharge sessions</h3>
+      <table id="dis"></table>
+      <h3>Charge sessions</h3>
+      <table id="chg"></table>
+    </div>
+
+    <div class="card">
       <h2>Logs</h2>
       <div class="row">
         <select id="src"><option value="">Loading...</option></select>
         <input id="q" type="search" placeholder="Search" />
+        <button id="go" class="btn">Search</button>
+        <button id="fm" class="btn" title="Smaller text">A−</button>
+        <button id="fp" class="btn" title="Larger text">A+</button>
         <a id="dl" class="btn" download>Download</a>
       </div>
       <p id="meta" class="meta"></p>
