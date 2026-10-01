@@ -1414,6 +1414,16 @@ void CrossPointWebServer::handleStatus() const {
     refresh["full"] = c[HalDisplay::FULL_REFRESH];
     refresh["gray"] = c[HalDisplay::GRAY_PASSES];
     refresh["flash"] = c[HalDisplay::FLASHING];
+    PerfLog::LightSleepStats ls;
+    if (PerfLog::lightSleepStats(ls)) {
+      JsonObject l = st["lightSleep"].to<JsonObject>();
+      l["count"] = ls.sleeps;
+      l["rejects"] = ls.rejects;
+      l["pct"] = ls.sleepPct;
+      l["upS"] = ls.upS;
+      l["rejectCause"] = ls.rejectCause;
+      l["rejectCauseName"] = ls.rejectCauseName;
+    }
   }
 #endif
 

@@ -105,6 +105,7 @@ int64_t pmPrevSleepUs = 0;
 int64_t pmPrevCpuMaxUs = 0;
 long pmPrevSleeps = 0;
 long pmPrevRejects = 0;
+uint32_t pmLastRejectCause = 0;  // RTC_CNTL reject-cause bits of the last rejected sleep, 0 = none seen
 
 #if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
 // Light-sleep exits per wake cause (esp_sleep_get_wakeup_causes bitmap), from
@@ -232,9 +233,9 @@ void logPmLocks(const char* act) {
   // The last rejected sleep's cause, in wakeup-trigger bits (S3: 0 ext0, 1 ext1,
   // 2 GPIO, 3 timer, 5 Wi-Fi, 6/7 UART, 8 touch).
   if (rejects != pmPrevRejects) {
+    pmLastRejectCause = REG_READ(RTC_CNTL_SLP_REJECT_CAUSE_REG) & RTC_CNTL_REJECT_CAUSE;
     const size_t used = strlen(causeText);
-    snprintf(causeText + used, sizeof(causeText) - used, " rjc=0x%lx",
-             static_cast<unsigned long>(REG_READ(RTC_CNTL_SLP_REJECT_CAUSE_REG) & RTC_CNTL_REJECT_CAUSE));
+    snprintf(causeText + used, sizeof(causeText) - used, " rjc=0x%lx", static_cast<unsigned long>(pmLastRejectCause));
   }
 #endif
   LOG_DBG("PM",
@@ -278,6 +279,32 @@ void logPmLocks(const char* act) {
 }
 #endif
 }  // namespace
+
+bool lightSleepStats(LightSleepStats& out) {
+#if CONFIG_PM_PROFILING
+  // The totals at the last [PM] window (main loop); a torn read from another
+  // task only skews one displayed number.
+  if (pmPrevBootUs <= 0) return false;  // no window yet
+  out.sleeps = static_cast<uint32_t>(pmPrevSleeps);
+  out.rejects = static_cast<uint32_t>(pmPrevRejects);
+  out.upS = static_cast<uint32_t>(pmPrevBootUs / 1000000);
+  out.sleepPct = static_cast<uint8_t>(pmPct(pmPrevSleepUs, pmPrevBootUs));
+  out.rejectCause = pmLastRejectCause;
+  // Lowest set wakeup-trigger bit (S3 numbering, as rjc= in [PM]).
+  static const char* const kCause[] = {"ext0", "ext1", "GPIO", "timer", "SDIO", "Wi-Fi", "UART0", "UART1", "touch"};
+  out.rejectCauseName = "-";
+  for (unsigned i = 0; i < sizeof(kCause) / sizeof(kCause[0]); i++) {
+    if (pmLastRejectCause & (1u << i)) {
+      out.rejectCauseName = kCause[i];
+      break;
+    }
+  }
+  return true;
+#else
+  (void)out;
+  return false;
+#endif
+}
 
 uint32_t nextInputSeq() { return inputSeq.fetch_add(1, std::memory_order_relaxed) + 1; }
 
