@@ -82,6 +82,10 @@ class Activity {
   // A Wi-Fi screen that is idle between transfers: the main loop may power
   // save and light-sleep between ticks even though the radio is up.
   virtual bool allowsRadioIdleSleep() { return false; }
+  // While true, deferred settings stay unwritten when a screen above closes
+  // (Goodies > Keyboard test opening the keyboard); sleep, restart and
+  // firmware flashing still write them.
+  virtual bool holdsSettingsFlush() const { return false; }
   // While true, main-loop global controls and activity replacement are
   // suspended so an exclusive storage owner cannot race the filesystem.
   virtual bool requiresExclusiveStorageLoop() const { return false; }

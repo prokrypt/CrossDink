@@ -916,7 +916,7 @@ void ActivityManager::loop() {
     ReaderExitSave::flush();
     // Settings changed on a screen or panel are written once it has closed,
     // while the screen below refreshes.
-    if (settingsFlushPending) {
+    if (settingsFlushPending && !(currentActivity && currentActivity->holdsSettingsFlush())) {
       settingsFlushPending = false;
       flushSettingsStores();
     }
