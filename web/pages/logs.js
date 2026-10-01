@@ -159,7 +159,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
     for (const g of segs) {
       if (g.b.t < t0) continue;
       const w = Math.max(1, x(g.b.t) - x(g.a.t)).toFixed(1);
-      const cls = g.state === 'awake' ? '' : g.state;
+      const cls = g.state === 'asleep' ? '' : g.state; // shade awake time, like the Goodies graph's bar
       if (cls) s += `<rect class="${cls}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${g.state} ${hrs(g.dt)}</title></rect>`;
       if (g.wifi) s += `<rect class="wifi" x="${x(g.a.t).toFixed(1)}" y="${h - 20}" width="${w}" height="4"/>`;
     }
