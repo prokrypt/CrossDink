@@ -39,10 +39,12 @@ class BatteryStatsActivity final : public Activity {
     uint32_t awakeS, asleepS;  // power-off gaps before a cold boot count as neither
     uint32_t chargedEpoch;     // last "charged" row, 0 = none
     uint8_t chargedPct;
-    // On battery since charging last stopped ("charged" or "chg_off"). Drops in
-    // 0.01 %; coarse: some of it came from whole-percent rows (±1 instead of ±0.01).
-    uint32_t battAwakeS, battAsleepS, dropAwakeC, dropAsleepC;
-    bool coarse;
+    // On battery, over the whole log; [0] awake, [1] asleep. In 0.01 %: drop,
+    // the part of it from whole-percent rows, and its ± (each unbroken run of
+    // steps adds its rows' precision, 1 or 100: inside a run the roundings cancel).
+    uint32_t battS[2], dropC[2], coarseC[2], errC[2];
+    int8_t run;  // category of the run the last step extended, -1 = none
+    bool runFine;
   };
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 16;

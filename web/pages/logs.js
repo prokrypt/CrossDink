@@ -134,8 +134,10 @@ const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1
 // A logged % is whole ("71", older rows and rows logged asleep) or has the
 // gauge's fraction ("71.43"), so a drop is exact to u = ±1 or ±0.01: rates and
 // estimates carry that ±, and wait for a 2% drop ('-' until then).
-const rate = (drop, s, u = 1) => (drop >= 2 && s >= 60 ? ((drop * 3600) / s).toFixed(2) + '±' + ((u * 3600) / s).toFixed(2) + '%/h' : '-');
-const left = (pct, drop, s, u = 1) => (drop >= 2 && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s * u) / drop / drop) : '-');
+// u: the drop's ± in %; min: the smallest drop worth a rate (2% whole, 0.2% fractional).
+const minDrop = (u) => (u >= 1 ? 2 : 0.2);
+const rate = (drop, s, u = 1, min = minDrop(u)) => (drop >= min && s >= 60 ? ((drop * 3600) / s).toFixed(2) + '±' + ((u * 3600) / s).toFixed(2) + '%/h' : '-');
+const left = (pct, drop, s, u = 1, min = minDrop(u)) => (drop >= min && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s * u) / drop / drop) : '-');
 const unit = (g) => Math.max(g.a.q, g.b.q);
 const NOT_ENOUGH = 'not enough data';
 const when = (t) => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -379,7 +381,7 @@ function sessions() {
 // The Summary counters, counted from the log like Goodies > Battery & stats does
 // (BatteryStatsActivity::parseRow): from the last stats_reset row, or the first row.
 function logStats() {
-  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: null, bA: 0, bS: 0, dA: 0, dS: 0, u: 0.01 });
+  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: null, b: [0, 0], d: [0, 0], dc: [0, 0], e: [0, 0], run: -1, runQ: 0 });
   let s = zero(false);
   let prev = null;
   let ref = null; // drop reference: as prev, but a whole-% row after fractional ones is skipped
@@ -392,14 +394,20 @@ function logStats() {
       const drop = Math.max(0, ref.pct - r.pct);
       const awake = !(prev.ev === 'sleep' || prev.det.startsWith('asleep'));
       s[awake ? 'awake' : 'asleep'] += dt;
-      // Same rule as the device: drops between rows of one precision; a whole
-      // row inside fractional data counts time only; after a whole row,
-      // fractional data starts the window over.
+      // Same rule as the device, over the whole log: drops between rows of one
+      // precision; a whole row inside fractional data counts time only; a step
+      // from a whole row to a fractional one is skipped. Each unbroken run of
+      // steps adds its rows' precision to the ± (inside a run roundings cancel).
+      const k = awake ? 0 : 1;
       if (!prev.usb && !r.usb && ref.q === r.q) {
-        awake ? ((s.bA += dt), (s.dA += drop)) : ((s.bS += dt), (s.dS += drop));
-        s.u = Math.max(s.u, r.q);
-      } else if (!prev.usb && !r.usb && ref.q < r.q) awake ? (s.bA += dt) : (s.bS += dt);
-    }
+        s.b[k] += dt;
+        s.d[k] += drop;
+        if (r.q === 1) s.dc[k] += drop;
+        if (s.run !== k || s.runQ !== r.q) s.e[k] += r.q;
+        (s.run = k), (s.runQ = r.q);
+      } else if (!prev.usb && !r.usb && ref.q < r.q) s.b[k] += dt;
+      else s.run = -1;
+    } else s.run = -1;
     s.first ||= r.t;
     s.last = r.t;
     if (r.ev === 'boot') c ? s.cold++ : s.rst++;
@@ -407,9 +415,7 @@ function logStats() {
     const f = /false_wakes=(\d+)/.exec(r.det);
     if (f) s.falseWakes += +f[1];
     if (r.ev === 'charged') s.charged = r;
-    const start = r.ev === 'charged' || r.ev === 'chg_off';
-    if (start) (s.bA = s.bS = s.dA = s.dS = 0), (s.u = 0.01);
-    if (!ref || r.q <= ref.q || start || r.ev === 'stats_reset' || c) ref = r;
+    if (!ref || r.q <= ref.q || r.usb || prev.usb || r.ev === 'stats_reset' || c) ref = r;
     prev = r;
   }
   return s;
@@ -432,14 +438,20 @@ function summary() {
     const s = logStats();
     const now = (b.stats && b.stats.now) || Date.now() / 1000;
     const pct = b.percent ?? bat[bat.length - 1].pct;
-    const drop = s.dA + s.dS;
-    const span = s.bA + s.bS;
-    const min = s.u === 1 ? 2 : 0.2; // minimum drop: 2% from whole-% rows, 0.2% fractional
+    const drop = s.d[0] + s.d[1];
+    const span = s.b[0] + s.b[1];
+    // Minimum drop: 2% when mostly from whole-% rows, else 0.2% (as on the device).
+    const min = (d, dc) => (dc * 2 >= d ? 2 : 0.2);
+    const drain = (k) => {
+      const m = min(s.d[k], s.dc[k]);
+      return s.d[k] >= m && s.b[k] >= 60 ? rate(s.d[k], s.b[k], s.e[k], m) + ' over ' + hrs(s.b[k]) : NOT_ENOUGH;
+    };
+    const m = min(drop, s.dc[0] + s.dc[1]);
     rows.push(
       ['Last charged', s.charged && now > s.charged.t ? `${hrs(now - s.charged.t)} ago at ${s.charged.pct}%` : 'not in the log'],
-      ['Awake drain', s.dA >= min && s.bA >= 60 ? rate(s.dA, s.bA, s.u) + ' over ' + hrs(s.bA) : NOT_ENOUGH],
-      ['Asleep drain', s.dS >= min && s.bS >= 60 ? rate(s.dS, s.bS, s.u) + ' over ' + hrs(s.bS) : NOT_ENOUGH],
-      ['Est. left at that pace', drop >= min && span >= 60 ? left(pct, drop, span, s.u) : NOT_ENOUGH],
+      ['Awake drain', drain(0)],
+      ['Asleep drain', drain(1)],
+      ['Est. left at that pace', drop >= m && span >= 60 ? left(pct, drop, span, s.e[0] + s.e[1], m) : NOT_ENOUGH],
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
