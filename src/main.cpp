@@ -1733,6 +1733,7 @@ void setup() {
   InputWake::begin();
   PinMon::begin();
   PerfLog::setWakeCounter(&InputWake::takeWakeCounts);
+  PerfLog::setWakePinsDescriber(&InputWake::describePins);
   PerfLog::setPmWindowHook(&CoreLoadLog::logQuietWindowTasks);
 
   const auto wakeupReason = gpio.getWakeupReason();

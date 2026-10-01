@@ -65,6 +65,7 @@ char currentAct[24] = "-";
 char pmWindowAct[24] = "-";
 WakeCountFn wakeCounter = nullptr;
 PmWindowFn pmWindowHook = nullptr;
+WakePinsFn wakePinsFn = nullptr;
 std::atomic<uint32_t> loopPasses{0};
 
 // Boot phase marks (setup() order), printed with the first ink.
@@ -152,6 +153,8 @@ void logPmLocks(const char* act) {
   long sleeps = 0;
   long rejects = 0;
   bool inModes = false;
+  char held[96] = "";  // locks held at this dump, the per-core rtos ones left out
+  size_t heldLen = 0;
   char* save = nullptr;
   for (char* line = strtok_r(dump, "\n", &save); line; line = strtok_r(nullptr, "\n", &save)) {
     if (sscanf(line, "Time since bootup: %lld", &bootUs) == 1) continue;
@@ -170,6 +173,10 @@ void logPmLocks(const char* act) {
         snprintf(locks[lockCount].name, sizeof(locks[lockCount].name), "%s", name);
         locks[lockCount].us = us;
         lockCount++;
+        if (active > 0 && strncmp(name, "rtos", 4) != 0 && heldLen < sizeof(held)) {
+          const int n = snprintf(held + heldLen, sizeof(held) - heldLen, "%s%s", heldLen ? "," : "", name);
+          if (n > 0) heldLen += static_cast<size_t>(n);
+        }
       }
       continue;
     }
@@ -238,6 +245,16 @@ void logPmLocks(const char* act) {
           static_cast<unsigned long>(wakeButtons), static_cast<unsigned long>(wakeTouch),
           lsWindow > gpioWakes ? lsWindow - gpioWakes : 0L, causeText, static_cast<unsigned long>(take(loopPasses)),
           topText);
+  // Every attempt rejected: name what could be doing it, at most once a minute.
+  // A wake pin whose level now equals its armed level rejects every sleep.
+  static long long lastRejectDiagUs = 0;
+  if (lsWindow == 0 && rejects != pmPrevRejects && (lastRejectDiagUs == 0 || bootUs - lastRejectDiagUs >= 60000000)) {
+    lastRejectDiagUs = bootUs;
+    char pins[96] = "-";
+    if (wakePinsFn) wakePinsFn(pins, sizeof(pins));
+    LOG_INF("PM", "all sleeps rejected: wake pins (armed/now) %s | locks held %s | usb host %d", pins,
+            held[0] ? held : "-", logSerialHostConnected() ? 1 : 0);
+  }
   if (pmWindowHook) {
     // IDF's per-core locks: held while that core is out of its idle task.
     static const char* const kRtosLock[2] = {"rtos0", "rtos1"};
@@ -463,6 +480,7 @@ void currentActivity(char* out, const uint32_t size) {
 }
 
 void setWakeCounter(const WakeCountFn fn) { wakeCounter = fn; }
+void setWakePinsDescriber(const WakePinsFn fn) { wakePinsFn = fn; }
 
 void noteTaskExit(const char* name) {
   // Workers exit on either core; a short critical section guards the table.

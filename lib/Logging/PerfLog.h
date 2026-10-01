@@ -69,6 +69,10 @@ void noteLoopPass();
 // and its GPIO wakes, so the app can name the tasks behind a busy idle window.
 using PmWindowFn = void (*)(unsigned rtos0Pct, unsigned rtos1Pct, long gpioWakes);
 void setPmWindowHook(PmWindowFn fn);
+// Writes the armed wake lines ("pin armed/now" each) for the line [PM] logs
+// when a window's sleeps were all rejected.
+using WakePinsFn = void (*)(char* out, uint32_t size);
+void setWakePinsDescriber(WakePinsFn fn);
 }  // namespace PerfLog
 #else
 namespace PerfLog {
@@ -96,5 +100,7 @@ inline void noteTaskExit(const char*) {}
 inline void noteLoopPass() {}
 using PmWindowFn = void (*)(unsigned rtos0Pct, unsigned rtos1Pct, long gpioWakes);
 inline void setPmWindowHook(PmWindowFn) {}
+using WakePinsFn = void (*)(char* out, uint32_t size);
+inline void setWakePinsDescriber(WakePinsFn) {}
 }  // namespace PerfLog
 #endif
