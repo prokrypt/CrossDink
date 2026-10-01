@@ -60,6 +60,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- File Transfer: an upload no longer fails when you switch away from the browser tab on a phone. The device keeps the partial file for 60 s, and the page reconnects when you come back and continues where it stopped. The page also keeps the phone's screen on while it uploads (Chrome, iOS Safari 16.4+).
 - File Transfer uploads from phones are faster. X4 Pro accepts twice as much unacknowledged data (64 KB TCP window), and the web page reads the file in 192 KB pieces ahead of sending and paces itself on the device's progress replies instead of a 5 ms timer, which phone browsers slow down.
 - Debug builds (X4 Pro): the serial `KBDEXP` command and the display test `pll` step take only the three Knobs > kbdPll choices (0 = panel default, 1 = 40 Hz, 2 = 50 Hz) and refuse anything else, instead of any raw PLL byte.
 - Web file manager: the first click on a column header sorts largest, newest or Z first; a second click flips it. Folders stay on top.
