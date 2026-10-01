@@ -624,8 +624,10 @@ void cmdKbdExp(char* args) {
   int flags = 0;
   int frames = 6;
   int pll = 0;
+  // pll: a knobs::PLL_BYTES index (0 default, 1 = 40 Hz, 2 = 50 Hz), never a raw 0x30 byte.
   if (sscanf(args, "%i %i %i", &flags, &frames, &pll) < 1 || flags < 0 || flags > 255 || frames < 0 || frames > 63 ||
-      pll < 0 || pll > 255) {
+      pll < 0 || pll >= knobs::PLL_CHOICES) {
+    LOG_ERR("SR", "KBDEXP: bad args (flags 0-255, frames 0-63, pll 0-%d)", knobs::PLL_CHOICES - 1);
     return reply("ERR:KBDEXP:args");
   }
   KeyboardEntryActivity::setExperimentOverride(static_cast<uint8_t>(flags), static_cast<uint8_t>(frames),
