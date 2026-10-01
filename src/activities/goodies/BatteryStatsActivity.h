@@ -3,9 +3,10 @@
 #include <cstdint>
 
 #include "activities/Activity.h"
+#include "components/themes/BaseTheme.h"
 
 // Goodies > Battery & stats: a battery % graph from the tail of
-// /debug/logs/battery.csv (bar under it = asleep) and a page of counters. Everything
+// /debug/logs/battery.csv (bar under it = awake) and a page of counters. Everything
 // is read on the main loop in onEnter()/reset; render() only draws.
 class BatteryStatsActivity final : public Activity {
  public:
@@ -28,9 +29,13 @@ class BatteryStatsActivity final : public Activity {
 
   void loadGraph();
   void buildLines();
+  Rect resetRect() const;  // touch builds: "Reset" at the header's right end
+  void confirmReset();
 
   Point points[MAX_POINTS];
   int pointCount = 0;
   char lines[MAX_LINES][80];
   int lineCount = 0;
+  int scroll = 0;     // first line drawn
+  bool more = false;  // lines were cut off below
 };

@@ -10,6 +10,7 @@
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <esp_sleep.h>
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 #include "MappedInputManager.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -118,8 +120,8 @@ void BatteryStatsActivity::buildLines() {
   add("%u%%  %u mV  %s  %s", pct, monitor.readMillivolts(), monitor.isCharging() ? "charging" : "",
       gpio.isUsbConnectedCached() ? "USB" : "on battery");
   if (tempKnown) {
-    snprintf(lines[lineCount - 1] + strlen(lines[lineCount - 1]),
-             sizeof(lines[0]) - strlen(lines[lineCount - 1]), "  %.1f C", tempDeci / 10.0f);
+    snprintf(lines[lineCount - 1] + strlen(lines[lineCount - 1]), sizeof(lines[0]) - strlen(lines[lineCount - 1]),
+             "  %.1f C", tempDeci / 10.0f);
   }
 
   const uint32_t now = BatteryLog::nowEpoch();
@@ -170,6 +172,31 @@ void BatteryStatsActivity::buildLines() {
   add("%s  log %s", BuildInfo::gitSha(), BatteryLog::LOG_PATH);
 }
 
+Rect BatteryStatsActivity::resetRect() const {
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const auto l = TouchHeaderBackButton::layout(header);
+  const int w = renderer.getTextWidth(UI_10_FONT_ID, tr(STR_RESET)) + 24;
+  return Rect{header.x + header.width - w, l.touchRect.y, w, l.touchRect.height};
+}
+
+void BatteryStatsActivity::confirmReset() {
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET) + std::string("?"),
+                                                        tr(STR_BATTERY_STATS));
+  if (!dialog) {
+    LOG_ERR("BAT", "Cannot allocate reset dialog");
+    return;
+  }
+  startActivityForResult(std::move(dialog), [this](const ActivityResult& res) {
+    if (res.isCancelled) return;
+    RenderLock lock(*this);  // render() reads lines
+    BatteryLog::reset();
+    buildLines();
+    scroll = 0;
+    lock.unlock();
+    requestUpdate();
+  });
+}
+
 void BatteryStatsActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
@@ -177,10 +204,23 @@ void BatteryStatsActivity::loop() {
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    RenderLock lock(*this);  // render() reads lines
-    BatteryLog::reset();
-    buildLines();
-    lock.unlock();
+    confirmReset();
+    return;
+  }
+  if (mappedInput.hasTouchHardware()) {
+    const Rect r = resetRect();
+    if (mappedInput.wasTapInRect(r.x, r.y, r.width, r.height)) {
+      confirmReset();
+      return;
+    }
+  }
+  const auto swipe = mappedInput.wasSwipe();
+  const bool down =
+      mappedInput.wasReleased(MappedInputManager::Button::Down) || swipe == MappedInputManager::SwipeDir::Up;
+  const bool up =
+      mappedInput.wasReleased(MappedInputManager::Button::Up) || swipe == MappedInputManager::SwipeDir::Down;
+  if ((down && more) || (up && scroll > 0)) {
+    scroll += down && more ? 1 : -1;
     requestUpdate();
   }
 }
@@ -190,7 +230,13 @@ void BatteryStatsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false);
+    const Rect r = resetRect();
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width);
+    const auto l = TouchHeaderBackButton::layout(header);
+    renderer.drawText(UI_10_FONT_ID, r.x + 12,
+                      l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
+                          (l.iconRect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
+                      tr(STR_RESET));
   } else {
     GUI.drawHeader(renderer, header, tr(STR_BATTERY_STATS));
   }
@@ -228,9 +274,16 @@ void BatteryStatsActivity::render(RenderLock&&) {
   y += gh + 8 + lineHeight + metrics.verticalSpacing;
 
   const int bottom = renderer.getScreenHeight() - metrics.buttonHintsHeight;
-  for (int i = 0; i < lineCount; ++i) {
+  // Lines that don't fit scroll with Up/Down or a swipe; "..." marks more below.
+  more = false;
+  for (int i = scroll; i < lineCount && !more; ++i) {
     const auto wrapped = renderer.wrappedText(UI_10_FONT_ID, lines[i], w, 2);
-    for (size_t j = 0; j < wrapped.size() && y + lineHeight <= bottom; ++j) {
+    if (y + static_cast<int>(wrapped.size()) * lineHeight > bottom) {
+      more = true;
+      renderer.drawText(UI_10_FONT_ID, x, y, "...");
+      break;
+    }
+    for (size_t j = 0; j < wrapped.size(); ++j) {
       renderer.drawText(UI_10_FONT_ID, j == 0 ? x : x + 16, y, wrapped[j].c_str());
       y += lineHeight;
     }
