@@ -2068,8 +2068,8 @@ static bool radioMayIdle() {
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
 // Flash duck: fade the frontlight out from the input that starts a flashing
-// refresh (HalDisplay::flashMarkedMs is set at refresh entry, before the panel
-// work) so it reaches the Flash Dim Level as the swing shows
+// refresh (HalDisplay::flashPlannedMs: on UC8179 the driver plans the swing at
+// refresh entry, before its power and SPI work) so it reaches the Flash Dim Level as the swing shows
 // (HalDisplay::flashStartedMs: on UC8179 the driver's DRF time plus the
 // waveform's own offset, e.g. direct gray holds white for 24 of 50 frames), and
 // back up over FLASH_DUCK_UP_MS once the refresh ends. Until DRF the swing time
@@ -2100,7 +2100,7 @@ static void updateFlashDuck() {
   const unsigned long now = millis();
   const unsigned long inputMs = flashDuckInputMs;
   const uint32_t swingMs = liveFlashStartMs();
-  const uint32_t markMs = display.flashMarkedMs();
+  const uint32_t markMs = display.flashPlannedMs();
   static uint32_t swungMarkMs = 0;  // the mark whose swing showed (its mark no longer ducks)
   const bool marked = markMs != 0 && markMs != swungMarkMs && now - markMs <= FLASH_DUCK_MAX_MS;
   static uint32_t swingEndMs = 0;   // expected end of the swing being tracked
@@ -2116,7 +2116,7 @@ static void updateFlashDuck() {
       swingEndMs = 0;
       swingGoneMs = now | 1;
     }
-    if (marked) kind = display.flashMarkKind();
+    if (marked) kind = display.flashPlannedKind();
   }
   // Goodies offsets (later is positive). The refresh never waits on either: an
   // earlier dim than the driver can announce just cuts the light at DRF.
@@ -2233,7 +2233,7 @@ static unsigned long lightIdleMs(const unsigned long idleMs) {
 
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
-  if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0) && SETTINGS.frontlightFlashDuck)) {
+  if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) && SETTINGS.frontlightFlashDuck)) {
     return FLASH_DUCK_TICK_MS;
   }
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;

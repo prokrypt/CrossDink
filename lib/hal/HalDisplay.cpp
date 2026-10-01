@@ -285,10 +285,10 @@ void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
   einkDisplay.copyGrayscaleLsbBuffers(lsbBuffer);
 }
 
-// Refreshes that may flash: Half/Full and full-swing gray passes. A Fast
-// refresh never flashes; over gray (grayOnPanel) the exit paint swings only
-// the gray pixels. On UC8179 the main loop starts the duck's fade from here and the
-// driver reports the real swing (flashStartedMs). Other panels dim from here.
+// Refreshes that may flash: Half/Full and full-swing gray passes. On UC8179
+// this only keeps the main loop ticking fast; the driver plans
+// (flashPlannedMs) and reports (flashStartedMs) the real swing. Other panels
+// dim from here.
 // Cleared when a refresh finishes; the main loop also drops a stale mark.
 void HalDisplay::markFlash(const bool flashes, const FlashKind kind) {
   if (!flashes) return;
@@ -318,6 +318,24 @@ HalDisplay::FlashKind HalDisplay::flashKind() const {
   }
 #endif
   return FlashKind::Full;
+}
+
+uint32_t HalDisplay::flashPlannedMs() const {
+#ifndef SIMULATOR
+  if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) {
+    return freeink::uc8179FlashPlannedMs();
+  }
+#endif
+  return flashStart.load(std::memory_order_relaxed);
+}
+
+HalDisplay::FlashKind HalDisplay::flashPlannedKind() const {
+#ifndef SIMULATOR
+  if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) {
+    return static_cast<FlashKind>(freeink::uc8179FlashPlannedKind());
+  }
+#endif
+  return markKind.load(std::memory_order_relaxed);
 }
 
 uint32_t HalDisplay::flashStartedMs() const {

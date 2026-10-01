@@ -128,15 +128,19 @@ class HalDisplay {
   // the driver, per waveform; it may lie ahead), 0 while none runs. The main
   // loop dims the frontlight around it.
   uint32_t flashStartedMs() const;
-  // millis() when a refresh that may flash was entered (0: none), and its kind:
-  // the duck's fade starts before the driver knows the swing.
+  // millis() when a refresh that may flash was entered (0: none); the loop
+  // ticks fast meanwhile.
   uint32_t flashMarkedMs() const { return flashStart.load(std::memory_order_relaxed); }
   // When that refresh is expected to end (UC8179), 0 when unknown.
   uint32_t flashEndsMs() const;
   // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
   enum class FlashKind : uint8_t { Gray, Full, Paint };
   FlashKind flashKind() const;
-  FlashKind flashMarkKind() const { return markKind.load(std::memory_order_relaxed); }
+  // millis() when the refresh now starting was planned to flash (0: none, or
+  // flashStartedMs has it), and its kind: the duck's fade starts here. UC8179:
+  // the driver's own swing decision, before its power and SPI work.
+  uint32_t flashPlannedMs() const;
+  FlashKind flashPlannedKind() const;
   // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
   // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
   // then gray passes, then refreshes that flash (as marked for the flash duck).
