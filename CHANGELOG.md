@@ -159,6 +159,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Settings: the first Up/Down press after opening Settings (or switching tabs) selects the first/last item instead of doing nothing. Confirm with nothing selected no longer switches tabs; long-press Up/Down does.
 - Tapping a list row that opens a popup now shows the row selected before the popup appears, instead of only after it closes.
 - Web portal and WebDAV: `/debug/remote-token` (the Wi-Fi remote token) can no longer be downloaded, replaced, renamed or deleted over the network, under any spelling of its name, even with Show Hidden Files on; the `/debug` folder itself can no longer be renamed, moved or copied there, which would carry the token out with it.
 - X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) ramps smoothly again instead of stepping, and File Transfer no longer pulses when the only traffic is log or status polling.
