@@ -39,8 +39,10 @@ void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 2;
 constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
-constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
-constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossink-settings.json.bak";
+constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossdink-settings.json";
+constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossdink-settings.json.bak";
+// CrossInk's file: imported once, never written, so flashing back to CrossInk keeps its settings.
+constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
 constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
 constexpr char LANG_FILE_BIN[] = "/.crosspoint/language.bin";
@@ -502,7 +504,6 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
   if (keyboardLayouts != 0) doc["keyboardLayouts"] = keyboardLayouts;
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
-  doc["indexingMethodSchema"] = 1;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   doc["screenInverted"] = screenInverted;
   doc["goodiesWifiRemote"] = goodiesWifiRemote;
@@ -777,11 +778,6 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     needsResave = true;
   }
   if (!doc["tiltPageTurnDirection"].isNull() && doc["tiltPageTurnDirectionSchema"].isNull()) needsResave = true;
-  // One-time move of the old Full section default (CrossInk) to IncreMENTAL.
-  if (doc["indexingMethodSchema"].isNull()) {
-    if (indexingMethod == INDEXING_FULL_SECTION) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
-    needsResave = true;
-  }
 
   if (doc["hideClock"].isNull() && !doc["statusBarClock"].isNull()) {
     constexpr uint8_t LEGACY_SHOW_CLOCK_NEVER = 0;
@@ -951,15 +947,17 @@ bool CrossPointSettings::loadFromFile() {
       if (result) {
         std::lock_guard<std::mutex> settingsLock(_mutex);
         if (restoreLegacyRtcDateSyncState(*this)) resave = true;
+        // Imports start on IncreMENTAL; the user's later choice sticks.
+        if (migrateToCurrentPath) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
       }
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile() && flush()) {
           LOG_DBG("CPS", "%s",
-                  migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
+                  migrateToCurrentPath ? "Imported settings into crossdink-settings.json"
                                        : "Resaved settings to update format");
         } else {
           LOG_ERR("CPS", "%s",
-                  migrateToCurrentPath ? "Failed to save migrated settings to crossink-settings.json"
+                  migrateToCurrentPath ? "Failed to save imported settings to crossdink-settings.json"
                                        : "Failed to resave settings after format update");
         }
       }
@@ -980,6 +978,9 @@ bool CrossPointSettings::loadFromFile() {
     return jsonStatus == JsonLoadStatus::Loaded;
   }
 
+  jsonStatus = loadJsonSettings(CROSSINK_SETTINGS_FILE_JSON, true);
+  if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
+
   jsonStatus = loadJsonSettings(LEGACY_SETTINGS_FILE_JSON, true);
   if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
 
@@ -994,7 +995,7 @@ bool CrossPointSettings::loadFromFile() {
       migrateLanguageBinaryFile();
       if (saveToFile() && flush()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
-        LOG_DBG("CPS", "Migrated settings.bin to crossink-settings.json");
+        LOG_DBG("CPS", "Migrated settings.bin to crossdink-settings.json");
         return true;
       } else {
         LOG_ERR("CPS", "Failed to save migrated settings to JSON");
@@ -1027,7 +1028,7 @@ bool CrossPointSettings::migrateLanguageBinaryFile() {
   Storage.rename(LANG_FILE_BIN, LANG_FILE_BAK);
   saveToFile();
   flush();
-  LOG_DBG("CPS", "Migrated language.bin into crossink-settings.json");
+  LOG_DBG("CPS", "Migrated language.bin into crossdink-settings.json");
   return true;
 }
 

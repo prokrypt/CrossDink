@@ -22,7 +22,7 @@ def check_resume(program: Path, suffix: str, activity: str, orientation: int) ->
             shutil.copy2(ROOT / "test/epubs/test_reader_rendering_matrix.epub", book)
         else:
             book.write_text("Quick Lock wake regression.\n" * 80)
-        (state_dir / "crossink-settings.json").write_text(json.dumps({"orientation": orientation}))
+        (state_dir / "crossdink-settings.json").write_text(json.dumps({"orientation": orientation}))
         (state_dir / "state.json").write_text(json.dumps({
             "openEpubPath": f"/book.{suffix}",
             "lastSleepFromReader": True,
