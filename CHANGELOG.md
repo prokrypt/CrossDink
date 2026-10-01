@@ -165,6 +165,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro (debug builds): the battery log reads voltage and temperature for every row (at most 5 s old) instead of only on % and charger rows. A USB or charging change is logged only after it has held for 5 s, so a loose plug no longer floods the log, and "charged" is logged only when charging stops at 95% or more with the cable in (a quick on/off while asleep is dropped too).
 - X4 Pro: the frontlight is only written when its level actually changes, so repeated identical requests (boot, wake, slides, fades) no longer re-drive it.
 - X4 Pro (Softfast): text edges no longer bounce between gray and black during a page turn (black and white, then gray, black, gray). The light-gray edge pixels now go straight from the black-and-white page to gray in one step; the gray shade may be slightly different.
 - X4 Pro: an edge slide that turns an off frontlight on keeps it on at the level you let go at, even if you slid back below where you started. Only 0% turns it off.
