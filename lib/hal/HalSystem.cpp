@@ -330,7 +330,8 @@ std::string getPanicInfo(bool full) {
   } else {
     std::string info;
 
-    info += "CrossDink version: " CROSSDINK_VERSION;
+    info += "CrossDink version: ";
+    info += AppVersion::version();
     info += "\nCrossDink device type: " CROSSDINK_FIRMWARE_DEVICE_TYPE;
     char elfSha[65] = {};
     esp_app_get_elf_sha256(elfSha, sizeof(elfSha));

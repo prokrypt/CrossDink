@@ -1648,7 +1648,7 @@ void setup() {
   const esp_partition_t* running = esp_ota_get_running_partition();
   [[maybe_unused]] const char* runningPart = running ? running->label : "?";
 #endif
-  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", CROSSDINK_VERSION, BuildInfo::gitSha(),
+  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", AppVersion::version(), BuildInfo::gitSha(),
           strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
           BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
@@ -1844,7 +1844,7 @@ void setup() {
             (BoardConfig::isX4Pro() || CROSSDINK_APP_DEVICE_X4CLASSIC) ? "DOWN" : "UP");
   }
 
-  LOG_DBG("MAIN", "Starting CrossDink version " CROSSDINK_VERSION);
+  LOG_DBG("MAIN", "Starting CrossDink version %s", AppVersion::version());
   logMemoryStats("Boot");
 
   // Resolve the single boot-presentation decision. Skipping the splash also

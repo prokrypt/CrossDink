@@ -149,20 +149,18 @@ std::string formatCompactDuration(const uint32_t seconds) {
   return buf;
 }
 
-constexpr const char* systemVersionLabel = "CrossDink " CROSSDINK_VERSION;
-
 // Space below the settings list for the System footer: the build details line
 // plus the version on one line, or two when it has to wrap.
 int systemVersionFooterReserve(const GfxRenderer& renderer, const int pageWidth, const ThemeMetrics& metrics) {
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
-  const int versionLines = renderer.getTextWidth(SMALL_FONT_ID, systemVersionLabel) <= maxWidth ? 1 : 2;
+  const int versionLines = renderer.getTextWidth(SMALL_FONT_ID, AppVersion::versionLabel()) <= maxWidth ? 1 : 2;
   return metrics.verticalSpacing + systemVersionFooterBottomInset +
          versionLines * renderer.getLineHeight(SMALL_FONT_ID);
 }
 
 void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
                              const ThemeMetrics& metrics) {
-  const std::string label = systemVersionLabel;
+  const std::string label = AppVersion::versionLabel();
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
   const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int detailsLineY =
