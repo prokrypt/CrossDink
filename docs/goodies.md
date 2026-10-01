@@ -20,6 +20,8 @@
   starting the Wi-Fi driver) runs on its own task, so input and drawing never wait for it (logged as
   `join task N ms`). With no saved network, turning it on opens the Wi-Fi picker. While the idle server waits
   for requests, the device power saves as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
+- **Keyboard test** opens the on-screen keyboard on a scratch field (nothing is saved); **Turbo keyboard**
+  toggles the Turbo Keyboard setting (its frames are the `kbdFrames` knob).
 - **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, one tab per area (tap or long-press Up/Down to switch), as `id value unit`
   (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
   values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
@@ -31,8 +33,6 @@
   only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
   PLL bytes are never knobs (`kbdPll` picks panel default / 40 Hz / 50 Hz only). To add one: an `X(...)` row
   whose default equals the constant, then read `KNOBS.<id>` where the constant was.
-  The Panel tab also has **Keyboard test** (the on-screen keyboard on a scratch field; Back discards) and
-  **turboKeyboard** (toggles the Turbo Keyboard setting) next to `kbdFrames`.
 
 Back stops a running test; Back again leaves the result screen.
 

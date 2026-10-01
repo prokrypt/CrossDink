@@ -400,8 +400,6 @@ namespace {
 // knobs.json), like the display test names: no I18n strings in release builds.
 constexpr int KNOB_RESET_ALL = -2;
 constexpr int KNOB_DIM_LEVEL = -3;  // Flash Dim Level: the Display > Frontlight setting, not a knob
-constexpr int KNOB_KBD_TEST = -4;   // opens the keyboard on a scratch field; nothing is saved
-constexpr int KNOB_TURBO = -5;      // the Turbo Keyboard setting, not a knob
 constexpr int MAX_KNOB_TABS = 8;
 
 // Knob groups in Knobs.def order (rows of a group are contiguous): one tab each.
@@ -456,6 +454,8 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
     entries.push_back({"API token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}});
+    entries.push_back({"Keyboard test", -1, {}});
+    entries.push_back({tr(STR_TURBO_KEYBOARD), -1, {}, turboRowValue()});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
@@ -468,10 +468,6 @@ void GoodiesActivity::showLevel(const Level next) {
       if (strcmp(knobs::INFO[i].group, groups[knobTab]) != 0) continue;
       if (strcmp(groups[knobTab], "Light") == 0 && entries.empty()) {
         entries.push_back({"flashDimLevel", KNOB_DIM_LEVEL, {}, dimLevelRowValue()});
-      }
-      if (strcmp(knobs::INFO[i].id, "kbdFrames") == 0) {
-        entries.push_back({"Keyboard test", KNOB_KBD_TEST, {}});
-        entries.push_back({"turboKeyboard", KNOB_TURBO, {}, turboRowValue()});
       }
       entries.push_back({knobs::INFO[i].id, i, {}, knobRowValue(i)});
     }
@@ -532,6 +528,17 @@ void GoodiesActivity::activate(const int index) {
       }
     } else if (index == KNOBS_ROW) {
       showLevel(Level::Knobs);
+    } else if (index == KBD_TEST_ROW) {
+      // A scratch field for trying typing feel and speed: nothing is saved.
+      startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard test"),
+                             [this](const ActivityResult&) {
+                               mappedInput.suppressNextConfirmRelease();
+                               requestUpdate();
+                             });
+    } else if (index == TURBO_ROW) {
+      SETTINGS.turboKeyboard = SETTINGS.turboKeyboard ? 0 : 1;
+      if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "turbo keyboard: toggle not saved");
+      setRowValue(TURBO_ROW, turboRowValue());
     } else {
 #ifndef SIMULATOR
       startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
@@ -548,16 +555,6 @@ void GoodiesActivity::activate(const int index) {
       openKnob(index);
     } else if (entries[index].builtIn == KNOB_DIM_LEVEL) {
       openDimLevel(index);
-    } else if (entries[index].builtIn == KNOB_KBD_TEST) {
-      startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard test"),
-                             [this](const ActivityResult&) {
-                               mappedInput.suppressNextConfirmRelease();
-                               requestUpdate();
-                             });
-    } else if (entries[index].builtIn == KNOB_TURBO) {
-      SETTINGS.turboKeyboard = SETTINGS.turboKeyboard ? 0 : 1;
-      if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "turbo keyboard: toggle not saved");
-      setRowValue(index, turboRowValue());
     } else if (entries[index].builtIn == KNOB_RESET_ALL) {
       confirmResetKnobs();
     }

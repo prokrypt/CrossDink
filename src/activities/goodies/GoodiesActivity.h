@@ -66,8 +66,11 @@ class GoodiesActivity final : public Activity {
 
  private:
   enum class Level : uint8_t { Root, DisplayTests, Knobs };
-  static constexpr int TOKEN_ROW = 2;  // Root: Display test, Wi-Fi remote, API token, Knobs, Battery & stats
+  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Turbo keyboard, Battery & stats
+  static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
+  static constexpr int KBD_TEST_ROW = 4;
+  static constexpr int TURBO_ROW = 5;
   struct Entry {
     std::string label;
     int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
