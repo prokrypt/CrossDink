@@ -145,7 +145,9 @@ X("Wi-Fi", autoConnectTimeoutMs, unsigned long, 7000, 2000, 60000, 1000, "ms")  
 X("Wi-Fi", hintedConnectTimeoutMs, unsigned long, 6000, 1000, 30000, 1000, "ms")  // BSSID/channel join first
 X("Wi-Fi", wifiAbandonMs, unsigned long, 300000, 30000, 1800000, 30000, "ms")  // File Transfer gives up on lost Wi-Fi
 X("Wi-Fi", transferLingerMs, unsigned long, 500, 0, 5000, 100, "ms")        // full clock after the last byte
-X("Wi-Fi", serverIdlePollMs, uint32_t, 100, 10, 500, 10, "ms")              // web server idle poll
+X("Wi-Fi", serverIdlePollMs, uint32_t, 250, 10, 500, 10, "ms")              // idle server: stop check (traffic wakes it)
+X("Wi-Fi", wifiMaxModem, uint8_t, 1, 0, 1, 1, "")                          // log-only remote idle: 1 = MAX_MODEM, 0 = MIN
+X("Wi-Fi", wifiListenInterval, uint8_t, 3, 1, 10, 1, "bcn")                // MAX_MODEM beacons per wake (next association)
 X("Wi-Fi", serverActivePasses, int, 64, 1, 256, 1, "")                      // handleClient passes per tick
 X("Wi-Fi", httpTimeoutMs, int, 60000, 5000, 120000, 5000, "ms")             // download HTTP timeout
 X("Wi-Fi", httpReadPollMs, int, 5000, 500, 30000, 500, "ms")                // download per-read poll

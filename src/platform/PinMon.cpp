@@ -55,8 +55,10 @@ void IRAM_ATTR onLine(void* arg) {
 
 #if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
 // Runs before pending ISRs after every light sleep: a pin of ours already
-// pending then is what (or part of what) ended the sleep.
-esp_err_t IRAM_ATTR onSleepExit(int64_t, void*) {
+// pending then is what (or part of what) ended the sleep. Idle task, flash
+// code (no IRAM).
+esp_err_t onSleepExit(const int64_t sleptUs, void*) {
+  if (sleptUs <= 0) return ESP_OK;  // the sleep was skipped
   wokeLo = wokeLo | (GPIO.status & maskLo);
   wokeHi = wokeHi | (GPIO.status1.val & maskHi);
   return ESP_OK;

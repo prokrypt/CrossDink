@@ -2303,6 +2303,11 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   // An idle server on its own task (File Transfer, Calibre) or a screen that opted
   // into radio idle (OPDS list, KOSync result) only needs the loop for input,
   // exit requests and link checks: 4 wakes/s instead of 20.
+#if CROSSDINK_GOODIES
+  // Only the Wi-Fi remote holds the radio: its server wakes on traffic and
+  // /api/cmd wakes the loop (InputTask::wakeLoop), so the long tick.
+  if (goodies_remote::allowsRadioIdleSleep()) return IDLE_WAIT_LONG_MS;
+#endif
   if (radioIdle) return IDLE_WAIT_SETTLED_MS;
   return IDLE_WAIT_LONG_MS;
 }

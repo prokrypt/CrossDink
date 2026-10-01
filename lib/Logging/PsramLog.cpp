@@ -6,9 +6,11 @@
 #include <esp_psram.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <sdkconfig.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 
@@ -30,6 +32,9 @@ EXT_RAM_NOINIT_ATTR Ring ring;
 // Internal RAM, zeroed every boot.
 portMUX_TYPE ringMux = portMUX_INITIALIZER_UNLOCKED;
 bool initDone = false;
+// waitForAppend(): append() gives it while a reader waits.
+SemaphoreHandle_t appendSignal = nullptr;
+std::atomic<bool> readerWaiting{false};
 
 void appendRaw(const char* text, const uint32_t len) {
   portENTER_CRITICAL_SAFE(&ringMux);
@@ -103,6 +108,26 @@ void append(const char* text, const size_t len) {
   if (len == 0 || !ensureInit()) return;
   appendBootLineIfPending();
   appendRaw(text, static_cast<uint32_t>(len));
+  if (readerWaiting.load(std::memory_order_acquire)) {
+    xPortInIsrContext() ? xSemaphoreGiveFromISR(appendSignal, nullptr) : xSemaphoreGive(appendSignal);
+  }
+}
+
+bool waitForAppend(const uint32_t since, const uint32_t timeoutMs) {
+  if (!appendSignal) appendSignal = xSemaphoreCreateBinary();  // first long-poll, server task
+  if (!appendSignal) {
+    vTaskDelay(pdMS_TO_TICKS(timeoutMs));
+    return end() != since;
+  }
+  const TickType_t until = xTaskGetTickCount() + pdMS_TO_TICKS(timeoutMs);
+  xSemaphoreTake(appendSignal, 0);  // a give left from an earlier wait
+  readerWaiting.store(true, std::memory_order_release);
+  while (end() == since) {
+    const TickType_t left = until - xTaskGetTickCount();
+    if (static_cast<int32_t>(left) <= 0 || xSemaphoreTake(appendSignal, left) != pdTRUE) break;
+  }
+  readerWaiting.store(false, std::memory_order_release);
+  return end() != since;
 }
 
 uint32_t oldest() {

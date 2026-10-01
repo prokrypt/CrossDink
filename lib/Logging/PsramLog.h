@@ -26,6 +26,9 @@ uint32_t end();
 // A cursor the writer has lapped snaps forward to the oldest byte. Returns 0
 // at the end of the log.
 size_t read(uint32_t& cursor, char* dst, size_t maxLen);
+// Blocks the calling task until end() moves past `since` (woken by append, no
+// polling) or timeoutMs passes. One waiter at a time. True when text arrived.
+bool waitForAppend(uint32_t since, uint32_t timeoutMs);
 }  // namespace PsramLog
 #else
 namespace PsramLog {
@@ -33,5 +36,6 @@ inline void append(const char*, size_t) {}
 inline uint32_t oldest() { return 0; }
 inline uint32_t end() { return 0; }
 inline size_t read(uint32_t&, char*, size_t) { return 0; }
+inline bool waitForAppend(uint32_t, uint32_t) { return false; }
 }  // namespace PsramLog
 #endif

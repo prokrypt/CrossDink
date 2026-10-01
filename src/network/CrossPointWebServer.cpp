@@ -25,7 +25,9 @@
 #include <esp_heap_caps.h>
 #include <esp_image_format.h>
 #include <esp_ota_ops.h>
+#include <esp_wifi.h>
 #include <freertos/idf_additions.h>
+#include <lwip/sockets.h>
 #endif
 
 #include <algorithm>
@@ -494,7 +496,8 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // switches both back to full power (noteTransferActivity). An AP must stay
   // awake to beacon, so it keeps the modem on throughout.
   transferActive.store(false, std::memory_order_relaxed);
-  WiFi.setSleep(!apMode);
+  if (apMode) WiFi.setSleep(false);
+  setIdleModemSleep();
   powerManager.setRadioIdleSleepAllowed(!apMode);
   // Default varies by ESP32 core version. The activity's loss-recovery loop
   // relies on driver retries during transient disconnects.
@@ -525,7 +528,16 @@ void CrossPointWebServer::begin(const bool logOnly) {
   server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
   server->on("/api/ota", HTTP_POST, [this] { handleOtaDone(); }, [this] { handleOtaData(); });
 #endif
-  server->onNotFound([this] { handleNotFound(); });
+  server->on("/api/status", HTTP_GET, [this] {
+    releasePollHold();
+    logOnly_ ? handleLiteStatus() : handleStatus();
+  });
+  // Watchers probe routes this server lacks: a 404 is a poll too, so it must
+  // not hold full power for transferLingerMs.
+  server->onNotFound([this] {
+    releasePollHold();
+    handleNotFound();
+  });
   if (logOnly) {
     // Nothing else: no SD access behind other screens, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
@@ -580,10 +592,6 @@ void CrossPointWebServer::registerFullRoutes() {
   server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
   server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
-  server->on("/api/status", HTTP_GET, [this] {
-    releasePollHold();
-    handleStatus();
-  });
   server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
 #if CROSSDINK_GOODIES && !defined(SIMULATOR)
   // Battery log rows still in PSRAM, after the last row of /debug/logs/battery.csv.
@@ -699,6 +707,7 @@ bool CrossPointWebServer::upgradeToFull() {
     startWsAndUdp();
   }
   logOnly_ = false;
+  if (!isTransferActive()) setIdleModemSleep();  // MIN_MODEM: full routes want quicker replies
   stopRequested.store(false, std::memory_order_relaxed);
   // Full handlers write the SD card: internal-RAM stack, as begin(false).
   if (!startServeTask(/*psramStack=*/false)) return false;
@@ -769,12 +778,23 @@ void CrossPointWebServer::serverTaskMain(void* param) {
 
 void CrossPointWebServer::serveUntilStopped() {
   LOG_DBG("WEB", "Serving on core %d", xPortGetCoreID());
+  bool readable = false;  // the last idle wait ended on socket traffic
   while (!stopRequested.load(std::memory_order_acquire)) {
     if (allowsIdleSleep() && !isTransferActive()) {
-      // Idle STA: one pass per poll, blocked in between so tickless idle can
+      // Idle STA: one pass per wake, blocked in between so tickless idle can
       // light-sleep. A request found here switches to transfer mode.
-      handleClient();
-      if (!isTransferActive()) vTaskDelay(pdMS_TO_TICKS(IDLE_POLL_MS));
+      const bool served = handleClient();
+      logIdleStats();
+      if (isTransferActive()) continue;
+      if (readable && !served) {
+        // Woke on a socket that had nothing for the server (an EOF it has
+        // not closed yet, a discovery packet): poll once so it can't spin.
+        ++idleStats.spurious;
+        readable = false;
+        vTaskDelay(pdMS_TO_TICKS(IDLE_POLL_MS));
+      } else {
+        readable = waitForTraffic();
+      }
       continue;
     }
     for (int i = 0; i < ACTIVE_PASSES_PER_TICK && !stopRequested.load(std::memory_order_relaxed); i++) {
@@ -796,18 +816,18 @@ std::string CrossPointWebServer::takeExitFlashPath() {
   return path;
 }
 
-void CrossPointWebServer::handleClient() {
+bool CrossPointWebServer::handleClient() {
   static bool loggedActive = false;
 
   // Check running flag FIRST before accessing server
   if (!isRunning()) {
-    return;
+    return false;
   }
 
   // Double-check server pointer is valid
   if (!server) {
     LOG_DBG("WEB", "WARNING: handleClient called with null server!");
-    return;
+    return false;
   }
 
   // Confirm once that the handler loop is running.
@@ -861,6 +881,7 @@ void CrossPointWebServer::handleClient() {
 
   updateTransferIdle();
   publishWsStatus();
+  return pending;
 }
 
 bool PendingAwareWebServer::requestPending() {
@@ -877,7 +898,7 @@ void CrossPointWebServer::noteTransferActivity() {
   // updateTransferIdle() or stop() ends the hold.
   powerManager.beginBackgroundWork();
   if (!apMode) WiFi.setSleep(false);
-  LOG_DBG("WEB", "Transfer started: full power");
+  ++idleStats.holds;
 }
 
 void CrossPointWebServer::updateTransferIdle() {
@@ -894,8 +915,82 @@ void CrossPointWebServer::endTransferHold() {
   transferActive.store(false, std::memory_order_relaxed);
   // The main loop drops the CPU lock on its next idle tick.
   powerManager.endBackgroundWork();
-  if (!apMode) WiFi.setSleep(true);
-  LOG_DBG("WEB", "Transfer idle: modem and light sleep allowed");
+  setIdleModemSleep();
+}
+
+void CrossPointWebServer::setIdleModemSleep() {
+  if (apMode) return;
+#ifndef SIMULATOR
+  const bool maxModem = logOnly_ && KNOBS.wifiMaxModem;
+  WiFi.setSleep(maxModem ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
+  // listen_interval goes out in the association request: a change applies at
+  // the next (re)association. Arduino's WiFi.begin() resets it to 0 (= 3).
+  static uint8_t loggedMode = 0xFF, loggedInterval = 0;
+  wifi_config_t conf;
+  uint8_t interval = 0;
+  if (maxModem && esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK) {
+    interval = conf.sta.listen_interval ? conf.sta.listen_interval : 3;
+    if (interval != KNOBS.wifiListenInterval) {
+      conf.sta.listen_interval = KNOBS.wifiListenInterval;
+      if (esp_wifi_set_config(WIFI_IF_STA, &conf) == ESP_OK) interval = KNOBS.wifiListenInterval;
+    }
+  }
+  // Logged only when it changes: a log line per poll would end every log long-poll.
+  if (loggedMode != maxModem || (maxModem && loggedInterval != interval)) {
+    loggedMode = maxModem;
+    loggedInterval = interval;
+    LOG_INF("WEB", "idle modem sleep %s%s, listen_interval %u (next association)", maxModem ? "MAX" : "MIN",
+            logOnly_ ? " (log-only)" : "", interval);
+  }
+#else
+  WiFi.setSleep(true);
+#endif
+}
+
+bool CrossPointWebServer::waitForTraffic() {
+#ifndef SIMULATOR
+  // This server's sockets, found by local port: the HTTP listener and its
+  // clients, the WebSocket listener and clients, the discovery UDP socket.
+  fd_set fds;
+  FD_ZERO(&fds);
+  int maxFd = -1;
+  for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd) {
+    sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (lwip_getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) continue;
+    // sin_port and sin6_port share an offset.
+    const uint16_t local = ntohs(reinterpret_cast<const sockaddr_in*>(&addr)->sin_port);
+    if (local != port && !(wsServer && local == wsPort) && !(udpActive && local == LOCAL_UDP_PORT)) continue;
+    FD_SET(fd, &fds);
+    maxFd = std::max(maxFd, fd);
+  }
+  if (maxFd >= 0) {
+    timeval timeout = {static_cast<time_t>(IDLE_POLL_MS / 1000), static_cast<suseconds_t>(IDLE_POLL_MS % 1000 * 1000)};
+    const int ready = lwip_select(maxFd + 1, &fds, nullptr, nullptr, &timeout);
+    if (ready > 0) {
+      ++idleStats.traffic;
+      return true;
+    }
+    ++idleStats.timeouts;
+    if (ready == 0) return false;
+  }
+#endif
+  // No socket to watch (or select failed): poll.
+  vTaskDelay(pdMS_TO_TICKS(IDLE_POLL_MS));
+  return false;
+}
+
+void CrossPointWebServer::logIdleStats() {
+  const unsigned long now = millis();
+  if (idleStatsMs == 0) idleStatsMs = now;
+  if (now - idleStatsMs < 60000) return;
+  idleStatsMs = now;
+  const IdleStats st = idleStats;
+  idleStats = {};
+  LOG_INF("WEB", "idle 60s: wakes traffic=%lu spurious=%lu timeout=%lu holds=%lu log long-poll waits=%lu woken=%lu",
+          static_cast<unsigned long>(st.traffic), static_cast<unsigned long>(st.spurious),
+          static_cast<unsigned long>(st.timeouts), static_cast<unsigned long>(st.holds),
+          static_cast<unsigned long>(st.logWaits), static_cast<unsigned long>(st.logWoken));
 }
 
 // Log tail and status polls are a few KB: end the hold now instead of
@@ -1033,7 +1128,10 @@ void CrossPointWebServer::handlePsramLog() const {
   const uint32_t since = tail ? strtoul(server->arg("since").c_str(), nullptr, 10) : 0;
   if (tail) {
     const uint32_t waitMs = std::min<uint32_t>(strtoul(server->arg("wait").c_str(), nullptr, 10), 5000);
-    for (uint32_t waited = 0; PsramLog::end() == since && waited < waitMs; waited += 50) vTaskDelay(pdMS_TO_TICKS(50));
+    if (waitMs > 0 && PsramLog::end() == since) {
+      ++idleStats.logWaits;
+      if (PsramLog::waitForAppend(since, waitMs)) ++idleStats.logWoken;
+    }
   }
   uint32_t cursor = PsramLog::oldest();
   // since > end: the ring restarted (power loss or deep sleep) after that offset.
@@ -1161,6 +1259,20 @@ void CrossPointWebServer::handleScreenshot() const {
   server->sendContent(reinterpret_cast<const char*>(pbm), len);
 }
 #endif
+
+void CrossPointWebServer::handleLiteStatus() const {
+  JsonDocument doc;
+  doc["version"] = AppVersion::version();
+  doc["ip"] = WiFi.localIP().toString();
+  doc["mode"] = "STA";
+  doc["rssi"] = WiFi.RSSI();
+  doc["freeHeap"] = ESP.getFreeHeap();
+  doc["uptime"] = millis() / 1000;
+  doc["logOnly"] = true;
+  String json;
+  serializeJson(doc, json);
+  server->send(200, "application/json", json);
+}
 
 void CrossPointWebServer::handleStatus() const {
   // Get correct IP based on AP vs STA mode
