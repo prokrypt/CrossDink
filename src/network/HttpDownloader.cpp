@@ -124,13 +124,19 @@ struct Sink {
   uint32_t maxWriteMs = 0;           // slowest SD write (downloadToFile)
   uint32_t stallTimeoutMs = 0;       // DownloadOptions::stallTimeoutMs
   bool stalled = false;              // the body stopped for stallTimeoutMs
+  bool headOnly = false;             // DownloadOptions::headOnly
+  uint32_t firstByteTimeoutMs = 0;   // DownloadOptions::firstByteTimeoutMs
+  uint32_t startMs = 0;              // millis() when runGet started
 };
 
 // wolfSSL path abort poll: a user cancel, or a body that stopped arriving.
 bool shouldAbortTransfer(Sink& sink) {
   if (isCancelRequested(sink.cancelFlag, sink.shouldCancel)) return true;
-  if (sink.stallTimeoutMs == 0 || sink.lastDataMs == 0) return false;
-  if (millis() - sink.lastDataMs < sink.stallTimeoutMs) return false;
+  if (sink.lastDataMs == 0) {
+    if (sink.firstByteTimeoutMs == 0 || millis() - sink.startMs < sink.firstByteTimeoutMs) return false;
+  } else if (sink.stallTimeoutMs == 0 || millis() - sink.lastDataMs < sink.stallTimeoutMs) {
+    return false;
+  }
   sink.stalled = true;
   return true;
 }
@@ -221,8 +227,10 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     }
 
     // "shared": a following request to the same host logs no new TLS handshake.
-    LOG_DBG("HTTP", "wolfSSL GET%s: %s", sharedHttp ? " (shared)" : "", logUrl(currentUrl).c_str());
-    const int status = http.GET(
+    const char* method = sink.headOnly ? "HEAD" : "GET";
+    LOG_DBG("HTTP", "wolfSSL %s%s: %s", method, sharedHttp ? " (shared)" : "", logUrl(currentUrl).c_str());
+    const int status = http.sendRequest(
+        method, nullptr, 0,
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
           const int responseStatus = http.getStatus();
           const bool isResumeResponse = sink.resumeOffset > 0 && responseStatus == 206;
@@ -541,6 +549,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
                                      const HttpDownloader::Transport transport,
                                      freeink::SecureHttpClient* const sharedHttp = nullptr) {
   const unsigned long startedMs = millis();
+  sink.startMs = startedMs;
   const size_t startBytes = sink.downloaded;
   const auto result =
       runGetTransport(url, username, password, authorizationOrigin, sink, bufferSize, transport, sharedHttp);
@@ -594,6 +603,9 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   sink.write = onData;
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);
+  sink.headOnly = options.headOnly;
+  sink.firstByteTimeoutMs = options.firstByteTimeoutMs;
+  sink.stallTimeoutMs = options.stallTimeoutMs;
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
   return runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport,
                 options.connection);

@@ -32,6 +32,9 @@ class OpdsBookDownloader {
     bool resume = false;
     // In: the failed attempt's validator, sent as If-Range. Out: this response's.
     std::string validator;
+    // Only learn the file size (total()) with a HEAD request; nothing is
+    // written. total() stays 0 when the server sends no Content-Length.
+    bool sizeOnly = false;
   };
 
   OpdsBookDownloader() = default;

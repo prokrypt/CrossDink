@@ -63,6 +63,22 @@ void OpdsBookDownloader::run() {
   LOG_DBG("OPDS", "Downloading: %s -> %s", UrlUtils::maskUserInfo(job.url).c_str(), job.path.c_str());
   const unsigned long startMs = millis();
 
+  if (job.sizeOnly) {
+    // HEAD through the same redirects as the download; its Content-Length is the size.
+    HttpDownloader::DownloadOptions options;
+    options.shouldCancel = [this]() { return cancelling(); };
+    options.transport = HttpDownloader::Transport::WOLFSSL;
+    options.authorizationOrigin = job.authorizationOrigin;
+    options.headOnly = true;
+    options.firstByteTimeoutMs = 10000;  // the prompt shows "?" rather than waiting 60 s
+    HttpDownloader::streamUrl(
+        job.url, [](const uint8_t*, size_t) { return true; },
+        [this](size_t, const size_t total) { bytesTotal.store(total, std::memory_order_release); }, job.username,
+        job.password, std::move(options));
+    LOG_INF("OPDS", "Size probe: %zu bytes in %lu ms", total(), millis() - startMs);
+    return;
+  }
+
   auto makeOptions = [this]() {
     HttpDownloader::DownloadOptions options;
     options.shouldCancel = [this]() { return cancelRequested.load(std::memory_order_acquire); };

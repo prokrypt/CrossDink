@@ -327,6 +327,7 @@ class OptionPopup {
   }
 
   bool isActive() const { return active; }
+  void setNote(Note note) { popupNote = note; }
 
   void dismiss(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (active) cancel(input, requestUpdate, false);

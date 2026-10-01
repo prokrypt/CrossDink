@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <string>
+#include <utility>
 
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
@@ -13,6 +14,10 @@ class ConfirmationActivity : public Activity {
   bool overrideDisabledReaderTouchscreen = false;
   const char* confirmLabel = nullptr;  // null: "Confirm"
   bool confirmFocused = false;
+  const char* noteLabel = nullptr;
+  std::string noteBody;
+  bool (*notePoll)(void* ctx, std::string& body) = nullptr;
+  void* notePollCtx = nullptr;
 
  public:
   ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& heading,
@@ -24,6 +29,17 @@ class ConfirmationActivity : public Activity {
   void setConfirmOption(const char* label, bool focused) {
     confirmLabel = label;
     confirmFocused = focused;
+  }
+
+  // Bold-label note under the question ("Size: 1.6 MB"). poll, when set, runs
+  // each loop and returns true after rewriting body; the note then redraws.
+  // Call before the activity starts.
+  void setNote(const char* label, std::string body, bool (*poll)(void* ctx, std::string& body) = nullptr,
+               void* ctx = nullptr) {
+    noteLabel = label;
+    noteBody = std::move(body);
+    notePoll = poll;
+    notePollCtx = ctx;
   }
 
   void onEnter() override;
