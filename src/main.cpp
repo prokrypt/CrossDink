@@ -2063,7 +2063,6 @@ KNOB_ALIAS(IDLE_WAIT_LONG_MS, idleWaitLongMs);
 // Toasts, hold thresholds and the Home double tap all resolve within a couple
 // of seconds of the last input, so the idle tick stays short until then.
 KNOB_ALIAS(IDLE_WAIT_BACKOFF_AFTER_MS, idleBackoffAfterMs);
-KNOB_ALIAS(IDLE_WAIT_LONG_AFTER_MS, idleLongAfterMs);
 
 bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
@@ -2283,7 +2282,7 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   // into radio idle (OPDS list, KOSync result) only needs the loop for input,
   // exit requests and link checks: 4 wakes/s instead of 20.
   if (radioIdle) return IDLE_WAIT_SETTLED_MS;
-  return idleMs < IDLE_WAIT_LONG_AFTER_MS ? IDLE_WAIT_SETTLED_MS : IDLE_WAIT_LONG_MS;
+  return IDLE_WAIT_LONG_MS;
 }
 
 #if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
@@ -2622,8 +2621,10 @@ static void loopPass() {
     }
     mappedInputManager.clearInjectedReleases();
     // Nothing draws while locked; wait like an idle pass (ends early on input).
+    // Unlock holds and unwired inputs keep the 10 ms tick.
     loopPassBlocked = true;
-    InputTask::waitForInput(10);
+    InputTask::waitForInput(!InputWake::coversAllInputs() || anyInputHeld() ? 10
+                                                                            : idleWaitMs(millis() - lastActivityTime));
     return;
   }
 
