@@ -122,11 +122,11 @@ void BatteryStatsActivity::buildLines() {
   }
 
   const uint32_t now = BatteryLog::nowEpoch();
-  if (s.unplugEpoch != 0 && now > s.unplugEpoch) {
-    BookReadingStats::formatDuration(now - s.unplugEpoch, a, sizeof(a));
-    add("Unplugged %s ago at %u%%", a, s.unplugPct);
+  if (s.chargedEpoch != 0 && now > s.chargedEpoch) {
+    BookReadingStats::formatDuration(now - s.chargedEpoch, a, sizeof(a));
+    add("Last charged %s ago at %u%%", a, s.chargedPct);
   } else {
-    add("Unplugged: not seen since reset");
+    add("Last charged: not seen since reset");
   }
   formatRate(a, sizeof(a), s.dropAwakePct, s.battAwakeS);
   add("Awake drain: %s", a);
@@ -141,8 +141,8 @@ void BatteryStatsActivity::buildLines() {
 
   BookReadingStats::formatDuration(s.awakeS, a, sizeof(a));
   BookReadingStats::formatDuration(s.asleepS, b, sizeof(b));
-  add("Wakes %lu  Boots %lu  Awake %s  Asleep %s", static_cast<unsigned long>(s.wakes),
-      static_cast<unsigned long>(s.boots), a, b);
+  add("Wakes %lu  False %lu  Boots %lu  Awake %s  Asleep %s", static_cast<unsigned long>(s.wakes),
+      static_cast<unsigned long>(s.falseWakes + s.pendingFalseWakes), static_cast<unsigned long>(s.boots), a, b);
   const auto& c = HalDisplay::refreshCounts().n;
   add("Refresh: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
       static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),

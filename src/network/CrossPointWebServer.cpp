@@ -1246,8 +1246,9 @@ void CrossPointWebServer::handleStatus() const {
     st["wakes"] = s.wakes;
     st["awakeS"] = s.awakeS;
     st["asleepS"] = s.asleepS;
-    st["unplugEpoch"] = s.unplugEpoch;
-    st["unplugPct"] = s.unplugPct;
+    st["chargedEpoch"] = s.chargedEpoch;
+    st["chargedPct"] = s.chargedPct;
+    st["falseWakes"] = s.falseWakes + s.pendingFalseWakes;
     st["battAwakeS"] = s.battAwakeS;
     st["battAsleepS"] = s.battAsleepS;
     st["dropAwakePct"] = s.dropAwakePct;

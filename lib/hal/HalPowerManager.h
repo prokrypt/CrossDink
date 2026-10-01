@@ -118,6 +118,9 @@ class HalPowerManager {
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the lockCount
   void startDeepSleep(HalGPIO& gpio) const;
+  // Also wake from deep sleep when the charger STAT pin changes (charge start or
+  // stop), so the battery log can record it. Off unless set.
+  bool wakeOnChargeChange = false;
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;

@@ -245,11 +245,11 @@ function summary() {
     const drop = st.dropAwakePct + st.dropAsleepPct;
     const span = st.battAwakeS + st.battAsleepS;
     rows.push(
-      ['Unplugged', st.unplugEpoch && st.now > st.unplugEpoch ? `${hrs(st.now - st.unplugEpoch)} ago at ${st.unplugPct}%` : 'not seen since reset'],
+      ['Last charged', st.chargedEpoch && st.now > st.chargedEpoch ? `${hrs(st.now - st.chargedEpoch)} ago at ${st.chargedPct}%` : 'not seen since reset'],
       ['Awake drain', rate(st.dropAwakePct, st.battAwakeS) + ' over ' + hrs(st.battAwakeS)],
       ['Asleep drain', rate(st.dropAsleepPct, st.battAsleepS) + ' over ' + hrs(st.battAsleepS)],
       ['Est. left at that pace', drop > 0 && span >= 60 ? hrs((b.percent * span) / drop) : '-'],
-      ['Wakes / boots', st.wakes + ' / ' + st.boots],
+      ['Wakes / false wakes / boots', `${st.wakes} / ${st.falseWakes} / ${st.boots}`],
       ['Awake / asleep', hrs(st.awakeS) + ' / ' + hrs(st.asleepS)],
       ['Refreshes', Object.entries(st.refresh || {}).map(([k, v]) => k + ' ' + v).join(', ')]
     );
