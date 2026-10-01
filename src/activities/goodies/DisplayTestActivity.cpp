@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 
@@ -168,7 +169,7 @@ void DisplayTestActivity::runOps() {
         duFrames = static_cast<uint8_t>(op.a[0]);
         break;
       case OpCode::Pll:
-        pll = static_cast<uint8_t>(op.a[0]);
+        pll = knobs::PLL_BYTES[op.a[0]];  // index checked when the script was parsed
         break;
       case OpCode::Scrub:
 #ifndef SIMULATOR

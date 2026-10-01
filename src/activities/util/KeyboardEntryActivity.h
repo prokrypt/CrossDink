@@ -88,7 +88,7 @@ class KeyboardEntryActivity : public Activity {
 
  public:
   // Debug builds (serial CMD:KBDEXP): overrides the Turbo keyboard preset at
-  // the next keyboard open, so the trial bits (64, 128) and a PLL value stay
+  // the next keyboard open, so the trial bits (64, 128) and a PLL choice stay
   // reachable without a file. Held in RAM until cleared or reboot.
   static void setExperimentOverride(uint8_t flags, uint8_t frames, uint8_t pll);
   static void clearExperimentOverride();

@@ -2,6 +2,8 @@
 
 #if CROSSDINK_GOODIES
 
+#include <Knobs.h>
+
 #include <cstdlib>
 #include <cstring>
 
@@ -177,7 +179,9 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
   }
   if (verb == "pll") {
     op.code = OpCode::Pll;
-    return numbers(args, argc, 0, 1, op) && op.a[0] <= 0xFF ? nullptr : "pll 0x00..0xFF";
+    // An index into knobs::PLL_BYTES, never a raw 0x30 byte.
+    const bool ok = numbers(args, argc, 0, 1, op) && op.a[0] >= 0 && op.a[0] < knobs::PLL_CHOICES;
+    return ok ? nullptr : "pll 0..2 (default/40/50 Hz)";
   }
   if (verb == "window" || verb == "resync") {
     // Both can leave the OLD plane unlike the panel (a windowed upload of a

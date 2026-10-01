@@ -58,7 +58,7 @@ commands are rejected, and the result screen shows the failing line.
 | `label A \| B \| C` | White band across the top with up to 3 parts (A bold), word-wrapped to the width, shown by the next refresh. Convention: what this is \| what to look for \| what is next. |
 | `refresh full\|half\|fast\|du` | Show the framebuffer. `du` is a Fast refresh with the keyboard's balanced DU LUT (compile-time DC-balance checked); the others run the panel's OTP waveforms. |
 | `frames N` | DU LUT frames (1..63, default 6). |
-| `pll 0xNN` | PLL (0x30) value during DU refreshes; `0` keeps the default. |
+| `pll N` | PLL during DU refreshes, as `kbdPll`: 0 = panel default, 1 = 40 Hz, 2 = 50 Hz (`knobs::PLL_BYTES`; raw 0x30 bytes are refused). |
 | `scrub half\|du` | The next Fast/DU refresh runs as a Half scrub, or a DU scrub (DU needs `refresh du`). |
 | `swing N` | UC8179: refresh to the framebuffer with a balanced N-frame DU swing of every pixel (1..120). |
 | `null N` | UC8179: null discharge, sources at GND and VCOM at VCOM_DC for 2 x N frames; pixels do not move (1..120). |
