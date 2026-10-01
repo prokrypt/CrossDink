@@ -42,7 +42,7 @@ svg text { fill: var(--label-color); }
 .wifi { fill: #3b82f6; background: #3b82f6; opacity: 0.35; }
 .off { fill: #dc2626; background: #dc2626; opacity: 0.3; }
 .key { display: inline-block; width: 12px; height: 12px; margin: 0 4px 0 10px; vertical-align: middle; border-radius: 3px; }
-.ln { height: 3px; background: currentColor; }
+.ln { width: 0; height: 14px; border-left: 2px dashed currentColor; border-radius: 0; margin-right: 6px; } /* vertical, like the chart markers */
 .c-boot { color: #dc2626; } .m-boot { stroke: #dc2626; }
 .c-rst { color: #db2777; } .m-rst { stroke: #db2777; }
 .c-fw { color: #9333ea; } .m-fw { stroke: #9333ea; }
