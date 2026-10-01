@@ -1012,13 +1012,16 @@ void CrossPointWebServer::handlePsramLog() const {
 #endif
 
 #if CROSSDINK_SERIAL_REMOTE
+// The requesting client, for the bad-token lockout.
+static uint32_t clientIp(WebServer& server) { return static_cast<uint32_t>(server.client().remoteIP()); }
+
 // Debug builds: runs one serial-remote command (docs/serial-remote.md) on the
 // main task. Token and SD access stay on the main task too.
 void CrossPointWebServer::handleRemoteCmd() const {
   if (server->arg("cmd") == "SCREENSHOT") return handleScreenshot();
   static char out[256];  // Static: server task only, keeps the reply off its stack
-  const int status =
-      SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(), out, sizeof(out), 12000);
+  const int status = SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(),
+                                                    clientIp(*server), out, sizeof(out), 12000);
   server->send(status, "text/plain; charset=utf-8", out);
 }
 
@@ -1037,8 +1040,8 @@ void CrossPointWebServer::handleOtaData() const {
   static char out[32];
   switch (raw.status) {
     case RAW_START:
-      otaAuthorized =
-          SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", out, sizeof(out), 12000) == 200;
+      otaAuthorized = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", clientIp(*server), out,
+                                                     sizeof(out), 12000) == 200;
       otaResult =
           otaAuthorized ? firmware_flash::streamBegin(server->clientContentLength()) : firmware_flash::Result::OK;
       break;
@@ -1077,15 +1080,16 @@ void CrossPointWebServer::handleOtaDone() const {
   delay(200);  // let the reply leave before the restart
   // Restart on the main task, between loop passes, as CMD:REBOOT does.
   static char out[32];
-  SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "REBOOT", out, sizeof(out), 2000);
+  SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "REBOOT", clientIp(*server), out, sizeof(out),
+                                 2000);
 }
 
 // Debug builds: the current framebuffer as a PBM, captured on the main task
 // under the render lock (so never half-drawn) and sent from its static copy.
 void CrossPointWebServer::handleScreenshot() const {
   static char out[64];
-  const int status =
-      SerialRemote::runFromOtherTask(server->arg("token").c_str(), "SCREENSHOT", out, sizeof(out), 12000);
+  const int status = SerialRemote::runFromOtherTask(server->arg("token").c_str(), "SCREENSHOT", clientIp(*server), out,
+                                                    sizeof(out), 12000);
   if (status != 200) {
     server->send(status, "text/plain; charset=utf-8", out);
     return;
