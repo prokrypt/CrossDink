@@ -3,9 +3,10 @@
 const $ = (id) => document.getElementById(id);
 let text = '';
 
-function add(label, url, dl) {
+function add(label, url, dl, zp = dl) {
   const o = new Option(label, url);
   o.dataset.dl = dl;
+  o.dataset.zp = zp;
   $('src').add(o);
 }
 
@@ -17,7 +18,7 @@ async function walk(dir, depth) {
     if (f.isDirectory) {
       if (depth < 3) await walk(p, depth + 1);
     } else if (f.name.toLowerCase() !== 'remote-token') {
-      add(p.slice(1) + ' (' + f.size.toLocaleString() + ' B)', '/download?path=' + encodeURIComponent(p), f.name);
+      add(p.slice(1) + ' (' + f.size.toLocaleString() + ' B)', '/download?path=' + encodeURIComponent(p), f.name, p.slice(1));
     }
   }
 }
@@ -56,6 +57,31 @@ async function load() {
   load();
 })();
 $('src').onchange = load;
+// Download all: the browser zips every source with the File Manager's JSZip,
+// fetching one at a time since the SD card serves one reader.
+$('all').onclick = async () => {
+  $('all').disabled = true;
+  try {
+    if (!window.JSZip)
+      await new Promise((ok, no) => document.head.append(Object.assign(document.createElement('script'), { src: '/js/jszip.min.js', onload: ok, onerror: no })));
+    const zip = new JSZip();
+    const srcs = [...$('src').options].map((o) => [o.value, o.dataset.zp]).concat([['/api/battery-pending', 'battery-pending.csv']]);
+    for (const [u, name] of srcs) {
+      $('meta').textContent = 'Zipping ' + name + '...';
+      const r = await fetch(u).catch(() => null);
+      if (r && r.ok) zip.file(name, await r.blob());
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }));
+    a.download = 'crossdink-logs-' + new Date().toISOString().slice(0, 16).replace(/\D/g, '') + '.zip';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    show();
+  } catch (e) {
+    $('meta').textContent = 'Zip failed: ' + e;
+  }
+  $('all').disabled = false;
+};
 $('q').oninput = show;
 $('q').onkeydown = (e) => e.key === 'Enter' && show();
 $('go').onclick = show;
