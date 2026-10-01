@@ -140,12 +140,19 @@ void load(const bool skipFile) {
   // Only crashes and power cycles count: a wake from sleep or an intentional
   // restart (Wi-Fi entry/exit, OTA) ended the last boot cleanly.
   const esp_reset_reason_t reason = esp_reset_reason();
+  const char* record = !bootRecordValid() ? "invalid" : "valid";
   if (!bootRecordValid() || reason == ESP_RST_POWERON || reason == ESP_RST_DEEPSLEEP || reason == ESP_RST_SW) {
+    if (bootRecordValid()) record = "reset";
     setBadBoots(0);
   }
+  // One line per boot: record state, crash-boot count, what happened to the file.
+  const auto logBoot = [&](const char* file) {
+    LOG_INF("KNOB", "boot: record %s (reset %d), bad boots %lu, knobs.json %s", record, static_cast<int>(reason),
+            static_cast<unsigned long>(bootRecord.badBoots), file);
+  };
   if (skipFile) {
     // Safe boot: the file stays; the next boot without Back loads it again.
-    LOG_INF("KNOB", "Back held at boot: knobs.json ignored, defaults in use");
+    logBoot("bypassed (Back held), defaults in use");
     apply();
     return;
   }
@@ -157,6 +164,7 @@ void load(const bool skipFile) {
     if (Storage.exists(BAD_PATH)) Storage.remove(BAD_PATH);
     if (Storage.exists(PATH) && !Storage.rename(PATH, BAD_PATH)) Storage.remove(PATH);
     setBadBoots(0);
+    logBoot("set aside as knobs.bad.json");
     apply();
     return;
   }
@@ -170,7 +178,11 @@ void load(const bool skipFile) {
       LOG_INF("KNOB", "%s = %ld (default %ld)", INFO[i].id, static_cast<long>(get(i)), static_cast<long>(INFO[i].def));
       ++loaded;
     }
-    LOG_INF("KNOB", "%d knobs from knobs.json (boot %lu)", loaded, static_cast<unsigned long>(bootRecord.badBoots));
+    char file[32];
+    snprintf(file, sizeof(file), "loaded, %d knobs", loaded);
+    logBoot(file);
+  } else {
+    logBoot("none, defaults in use");
   }
   apply();
 }
