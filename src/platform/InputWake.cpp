@@ -12,6 +12,13 @@
 #include <freertos/semphr.h>
 #include <hal/gpio_ll.h>
 #include <soc/gpio_struct.h>
+#if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
+#include <esp_attr.h>
+#include <soc/gpio_periph.h>
+#include <soc/io_mux_reg.h>
+#include <soc/rtc_cntl_reg.h>
+#include <soc/rtc_io_reg.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -32,6 +39,45 @@ std::atomic<bool> chargeWoke{false};
 int8_t touchWakePin = -1;
 std::atomic<uint32_t> buttonWakes{0};
 std::atomic<uint32_t> touchWakes{0};
+#endif
+
+#if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
+// STAT pad state, digital and RTC side: after a charge-wake deep sleep the RTC
+// wake saw STAT at the level wait() armed against, so every light sleep was
+// rejected until a power-on reset (20261001T223751Z). Logs show which RTC-domain
+// bits (kept through deep sleep and SW restart) differ from a normal wake.
+struct StatPad {
+  uint32_t magic, gpioIn, rtcIn, iomux, pad, pin, status, hold;
+};
+constexpr uint32_t kStatPadMagic = 0x57A7A0D1;
+RTC_NOINIT_ATTR StatPad prevBootPad;  // this boot's snapshot, printed by the next boot
+bool statPadLater = true;
+
+// S3: RTC IO number == GPIO number for GPIO0-21; pad and pin registers are 4 bytes apart.
+StatPad readStatPad(const int n) {
+  return {kStatPadMagic,
+          static_cast<uint32_t>(gpio_get_level(static_cast<gpio_num_t>(n))),
+          (REG_READ(RTC_GPIO_IN_REG) >> (RTC_GPIO_IN_NEXT_S + n)) & 1,
+          REG_READ(GPIO_PIN_MUX_REG[n]),
+          REG_READ(RTC_IO_TOUCH_PAD0_REG + 4 * n),
+          REG_READ(RTC_GPIO_PIN0_REG + 4 * n),
+          REG_READ(RTC_GPIO_STATUS_REG),
+          REG_READ(RTC_CNTL_PAD_HOLD_REG)};
+}
+
+void logStatPad(const char* when, const int n, const StatPad& p) {
+  const auto bit = [](const uint32_t v, const int s) { return static_cast<unsigned>((v >> s) & 1); };
+  LOG_INF("STATPAD",
+          "%s GPIO%d gpio=%u rtc=%u | dig ie=%u pd=%u pu=%u slpsel=%u | rtc mux=%u ie=%u slpie=%u slpsel=%u rde=%u "
+          "rue=%u | rtcwake en=%u type=%u st=%u hold=%u | raw iomux=%08lx pad=%08lx pin=%08lx",
+          when, n, static_cast<unsigned>(p.gpioIn), static_cast<unsigned>(p.rtcIn), bit(p.iomux, FUN_IE_S),
+          bit(p.iomux, FUN_PD_S), bit(p.iomux, FUN_PU_S), bit(p.iomux, SLP_SEL_S), bit(p.pad, RTC_IO_PAD21_MUX_SEL_S),
+          bit(p.pad, RTC_IO_PAD21_FUN_IE_S), bit(p.pad, RTC_IO_PAD21_SLP_IE_S), bit(p.pad, RTC_IO_PAD21_SLP_SEL_S),
+          bit(p.pad, RTC_IO_PAD21_RDE_S), bit(p.pad, RTC_IO_PAD21_RUE_S),
+          bit(p.pin, RTC_GPIO_PIN21_WAKEUP_ENABLE_S), static_cast<unsigned>((p.pin >> RTC_GPIO_PIN21_INT_TYPE_S) & 7),
+          bit(p.status, RTC_GPIO_STATUS_INT_S + n), bit(p.hold, n), static_cast<unsigned long>(p.iomux),
+          static_cast<unsigned long>(p.pad), static_cast<unsigned long>(p.pin));
+}
 #endif
 
 // Wake lines use level interrupts, because only those can also end a light
@@ -71,6 +117,13 @@ bool addWakePin(const int8_t pin) {
 
 void InputWake::begin() {
   if (wakeSignal != nullptr) return;
+#if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
+  if (const int8_t s = BoardConfig::ACTIVE.batteryChargeStatus; s >= 0 && s <= 21) {
+    if (prevBootPad.magic == kStatPadMagic) logStatPad("prev boot", s, prevBootPad);
+    prevBootPad = readStatPad(s);
+    logStatPad("boot", s, prevBootPad);
+  }
+#endif
   wakeSignal = xSemaphoreCreateBinary();
   if (wakeSignal == nullptr) {
     LOG_ERR("WAKE", "Could not create input wake semaphore");
@@ -145,6 +198,13 @@ void InputWake::wait(const uint32_t timeoutMs) {
     }
     gpio_intr_enable(pin);
   }
+#if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
+  // Once, after the battery monitor has configured STAT.
+  if (statPadLater && chargePin >= 0 && chargePin <= 21 && millis() >= 5000) {
+    statPadLater = false;
+    logStatPad("5s", chargePin, readStatPad(chargePin));
+  }
+#endif
   xSemaphoreTake(wakeSignal, pdMS_TO_TICKS(timeoutMs));
 }
 
