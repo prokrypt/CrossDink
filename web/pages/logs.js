@@ -382,19 +382,23 @@ function logStats() {
   const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: null, bA: 0, bS: 0, dA: 0, dS: 0, u: 0.01 });
   let s = zero(false);
   let prev = null;
+  let ref = null; // drop reference: as prev, but a whole-% row after fractional ones is skipped
   for (const r of bat) {
     const c = r.ev === 'boot' && cold(r.det);
     if (r.ev === 'stats_reset') s = zero(true);
     else if (s.first && prev && r.t >= prev.t && !c) {
       // The span from the previous row is awake or asleep; before a cold boot it was off.
       const dt = r.t - prev.t;
-      const drop = Math.max(0, prev.pct - r.pct);
+      const drop = Math.max(0, ref.pct - r.pct);
       const awake = !(prev.ev === 'sleep' || prev.det.startsWith('asleep'));
       s[awake ? 'awake' : 'asleep'] += dt;
-      if (!prev.usb && !r.usb) {
+      // Same rule as the device: drops between rows of one precision; a whole
+      // row inside fractional data counts time only; after a whole row,
+      // fractional data starts the window over.
+      if (!prev.usb && !r.usb && ref.q === r.q) {
         awake ? ((s.bA += dt), (s.dA += drop)) : ((s.bS += dt), (s.dS += drop));
-        s.u = Math.max(s.u, prev.q, r.q);
-      }
+        s.u = Math.max(s.u, r.q);
+      } else if (!prev.usb && !r.usb && ref.q < r.q) awake ? (s.bA += dt) : (s.bS += dt);
     }
     s.first ||= r.t;
     s.last = r.t;
@@ -403,7 +407,9 @@ function logStats() {
     const f = /false_wakes=(\d+)/.exec(r.det);
     if (f) s.falseWakes += +f[1];
     if (r.ev === 'charged') s.charged = r;
-    if (r.ev === 'charged' || r.ev === 'chg_off') (s.bA = s.bS = s.dA = s.dS = 0), (s.u = 0.01);
+    const start = r.ev === 'charged' || r.ev === 'chg_off';
+    if (start) (s.bA = s.bS = s.dA = s.dS = 0), (s.u = 0.01);
+    if (!ref || r.q <= ref.q || start || r.ev === 'stats_reset' || c) ref = r;
     prev = r;
   }
   return s;
@@ -428,11 +434,12 @@ function summary() {
     const pct = b.percent ?? bat[bat.length - 1].pct;
     const drop = s.dA + s.dS;
     const span = s.bA + s.bS;
+    const min = s.u === 1 ? 2 : 0.2; // minimum drop: 2% from whole-% rows, 0.2% fractional
     rows.push(
       ['Last charged', s.charged && now > s.charged.t ? `${hrs(now - s.charged.t)} ago at ${s.charged.pct}%` : 'not in the log'],
-      ['Awake drain', s.dA >= 2 && s.bA >= 60 ? rate(s.dA, s.bA, s.u) + ' over ' + hrs(s.bA) : NOT_ENOUGH],
-      ['Asleep drain', s.dS >= 2 && s.bS >= 60 ? rate(s.dS, s.bS, s.u) + ' over ' + hrs(s.bS) : NOT_ENOUGH],
-      ['Est. left at that pace', drop >= 2 && span >= 60 ? left(pct, drop, span, s.u) : NOT_ENOUGH],
+      ['Awake drain', s.dA >= min && s.bA >= 60 ? rate(s.dA, s.bA, s.u) + ' over ' + hrs(s.bA) : NOT_ENOUGH],
+      ['Asleep drain', s.dS >= min && s.bS >= 60 ? rate(s.dS, s.bS, s.u) + ' over ' + hrs(s.bS) : NOT_ENOUGH],
+      ['Est. left at that pace', drop >= min && span >= 60 ? left(pct, drop, span, s.u) : NOT_ENOUGH],
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],

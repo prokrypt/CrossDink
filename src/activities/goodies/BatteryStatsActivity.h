@@ -61,8 +61,8 @@ class BatteryStatsActivity final : public Activity {
   Point points[MAX_POINTS];
   LogStats st{};
   Point prev{};  // last row read, carried across the two files
-  uint16_t prevC = 0;     // its % in 0.01 %
-  bool prevFine = false;  // its % had a fraction
+  uint16_t prevC = 0;     // drop reference % in 0.01 % (the previous row, or the last fractional one)
+  bool prevFine = false;  // that % had a fraction
   bool prevUsb = false;
   HalFile file;
   std::unique_ptr<char[]> buf;

@@ -44,8 +44,8 @@ const char* field(const char* row, int n) {
 
 // A logged % is whole ("71", older rows and rows logged asleep) or has the
 // CW2017 fraction ("71.43"), so a drop is exact to ±1 or ±0.01: rates and
-// estimates carry that ±, and wait for a 2% drop.
-constexpr uint32_t MIN_DROP_C = 200;
+// estimates carry that ±, and wait for a 2% drop (0.2% when fractional).
+uint32_t minDropC(const bool coarse) { return coarse ? 200 : 20; }
 constexpr char NOT_ENOUGH[] = "not enough data";
 
 // "71.43" -> 7143; fine = the field had a fraction.
@@ -58,7 +58,7 @@ uint16_t parseCenti(const char* field, bool& fine) {
 
 // "4.12±0.20%/h over 5h 10 min".
 void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t seconds, const bool coarse) {
-  if (dropC < MIN_DROP_C || seconds < 60) {
+  if (dropC < minDropC(coarse) || seconds < 60) {
     snprintf(out, size, "%s", NOT_ENOUGH);
     return;
   }
@@ -168,10 +168,16 @@ void BatteryStatsActivity::parseRow(const char* line) {
     const uint32_t dt = epoch - prev.epoch;
     const uint32_t drop = prevC > pctC ? prevC - pctC : 0;
     (prev.awake ? st.awakeS : st.asleepS) += dt;
-    if (!prevUsb && !usb) {
+    // Drops come from rows of one precision: a whole row (a charger event
+    // logged asleep) inside fractional data counts its time, and the drop is
+    // taken across it from prevC; after a whole row, fractional data starts
+    // the window over (its rounding would be a drop of up to 1%).
+    if (!prevUsb && !usb && fine == prevFine) {
       (prev.awake ? st.battAwakeS : st.battAsleepS) += dt;
       (prev.awake ? st.dropAwakeC : st.dropAsleepC) += drop;
-      if (!prevFine || !fine) st.coarse = true;
+      if (!fine) st.coarse = true;
+    } else if (!prevUsb && !usb && prevFine) {
+      (prev.awake ? st.battAwakeS : st.battAsleepS) += dt;
     }
   }
   if (st.first == 0) st.first = epoch;
@@ -183,7 +189,8 @@ void BatteryStatsActivity::parseRow(const char* line) {
     st.chargedEpoch = epoch;
     st.chargedPct = pct;
   }
-  if (is("charged") || is("chg_off")) {
+  const bool windowStart = is("charged") || is("chg_off");
+  if (windowStart) {
     st.battAwakeS = st.battAsleepS = st.dropAwakeC = st.dropAsleepC = 0;
     st.coarse = false;
   }
@@ -193,8 +200,11 @@ void BatteryStatsActivity::parseRow(const char* line) {
     pointCount = MAX_POINTS / 2;
   }
   prev = {epoch, pct, !asleep};
-  prevC = pctC;
-  prevFine = fine;
+  // A whole row after fractional ones is not a drop reference, unless it starts the window.
+  if (fine || !prevFine || windowStart || is("stats_reset") || cold) {
+    prevC = pctC;
+    prevFine = fine;
+  }
   prevUsb = usb;
   points[pointCount++] = prev;
 }
@@ -230,7 +240,7 @@ void BatteryStatsActivity::buildLines() {
   add("Asleep drain: %s", a);
   const uint32_t drop = st.dropAwakeC + st.dropAsleepC;
   const uint32_t span = st.battAwakeS + st.battAsleepS;
-  if (drop >= MIN_DROP_C && span >= 60) {
+  if (drop >= minDropC(st.coarse) && span >= 60) {
     // The drop's ± (1% or 0.01%) moves the estimate by about left * ± / drop.
     const uint64_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
     const uint32_t left = static_cast<uint32_t>(pctC * span / drop);
