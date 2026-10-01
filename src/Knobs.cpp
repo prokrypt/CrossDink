@@ -9,8 +9,10 @@
 #include <PersistableStore.h>
 #include <esp_attr.h>
 #include <esp_system.h>
+#include <uzlib.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 
 Knobs KNOBS;
@@ -38,11 +40,33 @@ void (*const PUT[])(int32_t) = {
 };
 
 // Boots since the device last stayed up 30 s. RTC_NOINIT survives crashes,
-// restarts and deep sleep; after power-on the magic is garbage and resets it.
-RTC_NOINIT_ATTR uint32_t bootMagic;
-RTC_NOINIT_ATTR uint32_t badBoots;
-constexpr uint32_t BOOT_MAGIC = 0x4B4E4F42;  // "KNOB"
+// restarts and deep sleep, but holds garbage after power-on, and CrossPoint or
+// CrossInk flashed over USB and back may leave their own data at this address,
+// so the count lives in one sealed record (ReaderProgressShadow's pattern) and
+// any failed check starts it from zero.
+struct BootRecord {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t size;
+  uint32_t badBoots;
+  uint32_t crc;
+};
+RTC_NOINIT_ATTR BootRecord bootRecord;
+constexpr uint32_t BOOT_MAGIC = 0x43444B42;  // "CDKB", CrossDink only
+constexpr uint16_t BOOT_VERSION = 1;
 constexpr uint32_t MAX_BAD_BOOTS = 3;
+
+uint32_t bootCrc() { return uzlib_crc32(&bootRecord, offsetof(BootRecord, crc), 0); }
+
+bool bootRecordValid() {
+  return bootRecord.magic == BOOT_MAGIC && bootRecord.version == BOOT_VERSION &&
+         bootRecord.size == sizeof(BootRecord) && bootRecord.crc == bootCrc() && bootRecord.badBoots <= MAX_BAD_BOOTS;
+}
+
+void setBadBoots(const uint32_t n) {
+  bootRecord = {BOOT_MAGIC, BOOT_VERSION, sizeof(BootRecord), std::min(n, MAX_BAD_BOOTS + 1), 0};
+  bootRecord.crc = bootCrc();
+}
 constexpr uint32_t GOOD_BOOT_MS = 30000;
 bool bootCleared = false;
 
@@ -116,9 +140,8 @@ void load(const bool skipFile) {
   // Only crashes and power cycles count: a wake from sleep or an intentional
   // restart (Wi-Fi entry/exit, OTA) ended the last boot cleanly.
   const esp_reset_reason_t reason = esp_reset_reason();
-  if (bootMagic != BOOT_MAGIC || reason == ESP_RST_DEEPSLEEP || reason == ESP_RST_SW) {
-    bootMagic = BOOT_MAGIC;
-    badBoots = 0;
+  if (!bootRecordValid() || reason == ESP_RST_POWERON || reason == ESP_RST_DEEPSLEEP || reason == ESP_RST_SW) {
+    setBadBoots(0);
   }
   if (skipFile) {
     // Safe boot: the file stays; the next boot without Back loads it again.
@@ -126,13 +149,14 @@ void load(const bool skipFile) {
     apply();
     return;
   }
-  if (++badBoots > MAX_BAD_BOOTS) {
+  setBadBoots(bootRecord.badBoots + 1);
+  if (bootRecord.badBoots > MAX_BAD_BOOTS) {
     // A knob may be what keeps the device from staying up: set the file aside.
     LOG_ERR("KNOB", "%lu boots without 30 s up: knobs.json moved to knobs.bad.json, defaults in use",
-            static_cast<unsigned long>(badBoots - 1));
+            static_cast<unsigned long>(MAX_BAD_BOOTS));
     if (Storage.exists(BAD_PATH)) Storage.remove(BAD_PATH);
     if (Storage.exists(PATH) && !Storage.rename(PATH, BAD_PATH)) Storage.remove(PATH);
-    badBoots = 0;
+    setBadBoots(0);
     apply();
     return;
   }
@@ -146,7 +170,7 @@ void load(const bool skipFile) {
       LOG_INF("KNOB", "%s = %ld (default %ld)", INFO[i].id, static_cast<long>(get(i)), static_cast<long>(INFO[i].def));
       ++loaded;
     }
-    LOG_INF("KNOB", "%d knobs from knobs.json (boot %lu)", loaded, static_cast<unsigned long>(badBoots));
+    LOG_INF("KNOB", "%d knobs from knobs.json (boot %lu)", loaded, static_cast<unsigned long>(bootRecord.badBoots));
   }
   apply();
 }
@@ -154,7 +178,7 @@ void load(const bool skipFile) {
 void loop() {
   if (bootCleared || millis() < GOOD_BOOT_MS) return;
   bootCleared = true;
-  badBoots = 0;
+  setBadBoots(0);
 }
 }  // namespace knobs
 
