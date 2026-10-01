@@ -18,7 +18,7 @@ namespace {
 constexpr uint32_t PREFETCH_STACK_BYTES = 12 * 1024;
 // No byte for this long (before or during the body): give up instead of the
 // 60 s request timeout, so a dead socket doesn't hold the radio awake.
-constexpr uint32_t PREFETCH_SILENCE_TIMEOUT_MS = 8000;
+constexpr uint32_t PREFETCH_SILENCE_TIMEOUT_MS = 10000;
 }  // namespace
 
 OpdsPagePrefetcher::~OpdsPagePrefetcher() {
