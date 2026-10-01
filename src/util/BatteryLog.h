@@ -68,6 +68,10 @@ void noteFalseWake();
 void poll(uint32_t idleMs);
 // Any task.
 void event(const char* name, const char* detail = nullptr);
+// Main loop. A user light change (on release, not per slider step) or the Light
+// Timeout (timedOut: dark; its restore passes false). Ducks and transfer pulses
+// never call it. Logs a "light" row when the level differs from the last one.
+void lightChanged(bool timedOut = false);
 // Main loop only. Appends the unflushed rows to the SD file.
 bool flush();
 // Any task: hands the rows not yet on the SD card to sink, oldest first, in
@@ -85,6 +89,7 @@ inline void onChargeWake() {}
 inline void noteFalseWake() {}
 inline void poll(uint32_t) {}
 inline void event(const char*, const char* = nullptr) {}
+inline void lightChanged(bool = false) {}
 #endif
 
 constexpr char LOG_PATH[] = "/debug/logs/battery.csv";

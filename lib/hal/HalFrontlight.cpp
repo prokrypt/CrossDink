@@ -41,7 +41,8 @@ void HalFrontlight::setOn(const bool on) {
 void HalFrontlight::setIdleDim(const uint8_t percent) {
   idleDim = percent > 100 ? 100 : percent;
   if (lit) {
-    manager.setBrightness(static_cast<uint8_t>(lastBrightness * idleDim / 100));
+    // Rounded: at a low brightness the few duty steps fall mid-fade, not at its start and end.
+    manager.setBrightness(static_cast<uint8_t>((lastBrightness * idleDim + 50) / 100));
   }
 }
 

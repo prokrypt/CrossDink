@@ -924,6 +924,7 @@ void notifyQuickLockChanged() {
   if (locked) {
     APP_STATE.quickLockRestoreFrontlight = Frontlight.isOn();
     Frontlight.setOn(false);
+    BatteryLog::lightChanged();
     activityManager.notifyInputLockChanged(true);
     int top = 0;
     int right = 0;
@@ -955,6 +956,7 @@ void notifyQuickLockChanged() {
     }
     if (APP_STATE.quickLockRestoreFrontlight) {
       Frontlight.setOn(true);
+      BatteryLog::lightChanged();
       APP_STATE.quickLockRestoreFrontlight = false;
     }
     if (!restoredBadgeBackdrop) (void)activityManager.requestUpdateAndWait();
@@ -1862,6 +1864,7 @@ void setup() {
   }
   Frontlight.releaseAfterWake();
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  BatteryLog::lightChanged();  // onBoot ran before the light was set up
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
@@ -2088,19 +2091,20 @@ static bool radioMayIdle() {
 // Longest idle wait for the power-saving branch of loop(). When every input
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
-// Flash duck: fade the frontlight out from the input that starts a flashing
-// refresh (HalDisplay::flashPlannedMs: on UC8179 the driver plans the swing at
-// refresh entry, before its power and SPI work) so it reaches the Flash Dim Level as the swing shows
+// Flash duck: fade the frontlight out from when the driver plans a flashing
+// refresh (HalDisplay::flashPlannedMs: on UC8179 at refresh entry, before its
+// power and SPI work) so it reaches the Flash Dim Level as the swing shows
 // (HalDisplay::flashStartedMs: on UC8179 the driver's DRF time plus the
-// waveform's own offset, e.g. direct gray holds white for 24 of 50 frames), and
-// back up over FLASH_DUCK_UP_MS once the refresh ends. Until DRF the swing time
-// is the last measured input-to-dark time of that kind, then the fade retargets
-// from where it is. A flash no input started fades over at least
-// FLASH_DUCK_DOWN_MS. Goodies > Knobs flash*DimMs / flash*RestoreMs shift both
-// ends, per waveform (HalDisplay::flashKind: AA page, Half/Full, DU paint). Runs
-// alongside the refresh (render task) and never waits on it. A mark older than
-// FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends. The
-// times are Goodies > Knobs; a zero fade never divides (both ramps test it first).
+// waveform's own offset: direct gray drives the background black from frame
+// 24 of 50), and back up over FLASH_DUCK_UP_MS once the refresh ends. Until DRF
+// the swing time is the plan time plus the last measured plan-to-dark time of
+// that kind, then the fade retargets from where it is. An unplanned flash
+// fades over at least FLASH_DUCK_DOWN_MS. Goodies > Knobs flash*DimMs /
+// flash*RestoreMs shift both ends, per waveform (HalDisplay::flashKind: AA
+// page, Half/Full, DU paint). Runs alongside the refresh (render task) and
+// never waits on it. A mark older than FLASH_DUCK_MAX_MS is an async refresh
+// nobody waited on, so it ends. The times are Goodies > Knobs; a zero fade
+// never divides (both ramps test it first).
 KNOB_ALIAS(FLASH_DUCK_DOWN_MS, flashDownMs);
 KNOB_ALIAS(FLASH_DUCK_MAX_MS, flashMaxMs);
 KNOB_ALIAS(FLASH_DUCK_UP_MS, flashUpMs);
@@ -2151,18 +2155,18 @@ static void updateFlashDuck() {
       swingMs != 0 && restoreMs < 0 && swingEndMs != 0 && static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
   const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
   const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && holdLate);
-  // Input to dark per kind (Gray, Full, Paint), re-measured by every flash an
-  // input started. Seeds: 20261001T021833Z-2c6751af.txt AA turns swipe to DRF
-  // 109-448 ms (L3404->L3412 109, L3758->L3767 205, L3361->L3376 448; the
-  // default Gray dim is dark at DRF); Full and Paint are guesses.
-  // ponytail: early-biased estimate capped at kMaxLeadMs, so a miss errs dark
-  // early, rarely a drop at DRF.
+  // Plan to dark per kind (Gray, Full, Paint), re-measured by every planned
+  // flash: the driver's own SPI/power work, so it barely varies (render time
+  // and queueing come before the plan; input to dark ran 109-448 ms). Seeds:
+  // logs/device/20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215 74 ms and
+  // L6236->L6240 69 ms (gray LSB to DRF; the default Gray dim is dark at DRF);
+  // Full (SPI ~27 ms) and Paint (POF 82 + PON 127 + SPI 54 + reset) inferred.
   constexpr uint32_t kMaxLeadMs = 600;
-  static uint16_t leadMs[3] = {150, 150, 400};
+  static uint16_t leadMs[3] = {75, 60, 330};
   static uint8_t leadKind = 0;
-  static bool byInput = false;      // the fade started at the input
   static bool learned = false;      // this flash's lead is stored
-  static uint32_t fadeStartMs = 0;  // input (or mark) the fade counts from
+  static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
+  static uint32_t planMs = 0;       // when the driver planned this flash (0: unplanned)
   static uint32_t fromMs = 0, darkMs = 0;
   static uint8_t fromLevel = 100;  // the fade runs from (fromMs, fromLevel) to the floor at darkMs
   // The user (brightness, toggle, Quick Lock) or the light timeout took over.
@@ -2183,25 +2187,26 @@ static void updateFlashDuck() {
   unsigned long level;
   if (ducking) {
     if (fresh && !holdLate) {
-      byInput = now - inputMs < kMaxLeadMs;
-      fadeStartMs = byInput ? inputMs : now;
+      // From the plan, the earliest sign of a flash (input to plan is render
+      // time, ~150 ms: a fade from the input stepped down ~60% at the plan,
+      // logs/device/20261001T041615Z-32cc8fdd L6350->L6357).
+      planMs = marked ? markMs : 0;
+      fadeStartMs = planMs != 0 ? planMs : now;
       fromMs = fadeStartMs;
       fromLevel = flashDuckLevel;
       darkMs = 0;
       learned = false;
       leadKind = static_cast<uint8_t>(kind);
     }
-    uint32_t target = swingMs != 0 ? swingMs + dimMs : fadeStartMs + leadMs[leadKind];
-    if (swingMs != 0 && byInput && !learned) {
+    uint32_t target = swingMs != 0 ? swingMs + dimMs : planMs + leadMs[leadKind];
+    if (swingMs != 0 && planMs != 0 && !learned) {
       learned = true;
-      const int32_t lead = static_cast<int32_t>(target - fadeStartMs);
-      // Down at once, up a quarter: a slow outlier must not start the next fade late.
-      const int32_t prev = leadMs[leadKind];
-      leadMs[leadKind] =
-          static_cast<uint16_t>(std::clamp<int32_t>(lead < prev ? lead : prev + (lead - prev) / 4, 0, kMaxLeadMs));
-      LOG_DBG("LIGHT", "Flash duck: input to dark %ld ms (kind %u)", static_cast<long>(lead), leadKind);
+      const int32_t lead = static_cast<int32_t>(target - planMs);
+      leadMs[leadKind] = static_cast<uint16_t>(std::clamp<int32_t>(lead, 0, kMaxLeadMs));
+      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)", static_cast<long>(lead),
+              static_cast<long>(target - inputMs), leadKind);
     }
-    if (!byInput && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
+    if (planMs == 0 && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
       target = fadeStartMs + FLASH_DUCK_DOWN_MS;
     }
     if (darkMs == 0) {
@@ -2511,6 +2516,7 @@ static void loopPass() {
   if (userInputReceived && lightTimedOut) {
     lightTimedOut = false;
     Frontlight.setIdleDim(100);
+    BatteryLog::lightChanged();
     LOG_DBG("LIGHT", "Light timeout: restored by input");
   }
   const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
@@ -2524,6 +2530,7 @@ static void loopPass() {
         if (Frontlight.idleDimPercent() == 100) LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
         Frontlight.setIdleDim(level);
         lightTimedOut = true;
+        if (level == 0) BatteryLog::lightChanged(true);
       }
     }
   }
