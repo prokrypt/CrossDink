@@ -106,8 +106,6 @@ $('all').onclick = async () => {
   $('all').disabled = false;
 };
 $('q').oninput = show;
-$('q').onkeydown = (e) => e.key === 'Enter' && show();
-$('go').onclick = show;
 
 // Log text size, remembered in this browser.
 let fontPx = 14;
@@ -256,7 +254,7 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
   }
   for (let q = 0; q <= 4; q++) {
     const v = lo + ((hi - lo) * q) / 4;
-    s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="0" y="${y(v) + 4}">${fmt(v)}</text>`;
+    s += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text${key2 ? ' class="t1"' : ''} x="0" y="${y(v) + 4}">${fmt(v)}</text>`;
   }
   for (let q = 0; q <= ticks; q++) {
     const t = t0 + ((t1 - t0) * q) / ticks;
