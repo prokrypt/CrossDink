@@ -20,8 +20,12 @@
   starting the Wi-Fi driver) runs on its own task, so input and drawing never wait for it (logged as
   `join task N ms`). With no saved network, turning it on opens the Wi-Fi picker. While the idle server waits
   for requests, the device power saves as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
-- **Keyboard test** opens the on-screen keyboard on a scratch field (nothing is saved); **Turbo keyboard**
-  toggles the Turbo Keyboard setting (its frames are the `kbdFrames` knob).
+- **Keyboard test**: **Type** opens the on-screen keyboard on a scratch field (kept while Goodies is open, never
+  saved). The rows below are - / + steppers for Turbo keyboard and the typing knobs (`kbdFrames`, `kbdPll`,
+  `kbdHighlightDelayMs`, `kbdTouchHoldMs`, `kbdTouchDelHoldMs`, `contactJumpPx`, `tapSlopPx`); Left/Right step on
+  button devices. Values apply at once (frames and Turbo at the next keyboard open). The page holds the deferred
+  settings write (`Activity::holdsSettingsFlush`), so nothing is written while it is open; the write comes after you
+  leave it (by the time Goodies closes), or before sleep, restart or a flash.
 - **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, one tab per area (tap or long-press Up/Down to switch), as `id value unit`
   (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
   values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and

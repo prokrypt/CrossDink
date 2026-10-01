@@ -43,6 +43,7 @@ namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_TAB = 2;
+constexpr fui::ActionId ACTION_STEP = 3;  // Keyboard test - / +: value = row * 2 (+ 1 for +)
 constexpr char DISPLAY_TEST_DIR[] = "/debug/display";
 constexpr size_t MAX_SD_TESTS = 64;
 
@@ -401,6 +402,10 @@ namespace {
 constexpr int KNOB_RESET_ALL = -2;
 constexpr int KNOB_DIM_LEVEL = -3;  // Flash Dim Level: the Display > Frontlight setting, not a knob
 constexpr int MAX_KNOB_TABS = 8;
+constexpr int KBD_TURBO = -4;  // Keyboard test: the Turbo Keyboard setting, not a knob
+// Keyboard test: the knobs that change typing feel, under Turbo keyboard.
+constexpr const char* KBD_TEST_KNOBS[] = {
+    "kbdFrames", "kbdPll", "kbdHighlightDelayMs", "kbdTouchHoldMs", "kbdTouchDelHoldMs", "contactJumpPx", "tapSlopPx"};
 
 // Knob groups in Knobs.def order (rows of a group are contiguous): one tab each.
 int knobGroups(const char* (&out)[MAX_KNOB_TABS]) {
@@ -417,6 +422,15 @@ const char* editUnit = "";  // unit of the knob being edited, for formatKnob
 void formatKnob(const int value, char* buf, const size_t len) { snprintf(buf, len, "%d %s", value, editUnit); }
 
 std::string turboRowValue() { return SETTINGS.turboKeyboard ? tr(STR_STATE_ON) : tr(STR_STATE_OFF); }
+
+// The scratch text's tail, cut on a UTF-8 boundary, so the row stays one line.
+std::string kbdTestPreview(const std::string& text) {
+  constexpr size_t MAX_BYTES = 24;
+  if (text.size() <= MAX_BYTES) return text;
+  size_t start = text.size() - MAX_BYTES;
+  while (start < text.size() && (static_cast<uint8_t>(text[start]) & 0xC0) == 0x80) ++start;
+  return "..." + text.substr(start);
+}
 
 std::string dimLevelRowValue() { return std::to_string(SETTINGS.flashDuckDepth) + " %"; }
 
@@ -440,6 +454,7 @@ void GoodiesActivity::onEnter() {
   goodies_remote::takePickerRequest();  // left over from a toggle made on an earlier visit
   app.on(ACTION_ROW, &GoodiesActivity::onRowEvent, this);
   app.on(ACTION_TAB, &GoodiesActivity::onTabEvent, this);
+  app.on(ACTION_STEP, &GoodiesActivity::onStepEvent, this);
   app.setScreen(&GoodiesActivity::listScreen, this);
   showLevel(Level::Root);
 }
@@ -455,11 +470,17 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({"API token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}});
     entries.push_back({"Keyboard test", -1, {}});
-    entries.push_back({tr(STR_TURBO_KEYBOARD), -1, {}, turboRowValue()});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
 #endif
+  } else if (level == Level::KeyboardTest) {
+    entries.push_back({"Type", -1, {}, kbdTestPreview(kbdTestText)});
+    entries.push_back({tr(STR_TURBO_KEYBOARD), KBD_TURBO, {}, turboRowValue()});
+    for (const char* id : KBD_TEST_KNOBS) {
+      const int i = knobs::find(id);
+      if (i >= 0) entries.push_back({id, i, {}, knobRowValue(i)});
+    }
   } else if (level == Level::Knobs) {
     const char* groups[MAX_KNOB_TABS];
     const int tabs = knobGroups(groups);
@@ -529,16 +550,7 @@ void GoodiesActivity::activate(const int index) {
     } else if (index == KNOBS_ROW) {
       showLevel(Level::Knobs);
     } else if (index == KBD_TEST_ROW) {
-      // A scratch field for trying typing feel and speed: nothing is saved.
-      startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard test"),
-                             [this](const ActivityResult&) {
-                               mappedInput.suppressNextConfirmRelease();
-                               requestUpdate();
-                             });
-    } else if (index == TURBO_ROW) {
-      SETTINGS.turboKeyboard = SETTINGS.turboKeyboard ? 0 : 1;
-      if (!SETTINGS.saveToFile()) LOG_ERR("GDY", "turbo keyboard: toggle not saved");
-      setRowValue(TURBO_ROW, turboRowValue());
+      showLevel(Level::KeyboardTest);
     } else {
 #ifndef SIMULATOR
       startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
@@ -547,6 +559,24 @@ void GoodiesActivity::activate(const int index) {
                                requestUpdate();
                              });
 #endif
+    }
+    return;
+  }
+  if (level == Level::KeyboardTest) {
+    if (index == 0) {
+      // A scratch field for trying typing feel and speed: kept while Goodies is open, never saved.
+      startActivityForResult(
+          std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard test", kbdTestText),
+          [this](const ActivityResult& result) {
+            mappedInput.suppressNextConfirmRelease();
+            if (!result.isCancelled) {
+              kbdTestText = std::get<KeyboardResult>(result.data).text;
+              setRowValue(0, kbdTestPreview(kbdTestText));
+            }
+            requestUpdate();
+          });
+    } else if (entries[index].builtIn == KBD_TURBO) {
+      stepKbdTest(index, 1);
     }
     return;
   }
@@ -730,6 +760,25 @@ void GoodiesActivity::onTabEvent(const fui::ActionEvent& event, void* user) {
   self->app.clearTapFlash();  // taps never highlight a tab
 }
 
+void GoodiesActivity::onStepEvent(const fui::ActionEvent& event, void* user) {
+  static_cast<GoodiesActivity*>(user)->pendingStep = event.value;
+}
+
+// Applies at once; the write waits until the page is left (holdsSettingsFlush),
+// or for sleep, restart or a firmware flash.
+void GoodiesActivity::stepKbdTest(const int row, const int dir) {
+  if (row <= 0 || row >= static_cast<int>(entries.size())) return;
+  const int index = entries[row].builtIn;
+  if (index == KBD_TURBO) {
+    SETTINGS.turboKeyboard = SETTINGS.turboKeyboard ? 0 : 1;
+    SETTINGS.saveToFile();
+    setRowValue(row, turboRowValue());
+    return;
+  }
+  knobs::set(index, knobs::get(index) + dir * knobs::INFO[index].step);
+  setRowValue(row, knobRowValue(index));
+}
+
 void GoodiesActivity::switchKnobTab(const int tab) {
   const char* groups[MAX_KNOB_TABS];
   const int tabs = knobGroups(groups);
@@ -762,9 +811,11 @@ void GoodiesActivity::loop() {
     if (snapshot.touchPressed || snapshot.touchReleased) {
       pendingRow = -1;
       pendingTab = -1;
+      pendingStep = -1;
       const auto event = app.route(snapshot);
       if (app.invalidated()) requestUpdate();
       if (pendingTab >= 0) switchKnobTab(pendingTab);
+      if (pendingStep >= 0) stepKbdTest(pendingStep / 2, pendingStep % 2 ? 1 : -1);
       if (pendingRow >= 0) activate(pendingRow);
       if (event) return;
     }
@@ -772,6 +823,19 @@ void GoodiesActivity::loop() {
   const int count = static_cast<int>(entries.size());
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     activate(selectedIndex);
+    return;
+  }
+
+  // Keyboard test: Up/Down pick a row, Left/Right are - / +.
+  if (level == Level::KeyboardTest) {
+    using Button = MappedInputManager::Button;
+    if (mappedInput.wasReleased(Button::Left) || mappedInput.wasReleased(Button::Right)) {
+      stepKbdTest(selectedIndex, mappedInput.wasReleased(Button::Right) ? 1 : -1);
+    } else if (mappedInput.wasReleased(Button::Up) || mappedInput.wasReleased(Button::Down)) {
+      selectedIndex = mappedInput.wasReleased(Button::Down) ? ButtonNavigator::nextIndex(selectedIndex, count)
+                                                            : ButtonNavigator::previousIndex(selectedIndex, count);
+      requestUpdate();
+    }
     return;
   }
 
@@ -847,6 +911,11 @@ void GoodiesActivity::buildListScreen(UiApp::ScreenType& screen) {
     screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   }
 
+  if (level == Level::KeyboardTest) {
+    buildKbdTestRows(screen);
+    return;
+  }
+
   const int count = static_cast<int>(rowItems.size());
   fui::ListProps props;
   props.items = rowItems.data();
@@ -862,9 +931,46 @@ void GoodiesActivity::buildListScreen(UiApp::ScreenType& screen) {
   screen.list(props);
 }
 
+void GoodiesActivity::buildKbdTestRows(UiApp::ScreenType& screen) {
+  const bool buttons = !mappedInput.hasTouchHardware();  // touch lists show no selection
+  const auto state = [&](const int row) {
+    return buttons && row == selectedIndex ? fui::StateSelected : fui::StateNormal;
+  };
+  fui::SettingRowProps type;
+  type.label = entries[0].label.c_str();
+  type.value = entries[0].value.c_str();
+  type.action = ACTION_ROW;
+  type.valueId = 0;
+  type.inputMask = fui::InputTouch;
+  type.labelText = screen.theme().bodyText;
+  type.valueText = screen.theme().bodyText;
+  type.drawChevron = true;
+  type.state = state(0);
+  screen.settingRow(type);
+  for (int row = 1; row < static_cast<int>(entries.size()); ++row) {
+    fui::StepperRowProps step;
+    step.row.label = entries[row].label.c_str();
+    step.row.labelText = screen.theme().bodyText;
+    step.row.valueText = screen.theme().bodyText;
+    step.row.inputMask = fui::InputTouch;
+    step.row.state = state(row);
+    step.value = entries[row].value.c_str();
+    step.widestValue = "8888 ms *";
+    step.decrement = ACTION_STEP;
+    step.increment = ACTION_STEP;
+    step.decrementValue = static_cast<int16_t>(row * 2);
+    step.incrementValue = static_cast<int16_t>(row * 2 + 1);
+    screen.stepperRow(step);
+  }
+  visibleRows = static_cast<int>(entries.size());
+}
+
 void GoodiesActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const char* title = level == Level::Root ? tr(STR_GOODIES) : level == Level::Knobs ? "Knobs" : tr(STR_DISPLAY_TEST);
+  const char* title = level == Level::Root           ? tr(STR_GOODIES)
+                      : level == Level::Knobs        ? "Knobs"
+                      : level == Level::KeyboardTest ? "Keyboard test"
+                                                     : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);
