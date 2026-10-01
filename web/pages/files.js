@@ -230,8 +230,10 @@ function sortHeader(key, label, cls) {
   return `<th class="sortable ${cls}" data-sort="${key}">${label}${arrow}</th>`;
 }
 
+// First click on a column: largest, newest or Z first (the default order is
+// already name A-Z); the next click flips it.
 function setFileSort(key) {
-  fileSort = { key, dir: fileSort.key === key ? -fileSort.dir : 1 };
+  fileSort = { key, dir: fileSort.key === key ? -fileSort.dir : -1 };
   try {
     sessionStorage.setItem("fileSort", JSON.stringify(fileSort));
   } catch (e) {}
