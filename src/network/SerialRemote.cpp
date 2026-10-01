@@ -370,6 +370,15 @@ void cmdSet(char* args) {
   }
   if (key == nullptr || valueArg == nullptr) return reply("ERR:SET:args");
   const long value = strtol(valueArg, nullptr, 0);
+  // An open book holds its effective reader values in SETTINGS and restores the
+  // globals it saw at open on exit. Edit and save the globals with the book's
+  // values set aside, as the Frontlight panel does; it reapplies them after.
+  struct BookAside {
+    bool on = activityManager.beginGlobalSettingsEdit();
+    ~BookAside() {
+      if (on) activityManager.endGlobalSettingsEdit();
+    }
+  } bookAside;
   for (const auto& s : getBaseSettingsList()) {
     if (s.key == nullptr || strcmp(s.key, key) != 0) continue;
     switch (s.type) {
