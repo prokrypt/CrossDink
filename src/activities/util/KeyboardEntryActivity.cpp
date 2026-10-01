@@ -1194,6 +1194,13 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
+  // No tap highlight means none: a stroke render that lands while the next
+  // finger is down would otherwise draw that key inverted (StateActive), so
+  // only some keys flashed while typing fast.
+  if (kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT) {
+    props.keyStyles = fui::defaultKeyStyles();
+    props.keyStyles.active = props.keyStyles.normal;
+  }
   props.selectedIndex = cursorMode || !selectionShown ? -1 : static_cast<int16_t>(selectedLogicalIndex());
   props.labelText.font = layoutId == fui::KeyboardLayoutId::ArabicAr && !symbols ? fui::GfxRendererTarget::FONT_SMALL
                                                                                  : fui::GfxRendererTarget::FONT_BODY;

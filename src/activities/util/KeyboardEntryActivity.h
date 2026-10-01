@@ -66,9 +66,9 @@ class KeyboardEntryActivity : public Activity {
   // exit. CMD:KBDEXP 100 = the same with the re-stream.
   static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
       KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
-  // DU frames per phase (two phases). Untested on hardware; the old one-way
-  // LUT needed 6 single-phase frames.
-  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 4;
+  // DU frames per phase (two phases). User 10/1 on 88859a0: 6 = acceptable gray
+  // and ghosting (4 ghosts, 5 dirtied before the VCOM fix).
+  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
   uint8_t kbdExpFlags = 0;
   uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   uint8_t kbdExpPll = 0;
