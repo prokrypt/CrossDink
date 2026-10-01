@@ -150,7 +150,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
     einkDisplay.requestResync(1);
   }
 
-  FlashScope flash(*this, mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  FlashScope flash(*this, mode);
   count(mode);
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
 }
@@ -165,7 +165,7 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
     einkDisplay.requestResync(1);
   }
 
-  markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  markFlash(mode);
   count(mode);
   einkDisplay.displayBufferAsyncNoShadow(convertRefreshMode(mode));
 }
@@ -177,7 +177,7 @@ void HalDisplay::waitRefreshComplete() {
 
 void HalDisplay::displayBufferDeferred(HalDisplay::RefreshMode mode) {
   HalSpiBus::Lock spiLock;
-  markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  markFlash(mode);
   count(mode);
   einkDisplay.displayBufferAsync(convertRefreshMode(mode));
 }
@@ -197,7 +197,8 @@ bool HalDisplay::supportsAsyncGrayscaleBase() const { return grayscaleCapabiliti
 bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback, bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
   if (gpio.deviceIsX3() && fallback == HALF_REFRESH) einkDisplay.requestResync(1);
-  FlashScope flash(*this, mode == GrayscaleMode::Direct || fallback != FAST_REFRESH);
+  FlashScope flash(*this, mode == GrayscaleMode::Direct || fallback != FAST_REFRESH,
+                   mode == GrayscaleMode::Direct ? FlashKind::Gray : FlashKind::Full);
   count(fallback);
   return einkDisplay.displayGrayscaleBase(mode, convertRefreshMode(fallback), turnOffScreen);
 }
@@ -209,7 +210,7 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
     einkDisplay.requestResync(1);
   }
 
-  FlashScope flash(*this, mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  FlashScope flash(*this, mode);
   count(mode);
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
 }
@@ -253,7 +254,7 @@ uint8_t* HalDisplay::lendFrameBufferStorage(uint32_t* sizeOut) { return einkDisp
 void HalDisplay::returnFrameBufferStorage() { einkDisplay.returnBuildStorage(); }
 
 void HalDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) {
-  markFlash(!smoothGray);
+  markFlash(!smoothGray, FlashKind::Gray);
   einkDisplay.copyGrayscaleBuffers(lsbBuffer, msbBuffer);
 }
 
@@ -280,19 +281,25 @@ void HalDisplay::preconditionGrayscale(uint16_t x, uint16_t y, uint16_t w, uint1
 }
 
 void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
-  markFlash(!smoothGray);
+  markFlash(!smoothGray, FlashKind::Gray);
   einkDisplay.copyGrayscaleLsbBuffers(lsbBuffer);
 }
 
-// Refreshes that may flash: Half/Full, the repaint that leaves gray
-// (grayOnPanel), and full-swing gray passes. On UC8179 this only keeps the main
-// loop ticking fast; the driver reports the real swing (flashStartedMs). Other
-// panels dim from here. Cleared when a refresh finishes; the main loop also
-// drops a stale mark.
-void HalDisplay::markFlash(const bool flashes) {
+// Refreshes that may flash: Half/Full, the Sharpflash repaint that leaves gray
+// (grayOnPanel; a Softfast one paints without a swing), and full-swing gray
+// passes. On UC8179 the main loop starts the duck's fade from here and the
+// driver reports the real swing (flashStartedMs). Other panels dim from here.
+// Cleared when a refresh finishes; the main loop also drops a stale mark.
+void HalDisplay::markFlash(const bool flashes, const FlashKind kind) {
   if (!flashes) return;
+  markKind.store(kind, std::memory_order_relaxed);
   flashStart.store(millis() | 1, std::memory_order_relaxed);  // | 1: never 0 while set
   count(FLASHING);
+}
+
+void HalDisplay::markFlash(const RefreshMode mode) {
+  markFlash(mode != FAST_REFRESH || (grayOnPanel() && !smoothGray),
+            mode == FAST_REFRESH ? FlashKind::Paint : FlashKind::Full);
 }
 
 uint32_t HalDisplay::flashEndsMs() const {

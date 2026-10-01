@@ -153,7 +153,7 @@
 
 ### Fixed
 - X4 Pro: Dim Light on Flash no longer dims on Softfast page turns, which don't flash.
-- X4 Pro: Dim Light on Flash fades the light out over 0.3 s, like the fade back up, instead of cutting it in one step. With the default timings the dark point falls at or before the moment the display announces the flash, which skipped the fade.
+- X4 Pro: Dim Light on Flash starts fading the light out right at your tap or button press and reaches the dim level as the flash shows, instead of cutting it in one step when the display announced the flash. The fade takes as long as each kind of refresh needs to reach its flash (about 0.15 s for an anti-aliased page turn, 0.4 s for closing a menu over one), measured again on every flash. A flash no input started fades over 0.3 s.
 - X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) ramps smoothly again instead of stepping, and File Transfer no longer pulses when the only traffic is log or status polling.
 - A two-finger or edge brightness slide that starts with the light off and ends at or below where it started now leaves the light off.
 - A brightness slide during a transfer light pulse now starts from your own brightness instead of the pulse level, and the level you slide to is kept when the transfer ends.
