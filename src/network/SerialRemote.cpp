@@ -30,6 +30,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #if CROSSDINK_SERIAL_REMOTE
 
 #include <Arduino.h>
+#include <BatteryMonitor.h>
 #include <FsHelpers.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
@@ -41,6 +42,9 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <soc/gpio_periph.h>
+#include <soc/gpio_reg.h>
+#include <soc/io_mux_reg.h>
 
 #include <algorithm>
 #include <atomic>
@@ -278,6 +282,76 @@ void cmdHeap() {
         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
         static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+}
+
+// GAUGEINT: which GPIO, if any, carries the CW2017 INT_N line. INT_N is an
+// open-drain ~1 ms low pulse, repeated at least every 1 s while an alert holds
+// (datasheet "Interrupt"). Counts falling edges on every pad for a baseline
+// window, then with a temperature alert forced (TEMP_MAX below the current
+// temperature, EN_TMX_INT set), then restores the registers and pads. Unused
+// candidate pads get input + pull-up only for the test (IO_MUX saved and
+// written back); every other pad is only read.
+void cmdGaugeInt() {
+  static const BatteryMonitor gauge;
+  constexpr uint8_t REG_TEMP = 0x06, REG_INT_CONF = 0x0A, REG_TEMP_MAX = 0x0C;
+  constexpr uint8_t EN_TMX_INT = 0x20, TMX_INT = 0x02;
+  constexpr uint8_t CANDIDATES[] = {15, 16, 17, 45, 46, 47, 48};  // unused on the X4 Pro
+  constexpr uint32_t BASE_MS = 1500, TRIG_MS = 3500;
+  uint8_t intConf = 0, tempMax = 0, temp = 0;
+  if (!gauge.readGaugeReg(REG_INT_CONF, intConf) || !gauge.readGaugeReg(REG_TEMP_MAX, tempMax) ||
+      !gauge.readGaugeReg(REG_TEMP, temp) || temp < 8) {
+    reply("ERR:GAUGEINT:gauge_read");
+    return;
+  }
+  uint32_t mux[sizeof(CANDIDATES)];
+  for (size_t i = 0; i < sizeof(CANDIDATES); ++i) {
+    mux[i] = REG_READ(GPIO_PIN_MUX_REG[CANDIDATES[i]]);
+    REG_SET_BIT(GPIO_PIN_MUX_REG[CANDIDATES[i]], FUN_IE | FUN_PU);
+  }
+  delay(5);
+  // Falling edges per pad over ms, polled in 100 ms bursts so the idle task runs.
+  const auto count = [](uint16_t(&fell)[49], const uint32_t ms) {
+    uint32_t p0 = REG_READ(GPIO_IN_REG), p1 = REG_READ(GPIO_IN1_REG);
+    const uint32_t start = millis();
+    while (millis() - start < ms) {
+      const uint32_t burst = millis();
+      while (millis() - burst < 100) {
+        const uint32_t c0 = REG_READ(GPIO_IN_REG), c1 = REG_READ(GPIO_IN1_REG);
+        for (uint32_t f = p0 & ~c0; f; f &= f - 1) ++fell[__builtin_ctz(f)];
+        for (uint32_t f = p1 & ~c1 & 0x1FFFF; f; f &= f - 1) ++fell[32 + __builtin_ctz(f)];
+        p0 = c0;
+        p1 = c1;
+      }
+      vTaskDelay(1);
+    }
+  };
+  uint16_t base[49] = {}, trig[49] = {};
+  const uint32_t lvl0 = REG_READ(GPIO_IN_REG), lvl1 = REG_READ(GPIO_IN1_REG);
+  count(base, BASE_MS);
+  // Alert while the temperature is above TEMP_MAX (same 0.5 C/LSB scale as TEMP).
+  const bool armed = gauge.writeGaugeReg(REG_TEMP_MAX, static_cast<uint8_t>(temp - 8)) &&
+                     gauge.writeGaugeReg(REG_INT_CONF, static_cast<uint8_t>((intConf & 0xF0) | EN_TMX_INT));
+  if (armed) count(trig, TRIG_MS);
+  uint8_t flags = 0;
+  const bool flagRead = gauge.readGaugeReg(REG_INT_CONF, flags);
+  // Restore: thresholds, enables as before, alert flags cleared (INT_CONF[3:0]).
+  const bool restored = gauge.writeGaugeReg(REG_TEMP_MAX, tempMax) &&
+                        gauge.writeGaugeReg(REG_INT_CONF, static_cast<uint8_t>(intConf & 0xF0));
+  for (size_t i = 0; i < sizeof(CANDIDATES); ++i) REG_WRITE(GPIO_PIN_MUX_REG[CANDIDATES[i]], mux[i]);
+  char pins[160] = "";
+  size_t n = 0;
+  for (int pin = 0; pin < 49 && n < sizeof(pins) - 16; ++pin) {
+    if (base[pin] || trig[pin]) {
+      n += snprintf(pins + n, sizeof(pins) - n, " %d:%u/%u", pin, base[pin], trig[pin]);
+    }
+  }
+  LOG_INF("SER",
+          "GAUGEINT int_conf=0x%02X temp_max=0x%02X temp=0x%02X armed=%d flags=0x%02X restored=%d lvl=%08lX/%05lX "
+          "edges(base/trig):%s",
+          intConf, tempMax, temp, armed, flagRead ? flags : 0xFF, restored, static_cast<unsigned long>(lvl0),
+          static_cast<unsigned long>(lvl1 & 0x1FFFF), n ? pins : " none");
+  reply("OK:GAUGEINT armed=%d tmx=%d restored=%d edges(base/trig):%s", armed, flagRead && (flags & TMX_INT), restored,
+        n ? pins : " none");
 }
 
 void cmdStatus() {
@@ -734,6 +808,8 @@ bool handleLine(const char* line) {
     reply("OK:ACTIVITY %s", activityManager.currentActivityName());
   } else if (strcmp(verb, "HEAP") == 0) {
     cmdHeap();
+  } else if (strcmp(verb, "GAUGEINT") == 0) {
+    cmdGaugeInt();
   } else if (strcmp(verb, "FBINFO") == 0) {
     reply("OK:FBINFO %u %u %u", static_cast<unsigned>(display.getDisplayWidth()),
           static_cast<unsigned>(display.getDisplayHeight()), static_cast<unsigned>(display.getBufferSize()));
