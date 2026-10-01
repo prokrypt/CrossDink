@@ -678,6 +678,9 @@ void KeyboardEntryActivity::loop() {
       highlightPending = false;
       // The tapped key keeps the highlight; only the initial preselect is hidden.
       if (tapHighlight) selectionShown = true;
+      // Turbo: the tapped key shows inverted in the refresh that prints it (no
+      // press refresh); it stays until the next key.
+      else interactions.setFlash(ACTION_KEY, result.event.value);
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestStrokeUpdate();
@@ -1194,11 +1197,12 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
-  // No tap highlight means none: a stroke render that lands while the next
-  // finger is down would otherwise draw that key inverted (StateActive), so
-  // only some keys flashed while typing fast.
+  // Turbo highlights only the last tapped key (the tap flash, drawn inverted).
+  // A key under a finger when some refresh lands stays plain, else only keys
+  // held during another key's refresh lit up while typing fast.
   if (kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT) {
     props.keyStyles = fui::defaultKeyStyles();
+    props.keyStyles.focused = props.keyStyles.active;
     props.keyStyles.active = props.keyStyles.normal;
   }
   props.selectedIndex = cursorMode || !selectionShown ? -1 : static_cast<int16_t>(selectedLogicalIndex());
