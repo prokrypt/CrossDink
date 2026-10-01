@@ -620,7 +620,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
   // EPUB section indexing policy. The current chapter keeps its active build.
-  uint8_t indexingMethod = INDEXING_FULL_SECTION;
+  uint8_t indexingMethod = INDEXING_INCREMENTAL_MENTAL;
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
   // Guide Dots - places a middle dot between words to guide the eye
