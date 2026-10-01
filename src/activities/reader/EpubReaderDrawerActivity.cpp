@@ -2049,7 +2049,9 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
       // makes the in-drawer preview appear to zoom while the page reflows.
       draft.textAntiAliasing = value;
       markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
-      break;
+      // Close like a dismiss: the close redraw shows the new mode, no preview pass.
+      closeAndReturn(true);
+      return;
     case RowId::DictionaryFontFamily:
       if (index == 0) {
         hasDictionaryFontOverride = false;
