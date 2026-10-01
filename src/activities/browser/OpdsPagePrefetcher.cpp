@@ -16,6 +16,9 @@ namespace {
 // fragmented the block the Wi-Fi exit needs); the job only does TLS/HTTP into
 // a PSRAM buffer and never writes flash (the one thing a PSRAM stack forbids).
 constexpr uint32_t PREFETCH_STACK_BYTES = 12 * 1024;
+// No byte for this long (before or during the body): give up instead of the
+// 60 s request timeout, so a dead socket doesn't hold the radio awake.
+constexpr uint32_t PREFETCH_SILENCE_TIMEOUT_MS = 8000;
 }  // namespace
 
 OpdsPagePrefetcher::~OpdsPagePrefetcher() {
@@ -29,6 +32,7 @@ bool OpdsPagePrefetcher::start(Request&& request, const size_t maxBytes) {
   job = std::move(request);
   page = OpdsPageBuffer(MemoryPool::Psram, maxBytes);
   succeeded = false;
+  networkFailed = false;
   cancelRequested.store(false, std::memory_order_release);
   if (!task.start([](void* self) { static_cast<OpdsPagePrefetcher*>(self)->run(); }, this, PREFETCH_STACK_BYTES,
                   "OpdsPrefetch", false, WorkerTask::Stack::Psram)) {
@@ -47,13 +51,14 @@ bool OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict, 
     const OpdsPageBuffer* cached = onlyIfChanged ? cache.find(job.url) : nullptr;
     if (cached && OpdsPageCache::sameFeed(*cached, page)) {
       LOG_INF("OPDS", "Recheck unchanged: %s", UrlUtils::maskUserInfo(job.url).c_str());
+      cache.markFetched(job.url, millis());
     } else {
       if (onlyIfChanged) {
         LOG_INF("OPDS", "Recheck changed (%zu bytes): %s", page.size(), UrlUtils::maskUserInfo(job.url).c_str());
       } else {
         LOG_DBG("OPDS", "Caching prefetched page (%zu bytes)", page.size());
       }
-      stored = cache.store(job.url, std::move(page), mayEvict);
+      stored = cache.store(job.url, std::move(page), mayEvict, millis());
       if (!stored) LOG_DBG("OPDS", "Prefetched page not cached (full)");
     }
   }
@@ -69,6 +74,9 @@ void OpdsPagePrefetcher::run() {
   options.authorizationOrigin = job.authorizationOrigin;
   options.connection = job.connection;
   options.shouldCancel = [this]() { return cancelRequested.load(std::memory_order_acquire); };
+  // Feed pages are small: a silent socket is dead, not slow.
+  options.firstByteTimeoutMs = PREFETCH_SILENCE_TIMEOUT_MS;
+  options.stallTimeoutMs = PREFETCH_SILENCE_TIMEOUT_MS;
 
   const auto result = HttpDownloader::streamUrl(
       job.url,
@@ -79,6 +87,7 @@ void OpdsPagePrefetcher::run() {
 
   // OK means the whole body arrived; a cancel that lands after that keeps it.
   succeeded = result == HttpDownloader::OK && !page.failed() && !page.empty();
+  networkFailed = result == HttpDownloader::HTTP_ERROR && !cancelRequested.load(std::memory_order_acquire);
   if (!succeeded) {
     LOG_INF("OPDS", "Prefetch %s (result=%d, overflow=%d)",
             cancelRequested.load(std::memory_order_acquire) ? "cancelled" : "failed", static_cast<int>(result),

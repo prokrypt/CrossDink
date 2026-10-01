@@ -812,7 +812,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     if (result != HttpDownloader::OK) return false;
   }
 
-  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page));
+  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page), true, millis());
   return true;
 }
 
