@@ -30,6 +30,7 @@
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -1468,8 +1469,39 @@ void flushSettingsStores() {
 #endif
 }
 
+// Sleep entry has no task watchdog: a wait that never returns leaves the device
+// dark and deaf to the power button until a reset (seen once on 1001aa, cause
+// unknown). After 30 s, log the step it stuck in (PSRAM ring survives the
+// reset) and reset. Idempotent; deep sleep or a restart ends it.
+static void armSleepGuard() {
+#ifndef SIMULATOR
+  static esp_timer_handle_t guard = nullptr;
+  if (guard != nullptr) return;
+  const esp_timer_create_args_t args = {
+      .callback =
+          [](void*) {
+            // A panic reset skips the shutdown handlers (they could block on the
+            // same stuck display), and checkPanic() reports the message on boot.
+            static char why[64];
+            snprintf(why, sizeof(why), "sleep entry stuck at '%s' for 30 s", HalPowerManager::sleepStep);
+            LOG_ERR("SLP", "%s", why);
+            esp_system_abort(why);
+          },
+      .arg = nullptr,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "sleepGuard",
+      .skip_unhandled_events = true,
+  };
+  if (esp_timer_create(&args, &guard) != ESP_OK || esp_timer_start_once(guard, 30 * 1000 * 1000) != ESP_OK) {
+    LOG_ERR("SLP", "sleep guard not armed");
+  }
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+  armSleepGuard();
+  HalPowerManager::sleepStep = "activity exit";
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
 #endif
@@ -1497,6 +1529,7 @@ void enterDeepSleep(bool fromTimeout) {
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
     activityManager.goToSleep(fromTimeout);
+    HalPowerManager::sleepStep = "sleep writes";
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     flushSettingsStores();
     // Persist after the sleep screen is up so the write does not delay it. The
@@ -1527,10 +1560,13 @@ void enterDeepSleep(bool fromTimeout) {
     BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
+    HalPowerManager::sleepStep = "storage shutdown";
     Storage.shutdown();
 
     putTiltSensorToSleepForDeepSleep();
+    HalPowerManager::sleepStep = "display sleep";
     display.deepSleep();
+    HalPowerManager::sleepStep = "frontlight, nvs";
     Frontlight.prepareForDeepSleep();
     mirrorWakeShortPressToNvs();
     LOG_DBG("MAIN", "Entering deep sleep");
@@ -1743,17 +1779,11 @@ void setup() {
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     PerfLog::noteDeepSleep("wake-not-held", "boot");
+    armSleepGuard();
     BatteryLog::noteFalseWake();
     powerManager.startDeepSleep(gpio);
   }
 #endif
-
-  // One-shot, consumed only once the wake is real (a press too short to wake
-  // goes back to sleep above with the flag still armed). Cleared before any
-  // painting so a hang in the blocking paint path resets into a normal splash
-  // boot instead of a splashless loop with no frame.
-  const bool splashlessWakeArmed = splashlessWakeMagic == SPLASHLESS_WAKE_MAGIC;
-  splashlessWakeMagic = 0;
 
 #ifndef SIMULATOR
   // X4 Pro and X4 Classic both map Up to the GPIO0 boot strap. Use Down for
@@ -1775,9 +1805,17 @@ void setup() {
   if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
     BatteryLog::onChargeWake();
     PerfLog::noteDeepSleep("charge-wake", "boot");
+    armSleepGuard();
     powerManager.startDeepSleep(gpio);
   }
 #endif
+
+  // One-shot, consumed only once the wake is real (a press too short to wake and
+  // a charger wake go back to sleep above with the flag still armed). Cleared
+  // before any painting so a hang in the blocking paint path resets into a
+  // normal splash boot instead of a splashless loop with no frame.
+  const bool splashlessWakeArmed = splashlessWakeMagic == SPLASHLESS_WAKE_MAGIC;
+  splashlessWakeMagic = 0;
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
