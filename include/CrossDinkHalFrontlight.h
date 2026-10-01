@@ -35,12 +35,18 @@ class HalFrontlight {
   void setBrightness(const uint8_t percent) {
     lastBrightness = percent > 100 ? 100 : percent;
     idleDim = 100;
+    overlay = NO_OVERLAY;
   }
   void setWarmth(const uint8_t percent) { lastWarmth = percent > 100 ? 100 : percent; }
   void setOn(const bool on) {
     lit = on;
     idleDim = 100;
+    overlay = NO_OVERLAY;
   }
+  static constexpr uint8_t NO_OVERLAY = 0xFF;
+  void setOverlay(const uint8_t percent) { overlay = percent; }
+  bool overlayActive() const { return overlay != NO_OVERLAY; }
+  uint8_t shownLevel() const { return overlayActive() ? overlay : lit ? lastBrightness : 0; }
   void setIdleDim(const uint8_t percent) { idleDim = percent > 100 ? 100 : percent; }
   uint8_t idleDimPercent() const { return idleDim; }
   void prepareForDeepSleep() {}
@@ -54,6 +60,7 @@ class HalFrontlight {
   uint8_t lastWarmth = 50;
   bool lit = false;
   uint8_t idleDim = 100;
+  uint8_t overlay = NO_OVERLAY;
 };
 
 #define Frontlight HalFrontlight::getInstance()

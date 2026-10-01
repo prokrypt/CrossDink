@@ -18,8 +18,6 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   if (!Frontlight.present()) {
     return;
   }
-  savedBrightness = Frontlight.brightness();
-  savedOn = Frontlight.isOn();
   userOverride = false;
   pulsing = false;
   stopAtMs = 0;
@@ -28,26 +26,25 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   active = this;
   // Idle at the user's level (0 if off). Pulse band by level: up to 10% -> 0-10,
   // 11-25% -> 10-25, above 25% -> 10 to the level (knobs: floor 10, peak 25).
-  basePercent = savedOn ? savedBrightness : 0;
+  basePercent = Frontlight.isOn() ? Frontlight.brightness() : 0;
   lowPercent = basePercent > kLitFloorPercent ? kLitFloorPercent : 0;
   highPercent = basePercent > kPeakPercent        ? basePercent
                 : basePercent > kLitFloorPercent ? kPeakPercent
                                                  : kLitFloorPercent;
-  if (holdForMs > 0 && savedOn && savedBrightness > 0) {
-    // Write nothing: `written` still lets update() spot a user change.
+  // An overlay at the level already shown: no PWM write, and the user's
+  // brightness/on state (pulldown, SETTINGS) never sees the pulse.
+  Frontlight.setOverlay(basePercent);
+  written = basePercent;
+  if (holdForMs > 0 && basePercent > 0) {
     entryHold = true;
     holdStartMs = millis();
     holdMs = holdForMs;
-    written = savedBrightness;
-    LOG_DBG("LIGHT", "Transfer light hold %u%% for %lu ms", savedBrightness, static_cast<unsigned long>(holdMs));
-    return;
+    LOG_DBG("LIGHT", "Transfer light hold %u%% for %lu ms", basePercent, static_cast<unsigned long>(holdMs));
   }
-  write(basePercent);
-  Frontlight.setOn(true);
 }
 
 void TransferLightPulse::write(const uint8_t percent) {
-  Frontlight.setBrightness(percent);
+  Frontlight.setOverlay(percent);
   written = percent;
   lastWriteMs = millis();
   lastAnyWriteMs = lastWriteMs;
@@ -56,10 +53,9 @@ void TransferLightPulse::write(const uint8_t percent) {
 void TransferLightPulse::yieldToUser() {
   if (!active || active->userOverride) return;
   active->userOverride = true;
-  Frontlight.setBrightness(active->savedBrightness);
-  Frontlight.setOn(active->savedOn);
-  LOG_DBG("LIGHT", "Transfer pulse stopped: back to the user's %u%% %s", active->savedBrightness,
-          active->savedOn ? "on" : "off");
+  Frontlight.setOverlay(HalFrontlight::NO_OVERLAY);
+  LOG_DBG("LIGHT", "Transfer pulse stopped: back to the user's %u%% %s", Frontlight.brightness(),
+          Frontlight.isOn() ? "on" : "off");
 }
 
 bool TransferLightPulse::animating() { return millis() - lastAnyWriteMs < 5 * WRITE_INTERVAL_MS; }
@@ -68,7 +64,7 @@ void TransferLightPulse::update(const bool transferActive) {
   if (!armed || userOverride || held) {
     return;
   }
-  if (Frontlight.brightness() != written || !Frontlight.isOn()) {
+  if (!Frontlight.overlayActive()) {  // a user setBrightness()/setOn() ended it
     userOverride = true;
     LOG_DBG("LIGHT", "Transfer pulse stopped: user set %u%% %s", Frontlight.brightness(),
             Frontlight.isOn() ? "on" : "off");
@@ -138,8 +134,7 @@ void TransferLightPulse::end() {
   if (userOverride) {
     return;
   }
-  Frontlight.setBrightness(savedBrightness);
-  Frontlight.setOn(savedOn);
+  Frontlight.setOverlay(HalFrontlight::NO_OVERLAY);
   if (pulsing) {
     LOG_DBG("LIGHT", "Transfer pulse stop");
   }

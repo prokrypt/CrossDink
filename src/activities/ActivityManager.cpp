@@ -167,6 +167,7 @@ bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputM
     LOG_ERR("ACT", "OOM opening frontlight panel");
     return false;
   }
+  TransferLightPulse::yieldToUser();  // the pulldown shows the user's level, so the LEDs do too
   activity.onFrontlightPanelOpened();
   activity.startActivityForResult(std::move(panel), [&activity](const ActivityResult& result) {
     const auto* panelResult = std::get_if<FrontlightPanelResult>(&result.data);
