@@ -425,12 +425,14 @@ void formatKnob(const int value, char* buf, const size_t len) { snprintf(buf, le
 std::string turboRowValue() { return SETTINGS.turboKeyboard ? tr(STR_STATE_ON) : tr(STR_STATE_OFF); }
 
 // The scratch text's tail, cut on a UTF-8 boundary, so the row stays one line.
+// Ends in ">": the row opens the keyboard.
 std::string kbdTestPreview(const std::string& text) {
   constexpr size_t MAX_BYTES = 24;
-  if (text.size() <= MAX_BYTES) return text;
+  if (text.empty()) return ">";
+  if (text.size() <= MAX_BYTES) return text + " >";
   size_t start = text.size() - MAX_BYTES;
   while (start < text.size() && (static_cast<uint8_t>(text[start]) & 0xC0) == 0x80) ++start;
-  return "..." + text.substr(start);
+  return "..." + text.substr(start) + " >";
 }
 
 std::string dimLevelRowValue() { return std::to_string(SETTINGS.flashDuckDepth) + " %"; }
@@ -466,15 +468,16 @@ void GoodiesActivity::showLevel(const Level next) {
   tokenShownUntil = 0;
   entries.clear();
   if (level == Level::Root) {
-    entries.push_back({tr(STR_DISPLAY_TEST), -1, {}});
+    // ">" (as in Settings) marks a row that opens another menu or page.
+    entries.push_back({tr(STR_DISPLAY_TEST), -1, {}, ">"});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
     entries.push_back({"API token", -1, {}, tokenRowValue()});
-    entries.push_back({"Knobs", -1, {}});
-    entries.push_back({"Keyboard test", -1, {}});
-    entries.push_back({"Pin monitor", -1, {}, PinMon::enabled() ? "On" : "Off"});
+    entries.push_back({"Knobs", -1, {}, ">"});
+    entries.push_back({"Keyboard test", -1, {}, ">"});
+    entries.push_back({"Pin monitor", -1, {}, PinMon::enabled() ? "On >" : "Off >"});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
-    entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
+    entries.push_back({tr(STR_BATTERY_STATS), -1, {}, ">"});
 #endif
   } else if (level == Level::PinMon) {
     // Read when opened: the toggle, then per pin level, changes and wakes since boot.
@@ -952,36 +955,53 @@ void GoodiesActivity::buildListScreen(UiApp::ScreenType& screen) {
   screen.list(props);
 }
 
+// The Goodies list rows (configureUiList + the theme's list styles), laid out
+// one by one so the knob rows can carry - / + controls.
 void GoodiesActivity::buildKbdTestRows(UiApp::ScreenType& screen) {
-  const bool buttons = !mappedInput.hasTouchHardware();  // touch lists show no selection
-  const auto state = [&](const int row) {
-    return buttons && row == selectedIndex ? fui::StateSelected : fui::StateNormal;
-  };
-  fui::SettingRowProps type;
-  type.label = entries[0].label.c_str();
-  type.value = entries[0].value.c_str();
-  type.action = ACTION_ROW;
-  type.valueId = 0;
-  type.inputMask = fui::InputTouch;
-  type.labelText = screen.theme().bodyText;
-  type.valueText = screen.theme().bodyText;
-  type.drawChevron = true;
-  type.state = state(0);
-  screen.settingRow(type);
-  for (int row = 1; row < static_cast<int>(entries.size()); ++row) {
+  fui::ListProps list;
+  list.labelText = screen.theme().bodyText;
+  configureUiList(list, screen.theme(), screen.body());
+  list = screen.resolveListProps(list);
+  const int16_t inset = list.rowInset < 0 ? 0 : list.rowInset;
+  const int16_t gap = list.rowGap < 0 ? 0 : list.rowGap;
+  for (int row = 0; row < static_cast<int>(entries.size()); ++row) {
+    fui::Rect rect = screen.takeTop(list.rowHeight, gap);
+    // ponytail: no scrolling, the 9 rows fit portrait; add a ListNav if the page grows.
+    if (rect.height < list.rowHeight) break;
+    rect.x = static_cast<int16_t>(rect.x + inset);
+    rect.width = static_cast<int16_t>(rect.width - inset * 2);
+    if (row > 0 && list.separatorPaint.kind != fui::PaintKind::None) {
+      screen.target().fill(fui::Rect{static_cast<int16_t>(rect.x + list.sidePadding),
+                                     static_cast<int16_t>(rect.y - (gap > 1 ? gap / 2 : 1)),
+                                     static_cast<int16_t>(rect.width - list.sidePadding * 2), 1},
+                           list.separatorPaint);
+    }
+    fui::SettingRowProps props;
+    props.label = entries[row].label.c_str();
+    props.labelText = list.labelText;
+    props.valueText = list.valueText;
+    props.styles = list.rowStyles;
+    props.radius = list.rowRadius;
+    props.sidePadding = list.sidePadding;
+    props.inputMask = fui::InputTouch;
+    props.state = !list.hideSelection && row == selectedIndex ? fui::StateSelected : fui::StateNormal;
+    if (row == 0) {
+      props.value = entries[row].value.c_str();
+      props.action = ACTION_ROW;
+      props.valueId = 0;
+      fui::settingRow(screen.frame(), rect, props);
+      continue;
+    }
     fui::StepperRowProps step;
-    step.row.label = entries[row].label.c_str();
-    step.row.labelText = screen.theme().bodyText;
-    step.row.valueText = screen.theme().bodyText;
-    step.row.inputMask = fui::InputTouch;
-    step.row.state = state(row);
+    step.row = props;
     step.value = entries[row].value.c_str();
     step.widestValue = "8888 ms *";
+    step.buttonStyles = fui::defaultButtonStyles();
     step.decrement = ACTION_STEP;
     step.increment = ACTION_STEP;
     step.decrementValue = static_cast<int16_t>(row * 2);
     step.incrementValue = static_cast<int16_t>(row * 2 + 1);
-    screen.stepperRow(step);
+    fui::stepperRow(screen.frame(), rect, step);
   }
   visibleRows = static_cast<int>(entries.size());
 }
