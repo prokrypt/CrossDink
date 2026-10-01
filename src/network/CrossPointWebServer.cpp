@@ -312,6 +312,11 @@ size_t wsUploadReceived = 0;
 unsigned long wsUploadStartTime = 0;
 bool wsUploadInProgress = false;
 uint8_t wsUploadClientNum = 255;  // 255 = no active upload client
+// A phone browser drops the socket when its tab is hidden. The upload is
+// parked (file kept open) for this long so a START for the same file resumes
+// at wsUploadReceived instead of starting over.
+constexpr unsigned long WS_RESUME_GRACE_MS = 60000;
+unsigned long wsUploadParkedAt = 0;  // 0 = not parked
 size_t wsLastProgressSent = 0;
 String wsLastCompleteName;
 size_t wsLastCompleteSize = 0;
@@ -581,6 +586,7 @@ void CrossPointWebServer::abortWsUpload(const char* tag) {
   }
   wsUploadInProgress = false;
   wsUploadClientNum = 255;
+  wsUploadParkedAt = 0;
   wsLastProgressSent = 0;
   wsUploadPowerSaveGuard.reset();
 }
@@ -855,6 +861,10 @@ bool CrossPointWebServer::handleClient() {
   // Handle WebSocket events
   if (wsServer) {
     wsServer->loop();
+  }
+  if (wsUploadParkedAt && millis() - wsUploadParkedAt > WS_RESUME_GRACE_MS) {
+    LOG_DBG("WS", "Resume grace expired");
+    abortWsUpload("WS");
   }
 
   // Respond to discovery broadcasts
@@ -2887,6 +2897,7 @@ void CrossPointWebServer::wsEventCallback(uint8_t num, WStype_t type, uint8_t* p
 // WebSocket event handler for fast binary uploads
 // Protocol:
 //   1. Client sends TEXT message: "START:<filename>:<size>:<path>"
+//      Server replies "READY", or "READY:<received>" to resume a dropped upload
 //   2. Client sends BINARY messages with file data chunks
 //   3. Server sends TEXT "PROGRESS:<received>:<total>" after each chunk
 //   4. Server sends TEXT "DONE" or "ERROR:<message>" when complete
@@ -2899,7 +2910,9 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
       // A new client may have already started a fresh upload before this
       // DISCONNECTED event fires (race condition on quick cancel + retry).
       if (num == wsUploadClientNum && wsUploadInProgress && wsUploadFile) {
-        abortWsUpload("WS");
+        LOG_DBG("WS", "Upload parked at %u/%u bytes", (unsigned)wsUploadReceived, (unsigned)wsUploadSize);
+        wsUploadClientNum = 255;
+        wsUploadParkedAt = millis() | 1;
       }
       break;
 
@@ -2913,16 +2926,31 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
       String msg = String((char*)payload);
 
       if (msg.startsWith("START:")) {
+        // Parse: START:<filename>:<size>:<path>
+        int firstColon = msg.indexOf(':', 6);
+        int secondColon = msg.indexOf(':', firstColon + 1);
+
+        // Same file as the parked upload: resume where it stopped.
+        if (wsUploadParkedAt && firstColon > 0 && secondColon > 0 &&
+            wsUploadFileName == StringUtils::sanitizeFilename(msg.substring(6, firstColon).c_str()).c_str() &&
+            msg.substring(firstColon + 1, secondColon) == String(wsUploadSize) &&
+            wsUploadPath == normalizeWebPath(msg.substring(secondColon + 1))) {
+          LOG_DBG("WS", "Resuming upload at %u/%u bytes", (unsigned)wsUploadReceived, (unsigned)wsUploadSize);
+          wsUploadClientNum = num;
+          wsUploadParkedAt = 0;
+          wsLastProgressSent = wsUploadReceived;
+          wsServer->sendTXT(num, "READY:" + String(wsUploadReceived));
+          break;
+        }
+        // Any other START drops a parked upload.
+        if (wsUploadParkedAt) abortWsUpload("WS");
+
         // Reject any START while an upload is already active to prevent
         // leaking the open wsUploadFile handle (owning client re-START included)
         if (wsUploadInProgress) {
           wsServer->sendTXT(num, "ERROR:Upload already in progress");
           break;
         }
-
-        // Parse: START:<filename>:<size>:<path>
-        int firstColon = msg.indexOf(':', 6);
-        int secondColon = msg.indexOf(':', firstColon + 1);
 
         if (firstColon > 0 && secondColon > 0) {
           wsUploadFileName = StringUtils::sanitizeFilename(msg.substring(6, firstColon).c_str()).c_str();

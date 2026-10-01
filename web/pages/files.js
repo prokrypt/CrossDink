@@ -1535,10 +1535,13 @@ const WS_PORT = HTTP_PORT + 1;
 // 12 KB frames (the device accepts up to 15 KB): a third of the per-frame
 // WebSocket and SD overhead of the old 4 KB chunks.
 const WS_CHUNK_SIZE = 12 * 1024;
-// Max bytes allowed in flight before pausing sends. Throughput is capped at
-// roughly WS_MAX_BUFFERED / RTT, so a small window starves high-latency links
-// (e.g. a phone's WiFi) much more than low-latency ones (e.g. Ethernet).
+// Max bytes sent but not yet confirmed by the device's PROGRESS messages (sent
+// every 64 KB). Throughput is capped at roughly WS_MAX_BUFFERED / RTT, so a
+// small window starves high-latency links (e.g. a phone's WiFi).
 const WS_MAX_BUFFERED = WS_CHUNK_SIZE * 16;
+// File bytes read per Blob read: one async read per 16 frames instead of per
+// frame, which is slow on mobile browsers.
+const WS_READ_SIZE = WS_MAX_BUFFERED;
 
 // ============================================================================
 // EPUB Image Conversion Functions (from Baseline JPEG Converter)
@@ -5059,111 +5062,144 @@ function getWsUrl() {
 }
 
 // Upload file via WebSocket (faster, binary protocol)
+// Phone browsers drop the socket when the tab is hidden. The device keeps a
+// dropped upload for 60 s, so the page reconnects once it is visible again and
+// resumes at the device's offset (READY:<bytes>); after that it starts over.
 function uploadFileWebSocket(file, onProgress, onComplete, onError) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(getWsUrl());
-    currentUploadWs = ws;
-    let uploadStarted = false;
-    let sendingChunks = false;
-    let uploadComplete = false; // set only when DONE is received and resolve() called
-
-    ws.binaryType = "arraybuffer";
-
-    ws.onopen = function () {
-      console.log("[WS] Connected, starting upload:", file.name);
-      // Send start message: START:<filename>:<size>:<path>
-      ws.send(`START:${file.name}:${file.size}:${currentPath}`);
-    };
-
-    ws.onmessage = async function (event) {
-      const msg = event.data;
-      console.log("[WS] Message:", msg);
-
-      if (msg === "READY") {
-        uploadStarted = true;
-        sendingChunks = true;
-
-        // Small delay to let connection stabilize
-        await new Promise((r) => setTimeout(r, 50));
-
-        try {
-          // Send file in chunks
-          const totalSize = file.size;
-          let offset = 0;
-
-          while (offset < totalSize && ws.readyState === WebSocket.OPEN) {
-            const chunkSize = Math.min(WS_CHUNK_SIZE, totalSize - offset);
-            const chunk = file.slice(offset, offset + chunkSize);
-            const buffer = await chunk.arrayBuffer();
-
-            // Wait for buffer to clear before sending more (flow control)
-            while (ws.bufferedAmount > WS_MAX_BUFFERED && ws.readyState === WebSocket.OPEN) {
-              await new Promise((r) => setTimeout(r, 5));
-            }
-
-            if (ws.readyState !== WebSocket.OPEN) {
-              throw new Error("WebSocket closed during upload");
-            }
-
-            ws.send(buffer);
-            offset += chunkSize;
-
-            // Update local progress with real transfer progress
-            // Server will confirm 100% with DONE message
-            if (onProgress) {
-              onProgress(offset, totalSize);
-            }
-          }
-
-          sendingChunks = false;
-          console.log("[WS] All chunks sent, waiting for DONE");
-        } catch (err) {
-          console.error("[WS] Error sending chunks:", err);
-          sendingChunks = false;
-          ws.close();
-          reject(err);
-        }
-      } else if (msg.startsWith("PROGRESS:")) {
-        // Server confirmed progress - log for debugging but don't update UI
-        // (local progress is smoother, server progress causes jumping)
-        console.log("[WS] Server progress:", msg);
-      } else if (msg === "DONE") {
-        // Show 100% when server confirms completion
-        if (onProgress) onProgress(file.size, file.size);
-        uploadComplete = true;
-        currentUploadWs = null;
-        ws.close();
-        if (onComplete) onComplete();
-        resolve();
-      } else if (msg.startsWith("ERROR:")) {
-        const error = msg.substring(6);
-        ws.close();
-        if (onError) onError(error);
-        reject(new Error(error));
-      }
-    };
-
-    ws.onerror = function (event) {
-      console.error("[WS] Error:", event);
+    let settled = false;
+    let started = false; // the device accepted START at least once
+    let reconnects = 0; // since the last READY
+    let wakeLock = null;
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
       currentUploadWs = null;
-      if (!uploadStarted) {
-        reject(new Error("WebSocket connection failed"));
-      } else if (!sendingChunks) {
-        reject(new Error("WebSocket error during upload"));
-      } else {
-        // Error during chunk sending - reject with appropriate message
-        reject(new Error("WebSocket error during file transfer"));
-      }
+      if (wakeLock) wakeLock.release().catch(() => {});
+      if (err) reject(err);
+      else resolve();
     };
 
-    ws.onclose = function (event) {
-      console.log("[WS] Connection closed, code:", event.code, "reason:", event.reason);
-      // Reject for any close before upload was confirmed complete (covers both
-      // mid-chunk-send closes and the "all chunks sent, waiting for DONE" window)
-      if (!uploadComplete) {
-        reject(new Error("WebSocket closed during upload"));
-      }
+    const connect = () => {
+      if (operationCancelled) return finish(new Error("Upload cancelled"));
+      // Keep the screen on while uploading (Chrome 84+, iOS Safari 16.4+); a
+      // hidden page loses the lock, so it is asked for again on reconnect.
+      navigator.wakeLock
+        ?.request("screen")
+        .then((lock) => (wakeLock = lock))
+        .catch(() => {});
+
+      const ws = new WebSocket(getWsUrl());
+      currentUploadWs = ws;
+      let opened = false;
+      let serverReceived = 0; // bytes the device confirmed via PROGRESS
+      let wakeSender = null; // resolves the send loop's flow-control wait
+      const wake = () => {
+        if (wakeSender) wakeSender();
+        wakeSender = null;
+      };
+
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = function () {
+        opened = true;
+        console.log("[WS] Connected, starting upload:", file.name);
+        // Send start message: START:<filename>:<size>:<path>
+        ws.send(`START:${file.name}:${file.size}:${currentPath}`);
+      };
+
+      ws.onmessage = async function (event) {
+        const msg = event.data;
+        console.log("[WS] Message:", msg);
+
+        if (msg === "READY" || msg.startsWith("READY:")) {
+          // READY:<bytes> = the device kept a dropped upload; continue from there
+          let offset = Number(msg.split(":")[1]) || 0;
+          serverReceived = offset;
+          started = true;
+          reconnects = 0;
+
+          // Small delay to let connection stabilize
+          await new Promise((r) => setTimeout(r, 50));
+
+          try {
+            const totalSize = file.size;
+            const read = (at) => file.slice(at, at + WS_READ_SIZE).arrayBuffer();
+            let nextRead = read(offset);
+
+            while (offset < totalSize && ws.readyState === WebSocket.OPEN) {
+              const buffer = await nextRead;
+              // Read the next slice while this one is sent
+              if (offset + buffer.byteLength < totalSize) nextRead = read(offset + buffer.byteLength);
+              for (let pos = 0; pos < buffer.byteLength; pos += WS_CHUNK_SIZE) {
+                // Flow control: wait for the device to confirm bytes, no timer polling
+                while (offset - serverReceived > WS_MAX_BUFFERED && ws.readyState === WebSocket.OPEN) {
+                  await new Promise((r) => (wakeSender = r));
+                }
+                // Closed: onclose reconnects or fails the upload
+                if (ws.readyState !== WebSocket.OPEN) return;
+
+                const chunkSize = Math.min(WS_CHUNK_SIZE, buffer.byteLength - pos);
+                ws.send(new Uint8Array(buffer, pos, chunkSize));
+                offset += chunkSize;
+
+                // Update local progress with real transfer progress
+                // Server will confirm 100% with DONE message
+                if (onProgress) {
+                  onProgress(offset, totalSize);
+                }
+              }
+            }
+            console.log("[WS] All chunks sent, waiting for DONE");
+          } catch (err) {
+            console.error("[WS] Error sending chunks:", err);
+            finish(err);
+            ws.close();
+          }
+        } else if (msg.startsWith("PROGRESS:")) {
+          // Server confirmed progress: opens the send window. UI keeps local
+          // progress (smoother; server progress causes jumping).
+          serverReceived = Number(msg.split(":")[1]) || serverReceived;
+          wake();
+        } else if (msg === "DONE") {
+          // Show 100% when server confirms completion
+          if (onProgress) onProgress(file.size, file.size);
+          finish();
+          ws.close();
+          if (onComplete) onComplete();
+        } else if (msg.startsWith("ERROR:")) {
+          const error = msg.substring(6);
+          finish(new Error(error));
+          ws.close();
+          if (onError) onError(error);
+        }
+      };
+
+      ws.onerror = function (event) {
+        console.error("[WS] Error:", event);
+      };
+
+      ws.onclose = function (event) {
+        console.log("[WS] Connection closed, code:", event.code, "reason:", event.reason);
+        wake();
+        if (settled) return;
+        // Never started: "connection failed" makes the caller fall back to HTTP
+        if (!started) return finish(new Error(opened ? "WebSocket closed during upload" : "WebSocket connection failed"));
+        if (operationCancelled || reconnects >= 5) return finish(new Error("WebSocket closed during upload"));
+        reconnects++;
+        // Reconnect once the page is visible again (a hidden page can't send),
+        // waiting 1, 2, ... 5 s so the phone's Wi-Fi can come back
+        const retry = () => setTimeout(connect, 1000 * reconnects);
+        if (document.visibilityState === "visible") return retry();
+        document.addEventListener("visibilitychange", function onVisible() {
+          if (document.visibilityState !== "visible") return;
+          document.removeEventListener("visibilitychange", onVisible);
+          retry();
+        });
+      };
     };
+
+    connect();
   });
 }
 
