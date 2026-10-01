@@ -59,6 +59,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Settings are written to the SD card once, when you leave the screen or panel where you changed them (Settings and its pages, the Frontlight panel, Goodies > Knobs), or before sleep, restart or a firmware update, instead of on every change. Changes with no screen to leave (light slide or toggle, power shortcut, remote `SET`/`KNOB`) are written at the next of those. Nothing is written when the values match what is already on the card. A book's reader settings file is now replaced in one step, so a power cut while saving it leaves the old file instead of a cut-off one.
 - A brightness slide or two-finger swipe that ends at 0% turns the frontlight off. Turning it back on restores the brightness from before the slide.
 - Touch devices: lists open with no row highlighted. The first Up, Down or Confirm press shows the highlight without moving or opening anything; a row tapped to open a popup stays highlighted while the popup is up. The Home screen keeps its highlight.
 - Settings: the selected tab is marked by a bar under its name instead of a black (inverted) highlight, and tapping a tab no longer highlights it; the box around the tab bar stays. Up/Down now wrap within the list and no longer move onto the tabs; long-press Up/Down still switches tabs.

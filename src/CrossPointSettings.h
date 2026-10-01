@@ -16,6 +16,7 @@
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
   mutable std::mutex _mutex;
+  mutable String pendingJson;  // guarded by storeMutex; empty = nothing to flush
 
   CrossPointSettings() = default;
   friend class PersistableStore<CrossPointSettings>;
@@ -777,7 +778,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // If count_only is true, returns the number of settings items that would be written.
   uint8_t writeSettings(HalFile& file, bool count_only = false) const;
 
+  // Deferred: snapshots the settings now (so a reader's per-book values set
+  // aside around the call stay out) and flush() writes the latest snapshot.
+  // ActivityManager flushes when a screen exits; sleep, restart and firmware
+  // flashing flush too. Always returns true; flush() logs a failed write.
   bool saveToFile() const;
+  bool flush() const;  // no-op without a pending snapshot; skips an unchanged file
   bool loadFromFile();
   static const char* getFilePath() { return "/.crosspoint/crossink-settings.json"; }
   void toJson(JsonDocument& doc) const;

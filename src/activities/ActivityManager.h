@@ -131,6 +131,7 @@ class ActivityManager {
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
   std::atomic<bool> restoredActivityNeedsRender{false};
+  bool settingsFlushPending = false;  // a screen exited; main loop flushes deferred settings
   // Set by the render task once the current activity has drawn a frame. Home
   // holds the reader's exit writes (ReaderExitSave) until then.
   std::atomic<bool> currentActivityPainted{false};

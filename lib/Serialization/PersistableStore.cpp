@@ -16,12 +16,17 @@ bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& 
 }
 
 bool PersistableStoreBase::writeDocToFileAtomically(const char* path, const JsonDocument& doc) {
-  Storage.mkdir("/.crosspoint");
   String json;
   serializeJson(doc, json);
+  return writeStringToFileAtomically(path, json);
+}
+
+bool PersistableStoreBase::writeStringToFileAtomically(const char* path, const String& json) {
+  // Callers may save unchanged values; an identical file is not rewritten.
+  if (Storage.exists(path) && Storage.readFile(path) == json) return true;
+  Storage.mkdir("/.crosspoint");
 
   const std::string tempPath = std::string(path) + ".tmp";
-  const std::string backupPath = std::string(path) + ".bak";
   if (Storage.exists(tempPath.c_str()) && !Storage.remove(tempPath.c_str())) {
     LOG_ERR("PERSIST", "Failed to remove stale temporary file %s", tempPath.c_str());
     return false;
@@ -30,7 +35,12 @@ bool PersistableStoreBase::writeDocToFileAtomically(const char* path, const Json
     LOG_ERR("PERSIST", "Failed to write temporary file %s", tempPath.c_str());
     return false;
   }
+  return replaceWithTemp(path);
+}
 
+bool PersistableStoreBase::replaceWithTemp(const char* path) {
+  const std::string tempPath = std::string(path) + ".tmp";
+  const std::string backupPath = std::string(path) + ".bak";
   const bool hadOriginal = Storage.exists(path);
   if (hadOriginal) {
     if (Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
@@ -85,5 +95,13 @@ bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) 
     LOG_ERR("PERSIST", "JSON parse error in %s: %s", path, error.c_str());
     return false;
   }
+  return true;
+}
+
+bool PersistableStoreBase::recoverBackup(const char* path) {
+  if (Storage.exists(path)) return true;
+  const std::string backupPath = std::string(path) + ".bak";
+  if (!Storage.exists(backupPath.c_str()) || !Storage.rename(backupPath.c_str(), path)) return false;
+  LOG_INF("PERSIST", "Recovered interrupted write for %s", path);
   return true;
 }
