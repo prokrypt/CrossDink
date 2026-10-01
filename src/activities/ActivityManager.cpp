@@ -450,6 +450,15 @@ bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, A
   }
   if (action == CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET) return false;
   if (isLightSwipeAction(action)) {
+    const bool brightness = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                            action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+    const bool down = progress.direction == MappedInputManager::EdgeSlide::LeftDown ||
+                      progress.direction == MappedInputManager::EdgeSlide::RightDown;
+    if (brightness && down && !Frontlight.isOn()) {
+      // A light that is off stays off and keeps its level: eat the slide.
+      if (progress.finished) mappedInput.suppressCurrentTouchContact();
+      return true;
+    }
     state = {};
     state.owner = &activity;
     state.active = true;
@@ -459,8 +468,6 @@ bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, A
                                  progress.direction == MappedInputManager::EdgeSlide::RightUp
                              ? -1
                              : 1;
-    const bool brightness = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
-                            action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
     if (brightness) TransferLightPulse::yieldToUser();  // slide from the user's level, not the pulse's
     state.initialOn = Frontlight.isOn();
     state.initialValue = brightness ? Frontlight.brightness() : Frontlight.warmth();
