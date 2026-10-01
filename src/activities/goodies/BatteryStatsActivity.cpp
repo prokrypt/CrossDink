@@ -42,20 +42,30 @@ const char* field(const char* row, int n) {
   return row;
 }
 
-// The gauge reports whole percents, so a drop of N% means N±1: rates and
-// estimates carry that ±, and wait for a 2% drop (1% could be 0 to 2).
-constexpr uint32_t MIN_DROP_PCT = 2;
+// A logged % is whole ("71", older rows and rows logged asleep) or has the
+// CW2017 fraction ("71.43"), so a drop is exact to ±1 or ±0.01: rates and
+// estimates carry that ±, and wait for a 2% drop.
+constexpr uint32_t MIN_DROP_C = 200;
 constexpr char NOT_ENOUGH[] = "not enough data";
 
-// "4.1±0.2%/h over 5h 10 min".
-void formatRate(char* out, const size_t size, const uint32_t dropPct, const uint32_t seconds) {
-  if (dropPct < MIN_DROP_PCT || seconds < 60) {
+// "71.43" -> 7143; fine = the field had a fraction.
+uint16_t parseCenti(const char* field, bool& fine) {
+  char* end = nullptr;
+  const float v = strtof(field, &end);
+  fine = end && memchr(field, '.', end - field) != nullptr;
+  return static_cast<uint16_t>(std::clamp(lroundf(v * 100), 0L, 10000L));
+}
+
+// "4.12±0.20%/h over 5h 10 min".
+void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t seconds, const bool coarse) {
+  if (dropC < MIN_DROP_C || seconds < 60) {
     snprintf(out, size, "%s", NOT_ENOUGH);
     return;
   }
   char span[24];
   BookReadingStats::formatDuration(seconds, span, sizeof(span));
-  snprintf(out, size, "%.1f\xC2\xB1%.1f%%/h over %s", dropPct * 3600.0f / seconds, 3600.0f / seconds, span);
+  snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, (coarse ? 100 : 1) * 36.0f / seconds,
+           span);
 }
 }  // namespace
 
@@ -142,7 +152,9 @@ void BatteryStatsActivity::parseRow(const char* line) {
     const size_t len = strlen(name);
     return strncmp(event, name, len) == 0 && (event[len] == ',' || event[len] == '\0');
   };
-  const uint8_t pct = static_cast<uint8_t>(std::min(100L, strtol(pctField, nullptr, 10)));
+  bool fine = false;
+  const uint16_t pctC = parseCenti(pctField, fine);
+  const uint8_t pct = static_cast<uint8_t>(pctC / 100);
   const bool usb = *usbField == '1';
   const bool asleep = is("sleep") || (detail && strncmp(detail, "asleep", 6) == 0);
   const bool boot = is("boot");
@@ -154,11 +166,12 @@ void BatteryStatsActivity::parseRow(const char* line) {
   } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
     // The span from the previous row is awake or asleep; before a cold boot it was off.
     const uint32_t dt = epoch - prev.epoch;
-    const uint32_t drop = prev.pct > pct ? prev.pct - pct : 0;
+    const uint32_t drop = prevC > pctC ? prevC - pctC : 0;
     (prev.awake ? st.awakeS : st.asleepS) += dt;
     if (!prevUsb && !usb) {
       (prev.awake ? st.battAwakeS : st.battAsleepS) += dt;
-      (prev.awake ? st.dropAwakePct : st.dropAsleepPct) += drop;
+      (prev.awake ? st.dropAwakeC : st.dropAsleepC) += drop;
+      if (!prevFine || !fine) st.coarse = true;
     }
   }
   if (st.first == 0) st.first = epoch;
@@ -170,13 +183,18 @@ void BatteryStatsActivity::parseRow(const char* line) {
     st.chargedEpoch = epoch;
     st.chargedPct = pct;
   }
-  if (is("charged") || is("chg_off")) st.battAwakeS = st.battAsleepS = st.dropAwakePct = st.dropAsleepPct = 0;
+  if (is("charged") || is("chg_off")) {
+    st.battAwakeS = st.battAsleepS = st.dropAwakeC = st.dropAsleepC = 0;
+    st.coarse = false;
+  }
 
   if (pointCount == MAX_POINTS) {
     std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
     pointCount = MAX_POINTS / 2;
   }
   prev = {epoch, pct, !asleep};
+  prevC = pctC;
+  prevFine = fine;
   prevUsb = usb;
   points[pointCount++] = prev;
 }
@@ -206,18 +224,20 @@ void BatteryStatsActivity::buildLines() {
   } else {
     add("Last charged: not in the log");
   }
-  formatRate(a, sizeof(a), st.dropAwakePct, st.battAwakeS);
+  formatRate(a, sizeof(a), st.dropAwakeC, st.battAwakeS, st.coarse);
   add("Awake drain: %s", a);
-  formatRate(a, sizeof(a), st.dropAsleepPct, st.battAsleepS);
+  formatRate(a, sizeof(a), st.dropAsleepC, st.battAsleepS, st.coarse);
   add("Asleep drain: %s", a);
-  const uint32_t drop = st.dropAwakePct + st.dropAsleepPct;
+  const uint32_t drop = st.dropAwakeC + st.dropAsleepC;
   const uint32_t span = st.battAwakeS + st.battAsleepS;
-  if (drop >= MIN_DROP_PCT && span >= 60) {
-    // ±1% on the drop moves the estimate by about left/drop.
-    const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pct) * span / drop);
+  if (drop >= MIN_DROP_C && span >= 60) {
+    // The drop's ± (1% or 0.01%) moves the estimate by about left * ± / drop.
+    const uint64_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
+    const uint32_t left = static_cast<uint32_t>(pctC * span / drop);
     char err[24];
     BookReadingStats::formatDuration(left, a, sizeof(a));
-    BookReadingStats::formatDuration(left / drop, err, sizeof(err));
+    BookReadingStats::formatDuration(static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.coarse ? 100 : 1) / drop),
+                                     err, sizeof(err));
     add("Est. left at that pace: %s \xC2\xB1%s", a, err);
   } else {
     add("Est. left: %s", NOT_ENOUGH);
