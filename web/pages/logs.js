@@ -270,6 +270,19 @@ function summary() {
   table('sum', null, rows);
 }
 
+// Battery and Logs are two nav tabs on one page: /logs#battery and /logs.
+// A build without battery data falls back to the log viewer.
+let hasBat = null; // null until the battery data has loaded
+function tab() {
+  const b = location.hash === '#battery' && hasBat !== false;
+  $('bat').hidden = !(b && hasBat);
+  $('lg').hidden = b;
+  for (const a of document.querySelectorAll('.nav-links a')) a.classList.toggle('active', a.getAttribute('href') === (b ? '/logs#battery' : '/logs'));
+  if (b && bat.length > 1) draw(); // charts size to the card, so draw once it is visible
+}
+window.onhashchange = tab;
+tab();
+
 (async () => {
   const get = async (u) => {
     const r = await fetch(u).catch(() => null);
@@ -289,14 +302,14 @@ function summary() {
       t: +f[0], local: f[1], pct: +f[3], mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
       temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
     }));
-  if (!bat.length && !(status.battery && status.battery.stats)) return;
-  $('bat').hidden = false;
-  summary();
-  if (bat.length < 2) return;
-  segments();
-  draw();
-  stateTable();
-  sessions();
-  $('range').onchange = draw;
-  window.onresize = draw;
+  hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);
+  if (hasBat) summary();
+  if (bat.length > 1) {
+    segments();
+    stateTable();
+    sessions();
+    $('range').onchange = draw;
+    window.onresize = () => $('bat').hidden || draw();
+  }
+  tab();
 })();
