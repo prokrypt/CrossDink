@@ -1,5 +1,8 @@
 #include "SettingsList.h"
 
+#include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
+
 const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v;
@@ -438,4 +441,27 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
   }();
 
   return baseList;
+}
+
+void applySettingChange(uint8_t CrossPointSettings::* const member) {
+  using S = CrossPointSettings;
+  if (member == &S::twoFingerSwipeUp || member == &S::twoFingerSwipeDown || member == &S::twoFingerSwipeLeft ||
+      member == &S::twoFingerSwipeRight) {
+    S::normalizeTwoFingerSwipeActions(SETTINGS, member);
+  }
+  QuickActions::settingChanged(SETTINGS, member);
+  if (member == &S::frontlightBrightness || member == &S::frontlightWarmth || member == &S::frontlightOn) {
+    // The light keeps its own state (main.cpp sets it at boot only).
+    Frontlight.setBrightness(SETTINGS.frontlightBrightness);
+    Frontlight.setWarmth(SETTINGS.frontlightWarmth);
+    Frontlight.setOn(SETTINGS.frontlightOn != 0);
+    activityManager.notifyExternalFrontlightChange();  // an open Frontlight panel takes the new values
+  } else if (member == &S::fontFamily) {
+    // A built-in pick drops the SD family, which getReaderFontId() would prefer.
+    SETTINGS.sdFontFamilyName[0] = '\0';
+    SETTINGS.readerFontPointSize = closestBuiltinReaderPointSize(SETTINGS.readerFontPointSize);
+  } else if (member == &S::uiTheme) {
+    RenderLock lock;
+    UITheme::getInstance().reload();
+  }
 }

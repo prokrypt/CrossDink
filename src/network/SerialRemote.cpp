@@ -379,21 +379,28 @@ void cmdSet(char* args) {
   // An open book holds its effective reader values in SETTINGS and restores the
   // globals it saw at open on exit. Edit and save the globals with the book's
   // values set aside, as the Frontlight panel does; it reapplies them after.
+  // Then repaint, so the screen shows the change without a button press.
   struct BookAside {
     bool on = activityManager.beginGlobalSettingsEdit();
     ~BookAside() {
       if (on) activityManager.endGlobalSettingsEdit();
+      activityManager.requestUpdate();
     }
   } bookAside;
   for (const auto& s : getBaseSettingsList()) {
     if (s.key == nullptr || strcmp(s.key, key) != 0) continue;
     switch (s.type) {
       case SettingType::TOGGLE:
-        if (s.valuePtr == nullptr) return reply("ERR:SET:unsupported");
-        SETTINGS.*(s.valuePtr) = value ? 1 : 0;
+        if (s.valuePtr) {
+          SETTINGS.*(s.valuePtr) = value ? 1 : 0;
+        } else if (s.valueSetter) {
+          s.valueSetter(value ? 1 : 0);  // saves its own store (KOReader)
+        } else {
+          return reply("ERR:SET:unsupported");
+        }
         break;
       case SettingType::ENUM: {
-        if (s.valuePtr == nullptr) return reply("ERR:SET:unsupported");
+        if (s.valuePtr == nullptr && !s.valueSetter) return reply("ERR:SET:unsupported");
         bool valid = false;
         if (!s.enumRawValues.empty()) {
           for (const uint8_t raw : s.enumRawValues) valid = valid || raw == value;
@@ -402,7 +409,11 @@ void cmdSet(char* args) {
           valid = value >= 0 && static_cast<size_t>(value) < count;
         }
         if (!valid) return reply("ERR:SET:range");
-        SETTINGS.*(s.valuePtr) = static_cast<uint8_t>(value);
+        if (s.valuePtr) {
+          SETTINGS.*(s.valuePtr) = static_cast<uint8_t>(value);
+        } else {
+          s.valueSetter(static_cast<uint8_t>(value));  // saves its own store (KOReader)
+        }
         break;
       }
       case SettingType::VALUE:
@@ -418,17 +429,7 @@ void cmdSet(char* args) {
       default:
         return reply("ERR:SET:unsupported");
     }
-    // Applied now, as the on-device controls do: the light holds its own state,
-    // and enum shortcuts keep their option lists in step.
-    if (s.valuePtr == &CrossPointSettings::frontlightBrightness) {
-      Frontlight.setBrightness(SETTINGS.frontlightBrightness);
-    } else if (s.valuePtr == &CrossPointSettings::frontlightWarmth) {
-      Frontlight.setWarmth(SETTINGS.frontlightWarmth);
-    } else if (s.valuePtr == &CrossPointSettings::frontlightOn) {
-      Frontlight.setOn(SETTINGS.frontlightOn != 0);
-    } else if (s.type == SettingType::ENUM && s.valuePtr) {
-      QuickActions::settingChanged(SETTINGS, s.valuePtr);
-    }
+    if (s.valuePtr) applySettingChange(s.valuePtr);  // what the Settings menu applies after a change
     if (!SETTINGS.saveToFile()) return reply("ERR:SET:save");
     return reply("OK:SET %s %ld", key, value);
   }
