@@ -164,6 +164,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: the frontlight no longer turns on after a firmware update over Wi-Fi when it was off: the restart that follows put back the transfer light pulse's state instead of yours.
 - X4 Pro: fast typing with two thumbs on the on-screen keyboard no longer closes it. When one thumb lifted as the other touched, the touch panel reported one finger jumping from key to key, which read as a Back swipe from the left edge. A still touch that jumps more than 120 px between reads now ends as a tap where it was, and the new finger starts its own touch (debug builds: Knobs > Touch > contactJumpPx). Moving swipes are never split.
 - X4 Pro: Turbo keyboard no longer leaves an even gray film over the screen while typing. Its fast keyboard waveform now runs at the same panel VCOM as the stock fast refresh (from the panel's own calibration) instead of a 0.4 V more negative one that nudged unchanged white pixels toward black on every key.
 - X4 Pro: Turbo keyboard highlights the key you just tapped (inverted) in the same refresh that prints it, with no extra refresh, instead of highlighting only some keys while you type fast. It uses 6 frames per key by default for solid text with little ghosting.

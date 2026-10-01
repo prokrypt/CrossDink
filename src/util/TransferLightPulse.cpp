@@ -58,7 +58,8 @@ void TransferLightPulse::yieldToUser() {
   active->userOverride = true;
   Frontlight.setBrightness(active->savedBrightness);
   Frontlight.setOn(active->savedOn);
-  LOG_DBG("LIGHT", "Transfer pulse stopped: user slide from %u%%", active->savedBrightness);
+  LOG_DBG("LIGHT", "Transfer pulse stopped: back to the user's %u%% %s", active->savedBrightness,
+          active->savedOn ? "on" : "off");
 }
 
 bool TransferLightPulse::animating() { return millis() - lastAnyWriteMs < 5 * WRITE_INTERVAL_MS; }
