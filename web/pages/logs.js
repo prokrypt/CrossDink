@@ -218,7 +218,7 @@ function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
   const svg = $(id);
   const VW = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
   svg.setAttribute('viewBox', `0 0 ${VW} ${h}`);
-  svg.dataset.r = key2 ? 40 : 0; // right gutter for the second scale
+  svg.dataset.r = 40; // right gutter for the second scale; every chart keeps it so the time axes line up
   const W = VW - svg.dataset.r; // plot's right edge
   const ticks = W < 600 ? 1 : 4;
   const [t0, t1] = win();
