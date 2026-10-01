@@ -22,6 +22,8 @@ class BatteryStatsActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool powerOffPanelWhenIdle() const override { return true; }
+  // Reading the log runs a slice per loop pass: no idle wait between slices.
+  bool skipLoopDelay() override { return loading; }
 
  private:
   struct Point {
