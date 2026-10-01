@@ -42,7 +42,7 @@ def check_drawer(program: Path, orientation: int) -> None:
         state = work / "fs_/.crosspoint"
         state.mkdir(parents=True)
         shutil.copy2(ROOT / "test/epubs/test_reader_rendering_matrix.epub", work / "fs_/book.epub")
-        (state / "crossink-settings.json").write_text(json.dumps({"orientation": orientation}))
+        (state / "crossdink-settings.json").write_text(json.dumps({"orientation": orientation}))
         (state / "state.json").write_text(json.dumps({
             "openEpubPath": "/book.epub", "lastSleepFromReader": True, "showBootScreen": False,
         }))

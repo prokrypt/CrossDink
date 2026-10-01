@@ -65,7 +65,7 @@ class EpubReaderActivity final : public Activity {
     uint8_t focusReadingEnabled = 0;
     uint8_t guideReadingEnabled = 0;
     uint8_t epubRenderMode = 0;
-    uint8_t indexingMethod = CrossPointSettings::INDEXING_FULL_SECTION;
+    uint8_t indexingMethod = CrossPointSettings::INDEXING_INCREMENTAL_MENTAL;
     char sdFontFamilyName[64] = "";
   };
 
