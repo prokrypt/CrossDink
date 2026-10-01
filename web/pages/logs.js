@@ -27,7 +27,10 @@ function show() {
   const q = $('q').value.toLowerCase();
   const lines = text.split('\n');
   const hits = q ? lines.filter((l) => l.toLowerCase().includes(q)) : lines;
-  $('out').textContent = hits.join('\n');
+  // Errors and crashes in red, DBG lines dimmed.
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const cls = (l) => (/\[ERR\]|Guru Meditation|panic|abort\(\)|assert failed/.test(l) ? 'e' : l.includes('[DBG]') ? 'd' : '');
+  $('out').innerHTML = hits.map((l) => (cls(l) ? `<span class="${cls(l)}">${esc(l)}</span>` : esc(l))).join('\n');
   $('meta').textContent = q ? hits.length + ' of ' + lines.length + ' lines' : lines.length + ' lines';
 }
 
