@@ -72,8 +72,7 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32
 void BatteryStatsActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::flush();  // so the graph includes this session
-  startLoad();
-  step(LOAD_FIRST_MS);  // a short log is done before the first draw
+  startLoad();          // the page draws at once; the log rows fill in when it is read
   requestUpdate();
 }
 
@@ -94,16 +93,12 @@ void BatteryStatsActivity::startLoad() {
   fileIndex = 0;
   // Heap, not stack: 4 KB reads are multi-sector, far faster than 512 B ones.
   if (!buf) buf = makeUniqueNoThrow<char[]>(LOAD_BUF_BYTES);
-  if (!buf) {
-    LOG_ERR("BAT", "Cannot allocate log buffer");
-    loading = false;
-    buildLines();
-    return;
-  }
-  file = Storage.open(BatteryLog::OLD_PATH, O_RDONLY);  // only exists after the first rotation
-  loading = true;
+  if (!buf) LOG_ERR("BAT", "Cannot allocate log buffer");
+  if (buf) file = Storage.open(BatteryLog::OLD_PATH, O_RDONLY);  // only exists after the first rotation
+  loading = buf != nullptr;
   loadStartMs = millis();
   loadBytes = 0;
+  buildLines();
 }
 
 void BatteryStatsActivity::step(const uint32_t budgetMs) {
@@ -232,40 +227,46 @@ void BatteryStatsActivity::buildLines() {
              "  %.1fC", tempDeci / 10.0f);
   }
 
-  const uint32_t now = BatteryLog::nowEpoch();
-  if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
-    BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
-    add("Last charged %s ago at %u%%", a, st.chargedPct);
+  if (loading) {
+    // Read from loop() in slices (step()); these fill in when it is done.
+    for (const char* name : {"Last charged", "Awake drain", "Asleep drain", "Est. left"})
+      add("%s: calculating...", name);
   } else {
-    add("Last charged: not in the log");
-  }
-  formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
-  add("Awake drain: %s", a);
-  formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1]);
-  add("Asleep drain: %s", a);
-  const uint32_t drop = st.dropC[0] + st.dropC[1];
-  const uint32_t span = st.battS[0] + st.battS[1];
-  if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
-    // The drop's ± moves the estimate by about left * ± / drop.
-    const uint64_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
-    const uint32_t left = static_cast<uint32_t>(pctC * span / drop);
-    char err[24];
-    BookReadingStats::formatDuration(left, a, sizeof(a));
-    BookReadingStats::formatDuration(
-        static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err, sizeof(err));
-    add("Est. left at that pace: %s \xC2\xB1%s", a, err);
-  } else {
-    add("Est. left: %s", NOT_ENOUGH);
-  }
+    const uint32_t now = BatteryLog::nowEpoch();
+    if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
+      BookReadingStats::formatDuration(now - st.chargedEpoch, a, sizeof(a));
+      add("Last charged %s ago at %u%%", a, st.chargedPct);
+    } else {
+      add("Last charged: not in the log");
+    }
+    formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
+    add("Awake drain: %s", a);
+    formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1]);
+    add("Asleep drain: %s", a);
+    const uint32_t drop = st.dropC[0] + st.dropC[1];
+    const uint32_t span = st.battS[0] + st.battS[1];
+    if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
+      // The drop's ± moves the estimate by about left * ± / drop.
+      const uint64_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
+      const uint32_t left = static_cast<uint32_t>(pctC * span / drop);
+      char err[24];
+      BookReadingStats::formatDuration(left, a, sizeof(a));
+      BookReadingStats::formatDuration(
+          static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err, sizeof(err));
+      add("Est. left at that pace: %s \xC2\xB1%s", a, err);
+    } else {
+      add("Est. left: %s", NOT_ENOUGH);
+    }
 
-  BookReadingStats::formatDuration(st.last - st.first, a, sizeof(a));
-  add("Log: %s%s", st.first ? a : "empty", st.reset ? " since reset" : "");
-  add("Wakes %lu  False %lu  Cold boots %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
-      static_cast<unsigned long>(st.falseWakes), static_cast<unsigned long>(st.coldBoots),
-      static_cast<unsigned long>(st.restarts));
-  BookReadingStats::formatDuration(st.awakeS, a, sizeof(a));
-  BookReadingStats::formatDuration(st.asleepS, b, sizeof(b));
-  add("Awake %s  Asleep %s", a, b);
+    BookReadingStats::formatDuration(st.last - st.first, a, sizeof(a));
+    add("Log: %s%s", st.first ? a : "empty", st.reset ? " since reset" : "");
+    add("Wakes %lu  False %lu  Cold boots %lu  Restarts %lu", static_cast<unsigned long>(st.wakes),
+        static_cast<unsigned long>(st.falseWakes), static_cast<unsigned long>(st.coldBoots),
+        static_cast<unsigned long>(st.restarts));
+    BookReadingStats::formatDuration(st.awakeS, a, sizeof(a));
+    BookReadingStats::formatDuration(st.asleepS, b, sizeof(b));
+    add("Awake %s  Asleep %s", a, b);
+  }
   const auto& c = HalDisplay::refreshCounts().n;
   add("Refresh since power-on: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
       static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),

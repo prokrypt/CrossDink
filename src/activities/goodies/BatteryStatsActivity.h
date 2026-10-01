@@ -50,7 +50,6 @@ class BatteryStatsActivity final : public Activity {
   static constexpr int MAX_LINES = 16;
 
   static constexpr size_t LOAD_BUF_BYTES = 4096;
-  static constexpr uint32_t LOAD_FIRST_MS = 150;  // onEnter, before the first draw
   static constexpr uint32_t LOAD_STEP_MS = 20;    // per loop(), so input stays responsive
 
   void startLoad();
