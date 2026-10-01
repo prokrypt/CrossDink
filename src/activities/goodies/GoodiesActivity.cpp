@@ -32,6 +32,7 @@
 #include "components/UiAppHelpers.h"
 #include "network/CrossPointWebServer.h"
 #include "network/FirmwareFlasher.h"
+#include "network/NetworkName.h"
 #include "network/WifiUtils.h"
 #include "util/TransferLightPulse.h"
 #include "util/WorkerTask.h"
@@ -156,7 +157,7 @@ bool startRemote(const bool ownsRadio = true) {
     }
     return false;
   }
-  MDNS.begin("crosspoint");
+  MDNS.begin(NET_HOSTNAME);
   remoteIp = WiFi.localIP().toString().c_str();
   snprintf(remoteSsid, sizeof(remoteSsid), "%s", WiFi.SSID().c_str());
   rejoinRetryMs = 0;
