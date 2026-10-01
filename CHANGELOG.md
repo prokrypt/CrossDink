@@ -164,6 +164,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: an edge slide keeps the brightness you see when you lift your finger. Before, the lift-off point could read lower, so sliding from 12% to 6% could end at 0% and turn the light off.
 - X4 Pro: an edge slide set to lower the brightness does nothing while the frontlight is off: the light stays off and keeps its brightness. A slide set to raise it still turns it on.
 - X4 Pro: the frontlight no longer turns on after a firmware update over Wi-Fi when it was off: the restart that follows put back the transfer light pulse's state instead of yours.
 - X4 Pro: fast typing with two thumbs on the on-screen keyboard no longer closes it. When one thumb lifted as the other touched, the touch panel reported one finger jumping from key to key, which read as a Back swipe from the left edge. A still touch that jumps more than 120 px between reads now ends as a tap where it was, and the new finger starts its own touch (debug builds: Knobs > Touch > contactJumpPx). Moving swipes are never split.
