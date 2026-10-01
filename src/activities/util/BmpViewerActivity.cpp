@@ -145,7 +145,6 @@ void BmpViewerActivity::onEnter() {
 
 void BmpViewerActivity::requestImageRedraw() {
   drawCancelled.store(false, std::memory_order_release);
-  drawAbandoned.store(false, std::memory_order_release);
   needsImageRedraw.store(true, std::memory_order_release);
   requestUpdate();
 }
@@ -213,32 +212,24 @@ void BmpViewerActivity::drawImage() {
         GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
         return true;
       };
-      renderer.clearScreen();
-      bool success = drawFrame();
-      // PSRAM boards render both gray planes off-screen, as the reader's deferred pass does: the
-      // framebuffer keeps the B/W image (no fourth decode before the cleanup), and leaving can
-      // drop the pass between planes without a half-written plane in panel RAM.
+      // PSRAM boards with Direct gray (X4 Pro) show the image once, as the sleep screen does: both
+      // gray planes render into PSRAM, then one direct-gray refresh, instead of a B/W image on a
+      // full refresh followed by the gray pass. Nothing reaches the panel until the planes are
+      // done, so input can drop the draw between decodes with no panel state to undo.
       HeapByteBuffer lsbPlane;
       HeapByteBuffer msbPlane;
-      const bool gray = success && bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale();
-      if (gray && psramHeapAvailable()) {
+      const bool gray = bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale();
+      if (gray && renderer.supportsDirectGrayscale() && psramHeapAvailable()) {
         const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
         lsbPlane = makePsramByteBufferNoThrow(planeBytes);
         if (lsbPlane) msbPlane = makePsramByteBufferNoThrow(planeBytes);
       }
-      // Dropping gray after the base forces a GC on the next refresh, which only leaving (whose
-      // exit refresh is a GC anyway) can absorb without an extra flash.
-      const auto abandoned = [this]() { return drawAbandoned.load(std::memory_order_acquire); };
-      if (gray && msbPlane) {
-        if (drawCancelled.load(std::memory_order_acquire)) {
-          file.close();
-          return;  // nothing gray started; the next screen repaints over the popup
-        }
-        success = renderer.displayAbsoluteGrayscaleBase();
-        bool skipGray = false;
+      bool success = true;
+      if (msbPlane) {
+        const auto cancelled = [this]() { return drawCancelled.load(std::memory_order_acquire); };
+        renderer.setAbsoluteGrayPlanes(true);  // Direct takes complete planes
         for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
-          skipGray = abandoned();
-          if (!success || skipGray) break;
+          if (!success || cancelled()) break;
           success = bitmap.rewindToData() == BmpReaderError::Ok;
           if (!success) break;
           renderer.setRenderMode(mode);
@@ -249,12 +240,25 @@ void BmpViewerActivity::drawImage() {
           renderer.endStripTarget();
         }
         renderer.setRenderMode(GfxRenderer::BW);
-        if (success && !skipGray && !abandoned()) {
+        renderer.setAbsoluteGrayPlanes(false);
+        if (cancelled()) {
+          file.close();
+          return;  // the panel still shows the popup; the next screen repaints over it
+        }
+        success = success && renderer.displayDirectGrayscaleBase();
+        if (success) {
           renderer.copyGrayscalePlanes(lsbPlane.get(), msbPlane.get());
           renderer.displayGrayBuffer();
+          // Popups and the cleanup need the B/W image.
+          renderer.clearScreen();
+          success = bitmap.rewindToData() == BmpReaderError::Ok && drawFrame();
+          if (success) renderer.cleanupGrayscaleWithFrameBuffer();
         }
-        if (success) renderer.cleanupGrayscaleWithFrameBuffer();
-      } else if (gray) {
+      } else {
+        renderer.clearScreen();
+        success = drawFrame();
+      }
+      if (!msbPlane && success && gray) {
         success = renderer.displayAbsoluteGrayscaleBase();
         for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
           if (!success) break;
@@ -277,7 +281,7 @@ void BmpViewerActivity::drawImage() {
           success = bitmap.rewindToData() == BmpReaderError::Ok && drawFrame();
           if (success) renderer.cleanupGrayscaleWithFrameBuffer();
         }
-      } else if (success) {
+      } else if (!msbPlane && success) {
         renderer.displayBuffer(HalDisplay::FAST_REFRESH);
       }
       if (!success) {
@@ -480,9 +484,9 @@ void BmpViewerActivity::loop() {
   // Keep CPU awake/polling so 1st click works
   Activity::loop();
 
-  // Input that leaves or replaces the image stops a draw in progress before its
-  // gray stage (Back also drops a started one), so the RenderLock taken below or
-  // by the screen change waits at most one decode pass instead of the whole draw.
+  // Input that leaves or replaces the image stops a draw in progress before it
+  // reaches the panel, so the RenderLock taken below or by the screen change
+  // waits at most one decode pass instead of the whole draw.
   const auto cancelDraw = [this]() { drawCancelled.store(true, std::memory_order_release); };
 
   auto openSibling = [this, &cancelDraw](const int delta) {
@@ -508,7 +512,6 @@ void BmpViewerActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     cancelDraw();
-    drawAbandoned.store(true, std::memory_order_release);
     activityManager.goToFileBrowser(filePath);
     return;
   }

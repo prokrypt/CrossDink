@@ -38,8 +38,7 @@ class BmpViewerActivity final : public Activity {
   // update requests (battery, USB) leave the image on screen as is.
   std::atomic<bool> needsImageRedraw{true};
   // Set by loop() on input that leaves or replaces the image: drawImage() stops
-  // before the gray base refresh. drawAbandoned (Back) also drops a started gray
-  // pass between planes. Both clear when a new draw is requested.
+  // between decode passes before anything reaches the panel. Cleared when a new
+  // draw is requested.
   std::atomic<bool> drawCancelled{false};
-  std::atomic<bool> drawAbandoned{false};
 };
