@@ -2881,8 +2881,11 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   // Button menus repaint the sample on every navigation step. A grayscale pass
   // here would add a second panel refresh and flash the preview each time.
+  // Sharpflash's pass is a full swing (a flash) on every setting change, so its
+  // preview stays BW, like the page behind the drawer, until the close redraw.
   if (!CROSSDINK_APP_READER_SAMPLE_PREVIEW &&
-      shouldRenderReaderDrawerAntiAliasing(previewRendered, draft.textAntiAliasing,
+      shouldRenderReaderDrawerAntiAliasing(previewRendered,
+                                           draft.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH,
                                            ReaderUtils::readerForegroundBlack()) &&
       !sdFontSystem.fontUsesMonochromeRaster(renderer, previewFontId, draft.sdFontFamilyName.data())) {
     renderPreviewWithAntiAliasing(previewFontId);
