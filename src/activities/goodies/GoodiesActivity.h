@@ -101,7 +101,8 @@ class GoodiesActivity final : public Activity {
   void confirmResetKnobs();
   void refreshRemoteRow();
   void setRowValue(int row, std::string value);
-  std::string tokenRowValue() const;
+  std::string tokenRowValue();
+  void confirmNewPin();
   void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();

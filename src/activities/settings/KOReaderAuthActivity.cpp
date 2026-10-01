@@ -80,13 +80,14 @@ void KOReaderAuthActivity::onEnter() {
 void KOReaderAuthActivity::onExit() {
   Activity::onExit();
 
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
-    WiFi.disconnect(false);
-    delay(30);
-  }
-  // Authentication launches from minimal network boot, so restore the full
-  // app state even if setup failed before WiFi was started.
+#ifndef SIMULATOR
+  // As OPDS: back Home in place (keeping the Goodies remote's link) when the
+  // heap allows, else by restart, which also restores what a minimal network
+  // boot skipped.
+  leaveNetworkAfterExit({});
+#else
   silentRestart();
+#endif
 }
 
 void KOReaderAuthActivity::render(RenderLock&&) {
