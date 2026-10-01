@@ -246,7 +246,7 @@ void onSleep(const char* why) {
   flush();
 }
 
-void poll(const uint32_t idleMs) {
+void poll(const uint32_t idleMs, const bool lightAuto) {
   const uint32_t nowMs = millis();
   if (nowMs - lastPollMs < kPollMs) return;
   lastPollMs = nowMs;
@@ -279,8 +279,9 @@ void poll(const uint32_t idleMs) {
     wifiOn = wifi;
     writeRow(wifi ? "wifi_on" : "wifi_off", nullptr);
   }
-  // Logged once it holds for 2 s: a slider drag or a transfer pulse is one row, not dozens.
-  if (reading.light != pendingLight) {
+  // Logged once it holds for 2 s: a slider drag is one row, not dozens. A duck or
+  // pulse never settles, and the light it restores matches the logged row.
+  if (reading.light != pendingLight || lightAuto) {
     pendingLight = reading.light;
     pendingLightMs = nowMs;
   } else if (pendingLight != loggedLight && nowMs - pendingLightMs >= kLightSettleMs) {

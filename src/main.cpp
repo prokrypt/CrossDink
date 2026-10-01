@@ -2520,7 +2520,7 @@ static void loopPass() {
     }
   }
   updateFlashDuck();
-  BatteryLog::poll(millis() - lastActivityTime);
+  BatteryLog::poll(millis() - lastActivityTime, flashDuckActive || TransferLightPulse::owning());
 
   // Let wake continue as soon as its hold has been verified. The release can
   // arrive after setup, so consume that one input frame rather than making it

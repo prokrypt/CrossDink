@@ -41,8 +41,9 @@ void onBoot();
 // Last thing before Storage.shutdown(): the sleep row, then a flush.
 void onSleep(const char* why);
 // Main loop, every pass (runs once a second): %, charger, USB, Wi-Fi and
-// frontlight rows, awake time, and the idle flush.
-void poll(uint32_t idleMs);
+// frontlight rows, awake time, and the idle flush. lightAuto: a flash duck or
+// transfer pulse owns the light, so no light row (Light Timeout still logs).
+void poll(uint32_t idleMs, bool lightAuto);
 // Any task.
 void event(const char* name, const char* detail = nullptr);
 // Main loop only. Appends the unflushed rows to the SD file.
@@ -55,7 +56,7 @@ void reset();
 #else
 inline void onBoot() {}
 inline void onSleep(const char*) {}
-inline void poll(uint32_t) {}
+inline void poll(uint32_t, bool) {}
 inline void event(const char*, const char* = nullptr) {}
 #endif
 
