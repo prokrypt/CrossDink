@@ -448,7 +448,7 @@ function summary() {
   ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
   const rows = [
     ['Now', `${b.percent ?? '-'}%  ${b.millivolts ?? '-'}mV  ${b.charging ? 'charging ' : ''}${b.usb ? 'USB' : 'on battery'}`],
-    ['Temperatures', `battery ${c('battery')}, chip ${c('chip')}, panel ${c('panel')}`],
+    ['Temperatures', `battery ${c('battery')}, CPU ${c('chip')}, panel ${c('panel')}`],
   ];
   if (bat.length) {
     const s = logStats();

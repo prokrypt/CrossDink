@@ -317,9 +317,9 @@ void BatteryStatsActivity::buildLines() {
   uint32_t panelAgeMs = 0;
   const float chipC = temperatureRead();
   if (freeink::uc8179PanelTemperature(panelC, panelAgeMs)) {
-    add("Chip %.0fC  Panel %dC", chipC, panelC);
+    add("CPU %.0fC  Panel %dC", chipC, panelC);
   } else {
-    add("Chip %.0fC", chipC);
+    add("CPU %.0fC", chipC);
   }
   BookReadingStats::formatDuration(millis() / 1000, a, sizeof(a));
   add("Up %s  reset %s  wake %s", a, resetReasonName(esp_reset_reason()),
