@@ -311,11 +311,12 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     }
 
     _batteryLastPollMs = now;
-    uint16_t percent = 0;
-    if (!battery.readPercentageChecked(percent)) {
+    uint16_t fine = 0;
+    if (!battery.readPercentage256Checked(fine)) {
       return _batteryCachedPercent;
     }
-    _batteryCachedPercent = percent;
+    _batteryCached256 = fine;
+    _batteryCachedPercent = fine >> 8;
     return _batteryCachedPercent;
   }
 
@@ -326,6 +327,11 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     _batteryCachedPercent = (_batteryCachedPercent * 9 + battery.readPercentage() * 10) / 10;
   }
   return _batteryCachedPercent / 10;
+}
+
+uint16_t HalPowerManager::getBatteryPercent256() const {
+  const uint16_t percent = getBatteryPercentage();
+  return BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0 ? _batteryCached256 : static_cast<uint16_t>(percent * 256);
 }
 
 #if CROSSDINK_BATTERY_DIAG_LOG

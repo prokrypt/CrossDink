@@ -131,10 +131,12 @@ let segs = [];
 let status = {};
 
 const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1) + 'h');
-// The gauge reports whole percents, so a drop of N% means N±1: rates and
+// A logged % is whole ("71", older rows and rows logged asleep) or has the
+// gauge's fraction ("71.43"), so a drop is exact to u = ±1 or ±0.01: rates and
 // estimates carry that ±, and wait for a 2% drop ('-' until then).
-const rate = (drop, s) => (drop >= 2 && s >= 60 ? ((drop * 3600) / s).toFixed(2) + '±' + (3600 / s).toFixed(2) + '%/h' : '-');
-const left = (pct, drop, s) => (drop >= 2 && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s) / drop / drop) : '-');
+const rate = (drop, s, u = 1) => (drop >= 2 && s >= 60 ? ((drop * 3600) / s).toFixed(2) + '±' + ((u * 3600) / s).toFixed(2) + '%/h' : '-');
+const left = (pct, drop, s, u = 1) => (drop >= 2 && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s * u) / drop / drop) : '-');
+const unit = (g) => Math.max(g.a.q, g.b.q);
 const NOT_ENOUGH = 'not enough data';
 const when = (t) => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const table = (id, head, rows) => {
@@ -312,15 +314,16 @@ function stateTable() {
   for (const g of segs) {
     if (!g.batt || g.state === 'off') continue;
     const k = g.state === 'asleep' ? 'asleep' : 'awake' + (g.wifi ? ', Wi-Fi on' : '') + (g.light ? ', light on' : '');
-    const o = (by[k] = by[k] || { s: 0, drop: 0 });
+    const o = (by[k] = by[k] || { s: 0, drop: 0, u: 0.01 });
     o.s += g.dt;
     o.drop += Math.max(0, g.a.pct - g.b.pct);
+    o.u = Math.max(o.u, unit(g));
   }
   const pct = status.battery ? status.battery.percent : bat[bat.length - 1].pct;
   table(
     'states',
     ['State', 'Time', 'Drop', 'Rate', `Runtime from ${pct}%`],
-    Object.entries(by).map(([k, o]) => [k, hrs(o.s), o.drop + '%', rate(o.drop, o.s), left(pct, o.drop, o.s)])
+    Object.entries(by).map(([k, o]) => [k, hrs(o.s), +o.drop.toFixed(2) + '%', rate(o.drop, o.s, o.u), left(pct, o.drop, o.s, o.u)])
   );
 }
 
@@ -331,11 +334,12 @@ function sessions() {
   for (const g of segs) {
     const kind = g.a.usb ? 'chg' : 'dis';
     if (!cur || cur.kind !== kind) {
-      cur = { kind, a: g.a, b: g.b, awake: 0, asleep: 0, dropAwake: 0, dropAsleep: 0, full: null, max: g.a.pct };
+      cur = { kind, a: g.a, b: g.b, awake: 0, asleep: 0, dropAwake: 0, dropAsleep: 0, full: null, max: g.a.pct, u: 0.01 };
       (kind === 'chg' ? chg : dis).push(cur);
     }
     cur.b = g.b;
     cur.max = Math.max(cur.max, g.b.pct);
+    cur.u = Math.max(cur.u, unit(g));
     const d = Math.max(0, g.a.pct - g.b.pct);
     if (g.state === 'off') continue;
     if (g.state === 'asleep') {
@@ -354,9 +358,9 @@ function sessions() {
       when(s.a.t),
       hrs(s.b.t - s.a.t),
       s.a.pct + ' → ' + s.b.pct,
-      hrs(s.awake) + ', ' + rate(s.dropAwake, s.awake),
-      hrs(s.asleep) + ', ' + rate(s.dropAsleep, s.asleep),
-      rate(s.dropAwake + s.dropAsleep, s.awake + s.asleep),
+      hrs(s.awake) + ', ' + rate(s.dropAwake, s.awake, s.u),
+      hrs(s.asleep) + ', ' + rate(s.dropAsleep, s.asleep, s.u),
+      rate(s.dropAwake + s.dropAsleep, s.awake + s.asleep, s.u),
     ])
   );
   table(
@@ -366,7 +370,7 @@ function sessions() {
       when(s.a.t),
       hrs(s.b.t - s.a.t),
       s.a.pct + ' → ' + s.max,
-      rate(s.max - s.a.pct, s.b.t - s.a.t).replace('%/h', '%/h gained'),
+      rate(s.max - s.a.pct, s.b.t - s.a.t, s.u).replace('%/h', '%/h gained'),
       s.full ? hrs(s.full - s.a.t) : '-',
     ])
   );
@@ -375,7 +379,7 @@ function sessions() {
 // The Summary counters, counted from the log like Goodies > Battery & stats does
 // (BatteryStatsActivity::parseRow): from the last stats_reset row, or the first row.
 function logStats() {
-  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: null, bA: 0, bS: 0, dA: 0, dS: 0 });
+  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: null, bA: 0, bS: 0, dA: 0, dS: 0, u: 0.01 });
   let s = zero(false);
   let prev = null;
   for (const r of bat) {
@@ -387,7 +391,10 @@ function logStats() {
       const drop = Math.max(0, prev.pct - r.pct);
       const awake = !(prev.ev === 'sleep' || prev.det.startsWith('asleep'));
       s[awake ? 'awake' : 'asleep'] += dt;
-      if (!prev.usb && !r.usb) awake ? ((s.bA += dt), (s.dA += drop)) : ((s.bS += dt), (s.dS += drop));
+      if (!prev.usb && !r.usb) {
+        awake ? ((s.bA += dt), (s.dA += drop)) : ((s.bS += dt), (s.dS += drop));
+        s.u = Math.max(s.u, prev.q, r.q);
+      }
     }
     s.first ||= r.t;
     s.last = r.t;
@@ -396,7 +403,7 @@ function logStats() {
     const f = /false_wakes=(\d+)/.exec(r.det);
     if (f) s.falseWakes += +f[1];
     if (r.ev === 'charged') s.charged = r;
-    if (r.ev === 'charged' || r.ev === 'chg_off') s.bA = s.bS = s.dA = s.dS = 0;
+    if (r.ev === 'charged' || r.ev === 'chg_off') (s.bA = s.bS = s.dA = s.dS = 0), (s.u = 0.01);
     prev = r;
   }
   return s;
@@ -423,9 +430,9 @@ function summary() {
     const span = s.bA + s.bS;
     rows.push(
       ['Last charged', s.charged && now > s.charged.t ? `${hrs(now - s.charged.t)} ago at ${s.charged.pct}%` : 'not in the log'],
-      ['Awake drain', s.dA >= 2 && s.bA >= 60 ? rate(s.dA, s.bA) + ' over ' + hrs(s.bA) : NOT_ENOUGH],
-      ['Asleep drain', s.dS >= 2 && s.bS >= 60 ? rate(s.dS, s.bS) + ' over ' + hrs(s.bS) : NOT_ENOUGH],
-      ['Est. left at that pace', drop >= 2 && span >= 60 ? left(pct, drop, span) : NOT_ENOUGH],
+      ['Awake drain', s.dA >= 2 && s.bA >= 60 ? rate(s.dA, s.bA, s.u) + ' over ' + hrs(s.bA) : NOT_ENOUGH],
+      ['Asleep drain', s.dS >= 2 && s.bS >= 60 ? rate(s.dS, s.bS, s.u) + ' over ' + hrs(s.bS) : NOT_ENOUGH],
+      ['Est. left at that pace', drop >= 2 && span >= 60 ? left(pct, drop, span, s.u) : NOT_ENOUGH],
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
@@ -467,7 +474,7 @@ tab();
     .map((l) => l.split(','))
     .filter((f) => f.length >= 10 && +f[0] > 0)
     .map((f) => ({
-      t: +f[0], local: f[1], pct: +f[3], mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
+      t: +f[0], local: f[1], pct: +f[3], q: f[3].includes('.') ? 0.01 : 1, mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
       temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
     }));
   hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);

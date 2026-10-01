@@ -39,8 +39,10 @@ class BatteryStatsActivity final : public Activity {
     uint32_t awakeS, asleepS;  // power-off gaps before a cold boot count as neither
     uint32_t chargedEpoch;     // last "charged" row, 0 = none
     uint8_t chargedPct;
-    // On battery since charging last stopped ("charged" or "chg_off").
-    uint32_t battAwakeS, battAsleepS, dropAwakePct, dropAsleepPct;
+    // On battery since charging last stopped ("charged" or "chg_off"). Drops in
+    // 0.01 %; coarse: some of it came from whole-percent rows (±1 instead of ±0.01).
+    uint32_t battAwakeS, battAsleepS, dropAwakeC, dropAsleepC;
+    bool coarse;
   };
   static constexpr int MAX_POINTS = 400;
   static constexpr int MAX_LINES = 16;
@@ -59,6 +61,8 @@ class BatteryStatsActivity final : public Activity {
   Point points[MAX_POINTS];
   LogStats st{};
   Point prev{};  // last row read, carried across the two files
+  uint16_t prevC = 0;     // its % in 0.01 %
+  bool prevFine = false;  // its % had a fraction
   bool prevUsb = false;
   HalFile file;
   std::unique_ptr<char[]> buf;

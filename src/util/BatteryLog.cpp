@@ -58,6 +58,7 @@ bool ringReady = false;
 // Main-loop readings; every row reuses the latest.
 struct Reading {
   uint16_t pct = 0;
+  uint16_t pct256 = 0;  // same read in 1/256 % (CW2017 fraction); 0 = log the whole percent
   uint16_t mv = 0;
   int16_t tempDeciC = 0;
   bool tempKnown = false;
@@ -160,7 +161,8 @@ void setReading(const Reading& r) {
 // Cheap reads, every poll.
 void readQuick() {
   Reading r = reading;
-  r.pct = powerManager.getBatteryPercentage();
+  r.pct256 = powerManager.getBatteryPercent256();
+  r.pct = r.pct256 >> 8;
   r.chg = monitor().isCharging();
   r.usb = gpio.isUsbConnectedCached();
   setReading(r);
@@ -189,9 +191,16 @@ void writeRowAt(const uint32_t epoch, const Reading& r, const char* name, const 
     const int t = std::abs(static_cast<int>(r.tempDeciC));
     snprintf(temp, sizeof(temp), "%s%d.%d", r.tempDeciC < 0 ? "-" : "", t / 10, t % 10);
   }
+  // Two decimals when the gauge gave a fraction: "71.43".
+  char pct[8];
+  if (r.pct256 != 0) {
+    snprintf(pct, sizeof(pct), "%u.%02u", r.pct256 >> 8, (r.pct256 & 0xFF) * 100 / 256);
+  } else {
+    snprintf(pct, sizeof(pct), "%u", r.pct);
+  }
   char row[160];
-  int n = snprintf(row, sizeof(row), "%lu,%s,%lu,%u,%u,%u,%u,%s,%u,%s,%s\n", static_cast<unsigned long>(epoch), local,
-                   static_cast<unsigned long>(millis()), r.pct, r.mv, r.chg ? 1u : 0u, r.usb ? 1u : 0u, temp, r.light,
+  int n = snprintf(row, sizeof(row), "%lu,%s,%lu,%s,%u,%u,%u,%s,%u,%s,%s\n", static_cast<unsigned long>(epoch), local,
+                   static_cast<unsigned long>(millis()), pct, r.mv, r.chg ? 1u : 0u, r.usb ? 1u : 0u, temp, r.light,
                    name, detail ? detail : "");
   if (n <= 0) return;
   if (n >= static_cast<int>(sizeof(row))) {
@@ -266,6 +275,7 @@ void onBoot() {
     const Stats::SleepEvent& e = s.sleepEvents[i];
     Reading r = reading;
     r.pct = e.pct;
+    r.pct256 = 0;
     r.mv = e.mv;
     r.chg = r.usb = e.chg;
     r.tempKnown = false;
@@ -343,7 +353,8 @@ void onChargeWake() {
   Stats& s = st();
   readClock();
   Reading r = reading;
-  r.pct = powerManager.getBatteryPercentage();
+  r.pct256 = powerManager.getBatteryPercent256();
+  r.pct = r.pct256 >> 8;
   r.chg = monitor().isCharging();
   r.mv = monitor().readMillivolts();
   setReading(r);
