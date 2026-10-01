@@ -135,7 +135,7 @@ const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1
 // estimates carry that ±, and wait for a 2% drop ('-' until then).
 const rate = (drop, s) => (drop >= 2 && s >= 60 ? ((drop * 3600) / s).toFixed(2) + '±' + (3600 / s).toFixed(2) + '%/h' : '-');
 const left = (pct, drop, s) => (drop >= 2 && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s) / drop / drop) : '-');
-const NOT_ENOUGH = 'not enough data (needs a 2% drop)';
+const NOT_ENOUGH = 'not enough data';
 const when = (t) => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const table = (id, head, rows) => {
   $(id).innerHTML =

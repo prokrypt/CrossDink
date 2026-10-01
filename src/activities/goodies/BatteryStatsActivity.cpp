@@ -45,7 +45,7 @@ const char* field(const char* row, int n) {
 // The gauge reports whole percents, so a drop of N% means N±1: rates and
 // estimates carry that ±, and wait for a 2% drop (1% could be 0 to 2).
 constexpr uint32_t MIN_DROP_PCT = 2;
-constexpr char NOT_ENOUGH[] = "not enough data (needs a 2% drop)";
+constexpr char NOT_ENOUGH[] = "not enough data";
 
 // "4.1±0.2%/h over 5h 10 min".
 void formatRate(char* out, const size_t size, const uint32_t dropPct, const uint32_t seconds) {
