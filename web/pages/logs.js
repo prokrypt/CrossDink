@@ -1,6 +1,8 @@
 // Sources: /api/status, the PSRAM ring (debug builds) and every file under /debug.
 // Missing sources are left out. Search filters the loaded text line by line.
 const $ = (id) => document.getElementById(id);
+// A boot row is a cold boot after power-on; any other reset (OTA, panic, watchdog) is a restart.
+const cold = (s) => s.includes('reset=POWERON');
 let text = '';
 
 function add(label, url, dl, zp = dl) {
@@ -41,7 +43,7 @@ function show() {
   // Battery CSV: the row's event picks the chart's colors.
   const ev = (l) => {
     const e = l.split(',')[9] || '';
-    return e === 'boot' ? 'c-boot' : e.startsWith('fw_') ? 'c-fw' : e.startsWith('xfer') ? 'c-xfer'
+    return e === 'boot' ? (cold(l) ? 'c-boot' : 'c-rst') : e.startsWith('fw_') ? 'c-fw' : e.startsWith('xfer') ? 'c-xfer'
       : /^(chg_|charged|usb_)/.test(e) ? 'c-usb' : e.startsWith('wifi') ? 'c-wifi' : /^(sleep|wake)$/.test(e) ? 'c-sleep' : '';
   };
   const fmt = kind.endsWith('.json') ? json : kind.endsWith('.csv') ? (l) => wrap(ev(l), l) : (l) => wrap(lvl(l), tag(l));
@@ -143,16 +145,23 @@ const table = (id, head, rows) => {
 function segments() {
   segs = [];
   let wifi = false;
+  let xfer = false; // xfer_start .. xfer_end
+  let fw = false; // fw_start .. fw_ok / fw_fail
   for (let i = 0; i + 1 < bat.length; i++) {
     const a = bat[i];
     const b = bat[i + 1];
+    const reset = ['boot', 'wake', 'sleep'].includes(a.ev);
     if (a.ev === 'wifi_on') wifi = true;
-    if (['wifi_off', 'boot', 'wake', 'sleep'].includes(a.ev)) wifi = false;
+    if (a.ev === 'wifi_off' || reset) wifi = false;
+    if (a.ev === 'xfer_start') xfer = true;
+    if (a.ev === 'xfer_end' || reset) xfer = false;
+    if (a.ev === 'fw_start') fw = true;
+    if (a.ev === 'fw_ok' || a.ev === 'fw_fail' || reset) fw = false;
     const dt = b.t - a.t;
     if (dt < 0) continue; // clock set backwards
     // Charger rows logged while asleep carry detail "asleep" and keep the sleep going.
-    const state = a.ev === 'sleep' || a.det === 'asleep' ? 'asleep' : b.ev === 'boot' ? 'off' : a.usb ? 'usb' : 'awake';
-    segs.push({ a, b, dt, state, wifi: wifi && state !== 'asleep', light: a.light > 0, batt: !a.usb && !b.usb });
+    const state = a.ev === 'sleep' || a.det === 'asleep' ? 'asleep' : b.ev === 'boot' && cold(b.det) ? 'off' : a.usb ? 'usb' : 'awake';
+    segs.push({ a, b, dt, state, xfer, fw, wifi: wifi && state !== 'asleep', light: a.light > 0, batt: !a.usb && !b.usb });
   }
 }
 
@@ -184,24 +193,27 @@ function tAt(svg, cx) {
   const box = svg.getBoundingClientRect();
   const W = svg.viewBox.baseVal.width;
   const [a, b] = win();
-  return a + (((cx - box.left) / box.width) * W - L) * ((b - a) / (W - L));
+  return a + (((cx - box.left) / box.width) * W - L) * ((b - a) / (W - L - svg.dataset.r));
 }
 function hover(t) {
   hoverT = t;
   const r = bat.reduce((best, c) => (Math.abs(c.t - t) < Math.abs(best.t - t) ? c : best), bat[0]);
-  $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${r.ev} ${r.det}`;
+  $('readout').title = $('readout').textContent = `${r.local}  ${r.pct}%  ${r.mv} mV  ${r.temp ?? '-'} °C  light ${r.light}%  ${r.usb ? 'USB ' : ''}${r.chg ? 'charging ' : ''}${bat.filter((c) => c.t === r.t).map((c) => (c.ev + ' ' + c.det).trim()).join(', ')}`; // every event at that second, e.g. wifi_on + xfer_start
   const [a, b] = win();
   for (const svg of document.querySelectorAll('.ch svg')) {
-    const W = svg.viewBox.baseVal.width;
+    const W = svg.viewBox.baseVal.width - svg.dataset.r;
     const xh = svg.querySelector('.xh');
     if (xh) xh.setAttribute('transform', `translate(${(L + ((r.t - a) * (W - L)) / Math.max(1, b - a)).toFixed(1)})`);
   }
 }
 
-function chart(id, h, key, lo, hi, fmt, bands) {
+// key2/fmt2: an optional second series on its own right-hand scale.
+function chart(id, h, key, lo, hi, fmt, bands, key2, fmt2) {
   const svg = $(id);
-  const W = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
-  svg.setAttribute('viewBox', `0 0 ${W} ${h}`);
+  const VW = svg.clientWidth || 1000; // user units = CSS px, so 13px labels stay 13px on phones
+  svg.setAttribute('viewBox', `0 0 ${VW} ${h}`);
+  svg.dataset.r = key2 ? 40 : 0; // right gutter for the second scale
+  const W = VW - svg.dataset.r; // plot's right edge
   const ticks = W < 600 ? 1 : 4;
   const [t0, t1] = win();
   const pts = bat
@@ -217,17 +229,28 @@ function chart(id, h, key, lo, hi, fmt, bands) {
   const x = (t) => L + ((Math.min(Math.max(t, t0), t1) - t0) * (W - L)) / Math.max(1, t1 - t0);
   const y = (v) => h - 16 - ((v - lo) * (h - 22)) / (hi - lo);
   let s = '';
+  let s2 = ''; // second series, drawn over the bands
+  if (key2) {
+    const p2 = pts.filter((r) => r[key2] != null);
+    const lo2 = Math.min(...p2.map((r) => r[key2]));
+    const hi2 = Math.max(lo2 + 1, ...p2.map((r) => r[key2]));
+    const y2 = (v) => h - 16 - ((v - lo2) * (h - 22)) / (hi2 - lo2);
+    for (let q = 0; q <= 4; q++) s += `<text class="t2" x="${VW}" y="${y2(lo2 + ((hi2 - lo2) * q) / 4) + 4}" text-anchor="end">${fmt2(lo2 + ((hi2 - lo2) * q) / 4)}</text>`;
+    s2 = `<polyline class="line2" points="${p2.map((r) => x(r.t).toFixed(1) + ',' + y2(r[key2]).toFixed(1)).join(' ')}"/>`;
+  }
   if (bands) {
     for (const g of segs) {
       if (g.b.t < t0 || g.a.t > t1) continue;
       const w = Math.max(1, x(g.b.t) - x(g.a.t)).toFixed(1);
-      const cls = g.state === 'asleep' ? '' : g.state; // shade awake time, like the Goodies graph's bar
-      if (cls) s += `<rect class="${cls}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${g.state} ${hrs(g.dt)}</title></rect>`;
+      // Shade awake time like the Goodies graph's bar; charging (awake or asleep) and off win.
+      const cls = g.state === 'off' ? 'off' : g.a.chg ? 'charging' : g.state === 'asleep' ? '' : 'awake';
+      if (cls) s += `<rect class="${cls}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${cls}${g.state === 'asleep' ? ', asleep' : ''} ${hrs(g.dt)}</title></rect>`;
+      for (const k of ['xfer', 'fw']) if (g[k]) s += `<rect class="${k}" x="${x(g.a.t).toFixed(1)}" y="6" width="${w}" height="${h - 22}"><title>${k === 'fw' ? 'firmware update' : 'transfer'} ${hrs(g.dt)}</title></rect>`;
       if (g.wifi) s += `<rect class="wifi" x="${x(g.a.t).toFixed(1)}" y="${h - 20}" width="${w}" height="4"/>`;
     }
     for (const r of bat) {
       if (r.t < t0 || r.t > t1) continue;
-      const m = r.ev === 'boot' ? 'boot' : r.ev.startsWith('fw_') ? 'fw' : r.ev.startsWith('xfer') ? 'xfer' : '';
+      const m = r.ev === 'boot' ? (cold(r.det) ? 'boot' : 'rst') : '';
       if (m) s += `<line class="m-${m}" x1="${x(r.t)}" x2="${x(r.t)}" y1="6" y2="${h - 16}"><title>${r.local} ${r.ev} ${r.det}</title></line>`;
     }
   }
@@ -242,7 +265,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
   }
   const P = pts.map((r) => x(r.t).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ');
   if (key === 'pct') s += `<polygon class="area" points="${x(pts[0].t).toFixed(1)},${y(lo)} ${P} ${x(pts[pts.length - 1].t).toFixed(1)},${y(lo)}"/>`;
-  s += `<polyline class="line" points="${P}"/><line class="xh" x1="0" x2="0" y1="6" y2="${h - 16}" transform="translate(-9)"/>`;
+  s += s2 + `<polyline class="line" points="${P}"/><line class="xh" x1="0" x2="0" y1="6" y2="${h - 16}" transform="translate(-9)"/>`;
   svg.innerHTML = s;
   svg.onwheel = (e) => {
     e.preventDefault();
@@ -261,7 +284,7 @@ function chart(id, h, key, lo, hi, fmt, bands) {
     const [a, b] = win();
     const other = [...ptrs].find(([id]) => id !== e.pointerId);
     if (!other) {
-      const dt = ((ptrs.get(e.pointerId) - e.clientX) * (b - a)) / (svg.getBoundingClientRect().width * (1 - L / W));
+      const dt = ((ptrs.get(e.pointerId) - e.clientX) * (b - a)) / ((svg.getBoundingClientRect().width * (W - L)) / VW);
       setView(a + dt, b + dt);
     } else {
       const d0 = Math.abs(ptrs.get(e.pointerId) - other[1]);
@@ -277,9 +300,8 @@ function chart(id, h, key, lo, hi, fmt, bands) {
 
 function draw() {
   $('rz').hidden = !view;
-  chart('gp', 220, 'pct', 0, 100, (v) => Math.round(v) + '%', true);
-  chart('gv', 120, 'mv', 0, 0, (v) => Math.round(v) + '', false);
-  chart('gt', 120, 'temp', 0, 0, (v) => v.toFixed(1) + ' C', false);
+  chart('gp', 220, 'pct', 0, 100, (v) => Math.round(v) + '%', true, 'mv', (v) => Math.round(v) + '');
+  chart('gt', 120, 'temp', 0, 0, (v) => v.toFixed(1) + '°', false);
   if (hoverT !== null) hover(hoverT);
 }
 
@@ -352,7 +374,7 @@ function summary() {
   const b = status.battery || {};
   const st = b.stats || {};
   const t = status.temperatures || {};
-  const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' C' : '-');
+  const c = (k) => (t[k] && t[k].c != null ? t[k].c + ' °C' : '-');
   $('hero').innerHTML = [
     [(b.percent ?? '-') + '%', b.charging ? 'charging' : b.usb ? 'on USB' : 'on battery'],
     [(b.millivolts ?? '-') + ' mV', 'voltage'],
@@ -378,7 +400,7 @@ function summary() {
   const boot = status.boot || {};
   rows.push(
     ['Up', `${hrs((boot.uptimeMs || 0) / 1000)}, reset ${boot.resetReason}, wake ${boot.wakeCause}`],
-    ['Log', bat.length ? `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}, ${bat.filter((r) => r.ev === 'boot').length} boots, ${bat.filter((r) => r.ev === 'wake').length} wakes` : 'no rows with a clock time']
+    ['Log', bat.length ? `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}, ${bat.filter((r) => r.ev === 'boot' && cold(r.det)).length} cold boots, ${bat.filter((r) => r.ev === 'boot' && !cold(r.det)).length} restarts, ${bat.filter((r) => r.ev === 'wake').length} wakes` : 'no rows with a clock time']
   );
   table('sum', null, rows);
 }
