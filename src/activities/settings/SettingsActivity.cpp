@@ -884,16 +884,12 @@ void SettingsActivity::loop() {
 
   // Handle actions with early return
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    // Index 0 = nothing selected; tabs switch only by long-press Up/Down.
+    if (selectedSettingIndex == 0) return;
     showSettingSelection = true;
-    if (!isFileBrowserView() && selectedSettingIndex == 0) {
-      enterCategory((selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0);
-      hasChangedCategory = true;
-      requestUpdate();
-    } else {
-      toggleCurrentSetting();
-      requestUpdate();
-      return;
-    }
+    toggleCurrentSetting();
+    requestUpdate();
+    return;
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -967,6 +963,7 @@ void SettingsActivity::loop() {
     }
     selectedSettingIndex = index;
     showSettingSelection = true;
+    listSelectionRevealed = true;
     if (selectedSettingIndex == 0) {
       topIndex = 0;
     } else {
@@ -1575,6 +1572,9 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   }
   configureUiListSectionHeaders(props, screen.theme());
   const auto rows = configureUiList(props, screen.theme(), screen.body());
+  // Index 0 already means nothing selected: no hidden row for ActivityManager
+  // to reveal, so the first Up/Down moves straight onto a row.
+  if (selectedSettingIndex == 0) ListSelection::hidThisFrame = false;
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, settingsCount);  // clamp to range
   props.topIndex = static_cast<uint16_t>(topIndex);
@@ -1606,9 +1606,8 @@ void SettingsActivity::render(RenderLock&&) {
   }
 
   const auto confirmLabel =
-      (!isFileBrowserView() && selectedSettingIndex == 0)
-          ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-          : (selectedSettingIndex > 0 &&
+      selectedSettingIndex == 0 ? ""
+                                : (selectedSettingIndex > 0 &&
                      (currentSettingUsesOptionMenu((*currentSettings)[selectedSettingIndex - 1]) ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::SUBMENU ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::ACTION ||
