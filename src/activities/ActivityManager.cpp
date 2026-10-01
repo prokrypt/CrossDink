@@ -242,18 +242,9 @@ bool isLightSwipeAction(const uint8_t action) {
 
 #if CROSSDINK_APP_CAP_TOUCH
 void finishLiveLightSwipe(LiveLightSwipeState& state, ActivityManager& activityManager) {
-  // A brightness slide that turned an off light on but ended at or below its
-  // start leaves it off, as it was. Only here: mid-drag it would blink.
+  // The light stays at the level the slide last showed; only 0% turns it off.
   const bool brightness = state.action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
                           state.action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
-  if (brightness && !state.initialOn && Frontlight.isOn() && Frontlight.brightness() <= state.initialValue) {
-    Frontlight.setBrightness(state.initialValue);
-    Frontlight.setOn(false);
-    SETTINGS.frontlightBrightness = state.initialValue;
-    SETTINGS.frontlightOn = 0;
-    if (state.owner) state.owner->onExternalFrontlightChange();
-    state.changed = false;  // back where it started: nothing to save
-  }
   if (brightness && Frontlight.isOn() && Frontlight.brightness() == 0) {
     lightOffAtZero(state.initialValue);
     if (state.owner) state.owner->onExternalFrontlightChange();
