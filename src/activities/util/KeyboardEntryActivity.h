@@ -61,14 +61,16 @@ class KeyboardEntryActivity : public Activity {
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
   // Settings > Turbo keyboard: full-frame DU typing (4; the SDK's DU LUT is
-  // charge-balanced, two phases) with no OLD re-stream (1), no tap highlight
-  // (32), OTP Fast first frame (64); the screen below redraws with OTP Fast on
-  // exit. CMD:KBDEXP 100 = the same with the re-stream.
-  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
-      KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
-  // DU frames per phase (two phases). Untested on hardware; the old one-way
-  // LUT needed 6 single-phase frames.
-  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 4;
+  // charge-balanced, two phases), no tap highlight (32), OTP Fast first frame
+  // (64); the screen below redraws with OTP Fast on exit. Keeps the ~27 ms OLD
+  // re-stream after the ink (no skipped resync). CMD:KBDEXP 101 = the same
+  // without the re-stream.
+  static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD = KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
+  // DU frames per phase (two phases; Knobs kbdFrames). Measured on 32cc8fdd at
+  // 4/5/6 frames: DRF 337-341/379-384/423-424 ms, tap to ink 392-397/432-438/
+  // 476-480 ms (~42 ms per frame); ghosting at 4, dirt building at 5, less at 6.
+  // The old one-way LUT needed 6 single-phase frames.
+  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
   uint8_t kbdExpFlags = 0;
   uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   uint8_t kbdExpPll = 0;

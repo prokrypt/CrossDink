@@ -13,7 +13,7 @@ X("Panel", coldC, int8_t, 15, -10, 40, 1, "C")                       // panel co
 X("Panel", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          // idle temperature sample
 X("Panel", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
 X("Panel", tempMaxAgeMs, uint32_t, 600000, 60000, 3600000, 60000, "ms")        // older samples ignored
-X("Panel", kbdFrames, uint8_t, 4, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
+X("Panel", kbdFrames, uint8_t, 6, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
 X("Panel", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo keyboard PLL: panel, 1 = 40 Hz, 2 = 50 Hz
 
 // Frontlight

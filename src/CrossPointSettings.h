@@ -700,7 +700,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
   uint16_t keyboardLayouts = 0;
-  // UC8179 turbo keyboard refresh (kbd-exp flags 101: balanced DU typing, no OLD re-stream, no tap highlight); CMD:KBDEXP overrides it.
+  // UC8179 turbo keyboard refresh (kbd-exp flags 100: balanced DU typing with OLD re-stream, no tap highlight); CMD:KBDEXP overrides it.
   uint8_t turboKeyboard = 1;
   // Goodies > Wi-Fi remote toggle (debug builds): rejoin in the background after every boot.
   uint8_t goodiesWifiRemote = 0;

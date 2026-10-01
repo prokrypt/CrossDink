@@ -202,7 +202,7 @@ void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uin
 void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 
 // EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
-// picks "101 4" (flags 101, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
+// picks "100 6" (flags 100, 6+6 balanced DU frames) or 0 (T1 baseline, timing only).
 // flags: 1 = skip the OLD re-stream after DU frames, 2 = retired (T3 windowed upload), 4 = T4 balanced DU LUT,
 // 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
 // 32 = no tap highlight, 64 = plain OTP Fast first frame, 128 = light sleep during the refresh. Debug builds can
