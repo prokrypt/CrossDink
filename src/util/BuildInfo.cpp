@@ -1,5 +1,11 @@
 #include "BuildInfo.h"
 
+#include <AppVersion.h>
+
+#ifndef CROSSDINK_VERSION
+#define CROSSDINK_VERSION "dev"
+#endif
+
 #ifndef CROSSDINK_GIT_BRANCH
 #define CROSSDINK_GIT_BRANCH "unknown"
 #endif
@@ -32,3 +38,9 @@ const char* buildTime() { return CROSSDINK_BUILD_TIME; }
 const char* gitSha() { return CROSSDINK_GIT_SHA; }
 const char* gitDirty() { return CROSSDINK_GIT_DIRTY; }
 }  // namespace BuildInfo
+
+namespace AppVersion {
+const char* version() { return CROSSDINK_VERSION; }
+const char* versionLabel() { return "CrossDink " CROSSDINK_VERSION; }
+const char* userAgent() { return "CrossDink-ESP32-" CROSSDINK_VERSION; }
+}  // namespace AppVersion
