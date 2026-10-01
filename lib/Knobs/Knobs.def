@@ -62,6 +62,7 @@ X("Touch", swipeMaxMs, unsigned long, 700, 200, 3000, 50, "ms")     // SDK: long
 X("Touch", multiSwipeMaxMs, unsigned long, 2000, 500, 5000, 100, "ms")  // SDK: two-finger gesture window
 X("Touch", multiSeparationSlopPx, int, 45, 10, 150, 5, "px")        // SDK: two-finger spacing tolerance
 X("Touch", touchLongPressMs, unsigned long, 500, 200, 2000, 50, "ms")  // SDK: screen long press
+X("Touch", contactJumpPx, int, 120, 40, 400, 10, "px")             // SDK: still touch jumping this far = new finger
 X("Touch", touchIrqPulseMs, unsigned long, 120, 20, 500, 10, "ms")  // SDK: release hold-over after last read
 X("Touch", pinchMinPx, uint8_t, 20, 5, 80, 1, "px")                 // reader pinch: min span change
 X("Touch", pinchScalePct, uint8_t, 110, 102, 200, 1, "%")           // reader pinch: span ratio per font step
