@@ -27,10 +27,25 @@ function show() {
   const q = $('q').value.toLowerCase();
   const lines = text.split('\n');
   const hits = q ? lines.filter((l) => l.toLowerCase().includes(q)) : lines;
-  // Errors and crashes in red, DBG lines dimmed.
+  const kind = $('src').selectedOptions[0]?.dataset.dl || '';
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const cls = (l) => (/\[ERR\]|Guru Meditation|panic|abort\(\)|assert failed/.test(l) ? 'e' : l.includes('[DBG]') ? 'd' : '');
-  $('out').innerHTML = hits.map((l) => (cls(l) ? `<span class="${cls(l)}">${esc(l)}</span>` : esc(l))).join('\n');
+  const wrap = (c, h) => (c ? `<span class="${c}">${h}</span>` : h);
+  // Logs: errors and crashes red, DBG dimmed, each [TAG] a stable hue from its name.
+  const lvl = (l) => (/\[ERR\]|Guru Meditation|panic|abort\(\)|assert failed/.test(l) ? 'e' : l.includes('[DBG]') ? 'd' : '');
+  const hue = (t) => ([...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) * 137) % 360;
+  const tag = (l) => l.replace(/^(\[\s*\d+\] \[\w+\] )\[([^\]]+)\]/, (m, a, t) => `${a}<span style="color:hsl(${hue(t)} 60% var(--tl))">[${t}]</span>`);
+  // JSON: keys, strings, numbers, true/false/null.
+  const json = (l) =>
+    l.replace(/("(?:[^"\\]|\\.)*")(\s*:)?|\b(true|false|null)\b|-?\b\d+(?:\.\d+)?\b/g, (m, s, colon, lit) =>
+      s ? wrap(colon ? 'jk' : 'js', s) + (colon || '') : wrap(lit ? 'jb' : 'jn', m));
+  // Battery CSV: the row's event picks the chart's colors.
+  const ev = (l) => {
+    const e = l.split(',')[9] || '';
+    return e === 'boot' ? 'c-boot' : e.startsWith('fw_') ? 'c-fw' : e.startsWith('xfer') ? 'c-xfer'
+      : /^(chg_|charged|usb_)/.test(e) ? 'c-usb' : e.startsWith('wifi') ? 'c-wifi' : /^(sleep|wake)$/.test(e) ? 'c-sleep' : '';
+  };
+  const fmt = kind.endsWith('.json') ? json : kind.endsWith('.csv') ? (l) => wrap(ev(l), l) : (l) => wrap(lvl(l), tag(l));
+  $('out').innerHTML = hits.map((l) => fmt(esc(l))).join('\n');
   $('meta').textContent = q ? hits.length + ' of ' + lines.length + ' lines' : lines.length + ' lines';
 }
 

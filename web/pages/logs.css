@@ -50,5 +50,14 @@ table { border-collapse: collapse; width: 100%; font-size: 0.92em; white-space: 
 #sum td:first-child { color: var(--label-color); width: 32%; }
 td, th { border-bottom: 1px solid var(--border-color); padding: 7px 8px; text-align: left; font-variant-numeric: tabular-nums; }
 tr:hover td { background: var(--accent-color-10); }
+#out { --tl: 38%; }
+@media (prefers-color-scheme: dark) { #out { --tl: 68%; } }
 #out .e { color: #ef4444; }
 #out .d { opacity: 0.6; }
+#out .jk { color: hsl(210 65% var(--tl)); }
+#out .js { color: hsl(140 50% var(--tl)); }
+#out .jn { color: hsl(28 85% var(--tl)); }
+#out .jb { color: hsl(280 55% var(--tl)); }
+#out .c-usb { color: hsl(142 60% var(--tl)); }
+#out .c-wifi { color: hsl(217 70% var(--tl)); }
+#out .c-sleep { color: var(--label-color); }
