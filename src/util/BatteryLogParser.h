@@ -134,7 +134,9 @@ struct BatteryLogParser {
         st.stateS[k] += dt;
         st.stateDuty[k] += static_cast<uint64_t>(BatteryEstimate::lightDuty(prevLight)) * dt;
       }
-      if (!prevUsb && !usb && fine == prevFine) {
+      // Whole-percent steps (older rows, charger events logged asleep) are left out: each
+      // adds +-1% to a drop of ~0.01%, which swamps the rate (the "0.03 +- 1.54%" asleep drain).
+      if (!prevUsb && !usb && fine && prevFine) {
         st.battS[cat] += dt;
         st.netC[cat] += drop;
         if (!fine) st.netCoarseC[cat] += drop;

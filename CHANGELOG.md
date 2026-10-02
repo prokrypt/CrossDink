@@ -191,6 +191,7 @@
 
 ### Fixed
 - Upside-down button hints in inverted portrait on Lookup History, Did you mean, Dictionary definition, XTC menu, Clip selection, End-of-book options, and on Font Family / Dictionary pickers opened from the reader (TTF Rendering opened from Settings no longer uses reader hints). Calibre showed "Receiving: : name" and no Back hint on its error screen. Wi-Fi network names cut mid-character; they are now trimmed to the screen width with "…". Bookmarks & Clippings said "No bookmarks yet". The interval picker's value touched the Lyra header. Library Settings, Button Remap and Goodies values sat flush to the row edge. XTC error messages and the Edit Dates title used fixed positions.
+- Battery & stats: whole-percent log rows no longer count toward the drain rates, so "Asleep drain" and "Est to empty" ± no longer swell to ±1% on a drop of a few hundredths.
 - Web portal: the Battery nav link opens its own page at `/battery` and is highlighted there (it used to light up Logs). Old `/logs#battery` links still open the Battery view.
 - Debug builds (X4 Pro): lowering Goodies > Knobs pxcCacheCap below what the image cache already held stopped it from evicting; the next image now evicts down to the new cap first.
 - Web File Manager: the Modified column is hidden on screens up to 800 px wide (was 600 px), so phones with a small display size or zoomed-out browser no longer squeeze file names to a few letters per line.

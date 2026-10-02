@@ -88,3 +88,14 @@ TEST(BatteryLogParser, PercentParse) {
   EXPECT_EQ(BatteryLogParser::parseCenti("100.00,", fine), 10000);
   EXPECT_EQ(BatteryLogParser::parseCenti("0.05,", fine), 5);
 }
+
+// Whole-percent steps must not add error or drop: two whole rows 1% apart used to add +-1%.
+TEST(BatteryLogParser, WholePercentStepsAreSkipped) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,80,4000,0,0,30,0,sleep,", "1790899600,x,0,79,3990,0,0,30,0,wake,",
+                          "1790903200,x,0,79.00,3990,0,0,30,0,pct,", "1790906800,x,0,78.99,3989,0,0,30,0,pct,"}) {
+    p.parseRow(row);
+  }
+  EXPECT_EQ(p.st.errC[0] + p.st.errC[1], 1u);  // only the fine->fine step
+  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);  // open stretch, not yet in dropC
+}
