@@ -22,6 +22,10 @@ class HalFrontlight {
   // Warm/cool mix, 0 = cool .. 100 = warm. No-op on single-channel boards.
   void setWarmth(uint8_t warmPercent);
   void setOn(bool on);
+  // Light timeout: drive the LEDs at `percent` of the user level without
+  // changing brightness()/isOn() or settings. setBrightness()/setOn() end it.
+  void setIdleDim(uint8_t percent);
+  uint8_t idleDimPercent() const { return idleDim; }
   void prepareForDeepSleep();
   void releaseAfterWake();
   // Prints the settled duty after a ramp (see FrontlightManager::flushLog). Main loop.
@@ -39,6 +43,7 @@ class HalFrontlight {
   // the on/off state separate so toggling restores the previous level.
   uint8_t lastBrightness = 60;
   bool lit = false;
+  uint8_t idleDim = 100;
 
   static HalFrontlight instance;
 };

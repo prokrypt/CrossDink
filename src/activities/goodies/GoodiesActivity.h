@@ -46,6 +46,9 @@ class GoodiesActivity final : public Activity {
 
  public:
   GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
+  // Root rows after Display test and Wi-Fi remote (frontlight boards only).
+  static constexpr int FLASH_DIM_ROW = 2;
+  static constexpr int FLASH_RESTORE_ROW = 3;
 
   void onEnter() override;
   void loop() override;
@@ -78,6 +81,7 @@ class GoodiesActivity final : public Activity {
   int remoteRowShown = -1;
 
   void toggleRemote();
+  void openFlashDuckKnob(int index);
   void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();

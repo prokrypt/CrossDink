@@ -51,6 +51,7 @@
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/SwipeAdjustment.h"
+#include "util/TransferLightPulse.h"
 #include "util/TwoFingerSwipe.h"
 
 namespace {
@@ -225,6 +226,18 @@ bool isLightSwipeAction(const uint8_t action) {
 
 #if CROSSDINK_APP_CAP_TOUCH
 void finishLiveLightSwipe(LiveLightSwipeState& state, ActivityManager& activityManager) {
+  // A brightness slide that turned an off light on but ended at or below its
+  // start leaves it off, as it was. Only here: mid-drag it would blink.
+  const bool brightness = state.action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                          state.action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+  if (brightness && !state.initialOn && Frontlight.isOn() && Frontlight.brightness() <= state.initialValue) {
+    Frontlight.setBrightness(state.initialValue);
+    Frontlight.setOn(false);
+    SETTINGS.frontlightBrightness = state.initialValue;
+    SETTINGS.frontlightOn = 0;
+    if (state.owner) state.owner->onExternalFrontlightChange();
+    state.changed = false;  // back where it started: nothing to save
+  }
   if (state.changed) activityManager.persistGlobalSettings();
   state = {};
 }
@@ -240,8 +253,12 @@ void updateLiveLightSwipe(Activity& activity, ActivityManager& activityManager, 
   const int target = SwipeAdjustment::targetValue(state.initialValue, sign > 0, amount);
   const int current = brightness ? Frontlight.brightness() : Frontlight.warmth();
   const int difference = sign * (target - current);
-  if (difference != 0 || (brightness && amount != 0 && !Frontlight.isOn()))
+  if (difference != 0 || (brightness && amount != 0 && !Frontlight.isOn())) {
+    // setBrightness() ends a dim; a slide mid-flash keeps the flash duck on the new level.
+    const uint8_t duck = Frontlight.idleDimPercent();
     applyConfiguredSwipeAction(activity, activityManager, state.action, difference, false);
+    if (duck < 100 && Frontlight.isOn()) Frontlight.setIdleDim(duck);
+  }
   // Without a dead zone, amount 0 is only a narrow band mid-drag, so restoring
   // the initial on/off state here would blink the light off and back on while
   // reversing through it. cancelLiveLightSwipe() restores it when needed.
@@ -345,11 +362,11 @@ bool applyLiveTwoFingerLightSwipe(Activity& activity, MappedInputManager& mapped
     state.vertical = direction == TwoFingerSwipe::Direction::Up || direction == TwoFingerSwipe::Direction::Down;
     state.movementSign =
         direction == TwoFingerSwipe::Direction::Up || direction == TwoFingerSwipe::Direction::Left ? -1 : 1;
+    const bool brightness = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                            action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+    if (brightness) TransferLightPulse::yieldToUser();  // slide from the user's level, not the pulse's
     state.initialOn = Frontlight.isOn();
-    state.initialValue = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
-                                 action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS
-                             ? Frontlight.brightness()
-                             : Frontlight.warmth();
+    state.initialValue = brightness ? Frontlight.brightness() : Frontlight.warmth();
   }
 
   const int displacement = state.movementSign * (state.vertical ? centerY - state.startY : centerX - state.startX);
@@ -421,11 +438,11 @@ bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, A
                                  progress.direction == MappedInputManager::EdgeSlide::RightUp
                              ? -1
                              : 1;
+    const bool brightness = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                            action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+    if (brightness) TransferLightPulse::yieldToUser();  // slide from the user's level, not the pulse's
     state.initialOn = Frontlight.isOn();
-    state.initialValue = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
-                                 action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS
-                             ? Frontlight.brightness()
-                             : Frontlight.warmth();
+    state.initialValue = brightness ? Frontlight.brightness() : Frontlight.warmth();
     updateLiveLightSwipe(activity, activityManager, state,
                          SwipeAdjustment::edgeAmount(progress.distance, mappedInput.getRenderer().getScreenHeight()));
     if (progress.finished) {

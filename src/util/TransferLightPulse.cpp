@@ -6,9 +6,10 @@
 
 namespace {
 constexpr uint32_t kCycleMs = 1000;
-constexpr uint32_t kWriteIntervalMs = 20;
+uint32_t lastAnyWriteMs = 0;
 constexpr uint8_t kPeakPercent = 25;
 constexpr uint8_t kLitFloorPercent = 10;  // pulse floor when the light was already on
+TransferLightPulse* active = nullptr;     // the armed pulse; one at a time
 }  // namespace
 
 void TransferLightPulse::begin(const uint32_t holdForMs) {
@@ -24,6 +25,7 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   stopAtMs = 0;
   held = false;
   armed = true;
+  active = this;
   floorPercent = savedOn && savedBrightness > 0 ? kLitFloorPercent : 0;
   if (holdForMs > 0 && savedOn && savedBrightness > 0) {
     // Write nothing: `written` still lets update() spot a user change.
@@ -42,7 +44,18 @@ void TransferLightPulse::write(const uint8_t percent) {
   Frontlight.setBrightness(percent);
   written = percent;
   lastWriteMs = millis();
+  lastAnyWriteMs = lastWriteMs;
 }
+
+void TransferLightPulse::yieldToUser() {
+  if (!active || active->userOverride) return;
+  active->userOverride = true;
+  Frontlight.setBrightness(active->savedBrightness);
+  Frontlight.setOn(active->savedOn);
+  LOG_DBG("LIGHT", "Transfer pulse stopped: user slide from %u%%", active->savedBrightness);
+}
+
+bool TransferLightPulse::animating() { return millis() - lastAnyWriteMs < 5 * WRITE_INTERVAL_MS; }
 
 void TransferLightPulse::update(const bool transferActive) {
   if (!armed || userOverride || held) {
@@ -89,7 +102,7 @@ void TransferLightPulse::update(const bool transferActive) {
     const uint32_t ramp = phase < half ? phase : kCycleMs - phase;
     target = static_cast<uint8_t>(floorPercent + ramp * (kPeakPercent - floorPercent) / half);
   }
-  if (target != written && (target == floorPercent || now - lastWriteMs >= kWriteIntervalMs)) {
+  if (target != written && (target == floorPercent || now - lastWriteMs >= WRITE_INTERVAL_MS)) {
     write(target);
   }
 }
@@ -110,6 +123,7 @@ void TransferLightPulse::end() {
   }
   armed = false;
   entryHold = false;
+  if (active == this) active = nullptr;
   if (userOverride) {
     return;
   }
