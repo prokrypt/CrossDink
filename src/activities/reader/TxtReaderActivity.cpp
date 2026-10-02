@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Memory.h>
 #include <Serialization.h>
 #include <Utf8.h>
@@ -28,8 +29,8 @@
 #include "util/InPlaceFileWrite.h"
 
 namespace {
-constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
-constexpr unsigned long LONG_PRESS_MENU_MS = 600;
+constexpr size_t CHUNK_SIZE = 8 * 1024;      // 8KB chunk for reading
+KNOB_ALIAS(LONG_PRESS_MENU_MS, menuHoldMs);  // Goodies > Knobs
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
 constexpr uint8_t CACHE_VERSION = 4;          // Increment when cache format changes

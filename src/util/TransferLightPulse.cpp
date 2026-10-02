@@ -5,11 +5,11 @@
 #include <Logging.h>
 
 namespace {
-constexpr uint32_t kCycleMs = 1000;
+KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs; the peak's range stays above the floor's
 uint32_t lastAnyWriteMs = 0;
-constexpr uint8_t kPeakPercent = 25;
-constexpr uint8_t kLitFloorPercent = 10;  // pulse floor when the light was already on
-TransferLightPulse* active = nullptr;     // the armed pulse; one at a time
+KNOB_ALIAS(kPeakPercent, pulsePeakPct);
+KNOB_ALIAS(kLitFloorPercent, pulseFloorPct);  // pulse floor when the light was already on
+TransferLightPulse* active = nullptr;         // the armed pulse; one at a time
 }  // namespace
 
 void TransferLightPulse::begin(const uint32_t holdForMs) {

@@ -3,6 +3,7 @@
 #include <CrossDinkHalFrontlight.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Memory.h>
 
 #include <algorithm>
@@ -37,8 +38,8 @@ constexpr fui::ActionId ACTION_BRIGHTNESS_STEP = 4;
 constexpr fui::ActionId ACTION_WARMTH_STEP = 5;
 constexpr fui::ActionId ACTION_QUICK = 6;
 constexpr fui::ActionId ACTION_DISMISS = 7;
-constexpr int BRIGHTNESS_STEP = 5;
-constexpr int FINE_STEP = 1;
+KNOB_ALIAS(BRIGHTNESS_STEP, panelStep);  // Goodies > Knobs
+KNOB_ALIAS(FINE_STEP, panelFineStep);
 constexpr int HEADER_ICON_SIZE = 24;
 constexpr int HEADER_BUTTON_WIDTH = 64;
 constexpr int HEADER_CONTENT_BOTTOM_GAP = 8;

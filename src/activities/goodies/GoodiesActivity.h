@@ -55,23 +55,21 @@ void loop(uint32_t idleMs);
 // Debug-build Goodies menu (CROSSDINK_GOODIES). Root lists the tools; the
 // Display test level lists built-in tests, then /debug/display/*.txt.
 class GoodiesActivity final : public Activity {
-  using UiApp = freeink::ui::FreeInkApp<16, 4>;
+  using UiApp = freeink::ui::FreeInkApp<24, 4>;  // list rows + knob tabs
 
  public:
   GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
-  // Root rows after Display test and Wi-Fi remote (frontlight boards only).
-  static constexpr int FLASH_DIM_ROW = 2;
-  static constexpr int FLASH_RESTORE_ROW = 3;
 
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
 
  private:
-  enum class Level : uint8_t { Root, DisplayTests };
+  enum class Level : uint8_t { Root, DisplayTests, Knobs };
+  static constexpr int KNOBS_ROW = 2;  // Root: Display test, Wi-Fi remote, Knobs, Battery & stats
   struct Entry {
     std::string label;
-    int builtIn;       // >= 0: display_script::BUILT_INS index
+    int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
     std::string path;  // SD script when builtIn < 0
     std::string value = {};
   };
@@ -85,6 +83,8 @@ class GoodiesActivity final : public Activity {
   int pendingRow = -1;
   int visibleRows = 1;
   int topIndex = 0;
+  int knobTab = 0;  // Knobs: one tab per Knobs.def group
+  int pendingTab = -1;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};
@@ -94,12 +94,16 @@ class GoodiesActivity final : public Activity {
   int remoteRowShown = -1;
 
   void toggleRemote();
-  void openFlashDuckKnob(int index);
+  void openKnob(int row);
+  void openDimLevel(int row);
+  void confirmResetKnobs();
   void refreshRemoteRow();
   void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onTabEvent(const freeink::ui::ActionEvent& event, void* user);
+  void switchKnobTab(int tab);
   void buildListScreen(UiApp::ScreenType& screen);
 };

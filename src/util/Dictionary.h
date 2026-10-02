@@ -1,5 +1,6 @@
 #pragma once
 #include <HalStorage.h>
+#include <Knobs.h>
 
 #include <cstdint>
 #include <string>
@@ -71,7 +72,7 @@ struct DictDefinitionSlice {
 
 class Dictionary {
  public:
-  static constexpr unsigned long LONG_PRESS_MS = 600;
+  static KNOB_ALIAS(LONG_PRESS_MS, dictBackHoldMs);  // Goodies > Knobs
 
   // Returns the active dictionary folder base path. A temporary lookup override
   // takes priority; otherwise resolves the per-book/global dictionary.bin files.

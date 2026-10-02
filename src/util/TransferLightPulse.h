@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Knobs.h>
+
 #include <cstdint>
 
 // Pulses the frontlight floor -> 25% -> floor (1 s cycle) while a Wi-Fi or USB
@@ -14,8 +16,8 @@
 class TransferLightPulse {
  public:
   // How long after the last data a caller should still report activity.
-  static constexpr unsigned long TAIL_MS = 250;
-  static constexpr uint32_t WRITE_INTERVAL_MS = 20;
+  static KNOB_ALIAS(TAIL_MS, pulseTailMs);  // Goodies > Knobs
+  static KNOB_ALIAS(WRITE_INTERVAL_MS, pulseWriteMs);
   // A pulse wrote within the last few steps: the main loop ticks at
   // WRITE_INTERVAL_MS meanwhile, else a 50-250 ms idle tick makes it step.
   static bool animating();
@@ -25,7 +27,7 @@ class TransferLightPulse {
 
   // A light that is on keeps its level for holdMs before pulsing starts (0 =
   // pulse at once). A user change during the hold is kept as usual.
-  void begin(uint32_t holdMs = 10000);
+  void begin(uint32_t holdMs = KNOBS.pulseHoldMs);
   void update(bool transferActive);
   // Stops the pulse and holds the light steady at the pulse peak until end().
   void holdOn();

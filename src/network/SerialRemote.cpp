@@ -8,6 +8,7 @@
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <InputManager.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
@@ -309,6 +310,46 @@ void cmdSet(char* args) {
   reply("ERR:SET:unknown_key");
 }
 
+#if CROSSDINK_GOODIES
+// Goodies > Knobs (lib/Knobs/Knobs.def). One reply line each, so "list" pages:
+// "id=value ..." from index `from`, with "next=N" while more remain.
+void cmdKnob(char* args) {
+  char* save = nullptr;
+  const char* sub = strtok_r(args, " ", &save);
+  const char* id = strtok_r(nullptr, " ", &save);
+  const char* valueArg = strtok_r(nullptr, " ", &save);
+  if (sub == nullptr || strcasecmp(sub, "list") == 0) {
+    char out[232];
+    int n = 0;
+    int i = id ? std::max(0, atoi(id)) : 0;
+    for (; i < knobs::COUNT; ++i) {
+      const int w = snprintf(out + n, sizeof(out) - n, " %s=%ld", knobs::INFO[i].id, static_cast<long>(knobs::get(i)));
+      if (w < 0 || n + w >= static_cast<int>(sizeof(out)) - 12) break;
+      n += w;
+    }
+    out[n] = '\0';
+    return i < knobs::COUNT ? reply("OK:KNOB%s next=%d", out, i) : reply("OK:KNOB%s", out);
+  }
+  if (strcasecmp(sub, "reset") == 0 && id == nullptr) {
+    knobs::resetAll();
+    return reply("OK:KNOB reset");
+  }
+  const int i = id ? knobs::find(id) : -1;
+  if (i < 0) return reply("ERR:KNOB:unknown_id");
+  const knobs::Info& k = knobs::INFO[i];
+  if (strcasecmp(sub, "get") == 0) {
+    return reply("OK:KNOB %s %ld def=%ld min=%ld max=%ld step=%ld %s", k.id, static_cast<long>(knobs::get(i)),
+                 static_cast<long>(k.def), static_cast<long>(k.min), static_cast<long>(k.max),
+                 static_cast<long>(k.step), k.unit);
+  }
+  if (strcasecmp(sub, "reset") == 0) return reply("OK:KNOB %s %ld", k.id, static_cast<long>(knobs::set(i, k.def)));
+  if (strcasecmp(sub, "set") == 0 && valueArg != nullptr) {
+    return reply("OK:KNOB %s %ld", k.id, static_cast<long>(knobs::set(i, strtol(valueArg, nullptr, 0))));
+  }
+  reply("ERR:KNOB:args");
+}
+#endif
+
 // Overrides the keyboard refresh experiment in RAM (applied at the next
 // keyboard open, kept until "off" or reboot). No SD write.
 void cmdKbdExp(char* args) {
@@ -548,6 +589,10 @@ bool handleLine(const char* line) {
           static_cast<unsigned>(display.getDisplayHeight()), static_cast<unsigned>(display.getBufferSize()));
   } else if (strcmp(verb, "SET") == 0) {
     cmdSet(args);
+#if CROSSDINK_GOODIES
+  } else if (strcmp(verb, "KNOB") == 0) {
+    cmdKnob(args);
+#endif
   } else if (strcmp(verb, "KBDEXP") == 0) {
     cmdKbdExp(args);
   } else if (strcmp(verb, "REFRESH") == 0) {

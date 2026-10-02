@@ -32,6 +32,9 @@ class IntervalSelectionActivity final : public Activity {
                                      bool showTouchHeaderBackButton = false, ValueFormatter valueFormatter = nullptr,
                                      int tapStep = 0, bool useReaderSlider = false);
 
+  // A title that is not a StrId (Goodies > Knobs ids). Call before starting.
+  void setTitle(const char* text) { titleText = text; }
+
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -41,6 +44,7 @@ class IntervalSelectionActivity final : public Activity {
 
  private:
   StrId titleId;
+  const char* titleText = nullptr;
   StrId valueFormatId;
   StrId maxBoundaryLabelId;
   int value;

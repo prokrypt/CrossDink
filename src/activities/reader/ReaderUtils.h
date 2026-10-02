@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalTiltSensor.h>
+#include <Knobs.h>
 #include <Logging.h>
 
 #include <algorithm>
@@ -17,11 +18,11 @@
 
 namespace ReaderUtils {
 
-constexpr unsigned long SKIP_HOLD_MS = 700;
-constexpr unsigned long GO_HOME_MS = 1000;
+KNOB_ALIAS(SKIP_HOLD_MS, skipHoldMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(GO_HOME_MS, goHomeHoldMs);
 // Hold duration to delete a row in the bookmark and clipping lists. Shared so the
 // same gesture cannot drift apart between the two lists.
-constexpr unsigned long DELETE_HOLD_MS = 1000;
+KNOB_ALIAS(DELETE_HOLD_MS, deleteHoldMs);
 constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
 // Gap between the top reader bar and the first line of book text.
 constexpr int8_t TOP_STATUS_BAR_TEXT_PADDING = 0;
