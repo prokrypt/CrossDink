@@ -20,7 +20,7 @@ constexpr uint8_t TEXT_OFFSET_VERSION = 2;
 constexpr uint8_t LAYOUT_SIGNATURE_VERSION = 3;
 constexpr uint8_t VERSION = 4;
 constexpr size_t INITIAL_CLIPPING_RESERVE = 4;
-constexpr char CLIPPINGS_DIR[] = "/.crosspoint/clippings";
+constexpr char CLIPPINGS_DIR[] = "/.crossdink/clippings";
 constexpr size_t TEXT_COPY_BUFFER_SIZE = 128;
 
 struct ClippingFileHeader {
@@ -365,7 +365,7 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
 
 bool ClippingStore::writeToFile(const std::string* replacementText, const size_t replacementIndex,
                                 const std::string* sourcePathOverride) {
-  Storage.mkdir("/.crosspoint");
+  Storage.mkdir("/.crossdink");
   Storage.mkdir(CLIPPINGS_DIR);
 
   const std::string tmpPath = storeFilePath + ".tmp";

@@ -17,7 +17,7 @@ class BookCacheUtilsTest : public ::testing::Test {
   void SetUp() override {
     fake::reset();
     SETTINGS.trackReadingStats = 1;
-    cachePath = Epub("/a.epub", "/.crosspoint").getCachePath();
+    cachePath = Epub("/a.epub", "/.crossdink").getCachePath();
     fake::add(cachePath + "/progress.bin", "progress");
     fake::add(cachePath + "/stats_v5.bin", "stats");
     fake::add(cachePath + "/reader_settings.bin", "settings");

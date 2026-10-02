@@ -173,10 +173,11 @@ SDK.
 
 ## Cache Format
 
-- EPUB cache lives under `.crosspoint/epub_<hash>/`.
+- EPUB cache lives under `.crossdink/epub_<key>/`, where key is FNV-1a 64 of the file size plus its last 16 KB (`Epub::cachePathForFilePath`); `path.txt` in the folder names the book.
 - If you change binary cache layouts, bump the format version first and document it in `docs/file-formats.md`.
-- Cache identity is tied to the book path hash; moving or renaming a book creates a different cache.
-- Clear the relevant `.crosspoint/epub_<hash>/` cache when testing EPUB parser, layout, image, or binary cache format changes that may otherwise reuse stale output.
+- EPUB cache identity follows the file's content, so moving or renaming a book keeps its cache and replacing its content starts a new one. XTC/TXT caches are still keyed by path.
+- `/.crosspoint` is CrossInk's root and CrossDink never writes there. `HalStorage` reads a missing `/.crossdink` path from its `/.crosspoint` twin and lists both in folder listings; writes go to `/.crossdink` (an in-place update of a twin-only file copies that file first), and removing a path with a twin records it in `/.crossdink/.deleted`. EPUB caches are copied per book by `Epub::resolveCachePathForFilePath`.
+- Clear the relevant `.crossdink/epub_<hash>/` cache when testing EPUB parser, layout, image, or binary cache format changes that may otherwise reuse stale output.
 
 ## Git Workflow
 

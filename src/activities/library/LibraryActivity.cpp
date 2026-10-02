@@ -367,22 +367,22 @@ void LibraryActivity::applyFilter() {
       cachePath.clear();
       if (type == library::FileEpub) {
         uint64_t pathHash = 0;
-        if (!index.readPathHash(record, pathHash)) {
+        if (!index.readPathHash(record, pathHash) || !readIndexedPath(record)) {
           LOG_ERR("LIB", "Cannot read Library book hash");
           filterFailed = true;
           filteredCount = 0;
           break;
         }
-        cachePath = "/.crosspoint/epub_" + std::to_string(pathHash);
+        // ponytail: reads each EPUB's last 16 KB for its content key; store the
+        // key in library.idx if this filter gets slow on big libraries.
+        cachePath = Epub::cachePathForFilePath(path, "/.crossdink");
         if (!Storage.exists(cachePath.c_str())) {
-          // Older EPUB caches used std::hash. Reading their stats here avoids
-          // requiring the user to open each finished book to migrate its cache.
-          if (!readIndexedPath(record)) {
-            filterFailed = true;
-            filteredCount = 0;
-            break;
+          // Not opened since /.crossdink: read the path-keyed /.crosspoint
+          // stats so finished books hide without opening each one first.
+          cachePath = "/.crosspoint/epub_" + std::to_string(pathHash);
+          if (!Storage.exists(cachePath.c_str())) {
+            cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(path));
           }
-          cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(path));
         }
       } else if (type == library::FileXtc) {
         if (!readIndexedPath(record)) {
@@ -390,7 +390,7 @@ void LibraryActivity::applyFilter() {
           filteredCount = 0;
           break;
         }
-        cachePath = Xtc(path, "/.crosspoint").getCachePath();
+        cachePath = Xtc(path, "/.crossdink").getCachePath();
       }
       if (!cachePath.empty() && BookReadingStats::load(cachePath).isCompleted) continue;
     }
@@ -1230,7 +1230,7 @@ bool LibraryActivity::loadGridCover(const int row) {
   const std::string thumbPath = UITheme::getCoverThumbPath(recent->coverBmpPath, gridCoverWidth, gridCoverHeight);
   if (hasValidGridThumb(thumbPath, gridCoverWidth, gridCoverHeight)) return false;
   if (FsHelpers::hasEpubExtension(book.path)) {
-    Epub epub(book.path, "/.crosspoint");
+    Epub epub(book.path, "/.crossdink");
     if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
       LOG_ERR("LIB", "Cannot load EPUB cover for %s", book.path.c_str());
       return false;
@@ -1247,7 +1247,7 @@ bool LibraryActivity::loadGridCover(const int row) {
     }
     return false;
   }
-  Xtc xtc(book.path, "/.crosspoint");
+  Xtc xtc(book.path, "/.crossdink");
   if (!xtc.load()) {
     LOG_ERR("LIB", "Cannot load XTC cover for %s", book.path.c_str());
     return false;

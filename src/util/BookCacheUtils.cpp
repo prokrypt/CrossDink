@@ -56,13 +56,13 @@ constexpr char STATS_SLOT_SUFFIX[] = ".bin.bak";
 
 std::string getBookCachePath(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
-    return Epub(path, "/.crosspoint").getCachePath();
+    return Epub(path, "/.crossdink").getCachePath();
   }
   if (FsHelpers::hasXtcExtension(path)) {
-    return Xtc(path, "/.crosspoint").getCachePath();
+    return Xtc(path, "/.crossdink").getCachePath();
   }
   if (FsHelpers::hasTxtExtension(path)) {
-    return Txt(path, "/.crosspoint").getCachePath();
+    return Txt(path, "/.crossdink").getCachePath();
   }
   return "";
 }
@@ -278,7 +278,7 @@ bool recoverInterruptedPreservation(const std::string& cachePath, const Preserve
     LOG_ERR("BookCache", "Missing stats recovery temp prefix: %s", cachePath.c_str());
     return false;
   }
-  // Normal clears do not enumerate the potentially large /.crosspoint folder.
+  // Normal clears do not enumerate the potentially large /.crossdink folder.
   // A marker is synced before any stats file is moved out of its cache.
   if (!Storage.exists(statsRecoveryMarkerPath(cachePath, statsTmpPrefix).c_str())) return true;
 
@@ -359,14 +359,15 @@ bool preserveUserStateFiles(const std::string& cachePath, const std::vector<Reso
 }
 
 bool clearBookCacheForPath(const std::string& path) {
+  Epub::forgetCacheKeys();  // the file may have been replaced
   if (FsHelpers::hasEpubExtension(path)) {
-    return Epub(path, "/.crosspoint").clearCache();
+    return Epub(path, "/.crossdink").clearCache();
   }
   if (FsHelpers::hasXtcExtension(path)) {
-    return Xtc(path, "/.crosspoint").clearCache();
+    return Xtc(path, "/.crossdink").clearCache();
   }
   if (FsHelpers::hasTxtExtension(path)) {
-    return Txt(path, "/.crosspoint").clearCache();
+    return Txt(path, "/.crossdink").clearCache();
   }
   return false;
 }
@@ -431,6 +432,7 @@ bool isBookCacheDirectoryName(const char* name) {
 void clearBookCache(const std::string& path) { clearBookCachePreservingUserState(path); }
 
 bool clearBookCachePreservingUserState(const std::string& path) {
+  Epub::forgetCacheKeys();  // the file may have been replaced
   size_t preservedCount = 0;
   const PreservedCacheFile* preservedFiles = preservedFilesForPath(path, preservedCount);
   if (!preservedFiles || preservedCount == 0) {

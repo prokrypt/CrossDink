@@ -38,15 +38,15 @@ void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
 
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 2;
-constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
-constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossdink-settings.json";
-constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossdink-settings.json.bak";
+constexpr char SETTINGS_FILE_BIN[] = "/.crossdink/settings.bin";
+constexpr char SETTINGS_FILE_JSON[] = "/.crossdink/crossdink-settings.json";
+constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crossdink/crossdink-settings.json.bak";
 // CrossInk's file: imported once, never written, so flashing back to CrossInk keeps its settings.
-constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
-constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
-constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
-constexpr char LANG_FILE_BIN[] = "/.crosspoint/language.bin";
-constexpr char LANG_FILE_BAK[] = "/.crosspoint/language.bin.bak";
+constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crossdink/crossink-settings.json";
+constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crossdink/settings.json";
+constexpr char SETTINGS_FILE_BAK[] = "/.crossdink/settings.bin.bak";
+constexpr char LANG_FILE_BIN[] = "/.crossdink/language.bin";
+constexpr char LANG_FILE_BAK[] = "/.crossdink/language.bin.bak";
 constexpr uint8_t INVALID_READER_FONT_SIZE = 0xFF;
 constexpr uint8_t TILT_DIRECTION_SCHEMA_CURRENT = 2;
 // X3 hardware predates this migration by less than a year. Reject the RTC's

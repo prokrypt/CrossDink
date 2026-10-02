@@ -52,7 +52,7 @@ bool beginRadioCall() {
 // Same mapping as the KOSync screen's upload of saved progress.
 bool buildProgress(const std::string& path, KOReaderProgress& out) {
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
-  auto epub = std::make_shared<Epub>(path, "/.crosspoint");
+  auto epub = std::make_shared<Epub>(path, "/.crossdink");
   epub->setupCacheDir();
   if (!epub->load(false, true, Epub::XLocationLoadMode::Immediate, true)) {
     LOG_ERR("KOSync", "exit push: epub load failed for %s", path.c_str());

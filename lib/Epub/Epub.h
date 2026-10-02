@@ -109,6 +109,7 @@ class Epub {
   CssParseStatus parseCssFiles(bool forceRebuild = false) const;
   void discoverCssFilesFromZip();
   void releaseCssFileList();
+  void recordBookPath() const;
 
  public:
   enum class XLocationLoadMode : uint8_t {
@@ -118,9 +119,13 @@ class Epub {
 
   explicit Epub(std::string filepath, const std::string& cacheDir);
   ~Epub() = default;
+  // Folder named by the book's content key (see Epub.cpp), so it survives a
+  // move or rename. Reads the file's last 16 KB the first time per path.
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
-  // Resolve the stable cache path and migrate an older hash-named directory if
-  // needed, without opening the EPUB or loading its metadata/location indexes.
+  // Drops remembered content keys; call after a book file is replaced.
+  static void forgetCacheKeys();
+  // Resolve the cache path and copy an older path-keyed /.crosspoint cache in
+  // if needed, without loading the EPUB's metadata/location indexes.
   static std::string resolveCachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
 
   // True when a metadata cache already exists for this book, i.e. load() will

@@ -25,7 +25,7 @@ bool clearBookCachePreservingUserState(const std::string& path) {
 
 namespace {
 
-constexpr char INDEX[] = "/.crosspoint/library.idx";
+constexpr char INDEX[] = "/.crossdink/library.idx";
 
 std::string numbered(const char* prefix, const unsigned value) {
   char text[32];
@@ -275,8 +275,8 @@ TEST_F(LibraryBuilderTest, StagingAndIndexWritesAreBatched) {
 
   ASSERT_TRUE(buildLibraryIndex("/", stats, false));
 
-  EXPECT_LT(fake::writesByPath["/.crosspoint/library.stage"], 64u);
-  EXPECT_LT(fake::writesByPath["/.crosspoint/library.new"], 32u);
+  EXPECT_LT(fake::writesByPath["/.crossdink/library.stage"], 64u);
+  EXPECT_LT(fake::writesByPath["/.crossdink/library.new"], 32u);
 }
 
 TEST_F(LibraryBuilderTest, ParentDuplicateTrackingSurvivesDirectoryRecursion) {
@@ -516,7 +516,7 @@ TEST_F(LibraryBuilderTest, InterruptedUpgradeKeepsValidOldLiveIndexOverStaleBack
   before.close();
   ASSERT_TRUE(downgradeIndexToVersionFive());
 
-  constexpr char BACKUP[] = "/.crosspoint/library.bak";
+  constexpr char BACKUP[] = "/.crossdink/library.bak";
   fake::files[BACKUP] = std::make_shared<fake::Node>(*fake::files[INDEX]);
   ClixHeader backupHeader{};
   std::memcpy(&backupHeader, fake::files[BACKUP]->bytes.data(), sizeof(backupHeader));
@@ -622,7 +622,7 @@ TEST_F(LibraryBuilderTest, InterruptedUpgradeRestoresVersionThreeBackup) {
   ASSERT_TRUE(recordAtPath(before, "/a.epub", original));
   before.close();
 
-  constexpr char BACKUP[] = "/.crosspoint/library.bak";
+  constexpr char BACKUP[] = "/.crossdink/library.bak";
   fake::files[BACKUP] = std::make_shared<fake::Node>(*fake::files[INDEX]);
   fake::files[BACKUP]->bytes[offsetof(ClixHeader, formatVersion)] = 3;
   fake::files[INDEX]->bytes[0] = 'X';  // Damaged live index after install.
@@ -643,7 +643,7 @@ TEST_F(LibraryBuilderTest, FailedUpgradeKeepsVersionThreeShelfReadable) {
   bookMetadata["/a.epub"].series = "Earthsea";
   initial();
   fake::files[INDEX]->bytes[offsetof(ClixHeader, formatVersion)] = 3;
-  fake::failWritePath = "/.crosspoint/library.new";
+  fake::failWritePath = "/.crossdink/library.new";
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   LibraryIndexFile shelf;
@@ -1016,11 +1016,11 @@ TEST_F(LibraryBuilderTest, ReadWriteCloseAndAllocationFailuresRetainPreviousInde
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
   fake::failWrite = -1;
 
-  fake::failWritePath = "/.crosspoint/library.new";
+  fake::failWritePath = "/.crossdink/library.new";
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
 
-  fake::failClosePath = "/.crosspoint/library.new";
+  fake::failClosePath = "/.crossdink/library.new";
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
 
@@ -1047,8 +1047,8 @@ TEST_F(LibraryBuilderTest, TruncatedPersistedPathHashAbortsAndRetainsTheLiveInde
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, corrupted);
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage"));
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage.f"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage.f"));
 }
 
 TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndAtFormatCeilingKeepAllOrders) {
@@ -1110,8 +1110,8 @@ TEST_F(LibraryBuilderTest, BookPastFormatCeilingKeepsPreviousIndex) {
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, false));
   EXPECT_EQ(fake::files[INDEX]->bytes, previous);
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage"));
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage.f"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage.f"));
 }
 
 TEST_F(LibraryBuilderTest, SortAllocationFailureProducesValidDegradedIndex) {
@@ -1159,7 +1159,7 @@ TEST_F(LibraryBuilderTest, DirtyIndexClearsOnSuccessAndRetriesAfterFailure) {
   initial();
   EXPECT_FALSE(libraryIndexNeedsRefresh());
   invalidateLibraryIndex();
-  fake::failOpenPath = "/.crosspoint/library.idx";
+  fake::failOpenPath = "/.crossdink/library.idx";
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_TRUE(libraryIndexNeedsRefresh());
   ASSERT_TRUE(buildLibraryIndex("/", stats, true));

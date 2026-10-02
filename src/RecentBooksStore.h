@@ -31,7 +31,7 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
  public:
   static constexpr int MAX_RECENT_BOOKS = 18;
 
-  static const char* getFilePath() { return "/.crosspoint/recent.json"; }
+  static const char* getFilePath() { return "/.crossdink/recent.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
   bool saveToFile() const;

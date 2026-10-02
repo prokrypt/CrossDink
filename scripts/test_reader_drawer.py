@@ -39,7 +39,7 @@ def rule_groups(path: Path) -> int:
 def check_drawer(program: Path, orientation: int) -> None:
     with tempfile.TemporaryDirectory(prefix="crossdink-drawer-") as directory:
         work = Path(directory)
-        state = work / "fs_/.crosspoint"
+        state = work / "fs_/.crossdink"
         state.mkdir(parents=True)
         shutil.copy2(ROOT / "test/epubs/test_reader_rendering_matrix.epub", work / "fs_/book.epub")
         (state / "crossdink-settings.json").write_text(json.dumps({"orientation": orientation}))

@@ -26,11 +26,11 @@
 namespace library {
 namespace {
 
-constexpr char INDEX_PATH[] = "/.crosspoint/library.idx";
-constexpr char NEW_PATH[] = "/.crosspoint/library.new";
-constexpr char BACKUP_PATH[] = "/.crosspoint/library.bak";
-constexpr char STAGE_PATH[] = "/.crosspoint/library.stage";
-constexpr char CACHE_DIR[] = "/.crosspoint";
+constexpr char INDEX_PATH[] = "/.crossdink/library.idx";
+constexpr char NEW_PATH[] = "/.crossdink/library.new";
+constexpr char BACKUP_PATH[] = "/.crossdink/library.bak";
+constexpr char STAGE_PATH[] = "/.crossdink/library.stage";
+constexpr char CACHE_DIR[] = "/.crossdink";
 constexpr size_t LIBRARY_IO_BUFFER_SIZE = 4096;
 
 // Matches lib/FileIndex's buffer so a name this walk accepts is one the file

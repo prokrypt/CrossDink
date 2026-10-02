@@ -3,8 +3,8 @@
 #include <gtest/gtest.h>
 
 namespace {
-constexpr char LEGACY[] = "/.crosspoint/global_stats.bin";
-constexpr char DINK[] = "/.crosspoint/global_stats_dink.bin";
+constexpr char LEGACY[] = "/.crossdink/global_stats.bin";
+constexpr char DINK[] = "/.crossdink/global_stats_dink.bin";
 
 // A bare v3 payload as older firmware writes it.
 void writeLegacy(const uint32_t sessions) {

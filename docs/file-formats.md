@@ -1,11 +1,11 @@
 # File Formats
 
-These formats describe the SD-card cache files under `/.crosspoint/epub_<hash>/`.
+These formats describe the SD-card cache files under `/.crossdink/epub_<hash>/`.
 All POD fields are written in the ESP32 little-endian representation used by
 `Serialization.h`; strings are length-prefixed UTF-8 unless a format notes a
 fixed-size char buffer.
 
-## `/.crosspoint/ttf-rendering.json`
+## `/.crossdink/ttf-rendering.json`
 
 This user-owned JSON file stores only custom TTF families whose raster settings
 differ from CrossDink's defaults. Each entry is keyed by the installed family name
@@ -14,7 +14,7 @@ the stem-darkening toggle. Missing families use automatic hinting, grayscale
 output, the default interpreter, and no outline adjustments. The file currently
 keeps at most 24 modified family profiles to bound RAM use while settings are open.
 
-## `/.crosspoint/sleep-image-index/<directory-hash>-{bmp,all}.idx`
+## `/.crossdink/sleep-image-index/<directory-hash>-{bmp,all}.idx`
 
 ### Version 1
 
@@ -56,7 +56,7 @@ struct ImageFolderIndexRecord {
 };
 ```
 
-## `/.crosspoint/library.idx`
+## `/.crossdink/library.idx`
 
 ### Version 6
 
@@ -339,13 +339,13 @@ struct ReaderSettingsBin {
 };
 ```
 
-## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
+## `/.crossdink/clippings/<bookType>_<crc32(path)>.bin`
 
 ### Versions 1-4
 
 Clipping files store the per-book EPUB clipping list used by the reader. A
 saved clipping is also what CrossDink renders as an in-reader highlight; there is
-no separate highlight file. The file lives in `/.crosspoint/clippings/` instead
+no separate highlight file. The file lives in `/.crossdink/clippings/` instead
 of the EPUB render-cache directory so clearing/rebuilding layout cache does not
 delete user clippings.
 
@@ -354,7 +354,7 @@ The current implementation only writes EPUB clipping files, so `bookType` is
 example:
 
 ```text
-/.crosspoint/clippings/epub_1234567890.bin
+/.crossdink/clippings/epub_1234567890.bin
 ```
 
 Binary layout:
@@ -926,7 +926,7 @@ acceptance checks, not implied by host workspace accounting.
 
 ### COIX version 1
 
-The local index is `/.crosspoint/epub_<hash>/optimizer-images.idx`. Its header is:
+The local index is `/.crossdink/epub_<hash>/optimizer-images.idx`. Its header is:
 
 | Offset | Bytes | Field                            |
 | ------ | ----- | -------------------------------- |
@@ -982,7 +982,7 @@ affected EPUB layouts. Section-cache serialization is unchanged. Existing
 `.cpfont` files remain supported; see [scalable fonts](scalable-fonts.md) for
 limits and lifecycle.
 
-## `/.crosspoint/font-catalog.bin`
+## `/.crossdink/font-catalog.bin`
 
 ### Version 1
 

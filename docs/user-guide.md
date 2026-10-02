@@ -29,7 +29,7 @@ This guide covers day-to-day device use. For focused reference material, see [Re
       - [3.6.5 OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries)
       - [3.6.6 Web Settings (Wi-Fi + OPDS)](#366-web-settings-wi-fi--opds)
       - [3.6.7 KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)
-        - [Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)](#option-a-crosspoint-sync-server-synccrosspointreadercom-default)
+        - [Option A: CrossPoint Sync Server (`sync.crossdinkreader.com`, default)](#option-a-crosspoint-sync-server-synccrosspointreadercom-default)
         - [Option B: Legacy Public KOReader Server (`sync.koreader.rocks`)](#option-b-legacy-public-koreader-server-synckoreaderrocks)
         - [Option C: Self-Hosted Server (Docker Compose)](#option-c-self-hosted-server-docker-compose)
     - [3.7 Sleep Screen](#37-sleep-screen)
@@ -475,16 +475,16 @@ Behavior notes:
 CrossDink can sync reading progress with KOReader-compatible sync servers.
 It also interoperates with KOReader apps/devices when they use the same server and credentials.
 
-##### Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)
+##### Option A: CrossPoint Sync Server (`sync.crossdinkreader.com`, default)
 
-When **Sync Server URL** is left empty, CrossDink uses the free CrossPoint sync server at `https://sync.crosspointreader.com`. It speaks the standard KOReader sync protocol (so KOReader apps can use it too) and additionally stores an exact spine/page position for lossless CrossDink-to-CrossDink sync.
+When **Sync Server URL** is left empty, CrossDink uses the free CrossPoint sync server at `https://sync.crossdinkreader.com`. It speaks the standard KOReader sync protocol (so KOReader apps can use it too) and additionally stores an exact spine/page position for lossless CrossDink-to-CrossDink sync.
 
 1. On each CrossDink device:
    - Go to **Settings -> System -> KOReader Sync**.
 
    - Set **Username** and **Password** (enter the plain password; CrossDink computes MD5 internally, and use the same values on all devices).
 
-   - Leave **Sync Server URL** empty (or set it to `https://sync.crosspointreader.com`).
+   - Leave **Sync Server URL** empty (or set it to `https://sync.crossdinkreader.com`).
 
    - On the first device, run **Sign Up** once to create the account directly from the device. On every other device, just run **Authenticate**.
 
@@ -885,7 +885,7 @@ To create a bookmark, hold **Confirm** for 1 second while inside a book. A popup
 
 To open bookmarks, press **Confirm** while inside a book. Then navigate to the **Bookmarks** menu. Bookmarks can be opened by navigating to them and pressing **Confirm**, which will redirect you to that place in the book. You can delete bookmarks by holding **Confirm** for 1 second, and then pressing **Confirm** again to confirm deletion, or **Back** to cancel.
 
-Bookmarks are stored as per-book `.bin` files in the `.crosspoint/bookmarks` folder.
+Bookmarks are stored as per-book `.bin` files in the `.crossdink/bookmarks` folder.
 
 ### 5.3 Dictionary
 
@@ -952,4 +952,4 @@ Press **Ctrl-C** or close the graph window to exit.
 
 If the device is stuck in a bootloop, press and release the Reset button. Then, press and hold on to the configured Back button and the Power Button to boot to the Home Screen.
 
-There can be issues with broken cache or config. In this case, delete the `.crosspoint` directory on your SD card (or consider deleting only `settings.json`, `state.json`, or `epub_*` cache directories in the `.crosspoint/` folder).
+There can be issues with broken cache or config. In this case, delete the `.crossdink` directory on your SD card (or consider deleting only `settings.json`, `state.json`, or `epub_*` cache directories in the `.crossdink/` folder).

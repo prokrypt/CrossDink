@@ -1371,7 +1371,7 @@ bool handleX4ProHomeKeyShortcuts() {
   return true;
 }
 }  // namespace
-constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
+constexpr char SLEEP_FRAME_FILE[] = "/.crossdink/sleep_frame.bin";
 
 static void saveSleepFrameBuffer() {
   HalFile file;

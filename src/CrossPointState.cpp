@@ -14,9 +14,9 @@
 
 namespace {
 constexpr uint8_t STATE_FILE_VERSION = 5;
-constexpr char STATE_FILE_BIN[] = "/.crosspoint/state.bin";
-constexpr char STATE_FILE_JSON[] = "/.crosspoint/state.json";
-constexpr char STATE_FILE_BAK[] = "/.crosspoint/state.bin.bak";
+constexpr char STATE_FILE_BIN[] = "/.crossdink/state.bin";
+constexpr char STATE_FILE_JSON[] = "/.crossdink/state.json";
+constexpr char STATE_FILE_BAK[] = "/.crossdink/state.bin.bak";
 
 // Reader crash guard, kept out of state.json so opening a book costs no SD
 // write. RTC_NOINIT survives the panics and watchdog resets it guards against
@@ -116,7 +116,7 @@ bool CrossPointState::saveToFile() const {
   const bool unchanged = lastSavedCrcValid && crc == lastSavedCrc;
   if (unchanged) return true;
 
-  Storage.mkdir("/.crosspoint");
+  Storage.mkdir("/.crossdink");
   if (!Storage.writeFile(STATE_FILE_JSON, json)) {
     LOG_ERR("CPS", "Failed to write %s", STATE_FILE_JSON);
     lastSavedCrcValid = false;

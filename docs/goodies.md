@@ -28,7 +28,7 @@
   leave it (by the time Goodies closes), or before sleep, restart or a flash.
 - **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, one tab per area (tap or long-press Up/Down to switch), as `id value unit`
   (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
-  values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
+  values are saved to `/.crossdink/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
   deletes the file. Three crash boots in a row (panic, watchdog or power cycle; wakes from sleep
   and intentional restarts reset the count) that never stay up 30 s move the file to `knobs.bad.json` and boot on
   defaults (`KNOB` log lines). Holding Back while the device starts ignores the file for that boot (safe boot).

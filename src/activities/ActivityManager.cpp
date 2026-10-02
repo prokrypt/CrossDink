@@ -103,9 +103,9 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   if (context.activeReaderBook) {
     if (FsHelpers::hasEpubExtension(currentPath)) {
       context.showReadingStatsAction =
-          BookStatsTracking::isEnabled(Epub::cachePathForFilePath(currentPath, "/.crosspoint"));
+          BookStatsTracking::isEnabled(Epub::cachePathForFilePath(currentPath, "/.crossdink"));
     } else if (FsHelpers::hasXtcExtension(currentPath)) {
-      context.showReadingStatsAction = BookStatsTracking::isEnabled(Xtc(currentPath, "/.crosspoint").getCachePath());
+      context.showReadingStatsAction = BookStatsTracking::isEnabled(Xtc(currentPath, "/.crossdink").getCachePath());
     }
     context.bookTitle = activity.getCurrentBookTitle();
     context.bookPath = currentPath;
@@ -135,7 +135,7 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     context.bookPath = APP_STATE.openEpubPath;
     context.bookTitle = fileNameFromPath(context.bookPath);
     statsTitle = context.bookTitle;
-    cachePath = Epub::cachePathForFilePath(context.bookPath, "/.crosspoint");
+    cachePath = Epub::cachePathForFilePath(context.bookPath, "/.crossdink");
     if (BookStatsTracking::isBookEnabled(cachePath))
       bookStats = BookReadingStats::load(cachePath);
     else {

@@ -1567,7 +1567,7 @@ bool EpubReaderActivity::bookUsesLandscapeLayout(const Epub& epub) {
 }
 
 uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
-  Epub epub(filePath, "/.crosspoint");
+  Epub epub(filePath, "/.crossdink");
   epub.setupCacheDir();
   const BookReaderSettingsData data = loadBookReaderSettingsFile(epub.getCachePath());
   return data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
@@ -1575,13 +1575,13 @@ uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
 }
 
 bool EpubReaderActivity::saveBookRenderMode(const std::string& filePath, const uint8_t renderMode) {
-  Epub epub(filePath, "/.crosspoint");
+  Epub epub(filePath, "/.crossdink");
   epub.setupCacheDir();
   return saveBookRenderModeForCache(epub.getCachePath(), renderMode);
 }
 
 bool EpubReaderActivity::resetBookReaderSettings(const std::string& filePath) {
-  Epub epub(filePath, "/.crosspoint");
+  Epub epub(filePath, "/.crossdink");
   const std::string settingsPath = epub.getCachePath() + READER_SETTINGS_FILE_NAME;
   if (!Storage.exists(settingsPath.c_str())) {
     return true;
@@ -9263,7 +9263,7 @@ void EpubReaderActivity::restoreSavedPosition() {
   requestUpdate();
 }
 bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
-  auto epub = makeUniqueNoThrow<Epub>(filePath, "/.crosspoint");
+  auto epub = makeUniqueNoThrow<Epub>(filePath, "/.crossdink");
   if (!epub) {
     LOG_ERR("SLP", "EPUB: failed to allocate book for sleep-page rendering");
     return false;

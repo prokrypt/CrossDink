@@ -812,7 +812,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   bool saveToFile() const;
   bool flush() const;  // no-op without a pending snapshot; skips an unchanged file
   bool loadFromFile();
-  static const char* getFilePath() { return "/.crosspoint/crossdink-settings.json"; }
+  static const char* getFilePath() { return "/.crossdink/crossdink-settings.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc, bool importingCrossPoint = false);
 
