@@ -1390,7 +1390,8 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
             bitDepth, xtc::errorToString(xtc->getLastError()));
     free(pageBuffer);
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), tr(STR_PAGE_LOAD_ERROR), true,
+                              EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }

@@ -33,8 +33,8 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
-#include "network/WifiUtils.h"
 #include "network/NetworkName.h"
+#include "network/WifiUtils.h"
 
 namespace fui = freeink::ui;
 

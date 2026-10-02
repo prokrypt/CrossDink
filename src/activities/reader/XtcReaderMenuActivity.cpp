@@ -214,8 +214,8 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
                                std::max(0, static_cast<int>(titleLines.size()) - 1) * kTitleLineGap;
   // Title block sits under the battery row: half a spacing above, one spacing below.
   const int titleTopGap = metrics.verticalSpacing / 2;
-  const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleTopGap + titleBlockHeight +
-                                                              metrics.verticalSpacing);
+  const int headerHeight = std::max(
+      metrics.headerHeight, metrics.batteryBarHeight + titleTopGap + titleBlockHeight + metrics.verticalSpacing);
   listHeaderHeight = headerHeight;
   const Rect header{0, metrics.topPadding, pageWidth, headerHeight};
   TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);

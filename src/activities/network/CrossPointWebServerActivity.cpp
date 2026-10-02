@@ -22,8 +22,8 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/NetworkName.h"
-#include "util/QrUtils.h"
 #include "util/BatteryLog.h"
+#include "util/QrUtils.h"
 
 namespace {
 // AP Mode configuration

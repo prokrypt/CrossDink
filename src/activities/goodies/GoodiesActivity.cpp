@@ -684,22 +684,22 @@ void GoodiesActivity::openDimLevel(const int row) {
 }
 
 void GoodiesActivity::confirmResetKnobs() {
-  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput,
-                                                                std::string(tr(STR_CONFIRM)) + ": Reset All Knobs",
-                                                                "Defaults for every knob; knobs.json is deleted."),
-                         [this](const ActivityResult& result) {
-                           mappedInput.suppressNextConfirmRelease();
-                           if (!result.isCancelled) {
-                             knobs::resetAll();
-                             RenderLock lock(*this);
-                             for (size_t row = 0; row < entries.size(); ++row) {
-                               if (entries[row].builtIn < 0) continue;
-                               entries[row].value = knobRowValue(entries[row].builtIn);
-                               rowItems[row].value = entries[row].value.c_str();
-                             }
-                           }
-                           requestUpdate();
-                         });
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, std::string(tr(STR_CONFIRM)) + ": Reset All Knobs",
+                                             "Defaults for every knob; knobs.json is deleted."),
+      [this](const ActivityResult& result) {
+        mappedInput.suppressNextConfirmRelease();
+        if (!result.isCancelled) {
+          knobs::resetAll();
+          RenderLock lock(*this);
+          for (size_t row = 0; row < entries.size(); ++row) {
+            if (entries[row].builtIn < 0) continue;
+            entries[row].value = knobRowValue(entries[row].builtIn);
+            rowItems[row].value = entries[row].value.c_str();
+          }
+        }
+        requestUpdate();
+      });
 }
 
 std::string GoodiesActivity::remoteRowValue() {

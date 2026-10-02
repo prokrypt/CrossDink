@@ -134,9 +134,9 @@ void LookedUpWordsActivity::showDeleteConfirmation(const bool ignoreInitialConfi
   if (entries.empty() || selectedIndex < 0 || selectedIndex >= static_cast<int>(entries.size())) return;
 
   const std::string word = entries[selectedIndex].word;
-  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
-      renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE), word, ignoreInitialConfirmRelease,
-      true);
+  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput,
+                                                              BookActions::confirmationHeading(StrId::STR_DELETE), word,
+                                                              ignoreInitialConfirmRelease, true);
   if (!confirmation) {
     LOG_ERR("LOOKUP", "OOM: ConfirmationActivity");
     return;
@@ -274,7 +274,6 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   if (controller.render()) return;
 
-
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LOOKUP_HISTORY), true);
 
@@ -283,9 +282,8 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   uiReady = true;
 
   const bool empty = entries.empty();
-  const auto buttonLabels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), empty ? "" : tr(STR_SELECT),
-                            empty ? "" : tr(STR_DIR_UP), empty ? "" : tr(STR_DIR_DOWN));
+  const auto buttonLabels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), empty ? "" : tr(STR_SELECT),
+                                                  empty ? "" : tr(STR_DIR_UP), empty ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4, true);
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);

@@ -468,15 +468,16 @@ void ReaderOptionsActivity::toggleCurrentSetting() {
   const auto& setting = (*currentSettings)[selectedIndex];
 
   if (setting.nameId == StrId::STR_FONT_FAMILY && setting.type == SettingType::ENUM) {
-    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry(), true),
-                           [this](const ActivityResult& result) {
-                             if (!result.isCancelled) {
-                               persistReaderSettings();
-                             }
-                             sdFontSystem.refreshIfDirty();
-                             rebuildSettingsList();
-                             requestUpdate();
-                           });
+    startActivityForResult(
+        std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry(), true),
+        [this](const ActivityResult& result) {
+          if (!result.isCancelled) {
+            persistReaderSettings();
+          }
+          sdFontSystem.refreshIfDirty();
+          rebuildSettingsList();
+          requestUpdate();
+        });
     return;
   }
 
