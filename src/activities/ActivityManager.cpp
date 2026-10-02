@@ -48,6 +48,7 @@
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
 #include "reader/GlobalReadingStats.h"
+#include "reader/KOSyncOnExit.h"
 #include "reader/ReaderActivity.h"
 #include "reader/ReaderExitSave.h"
 #include "settings/OpdsServerListActivity.h"
@@ -859,6 +860,7 @@ void ActivityManager::loop() {
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
 #endif
+      if (currentActivity->usesWifi()) kosync_on_exit::yieldRadio();
       currentActivity->onEnter();
 
       // cppcheck-suppress knownConditionTrueFalse ; onEnter() above may queue another navigation

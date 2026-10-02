@@ -55,6 +55,7 @@
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
+#include "KOSyncOnExit.h"
 #include "LookedUpWordsActivity.h"
 #include "MappedInputManager.h"
 #include "NearbyBookPositionSyncActivity.h"
@@ -2672,6 +2673,7 @@ void EpubReaderActivity::onExit() {
   CLIPPINGS.unload();
   section.reset();
 
+  std::string syncPath = epub ? epub->getPath() : std::string();
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
     const std::string oldCachePath = epub->getCachePath();
@@ -2680,9 +2682,11 @@ void EpubReaderActivity::onExit() {
     const std::string dstPath = BookMoveUtils::buildReadFolderDestination(srcPath);
     epub.reset();  // release the Epub (and any open handles) before renaming on the SD card
     moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
+    if (Storage.exists(dstPath.c_str())) syncPath = dstPath;
   } else {
     epub.reset();
   }
+  if (!syncPath.empty()) kosync_on_exit::queue(syncPath);
 
   restoreGlobalReaderSettings();
 }
