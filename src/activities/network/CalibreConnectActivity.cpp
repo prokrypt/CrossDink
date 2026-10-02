@@ -191,20 +191,20 @@ void CalibreConnectActivity::render(RenderLock&&) {
     // screens. Sharing one subheader row forces one of them to be truncated.
     const std::string ipLabel = std::string(tr(STR_IP_ADDRESS_PREFIX)) + connectedIP;
     const int ipTop = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing;
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, ipTop, ipLabel.c_str());
+    renderer.drawCenteredText(SMALL_FONT_ID, ipTop, ipLabel.c_str());
 
     int y = ipTop + height + metrics.verticalSpacing * 3;
     const auto heightText12 = renderer.getTextHeight(UI_12_FONT_ID);
-    renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_SETUP), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_CALIBRE_SETUP), true, EpdFontFamily::BOLD);
     y += heightText12 + metrics.verticalSpacing * 2;
 
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_INSTRUCTION_1));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height, tr(STR_CALIBRE_INSTRUCTION_2));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height * 2, tr(STR_CALIBRE_INSTRUCTION_3));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height * 3, tr(STR_CALIBRE_INSTRUCTION_4));
+    renderer.drawCenteredText(SMALL_FONT_ID, y, tr(STR_CALIBRE_INSTRUCTION_1));
+    renderer.drawCenteredText(SMALL_FONT_ID, y + height, tr(STR_CALIBRE_INSTRUCTION_2));
+    renderer.drawCenteredText(SMALL_FONT_ID, y + height * 2, tr(STR_CALIBRE_INSTRUCTION_3));
+    renderer.drawCenteredText(SMALL_FONT_ID, y + height * 3, tr(STR_CALIBRE_INSTRUCTION_4));
 
     y += height * 3 + metrics.verticalSpacing * 4;
-    renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_STATUS), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_CALIBRE_STATUS), true, EpdFontFamily::BOLD);
     y += heightText12 + metrics.verticalSpacing * 2;
 
     const bool showUploadProgress = lastProgressTotal > 0 && lastProgressReceived <= lastProgressTotal;
@@ -215,7 +215,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
         label = renderer.truncatedText(SMALL_FONT_ID, label.c_str(), pageWidth - metrics.contentSidePadding * 2,
                                        EpdFontFamily::REGULAR);
       }
-      renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y, label.c_str());
+      renderer.drawCenteredText(SMALL_FONT_ID, y, label.c_str());
       GUI.drawProgressBar(renderer,
                           Rect{metrics.contentSidePadding, y + height + metrics.verticalSpacing,
                                pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
@@ -227,7 +227,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
       std::string msg = std::string(tr(STR_CALIBRE_RECEIVED)) + lastCompleteName;
       msg = renderer.truncatedText(SMALL_FONT_ID, msg.c_str(), pageWidth - metrics.contentSidePadding * 2,
                                    EpdFontFamily::REGULAR);
-      renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y, msg.c_str());
+      renderer.drawCenteredText(SMALL_FONT_ID, y, msg.c_str());
     }
   }
   // Back works in every state, so the hint is always shown.
