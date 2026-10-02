@@ -1439,7 +1439,7 @@ void WifiSelectionActivity::renderConnecting(const Rect* screen, const ThemeMetr
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, useReaderButtonHints);
     }
   } else {
-    UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, UI_12_FONT_ID, top - 40,
+    UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, UI_10_FONT_ID, top - 40,
                                              autoConnecting ? tr(STR_CONNECTING_SAVED_WIFI) : tr(STR_CONNECTING), 2,
                                              true, EpdFontFamily::BOLD);
 
@@ -1461,7 +1461,7 @@ void WifiSelectionActivity::renderConnected(const Rect* screen, const ThemeMetri
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = screen->y + (screen->height - height * 4) / 2;
 
-  UITheme::drawCenteredText(renderer, *screen, UI_12_FONT_ID, top - 30, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
+  UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top - 30, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
 
   const std::string ssidInfo =
       renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID).c_str(),
@@ -1480,7 +1480,7 @@ void WifiSelectionActivity::renderSavePrompt(const Rect* screen, const ThemeMetr
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = screen->y + (screen->height - height * 3) / 2;
 
-  UITheme::drawCenteredText(renderer, *screen, UI_12_FONT_ID, top - 40, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
+  UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top - 40, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
 
   const std::string ssidInfo =
       renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID).c_str(),
@@ -1529,7 +1529,7 @@ void WifiSelectionActivity::renderConnectionFailed(const Rect* screen, const The
   const Rect textArea{screen->x + metrics->contentSidePadding, screen->y,
                       screen->width - metrics->contentSidePadding * 2, screen->height};
 
-  UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, UI_12_FONT_ID, top - 20, tr(STR_CONNECTION_FAILED), 2,
+  UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, UI_10_FONT_ID, top - 20, tr(STR_CONNECTION_FAILED), 2,
                                            true, EpdFontFamily::BOLD);
   UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top + height + 10, connectionError.c_str(), 3);
 
