@@ -383,14 +383,14 @@ void DictionarySelectActivity::render(RenderLock&&) {
   }
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_DICTIONARY), false);
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_DICTIONARY), !bookCachePath.empty());
   uiReady = false;
   app.render();
   uiReady = true;
 
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, !bookCachePath.empty());
 
   renderer.displayBuffer();
 }
