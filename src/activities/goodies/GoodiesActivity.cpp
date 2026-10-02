@@ -471,10 +471,10 @@ void GoodiesActivity::showLevel(const Level next) {
     // ">" (as in Settings) marks a row that opens another menu or page.
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}, ">"});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
-    entries.push_back({"API token", -1, {}, tokenRowValue()});
+    entries.push_back({"API Token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}, ">"});
-    entries.push_back({"Keyboard test", -1, {}, ">"});
-    entries.push_back({"Pin monitor", -1, {}, PinMon::enabled() ? "On >" : "Off >"});
+    entries.push_back({"Keyboard Test", -1, {}, ">"});
+    entries.push_back({"Pin Monitor", -1, {}, PinMon::enabled() ? "On >" : "Off >"});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}, ">"});
@@ -508,7 +508,7 @@ void GoodiesActivity::showLevel(const Level next) {
       }
       entries.push_back({knobs::INFO[i].id, i, {}, knobRowValue(i)});
     }
-    entries.push_back({"Reset all", KNOB_RESET_ALL, {}});
+    entries.push_back({"Reset All", KNOB_RESET_ALL, {}});
   } else {
     entries.reserve(display_script::BUILT_IN_COUNT + 8);
     for (int i = 0; i < display_script::BUILT_IN_COUNT; ++i) {
@@ -590,7 +590,7 @@ void GoodiesActivity::activate(const int index) {
     if (index == 0) {
       // A scratch field for trying typing feel and speed: kept while Goodies is open, never saved.
       startActivityForResult(
-          std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard test", kbdTestText),
+          std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard Test", kbdTestText),
           [this](const ActivityResult& result) {
             mappedInput.suppressNextConfirmRelease();
             if (!result.isCancelled) {
@@ -1010,8 +1010,8 @@ void GoodiesActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const char* title = level == Level::Root           ? tr(STR_GOODIES)
                       : level == Level::Knobs        ? "Knobs"
-                      : level == Level::KeyboardTest ? "Keyboard test"
-                      : level == Level::PinMon       ? "Pin monitor"
+                      : level == Level::KeyboardTest ? "Keyboard Test"
+                      : level == Level::PinMon       ? "Pin Monitor"
                                                      : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
