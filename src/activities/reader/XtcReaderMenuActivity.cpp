@@ -175,6 +175,7 @@ void XtcReaderMenuActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.inputMask = fui::InputTouch;
   props.labelText = screen.theme().bodyText;
   props.valueText = screen.theme().smallText;
+  props.valueInset = 8;
   visibleRows = std::max(1, static_cast<int>(configureUiList(props, screen.theme(), screen.body())));
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(items.size()));
   props.topIndex = topIndex;
@@ -214,11 +215,7 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
   listHeaderHeight = headerHeight;
   const Rect header{0, metrics.topPadding, pageWidth, headerHeight};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
-  } else {
-    GUI.drawHeader(renderer, header, "");
-  }
+  TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
 
   const int titleY = metrics.topPadding + metrics.batteryBarHeight + 3;
   for (int i = 0; i < static_cast<int>(titleLines.size()); ++i) {
