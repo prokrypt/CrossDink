@@ -109,6 +109,12 @@ bool streamXtchRenderPass(const Xtc& xtc, const uint32_t pageIndex, const uint16
   LOG_ERR("XTR", "Failed to stream XTCH page %lu: %s", pageIndex, xtc::errorToString(error));
   return false;
 }
+
+// Error text centred on the panel (was a fixed y=300).
+int centredErrorY(const GfxRenderer& renderer) {
+  return (renderer.getScreenHeight() - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
+}
+
 }  // namespace
 
 void XtcReaderActivity::onEnter() {
@@ -1315,7 +1321,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
       renderer.clearScreen();
       const char* message =
           xtc->getLastError() == xtc::XtcError::MEMORY_ERROR ? tr(STR_MEMORY_ERROR) : tr(STR_PAGE_LOAD_ERROR);
-      renderer.drawCenteredText(UI_12_FONT_ID, 300, message, true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), message, true, EpdFontFamily::BOLD);
       renderer.displayBuffer();
     };
     // XTCH stores two 48 KB planes. Stream each rendering pass through a 1 KB
@@ -1372,7 +1378,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
   if (!pageBuffer) {
     LOG_ERR("XTR", "Failed to allocate page buffer (%lu bytes)", pageBufferSize);
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_MEMORY_ERROR), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), tr(STR_MEMORY_ERROR), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
@@ -1384,7 +1390,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
             bitDepth, xtc::errorToString(xtc->getLastError()));
     free(pageBuffer);
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }

@@ -657,17 +657,18 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
     CompactHeader::drawTitle(renderer, tr(STR_READING_STATS));
   }
 
-  // cppcheck-suppress unreadVariable ; only read in touch builds
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
   const int cardW = pageWidth - 120;
   const int cardH = 250;
   const int cardX = (pageWidth - cardW) / 2;
-  const int cardY = 138;
+  // Title one spacing under the header, card one spacing under the title (was fixed y=96 / 138).
+  const int titleY = CompactHeader::headerBottomY(metrics) + metrics.verticalSpacing;
+  const int cardY = titleY + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
 
   const std::string visibleTitle =
       renderer.truncatedText(UI_12_FONT_ID, bookTitle.c_str(), pageWidth - 80, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(UI_12_FONT_ID, 96, visibleTitle.c_str(), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_12_FONT_ID, titleY, visibleTitle.c_str(), true, EpdFontFamily::BOLD);
   renderer.drawRect(cardX, cardY, cardW, cardH);
 
   const int sectionGap = 104;
