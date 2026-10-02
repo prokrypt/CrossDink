@@ -66,17 +66,20 @@ StatPad readStatPad(const int n) {
 }
 
 void logStatPad(const char* when, const int n, const StatPad& p) {
-  const auto bit = [](const uint32_t v, const int s) { return static_cast<unsigned>((v >> s) & 1); };
+  const auto fieldBit = [](const uint32_t v, const int s) { return static_cast<unsigned>((v >> s) & 1); };
   LOG_INF("STATPAD",
           "%s GPIO%d gpio=%u rtc=%u | dig ie=%u pd=%u pu=%u slpsel=%u | rtc mux=%u ie=%u slpie=%u slpsel=%u rde=%u "
           "rue=%u | rtcwake en=%u type=%u st=%u hold=%u | raw iomux=%08lx pad=%08lx pin=%08lx",
-          when, n, static_cast<unsigned>(p.gpioIn), static_cast<unsigned>(p.rtcIn), bit(p.iomux, FUN_IE_S),
-          bit(p.iomux, FUN_PD_S), bit(p.iomux, FUN_PU_S), bit(p.iomux, SLP_SEL_S), bit(p.pad, RTC_IO_PAD21_MUX_SEL_S),
-          bit(p.pad, RTC_IO_PAD21_FUN_IE_S), bit(p.pad, RTC_IO_PAD21_SLP_IE_S), bit(p.pad, RTC_IO_PAD21_SLP_SEL_S),
-          bit(p.pad, RTC_IO_PAD21_RDE_S), bit(p.pad, RTC_IO_PAD21_RUE_S),
-          bit(p.pin, RTC_GPIO_PIN21_WAKEUP_ENABLE_S), static_cast<unsigned>((p.pin >> RTC_GPIO_PIN21_INT_TYPE_S) & 7),
-          bit(p.status, RTC_GPIO_STATUS_INT_S + n), bit(p.hold, n), static_cast<unsigned long>(p.iomux),
-          static_cast<unsigned long>(p.pad), static_cast<unsigned long>(p.pin));
+          when, n, static_cast<unsigned>(p.gpioIn), static_cast<unsigned>(p.rtcIn), fieldBit(p.iomux, FUN_IE_S),
+          fieldBit(p.iomux, FUN_PD_S), fieldBit(p.iomux, FUN_PU_S), fieldBit(p.iomux, SLP_SEL_S),
+          fieldBit(p.pad, RTC_IO_PAD21_MUX_SEL_S), fieldBit(p.pad, RTC_IO_PAD21_FUN_IE_S),
+          fieldBit(p.pad, RTC_IO_PAD21_SLP_IE_S), fieldBit(p.pad, RTC_IO_PAD21_SLP_SEL_S),
+          fieldBit(p.pad, RTC_IO_PAD21_RDE_S), fieldBit(p.pad, RTC_IO_PAD21_RUE_S),
+          fieldBit(p.pin, RTC_GPIO_PIN21_WAKEUP_ENABLE_S),
+          static_cast<unsigned>((p.pin >> RTC_GPIO_PIN21_INT_TYPE_S) & 7),
+          fieldBit(p.status, RTC_GPIO_STATUS_INT_S + n),
+          fieldBit(p.hold, n), static_cast<unsigned long>(p.iomux), static_cast<unsigned long>(p.pad),
+          static_cast<unsigned long>(p.pin));
 }
 #endif
 
