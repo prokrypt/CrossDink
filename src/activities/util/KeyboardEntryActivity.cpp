@@ -166,9 +166,7 @@ void KeyboardEntryActivity::onEnter() {
   rightLongHandled = false;
   savedCursorPos = 0;
   rightStartCursorPos = 0;
-  touchRouter.reset();
-  touchRouter.holdMs = TOUCH_LONG_PRESS_MS;
-  touchRouter.overrideHoldMs = TOUCH_DEL_LONG_PRESS_MS;
+  touchRouter.reset();  // hold times are set each loop(): Goodies > Knobs applies live
   interactionsReady = false;
   loadKbdExperiment();
   requestUpdate();
@@ -213,7 +211,7 @@ void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
-  kbdExpFrames = KNOBS.kbdFrames;
+  kbdExpFrames = 0;  // 0 = KNOBS.kbdFrames, read at each frame (live); CMD:KBDEXP may override
   // Goodies > Knobs kbdPll picks from a whitelist only: panel default, 40 or 50 Hz.
   kbdExpPll = knobs::PLL_BYTES[KNOBS.kbdPll];
   kbdExpFirstFrame = true;
@@ -629,6 +627,8 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
 
 void KeyboardEntryActivity::loop() {
 #if CROSSDINK_APP_CAP_TOUCH
+  touchRouter.holdMs = TOUCH_LONG_PRESS_MS;  // Goodies > Knobs, live
+  touchRouter.overrideHoldMs = TOUCH_DEL_LONG_PRESS_MS;
   if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
     onCancel();
     return;
@@ -1245,7 +1245,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // framebuffer, so the next refresh could drive those pixels off true state.
   freeink::Uc8179KbdExperiment exp;
   exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT));
-  exp.lutFrames = kbdExpFrames;
+  exp.lutFrames = kbdExpFrames ? kbdExpFrames : KNOBS.kbdFrames;  // the SDK's gated DU generator takes it
   exp.pll = kbdExpPll;  // also on OTP Fast: PLL scales every frame alike, so balance holds
   // The first keyboard frame lands on the previous screen: plain OTP Fast (64)
   // or a flashing Half (16).
@@ -1277,7 +1277,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
           kbdExpFlags, static_cast<unsigned long>(++kbdFrame), stroke ? CAUSE_NAMES[cause & 3] : "redraw",
           stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
           static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.drfRows),
-          static_cast<unsigned>(timing.syncMs), prevKeyToInk, kbdExpFrames, exp.pll);
+          static_cast<unsigned>(timing.syncMs), prevKeyToInk, exp.lutFrames, exp.pll);
   prevFrameStrokeMs = stroke;
 #else
   (void)displayStartMs;
