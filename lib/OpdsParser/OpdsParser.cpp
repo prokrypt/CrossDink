@@ -150,6 +150,7 @@ void OpdsParser::clear() {
   entryCount = 0;
   truncated = false;
   searchTemplate.clear();
+  searchDescriptionUrl.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
@@ -207,6 +208,16 @@ void OpdsParser::appendBounded(std::string& target, const char* value, const siz
 void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
   auto* self = static_cast<OpdsParser*>(userData);
 
+  // OpenSearch description document: the Atom (OPDS) result template.
+  if (strcmp(name, "Url") == 0 && self->searchTemplate.empty()) {
+    const char* tmpl = findAttribute(atts, "template");
+    const char* type = findAttribute(atts, "type");
+    if (tmpl && strstr(tmpl, "{searchTerms}") != nullptr && (!type || strstr(type, "atom") != nullptr)) {
+      assignBounded(self->searchTemplate, tmpl, MAX_SEARCH_TEMPLATE_CHARS);
+    }
+    return;
+  }
+
   if (strcmp(name, "link") == 0 || strstr(name, ":link") != nullptr) {
     const char* href = findAttribute(atts, "href");
     if (href) {
@@ -216,6 +227,9 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
       if (rel && strcmp(rel, "search") == 0) {
         if (strstr(href, "{searchTerms}") != nullptr) {
           assignBounded(self->searchTemplate, href, MAX_SEARCH_TEMPLATE_CHARS);
+        } else {
+          // An OpenSearch description document; its <Url template> is the search.
+          assignBounded(self->searchDescriptionUrl, href, MAX_PAGE_URL_CHARS);
         }
       } else if (rel && strcmp(rel, "next") == 0 && !self->inEntry) {
         assignBounded(self->nextPageUrl, href, MAX_PAGE_URL_CHARS);

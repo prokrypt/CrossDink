@@ -76,6 +76,13 @@ class OpdsPageCache {
 
   size_t pageCount() const;
   size_t bytesUsed() const { return usedBytes; }
+  // Bumped on every store and eviction: lets callers redo per-row lookups
+  // only when the set of cached URLs may have changed.
+  uint32_t changes() const { return changeCount; }
+
+  // Same feed bytes, ignoring <updated> elements: dynamic servers stamp the
+  // generation time there, which would make every recheck look like a change.
+  static bool sameFeed(const OpdsPageBuffer& a, const OpdsPageBuffer& b);
 
  private:
   struct Slot {
@@ -94,4 +101,5 @@ class OpdsPageCache {
   size_t byteBudget;
   size_t usedBytes = 0;
   uint32_t useClock = 0;
+  uint32_t changeCount = 0;
 };

@@ -12,9 +12,12 @@
 - Debug builds (X4 Pro): `POST /api/ota` flashes a firmware image over the Wi-Fi remote or File Transfer with no confirm step: token-gated like `/api/cmd`, streamed straight into the update slot, verified before it is selected, then the device restarts. The frontlight pulses while it streams, as in a file transfer. Usage: `docs/serial-remote.md`.
 - Debug builds (X4 Pro): the remote can open screens (`GOTO <screen>`, `GOTO list`: Home, Library, Settings, Wi-Fi networks, Goodies, File Transfer, Calibre, OPDS, Nearby, resume reading and more) grab the screen over Wi-Fi (`/api/screenshot`, a PBM image) and tail the log live over Wi-Fi (`/api/psram-log?since=`). Usage: `docs/serial-remote.md`.
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
+- OPDS: the search button also appears on catalogs that link their search through an OpenSearch description (such as a server's main page); the description is fetched on the first search and then cached.
+- OPDS: book rows already in the download folder read "Downloaded". Read-only: one scan of the download folder per page.
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
 - OPDS: when a book download fails, a prompt offers Retry or Cancel (back to the list, deleting the partial file). Retry continues from where the download stopped when the server supports resuming (HTTP Range, checked with If-Range), and otherwise starts over. A full SD card still shows its own error.
 - OPDS: Back, Previous page and a prefetched Next page open straight from memory without a Loading screen first, and Back returns to the row you opened, scrolled as you left it.
+- OPDS (X4 Pro): a catalog page shown from memory is fetched again in the background right away; if the server's copy changed (ignoring feed timestamps), the list redraws in place, keeping your row and scroll position.
 - OPDS: catalog pages reuse one open connection to the server instead of a new secure handshake per page.
 - OPDS: a book download that stops arriving is noticed after 10 s instead of 60 s and continues on its own from where it stopped (up to 4 times, while each attempt makes progress) before the Retry prompt appears. Large books from servers that cut long transfers now finish without a tap.
 
@@ -151,6 +154,8 @@
 - X4 Pro: a brightness slide while Dim Light on Flash has the light ducked no longer jumps it to full mid-flash; it fades back up to the slid level when the flash ends.
 - X4 Pro USB Drive: the frontlight pulse starts only once the computer moves at least 16 KB within 0.1 s, so idle polling no longer blinks it, and keeps going through pauses of up to 2 s between bursts of a copy instead of dropping to its floor.
 - X4 Pro: every reboot (update, restart into Wi-Fi or the reader, remote reboot) now switches the screen's power off first, instead of leaving it powered until the reset.
+- OPDS: loading catalog pages and downloads uses 2 KB less of the main task's stack (the network read buffer moved off the stack).
+- Logs: download URLs are logged without their query string, so signed download tokens stay out of logs, and a line cut at the length limit still ends with a newline instead of running into the next one.
 - X4 Pro (Softfast): black pixels that stay the same across page turns (the status bar, overlapping text) get a short balanced re-drive at the end of each turn, so they no longer fade; a turn right after a skipped gray pass draws its text as dark as a regular turn; register waveforms run at the panel's own voltages and VCOM; balanced repaints run longer on a cold panel.
 - X4 Pro (Sharpflash, and Softfast's first page after opening a book or closing a menu): the anti-aliased page draws in one flash, instead of showing black-and-white text, flashing, then the gray. It also appears sooner.
 - X4 Pro (Softfast): the reader's top and bottom panels and other menus opened over an anti-aliased page draw their black text with a longer balanced repaint (about 0.5 s more when opening them).

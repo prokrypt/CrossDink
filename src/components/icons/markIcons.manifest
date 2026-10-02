@@ -1,0 +1,7 @@
+# Manifest for src/components/icons/markIcons.h — regenerate with:
+#   python3 scripts/generate_icons.py --library lucide \
+#     --manifest src/components/icons/markIcons.manifest \
+#     --sizes 10 --stroke-width 4 --out src/components/icons/markIcons.h
+# then clang-format -i the output.
+# Bold status marks drawn left of a list row's text, out to the screen edge.
+check = check

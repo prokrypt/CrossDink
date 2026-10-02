@@ -5,6 +5,8 @@
 
 #include <utility>
 
+#include "util/UrlUtils.h"
+
 #ifndef SIMULATOR
 
 #include <Arduino.h>
@@ -57,7 +59,7 @@ bool OpdsBookDownloader::start(Request&& request) {
 }
 
 void OpdsBookDownloader::run() {
-  LOG_DBG("OPDS", "Downloading: %s -> %s", job.url.c_str(), job.path.c_str());
+  LOG_DBG("OPDS", "Downloading: %s -> %s", UrlUtils::maskUserInfo(job.url).c_str(), job.path.c_str());
   const unsigned long startMs = millis();
 
   auto makeOptions = [this]() {

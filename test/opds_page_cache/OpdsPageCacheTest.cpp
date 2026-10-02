@@ -85,3 +85,22 @@ TEST(OpdsPageCacheTest, ReplacesSameUrlAndRejectsOversized) {
   EXPECT_EQ(cache.pageCount(), 0u);
   EXPECT_EQ(cache.bytesUsed(), 0u);
 }
+
+namespace {
+OpdsPageBuffer pageOf(const std::string& body) {
+  OpdsPageBuffer page(MemoryPool::Internal, 1024 * 1024);
+  EXPECT_TRUE(page.append(reinterpret_cast<const uint8_t*>(body.data()), body.size()));
+  return page;
+}
+}  // namespace
+
+TEST(OpdsPageCacheTest, SameFeedIgnoresUpdatedStamps) {
+  const auto a = pageOf("<feed><updated>2026-09-30T20:00:00Z</updated><entry><title>A</title></entry></feed>");
+  const auto b = pageOf("<feed><updated>2026-09-30T20:05:31+00:00</updated><entry><title>A</title></entry></feed>");
+  const auto c = pageOf("<feed><updated>2026-09-30T20:00:00Z</updated><entry><title>B</title></entry></feed>");
+  const auto d = pageOf("<feed><updated>x</updated><entry><title>A</title></entry></feed><extra/>");
+  EXPECT_TRUE(OpdsPageCache::sameFeed(a, b));
+  EXPECT_FALSE(OpdsPageCache::sameFeed(a, c));
+  EXPECT_FALSE(OpdsPageCache::sameFeed(a, d));
+  EXPECT_TRUE(OpdsPageCache::sameFeed(pageOf("x<updated>1"), pageOf("x<updated>22")));
+}

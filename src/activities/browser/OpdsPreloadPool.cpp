@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "util/UrlUtils.h"
+
 namespace {
 // Worker stacks are PSRAM (internal fallback when PSRAM is short, hence the
 // block check); each worker still costs an internal TCB and wolfSSL's small
@@ -67,10 +69,34 @@ void OpdsPreloadPool::enqueue(const std::string& url, const bool front) {
   }
 }
 
-void OpdsPreloadPool::harvest(Worker& worker) { worker.prefetcher.harvestInto(cache, worker.evict); }
+void OpdsPreloadPool::revalidate(const std::string& url) {
+  queue.erase(std::remove_if(queue.begin(), queue.end(), [](const QueuedPage& page) { return page.revalidate; }),
+              queue.end());
+  for (auto& worker : workers) {
+    if (worker.revalidate && worker.prefetcher.running() && worker.prefetcher.url() != url) worker.prefetcher.cancel();
+  }
+  if (!cache.contains(url) || running(url)) return;
+  queue.erase(std::remove_if(queue.begin(), queue.end(), [&url](const QueuedPage& page) { return page.url == url; }),
+              queue.end());
+  queue.insert(queue.begin(), QueuedPage{url, true, true});
+}
+
+bool OpdsPreloadPool::takeChange(std::string& url) {
+  if (changedUrl.empty()) return false;
+  url = std::move(changedUrl);
+  changedUrl.clear();
+  return true;
+}
+
+void OpdsPreloadPool::harvest(Worker& worker) {
+  if (worker.prefetcher.harvestInto(cache, worker.evict, worker.revalidate) && worker.revalidate) {
+    changedUrl = worker.prefetcher.url();
+  }
+}
 
 bool OpdsPreloadPool::startNext(Worker& worker) {
-  while (!queue.empty() && (cache.contains(queue.front().url) || running(queue.front().url))) {
+  while (!queue.empty() &&
+         ((!queue.front().revalidate && cache.contains(queue.front().url)) || running(queue.front().url))) {
     queue.erase(queue.begin());
   }
   if (queue.empty()) return false;
@@ -106,14 +132,16 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
   request.connection = worker.connection.get();
 #endif
   worker.evict = next.evict;
+  worker.revalidate = next.revalidate;
   const size_t slot = static_cast<size_t>(&worker - workers);
   if (!worker.prefetcher.start(std::move(request), pageMaxBytes)) {
     queue.insert(queue.begin(), std::move(next));
     return false;
   }
   active = true;
-  LOG_INF("OPDS", "Preload start: slot=%zu running=%zu queued=%zu internal free=%zu largest=%zu %s", slot,
-          alreadyRunning + 1, queue.size(), internal.free, internal.largest, next.url.c_str());
+  LOG_INF("OPDS", "%s start: slot=%zu running=%zu queued=%zu internal free=%zu largest=%zu %s",
+          next.revalidate ? "Recheck" : "Preload", slot, alreadyRunning + 1, queue.size(), internal.free,
+          internal.largest, UrlUtils::maskUserInfo(next.url).c_str());
   return true;
 }
 
@@ -151,6 +179,8 @@ bool OpdsPreloadPool::pause(const std::string& keepUrl) {
     worker.prefetcher.join();
     harvest(worker);
   }
+  queue.erase(std::remove_if(queue.begin(), queue.end(), [](const QueuedPage& page) { return page.revalidate; }),
+              queue.end());
   if (!cancelled.empty()) LOG_INF("OPDS", "Preload paused: %zu cancelled", cancelled.size());
   // Resume them first once the foreground request is done.
   for (auto it = cancelled.rbegin(); it != cancelled.rend(); ++it) {

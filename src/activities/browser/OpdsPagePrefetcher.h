@@ -52,8 +52,9 @@ class OpdsPagePrefetcher {
   void join() { task.join(); }
 
   // After join(): moves a successfully downloaded page into cache (see
-  // OpdsPageCache::store for mayEvict).
-  void harvestInto(OpdsPageCache& cache, bool mayEvict = true);
+  // OpdsPageCache::store for mayEvict). onlyIfChanged (revalidation) drops a
+  // page that matches the cached copy. True when the page was stored.
+  bool harvestInto(OpdsPageCache& cache, bool mayEvict = true, bool onlyIfChanged = false);
 
  private:
   void run();
