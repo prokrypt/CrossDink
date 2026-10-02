@@ -104,3 +104,15 @@ TEST(OpdsPageCacheTest, SameFeedIgnoresUpdatedStamps) {
   EXPECT_FALSE(OpdsPageCache::sameFeed(a, d));
   EXPECT_TRUE(OpdsPageCache::sameFeed(pageOf("x<updated>1"), pageOf("x<updated>22")));
 }
+
+TEST(OpdsPageCacheTest, FetchedWithinTracksFetchTime) {
+  OpdsPageCache cache(1024 * 1024);
+  ASSERT_TRUE(cache.store("a", makePage(10), true, 1000));
+  ASSERT_TRUE(cache.store("b", makePage(10)));  // no fetch time: never fresh
+  EXPECT_TRUE(cache.fetchedWithin("a", 60999, 60000));
+  EXPECT_FALSE(cache.fetchedWithin("a", 61000, 60000));
+  EXPECT_FALSE(cache.fetchedWithin("b", 1000, 60000));
+  EXPECT_FALSE(cache.fetchedWithin("missing", 1000, 60000));
+  cache.markFetched("a", 61000);
+  EXPECT_TRUE(cache.fetchedWithin("a", 61000, 60000));
+}

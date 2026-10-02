@@ -166,6 +166,10 @@ class OpdsBookBrowserActivity final : public Activity {
   // Asks before replacing a book already on SD (showing its size and date),
   // otherwise downloads straight away.
   void requestDownload(const OpdsEntry& book);
+  // URL, credentials and auth origin for downloading book from the current feed.
+  OpdsBookDownloader::Request bookRequest(const OpdsEntry& book) const;
+  // ConfirmationActivity note poll: the size probe's result once it finishes.
+  static bool pollDownloadSize(void* self, std::string& body);
   // filename: the SD destination from requestDownload. resumeValidator: set
   // on Retry to continue the failed attempt's .part file (may be empty).
   void downloadBook(const OpdsEntry& book, const std::string& filename, const std::string* resumeValidator = nullptr);
