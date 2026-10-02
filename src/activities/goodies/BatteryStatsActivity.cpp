@@ -24,6 +24,7 @@
 
 #include "MappedInputManager.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
@@ -396,11 +397,17 @@ void BatteryStatsActivity::render(RenderLock&&) {
   const Rect f = refreshRect();
   TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width + f.width);
   if (mappedInput.hasTouchHardware()) {
+    // Bordered text buttons (the Update screen's style) in the back icon's
+    // band; the tap targets stay refreshRect() and resetRect().
     const auto l = TouchHeaderBackButton::layout(header);
-    const int ty = l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
-                   (l.iconRect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-    renderer.drawText(UI_10_FONT_ID, f.x + 12, ty, tr(STR_DISPLAY_REFRESH));
-    renderer.drawText(UI_10_FONT_ID, r.x + 12, ty, tr(STR_RESET));
+    const int by = l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
+                   (l.iconRect.height - TouchHeaderBackButton::ICON_SIZE) / 2;
+    TouchActionButtons::Layout actions;
+    actions.count = 2;
+    actions.buttons[0] = Rect{f.x + 4, by, f.width - 8, TouchHeaderBackButton::ICON_SIZE};
+    actions.buttons[1] = Rect{r.x + 4, by, r.width - 8, TouchHeaderBackButton::ICON_SIZE};
+    const char* const actionLabels[] = {tr(STR_DISPLAY_REFRESH), tr(STR_RESET)};
+    TouchActionButtons::draw(renderer, actions, actionLabels, -1, -1, UI_10_FONT_ID);
   }
   // Goodies text pages: the list rows' font and label margin.
   const int font = uiScaleSpec().bodyFontId;
