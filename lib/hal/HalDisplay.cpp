@@ -448,30 +448,28 @@ uint16_t HalDisplay::getDisplayWidthBytes() const { return einkDisplay.getDispla
 
 uint32_t HalDisplay::getBufferSize() const { return einkDisplay.getBufferSize(); }
 
-bool HalDisplay::grayScreenshot(uint8_t* out, const uint32_t outLen) const {
+bool HalDisplay::grayShotReady() const {
 #if CROSSDINK_SERIAL_REMOTE
-  const uint32_t w = getDisplayWidth();
-  const uint32_t h = getDisplayHeight();
-  const uint32_t wb = getDisplayWidthBytes();
-  if (!shotShown || getBufferSize() > SHOT_PLANE_MAX || outLen < w * h) return false;
+  return shotShown && getBufferSize() <= SHOT_PLANE_MAX;
+#else
+  return false;
+#endif
+}
+
+uint8_t HalDisplay::grayShotLevel(const uint32_t x, const uint32_t y) const {
+#if CROSSDINK_SERIAL_REMOTE
   // Levels per GrayscaleCapabilities.h. Overlay masks (LSB, MSB): dark=11,
   // light=01, else the B/W framebuffer (1 = white), which holds the page base
   // again once a gray pass returns. Absolute planes: level = LSB + 2 * MSB.
-  const uint8_t* bw = getFrameBuffer();
-  for (uint32_t y = 0; y < h; y++) {
-    for (uint32_t x = 0; x < w; x++) {
-      const uint32_t i = y * wb + (x >> 3);
-      const uint8_t bit = 0x80 >> (x & 7);
-      const bool lsb = shotLsb[i] & bit;
-      const bool msb = shotMsb[i] & bit;
-      const uint8_t level = shotAbsolute ? lsb + 2 * msb : msb ? (lsb ? 1 : 2) : ((bw[i] & bit) ? 3 : 0);
-      *out++ = level * 85;  // 0 black, 85 dark, 170 light, 255 white
-    }
-  }
-  return true;
+  const uint32_t i = y * getDisplayWidthBytes() + (x >> 3);
+  const uint8_t bit = 0x80 >> (x & 7);
+  const bool lsb = shotLsb[i] & bit;
+  const bool msb = shotMsb[i] & bit;
+  if (shotAbsolute) return lsb + 2 * msb;
+  return msb ? (lsb ? 1 : 2) : ((getFrameBuffer()[i] & bit) ? 3 : 0);
 #else
-  (void)out;
-  (void)outLen;
-  return false;
+  (void)x;
+  (void)y;
+  return 0;
 #endif
 }

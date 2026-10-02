@@ -660,7 +660,12 @@ void takeSnapshot() {
   uint32_t bytes = w * h;
   int headerLen =
       snprintf(header, 32, "P5\n%lu %lu\n255\n", static_cast<unsigned long>(w), static_cast<unsigned long>(h));
-  if (headerLen <= 0 || headerLen + bytes > SNAP_MAX || !display.grayScreenshot(snap + headerLen, bytes)) {
+  if (headerLen > 0 && headerLen + bytes <= SNAP_MAX && display.grayShotReady()) {
+    uint8_t* out = snap + headerLen;
+    for (uint32_t y = 0; y < h; y++) {
+      for (uint32_t x = 0; x < w; x++) *out++ = display.grayShotLevel(x, y) * 85;  // 0/85/170/255
+    }
+  } else {
     bytes = display.getBufferSize();
     headerLen = snprintf(header, 32, "P4\n%lu %lu\n", static_cast<unsigned long>(w), static_cast<unsigned long>(h));
     if (headerLen <= 0 || headerLen + bytes > SNAP_MAX) {
