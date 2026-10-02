@@ -67,6 +67,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Web portal: deleting a saved Wi-Fi network, OPDS server or font family asks in the same styled dialog as the File Manager instead of the browser's confirm box.
 - Web portal: buttons, headings and corner radii look the same on every page (one shared button style with primary, danger and small variants; one heading style).
 - Image viewer: opening an image shows the Loading popup once (it was drawn twice, then refreshed twice more for its progress bar: about 1.8 s sooner to the image). On X4 Pro a gray image appears once, in gray, instead of first in black and white on a full flash and then again in gray: both gray planes are decoded into PSRAM first, then one gray refresh (about 1.6 s sooner and one flash fewer). Back, swipes and taps while it loads wait at most one decode pass instead of the whole draw.
 - OPDS: the ✓ on downloaded books and cached feeds is twice as big (20 px), still left of the title; titles do not move.

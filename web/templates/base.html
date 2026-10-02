@@ -26,6 +26,39 @@
 
   <p class="footer">CrossDink &bull; Open Source</p>
 
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal">
+      <button class="modal-close" data-no>&times;</button>
+      <h3 id="confirmTitle"></h3>
+      <p id="confirmText"></p>
+      <button class="btn btn-danger btn-block" id="confirmYes">Delete</button>
+      <button class="btn btn-block" data-no>Cancel</button>
+    </div>
+  </div>
+  <script>
+    // Styled stand-in for confirm(): true from the Delete button; false from
+    // Cancel, the close button, Escape or a click outside the dialog.
+    function confirmModal(title, text) {
+      const m = document.getElementById('confirmModal');
+      document.getElementById('confirmTitle').textContent = title;
+      document.getElementById('confirmText').textContent = text;
+      m.classList.add('open');
+      return new Promise((resolve) => {
+        const done = (ok) => {
+          m.classList.remove('open');
+          document.removeEventListener('keydown', key);
+          resolve(ok);
+        };
+        const key = (e) => e.key === 'Escape' && done(false);
+        document.addEventListener('keydown', key);
+        m.onclick = (e) => {
+          if (e.target.id === 'confirmYes') done(true);
+          else if (e.target === m || 'no' in e.target.dataset) done(false);
+        };
+      });
+    }
+  </script>
+
 {{ script }}
 </body>
 </html>

@@ -39,32 +39,6 @@
       display: flex;
       gap: 8px;
     }
-/* Upload modal */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 200;
-      justify-content: center;
-      align-items: center;
-    }
-.modal-overlay.open {
-      display: flex;
-    }
-.modal {
-      background: var(--card-bg);
-      border-radius: var(--radius-sm);
-      padding: 25px;
-      max-width: 450px;
-      width: 90%;
-      max-height: 90vh;
-      overflow-y: auto;
-      box-shadow: var(--shadow-md);
-    }
 .modal.picker-mode {
       max-width: 920px;
     }
@@ -127,23 +101,6 @@
       .picker-columns.picker-active > .image-picker-section {
         max-height: 40vh;
       }
-    }
-.modal h3 {
-      margin: 0 0 15px 0;
-      color: var(--title-color);
-    }
-.modal-close {
-      float: right;
-      background: none;
-      border: none;
-      font-size: 1.5em;
-      cursor: pointer;
-      color: var(--label-color);
-      line-height: 1;
-      transition: opacity 0.15s;
-    }
-.modal-close:hover {
-      color: var(--title-color);
     }
 .modal-close.disabled {
       opacity: 0.3;
@@ -1120,14 +1077,6 @@
       color: var(--title-color);
       word-break: break-all;
     }
-.modal .btn-danger {
-      background: var(--danger-color);
-      border-color: var(--danger-color);
-      color: #fff;
-    }
-.modal .btn-danger:hover {
-      background: var(--danger-hover);
-    }
 /* Mobile responsive styles */
     @media (max-width: 600px) {
       body {
@@ -1190,12 +1139,6 @@
       }
       .summary-inline {
         font-size: 0.8em;
-      }
-      .modal {
-        padding: 15px;
-      }
-      .modal h3 {
-        font-size: 1.1em;
       }
       .actions-col {
         width: 120px;

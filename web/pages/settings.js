@@ -507,7 +507,7 @@ let allSettings = [];
   }
 
   async function deleteWifiNetwork(idx) {
-    if (!confirm('Delete this Wi-Fi network?')) return;
+    if (!(await confirmModal('🗑️ Delete Wi-Fi Network', 'Delete this Wi-Fi network?'))) return;
     try {
       const resp = await fetch('/api/wifi/delete', {
         method: 'POST',
@@ -629,7 +629,7 @@ let allSettings = [];
   }
 
   async function deleteOpdsServer(idx) {
-    if (!confirm('Delete this OPDS server?')) return;
+    if (!(await confirmModal('🗑️ Delete OPDS Server', 'Delete this OPDS server?'))) return;
     try {
       const resp = await fetch('/api/opds/delete', {
         method: 'POST',
