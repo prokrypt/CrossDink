@@ -377,6 +377,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     IMAGES_DISPLAY_DITHER = 5,
     IMAGE_RENDERING_COUNT
   };
+  // Image viewer look; Same as Reader follows imageRendering (Gray for Placeholder/Suppress).
+  enum IMAGE_VIEWER_MODE {
+    IMAGE_VIEWER_SAME_AS_READER = 0,
+    IMAGE_VIEWER_BW_DARK = 1,
+    IMAGE_VIEWER_BW = 2,
+    IMAGE_VIEWER_DITHER = 3,
+    IMAGE_VIEWER_GRAY = 4,
+    IMAGE_VIEWER_MODE_COUNT
+  };
   enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
   enum PAGE_TURN_GESTURE {
     TAP_AND_SWIPE = 0,
@@ -461,6 +470,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
   uint8_t sleepScreenCoverFilter = NO_FILTER;
+  uint8_t imageViewerMode = IMAGE_VIEWER_SAME_AS_READER;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;

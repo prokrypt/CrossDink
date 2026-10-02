@@ -12,6 +12,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "Epub/converters/DirectPixelWriter.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
@@ -24,6 +25,33 @@ namespace {
 
 bool isViewableImageFile(const std::string& filename) {
   return FsHelpers::hasBmpExtension(filename) || FsHelpers::hasPngExtension(filename);
+}
+
+// Settings > Display > Image Viewer as a DirectPixelWriter BW look; Same as reader follows
+// the reader's Images choice (Gray for Placeholder/Suppress).
+uint8_t viewerBwImages() {
+  switch (SETTINGS.imageViewerMode) {
+    case CrossPointSettings::IMAGE_VIEWER_BW_DARK:
+      return DirectPixelWriter::BW_IMAGES_DARK;
+    case CrossPointSettings::IMAGE_VIEWER_BW:
+      return DirectPixelWriter::BW_IMAGES_BW;
+    case CrossPointSettings::IMAGE_VIEWER_DITHER:
+      return DirectPixelWriter::BW_IMAGES_DITHER;
+    case CrossPointSettings::IMAGE_VIEWER_GRAY:
+      return DirectPixelWriter::BW_IMAGES_OFF;
+    default:
+      break;
+  }
+  switch (SETTINGS.imageRendering) {
+    case CrossPointSettings::IMAGES_DISPLAY_BW_DARK:
+      return DirectPixelWriter::BW_IMAGES_DARK;
+    case CrossPointSettings::IMAGES_DISPLAY_BW:
+      return DirectPixelWriter::BW_IMAGES_BW;
+    case CrossPointSettings::IMAGES_DISPLAY_DITHER:
+      return DirectPixelWriter::BW_IMAGES_DITHER;
+    default:
+      return DirectPixelWriter::BW_IMAGES_OFF;
+  }
 }
 
 bool isMacOSSidecarFile(const std::string& filename) { return filename.rfind("._", 0) == 0; }
@@ -110,14 +138,19 @@ bool BmpViewerActivity::renderPngImage() {
   config.y = y;
   config.maxWidth = drawWidth;
   config.maxHeight = drawHeight;
+  // PNGs show B/W only. BW and BW dark threshold with no ordered dither; Gray and Dither keep it.
+  const uint8_t bw = viewerBwImages();
   config.useGrayscale = true;
-  config.useDithering = true;
+  config.useDithering = bw != DirectPixelWriter::BW_IMAGES_BW && bw != DirectPixelWriter::BW_IMAGES_DARK;
   config.performanceMode = false;
   config.useExactDimensions = true;
 
   PngToFramebufferConverter converter;
   renderer.clearScreen();
-  if (!converter.decodeToFramebuffer(filePath, renderer, config)) {
+  DirectPixelWriter::bwImages = bw;
+  const bool decoded = converter.decodeToFramebuffer(filePath, renderer, config);
+  DirectPixelWriter::bwImages = DirectPixelWriter::BW_IMAGES_OFF;
+  if (!decoded) {
     drawImageError(renderer, mappedInput, "Invalid PNG File");
     return false;
   }
@@ -174,7 +207,11 @@ void BmpViewerActivity::drawImage() {
 
   // 1. Open the file
   if (Storage.openFileForRead("BMP", filePath, file)) {
-    Bitmap bitmap(file, true, renderer.supportsAbsoluteGrayscale());
+    // BW looks come out 0/3 from the reader and skip the gray passes: one FAST refresh.
+    const uint8_t bw = viewerBwImages();
+    Bitmap bitmap(file, bw != DirectPixelWriter::BW_IMAGES_BW && bw != DirectPixelWriter::BW_IMAGES_DARK,
+                  renderer.supportsAbsoluteGrayscale());
+    if (bw) bitmap.setBwOutput(bw == DirectPixelWriter::BW_IMAGES_DARK ? 192 : 128);
 
     // 2. Parse headers to get dimensions
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
@@ -218,7 +255,7 @@ void BmpViewerActivity::drawImage() {
       // done, so input can drop the draw between decodes with no panel state to undo.
       HeapByteBuffer lsbPlane;
       HeapByteBuffer msbPlane;
-      const bool gray = bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale();
+      const bool gray = !bw && bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale();
       if (gray && renderer.supportsDirectGrayscale() && psramHeapAvailable()) {
         const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
         lsbPlane = makePsramByteBufferNoThrow(planeBytes);
