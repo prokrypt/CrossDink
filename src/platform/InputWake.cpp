@@ -7,11 +7,13 @@
 #include <BoardConfig.h>
 #include <Logging.h>
 #include <driver/gpio.h>
+#include <driver/rtc_io.h>
 #include <esp_sleep.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <hal/gpio_ll.h>
 #include <soc/gpio_struct.h>
+#include <soc/rtc_io_struct.h>
 #if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
 #include <esp_attr.h>
 #include <soc/gpio_periph.h>
@@ -140,6 +142,23 @@ void InputWake::begin() {
   for (int pin = 0; pin < GPIO_PIN_COUNT; ++pin) {
     if (GPIO_IS_VALID_GPIO(pin)) gpio_ll_intr_disable(&GPIO, pin);
   }
+#if SOC_RTCIO_WAKE_SUPPORTED
+  // RTC IO light-sleep wakes (gpio_wakeup_enable on an RTC pin) live in the RTC
+  // domain, so deep sleep, esp_restart() and panics keep them. One left armed
+  // by a line nothing re-arms now (Pin monitor on at sleep, an older firmware)
+  // sits at its armed level and rejects every light sleep (ls=0, rjc=0x4)
+  // until a power-on reset (1002b-e logs). wait() re-arms our own lines.
+  uint32_t staleRtcWakes = 0;
+  for (int pin = 0; pin < GPIO_PIN_COUNT; ++pin) {
+    const int rtcio = rtc_io_number_get(static_cast<gpio_num_t>(pin));
+    if (rtcio < 0 || !RTCIO.pin[rtcio].wakeup_enable) continue;
+    staleRtcWakes |= 1u << pin;
+    rtc_gpio_wakeup_disable(static_cast<gpio_num_t>(pin));
+  }
+  if (staleRtcWakes) {
+    LOG_INF("WAKE", "Cleared RTC IO wakes left armed: GPIO mask 0x%06lx", static_cast<unsigned long>(staleRtcWakes));
+  }
+#endif
   // The display BUSY line may already have installed the shared ISR service.
   const esp_err_t isrErr = gpio_install_isr_service(0);
   if (isrErr != ESP_OK && isrErr != ESP_ERR_INVALID_STATE) {
