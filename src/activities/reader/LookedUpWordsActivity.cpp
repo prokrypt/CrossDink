@@ -8,6 +8,7 @@
 #include "DictionaryDefinitionActivity.h"
 #include "MappedInputManager.h"
 #include "Memory.h"
+#include "activities/home/BookActions.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -133,8 +134,9 @@ void LookedUpWordsActivity::showDeleteConfirmation(const bool ignoreInitialConfi
   if (entries.empty() || selectedIndex < 0 || selectedIndex >= static_cast<int>(entries.size())) return;
 
   const std::string word = entries[selectedIndex].word;
-  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, std::string(tr(STR_DELETE)) + "?",
-                                                              word, ignoreInitialConfirmRelease, true);
+  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
+      renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE), word, ignoreInitialConfirmRelease,
+      true);
   if (!confirmation) {
     LOG_ERR("LOOKUP", "OOM: ConfirmationActivity");
     return;
