@@ -256,6 +256,21 @@ void InputWake::describePins(char* out, const uint32_t size) {
     if (n <= 0) break;
     used += static_cast<size_t>(n);
   }
+#if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
+  // Every RTC IO light-sleep wake the hardware holds, ours or not:
+  // "rtc pin:armed rtc-level/gpio-level m<1 = RTC side owns the pad>".
+  const uint32_t rtcIn = REG_READ(RTC_GPIO_IN_REG) >> RTC_GPIO_IN_NEXT_S;
+  for (int pin = 0; pin <= 21 && used < size; ++pin) {
+    if (!RTCIO.pin[pin].wakeup_enable) continue;
+    const bool high = RTCIO.pin[pin].int_type == GPIO_INTR_HIGH_LEVEL;
+    const auto mux = (REG_READ(RTC_IO_TOUCH_PAD0_REG + 4 * pin) >> RTC_IO_PAD21_MUX_SEL_S) & 1;
+    const int n = snprintf(out + used, size - used, " rtc %d:%c%lu/%dm%lu", pin, high ? 'H' : 'L',
+                           static_cast<unsigned long>((rtcIn >> pin) & 1),
+                           gpio_get_level(static_cast<gpio_num_t>(pin)), static_cast<unsigned long>(mux));
+    if (n <= 0) break;
+    used += static_cast<size_t>(n);
+  }
+#endif
 }
 
 void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
