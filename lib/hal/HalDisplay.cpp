@@ -414,6 +414,14 @@ void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, ui
                                        yStart, numRows);
 }
 
+void HalDisplay::setInvertedTextGray(const bool enabled) {
+#ifndef SIMULATOR
+  einkDisplay.setInvertedTextGray(enabled);
+#else
+  (void)enabled;
+#endif
+}
+
 void HalDisplay::setSmoothGray(const bool smooth) {
   smoothGray = smooth;
 #ifndef SIMULATOR  // the simulator panel has no waveform choice

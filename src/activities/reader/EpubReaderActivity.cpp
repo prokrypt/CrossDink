@@ -2556,6 +2556,7 @@ void EpubReaderActivity::onEnter() {
 
 void EpubReaderActivity::onExit() {
   renderer.setSmoothGray(false);
+  renderer.setInvertedTextGray(false);
   waitSilentIndexWorker(/*cancel=*/true);
   waitDrawAhead(/*publish=*/false);
   // Not cancelled: at most two thumbs remain, and Home would make them anyway.
@@ -8435,6 +8436,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (updatePanel) {
     renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
                            !smoothFullSwingPending && !grayCadenceDue);
+    // Night mode: text AA only. Image pages keep their polarity-preserved B/W
+    // images and no gray, as before (the panel-polarity fold would negate them).
+    renderer.setInvertedTextGray(!pageHasImages);
     if (needsAnyGrayscale) smoothFullSwingPending = false;
   }
   if (grayCadenceDue) {
