@@ -153,6 +153,7 @@ void TxtReaderActivity::onEnter() {
 
 void TxtReaderActivity::onExit() {
   renderer.setSmoothGray(false);
+  renderer.setInvertedTextGray(false);
   mappedInput.setReaderTouchscreenOverride(false);
   Activity::onExit();
   if (auto* fontCache = renderer.getFontCacheManager()) {
@@ -893,6 +894,7 @@ void TxtReaderActivity::renderPage() {
   renderStatusBar();
 
   renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !smoothFullSwingPending);
+  renderer.setInvertedTextGray(true);  // night mode: text AA on the inverted panel
   smoothFullSwingPending = false;
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
