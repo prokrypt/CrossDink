@@ -1568,6 +1568,59 @@ bool Epub::extractItemToFile(const std::string& itemHref, const std::string& des
   return success;
 }
 
+namespace {
+// Fills a fixed buffer; a byte past its end fails the write and ends the stream.
+class BufferSink final : public Print {
+ public:
+  BufferSink(uint8_t* data, const size_t capacity) : data(data), capacity(capacity) {}
+  size_t write(const uint8_t byte) override { return write(&byte, 1); }
+  size_t write(const uint8_t* buffer, const size_t size) override {
+    if (size > capacity - length) return 0;
+    memcpy(data + length, buffer, size);
+    length += size;
+    return size;
+  }
+  size_t length = 0;
+
+ private:
+  uint8_t* data;
+  size_t capacity;
+};
+// PSRAM left free while an image is held, for the reader's other PSRAM users.
+// ponytail: fixed reserve; base it on a measured PSRAM high-water mark if decodes start failing over.
+constexpr size_t kItemPsramReserve = 1024 * 1024;
+}  // namespace
+
+HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size,
+                                     const std::atomic<bool>* cancel) const {
+  size = 0;
+  size_t itemSize = 0;
+  if (!getItemSize(itemHref, &itemSize) || itemSize == 0) return {};
+  if (byteHeapSnapshot(MemoryPool::Psram).largest < itemSize + kItemPsramReserve) {
+    LOG_DBG("EBP", "No PSRAM for %u-byte %s; extracting to SD", static_cast<unsigned>(itemSize), itemHref.c_str());
+    return {};
+  }
+  HeapByteBuffer data = makePsramByteBufferNoThrow(itemSize);
+  if (!data) {
+    LOG_ERR("EBP", "PSRAM allocation failed for %u-byte %s", static_cast<unsigned>(itemSize), itemHref.c_str());
+    return {};
+  }
+  const uint32_t start = millis();
+  BufferSink sink(data.get(), itemSize);
+  bool ok;
+  if (cancel) {
+    CancellableSink cancellable(sink, *cancel);
+    ok = readItemContentsToStream(itemHref, cancellable, 4096);
+  } else {
+    ok = readItemContentsToStream(itemHref, sink, 4096);
+  }
+  LOG_DBG("EBP", "Read %s to PSRAM: ok=%d bytes=%u in %ums", itemHref.c_str(), ok,
+          static_cast<unsigned>(sink.length), static_cast<unsigned>(millis() - start));
+  if (!ok || sink.length != itemSize) return {};
+  size = itemSize;
+  return data;
+}
+
 bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
   const std::string path = FsHelpers::normalisePath(itemHref);
   return ZipFile(filepath).getInflatedFileSize(path.c_str(), size);

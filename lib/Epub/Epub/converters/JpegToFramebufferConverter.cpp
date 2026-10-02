@@ -511,7 +511,10 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   // Keep exactly one close after every attempted open, including malformed
   // JPEGs where JPEGDEC returns from JPEGInit without closing its file handle.
   const auto closeJpeg = ScopedCleanup{[&jpeg] { jpeg->close(); }};
-  int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDecoderCallback);
+  // JPEGDEC only reads the buffer; its API is not const.
+  int rc = config.sourceData ? jpeg->openRAM(const_cast<uint8_t*>(config.sourceData),
+                                             static_cast<int>(config.sourceSize), jpegDecoderCallback)
+                             : jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDecoderCallback);
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
     return false;

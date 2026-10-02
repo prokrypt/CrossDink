@@ -1,4 +1,5 @@
 #pragma once
+#include <Memory.h>
 #include <Print.h>
 
 #include <atomic>
@@ -186,6 +187,11 @@ class Epub {
   // Stops early and fails, removing destPath, once *cancel turns true.
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096,
                          const std::atomic<bool>* cancel = nullptr) const;
+  // Inflates an item into a new PSRAM buffer, so a book image can be decoded
+  // without an SD copy. Empty (size 0) when PSRAM is short, or the read fails
+  // or is cancelled; the caller then extracts to the card.
+  HeapByteBuffer readItemToPsram(const std::string& itemHref, size_t& size,
+                                 const std::atomic<bool>* cancel = nullptr) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
   bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
   // Seeds the normal local cache from an exact optimizer sidecar, or streams a
