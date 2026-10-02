@@ -16,6 +16,7 @@
 #include <HalSystem.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -55,6 +56,7 @@
 #include "CrossPointState.h"
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
+#include "Knobs.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
@@ -126,7 +128,7 @@ static bool powerButtonReleasedSinceWake = false;
 static bool wakePowerReleasePending = false;
 
 namespace {
-constexpr unsigned long X4PRO_HOME_KEY_DOUBLE_TAP_MS = 300;
+KNOB_ALIAS(X4PRO_HOME_KEY_DOUBLE_TAP_MS, homeDoubleTapMs);  // Goodies > Knobs
 
 struct QuickLockBadgeBackdrop {
   static constexpr int SIZE = 40;
@@ -549,7 +551,7 @@ void silentRestartToManageFonts() { silentRestartToNetwork(NetworkBootTarget::MA
 namespace {
 // Reader work after a Wi-Fi session needs internal RAM for worker task stacks
 // (24 KB each) and inline image decoding; the same bar as optional rebuilds.
-constexpr uint32_t NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+KNOB_ALIAS(NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK, netExitMinBlock);  // Goodies > Knobs
 // Going Home on a PSRAM device: reader worker stacks and image decoders use
 // PSRAM, leaving text layout's 32 KB bar. Free blocks come in 2 KB steps less a
 // 12 B header, so a "32 KB" block reads 32756; 31 KB accepts it.
@@ -705,8 +707,8 @@ static bool launchNetworkTarget(NetworkBootTarget target, uint32_t payload, bool
 namespace {
 // Wi-Fi uses internal RAM for driver state and buffers that PSRAM cannot hold;
 // below this the screen is entered through a reboot as before.
-constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE;
-constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+KNOB_ALIAS(NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE, netEntryMinFree);  // Goodies > Knobs
+KNOB_ALIAS(NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK, netEntryMinBlock);
 
 bool enterNetworkInPlace() {
   // The previous activity (a reader included) has run onExit() by now.
@@ -1791,6 +1793,9 @@ void setup() {
   ReaderProgressShadow::recoverPending();
 
   SETTINGS.loadFromFile();
+#if CROSSDINK_GOODIES
+  knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
+#endif
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
@@ -2031,17 +2036,17 @@ void setup() {
   // during long loop work are queued instead of dropped.
   InputTask::begin();
 
-  allowSleepAt = millis() + 2000;
+  allowSleepAt = millis() + KNOBS.bootSleepGraceMs;
 }
 
 namespace {
-constexpr uint32_t IDLE_WAIT_MS = 50;
-constexpr uint32_t IDLE_WAIT_SETTLED_MS = 250;
-constexpr uint32_t IDLE_WAIT_LONG_MS = 1000;
+KNOB_ALIAS(IDLE_WAIT_MS, idleWaitMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(IDLE_WAIT_SETTLED_MS, idleWaitSettledMs);
+KNOB_ALIAS(IDLE_WAIT_LONG_MS, idleWaitLongMs);
 // Toasts, hold thresholds and the Home double tap all resolve within a couple
 // of seconds of the last input, so the idle tick stays short until then.
-constexpr unsigned long IDLE_WAIT_BACKOFF_AFTER_MS = 2000;
-constexpr unsigned long IDLE_WAIT_LONG_AFTER_MS = 10000;
+KNOB_ALIAS(IDLE_WAIT_BACKOFF_AFTER_MS, idleBackoffAfterMs);
+KNOB_ALIAS(IDLE_WAIT_LONG_AFTER_MS, idleLongAfterMs);
 
 bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
@@ -2072,13 +2077,14 @@ static bool radioMayIdle() {
 // UC8179 the driver's DRF time plus the waveform's own offset, e.g. direct gray
 // holds white for 24 of 50 frames), and back up over FLASH_DUCK_UP_MS once the
 // refresh ends. A swing that shows at once (OTP Full/Half) cuts the light at
-// DRF. Goodies > Flash dim / restore offset shift both ends (flashDuckMs).
-// Runs alongside the refresh (render task) and never waits on it. A mark older
-// than FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends.
-constexpr unsigned long FLASH_DUCK_DOWN_MS = 80;
-constexpr unsigned long FLASH_DUCK_MAX_MS = 3000;
-constexpr unsigned long FLASH_DUCK_UP_MS = 300;
-constexpr uint32_t FLASH_DUCK_TICK_MS = 10;
+// DRF. Goodies > Knobs flashDimMs / flashRestoreMs shift both ends. Runs
+// alongside the refresh (render task) and never waits on it. A mark older than
+// FLASH_DUCK_MAX_MS is an async refresh nobody waited on, so it ends. The
+// times are Goodies > Knobs; a zero fade never divides (both ramps test it first).
+KNOB_ALIAS(FLASH_DUCK_DOWN_MS, flashDownMs);
+KNOB_ALIAS(FLASH_DUCK_MAX_MS, flashMaxMs);
+KNOB_ALIAS(FLASH_DUCK_UP_MS, flashUpMs);
+KNOB_ALIAS(FLASH_DUCK_TICK_MS, flashTickMs);
 static bool flashDuckActive = false;
 static uint8_t flashDuckLevel = 100;
 static unsigned long flashDuckUpStartMs = 0;
@@ -2095,8 +2101,8 @@ static void updateFlashDuck() {
   const uint32_t swingMs = liveFlashStartMs();
   // Goodies offsets (later is positive). The refresh never waits on either: an
   // earlier dim than the driver can announce just cuts the light at DRF.
-  const int32_t dimMs = CrossPointSettings::flashDuckMs(SETTINGS.flashDuckDim);
-  const int32_t restoreMs = CrossPointSettings::flashDuckMs(SETTINGS.flashDuckRestore);
+  const int32_t dimMs = KNOBS.flashDimMs;
+  const int32_t restoreMs = KNOBS.flashRestoreMs;
   static uint32_t swingEndMs = 0;   // expected end of the swing being tracked
   static uint32_t swingGoneMs = 0;  // when it ended (for a later restore)
   if (swingMs != 0) {
@@ -2431,7 +2437,7 @@ static void loopPass() {
     if (userInputReceived || anyInputHeld() || static_cast<long>(lightWakeHomeKeyUntil - millis()) > 0) return;
     lightWakeSwallow = false;
   }
-  constexpr unsigned long LIGHT_FADE_MS = 1000;
+  const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
   if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
     const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
@@ -2664,6 +2670,7 @@ static void loopPass() {
   activityManager.loop();
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
+  knobs::loop();
 #endif
 #if CROSSDINK_APP_CAP_TOUCH
   // A delayed Home event is valid for this activity dispatch only. If an

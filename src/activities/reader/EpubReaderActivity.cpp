@@ -3,6 +3,7 @@
 #include "TaskCores.h"
 #if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
+#include <Knobs.h>
 #endif
 #include <Arduino.h>
 #include <BidiUtils.h>
@@ -120,13 +121,13 @@ void deletePsramWorker(TaskHandle_t task) {
 #endif
 }
 
-constexpr unsigned long TOUCH_DICTIONARY_LOOKUP_HOLD_MS = 1000;
+KNOB_ALIAS(TOUCH_DICTIONARY_LOOKUP_HOLD_MS, dictHoldMs);  // Goodies > Knobs
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
-constexpr unsigned long longPressMenuMs = 600;
+KNOB_ALIAS(longPressMenuMs, menuHoldMs);  // Goodies > Knobs
 constexpr uint16_t DEFAULT_AUTO_PAGE_TURN_INTERVAL_S = 30;
 constexpr uint16_t MIN_AUTO_PAGE_TURN_INTERVAL_S = 5;
 constexpr uint16_t MAX_AUTO_PAGE_TURN_INTERVAL_S = 120;
-constexpr int MAX_PAGE_LOAD_RETRIES = 3;
+KNOB_ALIAS(MAX_PAGE_LOAD_RETRIES, pageLoadRetries);  // Goodies > Knobs
 constexpr uint8_t LEGACY_READER_SETTINGS_FILE_VERSION = 1;
 constexpr uint8_t PRE_WORD_SPACING_READER_SETTINGS_FILE_VERSION = 2;
 constexpr uint8_t PRE_INDEXING_METHOD_READER_SETTINGS_FILE_VERSION = 3;
@@ -146,12 +147,12 @@ constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
 constexpr char BALANCED_SECTION_CACHE_SUFFIX[] = "_balanced";
 constexpr char LIGHT_SECTION_CACHE_SUFFIX[] = "_light";
 constexpr unsigned long RENDER_MODE_TOAST_MS = 1500UL;
-constexpr unsigned long MIN_MANUAL_PAGE_TURN_GAP_MS = 200UL;
+KNOB_ALIAS(MIN_MANUAL_PAGE_TURN_GAP_MS, pageTurnGapMs);  // Goodies > Knobs
 // Shared dwell time for the transient bookmark/completed/tilt confirmations.
 constexpr unsigned long TRANSIENT_FEEDBACK_MS = 1000UL;
-constexpr unsigned long IDLE_SD_FONT_PREWARM_DELAY_MS = 400UL;
-constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_FREE = 64U * 1024U;
-constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC = 40U * 1024U;
+KNOB_ALIAS(IDLE_SD_FONT_PREWARM_DELAY_MS, fontPrewarmDelayMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_FREE, idlePrewarmMinFree);
+KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC, idlePrewarmMinBlock);
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_READING_PACE_SAMPLE_SECONDS = 2;
 constexpr uint16_t MIN_STORED_TIME_LEFT_PACE_SAMPLE_COUNT = 3;

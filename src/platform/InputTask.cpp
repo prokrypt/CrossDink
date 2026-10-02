@@ -1,6 +1,7 @@
 #include "InputTask.h"
 
 #include <Arduino.h>
+#include <Knobs.h>
 
 #include "InputWake.h"
 
@@ -17,7 +18,7 @@
 namespace {
 // Matches the loop's active tick and InputManager's debounce and GT911 poll
 // cadence while a key or contact is down.
-constexpr uint32_t ACTIVE_POLL_MS = 8;
+KNOB_ALIAS(ACTIVE_POLL_MS, inputActivePollMs);  // Goodies > Knobs
 // With every input on a wake line the idle wait only bounds a missed edge.
 constexpr uint32_t IDLE_COVERED_WAIT_MS = 1000;
 constexpr uint32_t IDLE_POLLED_WAIT_MS = 20;

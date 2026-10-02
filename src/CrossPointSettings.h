@@ -695,17 +695,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint8_t FLASH_DUCK_DEPTH_MAX = 90;
   static constexpr uint8_t FLASH_DUCK_DEPTH_STEP = 10;
   uint8_t flashDuckDepth = 0;
-  // Goodies flash-dim calibration: the dim and the restore move by
-  // (value - FLASH_DUCK_TIMING_ZERO) x FLASH_DUCK_TIMING_STEP_MS, later is
-  // positive (flashDuckMs). Neither ever delays a refresh.
-  static constexpr uint8_t FLASH_DUCK_TIMING_ZERO = 20;
-  static constexpr uint8_t FLASH_DUCK_TIMING_MAX = 40;
-  static constexpr int FLASH_DUCK_TIMING_STEP_MS = 10;
-  uint8_t flashDuckDim = FLASH_DUCK_TIMING_ZERO;
-  uint8_t flashDuckRestore = FLASH_DUCK_TIMING_ZERO;
-  static int32_t flashDuckMs(const uint8_t value) {
-    return (static_cast<int32_t>(value) - FLASH_DUCK_TIMING_ZERO) * FLASH_DUCK_TIMING_STEP_MS;
-  }
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Enabled keyboard layouts. Zero derives a default from the UI language;

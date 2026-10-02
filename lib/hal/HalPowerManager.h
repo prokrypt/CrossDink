@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <BatteryMonitor.h>
 #include <InputManager.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Wire.h>
 #include <freertos/semphr.h>
@@ -72,9 +73,9 @@ class HalPowerManager {
   // DFS floor when power management is enabled. 80 MHz keeps APB pinned at
   // 80 MHz across every mode, so SPI dividers computed at bus setup stay valid
   // no matter what the CPU clock is doing.
-  static constexpr int DFS_MIN_FREQ = 80;                     // MHz
-  static constexpr unsigned long IDLE_POWER_SAVING_MS = 250;  // ms
-  static constexpr unsigned long BATTERY_POLL_MS = 6000;      // ms
+  static constexpr int DFS_MIN_FREQ = 80;                    // MHz
+  static KNOB_ALIAS(IDLE_POWER_SAVING_MS, idlePowerSaveMs);  // ms, Goodies > Knobs
+  static KNOB_ALIAS(BATTERY_POLL_MS, batteryPollMs);         // ms
 
   void begin();
 

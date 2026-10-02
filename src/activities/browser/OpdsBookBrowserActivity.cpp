@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -54,14 +55,14 @@ constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 // PSRAM page cache (S3 only): whole raw feed responses, so Back/Prev and the
 // prefetched next page parse locally instead of refetching.
-constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
+KNOB_ALIAS(OPDS_PAGE_CACHE_MAX_BYTES, opdsCacheCap);  // Goodies > Knobs (a cap below 2 MB)
 constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // A kept-alive feed connection idle longer than this is closed before the
 // next request. Some servers and load balancers drop an idle socket without a
 // FIN; the request then waits out the whole header timeout before the retry
 // on a fresh connection. Reuse after 1.4 s and 3.5 s idle worked on
 // mayberry.pub, after 10.5 s it never answered (crash log 2026-09-30).
-constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
+KNOB_ALIAS(OPDS_KEEPALIVE_MAX_IDLE_MS, opdsKeepaliveMs);  // Goodies > Knobs
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
   const std::string title(book.title);

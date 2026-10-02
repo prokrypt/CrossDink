@@ -1,6 +1,7 @@
 #pragma once
 #include <FreeInkUIGfxRenderer.h>
 #include <GfxRenderer.h>
+#include <Knobs.h>
 
 #include <atomic>
 #include <cstdint>
@@ -80,7 +81,7 @@ class KeyboardEntryActivity : public Activity {
   unsigned long prevFrameStrokeMs = 0;  // stroke behind the previous frame; 0 = none
   // Touch-down highlight is held back briefly: a quick tap releases first, and
   // its activation frame is then the keystroke's only refresh.
-  static constexpr uint16_t TOUCH_HIGHLIGHT_DELAY_MS = 120;
+  static KNOB_ALIAS(TOUCH_HIGHLIGHT_DELAY_MS, kbdHighlightDelayMs);  // Goodies > Knobs
   bool highlightPending = false;
   unsigned long highlightDueMs = 0;
   void loadKbdExperiment();
@@ -186,10 +187,10 @@ class KeyboardEntryActivity : public Activity {
 
   freeink::ui::Rect keyboardRect() const;
 
-  static constexpr uint16_t LONG_PRESS_MS = 500;
-  static constexpr uint16_t DEL_LONG_PRESS_MS = 1500;
-  static constexpr uint16_t TOUCH_LONG_PRESS_MS = 350;
-  static constexpr uint16_t TOUCH_DEL_LONG_PRESS_MS = 900;
+  static KNOB_ALIAS(LONG_PRESS_MS, kbdHoldMs);  // Goodies > Knobs, as the three below
+  static KNOB_ALIAS(DEL_LONG_PRESS_MS, kbdDelHoldMs);
+  static KNOB_ALIAS(TOUCH_LONG_PRESS_MS, kbdTouchHoldMs);
+  static KNOB_ALIAS(TOUCH_DEL_LONG_PRESS_MS, kbdTouchDelHoldMs);
 
   // App-specific key id: toggles the URL snippet panel (URL fields only).
   static constexpr int16_t URL_PANEL_KEY = -3;

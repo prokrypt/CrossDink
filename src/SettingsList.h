@@ -657,11 +657,6 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Value(StrId::STR_FLASH_DUCK_DEPTH, &CrossPointSettings::flashDuckDepth,
                            {0, CrossPointSettings::FLASH_DUCK_DEPTH_MAX, CrossPointSettings::FLASH_DUCK_DEPTH_STEP},
                            "flashDuckDepth", StrId::STR_CAT_DISPLAY));
-    // Tuned from Goodies only: category-less, persisted.
-    add(SettingInfo::Value(StrId::STR_FLASH_DUCK_DIM, &CrossPointSettings::flashDuckDim,
-                           {0, CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1}, "flashDuckDim"));
-    add(SettingInfo::Value(StrId::STR_FLASH_DUCK_RESTORE, &CrossPointSettings::flashDuckRestore,
-                           {0, CrossPointSettings::FLASH_DUCK_TIMING_MAX, 1}, "flashDuckRestore"));
     // Kept in the shared catalog for persistence and the web API. On-device,
     // these values are presented only by Display > Frontlight.
     add(SettingInfo::Toggle(StrId::STR_FRONTLIGHT_SCHEDULE, &CrossPointSettings::frontlightScheduleEnabled,

@@ -7,6 +7,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <LibraryBuilder.h>
 #include <Memory.h>
 #include <SdCardFontSystem.h>
@@ -43,7 +44,7 @@
 namespace fui = freeink::ui;
 
 namespace {
-constexpr unsigned long GO_HOME_MS = 1000;
+KNOB_ALIAS(GO_HOME_MS, goHomeHoldMs);  // Goodies > Knobs
 constexpr unsigned long COMPLETED_FEEDBACK_MS = 1000;
 constexpr int ROOT_HINT_GAP = 20;
 constexpr size_t NAME_BUFFER_SIZE = 500;

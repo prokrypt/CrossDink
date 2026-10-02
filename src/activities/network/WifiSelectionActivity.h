@@ -2,6 +2,7 @@
 
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
+#include <Knobs.h>
 
 #include <atomic>
 #include <cstdint>
@@ -107,9 +108,9 @@ class WifiSelectionActivity final : public Activity {
   int forgetPromptSelection = 0;
 
   // Connection timeout
-  static constexpr unsigned long CONNECTION_TIMEOUT_MS = 15000;
+  static KNOB_ALIAS(CONNECTION_TIMEOUT_MS, connectTimeoutMs);  // Goodies > Knobs
   static constexpr unsigned long CONNECTION_STATUS_LOG_INTERVAL_MS = 2000;
-  static constexpr unsigned long AUTO_CONNECTION_TIMEOUT_MS = 7000;
+  static KNOB_ALIAS(AUTO_CONNECTION_TIMEOUT_MS, autoConnectTimeoutMs);  // Goodies > Knobs
   unsigned long connectionStartTime = 0;
   // Auto-connect: millis() at which to draw the Connecting screen (0 = drawn or not due).
   unsigned long connectingScreenDueMs = 0;

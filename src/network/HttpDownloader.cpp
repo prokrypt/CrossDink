@@ -1,6 +1,7 @@
 #include "HttpDownloader.h"
 
 #include <Arduino.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
@@ -32,9 +33,9 @@ constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr uint32_t PROGRESS_UPDATE_MS = 250;
 constexpr int HTTP_RX_BUF = 4096;
 constexpr int HTTP_TX_BUF = 1024;
-constexpr int HTTP_TIMEOUT_MS = 60000;
-constexpr int HTTP_READ_POLL_TIMEOUT_MS = 5000;
-constexpr uint32_t DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
+KNOB_ALIAS(HTTP_TIMEOUT_MS, httpTimeoutMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(HTTP_READ_POLL_TIMEOUT_MS, httpReadPollMs);
+KNOB_ALIAS(DOWNLOAD_IDLE_TIMEOUT_MS, downloadIdleMs);
 constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr uint8_t MAX_REDIRECTS = 5;
 
