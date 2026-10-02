@@ -353,12 +353,12 @@ void BatteryStatsActivity::buildLines() {
   PerfLog::LightSleepStats ls;
   if (PerfLog::lightSleepStats(ls)) {
     formatDur(ls.upS, a, sizeof(a));
-    add("Light sleep %lu (%u%% of %s)  Rej %lu%s%s", static_cast<unsigned long>(ls.sleeps), ls.sleepPct, a,
+    add("LS %lu (%u%% of %s)  Rej %lu%s%s", static_cast<unsigned long>(ls.sleeps), ls.sleepPct, a,
         static_cast<unsigned long>(ls.rejects), ls.rejectCause ? ", last " : "",
         ls.rejectCause ? ls.rejectCauseName : "");
   }
   const auto& c = HalDisplay::refreshCounts().n;
-  add("Session refresh counts: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
+  add("Ref: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
       static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),
       static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]), static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]),
       static_cast<unsigned long>(c[HalDisplay::FLASHING]));
