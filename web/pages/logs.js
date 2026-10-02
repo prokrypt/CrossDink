@@ -491,14 +491,15 @@ function summary() {
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
-      ['Log', `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}` + (s.reset ? `, counters since reset ${when(s.first)}` : '')]
+      ['Earliest log', s.first && now > s.first ? `${hrs(now - s.first)} ago${s.reset ? ' (reset)' : ''}` : 'none'],
+      ['Log', `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}`]
     );
   } else rows.push(['Log', 'no rows with a clock time']);
+  if (srcs.length) rows.push(['Rows parsed', srcs.map(([n, r, l]) => `${n} ${r}` + (r < l ? ` of ${l} lines` : '')).join(', ')]);
   const ls = b.stats && b.stats.lightSleep;
   if (ls) rows.push(['Light sleep since boot', `${ls.count}, ${ls.pct}% of ${hrs(ls.upS)}, rejected ${ls.rejects}` + (ls.rejectCause ? `, last ${ls.rejectCauseName} (0x${ls.rejectCause.toString(16)})` : '')]);
   if (b.stats && b.stats.refresh) rows.push(['Refreshes since power-on', Object.entries(b.stats.refresh).map(([k, v]) => k + ' ' + v).join(', ')]);
   const boot = status.boot || {};
-  if (srcs.length) rows.push(['Rows parsed', srcs.map(([n, r, l]) => `${n} ${r}` + (r < l ? ` of ${l} lines` : '')).join(', ')]);
   rows.push(['Up', `${hrs((boot.uptimeMs || 0) / 1000)}, reset ${boot.resetReason}, wake ${boot.wakeCause}`]);
   table('sum', null, rows);
 }
