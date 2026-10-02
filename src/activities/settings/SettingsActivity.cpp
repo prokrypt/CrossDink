@@ -257,11 +257,6 @@ fui::BitmapRef frontlightScheduleEndpointIcon(const SettingInfo& setting) {
   return {};
 }
 
-bool isTwoFingerSwipeSetting(const uint8_t CrossPointSettings::* const valuePtr) {
-  return valuePtr == &CrossPointSettings::twoFingerSwipeUp || valuePtr == &CrossPointSettings::twoFingerSwipeDown ||
-         valuePtr == &CrossPointSettings::twoFingerSwipeLeft || valuePtr == &CrossPointSettings::twoFingerSwipeRight;
-}
-
 std::string trimAsciiSpaces(const std::string& value) {
   size_t start = 0;
   while (start < value.size() && std::isspace(static_cast<unsigned char>(value[start]))) {
@@ -603,10 +598,7 @@ void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {
         if (selectedSetting.valuePtr != nullptr) {
           SETTINGS.*(selectedSetting.valuePtr) =
               enumRawValueForDisplayIndex(selectedSetting, static_cast<uint8_t>(selectedIndex));
-          if (isTwoFingerSwipeSetting(selectedSetting.valuePtr)) {
-            CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, selectedSetting.valuePtr);
-          }
-          QuickActions::settingChanged(SETTINGS, selectedSetting.valuePtr);
+          applySettingChange(selectedSetting.valuePtr);
         } else if (selectedSetting.valueSetter) {
           selectedSetting.valueSetter(static_cast<uint8_t>(selectedIndex));
         }
@@ -853,9 +845,7 @@ void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valueP
   // release it before requestUpdate() triggers the next repaint.
   {
     RenderLock lock(*this);
-    if (themeChanged) {
-      UITheme::getInstance().reload();
-    }
+    // applySettingChange() already reloaded the theme.
     const auto spec = uiScaleSpec();
     uiTarget.setFont(fui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
     uiTarget.setFont(fui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
@@ -1255,10 +1245,7 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
-  if (isTwoFingerSwipeSetting(setting.valuePtr)) {
-    CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, setting.valuePtr);
-  }
-  QuickActions::settingChanged(SETTINGS, setting.valuePtr);
+  if (setting.valuePtr) applySettingChange(setting.valuePtr);
   SETTINGS.saveToFile();
   // Apply this while `setting` still refers to the current list; rebuilding
   // below clears its backing vector and invalidates the reference.

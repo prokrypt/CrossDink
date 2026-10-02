@@ -1374,6 +1374,10 @@ bool ActivityManager::beginGlobalSettingsEdit() {
   return reader && reader->onFrontlightGlobalSettingsOpened();
 }
 
+void ActivityManager::notifyExternalFrontlightChange() {
+  if (currentActivity) currentActivity->onExternalFrontlightChange();
+}
+
 void ActivityManager::endGlobalSettingsEdit() {
   if (auto* reader = findEpubReader()) reader->onFrontlightGlobalSettingsClosed();
 }
