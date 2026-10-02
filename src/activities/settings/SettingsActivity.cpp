@@ -215,15 +215,6 @@ std::string formatSettingValue(const SettingInfo& setting) {
     formatFrontlightScheduleTime(timeOfDay, valueBuffer, sizeof(valueBuffer));
     return valueBuffer;
   }
-  if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
-    if (SETTINGS.sleepTimeoutMinutes >= CrossPointSettings::SLEEP_TIMEOUT_NEVER_MINUTES) {
-      return tr(STR_SLEEP_NEVER);
-    }
-    char valueBuffer[32];
-    snprintf(valueBuffer, sizeof(valueBuffer), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
-             static_cast<unsigned int>(SETTINGS.*(setting.valuePtr)));
-    return valueBuffer;
-  }
   if (setting.valuePtr == &CrossPointSettings::lineHeightPercent ||
       setting.valuePtr == &CrossPointSettings::flashDuckDepth) {
     return std::to_string(SETTINGS.*(setting.valuePtr)) + "%";
@@ -1305,16 +1296,23 @@ void SettingsActivity::syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChan
 void SettingsActivity::openSleepTimeoutPicker() {
   startActivityForResult(
       std::make_unique<IntervalSelectionActivity>(
-          renderer, mappedInput, "SleepTimeoutInterval", StrId::STR_TIME_TO_SLEEP, SETTINGS.sleepTimeoutMinutes,
-          CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES, CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1, 5,
-          StrId::STR_SLEEP_TIMER_VALUE_FORMAT,
+          renderer, mappedInput, "SleepTimeoutInterval", StrId::STR_TIME_TO_SLEEP, SETTINGS.sleepTimeoutStep, 0,
+          CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP, 1, 3, StrId::STR_NONE_OPT,
           /*readerActivity=*/false, /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/true,
           /*showPercentValue=*/false, StrId::STR_SLEEP_NEVER, /*overrideDisabledReaderTouchscreen=*/false,
-          /*showTouchHeaderBackButton=*/true, /*valueFormatter=*/nullptr, /*tapStep=*/0,
+          /*showTouchHeaderBackButton=*/true,
+          /*valueFormatter=*/
+          [](const int step, char* buf, const size_t len) {
+            snprintf(
+                buf, len, "%s",
+                I18N.get(
+                    SLEEP_TIMEOUT_STEP_LABELS[std::clamp<int>(step, 0, CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP)]));
+          },
+          /*tapStep=*/0,
           /*useReaderSlider=*/true),
       [this](const ActivityResult& result) {
         if (!result.isCancelled) {
-          SETTINGS.sleepTimeoutMinutes = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+          SETTINGS.sleepTimeoutStep = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
           SETTINGS.saveToFile();
         }
         requestUpdate();

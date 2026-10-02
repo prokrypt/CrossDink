@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
+#include <iterator>
 #include <mutex>
 
 #include "ReaderFontSizeStep.h"
@@ -581,8 +582,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t lineHeightPercent = 100;
   uint8_t wordSpacing = 0;
   uint8_t paragraphAlignment = JUSTIFIED;
-  // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
-  uint8_t sleepTimeoutMinutes = 10;
+  // Auto-sleep timeout: an index into SLEEP_TIMEOUT_STEP_MINUTES, SLEEP_TIMEOUT_NEVER_STEP = Never (default
+  // 10 min). Legacy sleepTimeoutMinutes and sleepTimeout enum values are migration-only.
+  uint8_t sleepTimeoutStep = 5;
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
@@ -726,9 +728,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
   static constexpr uint16_t POWER_BUTTON_WAKE_LONG_MS = POWER_BUTTON_LONG_PRESS_MS;
-  static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
-  static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
-  static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = SLEEP_TIMEOUT_NEVER_MINUTES;
+  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1,  2,   3,   4,   5,   10,  20, 30,
+                                                            60, 120, 240, 360, 480, 600, 720};
+  static constexpr uint8_t SLEEP_TIMEOUT_NEVER_STEP = std::size(SLEEP_TIMEOUT_STEP_MINUTES);
   static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
   static constexpr uint8_t MIN_READER_FONT_POINT_SIZE = 8;
   static constexpr uint8_t MIN_LINE_HEIGHT_PERCENT = 70;
@@ -806,6 +808,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static bool normalizeTwoFingerSwipeActions(CrossPointSettings& settings,
                                              uint8_t CrossPointSettings::* editedField = nullptr);
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
+  // Nearest step (a tie takes the shorter one); 31 and up was the old slider's Never.
+  static uint8_t sleepTimeoutStepForMinutes(unsigned minutes);
   static uint8_t sleepScreenStorageToMode(uint8_t storedValue);
   static uint8_t sleepScreenModeToStorage(uint8_t mode);
   static uint8_t legacyLineSpacingToPercent(uint8_t legacyValue, uint8_t fontFamily, bool sdFontSelected);
