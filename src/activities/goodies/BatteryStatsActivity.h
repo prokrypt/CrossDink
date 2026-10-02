@@ -37,7 +37,6 @@ class BatteryStatsActivity final : public Activity {
 
   void startLoad();
   bool resumeFromSum();  // battery.sum matches a log file: resume after its last row
-  void saveSum();
   void step(uint32_t budgetMs);
   void buildLines();
   Rect resetRect() const;    // touch builds: "Reset" at the header's right end

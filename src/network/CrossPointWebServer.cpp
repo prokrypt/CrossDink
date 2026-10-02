@@ -61,6 +61,7 @@
 #include "network/NetworkName.h"
 #include "network/SdWriteBehind.h"
 #include "util/BatteryLog.h"
+#include "util/BatteryLogSum.h"
 #include "util/BookCacheUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
@@ -613,6 +614,57 @@ void CrossPointWebServer::registerFullRoutes() {
         [](void* s, const char* data, const uint32_t len) { static_cast<WebServer*>(s)->sendContent(data, len); },
         server.get());
     server->sendContent("");
+  });
+  // Goodies > Battery & stats' saved counts (battery.sum) and the log file + offset
+  // they end at, so the web Battery tab counts on from them; 404 when there are none.
+  server->on("/api/battery-sum", HTTP_GET, [this] {
+    auto p = makeUniqueNoThrow<BatteryLogParser>();
+    int file = 0;
+    uint32_t offset = 0;
+    if (!p || !BatteryLogSum::load(*p, file, offset)) {
+      server->send(404, "text/plain", "no battery.sum");
+      return;
+    }
+    const auto& s = p->st;
+    JsonDocument doc;
+    doc["file"] = file;
+    doc["offset"] = offset;
+    doc["first"] = s.first;
+    doc["last"] = s.last;
+    doc["reset"] = s.reset;
+    doc["coldBoots"] = s.coldBoots;
+    doc["restarts"] = s.restarts;
+    doc["wakes"] = s.wakes;
+    doc["falseWakes"] = s.falseWakes;
+    doc["awakeS"] = s.awakeS;
+    doc["asleepS"] = s.asleepS;
+    doc["chargedEpoch"] = s.chargedEpoch;
+    doc["chargeFromC"] = s.chargeFromC;
+    doc["chargeFromFine"] = s.chargeFromFine;
+    doc["chargeToC"] = s.chargeToC;
+    doc["chargeToFine"] = s.chargeToFine;
+    doc["charging"] = s.charging;
+    doc["run"] = s.run;
+    doc["runFine"] = s.runFine;
+    const auto pair = [&doc](const char* key, const auto& v) {
+      JsonArray a = doc[key].to<JsonArray>();
+      a.add(v[0]);
+      a.add(v[1]);
+    };
+    pair("battS", s.battS);
+    pair("dropC", s.dropC);
+    pair("coarseC", s.coarseC);
+    pair("errC", s.errC);
+    pair("netC", s.netC);
+    pair("netCoarseC", s.netCoarseC);
+    doc["prevEpoch"] = p->prev.epoch;
+    doc["prevAwake"] = p->prev.awake;
+    doc["prevC"] = p->prevC;
+    doc["prevFine"] = p->prevFine;
+    doc["prevUsb"] = p->prevUsb;
+    String json;
+    serializeJson(doc, json);
+    server->send(200, "application/json", json);
   });
 #endif
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });

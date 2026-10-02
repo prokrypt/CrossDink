@@ -14,7 +14,6 @@
 #include <Memory.h>
 #include <PerfLog.h>
 #include <WiFi.h>
-#include <esp_rom_crc.h>
 #include <esp_sleep.h>
 
 #include <algorithm>
@@ -31,6 +30,7 @@
 #include "fontIds.h"
 #include "util/BatteryEstimate.h"
 #include "util/BatteryLog.h"
+#include "util/BatteryLogSum.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
 
@@ -75,32 +75,7 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32
   snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, errC * 36.0f / seconds, span);
 }
 
-// battery.sum: a BatteryLogParser after the last full row of a log file, and
-// where that row ends. The CRC of the bytes before that offset finds the file
-// again after rotations renamed it; no match (or a bad CRC) means a full read.
-constexpr char SUM_PATH[] = "/debug/logs/battery.sum";
-constexpr char SUM_TMP_PATH[] = "/debug/logs/battery.sum.tmp";
-constexpr uint32_t SUM_MAGIC = 0x42535531;     // "BSU1": bump on any parse rule change
-constexpr uint32_t SUM_MIN_READ = 32 * 1024;   // a load that read less leaves battery.sum as it is
-struct SumHeader {
-  uint32_t magic;
-  uint32_t size;     // sizeof(BatteryLogParser): a layout change drops the file
-  uint32_t offset;   // after the last full row read
-  uint32_t tailCrc;  // of the up to 64 bytes before offset
-  uint32_t crc;      // of the parser that follows
-};
-
-// CRC of the up to 64 bytes before offset; 0 when they can't be read.
-uint32_t tailCrc(HalFile& f, const uint32_t offset) {
-  uint8_t b[64];
-  const uint32_t n = std::min<uint32_t>(offset, sizeof(b));
-  if (n == 0 || !f.seekSet(offset - n) || f.read(b, n) != static_cast<int>(n)) return 0;
-  return esp_rom_crc32_le(0, b, n);
-}
-
-uint32_t parserCrc(const BatteryLogParser& p) {
-  return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&p), sizeof(p));
-}
+constexpr uint32_t SUM_MIN_READ = 32 * 1024;  // a load that read less leaves battery.sum as it is
 
 // The live state the estimate is for: brightness (0 = off), +0x100 with Wi-Fi on.
 uint16_t estimateState() {
@@ -148,44 +123,18 @@ void BatteryStatsActivity::startLoad() {
 }
 
 bool BatteryStatsActivity::resumeFromSum() {
-  HalFile f = Storage.open(SUM_PATH, O_RDONLY);
-  if (!f) return false;
-  SumHeader h{};
-  const bool ok = f.read(&h, sizeof(h)) == static_cast<int>(sizeof(h)) && h.magic == SUM_MAGIC &&
-                  h.size == sizeof(parser) && f.read(&parser, sizeof(parser)) == static_cast<int>(sizeof(parser)) &&
-                  parserCrc(parser) == h.crc;
-  f.close();
-  if (!ok) {
-    LOG_INF("BAT", "battery.sum unusable; reading the whole log");
+  int i = 0;
+  uint32_t off = 0;
+  if (!BatteryLogSum::load(parser, i, off)) return false;
+  file = Storage.open(BatteryLog::LOG_PATHS[i], O_RDONLY);
+  if (!file || !file.seekSet(off)) {
+    file.close();
     return false;
   }
-  for (int i = 0; i < BatteryLog::LOG_FILES; ++i) {
-    file = Storage.open(BatteryLog::LOG_PATHS[i], O_RDONLY);
-    if (file && file.fileSize() >= h.offset && tailCrc(file, h.offset) == h.tailCrc && file.seekSet(h.offset)) {
-      fileIndex = i;
-      fileOff = sumOff = h.offset;
-      sumFile = i;
-      LOG_INF("BAT", "Resuming the log at %s:%lu", BatteryLog::LOG_PATHS[i], static_cast<unsigned long>(h.offset));
-      return true;
-    }
-    file.close();
-  }
-  LOG_INF("BAT", "battery.sum matches no log file; reading the whole log");
-  return false;
-}
-
-// Before the open stretch is closed for display, so a resumed read carries it on.
-void BatteryStatsActivity::saveSum() {
-  HalFile src = Storage.open(BatteryLog::LOG_PATHS[sumFile], O_RDONLY);
-  const SumHeader h{SUM_MAGIC, sizeof(parser), sumOff, src ? tailCrc(src, sumOff) : 0, parserCrc(parser)};
-  src.close();
-  if (h.tailCrc == 0) return;
-  HalFile f = Storage.open(SUM_TMP_PATH, O_WRONLY | O_CREAT | O_TRUNC);
-  bool ok = f && f.write(&h, sizeof(h)) == sizeof(h) && f.write(&parser, sizeof(parser)) == sizeof(parser);
-  ok = f.close() && ok;
-  // Removed first: rename does not replace. A failure in between only costs a full read.
-  ok = ok && (!Storage.exists(SUM_PATH) || Storage.remove(SUM_PATH)) && Storage.rename(SUM_TMP_PATH, SUM_PATH);
-  if (!ok) LOG_ERR("BAT", "Failed to save %s", SUM_PATH);
+  fileIndex = sumFile = i;
+  fileOff = sumOff = off;
+  LOG_INF("BAT", "Resuming the log at %s:%lu", BatteryLog::LOG_PATHS[i], static_cast<unsigned long>(off));
+  return true;
 }
 
 void BatteryStatsActivity::step(const uint32_t budgetMs) {
@@ -207,7 +156,7 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
       }
       loading = false;
       buf.reset();
-      if (loadBytes > SUM_MIN_READ && sumFile >= 0) saveSum();
+      if (loadBytes > SUM_MIN_READ && sumFile >= 0) BatteryLogSum::save(parser, sumFile, sumOff);
       BatteryLogParser::endStretch(parser.st);
       LOG_INF("BAT", "Stats page read %lu B of log in %lu ms", static_cast<unsigned long>(loadBytes),
               static_cast<unsigned long>(millis() - loadStartMs));

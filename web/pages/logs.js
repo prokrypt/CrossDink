@@ -127,6 +127,8 @@ font(0);
 // (/api/battery-pending), columns as BatteryLog.h, plus live readings and
 // refresh counts from /api/status. Rows without an RTC time (epoch 0) are left out.
 let bat = [];
+let sum = null; // /api/battery-sum: the device's saved counts and where they end
+let sumRows = null; // the rows after them, once that file has loaded
 let segs = [];
 let status = {};
 
@@ -395,7 +397,23 @@ function logStats() {
   let s = zero(false);
   let prev = null;
   let ref = null; // drop reference: as prev, but a whole-% row after fractional ones is skipped
-  for (const r of bat) {
+  let rows = bat;
+  if (sumRows) {
+    // Start from the device's saved counts (battery.sum, which keep rows of rotated-out
+    // files) and count on from the rows after them, as the device does. Its 0.01 % -> %.
+    const c = (v) => v / 100;
+    const pc = (v, fine) => ({ pct: c(v), q: fine ? 0.01 : 1 });
+    s = {
+      reset: sum.reset, first: sum.first, last: sum.last, cold: sum.coldBoots, rst: sum.restarts, wakes: sum.wakes, falseWakes: sum.falseWakes,
+      awake: sum.awakeS, asleep: sum.asleepS, charged: sum.chargedEpoch, from: pc(sum.chargeFromC, sum.chargeFromFine), to: pc(sum.chargeToC, sum.chargeToFine),
+      charging: sum.charging, b: sum.battS, d: sum.dropC.map(c), dc: sum.coarseC.map(c), e: sum.errC.map(c), run: sum.run, runQ: sum.runFine ? 0.01 : 1,
+      n: sum.netC.map(c), nc: sum.netCoarseC.map(c),
+    };
+    prev = sum.prevEpoch ? { t: sum.prevEpoch, ev: sum.prevAwake ? '' : 'sleep', det: '', usb: sum.prevUsb } : null;
+    ref = pc(sum.prevC, sum.prevFine);
+    rows = sumRows;
+  }
+  for (const r of rows) {
     const c = r.ev === 'boot' && cold(r.det);
     if (r.ev === 'stats_reset') s = zero(true);
     else if (s.first && prev && r.t >= prev.t && !c) {
@@ -513,9 +531,14 @@ tab();
       }));
   // Newest first: battery.csv and the unwritten rows draw at once, then each
   // older file (battery.1.csv to battery.3.csv) goes in front, with a redraw each.
-  let text = (await csv(0)) + '\n' + (await get('/api/battery-pending'));
+  const files = [await csv(0)];
+  const pending = await get('/api/battery-pending');
+  sum = JSON.parse((await get('/api/battery-sum')) || 'null');
   status = JSON.parse((await get('/api/status')) || '{}');
   for (let i = 1; ; i++) {
+    const text = files.slice().reverse().join('\n') + '\n' + pending;
+    const tail = sum && sum.file < files.length ? files.slice(0, sum.file + 1).reverse() : null;
+    sumRows = tail && parse(tail.map((t, j) => (j ? t : t.slice(sum.offset))).join('\n') + '\n' + pending);
     bat = parse(text);
     hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);
     if (hasBat) summary();
@@ -530,6 +553,6 @@ tab();
     tab();
     const older = i <= 3 ? await csv(i) : '';
     if (!older) break;
-    text = older + '\n' + text;
+    files.push(older);
   }
 })();
