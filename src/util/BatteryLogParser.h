@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "BatteryEstimate.h"
+
 // The Goodies > Battery & stats counters and graph points, counted from the
 // battery log rows (BatteryLog.h) one row at a time. Plain data: the whole
 // object is the page's saved parse checkpoint (battery.sum), so every bit of
@@ -37,11 +39,12 @@ struct BatteryLogParser {
     // Added to dropC (a negative net as 0) when the stretch ends.
     int32_t netC[2], netCoarseC[2];
     // Awake on battery, between fractional rows, by state [Wi-Fi * 2 + light on]:
-    // signed drop in 0.01 %, seconds, and light % x seconds. The first
-    // UNPLUG_SKIP_S after a charge is left out (the gauge rises then).
+    // signed drop in 0.01 %, seconds, and LED duty (BatteryEstimate::lightDuty)
+    // x seconds. The first UNPLUG_SKIP_S after a charge is left out (the gauge
+    // rises then).
     int32_t stateDropC[4];
     uint32_t stateS[4];
-    uint64_t stateLight[4];
+    uint64_t stateDuty[4];
   };
   static constexpr uint32_t CHARGE_MERGE_S = 60;
   static constexpr uint32_t UNPLUG_SKIP_S = 1800;
@@ -129,7 +132,7 @@ struct BatteryLogParser {
         const int k = (prevWifi ? 2 : 0) + (prevLight ? 1 : 0);
         st.stateDropC[k] += static_cast<int32_t>(prevRowC) - pctC;
         st.stateS[k] += dt;
-        st.stateLight[k] += static_cast<uint64_t>(prevLight) * dt;
+        st.stateDuty[k] += static_cast<uint64_t>(BatteryEstimate::lightDuty(prevLight)) * dt;
       }
       if (!prevUsb && !usb && fine == prevFine) {
         st.battS[cat] += dt;

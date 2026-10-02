@@ -46,7 +46,7 @@ std::string dump(const BatteryLogParser& p) {
   }
   for (int k = 0; k < 4; ++k) {
     snprintf(b, sizeof(b), "%d %u %llu|", s.stateDropC[k], s.stateS[k],
-             static_cast<unsigned long long>(s.stateLight[k]));
+             static_cast<unsigned long long>(s.stateDuty[k]));
     o += b;
   }
   snprintf(b, sizeof(b), "%d %u %d %d %u %u %d %d %d %d %d|", p.pointCount, p.prevC, p.prevFine, p.prevUsb, p.prevRowC,

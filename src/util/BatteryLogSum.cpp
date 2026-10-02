@@ -14,7 +14,7 @@ namespace BatteryLogSum {
 namespace {
 constexpr char SUM_PATH[] = "/debug/logs/battery.sum";
 constexpr char SUM_TMP_PATH[] = "/debug/logs/battery.sum.tmp";
-constexpr uint32_t SUM_MAGIC = 0x42535531;  // "BSU1": bump on any parse rule change
+constexpr uint32_t SUM_MAGIC = 0x42535532;  // "BSU2": bump on any parse rule change
 struct Header {
   uint32_t magic;
   uint32_t size;     // sizeof(BatteryLogParser): a layout change drops the file
