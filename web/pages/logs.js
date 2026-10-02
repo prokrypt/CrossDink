@@ -174,7 +174,7 @@ function segments() {
 }
 
 // Zoom and pan: wheel or pinch zooms around the pointer, dragging pans, double-click
-// or Reset zoom returns to the Range window. All three charts share one view.
+// or Reset Zoom returns to the Range window. All three charts share one view.
 const L = 44; // left gutter for the value labels
 let view = null; // zoomed [t0, t1]; null = the Range select's window
 let raf = 0;
