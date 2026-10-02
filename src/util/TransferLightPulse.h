@@ -9,11 +9,11 @@
 // The band depends on that level: up to 10% pulses 0-10%, 11-25% pulses
 // 10-25%, above 25% pulses between 10% and the level. Every pulse runs to the
 // end of its cycle, so even a short request gives one full blink and the light
-// always ramps back to the user's level instead of cutting off. Saves the user's
-// brightness/on state on begin() and restores it on end(). A brightness or
-// on/off change the pulse did not make (swipe, frontlight panel) stops the
-// pulse until end() and is left as the user set it. Main loop only; never
-// writes SETTINGS. Inert on boards without a frontlight.
+// always ramps back to the user's level instead of cutting off. Drives the
+// light through the HAL overlay only, so the user's brightness/on state (the
+// pulldown, gestures, SETTINGS) never sees it; end() drops the overlay. A user
+// brightness or on/off change (swipe, pulldown) ends the overlay, which stops
+// the pulse until end(). Main loop only. Inert on boards without a frontlight.
 class TransferLightPulse {
  public:
   // How long after the last data a caller should still report activity.
@@ -22,8 +22,8 @@ class TransferLightPulse {
   // A pulse wrote within the last few steps: the main loop ticks at
   // WRITE_INTERVAL_MS meanwhile, else a 50-250 ms idle tick makes it step.
   static bool animating();
-  // A user slide or a silent restart: put back the level and on/off the pulse
-  // saved, and stop the pulse so end() keeps what the user sets.
+  // A user slide or a silent restart: drop the overlay (the user's level shows)
+  // and stop the pulse until end().
   static void yieldToUser();
 
   // A light that is on keeps its level for holdMs before pulsing starts (0 =
@@ -43,12 +43,10 @@ class TransferLightPulse {
   uint32_t lastWriteMs = 0;
   uint32_t holdStartMs = 0;
   uint32_t holdMs = 0;
-  uint8_t savedBrightness = 0;
   uint8_t written = 0;
   uint8_t basePercent = 0;  // idle level: the user's brightness, 0 if off
   uint8_t lowPercent = 0;   // pulse band
   uint8_t highPercent = 0;
-  bool savedOn = false;
   bool armed = false;
   bool userOverride = false;
   bool pulsing = false;
