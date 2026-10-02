@@ -18,6 +18,7 @@
 #include "KOReaderSyncClient.h"
 #include "ProgressMapper.h"
 #include "WifiCredentialStore.h"
+#include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "network/WifiUtils.h"
 #include "util/WorkerTask.h"
