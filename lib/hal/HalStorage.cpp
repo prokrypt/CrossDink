@@ -383,8 +383,7 @@ bool isTempName(const char* name) {
 
 bool inDataRoot(const char* path) {
   return path && strncmp(path, kDataRoot, kDataRootLen) == 0 &&
-         (path[kDataRootLen] == '/' || path[kDataRootLen] == '\0') &&
-         strncmp(path + kDataRootLen, "/epub_", 6) != 0;
+         (path[kDataRootLen] == '/' || path[kDataRootLen] == '\0') && strncmp(path + kDataRootLen, "/epub_", 6) != 0;
 }
 
 // Caller holds the storage lock. True when `path` or a folder above it was removed.
@@ -656,7 +655,8 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
         FsFile twinFile = twin ? SDCard.open(twin, O_RDONLY) : FsFile();
         if (!found) {
           fsFile = std::move(twinFile);
-          if (fsFile && fsFile.isDirectory()) merge.reset(new (std::nothrow) HalFile::LegacyMerge{FsFile(), path, true});
+          if (fsFile && fsFile.isDirectory())
+            merge.reset(new (std::nothrow) HalFile::LegacyMerge{FsFile(), path, true});
         } else if (twinFile && twinFile.isDirectory()) {
           merge.reset(new (std::nothrow) HalFile::LegacyMerge{std::move(twinFile), path, false});
         } else {

@@ -1731,8 +1731,7 @@ class BufferSink final : public Print {
 constexpr size_t kItemPsramReserve = 1024 * 1024;
 }  // namespace
 
-HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size,
-                                     const std::atomic<bool>* cancel) const {
+HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size, const std::atomic<bool>* cancel) const {
   size = 0;
   size_t itemSize = 0;
   if (!getItemSize(itemHref, &itemSize) || itemSize == 0) return {};
@@ -1754,8 +1753,8 @@ HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size,
   } else {
     ok = readItemContentsToStream(itemHref, sink, 4096);
   }
-  LOG_DBG("EBP", "Read %s to PSRAM: ok=%d bytes=%u in %ums", itemHref.c_str(), ok,
-          static_cast<unsigned>(sink.length), static_cast<unsigned>(millis() - start));
+  LOG_DBG("EBP", "Read %s to PSRAM: ok=%d bytes=%u in %ums", itemHref.c_str(), ok, static_cast<unsigned>(sink.length),
+          static_cast<unsigned>(millis() - start));
   if (!ok || sink.length != itemSize) return {};
   size = itemSize;
   return data;
