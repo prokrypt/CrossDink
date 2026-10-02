@@ -8412,7 +8412,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // extra flash. Restart the countdown instead (a manual Refresh, <0, still runs).
   const bool grayCadenceDue = needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
                               renderer.shouldSkipImageBlanking();
-  // Softfast holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
+  // Noflash holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
   // The full swing owed after open/cover is spent only by a page that runs a gray pass. Held pixels
   // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
   if (updatePanel) {

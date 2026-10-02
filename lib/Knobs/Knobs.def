@@ -8,7 +8,7 @@
 // Display: SDK Uc8179Driver (setUc8179Tuning) and the Turbo keyboard
 X("Panel", paintFrames, uint8_t, 12, 6, 24, 1, "fr")                 // exit paint / smooth base DU frames per phase
 X("Panel", coldDivisor, uint8_t, 3, 0, 10, 1, "1/n")                 // cold panel adds frames / n, 0 = none
-X("Panel", heldRedriveFrames, uint8_t, 3, 0, 16, 1, "fr")            // Softfast held-black (KK) re-drive, gated sets
+X("Panel", heldRedriveFrames, uint8_t, 3, 0, 16, 1, "fr")            // Noflash held-black (KK) re-drive, gated sets
 X("Panel", coldC, int8_t, 15, -10, 40, 1, "C")                       // panel counts as cold below this
 X("Panel", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          // idle temperature sample
 X("Panel", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
