@@ -52,7 +52,7 @@ void HalFrontlight::setOverlay(const uint8_t percent) {
 
 void HalFrontlight::apply() {
   // Rounded: at a low brightness the few duty steps fall mid-fade, not at its start and end.
-  drive(static_cast<uint8_t>((shownLevel() * idleDim + 50) / 100));
+  drive(overlayActive() ? overlay : static_cast<uint8_t>(((lit ? lastBrightness : 0) * idleDim + 50) / 100));
 }
 
 void HalFrontlight::drive(const uint8_t percent) {

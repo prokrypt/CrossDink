@@ -2232,11 +2232,11 @@ static void updateFlashDuck() {
   if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
   const bool fresh = !flashDuckActive || flashDuckUpStartMs != 0;  // a new flash (back-to-back: from here)
   if (!flashDuckActive) {
-    if (!ducking || holdLate || !SETTINGS.frontlightFlashDuck || Frontlight.shownLevel() == 0 ||
+    if (!ducking || holdLate || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
         Frontlight.idleDimPercent() != 100) {
       return;
     }
-    if (Frontlight.shownLevel() <= KNOBS.flashDuckMinPct) {
+    if (Frontlight.brightness() <= KNOBS.flashDuckMinPct) {
       static uint32_t skippedMs = 0;  // logged once per flash
       const uint32_t flashMs = markMs != 0 ? markMs : swingMs;
       if (flashMs != skippedMs) {
@@ -2252,7 +2252,7 @@ static void updateFlashDuck() {
   // Each ramp moves only one way from where the light is, between 100% and
   // the Flash Dim Level (a % of the user's brightness; 0 = dark), but never
   // below flashDuckMinPct of full (rounded up; at 100 the duck is over).
-  const unsigned long b = std::max<unsigned long>(Frontlight.shownLevel(), 1);  // a transfer throb's too
+  const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
   const unsigned long floor = std::min<unsigned long>(
       std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (KNOBS.flashDuckMinPct * 100 + b - 1) / b),
       100);
@@ -2316,7 +2316,7 @@ static void updateFlashDuck() {
     if (level == 100) {
       const uint32_t endMs = swingMs != 0 ? swingEndMs : swingGoneMs;
       LOG_DBG("LIGHT", "Flash duck: restored at %lu (end%+ld), duty %u%%", now, static_cast<long>(now - endMs),
-              Frontlight.shownLevel());
+              Frontlight.brightness());
     }
     flashDuckLevel = static_cast<uint8_t>(level);
     Frontlight.setIdleDim(flashDuckLevel);
@@ -2336,7 +2336,7 @@ void installFlashDuckRenderWait() {
   RenderLock::waitTick = &flashDuckRenderWait;
 }
 
-// A running transfer pulse owns the light (its steps undo the dim), so the
+// A running transfer pulse owns the light (the dim doesn't show under it), so the
 // Light Timeout counts from the pulse's last step: fading during it would
 // flicker, and a pulse longer than the timeout would end in a snap to dark.
 static unsigned long lastPulseMs = 0;
@@ -2606,12 +2606,11 @@ static void loopPass() {
   // first tap after a long idle is never lost.
   static bool lightTimedOut = false;  // the timeout dimmed it (not the flash duck)
   if (lightTimedOut && Frontlight.idleDimPercent() == 100) lightTimedOut = false;  // restored elsewhere
-  // A transfer throb steps through the overlay, which keeps the dim: undo it here.
-  if ((userInputReceived || TransferLightPulse::animating()) && lightTimedOut) {
+  if (userInputReceived && lightTimedOut) {
     lightTimedOut = false;
     Frontlight.setIdleDim(100);
     BatteryLog::lightChanged();
-    LOG_DBG("LIGHT", "Light timeout: restored by %s", userInputReceived ? "input" : "transfer pulse");
+    LOG_DBG("LIGHT", "Light timeout: restored by input");
   }
   const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
