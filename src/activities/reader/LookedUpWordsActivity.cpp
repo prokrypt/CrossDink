@@ -286,7 +286,7 @@ void LookedUpWordsActivity::render(RenderLock&&) {
     const int midY = contentTop + (pageHeight - contentTop - metrics.buttonHintsHeight) / 2;
     renderer.drawCenteredText(UI_10_FONT_ID, midY, tr(STR_LOOKUP_HISTORY_EMPTY));
     const auto buttonLabels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
-    GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
+    GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4, true);
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     return;
   }
@@ -297,7 +297,7 @@ void LookedUpWordsActivity::render(RenderLock&&) {
 
   const auto buttonLabels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
+  GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4, true);
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
