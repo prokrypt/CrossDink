@@ -49,6 +49,7 @@
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "util/BatteryLog.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/SwipeAdjustment.h"
@@ -1367,6 +1368,7 @@ void ActivityManager::persistGlobalSettings() {
   } else {
     SETTINGS.saveToFile();
   }
+  BatteryLog::lightChanged();  // every user light change (toggle, slide release, panel) saves here
 }
 
 bool ActivityManager::beginGlobalSettingsEdit() {

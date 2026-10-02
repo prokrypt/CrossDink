@@ -53,6 +53,7 @@ class HalPowerManager {
   mutable int _batteryCachedPercent = 0;  // Last read battery percentage * 10 (0-1000); callers divide by 10 (ADC/X4
                                           // path only — I2C/X3 path stores 0-100 directly)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
+  mutable uint16_t _batteryCached256 = 0;        // I2C path: last read in 1/256 % (CW2017 fraction)
 
   // Set by a Wi-Fi screen that manages its own radio power (File Transfer in
   // STA mode): an active Wi-Fi link then no longer forces power saving off.
@@ -119,9 +120,15 @@ class HalPowerManager {
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the lockCount
   void startDeepSleep(HalGPIO& gpio) const;
+  // Also wake from deep sleep when the charger STAT pin changes (charge start or
+  // stop), so the battery log can record it. Off unless set.
+  bool wakeOnChargeChange = false;
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;
+  // Same cached read in 1/256 %. Only the CW2017 gauge reports a fraction;
+  // other backends return whole percents * 256.
+  uint16_t getBatteryPercent256() const;
 
 #if CROSSDINK_BATTERY_DIAG_LOG
   // Raw battery telemetry for the diagnostic log, kept behind the flag so

@@ -30,6 +30,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #if CROSSDINK_SERIAL_REMOTE
 
 #include <Arduino.h>
+#include <BatteryMonitor.h>
 #include <FsHelpers.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
@@ -37,9 +38,13 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include <InputManager.h>
 #include <Knobs.h>
 #include <Logging.h>
+#include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <soc/gpio_periph.h>
+#include <soc/gpio_reg.h>
+#include <soc/io_mux_reg.h>
 
 #include <algorithm>
 #include <atomic>
@@ -278,6 +283,113 @@ void cmdHeap() {
         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
         static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+}
+
+// GAUGEINT [seconds]: which GPIO, if any, carries the CW2017 INT_N line.
+// INT_N is an open-drain ~1 ms low pulse per alert event (datasheet
+// "Interrupt"), so falling edges are counted by interrupt on the unused pads:
+// first a 5 s baseline, then `seconds` with every gauge alert forced on
+// (temperature above TEMP_MAX and below TEMP_MIN, SoC alert on any 1% change),
+// clearing the flags each second so every re-detection pulses again. Runs on
+// its own task: the reply comes at once and the result is a [SER] GAUGEINT log
+// line. Registers and pads are restored afterwards.
+namespace gaugeint {
+constexpr uint8_t PINS[] = {15, 16, 17, 45, 46, 47, 48};  // unused on the X4 Pro
+constexpr size_t N = sizeof(PINS);
+std::atomic<uint32_t> edges[N];
+std::atomic<bool> running{false};
+uint32_t seconds = 30;
+
+void IRAM_ATTR onEdge(void* arg) { edges[reinterpret_cast<uintptr_t>(arg)].fetch_add(1, std::memory_order_relaxed); }
+
+void run(void*) {
+  static const BatteryMonitor gauge;
+  constexpr uint8_t REG_TEMP = 0x06, REG_INT_CONF = 0x0A, REG_SOC_ALERT = 0x0B, REG_TEMP_MAX = 0x0C,
+                    REG_TEMP_MIN = 0x0D;
+  constexpr uint8_t EN_ALL = 0x70, SOC_ANY_CHANGE = 0xFF;  // 0x0B: UPDATE_FLAG kept, threshold 0x7F
+  constexpr uint32_t BASE_MS = 5000;
+  uint8_t intConf = 0, socAlert = 0, tempMax = 0, tempMin = 0, temp = 0;
+  if (!gauge.readGaugeReg(REG_INT_CONF, intConf) || !gauge.readGaugeReg(REG_SOC_ALERT, socAlert) ||
+      !gauge.readGaugeReg(REG_TEMP_MAX, tempMax) || !gauge.readGaugeReg(REG_TEMP_MIN, tempMin) ||
+      !gauge.readGaugeReg(REG_TEMP, temp) || temp < 8 || temp > 247) {
+    LOG_ERR("SER", "GAUGEINT: gauge read failed");
+    running = false;
+    vTaskDelete(nullptr);
+    return;
+  }
+  uint32_t mux[N];
+  gpio_install_isr_service(0);  // usually already installed by InputWake (then INVALID_STATE)
+  for (size_t i = 0; i < N; ++i) {
+    const auto pin = static_cast<gpio_num_t>(PINS[i]);
+    mux[i] = REG_READ(GPIO_PIN_MUX_REG[PINS[i]]);
+    edges[i] = 0;
+    gpio_set_direction(pin, GPIO_MODE_INPUT);
+    gpio_pullup_en(pin);
+    gpio_set_intr_type(pin, GPIO_INTR_NEGEDGE);
+    gpio_isr_handler_add(pin, onEdge, reinterpret_cast<void*>(i));
+    gpio_intr_enable(pin);
+  }
+  vTaskDelay(pdMS_TO_TICKS(BASE_MS));
+  uint32_t base[N];
+  for (size_t i = 0; i < N; ++i) base[i] = edges[i].exchange(0);
+
+  bool armed = gauge.writeGaugeReg(REG_TEMP_MAX, static_cast<uint8_t>(temp - 8)) &&
+               gauge.writeGaugeReg(REG_TEMP_MIN, static_cast<uint8_t>(temp + 8)) &&
+               gauge.writeGaugeReg(REG_SOC_ALERT, SOC_ANY_CHANGE) &&
+               gauge.writeGaugeReg(REG_INT_CONF, static_cast<uint8_t>((intConf & 0x80) | EN_ALL));
+  uint8_t seen = 0;
+  uint32_t reads = 0;
+  for (uint32_t s = 0; armed && s < seconds; ++s) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    uint8_t v = 0;
+    if (gauge.readGaugeReg(REG_INT_CONF, v)) {
+      ++reads;
+      seen |= v & 0x0F;
+      if (v & 0x0F)
+        gauge.writeGaugeReg(REG_INT_CONF, static_cast<uint8_t>(v & 0xF0));  // clear: the next detection pulses again
+    }
+  }
+
+  const bool restored = gauge.writeGaugeReg(REG_TEMP_MAX, tempMax) && gauge.writeGaugeReg(REG_TEMP_MIN, tempMin) &&
+                        gauge.writeGaugeReg(REG_SOC_ALERT, socAlert) &&
+                        gauge.writeGaugeReg(REG_INT_CONF, static_cast<uint8_t>(intConf & 0xF0));
+  char pins[128] = "";
+  size_t n = 0;
+  for (size_t i = 0; i < N; ++i) {
+    const auto pin = static_cast<gpio_num_t>(PINS[i]);
+    gpio_intr_disable(pin);
+    gpio_isr_handler_remove(pin);
+    gpio_set_intr_type(pin, GPIO_INTR_DISABLE);
+    REG_WRITE(GPIO_PIN_MUX_REG[PINS[i]], mux[i]);
+    n += snprintf(pins + n, sizeof(pins) - n, " %u:%lu/%lu", PINS[i], static_cast<unsigned long>(base[i]),
+                  static_cast<unsigned long>(edges[i].load()));
+  }
+  // flags: REG_INT_CONF[3:0] seen while armed (bit2 SOC, bit1 TMX, bit0 TMN).
+  LOG_INF("SER", "GAUGEINT done %lus armed=%d flags=0x%X reads=%lu restored=%d edges(base %lus/armed):%s",
+          static_cast<unsigned long>(seconds), armed, seen, static_cast<unsigned long>(reads), restored,
+          static_cast<unsigned long>(BASE_MS / 1000), pins);
+  running = false;
+  vTaskDelete(nullptr);
+}
+}  // namespace gaugeint
+
+void cmdGaugeInt(const char* args) {
+  const unsigned long s = *args ? strtoul(args, nullptr, 10) : 30;
+  if (s < 5 || s > 600) {
+    reply("ERR:GAUGEINT:seconds_5_to_600");
+    return;
+  }
+  if (gaugeint::running.exchange(true)) {
+    reply("ERR:GAUGEINT:busy");
+    return;
+  }
+  gaugeint::seconds = s;
+  if (xTaskCreate(gaugeint::run, "gaugeint", 4096, nullptr, 1, nullptr) != pdPASS) {
+    gaugeint::running = false;
+    reply("ERR:GAUGEINT:task");
+    return;
+  }
+  reply("OK:GAUGEINT started %lus (+5s baseline); result in the log as [SER] GAUGEINT done", s);
 }
 
 void cmdStatus() {
@@ -710,6 +822,8 @@ bool handleLine(const char* line) {
     reply("OK:ACTIVITY %s", activityManager.currentActivityName());
   } else if (strcmp(verb, "HEAP") == 0) {
     cmdHeap();
+  } else if (strcmp(verb, "GAUGEINT") == 0) {
+    cmdGaugeInt(args);
   } else if (strcmp(verb, "FBINFO") == 0) {
     reply("OK:FBINFO %u %u %u", static_cast<unsigned>(display.getDisplayWidth()),
           static_cast<unsigned>(display.getDisplayHeight()), static_cast<unsigned>(display.getBufferSize()));
