@@ -19,7 +19,6 @@
 #include <limits>
 #include <mutex>
 #include <string>
-#include <utility>
 
 #include "I18nKeys.h"
 #include "QuickActions.h"
@@ -42,11 +41,8 @@ constexpr uint8_t SETTINGS_FILE_VERSION = 2;
 constexpr char SETTINGS_FILE_BIN[] = "/.crossdink/settings.bin";
 constexpr char SETTINGS_FILE_JSON[] = "/.crossdink/settings.json";
 constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crossdink/settings.json.bak";
-// Pre-/.crossdink name; read-through finds it in /.crosspoint.
-constexpr char OLD_SETTINGS_FILE_JSON[] = "/.crossdink/crossdink-settings.json";
-constexpr char OLD_SETTINGS_FILE_JSON_BAK[] = "/.crossdink/crossdink-settings.json.bak";
 // CrossInk's file: imported once, never written, so flashing back to CrossInk keeps its settings.
-constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crossdink/crossink-settings.json";
+constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
 constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crossdink/settings.bin.bak";
 constexpr char LANG_FILE_BIN[] = "/.crossdink/language.bin";
@@ -957,15 +953,14 @@ bool CrossPointSettings::loadFromFile() {
         // Imports start on IncreMENTAL; the user's later choice sticks.
         if (migrateToCurrentPath) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
       }
-      const bool fromOldPath = strcmp(path, SETTINGS_FILE_JSON) != 0;
-      if (result && (resave || fromOldPath)) {
+      if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile() && flush()) {
           LOG_DBG("CPS", "%s",
-                  fromOldPath ? "Imported settings into settings.json" : "Resaved settings to update format");
+                  migrateToCurrentPath ? "Imported settings into settings.json" : "Resaved settings to update format");
         } else {
           LOG_ERR("CPS", "%s",
-                  fromOldPath ? "Failed to save imported settings to settings.json"
-                              : "Failed to resave settings after format update");
+                  migrateToCurrentPath ? "Failed to save imported settings to settings.json"
+                                       : "Failed to resave settings after format update");
         }
       }
       migrateLanguageBinaryFile();
@@ -974,22 +969,16 @@ bool CrossPointSettings::loadFromFile() {
     return JsonLoadStatus::MissingOrEmpty;
   };
 
-  // Prefer CrossDink's namespaced settings file. Use the old generic file only
-  // as a migration fallback so other firmware can keep its own settings.json.
-  // A CrossDink settings file (current or old name) takes precedence even when
-  // damaged. Falling through would import another firmware's settings.json
-  // and replace the user's CrossDink preferences.
-  for (const auto& [json, bak] : {std::pair{SETTINGS_FILE_JSON, SETTINGS_FILE_JSON_BAK},
-                                  std::pair{OLD_SETTINGS_FILE_JSON, OLD_SETTINGS_FILE_JSON_BAK}}) {
-    const bool hasCrossDinkSettings = Storage.exists(json) || Storage.exists(bak);
-    const JsonLoadStatus jsonStatus = loadJsonSettings(json, false);
-    if (hasCrossDinkSettings || jsonStatus != JsonLoadStatus::MissingOrEmpty) {
-      return jsonStatus == JsonLoadStatus::Loaded;
-    }
+  // The CrossDink settings file takes precedence even when damaged. Falling
+  // through would import another firmware's settings and replace the user's
+  // CrossDink preferences.
+  const bool hasCrossDinkSettings = Storage.exists(SETTINGS_FILE_JSON) || Storage.exists(SETTINGS_FILE_JSON_BAK);
+  JsonLoadStatus jsonStatus = loadJsonSettings(SETTINGS_FILE_JSON, false);
+  if (hasCrossDinkSettings || jsonStatus != JsonLoadStatus::MissingOrEmpty) {
+    return jsonStatus == JsonLoadStatus::Loaded;
   }
 
-  JsonLoadStatus jsonStatus;
-
+  // First boot on /.crossdink: import CrossInk's file, else CrossPoint's.
   jsonStatus = loadJsonSettings(CROSSINK_SETTINGS_FILE_JSON, true);
   if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
 
