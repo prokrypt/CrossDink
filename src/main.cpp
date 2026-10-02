@@ -1499,6 +1499,50 @@ static void armSleepGuard() {
 #endif
 }
 
+// setup() has no watchdog for blocked waits either (SD mount, I2C, a panel BUSY
+// wait), and the screen still shows the sleep image, so a hang there looks like
+// a wake that never happened. After 60 s, log the last boot phase and reset,
+// like the sleep guard above. Disarmed when setup() returns.
+static const char* bootStep = "init";
+#ifndef SIMULATOR
+static esp_timer_handle_t bootGuard = nullptr;
+#endif
+
+static void bootPhase(const char* name) {
+  bootStep = name;
+  PerfLog::noteBootPhase(name);
+}
+
+static void armBootGuard() {
+#ifndef SIMULATOR
+  const esp_timer_create_args_t args = {
+      .callback =
+          [](void*) {
+            static char why[64];
+            snprintf(why, sizeof(why), "boot stuck after '%s' for 60 s", bootStep);
+            LOG_ERR("BOOT", "%s", why);
+            esp_system_abort(why);
+          },
+      .arg = nullptr,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "bootGuard",
+      .skip_unhandled_events = true,
+  };
+  if (esp_timer_create(&args, &bootGuard) != ESP_OK || esp_timer_start_once(bootGuard, 60 * 1000 * 1000) != ESP_OK) {
+    LOG_ERR("BOOT", "boot guard not armed");
+  }
+#endif
+}
+
+static void disarmBootGuard() {
+#ifndef SIMULATOR
+  if (bootGuard == nullptr) return;
+  esp_timer_stop(bootGuard);
+  esp_timer_delete(bootGuard);
+  bootGuard = nullptr;
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   armSleepGuard();
@@ -1588,7 +1632,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
     controllerResolved = true;
     freeink::applyXteinkDisplayController();  // DeviceIdentity::logPanel() below reports the outcome
   }
-  PerfLog::noteBootPhase("probe");
+  bootPhase("probe");
 #endif
 
 #ifdef SIMULATOR
@@ -1614,7 +1658,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
     panelLogged = true;
     DeviceIdentity::logPanel();  // debug builds: exact controller, detect method, VER/MTP
   }
-  PerfLog::noteBootPhase("panel");
+  bootPhase("panel");
 #endif
   renderer.begin();
   display.setInverted(SETTINGS.screenInverted != 0);
@@ -1659,6 +1703,7 @@ void installFlashDuckRenderWait();
 }  // namespace
 
 void setup() {
+  armBootGuard();
   installFlashDuckRenderWait();
 #ifdef SIMULATOR
   SimulatorLifecycle::restoreSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
@@ -1853,17 +1898,18 @@ void setup() {
       break;
   }
 
-  PerfLog::noteBootPhase("start");
+  bootPhase("start");
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts(isSilentReboot, !isNetworkResume, useReaderRenderStack);
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
+    disarmBootGuard();
     return;
   }
   logBootHeap("storage ready");
-  PerfLog::noteBootPhase("sd");
+  bootPhase("sd");
 
   HalSystem::checkPanic();
   // Before anything reads progress.bin: replay a position a crash or reset kept
@@ -1896,7 +1942,7 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
-  PerfLog::noteBootPhase("settings");
+  bootPhase("settings");
   // Silent restarts are invisible recovery steps, so they always retain the
   // current light state rather than applying wake or schedule policy. The
   // saved flag can be stale (e.g. schedule kept the light off this wake), so
@@ -1980,7 +2026,7 @@ void setup() {
       SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame) || retainedFrameBoot,
       resume != BootResume::Network, useReaderRenderStack);
   logBootHeap("display and font resolver ready");
-  PerfLog::noteBootPhase("display");
+  bootPhase("display");
 
   switch (resume) {
     case BootResume::Silent:
@@ -2093,7 +2139,7 @@ void setup() {
     activityManager.goToReader(path, false, allowFastInitialReaderRefresh);
   }
 
-  PerfLog::noteBootPhase("route");
+  bootPhase("route");
   if (resume == BootResume::Silent || resume == BootResume::Network) {
     // Block until the first paint physically completes. refreshDisplay()
     // waits on the panel BUSY pin so when this returns the user can see the
@@ -2116,6 +2162,7 @@ void setup() {
   InputTask::begin();
 
   allowSleepAt = millis() + KNOBS.bootSleepGraceMs;
+  disarmBootGuard();
 }
 
 namespace {
