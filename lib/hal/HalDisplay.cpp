@@ -9,6 +9,27 @@
 // Global HalDisplay instance
 HalDisplay display;
 
+#if CROSSDINK_GOODIES
+namespace {
+RTC_NOINIT_ATTR HalDisplay::RefreshCounts rtcRefreshCounts;  // survives deep sleep; random after power loss
+constexpr uint32_t REFRESH_COUNTS_MAGIC = 0x52465243;        // "RFRC"
+}  // namespace
+
+HalDisplay::RefreshCounts& HalDisplay::refreshCounts() {
+  if (rtcRefreshCounts.magic != REFRESH_COUNTS_MAGIC) rtcRefreshCounts = {REFRESH_COUNTS_MAGIC, {}};
+  return rtcRefreshCounts;
+}
+
+void HalDisplay::count(const int kind) { refreshCounts().n[kind]++; }
+#else
+HalDisplay::RefreshCounts& HalDisplay::refreshCounts() {
+  static RefreshCounts none{};
+  return none;
+}
+
+void HalDisplay::count(int) {}
+#endif
+
 #define SD_SPI_MISO 7
 
 namespace {
@@ -130,6 +151,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
   }
 
   FlashScope flash(*this, mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  count(mode);
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
 }
 
@@ -144,6 +166,7 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
   }
 
   markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  count(mode);
   einkDisplay.displayBufferAsyncNoShadow(convertRefreshMode(mode));
 }
 
@@ -155,6 +178,7 @@ void HalDisplay::waitRefreshComplete() {
 void HalDisplay::displayBufferDeferred(HalDisplay::RefreshMode mode) {
   HalSpiBus::Lock spiLock;
   markFlash(mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  count(mode);
   einkDisplay.displayBufferAsync(convertRefreshMode(mode));
 }
 
@@ -174,6 +198,7 @@ bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback, 
   HalSpiBus::Lock spiLock;
   if (gpio.deviceIsX3() && fallback == HALF_REFRESH) einkDisplay.requestResync(1);
   FlashScope flash(*this, mode == GrayscaleMode::Direct || fallback != FAST_REFRESH);
+  count(fallback);
   return einkDisplay.displayGrayscaleBase(mode, convertRefreshMode(fallback), turnOffScreen);
 }
 
@@ -185,6 +210,7 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
   }
 
   FlashScope flash(*this, mode != RefreshMode::FAST_REFRESH || grayOnPanel());
+  count(mode);
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
 }
 
@@ -243,6 +269,7 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
   }
 
   FlashScope flash(*this, fallback != RefreshMode::FAST_REFRESH);
+  count(fallback);
   einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
 }
 
@@ -263,7 +290,9 @@ void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
 // panels dim from here. Cleared when a refresh finishes; the main loop also
 // drops a stale mark.
 void HalDisplay::markFlash(const bool flashes) {
-  if (flashes) flashStart.store(millis() | 1, std::memory_order_relaxed);  // | 1: never 0 while set
+  if (!flashes) return;
+  flashStart.store(millis() | 1, std::memory_order_relaxed);  // | 1: never 0 while set
+  count(FLASHING);
 }
 
 uint32_t HalDisplay::flashEndsMs() const {
@@ -294,6 +323,7 @@ void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) {
 void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
   FlashScope flash(*this, false);  // clears the mark its planes set
+  count(GRAY_PASSES);
   einkDisplay.displayGrayBuffer(turnOffScreen);
 }
 
@@ -327,6 +357,7 @@ bool HalDisplay::fastTracksPanel() const {
 bool HalDisplay::displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) {
   HalSpiBus::Lock spiLock;
   markFlash(fallback != RefreshMode::FAST_REFRESH);
+  count(fallback);
   return einkDisplay.displayGrayscaleBaseAsync(convertRefreshMode(fallback));
 }
 

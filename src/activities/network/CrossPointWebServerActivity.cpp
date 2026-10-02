@@ -22,6 +22,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BatteryLog.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -68,6 +69,7 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
+  BatteryLog::event("xfer_start", "file-transfer");
   radioTaken = false;
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
@@ -108,6 +110,7 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  BatteryLog::event("xfer_end", "file-transfer");
   library::invalidateLibraryIndex();
   Activity::onExit();
   transferLight.end();

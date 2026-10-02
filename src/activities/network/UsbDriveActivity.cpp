@@ -13,9 +13,11 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
+#include "util/BatteryLog.h"
 
 void UsbDriveActivity::onEnter() {
   Activity::onEnter();
+  BatteryLog::event("xfer_start", "usb-drive");
   enterMs = millis();
   hostMs = 0;
   mountLogged = false;
@@ -61,6 +63,7 @@ void UsbDriveActivity::onEnter() {
 }
 
 void UsbDriveActivity::onExit() {
+  BatteryLog::event("xfer_end", "usb-drive");
   transferLight.end();  // restores the user's brightness
   library::invalidateLibraryIndex();
 #ifndef SIMULATOR

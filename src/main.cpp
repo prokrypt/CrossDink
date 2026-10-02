@@ -93,6 +93,7 @@
 #include "simulator/SimulatorSmokeTest.h"
 #endif
 #include "util/BatteryDiagnosticLog.h"
+#include "util/BatteryLog.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
@@ -1506,6 +1507,7 @@ void enterDeepSleep(bool fromTimeout) {
     // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
     // can be written again until the next wake.
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
+    BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
     Storage.shutdown();
@@ -1795,6 +1797,7 @@ void setup() {
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,
                                wakeupRouteName(wakeupReason));
+  BatteryLog::onBoot();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   // Normal boot store deferral adapted from Sichroteph/YACP commit
@@ -2443,6 +2446,7 @@ static void loopPass() {
     }
   }
   updateFlashDuck();
+  BatteryLog::poll(millis() - lastActivityTime);
 
   // Let wake continue as soon as its hold has been verified. The release can
   // arrive after setup, so consume that one input frame rather than making it
