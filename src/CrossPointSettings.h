@@ -367,6 +367,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
+  // BW: dithered 1-bit, no image gray pass. GRAY: images join the 4-level gray pass.
+  enum IMAGE_COLOR { IMAGE_COLOR_BW = 0, IMAGE_COLOR_GRAY = 1, IMAGE_COLOR_COUNT };
   enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
   enum PAGE_TURN_GESTURE {
     TAP_AND_SWIPE = 0,
@@ -661,6 +663,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t readingIdleTimeThresholdUnits = 30;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  uint8_t imageColor = IMAGE_COLOR_GRAY;
   // Long-press Confirm (menu button) quick action in reader (0 = off)
   uint8_t longPressMenuAction = LONG_MENU_OFF;
   // Long-press Back quick action in reader (defaults to the historical file browser shortcut)

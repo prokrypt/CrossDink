@@ -13,6 +13,11 @@
 // ImageBlock::render() already validates this before entering the pixel loop,
 // and the JPEG/PNG callbacks pre-clamp destination ranges to screen bounds.
 struct DirectPixelWriter {
+  // Reader "Image Color: BW": images skip the gray planes and the BW pass
+  // re-dithers the 2-bit levels with a 2x2 ordered pattern. Set by the reader
+  // for the duration of a page render only.
+  static inline bool bwImages = false;
+
   uint8_t* fb;
   GfxRenderer::RenderMode mode;
   uint16_t displayWidthBytes;  // Runtime framebuffer stride (X4: 100, X3: 99)
@@ -104,11 +109,19 @@ struct DirectPixelWriter {
   // No bounds checking — caller guarantees coordinates are valid.
   inline void writePixel(int logicalX, uint8_t pixelValue) const {
     // Determine whether to draw based on render mode
+    const int phyX = rowPhyXBase + logicalX * phyXStepX;
+    const int phyY = rowPhyYBase + logicalX * phyYStepX;
     bool draw;
     bool state;
     switch (mode) {
       case GfxRenderer::BW:
-        draw = (pixelValue < 3);
+        if (bwImages) {
+          // Black thresholds per 2x2 cell: dark gray -> 3/4 black, light gray -> 1/4.
+          static constexpr uint8_t kBlackBelow[4] = {3, 2, 1, 2};
+          draw = pixelValue < kBlackBelow[((phyY & 1) << 1) | (phyX & 1)];
+        } else {
+          draw = (pixelValue < 3);
+        }
         state = true;
         break;
       case GfxRenderer::GRAYSCALE_MSB:
@@ -124,9 +137,6 @@ struct DirectPixelWriter {
     }
 
     if (!draw) return;
-
-    const int phyX = rowPhyXBase + logicalX * phyXStepX;
-    const int phyY = rowPhyYBase + logicalX * phyYStepX;
 
     // Band-local row. The unsigned compare drops both off-band pixels (strip
     // mode) and any out-of-frame row (full-frame mode) in one branch.

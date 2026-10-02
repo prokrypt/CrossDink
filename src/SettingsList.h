@@ -590,7 +590,7 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
 // Four edge gesture entries are compiled only for touch devices.
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 105 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0);
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 106 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0);
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the
@@ -775,7 +775,7 @@ inline void addSettingByName(std::vector<SettingInfo>& target, const std::vector
 
 inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> readerSettings;
-  readerSettings.reserve(12);
+  readerSettings.reserve(13);
   readerSettings.push_back(SettingInfo::Submenu(StrId::STR_READER_FONT_OPTIONS, SettingAction::ReaderFontOptions));
   readerSettings.push_back(SettingInfo::Submenu(StrId::STR_READER_PAGE_LAYOUT, SettingAction::ReaderPageLayout));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_STATUS_BARS, SettingAction::CustomiseStatusBar));
@@ -783,6 +783,7 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
   addSettingByName(readerSettings, allSettings, StrId::STR_DISABLE_TOUCHSCREEN);
   addSettingByName(readerSettings, allSettings, StrId::STR_EMBEDDED_STYLE);
   addSettingByName(readerSettings, allSettings, StrId::STR_IMAGES);
+  addSettingByName(readerSettings, allSettings, StrId::STR_IMAGE_COLOR);
   addSettingByName(readerSettings, allSettings, StrId::STR_FOCUS_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_GUIDE_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_DICTIONARY);

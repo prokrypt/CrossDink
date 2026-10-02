@@ -1681,6 +1681,15 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::TextAa:
       showEnumOptions(row);
       return;
+    case RowId::ImageColor:
+      // Global like Settings > Reader, not a per-book override: save it here.
+      SETTINGS.imageColor = SETTINGS.imageColor == CrossPointSettings::IMAGE_COLOR_BW
+                                ? CrossPointSettings::IMAGE_COLOR_GRAY
+                                : CrossPointSettings::IMAGE_COLOR_BW;
+      if (!SETTINGS.saveToFile()) LOG_ERR("ERDM", "Failed to persist image color");
+      markSettingChanged(ReaderSettingsChangeMask::NonLayout);
+      requestUpdate();
+      return;
     case RowId::IndexingMethod:
       draft.indexingMethod =
           static_cast<uint8_t>((draft.indexingMethod + 1) % CrossPointSettings::INDEXING_METHOD_COUNT);
@@ -2964,6 +2973,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_EMBEDDED_STYLE);
     case RowId::Images:
       return tr(STR_IMAGES);
+    case RowId::ImageColor:
+      return tr(STR_IMAGE_COLOR);
     case RowId::SelectChapter:
       return tr(STR_SELECT_CHAPTER);
     case RowId::GoToPercent:
@@ -3093,6 +3104,9 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
                                                   StrId::STR_IMAGES_SUPPRESS};
       return I18N.get(labels[std::min<size_t>(draft.imageRendering, labels.size() - 1)]);
     }
+    case RowId::ImageColor:
+      return SETTINGS.imageColor == CrossPointSettings::IMAGE_COLOR_BW ? tr(STR_IMAGE_COLOR_BW)
+                                                                       : tr(STR_IMAGE_COLOR_GRAY);
     case RowId::RenderMode: {
       static const std::array<StrId, 3> labels = {StrId::STR_RENDER_MODE_CROSSDINK_DEFAULT,
                                                   StrId::STR_RENDER_MODE_BALANCED, StrId::STR_RENDER_MODE_LIGHT};

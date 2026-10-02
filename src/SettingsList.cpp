@@ -129,6 +129,9 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                           {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
                           "imageRendering", StrId::STR_CAT_READER));
+    add(SettingInfo::Enum(StrId::STR_IMAGE_COLOR, &CrossPointSettings::imageColor,
+                          {StrId::STR_IMAGE_COLOR_BW, StrId::STR_IMAGE_COLOR_GRAY}, "imageColor",
+                          StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
                             "touchReaderControls", StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_DISABLE_TOUCHSCREEN, &CrossPointSettings::disableReaderTouchscreen,

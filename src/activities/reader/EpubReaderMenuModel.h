@@ -150,6 +150,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   SyncProgress,
   NearbyPositionSync,
   SendNearbyBook,
+  ImageColor,
 };
 
 struct ReaderDrawerAvailability {
@@ -188,6 +189,7 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   layout.add(ReaderDrawerCatalogItem::Orientation);
   layout.add(ReaderDrawerCatalogItem::Alignment);
   layout.add(ReaderDrawerCatalogItem::Images);
+  layout.add(ReaderDrawerCatalogItem::ImageColor);
   layout.add(ReaderDrawerCatalogItem::Hyphenation);
   layout.add(ReaderDrawerCatalogItem::PublisherPages);
   layout.add(ReaderDrawerCatalogItem::ExtraSpacing);

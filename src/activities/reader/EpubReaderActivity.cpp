@@ -10,6 +10,7 @@
 #include <Epub/Page.h>
 #include <Epub/PageCountEstimator.h>
 #include <Epub/blocks/TextBlock.h>
+#include <Epub/converters/DirectPixelWriter.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -8194,6 +8195,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // A drawn-ahead frame serves at most this render; any other render may
   // change what the next page should look like.
   clearPrerenderedPage();
+  // Image Color covers this render only; other screens keep the default mapping.
+  struct BwImagesScope {
+    explicit BwImagesScope(const bool on) { DirectPixelWriter::bwImages = on; }
+    ~BwImagesScope() { DirectPixelWriter::bwImages = false; }
+  } bwImagesScope(SETTINGS.imageColor == CrossPointSettings::IMAGE_COLOR_BW);
 #if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     if (!touchReaderPreviewAllocationAttempted) {
@@ -8248,7 +8254,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
   const bool pageHasImages = page->hasImages();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-  bool needsImageGrayscale = pageHasImages;
+  bool needsImageGrayscale = pageHasImages && !DirectPixelWriter::bwImages;
   bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack &&
                             !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
@@ -8448,7 +8454,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       grayImageOnPanel = {currentSpineIndex, section ? section->currentPage : -1, imgX, imgY, imgW, imgH};
     }
   };
-  if (pageHasImages && !deferImageLoading) {
+  // BW images with no text AA draw no gray at all: refresh like a plain text
+  // page. A gray base with nothing after it may never reach the panel (UC8179
+  // skips the base over direct gray and waits for the gray pass).
+  if (pageHasImages && !deferImageLoading && (needsAnyGrayscale || !DirectPixelWriter::bwImages)) {
     // Keep the legacy blank/base sequence unless the controller can transition
     // directly to the complete image base.
     if (hasImageBox) {

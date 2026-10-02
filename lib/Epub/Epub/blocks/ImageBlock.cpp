@@ -543,6 +543,8 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   // passes; on first view this just moves the one-time decode to the BW pass.
   FontCacheManager* fcm = renderer.getFontCacheManager();
   if (fcm && fcm->isScanning()) return;
+  // BW images: every gray plane (legacy, tiled, deferred) leaves them out.
+  if (DirectPixelWriter::bwImages && renderer.getRenderMode() != GfxRenderer::BW) return;
 
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
