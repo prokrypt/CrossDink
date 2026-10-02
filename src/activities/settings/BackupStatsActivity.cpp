@@ -26,10 +26,14 @@ void BackupStatsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, tr(STR_BACKUP_NOW), false);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int top = (pageHeight - lineHeight) / 2;
+  const int detailY = top + lineHeight + metrics.verticalSpacing;
 
   if (state == SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_BACKUP_STATS_DONE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, backupFileName[0] != '\0' ? backupFileName : "-");
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_BACKUP_STATS_DONE), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, detailY, backupFileName[0] != '\0' ? backupFileName : "-");
 
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -37,8 +41,8 @@ void BackupStatsActivity::render(RenderLock&&) {
     return;
   }
 
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_BACKUP_STATS_FAILED), true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_CHECK_SERIAL_OUTPUT));
+  renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_BACKUP_STATS_FAILED), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, detailY, tr(STR_CHECK_SERIAL_OUTPUT));
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
