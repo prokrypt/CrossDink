@@ -359,7 +359,11 @@ void onBoot() {
   seal();
   writeRow(wake ? "wake" : "boot", detail);
   powerManager.wakeOnChargeChange = true;
-  bootFlushPending = true;  // also saves rows a restart or crash left in the ring
+  // After a restart or crash the ring still holds rows the card lacks: write
+  // them soon. A clean deep-sleep wake wiped the ring, so this session's rows
+  // wait for the sleep flush (or the low-battery / 3/4-full flush); a power
+  // cut while awake loses them.
+  bootFlushPending = !(wake && esp_reset_reason() == ESP_RST_DEEPSLEEP);
 }
 
 void onSleep(const char* why) {
