@@ -134,7 +134,7 @@ class HalDisplay {
   // When that refresh is expected to end (UC8179), 0 when unknown.
   uint32_t flashEndsMs() const;
   // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
-  enum class FlashKind : uint8_t { Gray, Full, Paint };
+  enum class FlashKind : uint8_t { Gray, Full, Paint, GrayDark };  // GrayDark: Night Mode Sharpflash page
   FlashKind flashKind() const;
   // millis() when the refresh now starting was planned to flash (0: none, or
   // flashStartedMs has it), and its kind: the duck's fade starts here. UC8179:
