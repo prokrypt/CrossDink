@@ -990,7 +990,7 @@ void CrossPointWebServer::endTransferHold() {
 void CrossPointWebServer::setIdleModemSleep() {
   if (apMode) return;
 #ifndef SIMULATOR
-  const bool maxModem = logOnly_ && KNOBS.wifiMaxModem;
+  const bool maxModem = logOnly_ && SETTINGS.maxWifiPowersave;
   WiFi.setSleep(maxModem ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
   // listen_interval goes out in the association request: a change applies at
   // the next (re)association. Arduino's WiFi.begin() resets it to 0 (= 3).

@@ -717,6 +717,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t turboKeyboard = 1;
   // Goodies > Wi-Fi remote toggle (debug builds): rejoin in the background after every boot.
   uint8_t goodiesWifiRemote = 0;
+  // Idle Wi-Fi remote: MAX_MODEM power save (wakes every listen interval)
+  // instead of MIN_MODEM. Applies the next time the remote goes idle.
+  uint8_t maxWifiPowersave = 1;
   // KOReader Sync > Sync on Book Exit: push progress in the background when a book closes.
   uint8_t koSyncOnExit = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
