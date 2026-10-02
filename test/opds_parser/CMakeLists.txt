@@ -9,6 +9,7 @@ target_include_directories(OpdsParserTest PRIVATE
   stubs
   ${REPO_ROOT}/lib/OpdsParser
   ${REPO_ROOT}/lib/XmlParserUtils
+  ${REPO_ROOT}/lib/Memory
 )
 
 target_link_libraries(OpdsParserTest PRIVATE

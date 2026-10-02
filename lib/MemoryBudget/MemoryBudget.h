@@ -160,6 +160,12 @@ inline MemoryPool jpegDecoderPool(const size_t decoderBytes) {
                                 byteHeapSnapshot(MemoryPool::Psram));
 }
 
+// PSRAM devices: plain new/malloc over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL
+// (1 KB) lands in PSRAM, so a decoder object there needs only internal headroom
+// for parsing and callbacks, not a large internal block (the PNG decoder is
+// ~42 KB). C3 has no PSRAM and keeps its internal gates.
+inline bool decoderFitsPsram(const size_t decoderBytes) { return jpegDecoderPool(decoderBytes) == MemoryPool::Psram; }
+
 inline bool hasHeapForJpegDecoder(const char* tag, const size_t decoderBytes, const char* source = nullptr) {
   const auto internal = byteHeapSnapshot(MemoryPool::Internal);
   const auto psram = byteHeapSnapshot(MemoryPool::Psram);
@@ -187,6 +193,7 @@ inline bool shouldReleaseSdFontCachesForEpubInlineImage(const HeapSnapshot heap)
 
 inline bool hasHeapForEpubInlineImage(const char* tag, const char* source) {
   if (isJpegSource(source)) return hasHeapForJpegDecoder(tag, JPEG_DECODER_APPROX_BYTES, source);
+  if (decoderFitsPsram(EPUB_INLINE_IMAGE_MIN_MAX_ALLOC)) return true;
 
   const auto heap = snapshot();
   const auto requirement = epubInlineImageRequirementForSource(source);
@@ -224,6 +231,7 @@ inline bool hasHeapForOptionalEpubRebuild(const char* tag, const char* action, c
 }
 
 inline bool hasHeapForImageDecoder(const char* tag, const char* decoderName, const uint32_t decoderApproxBytes) {
+  if (decoderFitsPsram(decoderApproxBytes)) return true;
   const auto heap = snapshot();
   const uint32_t minFree = decoderApproxBytes + IMAGE_DECODER_HEADROOM;
   if (hasHeap(heap, minFree, decoderApproxBytes)) {
