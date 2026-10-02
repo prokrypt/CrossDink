@@ -70,6 +70,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Saving `state.json`, Wi-Fi credentials, the remote token and `koreader.json` overwrites the file instead of deleting and recreating it, one SD card directory change fewer per save.
 - Waking into a book no longer writes `state.json` to the SD card (2-3 writes per wake before): the reader's crash guard (which sends the next boot to Home after a book crashes while opening) is kept in RTC memory, and a save that changes nothing is skipped from the first boot on.
 - Reading stats (per book and overall) are saved in place, alternating between two copies with a checksum (like reading progress), so leaving a book or sleeping from it costs 2 SD card writes for stats instead of 8; if a save is cut off by a crash or power loss, the previous save is used. `global_stats.bin.bak` and `stats_v5.bin.bak` are now the second copy, not a leftover. Firmware older than this shows empty overall stats (and does not overwrite them) after this one has saved them.
 - On-screen keyboard: the highlighted key (tapped, pressed or selected with the buttons) is light gray with black text, as in upstream CrossInk, instead of black with white text. Turbo keyboard draws it in the same refresh as before, so typing speed is unchanged.
