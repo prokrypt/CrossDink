@@ -24,9 +24,10 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   held = false;
   armed = true;
   active = this;
-  // Idle at the user's level (0 if off). Pulse band by level: up to 10% -> 0-10,
-  // 11-25% -> 10-25, above 25% -> 10 to the level (knobs: floor 10, peak 25).
-  basePercent = Frontlight.isOn() ? Frontlight.brightness() : 0;
+  // Idle at the user's level (0 if off or faded out by Light Timeout). Pulse band
+  // by level: up to 10% -> 0-10, 11-25% -> 10-25, above 25% -> 10 to the level
+  // (knobs: floor 10, peak 25).
+  basePercent = Frontlight.isOn() && Frontlight.idleDimPercent() > 0 ? Frontlight.brightness() : 0;
   lowPercent = basePercent > kLitFloorPercent ? kLitFloorPercent : 0;
   highPercent = basePercent > kPeakPercent        ? basePercent
                 : basePercent > kLitFloorPercent ? kPeakPercent

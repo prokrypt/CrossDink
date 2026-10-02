@@ -27,13 +27,12 @@ class HalFrontlight {
   void setIdleDim(uint8_t percent);
   uint8_t idleDimPercent() const { return idleDim; }
   // Transfer throb: drive the LEDs at `percent` in place of the user level
-  // without changing brightness()/isOn() or settings; NO_OVERLAY ends it.
-  // The dim still scales it; setBrightness()/setOn() end it.
+  // without changing brightness()/isOn() or settings; NO_OVERLAY ends it. The
+  // dim (Light Timeout, flash duck) does not show under it and is kept for after.
+  // setBrightness()/setOn() end it.
   static constexpr uint8_t NO_OVERLAY = 0xFF;
   void setOverlay(uint8_t percent);
   bool overlayActive() const { return overlay != NO_OVERLAY; }
-  // The level the LEDs show before the dim: the overlay, else the user's (0 if off).
-  uint8_t shownLevel() const { return overlayActive() ? overlay : lit ? lastBrightness : 0; }
   void prepareForDeepSleep();
   void releaseAfterWake();
   // Prints the settled duty after a ramp (see FrontlightManager::flushLog). Main loop.
