@@ -195,6 +195,7 @@ void ButtonRemapActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.inputMask = fui::InputNone;
   props.labelText = screen.theme().bodyText;
   props.valueText = screen.theme().smallText;
+  props.valueInset = 8;  // same air as Settings rows
   const fui::Rect listRect = screen.body();
   configureUiList(props, screen.theme(), listRect);
   screen.list(props);
@@ -245,9 +246,11 @@ void ButtonRemapActivity::drawSelectedValueBadge(UiApp::ScreenType& screen, cons
   valueStyle.align = fui::TextAlign::Right;
   const int16_t valueWidth = screen.target().measureText(valueStyle.font, value, valueStyle).width;
   const int16_t badgeWidth = static_cast<int16_t>(valueWidth + kValueBadgePadding * 2);
-  if (badgeWidth > row.width - sidePadding * 2) return;
+  if (badgeWidth + props.valueInset > row.width - sidePadding * 2) return;
 
-  const fui::Rect badge{static_cast<int16_t>(row.right() - badgeWidth), row.y, badgeWidth, row.height};
+  // Follow the list's value inset so the badge stays over the value text.
+  const fui::Rect badge{static_cast<int16_t>(row.right() - badgeWidth - props.valueInset), row.y, badgeWidth,
+                        row.height};
   const uint8_t radius = props.rowRadius > 0 ? props.rowRadius : screen.theme().listRowRadius;
   screen.target().fill(badge, fui::Paint::solid(fui::Color::Black), radius);
   screen.target().text(fui::Rect{static_cast<int16_t>(badge.x + kValueBadgePadding), badge.y, valueWidth, badge.height},
