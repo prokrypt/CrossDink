@@ -91,6 +91,12 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32
   formatDur(seconds, span, sizeof(span));
   snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, errC * 36.0f / seconds, span);
 }
+
+// The live state the estimate is for: brightness (0 = off), +0x100 with Wi-Fi on.
+uint16_t estimateState() {
+  const uint8_t light = Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0;
+  return static_cast<uint16_t>(light | (WiFi.getMode() != WIFI_OFF ? 0x100 : 0));
+}
 }  // namespace
 
 void BatteryStatsActivity::onEnter() {
@@ -310,8 +316,9 @@ void BatteryStatsActivity::buildLines() {
     add("Asleep drain: %s", a);
     // Awake drain for the live Wi-Fi and light state; the light's share scales
     // with brightness against the state's logged average.
-    const bool wifiNow = WiFi.getMode() != WIFI_OFF;
-    const uint8_t lightNow = Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0;
+    builtState = estimateState();
+    const bool wifiNow = builtState >> 8;
+    const uint8_t lightNow = builtState & 0xFF;
     const int k = wifiNow ? 2 : 0;
     auto rateOf = [this](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
       return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
@@ -423,6 +430,18 @@ void BatteryStatsActivity::loop() {
     }
   }
   if (loading) step(LOAD_STEP_MS);
+  // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
+  // for 1 s, so a light slide repaints once, not at every step.
+  const uint16_t state = estimateState();
+  if (state != seenState) {
+    seenState = state;
+    seenMs = millis();
+  } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
+    RenderLock lock(*this);  // render() reads lines
+    buildLines();
+    lock.unlock();
+    requestUpdate();
+  }
   const auto swipe = mappedInput.wasSwipe();
   const bool down =
       mappedInput.wasReleased(MappedInputManager::Button::Down) || swipe == MappedInputManager::SwipeDir::Up;
