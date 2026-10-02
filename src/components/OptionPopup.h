@@ -327,7 +327,10 @@ class OptionPopup {
   }
 
   bool isActive() const { return active; }
-  void setNote(Note note) { popupNote = note; }
+  void setNote(Note note) {
+    popupNote = note;
+    layoutValid = false;  // the note's width sizes the dialog
+  }
 
   void dismiss(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (active) cancel(input, requestUpdate, false);
