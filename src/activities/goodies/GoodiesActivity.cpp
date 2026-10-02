@@ -684,7 +684,8 @@ void GoodiesActivity::openDimLevel(const int row) {
 }
 
 void GoodiesActivity::confirmResetKnobs() {
-  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Reset all knobs?",
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                                std::string(tr(STR_CONFIRM)) + ": Reset All Knobs",
                                                                 "Defaults for every knob; knobs.json is deleted."),
                          [this](const ActivityResult& result) {
                            mappedInput.suppressNextConfirmRelease();

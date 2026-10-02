@@ -23,6 +23,7 @@
 #include <cstring>
 
 #include "MappedInputManager.h"
+#include "activities/home/BookActions.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
@@ -319,8 +320,8 @@ void BatteryStatsActivity::refresh() {
 }
 
 void BatteryStatsActivity::confirmReset() {
-  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET) + std::string("?"),
-                                                        tr(STR_BATTERY_STATS));
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(
+      renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_RESET), tr(STR_BATTERY_STATS));
   if (!dialog) {
     LOG_ERR("BAT", "Cannot allocate reset dialog");
     return;
