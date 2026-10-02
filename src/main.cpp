@@ -2219,9 +2219,11 @@ static void updateFlashDuck() {
   // and queueing come before the plan; input to dark ran 109-448 ms). Seeds:
   // logs/device/20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215 74 ms and
   // L6236->L6240 69 ms (gray LSB to DRF; the default Gray dim is dark at DRF);
-  // Full (SPI ~27 ms) and Paint (POF 82 + PON 127 + SPI 54 + reset) inferred.
+  // Full 182 ms (boot Home paint: PON 127 + SPI 27, 20261002T011313Z-c0142b63
+  // L46-50; RAM only, so every boot starts from it); Paint (POF 82 + PON 127 +
+  // SPI 54 + reset) inferred.
   constexpr uint32_t kMaxLeadMs = 600;
-  static uint16_t leadMs[3] = {75, 60, 330};
+  static uint16_t leadMs[3] = {75, 180, 330};
   static uint8_t leadKind = 0;
   static bool learned = false;      // this flash's lead is stored
   static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from

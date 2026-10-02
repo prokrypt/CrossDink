@@ -177,6 +177,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: Dim Light on Flash on Half/Full refreshes (waking to Home, every 15th page) brings the light back as the refresh ends instead of 0.3 s after, and the dim at wake lands as the flash starts instead of before the panel powers up.
 - X4 Pro: if going to sleep ever gets stuck (seen once: the device stayed dark and ignored the power button until reset), it now restarts after 30 s instead of staying dead, and the next boot reports which sleep step stuck.
 - X4 Pro: waking after the charger was plugged in or unplugged during sleep no longer shows the boot splash like a cold start; the wake is as quick as any other.
 - X4 Pro: with the cable out the charger status line now has a pull-down while awake (it was left floating after the first battery read), so it reads "not charging" reliably.
