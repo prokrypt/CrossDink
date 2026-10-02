@@ -195,7 +195,7 @@ KbdExpOverride gKbdExpOverride;
 
 void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uint8_t frames, const uint8_t pll) {
   if (pll >= knobs::PLL_CHOICES) {
-    LOG_ERR("KBD", "KBDEXP pll %u: not a kbdPll index (0-%d), ignored", pll, knobs::PLL_CHOICES - 1);
+    LOG_ERR("KBD", "KBDEXP pll %u: not a PLL choice (0-%d), ignored", pll, knobs::PLL_CHOICES - 1);
     return;
   }
   gKbdExpOverride = {true, flags, frames, pll};
@@ -211,9 +211,9 @@ void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
-  kbdExpFrames = 0;  // 0 = KNOBS.kbdFrames, read at each frame (live); CMD:KBDEXP may override
-  // Goodies > Knobs kbdPll picks from a whitelist only: panel default, 40 or 50 Hz.
-  kbdExpPll = knobs::PLL_BYTES[KNOBS.kbdPll];
+  // 0 = KNOBS.kbdFrames, read at each frame (live); panel default PLL. CMD:KBDEXP may override both.
+  kbdExpFrames = 0;
+  kbdExpPll = knobs::PLL_BYTES[0];
   kbdExpFirstFrame = true;
   if (gKbdExpOverride.active) {
     kbdExpFlags = gKbdExpOverride.flags;

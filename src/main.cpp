@@ -121,6 +121,7 @@ SdCardFontSystem sdFontSystem;
 DictionaryRegistry dictionaryRegistry;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 static unsigned long allowSleepAt = 0;
+constexpr unsigned long BOOT_SLEEP_GRACE_MS = 2000;  // power actions ignored this long after boot
 static ButtonShortcutController buttonShortcutController;
 static unsigned long lastX4ProHomeKeyTapAt = 0;
 static bool x4ProHomeKeyTapPending = false;
@@ -2115,7 +2116,7 @@ void setup() {
   // during long loop work are queued instead of dropped.
   InputTask::begin();
 
-  allowSleepAt = millis() + KNOBS.bootSleepGraceMs;
+  allowSleepAt = millis() + BOOT_SLEEP_GRACE_MS;
 }
 
 namespace {
