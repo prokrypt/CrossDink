@@ -87,7 +87,39 @@
 #include "util/Dictionary.h"
 #include "util/ScreenshotUtil.h"
 
+#ifndef SIMULATOR
+#include <freertos/idf_additions.h>
+#endif
+
 namespace {
+// DrawAhead and SilentIndex stacks (24 KB) live in PSRAM, so opening a book
+// never needs a large internal block for them. Only jobs that never write
+// flash may use one (these touch the SD card only). The worker parks after
+// giving its done semaphore; the joiner deletes it, which frees the stack.
+bool startPsramWorker(TaskFunction_t fn, const char* name, const uint32_t stackBytes, void* arg, TaskHandle_t* task) {
+#ifdef SIMULATOR
+  return xTaskCreatePinnedToCore(fn, name, stackBytes, arg, 1, task, TaskCores::kWorker) == pdPASS;
+#else
+  return xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, 1, task, TaskCores::kWorker,
+                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+#endif
+}
+
+[[noreturn]] void parkPsramWorker() {
+#ifdef SIMULATOR
+  vTaskDelete(nullptr);
+#endif
+  for (;;) vTaskSuspend(nullptr);
+}
+
+void deletePsramWorker(TaskHandle_t task) {
+#ifndef SIMULATOR
+  vTaskDeleteWithCaps(task);
+#else
+  (void)task;
+#endif
+}
+
 constexpr unsigned long TOUCH_DICTIONARY_LOOKUP_HOLD_MS = 1000;
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long longPressMenuMs = 600;
@@ -2979,8 +3011,7 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
   // shared, and the idle path still draws this page.
   if (silentIndexWorkerBusy()) return;
 #endif
-  // Sized like the S3 reader render task, which draws the same pages. Internal
-  // RAM only while one page is drawn.
+  // Sized like the S3 reader render task, which draws the same pages.
   constexpr uint32_t STACK_BYTES = 24576;
   xSemaphoreTake(drawAheadMutex, portMAX_DELAY);
   if (drawAhead.task || drawAhead.pending) {
@@ -3033,8 +3064,7 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
     drawAhead.drawn = false;
     drawAhead.laneMissed = false;
     powerManager.beginBackgroundWork();
-    if (xTaskCreatePinnedToCore(drawAheadWorkerMain, "DrawAhead", STACK_BYTES, this, 1, &drawAhead.task,
-                                TaskCores::kWorker) != pdPASS) {
+    if (!startPsramWorker(drawAheadWorkerMain, "DrawAhead", STACK_BYTES, this, &drawAhead.task)) {
       drawAhead.task = nullptr;
       drawAhead.page.reset();
       powerManager.endBackgroundWork();
@@ -3059,7 +3089,7 @@ void EpubReaderActivity::drawAheadWorkerMain(void* param) {
   PerfLog::noteTaskExit("DrawAhead");
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->drawAhead.done);
-  vTaskDelete(nullptr);
+  parkPsramWorker();
 }
 
 // Worker task: touches only the offscreen renderer, its font cache and the job.
@@ -3099,6 +3129,7 @@ void EpubReaderActivity::waitDrawAhead(const bool publish) {
   if (drawAhead.task) {
     // One page draw; the worker takes no lock this task may hold.
     xSemaphoreTake(drawAhead.done, portMAX_DELAY);
+    deletePsramWorker(drawAhead.task);
     drawAhead.task = nullptr;
     drawAhead.pending = true;
   }
@@ -7477,7 +7508,7 @@ bool EpubReaderActivity::startSilentIndexWorker(const int spineIndex, const uint
                                                 const uint16_t viewportHeight, const int readerFontId,
                                                 const EpubRenderMode renderMode) {
   // Sized like the S3 reader render task, which runs the same section builds.
-  // Internal RAM only while the build runs; it writes to the SD card.
+  // It writes to the SD card, never flash.
   constexpr uint32_t STACK_BYTES = 24576;
 #if CROSSDINK_SCALABLE_FONTS
   // One task at a time on the scalable-font worker lane; a page draw is short.
@@ -7499,8 +7530,7 @@ bool EpubReaderActivity::startSilentIndexWorker(const int spineIndex, const uint
     silentWorker.cancel.store(false, std::memory_order_relaxed);
     silentWorker.finished.store(false, std::memory_order_relaxed);
     powerManager.beginBackgroundWork();
-    started = xTaskCreatePinnedToCore(silentIndexWorkerMain, "SilentIndex", STACK_BYTES, this, 1, &silentWorker.task,
-                                      TaskCores::kWorker) == pdPASS;
+    started = startPsramWorker(silentIndexWorkerMain, "SilentIndex", STACK_BYTES, this, &silentWorker.task);
     if (!started) {
       silentWorker.task = nullptr;
       powerManager.endBackgroundWork();
@@ -7520,7 +7550,7 @@ void EpubReaderActivity::silentIndexWorkerMain(void* param) {
   PerfLog::noteTaskExit("SilentIndex");
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->silentWorker.done);
-  vTaskDelete(nullptr);
+  parkPsramWorker();
 }
 
 void EpubReaderActivity::runSilentIndexWorker() {
@@ -7588,6 +7618,7 @@ void EpubReaderActivity::waitSilentIndexWorker(const bool cancel) {
     // Bounded by one parser step once cancelled; the worker never takes
     // RenderLock, so waiting here while holding it cannot deadlock.
     xSemaphoreTake(silentWorker.done, portMAX_DELAY);
+    deletePsramWorker(silentWorker.task);
     silentWorker.task = nullptr;
     silentWorkerOutcomePending = true;
   }

@@ -7,27 +7,23 @@
 
 #include <cstdlib>
 
-// A TLS session outlives its connection: SecureClient keeps the last one for
-// resumption, past the OPDS screen and the Wi-Fi session. Blocks under
-// CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL (1 KB) land in internal RAM wherever the
-// heap has room at handshake time, which during parallel preloads is inside
-// the one large block the Wi-Fi exit gate needs; the kept session then splits
-// it (0929d: 63 KB -> 41 KB, exit by restart). Sessions are plain CPU data,
-// never DMA or ISR, so they go to PSRAM. Everything else keeps plain malloc.
-namespace {
-bool isSession(const int type) { return type == DYNAMIC_TYPE_SESSION || type == DYNAMIC_TYPE_SESSION_TICK; }
-}  // namespace
-
+// wolfSSL here is software crypto (no WOLFSSL_ESP32 HW, no DMA): every block is
+// plain CPU data, so all of it prefers PSRAM. Blocks under
+// CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL (1 KB) would otherwise land in internal
+// RAM wherever the heap has room at handshake time, which during parallel OPDS
+// preloads is inside the one large block the Wi-Fi exit gate needs. The kept
+// TLS session (resumption, outlives its connection) split it that way (0929d:
+// 63 KB -> 41 KB, exit by restart); handshake and record churn does the same.
 extern "C" void* XMALLOC(size_t n, void* heap, int type) {
   (void)heap;
-  if (!isSession(type)) return malloc(n);
+  (void)type;
   return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM,
                                  MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
 }
 
 extern "C" void* XREALLOC(void* p, size_t n, void* heap, int type) {
   (void)heap;
-  if (!isSession(type)) return realloc(p, n);
+  (void)type;
   return heap_caps_realloc_prefer(p, n, 2, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM,
                                   MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
 }

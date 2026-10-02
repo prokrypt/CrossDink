@@ -86,7 +86,7 @@ class OpdsPageCache {
 
  private:
   struct Slot {
-    std::string url;
+    PsramString url;  // PSRAM: 64 keys otherwise pin internal RAM
     OpdsPageBuffer page;
     uint32_t lastUse = 0;
     bool used = false;

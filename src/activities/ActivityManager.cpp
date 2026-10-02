@@ -960,6 +960,7 @@ void ActivityManager::exitActivity(const RenderLock& lock) {
     TouchRegistry::getInstance().clear();
     currentActivity->onExit();
     currentActivity.reset();
+    finishNetworkExit();
   }
 }
 
