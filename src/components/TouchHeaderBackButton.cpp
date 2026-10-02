@@ -79,14 +79,15 @@ bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer) {
 }
 
 void draw(GfxRenderer& renderer, const Rect& header, const char* title, const bool readerContext,
-          const int rightReserve, const char* subtitle, const int verticalOffset, const bool showStatus) {
+          const int rightReserve, const char* subtitle, const int verticalOffset, const bool showStatus,
+          const bool showBack) {
   auto target = makeUiTarget(renderer);
-  draw(renderer, target, header, title, readerContext, rightReserve, subtitle, verticalOffset, showStatus);
+  draw(renderer, target, header, title, readerContext, rightReserve, subtitle, verticalOffset, showStatus, showBack);
 }
 
 void draw(const GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rect& header, const char* title,
           const bool readerContext, const int rightReserve, const char* subtitle, const int verticalOffset,
-          const bool showStatus) {
+          const bool showStatus, const bool showBack) {
   // cppcheck-suppress knownConditionTrueFalse ; constant on buttons-only boards
   if (!gpio.hasTouch()) {
     GUI.drawHeader(renderer, header, title, subtitle, readerContext, showStatus);
@@ -107,6 +108,7 @@ void draw(const GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rec
   target.text(fui::Rect{static_cast<int16_t>(back.titleX), static_cast<int16_t>(back.iconRect.y),
                         static_cast<int16_t>(titleWidth), static_cast<int16_t>(back.iconRect.height)},
               title, titleStyle);
+  if (!showBack) return;
 
   const int iconX = back.iconRect.x + (back.iconRect.width - ICON_SIZE) / 2;
   const int iconY = back.iconRect.y + (back.iconRect.height - ICON_SIZE) / 2;

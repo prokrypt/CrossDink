@@ -125,17 +125,10 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  // One header style in every state; the back icon only shows where Back works.
   const bool canGoBack = state == WAITING_CONFIRMATION || state == FAILED || state == NO_UPDATE;
-  if (mappedInput.hasTouchHardware()) {
-    if (canGoBack) {
-      TouchHeaderBackButton::draw(renderer, header, tr(STR_UPDATE), false);
-    } else {
-      CompactHeader::drawTitle(renderer, tr(STR_UPDATE));
-    }
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_UPDATE));
-  }
+  TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), tr(STR_UPDATE),
+                              false, 0, nullptr, TouchHeaderBackButton::TITLE_VERTICAL_OFFSET, true, canGoBack);
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - height) / 2;
 
