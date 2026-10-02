@@ -793,12 +793,13 @@ void KOReaderSyncActivity::render(RenderLock&&) {
     // Remote chapter name requires Epub (loaded lazily in performSync before this state).
     const int remoteTocIndex = epub->getTocIndexForSpineIndex(remotePosition.spineIndex);
     const std::string remoteChapter =
-        (remoteTocIndex >= 0) ? epub->getTocItem(remoteTocIndex).title
-                              : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(remotePosition.spineIndex + 1));
+        (remoteTocIndex >= 0)
+            ? epub->getTocItem(remoteTocIndex).title
+            : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(remotePosition.spineIndex + 1));
     // Local chapter name was pre-computed before Epub was released.
     const std::string localChapter =
         !localChapterName.empty() ? localChapterName
-                                  : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex + 1));
+                                  : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(currentSpineIndex + 1));
 
     // Remote progress - chapter and page
     renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_REMOTE_LABEL), true);

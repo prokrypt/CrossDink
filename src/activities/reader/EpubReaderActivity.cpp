@@ -8917,7 +8917,7 @@ void EpubReaderActivity::renderStatusBar() const {
     // allocating a std::to_string temporary and a concatenation result each time.
     // Sized for the longest translated prefix (Kazakh, 53 bytes) plus the interval
     // digits, so no locale is cut short or sliced mid-codepoint.
-    snprintf(autoTurnLabel, sizeof(autoTurnLabel), "%s%lu", tr(STR_AUTO_TURN_ENABLED), pageTurnDuration / 1000);
+    snprintf(autoTurnLabel, sizeof(autoTurnLabel), "%s %lu", tr(STR_AUTO_TURN_ENABLED), pageTurnDuration / 1000);
     chapterTitle = autoTurnLabel;
 
   }

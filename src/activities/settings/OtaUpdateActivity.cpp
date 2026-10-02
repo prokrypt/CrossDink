@@ -150,9 +150,9 @@ void OtaUpdateActivity::render(RenderLock&&) {
     // The confirmation popup opened by onWifiSelectionComplete() sits over this page.
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, top + height + metrics.verticalSpacing,
-                              (std::string(tr(STR_CURRENT_VERSION)) + AppVersion::version()).c_str());
+                              (std::string(tr(STR_CURRENT_VERSION)) + " " + AppVersion::version()).c_str());
     renderer.drawCenteredText(UI_10_FONT_ID, top + height * 2 + metrics.verticalSpacing * 2,
-                              (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
+                              (std::string(tr(STR_NEW_VERSION)) + " " + updater.getLatestVersion()).c_str());
   } else if (state == UPDATE_IN_PROGRESS) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING));
 

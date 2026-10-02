@@ -396,10 +396,10 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
   const std::string peerChapter =
       (epub_ && peerTocIndex >= 0)
           ? epub_->getTocItem(peerTocIndex).title
-          : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(peerCrossPoint_.spineIndex + 1));
-  const std::string localChapter = !localChapterName_.empty()
-                                       ? localChapterName_
-                                       : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex_ + 1));
+          : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(peerCrossPoint_.spineIndex + 1));
+  const std::string localChapter =
+      !localChapterName_.empty() ? localChapterName_
+                                 : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(currentSpineIndex_ + 1));
 
   renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_NEARBY_LABEL), true);
   char peerChapterStr[128];
@@ -1385,10 +1385,10 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
   const std::string peerChapter =
       (epub_ && peerTocIndex >= 0)
           ? epub_->getTocItem(peerTocIndex).title
-          : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(peerCrossPoint_.spineIndex + 1));
-  const std::string localChapter = !localChapterName_.empty()
-                                       ? localChapterName_
-                                       : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex_ + 1));
+          : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(peerCrossPoint_.spineIndex + 1));
+  const std::string localChapter =
+      !localChapterName_.empty() ? localChapterName_
+                                 : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(currentSpineIndex_ + 1));
 
   renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_NEARBY_LABEL), true);
   char peerChapterStr[128];
