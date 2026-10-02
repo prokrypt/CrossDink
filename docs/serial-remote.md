@@ -95,6 +95,20 @@ slot; OTA rollback still applies on the next boot.
 
 Needs `Content-Length` (curl sends it). Each 64 KiB flash erase pauses the screen briefly during the upload.
 
+## Wi-Fi: SD file download and upload
+
+`GET /api/download?path=<file>` and `POST /api/upload?path=<dir>` (multipart field `file`) are File Transfer's
+`/download` and `/upload` behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
+the `token` query argument or an `X-Token` header; bad tokens count toward the lockout. Paths are SD-rooted
+(`..` stops at `/`); hidden items and `/debug/remote-token` are refused (`403`) unless Show Hidden Files is on (the
+token file always). Upload refuses an existing name (`400 File already exists: <name>`); delete first.
+Both stream through a 4 KB buffer.
+
+```sh
+curl -s -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
+curl -s -H "X-Token: $(cat remote-token)" -F "file=@book.epub" "http://10.0.1.67/api/upload?path=/Books"
+```
+
 ## Wi-Fi: live log tail
 
 `GET /api/psram-log?since=<offset>&wait=<ms>` returns only the PSRAM log bytes after `<offset>`, with the
