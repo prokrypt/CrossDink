@@ -265,6 +265,8 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                             "customBootscreenEnabled", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_TURBO_KEYBOARD, &CrossPointSettings::turboKeyboard, "turboKeyboard",
                             StrId::STR_CAT_SYSTEM));
+    add(SettingInfo::Toggle(StrId::STR_MAX_WIFI_POWERSAVE, &CrossPointSettings::maxWifiPowersave, "maxWifiPowersave",
+                            StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                             StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_HIDE_FILE_EXTENSION, &CrossPointSettings::hideFileExtension, "hideFileExtension",
