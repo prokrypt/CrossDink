@@ -194,7 +194,7 @@ void SavedItemsHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
                                       static_cast<int16_t>(metrics.buttonHintsHeight), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   if (books.empty()) {
-    screen.centeredText(tr(STR_NO_BOOKMARKS), screen.theme().bodyText);
+    screen.centeredText(tr(STR_NO_SAVED_ITEMS), screen.theme().bodyText);
     return;
   }
   std::vector<fui::ListItem> items;
