@@ -1331,7 +1331,7 @@ async function confirmDelete() {
     return p;
   });
 
-  const deleteBtn = document.querySelector("#deleteModal .delete-btn-confirm");
+  const deleteBtn = document.querySelector("#deleteModal .btn-danger");
   if (deleteBtn) {
     deleteBtn.disabled = true;
     deleteBtn.textContent = "Deleting...";

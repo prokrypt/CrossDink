@@ -1,4 +1,4 @@
-h2 { color: var(--title-color); margin: 0; font-size: 1.15em; flex: 1; }
+.hd h2 { margin: 0; flex: 1; }
 h3 { color: var(--title-color); font-size: 0.95em; margin: 22px 0 6px; }
 h3 small { color: var(--label-color); font-weight: 400; }
 .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
@@ -14,11 +14,6 @@ h3 small { color: var(--label-color); font-weight: 400; }
 .grp > :only-child { border-radius: var(--radius-sm); }
 select, input { font: inherit; color: var(--font-color); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 7px 10px; min-width: 0; }
 .hd select { padding: 5px 8px; font-size: 0.9em; }
-.btn { border: 1px solid var(--accent-color); font: inherit; line-height: 1.3; cursor: pointer; padding: 7px 14px; border-radius: var(--radius-sm); background: var(--accent-color); color: #fff; text-decoration: none; }
-.btn:hover { background: var(--accent-hover-color); border-color: var(--accent-hover-color); }
-a.btn { display: inline-flex; align-items: center; }
-.ghost { background: none; color: var(--accent-color); border-color: var(--border-color); }
-.ghost:hover { background: var(--accent-soft); border-color: var(--border-color); }
 :focus-visible { outline: 2px solid var(--accent-color); outline-offset: 1px; }
 .meta { color: var(--label-color); font-size: 0.9em; margin: 8px 0; }
 .ro { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--font-color); background: var(--bg); border-radius: var(--radius-sm); padding: 6px 10px; margin: 0 0 12px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }

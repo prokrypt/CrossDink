@@ -380,7 +380,7 @@ let allSettings = [];
         statusBarRow(statusBars.labels.xtcMode, statusBarSelect('bar-xtc-mode',
           statusBars.xtcModes.map(function(label, index) { return { value: index, label: label }; }),
           statusBars.xtcMode, 'statusBarChanged()')) +
-        '<div class="save-container"><button class="save-btn" id="statusBarsSaveBtn" ' +
+        '<div class="save-container"><button class="btn btn-primary" id="statusBarsSaveBtn" ' +
         'onclick="saveStatusBars()" disabled>Save Status Bars</button></div></div>';
       updateStatusBarPreview('top');
       updateStatusBarPreview('bottom');
@@ -433,8 +433,8 @@ let allSettings = [];
       '</div>' +
       lastConnected +
       '<div class="opds-actions">' +
-        '<button class="btn-small btn-save-server" onclick="saveWifiNetwork(' + idx + ')">Save</button>' +
-        (isNew ? '' : '<button class="btn-small btn-delete" onclick="deleteWifiNetwork(' + idx + ')">Delete</button>') +
+        '<button class="btn btn-primary" onclick="saveWifiNetwork(' + idx + ')">Save</button>' +
+        (isNew ? '' : '<button class="btn btn-danger" onclick="deleteWifiNetwork(' + idx + ')">Delete</button>') +
       '</div>' +
     '</div>';
   }
@@ -452,7 +452,7 @@ let allSettings = [];
     }
 
     html += '<div style="margin-top:12px;text-align:center;">' +
-      '<button class="btn-small btn-add" onclick="addWifiNetwork()">+ Add Network</button>' +
+      '<button class="btn btn-primary" onclick="addWifiNetwork()">+ Add Network</button>' +
     '</div></div>';
     container.innerHTML = html;
   }
@@ -471,7 +471,7 @@ let allSettings = [];
   function addWifiNetwork() {
     const container = document.getElementById('wifi-container');
     const card = container.querySelector('.card');
-    const addBtn = card.querySelector('.btn-add').parentElement;
+    const addBtn = card.lastElementChild;
     // Prevent multiple unsaved new-network forms at once (idx -1 -> id "new")
     if (document.getElementById('wifi-new')) return;
     addBtn.insertAdjacentHTML('beforebegin', renderWifiNetwork({ssid:'',hasPassword:false,isLastConnected:false}, -1));
@@ -556,8 +556,8 @@ let allSettings = [];
         '</select></span>' +
       '</div>' +
       '<div class="opds-actions">' +
-        '<button class="btn-small btn-save-server" onclick="saveOpdsServer(' + idx + ')">Save</button>' +
-        (isNew ? '' : '<button class="btn-small btn-delete" onclick="deleteOpdsServer(' + idx + ')">Delete</button>') +
+        '<button class="btn btn-primary" onclick="saveOpdsServer(' + idx + ')">Save</button>' +
+        (isNew ? '' : '<button class="btn btn-danger" onclick="deleteOpdsServer(' + idx + ')">Delete</button>') +
       '</div>' +
     '</div>';
   }
@@ -575,7 +575,7 @@ let allSettings = [];
     }
 
     html += '<div style="margin-top:12px;text-align:center;">' +
-      '<button class="btn-small btn-add" onclick="addOpdsServer()">+ Add Server</button>' +
+      '<button class="btn btn-primary" onclick="addOpdsServer()">+ Add Server</button>' +
     '</div></div>';
     container.innerHTML = html;
   }
@@ -594,7 +594,7 @@ let allSettings = [];
   function addOpdsServer() {
     const container = document.getElementById('opds-container');
     const card = container.querySelector('.card');
-    const addBtn = card.querySelector('.btn-add').parentElement;
+    const addBtn = card.lastElementChild;
     // Prevent multiple unsaved new-server forms at once (idx -1 → id "new")
     if (document.getElementById('opds-new')) return;
     addBtn.insertAdjacentHTML('beforebegin', renderOpdsServer({name:'',url:'',username:'',hasPassword:false,filenameFormat:'author_title'}, -1));
