@@ -30,6 +30,31 @@ HalDisplay::RefreshCounts& HalDisplay::refreshCounts() {
 void HalDisplay::count(int) {}
 #endif
 
+namespace {
+#if CROSSDINK_SERIAL_REMOTE
+// Debug screenshots: copies of the last gray pass's planes, so /api/screenshot
+// can show 4 levels. PSRAM statics (debug x4-pro only), never read by rendering.
+constexpr uint32_t SHOT_PLANE_MAX = 48000;  // largest current panel
+EXT_RAM_NOINIT_ATTR uint8_t shotLsb[SHOT_PLANE_MAX];
+EXT_RAM_NOINIT_ATTR uint8_t shotMsb[SHOT_PLANE_MAX];
+bool shotAbsolute = false;
+bool shotShown = false;  // planes match the panel: a gray pass ran, no B/W refresh since
+
+void shotRefresh(const bool absolute) {
+  shotShown = false;
+  shotAbsolute = absolute;
+}
+void shotPlane(const bool lsb, const uint8_t* src, const uint32_t offset, const uint32_t len) {
+  if (src && offset + len <= SHOT_PLANE_MAX) memcpy((lsb ? shotLsb : shotMsb) + offset, src, len);
+}
+void shotGrayShown() { shotShown = true; }
+#else
+void shotRefresh(bool) {}
+void shotPlane(bool, const uint8_t*, uint32_t, uint32_t) {}
+void shotGrayShown() {}
+#endif
+}  // namespace
+
 #define SD_SPI_MISO 7
 
 namespace {
@@ -150,6 +175,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
     einkDisplay.requestResync(1);
   }
 
+  shotRefresh(false);
   FlashScope flash(*this, mode);
   count(mode);
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
@@ -165,6 +191,7 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
     einkDisplay.requestResync(1);
   }
 
+  shotRefresh(false);
   markFlash(mode);
   count(mode);
   einkDisplay.displayBufferAsyncNoShadow(convertRefreshMode(mode));
@@ -177,6 +204,7 @@ void HalDisplay::waitRefreshComplete() {
 
 void HalDisplay::displayBufferDeferred(HalDisplay::RefreshMode mode) {
   HalSpiBus::Lock spiLock;
+  shotRefresh(false);
   markFlash(mode);
   count(mode);
   einkDisplay.displayBufferAsync(convertRefreshMode(mode));
@@ -199,6 +227,7 @@ bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback, 
   if (gpio.deviceIsX3() && fallback == HALF_REFRESH) einkDisplay.requestResync(1);
   FlashScope flash(*this, mode == GrayscaleMode::Direct || fallback != FAST_REFRESH,
                    mode == GrayscaleMode::Direct ? FlashKind::Gray : FlashKind::Full);
+  shotRefresh(mode != GrayscaleMode::Overlay);
   count(fallback);
   return einkDisplay.displayGrayscaleBase(mode, convertRefreshMode(fallback), turnOffScreen);
 }
@@ -210,6 +239,7 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
     einkDisplay.requestResync(1);
   }
 
+  shotRefresh(false);
   FlashScope flash(*this, mode);
   count(mode);
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
@@ -255,6 +285,8 @@ void HalDisplay::returnFrameBufferStorage() { einkDisplay.returnBuildStorage(); 
 
 void HalDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) {
   markFlash(!smoothGray, FlashKind::Gray);
+  shotPlane(true, lsbBuffer, 0, getBufferSize());
+  shotPlane(false, msbBuffer, 0, getBufferSize());
   einkDisplay.copyGrayscaleBuffers(lsbBuffer, msbBuffer);
 }
 
@@ -269,6 +301,7 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
     einkDisplay.requestResync(1);
   }
 
+  shotRefresh(false);
   FlashScope flash(*this, fallback != RefreshMode::FAST_REFRESH);
   count(fallback);
   einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
@@ -282,6 +315,7 @@ void HalDisplay::preconditionGrayscale(uint16_t x, uint16_t y, uint16_t w, uint1
 
 void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
   markFlash(!smoothGray, FlashKind::Gray);
+  shotPlane(true, lsbBuffer, 0, getBufferSize());
   einkDisplay.copyGrayscaleLsbBuffers(lsbBuffer);
 }
 
@@ -347,7 +381,10 @@ uint32_t HalDisplay::flashStartedMs() const {
   return flashStart.load(std::memory_order_relaxed);
 }
 
-void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay.copyGrayscaleMsbBuffers(msbBuffer); }
+void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) {
+  shotPlane(false, msbBuffer, 0, getBufferSize());
+  einkDisplay.copyGrayscaleMsbBuffers(msbBuffer);
+}
 
 void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) {
   flashStart.store(0, std::memory_order_relaxed);
@@ -359,10 +396,13 @@ void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
   FlashScope flash(*this, false);  // clears the mark its planes set
   count(GRAY_PASSES);
   einkDisplay.displayGrayBuffer(turnOffScreen);
+  shotGrayShown();
 }
 
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
   HalSpiBus::Lock spiLock;
+  shotPlane(lsbPlane, rows, static_cast<uint32_t>(yStart) * getDisplayWidthBytes(),
+             static_cast<uint32_t>(numRows) * getDisplayWidthBytes());
   einkDisplay.writeGrayscalePlaneStrip(lsbPlane ? EInkDisplay::GRAY_PLANE_LSB : EInkDisplay::GRAY_PLANE_MSB, rows,
                                        yStart, numRows);
 }
@@ -390,6 +430,7 @@ bool HalDisplay::fastTracksPanel() const {
 
 bool HalDisplay::displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) {
   HalSpiBus::Lock spiLock;
+  shotRefresh(false);
   markFlash(fallback != RefreshMode::FAST_REFRESH);
   count(fallback);
   return einkDisplay.displayGrayscaleBaseAsync(convertRefreshMode(fallback));
@@ -406,3 +447,31 @@ uint16_t HalDisplay::getDisplayHeight() const { return einkDisplay.getDisplayHei
 uint16_t HalDisplay::getDisplayWidthBytes() const { return einkDisplay.getDisplayWidthBytes(); }
 
 uint32_t HalDisplay::getBufferSize() const { return einkDisplay.getBufferSize(); }
+
+bool HalDisplay::grayScreenshot(uint8_t* out, const uint32_t outLen) const {
+#if CROSSDINK_SERIAL_REMOTE
+  const uint32_t w = getDisplayWidth();
+  const uint32_t h = getDisplayHeight();
+  const uint32_t wb = getDisplayWidthBytes();
+  if (!shotShown || getBufferSize() > SHOT_PLANE_MAX || outLen < w * h) return false;
+  // Levels per GrayscaleCapabilities.h. Overlay masks (LSB, MSB): dark=11,
+  // light=01, else the B/W framebuffer (1 = white), which holds the page base
+  // again once a gray pass returns. Absolute planes: level = LSB + 2 * MSB.
+  const uint8_t* bw = getFrameBuffer();
+  for (uint32_t y = 0; y < h; y++) {
+    for (uint32_t x = 0; x < w; x++) {
+      const uint32_t i = y * wb + (x >> 3);
+      const uint8_t bit = 0x80 >> (x & 7);
+      const bool lsb = shotLsb[i] & bit;
+      const bool msb = shotMsb[i] & bit;
+      const uint8_t level = shotAbsolute ? lsb + 2 * msb : msb ? (lsb ? 1 : 2) : ((bw[i] & bit) ? 3 : 0);
+      *out++ = level * 85;  // 0 black, 85 dark, 170 light, 255 white
+    }
+  }
+  return true;
+#else
+  (void)out;
+  (void)outLen;
+  return false;
+#endif
+}
