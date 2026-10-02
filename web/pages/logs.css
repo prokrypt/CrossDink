@@ -1,0 +1,6 @@
+h2 { color: var(--title-color); margin-top: 0; font-size: 1.15em; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row select, .row input { flex: 1; min-width: 140px; padding: 6px; }
+.btn { padding: 6px 14px; border-radius: var(--radius-sm); background: var(--accent-color); color: #fff; text-decoration: none; }
+.meta { color: var(--label-color); font-size: 0.9em; }
+pre { max-height: 70vh; overflow: auto; font-size: 0.8em; white-space: pre-wrap; word-break: break-all; }

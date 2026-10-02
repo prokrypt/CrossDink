@@ -1,5 +1,32 @@
 #include "SerialRemote.h"
 
+#include <strings.h>
+
+bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
+  // FAT matches names case-insensitively, drops trailing dots and spaces, and
+  // also opens the 8.3 alias (REMOTE~1), so compare what the card would open.
+  // A dots-only segment could step back into /debug: refuse those anywhere.
+  int seg = 0;
+  bool match = true;
+  for (const char* p = path; *p;) {
+    while (*p == '/') p++;
+    const char* s = p;
+    while (*p && *p != '/') p++;
+    size_t n = p - s;
+    if (n == 0) break;
+    while (n && (s[n - 1] == '.' || s[n - 1] == ' ')) n--;
+    if (n == 0) return true;
+    if (seg == 0) {
+      match = match && n == 5 && strncasecmp(s, "debug", 5) == 0;
+    } else if (seg == 1) {
+      match = match &&
+              ((n == 12 && strncasecmp(s, "remote-token", 12) == 0) || (n > 7 && strncasecmp(s, "remote~", 7) == 0));
+    }
+    seg++;
+  }
+  return match && (seg == 2 || (orFolder && seg == 1));
+}
+
 #if CROSSDINK_SERIAL_REMOTE
 
 #include <Arduino.h>
