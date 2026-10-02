@@ -69,6 +69,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- On-screen keyboard: the highlighted key (tapped, pressed or selected with the buttons) is light gray with black text, as in upstream CrossInk, instead of black with white text. Turbo keyboard draws it in the same refresh as before, so typing speed is unchanged.
 - UI consistency pass. Clear Reading Cache, Backup Now, Update and Wi-Fi Forget confirm with the same popup as the rest of the UI ("Confirm: <action>"); the Update page under it centres its version lines. Status pages (Clear Cache, Backup, Sync Clock, Wi-Fi) use one UI_10 bold title style and line spacing. The Update screen keeps one header style in every state (the back icon hides while installing). The File Transfer screens use the standard header, centre their text with QR codes below, and say Exit on all three. The XTC reader menu uses toggles for on/off rows. Goodies titles use Title Case and Pin Monitor shows a switch (debug builds). Settings > KOReader Sync dims Authenticate until credentials are set. Reading Stats' second pages show Back (previous page) on the back button and Exit on Left.
 - Web portal: Home, Settings, Fonts, Battery and Logs headings and action buttons carry emoji icons like the File Manager.
 - Web portal: deleting a saved Wi-Fi network, OPDS server or font family asks in the same styled dialog as the File Manager instead of the browser's confirm box.

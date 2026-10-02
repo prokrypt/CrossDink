@@ -681,7 +681,7 @@ void KeyboardEntryActivity::loop() {
       highlightPending = false;
       // The tapped key keeps the highlight; only the initial preselect is hidden.
       if (tapHighlight) selectionShown = true;
-      // Turbo: the tapped key shows inverted in the refresh that prints it (no
+      // Turbo: the tapped key shows gray in the refresh that prints it (no
       // press refresh); it stays until the next key.
       else interactions.setFlash(ACTION_KEY, result.event.value);
       syncSelectionToValue(result.event.value);
@@ -1200,14 +1200,16 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
-  // Turbo highlights only the last tapped key (the tap flash, drawn inverted).
-  // A key under a finger when some refresh lands stays plain, else only keys
-  // held during another key's refresh lit up while typing fast.
-  if (kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT) {
-    props.keyStyles = fui::defaultKeyStyles();
-    props.keyStyles.focused = props.keyStyles.active;
-    props.keyStyles.active = props.keyStyles.normal;
-  }
+  // Key highlights use upstream's light-gray dither, not an inverted key. The
+  // dither is 1-bit pixels, so the turbo DU path draws it like any glyph.
+  props.keyStyles = fui::defaultKeyStyles();
+  fui::BoxStyle gray = props.keyStyles.normal;
+  gray.background = fui::Paint::dither(fui::Color::LightGray);
+  props.keyStyles.selected = props.keyStyles.focused = props.keyStyles.active = gray;
+  // Turbo highlights only the last tapped key (the tap flash). A key under a
+  // finger when some refresh lands stays plain, else only keys held during
+  // another key's refresh lit up while typing fast.
+  if (kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT) props.keyStyles.active = props.keyStyles.normal;
   props.selectedIndex = cursorMode || !selectionShown ? -1 : static_cast<int16_t>(selectedLogicalIndex());
   props.labelText.font = layoutId == fui::KeyboardLayoutId::ArabicAr && !symbols ? fui::GfxRendererTarget::FONT_SMALL
                                                                                  : fui::GfxRendererTarget::FONT_BODY;
