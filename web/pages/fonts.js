@@ -40,7 +40,7 @@ function formatSize(bytes) {
 
           const btn = document.createElement('button');
           btn.className = 'btn btn-danger';
-          btn.textContent = 'Delete';
+          btn.textContent = '🗑️ Delete';
           // Capture name in the closure rather than interpolating into onclick.
           const familyName = f.name;
           btn.addEventListener('click', () => deleteFamily(familyName));
