@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Web portal: a Logs page (nav link on every page) shows `/api/status`, the PSRAM log (debug builds) and every file under `/debug/` on the SD card (battery logs, crash report, display scripts). Pick a source to view it, type to filter its lines, or download it. Sources a build or card lacks are left out.
 - OPDS: choosing a book asks "Download? <title>" with its size before downloading (from the feed when it says, otherwise looked up in the background; "?" if unknown). A book already on the SD card gets the overwrite question with its size and date instead, and no size lookup.
 - OPDS: background page loads give up after 10 s of silence instead of 60 s, pause 30 s after a network failure, and a page loaded in the last minute is not rechecked when you go back to it, so Wi-Fi can idle sooner while browsing.
 - Debug builds (X4 Pro): Goodies > Knobs lists internal timing, threshold and frame-count constants on tabs like Settings (Panel, Light, Touch, Power, Heap, Book, Wi-Fi; long-press Up/Down or tap to switch) with their units, and changes each one with a slider; changed rows show a *. Changes apply at once and are saved to `/.crosspoint/knobs.json` (only values that differ from the default); Reset all goes back to the defaults and deletes the file. If the device crashes 3 times without staying up 30 s, the file is set aside as `knobs.bad.json` and the defaults are used; holding Back while it starts ignores the file for that boot. Memory gates can only be raised. Also over USB serial and the Wi-Fi remote: `KNOB list [from]`, `KNOB get <id>`, `KNOB set <id> <value>`, `KNOB reset [<id>]`. Display frame counts only feed the charge-balanced waveform generators; waveform shapes, voltages and VCOM are not knobs. Release builds keep the constants and are unchanged.
@@ -58,6 +59,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- X4 Pro: with a USB host attached that is not reading the serial port, log lines skip the serial output instead of waiting up to 1 ms each (about 23 ms per page turn). The PSRAM and RTC logs still keep every line.
 - X4 Pro: idle loop. After 2 s with no input the main loop wakes once a second (was every 250 ms until 10 s). Under Quick Lock it waits the same way instead of every 10 ms.
 - X4 Pro: the main loop wakes at once when a screen finishes drawing, when another task asks for a redraw, or when the charger starts or stops, instead of noticing at its next idle tick.
 - A brightness slide or two-finger swipe that ends at 0% turns the frontlight off. Turning it back on restores the brightness from before the slide.
@@ -158,6 +160,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Web portal and WebDAV: `/debug/remote-token` (the Wi-Fi remote token) can no longer be downloaded, replaced, renamed or deleted over the network, under any spelling of its name, even with Show Hidden Files on; the `/debug` folder itself can no longer be renamed, moved or copied there, which would carry the token out with it.
 - X4 Pro: an edge slide that turns an off frontlight on keeps it on at the level you let go at, even if you slid back below where you started. Only 0% turns it off.
 - X4 Pro: an edge slide set to lower the brightness does nothing while the frontlight is off: the light stays off and keeps its brightness. A slide set to raise it still turns it on.
 - X4 Pro: Dim Light on Flash on Half/Full refreshes (waking to Home, every 15th page) dims 0.4 s into the refresh and brings the light back 0.5 s before it ends instead of 0.3 s after, and the dim at wake lands as the flash starts instead of before the panel powers up.

@@ -9,6 +9,11 @@
 // "ERR:<VERB>:<reason>". See docs/serial-remote.md for the command list.
 namespace SerialRemote {
 
+// True when a normalized SD path names /debug/remote-token (any build), or with
+// orFolder also /debug itself. The web server and WebDAV refuse these so the
+// token is never served, copied or moved out, or replaced over the network.
+bool isTokenPath(const char* path, bool orFolder = false);
+
 #if CROSSDINK_SERIAL_REMOTE
 // Handles one received line (without the newline). False when the line is not
 // a remote-control command, so the caller can try its own commands.
