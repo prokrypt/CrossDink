@@ -621,20 +621,30 @@ static void logInternalHeapPins() {
 #endif
 #endif
 
+bool keepWifiForRemote() {
+#if CROSSDINK_GOODIES
+  return goodies_remote::keepsStation();
+#else
+  return false;
+#endif
+}
+
 bool leaveNetworkInPlace(const bool goingHome) {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
   const wifi_mode_t mode = WiFi.getMode();
+  // The Goodies remote's own network: hand the link back, no teardown and rejoin.
+  const bool keepLink = keepWifiForRemote();
   if (mode != WIFI_MODE_NULL) {
-    if (mode & WIFI_MODE_AP) WiFi.softAPdisconnect(true);
-    if (mode & WIFI_MODE_STA) WiFi.disconnect(true);
+    if (!keepLink && (mode & WIFI_MODE_AP)) WiFi.softAPdisconnect(true);
+    if (!keepLink && (mode & WIFI_MODE_STA)) WiFi.disconnect(true);
     // Arduino keeps the power-save mode across sessions: a KOSync or Nearby
     // WiFi.setSleep(false) otherwise leaves every later session (OPDS
     // browsing: wifi lock 100%) without modem sleep.
     WiFi.setSleep(true);
     // WIFI_OFF stops the driver and calls esp_wifi_deinit(), returning its
     // internal buffers before the heap check below.
-    WiFi.mode(WIFI_OFF);
+    if (!keepLink) WiFi.mode(WIFI_OFF);
   }
   if (!readerRenderStackReady) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
@@ -644,9 +654,9 @@ bool leaveNetworkInPlace(const bool goingHome) {
   logInternalHeapPins();
 #endif
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  // The Goodies remote rejoins only with a 48 KB block: while it is on, a
-  // restart (it rejoins at boot) beats staying up without it.
-  const uint32_t need = goingHome && psramHeapAvailable() && !SETTINGS.goodiesWifiRemote
+  // The Goodies remote rejoins only with a 48 KB block: while it is on and
+  // must rejoin, a restart (it rejoins at boot) beats staying up without it.
+  const uint32_t need = goingHome && psramHeapAvailable() && !(SETTINGS.goodiesWifiRemote && !keepLink)
                             ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
                             : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
   if (largest < need) {

@@ -56,6 +56,9 @@ void silentRestartToManageFonts();
 // work (a lower bar when goingHome); the caller then falls back to its silent
 // restart. True during deep sleep, so callers go on with their normal cleanup.
 bool leaveNetworkInPlace(bool goingHome = false);
+// True when a leaving Wi-Fi screen should keep the station link for the Goodies
+// Wi-Fi remote (same network, remote on). Always false without Goodies.
+bool keepWifiForRemote();
 // For a Wi-Fi screen's onExit(): runs leaveNetworkInPlace() once the screen is
 // destroyed (finishNetworkExit()), so its leftover allocations don't split the
 // block the check needs. If that fails it restarts into `bookPath`, or Home
