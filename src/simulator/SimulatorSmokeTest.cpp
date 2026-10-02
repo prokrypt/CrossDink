@@ -293,8 +293,8 @@ class SimulatorSmokeTest {
         SETTINGS.tapToHideStatusBar) {
       fail("Reader controls settings round-trip mismatch");
     }
-    constexpr char CROSSDINK_SETTINGS_FILE_BAK[] = "/.crossdink/crossdink-settings.json.bak";
-    constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crossdink/settings.json";
+    constexpr char CROSSDINK_SETTINGS_FILE_BAK[] = "/.crossdink/settings.json.bak";
+    constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
     const char* const crossDinkSettingsPath = CrossPointSettings::getFilePath();
     const bool hadCrossDinkSettings = Storage.exists(crossDinkSettingsPath);
     const String savedCrossDinkSettings = hadCrossDinkSettings ? Storage.readFile(crossDinkSettingsPath) : String();

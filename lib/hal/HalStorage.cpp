@@ -381,9 +381,12 @@ bool isTempName(const char* name) {
   return strcmp(name, "ota-update.bin") == 0;
 }
 
+// settings.json(.bak) never reads through: /.crosspoint/settings.json belongs to
+// CrossPoint/CrossInk, and CrossPointSettings imports it explicitly.
 bool inDataRoot(const char* path) {
   return path && strncmp(path, kDataRoot, kDataRootLen) == 0 &&
-         (path[kDataRootLen] == '/' || path[kDataRootLen] == '\0') && strncmp(path + kDataRootLen, "/epub_", 6) != 0;
+         (path[kDataRootLen] == '/' || path[kDataRootLen] == '\0') && strncmp(path + kDataRootLen, "/epub_", 6) != 0 &&
+         strncmp(path + kDataRootLen, "/settings.json", 14) != 0;
 }
 
 // Caller holds the storage lock. True when `path` or a folder above it was removed.

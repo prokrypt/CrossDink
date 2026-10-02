@@ -18,8 +18,7 @@ CrossInk's `/.crosspoint` is read in place: a `/.crossdink` file or folder that 
 ├── global_stats.bin        # All-time reading stats, including total books read
 ├── global_stats.bin.bak    # Backup used if the main global stats file is corrupt
 ├── synced_stats/           # Stats snapshots received from other readers
-├── crossdink-settings.json  # CrossDink device settings
-├── settings.json           # Legacy settings fallback, if present
+├── settings.json           # CrossDink device settings
 ├── settings.bin.bak        # Legacy binary settings file after migration, if present
 ├── state.json              # Last-opened book and sleep/session state
 ├── state.bin.bak           # Legacy binary state file after migration, if present
