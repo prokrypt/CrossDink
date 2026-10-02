@@ -452,6 +452,7 @@ void appendCarouselCoverStateToKey(std::string& key, const RecentBook& book) {
     if (FsHelpers::hasEpubExtension(book.path)) appendHashedFileStateToKey(key, cachePath + "/progress.bin.bak");
     if (FsHelpers::hasEpubExtension(book.path) || FsHelpers::hasXtcExtension(book.path)) {
       appendHashedFileStateToKey(key, cachePath + "/stats_v5.bin");
+      appendHashedFileStateToKey(key, cachePath + "/stats_v5.bin.bak");  // second stats slot
       appendHashedFileStateToKey(key, cachePath + "/reading_stats_off");
     }
   } else {
@@ -526,6 +527,7 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const boo
     appendCarouselCoverStateToKey(key, book);
   }
   appendHashedFileStateToKey(key, "/.crosspoint/global_stats.bin");
+  appendHashedFileStateToKey(key, "/.crosspoint/global_stats.bin.bak");
   appendSyncedStatsStateToKey(key);
   keyHash = fnvHash64(key);
 }

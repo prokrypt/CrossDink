@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Print.h>
+#include <fcntl.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -39,6 +40,10 @@ class HalFile : public Print {
   }
   size_t write(const void* input, const size_t length) { return write(static_cast<const uint8_t*>(input), length); }
 
+  bool seekSet(const size_t position) {
+    cursor_ = position;
+    return static_cast<bool>(data_);
+  }
   void flush() {}
   bool sync() const { return static_cast<bool>(data_); }
   bool close() {
@@ -96,6 +101,13 @@ class HalStorage {
     files_[path] = data;
     file = HalFile(std::move(data));
     return true;
+  }
+
+  // In-place open (O_RDWR | O_CREAT): keeps existing bytes.
+  HalFile open(const char* path, int) {
+    auto& data = files_[path];
+    if (!data) data = std::make_shared<HostFileData>();
+    return HalFile(data);
   }
 
   void failNextRenameFrom(std::string path) { failRenameFrom_.insert(std::move(path)); }

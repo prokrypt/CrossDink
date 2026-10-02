@@ -103,29 +103,11 @@ bool chooseBackupName(const bool manual, char* out, const size_t outLen) {
 }
 
 bool readStatsFile(std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE>& buffer, size_t& outSize) {
-  outSize = 0;
-
-  FsFile file;
-  if (!Storage.openFileForRead(LOG_TAG, GLOBAL_STATS_PATH, file)) {
-    LOG_ERR(LOG_TAG, "Could not open stats file for backup: %s", GLOBAL_STATS_PATH);
+  outSize = GlobalReadingStats::readLocalFile(buffer);
+  if (outSize < GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE) {
+    LOG_ERR(LOG_TAG, "No readable stats to back up: %s", GLOBAL_STATS_PATH);
     return false;
   }
-
-  const size_t fileSize = file.fileSize();
-  if (fileSize < GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE || fileSize > buffer.size()) {
-    LOG_ERR(LOG_TAG, "Stats file has unsupported size for backup: %u bytes", static_cast<unsigned>(fileSize));
-    file.close();
-    return false;
-  }
-
-  const int read = file.read(buffer.data(), fileSize);
-  file.close();
-  if (read != static_cast<int>(fileSize)) {
-    LOG_ERR(LOG_TAG, "Failed to read stats file for backup: %d/%u bytes", read, static_cast<unsigned>(fileSize));
-    return false;
-  }
-
-  outSize = fileSize;
   return true;
 }
 

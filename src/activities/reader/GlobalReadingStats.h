@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include "ReadingStatsUtils.h"
@@ -37,11 +38,16 @@ struct GlobalReadingStats {
   // when the local stats may include in-memory changes that are not saved yet.
   static GlobalReadingStats loadAggregated(const GlobalReadingStats& localStats);
 
-  // Saves stats to /.crosspoint/global_stats.bin.
+  // Saves stats in place to the older of the two slots global_stats.bin and
+  // global_stats.bin.bak (TwoSlotFile.h).
   void save() const;
 
-  // Replaces /.crosspoint/global_stats.bin with a fresh empty file without
-  // rotating or deleting any backup files.
+  // Copies this device's stats payload (newest valid slot, without the slot
+  // trailer) into out. Returns its size, or 0 when there is none.
+  static size_t readLocalFile(std::array<uint8_t, CURRENT_FILE_SIZE>& out);
+
+  // Replaces both slots of /.crosspoint/global_stats.bin with fresh empty stats
+  // without touching the backups in /.crossink-stats-backup.
   static bool resetLocal();
 
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
