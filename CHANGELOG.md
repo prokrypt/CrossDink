@@ -180,6 +180,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Web File Manager: the Modified column is hidden on screens up to 800 px wide (was 600 px), so phones with a small display size or zoomed-out browser no longer squeeze file names to a few letters per line.
 - X4 Pro (debug builds): Goodies > Battery & stats no longer shows a longer time to empty for a brighter frontlight. When the log showed less drain with the light on than off (the light-off stretches held heavier work, like transfers), the light's share came out negative and grew with brightness; the light now only ever adds drain, so the estimate stays at the light-off rate until the log shows the light costing more.
 - X4 Pro: after a crash or restart the device could get stuck rebooting about 0.3 s into every boot, so it looked like it would not wake until the reset button was pressed. A charger or button line left armed by the previous run no longer fires before its handler is ready.
 - X4 Pro: Dim Light on Flash on Half/Full refreshes (waking to Home, every 15th page) dims 0.4 s into the refresh and brings the light back 0.5 s before it ends instead of 0.3 s after, and the dim at wake lands as the flash starts instead of before the panel powers up.
