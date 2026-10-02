@@ -1443,7 +1443,7 @@ void WifiSelectionActivity::renderConnecting(const Rect* screen, const ThemeMetr
                                              autoConnecting ? tr(STR_CONNECTING_SAVED_WIFI) : tr(STR_CONNECTING), 2,
                                              true, EpdFontFamily::BOLD);
 
-    const std::string ssidInfo = std::string(tr(STR_TO_PREFIX)) + selectedSSID;
+    const std::string ssidInfo = std::string(tr(STR_TO_PREFIX)) + " " + selectedSSID;
     UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, UI_10_FONT_ID, top, ssidInfo.c_str(), 3);
     if (autoConnecting) {
       const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_SHOW_NETWORKS), "", "");
@@ -1464,11 +1464,11 @@ void WifiSelectionActivity::renderConnected(const Rect* screen, const ThemeMetri
   UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top - 30, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
 
   const std::string ssidInfo =
-      renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID).c_str(),
+      renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + " " + selectedSSID).c_str(),
                              screen->width - metrics->contentSidePadding * 2);
   UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top + 10, ssidInfo.c_str());
 
-  const std::string ipInfo = std::string(tr(STR_IP_ADDRESS_PREFIX)) + connectedIP;
+  const std::string ipInfo = std::string(tr(STR_IP_ADDRESS_PREFIX)) + " " + connectedIP;
   UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top + 40, ipInfo.c_str());
 
   // Use centralized button hints
@@ -1483,7 +1483,7 @@ void WifiSelectionActivity::renderSavePrompt(const Rect* screen, const ThemeMetr
   UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top - 40, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
 
   const std::string ssidInfo =
-      renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID).c_str(),
+      renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + " " + selectedSSID).c_str(),
                              screen->width - metrics->contentSidePadding * 2);
   UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top, ssidInfo.c_str());
 

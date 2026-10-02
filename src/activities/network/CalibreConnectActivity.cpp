@@ -189,7 +189,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
 
     // Keep the network name and full address independently readable on narrow
     // screens. Sharing one subheader row forces one of them to be truncated.
-    const std::string ipLabel = std::string(tr(STR_IP_ADDRESS_PREFIX)) + connectedIP;
+    const std::string ipLabel = std::string(tr(STR_IP_ADDRESS_PREFIX)) + " " + connectedIP;
     const int ipTop = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing;
     renderer.drawCenteredText(SMALL_FONT_ID, ipTop, ipLabel.c_str());
 
@@ -224,7 +224,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
     }
 
     if (!showUploadProgress && lastCompleteAt > 0 && (millis() - lastCompleteAt) < 6000) {
-      std::string msg = std::string(tr(STR_CALIBRE_RECEIVED)) + lastCompleteName;
+      std::string msg = std::string(tr(STR_CALIBRE_RECEIVED)) + " " + lastCompleteName;
       msg = renderer.truncatedText(SMALL_FONT_ID, msg.c_str(), pageWidth - metrics.contentSidePadding * 2,
                                    EpdFontFamily::REGULAR);
       renderer.drawCenteredText(SMALL_FONT_ID, y, msg.c_str());
