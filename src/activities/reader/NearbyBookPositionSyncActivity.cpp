@@ -182,11 +182,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_NEARBY_POSITION_SYNC));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
 
   if (state_ == State::SHOWING_RESULT) {
     renderComparison();
@@ -1284,11 +1280,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_NEARBY_POSITION_SYNC));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
 
   if (state_ == State::SHOWING_RESULT) {
     renderComparison();

@@ -762,11 +762,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_KOREADER_SYNC), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_KOREADER_SYNC));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_KOREADER_SYNC), true);
 
   int top = screen.y + screen.height / 2 - 40;
   if (state == NO_CREDENTIALS) {

@@ -273,11 +273,7 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LOOKUP_HISTORY), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_LOOKUP_HISTORY));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LOOKUP_HISTORY), true);
 
   const int contentTop =
       metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
