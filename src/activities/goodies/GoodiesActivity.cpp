@@ -406,7 +406,7 @@ constexpr int MAX_KNOB_TABS = 8;
 constexpr int KBD_TURBO = -4;  // Keyboard test: the Turbo Keyboard setting, not a knob
 // Keyboard test: the knobs that change typing feel, under Turbo keyboard.
 constexpr const char* KBD_TEST_KNOBS[] = {
-    "kbdFrames", "kbdPll", "kbdHighlightDelayMs", "kbdTouchHoldMs", "kbdTouchDelHoldMs", "contactJumpPx", "tapSlopPx"};
+    "kbdFrames", "kbdHighlightDelayMs", "kbdTouchHoldMs", "kbdTouchDelHoldMs", "contactJumpPx", "tapSlopPx"};
 
 // Knob groups in Knobs.def order (rows of a group are contiguous): one tab each.
 int knobGroups(const char* (&out)[MAX_KNOB_TABS]) {

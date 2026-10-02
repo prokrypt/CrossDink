@@ -20,9 +20,9 @@ struct Knobs {
 #undef X
 
 namespace knobs {
-// UC8179 PLL (0x30) bytes by kbdPll index: panel default, 40 Hz, 50 Hz. The only
-// PLL values any runtime path sends (kbdPll, CMD:KBDEXP, display test `pll`):
-// raw bytes are never runtime-tunable.
+// UC8179 PLL (0x30) bytes by choice: panel default, 40 Hz, 50 Hz. The only PLL
+// values any runtime path sends (CMD:KBDEXP, display test `pll`): raw bytes are
+// never runtime-tunable, and PLL is not a knob.
 inline constexpr uint8_t PLL_BYTES[] = {0, 0x05, 0x06};
 inline constexpr int PLL_CHOICES = sizeof(PLL_BYTES);
 }  // namespace knobs

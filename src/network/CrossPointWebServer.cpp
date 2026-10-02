@@ -995,13 +995,14 @@ void CrossPointWebServer::setIdleModemSleep() {
   // listen_interval goes out in the association request: a change applies at
   // the next (re)association. Arduino's WiFi.begin() resets it to 0 (= 3).
   static uint8_t loggedMode = 0xFF, loggedInterval = 0;
+  constexpr uint8_t LISTEN_INTERVAL = 3;  // MAX_MODEM: beacons per wake
   wifi_config_t conf;
   uint8_t interval = 0;
   if (maxModem && esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK) {
     interval = conf.sta.listen_interval ? conf.sta.listen_interval : 3;
-    if (interval != KNOBS.wifiListenInterval) {
-      conf.sta.listen_interval = KNOBS.wifiListenInterval;
-      if (esp_wifi_set_config(WIFI_IF_STA, &conf) == ESP_OK) interval = KNOBS.wifiListenInterval;
+    if (interval != LISTEN_INTERVAL) {
+      conf.sta.listen_interval = LISTEN_INTERVAL;
+      if (esp_wifi_set_config(WIFI_IF_STA, &conf) == ESP_OK) interval = LISTEN_INTERVAL;
     }
   }
   // Logged only when it changes: a log line per poll would end every log long-poll.
