@@ -5,35 +5,16 @@
 #include <I18n.h>
 #include <Logging.h>
 
-#include <algorithm>
-
 #include "MappedInputManager.h"
-#include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
 
-namespace {
-
-TouchActionButtons::Layout touchActionLayout(const GfxRenderer& renderer) {
-  auto& theme = UITheme::getInstance();
-  const auto& metrics = theme.getMetrics();
-  const Rect screen = theme.getScreenSafeArea(renderer, true, false);
-  constexpr int buttonCount = 2;
-  const int totalHeight = TouchActionButtons::kDefaultHeight * buttonCount + TouchActionButtons::kDefaultGap;
-  const Rect container{screen.x + metrics.contentSidePadding,
-                       screen.y + screen.height - metrics.verticalSpacing - totalHeight,
-                       std::max(1, screen.width - metrics.contentSidePadding * 2), totalHeight};
-  return TouchActionButtons::vertical(container, buttonCount);
-}
-
-}  // namespace
-
 void ClearCacheActivity::onEnter() {
   Activity::onEnter();
 
-  state = WARNING;
+  state = START;
   requestUpdate();
 }
 
@@ -48,26 +29,7 @@ void ClearCacheActivity::render(RenderLock&&) {
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, tr(STR_CLEAR_READING_CACHE), false);
 
-  if (state == WARNING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 60, tr(STR_CLEAR_CACHE_WARNING_1), true);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 30, tr(STR_CLEAR_CACHE_WARNING_2), true,
-                              EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_CLEAR_CACHE_WARNING_3), true);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 30, tr(STR_CLEAR_CACHE_WARNING_4), true);
-
-    if (mappedInput.hasTouch()) {
-      const auto actions = touchActionLayout(renderer);
-      const char* labels[] = {tr(STR_CLEAR_BUTTON), tr(STR_CANCEL)};
-      TouchActionButtons::draw(renderer, actions, labels, 0, -1, UI_10_FONT_ID);
-    } else {
-      const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_CLEAR_BUTTON), "", "");
-      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    }
-    renderer.displayBuffer();
-    return;
-  }
-
-  if (state == CLEARING) {
+  if (state == START || state == CLEARING) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_CLEARING_CACHE));
     renderer.displayBuffer();
     return;
@@ -167,31 +129,9 @@ void ClearCacheActivity::loop() {
     goBack();
     return;
   }
-  if (state == WARNING) {
-    int x = 0;
-    int y = 0;
-    if (mappedInput.hasTouch() && mappedInput.wasScreenTouchDown(x, y)) {
-      const int action = TouchActionButtons::indexAt(touchActionLayout(renderer), x, y);
-      if (action == 0) {
-        mappedInput.suppressNextTouchTap();
-        startClearing();
-        return;
-      }
-      if (action == 1) {
-        mappedInput.suppressNextTouchTap();
-        goBack();
-        return;
-      }
-    }
-
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      startClearing();
-      return;
-    }
-
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      goBack();
-    }
+  if (state == START) {
+    // Settings already asked for confirmation; clear right away.
+    startClearing();
     return;
   }
 

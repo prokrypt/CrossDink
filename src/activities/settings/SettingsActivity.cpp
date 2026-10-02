@@ -39,6 +39,7 @@
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
+#include "activities/home/BookActions.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -1164,11 +1165,22 @@ void SettingsActivity::toggleCurrentSetting() {
                                });
         break;
       case SettingAction::BackupStats:
-        startActivityForResult(std::make_unique<BackupStatsActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(
+            std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                   BookActions::confirmationHeading(StrId::STR_BACKUP_NOW),
+                                                   tr(STR_BACKUP_STATS_CONFIRM)),
+            [this, resultHandler](const ActivityResult& result) {
+              if (result.isCancelled) {
+                requestUpdate();
+                return;
+              }
+              startActivityForResult(std::make_unique<BackupStatsActivity>(renderer, mappedInput), resultHandler);
+            });
         break;
       case SettingAction::ResetGlobalStats:
         startActivityForResult(
-            std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_ALL_TIME_STATS),
+            std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                   BookActions::confirmationHeading(StrId::STR_RESET_ALL_TIME_STATS),
                                                    tr(STR_RESET_ALL_TIME_STATS_CONFIRM)),
             [this](const ActivityResult& result) {
               if (!result.isCancelled && !GlobalReadingStats::resetLocal()) {
@@ -1177,9 +1189,21 @@ void SettingsActivity::toggleCurrentSetting() {
               requestUpdate();
             });
         break;
-      case SettingAction::ClearCache:
-        startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
+      case SettingAction::ClearCache: {
+        const std::string body = std::string(tr(STR_CLEAR_CACHE_WARNING_1)) + " " + tr(STR_CLEAR_CACHE_WARNING_2) +
+                                 " " + tr(STR_CLEAR_CACHE_WARNING_3) + " " + tr(STR_CLEAR_CACHE_WARNING_4);
+        auto confirm = std::make_unique<ConfirmationActivity>(
+            renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_CLEAR_READING_CACHE), body);
+        confirm->setConfirmOption(tr(STR_CLEAR_BUTTON), false);
+        startActivityForResult(std::move(confirm), [this, resultHandler](const ActivityResult& result) {
+          if (result.isCancelled) {
+            requestUpdate();
+            return;
+          }
+          startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
+        });
         break;
+      }
       case SettingAction::CheckForUpdates:
         silentRestartToNetwork(NetworkBootTarget::OTA);
         break;

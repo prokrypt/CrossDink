@@ -16,9 +16,9 @@ class ClearCacheActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum State { WARNING, CLEARING, SUCCESS, FAILED };
+  enum State { START, CLEARING, SUCCESS, FAILED };
 
-  State state = WARNING;
+  State state = START;
 
   void goBack() { finish(); }
 
