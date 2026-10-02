@@ -1318,7 +1318,8 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       }
       y += noteLineHeight;
     }
-    while (noteLines.size() < 2) y += noteLineHeight;
+    // The note area is always two lines tall (noteHeight); pad a one-line note.
+    if (noteLines.size() < 2) y += noteLineHeight * static_cast<int>(2 - noteLines.size());
 
     const int separatorY = y + metrics.optionPopupTitleGap / 2;
     renderer.drawLine(dialogX + innerPadding, separatorY, dialogX + dialogW - innerPadding, separatorY, true);
