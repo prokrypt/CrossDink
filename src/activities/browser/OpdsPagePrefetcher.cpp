@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "network/HttpDownloader.h"
+#include "util/UrlUtils.h"
 
 namespace {
 // wolfSSL handshake plus the HTTP client need more than the 4 KB used by the
@@ -38,19 +39,31 @@ bool OpdsPagePrefetcher::start(Request&& request, const size_t maxBytes) {
   return true;
 }
 
-void OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict) {
-  if (running()) return;
+bool OpdsPagePrefetcher::harvestInto(OpdsPageCache& cache, const bool mayEvict, const bool onlyIfChanged) {
+  if (running()) return false;
   task.join();  // not running: returns at once and frees the parked task
+  bool stored = false;
   if (succeeded && !page.empty()) {
-    LOG_DBG("OPDS", "Caching prefetched page (%zu bytes)", page.size());
-    if (!cache.store(job.url, std::move(page), mayEvict)) LOG_DBG("OPDS", "Prefetched page not cached (full)");
+    const OpdsPageBuffer* cached = onlyIfChanged ? cache.find(job.url) : nullptr;
+    if (cached && OpdsPageCache::sameFeed(*cached, page)) {
+      LOG_INF("OPDS", "Recheck unchanged: %s", UrlUtils::maskUserInfo(job.url).c_str());
+    } else {
+      if (onlyIfChanged) {
+        LOG_INF("OPDS", "Recheck changed (%zu bytes): %s", page.size(), UrlUtils::maskUserInfo(job.url).c_str());
+      } else {
+        LOG_DBG("OPDS", "Caching prefetched page (%zu bytes)", page.size());
+      }
+      stored = cache.store(job.url, std::move(page), mayEvict);
+      if (!stored) LOG_DBG("OPDS", "Prefetched page not cached (full)");
+    }
   }
   succeeded = false;
   page.reset();
+  return stored;
 }
 
 void OpdsPagePrefetcher::run() {
-  LOG_DBG("OPDS", "Prefetching: %s", job.url.c_str());
+  LOG_DBG("OPDS", "Prefetching: %s", UrlUtils::maskUserInfo(job.url).c_str());
   HttpDownloader::DownloadOptions options;
   options.transport = HttpDownloader::Transport::WOLFSSL;
   options.authorizationOrigin = job.authorizationOrigin;
@@ -82,7 +95,7 @@ void OpdsPagePrefetcher::run() {
 // these keep the link complete.
 OpdsPagePrefetcher::~OpdsPagePrefetcher() = default;
 bool OpdsPagePrefetcher::start(Request&&, size_t) { return false; }
-void OpdsPagePrefetcher::harvestInto(OpdsPageCache&, bool) {}
+bool OpdsPagePrefetcher::harvestInto(OpdsPageCache&, bool, bool) { return false; }
 void OpdsPagePrefetcher::run() {}
 
 #endif  // SIMULATOR

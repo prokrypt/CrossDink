@@ -84,11 +84,14 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   }
   // add the user message
   {
-    int len = vsnprintf(c, sizeof(buf) - (c - buf), format, args);
+    const size_t room = sizeof(buf) - (c - buf);
+    int len = vsnprintf(c, room, format, args);
     if (len < 0) {
       va_end(args);
       return;
     }
+    // Cut off: keep the format's trailing newline so the next entry starts on its own line.
+    if (static_cast<size_t>(len) >= room) buf[sizeof(buf) - 2] = '\n';
   }
   va_end(args);
 #if defined(SIMULATOR)

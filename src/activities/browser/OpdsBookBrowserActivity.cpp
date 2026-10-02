@@ -35,6 +35,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/markIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
@@ -147,6 +148,7 @@ void OpdsBookBrowserActivity::onEnter() {
   entryCount = 0;
   navigationHistory.clear();
   searchTemplate = "";
+  searchDescriptionUrl.clear();
   currentPath = "";
   selectorIndex = 0;
   errorMessage.clear();
@@ -310,7 +312,17 @@ void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::BROWSING) {
     // Queued feed downloads start only from the browsing list; a network
     // fetch or a book download pauses them.
-    if (preload) preload->pump();
+    if (preload) {
+      preload->pump();
+      // A preload stored or evicted a page: recheck the row marks.
+      if (pageCache && pageCache->changes() != pageCachedAt) markCachedFeeds();
+      // A recheck found the shown page changed: re-parse it in place.
+      std::string changed;
+      if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
+        LOG_INF("OPDS", "Recheck: redrawing changed page");
+        fetchFeed(currentPath, selectorIndex, topIndex, false);
+      }
+    }
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       navigateBack();
       return;
@@ -320,7 +332,7 @@ void OpdsBookBrowserActivity::loop() {
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
+      if (hasSearch() && selectorIndex == 0) launchSearch();
     }
 
     // Touch goes through the FreeInkApp: render() registered every tap target
@@ -417,7 +429,7 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
   const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     const auto backLayout = TouchHeaderBackButton::layout(headerRect);
-    const bool showSearch = withSearch && !searchTemplate.empty();
+    const bool showSearch = withSearch && hasSearch();
     TouchHeaderBackButton::draw(renderer, uiTarget, headerRect, title, false,
                                 showSearch ? static_cast<int>(backLayout.iconRect.width + 8) : 0);
     screen.takeTop(static_cast<int16_t>(headerRect.y + headerRect.height));
@@ -467,11 +479,16 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   // book count; same lifetime as `items`.
   using CountLabel = std::array<char, 16>;
   std::vector<CountLabel> countLabels(entryCount);
+  // The biggest check that fits the theme's row padding (8 px Lyra, 20 px others).
+  // 10 px bold check, ending where the title starts (picked from mockups).
+  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_10);
   for (size_t i = 0; i < entryCount; ++i) {
     const auto& entry = entries[i];
     fui::ListItem item;
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
+    // One mark for "no network needed": a downloaded book or a cached feed page.
+    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) item.icon = mark;
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
         snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
@@ -491,6 +508,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the nav chevron and the row edge
+  props.iconsInMargin = true;         // the check sits left of the title: nothing else moves
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entryCount));  // clamp to range
@@ -577,7 +595,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
     case BrowserState::BROWSING: {
       const char* confirmLabel =
           (entryCount > 0 && entries[selectorIndex].type == OpdsEntryType::BOOK) ? tr(STR_DOWNLOAD) : tr(STR_OPEN);
-      const char* searchLabel = (!searchTemplate.empty() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
+      const char* searchLabel = (hasSearch() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
       labels =
           mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, searchLabel, tr(STR_DIR_DOWN));
       break;
@@ -619,7 +637,7 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
     if (preload) preload->collect();
     const std::string url = UrlUtils::buildUrl(server.url, path);
     if (pageCache->contains(url)) {
-      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", url.c_str());
+      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", UrlUtils::maskUserInfo(url).c_str());
       return;
     }
   }
@@ -631,7 +649,8 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
   }
 }
 
-void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop) {
+void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop,
+                                        const bool recheck) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_MEMORY_ERROR);
@@ -700,6 +719,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   }
 
   searchTemplate = parser.getSearchTemplate();
+  searchDescriptionUrl = parser.getSearchDescriptionUrl();
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   entryCount = parser.getEntryCount();
@@ -734,6 +754,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
   topIndex = restoreTop;
   if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
+  markBooksOnSd();
+  markCachedFeeds();
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
@@ -745,6 +767,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
   if (currentPath.empty()) preloadFeedsOnPage();
+  if (recheck && shownFromCache && preload) preload->revalidate(url);
   if (preload) preload->pump();
 }
 
@@ -753,15 +776,17 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   // Otherwise a foreground request never overlaps them: finish the one for
   // this very page, pause the rest. Either way completed pages land in the
   // cache.
+  shownFromCache = false;
   if (pageCache) {
     const OpdsPageBuffer* cached = pageCache->find(url);
+    shownFromCache = cached != nullptr;
     if (!cached && preload) {
       const unsigned long joinStart = millis();
       if (preload->pause(url)) LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
       cached = pageCache->find(url);
     }
     if (cached) {
-      LOG_INF("OPDS", "Cached: %s (%zu bytes)", url.c_str(), cached->size());
+      LOG_INF("OPDS", "Cached: %s (%zu bytes)", UrlUtils::maskUserInfo(url).c_str(), cached->size());
       parser.parse(cached->data(), cached->size());
       return true;
     }
@@ -770,7 +795,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   // Keep the normalized server URL alive for the synchronous fetch so
   // HttpDownloader can scope Basic auth even for legacy scheme-less entries.
   const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
-  LOG_DBG("OPDS", "Fetching: %s", url.c_str());
+  LOG_DBG("OPDS", "Fetching: %s", UrlUtils::maskUserInfo(url).c_str());
   // Tee the response into PSRAM so this page is cached before the user moves
   // on; the parser still consumes it as it streams.
   OpdsPageBuffer page(MemoryPool::Psram, OPDS_PAGE_MAX_BYTES);
@@ -854,6 +879,66 @@ void OpdsBookBrowserActivity::stopPrefetch() {
   if (!preload) return;
   preload->pause("");
   preload->closeConnections();
+}
+
+// Feed rows (Prev/Next included) resolved to cache keys as navigateToEntry()
+// and the preloads do. Main loop only: the cache has no lock.
+void OpdsBookBrowserActivity::markCachedFeeds() {
+  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> cached;
+  if (pageCache) {
+    pageCachedAt = pageCache->changes();
+    const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+    for (size_t i = 0; i < entryCount; ++i) {
+      if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
+      const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
+      if (pageCache->contains(UrlUtils::buildUrl(server.url, path))) cached.set(i);
+    }
+  }
+  if (cached == pageCached) return;
+  {
+    RenderLock lock(*this);
+    pageCached = cached;
+  }
+  // A preload landing flips a ✓ on: redraw the list through the normal refresh.
+  if (state == BrowserState::BROWSING) requestUpdate();
+}
+
+// One pass over the download folder, not an exists() per book: each lookup
+// rescans the folder, so 50 books would read it 50 times. Read-only.
+void OpdsBookBrowserActivity::markBooksOnSd() {
+  onSd.reset();
+  [[maybe_unused]] const unsigned long startMs = millis();
+  // Transient: the page's expected file names, freed on return.
+  std::vector<std::string> names(entryCount);
+  size_t wanted = 0;
+  for (size_t i = 0; i < entryCount; ++i) {
+    if (entries[i].type != OpdsEntryType::BOOK) continue;
+    const std::string path = bookDownloadPath(entries[i], server.filenameFormat);
+    names[i] = path.substr(path.rfind('/') + 1);
+    ++wanted;
+  }
+  if (wanted == 0) return;
+  const char* folder = SETTINGS.opdsDownloadFolder[0] != '\0' ? SETTINGS.opdsDownloadFolder : "/";
+  HalFile dir = Storage.open(folder);
+  if (dir && dir.isDirectory()) {
+    char name[256];
+    size_t found = 0;
+    for (HalFile file = dir.openNextFile(); file && found < wanted; file = dir.openNextFile()) {
+      file.getName(name, sizeof(name));
+      const bool isFile = !file.isDirectory();
+      file.close();
+      if (!isFile) continue;
+      for (size_t i = 0; i < entryCount; ++i) {
+        if (!onSd[i] && !names[i].empty() && strcasecmp(name, names[i].c_str()) == 0) {
+          onSd.set(i);
+          ++found;
+        }
+      }
+    }
+  }
+  if (dir) dir.close();
+  LOG_DBG("OPDS", "On SD: %u of %u books (%lu ms)", static_cast<unsigned>(onSd.count()), static_cast<unsigned>(wanted),
+          millis() - startMs);
 }
 
 bool OpdsBookBrowserActivity::ensureEntryBuffer() {
@@ -1046,6 +1131,7 @@ void OpdsBookBrowserActivity::pollDownload() {
   const std::string& filename = bookDownloader.path();
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
+    if (selectorIndex >= 0 && selectorIndex < static_cast<int>(onSd.size())) onSd.set(selectorIndex);
     state = BrowserState::BROWSING;
     // The prompt draws over the last frame: show the list under it, not the
     // download screen (this also replaces the download frame's ghost).
@@ -1131,6 +1217,16 @@ void OpdsBookBrowserActivity::launchSearch() {
 }
 
 void OpdsBookBrowserActivity::performSearch(const std::string& query) {
+  if (!query.empty() && searchTemplate.empty() && !searchDescriptionUrl.empty()) {
+    // A few hundred bytes, fetched once: loadFeed() keeps it in the page cache.
+    OpdsEntry unused[1];
+    OpdsParser description(unused);
+    if (loadFeed(UrlUtils::buildUrl(server.url, searchDescriptionUrl), description) && description) {
+      searchTemplate = description.getSearchTemplate();
+    }
+    if (searchTemplate.empty())
+      LOG_ERR("OPDS", "No search template in %s", UrlUtils::maskUserInfo(searchDescriptionUrl).c_str());
+  }
   if (query.empty() || searchTemplate.empty()) {
     state = BrowserState::BROWSING;
     requestUpdate();

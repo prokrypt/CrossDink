@@ -4,6 +4,7 @@
 #include <OpdsParser.h>
 
 #include <atomic>
+#include <bitset>
 #include <memory>
 #include <string>
 #include <utility>
@@ -57,6 +58,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // Set when Back (button or header tap) cancels a foreground feed fetch;
   // fetchFeed() then goes back instead of showing the fetch error.
   bool fetchCancelled = false;
+  // Set by loadFeed(): the page came straight from the cache, not the network.
+  bool shownFromCache = false;
   // PSRAM devices only (null on C3): raw feed pages for Back/Prev, and the
   // background downloads of the next page and the first page's feeds.
   // Declared so the pool is destroyed (joined) before the cache.
@@ -76,6 +79,10 @@ class OpdsBookBrowserActivity final : public Activity {
   std::vector<HistoryEntry> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
+  std::string searchDescriptionUrl;                   // OpenSearch description; fetched on first search
+  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> onSd;        // book rows already in the download folder
+  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> pageCached;  // feed rows whose page is in pageCache
+  uint32_t pageCachedAt = 0;                          // pageCache->changes() when pageCached was set
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
@@ -134,7 +141,9 @@ class OpdsBookBrowserActivity final : public Activity {
   void showLoadingBeforeFetch(const std::string& path);
   void pushHistory() { navigationHistory.push_back(HistoryEntry{currentPath, selectorIndex, topIndex}); }
   // restoreRow/restoreTop: selection and scroll to show once loaded (Back).
-  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0);
+  // recheck: refetch a page shown from the cache in the background (off for
+  // the redraw a recheck itself triggers).
+  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0, bool recheck = true);
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser);
@@ -168,6 +177,9 @@ class OpdsBookBrowserActivity final : public Activity {
   // After a failed download: Retry resumes the same book (from byte 0 when the
   // server cannot), Cancel removes the partial file and returns to the listing.
   void offerRetry(const std::string& path);
+  void markBooksOnSd();
+  void markCachedFeeds();
+  bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;

@@ -122,3 +122,22 @@ TEST(OpdsParserTest, ThrCountWinsAndBooksHaveNoCount) {
   EXPECT_EQ(parser.getEntry(1)->type, OpdsEntryType::BOOK);
   EXPECT_EQ(parser.getEntry(1)->count, -1);
 }
+
+TEST(OpdsParserTest, OpenSearchDescriptionGivesSearchTemplate) {
+  constexpr char kRoot[] = R"(<feed xmlns="http://www.w3.org/2005/Atom">
+  <link rel="search" href="/opds/opensearch.xml" type="application/opensearchdescription+xml"/>
+</feed>)";
+  constexpr char kDescription[] = R"(<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
+  <Url type="text/html" template="/search?q={searchTerms}"/>
+  <Url type="application/atom+xml;profile=opds-catalog" template="/opds/search?q={searchTerms}"/>
+</OpenSearchDescription>)";
+  OpdsEntry entries[MAX_OPDS_FEED_ENTRIES];
+  OpdsParser parser(entries);
+
+  ASSERT_TRUE(parser.parse(kRoot, sizeof(kRoot) - 1));
+  EXPECT_EQ(parser.getSearchTemplate(), "");
+  EXPECT_EQ(parser.getSearchDescriptionUrl(), "/opds/opensearch.xml");
+
+  ASSERT_TRUE(parser.parse(kDescription, sizeof(kDescription) - 1));
+  EXPECT_EQ(parser.getSearchTemplate(), "/opds/search?q={searchTerms}");
+}

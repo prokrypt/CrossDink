@@ -12,6 +12,7 @@
 #include <esp_http_client.h>
 #include <strings.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -24,6 +25,7 @@
 #include "network/HttpRedirectPolicy.h"
 #include "network/SdWriteBehind.h"
 #include "network/WifiPowerSaveGuard.h"
+#include "util/UrlUtils.h"
 
 namespace {
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
@@ -35,6 +37,13 @@ constexpr int HTTP_READ_POLL_TIMEOUT_MS = 5000;
 constexpr uint32_t DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
 constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr uint8_t MAX_REDIRECTS = 5;
+
+// For logs: masked userinfo, and no query string (it can hold a signed download token).
+std::string logUrl(const std::string& url) {
+  std::string out = UrlUtils::maskUserInfo(url);
+  out.resize(std::min(out.find('?'), out.size()));
+  return out;
+}
 
 void logNetworkState(const char* phase) {
   LOG_DBG("HTTP", "%s: heap free=%u maxAlloc=%u wifi=%d rssi=%d", phase, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
@@ -189,7 +198,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
     if (!http.begin(currentUrl)) {
-      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", logUrl(currentUrl).c_str());
       return HttpDownloader::HTTP_ERROR;
     }
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
@@ -211,7 +220,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     }
 
     // "shared": a following request to the same host logs no new TLS handshake.
-    LOG_DBG("HTTP", "wolfSSL GET%s: %s", sharedHttp ? " (shared)" : "", currentUrl.c_str());
+    LOG_DBG("HTTP", "wolfSSL GET%s: %s", sharedHttp ? " (shared)" : "", logUrl(currentUrl).c_str());
     const int status = http.GET(
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
           const int responseStatus = http.getStatus();
@@ -270,7 +279,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
     if (status < 0) {
-      LOG_ERR("HTTP", "wolfSSL request failed: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL request failed: %s", logUrl(currentUrl).c_str());
       if (sink.downloaded > 0) logStallDiagnostics("Request failed", sink);
       logNetworkState("wolfSSL request failure");
       return HttpDownloader::HTTP_ERROR;
@@ -290,11 +299,11 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", redirect.host.c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::maskUserInfo(redirect.host).c_str());
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", redirect.host.c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::maskUserInfo(redirect.host).c_str());
       continue;
     }
 
@@ -391,12 +400,12 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", redirect.host.c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::maskUserInfo(redirect.host).c_str());
         esp_http_client_cleanup(client);
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", redirect.host.c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::maskUserInfo(redirect.host).c_str());
       esp_http_client_cleanup(client);
       continue;
     }
