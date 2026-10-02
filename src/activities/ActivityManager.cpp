@@ -170,6 +170,16 @@ bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputM
   return true;
 }
 
+// A brightness gesture that ends at 0% turns the light off and keeps `level`
+// (the level before the gesture) for the next on. PWM is 0 at 0% either way.
+void lightOffAtZero(const uint8_t level) {
+  if (!Frontlight.isOn() || Frontlight.brightness() != 0) return;
+  Frontlight.setBrightness(level);
+  Frontlight.setOn(false);
+  SETTINGS.frontlightBrightness = level;
+  SETTINGS.frontlightOn = 0;
+}
+
 bool applyConfiguredSwipeAction(Activity& activity, ActivityManager& activityManager, const uint8_t action,
                                 const int lightAmount = 5, const bool persist = true) {
   switch (static_cast<CrossPointSettings::TWO_FINGER_SWIPE_ACTION>(action)) {
@@ -185,6 +195,7 @@ bool applyConfiguredSwipeAction(Activity& activity, ActivityManager& activityMan
       Frontlight.setOn(true);
       SETTINGS.frontlightBrightness = brightness;
       SETTINGS.frontlightOn = 1;
+      if (persist) lightOffAtZero(previousBrightness);  // a live slide does this at its end
       activity.onExternalFrontlightChange();
       if (persist && (brightness != previousBrightness || !previousOn)) activityManager.persistGlobalSettings();
       return true;
@@ -226,17 +237,13 @@ bool isLightSwipeAction(const uint8_t action) {
 
 #if CROSSDINK_APP_CAP_TOUCH
 void finishLiveLightSwipe(LiveLightSwipeState& state, ActivityManager& activityManager) {
-  // A brightness slide that turned an off light on but ended at or below its
-  // start leaves it off, as it was. Only here: mid-drag it would blink.
+  // The light stays at the level the slide last showed; only 0% turns it off.
   const bool brightness = state.action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
                           state.action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
-  if (brightness && !state.initialOn && Frontlight.isOn() && Frontlight.brightness() <= state.initialValue) {
-    Frontlight.setBrightness(state.initialValue);
-    Frontlight.setOn(false);
-    SETTINGS.frontlightBrightness = state.initialValue;
-    SETTINGS.frontlightOn = 0;
+  if (brightness && Frontlight.isOn() && Frontlight.brightness() == 0) {
+    lightOffAtZero(state.initialValue);
     if (state.owner) state.owner->onExternalFrontlightChange();
-    state.changed = false;  // back where it started: nothing to save
+    state.changed = true;
   }
   if (state.changed) activityManager.persistGlobalSettings();
   state = {};
@@ -429,6 +436,11 @@ bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, A
   }
   if (action == CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET) return false;
   if (isLightSwipeAction(action)) {
+    if (action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS && !Frontlight.isOn()) {
+      // A dimming slide (whichever way the user set it) leaves an off light off at its level.
+      if (progress.finished) mappedInput.suppressCurrentTouchContact();
+      return true;
+    }
     state = {};
     state.owner = &activity;
     state.active = true;

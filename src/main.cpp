@@ -2531,25 +2531,14 @@ static void loopPass() {
     activityManager.notifyUserInput();
   }
 
-  // Light timeout. The first input after the light dimmed only brings it back:
-  // eat that whole gesture (held keys, their releases, a Home-key tap that
-  // fires on release) so it never also turns a page.
-  static bool lightWakeSwallow = false;
+  // Light timeout. Any input brings the light back and still acts, so the
+  // first tap after a long idle is never lost.
   static bool lightTimedOut = false;  // the timeout dimmed it (not the flash duck)
-  static unsigned long lightWakeHomeKeyUntil = 0;
   if (lightTimedOut && Frontlight.idleDimPercent() == 100) lightTimedOut = false;  // restored elsewhere
   if (userInputReceived && lightTimedOut) {
     lightTimedOut = false;
     Frontlight.setIdleDim(100);
-    mappedInputManager.suppressCurrentTouchContact();
-    lightWakeSwallow = true;
-    lightWakeHomeKeyUntil = gpio.wasHomeKeyPressed() ? millis() + 1000 : 0;
     LOG_DBG("LIGHT", "Light timeout: restored by input");
-  }
-  if (lightWakeSwallow) {
-    if (gpio.wasHomeKeyTapped() || gpio.wasHomeKeyLongPressed()) lightWakeHomeKeyUntil = 0;
-    if (userInputReceived || anyInputHeld() || static_cast<long>(lightWakeHomeKeyUntil - millis()) > 0) return;
-    lightWakeSwallow = false;
   }
   const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
