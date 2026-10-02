@@ -368,16 +368,17 @@ void NearbyBookTransferActivity::handlePacket(const nearby::EspNowTransport::Eve
       sendAck();
       return;
     }
-    const size_t written = receiveFile_.write(packet.payload, packet.payloadLength);
-    if (written != packet.payloadLength ||
-        !session_.acceptReceivedChunk(packet.sequence, static_cast<size_t>(packet.payloadLength))) {
+    // Ack before the SD write so the sender's next chunk is on air while we write. A failed write
+    // still reports FAILED, and the sender stops on it.
+    const bool accepted = session_.acceptReceivedChunk(packet.sequence, static_cast<size_t>(packet.payloadLength));
+    if (accepted) sendAck();
+    if (!accepted || receiveFile_.write(packet.payload, packet.payloadLength) != packet.payloadLength) {
       const uint8_t failed = RESULT_FAILED;
       sendPacket(nearby::PacketType::Result, peerMac_.data(), 0, &failed, 1);
       setError(tr(STR_NEARBY_TRANSFER_WRITE_FAILED));
       return;
     }
     session_.includeBytes(packet.payload, packet.payloadLength);
-    sendAck();
     maybeRefreshProgress();
     return;
   }
