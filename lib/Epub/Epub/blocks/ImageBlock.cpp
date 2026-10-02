@@ -275,7 +275,7 @@ RetainedPxcEntry* prepareRetainedPxcEntry(const size_t pixelBytes) {
   return allocateRetainedPxcEntry(*empty, pixelBytes) ? empty : nullptr;
 }
 
-// Images "Display: BW": Atkinson error diffusion of the cached 2-bit levels to
+// Images "Display: Dither": Atkinson error diffusion of the cached 2-bit levels to
 // black/white (levels 0/3), the same 1-bit look as cover thumbnails. Rows must
 // arrive top to bottom, which the BW pass guarantees (no strips there).
 // The ditherer's three error rows (~6 bytes per image column) are heap
@@ -284,7 +284,7 @@ struct BwDiffuser {
   bool on;
   Atkinson1BitDitherer ditherer;
   BwDiffuser(const GfxRenderer& renderer, const int width)
-      : on(DirectPixelWriter::bwImages == DirectPixelWriter::BW_IMAGES_DIFFUSE &&
+      : on(DirectPixelWriter::bwImages == DirectPixelWriter::BW_IMAGES_DITHER &&
            renderer.getRenderMode() == GfxRenderer::BW),
         ditherer(on ? width : 0) {}
   uint8_t level(const uint8_t value, const int col) {
@@ -666,9 +666,9 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     renderPlaceholder(renderer, x, y, foregroundBlack);
     return;
   }
-  // The decoder drew BW dark's ordered pattern; redraw diffused from the
-  // cache it just wrote so the first view matches later ones.
-  if (DirectPixelWriter::bwImages == DirectPixelWriter::BW_IMAGES_DIFFUSE && !config.cachePath.empty() &&
+  // The decoder drew a plain threshold; redraw diffused from the cache it
+  // just wrote so the first view matches later ones.
+  if (DirectPixelWriter::bwImages == DirectPixelWriter::BW_IMAGES_DITHER && !config.cachePath.empty() &&
       hasValidCache()) {
     renderer.fillRect(x, y, width, height, !foregroundBlack);
     renderFromCache(renderer, cachePath, x, y, width, height);

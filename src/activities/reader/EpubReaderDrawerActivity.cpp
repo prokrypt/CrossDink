@@ -1908,11 +1908,11 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       break;
     case RowId::Images:
       title = StrId::STR_IMAGES;
-      labels = {tr(STR_IMAGES_BW_DARK), tr(STR_IMAGES_BW), tr(STR_IMAGES_DISPLAY), tr(STR_IMAGES_PLACEHOLDER),
-                tr(STR_IMAGES_SUPPRESS)};
+      labels = {tr(STR_IMAGES_BW_DARK), tr(STR_IMAGES_BW),          tr(STR_IMAGES_DITHER),
+                tr(STR_IMAGES_DISPLAY), tr(STR_IMAGES_PLACEHOLDER), tr(STR_IMAGES_SUPPRESS)};
       raw = {CrossPointSettings::IMAGES_DISPLAY_BW_DARK, CrossPointSettings::IMAGES_DISPLAY_BW,
-             CrossPointSettings::IMAGES_DISPLAY, CrossPointSettings::IMAGES_PLACEHOLDER,
-             CrossPointSettings::IMAGES_SUPPRESS};
+             CrossPointSettings::IMAGES_DISPLAY_DITHER,  CrossPointSettings::IMAGES_DISPLAY,
+             CrossPointSettings::IMAGES_PLACEHOLDER,     CrossPointSettings::IMAGES_SUPPRESS};
       currentRaw = draft.imageRendering;
       break;
     case RowId::RenderMode:
@@ -3093,9 +3093,9 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
     }
     case RowId::Images: {
       // Indexed by raw value (IMAGE_RENDERING order).
-      static const std::array<StrId, 5> labels = {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
+      static const std::array<StrId, 6> labels = {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
                                                   StrId::STR_IMAGES_SUPPRESS, StrId::STR_IMAGES_BW,
-                                                  StrId::STR_IMAGES_BW_DARK};
+                                                  StrId::STR_IMAGES_BW_DARK,  StrId::STR_IMAGES_DITHER};
       return I18N.get(labels[std::min<size_t>(draft.imageRendering, labels.size() - 1)]);
     }
     case RowId::RenderMode: {

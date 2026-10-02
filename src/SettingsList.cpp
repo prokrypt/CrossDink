@@ -128,12 +128,13 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                           StrId::STR_CAT_READER));
     {
       auto images = SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
-                                      {StrId::STR_IMAGES_BW_DARK, StrId::STR_IMAGES_BW, StrId::STR_IMAGES_DISPLAY,
-                                       StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
+                                      {StrId::STR_IMAGES_BW_DARK, StrId::STR_IMAGES_BW, StrId::STR_IMAGES_DITHER,
+                                       StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
+                                       StrId::STR_IMAGES_SUPPRESS},
                                       "imageRendering", StrId::STR_CAT_READER);
       images.enumRawValues = {CrossPointSettings::IMAGES_DISPLAY_BW_DARK, CrossPointSettings::IMAGES_DISPLAY_BW,
-                              CrossPointSettings::IMAGES_DISPLAY, CrossPointSettings::IMAGES_PLACEHOLDER,
-                              CrossPointSettings::IMAGES_SUPPRESS};
+                              CrossPointSettings::IMAGES_DISPLAY_DITHER,  CrossPointSettings::IMAGES_DISPLAY,
+                              CrossPointSettings::IMAGES_PLACEHOLDER,     CrossPointSettings::IMAGES_SUPPRESS};
       add(std::move(images));
     }
     add(SettingInfo::Toggle(StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,

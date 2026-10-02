@@ -8199,11 +8199,18 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   struct BwImagesScope {
     explicit BwImagesScope(const uint8_t mode) { DirectPixelWriter::bwImages = mode; }
     ~BwImagesScope() { DirectPixelWriter::bwImages = DirectPixelWriter::BW_IMAGES_OFF; }
-  } bwImagesScope(SETTINGS.imageRendering == CrossPointSettings::IMAGES_DISPLAY_BW
-                      ? DirectPixelWriter::BW_IMAGES_DIFFUSE
-                  : SETTINGS.imageRendering == CrossPointSettings::IMAGES_DISPLAY_BW_DARK
-                      ? DirectPixelWriter::BW_IMAGES_DARK
-                      : DirectPixelWriter::BW_IMAGES_OFF);
+  } bwImagesScope([] {
+    switch (SETTINGS.imageRendering) {
+      case CrossPointSettings::IMAGES_DISPLAY_BW_DARK:
+        return DirectPixelWriter::BW_IMAGES_DARK;
+      case CrossPointSettings::IMAGES_DISPLAY_BW:
+        return DirectPixelWriter::BW_IMAGES_BW;
+      case CrossPointSettings::IMAGES_DISPLAY_DITHER:
+        return DirectPixelWriter::BW_IMAGES_DITHER;
+      default:
+        return DirectPixelWriter::BW_IMAGES_OFF;
+    }
+  }());
 #if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     if (!touchReaderPreviewAllocationAttempted) {
