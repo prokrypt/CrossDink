@@ -22,6 +22,7 @@ class BmpViewerActivity final : public Activity {
   void drawImage();
   void loadSiblingImages();
   bool renderPngImage();
+  bool showImage(bool gray, const std::function<bool()>& drawImageFrame);
   void doSetSleepCover();
   void showContextMenu();
   void promptDeleteImage();

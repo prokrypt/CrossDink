@@ -138,7 +138,7 @@ bool BmpViewerActivity::renderPngImage() {
   config.y = y;
   config.maxWidth = drawWidth;
   config.maxHeight = drawHeight;
-  // PNGs show B/W only. BW and BW dark threshold with no ordered dither; Gray and Dither keep it.
+  // BW and BW dark threshold with no ordered dither. Dither keeps the PNG decoder's ordered dither.
   const uint8_t bw = viewerBwImages();
   config.useGrayscale = true;
   config.useDithering = bw != DirectPixelWriter::BW_IMAGES_BW && bw != DirectPixelWriter::BW_IMAGES_DARK;
@@ -146,25 +146,18 @@ bool BmpViewerActivity::renderPngImage() {
   config.useExactDimensions = true;
 
   PngToFramebufferConverter converter;
-  renderer.clearScreen();
   DirectPixelWriter::bwImages = bw;
-  const bool decoded = converter.decodeToFramebuffer(filePath, renderer, config);
+  const bool success = showImage(!bw && renderer.supportsAbsoluteGrayscale(), [&]() {
+    if (!converter.decodeToFramebuffer(filePath, renderer, config)) return false;
+    renderer.preserveImagePolarity(x, y, drawWidth, drawHeight);
+    return true;
+  });
   DirectPixelWriter::bwImages = DirectPixelWriter::BW_IMAGES_OFF;
-  if (!decoded) {
+  if (!success) {
+    LOG_ERR("BMP", "Failed to render PNG image");
     drawImageError(renderer, mappedInput, "Invalid PNG File");
-    return false;
   }
-  renderer.preserveImagePolarity(x, y, drawWidth, drawHeight);
-
-  bool hasPrevious = (siblingImages.size() > 1 && currentImageIndex > 0);
-  bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
-                  currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
-
-  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SET_SLEEP_COVER),
-                                            (hasPrevious ? "<" : nullptr), (hasNext ? ">" : nullptr));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  return true;
+  return success;
 }
 
 void BmpViewerActivity::onEnter() {
@@ -236,91 +229,9 @@ void BmpViewerActivity::drawImage() {
         y = (pageHeight - bitmap.getHeight()) / 2;
       }
 
-      // 4. Prepare Rendering
-      bool hasPrevious = (siblingImages.size() > 1 && currentImageIndex > 0);
-      bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
-                      currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
-
-      const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SET_SLEEP_COVER),
-                                                (hasPrevious ? "<" : nullptr), (hasNext ? ">" : nullptr));
-
-      const auto drawFrame = [&]() {
-        if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight)) return false;
-        GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-        return true;
-      };
-      // PSRAM boards with Direct gray (X4 Pro) show the image once, as the sleep screen does: both
-      // gray planes render into PSRAM, then one direct-gray refresh, instead of a B/W image on a
-      // full refresh followed by the gray pass. Nothing reaches the panel until the planes are
-      // done, so input can drop the draw between decodes with no panel state to undo.
-      HeapByteBuffer lsbPlane;
-      HeapByteBuffer msbPlane;
-      const bool gray = !bw && bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale();
-      if (gray && renderer.supportsDirectGrayscale() && psramHeapAvailable()) {
-        const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
-        lsbPlane = makePsramByteBufferNoThrow(planeBytes);
-        if (lsbPlane) msbPlane = makePsramByteBufferNoThrow(planeBytes);
-      }
-      bool success = true;
-      if (msbPlane) {
-        const auto cancelled = [this]() { return drawCancelled.load(std::memory_order_acquire); };
-        renderer.setAbsoluteGrayPlanes(true);  // Direct takes complete planes
-        for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
-          if (!success || cancelled()) break;
-          success = bitmap.rewindToData() == BmpReaderError::Ok;
-          if (!success) break;
-          renderer.setRenderMode(mode);
-          renderer.beginStripTarget(mode == GfxRenderer::GRAYSCALE_LSB ? lsbPlane.get() : msbPlane.get(), 0,
-                                    renderer.getDisplayHeight());
-          renderer.clearScreen();
-          success = drawFrame();
-          renderer.endStripTarget();
-        }
-        renderer.setRenderMode(GfxRenderer::BW);
-        renderer.setAbsoluteGrayPlanes(false);
-        if (cancelled()) {
-          file.close();
-          return;  // the panel still shows the popup; the next screen repaints over it
-        }
-        success = success && renderer.displayDirectGrayscaleBase();
-        if (success) {
-          renderer.copyGrayscalePlanes(lsbPlane.get(), msbPlane.get());
-          renderer.displayGrayBuffer();
-          // Popups and the cleanup need the B/W image.
-          renderer.clearScreen();
-          success = bitmap.rewindToData() == BmpReaderError::Ok && drawFrame();
-          if (success) renderer.cleanupGrayscaleWithFrameBuffer();
-        }
-      } else {
-        renderer.clearScreen();
-        success = drawFrame();
-      }
-      if (!msbPlane && success && gray) {
-        success = renderer.displayAbsoluteGrayscaleBase();
-        for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
-          if (!success) break;
-          success = bitmap.rewindToData() == BmpReaderError::Ok;
-          if (!success) break;
-          renderer.clearScreen();
-          renderer.setRenderMode(mode);
-          success = drawFrame();
-          if (!success) break;
-          if (mode == GfxRenderer::GRAYSCALE_LSB)
-            renderer.copyGrayscaleLsbBuffers();
-          else
-            renderer.copyGrayscaleMsbBuffers();
-        }
-        if (success) renderer.displayGrayBuffer();
-        renderer.setRenderMode(GfxRenderer::BW);
-        // Popups need the original B/W image, not the last gray selector plane.
-        if (success) {
-          renderer.clearScreen();
-          success = bitmap.rewindToData() == BmpReaderError::Ok && drawFrame();
-          if (success) renderer.cleanupGrayscaleWithFrameBuffer();
-        }
-      } else if (!msbPlane && success) {
-        renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      }
+      const bool success = showImage(!bw && bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale(), [&]() {
+        return bitmap.rewindToData() == BmpReaderError::Ok && renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight);
+      });
       if (!success) {
         LOG_ERR("BMP", "Failed to render complete BMP image");
         drawImageError(renderer, mappedInput, tr(STR_FAILED_LOWER));
@@ -336,6 +247,86 @@ void BmpViewerActivity::drawImage() {
     // Handle file open error
     drawImageError(renderer, mappedInput, "Could not open file");
   }
+}
+
+// Draws the image with drawFrame() (which re-reads it from the start each call) and shows it:
+// gray passes when gray, else one FAST refresh. False when a draw failed.
+bool BmpViewerActivity::showImage(const bool gray, const std::function<bool()>& drawImageFrame) {
+  const bool hasPrevious = (siblingImages.size() > 1 && currentImageIndex > 0);
+  const bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
+                        currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
+  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SET_SLEEP_COVER),
+                                            (hasPrevious ? "<" : nullptr), (hasNext ? ">" : nullptr));
+  const auto drawFrame = [&]() {
+    if (!drawImageFrame()) return false;
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    return true;
+  };
+  // PSRAM boards with Direct gray (X4 Pro) show the image once, as the sleep screen does: both
+  // gray planes render into PSRAM, then one direct-gray refresh, instead of a B/W image on a
+  // full refresh followed by the gray pass. Nothing reaches the panel until the planes are
+  // done, so input can drop the draw between decodes with no panel state to undo.
+  HeapByteBuffer lsbPlane;
+  HeapByteBuffer msbPlane;
+  if (gray && renderer.supportsDirectGrayscale() && psramHeapAvailable()) {
+    const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
+    lsbPlane = makePsramByteBufferNoThrow(planeBytes);
+    if (lsbPlane) msbPlane = makePsramByteBufferNoThrow(planeBytes);
+  }
+  bool success = true;
+  if (msbPlane) {
+    const auto cancelled = [this]() { return drawCancelled.load(std::memory_order_acquire); };
+    renderer.setAbsoluteGrayPlanes(true);  // Direct takes complete planes
+    for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+      if (!success || cancelled()) break;
+      renderer.setRenderMode(mode);
+      renderer.beginStripTarget(mode == GfxRenderer::GRAYSCALE_LSB ? lsbPlane.get() : msbPlane.get(), 0,
+                                renderer.getDisplayHeight());
+      renderer.clearScreen();
+      success = drawFrame();
+      renderer.endStripTarget();
+    }
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.setAbsoluteGrayPlanes(false);
+    if (cancelled()) return true;  // the panel still shows the popup; the next screen repaints over it
+    success = success && renderer.displayDirectGrayscaleBase();
+    if (success) {
+      renderer.copyGrayscalePlanes(lsbPlane.get(), msbPlane.get());
+      renderer.displayGrayBuffer();
+      // Popups and the cleanup need the B/W image.
+      renderer.clearScreen();
+      success = drawFrame();
+      if (success) renderer.cleanupGrayscaleWithFrameBuffer();
+    }
+  } else {
+    renderer.clearScreen();
+    success = drawFrame();
+  }
+  if (!msbPlane && success && gray) {
+    success = renderer.displayAbsoluteGrayscaleBase();
+    for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+      if (!success) break;
+      renderer.clearScreen();
+      renderer.setRenderMode(mode);
+      success = drawFrame();
+      if (!success) break;
+      if (mode == GfxRenderer::GRAYSCALE_LSB)
+        renderer.copyGrayscaleLsbBuffers();
+      else
+        renderer.copyGrayscaleMsbBuffers();
+    }
+    if (success) renderer.displayGrayBuffer();
+    renderer.setRenderMode(GfxRenderer::BW);
+    // Popups need the original B/W image, not the last gray selector plane.
+    if (success) {
+      renderer.clearScreen();
+      success = drawFrame();
+      if (success) renderer.cleanupGrayscaleWithFrameBuffer();
+    }
+  } else if (!msbPlane && success) {
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  }
+  return success;
 }
 
 void BmpViewerActivity::onExit() {
