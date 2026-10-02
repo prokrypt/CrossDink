@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cstring>
 
+#include "BatteryStatsActivity.h"
 #include "CrossPointSettings.h"
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
@@ -434,6 +435,9 @@ void GoodiesActivity::showLevel(const Level next) {
       entries.push_back({tr(STR_FLASH_DUCK_RESTORE), -1, {}, flashDuckRowValue(SETTINGS.flashDuckRestore)});
     }
     remoteRowShown = remoteRowState();
+#ifndef SIMULATOR
+    entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
+#endif
   } else {
     entries.reserve(display_script::BUILT_IN_COUNT + 8);
     for (int i = 0; i < display_script::BUILT_IN_COUNT; ++i) {
@@ -482,6 +486,14 @@ void GoodiesActivity::activate(const int index) {
       toggleRemote();
     } else if (index == FLASH_DIM_ROW || index == FLASH_RESTORE_ROW) {
       openFlashDuckKnob(index);
+    } else {
+#ifndef SIMULATOR
+      startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) {
+                               mappedInput.suppressNextConfirmRelease();
+                               requestUpdate();
+                             });
+#endif
     }
     return;
   }

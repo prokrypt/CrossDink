@@ -15,6 +15,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BatteryLog.h"
 
 namespace {
 constexpr const char* HOSTNAME = "crosspoint";
@@ -22,6 +23,7 @@ constexpr const char* HOSTNAME = "crosspoint";
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
+  BatteryLog::event("xfer_start", "calibre");
 #if CROSSDINK_GOODIES
   // Port 80 passes to this screen's own server; a link to the remote's network stays.
   goodies_remote::pause(/*keepStation=*/true);
@@ -58,6 +60,7 @@ void CalibreConnectActivity::onEnter() {
 }
 
 void CalibreConnectActivity::onExit() {
+  BatteryLog::event("xfer_end", "calibre");
   library::invalidateLibraryIndex();
   Activity::onExit();
   transferLight.end();

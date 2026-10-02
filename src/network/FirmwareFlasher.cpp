@@ -19,6 +19,7 @@
 
 #include "FirmwareBoardTag.h"
 #include "OtaBootSwitch.h"
+#include "util/BatteryLog.h"
 
 namespace firmware_flash {
 
@@ -784,7 +785,8 @@ Result writeImage(HalFile& file, const esp_partition_t* dest, ProgressCb onProgr
 }
 }  // namespace
 
-Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
+namespace {
+Result flashValidatedFileImpl(HalFile& file, ProgressCb onProgress, void* ctx) {
   const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
   if (!dest) {
     LOG_ERR("FLASH", "no next-update partition");
@@ -808,6 +810,14 @@ Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
     return Result::OTADATA_FAIL;
   }
   return Result::OK;
+}
+}  // namespace
+
+Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
+  BatteryLog::event("fw_start", "sd");
+  const Result r = flashValidatedFileImpl(file, onProgress, ctx);
+  BatteryLog::event(r == Result::OK ? "fw_ok" : "fw_fail", resultName(r));
+  return r;
 }
 
 namespace {
@@ -848,6 +858,7 @@ void closeStream() {
 
 Result failStream(const Result r) {
   LOG_ERR("FLASH", "stream stopped: %s; otadata left unchanged", resultName(r));
+  BatteryLog::event("fw_fail", resultName(r));
   closeStream();
   return r;
 }
@@ -931,6 +942,7 @@ Result beginHere(const size_t totalSize) {
   if (!stream.verifier || !stream.buf) return failStream(Result::OOM);
   stream.total = totalSize;
   streamOpen.store(true, std::memory_order_relaxed);
+  BatteryLog::event("fw_start", "stream");
   LOG_INF("FLASH", "stream: %u bytes -> %s @0x%x", static_cast<unsigned>(totalSize), stream.dest->label,
           static_cast<unsigned>(stream.dest->address));
   return Result::OK;
@@ -968,9 +980,11 @@ Result finishHere() {
   closeStream();
   if (!ota_boot::switchTo(dest)) {
     LOG_ERR("FLASH", "stream: otadata switch failed");
+    BatteryLog::event("fw_fail", resultName(Result::OTADATA_FAIL));
     return Result::OTADATA_FAIL;
   }
   LOG_INF("FLASH", "stream: verified, boots %s next", dest->label);
+  BatteryLog::event("fw_ok", "stream");
   return Result::OK;
 }
 
