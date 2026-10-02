@@ -228,6 +228,13 @@ bool allocateRetainedPxcEntry(RetainedPxcEntry& entry, const size_t pixelBytes) 
 
 RetainedPxcEntry* prepareRetainedPxcEntry(const size_t pixelBytes) {
   if (!psramHeapAvailable() || pixelBytes > MAX_RETAINED_PXC_BYTES) return nullptr;
+  // A cap lowered (Goodies > Knobs) below what is retained: evict down to it
+  // first, so the budget checks below never subtract past zero.
+  while (retainedPxcCapacity > MAX_RETAINED_PXC_BYTES) {
+    auto* victim = leastRecentlyUsedEntry(1);
+    if (!victim) return nullptr;
+    clearRetainedPxcEntry(*victim);
+  }
 
   RetainedPxcEntry* empty = nullptr;
   for (auto& candidate : retainedPxcEntries) {
