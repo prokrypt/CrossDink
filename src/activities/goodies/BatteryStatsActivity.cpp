@@ -28,6 +28,7 @@
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BatteryEstimate.h"
 #include "util/BatteryLog.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
@@ -311,15 +312,12 @@ void BatteryStatsActivity::buildLines() {
     // with brightness against the state's logged average.
     const bool wifiNow = WiFi.getMode() != WIFI_OFF;
     const uint8_t lightNow = Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0;
-    const int k = (wifiNow ? 2 : 0) + (lightNow ? 1 : 0);
+    const int k = wifiNow ? 2 : 0;
     auto rateOf = [this](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
       return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
     };
-    float rate = rateOf(k);
-    if (rate > 0 && lightNow != 0 && rateOf(k - 1) > 0) {
-      const float avgLight = static_cast<float>(st.stateLight[k]) / st.stateS[k];
-      rate = rateOf(k - 1) + (rate - rateOf(k - 1)) * lightNow / std::max(avgLight, 1.0f);
-    }
+    const float avgLight = st.stateS[k + 1] ? static_cast<float>(st.stateLight[k + 1]) / st.stateS[k + 1] : 0.0f;
+    const float rate = BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), avgLight, lightNow);
     const uint32_t pctNowC = powerManager.getBatteryPercent256() * 100u / 256u;
     const uint32_t drop = st.dropC[0] + st.dropC[1];
     const uint32_t span = st.battS[0] + st.battS[1];

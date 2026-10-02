@@ -179,6 +179,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro (debug builds): Goodies > Battery & stats no longer shows a longer time to empty for a brighter frontlight. When the log showed less drain with the light on than off (the light-off stretches held heavier work, like transfers), the light's share came out negative and grew with brightness; the light now only ever adds drain, so the estimate stays at the light-off rate until the log shows the light costing more.
 - X4 Pro: after a crash or restart the device could get stuck rebooting about 0.3 s into every boot, so it looked like it would not wake until the reset button was pressed. A charger or button line left armed by the previous run no longer fires before its handler is ready.
 - X4 Pro: Dim Light on Flash on Half/Full refreshes (waking to Home, every 15th page) brings the light back 0.3 s before the refresh ends instead of 0.3 s after, and the dim at wake lands as the flash starts instead of before the panel powers up.
 - X4 Pro: if going to sleep ever gets stuck (seen once: the device stayed dark and ignored the power button until reset), it now restarts after 30 s instead of staying dead, and the next boot reports which sleep step stuck.

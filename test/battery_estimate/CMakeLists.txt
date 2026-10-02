@@ -1,0 +1,3 @@
+add_executable(BatteryEstimateTest BatteryEstimateTest.cpp)
+target_link_libraries(BatteryEstimateTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(BatteryEstimateTest)
