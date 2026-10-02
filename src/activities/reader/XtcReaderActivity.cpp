@@ -166,7 +166,7 @@ void XtcReaderActivity::onExit() {
   }
   ReaderProgressShadow::unbind(progressFlushed);
 
-  APP_STATE.readerActivityLoadCount = 0;
+  APP_STATE.setReaderActivityLoadCount(0);
   APP_STATE.saveToFile();
 
   syncStatsTrackingState();

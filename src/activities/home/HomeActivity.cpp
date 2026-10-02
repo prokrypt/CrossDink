@@ -445,19 +445,18 @@ void appendCarouselCoverStateToKey(std::string& key, const RecentBook& book) {
   key += Storage.exists(sidePath.c_str()) ? '1' : '0';
   key += '\0';
 
-  const std::string cachePath = getRecentBookCachePath(book);
-  if (!cachePath.empty()) {
-    appendHashedFileStateToKey(key, cachePath + "/progress.bin");
-    // EPUB progress alternates between two slots; either can hold the latest save.
-    if (FsHelpers::hasEpubExtension(book.path)) appendHashedFileStateToKey(key, cachePath + "/progress.bin.bak");
-    if (FsHelpers::hasEpubExtension(book.path) || FsHelpers::hasXtcExtension(book.path)) {
-      appendHashedFileStateToKey(key, cachePath + "/stats_v5.bin");
-      appendHashedFileStateToKey(key, cachePath + "/reading_stats_off");
-    }
-  } else {
-    key += "no-cache-path";
-    key += '\0';
-  }
+  // Key on what the frame draws (progress bar and %, reading-time label, stats
+  // menu row), not on the progress and stats files: those change on every
+  // reader exit, and each change rewrote the whole snapshot (books x 48 KB).
+  const BookReadingStats stats = loadRecentBookStats(book);
+  // ponytail: 0.01% steps; a 1 px bar change inside one step stays stale until the next.
+  const float progress = loadRecentBookProgress(book);
+  char shown[64];
+  snprintf(shown, sizeof(shown), "%.0f:%d:%d:%d:%lu", progress, static_cast<int>(progress * 100.0f),
+           hasAnyBookStats(stats) ? 1 : 0, stats.sessionCount > 0 ? 1 : 0,
+           static_cast<unsigned long>(stats.totalReadingSeconds / 60));
+  key += shown;
+  key += '\0';
 }
 
 void appendSyncedStatsStateToKey(std::string& key) {
@@ -525,7 +524,9 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const boo
   for (const auto& book : recentBooks) {
     appendCarouselCoverStateToKey(key, book);
   }
-  appendHashedFileStateToKey(key, "/.crosspoint/global_stats.bin");
+  // The frames only show whether any stats exist (the stats menu row).
+  key += hasAnyGlobalStats(GlobalReadingStats::load()) ? "gstats:1" : "gstats:0";
+  key += '\0';
   appendSyncedStatsStateToKey(key);
   keyHash = fnvHash64(key);
 }

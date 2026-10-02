@@ -4,9 +4,12 @@
 #include <Logging.h>
 #include <PersistableStore.h>
 #include <Serialization.h>
+#include <esp_attr.h>
+#include <esp_system.h>
 #include <uzlib.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <mutex>
 
 namespace {
@@ -14,7 +17,51 @@ constexpr uint8_t STATE_FILE_VERSION = 5;
 constexpr char STATE_FILE_BIN[] = "/.crosspoint/state.bin";
 constexpr char STATE_FILE_JSON[] = "/.crosspoint/state.json";
 constexpr char STATE_FILE_BAK[] = "/.crosspoint/state.bin.bak";
+
+// Reader crash guard, kept out of state.json so opening a book costs no SD
+// write. RTC_NOINIT survives the panics and watchdog resets it guards against
+// and deep sleep; it is noise after power-on (which also means "no crash"),
+// and another firmware may have left its own data here, so any failed check
+// starts from zero.
+struct ReaderLoadGuard {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t size;
+  uint32_t count;
+  uint32_t crc;
+};
+RTC_NOINIT_ATTR ReaderLoadGuard readerLoadGuard;
+constexpr uint32_t LOAD_GUARD_MAGIC = 0x43444C47;  // "CDLG", CrossDink only
+constexpr uint16_t LOAD_GUARD_VERSION = 1;
+bool loadGuardChecked = false;
+
+uint32_t loadGuardCrc() { return uzlib_crc32(&readerLoadGuard, offsetof(ReaderLoadGuard, crc), 0); }
+
+void sealLoadGuard(const uint32_t count) {
+  readerLoadGuard = {LOAD_GUARD_MAGIC, LOAD_GUARD_VERSION, sizeof(ReaderLoadGuard), count, 0};
+  readerLoadGuard.crc = loadGuardCrc();
+}
+
+ReaderLoadGuard& loadGuard() {
+  if (!loadGuardChecked) {
+    loadGuardChecked = true;
+    if (readerLoadGuard.magic != LOAD_GUARD_MAGIC || readerLoadGuard.version != LOAD_GUARD_VERSION ||
+        readerLoadGuard.size != sizeof(ReaderLoadGuard) || readerLoadGuard.crc != loadGuardCrc() ||
+        esp_reset_reason() == ESP_RST_POWERON) {
+      sealLoadGuard(0);
+    }
+  }
+  return readerLoadGuard;
+}
 }  // namespace
+
+uint8_t CrossPointState::readerActivityLoadCount() const {
+  return static_cast<uint8_t>(std::min<uint32_t>(loadGuard().count, UINT8_MAX));
+}
+
+void CrossPointState::setReaderActivityLoadCount(const uint8_t count) {
+  if (loadGuard().count != count) sealLoadGuard(count);
+}
 
 bool CrossPointState::isRecentSleep(uint16_t idx, uint8_t checkCount) const {
   const uint8_t effectiveCount = std::min(checkCount, recentSleepFill);
@@ -87,7 +134,16 @@ bool CrossPointState::loadFromFile() {
     JsonDocument doc;
     if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
       std::lock_guard<std::mutex> stateLock(_mutex);
-      return fromJson(doc.as<JsonVariantConst>());
+      if (!fromJson(doc.as<JsonVariantConst>())) return false;
+      // The card already holds this state, so a save that changes nothing
+      // (opening a book, reader exit) skips its write.
+      JsonDocument saved;
+      toJson(saved);
+      String json;
+      serializeJson(saved, json);
+      lastSavedCrc = uzlib_crc32(json.c_str(), json.length(), 0);
+      lastSavedCrcValid = true;
+      return true;
     }
   }
 
@@ -121,7 +177,6 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   for (int i = 0; i < BOOT_RECENT_COUNT; i++) recentBootArr.add(recentBootImages[i]);
   doc["recentBootPos"] = recentBootPos;
   doc["recentBootFill"] = recentBootFill;
-  doc["readerActivityLoadCount"] = readerActivityLoadCount;
   doc["lastSleepFromReader"] = lastSleepFromReader;
   doc["pendingBookmarkSpine"] = pendingBookmarkSpine;
   doc["pendingBookmarkProgress"] = pendingBookmarkProgress;
@@ -173,7 +228,6 @@ bool CrossPointState::fromJson(JsonVariantConst doc) {
   }
   recentBootFill = doc["recentBootFill"] | static_cast<uint8_t>(0);
   recentBootFill = static_cast<uint8_t>(std::min(static_cast<int>(recentBootFill), actualBootCount));
-  readerActivityLoadCount = doc["readerActivityLoadCount"] | static_cast<uint8_t>(0);
   lastSleepFromReader = doc["lastSleepFromReader"] | false;
   pendingBookmarkSpine = doc["pendingBookmarkSpine"] | static_cast<uint16_t>(UINT16_MAX);
   pendingBookmarkProgress = doc["pendingBookmarkProgress"] | static_cast<float>(-1.0f);
@@ -219,7 +273,8 @@ bool CrossPointState::loadFromBinaryFile() {
   }
 
   if (version >= 3) {
-    serialization::readPod(inputFile, readerActivityLoadCount);
+    uint8_t legacyLoadCount = 0;  // the crash guard lives in RTC now
+    serialization::readPod(inputFile, legacyLoadCount);
   }
 
   if (version >= 4) {

@@ -21,13 +21,13 @@ struct BookReadingStats {
   std::array<uint32_t, READING_TIME_BUCKET_COUNT> timeOfDaySeconds{};
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
 
-  // Loads stats from cachePath/stats_v5.bin, with fallback reads from the
+  // Loads stats from the newest valid slot of cachePath/stats_v5.bin, with fallback reads from the
   // previous versioned filename and legacy cachePath/stats.bin. Returns
   // default-constructed stats if no compatible file exists.
   static BookReadingStats load(const std::string& cachePath);
 
-  // Saves stats to cachePath/stats_v5.bin through recoverable .tmp/.bak files.
-  // Returns false if the new stats file could not be published.
+  // Saves stats in place to the older of the two slots stats_v5.bin and
+  // stats_v5.bin.bak (TwoSlotFile.h). Returns false if the write failed.
   bool save(const std::string& cachePath) const;
 
   // Deletes cachePath/stats_v5.bin, its transaction files, the previous

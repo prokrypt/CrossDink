@@ -503,7 +503,7 @@ void ImageBlock::rememberFailure() const { rememberImageFailure(imagePath); }
 
 ImageBlock::CacheBuild ImageBlock::buildCacheInBackground(GfxRenderer& target, const int x, const int y, void* context,
                                                           const ExtractFn extract, const SeedCacheFn seedCache,
-                                                          const std::atomic<bool>& cancel) const {
+                                                          const LoadFn load, const std::atomic<bool>& cancel) const {
   const std::string cache = getCachePath(imagePath);
   backgroundBuildKey.store(backgroundKey(imagePath), std::memory_order_release);
   struct ClearKey {
@@ -511,11 +511,17 @@ ImageBlock::CacheBuild ImageBlock::buildCacheInBackground(GfxRenderer& target, c
   } clearKey;
   if (hasValidCache()) return CacheBuild::Built;
 
+  HeapByteBuffer source;  // the image itself, held only for this decode
+  size_t sourceSize = 0;
   if (!sourcePath.empty()) {
     Storage.remove((cache + ".optimizer.tmp").c_str());
     Storage.remove((cache + ".optimizer.source").c_str());
     if (seedCache && seedCache(context, sourcePath.c_str(), width, height, cache.c_str())) return CacheBuild::Built;
-    if (extract && !Storage.exists(imagePath.c_str()) && !extract(context, sourcePath.c_str(), imagePath.c_str())) {
+    // An SD copy left by older firmware is used as is.
+    if (load && !Storage.exists(imagePath.c_str())) source = load(context, sourcePath.c_str(), sourceSize);
+    if (cancel.load()) return CacheBuild::Cancelled;
+    if (!source && extract && !Storage.exists(imagePath.c_str()) &&
+        !extract(context, sourcePath.c_str(), imagePath.c_str())) {
       if (cancel.load()) return CacheBuild::Cancelled;
       LOG_ERR("IMG", "Background extraction failed: %s", sourcePath.c_str());
       return CacheBuild::Failed;
@@ -533,10 +539,12 @@ ImageBlock::CacheBuild ImageBlock::buildCacheInBackground(GfxRenderer& target, c
   config.useExactDimensions = true;
   config.cachePath = cache;
   config.cancel = &cancel;
+  config.sourceData = source.get();
+  config.sourceSize = sourceSize;
   const uint32_t startedMs = millis();
   const bool decoded = decoder->decodeToFramebuffer(imagePath, target, config);
-  LOG_DBG("IMG", "Background decode %dx%d in %lu ms: ok=%d", width, height,
-          static_cast<unsigned long>(millis() - startedMs), decoded ? 1 : 0);
+  LOG_DBG("IMG", "Background decode %dx%d in %lu ms: ok=%d src=%s", width, height,
+          static_cast<unsigned long>(millis() - startedMs), decoded ? 1 : 0, source ? "psram" : "sd");
   if (decoded) return CacheBuild::Built;
   return cancel.load() ? CacheBuild::Cancelled : CacheBuild::Failed;
 }

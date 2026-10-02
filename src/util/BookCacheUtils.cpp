@@ -52,6 +52,7 @@ constexpr size_t MAX_PRESERVED_CACHE_FILES = std::size(EPUB_USER_STATE_FILES) > 
 constexpr size_t MAX_STATS_FILES_TO_PRESERVE = 8;
 constexpr char STATS_PREFIX[] = "stats";
 constexpr char STATS_SUFFIX[] = ".bin";
+constexpr char STATS_SLOT_SUFFIX[] = ".bin.bak";
 
 std::string getBookCachePath(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
@@ -86,8 +87,12 @@ bool isStatsFileName(const char* name) {
   const size_t nameLen = strlen(name);
   constexpr size_t prefixLen = std::size(STATS_PREFIX) - 1;
   constexpr size_t suffixLen = std::size(STATS_SUFFIX) - 1;
-  return nameLen >= prefixLen + suffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
-         strcmp(name + nameLen - suffixLen, STATS_SUFFIX) == 0;
+  // stats_v5.bin.bak is the second stats slot (TwoSlotFile.h) and may hold the newest save.
+  constexpr size_t slotSuffixLen = std::size(STATS_SLOT_SUFFIX) - 1;
+  return (nameLen >= prefixLen + suffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
+          strcmp(name + nameLen - suffixLen, STATS_SUFFIX) == 0) ||
+         (nameLen >= prefixLen + slotSuffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
+          strcmp(name + nameLen - slotSuffixLen, STATS_SLOT_SUFFIX) == 0);
 }
 
 int statsFileVersion(const char* name) {

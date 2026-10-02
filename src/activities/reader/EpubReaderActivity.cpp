@@ -2615,7 +2615,7 @@ void EpubReaderActivity::onExit() {
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
-  APP_STATE.readerActivityLoadCount = 0;  // saved by ReaderExitSave below
+  APP_STATE.setReaderActivityLoadCount(0);
 
   syncStatsTrackingState();
   if (statsTrackingActive) {
@@ -7817,9 +7817,14 @@ void EpubReaderActivity::imageCacheWorkerMain(void* param) {
   const auto seed = [](void* context, const char* source, const int width, const int height, const char* destination) {
     return static_cast<EpubReaderActivity*>(context)->epub->seedOptimizerImageCache(source, width, height, destination);
   };
+  const auto load = [](void* context, const char* source, size_t& size) {
+    auto* reader = static_cast<EpubReaderActivity*>(context);
+    return reader->epub->readItemToPsram(source, size, &reader->imageCacheWorker.cancel);
+  };
   for (uint8_t i = 0; i < job.count && !job.cancel.load(); ++i) {
     auto& item = job.items[i];
-    item.result = item.block->buildCacheInBackground(*job.renderer, item.x, item.y, self, extract, seed, job.cancel);
+    item.result =
+        item.block->buildCacheInBackground(*job.renderer, item.x, item.y, self, extract, seed, load, job.cancel);
   }
   const bool cancelled = job.cancel.load();
   LOG_DBG("ERS", "Image caches %s: %u in %lums, stack left %u", cancelled ? "cancelled" : "done",

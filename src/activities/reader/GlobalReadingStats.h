@@ -1,11 +1,12 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include "ReadingStatsUtils.h"
 
 // Cumulative reading statistics across all books, persisted to
-// /.crosspoint/global_stats.bin.
+// /.crosspoint/global_stats_dink.bin (two slots; global_stats.bin is read until the first save).
 struct GlobalReadingStats {
   uint32_t totalSessions = 0;        // Total book-open events across all books
   uint32_t totalReadingSeconds = 0;  // Accumulated reading time across all books
@@ -21,7 +22,7 @@ struct GlobalReadingStats {
   static constexpr size_t CURRENT_FILE_SIZE = 159;
   static constexpr size_t MIN_SUPPORTED_FILE_SIZE = 13;
 
-  // Loads stats from /.crosspoint/global_stats.bin. Returns default-constructed
+  // Loads the newest valid stats (see above). Returns default-constructed
   // stats if the file is missing or the version byte does not match.
   static GlobalReadingStats load();
 
@@ -37,11 +38,17 @@ struct GlobalReadingStats {
   // when the local stats may include in-memory changes that are not saved yet.
   static GlobalReadingStats loadAggregated(const GlobalReadingStats& localStats);
 
-  // Saves stats to /.crosspoint/global_stats.bin.
+  // Saves stats in place to the older of the two slots global_stats_dink.bin
+  // and global_stats_dink.bin.bak (TwoSlotFile.h). global_stats.bin is left as
+  // is, for older firmware.
   void save() const;
 
-  // Replaces /.crosspoint/global_stats.bin with a fresh empty file without
-  // rotating or deleting any backup files.
+  // Copies this device's stats payload (newest valid slot, without the slot
+  // trailer) into out. Returns its size, or 0 when there is none.
+  static size_t readLocalFile(std::array<uint8_t, CURRENT_FILE_SIZE>& out);
+
+  // Replaces the stats files (both slots and global_stats.bin) with fresh empty stats
+  // without touching the backups in /.crossink-stats-backup.
   static bool resetLocal();
 
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
