@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -35,6 +36,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/markIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
@@ -53,20 +55,22 @@ constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 // PSRAM page cache (S3 only): whole raw feed responses, so Back/Prev and the
 // prefetched next page parse locally instead of refetching.
-constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
+KNOB_ALIAS(OPDS_PAGE_CACHE_MAX_BYTES, opdsCacheCap);  // Goodies > Knobs (a cap below 2 MB)
 constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // A kept-alive feed connection idle longer than this is closed before the
 // next request. Some servers and load balancers drop an idle socket without a
 // FIN; the request then waits out the whole header timeout before the retry
 // on a fresh connection. Reuse after 1.4 s and 3.5 s idle worked on
 // mayberry.pub, after 10.5 s it never answered (crash log 2026-09-30).
-constexpr unsigned long OPDS_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
+KNOB_ALIAS(OPDS_KEEPALIVE_MAX_IDLE_MS, opdsKeepaliveMs);  // Goodies > Knobs
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
-  if (book.author.empty()) return book.title;
-  if (book.title.empty()) return book.author;
-  if (format == OpdsFilenameFormat::TITLE_AUTHOR) return book.title + " - " + book.author;
-  return book.author + " - " + book.title;
+  const std::string title(book.title);
+  const std::string author(book.author);
+  if (author.empty()) return title;
+  if (title.empty()) return author;
+  if (format == OpdsFilenameFormat::TITLE_AUTHOR) return title + " - " + author;
+  return author + " - " + title;
 }
 
 // SD path a book downloads to: the configured folder (or the root) plus the
@@ -117,7 +121,7 @@ bool formatFatDateTime(const uint32_t packed, char* out, const size_t outSize) {
 
 // Mayberry prefixes folder titles with U+1F4C1 (file folder), which the UI
 // fonts lack; show "/name" instead.
-void replaceFolderEmoji(std::string& title) {
+void replaceFolderEmoji(PsramString& title) {
   constexpr char FOLDER_EMOJI[] = "\xF0\x9F\x93\x81";
   constexpr size_t FOLDER_EMOJI_LEN = sizeof(FOLDER_EMOJI) - 1;
   if (title.compare(0, FOLDER_EMOJI_LEN, FOLDER_EMOJI) != 0) return;
@@ -147,6 +151,7 @@ void OpdsBookBrowserActivity::onEnter() {
   entryCount = 0;
   navigationHistory.clear();
   searchTemplate = "";
+  searchDescriptionUrl.clear();
   currentPath = "";
   selectorIndex = 0;
   errorMessage.clear();
@@ -207,16 +212,7 @@ void OpdsBookBrowserActivity::onExit() {
 #ifndef SIMULATOR
   // OPDS launches from minimal network boot, so the full app state is
   // restored even if setup failed before WiFi was started.
-  if (!leaveNetworkInPlace()) {
-    if (!openAfterExit.empty()) {
-      // goToReader() is lost across the reboot: reopen the book from APP_STATE.
-      APP_STATE.openEpubPath = openAfterExit;
-      APP_STATE.saveToFile();
-      silentRestartToReader();
-    } else {
-      silentRestart();
-    }
-  }
+  leaveNetworkAfterExit(std::move(openAfterExit));
 #endif
 }
 
@@ -310,7 +306,17 @@ void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::BROWSING) {
     // Queued feed downloads start only from the browsing list; a network
     // fetch or a book download pauses them.
-    if (preload) preload->pump();
+    if (preload) {
+      preload->pump();
+      // A preload stored or evicted a page: recheck the row marks.
+      if (pageCache && pageCache->changes() != pageCachedAt) markCachedFeeds();
+      // A recheck found the shown page changed: re-parse it in place.
+      std::string changed;
+      if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
+        LOG_INF("OPDS", "Recheck: redrawing changed page");
+        fetchFeed(currentPath, selectorIndex, topIndex, false);
+      }
+    }
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       navigateBack();
       return;
@@ -320,7 +326,7 @@ void OpdsBookBrowserActivity::loop() {
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
+      if (hasSearch() && selectorIndex == 0) launchSearch();
     }
 
     // Touch goes through the FreeInkApp: render() registered every tap target
@@ -417,7 +423,7 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
   const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     const auto backLayout = TouchHeaderBackButton::layout(headerRect);
-    const bool showSearch = withSearch && !searchTemplate.empty();
+    const bool showSearch = withSearch && hasSearch();
     TouchHeaderBackButton::draw(renderer, uiTarget, headerRect, title, false,
                                 showSearch ? static_cast<int>(backLayout.iconRect.width + 8) : 0);
     screen.takeTop(static_cast<int16_t>(headerRect.y + headerRect.height));
@@ -467,11 +473,16 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   // book count; same lifetime as `items`.
   using CountLabel = std::array<char, 16>;
   std::vector<CountLabel> countLabels(entryCount);
+  // 20 px bold check in the row inset left of the title (Lyra: 20 inset + 8
+  // padding); the list clamps it to that room, so titles never move.
+  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_20);
   for (size_t i = 0; i < entryCount; ++i) {
     const auto& entry = entries[i];
     fui::ListItem item;
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
+    // One mark for "no network needed": a downloaded book or a cached feed page.
+    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) item.icon = mark;
     if (entry.type == OpdsEntryType::NAVIGATION) {
       if (entry.count >= 0) {
         snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
@@ -491,6 +502,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the nav chevron and the row edge
+  props.iconsInMargin = true;         // the check sits left of the title: nothing else moves
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entryCount));  // clamp to range
@@ -577,7 +589,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
     case BrowserState::BROWSING: {
       const char* confirmLabel =
           (entryCount > 0 && entries[selectorIndex].type == OpdsEntryType::BOOK) ? tr(STR_DOWNLOAD) : tr(STR_OPEN);
-      const char* searchLabel = (!searchTemplate.empty() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
+      const char* searchLabel = (hasSearch() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
       labels =
           mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, searchLabel, tr(STR_DIR_DOWN));
       break;
@@ -619,7 +631,7 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
     if (preload) preload->collect();
     const std::string url = UrlUtils::buildUrl(server.url, path);
     if (pageCache->contains(url)) {
-      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", url.c_str());
+      LOG_INF("OPDS", "Cache hit, no Loading frame: %s", UrlUtils::maskUserInfo(url).c_str());
       return;
     }
   }
@@ -631,7 +643,8 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
   }
 }
 
-void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop) {
+void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop,
+                                        const bool recheck) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_MEMORY_ERROR);
@@ -700,6 +713,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   }
 
   searchTemplate = parser.getSearchTemplate();
+  searchDescriptionUrl = parser.getSearchDescriptionUrl();
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   entryCount = parser.getEntryCount();
@@ -718,14 +732,15 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
       entries[i] = std::move(entries[i - 1]);
     }
     entries[0] = OpdsEntry{OpdsEntryType::NAVIGATION,
-                           std::string(mappedInput.resolveLabel(mappedInput.withPreviousPageArrow(tr(STR_PREV_PAGE)))),
-                           "", prevUrl, ""};
+                           PsramString(mappedInput.resolveLabel(mappedInput.withPreviousPageArrow(tr(STR_PREV_PAGE)))),
+                           "", PsramString(prevUrl), ""};
     entryCount++;
   }
   if (!nextUrl.empty()) {
-    hasNextPageRow = appendEntry(OpdsEntry{
-        OpdsEntryType::NAVIGATION,
-        std::string(mappedInput.resolveLabel(mappedInput.withNextPageArrow(tr(STR_NEXT_PAGE)))), "", nextUrl, ""});
+    hasNextPageRow =
+        appendEntry(OpdsEntry{OpdsEntryType::NAVIGATION,
+                              PsramString(mappedInput.resolveLabel(mappedInput.withNextPageArrow(tr(STR_NEXT_PAGE)))),
+                              "", PsramString(nextUrl), ""});
     if (!hasNextPageRow) LOG_DBG("OPDS", "No room for next-page entry");
   }
 
@@ -734,6 +749,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
   topIndex = restoreTop;
   if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
+  markBooksOnSd();
+  markCachedFeeds();
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
@@ -745,6 +762,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
   if (currentPath.empty()) preloadFeedsOnPage();
+  if (recheck && shownFromCache && preload) preload->revalidate(url);
   if (preload) preload->pump();
 }
 
@@ -753,15 +771,17 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   // Otherwise a foreground request never overlaps them: finish the one for
   // this very page, pause the rest. Either way completed pages land in the
   // cache.
+  shownFromCache = false;
   if (pageCache) {
     const OpdsPageBuffer* cached = pageCache->find(url);
+    shownFromCache = cached != nullptr;
     if (!cached && preload) {
       const unsigned long joinStart = millis();
       if (preload->pause(url)) LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
       cached = pageCache->find(url);
     }
     if (cached) {
-      LOG_INF("OPDS", "Cached: %s (%zu bytes)", url.c_str(), cached->size());
+      LOG_INF("OPDS", "Cached: %s (%zu bytes)", UrlUtils::maskUserInfo(url).c_str(), cached->size());
       parser.parse(cached->data(), cached->size());
       return true;
     }
@@ -770,7 +790,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   // Keep the normalized server URL alive for the synchronous fetch so
   // HttpDownloader can scope Basic auth even for legacy scheme-less entries.
   const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
-  LOG_DBG("OPDS", "Fetching: %s", url.c_str());
+  LOG_DBG("OPDS", "Fetching: %s", UrlUtils::maskUserInfo(url).c_str());
   // Tee the response into PSRAM so this page is cached before the user moves
   // on; the parser still consumes it as it streams.
   OpdsPageBuffer page(MemoryPool::Psram, OPDS_PAGE_MAX_BYTES);
@@ -792,7 +812,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     if (result != HttpDownloader::OK) return false;
   }
 
-  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page));
+  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page), true, millis());
   return true;
 }
 
@@ -826,7 +846,7 @@ void OpdsBookBrowserActivity::preloadFeedsOnPage() {
   size_t queuedCount = 0;
   for (size_t i = first; i < last; ++i) {
     if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
-    const std::string path = UrlUtils::buildUrl(feedUrl, entries[i].href);
+    const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
     preload->enqueue(UrlUtils::buildUrl(server.url, path), false);
     ++queuedCount;
   }
@@ -854,6 +874,66 @@ void OpdsBookBrowserActivity::stopPrefetch() {
   if (!preload) return;
   preload->pause("");
   preload->closeConnections();
+}
+
+// Feed rows (Prev/Next included) resolved to cache keys as navigateToEntry()
+// and the preloads do. Main loop only: the cache has no lock.
+void OpdsBookBrowserActivity::markCachedFeeds() {
+  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> cached;
+  if (pageCache) {
+    pageCachedAt = pageCache->changes();
+    const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+    for (size_t i = 0; i < entryCount; ++i) {
+      if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
+      const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
+      if (pageCache->contains(UrlUtils::buildUrl(server.url, path))) cached.set(i);
+    }
+  }
+  if (cached == pageCached) return;
+  {
+    RenderLock lock(*this);
+    pageCached = cached;
+  }
+  // A preload landing flips a ✓ on: redraw the list through the normal refresh.
+  if (state == BrowserState::BROWSING) requestUpdate();
+}
+
+// One pass over the download folder, not an exists() per book: each lookup
+// rescans the folder, so 50 books would read it 50 times. Read-only.
+void OpdsBookBrowserActivity::markBooksOnSd() {
+  onSd.reset();
+  const unsigned long startMs = millis();
+  // Transient: the page's expected file names, freed on return.
+  std::vector<std::string> names(entryCount);
+  size_t wanted = 0;
+  for (size_t i = 0; i < entryCount; ++i) {
+    if (entries[i].type != OpdsEntryType::BOOK) continue;
+    const std::string path = bookDownloadPath(entries[i], server.filenameFormat);
+    names[i] = path.substr(path.rfind('/') + 1);
+    ++wanted;
+  }
+  if (wanted == 0) return;
+  const char* folder = SETTINGS.opdsDownloadFolder[0] != '\0' ? SETTINGS.opdsDownloadFolder : "/";
+  HalFile dir = Storage.open(folder);
+  if (dir && dir.isDirectory()) {
+    char name[256];
+    size_t found = 0;
+    for (HalFile file = dir.openNextFile(); file && found < wanted; file = dir.openNextFile()) {
+      file.getName(name, sizeof(name));
+      const bool isFile = !file.isDirectory();
+      file.close();
+      if (!isFile) continue;
+      for (size_t i = 0; i < entryCount; ++i) {
+        if (!onSd[i] && !names[i].empty() && strcasecmp(name, names[i].c_str()) == 0) {
+          onSd.set(i);
+          ++found;
+        }
+      }
+    }
+  }
+  if (dir) dir.close();
+  LOG_DBG("OPDS", "On SD: %u of %u books (%lu ms)", static_cast<unsigned>(onSd.count()), static_cast<unsigned>(wanted),
+          millis() - startMs);
 }
 
 bool OpdsBookBrowserActivity::ensureEntryBuffer() {
@@ -886,7 +966,7 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool
   if (!pageLink) pushHistory();
   // Resolve to a full URL so sub-sub-navigation retains parent path context
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
+  currentPath = UrlUtils::buildUrl(feedUrl, std::string(entry.href));
 
   clearEntries();
   selectorIndex = 0;
@@ -910,42 +990,81 @@ void OpdsBookBrowserActivity::navigateBack() {
 }
 
 void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
-  // Read-only open: one directory lookup for existence, size and date, and no
-  // SD write unless the user chooses to overwrite.
+  // One prompt before every download: "Download? <title>", or the overwrite
+  // question with the copy's size and date when the book is already on SD.
+  // Read-only open: one directory lookup, no SD write until Confirm.
   std::string path = bookDownloadPath(book, server.filenameFormat);
+  std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
+  std::string details = book.title.c_str();
   HalFile existing = Storage.open(path.c_str());
-  if (!existing || existing.isDirectory()) {
-    if (existing) existing.close();
-    downloadBook(book, path);
-    return;
+  const bool onSdAlready = existing && !existing.isDirectory();
+  if (onSdAlready) {
+    char sizeLabel[16];
+    formatFileSize(existing.fileSize64(), sizeLabel, sizeof(sizeLabel));
+    char dateLabel[20];
+    const bool hasDate = formatFatDateTime(existing.modificationTime(), dateLabel, sizeof(dateLabel));
+    heading = tr(STR_BOOK_EXISTS_OVERWRITE);
+    details = sizeLabel;
+    if (hasDate) {
+      details += ", ";
+      details += dateLabel;
+    }
+    LOG_INF("OPDS", "Already on SD: %s (%s)", path.c_str(), details.c_str());
   }
-  char sizeLabel[16];
-  formatFileSize(existing.fileSize64(), sizeLabel, sizeof(sizeLabel));
-  char dateLabel[20];
-  const bool hasDate = formatFatDateTime(existing.modificationTime(), dateLabel, sizeof(dateLabel));
-  existing.close();
+  if (existing) existing.close();
 
-  // ConfirmationActivity appends "<size>, <date>" to the question in one
-  // popup title; Cancel is the focused option.
-  std::string details = sizeLabel;
-  if (hasDate) {
-    details += ", ";
-    details += dateLabel;
-  }
-  LOG_INF("OPDS", "Already on SD: %s (%s)", path.c_str(), details.c_str());
-
-  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_BOOK_EXISTS_OVERWRITE), details);
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, details);
   if (!dialog) {
-    LOG_ERR("OPDS", "Cannot allocate overwrite dialog");
+    LOG_ERR("OPDS", "Cannot allocate download dialog");
     return;
   }
+  // Download size: the feed's length attribute, else a background request
+  // (bookDownloader is idle while browsing) that fills it in; Confirm works
+  // throughout. "?" when neither tells. Not for a book already on SD: the
+  // overwrite question shows the copy's size, and no request is made.
+  char size[16] = "...";
+  bool probing = false;
+  if (onSdAlready) {
+    size[0] = '\0';
+  } else if (book.length > 0) {
+    formatFileSize(static_cast<uint64_t>(book.length), size, sizeof(size));
+  } else {
+    auto request = bookRequest(book);
+    request.sizeOnly = true;
+    probing = bookDownloader.start(std::move(request));
+    if (!probing) snprintf(size, sizeof(size), "?");
+  }
+  if (size[0]) dialog->setNote(tr(STR_SIZE_LABEL), size, probing ? pollDownloadSize : nullptr, this);
+
   // entries and selectorIndex stay put while the dialog is on top (this
   // activity's loop does not run), so the index is enough to find the book.
   const int bookIndex = selectorIndex;
   startActivityForResult(std::move(dialog), [this, bookIndex, path = std::move(path)](const ActivityResult& result) {
+    bookDownloader.cancel();  // a size probe still running; downloadBook joins it
     if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
     downloadBook(entries[bookIndex], path);
   });
+}
+
+bool OpdsBookBrowserActivity::pollDownloadSize(void* self, std::string& body) {
+  const auto& downloader = static_cast<OpdsBookBrowserActivity*>(self)->bookDownloader;
+  if (downloader.running()) return false;
+  char size[16] = "?";
+  if (downloader.total() > 0) formatFileSize(downloader.total(), size, sizeof(size));
+  if (body == size) return false;
+  body = size;
+  return true;
+}
+
+OpdsBookDownloader::Request OpdsBookBrowserActivity::bookRequest(const OpdsEntry& book) const {
+  // Relative to the current feed, not the root server URL.
+  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+  OpdsBookDownloader::Request request;
+  request.url = UrlUtils::buildUrl(feedUrl, std::string(book.href));
+  request.username = server.username;
+  request.password = server.password;
+  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  return request;
 }
 
 void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename,
@@ -967,6 +1086,9 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   return;
 #endif
 
+  // A size probe from the download prompt may still be winding down.
+  bookDownloader.cancel();
+  bookDownloader.join();
   // The book download must not share the network or RAM with page preloads.
   stopPrefetch();
 #if defined(FREEINK_NET_WOLFSSL)
@@ -984,14 +1106,8 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
     return;
   }
 
-  // Build full download URL relative to the current feed, not the root server URL
-  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  OpdsBookDownloader::Request request;
-  request.url = UrlUtils::buildUrl(feedUrl, book.href);
+  OpdsBookDownloader::Request request = bookRequest(book);
   request.path = filename;
-  request.username = server.username;
-  request.password = server.password;
-  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
   if (resumeValidator) {
     request.resume = true;
     request.validator = *resumeValidator;
@@ -1046,6 +1162,7 @@ void OpdsBookBrowserActivity::pollDownload() {
   const std::string& filename = bookDownloader.path();
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
+    if (selectorIndex >= 0 && selectorIndex < static_cast<int>(onSd.size())) onSd.set(selectorIndex);
     state = BrowserState::BROWSING;
     // The prompt draws over the last frame: show the list under it, not the
     // download screen (this also replaces the download frame's ghost).
@@ -1131,6 +1248,16 @@ void OpdsBookBrowserActivity::launchSearch() {
 }
 
 void OpdsBookBrowserActivity::performSearch(const std::string& query) {
+  if (!query.empty() && searchTemplate.empty() && !searchDescriptionUrl.empty()) {
+    // A few hundred bytes, fetched once: loadFeed() keeps it in the page cache.
+    OpdsEntry unused[1];
+    OpdsParser description(unused);
+    if (loadFeed(UrlUtils::buildUrl(server.url, searchDescriptionUrl), description) && description) {
+      searchTemplate = description.getSearchTemplate();
+    }
+    if (searchTemplate.empty())
+      LOG_ERR("OPDS", "No search template in %s", UrlUtils::maskUserInfo(searchDescriptionUrl).c_str());
+  }
   if (query.empty() || searchTemplate.empty()) {
     state = BrowserState::BROWSING;
     requestUpdate();

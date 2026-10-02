@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 
@@ -16,6 +17,7 @@
 
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
+#include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -125,6 +127,7 @@ void DisplayTestActivity::loop() {
 
 void DisplayTestActivity::answer(const int option) {
   const Op& op = script.ops[pc];
+  if (op.code == OpCode::Confirm && option == 0) stopRequested = true;
   if (op.code == OpCode::Pick) {
     LOG_INF("GDY", "test=\"%s\" pick=\"%s\" square=%d variant=\"%s\"", title.c_str(), op.text.c_str(), option + 1,
             op.options[option].c_str());
@@ -166,7 +169,7 @@ void DisplayTestActivity::runOps() {
         duFrames = static_cast<uint8_t>(op.a[0]);
         break;
       case OpCode::Pll:
-        pll = static_cast<uint8_t>(op.a[0]);
+        pll = knobs::PLL_BYTES[op.a[0]];  // index checked when the script was parsed
         break;
       case OpCode::Scrub:
 #ifndef SIMULATOR
@@ -199,9 +202,21 @@ void DisplayTestActivity::runOps() {
         LOG_INF("GDY", "test=\"%s\" note %s", title.c_str(), op.text.c_str());
         break;
       case OpCode::Ask:
+      case OpCode::Confirm:
       case OpCode::Pick:
         phase = Phase::Asking;
         return;
+      case OpCode::Swing:
+      case OpCode::Null:
+#ifndef SIMULATOR
+        if (op.code == OpCode::Swing) {
+          freeink::requestUc8179HalfAsDuScrubNext(static_cast<uint8_t>(op.a[0]));
+        } else {
+          freeink::requestUc8179NullNext(static_cast<uint8_t>(op.a[0]));
+        }
+#endif
+        refresh(op.code == OpCode::Swing ? Mode::Half : Mode::Fast);
+        break;
       case OpCode::Name:
         break;
       default:
@@ -384,16 +399,18 @@ void DisplayTestActivity::drawResult() {
   } else {
     GUI.drawHeader(renderer, header, title.c_str());
   }
-  const int x = metrics.contentSidePadding;
+  // Goodies text pages: the list rows' font and label margin.
+  const int font = uiScaleSpec().bodyFontId;
+  const int x = metrics.listInset + metrics.listSidePadding;
   const int maxWidth = renderer.getScreenWidth() - 2 * x;
   const int bottom = renderer.getScreenHeight() - metrics.buttonHintsHeight;
-  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID) + 6;
+  const int lineHeight = renderer.getLineHeight(font) + 6;
   int y = header.y + header.height + metrics.verticalSpacing;
   // Word-wrapped to the width, a hanging indent on continuation lines.
   auto drawWrapped = [&](const char* text, const EpdFontFamily::Style style) {
-    const auto lines = renderer.wrappedText(UI_10_FONT_ID, text, maxWidth, 3, style);
+    const auto lines = renderer.wrappedText(font, text, maxWidth, 3, style);
     for (size_t i = 0; i < lines.size() && y + lineHeight <= bottom; ++i) {
-      renderer.drawText(UI_10_FONT_ID, i == 0 ? x : x + 16, y, lines[i].c_str(), true, style);
+      renderer.drawText(font, i == 0 ? x : x + 16, y, lines[i].c_str(), true, style);
       y += lineHeight;
     }
   };

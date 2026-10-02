@@ -11,13 +11,32 @@
   `http://crosspoint.local/api/psram-log`), plus the token-gated `POST /api/cmd` from
   [serial-remote.md](serial-remote.md#wi-fi-post-apicmd). It has no file, settings, upload or `/api/status` routes, so
   nothing touches the SD card or the I2C bus behind other screens. Tap again to turn Wi-Fi off. The toggle is
-  saved in `crossink-settings.json` (`goodiesWifiRemote`), written only when it changes. Wi-Fi screens (File
-  Transfer, Calibre Connect, OPDS, Nearby) take the radio while open; afterwards, and after every sleep wake,
+  saved in `crossdink-settings.json` (`goodiesWifiRemote`), written only when it changes. Wi-Fi screens that need
+  port 80, ESP-NOW or scans (File Transfer, Calibre Connect, Nearby, KOReader sync, Wi-Fi networks) take the radio
+  while open. OPDS, firmware update, font download, clock sync and KOReader login share it: once the screen has a
+  link the remote serves on it (no join of its own), and restarts when the screen closes; afterwards, and after every sleep wake,
   restart or power-on, the remote rejoins in the background: 5 s after boot, once input has paused for 2 s,
   retrying after 1, 2, 4... up to 10 min when the network is out of reach. The join (reading `wifi.json`,
   starting the Wi-Fi driver) runs on its own task, so input and drawing never wait for it (logged as
   `join task N ms`). With no saved network, turning it on opens the Wi-Fi picker. While the idle server waits
   for requests, the device power saves as File Transfer does (light sleep with modem sleep); Wi-Fi still costs battery.
+- **Keyboard test**: **Type** opens the on-screen keyboard on a scratch field (kept while Goodies is open, never
+  saved). The rows below are - / + steppers for Turbo keyboard and the typing knobs (`kbdFrames`, `kbdPll`,
+  `kbdHighlightDelayMs`, `kbdTouchHoldMs`, `kbdTouchDelHoldMs`, `contactJumpPx`, `tapSlopPx`); Left/Right step on
+  button devices. Values apply at once (frames and Turbo at the next keyboard open). The page holds the deferred
+  settings write (`Activity::holdsSettingsFlush`), so nothing is written while it is open; the write comes after you
+  leave it (by the time Goodies closes), or before sleep, restart or a flash.
+- **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, one tab per area (tap or long-press Up/Down to switch), as `id value unit`
+  (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
+  values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
+  deletes the file. Three crash boots in a row (panic, watchdog or power cycle; wakes from sleep
+  and intentional restarts reset the count) that never stay up 30 s move the file to `knobs.bad.json` and boot on
+  defaults (`KNOB` log lines). Holding Back while the device starts ignores the file for that boot (safe boot).
+  Memory gates are raise-only. SDK values are pushed through `setUc8179Tuning()` / `InputManager::setTuning()`
+  (`-DFREEINK_TUNING=1`). Other builds read the same `KNOBS.<id>` as compile-time defaults. Display frame counts
+  only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
+  PLL bytes are never knobs (`kbdPll` picks panel default / 40 Hz / 50 Hz only). To add one: an `X(...)` row
+  whose default equals the constant, then read `KNOBS.<id>` where the constant was.
 
 Back stops a running test; Back again leaves the result screen.
 
@@ -39,14 +58,17 @@ commands are rejected, and the result screen shows the failing line.
 | `label A \| B \| C` | White band across the top with up to 3 parts (A bold), word-wrapped to the width, shown by the next refresh. Convention: what this is \| what to look for \| what is next. |
 | `refresh full\|half\|fast\|du` | Show the framebuffer. `du` is a Fast refresh with the keyboard's balanced DU LUT (compile-time DC-balance checked); the others run the panel's OTP waveforms. |
 | `frames N` | DU LUT frames (1..63, default 6). |
-| `pll 0xNN` | PLL (0x30) value during DU refreshes; `0` keeps the default. |
+| `pll N` | PLL during DU refreshes, as `kbdPll`: 0 = panel default, 1 = 40 Hz, 2 = 50 Hz (`knobs::PLL_BYTES`; raw 0x30 bytes are refused). |
 | `scrub half\|du` | The next Fast/DU refresh runs as a Half scrub, or a DU scrub (DU needs `refresh du`). |
+| `swing N` | UC8179: refresh to the framebuffer with a balanced N-frame DU swing of every pixel (1..120). |
+| `null N` | UC8179: null discharge, sources at GND and VCOM at VCOM_DC for 2 x N frames; pixels do not move (1..120). |
 | `wait MS` | Pause (0..60000 ms). |
 | `repeat N` ... `end` | Loop N times (1..1000, nesting up to 4). |
 | `text X Y <text>` | Draw bold text at X,Y. |
 | `pick X Y CW CH COLS ROWS \| question \| name1 \| ...` | Wait for a tap on one cell of a COLS x ROWS grid of CW x CH cells at X,Y (or Left/Right then Confirm); logs the square number and its name. |
 | `note <text>` | Write a line to the log. |
 | `ask <question> \| A \| B` | Show the question over the test image; Left/left half = A, Right/right half = B. The answer is logged. |
+| `confirm <question> \| stop \| go` | Like `ask`; the first answer stops the test. |
 
 `frames` and `pll` stay in effect until changed. `window` and `resync` were removed: both could leave the
 controller's OLD plane unlike the panel, so the next refresh would drive pixels one way.

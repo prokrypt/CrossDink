@@ -1,6 +1,7 @@
 #include "KOReaderSyncClient.h"
 
 #include <ArduinoJson.h>
+#include <Knobs.h>
 #ifdef SIMULATOR
 #include <ArduinoJsonStringCompat.h>
 #endif
@@ -120,7 +121,7 @@ KOReaderSyncClient::Error validateAuthResponse(const char* body) {
 
 // Sync runs on the main loop; a dead server should fail in seconds, not the
 // client's 15 s default per stage.
-constexpr uint32_t SYNC_HTTP_TIMEOUT_MS = 8000;
+KNOB_ALIAS(SYNC_HTTP_TIMEOUT_MS, kosyncTimeoutMs);  // Goodies > Knobs
 
 // KOSync's TLS-1.3 servers can't be reached through the precompiled system
 // mbedTLS (TLS 1.3 is stubbed out), so requests run over wolfSSL via

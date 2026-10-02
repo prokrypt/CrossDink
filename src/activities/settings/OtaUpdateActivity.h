@@ -35,6 +35,7 @@ class OtaUpdateActivity : public Activity {
   void onEnter() override;
   void onExit() override;
   bool usesWifi() const override { return true; }
+  bool sharesWifiWithRemote() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return state == CHECKING_FOR_UPDATE || state == UPDATE_IN_PROGRESS; }

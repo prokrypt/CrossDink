@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
@@ -10,7 +11,10 @@
 #ifndef SIMULATOR
 #include <esp_mac.h>
 #include <esp_netif_net_stack.h>
+#include <esp_timer.h>
 #include <lwip/dhcp.h>
+#include <lwip/prot/dhcp.h>
+#include <lwip/tcpip.h>
 #endif
 
 #include <algorithm>
@@ -18,6 +22,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
+#include "SilentRestart.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/TouchActionButtons.h"
@@ -26,6 +31,8 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "network/WifiUtils.h"
+#include "network/NetworkName.h"
 
 namespace fui = freeink::ui;
 
@@ -62,7 +69,7 @@ struct WifiApHint {
 };
 RTC_NOINIT_ATTR WifiApHint sWifiApHint;
 bool sHintedAttempt = false;
-constexpr unsigned long HINTED_CONNECTION_TIMEOUT_MS = 6000;
+KNOB_ALIAS(HINTED_CONNECTION_TIMEOUT_MS, hintedConnectTimeoutMs);  // Goodies > Knobs
 
 uint32_t ssidHash(const std::string& ssid) {
   uint32_t hash = 2166136261u;  // FNV-1a
@@ -107,6 +114,27 @@ void logDhcpProgress(const unsigned long elapsedMs) {
   sDhcpLoggedState = dhcp->state;
   sDhcpLoggedTries = dhcp->tries;
 }
+
+// The first DISCOVER after association usually goes unanswered and lwIP resends
+// it only after a fixed 500 ms (logs 0930: 88 of 90 joins, answered ~12 ms
+// after the resend). Resend it DHCP_KICK_DELAY_MS after association instead.
+// Same MAC and client id, so the router hands out the same lease.
+constexpr uint32_t DHCP_KICK_DELAY_MS = 100;
+esp_timer_handle_t sDhcpKickTimer = nullptr;
+bool sDhcpKicked = false;  // tcpip thread writes, the GOT_IP log reads
+
+void kickDhcpOnTcpip(void*) {
+  auto* lwipNetif = static_cast<struct netif*>(esp_netif_get_netif_impl(WiFi.STA.netif()));
+  const struct dhcp* dhcp = lwipNetif ? netif_dhcp_data(lwipNetif) : nullptr;
+  if (!dhcp || dhcp->state != DHCP_STATE_SELECTING || dhcp->tries != 1) return;
+  sDhcpKicked = true;
+  dhcp_start(lwipNetif);
+}
+
+void armDhcpKick(WiFiEvent_t, WiFiEventInfo_t) {
+  sDhcpKicked = false;
+  if (sDhcpKickTimer) esp_timer_start_once(sDhcpKickTimer, DHCP_KICK_DELAY_MS * 1000);
+}
 #endif
 
 std::string getDisplayMacAddress() {
@@ -149,8 +177,8 @@ void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
       const uint8_t* ip = reinterpret_cast<const uint8_t*>(&info.got_ip.ip_info.ip.addr);
       const unsigned long now = millis();
-      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u (dhcp %lu ms, total %lu ms)", ip[0], ip[1], ip[2], ip[3],
-              sAssocMs != 0 ? now - sAssocMs : 0UL, now - sBeginMs);
+      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u (dhcp %lu ms%s, total %lu ms)", ip[0], ip[1], ip[2], ip[3],
+              sAssocMs != 0 ? now - sAssocMs : 0UL, sDhcpKicked ? ", DISCOVER resent" : "", now - sBeginMs);
       break;
     }
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
@@ -182,6 +210,18 @@ void ensureWifiEventLoggingRegistered() {
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_LOST_IP);
+  const esp_timer_create_args_t kickArgs = {
+      .callback = [](void*) { tcpip_callback(kickDhcpOnTcpip, nullptr); },
+      .arg = nullptr,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "dhcpKick",
+      .skip_unhandled_events = true,
+  };
+  if (esp_timer_create(&kickArgs, &sDhcpKickTimer) == ESP_OK) {
+    WiFi.onEvent(armDhcpKick, ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  } else {
+    LOG_ERR("WIFI", "DHCP resend timer not created");
+  }
   sWifiEventLoggingRegistered = true;
 }
 #else
@@ -371,7 +411,7 @@ void WifiSelectionActivity::onExit() {
 
   // Successful connections leave WiFi up for the parent activity. Canceled
   // flows own their cleanup because no parent may be present to tear WiFi down.
-  if (tearDownWifiOnExit) {
+  if (tearDownWifiOnExit && !keepWifiForRemote()) {
 #ifndef SIMULATOR
     sConnectionAttemptLoggingActive = false;
 #endif
@@ -763,6 +803,12 @@ void WifiSelectionActivity::attemptConnection() {
     }
     return;
   }
+  // Already on this network (the Goodies remote's link): reuse it. The status
+  // poll sees WL_CONNECTED and finishes as for a fresh join.
+  if (hasActiveStationWifiConnection() && WiFi.SSID() == selectedSSID.c_str()) {
+    LOG_INF("WIFI", "Already connected to %s, reusing the link", selectedSSID.c_str());
+    return;
+  }
   // Abort any in-progress SDK auto-connect before our explicit begin().
   // Do not erase the AP config or power-cycle the radio; some routers fail the
   // next WPA handshake after that heavier reset.
@@ -785,11 +831,15 @@ void WifiSelectionActivity::attemptConnection() {
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
-  // Set hostname so routers show "CrossPoint-Reader-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"
+  // Set hostname so routers show "CrossDink-Reader-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"
   String mac = WiFi.macAddress();
   mac.replace(":", "");
-  String hostname = "CrossPoint-Reader-" + mac;
+  String hostname = String(NET_AP_SSID) + "-" + mac;
   WiFi.setHostname(hostname.c_str());
+
+  // Radio awake for the join: in modem sleep it can miss the DHCP answer and
+  // wait out lwIP's 500 ms resend. Modem sleep comes back once connected.
+  WiFi.setSleep(false);
 
   wl_status_t beginStatus = WL_IDLE_STATUS;
   const char* const passphrase =
@@ -837,6 +887,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
 
   if (status == WL_CONNECTED) {
     // Successfully connected
+    WiFi.setSleep(true);
     IPAddress ip = WiFi.localIP();
     char ipStr[16];
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
@@ -925,6 +976,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
 #endif
 
   if (wifiStatusIsConnectionFailure(status)) {
+    WiFi.setSleep(true);  // the join is over; attemptConnection() turns it off again for a retry
     connectionError = tr(STR_ERROR_GENERAL_FAILURE);
     if (status == WL_NO_SSID_AVAIL) {
       connectionError = tr(STR_ERROR_NETWORK_NOT_FOUND);
@@ -951,6 +1003,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
   const unsigned long timeoutMs = autoConnecting ? AUTO_CONNECTION_TIMEOUT_MS : CONNECTION_TIMEOUT_MS;
   if (millis() - connectionStartTime > timeoutMs) {
     WiFi.disconnect();
+    WiFi.setSleep(true);
     connectionError = tr(STR_ERROR_CONNECTION_TIMEOUT);
     LOG_INF("WIFI", "Connection timed out: ssid=%s elapsed=%lums lastStatus=%d/%s", selectedSSID.c_str(),
             millis() - connectionStartTime, static_cast<int>(status), wifiStatusName(status));

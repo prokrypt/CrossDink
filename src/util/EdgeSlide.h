@@ -4,11 +4,16 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "SwipeAdjustment.h"
+
 namespace EdgeSlide {
 
 enum class Direction : uint8_t { None, LeftUp, LeftDown, RightUp, RightDown };
 
-inline int bandWidth(const int screenWidth) { return std::max(32, screenWidth * 8 / 100); }
+// Goodies > Knobs edgeBandPx / edgeBandPct.
+inline int bandWidth(const int screenWidth) {
+  return std::max<int>(KNOBS.edgeBandPx, screenWidth * KNOBS.edgeBandPct / 100);
+}
 
 inline Direction directionFor(const int startX, const int startY, const int endX, const int endY, const int screenWidth,
                               const int screenHeight) {
@@ -20,7 +25,7 @@ inline Direction directionFor(const int startX, const int startY, const int endX
   if (!left && !right) return Direction::None;
   const int dx = endX - startX;
   const int dy = endY - startY;
-  if (std::abs(dy) < std::max(60, screenHeight * 6 / 100) || std::abs(dy) * 2 < std::abs(dx) * 3) {
+  if (std::abs(dy) < SwipeAdjustment::deadZone(screenHeight) || std::abs(dy) * 2 < std::abs(dx) * 3) {
     return Direction::None;
   }
   if (left) return dy < 0 ? Direction::LeftUp : Direction::LeftDown;

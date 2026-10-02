@@ -20,6 +20,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "GlobalActions.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
@@ -29,7 +30,9 @@
 #endif
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "components/ListSelection.h"
 #include "components/TouchRegistry.h"
+#include "components/themes/BaseTheme.h"
 #include "home/AlertActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
@@ -40,16 +43,21 @@
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
 #include "network/UsbDriveActivity.h"
+#include "platform/InputTask.h"
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
 #include "reader/GlobalReadingStats.h"
+#include "reader/KOSyncOnExit.h"
 #include "reader/ReaderActivity.h"
+#include "reader/ReaderExitSave.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "util/BatteryLog.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/SwipeAdjustment.h"
+#include "util/TransferLightPulse.h"
 #include "util/TwoFingerSwipe.h"
 
 namespace {
@@ -160,12 +168,23 @@ bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputM
     LOG_ERR("ACT", "OOM opening frontlight panel");
     return false;
   }
+  TransferLightPulse::yieldToUser();  // the pulldown shows the user's level, so the LEDs do too
   activity.onFrontlightPanelOpened();
   activity.startActivityForResult(std::move(panel), [&activity](const ActivityResult& result) {
     const auto* panelResult = std::get_if<FrontlightPanelResult>(&result.data);
     if (panelResult) activity.handleFrontlightPanelResult(*panelResult);
   });
   return true;
+}
+
+// A brightness gesture that ends at 0% turns the light off and keeps `level`
+// (the level before the gesture) for the next on. PWM is 0 at 0% either way.
+void lightOffAtZero(const uint8_t level) {
+  if (!Frontlight.isOn() || Frontlight.brightness() != 0) return;
+  Frontlight.setBrightness(level);
+  Frontlight.setOn(false);
+  SETTINGS.frontlightBrightness = level;
+  SETTINGS.frontlightOn = 0;
 }
 
 bool applyConfiguredSwipeAction(Activity& activity, ActivityManager& activityManager, const uint8_t action,
@@ -183,6 +202,7 @@ bool applyConfiguredSwipeAction(Activity& activity, ActivityManager& activityMan
       Frontlight.setOn(true);
       SETTINGS.frontlightBrightness = brightness;
       SETTINGS.frontlightOn = 1;
+      if (persist) lightOffAtZero(previousBrightness);  // a live slide does this at its end
       activity.onExternalFrontlightChange();
       if (persist && (brightness != previousBrightness || !previousOn)) activityManager.persistGlobalSettings();
       return true;
@@ -224,6 +244,14 @@ bool isLightSwipeAction(const uint8_t action) {
 
 #if CROSSDINK_APP_CAP_TOUCH
 void finishLiveLightSwipe(LiveLightSwipeState& state, ActivityManager& activityManager) {
+  // The light stays at the level the slide last showed; only 0% turns it off.
+  const bool brightness = state.action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                          state.action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+  if (brightness && Frontlight.isOn() && Frontlight.brightness() == 0) {
+    lightOffAtZero(state.initialValue);
+    if (state.owner) state.owner->onExternalFrontlightChange();
+    state.changed = true;
+  }
   if (state.changed) activityManager.persistGlobalSettings();
   state = {};
 }
@@ -239,8 +267,12 @@ void updateLiveLightSwipe(Activity& activity, ActivityManager& activityManager, 
   const int target = SwipeAdjustment::targetValue(state.initialValue, sign > 0, amount);
   const int current = brightness ? Frontlight.brightness() : Frontlight.warmth();
   const int difference = sign * (target - current);
-  if (difference != 0 || (brightness && amount != 0 && !Frontlight.isOn()))
+  if (difference != 0 || (brightness && amount != 0 && !Frontlight.isOn())) {
+    // setBrightness() ends a dim; a slide mid-flash keeps the flash duck on the new level.
+    const uint8_t duck = Frontlight.idleDimPercent();
     applyConfiguredSwipeAction(activity, activityManager, state.action, difference, false);
+    if (duck < 100 && Frontlight.isOn()) Frontlight.setIdleDim(duck);
+  }
   // Without a dead zone, amount 0 is only a narrow band mid-drag, so restoring
   // the initial on/off state here would blink the light off and back on while
   // reversing through it. cancelLiveLightSwipe() restores it when needed.
@@ -344,11 +376,11 @@ bool applyLiveTwoFingerLightSwipe(Activity& activity, MappedInputManager& mapped
     state.vertical = direction == TwoFingerSwipe::Direction::Up || direction == TwoFingerSwipe::Direction::Down;
     state.movementSign =
         direction == TwoFingerSwipe::Direction::Up || direction == TwoFingerSwipe::Direction::Left ? -1 : 1;
+    const bool brightness = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                            action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+    if (brightness) TransferLightPulse::yieldToUser();  // slide from the user's level, not the pulse's
     state.initialOn = Frontlight.isOn();
-    state.initialValue = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
-                                 action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS
-                             ? Frontlight.brightness()
-                             : Frontlight.warmth();
+    state.initialValue = brightness ? Frontlight.brightness() : Frontlight.warmth();
   }
 
   const int displacement = state.movementSign * (state.vertical ? centerY - state.startY : centerX - state.startX);
@@ -411,6 +443,11 @@ bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, A
   }
   if (action == CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET) return false;
   if (isLightSwipeAction(action)) {
+    if (action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS && !Frontlight.isOn()) {
+      // A dimming slide (whichever way the user set it) leaves an off light off at its level.
+      if (progress.finished) mappedInput.suppressCurrentTouchContact();
+      return true;
+    }
     state = {};
     state.owner = &activity;
     state.active = true;
@@ -420,11 +457,11 @@ bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, A
                                  progress.direction == MappedInputManager::EdgeSlide::RightUp
                              ? -1
                              : 1;
+    const bool brightness = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                            action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+    if (brightness) TransferLightPulse::yieldToUser();  // slide from the user's level, not the pulse's
     state.initialOn = Frontlight.isOn();
-    state.initialValue = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
-                                 action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS
-                             ? Frontlight.brightness()
-                             : Frontlight.warmth();
+    state.initialValue = brightness ? Frontlight.brightness() : Frontlight.warmth();
     updateLiveLightSwipe(activity, activityManager, state,
                          SwipeAdjustment::edgeAmount(progress.distance, mappedInput.getRenderer().getScreenHeight()));
     if (progress.finished) {
@@ -537,7 +574,16 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
+      BaseTheme::beginFrameStatus();
+      if (currentActivity.get() != listSelectionOwner) {
+        listSelectionOwner = currentActivity.get();
+        ListSelection::tapRowShown = false;  // a popup of the previous screen
+      }
+      ListSelection::revealed = currentActivity->listSelectionRevealed;
+      ListSelection::hidThisFrame = false;
       currentActivity->render(std::move(lock));
+      currentActivityPainted.store(true, std::memory_order_release);
+      ListSelection::hidOnScreen = ListSelection::hidThisFrame;
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
       restoredActivityNeedsRender = false;
@@ -589,6 +635,9 @@ void ActivityManager::renderTaskLoop() {
       powerManager.endDisplayRefreshHold();
       displayPmHeld = false;
     }
+    // Renders leave work for the loop (queued page turns, toasts, alerts,
+    // prerender timers): one pass now instead of at the next idle tick.
+    InputTask::wakeLoop();
   }
 }
 
@@ -629,6 +678,26 @@ void ActivityManager::loop() {
 
   if (currentActivity) {
     mappedInput.setPowerAsConfirmInReaderMode(currentActivity->allowPowerAsConfirmInReaderMode());
+
+#if CROSSDINK_APP_CAP_TOUCH
+    // A touch list opens with no row selected. The first Up/Down/Confirm press
+    // only shows the selection (no move, no activation); its release is eaten.
+    if (ListSelection::hidOnScreen && !currentActivity->listSelectionRevealed) {
+      using Button = MappedInputManager::Button;
+      const bool up = mappedInput.wasPressed(Button::Up);
+      const bool down = mappedInput.wasPressed(Button::Down);
+      const bool confirm = mappedInput.wasPressed(Button::Confirm);
+      if (up || down || confirm) {
+        currentActivity->listSelectionRevealed = true;
+        ListSelection::hidOnScreen = false;
+        if (up) mappedInput.suppressNextSideRelease(Button::Up);
+        if (down) mappedInput.suppressNextSideRelease(Button::Down);
+        if (confirm) mappedInput.suppressNextConfirmRelease();
+        requestUpdate();
+        return;
+      }
+    }
+#endif
 
     if (currentActivity->blocksGlobalInput()) {
 #if CROSSDINK_APP_CAP_TOUCH
@@ -702,6 +771,7 @@ void ActivityManager::loop() {
 
       // Destroy the current activity
       exitActivity(lock);
+      settingsFlushPending = true;
       pendingAction = PendingAction::None;
 
       if (stackActivities.empty()) {
@@ -713,6 +783,7 @@ void ActivityManager::loop() {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
         restoredActivityNeedsRender = true;
+        currentActivityPainted.store(false, std::memory_order_release);
 
         if (closedFrontlightPanel) currentActivity->onFrontlightPanelClosed();
 
@@ -750,6 +821,15 @@ void ActivityManager::loop() {
         // restoredActivityNeedsRender. Preserve the overlay's paused timing
         // state either way before it becomes current.
         if (currentActivity) currentActivity->onBackdropRenderedForOverlay();
+      } else if (pendingAction == PendingAction::Push && pendingActivity->drawsOverSourceFrame() &&
+                 mappedInput.wasTapOrHeld()) {
+        // The tapped row is selected but not yet on screen: show it before the
+        // popup covers the frame, not after the popup closes.
+        ListSelection::tapRowShown = true;
+        if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+          LOG_ERR("ACT", "Could not show tapped row before opening %s", pendingActivity->name.c_str());
+        }
+        ListSelection::tapRowShown = false;
       }
       // Current activity has requested a new activity to be launched
       RenderLock lock;
@@ -757,6 +837,7 @@ void ActivityManager::loop() {
       if (pendingAction == PendingAction::Replace) {
         // Destroy the current activity
         exitActivity(lock);
+        settingsFlushPending = true;
         // Clear the stack
         while (!stackActivities.empty()) {
           stackActivities.back()->onExit();
@@ -769,12 +850,17 @@ void ActivityManager::loop() {
       }
       pendingAction = PendingAction::None;
       currentActivity = std::move(pendingActivity);
+      currentActivityPainted.store(false, std::memory_order_release);
 
       lock.unlock();  // onEnter may acquire its own lock
+      // Only Home waits for its first frame; anything else (USB Drive included)
+      // must find the reader's exit writes on SD before it starts.
+      if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
 #if CROSSDINK_GOODIES
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
 #endif
+      if (currentActivity->usesWifi()) kosync_on_exit::yieldRadio();
       currentActivity->onEnter();
 
       // cppcheck-suppress knownConditionTrueFalse ; onEnter() above may queue another navigation
@@ -819,6 +905,19 @@ void ActivityManager::loop() {
 
       // onEnter may request another pending action, we will handle it in the next loop iteration
       continue;
+    }
+  }
+
+  // Home's first frame is refreshing on the panel: the reader's exit writes run
+  // in that wait instead of before Home rendered.
+  if (!currentActivity || !currentActivity->isHomeActivity() ||
+      currentActivityPainted.load(std::memory_order_acquire)) {
+    ReaderExitSave::flush();
+    // Settings changed on a screen or panel are written once it has closed,
+    // while the screen below refreshes.
+    if (settingsFlushPending && !(currentActivity && currentActivity->holdsSettingsFlush())) {
+      settingsFlushPending = false;
+      flushSettingsStores();
     }
   }
 
@@ -941,6 +1040,7 @@ void ActivityManager::exitActivity(const RenderLock& lock) {
     TouchRegistry::getInstance().clear();
     currentActivity->onExit();
     currentActivity.reset();
+    finishNetworkExit();
   }
 }
 
@@ -1159,6 +1259,17 @@ void ActivityManager::goToSleep(bool fromTimeout) {
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 
+void ActivityManager::exitAllActivities() {
+  RenderLock lock;
+  exitActivity(lock);
+  while (!stackActivities.empty()) {
+    stackActivities.back()->onExit();
+    stackActivities.pop_back();
+  }
+  pendingActivity.reset();
+  pendingAction = PendingAction::None;
+}
+
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::Style style) {
@@ -1259,6 +1370,14 @@ bool ActivityManager::anyActivityUsesWifi() const {
          std::any_of(stackActivities.begin(), stackActivities.end(), uses);
 }
 
+bool ActivityManager::wifiActivitiesShareRemote() const {
+  const auto blocks = [](const auto& activity) {
+    return activity && activity->usesWifi() && !activity->sharesWifiWithRemote();
+  };
+  return !blocks(currentActivity) && !blocks(pendingActivity) &&
+         std::none_of(stackActivities.begin(), stackActivities.end(), blocks);
+}
+
 bool ActivityManager::hasActivityNamed(const char* activityName) const {
   const auto matches = [activityName](const auto& activity) { return activity && activity->name == activityName; };
   if (matches(currentActivity) || matches(pendingActivity)) {
@@ -1312,11 +1431,16 @@ void ActivityManager::persistGlobalSettings() {
   } else {
     SETTINGS.saveToFile();
   }
+  BatteryLog::lightChanged();  // every user light change (toggle, slide release, panel) saves here
 }
 
 bool ActivityManager::beginGlobalSettingsEdit() {
   auto* reader = findEpubReader();
   return reader && reader->onFrontlightGlobalSettingsOpened();
+}
+
+void ActivityManager::notifyExternalFrontlightChange() {
+  if (currentActivity) currentActivity->onExternalFrontlightChange();
 }
 
 void ActivityManager::endGlobalSettingsEdit() {
@@ -1388,6 +1512,7 @@ void ActivityManager::requestUpdate(bool immediate) {
     // Deferring the update until current loop is finished
     // This is to avoid multiple updates being requested in the same loop
     requestedUpdate = true;
+    InputTask::wakeLoop();  // from another task: the loop may be in an idle wait
   }
 }
 RequestUpdateResult ActivityManager::requestUpdateAndWait() {
@@ -1424,18 +1549,28 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
   }
 
   xTaskNotify(renderTaskHandle, 1, eIncrement);
-  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+  while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(RenderLock::WAIT_TICK_MS)) == 0) {
+    if (RenderLock::waitTick) RenderLock::waitTick();
+  }
   return RequestUpdateResult::Rendered;
 }
 
 // RenderLock
 
+void (*RenderLock::waitTick)() = nullptr;
+
 RenderLock::RenderLock(const Mode mode) {
-  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
-  assert(mode == Mode::Try || isLocked);
+  const TickType_t slice = mode == Mode::Try ? 0 : pdMS_TO_TICKS(WAIT_TICK_MS);
+  while (!(isLocked = xSemaphoreTake(activityManager.renderingMutex, slice) == pdTRUE) && mode != Mode::Try) {
+    if (waitTick) waitTick();
+  }
 }
 
 RenderLock::RenderLock([[maybe_unused]] Activity&, const Mode mode) : RenderLock(mode) {}
+
+RenderLock::RenderLock(const unsigned long timeoutMs) {
+  isLocked = xSemaphoreTake(activityManager.renderingMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
+}
 
 RenderLock::~RenderLock() {
   if (isLocked) {
@@ -1459,6 +1594,10 @@ void RenderLock::unlock() {
  * @note Must not be called from ISR context — xSemaphoreGetMutexHolder is not ISR-safe.
  */
 bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
+
+bool RenderLock::heldByCaller() {
+  return xSemaphoreGetMutexHolder(activityManager.renderingMutex) == xTaskGetCurrentTaskHandle();
+}
 
 const char* ActivityManager::currentActivityName() const {
   return currentActivity ? currentActivity->name.c_str() : "";

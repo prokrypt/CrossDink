@@ -12,11 +12,20 @@ void begin();
 // Waits up to timeoutMs, returning as soon as a wake line changes level.
 void wait(uint32_t timeoutMs);
 
+// Ends a running wait() early (another task has work for the loop).
+void wake();
+
 // True when every input this board has is on a wake line, so a long idle wait
 // cannot delay or drop a press. ADC-ladder keys and touch controllers other
 // than the GT911 still depend on the poll tick.
 bool coversAllInputs();
 
+// True once after the charger STAT line changed level during a wait (cleared).
+bool takeChargeWake();
+
 // Debug: button and touch line interrupts since the previous call (cleared).
 void takeWakeCounts(uint32_t& buttons, uint32_t& touch);
+// "pin armed/now" per line, e.g. "0 L/1 21 int:H/0" (int: ends the wait only,
+// not a light-sleep wake), for [PM]'s all-rejected line.
+void describePins(char* out, uint32_t size);
 }  // namespace InputWake

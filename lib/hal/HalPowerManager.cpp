@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <PowerManager.h>
 #include <WiFi.h>
+#include <driver/rtc_io.h>
 #include <esp_sleep.h>
 #include <soc/soc_caps.h>
 
@@ -221,6 +222,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 }
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
+  sleepStep = "wifi off";
   disableWiFiBeforeDeepSleep();
 
 #ifdef ENABLE_SERIAL_LOG
@@ -228,6 +230,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // doesn't hold power domains that interfere with USB-powered GPIO wake.
   // logSerial is the raw HWCDC reference; Serial is the MySerialImpl proxy
   // (which doesn't expose end()).
+  sleepStep = "serial end";
   logSerial.end();
 #endif
 
@@ -264,13 +267,17 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // button. Must run after display.deepSleep() so the panel controller gets its
   // deep-sleep command while its rail is still up (enterDeepSleep() in main.cpp
   // guarantees that ordering).
+  sleepStep = "rails off";
   freeink::PowerManager::powerDownRailsForSleep();
 
   // The SDK convenience helper currently isolates every GPIO after arming the
   // wake source. On the ESP32-C3 that overwrites the power pin's sleep input
   // configuration, so short presses can be missed. Isolate first, then restore
   // and arm the board-configured power pin immediately before sleeping.
+  sleepStep = "power button release";
   freeink::PowerManager::waitForPowerButtonRelease();
+  const int8_t stat = BoardConfig::ACTIVE.batteryChargeStatus;
+  const int statLevel = stat >= 0 ? gpio_get_level(static_cast<gpio_num_t>(stat)) : 0;
   esp_sleep_config_gpio_isolate();
   // Auto light sleep (CONFIG_PM_ENABLE builds) enables a timer wakeup before
   // every idle nap and never disables it again. A timer wakeup left armed here
@@ -279,10 +286,24 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // should wake the device, so clear every source before arming it.
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   freeink::PowerManager::armPowerButtonWakeup();
+#if SOC_PM_SUPPORT_EXT0_WAKEUP
+  // The opposite of STAT's level now, so a charge start or stop wakes the device.
+  // An unpowered charger (cable out) leaves STAT floating: pull it toward "not
+  // charging". ext0 keeps the RTC peripherals powered through sleep.
+  if (wakeOnChargeChange && stat >= 0 && rtc_gpio_is_valid_gpio(static_cast<gpio_num_t>(stat))) {
+    const auto pin = static_cast<gpio_num_t>(stat);
+    if (esp_sleep_enable_ext0_wakeup(pin, !statLevel) == ESP_OK) {
+      const bool activeHigh = BoardConfig::ACTIVE.batteryChargeStatusActiveHigh;
+      activeHigh ? rtc_gpio_pullup_dis(pin) : rtc_gpio_pulldown_dis(pin);
+      activeHigh ? rtc_gpio_pulldown_en(pin) : rtc_gpio_pullup_en(pin);
+    }
+  }
+#endif
   gpio_deep_sleep_hold_en();
   // The ROM otherwise prints its boot banner at 115200 baud on every deep-sleep
   // wake before the bootloader runs. setup() logs the reset and wake causes.
   esp_deep_sleep_disable_rom_logging();
+  sleepStep = "deep sleep start";
   esp_deep_sleep_start();
 }
 
@@ -295,11 +316,12 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     }
 
     _batteryLastPollMs = now;
-    uint16_t percent = 0;
-    if (!battery.readPercentageChecked(percent)) {
+    uint16_t fine = 0;
+    if (!battery.readPercentage256Checked(fine)) {
       return _batteryCachedPercent;
     }
-    _batteryCachedPercent = percent;
+    _batteryCached256 = fine;
+    _batteryCachedPercent = fine >> 8;
     return _batteryCachedPercent;
   }
 
@@ -310,6 +332,11 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     _batteryCachedPercent = (_batteryCachedPercent * 9 + battery.readPercentage() * 10) / 10;
   }
   return _batteryCachedPercent / 10;
+}
+
+uint16_t HalPowerManager::getBatteryPercent256() const {
+  const uint16_t percent = getBatteryPercentage();
+  return BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0 ? _batteryCached256 : static_cast<uint16_t>(percent * 256);
 }
 
 #if CROSSDINK_BATTERY_DIAG_LOG

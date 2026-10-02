@@ -3199,6 +3199,14 @@ void GfxRenderer::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch
   display.writeGrayscalePlaneStrip(lsbPlane, scratch, static_cast<uint16_t>(yStart), static_cast<uint16_t>(numRows));
 }
 
+bool GfxRenderer::fastTracksPanel() const {
+#ifdef SIMULATOR
+  return false;  // no UC8179 state model
+#else
+  return display.fastTracksPanel();
+#endif
+}
+
 bool GfxRenderer::shouldSkipImageBlanking() const {
 #ifdef SIMULATOR
   // The simulator has no UC8179 waveform/state model.

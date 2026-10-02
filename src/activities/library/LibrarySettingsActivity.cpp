@@ -73,7 +73,7 @@ void LibrarySettingsActivity::onRow(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<LibrarySettingsActivity*>(user);
   if (event.value < 0 || event.value >= ROW_COUNT) return;
   self->selection = event.value;
-  self->showSelection = false;
+  self->showSelection = true;  // the tapped row stays highlighted, as in Settings
   self->topIndex = self->listNav.top;
   self->app.clearTapFlash();
   self->toggle(event.value);
@@ -211,8 +211,11 @@ void LibrarySettingsActivity::buildScreen(UiApp::ScreenType& screen) {
   props.headerText.bold = true;
   props.rtl = (I18N.getLanguage() == Language::AR || I18N.getLanguage() == Language::HE);
   props.rowStyles = screen.theme().listRow;
-  props.rowStyles.selected.background = fui::Paint::dither(fui::Color::LightGray);
+  // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+  props.rowStyles.selected.background = fui::Paint::solid(fui::Color::White);
   props.rowStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
+  props.rowStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+  props.rowStyles.selected.borderWidth = 2;
   props.rowStyles.active = props.rowStyles.selected;
   listNav.selected = showSelection ? selection : -1;
   listNav.top = topIndex;

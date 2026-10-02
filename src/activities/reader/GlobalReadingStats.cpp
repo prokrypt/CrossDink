@@ -9,6 +9,7 @@
 #include <limits>
 #include <string>
 
+#include "ReaderExitSave.h"
 #include "util/FileContentEquals.h"
 
 namespace {
@@ -284,6 +285,7 @@ static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out) 
 }
 
 GlobalReadingStats GlobalReadingStats::load() {
+  if (const GlobalReadingStats* held = ReaderExitSave::global()) return *held;  // newer than the file
   GlobalReadingStats stats;
   const StatsLoadOutcome primary = loadFromFile(GLOBAL_STATS_PATH, stats);
   if (primary.result == StatsLoadResult::Ok) return stats;

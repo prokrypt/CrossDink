@@ -28,7 +28,8 @@ class NearbyBookTransferActivity final : public Activity {
   bool usesWifi() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
-  bool powerOffPanelWhenIdle() const override { return true; }
+  // Live transfer progress keeps the panel powered (log 20260930T082014Z-2557c0fd-wifi-opds).
+  bool powerOffPanelWhenIdle() const override { return state_ != State::Sending && state_ != State::Receiving; }
   bool preventAutoSleep() override { return true; }
   bool skipLoopDelay() override;
 
@@ -41,7 +42,6 @@ class NearbyBookTransferActivity final : public Activity {
     WaitingForApproval,
     OfferPrompt,
     CollisionPrompt,
-    Validating,
     Sending,
     Receiving,
     Success,
@@ -56,8 +56,12 @@ class NearbyBookTransferActivity final : public Activity {
   static constexpr size_t MAX_PEERS = 4;
   static constexpr uint8_t ESPNOW_CHANNEL = 1;
   static constexpr uint32_t DISCOVERY_INTERVAL_MS = 900;
-  static constexpr uint32_t RETRY_INTERVAL_MS = 450;
-  static constexpr uint8_t MAX_RETRIES = 12;
+  static constexpr uint32_t APPROVAL_RETRY_MS = 900;
+  // ESP-NOW round trip is a few ms; 54 x 100 ms keeps the old 5.4 s give-up budget.
+  static constexpr uint32_t RETRY_INTERVAL_MS = 100;
+  static constexpr uint8_t MAX_RETRIES = 54;
+  // Chunks in flight; the receiver's ESP-NOW queue holds 4 packets.
+  static constexpr uint32_t SEND_WINDOW = 3;
   static constexpr uint8_t MAX_APPROVAL_RETRIES = 60;
   static constexpr uint32_t RECEIVE_TIMEOUT_MS = 15000;
   static constexpr uint32_t UI_REFRESH_MS = 1800;
@@ -81,13 +85,18 @@ class NearbyBookTransferActivity final : public Activity {
   HalFile receiveFile_;
   std::array<uint8_t, freeink::nearby::V2_CHUNK_BYTES> chunkBuffer_{};
   std::array<uint8_t, freeink::nearby::MAX_PACKET_BYTES> packetBuffer_{};
-  size_t pendingChunkLength_ = 0;
   uint64_t offeredFileSize_ = 0;
   uint16_t negotiatedChunkBytes_ = freeink::nearby::COMPAT_CHUNK_BYTES;
   uint32_t sessionId_ = 0;
   uint32_t lastActionMs_ = 0;
   uint32_t lastUiMs_ = 0;
   uint8_t retryCount_ = 0;
+  uint32_t sendSequence_ = 0;  // Next chunk to transmit; session_.nextSequence() is the acked one.
+  uint32_t crcSequence_ = 0;   // Chunks already folded into the sender CRC.
+  uint32_t transferStartMs_ = 0;
+  uint32_t duplicateChunks_ = 0;
+  uint32_t outOfOrderChunks_ = 0;
+  uint32_t rewinds_ = 0;
 
   std::string offeredFileName_;
   std::string senderName_;
@@ -121,8 +130,10 @@ class NearbyBookTransferActivity final : public Activity {
   bool sendOffer();
   bool acceptOffer(bool keepBoth);
   void sendPendingAccept();
-  bool sendNextChunk();
-  bool resendPending();
+  void fillSendWindow();
+  void rewindSendWindow();
+  void resetTransferStats();
+  void logTransferStats(bool ok) const;
   bool sendAck();
   bool sendComplete();
   bool finishReceivedFile(uint64_t expectedBytes, uint32_t expectedCrc);

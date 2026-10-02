@@ -2,6 +2,7 @@
 
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -111,7 +112,7 @@ size_t failedImageCount = 0;
 // capacities share this 128 KB budget (a full 800x480 payload is 96 KB), so
 // alternating images avoid repeated SD reads without adding PSRAM pressure.
 // PSRAM-only ownership leaves C3 on the existing small streamed-reader path.
-constexpr size_t MAX_RETAINED_PXC_BYTES = 128 * 1024;
+KNOB_ALIAS(MAX_RETAINED_PXC_BYTES, pxcCacheCap);  // Goodies > Knobs (a cap below 128 KB)
 constexpr size_t RETAINED_PXC_ENTRY_COUNT = 2;
 
 struct RetainedPxcEntry {
@@ -542,6 +543,8 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   // passes; on first view this just moves the one-time decode to the BW pass.
   FontCacheManager* fcm = renderer.getFontCacheManager();
   if (fcm && fcm->isScanning()) return;
+  // BW images: every gray plane (legacy, tiled, deferred) leaves them out.
+  if (DirectPixelWriter::bwImages && renderer.getRenderMode() != GfxRenderer::BW) return;
 
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();

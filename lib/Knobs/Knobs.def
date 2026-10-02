@@ -1,0 +1,161 @@
+// Goodies > Knobs, one row each: X(group, id, type, default, min, max, step, unit).
+// type and default are the constant's own, so release builds are unchanged.
+// Never add LUT shapes, VCOM, voltages, TSSET, PSR/CDI/power registers, raw
+// PLL bytes, CPU/PM config, task stacks or anything that sizes an array:
+// display frame counts reach only the SDK's DC-balance-gated LUT generators.
+// Included once per expansion (no include guard).
+
+// Display: SDK Uc8179Driver (setUc8179Tuning) and the Turbo keyboard
+X("Panel", paintFrames, uint8_t, 12, 6, 24, 1, "fr")                 // exit paint / smooth base DU frames per phase
+X("Panel", coldDivisor, uint8_t, 3, 0, 10, 1, "1/n")                 // cold panel adds frames / n, 0 = none
+X("Panel", heldRedriveFrames, uint8_t, 3, 0, 16, 1, "fr")            // Noflash held-black (KK) re-drive, gated sets
+X("Panel", coldC, int8_t, 15, -10, 40, 1, "C")                       // panel counts as cold below this
+X("Panel", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          // idle temperature sample
+X("Panel", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
+X("Panel", tempMaxAgeMs, uint32_t, 600000, 60000, 3600000, 60000, "ms")        // older samples ignored
+X("Panel", kbdFrames, uint8_t, 6, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
+X("Panel", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo keyboard PLL: panel, 1 = 40 Hz, 2 = 50 Hz
+
+// Frontlight
+// Flash duck, per waveform: dark this much after the swing the driver reports, back up this much after
+// the refresh ends. AA page (direct gray, log 20260930T213400Z-14588105-psram-duck): text flashes from DRF,
+// 571 ms before the reported background swing; up fade (flashUpMs) done ~200 ms before the 1192 ms end.
+// Half/Full (OTP GC) and DU paints (menus, drawer over gray; 2 x 12 frames ~663 ms) swing from DRF and
+// flash to their end, so the up fade ends with the refresh.
+X("Light", flashGrayDimMs, int32_t, 0, -800, 800, 10, "ms")            // AA page turn: dark as the background goes black
+X("Light", flashGrayRestoreMs, int32_t, -300, -800, 800, 10, "ms")     // up as the white drive starts (frame 38/50; black drive 24-36)
+X("Light", flashFullDimMs, int32_t, 0, -800, 800, 10, "ms")            // Half/Full
+X("Light", flashFullRestoreMs, int32_t, -300, -800, 800, 10, "ms")     // up fade ends with the refresh (boot Full 1.5 s: 0 was 0.3 s late)
+X("Light", flashPaintDimMs, int32_t, 0, -800, 800, 10, "ms")           // menu / drawer over gray
+X("Light", flashPaintRestoreMs, int32_t, -300, -800, 800, 10, "ms")    // complement half (black) ends at 12/24
+X("Light", flashDownMs, unsigned long, 300, 10, 1000, 10, "ms")        // flash duck fade out when no input started it (0 divides by zero)
+X("Light", flashDuckMinPct, uint8_t, 2, 0, 20, 1, "%")             // a duck never dims below this % of full; at or under it, no duck
+X("Light", flashUpMs, unsigned long, 300, 0, 2000, 50, "ms")           // flash duck fade in
+X("Light", flashMaxMs, unsigned long, 3000, 500, 10000, 500, "ms")     // a flash mark older than this is dropped
+X("Light", flashTickMs, uint32_t, 10, 5, 50, 5, "ms")                  // main loop tick while ducking
+X("Light", lightFadeMs, unsigned long, 1000, 0, 5000, 100, "ms")       // Light Timeout fade
+X("Light", pulseCycleMs, uint32_t, 1000, 200, 5000, 100, "ms")         // transfer pulse period
+X("Light", pulsePeakPct, uint8_t, 25, 20, 100, 1, "%")                 // transfer pulse top for levels up to it
+X("Light", pulseFloorPct, uint8_t, 10, 0, 20, 1, "%")                  // pulse bottom above it, top up to it
+X("Light", pulseTailMs, unsigned long, 250, 0, 2000, 50, "ms")         // transfer counts as active this long after
+X("Light", pulseWriteMs, uint32_t, 20, 10, 100, 5, "ms")               // min gap between pulse writes (loop tick)
+X("Light", pulseHoldMs, uint32_t, 10000, 0, 60000, 1000, "ms")         // a lit light keeps its level this long first
+X("Light", otaPulseGraceMs, uint32_t, 1500, 0, 10000, 250, "ms")       // OTA pulse ends this long after the stream
+X("Light", panelStep, int, 5, 1, 20, 1, "%")                           // Frontlight panel button step
+X("Light", panelFineStep, int, 1, 1, 10, 1, "%")                       // Frontlight panel touch step
+
+// Touch and buttons (SDK InputManager thresholds pushed by InputManager::setTuning)
+X("Touch", swipeDeadPx, int, 60, 20, 200, 5, "px")           // swipe/slide dead zone floor (edge, two-finger, light)
+X("Touch", swipeDeadPct, int, 6, 0, 20, 1, "%")              // dead zone as % of the axis, if larger
+X("Touch", swipeFullAxisPts, int, 50, 10, 100, 5, "pts")     // light points a full-axis swipe covers
+X("Touch", edgeBandPx, int, 32, 16, 120, 4, "px")            // edge-slide band floor
+X("Touch", edgeBandPct, int, 8, 2, 25, 1, "%")               // edge-slide band as % of width, if larger
+X("Touch", backEdgePermille, int, 250, 50, 500, 10, "/1000") // Back swipe start zone (left)
+X("Touch", homeEdgePermille, int, 60, 20, 250, 10, "/1000")  // Home swipe zone (bottom)
+X("Touch", readerHomeEdgePermille, int, 120, 20, 250, 10, "/1000")  // Home swipe zone in the reader
+X("Touch", menuEdgePermille, int, 140, 20, 300, 10, "/1000")        // menu swipe zone (top)
+X("Touch", heldOverrideMs, unsigned long, 250, 50, 1000, 50, "ms")  // a gesture's held-time override lasts
+X("Touch", selectPressDelayMs, unsigned long, 200, 50, 1000, 10, "ms")  // still hold before the row highlight
+X("Touch", selectPressSlopPx, int, 20, 4, 60, 2, "px")              // movement that cancels it
+X("Touch", tapSlopPx, int, 28, 4, 56, 2, "px")                      // SDK: tap / long-press slop (< swipe min)
+X("Touch", swipeMinPx, int, 60, 20, 200, 5, "px")                   // SDK: min swipe (tap-on-release slop - 1)
+X("Touch", swipeMaxMs, unsigned long, 700, 200, 3000, 50, "ms")     // SDK: longest one-finger swipe
+X("Touch", multiSwipeMaxMs, unsigned long, 2000, 500, 5000, 100, "ms")  // SDK: two-finger gesture window
+X("Touch", multiSeparationSlopPx, int, 45, 10, 150, 5, "px")        // SDK: two-finger spacing tolerance
+X("Touch", touchLongPressMs, unsigned long, 500, 200, 2000, 50, "ms")  // SDK: screen long press
+X("Touch", contactJumpPx, int, 120, 40, 400, 10, "px")             // SDK: still touch jumping this far = new finger
+X("Touch", touchIrqPulseMs, unsigned long, 120, 20, 500, 10, "ms")  // SDK: release hold-over after last read
+X("Touch", pinchMinPx, uint8_t, 20, 5, 80, 1, "px")                 // reader pinch: min span change
+X("Touch", pinchScalePct, uint8_t, 110, 102, 200, 1, "%")           // reader pinch: span ratio per font step
+X("Touch", homeKeyLongMs, unsigned long, 700, 300, 2000, 50, "ms")  // SDK: Home key long press
+X("Touch", homeDoubleTapMs, unsigned long, 300, 100, 1500, 25, "ms")  // Home key double tap (< idle backoff)
+X("Touch", confirmBackHoldMs, unsigned long, 650, 200, 2000, 50, "ms")   // SDK: Confirm+Back chord
+X("Touch", confirmPowerHoldMs, unsigned long, 400, 200, 2000, 50, "ms")  // SDK: Confirm+Power chord
+X("Touch", twoButtonHoldMs, unsigned long, 650, 200, 2000, 50, "ms")     // SDK: two-button chord
+X("Touch", skipHoldMs, unsigned long, 700, 200, 3000, 50, "ms")     // side-button hold: chapter skip
+X("Touch", goHomeHoldMs, unsigned long, 1000, 300, 3000, 50, "ms")  // Back hold: Home (reader, file browser)
+X("Touch", deleteHoldMs, unsigned long, 1000, 300, 3000, 50, "ms")  // hold to delete bookmark/clipping
+X("Touch", menuHoldMs, unsigned long, 600, 200, 3000, 50, "ms")     // reader long press: menu
+X("Touch", dictHoldMs, unsigned long, 1000, 200, 3000, 50, "ms")    // reader touch hold: dictionary
+X("Touch", dictBackHoldMs, unsigned long, 600, 200, 3000, 50, "ms") // dictionary Back/Done long press
+X("Touch", homeBookSwapMs, unsigned long, 1000, 300, 3000, 50, "ms")  // Home: long press swaps the book
+X("Touch", kbdHoldMs, uint16_t, 500, 200, 2000, 50, "ms")           // keyboard button long press
+X("Touch", kbdDelHoldMs, uint16_t, 1500, 300, 3000, 50, "ms")       // keyboard Delete long press
+X("Touch", kbdTouchHoldMs, uint16_t, 350, 150, 2000, 50, "ms")      // keyboard key touch long press
+X("Touch", kbdTouchDelHoldMs, uint16_t, 900, 200, 3000, 50, "ms")   // keyboard Delete touch long press
+X("Touch", kbdHighlightDelayMs, uint16_t, 120, 0, 500, 10, "ms")    // keyboard key highlight delay
+X("Touch", inputActivePollMs, uint32_t, 8, 4, 50, 1, "ms")          // input task tick while input is held
+
+// Power
+X("Power", idlePowerSaveMs, unsigned long, 250, 50, 5000, 50, "ms")    // idle before low clock and long waits
+X("Power", idleWaitMs, uint32_t, 50, 10, 250, 10, "ms")                // fast idle tick
+X("Power", idleWaitSettledMs, uint32_t, 250, 50, 1000, 50, "ms")       // settled idle tick
+X("Power", idleWaitLongMs, uint32_t, 1000, 250, 5000, 250, "ms")       // deep idle tick
+X("Power", idleBackoffAfterMs, unsigned long, 2000, 2000, 10000, 500, "ms")  // idle before backing off
+X("Power", panelIdleOffMs, uint32_t, 10000, 2000, 60000, 1000, "ms")   // booster off after an early wake
+X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // battery gauge cache
+X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache
+X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
+X("Power", tiltCooldownMs, unsigned long, 600, 100, 3000, 50, "ms")      // min time between tilt flicks
+X("Power", bootSleepGraceMs, unsigned long, 2000, 1000, 10000, 500, "ms") // power actions ignored after boot
+
+// Memory gates: raise only (the default is the floor); a lower gate lets an
+// allocation run short, and a bare new aborts.
+X("Heap", netExitMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")    // leave Wi-Fi in place (else restart)
+X("Heap", netEntryMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")    // enter Wi-Fi in place
+X("Heap", netEntryMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", rebuildMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")     // optional EPUB rebuild / prefetch
+X("Heap", rebuildMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", layoutMinFree, uint32_t, 45056, 45056, 131072, 1024, "B")      // chapter layout start
+X("Heap", dictFontMinFree, uint32_t, 65536, 65536, 131072, 1024, "B")    // dictionary SD font
+X("Heap", dictFontMinBlock, uint32_t, 32768, 32768, 131072, 1024, "B")
+X("Heap", sectionPrewarmMinFree, uint32_t, 81920, 81920, 196608, 1024, "B")  // SD font prewarm at section start
+X("Heap", sectionPrewarmMinBlock, uint32_t, 24576, 24576, 131072, 1024, "B")
+X("Heap", idlePrewarmMinFree, uint32_t, 65536, 65536, 196608, 1024, "B")     // idle SD font prewarm
+X("Heap", idlePrewarmMinBlock, uint32_t, 40960, 40960, 131072, 1024, "B")
+X("Heap", richTableMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")       // rich table layout
+X("Heap", richTableMinBlock, uint32_t, 57344, 57344, 131072, 1024, "B")
+X("Heap", opdsPreloadMinFree, size_t, 49152, 49152, 131072, 1024, "B")       // OPDS preload base floor
+X("Heap", opdsPreloadPerWorker, size_t, 16384, 16384, 65536, 1024, "B")       // added per running worker
+X("Heap", opdsPreloadMinBlock, size_t, 16384, 16384, 65536, 1024, "B")
+
+// Reader
+X("Book", buildAheadPages, int, 5, 1, 20, 1, "pg")                  // incremental build runs this far ahead
+X("Book", partialRebuildMargin, int, 15, 2, 50, 1, "pg")            // extend a partial section this near its end
+X("Book", buildChunkPages, int, 8, 1, 32, 1, "pg")                  // non-interactive build batch
+X("Book", popupPages, int, 20, 1, 200, 1, "pg")                     // indexing popup: target deeper than this
+X("Book", popupBytes, size_t, 98304, 8192, 524288, 8192, "B")       // indexing popup: spine items this large
+X("Book", popupDeadlineMs, unsigned long, 1000, 100, 5000, 100, "ms")  // indexing popup: build stalls this long
+X("Book", pageTurnGapMs, unsigned long, 200, 0, 1000, 10, "ms")     // faster manual turns are queued
+X("Book", progressSavePages, uint8_t, 30, 1, 255, 1, "pg")          // save progress every N turns (next book)
+X("Book", progressSaveMaxMs, unsigned long, 900000, 60000, 3600000, 60000, "ms")  // and at least this often
+X("Book", homeThumbIdleMs, unsigned long, 3000, 500, 30000, 500, "ms")  // idle before the Home cover thumb
+X("Book", fontPrewarmDelayMs, unsigned long, 400, 0, 5000, 100, "ms")   // idle before the SD font prewarm
+X("Book", pageLoadRetries, int, 3, 1, 10, 1, "")                        // page load retries
+X("Book", pxcCacheCap, size_t, 131072, 32768, 131072, 8192, "B")        // decoded image cache (compiled max)
+X("Book", opdsCacheCap, size_t, 2097152, 262144, 2097152, 262144, "B")  // OPDS page cache (compiled max)
+
+// Wi-Fi
+X("Wi-Fi", rejoinTimeoutMs, uint32_t, 20000, 5000, 60000, 1000, "ms")       // Goodies remote join timeout
+X("Wi-Fi", rejoinRetryMinMs, uint32_t, 60000, 5000, 600000, 5000, "ms")     // first retry (doubles)
+X("Wi-Fi", rejoinRetryMaxMs, uint32_t, 600000, 60000, 3600000, 60000, "ms") // retry cap
+X("Wi-Fi", rejoinBootDelayMs, uint32_t, 5000, 0, 60000, 1000, "ms")         // no rejoin this soon after boot
+X("Wi-Fi", rejoinIdleMs, uint32_t, 2000, 0, 30000, 500, "ms")               // input pause before a rejoin
+X("Wi-Fi", connectTimeoutMs, unsigned long, 15000, 5000, 60000, 1000, "ms") // manual join
+X("Wi-Fi", autoConnectTimeoutMs, unsigned long, 7000, 2000, 60000, 1000, "ms")  // saved-network join
+X("Wi-Fi", hintedConnectTimeoutMs, unsigned long, 6000, 1000, 30000, 1000, "ms")  // BSSID/channel join first
+X("Wi-Fi", wifiAbandonMs, unsigned long, 300000, 30000, 1800000, 30000, "ms")  // File Transfer gives up on lost Wi-Fi
+X("Wi-Fi", transferLingerMs, unsigned long, 500, 0, 5000, 100, "ms")        // full clock after the last byte
+X("Wi-Fi", serverIdlePollMs, uint32_t, 250, 10, 500, 10, "ms")              // idle server: stop check (traffic wakes it)
+X("Wi-Fi", wifiMaxModem, uint8_t, 1, 0, 1, 1, "")                          // log-only remote idle: 1 = MAX_MODEM, 0 = MIN
+X("Wi-Fi", wifiListenInterval, uint8_t, 3, 1, 10, 1, "bcn")                // MAX_MODEM beacons per wake (next association)
+X("Wi-Fi", serverActivePasses, int, 64, 1, 256, 1, "")                      // handleClient passes per tick
+X("Wi-Fi", httpTimeoutMs, int, 60000, 5000, 120000, 5000, "ms")             // download HTTP timeout
+X("Wi-Fi", httpReadPollMs, int, 5000, 500, 30000, 500, "ms")                // download per-read poll
+X("Wi-Fi", downloadIdleMs, uint32_t, 30000, 5000, 120000, 5000, "ms")       // download aborts after no bytes
+X("Wi-Fi", opdsStallMs, uint32_t, 10000, 2000, 60000, 1000, "ms")           // OPDS book body stall
+X("Wi-Fi", opdsKeepaliveMs, unsigned long, 4000, 0, 30000, 500, "ms")       // idle OPDS connection kept
+X("Wi-Fi", kosyncTimeoutMs, uint32_t, 8000, 2000, 60000, 1000, "ms")        // KOReader sync HTTP timeout
+X("Wi-Fi", nearbyHelloMs, uint32_t, 750, 100, 5000, 50, "ms")               // Nearby stats hello interval
+X("Wi-Fi", nearbyRetryMs, uint32_t, 750, 100, 5000, 50, "ms")               // Nearby stats retry
+X("Wi-Fi", nearbySyncTimeoutMs, uint32_t, 12000, 2000, 60000, 1000, "ms")   // Nearby stats timeout

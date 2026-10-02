@@ -5,6 +5,7 @@
 
 #include <cstring>
 
+#include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
@@ -19,10 +20,10 @@
 namespace fui = freeink::ui;
 
 namespace {
-constexpr int MENU_ITEMS = 8;
+constexpr int MENU_ITEMS = 9;
 const StrId menuNames[MENU_ITEMS] = {StrId::STR_USERNAME,          StrId::STR_PASSWORD,      StrId::STR_SYNC_SERVER_URL,
                                      StrId::STR_DOCUMENT_MATCHING, StrId::STR_SEND_METADATA, StrId::STR_SYNC_BEHAVIOR,
-                                     StrId::STR_SIGN_UP,           StrId::STR_AUTHENTICATE};
+                                     StrId::STR_SYNC_ON_EXIT,      StrId::STR_SIGN_UP,       StrId::STR_AUTHENTICATE};
 constexpr fui::ActionId ACTION_ROW = 1;
 }  // namespace
 
@@ -165,12 +166,17 @@ void KOReaderSettingsActivity::handleSelection() {
     KOREADER_STORE.saveToFile();
     requestUpdate();
   } else if (selectedIndex == 6) {
+    // Sync on book exit - toggle on/off (crossdink settings, not koreader.json)
+    SETTINGS.koSyncOnExit = SETTINGS.koSyncOnExit ? 0 : 1;
+    SETTINGS.saveToFile();
+    requestUpdate();
+  } else if (selectedIndex == 7) {
     // Sign Up - create a new account on the sync server with the entered credentials
     if (!KOREADER_STORE.hasCredentials()) {
       return;
     }
     silentRestartToNetwork(NetworkBootTarget::KOREADER_AUTH, 1);
-  } else if (selectedIndex == 7) {
+  } else if (selectedIndex == 8) {
     // Authenticate
     if (!KOREADER_STORE.hasCredentials()) {
       // Can't authenticate without credentials - just show message briefly
@@ -227,8 +233,8 @@ void KOReaderSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = I18N.get(menuNames[i]);
     if (!values[i].empty()) item.value = values[i].c_str();
-    item.toggle = i == 4;
-    item.toggleChecked = KOREADER_STORE.getSendMetadata();
+    item.toggle = i == 4 || i == 6;
+    item.toggleChecked = i == 4 ? KOREADER_STORE.getSendMetadata() : SETTINGS.koSyncOnExit != 0;
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);
   }

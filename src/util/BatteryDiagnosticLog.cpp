@@ -16,9 +16,9 @@
 namespace BatteryDiagnosticLog {
 namespace {
 
-constexpr char LOG_PATH[] = "/battery_log.csv";
-constexpr char LEGACY_LOG_PATH[] = "/battery_log_v1.csv";
-constexpr char LEGACY_LOG_PATH_PATTERN[] = "/battery_log_v1_%u.csv";
+constexpr char LOG_PATH[] = "/debug/battery_log.csv";
+constexpr char LEGACY_LOG_PATH[] = "/debug/battery_log_v1.csv";
+constexpr char LEGACY_LOG_PATH_PATTERN[] = "/debug/battery_log_v1_%u.csv";
 constexpr char LEGACY_LOG_HEADER[] = "timestamp,uptime_ms,soc,mv,charging,event\n";
 constexpr char LOG_HEADER[] = "timestamp,uptime_ms,soc,mv,charging,event,version,git_sha,git_dirty,device,wake_route\n";
 
@@ -146,6 +146,7 @@ void record(const Event event, const char* const deviceName, const char* const w
     return;  // getBatteryDiagnostics() already logged the reason
   }
   if (!prepareLogSchema()) return;
+  Storage.ensureDirectoryExists("/debug");
 
   HalFile file = Storage.open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND);
   if (!file) {
@@ -181,7 +182,7 @@ void record(const Event event, const char* const deviceName, const char* const w
   formatOptional(soc, sizeof(soc), battery.socKnown, battery.soc);
   formatOptional(millivolts, sizeof(millivolts), battery.millivoltsKnown, battery.millivolts);
   formatOptional(charging, sizeof(charging), battery.chargingKnown, battery.charging ? 1u : 0u);
-  formatText(version, sizeof(version), CROSSDINK_VERSION);
+  formatText(version, sizeof(version), AppVersion::version());
 
   char row[ROW_LEN];
   const int rowLen =

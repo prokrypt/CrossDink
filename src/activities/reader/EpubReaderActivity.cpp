@@ -3,12 +3,14 @@
 #include "TaskCores.h"
 #if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
+#include <Knobs.h>
 #endif
 #include <Arduino.h>
 #include <BidiUtils.h>
 #include <Epub/Page.h>
 #include <Epub/PageCountEstimator.h>
 #include <Epub/blocks/TextBlock.h>
+#include <Epub/converters/DirectPixelWriter.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -19,6 +21,7 @@
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PerfLog.h>
+#include <PersistableStore.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -53,6 +56,7 @@
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
+#include "KOSyncOnExit.h"
 #include "LookedUpWordsActivity.h"
 #include "MappedInputManager.h"
 #include "NearbyBookPositionSyncActivity.h"
@@ -60,6 +64,7 @@
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
 #include "QuickActions.h"
+#include "ReaderExitSave.h"
 #include "ReaderFontLoading.h"
 #include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
@@ -87,14 +92,46 @@
 #include "util/Dictionary.h"
 #include "util/ScreenshotUtil.h"
 
+#ifndef SIMULATOR
+#include <freertos/idf_additions.h>
+#endif
+
 namespace {
-constexpr unsigned long TOUCH_DICTIONARY_LOOKUP_HOLD_MS = 1000;
+// DrawAhead and SilentIndex stacks (24 KB) live in PSRAM, so opening a book
+// never needs a large internal block for them. Only jobs that never write
+// flash may use one (these touch the SD card only). The worker parks after
+// giving its done semaphore; the joiner deletes it, which frees the stack.
+bool startPsramWorker(TaskFunction_t fn, const char* name, const uint32_t stackBytes, void* arg, TaskHandle_t* task) {
+#ifdef SIMULATOR
+  return xTaskCreatePinnedToCore(fn, name, stackBytes, arg, 1, task, TaskCores::kWorker) == pdPASS;
+#else
+  return xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, 1, task, TaskCores::kWorker,
+                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+#endif
+}
+
+[[noreturn]] void parkPsramWorker() {
+#ifdef SIMULATOR
+  vTaskDelete(nullptr);
+#endif
+  for (;;) vTaskSuspend(nullptr);
+}
+
+void deletePsramWorker(TaskHandle_t task) {
+#ifndef SIMULATOR
+  vTaskDeleteWithCaps(task);
+#else
+  (void)task;
+#endif
+}
+
+KNOB_ALIAS(TOUCH_DICTIONARY_LOOKUP_HOLD_MS, dictHoldMs);  // Goodies > Knobs
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
-constexpr unsigned long longPressMenuMs = 600;
+KNOB_ALIAS(longPressMenuMs, menuHoldMs);  // Goodies > Knobs
 constexpr uint16_t DEFAULT_AUTO_PAGE_TURN_INTERVAL_S = 30;
 constexpr uint16_t MIN_AUTO_PAGE_TURN_INTERVAL_S = 5;
 constexpr uint16_t MAX_AUTO_PAGE_TURN_INTERVAL_S = 120;
-constexpr int MAX_PAGE_LOAD_RETRIES = 3;
+KNOB_ALIAS(MAX_PAGE_LOAD_RETRIES, pageLoadRetries);  // Goodies > Knobs
 constexpr uint8_t LEGACY_READER_SETTINGS_FILE_VERSION = 1;
 constexpr uint8_t PRE_WORD_SPACING_READER_SETTINGS_FILE_VERSION = 2;
 constexpr uint8_t PRE_INDEXING_METHOD_READER_SETTINGS_FILE_VERSION = 3;
@@ -114,12 +151,12 @@ constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
 constexpr char BALANCED_SECTION_CACHE_SUFFIX[] = "_balanced";
 constexpr char LIGHT_SECTION_CACHE_SUFFIX[] = "_light";
 constexpr unsigned long RENDER_MODE_TOAST_MS = 1500UL;
-constexpr unsigned long MIN_MANUAL_PAGE_TURN_GAP_MS = 200UL;
+KNOB_ALIAS(MIN_MANUAL_PAGE_TURN_GAP_MS, pageTurnGapMs);  // Goodies > Knobs
 // Shared dwell time for the transient bookmark/completed/tilt confirmations.
 constexpr unsigned long TRANSIENT_FEEDBACK_MS = 1000UL;
-constexpr unsigned long IDLE_SD_FONT_PREWARM_DELAY_MS = 400UL;
-constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_FREE = 64U * 1024U;
-constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC = 40U * 1024U;
+KNOB_ALIAS(IDLE_SD_FONT_PREWARM_DELAY_MS, fontPrewarmDelayMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_FREE, idlePrewarmMinFree);
+KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC, idlePrewarmMinBlock);
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_READING_PACE_SAMPLE_SECONDS = 2;
 constexpr uint16_t MIN_STORED_TIME_LEFT_PACE_SAMPLE_COUNT = 3;
@@ -1198,7 +1235,8 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
                                     : SETTINGS.paragraphAlignment;
   SETTINGS.embeddedStyle = in.embeddedStyle ? 1 : 0;
   SETTINGS.hyphenationEnabled = in.hyphenationEnabled ? 1 : 0;
-  SETTINGS.textAntiAliasing = in.textAntiAliasing ? 1 : 0;
+  SETTINGS.textAntiAliasing =
+      in.textAntiAliasing < CrossPointSettings::TEXT_AA_COUNT ? in.textAntiAliasing : CrossPointSettings::TEXT_AA_SHARP;
   SETTINGS.imageRendering =
       in.imageRendering < CrossPointSettings::IMAGE_RENDERING_COUNT ? in.imageRendering : SETTINGS.imageRendering;
   SETTINGS.extraParagraphSpacing = in.extraParagraphSpacing ? 1 : 0;
@@ -1326,8 +1364,9 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   data.dictionarySdFontFamilyName[sizeof(data.dictionarySdFontFamilyName) - 1] = '\0';
   data.dictionaryFontPointSize = SETTINGS.dictionaryFontPointSize;
 
+  const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
   FsFile file;
-  if (!Storage.openFileForRead("ERS", cachePath + READER_SETTINGS_FILE_NAME, file)) {
+  if (!PersistableStoreBase::recoverBackup(path.c_str()) || !Storage.openFileForRead("ERS", path, file)) {
     return data;
   }
 
@@ -1425,8 +1464,10 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
 }
 
 bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSettingsData& data) {
+  // Written to .tmp and moved over the old file, so a power cut never leaves it truncated.
+  const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
   FsFile file;
-  if (!Storage.openFileForWrite("ERS", cachePath + READER_SETTINGS_FILE_NAME, file)) {
+  if (!Storage.openFileForWrite("ERS", path + ".tmp", file)) {
     LOG_ERR("ERS", "Could not open reader settings file for write");
     return false;
   }
@@ -1451,8 +1492,10 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
   file.close();
   if (!ok) {
     LOG_ERR("ERS", "Short write saving reader settings");
+    Storage.remove((path + ".tmp").c_str());
+    return false;
   }
-  return ok;
+  return PersistableStoreBase::replaceWithTemp(path.c_str());
 }
 
 bool saveBookRenderModeForCache(const std::string& cachePath, const uint8_t renderMode) {
@@ -2512,6 +2555,7 @@ void EpubReaderActivity::onEnter() {
 }
 
 void EpubReaderActivity::onExit() {
+  renderer.setSmoothGray(false);
   waitSilentIndexWorker(/*cancel=*/true);
   waitDrawAhead(/*publish=*/false);
   // Not cancelled: at most two thumbs remain, and Home would make them anyway.
@@ -2570,8 +2614,7 @@ void EpubReaderActivity::onExit() {
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
-  APP_STATE.readerActivityLoadCount = 0;
-  APP_STATE.saveToFile();
+  APP_STATE.readerActivityLoadCount = 0;  // saved by ReaderExitSave below
 
   syncStatsTrackingState();
   if (statsTrackingActive) {
@@ -2602,9 +2645,14 @@ void EpubReaderActivity::onExit() {
     recoverStoredPaceFromSession("reader_exit");
     const uint32_t previousEstimate = stats.estimatedTimeLeftSeconds;
     refreshCachedTimeLeftEstimate();
-    if (statsTrackingActive || paceDirty || pendingStatsCommit || stats.estimatedTimeLeftSeconds != previousEstimate) {
-      if (stats.save(epub->getCachePath()) && (statsTrackingActive || pendingStatsCommit)) globalStats.save();
-    }
+    const bool saveStats =
+        statsTrackingActive || paceDirty || pendingStatsCommit || stats.estimatedTimeLeftSeconds != previousEstimate;
+    // Written once Home's first frame is on the panel; a finished-book move below needs them on SD now.
+    ReaderExitSave::queue(epub->getCachePath(), saveStats ? &stats : nullptr,
+                          statsTrackingActive || pendingStatsCommit ? &globalStats : nullptr);
+    if (pendingReadFolderMove) ReaderExitSave::flush();
+  } else {
+    ReaderExitSave::queue({}, nullptr, nullptr);  // APP_STATE only
   }
 
   // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
@@ -2626,6 +2674,7 @@ void EpubReaderActivity::onExit() {
   CLIPPINGS.unload();
   section.reset();
 
+  std::string syncPath = epub ? epub->getPath() : std::string();
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
     const std::string oldCachePath = epub->getCachePath();
@@ -2634,9 +2683,11 @@ void EpubReaderActivity::onExit() {
     const std::string dstPath = BookMoveUtils::buildReadFolderDestination(srcPath);
     epub.reset();  // release the Epub (and any open handles) before renaming on the SD card
     moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
+    if (Storage.exists(dstPath.c_str())) syncPath = dstPath;
   } else {
     epub.reset();
   }
+  if (!syncPath.empty()) kosync_on_exit::queue(syncPath);
 
   restoreGlobalReaderSettings();
 }
@@ -2838,7 +2889,7 @@ void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
   GUI.drawPopup(renderer, tr(STR_INDEXING));
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  pagesUntilFullRefresh = 1;
+  if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
 }
 
@@ -2977,8 +3028,7 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
   // shared, and the idle path still draws this page.
   if (silentIndexWorkerBusy()) return;
 #endif
-  // Sized like the S3 reader render task, which draws the same pages. Internal
-  // RAM only while one page is drawn.
+  // Sized like the S3 reader render task, which draws the same pages.
   constexpr uint32_t STACK_BYTES = 24576;
   xSemaphoreTake(drawAheadMutex, portMAX_DELAY);
   if (drawAhead.task || drawAhead.pending) {
@@ -3031,8 +3081,7 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
     drawAhead.drawn = false;
     drawAhead.laneMissed = false;
     powerManager.beginBackgroundWork();
-    if (xTaskCreatePinnedToCore(drawAheadWorkerMain, "DrawAhead", STACK_BYTES, this, 1, &drawAhead.task,
-                                TaskCores::kWorker) != pdPASS) {
+    if (!startPsramWorker(drawAheadWorkerMain, "DrawAhead", STACK_BYTES, this, &drawAhead.task)) {
       drawAhead.task = nullptr;
       drawAhead.page.reset();
       powerManager.endBackgroundWork();
@@ -3057,7 +3106,7 @@ void EpubReaderActivity::drawAheadWorkerMain(void* param) {
   PerfLog::noteTaskExit("DrawAhead");
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->drawAhead.done);
-  vTaskDelete(nullptr);
+  parkPsramWorker();
 }
 
 // Worker task: touches only the offscreen renderer, its font cache and the job.
@@ -3097,6 +3146,7 @@ void EpubReaderActivity::waitDrawAhead(const bool publish) {
   if (drawAhead.task) {
     // One page draw; the worker takes no lock this task may hold.
     xSemaphoreTake(drawAhead.done, portMAX_DELAY);
+    deletePsramWorker(drawAhead.task);
     drawAhead.task = nullptr;
     drawAhead.pending = true;
   }
@@ -6493,7 +6543,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const auto showIndexingPopup = [this]() {
     GUI.drawPopup(renderer, tr(STR_INDEXING));
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    pagesUntilFullRefresh = 1;
+    // The popup is a Fast frame too: where Fast tracks the panel, the chapter's
+    // first page needs no cleanup flash.
+    if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;
   };
 
   bool buildCancelledForBack = false;
@@ -7473,7 +7525,7 @@ bool EpubReaderActivity::startSilentIndexWorker(const int spineIndex, const uint
                                                 const uint16_t viewportHeight, const int readerFontId,
                                                 const EpubRenderMode renderMode) {
   // Sized like the S3 reader render task, which runs the same section builds.
-  // Internal RAM only while the build runs; it writes to the SD card.
+  // It writes to the SD card, never flash.
   constexpr uint32_t STACK_BYTES = 24576;
 #if CROSSDINK_SCALABLE_FONTS
   // One task at a time on the scalable-font worker lane; a page draw is short.
@@ -7495,8 +7547,7 @@ bool EpubReaderActivity::startSilentIndexWorker(const int spineIndex, const uint
     silentWorker.cancel.store(false, std::memory_order_relaxed);
     silentWorker.finished.store(false, std::memory_order_relaxed);
     powerManager.beginBackgroundWork();
-    started = xTaskCreatePinnedToCore(silentIndexWorkerMain, "SilentIndex", STACK_BYTES, this, 1, &silentWorker.task,
-                                      TaskCores::kWorker) == pdPASS;
+    started = startPsramWorker(silentIndexWorkerMain, "SilentIndex", STACK_BYTES, this, &silentWorker.task);
     if (!started) {
       silentWorker.task = nullptr;
       powerManager.endBackgroundWork();
@@ -7516,7 +7567,7 @@ void EpubReaderActivity::silentIndexWorkerMain(void* param) {
   PerfLog::noteTaskExit("SilentIndex");
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->silentWorker.done);
-  vTaskDelete(nullptr);
+  parkPsramWorker();
 }
 
 void EpubReaderActivity::runSilentIndexWorker() {
@@ -7584,6 +7635,7 @@ void EpubReaderActivity::waitSilentIndexWorker(const bool cancel) {
     // Bounded by one parser step once cancelled; the worker never takes
     // RenderLock, so waiting here while holding it cannot deadlock.
     xSemaphoreTake(silentWorker.done, portMAX_DELAY);
+    deletePsramWorker(silentWorker.task);
     silentWorker.task = nullptr;
     silentWorkerOutcomePending = true;
   }
@@ -8143,6 +8195,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // A drawn-ahead frame serves at most this render; any other render may
   // change what the next page should look like.
   clearPrerenderedPage();
+  // Image Color covers this render only; other screens keep the default mapping.
+  struct BwImagesScope {
+    explicit BwImagesScope(const bool on) { DirectPixelWriter::bwImages = on; }
+    ~BwImagesScope() { DirectPixelWriter::bwImages = false; }
+  } bwImagesScope(SETTINGS.imageColor == CrossPointSettings::IMAGE_COLOR_BW);
 #if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     if (!touchReaderPreviewAllocationAttempted) {
@@ -8197,7 +8254,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
   const bool pageHasImages = page->hasImages();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-  bool needsImageGrayscale = pageHasImages;
+  bool needsImageGrayscale = pageHasImages && !DirectPixelWriter::bwImages;
   bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack &&
                             !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
@@ -8359,8 +8416,17 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // UC8179 (X4 Pro) runs every gray page as direct gray, which drives each
   // pixel absolutely: the page cleans itself, so the cadence Half is only an
   // extra flash. Restart the countdown instead (a manual Refresh, <0, still runs).
-  if (needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
-      renderer.shouldSkipImageBlanking()) {
+  const bool grayCadenceDue = needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
+                              renderer.shouldSkipImageBlanking();
+  // Noflash holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
+  // The full swing owed after open/cover is spent only by a page that runs a gray pass. Held pixels
+  // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
+  if (updatePanel) {
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
+                           !smoothFullSwingPending && !grayCadenceDue);
+    if (needsAnyGrayscale) smoothFullSwingPending = false;
+  }
+  if (grayCadenceDue) {
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   }
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
@@ -8388,7 +8454,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       grayImageOnPanel = {currentSpineIndex, section ? section->currentPage : -1, imgX, imgY, imgW, imgH};
     }
   };
-  if (pageHasImages && !deferImageLoading) {
+  // BW images with no text AA draw no gray at all: refresh like a plain text
+  // page. A gray base with nothing after it may never reach the panel (UC8179
+  // skips the base over direct gray and waits for the gray pass).
+  if (pageHasImages && !deferImageLoading && (needsAnyGrayscale || !DirectPixelWriter::bwImages)) {
     // Keep the legacy blank/base sequence unless the controller can transition
     // directly to the complete image base.
     if (hasImageBox) {

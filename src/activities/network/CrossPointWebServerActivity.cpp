@@ -22,13 +22,15 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/NetworkName.h"
 #include "util/QrUtils.h"
+#include "util/BatteryLog.h"
 
 namespace {
 // AP Mode configuration
-constexpr const char* AP_SSID = "CrossPoint-Reader";
+constexpr const char* AP_SSID = NET_AP_SSID;
 constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
-constexpr const char* AP_HOSTNAME = "crosspoint";
+constexpr const char* AP_HOSTNAME = NET_HOSTNAME;
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 4;
 constexpr int QR_CODE_WIDTH = 198;
@@ -68,10 +70,8 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
-#if CROSSDINK_GOODIES
-  // Port 80 and the radio pass to this screen's own server.
-  goodies_remote::pause();
-#endif
+  BatteryLog::event("xfer_start", "file-transfer");
+  radioTaken = false;
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
@@ -111,11 +111,14 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  BatteryLog::event("xfer_end", "file-transfer");
   library::invalidateLibraryIndex();
   Activity::onExit();
   transferLight.end();
 
   state = WebServerActivityState::SHUTTING_DOWN;
+  // Picker left without a mode: the remote kept the radio and port 80.
+  if (!radioTaken && !networkBootReady) return;
 
   const bool wifiWasActive = WiFi.getMode() != WIFI_MODE_NULL;
 
@@ -150,6 +153,13 @@ void CrossPointWebServerActivity::onExit() {
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
+#if CROSSDINK_GOODIES
+  // Port 80 and the radio pass to this screen's own server. A rejoin may have
+  // started while the picker was up; it must end before the radio goes off.
+  goodies_remote::waitForJoin();
+  goodies_remote::pause(/*keepStation=*/mode != NetworkMode::CREATE_HOTSPOT);
+#endif
+  radioTaken = true;
   const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";
@@ -326,8 +336,13 @@ void CrossPointWebServerActivity::startAccessPoint() {
 
 void CrossPointWebServerActivity::startWebServer() {
   // Create the web server instance
-  webServer.reset(new CrossPointWebServer());
-  webServer->begin();
+#if CROSSDINK_GOODIES
+  webServer = goodies_remote::takeServer();  // the running remote's server, no socket closed
+#endif
+  if (!webServer) {
+    webServer.reset(new CrossPointWebServer());
+    webServer->begin();
+  }
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;

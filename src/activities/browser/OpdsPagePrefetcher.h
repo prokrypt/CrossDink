@@ -52,8 +52,16 @@ class OpdsPagePrefetcher {
   void join() { task.join(); }
 
   // After join(): moves a successfully downloaded page into cache (see
-  // OpdsPageCache::store for mayEvict).
-  void harvestInto(OpdsPageCache& cache, bool mayEvict = true);
+  // OpdsPageCache::store for mayEvict). onlyIfChanged (revalidation) drops a
+  // page that matches the cached copy. True when the page was stored.
+  bool harvestInto(OpdsPageCache& cache, bool mayEvict = true, bool onlyIfChanged = false);
+  // After the task exited: true once if the last job failed on the network
+  // (not a cancel or an oversized page).
+  bool takeFailure() {
+    const bool failed = !running() && networkFailed;
+    if (failed) networkFailed = false;
+    return failed;
+  }
 
  private:
   void run();
@@ -61,6 +69,7 @@ class OpdsPagePrefetcher {
   Request job;
   OpdsPageBuffer page;
   bool succeeded = false;  // written by the task before running() clears
+  bool networkFailed = false;  // likewise
   std::atomic<bool> cancelRequested{false};
   WorkerTask task;
 };

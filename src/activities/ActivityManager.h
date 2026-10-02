@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Knobs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -107,7 +108,7 @@ class ActivityManager {
   static constexpr uint32_t PANEL_OFF_POLL_MS = DEFERRED_REFRESH_POLL_MS;
   // Input on an opted-in screen powers the booster on early (wakePanelEarly);
   // if no frame follows, it switches off again after this long.
-  static constexpr uint32_t PANEL_IDLE_OFF_MS = 10000;
+  static KNOB_ALIAS(PANEL_IDLE_OFF_MS, panelIdleOffMs);  // Goodies > Knobs
   // Render-task notification bit for wakePanelEarly(); renders use eIncrement,
   // so a value of exactly this bit means "wake only, nothing to draw".
   static constexpr uint32_t PANEL_WAKE_BIT = 1UL << 31;
@@ -130,6 +131,12 @@ class ActivityManager {
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
   std::atomic<bool> restoredActivityNeedsRender{false};
+  bool settingsFlushPending = false;  // a screen exited; main loop flushes deferred settings
+  // Set by the render task once the current activity has drawn a frame. Home
+  // holds the reader's exit writes (ReaderExitSave) until then.
+  std::atomic<bool> currentActivityPainted{false};
+  // Render task only: the activity the last frame came from (ListSelection).
+  const Activity* listSelectionOwner = nullptr;
 
   Activity* findEpubReader() const;
   bool handleGlobalHomeGesture();
@@ -172,6 +179,8 @@ class ActivityManager {
                   bool cleanImageBaseOnEntry = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
   void goToSleep(bool fromTimeout = false);
+  // Runs every activity's onExit (reader progress, reading stats, Home %) before a restart.
+  void exitAllActivities();
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
@@ -205,6 +214,8 @@ class ActivityManager {
   bool hasActivityNamed(const char* activityName) const;
   // Any activity on the stack (or pending) owns the radio. Main task only.
   bool anyActivityUsesWifi() const;
+  // Every Wi-Fi activity on the stack shares its link with the remote. Main task only.
+  bool wifiActivitiesShareRemote() const;
 #ifdef SIMULATOR
   bool isCurrentActivityNamed(const char* activityName) const;
 #endif
@@ -228,6 +239,8 @@ class ActivityManager {
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.
   void requestUpdate(bool immediate = false);
+  // The light changed from outside the current screen (remote SET).
+  void notifyExternalFrontlightChange();
 
   // Trigger a render and block until it completes.
   // Returns Rejected when a synchronous render would be unsafe, such as from the render task,

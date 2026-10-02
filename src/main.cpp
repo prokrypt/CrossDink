@@ -16,6 +16,7 @@
 #include <HalSystem.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -28,6 +29,8 @@
 #ifndef SIMULATOR
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
+#include <esp_system.h>
+#include <esp_timer.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -54,6 +57,7 @@
 #include "CrossPointState.h"
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
+#include "Knobs.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
@@ -64,9 +68,12 @@
 #endif
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
+#include "activities/reader/KOSyncOnExit.h"
+#include "activities/reader/ReaderExitSave.h"
 #include "activities/reader/ReaderProgressShadow.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
@@ -78,10 +85,13 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
+#include "components/themes/BaseTheme.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "network/WifiUtils.h"
 #include "platform/InputTask.h"
 #include "platform/InputWake.h"
+#include "platform/PinMon.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
 
@@ -89,6 +99,7 @@
 #include "simulator/SimulatorSmokeTest.h"
 #endif
 #include "util/BatteryDiagnosticLog.h"
+#include "util/BatteryLog.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
@@ -100,6 +111,7 @@
 #include "util/LocalClock.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SleepWakePolicy.h"
+#include "util/TransferLightPulse.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -120,7 +132,7 @@ static bool powerButtonReleasedSinceWake = false;
 static bool wakePowerReleasePending = false;
 
 namespace {
-constexpr unsigned long X4PRO_HOME_KEY_DOUBLE_TAP_MS = 300;
+KNOB_ALIAS(X4PRO_HOME_KEY_DOUBLE_TAP_MS, homeDoubleTapMs);  // Goodies > Knobs
 
 struct QuickLockBadgeBackdrop {
   static constexpr int SIZE = 40;
@@ -357,7 +369,14 @@ static void retainPanelFrame() {
   const uint8_t* frame = display.getFrameBuffer();
   const size_t size = display.getBufferSize();
   // Inverted frames are flipped in place only while they are sent.
-  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0) return;
+  // Direct gray on the panel: the B/W framebuffer is not its state, and a Fast
+  // first paint on that OLD plane would drive the gray pixels one way.
+  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0 ||
+      display.grayOnPanel()) {
+    esp_cache_msync(&retainedPanelFrame, sizeof(retainedPanelFrame.magic),
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    return;
+  }
   memcpy(retainedPanelFrame.bytes, frame, size);
   retainedPanelFrame.size = static_cast<uint32_t>(size);
   retainedPanelFrame.crc = uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0);
@@ -375,6 +394,9 @@ static bool retainedPanelFramePresent() { return retainedPanelFrame.magic == Ret
 // as the OLD plane, and the first Fast paint would re-drive pixels one way.
 static void discardRetainedPanelFrame() { retainedPanelFrame.magic = 0; }
 
+// True once this boot loaded the retained frame as the panel's OLD plane.
+static bool retainedPanelFrameSeeded = false;
+
 static void seedRetainedPanelFrame() {
   const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
   retainedPanelFrame.magic = 0;
@@ -390,13 +412,37 @@ static void seedRetainedPanelFrame() {
     return;
   }
   const bool seeded = display.seedDisplayedFrame(retainedPanelFrame.bytes);
+  retainedPanelFrameSeeded = seeded;
   LOG_INF("MAIN", "Retained panel frame %s; first paint %s", seeded ? "loaded" : "unused", seeded ? "fast" : "full");
 }
 #else
 static void retainPanelFrame() {}
 static bool retainedPanelFramePresent() { return false; }
+static constexpr bool retainedPanelFrameSeeded = false;
 static void discardRetainedPanelFrame() {}
 static void seedRetainedPanelFrame() {}
+#endif
+
+#ifndef SIMULATOR
+// Every esp_restart() (silent restart, OTA, SD update, remote REBOOT) runs this:
+// it waits out any refresh, then powers the panel off (POF + deep sleep) so the
+// booster is not left on until the reset. The retained frame was already
+// copied by the caller; begin() resets the controller after the reboot.
+// The render lock keeps the render task from refreshing meanwhile; a caller
+// that already holds it (render task) is the only one that could refresh.
+static void powerOffPanelOnRestart() {
+  // ponytail: 3 s covers the longest refresh (sleep cover ~2.7 s) and stays
+  // under the 5 s task watchdog; a longer hold leaves the panel on.
+  constexpr unsigned long RENDER_LOCK_WAIT_MS = 3000;
+  const bool ownLock = RenderLock::heldByCaller();
+  RenderLock lock(ownLock ? 0UL : RENDER_LOCK_WAIT_MS);
+  if (!ownLock && !lock.ownsLock()) {
+    LOG_ERR("MAIN", "Render busy at restart; panel left powered");
+    return;
+  }
+  display.deepSleep();
+  LOG_INF("MAIN", "Panel powered off before restart");
+}
 #endif
 
 void restartKeepingPanelFrame() {
@@ -410,6 +456,8 @@ static void restartWithSilentToken() {
   retainPanelFrame();
   // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
   // policy change the light without saving it, so hand the live state over.
+  // A transfer pulse turns the light on for itself: hand over the user's state.
+  TransferLightPulse::yieldToUser();
   silentRebootFrontlight = Frontlight.isOn() ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
 #ifdef SIMULATOR
   SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
@@ -509,7 +557,11 @@ void silentRestartToManageFonts() { silentRestartToNetwork(NetworkBootTarget::MA
 namespace {
 // Reader work after a Wi-Fi session needs internal RAM for worker task stacks
 // (24 KB each) and inline image decoding; the same bar as optional rebuilds.
-constexpr uint32_t NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+KNOB_ALIAS(NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK, netExitMinBlock);  // Goodies > Knobs
+// Going Home on a PSRAM device: reader worker stacks and image decoders use
+// PSRAM, leaving text layout's 32 KB bar. Free blocks come in 2 KB steps less a
+// 12 B header, so a "32 KB" block reads 32756; 31 KB accepts it.
+constexpr uint32_t NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK = MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC - 1024;
 bool readerResourcesReady = false;
 // The render task has the reader's stack (not the 8 KB network-boot one).
 bool readerRenderStackReady = false;
@@ -578,20 +630,30 @@ static void logInternalHeapPins() {
 #endif
 #endif
 
-bool leaveNetworkInPlace() {
+bool keepWifiForRemote() {
+#if CROSSDINK_GOODIES
+  return goodies_remote::keepsStation();
+#else
+  return false;
+#endif
+}
+
+bool leaveNetworkInPlace(const bool goingHome) {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
   const wifi_mode_t mode = WiFi.getMode();
+  // The Goodies remote's own network: hand the link back, no teardown and rejoin.
+  const bool keepLink = keepWifiForRemote();
   if (mode != WIFI_MODE_NULL) {
-    if (mode & WIFI_MODE_AP) WiFi.softAPdisconnect(true);
-    if (mode & WIFI_MODE_STA) WiFi.disconnect(true);
+    if (!keepLink && (mode & WIFI_MODE_AP)) WiFi.softAPdisconnect(true);
+    if (!keepLink && (mode & WIFI_MODE_STA)) WiFi.disconnect(true);
     // Arduino keeps the power-save mode across sessions: a KOSync or Nearby
     // WiFi.setSleep(false) otherwise leaves every later session (OPDS
     // browsing: wifi lock 100%) without modem sleep.
     WiFi.setSleep(true);
     // WIFI_OFF stops the driver and calls esp_wifi_deinit(), returning its
     // internal buffers before the heap check below.
-    WiFi.mode(WIFI_OFF);
+    if (!keepLink) WiFi.mode(WIFI_OFF);
   }
   if (!readerRenderStackReady) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
@@ -601,9 +663,14 @@ bool leaveNetworkInPlace() {
   logInternalHeapPins();
 #endif
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  if (largest < NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK) {
+  // The Goodies remote rejoins only with a 48 KB block: while it is on and
+  // must rejoin, a restart (it rejoins at boot) beats staying up without it.
+  const uint32_t need = goingHome && psramHeapAvailable() && !(SETTINGS.goodiesWifiRemote && !keepLink)
+                            ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
+                            : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
+  if (largest < need) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),
-            static_cast<unsigned>(NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK));
+            static_cast<unsigned>(need));
     return false;
   }
   LOG_INF("MAIN", "Leaving Wi-Fi in place: internal largest block %u, free %u", static_cast<unsigned>(largest),
@@ -618,13 +685,36 @@ bool leaveNetworkInPlace() {
   return true;
 }
 
+static bool networkExitPending = false;
+static std::string networkExitBook;
+
+void leaveNetworkAfterExit(std::string bookPath) {
+  networkExitPending = true;
+  networkExitBook = std::move(bookPath);
+}
+
+void finishNetworkExit() {
+  if (!networkExitPending) return;
+  networkExitPending = false;
+  std::string book = std::move(networkExitBook);
+  if (leaveNetworkInPlace(/*goingHome=*/book.empty())) return;
+  if (book.empty()) {
+    silentRestart();
+    return;
+  }
+  // goToReader() is lost across the reboot: reopen the book from APP_STATE.
+  APP_STATE.openEpubPath = std::move(book);
+  APP_STATE.saveToFile();
+  silentRestartToReader();
+}
+
 static bool launchNetworkTarget(NetworkBootTarget target, uint32_t payload, bool inPlace);
 
 namespace {
 // Wi-Fi uses internal RAM for driver state and buffers that PSRAM cannot hold;
 // below this the screen is entered through a reboot as before.
-constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE;
-constexpr uint32_t NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK = MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC;
+KNOB_ALIAS(NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_FREE, netEntryMinFree);  // Goodies > Knobs
+KNOB_ALIAS(NETWORK_ENTRY_IN_PLACE_MIN_INTERNAL_BLOCK, netEntryMinBlock);
 
 bool enterNetworkInPlace() {
   // The previous activity (a reader included) has run onExit() by now.
@@ -839,6 +929,7 @@ void notifyQuickLockChanged() {
   if (locked) {
     APP_STATE.quickLockRestoreFrontlight = Frontlight.isOn();
     Frontlight.setOn(false);
+    BatteryLog::lightChanged();
     activityManager.notifyInputLockChanged(true);
     int top = 0;
     int right = 0;
@@ -870,6 +961,7 @@ void notifyQuickLockChanged() {
     }
     if (APP_STATE.quickLockRestoreFrontlight) {
       Frontlight.setOn(true);
+      BatteryLog::lightChanged();
       APP_STATE.quickLockRestoreFrontlight = false;
     }
     if (!restoredBadgeBackdrop) (void)activityManager.requestUpdateAndWait();
@@ -1371,11 +1463,50 @@ void mirrorWakeShortPressToNvs() {
 #endif
 }
 
+void flushSettingsStores() {
+  SETTINGS.flush();
+#if CROSSDINK_GOODIES
+  knobs::flush();
+#endif
+}
+
+// Sleep entry has no task watchdog: a wait that never returns leaves the device
+// dark and deaf to the power button until a reset (seen once on 1001aa, cause
+// unknown). After 30 s, log the step it stuck in (PSRAM ring survives the
+// reset) and reset. Idempotent; deep sleep or a restart ends it.
+static void armSleepGuard() {
+#ifndef SIMULATOR
+  static esp_timer_handle_t guard = nullptr;
+  if (guard != nullptr) return;
+  const esp_timer_create_args_t args = {
+      .callback =
+          [](void*) {
+            // A panic reset skips the shutdown handlers (they could block on the
+            // same stuck display), and checkPanic() reports the message on boot.
+            static char why[64];
+            snprintf(why, sizeof(why), "sleep entry stuck at '%s' for 30 s", HalPowerManager::sleepStep);
+            LOG_ERR("SLP", "%s", why);
+            esp_system_abort(why);
+          },
+      .arg = nullptr,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "sleepGuard",
+      .skip_unhandled_events = true,
+  };
+  if (esp_timer_create(&args, &guard) != ESP_OK || esp_timer_start_once(guard, 30 * 1000 * 1000) != ESP_OK) {
+    LOG_ERR("SLP", "sleep guard not armed");
+  }
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+  armSleepGuard();
+  HalPowerManager::sleepStep = "activity exit";
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
 #endif
+  kosync_on_exit::yieldRadio();  // likewise the exit push's Wi-Fi start/stop; deep sleep drops the rest
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system
@@ -1400,6 +1531,9 @@ void enterDeepSleep(bool fromTimeout) {
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
     activityManager.goToSleep(fromTimeout);
+    HalPowerManager::sleepStep = "sleep writes";
+    ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
+    flushSettingsStores();
     // Persist after the sleep screen is up so the write does not delay it. The
     // reader's onExit() usually saves the same state already, so this write is
     // then skipped as unchanged.
@@ -1425,12 +1559,16 @@ void enterDeepSleep(bool fromTimeout) {
     // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
     // can be written again until the next wake.
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
+    BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
+    HalPowerManager::sleepStep = "storage shutdown";
     Storage.shutdown();
 
     putTiltSensorToSleepForDeepSleep();
+    HalPowerManager::sleepStep = "display sleep";
     display.deepSleep();
+    HalPowerManager::sleepStep = "frontlight, nvs";
     Frontlight.prepareForDeepSleep();
     mirrorWakeShortPressToNvs();
     LOG_DBG("MAIN", "Entering deep sleep");
@@ -1458,6 +1596,14 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
+  esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
+  // Every restart writes held reader exit data and deferred settings first.
+  // One handler: IDF has 5 slots and Wi-Fi takes one.
+  esp_register_shutdown_handler([] {
+    ReaderExitSave::flush();
+    flushSettingsStores();
+    BatteryLog::onRestart();
+  });
   if (seamless) {
     seedRetainedPanelFrame();
   } else {
@@ -1508,7 +1654,12 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   }
 }
 
+namespace {
+void installFlashDuckRenderWait();
+}  // namespace
+
 void setup() {
+  installFlashDuckRenderWait();
 #ifdef SIMULATOR
   SimulatorLifecycle::restoreSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
 #else
@@ -1569,7 +1720,7 @@ void setup() {
   const esp_partition_t* running = esp_ota_get_running_partition();
   [[maybe_unused]] const char* runningPart = running ? running->label : "?";
 #endif
-  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", CROSSDINK_VERSION, BuildInfo::gitSha(),
+  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", AppVersion::version(), BuildInfo::gitSha(),
           strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
           BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
@@ -1618,7 +1769,9 @@ void setup() {
   gpio.setSharedConfirmPowerShortPressEmitsPower(true);
   powerManager.begin();
   InputWake::begin();
+  PinMon::begin();
   PerfLog::setWakeCounter(&InputWake::takeWakeCounts);
+  PerfLog::setWakePinsDescriber(&InputWake::describePins);
   PerfLog::setPmWindowHook(&CoreLoadLog::logQuietWindowTasks);
 
   const auto wakeupReason = gpio.getWakeupReason();
@@ -1628,16 +1781,11 @@ void setup() {
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     PerfLog::noteDeepSleep("wake-not-held", "boot");
+    armSleepGuard();
+    BatteryLog::noteFalseWake();
     powerManager.startDeepSleep(gpio);
   }
 #endif
-
-  // One-shot, consumed only once the wake is real (a press too short to wake
-  // goes back to sleep above with the flag still armed). Cleared before any
-  // painting so a hang in the blocking paint path resets into a normal splash
-  // boot instead of a splashless loop with no frame.
-  const bool splashlessWakeArmed = splashlessWakeMagic == SPLASHLESS_WAKE_MAGIC;
-  splashlessWakeMagic = 0;
 
 #ifndef SIMULATOR
   // X4 Pro and X4 Classic both map Up to the GPIO0 boot strap. Use Down for
@@ -1654,6 +1802,22 @@ void setup() {
 
   halTiltSensor.begin();
   halClock.begin();
+#ifndef SIMULATOR
+  // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+    BatteryLog::onChargeWake();
+    PerfLog::noteDeepSleep("charge-wake", "boot");
+    armSleepGuard();
+    powerManager.startDeepSleep(gpio);
+  }
+#endif
+
+  // One-shot, consumed only once the wake is real (a press too short to wake and
+  // a charger wake go back to sleep above with the flag still armed). Cleared
+  // before any painting so a hang in the blocking paint path resets into a
+  // normal splash boot instead of a splashless loop with no frame.
+  const bool splashlessWakeArmed = splashlessWakeMagic == SPLASHLESS_WAKE_MAGIC;
+  splashlessWakeMagic = 0;
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
@@ -1707,12 +1871,16 @@ void setup() {
   ReaderProgressShadow::recoverPending();
 
   SETTINGS.loadFromFile();
+#if CROSSDINK_GOODIES
+  knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
+#endif
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,
                                wakeupRouteName(wakeupReason));
+  BatteryLog::onBoot();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   // Normal boot store deferral adapted from Sichroteph/YACP commit
@@ -1755,13 +1923,14 @@ void setup() {
   }
   Frontlight.releaseAfterWake();
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  BatteryLog::lightChanged();  // onBoot ran before the light was set up
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
             (BoardConfig::isX4Pro() || CROSSDINK_APP_DEVICE_X4CLASSIC) ? "DOWN" : "UP");
   }
 
-  LOG_DBG("MAIN", "Starting CrossDink version " CROSSDINK_VERSION);
+  LOG_DBG("MAIN", "Starting CrossDink version %s", AppVersion::version());
   logMemoryStats("Boot");
 
   // Resolve the single boot-presentation decision. Skipping the splash also
@@ -1877,7 +2046,11 @@ void setup() {
     // openEpubPath + lastSleepFromReader from a prior session.
     // X4's HALF refresh is the same single-pass clean transition already used
     // by network screens. Keep X3's existing full refresh behavior unchanged.
-    const auto homeRefreshMode = gpio.deviceIsX3() ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
+    // A seeded retained frame is the panel's true OLD plane, so Home is a plain
+    // Fast transition from the exited screen (no flash).
+    const auto homeRefreshMode = gpio.deviceIsX3()          ? HalDisplay::FULL_REFRESH
+                                 : retainedPanelFrameSeeded ? HalDisplay::FAST_REFRESH
+                                                            : HalDisplay::HALF_REFRESH;
     // File Transfer exit with a firmware to flash (POST /api/exit?flash=...):
     // open the update flow directly instead of over a live Home, whose
     // background Library walk would otherwise keep competing for the SD card
@@ -1942,17 +2115,16 @@ void setup() {
   // during long loop work are queued instead of dropped.
   InputTask::begin();
 
-  allowSleepAt = millis() + 2000;
+  allowSleepAt = millis() + KNOBS.bootSleepGraceMs;
 }
 
 namespace {
-constexpr uint32_t IDLE_WAIT_MS = 50;
-constexpr uint32_t IDLE_WAIT_SETTLED_MS = 250;
-constexpr uint32_t IDLE_WAIT_LONG_MS = 1000;
+KNOB_ALIAS(IDLE_WAIT_MS, idleWaitMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(IDLE_WAIT_SETTLED_MS, idleWaitSettledMs);
+KNOB_ALIAS(IDLE_WAIT_LONG_MS, idleWaitLongMs);
 // Toasts, hold thresholds and the Home double tap all resolve within a couple
 // of seconds of the last input, so the idle tick stays short until then.
-constexpr unsigned long IDLE_WAIT_BACKOFF_AFTER_MS = 2000;
-constexpr unsigned long IDLE_WAIT_LONG_AFTER_MS = 10000;
+KNOB_ALIAS(IDLE_WAIT_BACKOFF_AFTER_MS, idleBackoffAfterMs);
 
 bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
@@ -1978,8 +2150,215 @@ static bool radioMayIdle() {
 // Longest idle wait for the power-saving branch of loop(). When every input
 // is on an InputWake line the tick only paces timers, so it backs off the
 // longer the device sits untouched. Anything still polled keeps 50 ms.
+// Flash duck: fade the frontlight out from when the driver plans a flashing
+// refresh (HalDisplay::flashPlannedMs: on UC8179 at refresh entry, before its
+// power and SPI work) so it reaches the Flash Dim Level as the swing shows
+// (HalDisplay::flashStartedMs: on UC8179 the driver's DRF time plus the
+// waveform's own offset: direct gray drives the background black from frame
+// 24 of 50), and back up over FLASH_DUCK_UP_MS once the refresh ends. Until DRF
+// the swing time is the plan time plus the last measured plan-to-dark time of
+// that kind, then the fade retargets from where it is. An unplanned flash
+// fades over at least FLASH_DUCK_DOWN_MS. Goodies > Knobs flash*DimMs /
+// flash*RestoreMs shift both ends, per waveform (HalDisplay::flashKind: AA
+// page, Half/Full, DU paint). Runs alongside the refresh (render task) and
+// never waits on it. A mark older than FLASH_DUCK_MAX_MS is an async refresh
+// nobody waited on, so it ends. The times are Goodies > Knobs; a zero fade
+// never divides (both ramps test it first).
+KNOB_ALIAS(FLASH_DUCK_DOWN_MS, flashDownMs);
+KNOB_ALIAS(FLASH_DUCK_MAX_MS, flashMaxMs);
+KNOB_ALIAS(FLASH_DUCK_UP_MS, flashUpMs);
+KNOB_ALIAS(FLASH_DUCK_TICK_MS, flashTickMs);
+static bool flashDuckActive = false;
+static uint8_t flashDuckLevel = 100;
+static unsigned long flashDuckUpStartMs = 0;
+static unsigned long flashDuckInputMs = 0;  // last user input (the fade starts there)
+
+static uint32_t liveFlashStartMs() {
+  const uint32_t startMs = display.flashStartedMs();
+  // Signed: the swing can lie ahead, and is live until then.
+  return startMs != 0 && static_cast<int32_t>(millis() - startMs) <= static_cast<int32_t>(FLASH_DUCK_MAX_MS) ? startMs
+                                                                                                             : 0;
+}
+
+static void updateFlashDuck() {
+  const unsigned long now = millis();
+  const unsigned long inputMs = flashDuckInputMs;
+  const uint32_t swingMs = liveFlashStartMs();
+  const uint32_t markMs = display.flashPlannedMs();
+  static uint32_t swungMarkMs = 0;  // the mark whose swing showed (its mark no longer ducks)
+  const bool marked = markMs != 0 && markMs != swungMarkMs && now - markMs <= FLASH_DUCK_MAX_MS;
+  static uint32_t swingEndMs = 0;   // expected end of the swing being tracked
+  static uint32_t swingGoneMs = 0;  // when it ended (for a later restore)
+  static auto kind = HalDisplay::FlashKind::Full;  // of that swing, kept for a late restore
+  if (swingMs != 0) {
+    swingEndMs = display.flashEndsMs();
+    swingGoneMs = 0;
+    kind = display.flashKind();
+    swungMarkMs = markMs;
+  } else {
+    if (swingEndMs != 0) {
+      swingEndMs = 0;
+      swingGoneMs = now | 1;
+    }
+    if (marked) kind = display.flashPlannedKind();
+  }
+  // Goodies offsets (later is positive). The refresh never waits on either: an
+  // earlier dim than the driver can announce just cuts the light at DRF.
+  const bool gray = kind == HalDisplay::FlashKind::Gray, full = kind == HalDisplay::FlashKind::Full;
+  const int32_t dimMs = gray ? KNOBS.flashGrayDimMs : full ? KNOBS.flashFullDimMs : KNOBS.flashPaintDimMs;
+  const int32_t restoreMs =
+      gray ? KNOBS.flashGrayRestoreMs : full ? KNOBS.flashFullRestoreMs : KNOBS.flashPaintRestoreMs;
+  // Up early: before the expected end (negative restore). Up late: hold dark
+  // after the refresh ended (positive restore).
+  const bool restoreEarly =
+      swingMs != 0 && restoreMs < 0 && swingEndMs != 0 && static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
+  const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
+  const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && holdLate);
+  // Plan to dark per kind (Gray, Full, Paint), re-measured by every planned
+  // flash: the driver's own SPI/power work, so it barely varies (render time
+  // and queueing come before the plan; input to dark ran 109-448 ms). Seeds:
+  // logs/device/20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215 74 ms and
+  // L6236->L6240 69 ms (gray LSB to DRF; the default Gray dim is dark at DRF);
+  // Full 182 ms (boot Home paint: PON 127 + SPI 27, 20261002T011313Z-c0142b63
+  // L46-50; RAM only, so every boot starts from it); Paint (POF 82 + PON 127 +
+  // SPI 54 + reset) inferred.
+  constexpr uint32_t kMaxLeadMs = 600;
+  static uint16_t leadMs[3] = {75, 180, 330};
+  static uint8_t leadKind = 0;
+  static bool learned = false;      // this flash's lead is stored
+  static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
+  static uint32_t planMs = 0;       // when the driver planned this flash (0: unplanned)
+  static uint32_t fromMs = 0, darkMs = 0;
+  static uint8_t fromLevel = 100;  // the fade runs from (fromMs, fromLevel) to the floor at darkMs
+  // The user (brightness, toggle, Quick Lock) or the light timeout took over.
+  if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
+  const bool fresh = !flashDuckActive || flashDuckUpStartMs != 0;  // a new flash (back-to-back: from here)
+  if (!flashDuckActive) {
+    if (!ducking || holdLate || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
+        Frontlight.idleDimPercent() != 100) {
+      return;
+    }
+    if (Frontlight.brightness() <= KNOBS.flashDuckMinPct) {
+      static uint32_t skippedMs = 0;  // logged once per flash
+      const uint32_t flashMs = markMs != 0 ? markMs : swingMs;
+      if (flashMs != skippedMs) {
+        skippedMs = flashMs;
+        LOG_DBG("LIGHT", "Flash duck: skipped (below floor)");
+      }
+      return;
+    }
+    flashDuckActive = true;
+    flashDuckLevel = 100;
+    flashDuckUpStartMs = 0;
+  }
+  // Each ramp moves only one way from where the light is, between 100% and
+  // the Flash Dim Level (a % of the user's brightness; 0 = dark), but never
+  // below flashDuckMinPct of full (rounded up; at 100 the duck is over).
+  const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
+  const unsigned long floor = std::min<unsigned long>(
+      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (KNOBS.flashDuckMinPct * 100 + b - 1) / b),
+      100);
+  static bool darkLogged = false;
+  unsigned long level;
+  if (ducking) {
+    if (fresh && !holdLate) {
+      // From the plan, the earliest sign of a flash (input to plan is render
+      // time, ~150 ms: a fade from the input stepped down ~60% at the plan,
+      // logs/device/20261001T041615Z-32cc8fdd L6350->L6357).
+      planMs = marked ? markMs : 0;
+      fadeStartMs = planMs != 0 ? planMs : now;
+      fromMs = fadeStartMs;
+      fromLevel = flashDuckLevel;
+      darkMs = 0;
+      darkLogged = false;
+      learned = false;
+      leadKind = static_cast<uint8_t>(kind);
+    }
+    uint32_t target = swingMs != 0 ? swingMs + dimMs : planMs + leadMs[leadKind];
+    if (swingMs != 0 && planMs != 0 && !learned) {
+      learned = true;
+      const int32_t lead = static_cast<int32_t>(target - planMs);
+      leadMs[leadKind] = static_cast<uint16_t>(std::clamp<int32_t>(lead, 0, kMaxLeadMs));
+      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)", static_cast<long>(lead),
+              static_cast<long>(target - inputMs), leadKind);
+    }
+    if (planMs == 0 && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
+      target = fadeStartMs + FLASH_DUCK_DOWN_MS;
+    }
+    if (darkMs == 0) {
+      LOG_DBG("LIGHT", "Flash duck: down, dark in %ld ms", static_cast<long>(target - now));
+    } else if (target != darkMs) {
+      fromMs = now;  // the driver's swing time: retarget from where the fade is
+      fromLevel = flashDuckLevel;
+    }
+    darkMs = target;
+    const int32_t left = static_cast<int32_t>(target - now);
+    const unsigned long from = std::max<unsigned long>(fromLevel, floor);
+    level = std::max(floor, std::min<unsigned long>(flashDuckLevel,
+                                                    left <= 0 ? floor : floor + (from - floor) * left / (target - fromMs)));
+    if (level == floor && !darkLogged) {
+      darkLogged = true;
+      if (swingMs != 0) {
+        LOG_DBG("LIGHT", "Flash duck: dark at %lu (DRF%+ld)", now, static_cast<long>(now - swingMs));
+      } else {
+        LOG_DBG("LIGHT", "Flash duck: dark at %lu (DRF pending)", now);
+      }
+    }
+    flashDuckUpStartMs = 0;  // a back-to-back flash keeps it down
+  } else {
+    if (flashDuckUpStartMs == 0) {
+      flashDuckUpStartMs = now;
+      LOG_DBG("LIGHT", "Flash duck: up at %u%%", flashDuckLevel);
+    }
+    const unsigned long elapsed = now - flashDuckUpStartMs;
+    level = std::max<unsigned long>(
+        flashDuckLevel, elapsed >= FLASH_DUCK_UP_MS ? 100 : floor + (100 - floor) * elapsed / FLASH_DUCK_UP_MS);
+  }
+  if (level != flashDuckLevel) {
+    if (level == 100) {
+      const uint32_t endMs = swingMs != 0 ? swingEndMs : swingGoneMs;
+      LOG_DBG("LIGHT", "Flash duck: restored at %lu (end%+ld), duty %u%%", now, static_cast<long>(now - endMs),
+              Frontlight.brightness());
+    }
+    flashDuckLevel = static_cast<uint8_t>(level);
+    Frontlight.setIdleDim(flashDuckLevel);
+  }
+  if (!ducking && flashDuckLevel == 100) flashDuckActive = false;
+}
+
+// The main loop can block in a render wait through a whole refresh (a reader
+// redraw under the drawer: log 20261001T021833Z-2c6751af L3220-3227, loop 1377
+// ms), so RenderLock's waits step the duck too, on this task only.
+static TaskHandle_t mainLoopTask = nullptr;
+static void flashDuckRenderWait() {
+  if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
+}
+void installFlashDuckRenderWait() {
+  mainLoopTask = xTaskGetCurrentTaskHandle();  // setup() and loop() share the Arduino loop task
+  RenderLock::waitTick = &flashDuckRenderWait;
+}
+
+// A running transfer pulse owns the light (the dim doesn't show under it), so the
+// Light Timeout counts from the pulse's last step: fading during it would
+// flicker, and a pulse longer than the timeout would end in a snap to dark.
+static unsigned long lastPulseMs = 0;
+static unsigned long lightIdleMs(const unsigned long idleMs) {
+  if (TransferLightPulse::animating()) lastPulseMs = millis();
+  return std::min(idleMs, millis() - lastPulseMs);
+}
+
 uint32_t idleWaitMs(const unsigned long idleMs) {
+  if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
+  if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) && SETTINGS.frontlightFlashDuck)) {
+    return FLASH_DUCK_TICK_MS;
+  }
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
+  // Light timeout: wake on time for the fade and step it at the fast tick.
+  const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
+  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0 &&
+      lightIdleMs(idleMs) + IDLE_WAIT_LONG_MS >= lightTimeoutMs) {
+    return IDLE_WAIT_MS;
+  }
   const bool tiltPolling = SETTINGS.tiltPageTurn != CrossPointSettings::TILT_OFF && halTiltSensor.isAvailable() &&
                            activityManager.isReaderActivity();
 #ifdef SIMULATOR
@@ -1997,8 +2376,13 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   // An idle server on its own task (File Transfer, Calibre) or a screen that opted
   // into radio idle (OPDS list, KOSync result) only needs the loop for input,
   // exit requests and link checks: 4 wakes/s instead of 20.
+#if CROSSDINK_GOODIES
+  // Only the Wi-Fi remote holds the radio: its server wakes on traffic and
+  // /api/cmd wakes the loop (InputTask::wakeLoop), so the long tick.
+  if (goodies_remote::allowsRadioIdleSleep()) return IDLE_WAIT_LONG_MS;
+#endif
   if (radioIdle) return IDLE_WAIT_SETTLED_MS;
-  return idleMs < IDLE_WAIT_LONG_AFTER_MS ? IDLE_WAIT_SETTLED_MS : IDLE_WAIT_LONG_MS;
+  return IDLE_WAIT_LONG_MS;
 }
 
 #if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
@@ -2210,6 +2594,7 @@ static void loopPass() {
   if (userInputReceived) {
     activityManager.wakePanelEarly();    // PON while the finger is still down
     lastActivityTime = millis();         // Reset inactivity timer
+    flashDuckInputMs = lastActivityTime;
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
   if (activityManager.preventAutoSleep()) {
@@ -2218,6 +2603,34 @@ static void loopPass() {
   if (userInputReceived) {
     activityManager.notifyUserInput();
   }
+
+  // Light timeout. Any input brings the light back and still acts, so the
+  // first tap after a long idle is never lost.
+  static bool lightTimedOut = false;  // the timeout dimmed it (not the flash duck)
+  if (lightTimedOut && Frontlight.idleDimPercent() == 100) lightTimedOut = false;  // restored elsewhere
+  if (userInputReceived && lightTimedOut) {
+    lightTimedOut = false;
+    Frontlight.setIdleDim(100);
+    BatteryLog::lightChanged();
+    LOG_DBG("LIGHT", "Light timeout: restored by input");
+  }
+  const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
+  const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
+  if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
+    const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
+    if (idleMs >= lightTimeoutMs) {
+      const unsigned long fadeMs = idleMs - lightTimeoutMs;
+      const uint8_t level = fadeMs >= LIGHT_FADE_MS ? 0 : static_cast<uint8_t>(100 - fadeMs * 100 / LIGHT_FADE_MS);
+      if (level < Frontlight.idleDimPercent()) {
+        if (Frontlight.idleDimPercent() == 100) LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
+        Frontlight.setIdleDim(level);
+        lightTimedOut = true;
+        if (level == 0) BatteryLog::lightChanged(true);
+      }
+    }
+  }
+  updateFlashDuck();
+  BatteryLog::poll(millis() - lastActivityTime);
 
   // Let wake continue as soon as its hold has been verified. The release can
   // arrive after setup, so consume that one input frame rather than making it
@@ -2310,8 +2723,10 @@ static void loopPass() {
     }
     mappedInputManager.clearInjectedReleases();
     // Nothing draws while locked; wait like an idle pass (ends early on input).
+    // Unlock holds and unwired inputs keep the 10 ms tick.
     loopPassBlocked = true;
-    InputTask::waitForInput(10);
+    InputTask::waitForInput(!InputWake::coversAllInputs() || anyInputHeld() ? 10
+                                                                            : idleWaitMs(millis() - lastActivityTime));
     return;
   }
 
@@ -2374,6 +2789,41 @@ static void loopPass() {
     activityManager.requestUpdate();
   }
 
+  // The header's Wi-Fi glyph and battery percent: one ordinary repaint of the
+  // current screen when the link comes or goes or the percent changes. Only
+  // screens whose last frame drew a header status bar (never the reader), and
+  // the percent only once input has paused; requestedFor stops a repeat if that
+  // repaint shows no header.
+  {
+    static unsigned long lastHeaderStatusPoll = 0;
+    static int requestedFor = -1;
+    if (millis() - lastHeaderStatusPoll >= 1000) {
+      lastHeaderStatusPoll = millis();
+      const int shownWifi = BaseTheme::wifiStatusShown();
+      const int shownPercent = BaseTheme::batteryPercentShown();
+      const int connected = hasActiveStationWifiConnection() ? 1 : 0;
+      // Every 10 s: ADC boards smooth the percent on each read, so a faster
+      // poll would move it (gauge reads are cached for BATTERY_POLL_MS).
+      static int percent = -1;
+      static unsigned long lastPercentRead = 0;
+      // A mismatch re-reads first, so a frame drawn after the last read can't
+      // trigger a repaint of the value it already shows.
+      if (percent < 0 || millis() - lastPercentRead >= 10000 || (shownPercent >= 0 && shownPercent != percent)) {
+        lastPercentRead = millis();
+        percent = powerManager.getBatteryPercentage();
+      }
+      const bool inputPaused = millis() - lastActivityTime >= 2000;
+      const bool stale = shownWifi != connected || (inputPaused && shownPercent != percent);
+      const int want = connected << 8 | percent;
+      if (shownWifi < 0 || !stale) {
+        requestedFor = -1;
+      } else if (requestedFor != want) {
+        requestedFor = want;
+        activityManager.requestUpdate();
+      }
+    }
+  }
+
   // While on external power the percent climbs with no user interaction to
   // repaint it (gauge boards like the X4 Pro report SoC continuously), so poll
   // for a change once a minute. Off-charger the percent moves too slowly to
@@ -2398,8 +2848,10 @@ static void loopPass() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+  kosync_on_exit::loop();
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
+  knobs::loop();
 #endif
 #if CROSSDINK_APP_CAP_TOUCH
   // A delayed Home event is valid for this activity dispatch only. If an
@@ -2462,7 +2914,7 @@ static void loopPass() {
       // A radio exchange (Wi-Fi join, sync, download) runs on its own task and
       // the screen only polls it. At a 10 ms tick the loop cost ~11% of core 0,
       // the Wi-Fi/lwIP core, for the whole transfer.
-      InputTask::waitForInput(IDLE_WAIT_MS);
+      InputTask::waitForInput(TransferLightPulse::animating() ? TransferLightPulse::WRITE_INTERVAL_MS : IDLE_WAIT_MS);
     } else {
       // Short delay to prevent tight loop while still being responsive
       InputTask::waitForInput(10);

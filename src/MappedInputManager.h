@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HalGPIO.h>
+#include <Knobs.h>
 
 #include <array>
 #include <cstddef>
@@ -128,6 +129,12 @@ class MappedInputManager {
   // Home-key layouts remain available while the key is locked on reader pages.
   bool isHomeButtonLockedInReader() const;
   bool wasScreenTapped(int& x, int& y) const;
+  // A tap or a still-held long press this loop: the touch that picks a row.
+  bool wasTapOrHeld() const {
+    int x = 0;
+    int y = 0;
+    return wasScreenTapped(x, y) || isScreenTouchHeld(x, y);
+  }
   // Also reports how long the finger was held before release.
   bool wasScreenTapped(int& x, int& y, unsigned long& heldMs) const;
   bool isScreenTouchLongPress(int& x, int& y, unsigned long thresholdMs) const;
@@ -210,6 +217,7 @@ class MappedInputManager {
   constexpr bool hasHomeKey() const { return false; }
   constexpr bool isHomeButtonLockedInReader() const { return false; }
   constexpr bool wasScreenTapped(int&, int&) const { return false; }
+  constexpr bool wasTapOrHeld() const { return false; }
   constexpr bool wasScreenTapped(int&, int&, unsigned long&) const { return false; }
   constexpr bool isScreenTouchLongPress(int&, int&, unsigned long) const { return false; }
   constexpr bool wasScreenLongPress(int&, int&) const { return false; }
@@ -303,8 +311,8 @@ class MappedInputManager {
 #if CROSSDINK_APP_CAP_TOUCH
   mutable bool suppressTouchTap = false;
   mutable bool deferredHomeGesture = false;
-  static constexpr unsigned long SELECT_PRESS_DELAY_MS = 200;
-  static constexpr int SELECT_PRESS_SLOP_PX = 20;
+  static KNOB_ALIAS(SELECT_PRESS_DELAY_MS, selectPressDelayMs);  // Goodies > Knobs
+  static KNOB_ALIAS(SELECT_PRESS_SLOP_PX, selectPressSlopPx);
   mutable bool selectPressPending = false;
   mutable bool selectPressThisFrame = false;
   mutable int selectPressX = 0;

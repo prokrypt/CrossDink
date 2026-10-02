@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <Knobs.h>
 #include <Logging.h>
 
 #include <cstdint>
@@ -39,18 +40,18 @@ struct HeapRequirement {
 
 constexpr uint32_t EPUB_INLINE_IMAGE_MIN_FREE = 72U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_MIN_MAX_ALLOC = 48U * 1024U;
-constexpr uint32_t EPUB_TEXT_LAYOUT_MIN_FREE = 44U * 1024U;
+KNOB_ALIAS(EPUB_TEXT_LAYOUT_MIN_FREE, layoutMinFree);  // Goodies > Knobs
 constexpr uint32_t EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC = 32U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_FREE = 120U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_MAX_ALLOC = 80U * 1024U;
-constexpr uint32_t OPTIONAL_EPUB_REBUILD_MIN_FREE = 96U * 1024U;
-constexpr uint32_t OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC = 48U * 1024U;
+KNOB_ALIAS(OPTIONAL_EPUB_REBUILD_MIN_FREE, rebuildMinFree);  // Goodies > Knobs
+KNOB_ALIAS(OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC, rebuildMinBlock);
 constexpr uint32_t OPTIONAL_EPUB_PREFETCH_AFTER_SD_FONT_RELEASE_MIN_FREE = 88U * 1024U;
 // Initial C3 guard for switching to a different dictionary .cpfont. Both total
 // free heap and contiguous maxAlloc matter because font metadata and prewarm
 // arenas are separate allocations. Hardware stress logs should tune these.
-constexpr uint32_t DICTIONARY_SD_FONT_MIN_FREE = 64U * 1024U;
-constexpr uint32_t DICTIONARY_SD_FONT_MIN_MAX_ALLOC = 32U * 1024U;
+KNOB_ALIAS(DICTIONARY_SD_FONT_MIN_FREE, dictFontMinFree);  // Goodies > Knobs
+KNOB_ALIAS(DICTIONARY_SD_FONT_MIN_MAX_ALLOC, dictFontMinBlock);
 constexpr uint32_t IMAGE_DECODER_HEADROOM = 16U * 1024U;
 constexpr uint32_t JPEG_DECODER_APPROX_BYTES = 20U * 1024U;
 constexpr uint32_t EPUB_INLINE_JPEG_MIN_FREE = JPEG_DECODER_APPROX_BYTES + IMAGE_DECODER_HEADROOM;
@@ -160,6 +161,12 @@ inline MemoryPool jpegDecoderPool(const size_t decoderBytes) {
                                 byteHeapSnapshot(MemoryPool::Psram));
 }
 
+// PSRAM devices: plain new/malloc over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL
+// (1 KB) lands in PSRAM, so a decoder object there needs only internal headroom
+// for parsing and callbacks, not a large internal block (the PNG decoder is
+// ~42 KB). C3 has no PSRAM and keeps its internal gates.
+inline bool decoderFitsPsram(const size_t decoderBytes) { return jpegDecoderPool(decoderBytes) == MemoryPool::Psram; }
+
 inline bool hasHeapForJpegDecoder(const char* tag, const size_t decoderBytes, const char* source = nullptr) {
   const auto internal = byteHeapSnapshot(MemoryPool::Internal);
   const auto psram = byteHeapSnapshot(MemoryPool::Psram);
@@ -187,6 +194,7 @@ inline bool shouldReleaseSdFontCachesForEpubInlineImage(const HeapSnapshot heap)
 
 inline bool hasHeapForEpubInlineImage(const char* tag, const char* source) {
   if (isJpegSource(source)) return hasHeapForJpegDecoder(tag, JPEG_DECODER_APPROX_BYTES, source);
+  if (decoderFitsPsram(EPUB_INLINE_IMAGE_MIN_MAX_ALLOC)) return true;
 
   const auto heap = snapshot();
   const auto requirement = epubInlineImageRequirementForSource(source);
@@ -224,6 +232,7 @@ inline bool hasHeapForOptionalEpubRebuild(const char* tag, const char* action, c
 }
 
 inline bool hasHeapForImageDecoder(const char* tag, const char* decoderName, const uint32_t decoderApproxBytes) {
+  if (decoderFitsPsram(decoderApproxBytes)) return true;
   const auto heap = snapshot();
   const uint32_t minFree = decoderApproxBytes + IMAGE_DECODER_HEADROOM;
   if (hasHeap(heap, minFree, decoderApproxBytes)) {

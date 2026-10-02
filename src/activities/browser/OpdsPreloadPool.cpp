@@ -1,6 +1,7 @@
 #include "OpdsPreloadPool.h"
 
 #include <Arduino.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <SecureHttpClient.h>
@@ -8,17 +9,23 @@
 #include <algorithm>
 #include <utility>
 
+#include "util/UrlUtils.h"
+
 namespace {
 // Worker stacks are PSRAM (internal fallback when PSRAM is short, hence the
 // block check); each worker still costs an internal TCB and wolfSSL's small
 // allocations (larger ones go to PSRAM via CONFIG_SPIRAM_USE_MALLOC). Each
 // further worker raises the floor, so parallelism backs off as the heap shrinks.
-constexpr size_t PRELOAD_MIN_INTERNAL_FREE = 48 * 1024;
-constexpr size_t PRELOAD_INTERNAL_PER_WORKER = 16 * 1024;
-constexpr size_t PRELOAD_MIN_INTERNAL_BLOCK = 16 * 1024;
+KNOB_ALIAS(PRELOAD_MIN_INTERNAL_FREE, opdsPreloadMinFree);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(PRELOAD_INTERNAL_PER_WORKER, opdsPreloadPerWorker);
+KNOB_ALIAS(PRELOAD_MIN_INTERNAL_BLOCK, opdsPreloadMinBlock);
 // Same rule as the foreground feed connection: a socket idle this long may
 // have been dropped silently by a NAT or the server.
-constexpr unsigned long PRELOAD_KEEPALIVE_MAX_IDLE_MS = 4 * 1000;
+KNOB_ALIAS(PRELOAD_KEEPALIVE_MAX_IDLE_MS, opdsKeepaliveMs);  // Goodies > Knobs
+// A page fetched this recently is not rechecked when shown from the cache.
+constexpr uint32_t RECHECK_MIN_AGE_MS = 60 * 1000;
+// After a network failure, start nothing for this long (the queue waits).
+constexpr uint32_t FAILURE_BACKOFF_MS = 30 * 1000;
 }  // namespace
 
 OpdsPreloadPool::OpdsPreloadPool(OpdsPageCache& cache, const size_t pageMaxBytes, std::string username,
@@ -51,7 +58,12 @@ size_t OpdsPreloadPool::runningCount() const {
                                            [](const Worker& worker) { return worker.prefetcher.running(); }));
 }
 
-bool OpdsPreloadPool::busy() const { return !queue.empty() || runningCount() > 0; }
+bool OpdsPreloadPool::backingOff() const {
+  return failedAtMs != 0 && millis() - failedAtMs < FAILURE_BACKOFF_MS;
+}
+
+// A queue held by the failure backoff does not count: the radio may idle.
+bool OpdsPreloadPool::busy() const { return (!queue.empty() && !backingOff()) || runningCount() > 0; }
 
 void OpdsPreloadPool::enqueue(const std::string& url, const bool front) {
   if (url.empty() || cache.contains(url) || running(url)) return;
@@ -67,13 +79,41 @@ void OpdsPreloadPool::enqueue(const std::string& url, const bool front) {
   }
 }
 
-void OpdsPreloadPool::harvest(Worker& worker) { worker.prefetcher.harvestInto(cache, worker.evict); }
+void OpdsPreloadPool::revalidate(const std::string& url) {
+  queue.erase(std::remove_if(queue.begin(), queue.end(), [](const QueuedPage& page) { return page.revalidate; }),
+              queue.end());
+  for (auto& worker : workers) {
+    if (worker.revalidate && worker.prefetcher.running() && worker.prefetcher.url() != url) worker.prefetcher.cancel();
+  }
+  if (!cache.contains(url) || running(url) || cache.fetchedWithin(url, millis(), RECHECK_MIN_AGE_MS)) return;
+  queue.erase(std::remove_if(queue.begin(), queue.end(), [&url](const QueuedPage& page) { return page.url == url; }),
+              queue.end());
+  queue.insert(queue.begin(), QueuedPage{url, true, true});
+}
+
+bool OpdsPreloadPool::takeChange(std::string& url) {
+  if (changedUrl.empty()) return false;
+  url = std::move(changedUrl);
+  changedUrl.clear();
+  return true;
+}
+
+void OpdsPreloadPool::harvest(Worker& worker) {
+  if (worker.prefetcher.takeFailure()) {
+    failedAtMs = millis();
+    LOG_INF("OPDS", "Preload backing off %lu s after a failure", static_cast<unsigned long>(FAILURE_BACKOFF_MS / 1000));
+  }
+  if (worker.prefetcher.harvestInto(cache, worker.evict, worker.revalidate) && worker.revalidate) {
+    changedUrl = worker.prefetcher.url();
+  }
+}
 
 bool OpdsPreloadPool::startNext(Worker& worker) {
-  while (!queue.empty() && (cache.contains(queue.front().url) || running(queue.front().url))) {
+  while (!queue.empty() &&
+         ((!queue.front().revalidate && cache.contains(queue.front().url)) || running(queue.front().url))) {
     queue.erase(queue.begin());
   }
-  if (queue.empty()) return false;
+  if (queue.empty() || backingOff()) return false;
 
   const size_t alreadyRunning = runningCount();
   const ByteHeapSnapshot internal = byteHeapSnapshot(MemoryPool::Internal);
@@ -106,14 +146,16 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
   request.connection = worker.connection.get();
 #endif
   worker.evict = next.evict;
+  worker.revalidate = next.revalidate;
   const size_t slot = static_cast<size_t>(&worker - workers);
   if (!worker.prefetcher.start(std::move(request), pageMaxBytes)) {
     queue.insert(queue.begin(), std::move(next));
     return false;
   }
   active = true;
-  LOG_INF("OPDS", "Preload start: slot=%zu running=%zu queued=%zu internal free=%zu largest=%zu %s", slot,
-          alreadyRunning + 1, queue.size(), internal.free, internal.largest, next.url.c_str());
+  LOG_INF("OPDS", "%s start: slot=%zu running=%zu queued=%zu internal free=%zu largest=%zu %s",
+          next.revalidate ? "Recheck" : "Preload", slot, alreadyRunning + 1, queue.size(), internal.free,
+          internal.largest, UrlUtils::maskUserInfo(next.url).c_str());
   return true;
 }
 
@@ -151,6 +193,8 @@ bool OpdsPreloadPool::pause(const std::string& keepUrl) {
     worker.prefetcher.join();
     harvest(worker);
   }
+  queue.erase(std::remove_if(queue.begin(), queue.end(), [](const QueuedPage& page) { return page.revalidate; }),
+              queue.end());
   if (!cancelled.empty()) LOG_INF("OPDS", "Preload paused: %zu cancelled", cancelled.size());
   // Resume them first once the foreground request is done.
   for (auto it = cancelled.rbegin(); it != cancelled.rend(); ++it) {

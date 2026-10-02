@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "SwipeAdjustment.h"
+
 namespace TwoFingerSwipe {
 
 enum class Direction : uint8_t { None, Up, Down, Left, Right };
@@ -18,7 +20,7 @@ struct CompletedSwipe {
 };
 
 inline Direction directionFor(const CompletedSwipe& swipe, const int screenWidth, const int screenHeight) {
-  if (swipe.contactCount != 2 || screenWidth < 2 || screenHeight < 2 || swipe.durationMs > 2000) {
+  if (swipe.contactCount != 2 || screenWidth < 2 || screenHeight < 2 || swipe.durationMs > KNOBS.multiSwipeMaxMs) {
     return Direction::None;
   }
 
@@ -28,7 +30,7 @@ inline Direction directionFor(const CompletedSwipe& swipe, const int screenWidth
   const int primary = vertical ? dy : dx;
   const int cross = vertical ? dx : dy;
   const int axisSize = vertical ? screenHeight : screenWidth;
-  const int minimumDistance = std::max(60, axisSize * 6 / 100);
+  const int minimumDistance = SwipeAdjustment::deadZone(axisSize);
   if (std::abs(primary) < minimumDistance || std::abs(primary) * 2 < std::abs(cross) * 3) {
     return Direction::None;
   }
@@ -62,9 +64,12 @@ inline bool hasTranslationGeometry(const FingerPair& start, const FingerPair& cu
   const int startDy = start.secondY - start.firstY;
   const int currentDx = current.secondX - current.firstX;
   const int currentDy = current.secondY - current.firstY;
-  // Match the SDK's 45 px per-axis contact-separation tolerance. A tighter
+  // Match the SDK's per-axis contact-separation tolerance (same knob). A tighter
   // angle guard keeps a moving rotation from taking over a light slider.
-  if (std::abs(currentDx - startDx) > 45 || std::abs(currentDy - startDy) > 45) return false;
+  if (std::abs(currentDx - startDx) > KNOBS.multiSeparationSlopPx ||
+      std::abs(currentDy - startDy) > KNOBS.multiSeparationSlopPx) {
+    return false;
+  }
   const int64_t dot = static_cast<int64_t>(startDx) * currentDx + static_cast<int64_t>(startDy) * currentDy;
   const int64_t cross = static_cast<int64_t>(startDx) * currentDy - static_cast<int64_t>(startDy) * currentDx;
   return dot > 0 && std::abs(cross) * 4 < dot;
@@ -76,7 +81,7 @@ inline bool fingersMovedTogether(const FingerPair& start, const FingerPair& curr
   const int second = direction == Direction::Up || direction == Direction::Down ? current.secondY - start.secondY
                                                                                 : current.secondX - start.secondX;
   const int sign = direction == Direction::Up || direction == Direction::Left ? -1 : 1;
-  return direction != Direction::None && sign * first >= 60 && sign * second >= 60;
+  return direction != Direction::None && sign * first >= KNOBS.swipeDeadPx && sign * second >= KNOBS.swipeDeadPx;
 }
 
 inline bool clearDuplicateActions(uint8_t actions[4], const uint8_t notSet, const int editedIndex = -1) {

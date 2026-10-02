@@ -576,9 +576,10 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
       selectedY += rowHeightFor(i);
     }
     const int selectedRowHeight = rowHeightFor(selectedIndex);
-    renderer.fillRoundedRect(rect.x + MinimalMetrics::values.contentSidePadding, selectedY,
-                             contentWidth - MinimalMetrics::values.contentSidePadding * 2, selectedRowHeight, 6,
-                             Color::LightGray);
+    // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+    renderer.drawRoundedRect(rect.x + MinimalMetrics::values.contentSidePadding, selectedY,
+                             contentWidth - MinimalMetrics::values.contentSidePadding * 2, selectedRowHeight, 2, 6,
+                             true);
   }
 
   const int iconX = rect.x + MinimalMetrics::values.contentSidePadding + kFileBrowserTextGap;
@@ -677,10 +678,10 @@ void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, cons
     if (hasLabel) {
       TouchRegistry::getInstance().add(Rect{x, pageHeight - buttonY, buttonWidth, buttonHeight}, i,
                                        TouchRegistry::Button);
-      const Color background = i == selectedIndex ? Color::LightGray : Color::White;
-      renderer.fillRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, kButtonCornerRadius, background);
-      renderer.drawRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, 1, kButtonCornerRadius, true, true,
-                               false, false, true);
+      // Pressed = 2 px outline instead of a dither fill.
+      renderer.fillRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, kButtonCornerRadius, Color::White);
+      renderer.drawRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, i == selectedIndex ? 2 : 1,
+                               kButtonCornerRadius, true, true, false, false, true);
     } else if (labels[i] != nullptr) {
       // Clear the previous full-sized hint before drawing the inactive marker.
       renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);

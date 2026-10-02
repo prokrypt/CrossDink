@@ -28,8 +28,12 @@ class UsbDriveActivity final : public Activity {
   static constexpr unsigned long FORCED_DISCONNECT_TIMEOUT_MS = 1000UL;
   static constexpr unsigned long HOST_SUSPEND_TIMEOUT_MS = 2000UL;
 
-  // Host I/O newer than this counts as a transfer for the light.
-  static constexpr uint32_t IO_ACTIVE_MS = 500;
+  // Host I/O newer than this keeps a started pulse going; bridges gaps between a copy's bursts.
+  static constexpr uint32_t IO_ACTIVE_MS = 2000;
+  // A pulse starts only once this much host I/O moves inside one GATE_WINDOW_MS window (~160 KB/s).
+  // Idle host polls move a few sectors; a copy moves ~1 MB/s (20260929T185627Z-0fd608c1 L1056).
+  static constexpr uint32_t GATE_MIN_BYTES = 16 * 1024;
+  static constexpr uint32_t GATE_WINDOW_MS = 100;
   // Bursts under this are host polling; they are summarized, not logged each.
   static constexpr uint32_t BURST_LOG_MIN_BYTES = 64 * 1024;
   static constexpr uint32_t POLL_SUMMARY_MS = 30UL * 1000UL;
@@ -52,6 +56,9 @@ class UsbDriveActivity final : public Activity {
   unsigned long hostSuspendStartedAt = 0;
   ScreenTransitionRefresh screenTransitionRefresh;
   TransferLightPulse transferLight;
+  bool gateOpen = false;
+  uint32_t gateWindowMs = 0;  // start of the current (tumbling) gate window
+  uint32_t gateBytes = 0;     // host bytes at gateWindowMs
   // Current burst of host I/O, for the [FL] log.
   bool ioBurst = false;
   uint32_t burstStartMs = 0;

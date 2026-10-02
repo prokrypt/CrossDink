@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <atomic>
 #include <EInkDisplay.h>
 
 class HalDisplay {
@@ -33,6 +34,7 @@ class HalDisplay {
   // use it as the previous frame and make the first paint Fast. Call after
   // begin(). False when the panel driver cannot use it.
   bool seedDisplayedFrame(const uint8_t* frame);
+  bool grayOnPanel() const { return einkDisplay.grayOnPanel(); }
 
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
@@ -122,13 +124,50 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
+  // millis() when the running refresh's full-screen swing shows (UC8179: from
+  // the driver, per waveform; it may lie ahead), 0 while none runs. The main
+  // loop dims the frontlight around it.
+  uint32_t flashStartedMs() const;
+  // millis() when a refresh that may flash was entered (0: none); the loop
+  // ticks fast meanwhile.
+  uint32_t flashMarkedMs() const { return flashStart.load(std::memory_order_relaxed); }
+  // When that refresh is expected to end (UC8179), 0 when unknown.
+  uint32_t flashEndsMs() const;
+  // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
+  enum class FlashKind : uint8_t { Gray, Full, Paint };
+  FlashKind flashKind() const;
+  // millis() when the refresh now starting was planned to flash (0: none, or
+  // flashStartedMs has it), and its kind: the duck's fade starts here. UC8179:
+  // the driver's own swing decision, before its power and SPI work.
+  uint32_t flashPlannedMs() const;
+  FlashKind flashPlannedKind() const;
+  // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
+  // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
+  // then gray passes, then refreshes that flash (as marked for the flash duck).
+  enum { GRAY_PASSES = 3, FLASHING = 4 };
+  struct RefreshCounts {
+    uint32_t magic;
+    uint32_t n[5];
+  };
+  static RefreshCounts& refreshCounts();
 
   // Tiled grayscale: stream one band of a plane (lsbPlane selects LSB/MSB RAM)
   // straight to the controller; supportsStripGrayscale() gates the path. See
   // EInkDisplay::writeGrayscalePlaneStrip.
   void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows);
+  // Screenshots (S3 builds with a PSRAM noinit segment): true while the last
+  // gray pass is still on the panel (no B/W refresh since); grayShotLevel()
+  // then gives a panel-native pixel as 0 black, 1 dark, 2 light, 3 white.
+  bool grayShotReady() const;
+  uint8_t grayShotLevel(uint32_t x, uint32_t y) const;
   // Firmware policy for the reader's extra white-image refresh.
   bool shouldSkipImageBlanking() const;
+  // UC8179 Smooth text AA (short balanced gray nudge); other panels ignore it.
+  void setSmoothGray(bool smooth);
+  // UC8179: Fast diffs against the true on-screen frame (and the driver runs its
+  // clean waveform itself when that frame is unknown), so a screen change needs
+  // no separate cleanup refresh.
+  bool fastTracksPanel() const;
   bool supportsStripGrayscale() const;
 
   // Runtime geometry passthrough
@@ -138,6 +177,21 @@ class HalDisplay {
   uint32_t getBufferSize() const;
 
  private:
+  void markFlash(bool flashes, FlashKind kind = FlashKind::Full);
+  void markFlash(RefreshMode mode);
+  static void count(int kind);
+  // Marks a synchronous refresh (if it flashes) and clears the mark when it returns.
+  struct FlashScope {
+    HalDisplay& d;
+    FlashScope(HalDisplay& display, const bool flashes, const FlashKind kind = FlashKind::Full) : d(display) {
+      d.markFlash(flashes, kind);
+    }
+    FlashScope(HalDisplay& display, const RefreshMode mode) : d(display) { d.markFlash(mode); }
+    ~FlashScope() { d.flashStart.store(0, std::memory_order_relaxed); }
+  };
+  std::atomic<uint32_t> flashStart{0};
+  std::atomic<FlashKind> markKind{FlashKind::Full};
+  bool smoothGray = false;
   EInkDisplay einkDisplay;
 };
 

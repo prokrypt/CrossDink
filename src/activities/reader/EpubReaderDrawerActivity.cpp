@@ -161,10 +161,8 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
                               static_cast<int16_t>(rect.y - BUTTON_SLIDER_FOCUS_PADDING_Y),
                               static_cast<int16_t>(rect.width + BUTTON_SLIDER_FOCUS_PADDING_X * 2),
                               static_cast<int16_t>(rect.height + BUTTON_SLIDER_FOCUS_PADDING_Y * 2)};
-    if (row.editing)
-      screen.target().fill(focusRect, fui::Paint::dither(fui::Color::LightGray), 4);
-    else
-      screen.target().stroke(focusRect, fui::Paint::solid(fui::Color::Black), 1, 4);
+    // Editing = 2 px outline, focus = 1 px; outlines ghost less than a dither fill.
+    screen.target().stroke(focusRect, fui::Paint::solid(fui::Color::Black), row.editing ? 2 : 1, 4);
   }
 
   const int16_t lineHeight = screen.target().lineHeight(labelStyle.font);
@@ -315,8 +313,11 @@ void drawDualReaderSliderRows(fui::Screen<MaxInteractions>& screen, const Reader
 
 void setDrawerSelectionStyle(fui::StyleSet& styles) {
   styles = fui::defaultListRowStyles();
-  styles.selected.background = fui::Paint::dither(fui::Color::LightGray);
+  // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+  styles.selected.background = fui::Paint::solid(fui::Color::White);
   styles.selected.foreground = fui::Paint::solid(fui::Color::Black);
+  styles.selected.border = fui::Paint::solid(fui::Color::Black);
+  styles.selected.borderWidth = 2;
   styles.selected.radius = 4;
 }
 
@@ -1677,7 +1678,17 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::Alignment:
     case RowId::Images:
     case RowId::RenderMode:
+    case RowId::TextAa:
       showEnumOptions(row);
+      return;
+    case RowId::ImageColor:
+      // Global like Settings > Reader, not a per-book override: save it here.
+      SETTINGS.imageColor = SETTINGS.imageColor == CrossPointSettings::IMAGE_COLOR_BW
+                                ? CrossPointSettings::IMAGE_COLOR_GRAY
+                                : CrossPointSettings::IMAGE_COLOR_BW;
+      if (!SETTINGS.saveToFile()) LOG_ERR("ERDM", "Failed to persist image color");
+      markSettingChanged(ReaderSettingsChangeMask::NonLayout);
+      requestUpdate();
       return;
     case RowId::IndexingMethod:
       draft.indexingMethod =
@@ -1746,7 +1757,6 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::ResetBookReaderSettings:
       closeAndReturn(false, EpubReaderMenuAction::RESET_BOOK_READER_SETTINGS);
       return;
-    case RowId::TextAa:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -1829,9 +1839,6 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
 
 void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
   switch (row) {
-    case RowId::TextAa:
-      draft.textAntiAliasing = !draft.textAntiAliasing;
-      break;
     case RowId::Focus:
       draft.focusReadingEnabled = !draft.focusReadingEnabled;
       break;
@@ -1856,15 +1863,9 @@ void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
     default:
       return;
   }
-  if (row == RowId::TextAa) {
-    // Anti-aliasing changes pixels only. Rebuilding the EPUB section here
-    // makes the in-drawer preview appear to zoom while the page reflows.
-    markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
-  } else {
-    const bool previews = row == RowId::Focus || row == RowId::GuideDots;
-    markSettingChanged(previews ? ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout
-                                : ReaderSettingsChangeMask::Relayout);
-  }
+  const bool previews = row == RowId::Focus || row == RowId::GuideDots;
+  markSettingChanged(previews ? ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout
+                              : ReaderSettingsChangeMask::Relayout);
   requestUpdate();
 }
 
@@ -1925,6 +1926,12 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       labels = {tr(STR_RENDER_MODE_CROSSDINK_DEFAULT), tr(STR_RENDER_MODE_BALANCED), tr(STR_RENDER_MODE_LIGHT)};
       raw = {0, 1, 2};
       currentRaw = draft.epubRenderMode;
+      break;
+    case RowId::TextAa:
+      title = StrId::STR_TEXT_AA;
+      labels = {tr(STR_STATE_OFF), tr(STR_AA_SHARP), tr(STR_AA_SMOOTH)};
+      raw = {CrossPointSettings::TEXT_AA_OFF, CrossPointSettings::TEXT_AA_SHARP, CrossPointSettings::TEXT_AA_SMOOTH};
+      currentRaw = draft.textAntiAliasing;
       break;
     case RowId::DictionaryFontFamily: {
       title = StrId::STR_FONT_FAMILY;
@@ -2046,6 +2053,14 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
       draft.epubRenderMode = value;
       markSettingChanged(ReaderSettingsChangeMask::Relayout);
       break;
+    case RowId::TextAa:
+      // Anti-aliasing changes pixels only. Rebuilding the EPUB section here
+      // makes the in-drawer preview appear to zoom while the page reflows.
+      draft.textAntiAliasing = value;
+      markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
+      // Close like a dismiss: the close redraw shows the new mode, no preview pass.
+      closeAndReturn(true);
+      return;
     case RowId::DictionaryFontFamily:
       if (index == 0) {
         hasDictionaryFontOverride = false;
@@ -2877,8 +2892,11 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   // Button menus repaint the sample on every navigation step. A grayscale pass
   // here would add a second panel refresh and flash the preview each time.
+  // Sharpflash's pass is a full swing (a flash) on every setting change, so its
+  // preview stays BW, like the page behind the drawer, until the close redraw.
   if (!CROSSDINK_APP_READER_SAMPLE_PREVIEW &&
-      shouldRenderReaderDrawerAntiAliasing(previewRendered, draft.textAntiAliasing,
+      shouldRenderReaderDrawerAntiAliasing(previewRendered,
+                                           draft.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH,
                                            ReaderUtils::readerForegroundBlack()) &&
       !sdFontSystem.fontUsesMonochromeRaster(renderer, previewFontId, draft.sdFontFamilyName.data())) {
     renderPreviewWithAntiAliasing(previewFontId);
@@ -2955,6 +2973,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_EMBEDDED_STYLE);
     case RowId::Images:
       return tr(STR_IMAGES);
+    case RowId::ImageColor:
+      return tr(STR_IMAGE_COLOR);
     case RowId::SelectChapter:
       return tr(STR_SELECT_CHAPTER);
     case RowId::GoToPercent:
@@ -3084,10 +3104,17 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
                                                   StrId::STR_IMAGES_SUPPRESS};
       return I18N.get(labels[std::min<size_t>(draft.imageRendering, labels.size() - 1)]);
     }
+    case RowId::ImageColor:
+      return SETTINGS.imageColor == CrossPointSettings::IMAGE_COLOR_BW ? tr(STR_IMAGE_COLOR_BW)
+                                                                       : tr(STR_IMAGE_COLOR_GRAY);
     case RowId::RenderMode: {
       static const std::array<StrId, 3> labels = {StrId::STR_RENDER_MODE_CROSSDINK_DEFAULT,
                                                   StrId::STR_RENDER_MODE_BALANCED, StrId::STR_RENDER_MODE_LIGHT};
       return I18N.get(labels[std::min<size_t>(draft.epubRenderMode, labels.size() - 1)]);
+    }
+    case RowId::TextAa: {
+      static const std::array<StrId, 3> labels = {StrId::STR_STATE_OFF, StrId::STR_AA_SHARP, StrId::STR_AA_SMOOTH};
+      return I18N.get(labels[std::min<size_t>(draft.textAntiAliasing, labels.size() - 1)]);
     }
     case RowId::IndexingMethod:
       switch (draft.indexingMethod) {
@@ -3127,7 +3154,6 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
 bool EpubReaderDrawerActivity::rowIsToggle(const RowId row) {
   switch (row) {
     case RowId::TrackBookStats:
-    case RowId::TextAa:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -3173,8 +3199,6 @@ bool EpubReaderDrawerActivity::rowToggleValue(const RowId row) const {
   switch (row) {
     case RowId::TrackBookStats:
       return bookStatsEnabled;
-    case RowId::TextAa:
-      return draft.textAntiAliasing;
     case RowId::Focus:
       return draft.focusReadingEnabled;
     case RowId::GuideDots:

@@ -6,6 +6,7 @@
 
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Knobs.h>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -93,9 +94,9 @@ constexpr uint8_t MIN_STATS_BYTES = static_cast<uint8_t>(GlobalReadingStats::MIN
 constexpr uint8_t MAX_STATS_BYTES = static_cast<uint8_t>(GlobalReadingStats::CURRENT_FILE_SIZE);
 constexpr uint8_t PACKET_HEADER_BYTES = 14;
 constexpr uint8_t MAX_DEVICE_NAME_BYTES = static_cast<uint8_t>(CrossPointSettings::MAX_DEVICE_NAME_LENGTH);
-constexpr uint32_t HELLO_INTERVAL_MS = 750;
-constexpr uint32_t STATS_RETRY_INTERVAL_MS = 750;
-constexpr uint32_t SYNC_TIMEOUT_MS = 12000;
+KNOB_ALIAS(HELLO_INTERVAL_MS, nearbyHelloMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(STATS_RETRY_INTERVAL_MS, nearbyRetryMs);
+KNOB_ALIAS(SYNC_TIMEOUT_MS, nearbySyncTimeoutMs);
 constexpr uint8_t BROADCAST_MAC[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 NearbyStatsSyncActivity* activeActivity = nullptr;

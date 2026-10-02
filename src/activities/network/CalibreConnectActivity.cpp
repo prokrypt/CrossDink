@@ -15,16 +15,19 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/NetworkName.h"
+#include "util/BatteryLog.h"
 
 namespace {
-constexpr const char* HOSTNAME = "crosspoint";
+constexpr const char* HOSTNAME = NET_HOSTNAME;
 }  // namespace
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
+  BatteryLog::event("xfer_start", "calibre");
 #if CROSSDINK_GOODIES
-  // Port 80 and the radio pass to this screen's own server.
-  goodies_remote::pause();
+  // Port 80 passes to this screen's own server; a link to the remote's network stays.
+  goodies_remote::pause(/*keepStation=*/true);
 #endif
   sdFontSystem.releaseLoadedFont(renderer);
 
@@ -58,6 +61,7 @@ void CalibreConnectActivity::onEnter() {
 }
 
 void CalibreConnectActivity::onExit() {
+  BatteryLog::event("xfer_end", "calibre");
   library::invalidateLibraryIndex();
   Activity::onExit();
   transferLight.end();
@@ -87,8 +91,13 @@ void CalibreConnectActivity::startWebServer() {
     LOG_DBG("CAL", "mDNS started: http://%s.local/", HOSTNAME);
   }
 
-  webServer.reset(new CrossPointWebServer());
-  webServer->begin();
+#if CROSSDINK_GOODIES
+  webServer = goodies_remote::takeServer();  // the running remote's server, no socket closed
+#endif
+  if (!webServer) {
+    webServer.reset(new CrossPointWebServer());
+    webServer->begin();
+  }
 
   if (webServer->isRunning()) {
     state = CalibreConnectState::SERVER_RUNNING;

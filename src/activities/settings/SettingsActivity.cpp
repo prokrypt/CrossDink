@@ -149,20 +149,18 @@ std::string formatCompactDuration(const uint32_t seconds) {
   return buf;
 }
 
-constexpr const char* systemVersionLabel = "CrossDink " CROSSDINK_VERSION;
-
 // Space below the settings list for the System footer: the build details line
 // plus the version on one line, or two when it has to wrap.
 int systemVersionFooterReserve(const GfxRenderer& renderer, const int pageWidth, const ThemeMetrics& metrics) {
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
-  const int versionLines = renderer.getTextWidth(SMALL_FONT_ID, systemVersionLabel) <= maxWidth ? 1 : 2;
+  const int versionLines = renderer.getTextWidth(SMALL_FONT_ID, AppVersion::versionLabel()) <= maxWidth ? 1 : 2;
   return metrics.verticalSpacing + systemVersionFooterBottomInset +
          versionLines * renderer.getLineHeight(SMALL_FONT_ID);
 }
 
 void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
                              const ThemeMetrics& metrics) {
-  const std::string label = systemVersionLabel;
+  const std::string label = AppVersion::versionLabel();
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
   const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int detailsLineY =
@@ -215,16 +213,8 @@ std::string formatSettingValue(const SettingInfo& setting) {
     formatFrontlightScheduleTime(timeOfDay, valueBuffer, sizeof(valueBuffer));
     return valueBuffer;
   }
-  if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
-    if (SETTINGS.sleepTimeoutMinutes >= CrossPointSettings::SLEEP_TIMEOUT_NEVER_MINUTES) {
-      return tr(STR_SLEEP_NEVER);
-    }
-    char valueBuffer[32];
-    snprintf(valueBuffer, sizeof(valueBuffer), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
-             static_cast<unsigned int>(SETTINGS.*(setting.valuePtr)));
-    return valueBuffer;
-  }
-  if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
+  if (setting.valuePtr == &CrossPointSettings::lineHeightPercent ||
+      setting.valuePtr == &CrossPointSettings::flashDuckDepth) {
     return std::to_string(SETTINGS.*(setting.valuePtr)) + "%";
   }
   if (setting.valuePtr == &CrossPointSettings::readingIdleTimeThresholdUnits) {
@@ -265,11 +255,6 @@ fui::BitmapRef frontlightScheduleEndpointIcon(const SettingInfo& setting) {
     return fui::bitmapFromIcon(icon_lightbulb_off_28);
   }
   return {};
-}
-
-bool isTwoFingerSwipeSetting(const uint8_t CrossPointSettings::* const valuePtr) {
-  return valuePtr == &CrossPointSettings::twoFingerSwipeUp || valuePtr == &CrossPointSettings::twoFingerSwipeDown ||
-         valuePtr == &CrossPointSettings::twoFingerSwipeLeft || valuePtr == &CrossPointSettings::twoFingerSwipeRight;
 }
 
 std::string trimAsciiSpaces(const std::string& value) {
@@ -613,10 +598,7 @@ void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {
         if (selectedSetting.valuePtr != nullptr) {
           SETTINGS.*(selectedSetting.valuePtr) =
               enumRawValueForDisplayIndex(selectedSetting, static_cast<uint8_t>(selectedIndex));
-          if (isTwoFingerSwipeSetting(selectedSetting.valuePtr)) {
-            CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, selectedSetting.valuePtr);
-          }
-          QuickActions::settingChanged(SETTINGS, selectedSetting.valuePtr);
+          applySettingChange(selectedSetting.valuePtr);
         } else if (selectedSetting.valueSetter) {
           selectedSetting.valueSetter(static_cast<uint8_t>(selectedIndex));
         }
@@ -815,7 +797,6 @@ void SettingsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   if (event.value < 0 || event.value >= static_cast<int16_t>(self->settingsCount)) return;
   if ((*self->currentSettings)[event.value].type == SettingType::SECTION_HEADER) return;
   self->selectedSettingIndex = event.value + 1;
-  if (self->isFileBrowserView()) self->showSettingSelection = false;
   // Most rows repaint a different surface (popup, sub-activity, new value);
   // a lingering tap flash would gray an unrelated element.
   self->app.clearTapFlash();
@@ -864,9 +845,7 @@ void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valueP
   // release it before requestUpdate() triggers the next repaint.
   {
     RenderLock lock(*this);
-    if (themeChanged) {
-      UITheme::getInstance().reload();
-    }
+    // applySettingChange() already reloaded the theme.
     const auto spec = uiScaleSpec();
     uiTarget.setFont(fui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
     uiTarget.setFont(fui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
@@ -893,16 +872,12 @@ void SettingsActivity::loop() {
 
   // Handle actions with early return
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    // Index 0 = nothing selected; tabs switch only by long-press Up/Down.
+    if (selectedSettingIndex == 0) return;
     showSettingSelection = true;
-    if (!isFileBrowserView() && selectedSettingIndex == 0) {
-      enterCategory((selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0);
-      hasChangedCategory = true;
-      requestUpdate();
-    } else {
-      toggleCurrentSetting();
-      requestUpdate();
-      return;
-    }
+    toggleCurrentSetting();
+    requestUpdate();
+    return;
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -966,14 +941,17 @@ void SettingsActivity::loop() {
     return;
   }
 
-  // Buttons walk the tab band (index 0) plus the rows (1..settingsCount).
+  // Up/Down wrap within the rows (1..settingsCount); they never land on the
+  // tab band (index 0). Long-press Up/Down switches tabs.
   const auto moveSelection = [this](int index, const bool forward) {
-    while (index > 0 && index <= settingsCount && (*currentSettings)[index - 1].type == SettingType::SECTION_HEADER) {
-      index = forward ? ButtonNavigator::nextIndex(index, settingsCount + 1)
-                      : ButtonNavigator::previousIndex(index, settingsCount + 1);
+    for (int guard = 0; guard < settingsCount && index > 0 && index <= settingsCount &&
+                        (*currentSettings)[index - 1].type == SettingType::SECTION_HEADER;
+         ++guard) {
+      index = forward ? (index >= settingsCount ? 1 : index + 1) : (index <= 1 ? settingsCount : index - 1);
     }
     selectedSettingIndex = index;
     showSettingSelection = true;
+    listSelectionRevealed = true;
     if (selectedSettingIndex == 0) {
       topIndex = 0;
     } else {
@@ -982,13 +960,11 @@ void SettingsActivity::loop() {
     requestUpdate();
   };
   buttonNavigator.onNextRelease([this, &moveSelection] {
-    const int next = isFileBrowserView() ? (selectedSettingIndex >= settingsCount ? 1 : selectedSettingIndex + 1)
-                                         : ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
+    const int next = selectedSettingIndex >= settingsCount ? 1 : selectedSettingIndex + 1;
     moveSelection(next, true);
   });
   buttonNavigator.onPreviousRelease([this, &moveSelection] {
-    const int previous = isFileBrowserView() ? (selectedSettingIndex <= 1 ? settingsCount : selectedSettingIndex - 1)
-                                             : ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
+    const int previous = selectedSettingIndex <= 1 ? settingsCount : selectedSettingIndex - 1;
     moveSelection(previous, false);
   });
 
@@ -1061,6 +1037,25 @@ void SettingsActivity::toggleCurrentSetting() {
   }
   if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
     openLineHeightPicker();
+    return;
+  }
+  if (setting.valuePtr == &CrossPointSettings::flashDuckDepth) {
+    startActivityForResult(
+        std::make_unique<IntervalSelectionActivity>(
+            renderer, mappedInput, "FlashDuckDepth", StrId::STR_FLASH_DUCK_DEPTH, SETTINGS.flashDuckDepth, 0,
+            CrossPointSettings::FLASH_DUCK_DEPTH_MAX, CrossPointSettings::FLASH_DUCK_DEPTH_STEP,
+            CrossPointSettings::FLASH_DUCK_DEPTH_STEP, StrId::STR_NONE_OPT, /*readerActivity=*/false,
+            /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/true,
+            StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
+            /*valueFormatter=*/nullptr, /*tapStep=*/CrossPointSettings::FLASH_DUCK_DEPTH_STEP,
+            /*useReaderSlider=*/true),
+        [this](const ActivityResult& result) {
+          if (!result.isCancelled) {
+            SETTINGS.flashDuckDepth = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+            SETTINGS.saveToFile();
+          }
+          requestUpdate();
+        });
     return;
   }
   if (setting.valuePtr == &CrossPointSettings::wordSpacing) {
@@ -1160,7 +1155,7 @@ void SettingsActivity::toggleCurrentSetting() {
                                  SETTINGS.saveToFile();
                                  // Settings only manages credentials; no parent needs the connection.
                                  // Cancelled selections already stop WiFi in the picker.
-                                 if (WiFi.getMode() == WIFI_MODE_NULL) return;
+                                 if (WiFi.getMode() == WIFI_MODE_NULL || keepWifiForRemote()) return;
                                  WiFi.disconnect(false);
                                  delay(30);
                                  if (!WiFi.mode(WIFI_OFF)) {
@@ -1247,10 +1242,7 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
-  if (isTwoFingerSwipeSetting(setting.valuePtr)) {
-    CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, setting.valuePtr);
-  }
-  QuickActions::settingChanged(SETTINGS, setting.valuePtr);
+  if (setting.valuePtr) applySettingChange(setting.valuePtr);
   SETTINGS.saveToFile();
   // Apply this while `setting` still refers to the current list; rebuilding
   // below clears its backing vector and invalidates the reference.
@@ -1285,16 +1277,21 @@ void SettingsActivity::syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChan
 void SettingsActivity::openSleepTimeoutPicker() {
   startActivityForResult(
       std::make_unique<IntervalSelectionActivity>(
-          renderer, mappedInput, "SleepTimeoutInterval", StrId::STR_TIME_TO_SLEEP, SETTINGS.sleepTimeoutMinutes,
-          CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES, CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1, 5,
-          StrId::STR_SLEEP_TIMER_VALUE_FORMAT,
+          renderer, mappedInput, "SleepTimeoutInterval", StrId::STR_TIME_TO_SLEEP, SETTINGS.sleepTimeoutStep, 0,
+          CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP, 1, 3, StrId::STR_NONE_OPT,
           /*readerActivity=*/false, /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/true,
           /*showPercentValue=*/false, StrId::STR_SLEEP_NEVER, /*overrideDisabledReaderTouchscreen=*/false,
-          /*showTouchHeaderBackButton=*/true, /*valueFormatter=*/nullptr, /*tapStep=*/0,
+          /*showTouchHeaderBackButton=*/true,
+          /*valueFormatter=*/
+          [](const int step, char* buf, const size_t len) {
+            snprintf(buf, len, "%s", I18N.get(SLEEP_TIMEOUT_STEP_LABELS[std::clamp<int>(
+                                         step, 0, CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP)]));
+          },
+          /*tapStep=*/0,
           /*useReaderSlider=*/true),
       [this](const ActivityResult& result) {
         if (!result.isCancelled) {
-          SETTINGS.sleepTimeoutMinutes = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+          SETTINGS.sleepTimeoutStep = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
           SETTINGS.saveToFile();
         }
         requestUpdate();
@@ -1411,7 +1408,8 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       row.valueId = static_cast<int16_t>(i);
       row.labelText = screen.theme().bodyText;
       row.valueText = screen.theme().bodyText;
-      row.state = showSettingSelection && selectedSettingIndex == i + 1 ? fui::StateSelected : fui::StateNormal;
+      row.state = showSettingSelection && selectedSettingIndex == i + 1 && ListSelection::shown() ? fui::StateSelected
+                                                                                                 : fui::StateNormal;
       if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
         fui::ToggleRowProps toggle;
         toggle.row = row;
@@ -1428,8 +1426,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     return;
   }
 
-  // Category tabs. The selected pill dims to a dither when the selection is
-  // down in the list (the legacy focused/unfocused tab distinction).
+  // Category tabs.
   fui::TabItem tabs[categoryCount];
   for (int i = 0; i < categoryCount; i++) {
     tabs[i].label = I18N.get(categoryNames[i]);
@@ -1454,46 +1451,15 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   const int16_t preferredTabHeight =
       mappedInput.hasTouch() ? TOUCH_TAB_BAR_HEIGHT : static_cast<int16_t>(metrics.tabBarHeight);
   const int16_t tabBand = preferredTabHeight > tabLineHeight + 10 ? preferredTabHeight : tabLineHeight + 10;
-  // Legacy Lyra two-state treatment: with the selection on the tab band, the
-  // band fills gray and the active tab is a solid pill; with the selection
-  // down in the list, the band is plain and the active tab keeps a gray box
-  // with an underline. The 1px rule under the band is always there.
+  // The 2 px band box marks tab focus; the active tab is a 3 px underline
+  // drawn from tab.selected. Every tab state resolves to plain black-on-white,
+  // so taps and flashes never highlight a tab and no inverted pill is drawn.
   const bool tabsFocused = selectedSettingIndex == 0;
   const bool borderedTabs = metrics.tabBarAppearance == ThemeTabBarAppearance::BorderedText;
-  const bool roundedRaffTabs = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::ROUNDEDRAFF;
   tabProps.divider = true;
-  fui::StyleSet tabStyles;
-  if (roundedRaffTabs) {
-    // RoundedRaff's tabs have always sat on white, with the selected pill
-    // turning dark gray after focus moves into the settings list.
-    tabStyles.explicitlySet = true;
-    tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-    tabStyles.selected.background = fui::Paint::solid(tabsFocused ? fui::Color::Black : fui::Color::DarkGray);
-    tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
-    tabStyles.selected.radius = 18;
-    tabStyles.focused = tabStyles.selected;
-    tabStyles.active = tabStyles.selected;
-    tabProps.tabStyles = tabStyles;
-  } else if (!borderedTabs) {
-    tabStyles.explicitlySet = true;
-    tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-    if (tabsFocused) {
-      tabStyles.selected.background = fui::Paint::solid(fui::Color::Black);
-      tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
-      tabStyles.selected.radius = screen.theme().listRowRadius;
-    } else {
-      tabStyles.selected.background = fui::Paint::dither(fui::Color::LightGray);
-      tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-      // Let the selected underline meet the shared bottom divider, as in the
-      // original Lyra tab bar. The default bottom inset leaves a visible gap.
-      tabProps.tabInset.bottom = 0;
-      tabProps.selectedUnderline = 2;
-    }
-    // Focus/flash states keep the pill instead of falling back to an unset
-    // (blank) style.
-    tabStyles.focused = tabStyles.selected;
-    tabStyles.active = tabStyles.selected;
-    tabProps.tabStyles = tabStyles;
+  if (!borderedTabs) {
+    tabProps.tabStyles = fui::plainStyles();
+    tabProps.selectedUnderline = 3;
   }
 #if CROSSDINK_APP_CAP_TOUCH
   if (landscapeTouch) {
@@ -1509,8 +1475,8 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       fui::TabBarProps railProps = tabProps;
       railProps.tabs = &tabs[i];
       railProps.count = 1;
-      if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
-        screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
+      if (!borderedTabs && tabsFocused) {
+        screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
       }
       drawUiTabBar(screen, railProps, tabRect, metrics.tabBarAppearance);
       tabY = static_cast<int16_t>(tabY + tabHeight);
@@ -1522,8 +1488,8 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
 #endif
   {
     const fui::Rect tabRect = screen.takeTop(tabBand);
-    if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
-      screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
+    if (!borderedTabs && tabsFocused) {
+      screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
     }
     drawUiTabBar(screen, tabProps, tabRect, metrics.tabBarAppearance);
     screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
@@ -1591,6 +1557,9 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   }
   configureUiListSectionHeaders(props, screen.theme());
   const auto rows = configureUiList(props, screen.theme(), screen.body());
+  // Index 0 already means nothing selected: no hidden row for ActivityManager
+  // to reveal, so the first Up/Down moves straight onto a row.
+  if (selectedSettingIndex == 0) ListSelection::hidThisFrame = false;
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, settingsCount);  // clamp to range
   props.topIndex = static_cast<uint16_t>(topIndex);
@@ -1622,9 +1591,8 @@ void SettingsActivity::render(RenderLock&&) {
   }
 
   const auto confirmLabel =
-      (!isFileBrowserView() && selectedSettingIndex == 0)
-          ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-          : (selectedSettingIndex > 0 &&
+      selectedSettingIndex == 0 ? ""
+                                : (selectedSettingIndex > 0 &&
                      (currentSettingUsesOptionMenu((*currentSettings)[selectedSettingIndex - 1]) ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::SUBMENU ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::ACTION ||

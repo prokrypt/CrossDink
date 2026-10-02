@@ -84,11 +84,14 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   }
   // add the user message
   {
-    int len = vsnprintf(c, sizeof(buf) - (c - buf), format, args);
+    const size_t room = sizeof(buf) - (c - buf);
+    int len = vsnprintf(c, room, format, args);
     if (len < 0) {
       va_end(args);
       return;
     }
+    // Cut off: keep the format's trailing newline so the next entry starts on its own line.
+    if (static_cast<size_t>(len) >= room) buf[sizeof(buf) - 2] = '\n';
   }
   va_end(args);
 #if defined(SIMULATOR)
@@ -99,8 +102,14 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   // otherwise be silently dropped (e.g. Sticky).
   esp_rom_printf("%s", buf);
 #else
-  if (logSerial && logSerialLock(LOG_LINE_LOCK_WAIT_MS)) {
-    logSerial.print(buf);
+  if (logSerialHostConnected() && logSerialLock(LOG_LINE_LOCK_WAIT_MS)) {
+#if LOG_SERIAL_HAS_TX_TIMEOUT
+    // A host that is attached but not reading leaves the TX ring full: skip the
+    // line rather than wait out the TX timeout on every log call. The RTC and
+    // PSRAM rings below still get it.
+    if (static_cast<size_t>(logSerial.availableForWrite()) >= strnlen(buf, sizeof(buf)))
+#endif
+      logSerial.print(buf);
     logSerialUnlock();
   }
 #endif
@@ -110,6 +119,7 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
 
 #if defined(SIMULATOR)
 void logSerialInit() {}
+bool logSerialHostConnected() { return static_cast<bool>(logSerial); }
 bool logSerialLock(uint32_t) { return true; }
 void logSerialUnlock() {}
 
@@ -127,6 +137,22 @@ bool canUseLogSerialMutex() { return xTaskGetSchedulerState() == taskSCHEDULER_R
 StaticSemaphore_t logSerialMutexStorage;
 SemaphoreHandle_t logSerialMutex = nullptr;  // null until logSerialInit()
 }  // namespace
+
+bool logSerialHostConnected() {
+  // Connects at once so boot logs aren't held back. ponytail: unlocked
+  // statics; a race between tasks can only delay a disconnect.
+  static bool connected = false;
+  static uint32_t lostAtMs = 0;  // when the raw flag went false, 0 = it is true
+  if (logSerial) {
+    connected = true;
+    lostAtMs = 0;
+  } else if (lostAtMs == 0) {
+    lostAtMs = millis() | 1;
+  } else if (millis() - lostAtMs >= 1000) {
+    connected = false;
+  }
+  return connected;
+}
 
 void logSerialInit() {
   if (logSerialMutex == nullptr) logSerialMutex = xSemaphoreCreateRecursiveMutexStatic(&logSerialMutexStorage);
@@ -147,7 +173,7 @@ bool logSerialWriteAll(const uint8_t* data, const size_t len, const uint32_t bud
   if (!guard) return false;
   // No host attached: a short stall allowance only. Not zero, because the
   // HWCDC connected flag flaps for a moment after light sleep.
-  const uint32_t stallLimitMs = logSerial ? stallMs : std::min<uint32_t>(stallMs, NO_HOST_STALL_MS);
+  const uint32_t stallLimitMs = logSerialHostConnected() ? stallMs : std::min<uint32_t>(stallMs, NO_HOST_STALL_MS);
   size_t sent = 0;
   uint32_t lastProgressMs = startMs;
   while (sent < len) {

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
+#include <iterator>
 #include <mutex>
 
 #include "ReaderFontSizeStep.h"
@@ -15,6 +16,7 @@
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
   mutable std::mutex _mutex;
+  mutable String pendingJson;  // guarded by storeMutex; empty = nothing to flush
 
   CrossPointSettings() = default;
   friend class PersistableStore<CrossPointSettings>;
@@ -40,6 +42,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, EXTEND = 2, EXTEND_MIRROR = 3, SLEEP_SCREEN_COVER_MODE_COUNT };
+  // Values 0/1 keep the old Toggle meaning (off / on = Sharp).
+  enum TEXT_AA { TEXT_AA_OFF = 0, TEXT_AA_SHARP = 1, TEXT_AA_SMOOTH = 2, TEXT_AA_COUNT };
   enum SLEEP_SCREEN_COVER_FILTER {
     NO_FILTER = 0,
     BLACK_AND_WHITE = 1,
@@ -363,6 +367,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
+  // BW: dithered 1-bit, no image gray pass. GRAY: images join the 4-level gray pass.
+  enum IMAGE_COLOR { IMAGE_COLOR_BW = 0, IMAGE_COLOR_GRAY = 1, IMAGE_COLOR_COUNT };
   enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
   enum PAGE_TURN_GESTURE {
     TAP_AND_SWIPE = 0,
@@ -579,8 +585,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t lineHeightPercent = 100;
   uint8_t wordSpacing = 0;
   uint8_t paragraphAlignment = JUSTIFIED;
-  // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
-  uint8_t sleepTimeoutMinutes = 10;
+  // Auto-sleep timeout: an index into SLEEP_TIMEOUT_STEP_MINUTES, SLEEP_TIMEOUT_NEVER_STEP = Never (default
+  // 10 min). Legacy sleepTimeoutMinutes and sleepTimeout enum values are migration-only.
+  uint8_t sleepTimeoutStep = 5;
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
@@ -615,7 +622,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
   // EPUB section indexing policy. The current chapter keeps its active build.
-  uint8_t indexingMethod = INDEXING_FULL_SECTION;
+  uint8_t indexingMethod = INDEXING_INCREMENTAL_MENTAL;
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
   // Guide Dots - places a middle dot between words to guide the eye
@@ -656,6 +663,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t readingIdleTimeThresholdUnits = 30;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  uint8_t imageColor = IMAGE_COLOR_GRAY;
   // Long-press Confirm (menu button) quick action in reader (0 = off)
   uint8_t longPressMenuAction = LONG_MENU_OFF;
   // Long-press Back quick action in reader (defaults to the historical file browser shortcut)
@@ -683,15 +691,25 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightScheduleEnabled = 0;
   uint16_t frontlightScheduleStart = 0xFFFF;
   uint16_t frontlightScheduleEnd = 0xFFFF;
+  // Idle light timeout: 1 / 2 / 5 / 10 min / Never (getFrontlightTimeoutMs).
+  uint8_t frontlightTimeout = 4;
+  // Dim the frontlight while any refresh flashes the panel (Frontlight menu).
+  uint8_t frontlightFlashDuck = 0;
+  // How far the flash duck dims: % of the current brightness, 0 = dark.
+  static constexpr uint8_t FLASH_DUCK_DEPTH_MAX = 90;
+  static constexpr uint8_t FLASH_DUCK_DEPTH_STEP = 10;
+  uint8_t flashDuckDepth = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
   uint16_t keyboardLayouts = 0;
-  // UC8179 turbo keyboard refresh (kbd-exp flags 102: balanced DU typing, no tap highlight); CMD:KBDEXP overrides it.
+  // UC8179 turbo keyboard refresh (kbd-exp flags 101: balanced DU typing, no OLD re-stream, no tap highlight); CMD:KBDEXP overrides it.
   uint8_t turboKeyboard = 1;
   // Goodies > Wi-Fi remote toggle (debug builds): rejoin in the background after every boot.
   uint8_t goodiesWifiRemote = 0;
+  // KOReader Sync > Sync on Book Exit: push progress in the background when a book closes.
+  uint8_t koSyncOnExit = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
@@ -704,9 +722,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
   static constexpr uint16_t POWER_BUTTON_WAKE_LONG_MS = POWER_BUTTON_LONG_PRESS_MS;
-  static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
-  static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
-  static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = SLEEP_TIMEOUT_NEVER_MINUTES;
+  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1, 2, 3, 4, 5, 10, 15, 20, 30, 60, 120, 240, 360, 480, 600, 720};
+  static constexpr uint8_t SLEEP_TIMEOUT_NEVER_STEP = std::size(SLEEP_TIMEOUT_STEP_MINUTES);
   static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
   static constexpr uint8_t MIN_READER_FONT_POINT_SIZE = 8;
   static constexpr uint8_t MIN_LINE_HEIGHT_PERCENT = 70;
@@ -766,9 +783,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // If count_only is true, returns the number of settings items that would be written.
   uint8_t writeSettings(HalFile& file, bool count_only = false) const;
 
+  // Deferred: snapshots the settings now (so a reader's per-book values set
+  // aside around the call stay out) and flush() writes the latest snapshot.
+  // ActivityManager flushes when a screen exits; sleep, restart and firmware
+  // flashing flush too. Always returns true; flush() logs a failed write.
   bool saveToFile() const;
+  bool flush() const;  // no-op without a pending snapshot; skips an unchanged file
   bool loadFromFile();
-  static const char* getFilePath() { return "/.crosspoint/crossink-settings.json"; }
+  static const char* getFilePath() { return "/.crosspoint/crossdink-settings.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc, bool importingCrossPoint = false);
 
@@ -784,6 +806,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static bool normalizeTwoFingerSwipeActions(CrossPointSettings& settings,
                                              uint8_t CrossPointSettings::* editedField = nullptr);
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
+  // Nearest step (a tie takes the shorter one); 31 and up was the old slider's Never.
+  static uint8_t sleepTimeoutStepForMinutes(unsigned minutes);
   static uint8_t sleepScreenStorageToMode(uint8_t storedValue);
   static uint8_t sleepScreenModeToStorage(uint8_t mode);
   static uint8_t legacyLineSpacingToPercent(uint8_t legacyValue, uint8_t fontFamily, bool sdFontSelected);
@@ -802,6 +826,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  public:
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
+  unsigned long getFrontlightTimeoutMs() const;
   int getRefreshFrequency() const;
 };
 

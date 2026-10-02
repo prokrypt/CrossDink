@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <NetworkUdp.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -94,6 +95,12 @@ class CrossPointWebServer {
   // so nothing touches the SD card or I2C behind other screens.
   void begin(bool logOnly = false);
 
+  // A running log-only STA server takes on every route (files, settings,
+  // WebSocket, discovery) without closing its socket: File Transfer and
+  // Calibre adopt the Goodies remote's server. False, still log-only or
+  // stopped, when it can't (not log-only, AP mode, task start failed).
+  bool upgradeToFull();
+
   // Stop the web server. Waits for the serving task to finish its current
   // request, so never call it from a request handler.
   void stop();
@@ -103,13 +110,16 @@ class CrossPointWebServer {
 
   // True from the first byte of a request, upload or WebSocket message until
   // TRANSFER_LINGER_MS after the last one: CPU at full clock, no light sleep,
-  // Wi-Fi modem awake. The linger keeps page loads and bursts fast.
+  // Wi-Fi modem awake. The linger keeps page loads and bursts fast. Log tail
+  // and status polls end the hold they took without lingering.
   bool isTransferActive() const { return transferActive.load(std::memory_order_relaxed); }
-  // True while a request is being served or within `tailMs` of the last
-  // request, upload chunk or WebSocket message. Unlike isTransferActive() it
-  // has no power linger, so UI feedback can stop soon after data stops.
+  // True while a request has been served for over 100 ms or within `tailMs`
+  // of the last request, upload chunk or WebSocket message. Log tail and
+  // status polls never count. Unlike isTransferActive() it has no power
+  // linger, so UI feedback can stop soon after data stops.
   bool isMovingData(unsigned long tailMs) const {
-    return requestBusy.load(std::memory_order_relaxed) ||
+    const unsigned long startMs = requestStartMs.load(std::memory_order_relaxed);
+    return (startMs != 0 && millis() - startMs >= 100) ||
            millis() - lastTransferMs.load(std::memory_order_relaxed) < tailMs;
   }
   // STA mode only. Between transfers the modem sleeps between DTIM beacons
@@ -128,36 +138,61 @@ class CrossPointWebServer {
   uint16_t getPort() const { return port; }
 
  private:
+  void registerFullRoutes();
+  void startWsAndUdp();
+  bool startServeTask(bool psramStack);
   std::unique_ptr<PendingAwareWebServer> server = nullptr;
   std::unique_ptr<BoundedCloseWebSocketsServer> wsServer = nullptr;
   std::atomic<bool> running{false};
   std::atomic<bool> exitRequestPending{false};  // set by POST /api/exit, consumed by the activity
   std::string exitFlashPath;                    // optional `flash` argument of POST /api/exit; stateMutex
   bool apMode = false;                          // true when running in AP mode, false for STA mode
+  bool logOnly_ = false;                        // begin(true): just the remote's routes
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
 
-  static constexpr unsigned long TRANSFER_LINGER_MS = 2000;
+  static KNOB_ALIAS(TRANSFER_LINGER_MS, transferLingerMs);  // Goodies > Knobs
   std::atomic<bool> transferActive{false};
   std::atomic<unsigned long> lastTransferMs{0};
-  std::atomic<bool> requestBusy{false};  // handleClient() is serving a request
+  std::atomic<unsigned long> requestStartMs{0};  // handleClient() is serving a request since; 0 = none
+  bool pollRequest = false;                      // serving task: the request is a poll
   void noteTransferActivity();
   void updateTransferIdle();
+  void endTransferHold();
+  void releasePollHold();
+  // Idle STA modem sleep: MAX_MODEM for the log-only remote (Knobs wifiMaxModem,
+  // wifiListenInterval), else MIN_MODEM.
+  void setIdleModemSleep();
+  // Idle STA: blocks until one of this server's sockets is readable or
+  // IDLE_POLL_MS passes (to notice stop requests). False on a timeout.
+  bool waitForTraffic();
+  // Serving task, logged once a minute while idle-capable ([WEB] idle 60s).
+  struct IdleStats {
+    uint32_t traffic, spurious, timeouts, holds, logWaits, logWoken;
+  };
+  mutable IdleStats idleStats{};
+  unsigned long idleStatsMs = 0;
+  void logIdleStats();
 
   // Serving task. It owns server and wsServer between begin() and stop().
   // Same stack as Arduino's loopTask, which used to run these handlers.
   static constexpr uint32_t SERVER_TASK_STACK_BYTES = 8192;
-  // Idle STA poll: a new request waits at most this long (plus a DTIM beacon).
-  static constexpr uint32_t IDLE_POLL_MS = 100;
-  static constexpr int ACTIVE_PASSES_PER_TICK = 64;
+  // Idle STA: the select() timeout that notices stop requests (traffic wakes
+  // the task at once), and the poll when no socket can be watched.
+  static KNOB_ALIAS(IDLE_POLL_MS, serverIdlePollMs);  // Goodies > Knobs, as the next
+  static KNOB_ALIAS(ACTIVE_PASSES_PER_TICK, serverActivePasses);
   TaskHandle_t serverTask = nullptr;
+  // Log-only server (Goodies remote): stack in PSRAM. None of its handlers
+  // touch the SD card, and /api/ota's flash writes run on firmware_flash's
+  // internal-stack worker. Such a task parks at exit; stop() deletes it.
+  bool serverTaskPsram = false;
   SemaphoreHandle_t serverStopped = nullptr;
   std::atomic<bool> stopRequested{false};
   static void serverTaskMain(void* param);
   void serveUntilStopped();
-  void handleClient();
+  bool handleClient();  // true when it served a request
 
   // Guards exitFlashPath and wsStatus, which the activity reads.
   SemaphoreHandle_t stateMutex = nullptr;
@@ -182,10 +217,13 @@ class CrossPointWebServer {
   void handleLogo() const;
   void handleNotFound() const;
   void handleStatus() const;
+  void handleLiteStatus() const;  // log-only server: no I2C or SD reads
 #if CROSSDINK_PSRAM_LOG
   void handlePsramLog() const;
   void handleRemoteCmd() const;
   void handleScreenshot() const;
+  void handleOtaData() const;
+  void handleOtaDone() const;
 #endif
   void handleExit();
   void handleFileList() const;
@@ -207,6 +245,7 @@ class CrossPointWebServer {
 
   // Font management handlers
   void handleFontsPage() const;
+  void handleLogsPage() const;
   void handleFontList() const;
   void handleFontUpload();
   void handleFontUploadData();

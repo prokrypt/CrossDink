@@ -1,4 +1,5 @@
 #pragma once
+#include <Memory.h>
 #include <Print.h>
 #include <expat.h>
 
@@ -21,15 +22,19 @@ enum class OpdsParserError { NONE, NO_ENTRY_BUFFER, INVALID_INPUT, PARSER_MEMORY
 /**
  * Represents an entry from an OPDS feed (either a navigation link or a book).
  */
+// Strings in PSRAM: a feed page churns hundreds of small ones.
 struct OpdsEntry {
   OpdsEntryType type = OpdsEntryType::NAVIGATION;
-  std::string title;
-  std::string author;  // Only for books
-  std::string href;    // Navigation URL or epub download URL
-  std::string id;
+  PsramString title;
+  PsramString author;  // Only for books
+  PsramString href;    // Navigation URL or epub download URL
+  PsramString id;
   // Item count advertised for a navigation entry (thr:count on its link, or a
   // "<N> books" summary); -1 when the feed does not say.
   int32_t count = -1;
+  // Book file size in bytes from the acquisition link's length attribute; -1
+  // when the feed does not say.
+  int32_t length = -1;
 };
 
 // Legacy alias for backward compatibility
@@ -137,6 +142,8 @@ class OpdsParser final : public Print {
 
   // Disable copy
   const std::string& getSearchTemplate() const { return searchTemplate; }
+  // rel="search" link without {searchTerms}: an OpenSearch description to fetch.
+  const std::string& getSearchDescriptionUrl() const { return searchDescriptionUrl; }
   const std::string& getNextPageUrl() const { return nextPageUrl; }
   const std::string& getPrevPageUrl() const { return prevPageUrl; }
   OpdsParser(const OpdsParser&) = delete;
@@ -176,19 +183,21 @@ class OpdsParser final : public Print {
   bool resetXmlParser();
 
   std::string searchTemplate;
+  std::string searchDescriptionUrl;
   std::string nextPageUrl;
   std::string prevPageUrl;
   // Helper to find attribute value
   static const char* findAttribute(const XML_Char** atts, const char* name);
-  static void assignBounded(std::string& target, const char* value, size_t maxLen);
-  static void appendBounded(std::string& target, const char* value, size_t len, size_t maxLen);
+  template <typename String>
+  static void assignBounded(String& target, const char* value, size_t maxLen);
+  static void appendBounded(PsramString& target, const char* value, size_t len, size_t maxLen);
 
   XML_Parser parser = nullptr;
   OpdsEntry* entries = nullptr;
   size_t entryCapacity = 0;
   size_t entryCount = 0;
   OpdsEntry currentEntry;
-  std::string currentText;
+  PsramString currentText;
 
   // Parser state
   bool inEntry = false;

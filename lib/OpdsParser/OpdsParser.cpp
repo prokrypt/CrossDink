@@ -41,7 +41,7 @@ int32_t parseAttributeCount(const char* text) {
 
 // "<N> <word>" summaries such as Mayberry's "12713 books"; a descriptive
 // sentence that happens to start with a number yields -1.
-int32_t parseSummaryCount(const std::string& summary) {
+int32_t parseSummaryCount(const PsramString& summary) {
   if (summary.size() > MAX_SUMMARY_COUNT_CHARS) return -1;
   const char* p = summary.c_str();
   while (isSpace(*p)) ++p;
@@ -58,6 +58,17 @@ int32_t parseSummaryCount(const std::string& summary) {
   while (isSpace(*p)) ++p;
   return *p == '\0' ? value : -1;
 }
+
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+// Expat's tag stacks and name pools are small blocks: PSRAM, like the entries.
+void* xmlMalloc(const size_t n) {
+  return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+void* xmlRealloc(void* p, const size_t n) {
+  return heap_caps_realloc_prefer(p, n, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+const XML_Memory_Handling_Suite PSRAM_XML_MEMORY = {xmlMalloc, xmlRealloc, heap_caps_free};
+#endif
 }  // namespace
 
 OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity)
@@ -150,6 +161,7 @@ void OpdsParser::clear() {
   entryCount = 0;
   truncated = false;
   searchTemplate.clear();
+  searchDescriptionUrl.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
@@ -168,7 +180,11 @@ bool OpdsParser::resetXmlParser() {
   }
 
   if (!parser) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+    parser = XML_ParserCreate_MM(nullptr, &PSRAM_XML_MEMORY, nullptr);
+#else
     parser = XML_ParserCreate(nullptr);
+#endif
     if (!parser) {
       errorOccured = true;
       errorReason = OpdsParserError::PARSER_MEMORY;
@@ -190,7 +206,8 @@ const char* OpdsParser::findAttribute(const XML_Char** atts, const char* name) {
   return nullptr;
 }
 
-void OpdsParser::assignBounded(std::string& target, const char* value, const size_t maxLen) {
+template <typename String>
+void OpdsParser::assignBounded(String& target, const char* value, const size_t maxLen) {
   if (!value) {
     target.clear();
     return;
@@ -198,7 +215,7 @@ void OpdsParser::assignBounded(std::string& target, const char* value, const siz
   target.assign(value, strnlen(value, maxLen));
 }
 
-void OpdsParser::appendBounded(std::string& target, const char* value, const size_t len, const size_t maxLen) {
+void OpdsParser::appendBounded(PsramString& target, const char* value, const size_t len, const size_t maxLen) {
   if (target.size() >= maxLen) return;
   const size_t remaining = maxLen - target.size();
   target.append(value, len < remaining ? len : remaining);
@@ -206,6 +223,16 @@ void OpdsParser::appendBounded(std::string& target, const char* value, const siz
 
 void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
   auto* self = static_cast<OpdsParser*>(userData);
+
+  // OpenSearch description document: the Atom (OPDS) result template.
+  if (strcmp(name, "Url") == 0 && self->searchTemplate.empty()) {
+    const char* tmpl = findAttribute(atts, "template");
+    const char* type = findAttribute(atts, "type");
+    if (tmpl && strstr(tmpl, "{searchTerms}") != nullptr && (!type || strstr(type, "atom") != nullptr)) {
+      assignBounded(self->searchTemplate, tmpl, MAX_SEARCH_TEMPLATE_CHARS);
+    }
+    return;
+  }
 
   if (strcmp(name, "link") == 0 || strstr(name, ":link") != nullptr) {
     const char* href = findAttribute(atts, "href");
@@ -216,6 +243,9 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
       if (rel && strcmp(rel, "search") == 0) {
         if (strstr(href, "{searchTerms}") != nullptr) {
           assignBounded(self->searchTemplate, href, MAX_SEARCH_TEMPLATE_CHARS);
+        } else {
+          // An OpenSearch description document; its <Url template> is the search.
+          assignBounded(self->searchDescriptionUrl, href, MAX_PAGE_URL_CHARS);
         }
       } else if (rel && strcmp(rel, "next") == 0 && !self->inEntry) {
         assignBounded(self->nextPageUrl, href, MAX_PAGE_URL_CHARS);
@@ -235,6 +265,7 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
           if (self->currentEntry.type != OpdsEntryType::BOOK || (isPlainEpub && !alreadyHasPlainEpub)) {
             self->currentEntry.type = OpdsEntryType::BOOK;
             assignBounded(self->currentEntry.href, href, MAX_HREF_CHARS);
+            self->currentEntry.length = parseAttributeCount(findAttribute(atts, "length"));
           }
         } else if (type && strstr(type, "application/atom+xml") != nullptr) {
           if (self->currentEntry.type != OpdsEntryType::BOOK) {
@@ -326,7 +357,7 @@ void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const 
   } else if (self->inSummary) {
     // Drop leading whitespace and collapse runs, so an indented "\n    12713 books\n  "
     // still fits the count-sized buffer while a real sentence still overflows it.
-    std::string& text = self->currentText;
+    PsramString& text = self->currentText;
     for (int i = 0; i < len && text.size() <= MAX_SUMMARY_COUNT_CHARS; ++i) {
       if (isSpace(s[i]) && (text.empty() || isSpace(text.back()))) continue;
       text.push_back(s[i]);

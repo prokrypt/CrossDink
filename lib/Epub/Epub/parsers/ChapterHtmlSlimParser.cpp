@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -53,8 +54,8 @@ constexpr uint32_t SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS = 4096;
 // observed), on top of the 44KB layout floor. 80KB keeps the prewarm for ordinary
 // chapter opens (observed surviving from 81KB free) and skips it for low-heap
 // extension starts (observed aborting the build when run from 70KB free).
-constexpr uint32_t MIN_FREE_HEAP_FOR_SECTION_PREWARM = 80 * 1024;
-constexpr uint32_t MIN_MAX_ALLOC_FOR_SECTION_PREWARM = 24 * 1024;
+KNOB_ALIAS(MIN_FREE_HEAP_FOR_SECTION_PREWARM, sectionPrewarmMinFree);  // Goodies > Knobs
+KNOB_ALIAS(MIN_MAX_ALLOC_FOR_SECTION_PREWARM, sectionPrewarmMinBlock);
 constexpr uint8_t INITIAL_PAGE_ELEMENT_RESERVE = 8;
 constexpr uint8_t INITIAL_TABLE_FRAGMENT_ROW_RESERVE = 8;
 constexpr uint32_t PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC = 1024;
@@ -69,8 +70,8 @@ constexpr size_t MAX_PENDING_FOOTNOTES_BEFORE_LAYOUT = Page::MAX_FOOTNOTES_PER_P
 // largest block, so leave that baseline to the compact row model as well.
 // Select before the first cell is captured; never build both representations
 // and retry after an OOM.
-constexpr uint32_t MIN_FREE_HEAP_FOR_RICH_TABLE = 96U * 1024U;
-constexpr uint32_t MIN_MAX_ALLOC_FOR_RICH_TABLE = 56U * 1024U;
+KNOB_ALIAS(MIN_FREE_HEAP_FOR_RICH_TABLE, richTableMinFree);  // Goodies > Knobs
+KNOB_ALIAS(MIN_MAX_ALLOC_FOR_RICH_TABLE, richTableMinBlock);
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
 static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol"};

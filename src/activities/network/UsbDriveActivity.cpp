@@ -13,9 +13,11 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
+#include "util/BatteryLog.h"
 
 void UsbDriveActivity::onEnter() {
   Activity::onEnter();
+  BatteryLog::event("xfer_start", "usb-drive");
   enterMs = millis();
   hostMs = 0;
   mountLogged = false;
@@ -30,6 +32,9 @@ void UsbDriveActivity::onEnter() {
   forcedDisconnectRequestedAt = 0;
   hostSuspendStartedAt = 0;
   ioBurst = false;
+  gateOpen = false;
+  gateWindowMs = millis();
+  gateBytes = 0;
   pollBursts = 0;
   pollSummaryAt = millis();
 
@@ -58,6 +63,7 @@ void UsbDriveActivity::onEnter() {
 }
 
 void UsbDriveActivity::onExit() {
+  BatteryLog::event("xfer_end", "usb-drive");
   transferLight.end();  // restores the user's brightness
   library::invalidateLibraryIndex();
 #ifndef SIMULATOR
@@ -72,7 +78,19 @@ void UsbDriveActivity::updateTransferLight() {
   if (restartRequested || !Storage.usbDriveIo(io)) return;
   const uint32_t now = millis();
   const bool active = io.lastIoMs != 0 && now - io.lastIoMs < IO_ACTIVE_MS;
-  transferLight.update(active);
+  const uint32_t bytes = io.readBytes + io.writeBytes;
+  if (now - gateWindowMs >= GATE_WINDOW_MS) {
+    gateWindowMs = now;
+    gateBytes = bytes;
+  }
+  if (!active) {
+    gateOpen = false;
+  } else if (!gateOpen && bytes - gateBytes >= GATE_MIN_BYTES) {
+    gateOpen = true;
+    LOG_DBG("FL", "usb gate open: %lu KB in %lu ms", static_cast<unsigned long>((bytes - gateBytes) / 1024),
+            static_cast<unsigned long>(now - gateWindowMs));
+  }
+  transferLight.update(gateOpen);
 
   if (!mountLogged && io.firstIoMs != 0 && !active && now - io.lastIoMs >= MOUNT_SETTLE_MS) {
     mountLogged = true;

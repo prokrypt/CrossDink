@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Knobs.h>
+
 #include <cmath>
 #include <cstdint>
 
@@ -9,8 +11,8 @@ class ReaderPinchGesture {
  public:
   enum class Action : uint8_t { None, Increase, Decrease };
 
-  static constexpr uint8_t MIN_DISTANCE_CHANGE_PX = 20;
-  static constexpr uint8_t SCALE_PERCENT = 110;
+  static KNOB_ALIAS(MIN_DISTANCE_CHANGE_PX, pinchMinPx);  // Goodies > Knobs
+  static KNOB_ALIAS(SCALE_PERCENT, pinchScalePct);
   // tan(12 degrees) is about 21%, so this keeps the hot touch path on integer
   // math while locking out rotation well before the SDK's 20-degree action.
   static constexpr uint8_t MAX_DIRECTION_CHANGE_TANGENT_PERCENT = 21;
@@ -85,7 +87,7 @@ class ReaderPinchGesture {
       return Action::None;
     }
 
-    constexpr uint64_t scaleSquared = static_cast<uint64_t>(SCALE_PERCENT) * SCALE_PERCENT;
+    const uint64_t scaleSquared = static_cast<uint64_t>(SCALE_PERCENT) * SCALE_PERCENT;
     constexpr uint64_t percentSquared = 100ULL * 100ULL;
 
     const uint64_t current = distanceSq;

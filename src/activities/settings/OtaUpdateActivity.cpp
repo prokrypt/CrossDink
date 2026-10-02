@@ -110,6 +110,8 @@ void OtaUpdateActivity::onExit() {
   // here with wifi still active; silent-restart to free the LWIP/mbedTLS
   // fragmentation, same as the other wifi activities.
   if (WiFi.getMode() != WIFI_MODE_NULL) {
+    // The Goodies remote's link stays when the heap allows; else restart as before.
+    if (keepWifiForRemote() && leaveNetworkInPlace()) return;
     WiFi.disconnect(false);
     delay(30);
     silentRestart();
@@ -152,7 +154,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
   } else if (state == WAITING_CONFIRMATION) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height + metrics.verticalSpacing,
-                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSDINK_VERSION).c_str());
+                      (std::string(tr(STR_CURRENT_VERSION)) + AppVersion::version()).c_str());
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height * 2 + metrics.verticalSpacing * 2,
                       (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
 

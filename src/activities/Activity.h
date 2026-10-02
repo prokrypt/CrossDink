@@ -28,6 +28,9 @@ class Activity {
 
   ActivityResultHandler resultHandler;
   ActivityResult result;
+  // Touch lists hide their selection until a nav button press on this screen
+  // (see ListSelection.h); ActivityManager sets and reads it.
+  bool listSelectionRevealed = false;
 
   // Use when a screen exits on Back press instead of Back release so the
   // parent screen does not also receive the held button's release.
@@ -61,6 +64,11 @@ class Activity {
   virtual bool preventAutoSleep() { return false; }
   // Owns the radio while on the stack (joins, scans, AP, ESP-NOW, its own server).
   virtual bool usesWifi() const { return false; }
+  // A usesWifi() screen that only makes HTTP/NTP requests on the station link
+  // (OPDS, OTA check, font download, clock sync, KOReader login): the Goodies
+  // Wi-Fi remote keeps serving beside it. Not for screens that need port 80,
+  // ESP-NOW, AP mode or scans.
+  virtual bool sharesWifiWithRemote() const { return false; }
   // Screens that mostly sit idle (file transfer and similar) switch the
   // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }
@@ -74,6 +82,10 @@ class Activity {
   // A Wi-Fi screen that is idle between transfers: the main loop may power
   // save and light-sleep between ticks even though the radio is up.
   virtual bool allowsRadioIdleSleep() { return false; }
+  // While true, deferred settings stay unwritten when a screen above closes
+  // (Goodies > Keyboard test opening the keyboard); sleep, restart and
+  // firmware flashing still write them.
+  virtual bool holdsSettingsFlush() const { return false; }
   // While true, main-loop global controls and activity replacement are
   // suspended so an exclusive storage owner cannot race the filesystem.
   virtual bool requiresExclusiveStorageLoop() const { return false; }
@@ -101,6 +113,9 @@ class Activity {
   // After a full-screen child pops, ActivityManager must redraw that source
   // activity before pushing one of these overlays again.
   virtual bool requiresFreshBackdrop() const { return false; }
+  // Popup activities drawn over the source's last frame. Opened by a tap, the
+  // source repaints first so the tapped row shows selected under the popup.
+  virtual bool drawsOverSourceFrame() const { return false; }
   // A backdrop-only render must not make a paused reader count overlay time as
   // reading time. Readers clear that transient render timestamp here.
   virtual void onBackdropRenderedForOverlay() {}

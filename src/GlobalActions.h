@@ -60,6 +60,9 @@ inline bool isPowerButtonActionAvailableOutsideReader(const CrossPointSettings::
 }
 
 void enterDeepSleep(bool fromTimeout = false);
+// Writes deferred settings (SETTINGS, knobs.json) that changed. Screen exit,
+// sleep, every restart and firmware flashing call it.
+void flushSettingsStores();
 bool handleGlobalPowerButtonAction(CrossPointSettings::SHORT_PWRBTN action,
                                    QuickLockTrigger quickLockTrigger = QuickLockTrigger::None);
 bool dispatchShortcutAction(CrossPointSettings::SHORT_PWRBTN action);

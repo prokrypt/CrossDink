@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Knobs.h>
+
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -37,6 +39,7 @@ class CrossPointWebServerActivity final : public Activity {
   bool hasInitialNetworkMode = false;
   NetworkMode initialNetworkMode = NetworkMode::JOIN_NETWORK;
   bool networkBootReady = false;
+  bool radioTaken = false;  // a mode was picked: the remote is paused, the radio is ours
   // The web portal can change these; only a restart applies them.
   uint8_t enteredUiTheme = 0;
   uint8_t enteredUiScale = 0;
@@ -58,7 +61,7 @@ class CrossPointWebServerActivity final : public Activity {
   // Sustained WiFi-loss tracking; abandon only after WIFI_ABANDON_MS.
   int consecutiveDisconnects = 0;
   unsigned long firstDisconnectAt = 0;
-  static constexpr unsigned long WIFI_ABANDON_MS = 5UL * 60UL * 1000UL;
+  static KNOB_ALIAS(WIFI_ABANDON_MS, wifiAbandonMs);  // Goodies > Knobs
 
   // Cached signal-strength bracket (0..4) for the WiFi indicator.
   int lastWifiBars = 0;
@@ -89,7 +92,8 @@ class CrossPointWebServerActivity final : public Activity {
         networkBootReady(networkBootReady) {}
   void onEnter() override;
   void onExit() override;
-  bool usesWifi() const override { return true; }
+  // Only once a mode is picked: the mode picker leaves the Wi-Fi remote running.
+  bool usesWifi() const override { return radioTaken; }
   void loop() override;
   void render(RenderLock&&) override;
   // The server runs on its own task; an idle STA-mode server lets the main

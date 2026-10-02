@@ -2,6 +2,8 @@
 
 #if CROSSDINK_GOODIES
 
+#include <Knobs.h>
+
 #include <cstdlib>
 #include <cstring>
 
@@ -88,6 +90,18 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
     op.options = {std::move(f[1]), std::move(f[2])};
     return nullptr;
   }
+  if (verb == "confirm") {
+    op.code = OpCode::Confirm;
+    auto f = fields(rest);
+    if (f.size() != 3 || f[1].empty() || f[2].empty()) return "confirm needs: question | stop | go";
+    op.text = std::move(f[0]);
+    op.options = {std::move(f[1]), std::move(f[2])};
+    return nullptr;
+  }
+  if (verb == "swing" || verb == "null") {
+    op.code = verb == "swing" ? OpCode::Swing : OpCode::Null;
+    return numbers(args, argc, 0, 1, op) && op.a[0] >= 1 && op.a[0] <= 120 ? nullptr : "swing|null 1..120";
+  }
   if (verb == "pick") {
     op.code = OpCode::Pick;
     auto f = fields(rest);
@@ -165,7 +179,9 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
   }
   if (verb == "pll") {
     op.code = OpCode::Pll;
-    return numbers(args, argc, 0, 1, op) && op.a[0] <= 0xFF ? nullptr : "pll 0x00..0xFF";
+    // An index into knobs::PLL_BYTES, never a raw 0x30 byte.
+    const bool ok = numbers(args, argc, 0, 1, op) && op.a[0] >= 0 && op.a[0] < knobs::PLL_CHOICES;
+    return ok ? nullptr : "pll 0..2 (default/40/50 Hz)";
   }
   if (verb == "window" || verb == "resync") {
     // Both can leave the OLD plane unlike the panel (a windowed upload of a
@@ -199,6 +215,25 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
 // for | what is next) and every question names what it asks about. An ask
 // leaves its band in the framebuffer, so the next step starts with `fill white`.
 const BuiltIn BUILT_INS[] = {
+    // Evens out charge left by the wrong VCOM on custom waveforms before
+    // SDK 4d1353c (user pick 17:06 9/30): null discharge, then black/white
+    // swings with a null between, all balanced per pixel, ending on white.
+    // ponytail: 7 cycles and 64/38-frame nulls from the DC-offset research;
+    // run once a day for 3-5 days.
+    {"Panel conditioning",
+     "fill white\n"
+     "label Panel conditioning | Balanced black/white swings, about 30 s, flashes a lot | Back stops between swings\n"
+     "confirm Start panel conditioning? | Cancel | Start\n"
+     "fill white\n"
+     "swing 24\n"
+     "null 64\n"
+     "repeat 7\n"
+     "fill black\n"
+     "swing 24\n"
+     "fill white\n"
+     "swing 24\n"
+     "null 38\n"
+     "end\n"},
     {"Refresh modes",
      "frames 6\n"
      "fill white\n"

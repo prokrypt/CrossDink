@@ -12,6 +12,7 @@
 
 #include "AppCapabilities.h"
 #include "CrossPointSettings.h"
+#include "ListSelection.h"
 #include "UITheme.h"
 
 namespace UiThemeTokensDetail {
@@ -62,6 +63,7 @@ inline uint16_t configureUiList(freeink::ui::ListProps& props, const freeink::ui
   // two-line height and avoid overlapping the following item.
   if (props.labelText.maxLines > 1) props.rowHeight = std::max(props.rowHeight, tokens.rowHeight);
   if (props.rowGap < 0) props.rowGap = tokens.listRowGap;
+  props.hideSelection = !ListSelection::shown();
   return freeink::ui::listVisibleRows(rect, props.rowHeight, props.rowGap);
 }
 

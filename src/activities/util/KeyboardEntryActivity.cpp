@@ -5,6 +5,7 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <Logging.h>
 #ifndef SIMULATOR
 #include <FreeInkDisplay.h>
@@ -189,32 +190,37 @@ struct KbdExpOverride {
   bool active = false;
   uint8_t flags = 0;
   uint8_t frames = 0;
-  uint8_t pll = 0;
+  uint8_t pll = 0;  // knobs::PLL_BYTES index
 };
 KbdExpOverride gKbdExpOverride;
 }  // namespace
 
 void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uint8_t frames, const uint8_t pll) {
+  if (pll >= knobs::PLL_CHOICES) {
+    LOG_ERR("KBD", "KBDEXP pll %u: not a kbdPll index (0-%d), ignored", pll, knobs::PLL_CHOICES - 1);
+    return;
+  }
   gKbdExpOverride = {true, flags, frames, pll};
 }
 
 void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 
 // EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
-// picks "102 4" (flags 102, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
-// flags: 1 = retired (T2 skip OLD resync), 2 = T3 two windows, 4 = T4 balanced DU LUT,
+// picks "101 4" (flags 101, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
+// flags: 1 = skip the OLD re-stream after DU frames, 2 = retired (T3 windowed upload), 4 = T4 balanced DU LUT,
 // 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
 // 32 = no tap highlight, 64 = plain OTP Fast first frame, 128 = light sleep during the refresh. Debug builds can
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
-  kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
-  kbdExpPll = 0;
+  kbdExpFrames = KNOBS.kbdFrames;
+  // Goodies > Knobs kbdPll picks from a whitelist only: panel default, 40 or 50 Hz.
+  kbdExpPll = knobs::PLL_BYTES[KNOBS.kbdPll];
   kbdExpFirstFrame = true;
   if (gKbdExpOverride.active) {
     kbdExpFlags = gKbdExpOverride.flags;
     if (gKbdExpOverride.frames > 0 && gKbdExpOverride.frames < 64) kbdExpFrames = gKbdExpOverride.frames;
-    kbdExpPll = gKbdExpOverride.pll;
+    kbdExpPll = knobs::PLL_BYTES[gKbdExpOverride.pll];
   }
   LOG_DBG("KBD", "KBD_EXP config flags=0x%02x frames=%u pll=0x%02x", kbdExpFlags, kbdExpFrames, kbdExpPll);
   kbdFrame = 0;
@@ -675,6 +681,9 @@ void KeyboardEntryActivity::loop() {
       highlightPending = false;
       // The tapped key keeps the highlight; only the initial preselect is hidden.
       if (tapHighlight) selectionShown = true;
+      // Turbo: the tapped key shows inverted in the refresh that prints it (no
+      // press refresh); it stays until the next key.
+      else interactions.setFlash(ACTION_KEY, result.event.value);
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestStrokeUpdate();
@@ -1191,6 +1200,14 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
+  // Turbo highlights only the last tapped key (the tap flash, drawn inverted).
+  // A key under a finger when some refresh lands stays plain, else only keys
+  // held during another key's refresh lit up while typing fast.
+  if (kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT) {
+    props.keyStyles = fui::defaultKeyStyles();
+    props.keyStyles.focused = props.keyStyles.active;
+    props.keyStyles.active = props.keyStyles.normal;
+  }
   props.selectedIndex = cursorMode || !selectionShown ? -1 : static_cast<int16_t>(selectedLogicalIndex());
   props.labelText.font = layoutId == fui::KeyboardLayoutId::ArabicAr && !symbols ? fui::GfxRendererTarget::FONT_SMALL
                                                                                  : fui::GfxRendererTarget::FONT_BODY;
@@ -1223,21 +1240,13 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   GUI.drawSideButtonHints(renderer, ">", "<");
 
 #ifndef SIMULATOR
-  // EXPERIMENT: the text area (field, cursor, tips) and the key area are the
-  // two regions a keystroke changes. The first frame uploads everything.
+  // Every frame uploads the whole NEW plane: the windowed upload (retired T3)
+  // left NEW stale outside the windows while OLD was resynced from the full
+  // framebuffer, so the next refresh could drive those pixels off true state.
   freeink::Uc8179KbdExperiment exp;
-  exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT));
+  exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT));
   exp.lutFrames = kbdExpFrames;
   exp.pll = kbdExpPll;  // also on OTP Fast: PLL scales every frame alike, so balance holds
-  if ((kbdExpFlags & KBD_EXP_TWO_WINDOW) && !kbdExpFirstFrame) {
-    const int textTop = inputStartY;
-    const Rect windows[2] = {Rect(0, textTop, pageWidth, kbRect.y - textTop),
-                             Rect(kbRect.x, kbRect.y, kbRect.width, kbRect.height)};
-    for (const Rect& r : windows) {
-      auto& w = exp.windows[exp.windowCount];
-      if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
-    }
-  }
   // The first keyboard frame lands on the previous screen: plain OTP Fast (64)
   // or a flashing Half (16).
   const bool otpOpen = kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_OTP_ON_OPEN);
@@ -1263,10 +1272,10 @@ void KeyboardEntryActivity::render(RenderLock&&) {
                                 ? static_cast<long>(timing.doneMs - prevFrameStrokeMs)
                                 : -1L;
   LOG_DBG("KBD",
-          "KBD_EXP flags=0x%02x frame=%lu cause=%s win=%u stroke_to_idle=%lu ms display=%lu ms prev_upload=%u "
+          "KBD_EXP flags=0x%02x frame=%lu cause=%s stroke_to_idle=%lu ms display=%lu ms prev_upload=%u "
           "prev_drf=%u prev_rows=%u prev_sync=%u prev_key_to_ink=%ld frames=%u pll=0x%02x",
           kbdExpFlags, static_cast<unsigned long>(++kbdFrame), stroke ? CAUSE_NAMES[cause & 3] : "redraw",
-          exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
+          stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
           static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.drfRows),
           static_cast<unsigned>(timing.syncMs), prevKeyToInk, kbdExpFrames, exp.pll);
   prevFrameStrokeMs = stroke;

@@ -32,12 +32,16 @@ bool ReaderActivity::shouldShowLoadingPopup(const std::string& path) {
   // EPUBs never need it: a cached EPUB opens in ~ms (its first page's refresh
   // is the feedback), and a first open shows the Indexing popup in loadEpub()
   // right after, so Loading would only add a blocking refresh (~615 ms on the
-  // X4 Pro) before indexing starts. Other formats keep the popup.
-  return isXtcFile(path) || isTxtFile(path) || isImagePreviewFile(path);
+  // X4 Pro) before indexing starts. Images skip it too: the image viewer shows
+  // its own Loading popup at once, so this one only doubled it. Other formats
+  // keep the popup.
+  return isXtcFile(path) || isTxtFile(path);
 }
 
 int ReaderActivity::initialRefreshCountdown() const {
-  if (!allowFastInitialRefresh) return 0;
+  // Coming from Home/Library the first page is a plain Fast transition where the
+  // panel tracks its frame; elsewhere it gets the cleanup refresh.
+  if (!allowFastInitialRefresh && !renderer.fastTracksPanel()) return 0;
 
   const int refreshFrequency = SETTINGS.getRefreshFrequency();
   return refreshFrequency > 1 ? refreshFrequency : 2;

@@ -28,6 +28,7 @@ add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}
   ${REPO_ROOT}/lib
+  ${REPO_ROOT}/lib/Knobs
   ${REPO_ROOT}/lib/MemoryBudget
 )
 target_compile_options(crosspoint_test_common INTERFACE
@@ -91,6 +92,7 @@ add_subdirectory(absolute_grayscale)
 add_subdirectory(buffered_file)
 add_subdirectory(ota_boot_switch)
 add_subdirectory(http_redirect_policy)
+add_subdirectory(remote_token_path)
 add_subdirectory(hal_file_stream)
 add_subdirectory(koreader_xpath_resolver)
 add_subdirectory(fs_helpers)

@@ -13,6 +13,7 @@
 #include <Serialization.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -38,8 +39,10 @@ void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 2;
 constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
-constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
-constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossink-settings.json.bak";
+constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossdink-settings.json";
+constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossdink-settings.json.bak";
+// CrossInk's file: imported once, never written, so flashing back to CrossInk keeps its settings.
+constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
 constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
 constexpr char LANG_FILE_BIN[] = "/.crosspoint/language.bin";
@@ -813,11 +816,19 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     }
     legacyXtcTopUsesBottom = bars["legacyXtcTopUsesBottom"].as<bool>() ? 1 : 0;
   }
-  if (doc["sleepTimeoutMinutes"].isNull() && !doc["sleepTimeout"].isNull()) {
-    const uint8_t legacyValue =
-        clamp(doc["sleepTimeout"] | static_cast<uint8_t>(SLEEP_10_MIN), SLEEP_TIMEOUT_COUNT, SLEEP_10_MIN);
-    sleepTimeoutMinutes = sleepTimeoutEnumToMinutes(legacyValue);
-    needsResave = true;
+  if (doc["sleepTimeoutStep"].isNull()) {
+    if (!doc["sleepTimeoutMinutes"].isNull()) {
+      sleepTimeoutStep = sleepTimeoutStepForMinutes(doc["sleepTimeoutMinutes"] | 10u);
+      needsResave = true;
+    } else if (!doc["sleepTimeout"].isNull()) {
+      const uint8_t legacyValue =
+          clamp(doc["sleepTimeout"] | static_cast<uint8_t>(SLEEP_10_MIN), SLEEP_TIMEOUT_COUNT, SLEEP_10_MIN);
+      sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(legacyValue));
+      needsResave = true;
+    }
+  } else if (importingCrossPoint && sleepTimeoutStep >= 6) {
+    // Imported files predate the 15 min step (index 6); shift 20 min..Never up one.
+    sleepTimeoutStep = std::min<uint8_t>(sleepTimeoutStep + 1, SLEEP_TIMEOUT_NEVER_STEP);
   }
 
   frontButtonBack =
@@ -905,7 +916,20 @@ bool CrossPointSettings::saveToFile() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   JsonDocument doc;
   toJson(doc);
-  return PersistableStoreBase::writeDocToFileAtomically(SETTINGS_FILE_JSON, doc);
+  pendingJson = "";
+  serializeJson(doc, pendingJson);
+  return true;
+}
+
+bool CrossPointSettings::flush() const {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (pendingJson.isEmpty()) return true;
+  if (!PersistableStoreBase::writeStringToFileAtomically(SETTINGS_FILE_JSON, pendingJson)) {
+    LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
+    return false;
+  }
+  pendingJson = String();
+  return true;
 }
 
 bool CrossPointSettings::loadFromFile() {
@@ -926,15 +950,17 @@ bool CrossPointSettings::loadFromFile() {
       if (result) {
         std::lock_guard<std::mutex> settingsLock(_mutex);
         if (restoreLegacyRtcDateSyncState(*this)) resave = true;
+        // Imports start on IncreMENTAL; the user's later choice sticks.
+        if (migrateToCurrentPath) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
       }
       if (result && (resave || migrateToCurrentPath)) {
-        if (saveToFile()) {
+        if (saveToFile() && flush()) {
           LOG_DBG("CPS", "%s",
-                  migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
+                  migrateToCurrentPath ? "Imported settings into crossdink-settings.json"
                                        : "Resaved settings to update format");
         } else {
           LOG_ERR("CPS", "%s",
-                  migrateToCurrentPath ? "Failed to save migrated settings to crossink-settings.json"
+                  migrateToCurrentPath ? "Failed to save imported settings to crossdink-settings.json"
                                        : "Failed to resave settings after format update");
         }
       }
@@ -955,6 +981,9 @@ bool CrossPointSettings::loadFromFile() {
     return jsonStatus == JsonLoadStatus::Loaded;
   }
 
+  jsonStatus = loadJsonSettings(CROSSINK_SETTINGS_FILE_JSON, true);
+  if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
+
   jsonStatus = loadJsonSettings(LEGACY_SETTINGS_FILE_JSON, true);
   if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
 
@@ -967,9 +996,9 @@ bool CrossPointSettings::loadFromFile() {
            statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,
            statusBarProgressBarThickness});
       migrateLanguageBinaryFile();
-      if (saveToFile()) {
+      if (saveToFile() && flush()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
-        LOG_DBG("CPS", "Migrated settings.bin to crossink-settings.json");
+        LOG_DBG("CPS", "Migrated settings.bin to crossdink-settings.json");
         return true;
       } else {
         LOG_ERR("CPS", "Failed to save migrated settings to JSON");
@@ -1001,7 +1030,8 @@ bool CrossPointSettings::migrateLanguageBinaryFile() {
   }
   Storage.rename(LANG_FILE_BIN, LANG_FILE_BAK);
   saveToFile();
-  LOG_DBG("CPS", "Migrated language.bin into crossink-settings.json");
+  flush();
+  LOG_DBG("CPS", "Migrated language.bin into crossdink-settings.json");
   return true;
 }
 
@@ -1059,7 +1089,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     uint8_t legacySleepTimeout = SLEEP_10_MIN;
     readAndValidate(inputFile, legacySleepTimeout, SLEEP_TIMEOUT_COUNT);
-    sleepTimeoutMinutes = sleepTimeoutEnumToMinutes(legacySleepTimeout);
+    sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(legacySleepTimeout));
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, refreshFrequency, REFRESH_FREQUENCY_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -1070,7 +1100,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverMode, SLEEP_SCREEN_COVER_MODE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, textAntiAliasing);
+    readAndValidate(inputFile, textAntiAliasing, TEXT_AA_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, hideBatteryPercentage, HIDE_BATTERY_PERCENTAGE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -1187,25 +1217,46 @@ float CrossPointSettings::getReaderLineCompression() const {
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {
-  if (sleepTimeoutMinutes >= SLEEP_TIMEOUT_NEVER_MINUTES) return 0UL;
-  const uint8_t minutes =
-      std::clamp(sleepTimeoutMinutes, MIN_SLEEP_TIMEOUT_MINUTES, static_cast<uint8_t>(SLEEP_TIMEOUT_NEVER_MINUTES - 1));
-  return static_cast<unsigned long>(minutes) * 60UL * 1000UL;
+  // 12 h = 43,200,000 ms, well inside 32 bits.
+  return sleepTimeoutStep < SLEEP_TIMEOUT_NEVER_STEP ? SLEEP_TIMEOUT_STEP_MINUTES[sleepTimeoutStep] * 60000UL : 0UL;
+}
+
+uint8_t CrossPointSettings::sleepTimeoutStepForMinutes(const unsigned minutes) {
+  if (minutes >= 31) return SLEEP_TIMEOUT_NEVER_STEP;
+  const auto distance = [minutes](const uint8_t step) {
+    return std::abs(static_cast<int>(SLEEP_TIMEOUT_STEP_MINUTES[step]) - static_cast<int>(minutes));
+  };
+  uint8_t best = 0;
+  for (uint8_t i = 1; i < SLEEP_TIMEOUT_NEVER_STEP; ++i) {
+    if (distance(i) < distance(best)) best = i;
+  }
+  return best;
+}
+
+unsigned long CrossPointSettings::getFrontlightTimeoutMs() const {
+  static constexpr uint8_t kMinutes[] = {1, 2, 5, 10};
+  return frontlightTimeout < std::size(kMinutes) ? kMinutes[frontlightTimeout] * 60000UL : 0UL;
 }
 
 #ifdef SIMULATOR
 bool CrossPointSettings::verifySleepTimeoutMigrationContract() {
   CrossPointSettings& settings = getInstance();
-  const uint8_t originalMinutes = settings.sleepTimeoutMinutes;
+  const uint8_t originalStep = settings.sleepTimeoutStep;
 
-  settings.sleepTimeoutMinutes = sleepTimeoutEnumToMinutes(SLEEP_5_MIN);
+  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(SLEEP_5_MIN));
   const bool migratedValueDrivesTimeout = settings.getSleepTimeoutMs() == 5UL * 60UL * 1000UL;
 
-  settings.sleepTimeoutMinutes = 12;
-  const bool runtimeUsesMinutesOnly = settings.getSleepTimeoutMs() == 12UL * 60UL * 1000UL;
+  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(25);  // between 20 and 30: the shorter
+  const bool oldMinutesTakeNearestStep = settings.getSleepTimeoutMs() == 20UL * 60UL * 1000UL &&
+                                         sleepTimeoutStepForMinutes(15) == 6;
 
-  settings.sleepTimeoutMinutes = originalMinutes;
-  return migratedValueDrivesTimeout && runtimeUsesMinutesOnly;
+  settings.sleepTimeoutStep = SLEEP_TIMEOUT_NEVER_STEP - 1;
+  const bool longestIsTwelveHours = settings.getSleepTimeoutMs() == 12UL * 60UL * 60UL * 1000UL;
+
+  const bool oldNeverStaysNever = sleepTimeoutStepForMinutes(31) == SLEEP_TIMEOUT_NEVER_STEP;
+
+  settings.sleepTimeoutStep = originalStep;
+  return migratedValueDrivesTimeout && oldMinutesTakeNearestStep && longestIsTwelveHours && oldNeverStaysNever;
 }
 
 bool CrossPointSettings::verifySleepScreenMigrationContract() {

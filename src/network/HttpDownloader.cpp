@@ -1,6 +1,7 @@
 #include "HttpDownloader.h"
 
 #include <Arduino.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
@@ -12,6 +13,7 @@
 #include <esp_http_client.h>
 #include <strings.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -24,17 +26,25 @@
 #include "network/HttpRedirectPolicy.h"
 #include "network/SdWriteBehind.h"
 #include "network/WifiPowerSaveGuard.h"
+#include "util/UrlUtils.h"
 
 namespace {
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr uint32_t PROGRESS_UPDATE_MS = 250;
 constexpr int HTTP_RX_BUF = 4096;
 constexpr int HTTP_TX_BUF = 1024;
-constexpr int HTTP_TIMEOUT_MS = 60000;
-constexpr int HTTP_READ_POLL_TIMEOUT_MS = 5000;
-constexpr uint32_t DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
+KNOB_ALIAS(HTTP_TIMEOUT_MS, httpTimeoutMs);  // Goodies > Knobs, as the two below
+KNOB_ALIAS(HTTP_READ_POLL_TIMEOUT_MS, httpReadPollMs);
+KNOB_ALIAS(DOWNLOAD_IDLE_TIMEOUT_MS, downloadIdleMs);
 constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr uint8_t MAX_REDIRECTS = 5;
+
+// For logs: masked userinfo, and no query string (it can hold a signed download token).
+std::string logUrl(const std::string& url) {
+  std::string out = UrlUtils::maskUserInfo(url);
+  out.resize(std::min(out.find('?'), out.size()));
+  return out;
+}
 
 void logNetworkState(const char* phase) {
   LOG_DBG("HTTP", "%s: heap free=%u maxAlloc=%u wifi=%d rssi=%d", phase, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
@@ -114,13 +124,19 @@ struct Sink {
   uint32_t maxWriteMs = 0;           // slowest SD write (downloadToFile)
   uint32_t stallTimeoutMs = 0;       // DownloadOptions::stallTimeoutMs
   bool stalled = false;              // the body stopped for stallTimeoutMs
+  bool headOnly = false;             // DownloadOptions::headOnly
+  uint32_t firstByteTimeoutMs = 0;   // DownloadOptions::firstByteTimeoutMs
+  uint32_t startMs = 0;              // millis() when runGet started
 };
 
 // wolfSSL path abort poll: a user cancel, or a body that stopped arriving.
 bool shouldAbortTransfer(Sink& sink) {
   if (isCancelRequested(sink.cancelFlag, sink.shouldCancel)) return true;
-  if (sink.stallTimeoutMs == 0 || sink.lastDataMs == 0) return false;
-  if (millis() - sink.lastDataMs < sink.stallTimeoutMs) return false;
+  if (sink.lastDataMs == 0) {
+    if (sink.firstByteTimeoutMs == 0 || millis() - sink.startMs < sink.firstByteTimeoutMs) return false;
+  } else if (sink.stallTimeoutMs == 0 || millis() - sink.lastDataMs < sink.stallTimeoutMs) {
+    return false;
+  }
   sink.stalled = true;
   return true;
 }
@@ -138,7 +154,7 @@ bool shouldAbortTransfer(Sink& sink) {
 
 void setRequestHeaders(esp_http_client_handle_t client, const std::string& username, const std::string& password,
                        size_t resumeOffset, bool sendAuthorization) {
-  esp_http_client_set_header(client, "User-Agent", "CrossDink-ESP32-" CROSSDINK_VERSION);
+  esp_http_client_set_header(client, "User-Agent", AppVersion::userAgent());
   esp_http_client_set_header(client, "Connection", "close");
   if (resumeOffset > 0) {
     char rangeHeader[40];
@@ -189,12 +205,12 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
     if (!http.begin(currentUrl)) {
-      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", logUrl(currentUrl).c_str());
       return HttpDownloader::HTTP_ERROR;
     }
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
     // exactly one header while retaining CrossDink's device/version identity.
-    http.setUserAgent("CrossDink-ESP32-" CROSSDINK_VERSION);
+    http.setUserAgent(AppVersion::userAgent());
     if (sink.resumeOffset > 0) {
       char rangeHeader[40];
       snprintf(rangeHeader, sizeof(rangeHeader), "bytes=%zu-", sink.resumeOffset);
@@ -211,8 +227,10 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     }
 
     // "shared": a following request to the same host logs no new TLS handshake.
-    LOG_DBG("HTTP", "wolfSSL GET%s: %s", sharedHttp ? " (shared)" : "", currentUrl.c_str());
-    const int status = http.GET(
+    const char* method = sink.headOnly ? "HEAD" : "GET";
+    LOG_DBG("HTTP", "wolfSSL %s%s: %s", method, sharedHttp ? " (shared)" : "", logUrl(currentUrl).c_str());
+    const int status = http.sendRequest(
+        method, nullptr, 0,
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
           const int responseStatus = http.getStatus();
           const bool isResumeResponse = sink.resumeOffset > 0 && responseStatus == 206;
@@ -270,7 +288,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
     if (status < 0) {
-      LOG_ERR("HTTP", "wolfSSL request failed: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL request failed: %s", logUrl(currentUrl).c_str());
       if (sink.downloaded > 0) logStallDiagnostics("Request failed", sink);
       logNetworkState("wolfSSL request failure");
       return HttpDownloader::HTTP_ERROR;
@@ -290,11 +308,11 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", redirect.host.c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::maskUserInfo(redirect.host).c_str());
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", redirect.host.c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::maskUserInfo(redirect.host).c_str());
       continue;
     }
 
@@ -391,12 +409,12 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
         return HttpDownloader::HTTP_ERROR;
       }
       if (currentParsed && !HttpRedirectPolicy::isAllowedRedirect(currentOrigin, redirect)) {
-        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", redirect.host.c_str());
+        LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", UrlUtils::maskUserInfo(redirect.host).c_str());
         esp_http_client_cleanup(client);
         return HttpDownloader::HTTP_ERROR;
       }
       currentUrl = redirectUrl;
-      LOG_DBG("HTTP", "Redirecting to: %s", redirect.host.c_str());
+      LOG_DBG("HTTP", "Redirecting to: %s", UrlUtils::maskUserInfo(redirect.host).c_str());
       esp_http_client_cleanup(client);
       continue;
     }
@@ -531,6 +549,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
                                      const HttpDownloader::Transport transport,
                                      freeink::SecureHttpClient* const sharedHttp = nullptr) {
   const unsigned long startedMs = millis();
+  sink.startMs = startedMs;
   const size_t startBytes = sink.downloaded;
   const auto result =
       runGetTransport(url, username, password, authorizationOrigin, sink, bufferSize, transport, sharedHttp);
@@ -584,6 +603,9 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   sink.write = onData;
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);
+  sink.headOnly = options.headOnly;
+  sink.firstByteTimeoutMs = options.firstByteTimeoutMs;
+  sink.stallTimeoutMs = options.stallTimeoutMs;
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
   return runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport,
                 options.connection);

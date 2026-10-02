@@ -139,7 +139,9 @@ void IntervalSelectionActivity::formatValue(char* const buf, const size_t len) c
 
 #if CROSSDINK_APP_CAP_TOUCH
 void IntervalSelectionActivity::formatEndpoint(const int endpoint, char* const buf, const size_t len) const {
-  if (maxBoundaryLabelId != StrId::STR_NONE_OPT && endpoint == maxValue) {
+  if (valueFormatter != nullptr) {
+    valueFormatter(endpoint, buf, len);
+  } else if (maxBoundaryLabelId != StrId::STR_NONE_OPT && endpoint == maxValue) {
     snprintf(buf, len, "%s", I18N.get(maxBoundaryLabelId));
   } else if (showPercentValue) {
     snprintf(buf, len, "%d%%", endpoint);
@@ -498,7 +500,7 @@ void IntervalSelectionActivity::render(RenderLock&&) {
     uiReady = true;
 
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-    TouchHeaderBackButton::draw(renderer, header, I18N.get(titleId), readerActivity);
+    TouchHeaderBackButton::draw(renderer, header, titleText ? titleText : I18N.get(titleId), readerActivity);
     const auto actions = touchActionLayout(touchScreen);
     const char* labels[] = {tr(STR_CONFIRM), tr(STR_CANCEL)};
     TouchActionButtons::draw(renderer, actions, labels, 0, -1, UI_10_FONT_ID);
@@ -515,9 +517,9 @@ void IntervalSelectionActivity::render(RenderLock&&) {
   header.x = safe.x;
   header.width = safe.width;
   if (showTouchHeaderBackButton && mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, I18N.get(titleId), readerActivity);
+    TouchHeaderBackButton::draw(renderer, header, titleText ? titleText : I18N.get(titleId), readerActivity);
   } else {
-    GUI.drawHeader(renderer, header, I18N.get(titleId), nullptr, readerActivity);
+    GUI.drawHeader(renderer, header, titleText ? titleText : I18N.get(titleId), nullptr, readerActivity);
   }
 
   char formattedValue[32] = {};

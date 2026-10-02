@@ -39,6 +39,8 @@ int XtcReaderChapterSelectionActivity::findChapterIndexForPage(const uint32_t pa
 
 void XtcReaderChapterSelectionActivity::onEnter() {
   Activity::onEnter();
+  // Like Home, keep the current chapter selected on touch: it is the "you are here" marker.
+  listSelectionRevealed = true;
   mappedInput.setReaderTouchscreenOverride(true);
   if (!xtc) return;
 

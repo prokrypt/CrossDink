@@ -1,6 +1,7 @@
 #pragma once
 #include <FreeInkUIGfxRenderer.h>
 #include <GfxRenderer.h>
+#include <Knobs.h>
 
 #include <atomic>
 #include <cstdint>
@@ -45,8 +46,10 @@ class KeyboardEntryActivity : public Activity {
   bool passwordVisible = false;
 
   // EXPERIMENT (test/kbd-uc8179): UC8179 keyboard refresh toggles.
-  // 1 was T2 (skip the OLD-plane resync); retired, the SDK always resyncs.
-  static constexpr uint8_t KBD_EXP_TWO_WINDOW = 2;
+  // Skip the ~27 ms OLD-plane re-stream after DU frames: the controller copies
+  // NEW to OLD itself (CDI N2OCP, confirmed by the Goodies N2OCP probe).
+  static constexpr uint8_t KBD_EXP_SKIP_RESYNC = 1;
+  // 2 was T3 (windowed NEW upload); retired, every frame uploads the whole plane.
   static constexpr uint8_t KBD_EXP_DU_LUT = 4;
   static constexpr uint8_t KBD_EXP_HALF_ON_CLOSE = 8;
   static constexpr uint8_t KBD_EXP_HALF_ON_OPEN = 16;
@@ -57,15 +60,15 @@ class KeyboardEntryActivity : public Activity {
   static constexpr uint8_t KBD_EXP_OTP_ON_OPEN = 64;
   // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
   static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
-  // Settings > Turbo keyboard: 2 (windowed upload), DU typing
-  // (4; the SDK's DU LUT is charge-balanced, two phases), no tap highlight (32),
-  // OTP Fast first frame (64); the screen below redraws with OTP Fast on exit.
-  // CMD:KBDEXP 66 = the previous OTP Fast typing with highlight.
+  // Settings > Turbo keyboard: full-frame DU typing (4; the SDK's DU LUT is
+  // charge-balanced, two phases) with no OLD re-stream (1), no tap highlight
+  // (32), OTP Fast first frame (64); the screen below redraws with OTP Fast on
+  // exit. CMD:KBDEXP 100 = the same with the re-stream.
   static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
-      KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
-  // DU frames per phase (two phases). Untested on hardware; the old one-way
-  // LUT needed 6 single-phase frames.
-  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 4;
+      KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
+  // DU frames per phase (two phases). User 10/1 on 88859a0: 6 = acceptable gray
+  // and ghosting (4 ghosts, 5 dirtied before the VCOM fix).
+  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
   uint8_t kbdExpFlags = 0;
   uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
   uint8_t kbdExpPll = 0;
@@ -78,14 +81,14 @@ class KeyboardEntryActivity : public Activity {
   unsigned long prevFrameStrokeMs = 0;  // stroke behind the previous frame; 0 = none
   // Touch-down highlight is held back briefly: a quick tap releases first, and
   // its activation frame is then the keystroke's only refresh.
-  static constexpr uint16_t TOUCH_HIGHLIGHT_DELAY_MS = 120;
+  static KNOB_ALIAS(TOUCH_HIGHLIGHT_DELAY_MS, kbdHighlightDelayMs);  // Goodies > Knobs
   bool highlightPending = false;
   unsigned long highlightDueMs = 0;
   void loadKbdExperiment();
 
  public:
   // Debug builds (serial CMD:KBDEXP): overrides the Turbo keyboard preset at
-  // the next keyboard open, so the trial bits (64, 128) and a PLL value stay
+  // the next keyboard open, so the trial bits (64, 128) and a PLL choice stay
   // reachable without a file. Held in RAM until cleared or reboot.
   static void setExperimentOverride(uint8_t flags, uint8_t frames, uint8_t pll);
   static void clearExperimentOverride();
@@ -184,10 +187,10 @@ class KeyboardEntryActivity : public Activity {
 
   freeink::ui::Rect keyboardRect() const;
 
-  static constexpr uint16_t LONG_PRESS_MS = 500;
-  static constexpr uint16_t DEL_LONG_PRESS_MS = 1500;
-  static constexpr uint16_t TOUCH_LONG_PRESS_MS = 350;
-  static constexpr uint16_t TOUCH_DEL_LONG_PRESS_MS = 900;
+  static KNOB_ALIAS(LONG_PRESS_MS, kbdHoldMs);  // Goodies > Knobs, as the three below
+  static KNOB_ALIAS(DEL_LONG_PRESS_MS, kbdDelHoldMs);
+  static KNOB_ALIAS(TOUCH_LONG_PRESS_MS, kbdTouchHoldMs);
+  static KNOB_ALIAS(TOUCH_DEL_LONG_PRESS_MS, kbdTouchDelHoldMs);
 
   // App-specific key id: toggles the URL snippet panel (URL fields only).
   static constexpr int16_t URL_PANEL_KEY = -3;

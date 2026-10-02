@@ -20,7 +20,7 @@ enum class OpCode : uint8_t {
   Invert,    //
   Refresh,   // a0: Mode
   Frames,    // a0: DU frames (1..63)
-  Pll,       // a0: PLL byte during DU refreshes, 0 = default
+  Pll,       // a0: knobs::PLL_BYTES index during DU refreshes, 0 = default
   Scrub,     // a0: 0 = Half, 1 = DU (before the next Fast/DU refresh)
   Wait,      // a0: ms
   Repeat,    // a0: count, a1: index of the matching End
@@ -30,6 +30,9 @@ enum class OpCode : uint8_t {
   Label,     // text drawn in a white band at the top
   DrawText,  // a0 a1: x y; text
   Pick,      // a0..a5: grid x y cellW cellH cols rows; text = question; options = one name per cell
+  Confirm,   // as Ask; the first answer stops the test
+  Swing,     // a0: frames; balanced DU swing of every pixel to the framebuffer (UC8179 Half-as-scrub)
+  Null,      // a0: frames per phase; sources at GND, VCOM at VCOM_DC (UC8179 null discharge)
 };
 
 enum class Mode : uint8_t { Full, Half, Fast, Du };

@@ -1,0 +1,53 @@
+<div class="card" id="bat" hidden>
+      <div class="hd">
+        <h2>Battery</h2>
+        <button id="rz" class="btn ghost" hidden>Reset zoom</button>
+        <label class="meta" for="range">Range</label>
+        <select id="range">
+          <option value="21600">6h</option>
+          <option value="86400" selected>24h</option>
+          <option value="259200">3 days</option>
+          <option value="604800">7 days</option>
+          <option value="0">All</option>
+        </select>
+      </div>
+      <div id="hero" class="hero"></div>
+      <p id="readout" class="ro"></p>
+      <div class="ch"><span class="t1">Charge %</span><span class="t2"> and voltage mV</span><svg id="gp"></svg></div>
+      <p class="meta">
+        <span class="key awake"></span>awake <span class="key charging"></span>charging <span class="key wifi"></span>Wi-Fi <span class="key xfer"></span>transfer <span class="key fw"></span>firmware update
+        <span class="key off"></span>off / lost power
+        <span class="key ln c-boot"></span>cold boot <span class="key ln c-rst"></span>restart
+      </p>
+      <div class="ch"><span>Temperature &deg;C</span><svg id="gt"></svg></div>
+      <h3>Summary</h3>
+      <div class="tw"><table id="sum"></table></div>
+      <h3>Drain by state <small>on battery, whole log</small></h3>
+      <div class="tw"><table id="states"></table></div>
+      <h3>Discharge sessions</h3>
+      <div class="tw"><table id="dis"></table></div>
+      <h3>Charge sessions</h3>
+      <div class="tw"><table id="chg"></table></div>
+    </div>
+
+    <div class="card" id="lg">
+      <div class="hd">
+        <h2>Logs</h2>
+        <button id="all" class="btn ghost">Download all (.zip)</button>
+      </div>
+      <div class="row">
+        <div class="grp">
+          <select id="src" aria-label="Log source"><option value="">Loading...</option></select>
+          <a id="dl" class="btn ghost" download title="Download the selected source">Download</a>
+        </div>
+        <div class="grp">
+          <input id="q" type="search" placeholder="Search lines" aria-label="Search lines" />
+        </div>
+        <div class="grp">
+          <button id="fm" class="btn ghost" title="Smaller text" aria-label="Smaller text">A−</button>
+          <button id="fp" class="btn ghost" title="Larger text" aria-label="Larger text">A+</button>
+        </div>
+      </div>
+      <p id="meta" class="meta"></p>
+      <pre id="out"></pre>
+    </div>

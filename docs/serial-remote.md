@@ -24,8 +24,12 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:STATUS` | `OK:STATUS {json}` | Activity, uptime, render idle, framebuffer size, heap, chip temperature. The full status is `/api/status` over Wi-Fi. |
 | `CMD:ACTIVITY` | `OK:ACTIVITY <name>` | |
 | `CMD:HEAP` | `OK:HEAP internal_free=.. internal_min=.. internal_largest=.. psram_free=.. psram_largest=..` | |
+| `CMD:GAUGEINT [seconds]` | `OK:GAUGEINT started 30s (+5s baseline); result in the log as [SER] GAUGEINT done` | X4 Pro: finds the CW2017 INT_N pin. Counts falling edges by interrupt on the unused GPIOs (15-17, 45-48) for a 5 s baseline, then for `seconds` (default 30, 5-600) with every gauge alert forced on (temperature above TEMP_MAX and below TEMP_MIN, SoC alert on any 1% change), clearing the flags each second. Runs on its own task; the log line `GAUGEINT done ... flags=0x.. edges(base/armed): pin:n/n` gives the result (the INT pin has edges only while armed). Restores the gauge registers and pads. |
+| `CMD:PINMON [on\|off\|status]` | `OK:PINMON on 15:<level>/<changes>/<wakes> ... chatter=0x..` | X4 Pro: passive monitor of the unused GPIOs (15-17, 45-48). Off at every boot and never saved; `on`/`off` (or Goodies > Pin monitor, which shows level, changes and wakes per pin) switch it in RAM. Inputs only (pull-up; pull-down on strapping pins 45/46), and light-sleep wake sources. Logs `[PIN] PINMON <pin> rise\|fall t=<ms>` per change (`PINMON wake pin <pin> ...` when it ended a light sleep) and `PINMON 1m changes <pin>:<n> ... chatter=0x..` each minute. A pin with more than 20 changes in a minute is released until reboot (`PINMON <pin> chatter, disabled`; chatter bit = its index in the list). `GAUGEINT` needs `PINMON off` first. |
 | `CMD:SET <key> <value>` | `OK:SET <key> <value>` | Toggle, enum (raw value) or numeric setting by its web API key; saved to SD. |
-| `CMD:KBDEXP <flags> [frames] [pll]` / `CMD:KBDEXP off` | `OK:KBDEXP ...` | Sets or clears a keyboard refresh override in RAM (no SD write); applied at the next keyboard open, kept until `off` or reboot. `pll` (0x30 value) applies with or without flag 4. |
+| `CMD:SET get <key>` / `list [from]` | `OK:SET <key> <value> ...` | Reads a setting as `SET` takes it, plus `min= max= step=` (numbers) or `values=` (enums). `list` pages `key=value` pairs from index `from` (`next=N` while more remain). Strings are quoted; only device name, folders and the KOReader server URL (user:pass masked) are readable, other strings read `"****"`. |
+| `CMD:KBDEXP <flags> [frames] [pll]` / `CMD:KBDEXP off` | `OK:KBDEXP ...` | Sets or clears a keyboard refresh override in RAM (no SD write); applied at the next keyboard open, kept until `off` or reboot. `pll` is a `kbdPll` index (0 = panel default, 1 = 40 Hz, 2 = 50 Hz; anything else is refused) and applies with or without flag 4. |
+| `CMD:KNOB list [from]` / `get <id>` / `set <id> <value>` / `reset [<id>]` | `OK:KNOB ...` | Goodies > Knobs ([goodies.md](goodies.md)). `list` pages `id=value` pairs from index `from` (`next=N` while more remain); `get` adds default, min, max, step and unit; `set` clamps and snaps to the step, applies at once and saves `knobs.json`; `reset` without an id resets all and deletes the file. |
 | `CMD:REFRESH [fast\|half\|full]` | `OK:REFRESH` | Re-sends the current framebuffer. |
 | `CMD:HOME` | `OK:HOME` | |
 | `CMD:OPEN <path>` | `OK:OPEN` | Opens a book in the reader. |
@@ -39,7 +43,10 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 
 The same commands (without `CMD:`) also run over Wi-Fi, on Goodies > Wi-Fi remote and in File Transfer.
 The endpoint is off until `/debug/remote-token` exists on the SD card (one line, up to 64 characters;
-a bad or missing token gets `403 ERR:token`). The command runs on the main loop and the reply line is
+a bad or missing token gets `403 ERR:token`). A 6-digit PIN is enough: 5 bad tokens from one IP lock that IP out
+(`429 ERR:locked`, every token endpoint) for 60 s, doubling per lockout up to 64 min, until a good token or a
+reboot. Other IPs are not affected. With no token file, opening Goodies makes a random 6-digit PIN and writes it there. Goodies > API token: tap shows
+the PIN or token for 10 s, a second tap offers a new PIN (old one stops working, lockouts cleared). The command runs on the main loop and the reply line is
 the response body: 200 for `OK:`, 400 for `ERR:`, 404 unknown command, 503 busy or no reply within 12 s.
 `PSRAMLOG` stays serial-only (use `GET /api/psram-log`). `SCREENSHOT` over Wi-Fi returns the image
 (below) instead of a reply line.
@@ -52,16 +59,41 @@ the response body: 200 for `OK:`, 400 for `ERR:`, 404 unknown command, 503 busy 
 Transfer serves `/api/cmd` itself once it is on the network.
 
 `GET` or `POST /api/screenshot` (token as for `/api/cmd`) returns the framebuffer as a binary PBM (P4, 1 = black)
-in the panel's native orientation, the same frame as `TOUCH` coordinates. It is copied on the main task under the
+in the panel's native orientation, the same frame as `TOUCH` coordinates. While the last gray pass is still on the
+panel (no B/W refresh since), it returns a PGM instead (P5, maxval 255, 4 levels: 0 black, 85 dark gray, 170 light
+gray, 255 white; `Content-Type: image/x-portable-graymap`). Check the first two bytes (`P4`/`P5`). The levels are
+the ones sent to the panel, not a read-back of the ink. It is copied on the main task under the
 render lock, so it is never half-drawn; it shows what was last drawn, even if the panel refresh is still running.
 
 ```sh
-openssl rand -hex 16 > remote-token        # copy to the SD card as /debug/remote-token
+# remote-token: the PIN from Goodies > API token (tap to show), one line
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=KBDEXP 15 6" http://10.0.1.67/api/cmd
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=GOTO settings" http://10.0.1.67/api/cmd
-curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pbm http://10.0.1.67/api/screenshot
-convert screen.pbm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
+curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pnm http://10.0.1.67/api/screenshot
+convert screen.pnm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
 ```
+
+## Wi-Fi: POST /api/ota
+
+Flashes a firmware image with no File Transfer and no on-device confirm, on Goodies > Wi-Fi remote or File
+Transfer. Same token as `/api/cmd`, sent as a header; it is checked before anything is erased.
+
+```sh
+curl -s --data-binary @firmware.bin -H "Content-Type: application/octet-stream" \
+  -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/ota
+```
+
+The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
+table, checksum, SHA-256 and board tag, as SD Card Firmware Update does. Only a verified image switches the boot
+slot; OTA rollback still applies on the next boot.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| 200 | `OK:OTA rebooting` | Verified and selected; the device restarts from the main loop about 0.2 s later. |
+| 403 | `ERR:token` | Missing or wrong `X-Token`, or no `/debug/remote-token`; nothing written. |
+| 400 | `ERR:OTA:<reason>` | `TOO_SMALL`, `TOO_LARGE`, `BAD_MAGIC`, `BAD_CHIP`, `WRONG_BOARD`, `BAD_SIZE`, `BAD_CHECKSUM`, `BAD_SHA`, `ERASE_FAIL`, `WRITE_FAIL`, `OTADATA_FAIL`, `READ_FAIL` (connection dropped), `OOM`. The running firmware stays selected. |
+
+Needs `Content-Length` (curl sends it). Each 64 KiB flash erase pauses the screen briefly during the upload.
 
 ## Wi-Fi: live log tail
 

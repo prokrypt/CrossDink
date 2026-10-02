@@ -287,7 +287,9 @@ void begin() {
 void checkPanic() {
   if (isRebootFromPanic()) {
     auto panicInfo = getPanicInfo(true);
-    auto file = Storage.open("/crash_report.txt", O_WRITE | O_CREAT | O_TRUNC);
+    // Under /debug with the other logs; an older /crash_report.txt stays as it was.
+    Storage.ensureDirectoryExists("/debug");
+    auto file = Storage.open("/debug/crash_report.txt", O_WRITE | O_CREAT | O_TRUNC);
     if (file) {
       const size_t written = file.write(panicInfo.c_str(), panicInfo.size());
       file.close();
@@ -328,7 +330,8 @@ std::string getPanicInfo(bool full) {
   } else {
     std::string info;
 
-    info += "CrossDink version: " CROSSDINK_VERSION;
+    info += "CrossDink version: ";
+    info += AppVersion::version();
     info += "\nCrossDink device type: " CROSSDINK_FIRMWARE_DEVICE_TYPE;
     char elfSha[65] = {};
     esp_app_get_elf_sha256(elfSha, sizeof(elfSha));

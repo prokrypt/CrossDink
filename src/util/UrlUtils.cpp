@@ -1,5 +1,6 @@
 #include "UrlUtils.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace UrlUtils {
@@ -91,6 +92,18 @@ std::string buildUrl(const std::string& serverUrl, const std::string& path) {
     return encodeUnsafeUrlChars(base + path);
   }
   return encodeUnsafeUrlChars(base + "/" + path);
+}
+
+std::string maskUserInfo(const std::string& url) {
+  const size_t scheme = url.find("://");
+  const size_t start = scheme == std::string::npos ? 0 : scheme + 3;
+  const size_t end = std::min(url.find_first_of("/?#", start), url.size());
+  if (end <= start) return url;
+  const size_t at = url.rfind('@', end - 1);  // the authority's last '@' ends the userinfo
+  if (at == std::string::npos || at < start) return url;
+  const size_t colon = url.find(':', start);
+  const char* mask = colon < at ? "****:****@" : "****@";
+  return url.substr(0, start) + mask + url.substr(at + 1);
 }
 
 }  // namespace UrlUtils
