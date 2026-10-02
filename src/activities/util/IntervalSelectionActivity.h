@@ -64,6 +64,7 @@ class IntervalSelectionActivity final : public Activity {
   int tapStep;
   bool useReaderSlider;
   bool draggingBar = false;
+  int barY = 140;  // set by render() from the header height; loop() hit-tests against it
   ButtonNavigator buttonNavigator;
 
 #if CROSSDINK_APP_CAP_TOUCH
