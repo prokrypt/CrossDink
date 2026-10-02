@@ -52,8 +52,12 @@ static constexpr uint8_t GLOBAL_STATS_VERSION_V2 = 2;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V2 = 17;
 static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStats::CURRENT_FILE_SIZE);
 static_assert(GLOBAL_STATS_FILE_SIZE <= two_slot::MAX_PAYLOAD_BYTES, "stats slot exceeds two_slot buffers");
-static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
-static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
+// CrossDink's two slots. Older firmware keeps reading global_stats.bin (a bare
+// payload it understands), which is only read here until the first save.
+static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats_dink.bin";
+static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats_dink.bin.bak";
+static constexpr char LEGACY_STATS_PATH[] = "/.crosspoint/global_stats.bin";
+static constexpr char LEGACY_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
 static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
 static bool s_blockDestructiveSave = false;
 
@@ -207,6 +211,14 @@ std::string localSyncedStatsFileName() {
   return name;
 }
 
+// The newest stats `accept` takes: CrossDink's slots, else the legacy pair.
+size_t readNewest(bool (*accept)(const uint8_t*, size_t), uint8_t* out) {
+  const size_t size =
+      two_slot::read("GSTATS", GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_FILE_SIZE, accept, out);
+  if (size != 0) return size;
+  return two_slot::read("GSTATS", LEGACY_STATS_PATH, LEGACY_STATS_BAK_PATH, GLOBAL_STATS_FILE_SIZE, accept, out);
+}
+
 bool saveToFile(const GlobalReadingStats& stats) {
   uint8_t data[GLOBAL_STATS_FILE_SIZE];
   serializeStats(stats, data);
@@ -219,8 +231,7 @@ GlobalReadingStats GlobalReadingStats::load() {
   if (const GlobalReadingStats* held = ReaderExitSave::global()) return *held;  // newer than the file
   GlobalReadingStats stats;
   uint8_t data[two_slot::MAX_PAYLOAD_BYTES];
-  const size_t size =
-      two_slot::read("GSTATS", GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_FILE_SIZE, isLoadable, data);
+  const size_t size = readNewest(isLoadable, data);
   if (size == 0) {
     LOG_DBG("GSTATS", "Global stats missing or corrupt, starting fresh");
     return stats;
@@ -237,8 +248,7 @@ GlobalReadingStats GlobalReadingStats::load() {
 
 size_t GlobalReadingStats::readLocalFile(std::array<uint8_t, CURRENT_FILE_SIZE>& out) {
   uint8_t data[two_slot::MAX_PAYLOAD_BYTES];
-  const size_t size = two_slot::read("GSTATS", GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_FILE_SIZE,
-                                     isCurrentOrOlder, data);
+  const size_t size = readNewest(isCurrentOrOlder, data);
   memcpy(out.data(), data, size);  // isCurrentOrOlder caps size at CURRENT_FILE_SIZE
   return size;
 }
@@ -310,8 +320,8 @@ void GlobalReadingStats::save() const {
 }
 
 bool GlobalReadingStats::resetLocal() {
-  // Both slots go first, so neither can bring the old stats back.
-  for (const char* path : {GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_PATH}) {
+  // Every copy goes first, so none can bring the old stats back.
+  for (const char* path : {GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_PATH, LEGACY_STATS_BAK_PATH, LEGACY_STATS_PATH}) {
     if (Storage.exists(path) && !Storage.remove(path)) {
       LOG_ERR("GSTATS", "Could not remove %s for reset", path);
       return false;

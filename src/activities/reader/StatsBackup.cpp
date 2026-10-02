@@ -16,7 +16,6 @@
 
 namespace {
 constexpr char LOG_TAG[] = "SBACK";
-constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
 constexpr char BACKUP_DIR[] = "/.crossink-stats-backup";
 constexpr int DEFAULT_BACKUP_KEEP_COUNT = 7;
 
@@ -105,7 +104,7 @@ bool chooseBackupName(const bool manual, char* out, const size_t outLen) {
 bool readStatsFile(std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE>& buffer, size_t& outSize) {
   outSize = GlobalReadingStats::readLocalFile(buffer);
   if (outSize < GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE) {
-    LOG_ERR(LOG_TAG, "No readable stats to back up: %s", GLOBAL_STATS_PATH);
+    LOG_ERR(LOG_TAG, "No readable global stats to back up");
     return false;
   }
   return true;

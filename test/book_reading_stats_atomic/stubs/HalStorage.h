@@ -52,6 +52,10 @@ class HalFile : public Print {
     return true;
   }
   size_t fileSize() const { return data_ ? data_->bytes.size() : 0; }
+  // Directory listing is not modelled: synced-stats scans see an empty folder.
+  bool isDirectory() const { return false; }
+  HalFile openNextFile() { return {}; }
+  size_t getName(char*, size_t) const { return 0; }
   explicit operator bool() const { return static_cast<bool>(data_); }
 
  private:
@@ -104,7 +108,7 @@ class HalStorage {
   }
 
   // In-place open (O_RDWR | O_CREAT): keeps existing bytes.
-  HalFile open(const char* path, int) {
+  HalFile open(const char* path, int = 0) {
     auto& data = files_[path];
     if (!data) data = std::make_shared<HostFileData>();
     return HalFile(data);
