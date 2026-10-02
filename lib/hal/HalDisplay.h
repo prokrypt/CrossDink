@@ -33,6 +33,7 @@ class HalDisplay {
   // use it as the previous frame and make the first paint Fast. Call after
   // begin(). False when the panel driver cannot use it.
   bool seedDisplayedFrame(const uint8_t* frame);
+  bool grayOnPanel() const { return einkDisplay.grayOnPanel(); }
 
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
@@ -129,6 +130,12 @@ class HalDisplay {
   void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows);
   // Firmware policy for the reader's extra white-image refresh.
   bool shouldSkipImageBlanking() const;
+  // UC8179 Smooth text AA (short balanced gray nudge); other panels ignore it.
+  void setSmoothGray(bool smooth);
+  // UC8179: Fast diffs against the true on-screen frame (and the driver runs its
+  // clean waveform itself when that frame is unknown), so a screen change needs
+  // no separate cleanup refresh.
+  bool fastTracksPanel() const;
   bool supportsStripGrayscale() const;
 
   // Runtime geometry passthrough

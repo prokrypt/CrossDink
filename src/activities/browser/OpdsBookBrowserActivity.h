@@ -35,7 +35,6 @@ class OpdsBookBrowserActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   // Progress repaints come every few seconds: booster off between them.
-  bool powerOffPanelWhenIdle() const override { return state == BrowserState::DOWNLOADING; }
 
  private:
   // FreeInkUI app runtime for the browsing screen: owns the interaction table,

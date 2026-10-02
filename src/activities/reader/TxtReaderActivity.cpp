@@ -151,6 +151,7 @@ void TxtReaderActivity::onEnter() {
 }
 
 void TxtReaderActivity::onExit() {
+  renderer.setSmoothGray(false);
   mappedInput.setReaderTouchscreenOverride(false);
   Activity::onExit();
   if (auto* fontCache = renderer.getFontCacheManager()) {
@@ -890,6 +891,8 @@ void TxtReaderActivity::renderPage() {
   renderLines();
   renderStatusBar();
 
+  renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !smoothFullSwingPending);
+  smoothFullSwingPending = false;
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   if (SETTINGS.textAntiAliasing) {

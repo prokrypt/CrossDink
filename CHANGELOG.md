@@ -1,6 +1,8 @@
 ## [Unreleased]
 
 ### Added
+- X4 Pro (debug builds): Goodies > Display test > Panel conditioning. After a confirm, about 30 s of balanced black/white swings with null discharges in between, ending on white, to even out charge left on the panel. Back stops it between swings.
+- X4 Pro: Text Anti-Aliasing has three choices: Off, Sharpflash (one full-screen flash per anti-aliased page, the previous behavior) and Softfast (no full-screen flash on text pages: the page shows in black and white first, then only its light-gray edge pixels turn gray, for bolder text; slower; image pages, the first page after opening a book and the first page after a menu refresh like Sharpflash). The in-reader menu offers the same three choices. Other devices treat Softfast like Sharpflash.
 - Debug builds (X4 Pro): a Goodies entry on Home. Its Display test menu runs built-in refresh tests (modes, ghosting, DU frames, windowed upload, scrubs) and any line-script tests placed in `/debug/display/` on the SD card, logs each refresh's timings, and can ask a Yes/No style question and log the answer. Format: `docs/goodies.md`.
 - Debug builds (X4 Pro): Goodies > Wi-Fi remote joins a saved Wi-Fi network and keeps it up in the background, serving the PSRAM log (`/api/psram-log`) from any screen without opening File Transfer. The row shows the device's address; tap again to turn Wi-Fi off. File Transfer and Calibre Connect take the radio over when opened. The toggle is saved, so the remote reconnects in the background after every wake and restart; turning it on joins the saved network without opening the Wi-Fi screen.
 - The top status bar shows a Wi-Fi symbol left of the battery percentage while Wi-Fi is connected; the screen repaints once when the connection comes or goes, or when the battery percentage changes (not in the reader).
@@ -46,6 +48,8 @@
 
 ### Changed
 - Wi-Fi: after a web request the device drops back to low power 0.5 s later instead of 2 s, and log tail and status polls (`/api/psram-log`, `/api/status`) drop it as soon as they are answered, so a log watcher no longer keeps the device awake. Uploads still run at full power until they finish.
+- X4 Pro: less flashing. Leaving a gray page, or opening a menu over it, repaints only the gray pixels and what changed instead of the whole screen.
+- X4 Pro: opening a book, a new chapter's first page, and returning to Home after Wi-Fi, OPDS, font download or update screens use a plain fast refresh instead of a full flash (about 0.9 s faster each).
 - X4 Pro: pages with gray (anti-aliased text, gray images) now use the full balanced gray waveform instead of the stock quick gray pass, which pushed the panel one way on every gray page. Each gray page now flashes once and takes about 1 s longer.
 - Turbo keyboard (X4 Pro): typing redraws only the letters that change, with a charge-balanced quick refresh (no one-way drive, pixels that stay the same are not driven), and tapped keys are no longer highlighted. The screen below redraws with the normal refresh when the keyboard closes.
 - X4 Pro: the cleanup refresh (Half) no longer re-drives every white pixel black-to-white each time; it runs only the real changes from the previous screen.
@@ -53,6 +57,7 @@
 - X4 Pro: leaving a grayscale sleep image uses a charge-balanced drive for the first black-and-white screen.
 - OPDS (X4 Pro, Sticky): up to 64 catalog pages stay in memory for Back and Previous (was 24), and background page preloads no longer use the internal RAM that reading and leaving Wi-Fi without a restart need.
 - Turbo keyboard (X4 Pro): the screen's previous-frame memory is always refreshed after each key, so later cleanup refreshes never re-drive settled pixels.
+- Turbo keyboard (X4 Pro): each key sends the whole screen to the panel instead of only the text and key areas, so the panel's image memory always matches the screen.
 - X4 Pro: the reader's automatic cleanups no longer flash (Refresh Screen still does a full refresh). Opening a book, returning to it, the page after an image, and the regular ghost cleanup use a ~0.3 s no-flash scrub instead of the 1.5 s flashing refresh, and closing a menu over an image page skips the cleanup. Image pages also finish their anti-aliasing sooner, and a menu opened during an image cleanup shows ~0.6 s sooner.
 - X4 Pro: closing the Turbo keyboard cleans the screen with the same no-flash scrub.
 - X4 Pro: an OPDS book download switches the panel's power booster off after each progress update, like the transfer screens; interactive screens keep it on so input stays fast.
@@ -135,6 +140,13 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: every reboot (update, restart into Wi-Fi or the reader, remote reboot) now switches the screen's power off first, instead of leaving it powered until the reset.
+- X4 Pro (Softfast): black pixels that stay the same across page turns (the status bar, overlapping text) get a short balanced re-drive at the end of each turn, so they no longer fade; a turn right after a skipped gray pass draws its text as dark as a regular turn; register waveforms run at the panel's own voltages and VCOM; balanced repaints run longer on a cold panel.
+- X4 Pro (Sharpflash, and Softfast's first page after opening a book or closing a menu): the anti-aliased page draws in one flash, instead of showing black-and-white text, flashing, then the gray. It also appears sooner.
+- X4 Pro (Softfast): the reader's top and bottom panels and other menus opened over an anti-aliased page draw their black text with a longer balanced repaint (about 0.5 s more when opening them).
+- X4 Pro: Softfast no longer lets the page get dirtier over time: every Refresh Frequency pages it runs one full gray refresh (one flash) that redraws every pixel.
+- X4 Pro: menus and the reader drawer opened over an anti-aliased page no longer show their text slightly gray (and no longer darken step by step on repeated taps). Leaving a gray page takes about 0.5 s longer.
+- X4 Pro: the OPDS download page, Calibre upload progress and Nearby send/receive progress keep the screen powered while the progress updates. Switching the screen off between updates left heavy ghosting on a large OPDS download.
 - OPDS: Back (button or the top-left Back button) now cancels a catalog page that is still loading and returns to the previous list, instead of being ignored until the request finishes or times out after 60 s. A kept-alive connection idle more than 4 s is reopened instead of reused, so a page opened after a pause no longer hangs on a socket the server dropped.
 - Debug builds: after a task-watchdog reset, the SD crash report names the task each core was running.
 - X4 Pro: after a crash during start-up, a later restart no longer uses an out-of-date copy of the screen as its starting point, which could re-drive pixels that were already set.

@@ -28,6 +28,7 @@ class TxtReaderActivity final : public Activity {
   bool longPressBackHandled = false;
   bool longPressMenuHandled = false;
   bool skipRecentBookUpdateOnEntry = false;
+  bool smoothFullSwingPending = true;  // Softfast: full swing on open / after a covering screen
   ReaderProgressSaveDebouncer progressSaveDebouncer;
 #if CROSSDINK_APP_CAP_TOUCH
   ReaderPinchGesture pinchFontGesture;
@@ -92,6 +93,11 @@ class TxtReaderActivity final : public Activity {
         skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
   void onEnter() override;
   void onExit() override;
+  // Softfast swings fully on open and after a covering screen (see EpubReaderActivity).
+  void onCovered() override {
+    smoothFullSwingPending = true;
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH);  // see EpubReaderActivity
+  }
   void loop() override;
   void render(RenderLock&&) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;

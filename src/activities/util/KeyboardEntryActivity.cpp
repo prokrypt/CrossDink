@@ -201,8 +201,8 @@ void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uin
 void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 
 // EXPERIMENT (test/kbd-uc8179): Settings > System > Device > Turbo keyboard
-// picks "102 4" (flags 102, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
-// flags: 1 = retired (T2 skip OLD resync), 2 = T3 two windows, 4 = T4 balanced DU LUT,
+// picks "100 4" (flags 100, 4+4 balanced DU frames) or 0 (T1 baseline, timing only).
+// flags: 1 = retired (T2 skip OLD resync), 2 = retired (T3 windowed upload), 4 = T4 balanced DU LUT,
 // 8 = T5 half refresh on close, 16 = T6 half refresh on open (clean start),
 // 32 = no tap highlight, 64 = plain OTP Fast first frame, 128 = light sleep during the refresh. Debug builds can
 // override all three values over serial (CMD:KBDEXP).
@@ -1223,21 +1223,13 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   GUI.drawSideButtonHints(renderer, ">", "<");
 
 #ifndef SIMULATOR
-  // EXPERIMENT: the text area (field, cursor, tips) and the key area are the
-  // two regions a keystroke changes. The first frame uploads everything.
+  // Every frame uploads the whole NEW plane: the windowed upload (retired T3)
+  // left NEW stale outside the windows while OLD was resynced from the full
+  // framebuffer, so the next refresh could drive those pixels off true state.
   freeink::Uc8179KbdExperiment exp;
-  exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_TWO_WINDOW | KBD_EXP_DU_LUT));
+  exp.flags = static_cast<uint8_t>(kbdExpFlags & KBD_EXP_DU_LUT);
   exp.lutFrames = kbdExpFrames;
   exp.pll = kbdExpPll;  // also on OTP Fast: PLL scales every frame alike, so balance holds
-  if ((kbdExpFlags & KBD_EXP_TWO_WINDOW) && !kbdExpFirstFrame) {
-    const int textTop = inputStartY;
-    const Rect windows[2] = {Rect(0, textTop, pageWidth, kbRect.y - textTop),
-                             Rect(kbRect.x, kbRect.y, kbRect.width, kbRect.height)};
-    for (const Rect& r : windows) {
-      auto& w = exp.windows[exp.windowCount];
-      if (renderer.toFrameBufferRect(r.x, r.y, r.width, r.height, w.x, w.y, w.w, w.h)) exp.windowCount++;
-    }
-  }
   // The first keyboard frame lands on the previous screen: plain OTP Fast (64)
   // or a flashing Half (16).
   const bool otpOpen = kbdExpFirstFrame && (kbdExpFlags & KBD_EXP_OTP_ON_OPEN);
@@ -1263,10 +1255,10 @@ void KeyboardEntryActivity::render(RenderLock&&) {
                                 ? static_cast<long>(timing.doneMs - prevFrameStrokeMs)
                                 : -1L;
   LOG_DBG("KBD",
-          "KBD_EXP flags=0x%02x frame=%lu cause=%s win=%u stroke_to_idle=%lu ms display=%lu ms prev_upload=%u "
+          "KBD_EXP flags=0x%02x frame=%lu cause=%s stroke_to_idle=%lu ms display=%lu ms prev_upload=%u "
           "prev_drf=%u prev_rows=%u prev_sync=%u prev_key_to_ink=%ld frames=%u pll=0x%02x",
           kbdExpFlags, static_cast<unsigned long>(++kbdFrame), stroke ? CAUSE_NAMES[cause & 3] : "redraw",
-          exp.windowCount, stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
+          stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
           static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.drfRows),
           static_cast<unsigned>(timing.syncMs), prevKeyToInk, kbdExpFrames, exp.pll);
   prevFrameStrokeMs = stroke;

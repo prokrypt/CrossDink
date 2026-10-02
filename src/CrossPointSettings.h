@@ -40,6 +40,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, EXTEND = 2, EXTEND_MIRROR = 3, SLEEP_SCREEN_COVER_MODE_COUNT };
+  // Values 0/1 keep the old Toggle meaning (off / on = Sharp).
+  enum TEXT_AA { TEXT_AA_OFF = 0, TEXT_AA_SHARP = 1, TEXT_AA_SMOOTH = 2, TEXT_AA_COUNT };
   enum SLEEP_SCREEN_COVER_FILTER {
     NO_FILTER = 0,
     BLACK_AND_WHITE = 1,
@@ -688,7 +690,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
   uint16_t keyboardLayouts = 0;
-  // UC8179 turbo keyboard refresh (kbd-exp flags 102: balanced DU typing, no tap highlight); CMD:KBDEXP overrides it.
+  // UC8179 turbo keyboard refresh (kbd-exp flags 100: balanced DU typing, no tap highlight); CMD:KBDEXP overrides it.
   uint8_t turboKeyboard = 1;
   // Goodies > Wi-Fi remote toggle (debug builds): rejoin in the background after every boot.
   uint8_t goodiesWifiRemote = 0;

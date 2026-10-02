@@ -28,6 +28,7 @@
 #ifndef SIMULATOR
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
+#include <esp_system.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -64,6 +65,7 @@
 #endif
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
@@ -359,7 +361,14 @@ static void retainPanelFrame() {
   const uint8_t* frame = display.getFrameBuffer();
   const size_t size = display.getBufferSize();
   // Inverted frames are flipped in place only while they are sent.
-  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0) return;
+  // Direct gray on the panel: the B/W framebuffer is not its state, and a Fast
+  // first paint on that OLD plane would drive the gray pixels one way.
+  if (!frame || size == 0 || size > RetainedPanelFrame::CAPACITY || SETTINGS.screenInverted != 0 ||
+      display.grayOnPanel()) {
+    esp_cache_msync(&retainedPanelFrame, sizeof(retainedPanelFrame.magic),
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    return;
+  }
   memcpy(retainedPanelFrame.bytes, frame, size);
   retainedPanelFrame.size = static_cast<uint32_t>(size);
   retainedPanelFrame.crc = uzlib_crc32(retainedPanelFrame.bytes, static_cast<unsigned int>(size), 0);
@@ -377,6 +386,9 @@ static bool retainedPanelFramePresent() { return retainedPanelFrame.magic == Ret
 // as the OLD plane, and the first Fast paint would re-drive pixels one way.
 static void discardRetainedPanelFrame() { retainedPanelFrame.magic = 0; }
 
+// True once this boot loaded the retained frame as the panel's OLD plane.
+static bool retainedPanelFrameSeeded = false;
+
 static void seedRetainedPanelFrame() {
   const bool present = retainedPanelFrame.magic == RetainedPanelFrame::MAGIC;
   retainedPanelFrame.magic = 0;
@@ -392,13 +404,37 @@ static void seedRetainedPanelFrame() {
     return;
   }
   const bool seeded = display.seedDisplayedFrame(retainedPanelFrame.bytes);
+  retainedPanelFrameSeeded = seeded;
   LOG_INF("MAIN", "Retained panel frame %s; first paint %s", seeded ? "loaded" : "unused", seeded ? "fast" : "full");
 }
 #else
 static void retainPanelFrame() {}
 static bool retainedPanelFramePresent() { return false; }
+static constexpr bool retainedPanelFrameSeeded = false;
 static void discardRetainedPanelFrame() {}
 static void seedRetainedPanelFrame() {}
+#endif
+
+#ifndef SIMULATOR
+// Every esp_restart() (silent restart, OTA, SD update, remote REBOOT) runs this:
+// it waits out any refresh, then powers the panel off (POF + deep sleep) so the
+// booster is not left on until the reset. The retained frame was already
+// copied by the caller; begin() resets the controller after the reboot.
+// The render lock keeps the render task from refreshing meanwhile; a caller
+// that already holds it (render task) is the only one that could refresh.
+static void powerOffPanelOnRestart() {
+  // ponytail: 3 s covers the longest refresh (sleep cover ~2.7 s) and stays
+  // under the 5 s task watchdog; a longer hold leaves the panel on.
+  constexpr unsigned long RENDER_LOCK_WAIT_MS = 3000;
+  const bool ownLock = RenderLock::heldByCaller();
+  RenderLock lock(ownLock ? 0UL : RENDER_LOCK_WAIT_MS);
+  if (!ownLock && !lock.ownsLock()) {
+    LOG_ERR("MAIN", "Render busy at restart; panel left powered");
+    return;
+  }
+  display.deepSleep();
+  LOG_INF("MAIN", "Panel powered off before restart");
+}
 #endif
 
 void restartKeepingPanelFrame() {
@@ -1460,6 +1496,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
+  esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
   if (seamless) {
     seedRetainedPanelFrame();
   } else {
@@ -1879,7 +1916,11 @@ void setup() {
     // openEpubPath + lastSleepFromReader from a prior session.
     // X4's HALF refresh is the same single-pass clean transition already used
     // by network screens. Keep X3's existing full refresh behavior unchanged.
-    const auto homeRefreshMode = gpio.deviceIsX3() ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
+    // A seeded retained frame is the panel's true OLD plane, so Home is a plain
+    // Fast transition from the exited screen (no flash).
+    const auto homeRefreshMode = gpio.deviceIsX3()          ? HalDisplay::FULL_REFRESH
+                                 : retainedPanelFrameSeeded ? HalDisplay::FAST_REFRESH
+                                                            : HalDisplay::HALF_REFRESH;
     // File Transfer exit with a firmware to flash (POST /api/exit?flash=...):
     // open the update flow directly instead of over a live Home, whose
     // background Library walk would otherwise keep competing for the SD card
