@@ -70,6 +70,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- The automatic reading-stats backup (on by default) is written once a day, at the first sleep of the day, instead of being refreshed at every sleep after reading. It lags the live stats by up to a day; a manual backup still writes a fresh copy at once.
 - X4 Pro (debug builds): the battery log no longer writes to the SD card shortly after a wake from sleep; that session's rows are written with the sleep flush (or the low-battery or 3/4-full flush). After a restart or crash it still writes the rows left in the buffer soon after boot. A power loss while awake now loses that session's rows.
 - Saving `state.json`, Wi-Fi credentials, the remote token and `koreader.json` overwrites the file instead of deleting and recreating it, one SD card directory change fewer per save.
 - Waking into a book no longer writes `state.json` to the SD card (2-3 writes per wake before): the reader's crash guard (which sends the next boot to Home after a book crashes while opening) is kept in RTC memory, and a save that changes nothing is skipped from the first boot on.
