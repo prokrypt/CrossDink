@@ -18,10 +18,11 @@ using namespace library;
 std::vector<std::string> preservedCacheClears;
 bool preserveCacheState = true;
 
-bool clearBookCachePreservingUserState(const std::string& path) {
+bool clearBookCachePreservingUserState(const std::string& path, bool) {
   preservedCacheClears.push_back(path);
   return preserveCacheState;
 }
+void carryEpubReadingState(const std::string&, uint64_t) {}
 
 namespace {
 

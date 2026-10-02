@@ -122,6 +122,8 @@ class Epub {
   // Folder named by the book's content key (see Epub.cpp), so it survives a
   // move or rename. Reads the file's last 16 KB the first time per path.
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
+  // The content key itself; false when the file cannot be read.
+  static bool contentKeyFor(const std::string& filepath, uint64_t& out);
   // Drops remembered content keys; call after a book file is replaced.
   static void forgetCacheKeys();
   // Resolve the cache path and copy an older path-keyed /.crosspoint cache in

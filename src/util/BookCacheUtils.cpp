@@ -2,6 +2,7 @@
 
 #include <Epub.h>
 #include <FsHelpers.h>
+#include <LibraryIndexFile.h>
 #include <Logging.h>
 #include <Txt.h>
 #include <Xtc.h>
@@ -431,8 +432,53 @@ bool isBookCacheDirectoryName(const char* name) {
 
 void clearBookCache(const std::string& path) { clearBookCachePreservingUserState(path); }
 
-bool clearBookCachePreservingUserState(const std::string& path) {
+void carryEpubReadingState(const std::string& path, const uint64_t oldKey) {
+  uint64_t newKey = 0;
+  if (!FsHelpers::hasEpubExtension(path) || !Epub::contentKeyFor(path, newKey) || newKey == oldKey) return;
+  const std::string newDir = "/.crossdink/epub_" + std::to_string(newKey);
+  if (Storage.exists((newDir + "/progress.bin").c_str())) return;
+  uint64_t indexedKey = oldKey;
+  if (indexedKey == 0 && (!library::LibraryIndexFile::indexedContentKey(path, indexedKey) || indexedKey == newKey))
+    return;
+  const std::string oldDir = "/.crossdink/epub_" + std::to_string(indexedKey);
+  FsFile dir = Storage.open(oldDir.c_str());
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return;
+  }
+  Storage.mkdir(newDir.c_str());
+  char name[96];
+  uint8_t buf[256];
+  for (FsFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    const size_t nameLen = entry.getName(name, sizeof(name));
+    entry.close();
+    if (isDirectory || nameLen == 0 || nameLen >= sizeof(name) ||
+        !(strcmp(name, "progress.bin") == 0 || strcmp(name, "progress.bin.bak") == 0 || isStatsFileName(name)))
+      continue;
+    // Copied, not moved: the old cache may still belong to an identical copy elsewhere.
+    const std::string src = oldDir + "/" + name;
+    const std::string dst = newDir + "/" + name;
+    FsFile in;
+    FsFile out;
+    bool ok = Storage.openFileForRead("BookCache", src.c_str(), in) &&
+              Storage.openFileForWrite("BookCache", dst.c_str(), out);
+    for (int n; ok && (n = in.read(buf, sizeof(buf))) != 0;) ok = n > 0 && out.write(buf, n) == static_cast<size_t>(n);
+    in.close();
+    ok = ok && out.sync();
+    out.close();
+    if (!ok) {
+      Storage.remove(dst.c_str());
+      LOG_ERR("BookCache", "Failed to carry %s to the replaced book's cache %s", name, newDir.c_str());
+    }
+  }
+  dir.close();
+  LOG_INF("BookCache", "Carried progress and stats: %s -> %s", oldDir.c_str(), newDir.c_str());
+}
+
+bool clearBookCachePreservingUserState(const std::string& path, const bool carryFromIndexedKey) {
   Epub::forgetCacheKeys();  // the file may have been replaced
+  if (carryFromIndexedKey) carryEpubReadingState(path, 0);
   size_t preservedCount = 0;
   const PreservedCacheFile* preservedFiles = preservedFilesForPath(path, preservedCount);
   if (!preservedFiles || preservedCount == 0) {

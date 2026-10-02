@@ -373,9 +373,10 @@ void LibraryActivity::applyFilter() {
           filteredCount = 0;
           break;
         }
-        // ponytail: reads each EPUB's last 16 KB for its content key; store the
-        // key in library.idx if this filter gets slow on big libraries.
-        cachePath = Epub::cachePathForFilePath(path, "/.crossdink");
+        // The index holds the content key; reading the book is the fallback.
+        uint64_t key = 0;
+        cachePath = index.readContentKey(record, key) && key != 0 ? "/.crossdink/epub_" + std::to_string(key)
+                                                                  : Epub::cachePathForFilePath(path, "/.crossdink");
         if (!Storage.exists(cachePath.c_str())) {
           // Not opened since /.crossdink: read the path-keyed /.crosspoint
           // stats so finished books hide without opening each one first.

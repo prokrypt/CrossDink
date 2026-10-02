@@ -620,6 +620,8 @@ std::string Epub::cachePathForFilePath(const std::string& filepath, const std::s
   return cacheDir + "/epub_" + std::to_string(key);
 }
 
+bool Epub::contentKeyFor(const std::string& filepath, uint64_t& out) { return contentKey(filepath, out); }
+
 void Epub::forgetCacheKeys() {
   std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
   std::fill(std::begin(cacheKeyMemo), std::end(cacheKeyMemo), CacheKeyMemo{});

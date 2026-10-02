@@ -96,4 +96,28 @@ TEST_F(BookCacheUtilsTest, FailedBookToggleKeepsPreviousChoice) {
   EXPECT_FALSE(BookStatsTracking::isEnabled(cachePath));
 }
 
+TEST_F(BookCacheUtilsTest, ReplacedBookCarriesOnlyProgressAndStats) {
+  const std::string oldDir = "/.crossdink/epub_42";
+  fake::add(oldDir + "/progress.bin", "old progress");
+  fake::add(oldDir + "/stats_v5.bin", "old stats");
+  fake::add(oldDir + "/reader_settings.bin", "old settings");
+  fake::add(oldDir + "/book.bin", "old derived");
+  uint64_t newKey = 0;
+  ASSERT_TRUE(Epub::contentKeyFor("/b.epub", newKey));
+  const std::string newDir = "/.crossdink/epub_" + std::to_string(newKey);
+
+  carryEpubReadingState("/b.epub", 42);
+
+  EXPECT_TRUE(Storage.exists((newDir + "/progress.bin").c_str()));
+  EXPECT_TRUE(Storage.exists((newDir + "/stats_v5.bin").c_str()));
+  EXPECT_FALSE(Storage.exists((newDir + "/reader_settings.bin").c_str()));
+  EXPECT_FALSE(Storage.exists((newDir + "/book.bin").c_str()));
+  EXPECT_TRUE(Storage.exists((oldDir + "/progress.bin").c_str()));
+
+  // Progress already in the new cache wins over the old content's.
+  fake::add(oldDir + "/stats_v6.bin", "newer old stats");
+  carryEpubReadingState("/b.epub", 42);
+  EXPECT_FALSE(Storage.exists((newDir + "/stats_v6.bin").c_str()));
+}
+
 }  // namespace

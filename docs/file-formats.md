@@ -58,6 +58,14 @@ struct ImageFolderIndexRecord {
 
 ## `/.crossdink/library.idx`
 
+### Version 7
+
+Each book's name blob now ends with a `uint64_t` EPUB content key after the
+series position: the name of its `epub_<key>` cache folder, 0 for other formats
+or an unreadable file. Unchanged books keep their key across rebuilds; a book
+whose content changed carries its progress and stats from the old key's cache.
+Version 6 indexes rebuild on the next Library scan, reusing metadata.
+
 ### Version 6
 
 Each book's name blob now ends with a `uint32_t` series position after the
@@ -186,7 +194,8 @@ holds, back to back: an 8-byte FNV-1a path hash of the book's complete path
 (the identity used by rebuild reconciliation and by "is this book already in
 the index" lookups), the filename, then five length-prefixed fields —
 display author, title, the pre-spelling-harmonisation source author, series,
-and genre. Version 6 appends the four-byte series position.
+and genre. Version 6 appends the four-byte series position; version 7 then the
+eight-byte EPUB content key.
 
 ## `book.bin`
 
