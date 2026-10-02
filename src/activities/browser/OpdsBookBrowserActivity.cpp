@@ -473,9 +473,9 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   // book count; same lifetime as `items`.
   using CountLabel = std::array<char, 16>;
   std::vector<CountLabel> countLabels(entryCount);
-  // The biggest check that fits the theme's row padding (8 px Lyra, 20 px others).
-  // 10 px bold check, ending where the title starts (picked from mockups).
-  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_10);
+  // 20 px bold check in the row inset left of the title (Lyra: 20 inset + 8
+  // padding); the list clamps it to that room, so titles never move.
+  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_20);
   for (size_t i = 0; i < entryCount; ++i) {
     const auto& entry = entries[i];
     fui::ListItem item;
@@ -812,7 +812,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     if (result != HttpDownloader::OK) return false;
   }
 
-  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page));
+  if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page), true, millis());
   return true;
 }
 
@@ -990,42 +990,81 @@ void OpdsBookBrowserActivity::navigateBack() {
 }
 
 void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
-  // Read-only open: one directory lookup for existence, size and date, and no
-  // SD write unless the user chooses to overwrite.
+  // One prompt before every download: "Download? <title>", or the overwrite
+  // question with the copy's size and date when the book is already on SD.
+  // Read-only open: one directory lookup, no SD write until Confirm.
   std::string path = bookDownloadPath(book, server.filenameFormat);
+  std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
+  std::string details(book.title.data(), book.title.size());
   HalFile existing = Storage.open(path.c_str());
-  if (!existing || existing.isDirectory()) {
-    if (existing) existing.close();
-    downloadBook(book, path);
-    return;
+  const bool onSdAlready = existing && !existing.isDirectory();
+  if (onSdAlready) {
+    char sizeLabel[16];
+    formatFileSize(existing.fileSize64(), sizeLabel, sizeof(sizeLabel));
+    char dateLabel[20];
+    const bool hasDate = formatFatDateTime(existing.modificationTime(), dateLabel, sizeof(dateLabel));
+    heading = tr(STR_BOOK_EXISTS_OVERWRITE);
+    details = sizeLabel;
+    if (hasDate) {
+      details += ", ";
+      details += dateLabel;
+    }
+    LOG_INF("OPDS", "Already on SD: %s (%s)", path.c_str(), details.c_str());
   }
-  char sizeLabel[16];
-  formatFileSize(existing.fileSize64(), sizeLabel, sizeof(sizeLabel));
-  char dateLabel[20];
-  const bool hasDate = formatFatDateTime(existing.modificationTime(), dateLabel, sizeof(dateLabel));
-  existing.close();
+  if (existing) existing.close();
 
-  // ConfirmationActivity appends "<size>, <date>" to the question in one
-  // popup title; Cancel is the focused option.
-  std::string details = sizeLabel;
-  if (hasDate) {
-    details += ", ";
-    details += dateLabel;
-  }
-  LOG_INF("OPDS", "Already on SD: %s (%s)", path.c_str(), details.c_str());
-
-  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_BOOK_EXISTS_OVERWRITE), details);
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, details);
   if (!dialog) {
-    LOG_ERR("OPDS", "Cannot allocate overwrite dialog");
+    LOG_ERR("OPDS", "Cannot allocate download dialog");
     return;
   }
+  // Download size: the feed's length attribute, else a background request
+  // (bookDownloader is idle while browsing) that fills it in; Confirm works
+  // throughout. "?" when neither tells. Not for a book already on SD: the
+  // overwrite question shows the copy's size, and no request is made.
+  char size[16] = "...";
+  bool probing = false;
+  if (onSdAlready) {
+    size[0] = '\0';
+  } else if (book.length > 0) {
+    formatFileSize(static_cast<uint64_t>(book.length), size, sizeof(size));
+  } else {
+    auto request = bookRequest(book);
+    request.sizeOnly = true;
+    probing = bookDownloader.start(std::move(request));
+    if (!probing) snprintf(size, sizeof(size), "?");
+  }
+  if (size[0]) dialog->setNote(tr(STR_SIZE_LABEL), size, probing ? pollDownloadSize : nullptr, this);
+
   // entries and selectorIndex stay put while the dialog is on top (this
   // activity's loop does not run), so the index is enough to find the book.
   const int bookIndex = selectorIndex;
   startActivityForResult(std::move(dialog), [this, bookIndex, path = std::move(path)](const ActivityResult& result) {
+    bookDownloader.cancel();  // a size probe still running; downloadBook joins it
     if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
     downloadBook(entries[bookIndex], path);
   });
+}
+
+bool OpdsBookBrowserActivity::pollDownloadSize(void* self, std::string& body) {
+  const auto& downloader = static_cast<OpdsBookBrowserActivity*>(self)->bookDownloader;
+  if (downloader.running()) return false;
+  char size[16] = "?";
+  if (downloader.total() > 0) formatFileSize(downloader.total(), size, sizeof(size));
+  if (body == size) return false;
+  body = size;
+  return true;
+}
+
+OpdsBookDownloader::Request OpdsBookBrowserActivity::bookRequest(const OpdsEntry& book) const {
+  // Relative to the current feed, not the root server URL.
+  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
+  OpdsBookDownloader::Request request;
+  request.url = UrlUtils::buildUrl(feedUrl, std::string(book.href));
+  request.username = server.username;
+  request.password = server.password;
+  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  return request;
 }
 
 void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename,
@@ -1047,6 +1086,9 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   return;
 #endif
 
+  // A size probe from the download prompt may still be winding down.
+  bookDownloader.cancel();
+  bookDownloader.join();
   // The book download must not share the network or RAM with page preloads.
   stopPrefetch();
 #if defined(FREEINK_NET_WOLFSSL)
@@ -1064,14 +1106,8 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
     return;
   }
 
-  // Build full download URL relative to the current feed, not the root server URL
-  const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  OpdsBookDownloader::Request request;
-  request.url = UrlUtils::buildUrl(feedUrl, std::string(book.href));
+  OpdsBookDownloader::Request request = bookRequest(book);
   request.path = filename;
-  request.username = server.username;
-  request.password = server.password;
-  request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
   if (resumeValidator) {
     request.resume = true;
     request.validator = *resumeValidator;

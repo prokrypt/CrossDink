@@ -32,6 +32,9 @@ struct OpdsEntry {
   // Item count advertised for a navigation entry (thr:count on its link, or a
   // "<N> books" summary); -1 when the feed does not say.
   int32_t count = -1;
+  // Book file size in bytes from the acquisition link's length attribute; -1
+  // when the feed does not say.
+  int32_t length = -1;
 };
 
 // Legacy alias for backward compatibility

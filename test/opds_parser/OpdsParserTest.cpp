@@ -54,7 +54,7 @@ constexpr char kThrCountFeed[] = R"(<?xml version="1.0" encoding="UTF-8"?>
   <entry>
     <title>A Book</title>
     <summary>5 stars</summary>
-    <link href="/b.epub" rel="http://opds-spec.org/acquisition" type="application/epub+zip"/>
+    <link href="/b.epub" rel="http://opds-spec.org/acquisition" type="application/epub+zip" length="1677721"/>
   </entry>
 </feed>)";
 
@@ -121,6 +121,8 @@ TEST(OpdsParserTest, ThrCountWinsAndBooksHaveNoCount) {
   EXPECT_EQ(parser.getEntry(0)->count, 42);
   EXPECT_EQ(parser.getEntry(1)->type, OpdsEntryType::BOOK);
   EXPECT_EQ(parser.getEntry(1)->count, -1);
+  EXPECT_EQ(parser.getEntry(0)->length, -1);
+  EXPECT_EQ(parser.getEntry(1)->length, 1677721);
 }
 
 TEST(OpdsParserTest, OpenSearchDescriptionGivesSearchTemplate) {

@@ -69,7 +69,12 @@ class OpdsPageCache {
   // Takes ownership; evicts least recently used pages to fit the budget.
   // Returns false (and drops the page) when it alone exceeds the budget, or,
   // with mayEvict false (background preloads), when it does not fit as is.
-  bool store(const std::string& url, OpdsPageBuffer&& page, bool mayEvict = true);
+  // fetchedMs: millis() when the page came off the network (see fetchedWithin).
+  bool store(const std::string& url, OpdsPageBuffer&& page, bool mayEvict = true, uint32_t fetchedMs = 0);
+  // A recheck found the cached copy current: it counts as fetched at nowMs.
+  void markFetched(const std::string& url, uint32_t nowMs);
+  // True when url is cached and was fetched less than windowMs before nowMs.
+  bool fetchedWithin(const std::string& url, uint32_t nowMs, uint32_t windowMs) const;
   bool contains(const std::string& url) const;
   void erase(const std::string& url);
   void clear();
@@ -89,6 +94,7 @@ class OpdsPageCache {
     PsramString url;  // PSRAM: 64 keys otherwise pin internal RAM
     OpdsPageBuffer page;
     uint32_t lastUse = 0;
+    uint32_t fetchedMs = 0;
     bool used = false;
   };
 

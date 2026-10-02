@@ -26,12 +26,15 @@ void ConfirmationActivity::onEnter() {
   }
 
   const char* options[] = {I18N.get(StrId::STR_CANCEL), confirmLabel ? confirmLabel : I18N.get(StrId::STR_CONFIRM)};
-  confirmPopup.show(popupTitle.c_str(), options, 2, confirmFocused ? 1 : 0, [this](int idx) {
-    ActivityResult res;
-    res.isCancelled = (idx != 1);
-    setResult(std::move(res));
-    finish();
-  });
+  confirmPopup.show(
+      popupTitle.c_str(), options, 2, confirmFocused ? 1 : 0,
+      [this](int idx) {
+        ActivityResult res;
+        res.isCancelled = (idx != 1);
+        setResult(std::move(res));
+        finish();
+      },
+      OptionPopup::Note(noteLabel, noteLabel ? noteBody : nullptr));
   confirmPopup.setPrimaryOptionIndex(1);
 
   requestUpdate(true);
@@ -54,6 +57,19 @@ void ConfirmationActivity::loop() {
     if (confirmReleased || !mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
       ignoreConfirmRelease = false;
       return;
+    }
+  }
+
+  if (notePoll) {
+    std::string body = noteBody;
+    if (notePoll(notePollCtx, body)) {
+      // No RenderLock from the loop (a blocking take here froze the device
+      // when the size landed): the popup keeps pointing at noteBody, so a
+      // render racing this copy draws at worst one mixed frame before the
+      // redraw requested below.
+      snprintf(noteBody, sizeof(noteBody), "%s", body.c_str());
+      confirmPopup.setNote(OptionPopup::Note(noteLabel, noteBody));
+      requestUpdate();
     }
   }
 

@@ -123,7 +123,8 @@ OpdsPageCache::Slot* OpdsPageCache::evictLeastRecentlyUsed() {
   return oldest;
 }
 
-bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const bool mayEvict) {
+bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const bool mayEvict,
+                          const uint32_t fetchedMs) {
   if (page.empty() || page.failed() || page.size() > byteBudget) return false;
   if (!mayEvict && (usedBytes + page.size() > byteBudget || pageCount() >= MAX_PAGES) && !findSlot(url)) {
     return false;
@@ -140,9 +141,19 @@ bool OpdsPageCache::store(const std::string& url, OpdsPageBuffer&& page, const b
   ++changeCount;
   target->page = std::move(page);
   target->lastUse = ++useClock;
+  target->fetchedMs = fetchedMs;
   target->used = true;
   usedBytes += target->page.size();
   return true;
+}
+
+void OpdsPageCache::markFetched(const std::string& url, const uint32_t nowMs) {
+  if (Slot* slot = findSlot(url)) slot->fetchedMs = nowMs;
+}
+
+bool OpdsPageCache::fetchedWithin(const std::string& url, const uint32_t nowMs, const uint32_t windowMs) const {
+  const Slot* slot = findSlot(url);
+  return slot && slot->fetchedMs != 0 && nowMs - slot->fetchedMs < windowMs;
 }
 
 void OpdsPageCache::clear() {
