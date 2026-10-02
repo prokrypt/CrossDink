@@ -1272,6 +1272,14 @@ bool ActivityManager::anyActivityUsesWifi() const {
          std::any_of(stackActivities.begin(), stackActivities.end(), uses);
 }
 
+bool ActivityManager::wifiActivitiesShareRemote() const {
+  const auto blocks = [](const auto& activity) {
+    return activity && activity->usesWifi() && !activity->sharesWifiWithRemote();
+  };
+  return !blocks(currentActivity) && !blocks(pendingActivity) &&
+         std::none_of(stackActivities.begin(), stackActivities.end(), blocks);
+}
+
 bool ActivityManager::hasActivityNamed(const char* activityName) const {
   const auto matches = [activityName](const auto& activity) { return activity && activity->name == activityName; };
   if (matches(currentActivity) || matches(pendingActivity)) {
