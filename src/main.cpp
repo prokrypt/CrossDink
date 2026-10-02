@@ -2253,9 +2253,15 @@ static void updateFlashDuck() {
   // Goodies offsets (later is positive). The refresh never waits on either: an
   // earlier dim than the driver can announce just cuts the light at DRF.
   const bool gray = kind == HalDisplay::FlashKind::Gray, full = kind == HalDisplay::FlashKind::Full;
-  const int32_t dimMs = gray ? KNOBS.flashGrayDimMs : full ? KNOBS.flashFullDimMs : KNOBS.flashPaintDimMs;
-  const int32_t restoreMs =
-      gray ? KNOBS.flashGrayRestoreMs : full ? KNOBS.flashFullRestoreMs : KNOBS.flashPaintRestoreMs;
+  const bool grayDark = kind == HalDisplay::FlashKind::GrayDark;
+  const int32_t dimMs = gray       ? KNOBS.flashGrayDimMs
+                        : grayDark ? KNOBS.flashGrayDarkDimMs
+                        : full     ? KNOBS.flashFullDimMs
+                                   : KNOBS.flashPaintDimMs;
+  const int32_t restoreMs = gray       ? KNOBS.flashGrayRestoreMs
+                            : grayDark ? KNOBS.flashGrayDarkRestoreMs
+                            : full     ? KNOBS.flashFullRestoreMs
+                                       : KNOBS.flashPaintRestoreMs;
   // Up early: before the expected end (negative restore). Up late: hold dark
   // after the refresh ended (positive restore).
   const bool restoreEarly =
@@ -2271,7 +2277,7 @@ static void updateFlashDuck() {
   // L46-50; RAM only, so every boot starts from it); Paint (POF 82 + PON 127 +
   // SPI 54 + reset) inferred.
   constexpr uint32_t kMaxLeadMs = 600;
-  static uint16_t leadMs[3] = {75, 180, 330};
+  static uint16_t leadMs[4] = {75, 180, 330, 75};  // by FlashKind (GrayDark plans like Gray)
   static uint8_t leadKind = 0;
   static bool learned = false;      // this flash's lead is stored
   static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
