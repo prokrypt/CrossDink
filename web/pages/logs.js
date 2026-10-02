@@ -491,7 +491,8 @@ function summary() {
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
-      ['Log', `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}` + (s.reset ? `, counters since reset ${when(s.first)}` : '')]
+      ['Earliest log', s.first && now > s.first ? `${hrs(now - s.first)} ago${s.reset ? ' (reset)' : ''}` : 'none'],
+      ['Log', `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}`]
     );
   } else rows.push(['Log', 'no rows with a clock time']);
   if (srcs.length) rows.push(['Rows parsed', srcs.map(([n, r, l]) => `${n} ${r}` + (r < l ? ` of ${l} lines` : '')).join(', ')]);
