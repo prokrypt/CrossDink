@@ -47,9 +47,6 @@ constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kClockMs = 60 * 1000;
 constexpr uint32_t kFlushIdleMs = 2000;
 constexpr uint16_t kLowPct = 5;
-// The ring is lost on power loss: write it out once this much or this old.
-constexpr uint32_t kFlushPendingBytes = 4 * 1024;
-constexpr uint32_t kFlushPendingMs = 10 * 60 * 1000;
 constexpr uint32_t kMaxSleepEvents = sizeof(Stats::sleepEvents) / sizeof(Stats::SleepEvent);
 constexpr uint16_t kFullPct = 95;  // charging stopped at or above this, cable in: "charged"
 // A USB or charger change is logged once it has held this long: a loose plug
@@ -88,7 +85,6 @@ TaskHandle_t mainTask = nullptr;  // gauge I2C only from here (touch polls the b
 uint32_t lastTickMs = 0;
 uint32_t carryMs = 0;
 bool bootFlushPending = false;
-uint32_t emptySinceMs = 0;  // last poll that found every row on SD: the oldest pending row is younger
 bool wifiOn = false;
 
 uint32_t statsCrc() { return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&rtcStats), offsetof(Stats, crc)); }
@@ -406,13 +402,10 @@ void poll(const uint32_t idleMs) {
     writeRow(wifi ? "wifi_on" : "wifi_off", nullptr);
   }
   seal();
-  if (!ringReady) return;
+  if (!ringReady || idleMs < kFlushIdleMs) return;
   const uint32_t pending = ring.head - ring.aux;
-  if (pending == 0) emptySinceMs = nowMs;
-  if (idleMs < kFlushIdleMs) return;
   const bool low = !reading.usb && reading.pct <= kLowPct;
-  const bool due = pending >= kFlushPendingBytes || nowMs - emptySinceMs >= kFlushPendingMs;
-  if (pending != 0 && (bootFlushPending || low || due) && flush()) {
+  if (pending != 0 && (bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) {
     bootFlushPending = false;
   }
 }
