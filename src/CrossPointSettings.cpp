@@ -1193,6 +1193,11 @@ unsigned long CrossPointSettings::getSleepTimeoutMs() const {
   return static_cast<unsigned long>(minutes) * 60UL * 1000UL;
 }
 
+unsigned long CrossPointSettings::getFrontlightTimeoutMs() const {
+  static constexpr uint8_t kMinutes[] = {1, 2, 5, 10};
+  return frontlightTimeout < std::size(kMinutes) ? kMinutes[frontlightTimeout] * 60000UL : 0UL;
+}
+
 #ifdef SIMULATOR
 bool CrossPointSettings::verifySleepTimeoutMigrationContract() {
   CrossPointSettings& settings = getInstance();
