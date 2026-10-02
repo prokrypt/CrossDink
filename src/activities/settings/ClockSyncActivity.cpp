@@ -11,6 +11,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
+#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -35,7 +36,7 @@ void ClockSyncActivity::onEnter() {
 void ClockSyncActivity::onExit() {
   Activity::onExit();
 
-  if (shouldTearDownWifiOnExit && WiFi.getMode() != WIFI_MODE_NULL) {
+  if (shouldTearDownWifiOnExit && WiFi.getMode() != WIFI_MODE_NULL && !keepWifiForRemote()) {
     WiFi.disconnect(false);
     delay(30);
     WiFi.mode(WIFI_OFF);

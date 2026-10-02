@@ -73,7 +73,7 @@ void LibrarySettingsActivity::onRow(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<LibrarySettingsActivity*>(user);
   if (event.value < 0 || event.value >= ROW_COUNT) return;
   self->selection = event.value;
-  self->showSelection = false;
+  self->showSelection = true;  // the tapped row stays highlighted, as in Settings
   self->topIndex = self->listNav.top;
   self->app.clearTapFlash();
   self->toggle(event.value);

@@ -807,7 +807,6 @@ void SettingsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   if (event.value < 0 || event.value >= static_cast<int16_t>(self->settingsCount)) return;
   if ((*self->currentSettings)[event.value].type == SettingType::SECTION_HEADER) return;
   self->selectedSettingIndex = event.value + 1;
-  if (self->isFileBrowserView()) self->showSettingSelection = false;
   // Most rows repaint a different surface (popup, sub-activity, new value);
   // a lingering tap flash would gray an unrelated element.
   self->app.clearTapFlash();
@@ -1171,7 +1170,7 @@ void SettingsActivity::toggleCurrentSetting() {
                                  SETTINGS.saveToFile();
                                  // Settings only manages credentials; no parent needs the connection.
                                  // Cancelled selections already stop WiFi in the picker.
-                                 if (WiFi.getMode() == WIFI_MODE_NULL) return;
+                                 if (WiFi.getMode() == WIFI_MODE_NULL || keepWifiForRemote()) return;
                                  WiFi.disconnect(false);
                                  delay(30);
                                  if (!WiFi.mode(WIFI_OFF)) {

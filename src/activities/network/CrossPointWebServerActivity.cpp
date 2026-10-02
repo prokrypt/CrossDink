@@ -153,7 +153,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
   // Port 80 and the radio pass to this screen's own server. A rejoin may have
   // started while the picker was up; it must end before the radio goes off.
   goodies_remote::waitForJoin();
-  goodies_remote::pause();
+  goodies_remote::pause(/*keepStation=*/mode != NetworkMode::CREATE_HOTSPOT);
 #endif
   radioTaken = true;
   const char* modeName = "Join Network";
@@ -332,8 +332,13 @@ void CrossPointWebServerActivity::startAccessPoint() {
 
 void CrossPointWebServerActivity::startWebServer() {
   // Create the web server instance
-  webServer.reset(new CrossPointWebServer());
-  webServer->begin();
+#if CROSSDINK_GOODIES
+  webServer = goodies_remote::takeServer();  // the running remote's server, no socket closed
+#endif
+  if (!webServer) {
+    webServer.reset(new CrossPointWebServer());
+    webServer->begin();
+  }
 
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;

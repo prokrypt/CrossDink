@@ -57,6 +57,8 @@ class KOReaderSyncActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
   bool usesWifi() const override { return true; }
+  // HTTP client only: the Goodies remote keeps serving on its link.
+  bool sharesWifiWithRemote() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return state == CONNECTING || state == SYNCING || state == UPLOADING; }

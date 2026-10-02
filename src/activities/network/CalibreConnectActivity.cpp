@@ -23,8 +23,8 @@ constexpr const char* HOSTNAME = "crosspoint";
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
 #if CROSSDINK_GOODIES
-  // Port 80 and the radio pass to this screen's own server.
-  goodies_remote::pause();
+  // Port 80 passes to this screen's own server; a link to the remote's network stays.
+  goodies_remote::pause(/*keepStation=*/true);
 #endif
   sdFontSystem.releaseLoadedFont(renderer);
 
@@ -87,8 +87,13 @@ void CalibreConnectActivity::startWebServer() {
     LOG_DBG("CAL", "mDNS started: http://%s.local/", HOSTNAME);
   }
 
-  webServer.reset(new CrossPointWebServer());
-  webServer->begin();
+#if CROSSDINK_GOODIES
+  webServer = goodies_remote::takeServer();  // the running remote's server, no socket closed
+#endif
+  if (!webServer) {
+    webServer.reset(new CrossPointWebServer());
+    webServer->begin();
+  }
 
   if (webServer->isRunning()) {
     state = CalibreConnectState::SERVER_RUNNING;
