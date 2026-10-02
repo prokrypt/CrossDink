@@ -591,7 +591,7 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
 
   if (showButtonHints && mappedInput) {
     const auto labels =
-        mappedInput->mapLabels(mappedInput->withBackArrow(tr(STR_EXIT)), "", mappedInput->withBackArrow(tr(STR_BACK)),
+        mappedInput->mapLabels(mappedInput->withBackArrow(tr(STR_BACK)), "", tr(STR_EXIT),
                                showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }

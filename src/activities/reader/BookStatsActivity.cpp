@@ -430,7 +430,10 @@ void BookStatsActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     mappedInput.suppressNextBackRelease();
-    exitStatsActivity();
+    // Back steps to the previous stats page (the hint says Back); it leaves
+    // only from the first page. Left ("Exit") leaves from any later page.
+    const bool hasPrevious = page == Page::AllDevices || (page == Page::ThisDevice && !bookCachePath.empty());
+    if (!hasPrevious || !showPreviousStatsPage()) exitStatsActivity();
     return;
   }
 
@@ -473,7 +476,11 @@ void BookStatsActivity::loop() {
     return;
   }
 
-  if (upOrLeftPressed) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+    exitStatsActivity();
+    return;
+  }
+  if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
     showPreviousStatsPage();
     return;
   }
