@@ -127,9 +127,10 @@ char httpReply[256];
 int httpStatus = 0;
 uint32_t httpIp = 0;
 
-// Wi-Fi screenshot: PBM (P4) image, inverted from the framebuffer's 1 = white.
-// Static in PSRAM (debug x4-pro only) so a grab never needs a 48 KB heap block.
-constexpr size_t SNAP_MAX = 48000 + 32;  // largest current panel + PBM header
+// Wi-Fi screenshot: PGM (P5, 4 levels) while a gray pass is on the panel, else
+// PBM (P4) inverted from the framebuffer's 1 = white. Static in PSRAM (debug
+// x4-pro only) so a grab never needs a large heap block.
+constexpr size_t SNAP_MAX = 800 * 480 + 32;  // largest current panel, 1 byte/pixel + header
 EXT_RAM_NOINIT_ATTR uint8_t snap[SNAP_MAX];
 size_t snapLen = 0;
 
@@ -649,20 +650,26 @@ void cmdRefresh(const char* mode) {
   reply("OK:REFRESH");
 }
 
-// Main task: copies the framebuffer under the render lock into `snap` as a PBM.
+// Main task: copies the screen under the render lock into `snap` as a PGM
+// (last gray pass still shown) or a PBM.
 void takeSnapshot() {
   RenderLock lock;
   const uint32_t w = display.getDisplayWidth();
   const uint32_t h = display.getDisplayHeight();
-  const uint32_t bytes = display.getBufferSize();
-  const int headerLen = snprintf(reinterpret_cast<char*>(snap), 32, "P4\n%lu %lu\n", static_cast<unsigned long>(w),
-                                 static_cast<unsigned long>(h));
-  if (headerLen <= 0 || headerLen + bytes > SNAP_MAX) {
-    snapLen = 0;
-    return reply("ERR:SCREENSHOT:too_big");
+  char* header = reinterpret_cast<char*>(snap);
+  uint32_t bytes = w * h;
+  int headerLen =
+      snprintf(header, 32, "P5\n%lu %lu\n255\n", static_cast<unsigned long>(w), static_cast<unsigned long>(h));
+  if (headerLen <= 0 || headerLen + bytes > SNAP_MAX || !display.grayScreenshot(snap + headerLen, bytes)) {
+    bytes = display.getBufferSize();
+    headerLen = snprintf(header, 32, "P4\n%lu %lu\n", static_cast<unsigned long>(w), static_cast<unsigned long>(h));
+    if (headerLen <= 0 || headerLen + bytes > SNAP_MAX) {
+      snapLen = 0;
+      return reply("ERR:SCREENSHOT:too_big");
+    }
+    const uint8_t* fb = display.getFrameBuffer();
+    for (uint32_t i = 0; i < bytes; i++) snap[headerLen + i] = static_cast<uint8_t>(~fb[i]);
   }
-  const uint8_t* fb = display.getFrameBuffer();
-  for (uint32_t i = 0; i < bytes; i++) snap[headerLen + i] = static_cast<uint8_t>(~fb[i]);
   snapLen = headerLen + bytes;
   reply("OK:SCREENSHOT %lu %lu %lu", static_cast<unsigned long>(w), static_cast<unsigned long>(h),
         static_cast<unsigned long>(bytes));

@@ -155,6 +155,10 @@ class HalDisplay {
   // straight to the controller; supportsStripGrayscale() gates the path. See
   // EInkDisplay::writeGrayscalePlaneStrip.
   void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows);
+  // Debug (CROSSDINK_SERIAL_REMOTE): the last gray pass as one byte per pixel
+  // (0/85/170/255), panel-native. False if a B/W refresh followed it or the
+  // build keeps no plane copies.
+  bool grayScreenshot(uint8_t* out, uint32_t outLen) const;
   // Firmware policy for the reader's extra white-image refresh.
   bool shouldSkipImageBlanking() const;
   // UC8179 Smooth text AA (short balanced gray nudge); other panels ignore it.
