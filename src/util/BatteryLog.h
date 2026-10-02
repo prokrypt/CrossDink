@@ -9,8 +9,8 @@
 // sleep or power loss) and are appended to /debug/logs/battery.csv, as
 //   epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c,light_pct,event,detail
 // Flushed before deep sleep, and from the main loop after 2 s without input
-// once a boot left rows, the ring is 3/4 full, or the battery is at 5% or
-// less off USB. At 256 KB the file becomes /debug/logs/battery.1.csv, which
+// once a boot left rows, the ring is 3/4 full, or 4 KB is waiting with the
+// battery at 5% or less off USB. At 256 KB the file becomes /debug/logs/battery.1.csv, which
 // moves on to battery.2.csv and battery.3.csv (three old copies).
 // The row's battery fields are the last main-loop reading, so any task may log.
 namespace BatteryLog {

@@ -47,6 +47,7 @@ constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kClockMs = 60 * 1000;
 constexpr uint32_t kFlushIdleMs = 2000;
 constexpr uint16_t kLowPct = 5;
+constexpr uint32_t kLowFlushBytes = 4 * 1024;
 constexpr uint32_t kMaxSleepEvents = sizeof(Stats::sleepEvents) / sizeof(Stats::SleepEvent);
 constexpr uint16_t kFullPct = 95;  // charging stopped at or above this, cable in: "charged"
 // A USB or charger change is logged once it has held this long: a loose plug
@@ -404,7 +405,8 @@ void poll(const uint32_t idleMs) {
   seal();
   if (!ringReady || idleMs < kFlushIdleMs) return;
   const uint32_t pending = ring.head - ring.aux;
-  const bool low = !reading.usb && reading.pct <= kLowPct;
+  // Low battery: out in 4 KB lots (not row by row) before a brownout can take the ring.
+  const bool low = !reading.usb && reading.pct <= kLowPct && pending >= kLowFlushBytes;
   if (pending != 0 && (bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) {
     bootFlushPending = false;
   }
