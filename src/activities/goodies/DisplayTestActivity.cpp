@@ -394,11 +394,7 @@ void DisplayTestActivity::drawResult() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
-  } else {
-    GUI.drawHeader(renderer, header, title.c_str());
-  }
+  TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
   // Goodies text pages: the list rows' font and label margin.
   const int font = uiScaleSpec().bodyFontId;
   const int x = metrics.listInset + metrics.listSidePadding;

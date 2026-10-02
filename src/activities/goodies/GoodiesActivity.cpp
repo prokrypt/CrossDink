@@ -1022,11 +1022,7 @@ void GoodiesActivity::render(RenderLock&&) {
                       : level == Level::PinMon       ? "Pin Monitor"
                                                      : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);
-  } else {
-    GUI.drawHeader(renderer, header, title);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);
   uiReady = false;
   app.render();
   uiReady = true;

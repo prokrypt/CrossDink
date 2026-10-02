@@ -392,17 +392,15 @@ void BatteryStatsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const Rect r = resetRect();
+  const Rect f = refreshRect();
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width + f.width);
   if (mappedInput.hasTouchHardware()) {
-    const Rect r = resetRect();
-    const Rect f = refreshRect();
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width + f.width);
     const auto l = TouchHeaderBackButton::layout(header);
     const int ty = l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
                    (l.iconRect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
     renderer.drawText(UI_10_FONT_ID, f.x + 12, ty, tr(STR_DISPLAY_REFRESH));
     renderer.drawText(UI_10_FONT_ID, r.x + 12, ty, tr(STR_RESET));
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_BATTERY_STATS));
   }
   // Goodies text pages: the list rows' font and label margin.
   const int font = uiScaleSpec().bodyFontId;
