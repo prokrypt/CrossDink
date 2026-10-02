@@ -251,7 +251,7 @@ void logPmLocks(const char* act) {
   static long long lastRejectDiagUs = 0;
   if (lsWindow == 0 && rejects != pmPrevRejects && (lastRejectDiagUs == 0 || bootUs - lastRejectDiagUs >= 60000000)) {
     lastRejectDiagUs = bootUs;
-    char pins[96] = "-";
+    char pins[160] = "-";
     if (wakePinsFn) wakePinsFn(pins, sizeof(pins));
     LOG_INF("PM", "all sleeps rejected: wake pins (armed/now) %s | locks held %s | usb host %d", pins,
             held[0] ? held : "-", logSerialHostConnected() ? 1 : 0);
