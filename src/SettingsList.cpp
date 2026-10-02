@@ -2,6 +2,7 @@
 
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
+#include "util/BatteryLog.h"
 
 const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
@@ -455,6 +456,7 @@ void applySettingChange(uint8_t CrossPointSettings::* const member) {
     Frontlight.setBrightness(SETTINGS.frontlightBrightness);
     Frontlight.setWarmth(SETTINGS.frontlightWarmth);
     Frontlight.setOn(SETTINGS.frontlightOn != 0);
+    BatteryLog::lightChanged();                        // remote SET writes a light row like any user change
     activityManager.notifyExternalFrontlightChange();  // an open Frontlight panel takes the new values
   } else if (member == &S::fontFamily) {
     // A built-in pick drops the SD family, which getReaderFontId() would prefer.

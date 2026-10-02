@@ -925,6 +925,7 @@ void notifyQuickLockChanged() {
   if (locked) {
     APP_STATE.quickLockRestoreFrontlight = Frontlight.isOn();
     Frontlight.setOn(false);
+    BatteryLog::lightChanged();
     activityManager.notifyInputLockChanged(true);
     int top = 0;
     int right = 0;
@@ -956,6 +957,7 @@ void notifyQuickLockChanged() {
     }
     if (APP_STATE.quickLockRestoreFrontlight) {
       Frontlight.setOn(true);
+      BatteryLog::lightChanged();
       APP_STATE.quickLockRestoreFrontlight = false;
     }
     if (!restoredBadgeBackdrop) (void)activityManager.requestUpdateAndWait();
@@ -1546,6 +1548,8 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
 #else
   display.begin(seamless);
   esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
+  // Every restart logs the battery state first.
+  esp_register_shutdown_handler([] { BatteryLog::onRestart(); });
   if (seamless) {
     seedRetainedPanelFrame();
   } else {
@@ -1722,6 +1726,7 @@ void setup() {
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     PerfLog::noteDeepSleep("wake-not-held", "boot");
+    BatteryLog::noteFalseWake();
     powerManager.startDeepSleep(gpio);
   }
 #endif
@@ -1748,6 +1753,14 @@ void setup() {
 
   halTiltSensor.begin();
   halClock.begin();
+#ifndef SIMULATOR
+  // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+    BatteryLog::onChargeWake();
+    PerfLog::noteDeepSleep("charge-wake", "boot");
+    powerManager.startDeepSleep(gpio);
+  }
+#endif
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
@@ -1853,6 +1866,7 @@ void setup() {
   }
   Frontlight.releaseAfterWake();
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  BatteryLog::lightChanged();  // onBoot ran before the light was set up
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
@@ -2538,6 +2552,7 @@ static void loopPass() {
   if (userInputReceived && lightTimedOut) {
     lightTimedOut = false;
     Frontlight.setIdleDim(100);
+    BatteryLog::lightChanged();
     LOG_DBG("LIGHT", "Light timeout: restored by input");
   }
   const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
@@ -2551,6 +2566,7 @@ static void loopPass() {
         if (Frontlight.idleDimPercent() == 100) LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
         Frontlight.setIdleDim(level);
         lightTimedOut = true;
+        if (level == 0) BatteryLog::lightChanged(true);
       }
     }
   }
