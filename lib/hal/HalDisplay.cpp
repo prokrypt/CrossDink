@@ -259,12 +259,24 @@ void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, ui
                                        yStart, numRows);
 }
 
+void HalDisplay::setSmoothGray(const bool smooth) {
+#ifndef SIMULATOR  // the simulator panel has no waveform choice
+  einkDisplay.setSmoothGray(smooth);
+#else
+  (void)smooth;
+#endif
+}
+
 bool HalDisplay::shouldSkipImageBlanking() const {
   // CrossDink's extra white-image pass is redundant on UC8179. Its driver
   // always supports async display; the existing query also excludes inverted
   // output, a pending inversion transition, and an uninitialized driver.
   return BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179 &&
          einkDisplay.supportsAsyncRefresh();
+}
+
+bool HalDisplay::fastTracksPanel() const {
+  return BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179;
 }
 
 bool HalDisplay::displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) {

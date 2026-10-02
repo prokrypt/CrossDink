@@ -1198,7 +1198,8 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
                                     : SETTINGS.paragraphAlignment;
   SETTINGS.embeddedStyle = in.embeddedStyle ? 1 : 0;
   SETTINGS.hyphenationEnabled = in.hyphenationEnabled ? 1 : 0;
-  SETTINGS.textAntiAliasing = in.textAntiAliasing ? 1 : 0;
+  SETTINGS.textAntiAliasing =
+      in.textAntiAliasing < CrossPointSettings::TEXT_AA_COUNT ? in.textAntiAliasing : CrossPointSettings::TEXT_AA_SHARP;
   SETTINGS.imageRendering =
       in.imageRendering < CrossPointSettings::IMAGE_RENDERING_COUNT ? in.imageRendering : SETTINGS.imageRendering;
   SETTINGS.extraParagraphSpacing = in.extraParagraphSpacing ? 1 : 0;
@@ -2512,6 +2513,7 @@ void EpubReaderActivity::onEnter() {
 }
 
 void EpubReaderActivity::onExit() {
+  renderer.setSmoothGray(false);
   waitSilentIndexWorker(/*cancel=*/true);
   waitDrawAhead(/*publish=*/false);
   // Not cancelled: at most two thumbs remain, and Home would make them anyway.
@@ -2838,7 +2840,7 @@ void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
   GUI.drawPopup(renderer, tr(STR_INDEXING));
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  pagesUntilFullRefresh = 1;
+  if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
 }
 
@@ -6493,7 +6495,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const auto showIndexingPopup = [this]() {
     GUI.drawPopup(renderer, tr(STR_INDEXING));
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    pagesUntilFullRefresh = 1;
+    // The popup is a Fast frame too: where Fast tracks the panel, the chapter's
+    // first page needs no cleanup flash.
+    if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;
   };
 
   bool buildCancelledForBack = false;
@@ -8359,8 +8363,17 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // UC8179 (X4 Pro) runs every gray page as direct gray, which drives each
   // pixel absolutely: the page cleans itself, so the cadence Half is only an
   // extra flash. Restart the countdown instead (a manual Refresh, <0, still runs).
-  if (needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
-      renderer.shouldSkipImageBlanking()) {
+  const bool grayCadenceDue = needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
+                              renderer.shouldSkipImageBlanking();
+  // Softfast holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
+  // The full swing owed after open/cover is spent only by a page that runs a gray pass. Held pixels
+  // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
+  if (updatePanel) {
+    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
+                           !smoothFullSwingPending && !grayCadenceDue);
+    if (needsAnyGrayscale) smoothFullSwingPending = false;
+  }
+  if (grayCadenceDue) {
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   }
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();

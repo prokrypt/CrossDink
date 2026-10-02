@@ -37,7 +37,9 @@ bool ReaderActivity::shouldShowLoadingPopup(const std::string& path) {
 }
 
 int ReaderActivity::initialRefreshCountdown() const {
-  if (!allowFastInitialRefresh) return 0;
+  // Coming from Home/Library the first page is a plain Fast transition where the
+  // panel tracks its frame; elsewhere it gets the cleanup refresh.
+  if (!allowFastInitialRefresh && !renderer.fastTracksPanel()) return 0;
 
   const int refreshFrequency = SETTINGS.getRefreshFrequency();
   return refreshFrequency > 1 ? refreshFrequency : 2;

@@ -125,6 +125,7 @@ void DisplayTestActivity::loop() {
 
 void DisplayTestActivity::answer(const int option) {
   const Op& op = script.ops[pc];
+  if (op.code == OpCode::Confirm && option == 0) stopRequested = true;
   if (op.code == OpCode::Pick) {
     LOG_INF("GDY", "test=\"%s\" pick=\"%s\" square=%d variant=\"%s\"", title.c_str(), op.text.c_str(), option + 1,
             op.options[option].c_str());
@@ -199,9 +200,21 @@ void DisplayTestActivity::runOps() {
         LOG_INF("GDY", "test=\"%s\" note %s", title.c_str(), op.text.c_str());
         break;
       case OpCode::Ask:
+      case OpCode::Confirm:
       case OpCode::Pick:
         phase = Phase::Asking;
         return;
+      case OpCode::Swing:
+      case OpCode::Null:
+#ifndef SIMULATOR
+        if (op.code == OpCode::Swing) {
+          freeink::requestUc8179HalfAsDuScrubNext(static_cast<uint8_t>(op.a[0]));
+        } else {
+          freeink::requestUc8179NullNext(static_cast<uint8_t>(op.a[0]));
+        }
+#endif
+        refresh(op.code == OpCode::Swing ? Mode::Half : Mode::Fast);
+        break;
       case OpCode::Name:
         break;
       default:
