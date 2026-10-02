@@ -31,7 +31,7 @@ void ConfirmationActivity::onEnter() {
     res.isCancelled = (idx != 1);
     setResult(std::move(res));
     finish();
-  }, OptionPopup::Note(noteLabel, noteLabel ? noteBody.c_str() : nullptr));
+  }, OptionPopup::Note(noteLabel, noteLabel ? noteBody : nullptr));
   confirmPopup.setPrimaryOptionIndex(1);
 
   requestUpdate(true);
@@ -60,12 +60,12 @@ void ConfirmationActivity::loop() {
   if (notePoll) {
     std::string body = noteBody;
     if (notePoll(notePollCtx, body)) {
-      {
-        // render() reads the note on the render task.
-        RenderLock lock(*this);
-        noteBody = std::move(body);
-        confirmPopup.setNote(OptionPopup::Note(noteLabel, noteBody.c_str()));
-      }
+      // No RenderLock from the loop (a blocking take here froze the device
+      // when the size landed): the popup keeps pointing at noteBody, so a
+      // render racing this copy draws at worst one mixed frame before the
+      // redraw requested below.
+      snprintf(noteBody, sizeof(noteBody), "%s", body.c_str());
+      confirmPopup.setNote(OptionPopup::Note(noteLabel, noteBody));
       requestUpdate();
     }
   }

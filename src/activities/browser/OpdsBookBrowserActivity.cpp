@@ -997,7 +997,8 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
   std::string details = book.title.c_str();
   HalFile existing = Storage.open(path.c_str());
-  if (existing && !existing.isDirectory()) {
+  const bool onSdAlready = existing && !existing.isDirectory();
+  if (onSdAlready) {
     char sizeLabel[16];
     formatFileSize(existing.fileSize64(), sizeLabel, sizeof(sizeLabel));
     char dateLabel[20];
@@ -1019,10 +1020,13 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   }
   // Download size: the feed's length attribute, else a background request
   // (bookDownloader is idle while browsing) that fills it in; Confirm works
-  // throughout. "?" when neither tells.
+  // throughout. "?" when neither tells. Not for a book already on SD: the
+  // overwrite question shows the copy's size, and no request is made.
   char size[16] = "...";
   bool probing = false;
-  if (book.length > 0) {
+  if (onSdAlready) {
+    size[0] = '\0';
+  } else if (book.length > 0) {
     formatFileSize(static_cast<uint64_t>(book.length), size, sizeof(size));
   } else {
     auto request = bookRequest(book);
@@ -1030,7 +1034,7 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
     probing = bookDownloader.start(std::move(request));
     if (!probing) snprintf(size, sizeof(size), "?");
   }
-  dialog->setNote(tr(STR_SIZE_LABEL), size, probing ? pollDownloadSize : nullptr, this);
+  if (size[0]) dialog->setNote(tr(STR_SIZE_LABEL), size, probing ? pollDownloadSize : nullptr, this);
 
   // entries and selectorIndex stay put while the dialog is on top (this
   // activity's loop does not run), so the index is enough to find the book.

@@ -51,8 +51,10 @@ bool OpdsBookDownloader::start(Request&& request) {
   // UI core: on the worker core it shared ~90% of core 0 with Wi-Fi, lwIP and
   // the loop and topped out at 250 KB/s while core 1 sat idle. The download
   // screen redraws rarely, so the render task loses little time-slicing with it.
+  // The size probe runs under the download prompt instead, which must draw at
+  // once: it stays off the render core.
   if (!task.start([](void* self) { static_cast<OpdsBookDownloader*>(self)->run(); }, this, DOWNLOAD_STACK_BYTES,
-                  "OpdsDownload", true)) {
+                  "OpdsDownload", !job.sizeOnly)) {
     LOG_ERR("OPDS", "Download task could not start");
     return false;
   }
