@@ -316,13 +316,13 @@ void TtfRenderOptionsActivity::render(RenderLock&&) {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
   header.x = safe.x;
   header.width = safe.width;
-  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_TTF_RENDERING), true);
+  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_TTF_RENDERING), readerMode_);
   uiReady_ = false;
   app_.render();
   uiReady_ = true;
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, readerMode_);
   renderer.displayBuffer();
 }
 
