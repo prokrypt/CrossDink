@@ -2122,7 +2122,7 @@ void setup() {
       activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
     }
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
-             mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
+             mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount() > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
     // On X4, use the first Home paint to clean the retained sleep image.
@@ -2132,12 +2132,9 @@ void setup() {
             : HalDisplay::FAST_REFRESH;
     activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
   } else {
-    // Clear app state to avoid getting into a boot loop if the epub doesn't load
-    const auto path = APP_STATE.openEpubPath;
-    APP_STATE.openEpubPath = "";
-    APP_STATE.readerActivityLoadCount++;
-    APP_STATE.saveToFile();
-    activityManager.goToReader(path, false, allowFastInitialReaderRefresh);
+    // Count the attempt in RTC so a book that crashes on load boots to Home next time.
+    APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
+    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
   }
 
   bootPhase("route");

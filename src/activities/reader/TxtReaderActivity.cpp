@@ -174,7 +174,7 @@ void TxtReaderActivity::onExit() {
 
   pageOffsets.clear();
   currentPageLines.clear();
-  APP_STATE.readerActivityLoadCount = 0;
+  APP_STATE.setReaderActivityLoadCount(0);
   APP_STATE.saveToFile();
   txt.reset();
 }
