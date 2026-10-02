@@ -67,6 +67,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Debug builds (X4 Pro): Goodies > Knobs kbdFrames, kbdTouchHoldMs and kbdTouchDelHoldMs now apply on the open keyboard, and pulsePeakPct, pulseFloorPct and pulseHoldMs on a running transfer light pulse, instead of only after reopening the screen.
 - Image viewer: opening an image shows the Loading popup once (it was drawn twice, then refreshed twice more for its progress bar: about 1.8 s sooner to the image). On X4 Pro a gray image appears once, in gray, instead of first in black and white on a full flash and then again in gray: both gray planes are decoded into PSRAM first, then one gray refresh (about 1.6 s sooner and one flash fewer). Back, swipes and taps while it loads wait at most one decode pass instead of the whole draw.
 - OPDS: the ✓ on downloaded books and cached feeds is twice as big (20 px), still left of the title; titles do not move.
 - File Transfer: an upload no longer fails when you switch away from the browser tab on a phone. The device keeps the partial file for 60 s, and the page reconnects when you come back and continues where it stopped. The page also keeps the phone's screen on while it uploads (Chrome, iOS Safari 16.4+).
@@ -180,6 +181,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Debug builds (X4 Pro): lowering Goodies > Knobs pxcCacheCap below what the image cache already held stopped it from evicting; the next image now evicts down to the new cap first.
 - Web File Manager: the Modified column is hidden on screens up to 800 px wide (was 600 px), so phones with a small display size or zoomed-out browser no longer squeeze file names to a few letters per line.
 - X4 Pro (debug builds): Goodies > Battery & stats no longer shows a longer time to empty for a brighter frontlight. When the log showed less drain with the light on than off (the light-off stretches held heavier work, like transfers), the light's share came out negative and grew with brightness; the light now only ever adds drain, so the estimate stays at the light-off rate until the log shows the light costing more. The estimate also follows brightness and Wi-Fi changes made while the page is open (it updates once the change holds for 1 s); before, it kept the state from when the page opened.
 - X4 Pro: after a crash or restart the device could get stuck rebooting about 0.3 s into every boot, so it looked like it would not wake until the reset button was pressed. A charger or button line left armed by the previous run no longer fires before its handler is ready.
