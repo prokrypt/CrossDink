@@ -76,6 +76,14 @@ void InputWake::begin() {
     LOG_ERR("WAKE", "Could not create input wake semaphore");
     return;
   }
+  // esp_restart() and panics reset only the CPUs, so the last run's GPIO
+  // interrupt enables survive. A line left level-armed fires as soon as the ISR
+  // service is up, before its handler is back: with no handler to disarm it, it
+  // storms into an INT_WDT panic on every boot until a power-on reset (1002b:
+  // GPIO21 floating high). Runs before anything else installs GPIO interrupts.
+  for (int pin = 0; pin < GPIO_PIN_COUNT; ++pin) {
+    if (GPIO_IS_VALID_GPIO(pin)) gpio_ll_intr_disable(&GPIO, pin);
+  }
   // The display BUSY line may already have installed the shared ISR service.
   const esp_err_t isrErr = gpio_install_isr_service(0);
   if (isrErr != ESP_OK && isrErr != ESP_ERR_INVALID_STATE) {

@@ -168,6 +168,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro: after a crash or restart the device could get stuck rebooting about 0.3 s into every boot, so it looked like it would not wake until the reset button was pressed. A charger or button line left armed by the previous run no longer fires before its handler is ready.
 - X4 Pro: if going to sleep ever gets stuck (seen once: the device stayed dark and ignored the power button until reset), it now restarts after 30 s instead of staying dead, and the next boot reports which sleep step stuck.
 - X4 Pro: waking after the charger was plugged in or unplugged during sleep no longer shows the boot splash like a cold start; the wake is as quick as any other.
 - X4 Pro: after a sleep that could be woken by the charger, the device stopped light-sleeping while awake (every attempt was rejected, so idle drain went up) until it was powered off. The charger status line no longer wakes light sleep; a charge start or stop is still noticed within a second. Debug builds' `[PM]` lines add `rjc=` (the last rejected sleep's cause), and a window where every sleep was rejected adds one line (at most once a minute) with each wake line's armed and current level, the power locks held and whether a USB host is attached.
