@@ -76,6 +76,18 @@ Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx);
 Result checkImageHeader(HalFile& file, size_t partitionSize);
 Result checkImageHeaderFile(const char* sdPath, size_t partitionSize);
 
+// Stream an image that arrives in pieces (Wi-Fi upload) into the next OTA app
+// partition: 64 KiB erase ahead, 4 KiB buffered writes, verified in the same
+// pass as flashValidatedFile. Only streamFinish() on a verified image of exactly
+// totalSize bytes switches otadata. One stream at a time; the caller's task
+// only. Any error ends the stream (the inactive slot may be partly written).
+Result streamBegin(size_t totalSize);
+Result streamWrite(const uint8_t* data, size_t len);
+Result streamFinish();
+void streamAbort();
+// A stream is open (begun, not yet finished or aborted). Any task.
+bool streamActive();
+
 const char* resultName(Result r);
 
 // Returns the chip_id at byte 12 of the running app image, or 0xFFFF when it

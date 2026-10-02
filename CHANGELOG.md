@@ -5,6 +5,7 @@
 - Debug builds (X4 Pro): Goodies > Wi-Fi remote joins a saved Wi-Fi network and keeps it up in the background, serving the PSRAM log (`/api/psram-log`) from any screen without opening File Transfer. The row shows the device's address; tap again to turn Wi-Fi off. File Transfer and Calibre Connect take the radio over when opened. The toggle is saved, so the remote reconnects in the background after every wake and restart; turning it on joins the saved network without opening the Wi-Fi screen.
 - The top status bar shows a Wi-Fi symbol left of the battery percentage while Wi-Fi is connected.
 - Debug builds (X4 Pro): `POST /api/cmd` runs the serial remote commands (keys, touch, typing, `KBDEXP`, settings) over Wi-Fi, from Goodies > Wi-Fi remote or File Transfer. Off unless `/debug/remote-token` is on the SD card; requests must carry that token. Usage: `docs/serial-remote.md`.
+- Debug builds (X4 Pro): `POST /api/ota` flashes a firmware image over the Wi-Fi remote or File Transfer with no confirm step: token-gated like `/api/cmd`, streamed straight into the update slot, verified before it is selected, then the device restarts. The frontlight pulses while it streams, as in a file transfer. Usage: `docs/serial-remote.md`.
 - Debug builds (X4 Pro): the remote can open screens (`GOTO <screen>`, `GOTO list`: Home, Library, Settings, Wi-Fi networks, Goodies, File Transfer, Calibre, OPDS, Nearby, resume reading and more) grab the screen over Wi-Fi (`/api/screenshot`, a PBM image) and tail the log live over Wi-Fi (`/api/psram-log?since=`). Usage: `docs/serial-remote.md`.
 - OPDS: when a book finishes downloading, a prompt asks whether to open it now.
 - OPDS: the download screen shows the size received so far and the total ("12.3 / 33.0 MB").
@@ -44,6 +45,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Wi-Fi: after a web request the device drops back to low power 0.5 s later instead of 2 s, and log tail and status polls (`/api/psram-log`, `/api/status`) drop it as soon as they are answered, so a log watcher no longer keeps the device awake. Uploads still run at full power until they finish.
 - X4 Pro: pages with gray (anti-aliased text, gray images) now use the full balanced gray waveform instead of the stock quick gray pass, which pushed the panel one way on every gray page. Each gray page now flashes once and takes about 1 s longer.
 - Turbo keyboard (X4 Pro): typing redraws only the letters that change, with a charge-balanced quick refresh (no one-way drive, pixels that stay the same are not driven), and tapped keys are no longer highlighted. The screen below redraws with the normal refresh when the keyboard closes.
 - X4 Pro: the cleanup refresh (Half) no longer re-drives every white pixel black-to-white each time; it runs only the real changes from the previous screen.

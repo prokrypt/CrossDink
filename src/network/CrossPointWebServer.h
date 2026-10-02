@@ -103,7 +103,8 @@ class CrossPointWebServer {
 
   // True from the first byte of a request, upload or WebSocket message until
   // TRANSFER_LINGER_MS after the last one: CPU at full clock, no light sleep,
-  // Wi-Fi modem awake. The linger keeps page loads and bursts fast.
+  // Wi-Fi modem awake. The linger keeps page loads and bursts fast. Log tail
+  // and status polls end the hold they took without lingering.
   bool isTransferActive() const { return transferActive.load(std::memory_order_relaxed); }
   // True while a request is being served or within `tailMs` of the last
   // request, upload chunk or WebSocket message. Unlike isTransferActive() it
@@ -139,12 +140,14 @@ class CrossPointWebServer {
   NetworkUDP udp;
   bool udpActive = false;
 
-  static constexpr unsigned long TRANSFER_LINGER_MS = 2000;
+  static constexpr unsigned long TRANSFER_LINGER_MS = 500;
   std::atomic<bool> transferActive{false};
   std::atomic<unsigned long> lastTransferMs{0};
   std::atomic<bool> requestBusy{false};  // handleClient() is serving a request
   void noteTransferActivity();
   void updateTransferIdle();
+  void endTransferHold();
+  void releasePollHold();
 
   // Serving task. It owns server and wsServer between begin() and stop().
   // Same stack as Arduino's loopTask, which used to run these handlers.
@@ -153,6 +156,10 @@ class CrossPointWebServer {
   static constexpr uint32_t IDLE_POLL_MS = 100;
   static constexpr int ACTIVE_PASSES_PER_TICK = 64;
   TaskHandle_t serverTask = nullptr;
+  // Log-only server (Goodies remote): stack in PSRAM. None of its handlers
+  // touch the SD card, and /api/ota's flash writes run on firmware_flash's
+  // internal-stack worker. Such a task parks at exit; stop() deletes it.
+  bool serverTaskPsram = false;
   SemaphoreHandle_t serverStopped = nullptr;
   std::atomic<bool> stopRequested{false};
   static void serverTaskMain(void* param);
@@ -186,6 +193,8 @@ class CrossPointWebServer {
   void handlePsramLog() const;
   void handleRemoteCmd() const;
   void handleScreenshot() const;
+  void handleOtaData() const;
+  void handleOtaDone() const;
 #endif
   void handleExit();
   void handleFileList() const;

@@ -39,7 +39,9 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 
 The same commands (without `CMD:`) also run over Wi-Fi, on Goodies > Wi-Fi remote and in File Transfer.
 The endpoint is off until `/debug/remote-token` exists on the SD card (one line, up to 64 characters;
-a bad or missing token gets `403 ERR:token`). The command runs on the main loop and the reply line is
+a bad or missing token gets `403 ERR:token`). A 6-digit PIN is enough: 5 bad tokens from one IP lock that IP out
+(`429 ERR:locked`, every token endpoint) for 60 s, doubling per lockout up to 64 min, until a good token or a
+reboot. Other IPs are not affected. Goodies > API token shows the last 4 characters (tap: the whole token, 10 s). The command runs on the main loop and the reply line is
 the response body: 200 for `OK:`, 400 for `ERR:`, 404 unknown command, 503 busy or no reply within 12 s.
 `PSRAMLOG` stays serial-only (use `GET /api/psram-log`). `SCREENSHOT` over Wi-Fi returns the image
 (below) instead of a reply line.
@@ -56,12 +58,34 @@ in the panel's native orientation, the same frame as `TOUCH` coordinates. It is 
 render lock, so it is never half-drawn; it shows what was last drawn, even if the panel refresh is still running.
 
 ```sh
-openssl rand -hex 16 > remote-token        # copy to the SD card as /debug/remote-token
+python3 -c 'import secrets; print(f"{secrets.randbelow(10**6):06}")' > remote-token  # SD: /debug/remote-token
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=KBDEXP 15 6" http://10.0.1.67/api/cmd
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=GOTO settings" http://10.0.1.67/api/cmd
 curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pbm http://10.0.1.67/api/screenshot
 convert screen.pbm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
 ```
+
+## Wi-Fi: POST /api/ota
+
+Flashes a firmware image with no File Transfer and no on-device confirm, on Goodies > Wi-Fi remote or File
+Transfer. Same token as `/api/cmd`, sent as a header; it is checked before anything is erased.
+
+```sh
+curl -s --data-binary @firmware.bin -H "Content-Type: application/octet-stream" \
+  -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/ota
+```
+
+The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
+table, checksum, SHA-256 and board tag, as SD Card Firmware Update does. Only a verified image switches the boot
+slot; OTA rollback still applies on the next boot.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| 200 | `OK:OTA rebooting` | Verified and selected; the device restarts from the main loop about 0.2 s later. |
+| 403 | `ERR:token` | Missing or wrong `X-Token`, or no `/debug/remote-token`; nothing written. |
+| 400 | `ERR:OTA:<reason>` | `TOO_SMALL`, `TOO_LARGE`, `BAD_MAGIC`, `BAD_CHIP`, `WRONG_BOARD`, `BAD_SIZE`, `BAD_CHECKSUM`, `BAD_SHA`, `ERASE_FAIL`, `WRITE_FAIL`, `OTADATA_FAIL`, `READ_FAIL` (connection dropped), `OOM`. The running firmware stays selected. |
+
+Needs `Content-Length` (curl sends it). Each 64 KiB flash erase pauses the screen briefly during the upload.
 
 ## Wi-Fi: live log tail
 

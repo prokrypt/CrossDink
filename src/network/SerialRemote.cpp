@@ -27,6 +27,7 @@
 #include "CrossPointState.h"
 #include "OpdsServerStore.h"
 #include "SettingsList.h"
+#include "SilentRestart.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/goodies/GoodiesActivity.h"
@@ -88,6 +89,7 @@ char httpLine[260];
 char httpToken[TOKEN_MAX + 2];
 char httpReply[256];
 int httpStatus = 0;
+uint32_t httpIp = 0;
 
 // Wi-Fi screenshot: PBM (P4) image, inverted from the framebuffer's 1 = white.
 // Static in PSRAM (debug x4-pro only) so a grab never needs a 48 KB heap block.
@@ -373,14 +375,55 @@ bool tokenMatches(const char* given) {
   return diff == 0;
 }
 
+// Bad tokens per client IP, so a short PIN can't be brute-forced: 5 misses lock
+// that IP for 60 s, doubling per lock up to 64 min; a good token clears it.
+// Per IP, so a stranger's misses never lock out another client. Main task only.
+// ponytail: 8 slots; with every slot locked, new IPs are refused too (fails
+// closed, a many-IP flood blocks everyone until the locks run out). RAM only.
+struct Strikes {
+  uint32_t ip;
+  uint8_t misses;
+  uint8_t locks;
+  uint32_t lockedUntil;  // millis(); 0 = not locked
+};
+Strikes strikes[8];
+
+bool lockActive(const Strikes& s, const uint32_t now) {
+  return s.lockedUntil != 0 && static_cast<int32_t>(s.lockedUntil - now) > 0;
+}
+
+// The IP's slot, else the free or least-struck unlocked slot; null when all are locked.
+Strikes* strikesFor(const uint32_t ip, const uint32_t now) {
+  Strikes* pick = nullptr;
+  for (Strikes& s : strikes) {
+    if (s.ip == ip) return &s;
+    if (!lockActive(s, now) && (!pick || s.misses + s.locks < pick->misses + pick->locks)) pick = &s;
+  }
+  if (pick) *pick = {ip, 0, 0, 0};
+  return pick;
+}
+
 // Main task: runs a command queued by runFromOtherTask().
 void pollHttp() {
   if (httpState.load(std::memory_order_acquire) != 1) return;
+  const uint32_t now = millis();
+  Strikes* s = strikesFor(httpIp, now);
+  if (!s || lockActive(*s, now)) {
+    strcpy(httpReply, "ERR:locked");
+    return finishHttp(429);
+  }
   if (!tokenMatches(httpToken)) {
     LOG_ERR("SER", "Wi-Fi remote: bad token");
     strcpy(httpReply, "ERR:token");
+    if (++s->misses >= 5) {
+      s->misses = 0;
+      s->lockedUntil = (now + (60000u << std::min<uint8_t>(s->locks, 6))) | 1;
+      if (s->locks < 6) s->locks++;
+      LOG_ERR("SER", "Wi-Fi remote: client locked out");
+    }
     return finishHttp(403);
   }
+  *s = {httpIp, 0, 0, 0};
   httpState.store(2, std::memory_order_release);
   if (strcmp(httpLine, "CMD:SCREENSHOT") == 0) return takeSnapshot();
   if (!handleLine(httpLine)) {
@@ -525,8 +568,9 @@ bool handleLine(const char* line) {
   } else if (strcmp(verb, "REBOOT") == 0) {
     reply("OK:REBOOT");
     logSerial.flush();
-    delay(50);
-    ESP.restart();  // intentional: remote-control reboot for test runs
+    // /api/ota lands here too: save what the open screens save on exit first.
+    activityManager.exitAllActivities();
+    silentRestart();  // intentional: remote-control reboot for test runs, no logo
   } else if (strcmp(verb, "WAITIDLE") == 0) {
     cmdWaitIdle(args);
   } else if (strcmp(verb, "GOTO") == 0) {
@@ -616,7 +660,8 @@ void poll() {
   }
 }
 
-int runFromOtherTask(const char* token, const char* cmd, char* out, const size_t outLen, const uint32_t timeoutMs) {
+int runFromOtherTask(const char* token, const char* cmd, const uint32_t clientIp, char* out, const size_t outLen,
+                     const uint32_t timeoutMs) {
   static bool init = false;  // server task only
   if (!init) {
     httpDone = xSemaphoreCreateBinary();
@@ -632,6 +677,7 @@ int runFromOtherTask(const char* token, const char* cmd, char* out, const size_t
   memset(httpToken, 0, sizeof(httpToken));
   strncpy(httpToken, token, sizeof(httpToken) - 1);
   snprintf(httpLine, sizeof(httpLine), "CMD:%s", cmd);
+  httpIp = clientIp;
   httpState.store(1, std::memory_order_release);
   if (xSemaphoreTake(httpDone, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) {
     uint8_t queued = 1;

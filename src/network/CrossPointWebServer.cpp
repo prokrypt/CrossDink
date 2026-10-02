@@ -24,6 +24,7 @@
 #include <esp_heap_caps.h>
 #include <esp_image_format.h>
 #include <esp_ota_ops.h>
+#include <freertos/idf_additions.h>
 #endif
 
 #include <algorithm>
@@ -34,6 +35,7 @@
 
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
+#include "FirmwareFlasher.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
 #include "QuickActions.h"
@@ -507,16 +509,22 @@ void CrossPointWebServer::begin(const bool logOnly) {
 
   // Setup routes
 #if CROSSDINK_PSRAM_LOG
-  server->on("/api/psram-log", HTTP_GET, [this] { handlePsramLog(); });
+  server->on("/api/psram-log", HTTP_GET, [this] {
+    releasePollHold();
+    handlePsramLog();
+  });
 #endif
 #if CROSSDINK_SERIAL_REMOTE
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
   server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
+  server->on("/api/ota", HTTP_POST, [this] { handleOtaDone(); }, [this] { handleOtaData(); });
 #endif
   server->onNotFound([this] { handleNotFound(); });
   if (logOnly) {
     // Nothing else: no SD access behind other screens, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
+    const char* remoteHeaders[] = {"X-Token"};
+    server->collectHeaders(remoteHeaders, 1);
     server->begin();
   } else {
     server->on("/", HTTP_GET, [this] { handleRoot(); });
@@ -525,7 +533,10 @@ void CrossPointWebServer::begin(const bool logOnly) {
     server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
     server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
-    server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+    server->on("/api/status", HTTP_GET, [this] {
+      releasePollHold();
+      handleStatus();
+    });
     server->on("/api/exit", HTTP_POST, [this] { handleExit(); });
     server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
     server->on("/download", HTTP_GET, [this] { handleDownload(); });
@@ -569,8 +580,9 @@ void CrossPointWebServer::begin(const bool logOnly) {
     server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
 
     // Collect WebDAV headers and register handler
-    const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
-    server->collectHeaders(davHeaders, 7);
+    const char* davHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
+                                "Lock-Token", "Timeout",     "If-None-Match", "X-Token"};
+    server->collectHeaders(davHeaders, 8);
     server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
 
     server->begin();
@@ -597,11 +609,21 @@ void CrossPointWebServer::begin(const bool logOnly) {
   running.store(true, std::memory_order_release);
   // Internal-RAM stack (8 KB) only while the server runs: handlers write to
   // the SD card, and task stacks must stay reachable while flash is busy.
-  // UI core: on core 0 with Wi-Fi, lwIP and the loop, uploads held core 0 at
-  // 92% (WebServer 36%) while core 1 did ~20%. The upload writer takes core 0.
+  // The log-only server has no such handlers, so its stack goes to PSRAM
+  // (internal fallback). UI core: on core 0 with Wi-Fi, lwIP and the loop,
+  // uploads held core 0 at 92% (WebServer 36%) while core 1 did ~20%. The
+  // upload writer takes core 0.
+  // Set before the task can run: serverTaskMain reads it to decide how to exit.
+  serverTaskPsram = logOnly;
+  if (serverTaskPsram &&
+      (!stateMutex || !serverStopped ||
+       xTaskCreatePinnedToCoreWithCaps(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
+                                       TaskCores::kUi, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)) {
+    serverTaskPsram = false;
+  }
   if (!stateMutex || !serverStopped ||
-      xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
-                              TaskCores::kUi) != pdPASS) {
+      (!serverTaskPsram && xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2,
+                                                   &serverTask, TaskCores::kUi) != pdPASS)) {
     LOG_ERR("WEB", "Failed to start web server task");
     serverTask = nullptr;
     stop();
@@ -643,6 +665,7 @@ void CrossPointWebServer::stop() {
   stopRequested.store(true, std::memory_order_release);
   if (serverTask) {
     xSemaphoreTake(serverStopped, portMAX_DELAY);
+    if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
     serverTask = nullptr;
   }
   if (transferActive.exchange(false, std::memory_order_relaxed)) powerManager.endBackgroundWork();
@@ -681,8 +704,13 @@ void CrossPointWebServer::stop() {
 }
 
 void CrossPointWebServer::serverTaskMain(void* param) {
-  static_cast<CrossPointWebServer*>(param)->serveUntilStopped();
-  PerfLog::noteTaskExit("WebServer");
+  auto* self = static_cast<CrossPointWebServer*>(param);
+  const bool parks = self->serverTaskPsram;
+  self->serveUntilStopped();  // last touch of self
+  // A PSRAM stack cannot be freed by its own task: wait for stop() to delete it.
+  if (parks) {
+    for (;;) vTaskSuspend(nullptr);
+  }
   vTaskDelete(nullptr);
 }
 
@@ -702,6 +730,7 @@ void CrossPointWebServer::serveUntilStopped() {
     // Not yield(): lower-priority workers and IDLE0 need the core too.
     vTaskDelay(1);
   }
+  PerfLog::noteTaskExit("WebServer");
   xSemaphoreGive(serverStopped);
 }
 
@@ -802,11 +831,24 @@ void CrossPointWebServer::updateTransferIdle() {
     return;
   }
   if (millis() - lastTransferMs < TRANSFER_LINGER_MS) return;
+  endTransferHold();
+}
+
+void CrossPointWebServer::endTransferHold() {
   transferActive.store(false, std::memory_order_relaxed);
   // The main loop drops the CPU lock on its next idle tick.
   powerManager.endBackgroundWork();
   if (!apMode) WiFi.setSleep(true);
   LOG_DBG("WEB", "Transfer idle: modem and light sleep allowed");
+}
+
+// Log tail and status polls are a few KB: end the hold now instead of
+// lingering, so a poller cannot keep the device awake. This also ends a hold
+// an earlier request left lingering (the log watcher GETs /api/status, a 404
+// on the Wi-Fi remote, just before the log); the next request takes it again.
+void CrossPointWebServer::releasePollHold() {
+  if (!isTransferActive() || wsUploadInProgress) return;
+  endTransferHold();
 }
 
 // Serving task: copy the upload state for the activity when it changed.
@@ -970,22 +1012,84 @@ void CrossPointWebServer::handlePsramLog() const {
 #endif
 
 #if CROSSDINK_SERIAL_REMOTE
+// The requesting client, for the bad-token lockout.
+static uint32_t clientIp(WebServer& server) { return static_cast<uint32_t>(server.client().remoteIP()); }
+
 // Debug builds: runs one serial-remote command (docs/serial-remote.md) on the
 // main task. Token and SD access stay on the main task too.
 void CrossPointWebServer::handleRemoteCmd() const {
   if (server->arg("cmd") == "SCREENSHOT") return handleScreenshot();
   static char out[256];  // Static: server task only, keeps the reply off its stack
-  const int status =
-      SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(), out, sizeof(out), 12000);
+  const int status = SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(),
+                                                    clientIp(*server), out, sizeof(out), 12000);
   server->send(status, "text/plain; charset=utf-8", out);
+}
+
+namespace {
+// /api/ota state, server task only.
+bool otaAuthorized = false;
+firmware_flash::Result otaResult = firmware_flash::Result::OK;
+}  // namespace
+
+// Debug builds: raw firmware upload (docs/serial-remote.md). The token is
+// checked on the main task (as /api/cmd) before anything is erased; the image
+// streams into the next OTA slot, verified in the same pass, and only a
+// verified image switches otadata. No SD access.
+void CrossPointWebServer::handleOtaData() const {
+  const HTTPRaw& raw = server->raw();
+  static char out[32];
+  switch (raw.status) {
+    case RAW_START:
+      otaAuthorized = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", clientIp(*server), out,
+                                                     sizeof(out), 12000) == 200;
+      otaResult =
+          otaAuthorized ? firmware_flash::streamBegin(server->clientContentLength()) : firmware_flash::Result::OK;
+      break;
+    case RAW_WRITE:
+      if (otaAuthorized && otaResult == firmware_flash::Result::OK) {
+        otaResult = firmware_flash::streamWrite(raw.buf, raw.currentSize);
+      }
+      break;
+    case RAW_END:
+      if (otaAuthorized && otaResult == firmware_flash::Result::OK) otaResult = firmware_flash::streamFinish();
+      break;
+    case RAW_ABORTED:
+      firmware_flash::streamAbort();
+      otaResult = firmware_flash::Result::READ_FAIL;
+      break;
+  }
+}
+
+void CrossPointWebServer::handleOtaDone() const {
+  if (!otaAuthorized) {
+    LOG_ERR("WEB", "/api/ota refused: bad token");
+    server->send(403, "text/plain; charset=utf-8", "ERR:token");
+    return;
+  }
+  otaAuthorized = false;
+  LOG_INF("WEB", "/api/ota: %s, server task stack min free %u (%s)", firmware_flash::resultName(otaResult),
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)), serverTaskPsram ? "PSRAM" : "internal");
+  if (otaResult != firmware_flash::Result::OK) {
+    firmware_flash::streamAbort();
+    char msg[40];
+    snprintf(msg, sizeof(msg), "ERR:OTA:%s", firmware_flash::resultName(otaResult));
+    server->send(400, "text/plain; charset=utf-8", msg);
+    return;
+  }
+  server->send(200, "text/plain; charset=utf-8", "OK:OTA rebooting");
+  delay(200);  // let the reply leave before the restart
+  // Restart on the main task, between loop passes, as CMD:REBOOT does.
+  static char out[32];
+  SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "REBOOT", clientIp(*server), out, sizeof(out),
+                                 2000);
 }
 
 // Debug builds: the current framebuffer as a PBM, captured on the main task
 // under the render lock (so never half-drawn) and sent from its static copy.
 void CrossPointWebServer::handleScreenshot() const {
   static char out[64];
-  const int status =
-      SerialRemote::runFromOtherTask(server->arg("token").c_str(), "SCREENSHOT", out, sizeof(out), 12000);
+  const int status = SerialRemote::runFromOtherTask(server->arg("token").c_str(), "SCREENSHOT", clientIp(*server), out,
+                                                    sizeof(out), 12000);
   if (status != 200) {
     server->send(status, "text/plain; charset=utf-8", out);
     return;
