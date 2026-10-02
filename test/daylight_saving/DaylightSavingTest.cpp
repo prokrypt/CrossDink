@@ -82,6 +82,19 @@ TEST(DaylightSaving, LocalToUtcUndoesTheOffset) {
   EXPECT_EQ(minute, 30);
 }
 
+TEST(DaylightSaving, LocalToUtcPacificWinterAndSummer) {
+  // WebDAV mtime check: FAT local 2026-01-01 00:00 (PST) is 08:00 GMT; 2026-07-01 00:00 (PDT) is 07:00 GMT.
+  uint16_t year = 2026;
+  uint8_t month = 1, day = 1, hour = 0, minute = 0;
+  localToUtc(offsetQ(-8), RULE_US_CANADA, year, month, day, hour, minute);
+  EXPECT_EQ(day, 1);
+  EXPECT_EQ(hour, 8);
+
+  month = 7, day = 1, hour = 0, minute = 0;
+  localToUtc(offsetQ(-8), RULE_US_CANADA, year, month, day, hour, minute);
+  EXPECT_EQ(hour, 7);
+}
+
 TEST(DaylightSaving, AddMinutesCarriesAcrossMonthsAndLeapDays) {
   uint16_t year = 2024;
   uint8_t month = 2, day = 28, hour = 23, minute = 30;
