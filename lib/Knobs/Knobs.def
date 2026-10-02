@@ -91,7 +91,6 @@ X("Power", idleWaitMs, uint32_t, 50, 10, 250, 10, "ms")                // fast i
 X("Power", idleWaitSettledMs, uint32_t, 250, 50, 1000, 50, "ms")       // settled idle tick
 X("Power", idleWaitLongMs, uint32_t, 1000, 250, 5000, 250, "ms")       // deep idle tick
 X("Power", idleBackoffAfterMs, unsigned long, 2000, 2000, 10000, 500, "ms")  // idle before backing off
-X("Power", idleLongAfterMs, unsigned long, 10000, 2000, 60000, 1000, "ms")   // idle before the deep tick
 X("Power", panelIdleOffMs, uint32_t, 10000, 2000, 60000, 1000, "ms")   // booster off after an early wake
 X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // battery gauge cache
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache

@@ -18,10 +18,14 @@
 #include <atomic>
 
 namespace {
-std::array<gpio_num_t, 8> wakePins{};
+std::array<gpio_num_t, 10> wakePins{};  // keys, touch INT, charger STAT
 size_t wakePinCount = 0;
 SemaphoreHandle_t wakeSignal = nullptr;
 bool allInputsCovered = false;
+// Charger STAT: not an input, but a charge start or stop should end the wait
+// so the loop sees USB/charging change without a poll tick.
+int8_t chargePin = -1;
+std::atomic<bool> chargeWoke{false};
 #if CROSSDINK_PERF_LOG
 // Line interrupts per kind for the [PM] wake counts (ISR writes; DRAM).
 int8_t touchWakePin = -1;
@@ -34,10 +38,14 @@ std::atomic<uint32_t> touchWakes{0};
 // until the next wait() re-arms it against the level it reads then.
 void IRAM_ATTR onWakeLine(void* arg) {
   gpio_ll_intr_disable(&GPIO, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg)));
-#if CROSSDINK_PERF_LOG
   const auto pin = static_cast<int>(reinterpret_cast<uintptr_t>(arg));
-  (pin == touchWakePin ? touchWakes : buttonWakes).fetch_add(1, std::memory_order_relaxed);
+  if (pin == chargePin) {
+    chargeWoke.store(true, std::memory_order_relaxed);
+  } else {
+#if CROSSDINK_PERF_LOG
+    (pin == touchWakePin ? touchWakes : buttonWakes).fetch_add(1, std::memory_order_relaxed);
 #endif
+  }
   BaseType_t higherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(wakeSignal, &higherPriorityTaskWoken);
   if (higherPriorityTaskWoken == pdTRUE) portYIELD_FROM_ISR();
@@ -97,6 +105,14 @@ void InputWake::begin() {
                             (board.touch.controller == BoardConfig::TouchController::Gt911 && board.touch.irq >= 0);
   allInputsCovered =
       allArmed && board.inputStyle == BoardConfig::InputStyle::DigitalButtons && touchCovered && wakePinCount > 0;
+  // A charger with no input power leaves STAT floating; pull it toward "not
+  // charging" (as the deep-sleep ext0 wake does) so the level wake can't chatter.
+  const int8_t stat = board.batteryChargeStatus;
+  if (stat >= 0 && addWakePin(stat)) {
+    chargePin = stat;
+    const auto pin = static_cast<gpio_num_t>(stat);
+    board.batteryChargeStatusActiveHigh ? gpio_pulldown_en(pin) : gpio_pullup_en(pin);
+  }
 
   if (wakePinCount > 0 && esp_sleep_enable_gpio_wakeup() != ESP_OK) {
     LOG_ERR("WAKE", "Could not enable GPIO wake from light sleep");
@@ -120,7 +136,13 @@ void InputWake::wait(const uint32_t timeoutMs) {
   xSemaphoreTake(wakeSignal, pdMS_TO_TICKS(timeoutMs));
 }
 
+void InputWake::wake() {
+  if (wakeSignal) xSemaphoreGive(wakeSignal);
+}
+
 bool InputWake::coversAllInputs() { return allInputsCovered; }
+
+bool InputWake::takeChargeWake() { return chargeWoke.exchange(false, std::memory_order_relaxed); }
 
 void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
 #if CROSSDINK_PERF_LOG
@@ -138,7 +160,11 @@ void InputWake::begin() {}
 
 void InputWake::wait(const uint32_t timeoutMs) { delay(timeoutMs); }
 
+void InputWake::wake() {}
+
 bool InputWake::coversAllInputs() { return false; }
+
+bool InputWake::takeChargeWake() { return false; }
 
 void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
   buttons = 0;

@@ -104,7 +104,7 @@ size_t formatLogHeader(char* buf, const size_t size) {
                          "=== sec: %s\n"
                          "=== uptime=%lu:%02lu:%02lu heap free=%u min=%u maxAlloc=%u psram free=%u ===\n",
                          BoardConfig::ACTIVE.name, static_cast<unsigned>(mac >> 32),
-                         static_cast<unsigned long>(mac & 0xFFFFFFFFu), CROSSDINK_VERSION, BuildInfo::gitSha(),
+                         static_cast<unsigned long>(mac & 0xFFFFFFFFu), AppVersion::version(), BuildInfo::gitSha(),
                          strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", CROSSDINK_PIOENV, BuildInfo::buildNumber(),
                          controllerName(), BoardConfig::ACTIVE.displayControllerVariant, detectMethod(d), d.ver[0],
                          d.ver[1], d.ver[2], d.ver[3], d.ver[4], id, lut, sec, upS / 3600, (upS / 60) % 60, upS % 60,
