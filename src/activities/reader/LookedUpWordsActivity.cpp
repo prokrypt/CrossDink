@@ -103,6 +103,10 @@ void LookedUpWordsActivity::buildHistoryScreen(UiApp::ScreenType& screen) {
       fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
                                        metrics.verticalSpacing),
                   0, static_cast<int16_t>(metrics.buttonHintsHeight + metrics.verticalSpacing), 0});
+  if (entries.empty()) {
+    screen.centeredText(tr(STR_LOOKUP_HISTORY_EMPTY), screen.theme().bodyText);
+    return;
+  }
 
   fui::ListProps props;
   props.items = uiItems.data();
@@ -269,30 +273,19 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   if (controller.render()) return;
 
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
   TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LOOKUP_HISTORY), true);
 
-  const int contentTop =
-      metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
-
-  if (entries.empty()) {
-    const int midY = contentTop + (pageHeight - contentTop - metrics.buttonHintsHeight) / 2;
-    renderer.drawCenteredText(UI_10_FONT_ID, midY, tr(STR_LOOKUP_HISTORY_EMPTY));
-    const auto buttonLabels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
-    GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4, true);
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    return;
-  }
-
   uiReady = false;
   app.render();
   uiReady = true;
 
+  const bool empty = entries.empty();
   const auto buttonLabels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), empty ? "" : tr(STR_SELECT),
+                            empty ? "" : tr(STR_DIR_UP), empty ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4, true);
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
