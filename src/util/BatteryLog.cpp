@@ -470,10 +470,12 @@ bool flush() {
   }
   if (file.fileSize() >= kMaxFileBytes) {
     file.close();
-    Storage.remove(OLD_PATH);
-    if (!Storage.rename(LOG_PATH, OLD_PATH)) {
-      LOG_ERR("BAT", "Failed to rotate %s", LOG_PATH);
-      return false;
+    Storage.remove(LOG_PATHS[LOG_FILES - 1]);
+    for (int i = LOG_FILES - 1; i > 0; --i) {
+      if (Storage.exists(LOG_PATHS[i - 1]) && !Storage.rename(LOG_PATHS[i - 1], LOG_PATHS[i])) {
+        LOG_ERR("BAT", "Failed to rotate %s", LOG_PATHS[i - 1]);
+        return false;
+      }
     }
     return flush();  // the fresh file is empty, so this recurses once
   }

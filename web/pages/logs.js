@@ -123,7 +123,7 @@ $('fm').onclick = () => font(-2);
 $('fp').onclick = () => font(2);
 font(0);
 
-// Battery: /debug/logs/battery.1.csv + battery.csv + rows still in PSRAM
+// Battery: /debug/logs/battery.3.csv to battery.1.csv + battery.csv + rows still in PSRAM
 // (/api/battery-pending), columns as BatteryLog.h, plus live readings and
 // refresh counts from /api/status. Rows without an RTC time (epoch 0) are left out.
 let bat = [];
@@ -501,29 +501,35 @@ tab();
     const r = await fetch(u).catch(() => null);
     return r && r.ok ? r.text() : '';
   };
-  const text = [
-    await get('/download?path=' + encodeURIComponent('/debug/logs/battery.1.csv')),
-    await get('/download?path=' + encodeURIComponent('/debug/logs/battery.csv')),
-    await get('/api/battery-pending'),
-  ].join('\n');
+  const csv = (i) => get('/download?path=' + encodeURIComponent('/debug/logs/battery' + (i ? '.' + i : '') + '.csv'));
+  const parse = (text) =>
+    text
+      .split('\n')
+      .map((l) => l.split(','))
+      .filter((f) => f.length >= 10 && +f[0] > 0)
+      .map((f) => ({
+        t: +f[0], local: f[1], pct: +f[3], q: f[3].includes('.') ? 0.01 : 1, mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
+        temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
+      }));
+  // Newest first: battery.csv and the unwritten rows draw at once, then each
+  // older file (battery.1.csv to battery.3.csv) goes in front, with a redraw each.
+  let text = (await csv(0)) + '\n' + (await get('/api/battery-pending'));
   status = JSON.parse((await get('/api/status')) || '{}');
-  bat = text
-    .split('\n')
-    .map((l) => l.split(','))
-    .filter((f) => f.length >= 10 && +f[0] > 0)
-    .map((f) => ({
-      t: +f[0], local: f[1], pct: +f[3], q: f[3].includes('.') ? 0.01 : 1, mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
-      temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
-    }));
-  hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);
-  if (hasBat) summary();
-  if (bat.length > 1) {
-    segments();
-    stateTable();
-    sessions();
-    $('range').onchange = () => ((view = null), draw());
-    $('rz').onclick = () => ((view = null), draw());
-    window.onresize = () => $('bat').hidden || draw();
+  for (let i = 1; ; i++) {
+    bat = parse(text);
+    hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);
+    if (hasBat) summary();
+    if (bat.length > 1) {
+      segments();
+      stateTable();
+      sessions();
+      $('range').onchange = () => ((view = null), draw());
+      $('rz').onclick = () => ((view = null), draw());
+      window.onresize = () => $('bat').hidden || draw();
+    }
+    tab();
+    const older = i <= 3 ? await csv(i) : '';
+    if (!older) break;
+    text = older + '\n' + text;
   }
-  tab();
 })();

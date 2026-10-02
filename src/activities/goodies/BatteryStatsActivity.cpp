@@ -14,6 +14,7 @@
 #include <Memory.h>
 #include <PerfLog.h>
 #include <WiFi.h>
+#include <esp_rom_crc.h>
 #include <esp_sleep.h>
 
 #include <algorithm>
@@ -35,29 +36,11 @@
 
 namespace {
 
-// Pointer to field n (0-based) of a CSV row, or nullptr.
-const char* field(const char* row, int n) {
-  while (n-- > 0) {
-    row = strchr(row, ',');
-    if (!row) return nullptr;
-    ++row;
-  }
-  return row;
-}
-
 // A logged % is whole ("71", older rows and rows logged asleep) or has the
 // CW2017 fraction ("71.43"), so a drop is exact to ±1 or ±0.01: rates and
 // estimates carry that ±, and wait for a 2% drop (0.2% when mostly fractional).
 uint32_t minDropC(const uint32_t dropC, const uint32_t coarseC) { return coarseC * 2 >= dropC ? 200 : 20; }
 constexpr char NOT_ENOUGH[] = "not enough data";
-
-// "71.43" -> 7143; fine = the field had a fraction.
-uint16_t parseCenti(const char* field, bool& fine) {
-  char* end = nullptr;
-  const float v = strtof(field, &end);
-  fine = end && memchr(field, '.', end - field) != nullptr;
-  return static_cast<uint16_t>(std::clamp(lroundf(v * 100), 0L, 10000L));
-}
 
 // "12m", "1h 21m", "2d 3h".
 void formatDur(const uint32_t seconds, char* out, const size_t size) {
@@ -92,6 +75,33 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32
   snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, errC * 36.0f / seconds, span);
 }
 
+// battery.sum: a BatteryLogParser after the last full row of a log file, and
+// where that row ends. The CRC of the bytes before that offset finds the file
+// again after rotations renamed it; no match (or a bad CRC) means a full read.
+constexpr char SUM_PATH[] = "/debug/logs/battery.sum";
+constexpr char SUM_TMP_PATH[] = "/debug/logs/battery.sum.tmp";
+constexpr uint32_t SUM_MAGIC = 0x42535531;     // "BSU1": bump on any parse rule change
+constexpr uint32_t SUM_MIN_READ = 32 * 1024;   // a load that read less leaves battery.sum as it is
+struct SumHeader {
+  uint32_t magic;
+  uint32_t size;     // sizeof(BatteryLogParser): a layout change drops the file
+  uint32_t offset;   // after the last full row read
+  uint32_t tailCrc;  // of the up to 64 bytes before offset
+  uint32_t crc;      // of the parser that follows
+};
+
+// CRC of the up to 64 bytes before offset; 0 when they can't be read.
+uint32_t tailCrc(HalFile& f, const uint32_t offset) {
+  uint8_t b[64];
+  const uint32_t n = std::min<uint32_t>(offset, sizeof(b));
+  if (n == 0 || !f.seekSet(offset - n) || f.read(b, n) != static_cast<int>(n)) return 0;
+  return esp_rom_crc32_le(0, b, n);
+}
+
+uint32_t parserCrc(const BatteryLogParser& p) {
+  return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&p), sizeof(p));
+}
+
 // The live state the estimate is for: brightness (0 = off), +0x100 with Wi-Fi on.
 uint16_t estimateState() {
   const uint8_t light = Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0;
@@ -102,7 +112,10 @@ uint16_t estimateState() {
 void BatteryStatsActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::flush();  // so the graph includes this session
-  startLoad();          // the page draws at once; the log rows fill in when it is read
+  startLoad();
+  // Rows since battery.sum usually read in a few ms, so the first frame has the
+  // numbers; otherwise the page draws now and they fill in as loop() reads on.
+  step(LOAD_STEP_MS * 2);
   requestUpdate();
 }
 
@@ -113,22 +126,66 @@ void BatteryStatsActivity::onExit() {
 }
 
 // The log is read a few KB at a time from loop() so the page draws and takes
-// input right away; up to 2 x 256 KB of CSV is too much to read in one go.
+// input right away; a full read of up to 4 x 256 KB of CSV is too much for one go.
+// Usually battery.sum leaves only the rows since the last load to read.
 void BatteryStatsActivity::startLoad() {
   file.close();
-  pointCount = 0;
-  st = {};
-  prev = {};
   fill = 0;
-  fileIndex = 0;
+  sumFile = -1;
   // Heap, not stack: 4 KB reads are multi-sector, far faster than 512 B ones.
   if (!buf) buf = makeUniqueNoThrow<char[]>(LOAD_BUF_BYTES);
   if (!buf) LOG_ERR("BAT", "Cannot allocate log buffer");
-  if (buf) file = Storage.open(BatteryLog::OLD_PATH, O_RDONLY);  // only exists after the first rotation
+  if (buf && !resumeFromSum()) {
+    parser = {};
+    fileIndex = BatteryLog::LOG_FILES - 1;  // the oldest; missing files read as empty
+    fileOff = 0;
+    file = Storage.open(BatteryLog::LOG_PATHS[fileIndex], O_RDONLY);
+  }
   loading = buf != nullptr;
   loadStartMs = millis();
   loadBytes = 0;
   buildLines();
+}
+
+bool BatteryStatsActivity::resumeFromSum() {
+  HalFile f = Storage.open(SUM_PATH, O_RDONLY);
+  if (!f) return false;
+  SumHeader h{};
+  const bool ok = f.read(&h, sizeof(h)) == static_cast<int>(sizeof(h)) && h.magic == SUM_MAGIC &&
+                  h.size == sizeof(parser) && f.read(&parser, sizeof(parser)) == static_cast<int>(sizeof(parser)) &&
+                  parserCrc(parser) == h.crc;
+  f.close();
+  if (!ok) {
+    LOG_INF("BAT", "battery.sum unusable; reading the whole log");
+    return false;
+  }
+  for (int i = 0; i < BatteryLog::LOG_FILES; ++i) {
+    file = Storage.open(BatteryLog::LOG_PATHS[i], O_RDONLY);
+    if (file && file.fileSize() >= h.offset && tailCrc(file, h.offset) == h.tailCrc && file.seekSet(h.offset)) {
+      fileIndex = i;
+      fileOff = sumOff = h.offset;
+      sumFile = i;
+      LOG_INF("BAT", "Resuming the log at %s:%lu", BatteryLog::LOG_PATHS[i], static_cast<unsigned long>(h.offset));
+      return true;
+    }
+    file.close();
+  }
+  LOG_INF("BAT", "battery.sum matches no log file; reading the whole log");
+  return false;
+}
+
+// Before the open stretch is closed for display, so a resumed read carries it on.
+void BatteryStatsActivity::saveSum() {
+  HalFile src = Storage.open(BatteryLog::LOG_PATHS[sumFile], O_RDONLY);
+  const SumHeader h{SUM_MAGIC, sizeof(parser), sumOff, src ? tailCrc(src, sumOff) : 0, parserCrc(parser)};
+  src.close();
+  if (h.tailCrc == 0) return;
+  HalFile f = Storage.open(SUM_TMP_PATH, O_WRONLY | O_CREAT | O_TRUNC);
+  bool ok = f && f.write(&h, sizeof(h)) == sizeof(h) && f.write(&parser, sizeof(parser)) == sizeof(parser);
+  ok = f.close() && ok;
+  // Removed first: rename does not replace. A failure in between only costs a full read.
+  ok = ok && (!Storage.exists(SUM_PATH) || Storage.remove(SUM_PATH)) && Storage.rename(SUM_TMP_PATH, SUM_PATH);
+  if (!ok) LOG_ERR("BAT", "Failed to save %s", SUM_PATH);
 }
 
 void BatteryStatsActivity::step(const uint32_t budgetMs) {
@@ -139,13 +196,19 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
     if (n <= 0) {
       file.close();
       fill = 0;  // a last row without a newline is still being written
-      if (++fileIndex == 1) {
-        file = Storage.open(BatteryLog::LOG_PATH, O_RDONLY);
+      if (fileOff != 0) {
+        sumFile = fileIndex;
+        sumOff = fileOff;
+      }
+      if (fileIndex > 0) {
+        file = Storage.open(BatteryLog::LOG_PATHS[--fileIndex], O_RDONLY);
+        fileOff = 0;
         continue;
       }
       loading = false;
       buf.reset();
-      endStretch(st);
+      if (loadBytes > SUM_MIN_READ && sumFile >= 0) saveSum();
+      BatteryLogParser::endStretch(parser.st);
       LOG_INF("BAT", "Stats page read %lu B of log in %lu ms", static_cast<unsigned long>(loadBytes),
               static_cast<unsigned long>(millis() - loadStartMs));
       buildLines();
@@ -159,120 +222,17 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
     char* line = buf.get();
     for (char* nl; (nl = strchr(line, '\n')) != nullptr; line = nl + 1) {
       *nl = '\0';
-      parseRow(line);
+      parser.parseRow(line);
     }
-    fill = strlen(line);
+    const size_t rest = strlen(line);
+    fileOff += static_cast<uint32_t>(fill - rest);
+    fill = rest;
     memmove(buf.get(), line, fill);
-    if (fill == LOAD_BUF_BYTES - 1) fill = 0;  // no row is this long; drop it
-  }
-}
-
-void BatteryStatsActivity::endStretch(LogStats& s) {
-  for (int k = 0; k < 2; ++k) {
-    if (s.netC[k] > 0) {
-      s.dropC[k] += static_cast<uint32_t>(s.netC[k]);
-      s.coarseC[k] += static_cast<uint32_t>(std::clamp<int32_t>(s.netCoarseC[k], 0, s.netC[k]));
+    if (fill == LOAD_BUF_BYTES - 1) {  // no row is this long; drop it
+      fileOff += static_cast<uint32_t>(fill);
+      fill = 0;
     }
-    s.netC[k] = s.netCoarseC[k] = 0;
   }
-  s.run = -1;
-}
-
-void BatteryStatsActivity::parseRow(const char* line) {
-  const uint32_t epoch = strtoul(line, nullptr, 10);
-  const char* pctField = field(line, 3);
-  const char* chgField = field(line, 5);
-  const char* usbField = field(line, 6);
-  const char* event = field(line, 9);
-  if (epoch == 0 || !pctField || !chgField || !usbField || !event) return;  // header, or no RTC time
-  const char* detail = field(line, 10);
-  auto is = [event](const char* name) {
-    const size_t len = strlen(name);
-    return strncmp(event, name, len) == 0 && (event[len] == ',' || event[len] == '\0');
-  };
-  bool fine = false;
-  const uint16_t pctC = parseCenti(pctField, fine);
-  const uint8_t pct = static_cast<uint8_t>(pctC / 100);
-  const bool usb = *usbField == '1';
-  const bool asleep = is("sleep") || (detail && strncmp(detail, "asleep", 6) == 0);
-  const bool boot = is("boot");
-  const bool cold = boot && detail && strstr(detail, "reset=POWERON");
-
-  if (is("stats_reset")) {
-    st = {};
-    st.reset = true;
-  } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
-    // The span from the previous row is awake or asleep; before a cold boot it was off.
-    const uint32_t dt = epoch - prev.epoch;
-    const int32_t drop = static_cast<int32_t>(prevC) - pctC;  // negative: the gauge rose
-    (prev.awake ? st.awakeS : st.asleepS) += dt;
-    // Drops come from rows of one precision: a whole row (a charger event
-    // logged asleep) inside fractional data counts its time, and the drop is
-    // taken across it from prevC; the step from a whole row to a fractional
-    // one is skipped (its rounding would be a drop of up to 1%).
-    const int cat = prev.awake ? 0 : 1;
-    if (prev.awake && !prevUsb && !usb && fine && prevRowFine &&
-        (st.chargedEpoch == 0 || prev.epoch >= st.chargedEpoch + UNPLUG_SKIP_S)) {
-      const int k = (prevWifi ? 2 : 0) + (prevLight ? 1 : 0);
-      st.stateDropC[k] += static_cast<int32_t>(prevRowC) - pctC;
-      st.stateS[k] += dt;
-      st.stateLight[k] += static_cast<uint64_t>(prevLight) * dt;
-    }
-    if (!prevUsb && !usb && fine == prevFine) {
-      st.battS[cat] += dt;
-      st.netC[cat] += drop;
-      if (!fine) st.netCoarseC[cat] += drop;
-      if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
-      st.run = static_cast<int8_t>(cat);
-      st.runFine = fine;
-    } else if (!prevUsb && !usb && prevFine) {
-      st.battS[cat] += dt;
-    } else {
-      endStretch(st);
-    }
-  } else {
-    endStretch(st);
-  }
-  if (st.first == 0) st.first = epoch;
-  st.last = epoch;
-  if (boot) ++(cold ? st.coldBoots : st.restarts);
-  if (is("wake")) ++st.wakes;
-  if (const char* f = detail ? strstr(detail, "false_wakes=") : nullptr) st.falseWakes += strtoul(f + 12, nullptr, 10);
-  if (usb || *chgField == '1') {
-    if (!st.charging && (st.chargedEpoch == 0 || epoch - st.chargedEpoch >= CHARGE_MERGE_S)) {
-      st.chargeFromC = pctC;
-      st.chargeStartEpoch = epoch;
-      st.chargeFromFine = fine;
-    }
-    st.charging = true;
-  } else if (st.charging) {
-    st.charging = false;
-    st.chargedEpoch = epoch;
-  }
-  if (st.charging || st.chargedEpoch == epoch) {
-    st.chargeToC = pctC;
-    st.chargeToFine = fine;
-  }
-
-  if (pointCount == MAX_POINTS) {
-    std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
-    pointCount = MAX_POINTS / 2;
-  }
-  prev = {epoch, pct, !asleep};
-  // A whole row after fractional ones is not a drop reference, unless a USB
-  // step, power-off gap or reset breaks the chain there.
-  if (fine || !prevFine || usb || prevUsb || is("stats_reset") || cold) {
-    prevC = pctC;
-    prevFine = fine;
-  }
-  prevUsb = usb;
-  prevRowC = pctC;
-  prevRowFine = fine;
-  if (boot || is("wake") || is("sleep") || is("wifi_off")) prevWifi = false;
-  if (is("wifi_on")) prevWifi = true;
-  const char* lightField = field(line, 8);
-  prevLight = lightField ? static_cast<uint8_t>(atoi(lightField)) : 0;
-  points[pointCount++] = prev;
 }
 
 void BatteryStatsActivity::buildLines() {
@@ -293,6 +253,7 @@ void BatteryStatsActivity::buildLines() {
              "  %.1fC", tempDeci / 10.0f);
   }
 
+  const auto& st = parser.st;
   if (loading) {
     // Read from loop() in slices (step()); these fill in when it is done.
     for (const char* name : {"Chg", "Awake drain", "Asleep drain", "Est to empty"}) add("%s: calculating...", name);
@@ -320,7 +281,7 @@ void BatteryStatsActivity::buildLines() {
     const bool wifiNow = builtState >> 8;
     const uint8_t lightNow = builtState & 0xFF;
     const int k = wifiNow ? 2 : 0;
-    auto rateOf = [this](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
+    auto rateOf = [&st](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
       return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
     };
     const float avgLight = st.stateS[k + 1] ? static_cast<float>(st.stateLight[k + 1]) / st.stateS[k + 1] : 0.0f;
@@ -508,6 +469,8 @@ void BatteryStatsActivity::render(RenderLock&&) {
     const int gy = y + gh * q / 4;
     for (int gx = x; gx < x + w; gx += 8) renderer.drawLine(gx, gy, gx + 2, gy);
   }
+  const Point* points = parser.points;
+  const int pointCount = parser.pointCount;
   if (pointCount >= 2 && points[pointCount - 1].epoch > points[0].epoch) {
     const uint32_t t0 = points[0].epoch;
     const uint32_t spanS = points[pointCount - 1].epoch - t0;
