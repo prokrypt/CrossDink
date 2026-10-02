@@ -67,6 +67,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- UI consistency pass. Clear Reading Cache, Backup Now, Update and Wi-Fi Forget confirm with the same popup as the rest of the UI ("Confirm: <action>"); the Update page under it centres its version lines. Status pages (Clear Cache, Backup, Sync Clock, Wi-Fi) use one UI_10 bold title style and line spacing. The Update screen keeps one header style in every state (the back icon hides while installing). The File Transfer screens use the standard header, centre their text with QR codes below, and say Exit on all three. The XTC reader menu uses toggles for on/off rows. Goodies titles use Title Case and Pin Monitor shows a switch (debug builds). Settings > KOReader Sync dims Authenticate until credentials are set. Reading Stats' second pages show Back (previous page) on the back button and Exit on Left.
 - Web portal: Home, Settings, Fonts, Battery and Logs headings and action buttons carry emoji icons like the File Manager.
 - Web portal: deleting a saved Wi-Fi network, OPDS server or font family asks in the same styled dialog as the File Manager instead of the browser's confirm box.
 - Web portal: buttons, headings and corner radii look the same on every page (one shared button style with primary, danger and small variants; one heading style).
@@ -183,6 +184,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Upside-down button hints in inverted portrait on Lookup History, Did you mean, Dictionary definition, XTC menu, Clip selection, End-of-book options, and on Font Family / Dictionary pickers opened from the reader (TTF Rendering opened from Settings no longer uses reader hints). Calibre showed "Receiving: : name" and no Back hint on its error screen. Wi-Fi network names cut mid-character; they are now trimmed to the screen width with "…". Bookmarks & Clippings said "No bookmarks yet". The interval picker's value touched the Lyra header. Library Settings, Button Remap and Goodies values sat flush to the row edge. XTC error messages and the Edit Dates title used fixed positions.
 - Web portal: the Battery nav link opens its own page at `/battery` and is highlighted there (it used to light up Logs). Old `/logs#battery` links still open the Battery view.
 - Web File Manager: the Modified column is hidden on screens up to 800 px wide (was 600 px), so phones with a small display size or zoomed-out browser no longer squeeze file names to a few letters per line.
 - X4 Pro (debug builds): Goodies > Battery & stats no longer shows a longer time to empty for a brighter frontlight. When the log showed less drain with the light on than off (the light-off stretches held heavier work, like transfers), the light's share came out negative and grew with brightness; the light now only ever adds drain, so the estimate stays at the light-off rate until the log shows the light costing more. The estimate also follows brightness and Wi-Fi changes made while the page is open (it updates once the change holds for 1 s); before, it kept the state from when the page opened.
