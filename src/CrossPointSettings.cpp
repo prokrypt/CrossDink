@@ -502,6 +502,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
   if (keyboardLayouts != 0) doc["keyboardLayouts"] = keyboardLayouts;
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
+  doc["indexingMethodSchema"] = 1;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   doc["screenInverted"] = screenInverted;
   doc["goodiesWifiRemote"] = goodiesWifiRemote;
@@ -776,6 +777,11 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     needsResave = true;
   }
   if (!doc["tiltPageTurnDirection"].isNull() && doc["tiltPageTurnDirectionSchema"].isNull()) needsResave = true;
+  // One-time move of the old Full section default (CrossInk) to IncreMENTAL.
+  if (doc["indexingMethodSchema"].isNull()) {
+    if (indexingMethod == INDEXING_FULL_SECTION) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
+    needsResave = true;
+  }
 
   if (doc["hideClock"].isNull() && !doc["statusBarClock"].isNull()) {
     constexpr uint8_t LEGACY_SHOW_CLOCK_NEVER = 0;

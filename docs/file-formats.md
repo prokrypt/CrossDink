@@ -331,7 +331,7 @@ struct ReaderSettingsBin {
     u8 focusReadingEnabled;
     u8 guideReadingEnabled;
     u8 snapshotRenderMode;
-    u8 indexingMethod; // 0 = incremental, 1 = full section
+    u8 indexingMethod; // 0 = incremental, 1 = full section, 2 = incremental (mental)
     char sdFontFamilyName[64];
     char dictionarySdFontFamilyName[64]; // meaningful only when flag bit 3 is set
     u8 dictionaryFontPointSize; // 0 = follow reader size
