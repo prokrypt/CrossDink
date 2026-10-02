@@ -49,6 +49,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Time to Sleep steps are now 1, 2, 3, 4, 5, 10, 20, 30 min, 1, 2, 4, 6, 8, 10 and 12 h, and Never, still on a slider (the web settings page shows them as a list). A saved time moves to the nearest step (a tie takes the shorter one).
 - Turbo keyboard (X4 Pro): about 27 ms less per key when typing quickly; the panel keeps its own copy of the last frame, so the firmware no longer re-sends it after each key.
 - Wi-Fi: after a web request the device drops back to low power 0.5 s later instead of 2 s, and log tail and status polls (`/api/psram-log`, `/api/status`) drop it as soon as they are answered, so a log watcher no longer keeps the device awake. Uploads still run at full power until they finish.
 - X4 Pro: less flashing. Leaving a gray page, or opening a menu over it, repaints only the gray pixels and what changed instead of the whole screen.
