@@ -30,10 +30,17 @@ HalDisplay::RefreshCounts& HalDisplay::refreshCounts() {
 void HalDisplay::count(int) {}
 #endif
 
+// Builds with a PSRAM noinit segment (S3) keep the gray planes for screenshots.
+#if CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY && !defined(SIMULATOR)
+#define GRAY_SHOT 1
+#else
+#define GRAY_SHOT 0
+#endif
+
 namespace {
-#if CROSSDINK_SERIAL_REMOTE
-// Debug screenshots: copies of the last gray pass's planes, so /api/screenshot
-// can show 4 levels. PSRAM statics (debug x4-pro only), never read by rendering.
+#if GRAY_SHOT
+// Screenshots: copies of the last gray pass's planes, so screenshots can show 4
+// levels. PSRAM statics, never read by rendering.
 constexpr uint32_t SHOT_PLANE_MAX = 48000;  // largest current panel
 EXT_RAM_NOINIT_ATTR uint8_t shotLsb[SHOT_PLANE_MAX];
 EXT_RAM_NOINIT_ATTR uint8_t shotMsb[SHOT_PLANE_MAX];
@@ -449,7 +456,7 @@ uint16_t HalDisplay::getDisplayWidthBytes() const { return einkDisplay.getDispla
 uint32_t HalDisplay::getBufferSize() const { return einkDisplay.getBufferSize(); }
 
 bool HalDisplay::grayShotReady() const {
-#if CROSSDINK_SERIAL_REMOTE
+#if GRAY_SHOT
   return shotShown && getBufferSize() <= SHOT_PLANE_MAX;
 #else
   return false;
@@ -457,7 +464,7 @@ bool HalDisplay::grayShotReady() const {
 }
 
 uint8_t HalDisplay::grayShotLevel(const uint32_t x, const uint32_t y) const {
-#if CROSSDINK_SERIAL_REMOTE
+#if GRAY_SHOT
   // Levels per GrayscaleCapabilities.h. Overlay masks (LSB, MSB): dark=11,
   // light=01, else the B/W framebuffer (1 = white), which holds the page base
   // again once a gray pass returns. Absolute planes: level = LSB + 2 * MSB.

@@ -155,7 +155,7 @@ class HalDisplay {
   // straight to the controller; supportsStripGrayscale() gates the path. See
   // EInkDisplay::writeGrayscalePlaneStrip.
   void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows);
-  // Screenshots (debug builds, CROSSDINK_SERIAL_REMOTE): true while the last
+  // Screenshots (S3 builds with a PSRAM noinit segment): true while the last
   // gray pass is still on the panel (no B/W refresh since); grayShotLevel()
   // then gives a panel-native pixel as 0 black, 1 dark, 2 light, 3 white.
   bool grayShotReady() const;
