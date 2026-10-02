@@ -8195,11 +8195,15 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // A drawn-ahead frame serves at most this render; any other render may
   // change what the next page should look like.
   clearPrerenderedPage();
-  // Image Color covers this render only; other screens keep the default mapping.
+  // BW images cover this render only; other screens keep the default mapping.
   struct BwImagesScope {
-    explicit BwImagesScope(const bool on) { DirectPixelWriter::bwImages = on; }
-    ~BwImagesScope() { DirectPixelWriter::bwImages = false; }
-  } bwImagesScope(SETTINGS.imageColor == CrossPointSettings::IMAGE_COLOR_BW);
+    explicit BwImagesScope(const uint8_t mode) { DirectPixelWriter::bwImages = mode; }
+    ~BwImagesScope() { DirectPixelWriter::bwImages = DirectPixelWriter::BW_IMAGES_OFF; }
+  } bwImagesScope(SETTINGS.imageRendering == CrossPointSettings::IMAGES_DISPLAY_BW
+                      ? DirectPixelWriter::BW_IMAGES_DIFFUSE
+                  : SETTINGS.imageRendering == CrossPointSettings::IMAGES_DISPLAY_BW_DARK
+                      ? DirectPixelWriter::BW_IMAGES_DARK
+                      : DirectPixelWriter::BW_IMAGES_OFF);
 #if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     if (!touchReaderPreviewAllocationAttempted) {
@@ -9002,7 +9006,7 @@ void EpubReaderActivity::refreshChapterGroupEstimate(const uint16_t viewportWidt
   mix(SETTINGS.paragraphAlignment);
   mix(SETTINGS.hyphenationEnabled);
   mix(SETTINGS.embeddedStyle);
-  mix(SETTINGS.imageRendering);
+  mix(SETTINGS.imageLayoutMode());
   mix(SETTINGS.focusReadingEnabled);
   mix(SETTINGS.guideReadingEnabled);
   mix(SETTINGS.wordSpacing);

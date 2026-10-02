@@ -13,10 +13,12 @@
 // ImageBlock::render() already validates this before entering the pixel loop,
 // and the JPEG/PNG callbacks pre-clamp destination ranges to screen bounds.
 struct DirectPixelWriter {
-  // Reader "Image Color: BW": images skip the gray planes and the BW pass
-  // re-dithers the 2-bit levels with a 2x2 ordered pattern. Set by the reader
-  // for the duration of a page render only.
-  static inline bool bwImages = false;
+  // Reader Images "Display: BW" / "BW dark": images skip the gray planes and
+  // the BW pass re-dithers the 2-bit levels with a 2x2 ordered pattern (BW
+  // dark). BW error-diffuses cached images instead (ImageBlock) and writes only
+  // levels 0/3 here. Set by the reader for the duration of a page render only.
+  enum BwImages : uint8_t { BW_IMAGES_OFF, BW_IMAGES_DIFFUSE, BW_IMAGES_DARK };
+  static inline uint8_t bwImages = BW_IMAGES_OFF;
 
   uint8_t* fb;
   GfxRenderer::RenderMode mode;
