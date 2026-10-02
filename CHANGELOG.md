@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- X4 Pro and other PSRAM devices: screenshots taken while an anti-aliased page or gray image is on screen keep its 4 gray levels. The shortcut and reader-menu screenshot saves a 4-bit BMP; the debug `/api/screenshot` returns a PGM. After a black-and-white refresh they are 1-bit as before.
 - KOReader Sync > Sync on Book Exit (off by default; also in the web settings as `koSyncOnExit`). Closing a book pushes its saved position to the sync server in the background (push only, nothing is pulled), with no screen and nothing to wait for. It needs sync credentials and a saved Wi-Fi network: Wi-Fi comes on for the push and goes off again (an existing connection is used and left up). Skipped when you sleep from the book, open another book or a Wi-Fi screen within 1.5 s, or memory is short; failures only go to the log (`exit push ...`).
 - OPDS: choosing a book asks "Download? <title>" with its size before downloading (from the feed when it says, otherwise looked up in the background; "?" if unknown). A book already on the SD card gets the overwrite question with its size and date instead, and no size lookup.
 - OPDS: background page loads give up after 10 s of silence instead of 60 s, pause 30 s after a network failure, and a page loaded in the last minute is not rechecked when you go back to it, so Wi-Fi can idle sooner while browsing.
