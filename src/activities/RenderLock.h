@@ -18,4 +18,7 @@ class RenderLock {
   bool ownsLock() const { return isLocked; }
   static bool peek();
   static bool heldByCaller();
+  // Called every ~10 ms while a blocking take or requestUpdateAndWait() waits.
+  static void (*waitTick)();
+  static constexpr unsigned long WAIT_TICK_MS = 10;
 };

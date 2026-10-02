@@ -37,6 +37,7 @@ class HalFrontlight {
 
  private:
   HalFrontlight() = default;
+  void drive(uint8_t percent);
 
   FrontlightManager manager;
   // The SDK manager folds "off" into brightness 0; keep the user's level and
@@ -44,6 +45,7 @@ class HalFrontlight {
   uint8_t lastBrightness = 60;
   bool lit = false;
   uint8_t idleDim = 100;
+  uint8_t driven = 0xFF;  // the level last sent to the manager (0xFF: none yet)
 
   static HalFrontlight instance;
 };
