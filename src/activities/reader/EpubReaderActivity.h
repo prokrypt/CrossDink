@@ -131,7 +131,7 @@ class EpubReaderActivity final : public Activity {
   // one-shot clean base for its first image page; normal image-page cleanup
   // uses pagesUntilFullRefresh independently.
   bool cleanImageBasePending = false;
-  // Softfast holds B/W over the Fast base. Book open and the first page after a
+  // Noflash holds B/W over the Fast base. Book open and the first page after a
   // covering screen (drawer, menus) swing fully so nothing of it ghosts.
   bool smoothFullSwingPending = true;
   // The image page whose grayscale pass last reached the panel. Redrawing that
@@ -658,7 +658,7 @@ class EpubReaderActivity final : public Activity {
   void onExit() override;
   void onCovered() override {
     smoothFullSwingPending = true;
-    // Menus over a Softfast page get the longer repaint (driver keys it on smooth gray).
+    // Menus over a Noflash page get the longer repaint (driver keys it on smooth gray).
     renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH);
     waitSilentIndexWorker(/*cancel=*/true);
     waitDrawAhead(/*publish=*/false);
