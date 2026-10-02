@@ -8,7 +8,6 @@
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
-#include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -213,10 +212,11 @@ void UsbDriveActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const char* title = tr(STR_USB_DRIVE);
   const bool canExitWithInput = state == State::WaitingForHost || state == State::IoError;
-  if (mappedInput.hasTouchHardware() && canExitWithInput) {
-    TouchHeaderBackButton::drawCompact(renderer, title);
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (canExitWithInput) {
+    TouchHeaderBackButton::draw(renderer, header, title, false);
   } else {
-    CompactHeader::drawTitle(renderer, title);
+    GUI.drawHeader(renderer, header, title);  // no back icon while input cannot exit
   }
 
   if (preparing) {

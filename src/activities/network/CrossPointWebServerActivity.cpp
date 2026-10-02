@@ -18,7 +18,6 @@
 #include "activities/ActivityManager.h"
 #include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
-#include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -471,7 +470,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
 
 void CrossPointWebServerActivity::renderHeader() const {
   const char* title = isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER);
-  TouchHeaderBackButton::drawCompact(renderer, title);
+  TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), title, false);
 }
 
 bool CrossPointWebServerActivity::exitRequested() const {
@@ -485,7 +484,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
   const auto pageWidth = renderer.getScreenWidth();
 
   renderHeader();
-  const int subHeaderTop = CompactHeader::contentTop(metrics);
+  const int subHeaderTop = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
   GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
   if (!isApMode) {

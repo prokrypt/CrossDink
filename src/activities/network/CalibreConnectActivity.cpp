@@ -11,7 +11,6 @@
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/goodies/GoodiesActivity.h"
-#include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -175,7 +174,8 @@ void CalibreConnectActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  TouchHeaderBackButton::drawCompact(renderer, tr(STR_CALIBRE_WIRELESS));
+  TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput),
+                              tr(STR_CALIBRE_WIRELESS), false);
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - height) / 2;
 
@@ -184,7 +184,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
   } else if (state == CalibreConnectState::ERROR) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CONNECTION_FAILED), true, EpdFontFamily::BOLD);
   } else if (state == CalibreConnectState::SERVER_RUNNING) {
-    const int subHeaderTop = CompactHeader::contentTop(metrics);
+    const int subHeaderTop = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
     GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
     // Keep the network name and full address independently readable on narrow
