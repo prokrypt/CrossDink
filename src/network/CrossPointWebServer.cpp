@@ -695,6 +695,7 @@ void CrossPointWebServer::registerFullRoutes() {
   // Font management endpoints
   server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
   server->on("/logs", HTTP_GET, [this] { handleLogsPage(); });
+  server->on("/battery", HTTP_GET, [this] { handleLogsPage(); });  // same page, Battery tab
   server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
   server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
   server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });

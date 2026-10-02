@@ -501,14 +501,15 @@ function summary() {
   table('sum', null, rows);
 }
 
-// Battery and Logs are two nav tabs on one page: /logs#battery and /logs.
-// A build without battery data falls back to the log viewer.
+// Battery and Logs are two nav tabs on one page: /battery (or the older
+// /logs#battery) and /logs. A build without battery data falls back to the log viewer.
 let hasBat = null; // null until the battery data has loaded
 function tab() {
-  const b = location.hash === '#battery' && hasBat !== false;
+  const b = (location.pathname === '/battery' || location.hash === '#battery') && hasBat !== false;
   $('bat').hidden = !(b && hasBat);
   $('lg').hidden = b;
-  for (const a of document.querySelectorAll('.nav-links a')) a.classList.toggle('active', a.getAttribute('href') === (b ? '/logs#battery' : '/logs'));
+  for (const a of document.querySelectorAll('.nav-links a')) a.classList.toggle('active', a.getAttribute('href') === (b ? '/battery' : '/logs'));
+  document.title = (b ? 'Battery' : 'Logs') + ' - CrossDink';
   if (b && bat.length > 1) draw(); // charts size to the card, so draw once it is visible
 }
 window.onhashchange = tab;
