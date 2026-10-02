@@ -212,12 +212,15 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const int titleLineHeight = renderer.getLineHeight(kTitleFontId);
   const int titleBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight +
                                std::max(0, static_cast<int>(titleLines.size()) - 1) * kTitleLineGap;
-  const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
+  // Title block sits under the battery row: half a spacing above, one spacing below.
+  const int titleTopGap = metrics.verticalSpacing / 2;
+  const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleTopGap + titleBlockHeight +
+                                                              metrics.verticalSpacing);
   listHeaderHeight = headerHeight;
   const Rect header{0, metrics.topPadding, pageWidth, headerHeight};
   TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
 
-  const int titleY = metrics.topPadding + metrics.batteryBarHeight + 3;
+  const int titleY = metrics.topPadding + metrics.batteryBarHeight + titleTopGap;
   for (int i = 0; i < static_cast<int>(titleLines.size()); ++i) {
     renderer.drawText(kTitleFontId, titleX, titleY + i * (titleLineHeight + kTitleLineGap), titleLines[i].c_str(), true,
                       EpdFontFamily::BOLD);
