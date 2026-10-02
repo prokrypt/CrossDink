@@ -58,6 +58,8 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- X4 Pro: idle loop. After 2 s with no input the main loop wakes once a second (was every 250 ms until 10 s). Under Quick Lock it waits the same way instead of every 10 ms.
+- X4 Pro: the main loop wakes at once when a screen finishes drawing, when another task asks for a redraw, or when the charger starts or stops, instead of noticing at its next idle tick.
 - A brightness slide or two-finger swipe that ends at 0% turns the frontlight off. Turning it back on restores the brightness from before the slide.
 - OPDS: the ✓ on downloaded books and cached feeds is twice as big (20 px), still left of the title; titles do not move.
 - Crash reports are now saved to `/debug/crash_report.txt` and the battery diagnostic log to `/debug/battery_log.csv`, next to the other debug files on the SD card. An existing `/crash_report.txt` or `/battery_log.csv` is left where it is.

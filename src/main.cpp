@@ -1662,9 +1662,10 @@ void setup() {
   const esp_partition_t* running = esp_ota_get_running_partition();
   [[maybe_unused]] const char* runningPart = running ? running->label : "?";
 #endif
-  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", CROSSDINK_VERSION, BuildInfo::gitSha(),
-          strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
-          BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
+  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", AppVersion::version(),
+          BuildInfo::gitSha(), strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(),
+          CROSSDINK_PIOENV, BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart,
+          resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
@@ -1858,7 +1859,7 @@ void setup() {
             (BoardConfig::isX4Pro() || CROSSDINK_APP_DEVICE_X4CLASSIC) ? "DOWN" : "UP");
   }
 
-  LOG_DBG("MAIN", "Starting CrossDink version " CROSSDINK_VERSION);
+  LOG_DBG("MAIN", "Starting CrossDink version %s", AppVersion::version());
   logMemoryStats("Boot");
 
   // Resolve the single boot-presentation decision. Skipping the splash also
@@ -2053,7 +2054,6 @@ KNOB_ALIAS(IDLE_WAIT_LONG_MS, idleWaitLongMs);
 // Toasts, hold thresholds and the Home double tap all resolve within a couple
 // of seconds of the last input, so the idle tick stays short until then.
 KNOB_ALIAS(IDLE_WAIT_BACKOFF_AFTER_MS, idleBackoffAfterMs);
-KNOB_ALIAS(IDLE_WAIT_LONG_AFTER_MS, idleLongAfterMs);
 
 bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
@@ -2309,7 +2309,7 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   // into radio idle (OPDS list, KOSync result) only needs the loop for input,
   // exit requests and link checks: 4 wakes/s instead of 20.
   if (radioIdle) return IDLE_WAIT_SETTLED_MS;
-  return idleMs < IDLE_WAIT_LONG_AFTER_MS ? IDLE_WAIT_SETTLED_MS : IDLE_WAIT_LONG_MS;
+  return IDLE_WAIT_LONG_MS;
 }
 
 #if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
@@ -2648,8 +2648,10 @@ static void loopPass() {
     }
     mappedInputManager.clearInjectedReleases();
     // Nothing draws while locked; wait like an idle pass (ends early on input).
+    // Unlock holds and unwired inputs keep the 10 ms tick.
     loopPassBlocked = true;
-    InputTask::waitForInput(10);
+    InputTask::waitForInput(!InputWake::coversAllInputs() || anyInputHeld() ? 10
+                                                                            : idleWaitMs(millis() - lastActivityTime));
     return;
   }
 

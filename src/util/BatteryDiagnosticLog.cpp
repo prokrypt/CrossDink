@@ -182,7 +182,7 @@ void record(const Event event, const char* const deviceName, const char* const w
   formatOptional(soc, sizeof(soc), battery.socKnown, battery.soc);
   formatOptional(millivolts, sizeof(millivolts), battery.millivoltsKnown, battery.millivolts);
   formatOptional(charging, sizeof(charging), battery.chargingKnown, battery.charging ? 1u : 0u);
-  formatText(version, sizeof(version), CROSSDINK_VERSION);
+  formatText(version, sizeof(version), AppVersion::version());
 
   char row[ROW_LEN];
   const int rowLen =
