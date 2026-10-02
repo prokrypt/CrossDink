@@ -452,6 +452,8 @@ static void restartWithSilentToken() {
   retainPanelFrame();
   // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
   // policy change the light without saving it, so hand the live state over.
+  // A transfer pulse turns the light on for itself: hand over the user's state.
+  TransferLightPulse::yieldToUser();
   silentRebootFrontlight = Frontlight.isOn() ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
 #ifdef SIMULATOR
   SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
