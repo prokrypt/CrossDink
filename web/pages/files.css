@@ -215,6 +215,11 @@ h2 {
 .file-table .modified-col {
       white-space: nowrap;
     }
+@media (max-width: 800px) {
+      .file-table .modified-col {
+        display: none;
+      }
+    }
 .file-table th {
       font-weight: 600;
       color: var(--label-color);
@@ -1309,9 +1314,6 @@ h2 {
       }
       .file-table th {
         font-size: 0.85em;
-      }
-      .file-table .modified-col {
-        display: none;
       }
       .file-icon {
         margin-right: 4px;
