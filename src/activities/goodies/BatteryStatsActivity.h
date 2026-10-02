@@ -72,7 +72,9 @@ class BatteryStatsActivity final : public Activity {
   void step(uint32_t budgetMs);
   void parseRow(const char* line);
   void buildLines();
-  Rect resetRect() const;  // touch builds: "Reset" at the header's right end
+  Rect resetRect() const;    // touch builds: "Reset" at the header's right end
+  Rect refreshRect() const;  // and "Refresh" left of it
+  void refresh();
   void confirmReset();
 
   Point points[MAX_POINTS];

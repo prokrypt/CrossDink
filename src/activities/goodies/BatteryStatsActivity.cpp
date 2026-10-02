@@ -384,6 +384,22 @@ Rect BatteryStatsActivity::resetRect() const {
   return Rect{header.x + header.width - w, l.touchRect.y, w, l.touchRect.height};
 }
 
+Rect BatteryStatsActivity::refreshRect() const {
+  const Rect reset = resetRect();
+  const int w = renderer.getTextWidth(UI_10_FONT_ID, tr(STR_DISPLAY_REFRESH)) + 24;
+  return Rect{reset.x - w, reset.y, w, reset.height};
+}
+
+// Re-reads the log and live readings, as on entering the page.
+void BatteryStatsActivity::refresh() {
+  BatteryLog::flush();
+  {
+    RenderLock lock(*this);  // render() reads points and lines
+    startLoad();
+  }
+  requestUpdate();
+}
+
 void BatteryStatsActivity::confirmReset() {
   auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET) + std::string("?"),
                                                         tr(STR_BATTERY_STATS));
@@ -415,10 +431,19 @@ void BatteryStatsActivity::loop() {
     confirmReset();
     return;
   }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+    refresh();
+    return;
+  }
   if (mappedInput.hasTouchHardware()) {
     const Rect r = resetRect();
     if (mappedInput.wasTapInRect(r.x, r.y, r.width, r.height)) {
       confirmReset();
+      return;
+    }
+    const Rect f = refreshRect();
+    if (mappedInput.wasTapInRect(f.x, f.y, f.width, f.height)) {
+      refresh();
       return;
     }
   }
@@ -440,12 +465,13 @@ void BatteryStatsActivity::render(RenderLock&&) {
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     const Rect r = resetRect();
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width);
+    const Rect f = refreshRect();
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width + f.width);
     const auto l = TouchHeaderBackButton::layout(header);
-    renderer.drawText(UI_10_FONT_ID, r.x + 12,
-                      l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
-                          (l.iconRect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
-                      tr(STR_RESET));
+    const int ty = l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
+                   (l.iconRect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+    renderer.drawText(UI_10_FONT_ID, f.x + 12, ty, tr(STR_DISPLAY_REFRESH));
+    renderer.drawText(UI_10_FONT_ID, r.x + 12, ty, tr(STR_RESET));
   } else {
     GUI.drawHeader(renderer, header, tr(STR_BATTERY_STATS));
   }
@@ -501,7 +527,8 @@ void BatteryStatsActivity::render(RenderLock&&) {
     }
   }
 
-  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_RESET), "", "");
+  const auto labels =
+      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_RESET), "", tr(STR_DISPLAY_REFRESH));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
