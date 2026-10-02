@@ -1,5 +1,6 @@
 #include "BmpViewerActivity.h"
 
+#include <Arduino.h>
 #include <Bitmap.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -9,9 +10,12 @@
 #include <SdCardFontSystem.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "Epub/converters/DecodePipeline.h"
 #include "Epub/converters/DirectPixelWriter.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
@@ -52,6 +56,129 @@ uint8_t viewerBwImages() {
     default:
       return DirectPixelWriter::BW_IMAGES_OFF;
   }
+}
+
+// Centers the PNG on the page, scaled down to fit. BW and BW dark threshold with no ordered dither;
+// Dither and Gray keep the PNG decoder's ordered dither.
+bool pngRenderConfig(const std::string& path, const int pageWidth, const int pageHeight, const uint8_t look,
+                     RenderConfig& config) {
+  ImageDimensions dims;
+  if (!PngToFramebufferConverter::getDimensionsStatic(path, dims)) return false;
+  float scale = 1.0f;
+  if (dims.width > pageWidth || dims.height > pageHeight) {
+    const float scaleX = static_cast<float>(pageWidth) / static_cast<float>(dims.width);
+    const float scaleY = static_cast<float>(pageHeight) / static_cast<float>(dims.height);
+    scale = std::min(scaleX, scaleY);
+  }
+  config.maxWidth = std::max(1, static_cast<int>(static_cast<float>(dims.width) * scale));
+  config.maxHeight = std::max(1, static_cast<int>(static_cast<float>(dims.height) * scale));
+  config.x = (pageWidth - config.maxWidth) / 2;
+  config.y = (pageHeight - config.maxHeight) / 2;
+  config.useGrayscale = true;
+  config.useDithering = look != DirectPixelWriter::BW_IMAGES_BW && look != DirectPixelWriter::BW_IMAGES_DARK;
+  config.performanceMode = false;
+  config.useExactDimensions = true;
+  return true;
+}
+
+// Centers the BMP on the page; scale < 1 when it is shrunk to fit (as GfxRenderer::drawBitmap does).
+void fitBitmap(const Bitmap& bitmap, const int pageWidth, const int pageHeight, int& x, int& y, float& scale) {
+  scale = 1.0f;
+  if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
+    const float ratio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
+    const float screenRatio = static_cast<float>(pageWidth) / static_cast<float>(pageHeight);
+    if (ratio > screenRatio) {
+      // Wider than screen
+      x = 0;
+      y = std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
+    } else {
+      // Taller than screen
+      x = std::round((static_cast<float>(pageWidth) - static_cast<float>(pageHeight) * ratio) / 2);
+      y = 0;
+    }
+    scale = std::min(static_cast<float>(pageWidth) / bitmap.getWidth(),
+                     static_cast<float>(pageHeight) / bitmap.getHeight());
+  } else {
+    // Center small images
+    x = (pageWidth - bitmap.getWidth()) / 2;
+    y = (pageHeight - bitmap.getHeight()) / 2;
+  }
+}
+
+// Decode-once BMP: the worker core reads (and dithers) rows into pipeline slots; the render task
+// writes their levels through DirectPixelWriter's level planes.
+struct BmpLevelJob {
+  Bitmap* bitmap;
+  HalFile* file;
+  uint8_t* pixels;  // PSRAM copy of the pixel data, or nullptr to read rows from the SD card
+  uint8_t* fileRow;  // raw row scratch for Bitmap::readNextRow
+  DecodePipeline* pipeline;
+};
+
+struct BmpLevelSink {
+  DirectPixelWriter pw;
+  const Bitmap* bitmap;
+  int x, y, screenWidth, screenHeight;
+  float scale;
+  const std::atomic<bool>* cancel;
+};
+
+// One big read instead of a row at a time; on a short read the rows come from the card as before.
+void loadBmpPixels(BmpLevelJob& job) {
+  if (!job.pixels) return;
+  const size_t total = job.bitmap->pixelDataBytes();
+  size_t got = 0;
+  while (got < total) {
+    const int n = job.file->read(job.pixels + got, std::min<size_t>(total - got, 64 * 1024));
+    if (n <= 0) break;
+    got += static_cast<size_t>(n);
+  }
+  if (got == total) {
+    job.bitmap->setPixelData(job.pixels);
+  } else {
+    LOG_ERR("BMP", "Pixel preload short (%u of %u B); reading rows", static_cast<unsigned>(got),
+            static_cast<unsigned>(total));
+    job.bitmap->rewindToData();
+  }
+}
+
+// Same placement as GfxRenderer::drawBitmap (no crop).
+void writeBmpLevelRow(BmpLevelSink& sink, const uint8_t* row, const int bmpY) {
+  const Bitmap& bitmap = *sink.bitmap;
+  int screenY = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
+  if (sink.scale < 1.0f) screenY = static_cast<int>(std::floor(screenY * sink.scale));
+  screenY += sink.y;
+  if (screenY < 0 || screenY >= sink.screenHeight) return;
+  sink.pw.beginRow(screenY);
+  for (int bmpX = 0; bmpX < bitmap.getWidth(); bmpX++) {
+    int screenX = sink.scale < 1.0f ? static_cast<int>(std::floor(bmpX * sink.scale)) : bmpX;
+    screenX += sink.x;
+    if (screenX >= sink.screenWidth) break;
+    if (screenX < 0) continue;
+    sink.pw.writePixel(screenX, (row[bmpX / 4] >> (6 - (bmpX % 4) * 2)) & 0x3);
+  }
+}
+
+int readBmpLevelRows(void* context) {  // worker core
+  auto& job = *static_cast<BmpLevelJob*>(context);
+  loadBmpPixels(job);
+  for (int bmpY = 0; bmpY < job.bitmap->getHeight(); bmpY++) {
+    uint8_t* slot = job.pipeline->acquire();
+    if (!slot) return 0;  // stopped by the render task
+    if (job.bitmap->readNextRow(slot, job.fileRow) != BmpReaderError::Ok) return -1;
+    DecodePipeline::Block block;
+    block.y = bmpY;
+    block.width = job.bitmap->getWidth();
+    block.height = 1;
+    job.pipeline->commit(block);
+  }
+  return 0;
+}
+
+bool drawBmpLevelRow(void* context, const DecodePipeline::Block& block) {  // render task
+  auto& sink = *static_cast<BmpLevelSink*>(context);
+  writeBmpLevelRow(sink, block.pixels, block.y);
+  return !sink.cancel->load(std::memory_order_acquire);
 }
 
 bool isMacOSSidecarFile(const std::string& filename) { return filename.rfind("._", 0) == 0; }
@@ -113,37 +240,13 @@ void BmpViewerActivity::loadSiblingImages() {
 }
 
 bool BmpViewerActivity::renderPngImage() {
-  ImageDimensions dims;
-  if (!PngToFramebufferConverter::getDimensionsStatic(filePath, dims)) {
+  const uint8_t bw = viewerBwImages();
+  RenderConfig config;
+  if (!pngRenderConfig(filePath, renderer.getScreenWidth(), renderer.getScreenHeight(), bw, config)) {
     drawImageError(renderer, mappedInput, "Invalid PNG File");
     return false;
   }
-
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-  float scale = 1.0f;
-  if (dims.width > pageWidth || dims.height > pageHeight) {
-    const float scaleX = static_cast<float>(pageWidth) / static_cast<float>(dims.width);
-    const float scaleY = static_cast<float>(pageHeight) / static_cast<float>(dims.height);
-    scale = std::min(scaleX, scaleY);
-  }
-
-  const int drawWidth = std::max(1, static_cast<int>(static_cast<float>(dims.width) * scale));
-  const int drawHeight = std::max(1, static_cast<int>(static_cast<float>(dims.height) * scale));
-  const int x = (pageWidth - drawWidth) / 2;
-  const int y = (pageHeight - drawHeight) / 2;
-
-  RenderConfig config;
-  config.x = x;
-  config.y = y;
-  config.maxWidth = drawWidth;
-  config.maxHeight = drawHeight;
-  // BW and BW dark threshold with no ordered dither. Dither keeps the PNG decoder's ordered dither.
-  const uint8_t bw = viewerBwImages();
-  config.useGrayscale = true;
-  config.useDithering = bw != DirectPixelWriter::BW_IMAGES_BW && bw != DirectPixelWriter::BW_IMAGES_DARK;
-  config.performanceMode = false;
-  config.useExactDimensions = true;
+  const int x = config.x, y = config.y, drawWidth = config.maxWidth, drawHeight = config.maxHeight;
 
   PngToFramebufferConverter converter;
   DirectPixelWriter::bwImages = bw;
@@ -193,6 +296,20 @@ void BmpViewerActivity::drawImage() {
   // The popup alone: each progress step was another ~620 ms FAST refresh before the decode.
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
 
+  // Decode once into PSRAM planes (or reuse a recent decode). Without them, or when the decode
+  // fails, the per-pass draw below runs and reports the error.
+  if (renderer.supportsDirectGrayscale() && psramHeapAvailable()) {
+    const DecodedImage* image = decodedImage(viewerBwImages());
+    if (drawCancelled.load(std::memory_order_acquire)) return;  // the next screen repaints over the popup
+    if (image) {
+      if (!showDecoded(*image)) {
+        LOG_ERR("BMP", "Failed to show decoded image");
+        drawImageError(renderer, mappedInput, tr(STR_FAILED_LOWER));
+      }
+      return;
+    }
+  }
+
   if (FsHelpers::hasPngExtension(filePath)) {
     renderPngImage();
     return;
@@ -209,25 +326,8 @@ void BmpViewerActivity::drawImage() {
     // 2. Parse headers to get dimensions
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       int x, y;
-
-      if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
-        float ratio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
-        const float screenRatio = static_cast<float>(pageWidth) / static_cast<float>(pageHeight);
-
-        if (ratio > screenRatio) {
-          // Wider than screen
-          x = 0;
-          y = std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
-        } else {
-          // Taller than screen
-          x = std::round((static_cast<float>(pageWidth) - static_cast<float>(pageHeight) * ratio) / 2);
-          y = 0;
-        }
-      } else {
-        // Center small images
-        x = (pageWidth - bitmap.getWidth()) / 2;
-        y = (pageHeight - bitmap.getHeight()) / 2;
-      }
+      float scale;
+      fitBitmap(bitmap, pageWidth, pageHeight, x, y, scale);
 
       const bool success = showImage(!bw && bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale(), [&]() {
         return bitmap.rewindToData() == BmpReaderError::Ok && renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight);
@@ -252,14 +352,9 @@ void BmpViewerActivity::drawImage() {
 // Draws the image with drawFrame() (which re-reads it from the start each call) and shows it:
 // gray passes when gray, else one FAST refresh. False when a draw failed.
 bool BmpViewerActivity::showImage(const bool gray, const std::function<bool()>& drawImageFrame) {
-  const bool hasPrevious = (siblingImages.size() > 1 && currentImageIndex > 0);
-  const bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
-                        currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
-  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SET_SLEEP_COVER),
-                                            (hasPrevious ? "<" : nullptr), (hasNext ? ">" : nullptr));
   const auto drawFrame = [&]() {
     if (!drawImageFrame()) return false;
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    drawHints();
     return true;
   };
   // PSRAM boards with Direct gray (X4 Pro) show the image once, as the sleep screen does: both
@@ -329,8 +424,160 @@ bool BmpViewerActivity::showImage(const bool gray, const std::function<bool()>& 
   return success;
 }
 
+const BmpViewerActivity::DecodedImage* BmpViewerActivity::decodedImage(const uint8_t look) {
+  for (auto it = recentImages.begin(); it != recentImages.end(); ++it) {
+    if (it->path == filePath && it->look == look) {
+      std::rotate(it, it + 1, recentImages.end());  // newest last
+      return &recentImages.back();
+    }
+  }
+  constexpr size_t kRecentImages = 4;  // ponytail: linear scan; 4 x 96 KB of PSRAM
+  if (recentImages.size() >= kRecentImages) recentImages.erase(recentImages.begin());
+
+  DecodedImage image;
+  image.path = filePath;
+  image.look = look;
+  const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
+  image.lsb = makePsramByteBufferNoThrow(planeBytes);
+  if (image.lsb) image.msb = makePsramByteBufferNoThrow(planeBytes);
+  if (!image.msb) {
+    LOG_ERR("BMP", "No PSRAM for decoded planes (%u B)", static_cast<unsigned>(2 * planeBytes));
+    return nullptr;
+  }
+  memset(image.lsb.get(), 0xFF, planeBytes);  // white
+  memset(image.msb.get(), 0xFF, planeBytes);
+
+  const uint32_t startedAt = millis();
+  DirectPixelWriter::levelPlanes[0] = image.lsb.get();
+  DirectPixelWriter::levelPlanes[1] = image.msb.get();
+  DirectPixelWriter::bwImages = look;
+  const bool decoded = FsHelpers::hasPngExtension(filePath) ? decodePngLevels(image) : decodeBmpLevels(image);
+  DirectPixelWriter::levelPlanes[0] = DirectPixelWriter::levelPlanes[1] = nullptr;
+  DirectPixelWriter::bwImages = DirectPixelWriter::BW_IMAGES_OFF;
+  if (!decoded || drawCancelled.load(std::memory_order_acquire)) return nullptr;
+  LOG_INF("BMP", "Decoded once in %u ms", static_cast<unsigned>(millis() - startedAt));
+  recentImages.push_back(std::move(image));
+  return &recentImages.back();
+}
+
+bool BmpViewerActivity::decodePngLevels(DecodedImage& image) {
+  RenderConfig config;
+  if (!pngRenderConfig(filePath, renderer.getScreenWidth(), renderer.getScreenHeight(), image.look, config)) {
+    return false;
+  }
+  config.cancel = &drawCancelled;
+  image.gray = !image.look;
+  image.x = config.x;
+  image.y = config.y;
+  image.width = config.maxWidth;
+  image.height = config.maxHeight;
+  PngToFramebufferConverter converter;
+  return converter.decodeToFramebuffer(filePath, renderer, config);
+}
+
+bool BmpViewerActivity::decodeBmpLevels(DecodedImage& image) {
+  HalFile file;
+  if (!Storage.openFileForRead("BMP", filePath, file)) return false;
+  const uint8_t look = image.look;
+  Bitmap bitmap(file, look != DirectPixelWriter::BW_IMAGES_BW && look != DirectPixelWriter::BW_IMAGES_DARK,
+                renderer.supportsAbsoluteGrayscale());
+  if (look) bitmap.setBwOutput(look == DirectPixelWriter::BW_IMAGES_DARK ? 192 : 128);
+  bool ok = bitmap.parseHeaders() == BmpReaderError::Ok;
+  if (ok) {
+    BmpLevelSink sink;
+    sink.pw.init(renderer);
+    sink.bitmap = &bitmap;
+    sink.screenWidth = renderer.getScreenWidth();
+    sink.screenHeight = renderer.getScreenHeight();
+    sink.cancel = &drawCancelled;
+    fitBitmap(bitmap, sink.screenWidth, sink.screenHeight, sink.x, sink.y, sink.scale);
+    image.gray = !look && bitmap.hasGreyscale();
+    image.x = sink.x;
+    image.y = sink.y;
+    image.width = sink.scale < 1.0f ? static_cast<int>(std::floor((bitmap.getWidth() - 1) * sink.scale)) + 1
+                                    : bitmap.getWidth();
+    image.height = sink.scale < 1.0f ? static_cast<int>(std::floor((bitmap.getHeight() - 1) * sink.scale)) + 1
+                                     : bitmap.getHeight();
+
+    // ponytail: files over 4 MB of pixels stream from the card rather than take that much PSRAM.
+    HeapByteBuffer pixels;
+    if (bitmap.pixelDataBytes() <= 4u * 1024 * 1024) pixels = makePsramByteBufferNoThrow(bitmap.pixelDataBytes());
+    HeapByteBuffer fileRow = makePsramByteBufferNoThrow(bitmap.getRowBytes());
+    const size_t levelRowBytes = (bitmap.getWidth() + 3) / 4;
+    BmpLevelJob job{&bitmap, &file, pixels.get(), fileRow.get(), nullptr};
+    DecodePipeline pipeline;
+    int rc = 0;
+    bool split = false;
+    ok = fileRow != nullptr;
+    if (ok && DecodePipeline::worthSplitting() && pipeline.begin(levelRowBytes)) {
+      job.pipeline = &pipeline;
+      split = pipeline.run(readBmpLevelRows, &job, drawBmpLevelRow, &sink, rc);
+      ok = !split || rc == 0;
+    }
+    if (ok && !split) {
+      HeapByteBuffer levelRow = makePsramByteBufferNoThrow(levelRowBytes);
+      ok = levelRow != nullptr;
+      if (ok) loadBmpPixels(job);
+      for (int bmpY = 0; ok && bmpY < bitmap.getHeight() && !drawCancelled.load(std::memory_order_acquire);
+           bmpY++) {
+        ok = bitmap.readNextRow(levelRow.get(), fileRow.get()) == BmpReaderError::Ok;
+        if (ok) writeBmpLevelRow(sink, levelRow.get(), bmpY);
+      }
+    }
+  }
+  file.close();
+  return ok;
+}
+
+bool BmpViewerActivity::showDecoded(const DecodedImage& image) {
+  const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
+  if (image.gray) {
+    // Working copies take the button hints; the recent copy stays clean.
+    HeapByteBuffer lsb = makePsramByteBufferNoThrow(planeBytes);
+    HeapByteBuffer msb;
+    if (lsb) msb = makePsramByteBufferNoThrow(planeBytes);
+    if (!msb) return false;
+    memcpy(lsb.get(), image.lsb.get(), planeBytes);
+    memcpy(msb.get(), image.msb.get(), planeBytes);
+    renderer.setAbsoluteGrayPlanes(true);  // Direct takes complete planes
+    for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+      renderer.setRenderMode(mode);
+      renderer.beginStripTarget(mode == GfxRenderer::GRAYSCALE_LSB ? lsb.get() : msb.get(), 0,
+                                renderer.getDisplayHeight());
+      drawHints();
+      renderer.endStripTarget();
+    }
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.setAbsoluteGrayPlanes(false);
+    if (!renderer.displayDirectGrayscaleBase()) return false;
+    renderer.copyGrayscalePlanes(lsb.get(), msb.get());
+    renderer.displayGrayBuffer();
+  }
+  // The B/W image for popups and the gray cleanup: white only where both bits are set (level 3).
+  uint8_t* frame = renderer.getFrameBuffer();
+  for (size_t i = 0; i < planeBytes; i++) frame[i] = image.lsb[i] & image.msb[i];
+  renderer.preserveImagePolarity(image.x, image.y, image.width, image.height);
+  drawHints();
+  if (image.gray) {
+    renderer.cleanupGrayscaleWithFrameBuffer();
+  } else {
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  }
+  return true;
+}
+
+void BmpViewerActivity::drawHints() const {
+  const bool hasPrevious = (siblingImages.size() > 1 && currentImageIndex > 0);
+  const bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
+                        currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
+  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SET_SLEEP_COVER),
+                                            (hasPrevious ? "<" : nullptr), (hasNext ? ">" : nullptr));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
 void BmpViewerActivity::onExit() {
   Activity::onExit();
+  recentImages.clear();
   renderer.clearScreen();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }

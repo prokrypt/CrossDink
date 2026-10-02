@@ -241,6 +241,10 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   // wallpaper fitted to an X3 becomes 475x792 here, so error diffusion never
   // has to survive the renderer's later non-integer scale.
   const int sourceY = std::min(height - 1, (outputRowsRead * height + height / 2) / outputHeight);
+  if (pixelData) {
+    memcpy(rowBuffer, pixelData + static_cast<size_t>(sourceY) * rowBytes, rowBytes);
+    sourceRowsRead = sourceY + 1;
+  }
   while (sourceRowsRead <= sourceY) {
     if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;
     sourceRowsRead++;

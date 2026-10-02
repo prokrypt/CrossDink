@@ -196,3 +196,18 @@ TEST(BitmapResample, BwOutputIsOnlyBlackOrWhite) {
     EXPECT_LT(black, 64 * 32);
   }
 }
+
+TEST(BitmapResample, PixelDataCopyMatchesFileRows) {
+  const auto bmp = create24BitBmp(37, 11);
+  HalFile fileA(bmp), fileB(bmp);
+  Bitmap fromFile(fileA, true), fromMemory(fileB, true);
+  ASSERT_EQ(fromFile.parseHeaders(), BmpReaderError::Ok);
+  ASSERT_EQ(fromMemory.parseHeaders(), BmpReaderError::Ok);
+  fromMemory.setPixelData(bmp.data() + 54);
+  std::vector<uint8_t> a((37 + 3) / 4), b(a.size()), raw(fromFile.getRowBytes());
+  for (int y = 0; y < 11; y++) {
+    ASSERT_EQ(fromFile.readNextRow(a.data(), raw.data()), BmpReaderError::Ok);
+    ASSERT_EQ(fromMemory.readNextRow(b.data(), raw.data()), BmpReaderError::Ok);
+    EXPECT_EQ(a, b) << "row " << y;
+  }
+}

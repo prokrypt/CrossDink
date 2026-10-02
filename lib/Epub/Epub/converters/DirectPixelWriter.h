@@ -21,10 +21,17 @@ struct DirectPixelWriter {
   // for the duration of a page render only.
   enum BwImages : uint8_t { BW_IMAGES_OFF, BW_IMAGES_DARK, BW_IMAGES_BW, BW_IMAGES_DITHER };
   static inline uint8_t bwImages = BW_IMAGES_OFF;
+  // Image viewer decode-once: while set, writePixel ignores the render mode and
+  // stores each pixel's level (after the bwImages mapping) as two full-frame
+  // physical bit planes, bit 0 in [0] and bit 1 in [1] (1 = white). These are
+  // the Direct gray planes, and their AND is the B/W image.
+  static inline uint8_t* levelPlanes[2] = {nullptr, nullptr};
 
   uint8_t* fb;
   GfxRenderer::RenderMode mode;
   bool absoluteGray;  // complete gray planes (image viewer) rather than overlay masks
+  uint8_t* levelLsb;  // levelPlanes at init()
+  uint8_t* levelMsb;
   uint16_t displayWidthBytes;  // Runtime framebuffer stride (X4: 100, X3: 99)
   // Active write target: for tiled grayscale, fb is the band scratch, originY is
   // the band's top physical row, and clipRows is the band height. Off-band
@@ -49,6 +56,8 @@ struct DirectPixelWriter {
     clipRows = renderer.getWriteRows();
     mode = renderer.getRenderMode();
     absoluteGray = renderer.grayPlanesAreAbsolute();
+    levelLsb = levelPlanes[0];
+    levelMsb = levelPlanes[1];
     displayWidthBytes = renderer.getDisplayWidthBytes();
 
     const int phyW = renderer.getDisplayWidth();
@@ -114,6 +123,11 @@ struct DirectPixelWriter {
   // Must be called after beginRow() for the current row.
   // No bounds checking — caller guarantees coordinates are valid.
   inline void writePixel(int logicalX, uint8_t pixelValue) const {
+    if (levelLsb) {
+      if (bwImages) pixelValue = pixelValue < (bwImages == BW_IMAGES_BW ? 2 : 3) ? 0 : 3;
+      writeLevel(logicalX, pixelValue);
+      return;
+    }
     // Determine whether to draw based on render mode
     bool draw;
     bool state;
@@ -151,6 +165,24 @@ struct DirectPixelWriter {
     } else {
       fb[byteIndex] |= bitMask;  // Set bit (draw white)
     }
+  }
+
+ private:
+  inline void writeLevel(const int logicalX, const uint8_t level) const {
+    const int phyX = rowPhyXBase + logicalX * phyXStepX;
+    const int phyY = rowPhyYBase + logicalX * phyYStepX;
+    const int sy = phyY - originY;
+    if (static_cast<unsigned>(sy) >= static_cast<unsigned>(clipRows)) return;
+    const uint16_t byteIndex = static_cast<uint16_t>(sy * displayWidthBytes + (phyX >> 3));
+    const uint8_t bitMask = 1 << (7 - (phyX & 7));
+    if (level & 1)
+      levelLsb[byteIndex] |= bitMask;
+    else
+      levelLsb[byteIndex] &= ~bitMask;
+    if (level & 2)
+      levelMsb[byteIndex] |= bitMask;
+    else
+      levelMsb[byteIndex] &= ~bitMask;
   }
 };
 
