@@ -222,12 +222,12 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
   return true;
 }
 
-// Streams a font-catalog JSON response in bounded pieces. This avoids holding
-// both an ArduinoJson document and its serialized String in the fragmented
-// network heap, and gives WiFi a chance to drain each piece before the next.
-class FontListJsonWriter {
+// Streams a JSON response in bounded pieces. This avoids holding both an
+// ArduinoJson document and its serialized String in the fragmented network
+// heap, and gives WiFi a chance to drain each piece before the next.
+class ChunkedJsonWriter {
  public:
-  explicit FontListJsonWriter(WebServer& server) : server_(server) {}
+  explicit ChunkedJsonWriter(WebServer& server) : server_(server) {}
 
   void append(const char* text) { append(text, strlen(text)); }
 
@@ -285,6 +285,17 @@ class FontListJsonWriter {
       }
     }
     append("\"");
+  }
+
+  // ArduinoJson writer interface: serializeJson(doc, writer) streams through the
+  // buffer, so no entry is limited by a fixed output size.
+  size_t write(uint8_t c) {
+    append(reinterpret_cast<const char*>(&c), 1);
+    return 1;
+  }
+  size_t write(const uint8_t* data, size_t length) {
+    append(reinterpret_cast<const char*>(data), length);
+    return length;
   }
 
   void flush() {
@@ -1296,6 +1307,7 @@ void CrossPointWebServer::handleExit() {
 // offset (a "[psram-log gap ...]" line marks any the ring overwrote first), and
 // the X-Log-Next header is the offset for the next poll (X-Log-Oldest: the oldest byte held). &wait=<ms> (max 5000)
 // holds an empty reply until new text arrives; that parks only this server task.
+// ?size=1 sends only the headers.
 void CrossPointWebServer::handlePsramLog() const {
   EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
   const bool tail = server->hasArg("since");
@@ -1315,6 +1327,10 @@ void CrossPointWebServer::handlePsramLog() const {
   const uint32_t end = PsramLog::end();
   server->sendHeader("X-Log-Next", String(end));
   server->sendHeader("X-Log-Oldest", String(PsramLog::oldest()));  // Logs page shows next - oldest as the size
+  if (server->hasArg("size")) {                                    // Logs page size probe: the headers alone
+    server->send(200, "text/plain", "");
+    return;
+  }
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "text/plain; charset=utf-8", "");
   size_t len = 0;
@@ -2604,10 +2620,9 @@ void CrossPointWebServer::handleGetSettings() const {
 
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
-  server->sendContent("[");
+  ChunkedJsonWriter json(*server);
+  json.append("[");
 
-  char output[512];
-  constexpr size_t outputSize = sizeof(output);
   bool seenFirst = false;
   JsonDocument doc;
 
@@ -2720,20 +2735,14 @@ void CrossPointWebServer::handleGetSettings() const {
         continue;
     }
 
-    const size_t prefixSize = seenFirst ? 1 : 0;
-    if (prefixSize != 0) output[0] = ',';
-    const size_t written = serializeJson(doc, output + prefixSize, outputSize - prefixSize);
-    if (written >= outputSize - prefixSize) {
-      LOG_DBG("WEB", "Skipping oversized setting JSON for: %s", s.key);
-      continue;
-    }
-
+    if (seenFirst) json.append(",");
     seenFirst = true;
-    server->sendContent(output, written + prefixSize);
+    serializeJson(doc, json);
     yield();  // Allow WiFi and other tasks to run during a slow send.
   }
 
-  server->sendContent("]");
+  json.append("]");
+  json.flush();
   server->sendContent("");
   sdFontSystem.releaseRegistry();
 }
@@ -3339,59 +3348,86 @@ void CrossPointWebServer::handleFontList() const {
   // can exhaust the fragmented network heap with larger font collections.
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
-  FontListJsonWriter json(*server);
+  ChunkedJsonWriter json(*server);
   json.append("{\"families\":[");
 
+  // Walk each font root once with directory handles: openNextFile() yields every
+  // family folder and file with its size, so no path is resolved from the SD
+  // root again. Hydrating each family from the index and opening every file by
+  // path cost ~33 ms per family. The registry still decides which folders are
+  // families (the hidden root wins a duplicate); the page sorts them by name.
+  uint8_t listed[(SdCardFontRegistry::MAX_SD_FAMILIES + 7) / 8] = {};
   bool firstFamily = true;
-  for (const auto& family : families) {
-    // Hydrate and emit one family's paths at a time. Keeping every family's
-    // paths resident is what made larger catalogs exhaust the X3 network heap.
-    if (!family.ensureDetails()) continue;
-
-    if (!firstFamily) json.append(",");
-    firstFamily = false;
-
-    json.append("{\"name\":");
-    json.appendJsonString(family.name.c_str());
-    json.append(",\"sizes\":[");
-
-    bool firstSize = true;
-    for (uint8_t s : family.availableSizes()) {
-      if (!firstSize) json.append(",");
-      firstSize = false;
-      json.appendUnsigned(s);
-    }
-    json.append("],\"files\":[");
-
-    bool firstFile = true;
-    family.ensureDetails();
-    for (const auto& file : family.files) {
-      if (!firstFile) json.append(",");
-      firstFile = false;
-
-      // Extract filename from full path
-      const char* name = strrchr(file.path.c_str(), '/');
-      json.append("{\"name\":");
-      json.appendJsonString(name ? name + 1 : file.path.c_str());
-
-      // Stat the file for size
-      HalFile f;
-      unsigned long fileSize = 0;
-      if (Storage.openFileForRead("WEB", file.path.c_str(), f)) {
-        fileSize = static_cast<unsigned long>(f.size());
-        f.close();
+  char name[128];
+  for (const char* root : {SdCardFontRegistry::FONTS_DIR_HIDDEN, SdCardFontRegistry::FONTS_DIR_VISIBLE}) {
+    char resolved[16];
+    HalFile dir =
+        Storage.open(FsHelpers::resolveRootDirectoryIgnoreCase(root, resolved, sizeof(resolved)) ? resolved : root);
+    while (dir && dir.isDirectory()) {
+      HalFile familyDir = dir.openNextFile();
+      if (!familyDir) break;
+      familyDir.getName(name, sizeof(name));
+      const auto family = std::lower_bound(families.begin(), families.end(), name,
+                                           [](const SdCardFontFamilyInfo& f, const char* n) { return f.name < n; });
+      const size_t index = family - families.begin();
+      if (!familyDir.isDirectory() || family == families.end() || family->name != name ||
+          (listed[index >> 3] & (1U << (index & 7)))) {
+        familyDir.close();
+        continue;
       }
 
-      json.append(",\"size\":");
-      json.appendUnsigned(fileSize);
-      json.append("}");
+      const bool scalable = family->isScalable();
+      uint8_t sizes[32] = {};  // point-size bitmap
+      if (scalable)
+        for (const uint8_t pt : SCALABLE_READER_FONT_SIZES) sizes[pt >> 3] |= 1U << (pt & 7);
+      bool firstFile = true;
+      while (true) {
+        HalFile file = familyDir.openNextFile();
+        if (!file) break;
+        file.getName(name, sizeof(name));
+        const bool isDir = file.isDirectory();
+        const uint64_t bytes = file.fileSize64();
+        file.close();
+        const size_t nameLength = strlen(name);
+        uint8_t pt = 0, style = 0;
+        if (isDir || name[0] == '.' || name[0] == '_' ||
+            !(scalable ? nameLength >= 5 && strcasecmp(name + nameLength - 4, ".ttf") == 0
+                       : SdCardFontRegistry::parseFilename(name, pt, style)))
+          continue;
+        if (firstFile) {
+          listed[index >> 3] |= 1U << (index & 7);
+          if (!firstFamily) json.append(",");
+          firstFamily = false;
+          json.append("{\"name\":");
+          json.appendJsonString(family->name.c_str());
+          json.append(",\"files\":[");
+        } else {
+          json.append(",");
+        }
+        firstFile = false;
+        if (!scalable) sizes[pt >> 3] |= 1U << (pt & 7);
+        json.append("{\"name\":");
+        json.appendJsonString(name);
+        json.append(",\"size\":");
+        json.appendUnsigned(static_cast<unsigned long>(bytes));
+        json.append("}");
+      }
+      familyDir.close();
+      if (firstFile) continue;
+
+      json.append("],\"sizes\":[");
+      bool firstSize = true;
+      for (unsigned pt = 1; pt < 256; ++pt) {
+        if (!(sizes[pt >> 3] & (1U << (pt & 7)))) continue;
+        if (!firstSize) json.append(",");
+        firstSize = false;
+        json.appendUnsigned(pt);
+      }
+      json.append("]}");
       json.flush();
       yield();
     }
-    json.append("]}");
-    json.flush();
-    family.releaseDetails();
-    yield();
+    dir.close();
   }
 
 #if CROSSDINK_SCALABLE_FONTS
