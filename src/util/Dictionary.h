@@ -82,6 +82,8 @@ class Dictionary {
   // Returns the persisted per-book/global dictionary path without applying a
   // temporary lookup override.
   static std::string readConfiguredDictPath(const char* cachePath = nullptr);
+  // Call after writing a per-book dictionary.bin; a missing one is remembered.
+  static void forgetBookDictPathMiss();
 
   // Temporarily overrides dictionary resolution for the active lookup flow.
   // This is memory-only; callers must clear it when the lookup activity exits.
