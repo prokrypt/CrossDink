@@ -1939,10 +1939,21 @@ void CrossPointWebServer::handleDownload() const {
   client.clear();
 #endif
   file.close();
+  LOG_DBG("WEB", "download done: server task stack min free %u",
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
 // Upload start time is used for the completion throughput summary.
 static unsigned long uploadStartTime = 0;
+
+// A half-written upload would be indexed as a book and block the retry with
+// "File already exists", so a failed or aborted upload leaves nothing behind.
+static void removePartialUpload(const CrossPointWebServer::UploadState& state) {
+  String filePath = state.path;
+  if (!filePath.endsWith("/")) filePath += "/";
+  filePath += state.fileName;
+  Storage.remove(filePath.c_str());
+}
 
 static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
   if (state.bufferPos > 0 && state.file) {
@@ -2035,6 +2046,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
           if (!flushUploadBuffer(state)) {
             state.error = "Failed to write to SD card - disk may be full";
             state.file.close();
+            removePartialUpload(state);
             return;
           }
         }
@@ -2050,6 +2062,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         state.error = "Failed to write final data to SD card";
       }
       state.file.close();
+      if (!state.error.isEmpty()) removePartialUpload(state);
 
       if (state.error.isEmpty()) {
         state.success = true;
@@ -2072,11 +2085,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     state.bufferPos = 0;  // Discard buffered data
     if (state.file) {
       state.file.close();
-      // Try to delete the incomplete file
-      String filePath = state.path;
-      if (!filePath.endsWith("/")) filePath += "/";
-      filePath += state.fileName;
-      Storage.remove(filePath.c_str());
+      removePartialUpload(state);
     }
     state.error = "Upload aborted";
     LOG_DBG("WEB", "Upload aborted");
@@ -2717,6 +2726,8 @@ void CrossPointWebServer::handlePostSettings() {
   int applied = 0;
   uint8_t CrossPointSettings::* twoFingerSwipeEdited = nullptr;
 
+  // Held while applying, released before the save, as handlePostStatusBars does.
+  std::unique_lock<std::mutex> lock(SETTINGS.getMutex());
   for (const auto& s : settings) {
     if (!s.key || !isWebSettingAvailable(s)) continue;
     if (!doc[s.key].is<JsonVariant>()) continue;
@@ -2787,7 +2798,13 @@ void CrossPointWebServer::handlePostSettings() {
   if (twoFingerSwipeEdited != nullptr) {
     CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, twoFingerSwipeEdited);
   }
-  SETTINGS.saveToFile();
+  lock.unlock();
+  if (!SETTINGS.saveToFile()) {
+    LOG_ERR("WEB", "Failed to save settings");
+    server->send(500, "text/plain", "Failed to save settings");
+    sdFontSystem.releaseRegistry();
+    return;
+  }
 
   LOG_DBG("WEB", "Applied %d setting(s)", applied);
   server->send(200, "text/plain", String("Applied ") + String(applied) + " setting(s)");
