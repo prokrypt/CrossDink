@@ -1585,21 +1585,11 @@ void CrossPointWebServer::handleStatus() const {
 #endif
 #if CROSSDINK_GOODIES && !defined(SIMULATOR)
   {
-    // The Goodies > Battery & stats counters (RTC memory), for the web Logs page.
+    // RTC counters and refresh counts for the web Logs page (the rest comes from the CSV).
     const BatteryLog::Stats& s = BatteryLog::stats();
     JsonObject st = battery["stats"].to<JsonObject>();
     st["now"] = BatteryLog::nowEpoch();
-    st["boots"] = s.boots;
-    st["wakes"] = s.wakes;
-    st["awakeS"] = s.awakeS;
-    st["asleepS"] = s.asleepS;
-    st["chargedEpoch"] = s.chargedEpoch;
-    st["chargedPct"] = s.chargedPct;
     st["falseWakes"] = s.falseWakes + s.pendingFalseWakes;
-    st["battAwakeS"] = s.battAwakeS;
-    st["battAsleepS"] = s.battAsleepS;
-    st["dropAwakePct"] = s.dropAwakePct;
-    st["dropAsleepPct"] = s.dropAsleepPct;
     const auto& c = HalDisplay::refreshCounts().n;
     JsonObject refresh = st["refresh"].to<JsonObject>();
     refresh["fast"] = c[HalDisplay::FAST_REFRESH];
