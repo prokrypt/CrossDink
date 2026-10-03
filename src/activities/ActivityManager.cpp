@@ -856,6 +856,11 @@ void ActivityManager::loop() {
       // Only Home waits for its first frame; anything else (USB Drive included)
       // must find the reader's exit writes on SD before it starts.
       if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
+      // USB Drive owns the card from onEnter() and skips the deferred flush below.
+      if (settingsFlushPending && currentActivity->requiresExclusiveStorageLoop()) {
+        settingsFlushPending = false;
+        flushSettingsStores();
+      }
 #if CROSSDINK_GOODIES
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
@@ -908,10 +913,9 @@ void ActivityManager::loop() {
     }
   }
 
-  // Home's first frame is refreshing on the panel: the reader's exit writes run
-  // in that wait instead of before Home rendered.
-  if (!currentActivity || !currentActivity->isHomeActivity() ||
-      currentActivityPainted.load(std::memory_order_acquire)) {
+  // The new screen's first frame is refreshing on the panel: the reader's exit
+  // writes (Home) and deferred settings run in that wait instead of before it drew.
+  if (!currentActivity || currentActivityPainted.load(std::memory_order_acquire)) {
     ReaderExitSave::flush();
     // Settings changed on a screen or panel are written once it has closed,
     // while the screen below refreshes.

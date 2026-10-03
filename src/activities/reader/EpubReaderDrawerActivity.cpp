@@ -597,7 +597,7 @@ void EpubReaderDrawerActivity::showTtfRenderingOptions(const RowId row) {
 #endif
 
 void EpubReaderDrawerActivity::discoverDictionaries() {
-  dictionaryRegistry.discover();
+  dictionaryRegistry.refreshIfDirty();  // marked by the reader's onEnter()
   dictionaryLabels.clear();
   dictionaryPaths.clear();
   dictionaryLabels.reserve(dictionaryRegistry.getEntries().size() + 1);

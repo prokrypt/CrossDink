@@ -61,6 +61,9 @@ volatile uint32_t sampleSeq = 0;
 // presses); a later render belongs to something else. Slow first renders
 // (opening a book with a long section build) stay well under this.
 constexpr uint32_t NO_RENDER_MS = 15000;
+// The same for a bare contact ("touch": light slides, finger moves), whose own
+// redraws start at once; a later one (a screen's settle repaint) is not its.
+constexpr uint32_t TOUCH_NO_RENDER_MS = 1000;
 std::atomic<uint32_t> inputSeq{0};
 bool firstInkLogged = false;
 // Last rendered activity (render task writes, main loop reads; a torn read
@@ -247,16 +250,26 @@ void topTimers(char* buf, const size_t bufSize, char* out, const size_t outSize)
   int count = 0;
   char* save = nullptr;
   // Rows: "name  period  alarm  armed  triggered  skipped  cb_us"; the title
-  // and header rows fail the scan.
+  // and header rows fail the scan. Rows come in alarm order and several timers
+  // share a name (ETSTimer), so counts are summed per name before diffing.
   for (char* line = strtok_r(buf, "\n", &save); line && count < MAX_TIMERS; line = strtok_r(nullptr, "\n", &save)) {
     unsigned long runs = 0;
     if (sscanf(line, "%23s %*lld %*lld %*d %lu", now[count].name, &runs) != 2) continue;
-    now[count].runs = static_cast<uint32_t>(runs);
-    delta[count] = now[count].runs;
-    for (int i = 0; i < timerPrevCount; i++) {
-      if (strcmp(timerPrev[i].name, now[count].name) == 0) delta[count] -= timerPrev[i].runs;
+    int row = 0;
+    while (row < count && strcmp(now[row].name, now[count].name) != 0) row++;
+    if (row == count) {
+      now[count++].runs = 0;
     }
-    count++;
+    now[row].runs += static_cast<uint32_t>(runs);
+  }
+  for (int row = 0; row < count; row++) {
+    uint32_t prev = 0;
+    for (int i = 0; i < timerPrevCount; i++) {
+      if (strcmp(timerPrev[i].name, now[row].name) == 0) prev = timerPrev[i].runs;
+    }
+    // A deleted (or recreated: mDNS across Wi-Fi off/on) timer lowers the
+    // count; that window's runs for the name are skipped rather than wrapped.
+    delta[row] = now[row].runs >= prev ? now[row].runs - prev : 0;
   }
   size_t pos = 0;
   for (int rank = 0; rank < 3; rank++) {
@@ -500,7 +513,8 @@ void noteInput(const bool release, const char* kind, const uint32_t seq) {
 
 void noteRenderStart(const char* activity) {
   snprintf(currentAct, sizeof(currentAct), "%s", activity ? activity : "-");
-  if (inputPending && renderStartMs == 0 && millis() - inputMs > NO_RENDER_MS) {
+  const uint32_t noRenderMs = strcmp(inputKind, "touch") == 0 ? TOUCH_NO_RENDER_MS : NO_RENDER_MS;
+  if (inputPending && renderStartMs == 0 && millis() - inputMs > noRenderMs) {
     // Nothing drew for the input; do not bill this unrelated render to it.
     inputPending = false;
     if (strcmp(inputKind, "touch") != 0) {

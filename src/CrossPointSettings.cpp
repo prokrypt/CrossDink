@@ -25,6 +25,7 @@
 #include "SettingsList.h"
 #include "fontIds.h"
 #include "util/FrontlightSchedule.h"
+#include "util/InPlaceFileWrite.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/TwoFingerSwipe.h"
 
@@ -924,9 +925,20 @@ bool CrossPointSettings::saveToFile() const {
 bool CrossPointSettings::flush() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   if (pendingJson.isEmpty()) return true;
-  if (!PersistableStoreBase::writeStringToFileAtomically(SETTINGS_FILE_JSON, pendingJson)) {
-    LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
-    return false;
+  // Two copies rewritten in place, .bak first, so one always parses (load falls
+  // back to .bak). No temp file, rename or remove: creating settings.json.tmp
+  // took 580-615 ms on the card. Padding spaces from a longer save are trimmed.
+  const String onCard = Storage.exists(SETTINGS_FILE_JSON) ? Storage.readFile(SETTINGS_FILE_JSON) : String();
+  size_t onCardLen = onCard.length();
+  while (onCardLen > 0 && onCard[onCardLen - 1] == ' ') --onCardLen;
+  if (onCardLen != pendingJson.length() || strncmp(onCard.c_str(), pendingJson.c_str(), onCardLen) != 0) {
+    Storage.mkdir("/.crossdink");
+    const auto* data = reinterpret_cast<const uint8_t*>(pendingJson.c_str());
+    if (!writeFileInPlace("CPS", SETTINGS_FILE_JSON_BAK, data, pendingJson.length(), true) ||
+        !writeFileInPlace("CPS", SETTINGS_FILE_JSON, data, pendingJson.length(), true)) {
+      LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
+      return false;
+    }
   }
   pendingJson = String();
   return true;
@@ -974,6 +986,11 @@ bool CrossPointSettings::loadFromFile() {
   // CrossDink preferences.
   const bool hasCrossDinkSettings = Storage.exists(SETTINGS_FILE_JSON) || Storage.exists(SETTINGS_FILE_JSON_BAK);
   JsonLoadStatus jsonStatus = loadJsonSettings(SETTINGS_FILE_JSON, false);
+  // A save torn mid-write leaves settings.json unreadable; its .bak copy was written first.
+  if (jsonStatus != JsonLoadStatus::Loaded && Storage.exists(SETTINGS_FILE_JSON_BAK)) {
+    LOG_ERR("CPS", "%s unreadable; loading %s", SETTINGS_FILE_JSON, SETTINGS_FILE_JSON_BAK);
+    jsonStatus = loadJsonSettings(SETTINGS_FILE_JSON_BAK, false);
+  }
   if (hasCrossDinkSettings || jsonStatus != JsonLoadStatus::MissingOrEmpty) {
     return jsonStatus == JsonLoadStatus::Loaded;
   }

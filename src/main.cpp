@@ -639,6 +639,10 @@ bool keepWifiForRemote() {
 #endif
 }
 
+// Set while a Wi-Fi screen hands over to another through NetworkEntryActivity,
+// whose entry check guards the heap that screen runs on.
+static bool networkEntryPending = false;
+
 bool leaveNetworkInPlace(const bool goingHome) {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
@@ -659,6 +663,13 @@ bool leaveNetworkInPlace(const bool goingHome) {
   if (!readerRenderStackReady) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
     return false;
+  }
+  // Remote kept the link and the next screen is another Wi-Fi screen: nothing
+  // was torn down, and NetworkEntryActivity re-checks the heap (falling back to
+  // a restart into that screen, not Home).
+  if (keepLink && networkEntryPending) {
+    LOG_INF("MAIN", "Leaving Wi-Fi in place: remote keeps the link for the next Wi-Fi screen");
+    return true;
   }
 #if CROSSDINK_PERF_LOG
   logInternalHeapPins();
@@ -745,6 +756,7 @@ class NetworkEntryActivity final : public Activity {
 
   void onEnter() override {
     Activity::onEnter();
+    networkEntryPending = false;
     if (enterNetworkInPlace() && launchNetworkTarget(target_, payload_, /*inPlace=*/true)) return;
     restartToNetworkTarget(target_, payload_);
   }
@@ -766,6 +778,7 @@ void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t paylo
     restartToNetworkTarget(target, payload);
     return;
   }
+  networkEntryPending = true;
   activityManager.replaceActivity(std::move(entry));
 }
 
@@ -2851,9 +2864,10 @@ static void loopPass() {
 
   // The header's Wi-Fi glyph and battery percent: one ordinary repaint of the
   // current screen when the link comes or goes or the percent changes. Only
-  // screens whose last frame drew a header status bar (never the reader), and
-  // the percent only once input has paused; requestedFor stops a repeat if that
-  // repaint shows no header.
+  // screens whose last frame drew a header status bar (never the reader), only
+  // once input has paused and no refresh is on the panel (a link coming up just
+  // after a screen change otherwise queued a second full refresh behind the
+  // first); requestedFor stops a repeat if that repaint shows no header.
   {
     static unsigned long lastHeaderStatusPoll = 0;
     static int requestedFor = -1;
@@ -2873,10 +2887,12 @@ static void loopPass() {
         percent = powerManager.getBatteryPercentage();
       }
       const bool inputPaused = millis() - lastActivityTime >= 2000;
-      const bool stale = shownWifi != connected || (inputPaused && shownPercent != percent);
+      const bool stale = shownWifi != connected || shownPercent != percent;
       const int want = connected << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
+      } else if (!inputPaused || renderer.isRefreshPending()) {
+        // Next poll: an input-driven frame meanwhile draws the new status anyway.
       } else if (requestedFor != want) {
         requestedFor = want;
         activityManager.requestUpdate();

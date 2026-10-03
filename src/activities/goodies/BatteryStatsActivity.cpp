@@ -330,6 +330,8 @@ void BatteryStatsActivity::refresh() {
     RenderLock lock(*this);  // render() reads points and lines
     startLoad();
   }
+  // As onEnter(): one frame with the numbers, not one before and one after the read.
+  step(LOAD_STEP_MS * 2);
   requestUpdate();
 }
 
@@ -382,7 +384,8 @@ void BatteryStatsActivity::loop() {
   }
   if (loading) step(LOAD_STEP_MS);
   // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
-  // for 1 s, so a light slide repaints once, not at every step.
+  // for 1 s. No repaint of its own (a full page refresh after every light
+  // slide); the next frame (scroll, Refresh) shows it.
   const uint16_t state = estimateState();
   if (state != seenState) {
     seenState = state;
@@ -390,8 +393,6 @@ void BatteryStatsActivity::loop() {
   } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
     RenderLock lock(*this);  // render() reads lines
     buildLines();
-    lock.unlock();
-    requestUpdate();
   }
   const auto swipe = mappedInput.wasSwipe();
   const bool down =
