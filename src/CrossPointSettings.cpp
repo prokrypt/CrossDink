@@ -39,8 +39,10 @@ void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 2;
 constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
-constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
-constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossink-settings.json.bak";
+constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossdink-settings.json";
+constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossdink-settings.json.bak";
+// CrossInk's file: imported once, never written, so flashing back to CrossInk keeps its settings.
+constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
 constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
 constexpr char LANG_FILE_BIN[] = "/.crosspoint/language.bin";
@@ -502,7 +504,6 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
   if (keyboardLayouts != 0) doc["keyboardLayouts"] = keyboardLayouts;
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
-  doc["indexingMethodSchema"] = 1;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   doc["screenInverted"] = screenInverted;
   doc["goodiesWifiRemote"] = goodiesWifiRemote;
@@ -777,11 +778,6 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     needsResave = true;
   }
   if (!doc["tiltPageTurnDirection"].isNull() && doc["tiltPageTurnDirectionSchema"].isNull()) needsResave = true;
-  // One-time move of the old Full section default (CrossInk) to IncreMENTAL.
-  if (doc["indexingMethodSchema"].isNull()) {
-    if (indexingMethod == INDEXING_FULL_SECTION) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
-    needsResave = true;
-  }
 
   if (doc["hideClock"].isNull() && !doc["statusBarClock"].isNull()) {
     constexpr uint8_t LEGACY_SHOW_CLOCK_NEVER = 0;
@@ -830,6 +826,9 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(legacyValue));
       needsResave = true;
     }
+  } else if (importingCrossPoint && sleepTimeoutStep >= 6) {
+    // Imported files predate the 15 min step (index 6); shift 20 min..Never up one.
+    sleepTimeoutStep = std::min<uint8_t>(sleepTimeoutStep + 1, SLEEP_TIMEOUT_NEVER_STEP);
   }
 
   frontButtonBack =
@@ -917,7 +916,20 @@ bool CrossPointSettings::saveToFile() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   JsonDocument doc;
   toJson(doc);
-  return PersistableStoreBase::writeDocToFileAtomically(SETTINGS_FILE_JSON, doc);
+  pendingJson = "";
+  serializeJson(doc, pendingJson);
+  return true;
+}
+
+bool CrossPointSettings::flush() const {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (pendingJson.isEmpty()) return true;
+  if (!PersistableStoreBase::writeStringToFileAtomically(SETTINGS_FILE_JSON, pendingJson)) {
+    LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
+    return false;
+  }
+  pendingJson = String();
+  return true;
 }
 
 bool CrossPointSettings::loadFromFile() {
@@ -938,15 +950,17 @@ bool CrossPointSettings::loadFromFile() {
       if (result) {
         std::lock_guard<std::mutex> settingsLock(_mutex);
         if (restoreLegacyRtcDateSyncState(*this)) resave = true;
+        // Imports start on IncreMENTAL; the user's later choice sticks.
+        if (migrateToCurrentPath) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
       }
       if (result && (resave || migrateToCurrentPath)) {
-        if (saveToFile()) {
+        if (saveToFile() && flush()) {
           LOG_DBG("CPS", "%s",
-                  migrateToCurrentPath ? "Migrated legacy settings.json to crossink-settings.json"
+                  migrateToCurrentPath ? "Imported settings into crossdink-settings.json"
                                        : "Resaved settings to update format");
         } else {
           LOG_ERR("CPS", "%s",
-                  migrateToCurrentPath ? "Failed to save migrated settings to crossink-settings.json"
+                  migrateToCurrentPath ? "Failed to save imported settings to crossdink-settings.json"
                                        : "Failed to resave settings after format update");
         }
       }
@@ -967,6 +981,9 @@ bool CrossPointSettings::loadFromFile() {
     return jsonStatus == JsonLoadStatus::Loaded;
   }
 
+  jsonStatus = loadJsonSettings(CROSSINK_SETTINGS_FILE_JSON, true);
+  if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
+
   jsonStatus = loadJsonSettings(LEGACY_SETTINGS_FILE_JSON, true);
   if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
 
@@ -979,9 +996,9 @@ bool CrossPointSettings::loadFromFile() {
            statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,
            statusBarProgressBarThickness});
       migrateLanguageBinaryFile();
-      if (saveToFile()) {
+      if (saveToFile() && flush()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
-        LOG_DBG("CPS", "Migrated settings.bin to crossink-settings.json");
+        LOG_DBG("CPS", "Migrated settings.bin to crossdink-settings.json");
         return true;
       } else {
         LOG_ERR("CPS", "Failed to save migrated settings to JSON");
@@ -1013,7 +1030,8 @@ bool CrossPointSettings::migrateLanguageBinaryFile() {
   }
   Storage.rename(LANG_FILE_BIN, LANG_FILE_BAK);
   saveToFile();
-  LOG_DBG("CPS", "Migrated language.bin into crossink-settings.json");
+  flush();
+  LOG_DBG("CPS", "Migrated language.bin into crossdink-settings.json");
   return true;
 }
 
@@ -1228,8 +1246,9 @@ bool CrossPointSettings::verifySleepTimeoutMigrationContract() {
   settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(sleepTimeoutEnumToMinutes(SLEEP_5_MIN));
   const bool migratedValueDrivesTimeout = settings.getSleepTimeoutMs() == 5UL * 60UL * 1000UL;
 
-  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(15);  // between 10 and 20: the shorter
-  const bool oldMinutesTakeNearestStep = settings.getSleepTimeoutMs() == 10UL * 60UL * 1000UL;
+  settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(25);  // between 20 and 30: the shorter
+  const bool oldMinutesTakeNearestStep =
+      settings.getSleepTimeoutMs() == 20UL * 60UL * 1000UL && sleepTimeoutStepForMinutes(15) == 6;
 
   settings.sleepTimeoutStep = SLEEP_TIMEOUT_NEVER_STEP - 1;
   const bool longestIsTwelveHours = settings.getSleepTimeoutMs() == 12UL * 60UL * 60UL * 1000UL;

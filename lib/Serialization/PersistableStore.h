@@ -58,6 +58,12 @@ class PersistableStoreBase {
   // Writes through path.tmp and keeps path.bak until replacement succeeds. readDocFromFile()
   // recovers that backup after an interrupted replacement.
   static bool writeDocToFileAtomically(const char* path, const JsonDocument& doc);
+  // Same, for an already serialized document; skips the write when path already holds it.
+  static bool writeStringToFileAtomically(const char* path, const String& json);
+  // Moves a fully written path.tmp over path the same way (path.bak until the rename lands).
+  static bool replaceWithTemp(const char* path);
+  // Restores path from path.bak left by an interrupted replaceWithTemp(). Returns whether path exists.
+  static bool recoverBackup(const char* path);
 
   // Reads path and parses it into doc. Returns false silently when the file
   // does not exist (expected on first boot); logs on read/parse failure.

@@ -6,6 +6,7 @@
 
 #include <cstring>
 
+#include "ReaderExitSave.h"
 #include "util/FileContentEquals.h"
 
 namespace {
@@ -171,6 +172,7 @@ ReadingStatsDate readDate(const uint8_t* data, const int offset) {
 }  // namespace
 
 BookReadingStats BookReadingStats::load(const std::string& cachePath) {
+  if (const BookReadingStats* held = ReaderExitSave::book(cachePath)) return *held;  // newer than the file
   BookReadingStats stats;
   FsFile f;
   if (!openStatsFileForRead(cachePath, f)) {

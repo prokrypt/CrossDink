@@ -40,11 +40,12 @@ constexpr int COUNT = 0
 #undef X
     ;
 int32_t get(int index);
-// Clamps and snaps to the step, pushes SDK knobs, then saves unless told not to.
-// Returns the value kept. Main task.
+// Clamps and snaps to the step, pushes SDK knobs, then marks knobs.json for the
+// next flush() unless told not to. Returns the value kept. Main task.
 int32_t set(int index, int32_t value, bool save = true);
 int find(const char* id);  // -1 when unknown
-void resetAll();           // defaults, knobs.json deleted
+void resetAll();           // defaults; knobs.json deleted at the next flush()
+void flush();              // writes knobs.json if marked; screen exit, sleep, restart
 void load(bool skipFile);  // setup(), after SD; defaults if Back is held or after 3 crash boots under 30 s
 void loop();               // main loop: clears the boot counter after 30 s up
 }  // namespace knobs

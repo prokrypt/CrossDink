@@ -16,6 +16,7 @@
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
   mutable std::mutex _mutex;
+  mutable String pendingJson;  // guarded by storeMutex; empty = nothing to flush
 
   CrossPointSettings() = default;
   friend class PersistableStore<CrossPointSettings>;
@@ -717,8 +718,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
   static constexpr uint16_t POWER_BUTTON_WAKE_LONG_MS = POWER_BUTTON_LONG_PRESS_MS;
-  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1,  2,   3,   4,   5,   10,  20, 30,
-                                                            60, 120, 240, 360, 480, 600, 720};
+  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1,  2,  3,   4,   5,   10,  15,  20,
+                                                            30, 60, 120, 240, 360, 480, 600, 720};
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_STEP = std::size(SLEEP_TIMEOUT_STEP_MINUTES);
   static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
   static constexpr uint8_t MIN_READER_FONT_POINT_SIZE = 8;
@@ -779,9 +780,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // If count_only is true, returns the number of settings items that would be written.
   uint8_t writeSettings(HalFile& file, bool count_only = false) const;
 
+  // Deferred: snapshots the settings now (so a reader's per-book values set
+  // aside around the call stay out) and flush() writes the latest snapshot.
+  // ActivityManager flushes when a screen exits; sleep, restart and firmware
+  // flashing flush too. Always returns true; flush() logs a failed write.
   bool saveToFile() const;
+  bool flush() const;  // no-op without a pending snapshot; skips an unchanged file
   bool loadFromFile();
-  static const char* getFilePath() { return "/.crosspoint/crossink-settings.json"; }
+  static const char* getFilePath() { return "/.crosspoint/crossdink-settings.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc, bool importingCrossPoint = false);
 

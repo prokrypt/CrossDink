@@ -20,6 +20,7 @@
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PerfLog.h>
+#include <PersistableStore.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -61,6 +62,7 @@
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
 #include "QuickActions.h"
+#include "ReaderExitSave.h"
 #include "ReaderFontLoading.h"
 #include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
@@ -1360,8 +1362,9 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   data.dictionarySdFontFamilyName[sizeof(data.dictionarySdFontFamilyName) - 1] = '\0';
   data.dictionaryFontPointSize = SETTINGS.dictionaryFontPointSize;
 
+  const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
   FsFile file;
-  if (!Storage.openFileForRead("ERS", cachePath + READER_SETTINGS_FILE_NAME, file)) {
+  if (!PersistableStoreBase::recoverBackup(path.c_str()) || !Storage.openFileForRead("ERS", path, file)) {
     return data;
   }
 
@@ -1459,8 +1462,10 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
 }
 
 bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSettingsData& data) {
+  // Written to .tmp and moved over the old file, so a power cut never leaves it truncated.
+  const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
   FsFile file;
-  if (!Storage.openFileForWrite("ERS", cachePath + READER_SETTINGS_FILE_NAME, file)) {
+  if (!Storage.openFileForWrite("ERS", path + ".tmp", file)) {
     LOG_ERR("ERS", "Could not open reader settings file for write");
     return false;
   }
@@ -1485,8 +1490,10 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
   file.close();
   if (!ok) {
     LOG_ERR("ERS", "Short write saving reader settings");
+    Storage.remove((path + ".tmp").c_str());
+    return false;
   }
-  return ok;
+  return PersistableStoreBase::replaceWithTemp(path.c_str());
 }
 
 bool saveBookRenderModeForCache(const std::string& cachePath, const uint8_t renderMode) {
@@ -2605,8 +2612,7 @@ void EpubReaderActivity::onExit() {
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
-  APP_STATE.readerActivityLoadCount = 0;
-  APP_STATE.saveToFile();
+  APP_STATE.readerActivityLoadCount = 0;  // saved by ReaderExitSave below
 
   syncStatsTrackingState();
   if (statsTrackingActive) {
@@ -2637,9 +2643,14 @@ void EpubReaderActivity::onExit() {
     recoverStoredPaceFromSession("reader_exit");
     const uint32_t previousEstimate = stats.estimatedTimeLeftSeconds;
     refreshCachedTimeLeftEstimate();
-    if (statsTrackingActive || paceDirty || pendingStatsCommit || stats.estimatedTimeLeftSeconds != previousEstimate) {
-      if (stats.save(epub->getCachePath()) && (statsTrackingActive || pendingStatsCommit)) globalStats.save();
-    }
+    const bool saveStats =
+        statsTrackingActive || paceDirty || pendingStatsCommit || stats.estimatedTimeLeftSeconds != previousEstimate;
+    // Written once Home's first frame is on the panel; a finished-book move below needs them on SD now.
+    ReaderExitSave::queue(epub->getCachePath(), saveStats ? &stats : nullptr,
+                          statsTrackingActive || pendingStatsCommit ? &globalStats : nullptr);
+    if (pendingReadFolderMove) ReaderExitSave::flush();
+  } else {
+    ReaderExitSave::queue({}, nullptr, nullptr);  // APP_STATE only
   }
 
   // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the

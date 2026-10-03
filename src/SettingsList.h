@@ -27,10 +27,10 @@
 
 // Time to Sleep labels, one per CrossPointSettings::SLEEP_TIMEOUT_STEP_MINUTES entry, then Never.
 inline constexpr StrId SLEEP_TIMEOUT_STEP_LABELS[] = {
-    StrId::STR_1_MIN,   StrId::STR_2_MIN,    StrId::STR_3_MIN,    StrId::STR_4_MIN,
-    StrId::STR_5_MIN,   StrId::STR_10_MIN,   StrId::STR_20_MIN,   StrId::STR_30_MIN,
-    StrId::STR_1_HOUR,  StrId::STR_2_HOURS,  StrId::STR_4_HOURS,  StrId::STR_6_HOURS,
-    StrId::STR_8_HOURS, StrId::STR_10_HOURS, StrId::STR_12_HOURS, StrId::STR_SLEEP_NEVER};
+    StrId::STR_1_MIN,    StrId::STR_2_MIN,      StrId::STR_3_MIN,   StrId::STR_4_MIN,   StrId::STR_5_MIN,
+    StrId::STR_10_MIN,   StrId::STR_15_MIN,     StrId::STR_20_MIN,  StrId::STR_30_MIN,  StrId::STR_1_HOUR,
+    StrId::STR_2_HOURS,  StrId::STR_4_HOURS,    StrId::STR_6_HOURS, StrId::STR_8_HOURS, StrId::STR_10_HOURS,
+    StrId::STR_12_HOURS, StrId::STR_SLEEP_NEVER};
 static_assert(std::size(SLEEP_TIMEOUT_STEP_LABELS) == CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP + 1);
 
 inline std::string fontSizePointLabel(const uint8_t pointSize) { return std::to_string(pointSize) + " pt"; }
