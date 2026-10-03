@@ -576,18 +576,25 @@ void cmdSet(char* args) {
 
 #if CROSSDINK_GOODIES
 // Goodies > Knobs (lib/Knobs/Knobs.def). One reply line each, so "list" pages:
-// "id=value ..." from index `from`, with "next=N" while more remain.
+// "id=value ..." from index `from`, with "next=N" while more remain. "changed"
+// pages the same way but only knobs off their default (the on-device *), as
+// "id=value/default".
 void cmdKnob(char* args) {
   char* save = nullptr;
   const char* sub = strtok_r(args, " ", &save);
   const char* id = strtok_r(nullptr, " ", &save);
   const char* valueArg = strtok_r(nullptr, " ", &save);
-  if (sub == nullptr || strcasecmp(sub, "list") == 0) {
+  const bool changedOnly = sub != nullptr && strcasecmp(sub, "changed") == 0;
+  if (sub == nullptr || strcasecmp(sub, "list") == 0 || changedOnly) {
     char out[232];
     int n = 0;
     int i = id ? std::max(0, atoi(id)) : 0;
     for (; i < knobs::COUNT; ++i) {
-      const int w = snprintf(out + n, sizeof(out) - n, " %s=%ld", knobs::INFO[i].id, static_cast<long>(knobs::get(i)));
+      const knobs::Info& k = knobs::INFO[i];
+      const long v = static_cast<long>(knobs::get(i));
+      if (changedOnly && v == k.def) continue;
+      const int w = changedOnly ? snprintf(out + n, sizeof(out) - n, " %s=%ld/%ld", k.id, v, static_cast<long>(k.def))
+                                : snprintf(out + n, sizeof(out) - n, " %s=%ld", k.id, v);
       if (w < 0 || n + w >= static_cast<int>(sizeof(out)) - 12) break;
       n += w;
     }
