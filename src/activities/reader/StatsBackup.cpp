@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -238,9 +239,8 @@ int pruneBackups(int keep) {
   for (const bool daily : {true, false}) {
     std::vector<BackupName> set;
     set.reserve(names.size());
-    for (const BackupName& n : names) {
-      if (isDailyStatsBackupName(n.value) == daily) set.push_back(n);
-    }
+    std::copy_if(names.begin(), names.end(), std::back_inserter(set),
+                 [daily](const BackupName& n) { return isDailyStatsBackupName(n.value) == daily; });
     if (static_cast<int>(set.size()) <= keep) continue;
 
     std::sort(set.begin(), set.end(),
