@@ -54,10 +54,6 @@ constexpr fui::ActionId ACTION_SEARCH = 2;
 constexpr fui::ActionId ACTION_CANCEL = 3;
 constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
-// PSRAM page cache (S3 only): whole raw feed responses, so Back/Prev and the
-// prefetched next page parse locally instead of refetching.
-constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
-constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // A kept-alive feed connection idle longer than this is closed before the
 // next request. Some servers and load balancers drop an idle socket without a
 // FIN; the request then waits out the whole header timeout before the retry
@@ -175,8 +171,10 @@ void OpdsBookBrowserActivity::onEnter() {
   }
 
   if (psramHeapAvailable()) {
+    // The server list may have prefetched this server's root page already.
+    pageCache = opds_page_cache_handoff::take();
     const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
-    pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
+    if (!pageCache) pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
     if (pageCache) {
       preload = makeUniqueNoThrow<OpdsPreloadPool>(*pageCache, OPDS_PAGE_MAX_BYTES, server.username, server.password,
                                                    UrlUtils::ensureProtocol(server.url));

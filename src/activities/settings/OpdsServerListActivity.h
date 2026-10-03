@@ -4,8 +4,13 @@
 #include <FreeInkUIGfxRenderer.h>
 
 #include <atomic>
+#include <bitset>
+#include <memory>
 
+#include "OpdsServerStore.h"
 #include "activities/Activity.h"
+#include "activities/browser/OpdsPageCache.h"
+#include "activities/browser/OpdsPreloadPool.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
@@ -39,8 +44,19 @@ class OpdsServerListActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
   bool pickerMode = false;
-  // A server was picked: the browser takes over the background join's link.
+  // A server was picked: the browser takes over the background join's link
+  // and the page cache.
   bool leavingToBrowser = false;
+  // PSRAM devices, picker mode: each server's root page is fetched in the
+  // background once Wi-Fi is up (one server at a time) and its row gets the
+  // check mark; the cache goes to the browser with the picked server.
+  std::unique_ptr<OpdsPageCache> pageCache;
+  std::unique_ptr<OpdsPreloadPool> preload;  // the current server's fetch; destroyed before pageCache
+  size_t prefetchIndex = 0;                  // next server to fetch
+  uint32_t pageCachedAt = 0;                 // pageCache->changes() when rootCached was set
+  // Servers whose root page is cached, set on the main loop under the render
+  // lock (the cache has no lock) and read by the screen builder.
+  std::bitset<OpdsServerStore::MAX_SERVERS> rootCached;
   OptionPopup optionPopup;
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
@@ -57,4 +73,5 @@ class OpdsServerListActivity final : public Activity {
 
   int getItemCount() const;
   void handleSelection();
+  void pumpPrefetch();
 };

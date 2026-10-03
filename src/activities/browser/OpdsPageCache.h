@@ -4,8 +4,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
+
+// PSRAM page cache (S3 only): whole raw feed responses, so Back/Prev and the
+// prefetched pages parse locally instead of refetching.
+constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
+constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 
 /**
  * Growable byte buffer for one raw OPDS feed response.
@@ -109,3 +115,11 @@ class OpdsPageCache {
   uint32_t useClock = 0;
   uint32_t changeCount = 0;
 };
+
+// The server list's cache (each server's root page), handed to the browser it
+// opens so the picked server's first page shows without a fetch. Main loop
+// only; empty after a reboot, or when nothing was handed over.
+namespace opds_page_cache_handoff {
+void give(std::unique_ptr<OpdsPageCache> cache);
+std::unique_ptr<OpdsPageCache> take();
+}  // namespace opds_page_cache_handoff
