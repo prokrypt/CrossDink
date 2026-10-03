@@ -83,42 +83,37 @@ void OpdsServerListActivity::onEnter() {
   leavingToBrowser = false;
   if (pickerMode) {
     wifi_background_join::start();
-    prefetchIndex = 0;
+    rootsQueued = false;
     if (!pageCache && psramHeapAvailable()) {
       const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
       pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
       rootCached.reset();
       pageCachedAt = 0;
     }
+    if (pageCache && !preload) {
+      // Credentials come with each page: the servers differ.
+      preload = makeUniqueNoThrow<OpdsPreloadPool>(*pageCache, OPDS_PAGE_MAX_BYTES, "", "", "");
+      if (!preload) LOG_ERR("OPDS", "OOM: server list preload pool");
+    }
   }
 }
 
-// Fetches the root page of one server at a time (as the browser preloads the
-// root page's feeds), once the background join is up. Each page that lands
-// redraws the list with its check mark.
+// Queues every server's root page once Wi-Fi is up and pumps the pool (up to
+// three fetches at once, as the browser preloads a catalog's pages). A page
+// that lands marks its row; a server that fails just stays unmarked.
 void OpdsServerListActivity::pumpPrefetch() {
 #ifndef SIMULATOR
-  if (!pageCache || !hasActiveStationWifiConnection()) return;
-  if (preload) {
-    preload->pump();
-    if (preload->busy()) return;
-    preload.reset();  // done, or failed: on to the next server
-  }
+  if (!preload || !hasActiveStationWifiConnection()) return;
   const auto& servers = OPDS_STORE.getServers();
-  while (prefetchIndex < servers.size()) {
-    const auto& server = servers[prefetchIndex++];
-    if (server.url.empty() || pageCache->contains(UrlUtils::buildUrl(server.url, ""))) continue;
-    preload = makeUniqueNoThrow<OpdsPreloadPool>(*pageCache, OPDS_PAGE_MAX_BYTES, server.username, server.password,
-                                                 UrlUtils::ensureProtocol(server.url));
-    if (!preload) {
-      LOG_ERR("OPDS", "OOM: server list preload pool");
-      prefetchIndex = servers.size();
-      return;
+  if (!rootsQueued) {
+    rootsQueued = true;
+    for (const auto& server : servers) {
+      if (server.url.empty()) continue;
+      preload->enqueue(UrlUtils::buildUrl(server.url, ""), false, server.username, server.password,
+                       UrlUtils::ensureProtocol(server.url));
     }
-    preload->enqueue(UrlUtils::buildUrl(server.url, ""), true);
-    preload->pump();
-    break;
   }
+  preload->pump();
   if (pageCache->changes() == pageCachedAt) return;
   pageCachedAt = pageCache->changes();
   std::bitset<OpdsServerStore::MAX_SERVERS> cached;
@@ -227,7 +222,7 @@ void OpdsServerListActivity::handleSelection() {
         OPDS_STORE.loadFromFile();
         selectedIndex = 0;
         topIndex = 0;
-        prefetchIndex = 0;  // a new server gets its page too
+        rootsQueued = false;  // a new server gets its page too
         requestUpdate();
       });
     }

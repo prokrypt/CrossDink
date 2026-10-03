@@ -37,6 +37,10 @@ class OpdsPreloadPool {
   // before the rest (the next page), and let it evict older cache pages; other
   // pages are stored only when they fit without evicting anything.
   void enqueue(const std::string& url, bool front);
+  // Same, with this page's own credentials (another server's page) instead of
+  // the pool's.
+  void enqueue(const std::string& url, bool front, std::string username, std::string password,
+               std::string authorizationOrigin);
   // Refetches a cached page ahead of the queue and replaces the cached copy if
   // the server's differs (see takeChange). Replaces any earlier recheck.
   void revalidate(const std::string& url);
@@ -56,6 +60,15 @@ class OpdsPreloadPool {
   bool busy() const;
 
  private:
+  struct QueuedPage {
+    std::string url;
+    bool evict;
+    bool revalidate = false;
+    // Empty authorizationOrigin: the pool's credentials.
+    std::string username;
+    std::string password;
+    std::string authorizationOrigin;
+  };
   struct Worker {
 #if defined(FREEINK_NET_WOLFSSL)
     // Declared before the prefetcher so it outlives the prefetch task.
@@ -63,13 +76,7 @@ class OpdsPreloadPool {
 #endif
     OpdsPagePrefetcher prefetcher;
     unsigned long lastUseMs = 0;
-    bool evict = false;
-    bool revalidate = false;
-  };
-  struct QueuedPage {
-    std::string url;
-    bool evict;
-    bool revalidate = false;
+    QueuedPage job;  // what the prefetcher is (or last was) running
   };
 
   bool queued(const std::string& url) const;

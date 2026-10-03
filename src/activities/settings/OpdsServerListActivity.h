@@ -47,12 +47,13 @@ class OpdsServerListActivity final : public Activity {
   // A server was picked: the browser takes over the background join's link
   // and the page cache.
   bool leavingToBrowser = false;
-  // PSRAM devices, picker mode: each server's root page is fetched in the
-  // background once Wi-Fi is up (one server at a time) and its row gets the
-  // check mark; the cache goes to the browser with the picked server.
+  // PSRAM devices, picker mode: the servers' root pages are fetched in the
+  // background once Wi-Fi is up (the browser's preload pool, up to three at
+  // once) and each row gets the check mark; the cache goes to the browser
+  // with the picked server.
   std::unique_ptr<OpdsPageCache> pageCache;
-  std::unique_ptr<OpdsPreloadPool> preload;  // the current server's fetch; destroyed before pageCache
-  size_t prefetchIndex = 0;                  // next server to fetch
+  std::unique_ptr<OpdsPreloadPool> preload;  // destroyed before pageCache
+  bool rootsQueued = false;                  // every server's root page is in the pool
   uint32_t pageCachedAt = 0;                 // pageCache->changes() when rootCached was set
   // Servers whose root page is cached, set on the main loop under the render
   // lock (the cache has no lock) and read by the screen builder.
