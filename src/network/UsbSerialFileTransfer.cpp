@@ -823,7 +823,7 @@ ProcessResult process(bool allowed) {
   // Read even when the host looks gone: the HWCDC connected flag flaps (SOF
   // timer, light sleep) and gating on it dropped whole commands.
   static bool hostConnected = false;
-  if (static_cast<bool>(logSerial) != hostConnected) {
+  if (logSerialHostConnected() != hostConnected) {
     hostConnected = !hostConnected;
     LOG_DBG("SER", "host %s", hostConnected ? "connected" : "disconnected");
   }

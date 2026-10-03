@@ -39,6 +39,9 @@ void logPrintf(const char* level, const char* origin, const char* format, ...);
 // port (the RAM and PSRAM rings still get them). setup() calls logSerialInit()
 // once; before that, and before the scheduler runs, writes go straight out.
 void logSerialInit();
+// The host-attached flag: true as soon as the raw HWCDC flag is, false only
+// after it has stayed false for 1 s (it flaps every ~100-300 ms when idle).
+bool logSerialHostConnected();
 bool logSerialLock(uint32_t waitMs);
 void logSerialUnlock();
 class LogSerialGuard {
