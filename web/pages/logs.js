@@ -582,7 +582,7 @@ tab();
     text
       .split('\n')
       .map((l) => l.split(','))
-      .filter((f) => f.length >= 10 && +f[0] > 0)
+      .filter((f) => f.length >= 10 && +f[0] > 0 && f[3] !== '') // a blank % is a row before the gauge first answered
       .map((f) => ({
         t: +f[0], local: f[1], pct: +f[3], c: Math.round(+f[3] * 100), fine: f[3].includes('.'), q: f[3].includes('.') ? 0.01 : 1, mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
         temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
