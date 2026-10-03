@@ -64,6 +64,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Nearby transfer: accepting a file starts receiving right away instead of freezing for several seconds on a free-space check (a full card now fails the write and removes the partial file). Files send several times faster: the radio uses 11 Mbps instead of 1 Mbps, keeps 3 chunks in flight instead of waiting for each acknowledgement, and resends a lost chunk after 0.1 s instead of 0.45 s. The receiver acknowledges each chunk before writing it to the card, which also speeds up receiving from older senders slightly. Debug logs end each transfer with its time, speed and resend counts.
 - File Transfer: an upload no longer fails when you switch away from the browser tab on a phone. The device keeps the partial file for 60 s, and the page reconnects when you come back and continues where it stopped. The page also keeps the phone's screen on while it uploads (Chrome, iOS Safari 16.4+).
 - File Transfer uploads from phones are faster. X4 Pro accepts twice as much unacknowledged data (64 KB TCP window), and the web page reads the file in 192 KB pieces ahead of sending and paces itself on the device's progress replies instead of a 5 ms timer, which phone browsers slow down.
 - Web file manager: the first click on a column header sorts largest, newest or Z first; a second click flips it. Folders stay on top.

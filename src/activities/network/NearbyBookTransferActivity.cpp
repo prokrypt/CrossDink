@@ -37,7 +37,6 @@ constexpr uint8_t BROADCAST_MAC[nearby::MAC_BYTES] = {0xff, 0xff, 0xff, 0xff, 0x
 constexpr uint8_t RESULT_OK = 0;
 constexpr uint8_t RESULT_FAILED = 1;
 constexpr uint8_t REJECT_USER = 1;
-constexpr uint8_t REJECT_STORAGE = 2;
 TouchActionButtons::Layout touchActionLayout(const Rect& screen, const uint8_t count) {
   constexpr int sideMargin = 24;
   constexpr int bottomMargin = 12;
@@ -281,12 +280,16 @@ void NearbyBookTransferActivity::handlePacket(const nearby::EspNowTransport::Eve
       session_.begin(nearby::ReliableTransferSession::Role::Sender, sessionId_, offeredFileSize_,
                      negotiatedChunkBytes_);
       retryCount_ = 0;
+      sendSequence_ = 0;
+      crcSequence_ = 0;
+      resetTransferStats();
+      lastActionMs_ = millis();
       setState(State::Sending);
       if (offeredFileSize_ == 0) {
         sourceFile_.close();
         sendComplete();
       } else {
-        sendNextChunk();
+        fillSendWindow();
       }
       return;
     }
@@ -296,16 +299,19 @@ void NearbyBookTransferActivity::handlePacket(const nearby::EspNowTransport::Eve
     }
     if (packet.type == nearby::PacketType::Ack && state_ == State::Sending && packet.payloadLength == 4) {
       const uint32_t nextSequence = nearby::readU32(packet.payload);
-      if (!session_.acceptAcknowledgement(nextSequence)) return;
-      session_.advanceSentBytes(pendingChunkLength_);
-      pendingChunkLength_ = 0;
+      if (nextSequence <= session_.nextSequence() || nextSequence > sendSequence_) return;
+      while (session_.nextSequence() < nextSequence) session_.acceptAcknowledgement(session_.nextSequence() + 1);
+      const uint64_t ackedBytes =
+          std::min<uint64_t>(static_cast<uint64_t>(nextSequence) * negotiatedChunkBytes_, session_.totalBytes());
+      session_.advanceSentBytes(static_cast<size_t>(ackedBytes - session_.transferredBytes()));
       retryCount_ = 0;
+      lastActionMs_ = millis();
       maybeRefreshProgress();
       if (session_.transferredBytes() == session_.totalBytes()) {
         sourceFile_.close();
         sendComplete();
       } else {
-        sendNextChunk();
+        fillSendWindow();
       }
       return;
     }
@@ -352,24 +358,27 @@ void NearbyBookTransferActivity::handlePacket(const nearby::EspNowTransport::Eve
   }
   if (packet.type == nearby::PacketType::Data && state_ == State::Receiving) {
     if (packet.sequence < session_.nextSequence()) {
+      ++duplicateChunks_;
       sendAck();
       return;
     }
     if (packet.sequence != session_.nextSequence() || packet.payloadLength == 0 ||
         packet.payloadLength > negotiatedChunkBytes_) {
+      ++outOfOrderChunks_;
       sendAck();
       return;
     }
-    const size_t written = receiveFile_.write(packet.payload, packet.payloadLength);
-    if (written != packet.payloadLength ||
-        !session_.acceptReceivedChunk(packet.sequence, static_cast<size_t>(packet.payloadLength))) {
+    // Ack before the SD write so the sender's next chunk is on air while we write. A failed write
+    // still reports FAILED, and the sender stops on it.
+    const bool accepted = session_.acceptReceivedChunk(packet.sequence, static_cast<size_t>(packet.payloadLength));
+    if (accepted) sendAck();
+    if (!accepted || receiveFile_.write(packet.payload, packet.payloadLength) != packet.payloadLength) {
       const uint8_t failed = RESULT_FAILED;
       sendPacket(nearby::PacketType::Result, peerMac_.data(), 0, &failed, 1);
       setError(tr(STR_NEARBY_TRANSFER_WRITE_FAILED));
       return;
     }
     session_.includeBytes(packet.payload, packet.payloadLength);
-    sendAck();
     maybeRefreshProgress();
     return;
   }
@@ -392,12 +401,6 @@ void NearbyBookTransferActivity::handlePacket(const nearby::EspNowTransport::Eve
 bool NearbyBookTransferActivity::acceptOffer(const bool keepBoth) {
   receivingScreenDrawn_.store(false, std::memory_order_release);
   acceptPending_ = false;
-  setState(State::Validating);
-  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
-    LOG_ERR(LOG_TAG, "Validation screen could not be rendered synchronously");
-    requestUpdate(true);
-  }
-
   if (keepBoth) {
     finalPath_ = keepBothPath(finalPath_);
     if (finalPath_.empty()) {
@@ -405,18 +408,8 @@ bool NearbyBookTransferActivity::acceptOffer(const bool keepBoth) {
       return false;
     }
   }
-  uint64_t total = 0;
-  uint64_t used = 0;
-#ifndef SIMULATOR
-  total = Storage.totalBytes();
-  used = Storage.usedBytes();
-#endif
-  if (total > 0 && used <= total && offeredFileSize_ > total - used) {
-    const uint8_t reason = REJECT_STORAGE;
-    sendPacket(nearby::PacketType::Reject, peerMac_.data(), 0, &reason, 1);
-    setError(tr(STR_NEARBY_TRANSFER_NO_SPACE));
-    return false;
-  }
+  // No free-space precheck: usedBytes() walks the whole FAT (8.3 s frozen UI on .67). A full card
+  // fails the write instead, which reports and removes the partial file.
   const std::string finalName = fileNameFromPath(finalPath_);
   tempPath_ = joinPath(destinationFolder_, "." + finalName + ".crossink-part");
   backupPath_ = joinPath(destinationFolder_, "." + finalName + ".crossink-backup");
@@ -443,6 +436,7 @@ void NearbyBookTransferActivity::sendPendingAccept() {
   acceptPending_ = false;
   uint8_t payload[2];
   nearby::writeU16(payload, negotiatedChunkBytes_);
+  resetTransferStats();
   if (!sendPacket(nearby::PacketType::Accept, peerMac_.data(), 0, payload, sizeof(payload))) {
     setError(tr(STR_NEARBY_TRANSFER_RADIO_FAILED));
     return;
@@ -450,23 +444,57 @@ void NearbyBookTransferActivity::sendPendingAccept() {
   lastActionMs_ = millis();
 }
 
-bool NearbyBookTransferActivity::sendNextChunk() {
-  pendingChunkLength_ = 0;
-  const int bytesRead = sourceFile_.read(chunkBuffer_.data(), negotiatedChunkBytes_);
-  if (bytesRead <= 0) {
-    setError(tr(STR_NEARBY_TRANSFER_SOURCE_FAILED));
-    return false;
+// Keeps up to SEND_WINDOW chunks in flight. Receivers (old ones too) write only the chunk they
+// expect and re-ack it for anything else; a loss stalls acks and the retry timer rewinds to the
+// acked position (go-back-N). ponytail: no fast retransmit on repeated acks, add if losses are common.
+void NearbyBookTransferActivity::fillSendWindow() {
+  const uint64_t chunkCount =
+      (session_.totalBytes() + negotiatedChunkBytes_ - 1) / static_cast<uint64_t>(negotiatedChunkBytes_);
+  while (sendSequence_ < chunkCount && sendSequence_ - session_.nextSequence() < SEND_WINDOW) {
+    const int bytesRead = sourceFile_.seek64(static_cast<uint64_t>(sendSequence_) * negotiatedChunkBytes_)
+                              ? sourceFile_.read(chunkBuffer_.data(), negotiatedChunkBytes_)
+                              : -1;
+    if (bytesRead <= 0) {
+      setError(tr(STR_NEARBY_TRANSFER_SOURCE_FAILED));
+      return;
+    }
+    // A rewound chunk is already in the CRC.
+    if (sendSequence_ == crcSequence_) {
+      session_.includeBytes(chunkBuffer_.data(), static_cast<size_t>(bytesRead));
+      ++crcSequence_;
+    }
+    // Radio queue full: the retry timer rewinds and resends.
+    if (!sendPacket(nearby::PacketType::Data, peerMac_.data(), sendSequence_, chunkBuffer_.data(),
+                    static_cast<uint16_t>(bytesRead))) {
+      return;
+    }
+    ++sendSequence_;
   }
-  pendingChunkLength_ = static_cast<size_t>(bytesRead);
-  session_.includeBytes(chunkBuffer_.data(), pendingChunkLength_);
-  retryCount_ = 0;
-  return resendPending();
 }
 
-bool NearbyBookTransferActivity::resendPending() {
+void NearbyBookTransferActivity::rewindSendWindow() {
+  ++rewinds_;
+  sendSequence_ = session_.nextSequence();
   lastActionMs_ = millis();
-  return sendPacket(nearby::PacketType::Data, peerMac_.data(), session_.nextSequence(), chunkBuffer_.data(),
-                    static_cast<uint16_t>(pendingChunkLength_));
+  fillSendWindow();
+}
+
+void NearbyBookTransferActivity::resetTransferStats() {
+  transferStartMs_ = millis();
+  duplicateChunks_ = 0;
+  outOfOrderChunks_ = 0;
+  rewinds_ = 0;
+}
+
+void NearbyBookTransferActivity::logTransferStats(const bool ok) const {
+  const uint32_t ms = std::max<uint32_t>(1, millis() - transferStartMs_);
+  LOG_INF(LOG_TAG, "%s %s: %llu/%llu B in %u ms (%u KB/s) dup=%u ooo=%u rewind=%u overflow=%d",
+          mode_ == Mode::Send ? "send" : "receive", ok ? "ok" : "failed",
+          static_cast<unsigned long long>(session_.transferredBytes()),
+          static_cast<unsigned long long>(session_.totalBytes()), static_cast<unsigned>(ms),
+          static_cast<unsigned>(session_.transferredBytes() * 1000 / 1024 / ms),
+          static_cast<unsigned>(duplicateChunks_), static_cast<unsigned>(outOfOrderChunks_),
+          static_cast<unsigned>(rewinds_), transport_.overflowed() ? 1 : 0);
 }
 
 bool NearbyBookTransferActivity::sendAck() {
@@ -540,6 +568,9 @@ void NearbyBookTransferActivity::rejectOffer() {
 }
 
 void NearbyBookTransferActivity::setState(const State state) {
+  if ((state_ == State::Sending || state_ == State::Receiving) && state != state_) {
+    logTransferStats(state == State::Success);
+  }
   state_ = state;
   selectedIndex_ = 0;
   uiReady_ = false;
@@ -616,7 +647,7 @@ void NearbyBookTransferActivity::updateTimers() {
     sendDiscovery();
     return;
   }
-  if (state_ == State::WaitingForApproval && now - lastActionMs_ >= RETRY_INTERVAL_MS * 2) {
+  if (state_ == State::WaitingForApproval && now - lastActionMs_ >= APPROVAL_RETRY_MS) {
     if (++retryCount_ > MAX_APPROVAL_RETRIES) {
       setError(tr(STR_NEARBY_TRANSFER_TIMEOUT));
     } else {
@@ -633,10 +664,10 @@ void NearbyBookTransferActivity::updateTimers() {
     setError(tr(STR_NEARBY_TRANSFER_TIMEOUT));
     return;
   }
-  if (pendingChunkLength_ > 0) {
-    resendPending();
-  } else {
+  if (session_.transferredBytes() == session_.totalBytes()) {
     sendComplete();
+  } else {
+    rewindSendWindow();
   }
 }
 
@@ -852,8 +883,6 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
   } else if (state_ == State::WaitingForApproval) {
     centeredWrapped(tr(STR_NEARBY_TRANSFER_WAITING_APPROVAL), -10, 2);
     centeredWrapped(peers_[selectedIndex_].name.data(), renderer.getLineHeight(UI_10_FONT_ID) + 18, 2, SMALL_FONT_ID);
-  } else if (state_ == State::Validating) {
-    centered(tr(STR_NEARBY_TRANSFER_VALIDATING));
   } else if (state_ == State::OfferPrompt) {
     centeredWrapped(tr(STR_NEARBY_TRANSFER_INCOMING), -65, 2);
     centeredWrapped(senderName_.c_str(), -25, 2, SMALL_FONT_ID);
