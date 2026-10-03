@@ -265,10 +265,25 @@ void LibraryActivity::loadGridProgress() {
   gridProgressRow = row;
   gridProgress = -1.0f;
   RecentBook book;
-  if (readBook(row, book)) {
-    gridProgress = FsHelpers::hasEpubExtension(book.path) ? RecentBookProgress::loadCachedEpubPercent(book)
-                                                          : RecentBookProgress::loadPercent(book);
+  if (!readBook(row, book)) return;
+  if (!FsHelpers::hasEpubExtension(book.path)) {
+    gridProgress = RecentBookProgress::loadPercent(book);
+    return;
   }
+  // The index holds the content key, so a selection move reads no book tail.
+  // A book not opened since /.crossdink falls back to the path route, which
+  // copies its old /.crosspoint cache in.
+  library::ClixRecord record{};
+  uint64_t key = 0;
+  const uint16_t ordinal = ordinalForRow(row);
+  if (ordinal != UINT16_MAX && index.readRecord(ordinal, record) && index.readContentKey(record, key) && key != 0) {
+    const std::string cachePath = "/.crossdink/epub_" + std::to_string(key);
+    if (Storage.exists(cachePath.c_str())) {
+      gridProgress = RecentBookProgress::loadCachedEpubPercentAt(cachePath);
+      return;
+    }
+  }
+  gridProgress = RecentBookProgress::loadCachedEpubPercent(book);
 }
 
 uint16_t LibraryActivity::ordinalForRow(const int row) {
