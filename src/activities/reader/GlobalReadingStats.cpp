@@ -54,11 +54,11 @@ static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStat
 static_assert(GLOBAL_STATS_FILE_SIZE <= two_slot::MAX_PAYLOAD_BYTES, "stats slot exceeds two_slot buffers");
 // CrossDink's two slots. Older firmware keeps reading global_stats.bin (a bare
 // payload it understands), which is only read here until the first save.
-static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats_dink.bin";
-static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats_dink.bin.bak";
-static constexpr char LEGACY_STATS_PATH[] = "/.crosspoint/global_stats.bin";
-static constexpr char LEGACY_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
-static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
+static constexpr char GLOBAL_STATS_PATH[] = "/.crossdink/global_stats_dink.bin";
+static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crossdink/global_stats_dink.bin.bak";
+static constexpr char LEGACY_STATS_PATH[] = "/.crossdink/global_stats.bin";
+static constexpr char LEGACY_STATS_BAK_PATH[] = "/.crossdink/global_stats.bin.bak";
+static constexpr char SYNCED_STATS_DIR[] = "/.crossdink/synced_stats";
 static bool s_blockDestructiveSave = false;
 
 uint32_t readLe32(const uint8_t* data, const int offset) {

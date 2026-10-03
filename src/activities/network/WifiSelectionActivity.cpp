@@ -1356,7 +1356,6 @@ void WifiSelectionActivity::render(RenderLock&&) {
     case WifiSelectionState::CONNECTION_FAILED:
       renderConnectionFailed(&screen, &metrics);
       break;
-      break;
     case WifiSelectionState::PASSWORD_ENTRY:
       break;  // Handled by early return above
   }

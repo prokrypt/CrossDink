@@ -18,12 +18,10 @@ namespace {
 constexpr char READ_FOLDER[] = "/Read";
 
 bool getCachePath(const std::string& bookPath, const char* bookType, std::string& cachePath) {
-  if (strcmp(bookType, "epub") == 0) {
-    cachePath = Epub::cachePathForFilePath(bookPath, "/.crosspoint");
-  } else if (strcmp(bookType, "xtc") == 0) {
-    cachePath = Xtc(bookPath, "/.crosspoint").getCachePath();
+  if (strcmp(bookType, "xtc") == 0) {
+    cachePath = Xtc(bookPath, "/.crossdink").getCachePath();
   } else if (strcmp(bookType, "txt") == 0) {
-    cachePath = Txt(bookPath, "/.crosspoint").getCachePath();
+    cachePath = Txt(bookPath, "/.crossdink").getCachePath();
   } else {
     LOG_ERR("BookMove", "Unknown book type for state migration: %s", bookType);
     return false;
@@ -63,8 +61,10 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
     return RenameMigrationResult::RolledBack;
   }
 
-  std::string newCachePath;
-  if (!getCachePath(newPath, bookType, newCachePath)) return RenameMigrationResult::RolledBack;
+  // EPUB caches are keyed by content, so a rename keeps the same folder.
+  std::string newCachePath = oldCachePath;
+  if (strcmp(bookType, "epub") != 0 && !getCachePath(newPath, bookType, newCachePath))
+    return RenameMigrationResult::RolledBack;
 
   bool cacheMoved = false;
   bool bookRenamed = false;
@@ -177,7 +177,7 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
     }
   }
 
-  if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
+  if (!oldCachePath.empty() && oldCachePath != newCachePath && Storage.exists(oldCachePath.c_str())) {
     if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
       LOG_ERR("BookMove", "Failed to rename cache dir %s -> %s", oldCachePath.c_str(), newCachePath.c_str());
       return recover();
@@ -216,14 +216,8 @@ bool migrateMovedEpubState(const std::string& oldPath, const std::string& newPat
   library::invalidateLibraryIndex();
   bool ok = true;
 
-  const std::string newCachePath = Epub::cachePathForFilePath(newPath, "/.crosspoint");
-  if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
-    if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
-      LOG_ERR("BookMove", "Failed to rename cache dir %s -> %s (non-fatal)", oldCachePath.c_str(),
-              newCachePath.c_str());
-      ok = false;
-    }
-  }
+  // EPUB caches are keyed by content, so the moved book keeps its folder.
+  const std::string& newCachePath = oldCachePath;
 
   if (!BookmarkStore::migrateForFilePath(oldPath, newPath, title, author, "epub")) {
     LOG_ERR("BookMove", "Failed to migrate bookmarks for moved book %s -> %s", oldPath.c_str(), newPath.c_str());

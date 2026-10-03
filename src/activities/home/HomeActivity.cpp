@@ -59,8 +59,8 @@ constexpr uint32_t CAROUSEL_CACHE_MAGIC = 0x43434152;  // "CCAR"
 // Cached frames include all Home visuals, including the menu icons. Bump this
 // whenever their rendering changes so stale snapshots are rebuilt after OTA.
 constexpr uint16_t CAROUSEL_CACHE_VERSION = 7;
-constexpr char CAROUSEL_CACHE_PATH[] = "/.crosspoint/home_carousel_cache.bin";
-constexpr char CAROUSEL_CACHE_TMP_PATH[] = "/.crosspoint/home_carousel_cache.tmp";
+constexpr char CAROUSEL_CACHE_PATH[] = "/.crossdink/home_carousel_cache.bin";
+constexpr char CAROUSEL_CACHE_TMP_PATH[] = "/.crossdink/home_carousel_cache.tmp";
 constexpr uint32_t CAROUSEL_FRAME_MIN_FREE_AFTER_ALLOC = 64U * 1024U;
 constexpr uint32_t CAROUSEL_FRAME_MIN_MAX_ALLOC_AFTER_ALLOC = 24U * 1024U;
 KNOB_ALIAS(HOME_BOOK_SWAP_LONG_PRESS_MS, homeBookSwapMs);  // Goodies > Knobs
@@ -171,13 +171,13 @@ void appendHashedFileStateToKey(std::string& key, const std::string& path) {
 
 std::string getRecentBookCachePath(const RecentBook& book) {
   if (FsHelpers::hasEpubExtension(book.path)) {
-    return Epub::resolveCachePathForFilePath(book.path, "/.crosspoint");
+    return Epub::resolveCachePathForFilePath(book.path, "/.crossdink");
   }
   if (FsHelpers::hasXtcExtension(book.path)) {
-    return "/.crosspoint/xtc_" + std::to_string(std::hash<std::string>{}(book.path));
+    return "/.crossdink/xtc_" + std::to_string(std::hash<std::string>{}(book.path));
   }
   if (FsHelpers::hasTxtExtension(book.path) || FsHelpers::hasMarkdownExtension(book.path)) {
-    return "/.crosspoint/txt_" + std::to_string(std::hash<std::string>{}(book.path));
+    return "/.crossdink/txt_" + std::to_string(std::hash<std::string>{}(book.path));
   }
   return "";
 }
@@ -245,10 +245,10 @@ bool hasThumbnailPlaceholder(const std::string& coverBmpPath) {
 
 std::string getReusableCoverPath(const RecentBook& book) {
   if (FsHelpers::hasEpubExtension(book.path)) {
-    return Epub(book.path, "/.crosspoint").getThumbBmpPath();
+    return Epub(book.path, "/.crossdink").getThumbBmpPath();
   }
   if (FsHelpers::hasXtcExtension(book.path)) {
-    return Xtc(book.path, "/.crosspoint").getThumbBmpPath();
+    return Xtc(book.path, "/.crossdink").getThumbBmpPath();
   }
   return book.coverBmpPath;
 }
@@ -395,7 +395,7 @@ std::string minimalHomeCoverPath(const RecentBook& book, int coverHeight) {
     return {};
   }
   if (FsHelpers::hasEpubExtension(book.path)) {
-    return Epub(book.path, "/.crosspoint")
+    return Epub(book.path, "/.crossdink")
         .getAdaptiveThumbBmpPath(minimalHomeCoverWidth(coverHeight), minimalHomeCoverHeight(coverHeight));
   }
   return UITheme::getCoverThumbPath(book.coverBmpPath, minimalHomeCoverWidth(coverHeight),
@@ -417,7 +417,7 @@ std::string dashboardHomeCoverPath(const RecentBook& book, int coverHeight) {
     return {};
   }
   if (FsHelpers::hasEpubExtension(book.path)) {
-    return Epub(book.path, "/.crosspoint")
+    return Epub(book.path, "/.crossdink")
         .getAdaptiveThumbBmpPath(dashboardHomeCoverWidth(coverHeight), dashboardHomeCoverHeight(coverHeight));
   }
   return UITheme::getCoverThumbPath(book.coverBmpPath, dashboardHomeCoverWidth(coverHeight),
@@ -460,7 +460,7 @@ void appendCarouselCoverStateToKey(std::string& key, const RecentBook& book) {
 }
 
 void appendSyncedStatsStateToKey(std::string& key) {
-  FsFile dir = Storage.open("/.crosspoint/synced_stats");
+  FsFile dir = Storage.open("/.crossdink/synced_stats");
   if (!dir) {
     key += "no-synced-stats";
     key += '\0';
@@ -482,7 +482,7 @@ void appendSyncedStatsStateToKey(std::string& key) {
       key += name;
       key += '\0';
       file.close();
-      appendHashedFileStateToKey(key, std::string("/.crosspoint/synced_stats/") + name);
+      appendHashedFileStateToKey(key, std::string("/.crossdink/synced_stats/") + name);
       continue;
     }
     file.close();
@@ -734,10 +734,10 @@ void HomeActivity::loadCoverGridThumbnails() {
     if (book.coverState == RecentBook::CoverState::Missing || !Storage.exists(book.path.c_str())) continue;
     if (book.coverBmpPath.empty()) {
       if (FsHelpers::hasEpubExtension(book.path)) {
-        auto epub = makeUniqueNoThrow<Epub>(book.path, "/.crosspoint");
+        auto epub = makeUniqueNoThrow<Epub>(book.path, "/.crossdink");
         if (epub) book.coverBmpPath = epub->getThumbBmpPath();
       } else if (FsHelpers::hasXtcExtension(book.path)) {
-        auto xtc = makeUniqueNoThrow<Xtc>(book.path, "/.crosspoint");
+        auto xtc = makeUniqueNoThrow<Xtc>(book.path, "/.crossdink");
         if (xtc) book.coverBmpPath = xtc->getThumbBmpPath();
       }
     }
@@ -852,7 +852,7 @@ void HomeActivity::runCoverJobs() {
     if (coverWorker.cancel.load(std::memory_order_relaxed)) break;
     bool generated = true;
     if (FsHelpers::hasEpubExtension(job.path)) {
-      Epub epub(job.path, "/.crosspoint");
+      Epub epub(job.path, "/.crossdink");
       bool needsMetadata = false;
       for (uint8_t i = 0; i < job.specs.count; ++i) {
         needsMetadata |= job.specs.items[i].kind != HomeCoverThumbs::Spec::Kind::FromSource;
@@ -866,7 +866,7 @@ void HomeActivity::runCoverJobs() {
       }
       job.coverMissing = !generated && needsMetadata && !epub.hasCoverImage();
     } else {
-      Xtc xtc(job.path, "/.crosspoint");
+      Xtc xtc(job.path, "/.crossdink");
       if (!xtc.load()) continue;
       for (uint8_t i = 0; i < job.specs.count; ++i) {
         generated = HomeCoverThumbs::generate(xtc, job.specs.items[i]) && generated;
@@ -1132,7 +1132,7 @@ std::unique_ptr<Activity> HomeActivity::createFrontlightReadingStatsActivity() {
       title = slash == std::string::npos ? path : path.substr(slash + 1);
     }
   }
-  const std::string cachePath = validEpub ? Epub::cachePathForFilePath(path, "/.crosspoint") : std::string{};
+  const std::string cachePath = validEpub ? Epub::cachePathForFilePath(path, "/.crossdink") : std::string{};
   const bool showBookStats = validEpub && BookStatsTracking::isEnabled(cachePath);
   const BookReadingStats bookStats = showBookStats ? BookReadingStats::load(cachePath) : BookReadingStats{};
   if (!SETTINGS.shouldTrackReadingStats()) return {};
@@ -1413,7 +1413,7 @@ bool HomeActivity::buildCarouselCacheFile(const std::string& cacheKey, uint64_t 
   uint8_t* frameBuffer = renderer.getFrameBuffer();
   if (!frameBuffer || bookCount <= 0) return false;
 
-  Storage.mkdir("/.crosspoint");
+  Storage.mkdir("/.crossdink");
   if (Storage.exists(CAROUSEL_CACHE_TMP_PATH)) {
     Storage.remove(CAROUSEL_CACHE_TMP_PATH);
   }

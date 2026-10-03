@@ -86,7 +86,7 @@ std::string coverPathForRect(const RecentBook& book, const Rect& imageRect) {
   }
   if (FsHelpers::hasEpubExtension(book.path)) {
     const std::string adaptivePath =
-        Epub(book.path, "/.crosspoint").getAdaptiveThumbBmpPath(imageRect.width, imageRect.height);
+        Epub(book.path, "/.crossdink").getAdaptiveThumbBmpPath(imageRect.width, imageRect.height);
     if (Storage.exists(adaptivePath.c_str())) {
       return adaptivePath;
     }
@@ -361,9 +361,9 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
 bool showBookStatsForPath(const std::string& path) {
   if (!SETTINGS.shouldTrackReadingStats()) return false;
   if (FsHelpers::hasEpubExtension(path))
-    return BookStatsTracking::isBookEnabled(Epub::cachePathForFilePath(path, "/.crosspoint"));
+    return BookStatsTracking::isBookEnabled(Epub::cachePathForFilePath(path, "/.crossdink"));
   if (FsHelpers::hasXtcExtension(path))
-    return BookStatsTracking::isBookEnabled(Xtc(path, "/.crosspoint").getCachePath());
+    return BookStatsTracking::isBookEnabled(Xtc(path, "/.crossdink").getCachePath());
   return false;
 }
 

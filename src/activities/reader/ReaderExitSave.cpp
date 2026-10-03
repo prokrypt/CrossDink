@@ -34,6 +34,7 @@ void ReaderExitSave::queue(const std::string& cachePath, const BookReadingStats*
 
 void ReaderExitSave::flush() {
   if (!pending.load(std::memory_order_acquire)) return;
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long start = millis();
   // Same order as the reader always used: global stats only once the book's landed.
   if (hasBook && heldBook.save(heldCachePath) && hasGlobal) heldGlobal.save();

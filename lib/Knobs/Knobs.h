@@ -5,7 +5,7 @@
 
 // Goodies > Knobs: tunable internal constants, listed in Knobs.def. Goodies
 // builds (CROSSDINK_GOODIES) keep them in RAM, settable from the Knobs page and
-// CMD:KNOB, with non-defaults in /.crosspoint/knobs.json (src/Knobs.cpp).
+// CMD:KNOB, with non-defaults in /.crossdink/knobs.json (src/Knobs.cpp).
 // Other builds see a constexpr KNOBS, so every read is the default.
 struct Knobs {
 #define X(group, id, type, def, min, max, step, unit) type id = def;

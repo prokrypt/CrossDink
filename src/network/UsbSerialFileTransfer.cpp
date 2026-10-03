@@ -49,8 +49,8 @@ constexpr uint32_t CHUNK_TIMEOUT_MS = 45000;
 // Per binary write: how long a host may stop reading before a download aborts.
 constexpr uint32_t BULK_WRITE_BUDGET_MS = 3000;
 constexpr unsigned long IDLE_EVERY_MS = 100;
-constexpr const char* TEMP_UPLOAD_PATH = "/.crosspoint/usb-upload.tmp";
-constexpr const char* INTERNAL_DIR = "/.crosspoint";
+constexpr const char* TEMP_UPLOAD_PATH = "/.crossdink/usb-upload.tmp";
+constexpr const char* INTERNAL_DIR = "/.crossdink";
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 
 #ifndef CROSSDINK_FIRMWARE_DEVICE_TYPE

@@ -17,7 +17,7 @@ namespace {
 
 constexpr uint32_t RECORD_MAGIC = 0x52505331;  // "RPS1"
 constexpr uint8_t RECORD_VERSION = 1;
-// Cache paths look like "/.crosspoint/epub_<up to 20 digits>".
+// Cache paths look like "/.crossdink/epub_<up to 20 digits>".
 constexpr size_t MAX_CACHE_PATH = 64;
 
 struct Record {
