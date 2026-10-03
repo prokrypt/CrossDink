@@ -29,9 +29,22 @@ TEST(BatteryEstimate, LowerLightOnDrainNeverShortensDrainWithBrightness) {
   EXPECT_FLOAT_EQ(lightScaledRate(3.08f, 1.73f, 28.0f, 100), 3.08f);
 }
 
+// A missing side takes the other, at any brightness, so the line stays awake drain.
 TEST(BatteryEstimate, MissingStateFallsBack) {
   EXPECT_FLOAT_EQ(lightScaledRate(0.0f, 3.0f, 325.0f, 80), 3.0f);
-  EXPECT_FLOAT_EQ(lightScaledRate(2.0f, 0.0f, 325.0f, 80), 0.0f);
+  EXPECT_FLOAT_EQ(lightScaledRate(0.0f, 3.0f, 325.0f, 0), 3.0f);
+  EXPECT_FLOAT_EQ(lightScaledRate(2.0f, 0.0f, 325.0f, 80), 2.0f);
+  EXPECT_FLOAT_EQ(lightScaledRate(2.0f, 0.0f, 325.0f, 0), 2.0f);
+  EXPECT_FLOAT_EQ(lightScaledRate(0.0f, 0.0f, 325.0f, 50), 0.0f);
+}
+
+// 10/3 08:06: a 247 %/h-at-full-light pair is held to the LED's own drain.
+TEST(BatteryEstimate, SlopeCappedAtLedMax) {
+  const float cap = 20.0f / 36 / 1023;  // 20 %/h at full duty, in 0.01 % per s per duty unit
+  const float base = 0.13152f - cap * 19.2f;
+  EXPECT_FLOAT_EQ(lightScaledRate(0.00248f, 0.13152f, 19.2f, 0, -1.0f, cap), base);
+  EXPECT_FLOAT_EQ(lightScaledRate(0.00248f, 0.13152f, 19.2f, 100, -1.0f, cap), base + cap * 1023);
+  EXPECT_FLOAT_EQ(lightScaledRate(2.0f, 3.0f, 325.0f, 100, -1.0f, 1.0f), 2.0f + 1023.0f / 325.0f);  // under it
 }
 
 // Device log 10/3 (.67): Wi-Fi on, light off rose 0.58% (no rate); light on (duty 20.4) 0.137 c%/s.

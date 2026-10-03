@@ -413,8 +413,8 @@ function logStats() {
     s = {
       reset: sum.reset, first: sum.first, last: sum.last, cold: sum.coldBoots, rst: sum.restarts, wakes: sum.wakes, falseWakes: sum.falseWakes,
       awake: sum.awakeS, asleep: sum.asleepS, charged: sum.chargedEpoch, from: pc(sum.chargeFromC, sum.chargeFromFine), to: pc(sum.chargeToC, sum.chargeToFine),
-      charging: sum.charging, b: sum.battS, d: sum.dropC.map(c), dc: sum.coarseC.map(c), e: sum.errC.map((v) => v / 1e4), run: sum.run, runQ: sum.runFine ? 0.01 : 1,
-      n: sum.netC.map(c), nc: sum.netCoarseC.map(c),
+      charging: sum.charging, b: sum.battS, d: sum.dropC.map(c), dc: [0, 0], e: sum.errC.map((v, k) => (v + sum.netErrC[k]) / 1e4), run: sum.run, runQ: 0.01,
+      n: sum.netC.map(c), nc: [0, 0],
     };
     prev = sum.prevEpoch ? { t: sum.prevEpoch, ev: sum.prevAwake ? '' : 'sleep', det: '', usb: sum.prevUsb } : null;
     ref = pc(sum.prevC, sum.prevFine);
