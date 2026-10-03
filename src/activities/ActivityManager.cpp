@@ -1561,7 +1561,7 @@ void (*RenderLock::waitTick)() = nullptr;
 
 RenderLock::RenderLock(const Mode mode) {
   const TickType_t slice = mode == Mode::Try ? 0 : pdMS_TO_TICKS(WAIT_TICK_MS);
-  while (!(isLocked = xSemaphoreTake(activityManager.renderingMutex, slice) == pdTRUE) && mode != Mode::Try) {
+  while (!(isLocked = (xSemaphoreTake(activityManager.renderingMutex, slice) == pdTRUE)) && mode != Mode::Try) {
     if (waitTick) waitTick();
   }
 }

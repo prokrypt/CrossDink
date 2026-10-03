@@ -89,9 +89,8 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
 }
 
 namespace {
-// 15x11, 1 px strokes like the battery outline; bit 14 is the left column.
-constexpr uint16_t WIFI_GLYPH_ROWS[] = {0x03E0, 0x1C1C, 0x3006, 0x43E1, 0x0E38, 0x1004,
-                                        0x01C0, 0x0220, 0x0000, 0x01C0, 0x01C0};
+// 4 ascending bars, 3 px wide with 1 px gaps (15 px total, 11 px tall at most).
+constexpr int WIFI_BAR_HEIGHT[] = {3, 6, 9, 11};
 
 std::atomic<int8_t> frameWifiStatus{-1};
 std::atomic<int16_t> frameBatteryPercent{-1};
@@ -107,22 +106,22 @@ int BaseTheme::wifiStatusShown() { return frameWifiStatus.load(std::memory_order
 int BaseTheme::batteryPercentShown() { return frameBatteryPercent.load(std::memory_order_relaxed); }
 
 int BaseTheme::wifiStatusReserve() {
-  const bool connected = hasActiveStationWifiConnection();
-  frameWifiStatus.store(connected ? 1 : 0, std::memory_order_relaxed);
+  const int bars = wifiHeaderBars();
+  const bool connected = bars > 0;
+  frameWifiStatus.store(static_cast<int8_t>(bars), std::memory_order_relaxed);
   frameBatteryPercent.store(static_cast<int16_t>(powerManager.getBatteryPercentage()), std::memory_order_relaxed);
   return connected ? wifiGlyphWidth + batteryPercentSpacing : 0;
 }
 
 void BaseTheme::drawWifiStatus(const GfxRenderer& renderer, const int x, const int batteryY,
                                const bool foregroundBlack) {
-  // Bottom-aligned with the battery icon (drawn at batteryY + 5, 12 px tall).
-  const int top = batteryY + 6;
-  for (int row = 0; row < static_cast<int>(sizeof(WIFI_GLYPH_ROWS) / sizeof(WIFI_GLYPH_ROWS[0])); ++row) {
-    for (int col = 0; col < wifiGlyphWidth; ++col) {
-      if (WIFI_GLYPH_ROWS[row] & (1u << (wifiGlyphWidth - 1 - col))) {
-        renderer.drawPixel(x + col, top + row, foregroundBlack);
-      }
-    }
+  // Bottom-aligned with the battery icon (drawn at batteryY + 5, 12 px tall). Bars above the
+  // current signal level are drawn as a 1 px baseline only.
+  const int bars = frameWifiStatus.load(std::memory_order_relaxed);
+  const int bottom = batteryY + 6 + 11;
+  for (int b = 0; b < 4; ++b) {
+    const int h = b < bars ? WIFI_BAR_HEIGHT[b] : 1;
+    renderer.fillRect(x + b * 4, bottom - h, 3, h, foregroundBlack);
   }
 }
 

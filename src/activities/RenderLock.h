@@ -10,7 +10,7 @@ class RenderLock {
   enum class Mode { Blocking, Try };
   explicit RenderLock(Mode mode = Mode::Blocking);
   explicit RenderLock(Activity&, Mode mode = Mode::Blocking);  // Compatibility overload used by activity call sites.
-  explicit RenderLock(unsigned long timeoutMs);                 // bounded take; check ownsLock()
+  explicit RenderLock(unsigned long timeoutMs);                // bounded take; check ownsLock()
   RenderLock(const RenderLock&) = delete;
   RenderLock& operator=(const RenderLock&) = delete;
   ~RenderLock();
