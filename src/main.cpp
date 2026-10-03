@@ -1766,9 +1766,10 @@ void setup() {
   const esp_partition_t* running = esp_ota_get_running_partition();
   [[maybe_unused]] const char* runningPart = running ? running->label : "?";
 #endif
-  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", AppVersion::version(), BuildInfo::gitSha(),
-          strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(), CROSSDINK_PIOENV,
-          BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart, resetReasonName(rawResetReason));
+  LOG_INF("BOOT", "fw=%s sha=%s%s br=%s env=%s build=%s %s part=%s reset=%s", AppVersion::version(),
+          BuildInfo::gitSha(), strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(),
+          CROSSDINK_PIOENV, BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart,
+          resetReasonName(rawResetReason));
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
@@ -2126,7 +2127,8 @@ void setup() {
       activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
     }
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
-             mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount() > 0) {
+             mappedInputManager.isPressed(MappedInputManager::Button::Back) ||
+             APP_STATE.readerActivityLoadCount() > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
     // On X4, use the first Home paint to clean the retained sleep image.
@@ -2236,8 +2238,8 @@ static void updateFlashDuck() {
   const uint32_t markMs = display.flashPlannedMs();
   static uint32_t swungMarkMs = 0;  // the mark whose swing showed (its mark no longer ducks)
   const bool marked = markMs != 0 && markMs != swungMarkMs && now - markMs <= FLASH_DUCK_MAX_MS;
-  static uint32_t swingEndMs = 0;   // expected end of the swing being tracked
-  static uint32_t swingGoneMs = 0;  // when it ended (for a later restore)
+  static uint32_t swingEndMs = 0;                  // expected end of the swing being tracked
+  static uint32_t swingGoneMs = 0;                 // when it ended (for a later restore)
   static auto kind = HalDisplay::FlashKind::Full;  // of that swing, kept for a late restore
   if (swingMs != 0) {
     swingEndMs = display.flashEndsMs();
@@ -2288,12 +2290,14 @@ static void updateFlashDuck() {
   // The user (brightness, toggle, Quick Lock) or the light timeout took over.
   if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
   const bool fresh = !flashDuckActive || flashDuckUpStartMs != 0;  // a new flash (back-to-back: from here)
+  // Never duck below 2% of full: lower duty shifts the frontlight color. Every duck level below derives from this.
+  const unsigned long minPct = std::max<unsigned long>(KNOBS.flashDuckMinPct, 2);
   if (!flashDuckActive) {
     if (!ducking || holdLate || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
         Frontlight.idleDimPercent() != 100) {
       return;
     }
-    if (Frontlight.brightness() <= KNOBS.flashDuckMinPct) {
+    if (Frontlight.brightness() <= minPct) {
       static uint32_t skippedMs = 0;  // logged once per flash
       const uint32_t flashMs = markMs != 0 ? markMs : swingMs;
       if (flashMs != skippedMs) {
@@ -2308,11 +2312,10 @@ static void updateFlashDuck() {
   }
   // Each ramp moves only one way from where the light is, between 100% and
   // the Flash Dim Level (a % of the user's brightness; 0 = dark), but never
-  // below flashDuckMinPct of full (rounded up; at 100 the duck is over).
+  // below minPct (>= 2) of full (rounded up; at 100 the duck is over).
   const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
   const unsigned long floor = std::min<unsigned long>(
-      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (KNOBS.flashDuckMinPct * 100 + b - 1) / b),
-      100);
+      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b), 100);
   static bool darkLogged = false;
   unsigned long level;
   if (ducking) {
@@ -2349,8 +2352,8 @@ static void updateFlashDuck() {
     darkMs = target;
     const int32_t left = static_cast<int32_t>(target - now);
     const unsigned long from = std::max<unsigned long>(fromLevel, floor);
-    level = std::max(floor, std::min<unsigned long>(flashDuckLevel,
-                                                    left <= 0 ? floor : floor + (from - floor) * left / (target - fromMs)));
+    level = std::max(floor, std::min<unsigned long>(
+                                flashDuckLevel, left <= 0 ? floor : floor + (from - floor) * left / (target - fromMs)));
     if (level == floor && !darkLogged) {
       darkLogged = true;
       if (swingMs != 0) {
@@ -2404,7 +2407,8 @@ static unsigned long lightIdleMs(const unsigned long idleMs) {
 
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
-  if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) && SETTINGS.frontlightFlashDuck)) {
+  if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) &&
+                          SETTINGS.frontlightFlashDuck)) {
     return FLASH_DUCK_TICK_MS;
   }
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
@@ -2647,8 +2651,8 @@ static void loopPass() {
   static unsigned long lastActivityTime = millis();
   static unsigned long lastSleepBlockTime = millis();
   if (userInputReceived) {
-    activityManager.wakePanelEarly();    // PON while the finger is still down
-    lastActivityTime = millis();         // Reset inactivity timer
+    activityManager.wakePanelEarly();  // PON while the finger is still down
+    lastActivityTime = millis();       // Reset inactivity timer
     flashDuckInputMs = lastActivityTime;
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
