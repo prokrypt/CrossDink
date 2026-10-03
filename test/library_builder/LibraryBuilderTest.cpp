@@ -362,6 +362,41 @@ TEST_F(LibraryBuilderTest, PsramCopyOfThePreviousIndexReplacesPerBookCardReads) 
   EXPECT_LT(fake::reads + 80, cardReads);
 }
 
+TEST_F(LibraryBuilderTest, PsramStagingWritesOnlyTheIndexAndMatchesTheCardStage) {
+  // 100 books outgrow the first build's 64-record PSRAM block, so the larger
+  // card also covers the spill from PSRAM to the stage file.
+  for (const unsigned count : {3u, 100u}) {
+    fake::reset();
+    bookMetadata.clear();
+    for (unsigned i = 0; i < count; i++) {
+      const std::string path = (i % 2 ? "/shelf/" : "/") + numbered("book", i) + ".epub";
+      fake::add(path, numbered("bytes", i), 10 + i % 7);
+      bookMetadata[path].title = numbered("Title ", (i * 37) % count);
+      bookMetadata[path].author = numbered("Writer ", i % 5);
+      bookMetadata[path].series = i % 3 ? numbered("Series ", i % 4) : "";
+    }
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+    const auto onCard = fake::files[INDEX]->bytes;
+
+    fake::files.erase(INDEX);
+    fake::psram = true;
+    fake::writesByPath.clear();
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+
+    EXPECT_EQ(fake::files[INDEX]->bytes, onCard) << count;
+    EXPECT_EQ(fake::writesByPath.count("/.crossdink/library.stage.f"), 0u) << count;
+    EXPECT_EQ(fake::writesByPath.count("/.crossdink/library.stage") != 0, count > 64) << count;
+    EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+
+    // A rebuild sized from the previous index stays in PSRAM.
+    fake::files["/" + numbered("book", 0) + ".epub"]->time++;
+    fake::writesByPath.clear();
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+    EXPECT_TRUE(stats.indexReplaced);
+    EXPECT_EQ(fake::writesByPath.count("/.crossdink/library.stage"), 0u) << count;
+  }
+}
+
 TEST_F(LibraryBuilderTest, ParentDuplicateTrackingSurvivesDirectoryRecursion) {
   fake::add("/folder/c.txt");
   fake::duplicateDirectoryEntry("/a.epub");
