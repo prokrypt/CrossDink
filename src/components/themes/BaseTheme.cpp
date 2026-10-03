@@ -93,12 +93,23 @@ namespace {
 constexpr int WIFI_BAR_HEIGHT[] = {3, 6, 9, 11};
 
 std::atomic<int8_t> frameWifiStatus{-1};
+std::atomic<int16_t> frameBatteryPercent{-1};
 }  // namespace
+
+void BaseTheme::beginFrameStatus() {
+  frameWifiStatus.store(-1, std::memory_order_relaxed);
+  frameBatteryPercent.store(-1, std::memory_order_relaxed);
+}
+
+int BaseTheme::wifiStatusShown() { return frameWifiStatus.load(std::memory_order_relaxed); }
+
+int BaseTheme::batteryPercentShown() { return frameBatteryPercent.load(std::memory_order_relaxed); }
 
 int BaseTheme::wifiStatusReserve() {
   const int bars = wifiHeaderBars();
   const bool connected = bars > 0;
   frameWifiStatus.store(static_cast<int8_t>(bars), std::memory_order_relaxed);
+  frameBatteryPercent.store(static_cast<int16_t>(powerManager.getBatteryPercentage()), std::memory_order_relaxed);
   return connected ? wifiGlyphWidth + batteryPercentSpacing : 0;
 }
 
