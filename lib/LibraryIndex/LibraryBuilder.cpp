@@ -108,6 +108,28 @@ bool sortKeyLess(const SortKey& a, const SortKey& b) {
   return a.ordinal < b.ordinal;
 }
 
+// What one build cost the card, for the LIBIDX debug log. One build runs at a
+// time, so a file static is enough; reset at the start of every build.
+struct ScanCounters {
+  uint32_t indexReads;
+  uint32_t indexReadBytes;
+  uint32_t stageWriteBytes;
+  uint32_t stageReads;
+  uint32_t stageReadBytes;
+  uint32_t tailReadsAtStart;
+  uint32_t walkMs;
+};
+ScanCounters gCounters{};
+
+void logScanCounters([[maybe_unused]] const uint16_t books) {
+  LOG_DBG("LIBIDX", "counters: idx %u reads/%u B, stage %u B written/%u reads/%u B, %u tail reads, walk %u us/book",
+          static_cast<unsigned>(gCounters.indexReads), static_cast<unsigned>(gCounters.indexReadBytes),
+          static_cast<unsigned>(gCounters.stageWriteBytes), static_cast<unsigned>(gCounters.stageReads),
+          static_cast<unsigned>(gCounters.stageReadBytes),
+          static_cast<unsigned>(Epub::contentKeyReads() - gCounters.tailReadsAtStart),
+          static_cast<unsigned>(books ? gCounters.walkMs * 1000u / books : 0));
+}
+
 // Owner hooks for the build in progress. One build runs at a time, so file
 // statics avoid threading the control through every phase helper.
 const BuildControl* gBuildControl = nullptr;
@@ -569,6 +591,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
   if (entry.genreLen > 0) memcpy(entry.genre, genre.data(), entry.genreLen);
 
   st.stageOut->write(&entry, STAGE_STRIDE);
+  gCounters.stageWriteBytes += STAGE_STRIDE;
   st.books++;
   return true;
 }
@@ -705,6 +728,7 @@ void walk(WalkState& st, const std::string& path, const int depth) {
         break;
       }
       st.folderBytes += 1u + pathLen;
+      gCounters.stageWriteBytes += 1u + pathLen;
       st.folderId++;
       folderEmitted = true;
     }
@@ -790,6 +814,8 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
   };
   const auto readStageAt = [&stage, &ioFailed](const uint64_t offset, void* data, const size_t len) {
     if (ioFailed) return false;
+    gCounters.stageReads++;
+    gCounters.stageReadBytes += len;
     if (!stage.seekSet(offset) || stage.read(reinterpret_cast<uint8_t*>(data), len) != static_cast<int>(len)) {
       LOG_ERR("LIBIDX", "record stage read failed at %u", static_cast<unsigned>(offset));
       ioFailed = true;
@@ -1353,6 +1379,8 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
   uint32_t serviceUnits = 0;
   stats = BuildStats{};
   const BuildControlScope controlScope(control);
+  gCounters = ScanCounters{};
+  gCounters.tailReadsAtStart = Epub::contentKeyReads();
 
   Storage.mkdir(CACHE_DIR);
   if (!recoverInterruptedInstall()) return false;
@@ -1452,7 +1480,10 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
   }
   const bool stageClosed = st.stage.close();
   const bool foldersClosed = st.folders.close();
-  LOG_DBG("LIBIDX", "phase walk/metadata/stage: %ums", static_cast<unsigned>(millis() - walkStartMs));
+  gCounters.walkMs = millis() - walkStartMs;
+  gCounters.indexReads = previous.cardReads();
+  gCounters.indexReadBytes = previous.cardReadBytes();
+  LOG_DBG("LIBIDX", "phase walk/metadata/stage: %ums", static_cast<unsigned>(gCounters.walkMs));
 
   if (gBuildCancelled) {
     LOG_INF("LIBIDX", "build stopped by its owner; keeping the previous index");
@@ -1492,6 +1523,7 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
     LOG_INF("LIBIDX", "unchanged: %u reused, %u parsed, no replacement, %ums",
             static_cast<unsigned>(stats.metadataReused), static_cast<unsigned>(stats.parsed),
             static_cast<unsigned>(stats.walkMs));
+    logScanCounters(st.books);
     return true;
   }
 
@@ -1533,6 +1565,8 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
     for (uint16_t i = 0; i < st.books; i++) {
       serviceBuilder(serviceUnits);
       ClixRecord r{};
+      gCounters.stageReads++;
+      gCounters.stageReadBytes += sizeof(r);
       if (!read.seekSet(static_cast<uint64_t>(i) * STAGE_STRIDE) ||
           read.read(reinterpret_cast<uint8_t*>(&r), sizeof(r)) != static_cast<int>(sizeof(r))) {
         LOG_ERR("LIBIDX", "firstSeen reconciliation: short read at record %u", static_cast<unsigned>(i));
@@ -1626,6 +1660,8 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
         serviceBuilder(serviceUnits);
         ClixRecord r{};
         const uint64_t offset = static_cast<uint64_t>(i) * STAGE_STRIDE;
+        gCounters.stageReads++;
+        gCounters.stageReadBytes += sizeof(r);
         if (!stage.seekSet(offset) ||
             stage.read(reinterpret_cast<uint8_t*>(&r), sizeof(r)) != static_cast<int>(sizeof(r))) {
           LOG_ERR("LIBIDX", "title sort: record stage read failed at %u", static_cast<unsigned>(offset));
@@ -1641,6 +1677,8 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
       const auto loadTitleSegment = [&stage](const uint16_t ordinal, const size_t offset, char* key) {
         const uint64_t position = static_cast<uint64_t>(ordinal) * STAGE_STRIDE + offsetof(StagedEntry, record) +
                                   offsetof(ClixRecord, fold) + offset;
+        gCounters.stageReads++;
+        gCounters.stageReadBytes += sizeof(SortKey::key);
         if (!stage.seekSet(position) || stage.read(reinterpret_cast<uint8_t*>(key), sizeof(SortKey::key)) !=
                                             static_cast<int>(sizeof(SortKey::key))) {
           LOG_ERR("LIBIDX", "title sort: staged fold read failed at %u", static_cast<unsigned>(position));
@@ -1693,6 +1731,7 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
           static_cast<unsigned>(stats.parsed), static_cast<unsigned>(stats.metadataReused),
           static_cast<unsigned>(stats.indexReplaced), static_cast<unsigned>(stats.duplicatesDropped),
           static_cast<unsigned>(stats.unreadableSkipped), static_cast<unsigned>(stats.walkMs));
+  logScanCounters(stats.books);
   return ok;
 }
 

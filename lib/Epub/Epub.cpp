@@ -19,6 +19,7 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <atomic>
 #include <mutex>
 #include <string_view>
 #include <utility>
@@ -371,11 +372,13 @@ struct CacheKeyMemo {
 CacheKeyMemo cacheKeyMemo[16] = {};
 uint8_t cacheKeyMemoNext = 0;
 std::mutex cacheKeyMemoMutex;
+std::atomic<uint32_t> contentKeyReadCount{0};
 
 // FNV-1a 64 of the file size plus its last 16 KB. An EPUB's ZIP central
 // directory sits at the end and lists every entry's CRC-32 and offset, so the
 // tail fingerprints the whole book without reading all of it.
 bool readContentKey(const std::string& filepath, uint64_t& out) {
+  contentKeyReadCount.fetch_add(1, std::memory_order_relaxed);
   HalFile file;
   if (!Storage.openFileForReadIfPresent("EBP", filepath, file)) {
     // A book that exists but won't open is usually held open elsewhere (SdFat
@@ -621,6 +624,8 @@ std::string Epub::cachePathForFilePath(const std::string& filepath, const std::s
 }
 
 bool Epub::contentKeyFor(const std::string& filepath, uint64_t& out) { return contentKey(filepath, out); }
+
+uint32_t Epub::contentKeyReads() { return contentKeyReadCount.load(std::memory_order_relaxed); }
 
 void Epub::forgetCacheKeys() {
   std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);

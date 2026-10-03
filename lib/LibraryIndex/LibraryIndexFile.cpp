@@ -20,6 +20,8 @@ bool LibraryIndexFile::openForReconciliation(const char* path) { return openImpl
 bool LibraryIndexFile::openImpl(const char* path, const bool acceptStaleFold) {
   close();
   readFailed = false;
+  readCalls = 0;
+  readBytes = 0;
   if (!Storage.openFileForRead("LIBIDX", path, file)) {
     readFailed = true;
     return false;
@@ -55,6 +57,8 @@ bool LibraryIndexFile::readAt(const uint32_t offset, void* dst, const size_t len
   // Every offset handed to this function comes from the header, and the header
   // was validated against the real file size, so a short read means the card
   // changed under us rather than a bad computation.
+  readCalls++;
+  readBytes += len;
   if (!file.seekSet(offset) || file.read(dst, len) != static_cast<int>(len)) {
     readFailed = true;
     return false;

@@ -27,7 +27,9 @@ class Epub {
  public:
   Epub(const std::string& path, const char*) : path(path) {}
   static void forgetCacheKeys() {}
+  static uint32_t contentKeyReads() { return fake::contentKeyReads; }
   static bool contentKeyFor(const std::string& path, uint64_t& out) {
+    ++fake::contentKeyReads;
     out = std::hash<std::string>{}(path) | 1;
     return true;
   }

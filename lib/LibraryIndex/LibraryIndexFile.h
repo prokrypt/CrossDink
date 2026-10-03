@@ -59,6 +59,9 @@ class LibraryIndexFile {
   void close();
   bool isOpen() const { return opened; }
   bool ioFailed() const { return readFailed; }
+  // Card reads since open(), for the builder's scan counters (LOG_DBG only).
+  uint32_t cardReads() const { return readCalls; }
+  uint32_t cardReadBytes() const { return readBytes; }
 
   ClixValidity validity() const { return lastValidity; }
   const ClixHeader& header() const { return head; }
@@ -126,6 +129,8 @@ class LibraryIndexFile {
   ClixHeader head{};
   bool opened = false;
   bool readFailed = false;
+  uint32_t readCalls = 0;
+  uint32_t readBytes = 0;
   ClixValidity lastValidity = ClixValidity::BadMagic;
 };
 

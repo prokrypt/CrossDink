@@ -29,6 +29,7 @@ inline std::string failOpenPath;
 inline std::string failClosePath;
 inline std::string failWritePath;
 inline unsigned parses = 0;
+inline unsigned contentKeyReads = 0;
 inline unsigned reads = 0;
 inline unsigned seeks = 0;
 inline unsigned delays = 0;
@@ -62,6 +63,7 @@ inline void reset() {
   failClosePath.clear();
   failWritePath.clear();
   parses = 0;
+  contentKeyReads = 0;
   reads = 0;
   seeks = 0;
   delays = 0;
