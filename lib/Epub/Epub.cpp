@@ -45,9 +45,9 @@ constexpr size_t kOptimizerManifestMaxBytes = 64 * 1024;
 constexpr size_t kOptimizerMaxPxcBytes = 4 + 128 * 1024;
 constexpr uint16_t kOptimizerMaxPxcDimension = 1024;
 constexpr size_t kOptimizerMaxPxcRowBytes = (kOptimizerMaxPxcDimension + 3) / 4;
-// Legacy sidecar inflation borrows framebuffer scratch during page preflight.
-// Keep the remaining ZIP input/output allocations bounded.
-constexpr size_t kOptimizerPxcExtractionChunkSize = 256;
+// Two transient 4 KB ZIP buffers (internal heap); 256 B chunks cost one SD op per
+// 256 bytes (2 s for one 37 KB image on device). Sector-aligned writes go straight to the card.
+constexpr size_t kOptimizerPxcExtractionChunkSize = 4096;
 // The parser is single-threaded. Static row buffers avoid a cold-path heap
 // allocation and cap resize working memory at 512 bytes.
 uint8_t optimizerSourceRow[kOptimizerMaxPxcRowBytes];
@@ -1766,6 +1766,23 @@ class BufferSink final : public Print {
   uint8_t* data;
   size_t capacity;
 };
+// Forwards to the file and keeps the 4-byte PXC header (width, height) for validation.
+class PxcHeaderSink final : public Print {
+ public:
+  explicit PxcHeaderSink(Print& out) : out(out) {}
+  size_t write(const uint8_t byte) override { return write(&byte, 1); }
+  size_t write(const uint8_t* buffer, const size_t size) override {
+    for (size_t i = 0; i < size && seen < sizeof(header); ++i) header[seen++] = buffer[i];
+    return out.write(buffer, size);
+  }
+  uint16_t width() const { return seen < 4 ? 0 : static_cast<uint16_t>(header[0] | (header[1] << 8)); }
+  uint16_t height() const { return seen < 4 ? 0 : static_cast<uint16_t>(header[2] | (header[3] << 8)); }
+
+ private:
+  Print& out;
+  uint8_t header[4] = {};
+  size_t seen = 0;
+};
 // PSRAM left free while an image is held, for the reader's other PSRAM users.
 // ponytail: fixed reserve; base it on a measured PSRAM high-water mark if decodes start failing over.
 constexpr size_t kItemPsramReserve = 1024 * 1024;
@@ -1918,6 +1935,20 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
     if (ok) LOG_DBG("EBP", "Materialized PXC2 image: %s", entry.pxcHref);
     return ok;
   }
+  if (entry.width == expectedWidth && entry.height == expectedHeight) {
+    // Exact size (the usual case): inflate straight into the temp file; no source copy or rescale pass.
+    FsFile output;
+    if (!Storage.openFileForWrite("EBP", temp, output)) return false;
+    PxcHeaderSink sink(output);
+    bool ok = readItemContentsToStream(entry.pxcHref, sink, kOptimizerPxcExtractionChunkSize) &&
+              sink.width() == entry.width && sink.height() == entry.height && output.size() == entry.bytes;
+    ok = OptimizerFormat::finishCache(output, Storage, ok, temp.c_str(), destPxcPath.c_str(), backup.c_str());
+    if (!ok) {
+      LOG_ERR("EBP", "PXC extraction failed: %s", entry.pxcHref);
+      Storage.remove(temp.c_str());
+    }
+    return ok;
+  }
   const std::string source = destPxcPath + ".optimizer.source";
   Storage.remove(source.c_str());
   if (!extractItemToFile(entry.pxcHref, source, kOptimizerPxcExtractionChunkSize)) return false;
@@ -1962,7 +1993,7 @@ bool Epub::ensureOptimizerImageIndex() {
   } else {
     // Caller loans the framebuffer for legacy ZIP inflation. JSON is temporary;
     // no manifest or record array survives reader setup.
-    if (!extractItemToFile(kOptimizerManifestPath, manifest, 256)) return false;
+    if (!extractItemToFile(kOptimizerManifestPath, manifest, kOptimizerPxcExtractionChunkSize)) return false;
     FsFile input;
     if (!Storage.openFileForRead("EBP", manifest, input)) {
       Storage.remove(manifest.c_str());
