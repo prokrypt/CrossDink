@@ -2398,7 +2398,8 @@ void HomeActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     displayHomeBuffer();
 
-    if (coverGridUi->takeThumbHeightsChanged()) {
+    const bool thumbSizesChanged = coverGridUi->takeThumbHeightsChanged();
+    if (thumbSizesChanged) {
       coverGridUi->refreshCoverPaths();
       // A running job makes the old sizes; run again once it is done.
       if (recentsLoading) {
@@ -2407,8 +2408,8 @@ void HomeActivity::render(RenderLock&&) {
         recentsLoaded = false;
       }
     }
-    if (!firstRenderDone) {
-      firstRenderDone = true;
+    // The first frame drew before the slot sizes were known: draw the real covers.
+    if (!std::exchange(firstRenderDone, true) && thumbSizesChanged) {
       requestUpdate();
     } else if (!recentsLoaded && !recentsLoading) {
       loadCoverGridThumbnails();
@@ -2463,12 +2464,8 @@ void HomeActivity::render(RenderLock&&) {
     }
 
     displayHomeBuffer();
-
-    if (!firstRenderDone) {
-      firstRenderDone = true;
-      requestUpdate();
-      return;
-    }
+    // No second paint of the same frame: the covers repaint when their job ends.
+    firstRenderDone = true;
 
     if (!recentsLoaded && !recentsLoading) {
       recentsLoading = true;
@@ -2521,12 +2518,10 @@ void HomeActivity::render(RenderLock&&) {
       displayHomeBuffer();
       // E-ink refresh complete — pre-render the missing adjacent frame while idle.
       updateSlidingWindowCache(centerIdx, bookCount);
-      // Mirror the slow-path trigger: generate missing thumbnails on the second
-      // render so the E-ink is already showing something before the SD work starts.
-      if (!firstRenderDone) {
-        firstRenderDone = true;
-        requestUpdate();
-      } else if (!recentsLoaded && !recentsLoading) {
+      // The refresh is already running: generate missing thumbnails now; the
+      // covers repaint when their job ends.
+      firstRenderDone = true;
+      if (!recentsLoaded && !recentsLoading) {
         recentsLoading = true;
         loadRecentCovers(metrics.homeCoverHeight);
       }
@@ -2588,12 +2583,9 @@ void HomeActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   displayHomeBuffer();
-
-  if (!firstRenderDone) {
-    firstRenderDone = true;
-    requestUpdate();
-    return;
-  }
+  // No second paint of the same frame (it held the panel for a whole refresh):
+  // the covers repaint when their job ends.
+  firstRenderDone = true;
 
   if (!recentsLoaded && !recentsLoading) {
     recentsLoading = true;

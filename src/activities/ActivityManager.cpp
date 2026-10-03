@@ -20,6 +20,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "GlobalActions.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
@@ -48,6 +49,7 @@
 #include "reader/BookStatsTracking.h"
 #include "reader/GlobalReadingStats.h"
 #include "reader/ReaderActivity.h"
+#include "reader/ReaderExitSave.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/BatteryLog.h"
@@ -579,6 +581,7 @@ void ActivityManager::renderTaskLoop() {
       ListSelection::revealed = currentActivity->listSelectionRevealed;
       ListSelection::hidThisFrame = false;
       currentActivity->render(std::move(lock));
+      currentActivityPainted.store(true, std::memory_order_release);
       ListSelection::hidOnScreen = ListSelection::hidThisFrame;
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
@@ -767,6 +770,7 @@ void ActivityManager::loop() {
 
       // Destroy the current activity
       exitActivity(lock);
+      settingsFlushPending = true;
       pendingAction = PendingAction::None;
 
       if (stackActivities.empty()) {
@@ -778,6 +782,7 @@ void ActivityManager::loop() {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
         restoredActivityNeedsRender = true;
+        currentActivityPainted.store(false, std::memory_order_release);
 
         if (closedFrontlightPanel) currentActivity->onFrontlightPanelClosed();
 
@@ -831,6 +836,7 @@ void ActivityManager::loop() {
       if (pendingAction == PendingAction::Replace) {
         // Destroy the current activity
         exitActivity(lock);
+        settingsFlushPending = true;
         // Clear the stack
         while (!stackActivities.empty()) {
           stackActivities.back()->onExit();
@@ -843,8 +849,12 @@ void ActivityManager::loop() {
       }
       pendingAction = PendingAction::None;
       currentActivity = std::move(pendingActivity);
+      currentActivityPainted.store(false, std::memory_order_release);
 
       lock.unlock();  // onEnter may acquire its own lock
+      // Only Home waits for its first frame; anything else (USB Drive included)
+      // must find the reader's exit writes on SD before it starts.
+      if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
 #if CROSSDINK_GOODIES
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
@@ -893,6 +903,19 @@ void ActivityManager::loop() {
 
       // onEnter may request another pending action, we will handle it in the next loop iteration
       continue;
+    }
+  }
+
+  // Home's first frame is refreshing on the panel: the reader's exit writes run
+  // in that wait instead of before Home rendered.
+  if (!currentActivity || !currentActivity->isHomeActivity() ||
+      currentActivityPainted.load(std::memory_order_acquire)) {
+    ReaderExitSave::flush();
+    // Settings changed on a screen or panel are written once it has closed,
+    // while the screen below refreshes.
+    if (settingsFlushPending) {
+      settingsFlushPending = false;
+      flushSettingsStores();
     }
   }
 

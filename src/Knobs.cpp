@@ -12,6 +12,7 @@
 #include <uzlib.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstring>
 
@@ -101,6 +102,8 @@ void apply() {
   InputManager::setTuning(t);
 }
 
+std::atomic<bool> dirty{false};
+
 bool save() {
   JsonDocument doc;
   for (int i = 0; i < COUNT; ++i) {
@@ -125,15 +128,19 @@ int32_t set(const int index, const int32_t value, const bool persist) {
   PUT[index](v);
   apply();
   LOG_INF("KNOB", "%s = %ld", INFO[index].id, static_cast<long>(v));
-  if (persist && !save()) LOG_ERR("KNOB", "knobs.json not saved");
+  if (persist) dirty = true;
   return v;
 }
 
 void resetAll() {
   KNOBS = Knobs{};
   apply();
-  if (Storage.exists(PATH) && !Storage.remove(PATH)) LOG_ERR("KNOB", "knobs.json not removed");
+  dirty = true;  // save() deletes knobs.json when every knob is at its default
   LOG_INF("KNOB", "all knobs reset");
+}
+
+void flush() {
+  if (dirty.exchange(false) && !save()) LOG_ERR("KNOB", "knobs.json not saved");
 }
 
 void load(const bool skipFile) {
