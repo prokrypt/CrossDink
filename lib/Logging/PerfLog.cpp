@@ -16,6 +16,15 @@
 
 #if CONFIG_PM_PROFILING
 #include <esp_pm.h>
+#include <esp_sleep.h>
+#endif
+
+// [PM] needs x4-pro-debug's custom_sdkconfig. Bins built against a framework
+// compiled without it lost every [PM] line from 2c6751af to ce70db10 with no
+// build error: fail the build instead.
+#if CROSSDINK_REQUIRE_PM_PROFILING && !(CONFIG_PM_PROFILING && CONFIG_PM_LIGHT_SLEEP_CALLBACKS)
+#error \
+    "framework built without CONFIG_PM_PROFILING/CONFIG_PM_LIGHT_SLEEP_CALLBACKS: delete sdkconfig.defaults and rebuild"
 #endif
 
 namespace PerfLog {
@@ -94,6 +103,22 @@ int64_t pmPrevSleepUs = 0;
 int64_t pmPrevCpuMaxUs = 0;
 long pmPrevSleeps = 0;
 long pmPrevRejects = 0;
+
+#if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
+// Light-sleep exits per wake cause (esp_sleep_get_wakeup_causes bitmap), from
+// the PM exit hook: the idle task, flash code, cache on.
+std::atomic<uint32_t> wakeTimer{0}, wakeGpio{0}, wakeWifi{0}, wakeOther{0};
+esp_err_t countWake(const int64_t sleptUs, void*) {
+  if (sleptUs <= 0) return ESP_OK;  // the sleep was skipped or rejected
+  const uint32_t causes = esp_sleep_get_wakeup_causes();
+  if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) add(wakeTimer, 1);
+  if (causes & BIT(ESP_SLEEP_WAKEUP_GPIO)) add(wakeGpio, 1);
+  if (causes & BIT(ESP_SLEEP_WAKEUP_WIFI)) add(wakeWifi, 1);
+  if (causes & ~(BIT(ESP_SLEEP_WAKEUP_TIMER) | BIT(ESP_SLEEP_WAKEUP_GPIO) | BIT(ESP_SLEEP_WAKEUP_WIFI)))
+    add(wakeOther, 1);
+  return ESP_OK;
+}
+#endif
 
 int64_t pmPrevLockUs(const char* name) {
   for (int i = 0; i < pmPrevLockCount; i++) {
@@ -188,13 +213,21 @@ void logPmLocks(const char* act) {
   if (wakeCounter) wakeCounter(wakeButtons, wakeTouch);
   const long lsWindow = sleeps - pmPrevSleeps;
   const long gpioWakes = static_cast<long>(wakeButtons + wakeTouch);
+  char causeText[48] = "";
+#if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
+  // Sleep exits by cause (several can share one exit).
+  snprintf(causeText, sizeof(causeText), " cause=t:%lu g:%lu w:%lu o:%lu", static_cast<unsigned long>(take(wakeTimer)),
+           static_cast<unsigned long>(take(wakeGpio)), static_cast<unsigned long>(take(wakeWifi)),
+           static_cast<unsigned long>(take(wakeOther)));
+#endif
   LOG_DBG("PM",
-          "%lus: act=%s sleep=%u%% cpumax=%u%% ls=%ld rej=%ld wake=gpio:%ld(btn %lu,touch %lu) timer:%ld loop=%lu "
+          "%lus: act=%s sleep=%u%% cpumax=%u%% ls=%ld rej=%ld wake=gpio:%ld(btn %lu,touch %lu) timer:%ld%s loop=%lu "
           "top=%s",
           static_cast<unsigned long>(windowUs / 1000000), act, pmPct(sleepUs - pmPrevSleepUs, windowUs),
           pmPct(cpuMaxUs - pmPrevCpuMaxUs, windowUs), lsWindow, rejects - pmPrevRejects, gpioWakes,
           static_cast<unsigned long>(wakeButtons), static_cast<unsigned long>(wakeTouch),
-          lsWindow > gpioWakes ? lsWindow - gpioWakes : 0L, static_cast<unsigned long>(take(loopPasses)), topText);
+          lsWindow > gpioWakes ? lsWindow - gpioWakes : 0L, causeText, static_cast<unsigned long>(take(loopPasses)),
+          topText);
   if (pmWindowHook) {
     // IDF's per-core locks: held while that core is out of its idle task.
     static const char* const kRtosLock[2] = {"rtos0", "rtos1"};
@@ -393,6 +426,15 @@ void logPeriodic() {
   }
 #if CONFIG_PM_PROFILING
   static uint32_t lastPmMs = 0;
+#if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
+  static bool hooked = false;
+  if (!hooked) {
+    hooked = true;
+    esp_pm_sleep_cbs_register_config_t cbs = {};
+    cbs.exit_cb = countWake;
+    if (esp_pm_light_sleep_register_cbs(&cbs) != ESP_OK) LOG_ERR("PM", "sleep exit hook failed: no cause= counts");
+  }
+#endif
   char act[sizeof(currentAct)];
   currentActivity(act, sizeof(act));
   const bool activityChanged = strcmp(act, pmWindowAct) != 0;
