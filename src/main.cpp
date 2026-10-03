@@ -111,6 +111,7 @@
 #include "util/LocalClock.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SleepWakePolicy.h"
+#include "util/TouchNoiseMonitor.h"
 #include "util/TransferLightPulse.h"
 
 GfxRenderer renderer(display);
@@ -2594,6 +2595,25 @@ static const char* logInputEvents(uint32_t& seq) {
   }
   return kind;
 }
+
+#if CROSSDINK_APP_CAP_TOUCH
+// [IN] touch noise: touch INT wakes that formed no gesture (TouchNoiseMonitor).
+// Every pass, since noise that forms no contact never wakes the loop. Log only.
+static void logTouchNoise(const char* inputKind) {
+  static TouchNoiseMonitor monitor;
+  HalGPIO::CompletedMultiTouchSwipe swipe{};
+  HalGPIO::CompletedMultiTouchRotation rotation{};
+  const bool gesture = (inputKind != nullptr && strcmp(inputKind, "touch") != 0 && strcmp(inputKind, "btn") != 0 &&
+                        strcmp(inputKind, "tilt") != 0) ||
+                       gpio.wasCompletedMultiTouchSwipe(swipe) || gpio.wasCompletedMultiTouchRotation(rotation);
+  float nx = 0, ny = 0;
+  const bool contact = inputKind != nullptr && gpio.wasTouchDown(nx, ny);
+  if (monitor.update(millis(), InputWake::touchWakeTotal(), gesture, contact)) {
+    LOG_INF("IN", "touch noise: %lu wakes, 0 gestures, %lu contacts in %lus", static_cast<unsigned long>(monitor.wakes),
+            static_cast<unsigned long>(monitor.contacts), static_cast<unsigned long>(monitor.spanMs / 1000));
+  }
+}
+#endif
 #endif
 
 // Set by every wait at the end of a pass; early returns skip those waits.
@@ -2671,11 +2691,15 @@ static void loopPass() {
 #endif
                                  || halTiltSensor.hadActivity();
 #if CROSSDINK_PERF_LOG
+  const char* inputKind = nullptr;
   if (userInputReceived) {
     uint32_t inputSeq = 0;
-    const char* inputKind = logInputEvents(inputSeq);
+    inputKind = logInputEvents(inputSeq);
     PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), inputKind, inputSeq);
   }
+#if CROSSDINK_APP_CAP_TOUCH
+  logTouchNoise(inputKind);
+#endif
 #endif
 
   // User input paces power saving. Background work that only has to keep the
