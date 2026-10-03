@@ -878,9 +878,10 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   if (displaySlots.size() == displayStatusBar.slots.size()) {
     for (unsigned i = 0; i < displayStatusBar.slots.size(); ++i) {
       const int item = displaySlots[i].as<int>();
-      if (displaySlots[i].is<int>() && validDisplayStatusBarItemValue(item)) {
+      if (displaySlots[i].is<int>() && validDisplayStatusBarItemValue(item, halClock.isAvailable())) {
         displayStatusBar.slots[i] = static_cast<ReaderStatusBarItem>(item);
       } else {
+        displayStatusBar.slots[i] = ReaderStatusBarItem::Empty;
         needsResave = true;
       }
     }
@@ -888,7 +889,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     displayStatusBar = DisplayStatusBarConfig{};
     const bool legacyClock = doc["showClockOutsideReader"].isNull() ? hideClock != HIDE_CLOCK_ALWAYS
                                                                     : (doc["showClockOutsideReader"].as<int>() != 0);
-    if (legacyClock) displayStatusBar.slots[1] = ReaderStatusBarItem::Clock;
+    if (legacyClock && halClock.isAvailable()) displayStatusBar.slots[1] = ReaderStatusBarItem::Clock;
     needsResave = true;
   }
   const JsonVariantConst bars = doc["readerStatusBars"];

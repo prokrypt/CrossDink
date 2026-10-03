@@ -3235,7 +3235,7 @@ void CrossPointWebServer::handlePostStatusBars() {
   }
   ReaderStatusBarsPayload bars;
   DisplayStatusBarConfig display;
-  if ((!doc["display"].isNull() && !readDisplayStatusBarJson(doc["display"], display)) ||
+  if ((!doc["display"].isNull() && !readDisplayStatusBarJson(doc["display"], display, halClock.isAvailable())) ||
       !CrossPointSettings::parseReaderStatusBars(doc.as<JsonVariantConst>(), bars)) {
     server->send(400, "text/plain", "Invalid status bar configuration");
     return;

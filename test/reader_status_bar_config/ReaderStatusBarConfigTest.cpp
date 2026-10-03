@@ -487,13 +487,39 @@ TEST(DisplayStatusBarConfig, JsonRejectsReaderItemsAndLeavesPreviousSettingsInta
   DisplayStatusBarConfig display;
   JsonDocument json;
   ASSERT_FALSE(deserializeJson(json, "[11,1,2]"));
-  ASSERT_TRUE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display));
+  ASSERT_TRUE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display, true));
   const auto previous = display.slots;
   for (const char* invalid : {"[3,1,2]", "[10,1,2]", "[11,1]", "[11,1,2,0]", "[11,1,null]", "[11,1,\"2\"]"}) {
     ASSERT_FALSE(deserializeJson(json, invalid));
-    EXPECT_FALSE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display));
+    EXPECT_FALSE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display, true));
     EXPECT_EQ(display.slots, previous);
   }
   ASSERT_FALSE(deserializeJson(json, "[0,0,0]"));
-  EXPECT_TRUE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display));
+  EXPECT_TRUE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display, true));
+}
+
+TEST(DisplayStatusBarConfig, ClockAndDateRequireRtcButEmptyAndBatteryDoNot) {
+  for (const auto item : {ReaderStatusBarItem::Clock, ReaderStatusBarItem::Date}) {
+    EXPECT_TRUE(validDisplayStatusBarItemValue(static_cast<int>(item), true));
+    EXPECT_FALSE(validDisplayStatusBarItemValue(static_cast<int>(item), false));
+  }
+  for (const auto item : {ReaderStatusBarItem::Empty, ReaderStatusBarItem::Battery}) {
+    EXPECT_TRUE(validDisplayStatusBarItemValue(static_cast<int>(item), false));
+  }
+}
+
+TEST(DisplayStatusBarConfig, JsonRejectsClockAndDateWithoutRtcInEveryPosition) {
+  DisplayStatusBarConfig display;
+  const auto previous = display.slots;
+  JsonDocument json;
+  for (const char* invalid : {"[1,0,2]", "[0,1,2]", "[0,0,1]", "[11,0,2]", "[0,11,2]", "[0,0,11]"}) {
+    ASSERT_FALSE(deserializeJson(json, invalid));
+    EXPECT_FALSE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display, false));
+    EXPECT_EQ(display.slots, previous);
+  }
+  ASSERT_FALSE(deserializeJson(json, "[2,0,2]"));
+  EXPECT_TRUE(readDisplayStatusBarJson(json.as<JsonVariantConst>(), display, false));
+  EXPECT_EQ(display.slots[0], ReaderStatusBarItem::Battery);
+  EXPECT_EQ(display.slots[1], ReaderStatusBarItem::Empty);
+  EXPECT_EQ(display.slots[2], ReaderStatusBarItem::Battery);
 }

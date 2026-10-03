@@ -291,7 +291,7 @@ void StatusBarSettingsActivity::openOptionPicker() {
   int currentIndex = 0;
   if (item <= SLOT_RIGHT_3) {
     for (const auto choice : pickerItems) {
-      if (displayContext && !validDisplayStatusBarItemValue(static_cast<int>(choice))) continue;
+      if (displayContext && !validDisplayStatusBarItemValue(static_cast<int>(choice), halClock.isAvailable())) continue;
       if ((choice == ReaderStatusBarItem::Clock || choice == ReaderStatusBarItem::Date) && !halClock.isAvailable())
         continue;
       if (currentItem == choice) currentIndex = static_cast<int>(options.size());

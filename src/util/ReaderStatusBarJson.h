@@ -4,12 +4,13 @@
 
 #include "ReaderStatusBarConfig.h"
 
-inline bool readDisplayStatusBarJson(const JsonVariantConst source, DisplayStatusBarConfig& config) {
+inline bool readDisplayStatusBarJson(const JsonVariantConst source, DisplayStatusBarConfig& config,
+                                     const bool clockAvailable) {
   const auto slots = source.as<JsonArrayConst>();
   if (slots.size() != config.slots.size()) return false;
   DisplayStatusBarConfig parsed;
   for (unsigned i = 0; i < parsed.slots.size(); ++i) {
-    if (!slots[i].is<int>() || !validDisplayStatusBarItemValue(slots[i].as<int>())) return false;
+    if (!slots[i].is<int>() || !validDisplayStatusBarItemValue(slots[i].as<int>(), clockAvailable)) return false;
     parsed.slots[i] = static_cast<ReaderStatusBarItem>(slots[i].as<int>());
   }
   config = parsed;

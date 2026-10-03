@@ -88,10 +88,10 @@ struct ReaderStatusBarConfig {
   }
 };
 
-constexpr bool validDisplayStatusBarItemValue(const int value) {
+constexpr bool validDisplayStatusBarItemValue(const int value, const bool clockAvailable) {
   return value == static_cast<int>(ReaderStatusBarItem::Empty) ||
-         value == static_cast<int>(ReaderStatusBarItem::Clock) ||
-         value == static_cast<int>(ReaderStatusBarItem::Date) ||
+         (clockAvailable && (value == static_cast<int>(ReaderStatusBarItem::Clock) ||
+                             value == static_cast<int>(ReaderStatusBarItem::Date))) ||
          value == static_cast<int>(ReaderStatusBarItem::Battery);
 }
 
