@@ -167,3 +167,12 @@ size_t OpdsPageCache::pageCount() const {
   return static_cast<size_t>(
       std::count_if(std::begin(slots), std::end(slots), [](const Slot& slot) { return slot.used; }));
 }
+
+namespace {
+std::unique_ptr<OpdsPageCache> sHandoff;
+}  // namespace
+
+namespace opds_page_cache_handoff {
+void give(std::unique_ptr<OpdsPageCache> cache) { sHandoff = std::move(cache); }
+std::unique_ptr<OpdsPageCache> take() { return std::move(sHandoff); }
+}  // namespace opds_page_cache_handoff

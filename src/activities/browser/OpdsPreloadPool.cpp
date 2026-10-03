@@ -63,17 +63,21 @@ bool OpdsPreloadPool::backingOff() const { return failedAtMs != 0 && millis() - 
 // A queue held by the failure backoff does not count: the radio may idle.
 bool OpdsPreloadPool::busy() const { return (!queue.empty() && !backingOff()) || runningCount() > 0; }
 
-void OpdsPreloadPool::enqueue(const std::string& url, const bool front) {
+void OpdsPreloadPool::enqueue(const std::string& url, const bool front) { enqueue(url, front, "", "", ""); }
+
+void OpdsPreloadPool::enqueue(const std::string& url, const bool front, std::string username, std::string password,
+                              std::string authorizationOrigin) {
   if (url.empty() || cache.contains(url) || running(url)) return;
   auto existing = std::find_if(queue.begin(), queue.end(), [&url](const QueuedPage& page) { return page.url == url; });
   if (existing != queue.end()) {
     if (!front) return;
     queue.erase(existing);
   }
+  QueuedPage page{url, front, false, std::move(username), std::move(password), std::move(authorizationOrigin)};
   if (front) {
-    queue.insert(queue.begin(), QueuedPage{url, true});
+    queue.insert(queue.begin(), std::move(page));
   } else {
-    queue.push_back(QueuedPage{url, false});
+    queue.push_back(std::move(page));
   }
 }
 
@@ -81,7 +85,8 @@ void OpdsPreloadPool::revalidate(const std::string& url) {
   queue.erase(std::remove_if(queue.begin(), queue.end(), [](const QueuedPage& page) { return page.revalidate; }),
               queue.end());
   for (auto& worker : workers) {
-    if (worker.revalidate && worker.prefetcher.running() && worker.prefetcher.url() != url) worker.prefetcher.cancel();
+    if (worker.job.revalidate && worker.prefetcher.running() && worker.prefetcher.url() != url)
+      worker.prefetcher.cancel();
   }
   if (!cache.contains(url) || running(url) || cache.fetchedWithin(url, millis(), RECHECK_MIN_AGE_MS)) return;
   queue.erase(std::remove_if(queue.begin(), queue.end(), [&url](const QueuedPage& page) { return page.url == url; }),
@@ -101,7 +106,7 @@ void OpdsPreloadPool::harvest(Worker& worker) {
     failedAtMs = millis();
     LOG_INF("OPDS", "Preload backing off %lu s after a failure", static_cast<unsigned long>(FAILURE_BACKOFF_MS / 1000));
   }
-  if (worker.prefetcher.harvestInto(cache, worker.evict, worker.revalidate) && worker.revalidate) {
+  if (worker.prefetcher.harvestInto(cache, worker.job.evict, worker.job.revalidate) && worker.job.revalidate) {
     changedUrl = worker.prefetcher.url();
   }
 }
@@ -131,9 +136,10 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
 
   OpdsPagePrefetcher::Request request;
   request.url = next.url;
-  request.username = username;
-  request.password = password;
-  request.authorizationOrigin = authorizationOrigin;
+  const bool own = !next.authorizationOrigin.empty();
+  request.username = own ? next.username : username;
+  request.password = own ? next.password : password;
+  request.authorizationOrigin = own ? next.authorizationOrigin : authorizationOrigin;
 #if defined(FREEINK_NET_WOLFSSL)
   const unsigned long now = millis();
   if (worker.connection && now - worker.lastUseMs > PRELOAD_KEEPALIVE_MAX_IDLE_MS) worker.connection->end();
@@ -143,8 +149,6 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
   worker.lastUseMs = now;
   request.connection = worker.connection.get();
 #endif
-  worker.evict = next.evict;
-  worker.revalidate = next.revalidate;
   const size_t slot = static_cast<size_t>(&worker - workers);
   if (!worker.prefetcher.start(std::move(request), pageMaxBytes)) {
     queue.insert(queue.begin(), std::move(next));
@@ -154,6 +158,7 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
   LOG_INF("OPDS", "%s start: slot=%zu running=%zu queued=%zu internal free=%zu largest=%zu %s",
           next.revalidate ? "Recheck" : "Preload", slot, alreadyRunning + 1, queue.size(), internal.free,
           internal.largest, UrlUtils::maskUserInfo(next.url).c_str());
+  worker.job = std::move(next);
   return true;
 }
 
@@ -183,7 +188,8 @@ bool OpdsPreloadPool::pause(const std::string& keepUrl) {
     if (worker.prefetcher.url() == keepUrl) {
       waited = true;
     } else {
-      cancelled.push_back(QueuedPage{worker.prefetcher.url(), worker.evict});
+      cancelled.push_back(worker.job);
+      cancelled.back().revalidate = false;
       worker.prefetcher.cancel();
     }
   }
