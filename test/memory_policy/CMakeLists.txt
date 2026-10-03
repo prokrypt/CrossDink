@@ -10,7 +10,7 @@ add_executable(JpegDecoderPolicyTest JpegDecoderPolicyTest.cpp
   jpeg_decoder_stubs/DecodePipelineStub.cpp)
 target_include_directories(JpegDecoderPolicyTest PRIVATE jpeg_decoder_stubs stubs ../freertos_stubs
   ${REPO_ROOT}/lib/Epub/Epub/converters ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/Memory
-  ${REPO_ROOT}/lib/MemoryBudget)
+  ${REPO_ROOT}/lib/MemoryBudget ${REPO_ROOT}/lib/GfxRenderer)
 target_compile_definitions(JpegDecoderPolicyTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSDINK_MEMORY_TEST=1)
 target_link_libraries(JpegDecoderPolicyTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(JpegDecoderPolicyTest PROPERTIES ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1")
