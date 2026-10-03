@@ -61,6 +61,9 @@ volatile uint32_t sampleSeq = 0;
 // presses); a later render belongs to something else. Slow first renders
 // (opening a book with a long section build) stay well under this.
 constexpr uint32_t NO_RENDER_MS = 15000;
+// The same for a bare contact ("touch": light slides, finger moves), whose own
+// redraws start at once; a later one (a screen's settle repaint) is not its.
+constexpr uint32_t TOUCH_NO_RENDER_MS = 1000;
 std::atomic<uint32_t> inputSeq{0};
 bool firstInkLogged = false;
 // Last rendered activity (render task writes, main loop reads; a torn read
@@ -517,7 +520,8 @@ void noteInput(const bool release, const char* kind, const uint32_t seq) {
 
 void noteRenderStart(const char* activity) {
   snprintf(currentAct, sizeof(currentAct), "%s", activity ? activity : "-");
-  if (inputPending && renderStartMs == 0 && millis() - inputMs > NO_RENDER_MS) {
+  const uint32_t noRenderMs = strcmp(inputKind, "touch") == 0 ? TOUCH_NO_RENDER_MS : NO_RENDER_MS;
+  if (inputPending && renderStartMs == 0 && millis() - inputMs > noRenderMs) {
     // Nothing drew for the input; do not bill this unrelated render to it.
     inputPending = false;
     if (strcmp(inputKind, "touch") != 0) {

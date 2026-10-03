@@ -639,6 +639,10 @@ bool keepWifiForRemote() {
 #endif
 }
 
+// Set while a Wi-Fi screen hands over to another through NetworkEntryActivity,
+// whose entry check guards the heap that screen runs on.
+static bool networkEntryPending = false;
+
 bool leaveNetworkInPlace(const bool goingHome) {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
@@ -659,6 +663,13 @@ bool leaveNetworkInPlace(const bool goingHome) {
   if (!readerRenderStackReady) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
     return false;
+  }
+  // Remote kept the link and the next screen is another Wi-Fi screen: nothing
+  // was torn down, and NetworkEntryActivity re-checks the heap (falling back to
+  // a restart into that screen, not Home).
+  if (keepLink && networkEntryPending) {
+    LOG_INF("MAIN", "Leaving Wi-Fi in place: remote keeps the link for the next Wi-Fi screen");
+    return true;
   }
 #if CROSSDINK_PERF_LOG
   logInternalHeapPins();
@@ -745,6 +756,7 @@ class NetworkEntryActivity final : public Activity {
 
   void onEnter() override {
     Activity::onEnter();
+    networkEntryPending = false;
     if (enterNetworkInPlace() && launchNetworkTarget(target_, payload_, /*inPlace=*/true)) return;
     restartToNetworkTarget(target_, payload_);
   }
@@ -766,6 +778,7 @@ void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t paylo
     restartToNetworkTarget(target, payload);
     return;
   }
+  networkEntryPending = true;
   activityManager.replaceActivity(std::move(entry));
 }
 
@@ -2315,8 +2328,7 @@ static void updateFlashDuck() {
   // below minPct (>= 2) of full (rounded up; at 100 the duck is over).
   const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
   const unsigned long floor = std::min<unsigned long>(
-      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b),
-      100);
+      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b), 100);
   static bool darkLogged = false;
   unsigned long level;
   if (ducking) {

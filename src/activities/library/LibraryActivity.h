@@ -11,6 +11,7 @@
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
+#include "util/WorkerTask.h"
 
 class LibraryActivity final : public Activity {
  public:
@@ -43,6 +44,18 @@ class LibraryActivity final : public Activity {
   int loadedGridPageStart = -1;
   int nextGridCoverRow = -1;
   bool gridCoverAdded = false;
+  // One grid cover thumbnail at a time, made on the worker core (book load,
+  // image decode, SD write: up to ~850 ms) while the loop keeps taking input.
+  struct GridThumbJob {
+    std::string path;
+    int16_t width = 0;
+    int16_t height = 0;
+    bool done = false;
+    bool generated = false;
+    bool coverMissing = false;
+    std::string thumbBmpPath;
+  } gridThumb;
+  WorkerTask gridThumbTask;
   int16_t gridCoverWidth = 0;
   int16_t gridCoverHeight = 0;
   int gridProgressRow = -1;
@@ -129,6 +142,8 @@ class LibraryActivity final : public Activity {
   void buildGrid(UiApp::ScreenType& screen);
   void loadGridPageCovers();
   bool loadGridCover(int row);
+  static void makeGridThumb(void* job);
+  bool applyGridThumb();
   void loadGridProgress();
   bool gridEnabled() const;
   void buildSortHeader(UiApp::ScreenType& screen);

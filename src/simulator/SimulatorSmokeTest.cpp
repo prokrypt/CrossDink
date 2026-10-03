@@ -333,6 +333,8 @@ class SimulatorSmokeTest {
 
     // A corrupt CrossDink file still blocks the foreign fallback. It is safer
     // to leave settings unchanged than to silently import CrossPoint values.
+    // Saves keep a .bak copy that a corrupt file falls back to; drop it here.
+    if (Storage.exists(CROSSDINK_SETTINGS_FILE_BAK)) Storage.remove(CROSSDINK_SETTINGS_FILE_BAK);
     if (!Storage.writeFile(crossDinkSettingsPath, "{")) fail("Could not corrupt CrossDink settings test fixture");
     if (SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
@@ -350,9 +352,18 @@ class SimulatorSmokeTest {
     SETTINGS.previousPageGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
     if (!SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
-        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || !Storage.exists(crossDinkSettingsPath) ||
-        Storage.exists(CROSSDINK_SETTINGS_FILE_BAK)) {
+        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || !Storage.exists(crossDinkSettingsPath)) {
       fail("Interrupted CrossDink settings save did not recover before CrossPoint import");
+    }
+
+    // A save torn mid-write: settings.json is garbage, the .bak copy written first is whole.
+    if (!Storage.writeFile(CROSSDINK_SETTINGS_FILE_BAK, crossDinkJson) ||
+        !Storage.writeFile(crossDinkSettingsPath, "{\"touchRead")) {
+      fail("Could not create torn CrossDink settings fixture");
+    }
+    SETTINGS.pageTurnGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
+    if (!SETTINGS.loadFromFile() || SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY) {
+      fail("Torn CrossDink settings.json did not fall back to its .bak copy");
     }
 
     if (hadCrossDinkSettings) {

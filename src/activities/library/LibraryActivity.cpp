@@ -120,6 +120,7 @@ void LibraryActivity::onExit() {
   // Home retries it.
   LibraryPrewarm::stop(false);
   backgroundRefresh = false;
+  gridThumbTask.join();  // it holds gridThumb
   index.close();
   filtered.reset();
   rowCache.reset();
@@ -512,6 +513,8 @@ void LibraryActivity::openDialog(std::unique_ptr<Activity>&& child, ActivityResu
     LOG_ERR("LIB", "Cannot allocate Library dialog");
     return;
   }
+  // Book actions (delete, clear cache) must not race a thumbnail being written.
+  gridThumbTask.join();
   app.clearTapFlash();
   startActivityForResult(std::move(child), [this, handler = std::move(handler)](const ActivityResult& result) {
     RenderLock lock;
@@ -1281,6 +1284,15 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
 }
 
 void LibraryActivity::loadGridPageCovers() {
+  if (gridThumbTask.running()) return;
+  if (gridThumb.done && applyGridThumb()) {
+    // Made for a page since left: repaint in case the new one shows it.
+    if (nextGridCoverRow < 0) {
+      requestUpdate();
+    } else {
+      gridCoverAdded = true;
+    }
+  }
   if (!gridEnabled() || gridCoverWidth <= 0 || gridCoverHeight <= 0 || gridPageStart == loadedGridPageStart) return;
   const int pageEnd = std::min(gridPageStart + GRID_PAGE_SIZE, rowCount());
   if (nextGridCoverRow < 0) {
@@ -1288,7 +1300,7 @@ void LibraryActivity::loadGridPageCovers() {
     gridCoverAdded = false;
   }
   if (nextGridCoverRow < pageEnd && loadGridCover(nextGridCoverRow++)) gridCoverAdded = true;
-  if (nextGridCoverRow >= pageEnd) {
+  if (nextGridCoverRow >= pageEnd && !gridThumbTask.running()) {
     loadedGridPageStart = gridPageStart;
     nextGridCoverRow = -1;
     // One repaint once the page's covers are ready, not one per thumbnail.
@@ -1304,33 +1316,60 @@ bool LibraryActivity::loadGridCover(const int row) {
   if (!FsHelpers::hasEpubExtension(book.path) && !FsHelpers::hasXtcExtension(book.path)) return false;
   const std::string thumbPath = UITheme::getCoverThumbPath(recent->coverBmpPath, gridCoverWidth, gridCoverHeight);
   if (hasValidGridThumb(thumbPath, gridCoverWidth, gridCoverHeight)) return false;
-  if (FsHelpers::hasEpubExtension(book.path)) {
-    Epub epub(book.path, "/.crossdink");
+  gridThumb = GridThumbJob{};
+  gridThumb.path = book.path;
+  gridThumb.width = gridCoverWidth;
+  gridThumb.height = gridCoverHeight;
+  // 8 KB as Home's cover worker (4.8 KB used); decoder buffers go to PSRAM.
+  if (gridThumbTask.start(&LibraryActivity::makeGridThumb, &gridThumb, 8192, "LibThumb", false,
+                          WorkerTask::Stack::Psram)) {
+    return false;  // loadGridPageCovers() applies it once the task is done
+  }
+  makeGridThumb(&gridThumb);
+  return applyGridThumb();
+}
+
+// Worker task (or the loop as a fallback). Touches only the job: no renderer
+// (its SD font caches belong to the render task), no RECENT_BOOKS.
+void LibraryActivity::makeGridThumb(void* const ctx) {
+  auto& job = *static_cast<GridThumbJob*>(ctx);
+  if (FsHelpers::hasEpubExtension(job.path)) {
+    Epub epub(job.path, "/.crossdink");
     if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
-      LOG_ERR("LIB", "Cannot load EPUB cover for %s", book.path.c_str());
-      return false;
+      LOG_ERR("LIB", "Cannot load EPUB cover for %s", job.path.c_str());
+    } else if (epub.generateThumbBmp(job.width, job.height)) {
+      job.generated = true;
+      job.thumbBmpPath = epub.getThumbBmpPath();
+    } else {
+      job.coverMissing = !epub.hasCoverImage();
     }
-    if (epub.generateThumbBmp(gridCoverWidth, gridCoverHeight, &renderer, SETTINGS.getReaderFontId())) {
-      if (!RECENT_BOOKS.updateBook(book.path, recent->title, recent->author, epub.getThumbBmpPath(),
-                                   recent->coverState))
-        LOG_ERR("LIB", "Cannot update EPUB cover path for %s", book.path.c_str());
-      return true;
+  } else {
+    Xtc xtc(job.path, "/.crossdink");
+    if (!xtc.load()) {
+      LOG_ERR("LIB", "Cannot load XTC cover for %s", job.path.c_str());
+    } else if (xtc.generateThumbBmp(job.width, job.height)) {
+      job.generated = true;
+      job.thumbBmpPath = xtc.getThumbBmpPath();
     }
-    if (!epub.hasCoverImage()) {
-      if (!RECENT_BOOKS.updateBook(book.path, recent->title, recent->author, "", RecentBook::CoverState::Missing))
-        LOG_ERR("LIB", "Cannot mark missing EPUB cover for %s", book.path.c_str());
-    }
-    return false;
   }
-  Xtc xtc(book.path, "/.crossdink");
-  if (!xtc.load()) {
-    LOG_ERR("LIB", "Cannot load XTC cover for %s", book.path.c_str());
-    return false;
+  job.done = true;
+}
+
+// Loop task. True when a new thumbnail is on the card.
+bool LibraryActivity::applyGridThumb() {
+  gridThumb.done = false;
+  const RecentBook* recent = recentBookForPath(gridThumb.path);
+  if (!recent) return gridThumb.generated;
+  if (gridThumb.generated) {
+    if (!RECENT_BOOKS.updateBook(gridThumb.path, recent->title, recent->author, gridThumb.thumbBmpPath,
+                                 recent->coverState))
+      LOG_ERR("LIB", "Cannot update cover path for %s", gridThumb.path.c_str());
+    return true;
   }
-  if (!xtc.generateThumbBmp(gridCoverWidth, gridCoverHeight)) return false;
-  if (!RECENT_BOOKS.updateBook(book.path, recent->title, recent->author, xtc.getThumbBmpPath(), recent->coverState))
-    LOG_ERR("LIB", "Cannot update XTC cover path for %s", book.path.c_str());
-  return true;
+  if (gridThumb.coverMissing &&
+      !RECENT_BOOKS.updateBook(gridThumb.path, recent->title, recent->author, "", RecentBook::CoverState::Missing))
+    LOG_ERR("LIB", "Cannot mark missing EPUB cover for %s", gridThumb.path.c_str());
+  return false;
 }
 
 void LibraryActivity::render(RenderLock&&) {

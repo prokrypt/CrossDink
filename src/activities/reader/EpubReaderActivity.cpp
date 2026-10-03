@@ -90,6 +90,7 @@
 #include "util/BookCacheUtils.h"
 #include "util/BookMoveUtils.h"
 #include "util/Dictionary.h"
+#include "util/DictionaryRegistry.h"
 #include "util/ScreenshotUtil.h"
 
 #ifndef SIMULATOR
@@ -2401,6 +2402,7 @@ void EpubReaderActivity::onEnter() {
   pageLoadRetryCount = 0;
 
   MemoryBudget::logEpubHeapPools("reader enter");
+  dictionaryRegistry.markDirty();  // the drawer scans dictionaries once per reading session
 
   // epub is a required collaborator: ReaderActivity dereferences it before handing it
   // over, and onExit() unconditionally tears down the setup below. Returning early here
