@@ -66,7 +66,8 @@ class GoodiesActivity final : public Activity {
 
  private:
   enum class Level : uint8_t { Root, DisplayTests, Knobs };
-  static constexpr int KNOBS_ROW = 2;  // Root: Display test, Wi-Fi remote, Knobs, Battery & stats
+  static constexpr int TOKEN_ROW = 2;  // Root: Display test, Wi-Fi remote, API token, Knobs, Battery & stats
+  static constexpr int KNOBS_ROW = 3;
   struct Entry {
     std::string label;
     int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
@@ -92,12 +93,16 @@ class GoodiesActivity final : public Activity {
   void showLevel(Level next);
   void activate(int index);
   int remoteRowShown = -1;
+  unsigned long tokenShownUntil = 0;  // millis(); 0 = API token row shows only its last 4 characters
 
   void toggleRemote();
   void openKnob(int row);
   void openDimLevel(int row);
   void confirmResetKnobs();
   void refreshRemoteRow();
+  void setRowValue(int row, std::string value);
+  std::string tokenRowValue();
+  void confirmNewPin();
   void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();
