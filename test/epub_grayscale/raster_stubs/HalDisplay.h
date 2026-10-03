@@ -53,6 +53,7 @@ class HalDisplay {
   void writeGrayscalePlaneStrip(bool, const uint8_t*, uint16_t, uint16_t) {}
   bool shouldSkipImageBlanking() const { return false; }
   void setSmoothGray(bool) {}
+  void setInvertedTextGray(bool) {}
   bool fastTracksPanel() const { return false; }
   bool supportsStripGrayscale() const { return true; }
   void cleanupGrayscaleBuffers(const uint8_t* buffer) {
