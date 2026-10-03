@@ -85,14 +85,18 @@ void RoundedRaffTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const 
     const auto& tab = tabs[i];
     TouchRegistry::getInstance().add(Rect{slotX, rect.y, slotWidth, rect.height}, i, TouchRegistry::Tab);
 
-    if (tab.selected) {
-      renderer.fillRoundedRect(tabX, tabY, tabWidth, tabHeight, 18, selected ? Color::Black : Color::DarkGray);
+    // Unfocused selection is a 2 px outline, not a dither fill: less ghosting.
+    const bool filled = tab.selected && selected;
+    if (filled) {
+      renderer.fillRoundedRect(tabX, tabY, tabWidth, tabHeight, 18, Color::Black);
+    } else if (tab.selected) {
+      renderer.drawRoundedRect(tabX, tabY, tabWidth, tabHeight, 2, 18, true);
     }
 
     const int textWidth = renderer.getTextWidth(kTitleFontId, tab.label, EpdFontFamily::BOLD);
     const int textX = tabX + (tabWidth - textWidth) / 2;
     const int textY = tabY + (tabHeight - renderer.getLineHeight(kTitleFontId)) / 2;
-    renderer.drawText(kTitleFontId, textX, textY, tab.label, !(tab.selected), EpdFontFamily::BOLD);
+    renderer.drawText(kTitleFontId, textX, textY, tab.label, !filled, EpdFontFamily::BOLD);
   }
 
   // Full-width divider between tabs and setting rows.

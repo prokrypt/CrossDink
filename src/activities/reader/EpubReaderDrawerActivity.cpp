@@ -161,10 +161,8 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
                               static_cast<int16_t>(rect.y - BUTTON_SLIDER_FOCUS_PADDING_Y),
                               static_cast<int16_t>(rect.width + BUTTON_SLIDER_FOCUS_PADDING_X * 2),
                               static_cast<int16_t>(rect.height + BUTTON_SLIDER_FOCUS_PADDING_Y * 2)};
-    if (row.editing)
-      screen.target().fill(focusRect, fui::Paint::dither(fui::Color::LightGray), 4);
-    else
-      screen.target().stroke(focusRect, fui::Paint::solid(fui::Color::Black), 1, 4);
+    // Editing = 2 px outline, focus = 1 px; outlines ghost less than a dither fill.
+    screen.target().stroke(focusRect, fui::Paint::solid(fui::Color::Black), row.editing ? 2 : 1, 4);
   }
 
   const int16_t lineHeight = screen.target().lineHeight(labelStyle.font);
@@ -315,8 +313,11 @@ void drawDualReaderSliderRows(fui::Screen<MaxInteractions>& screen, const Reader
 
 void setDrawerSelectionStyle(fui::StyleSet& styles) {
   styles = fui::defaultListRowStyles();
-  styles.selected.background = fui::Paint::dither(fui::Color::LightGray);
+  // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+  styles.selected.background = fui::Paint::solid(fui::Color::White);
   styles.selected.foreground = fui::Paint::solid(fui::Color::Black);
+  styles.selected.border = fui::Paint::solid(fui::Color::Black);
+  styles.selected.borderWidth = 2;
   styles.selected.radius = 4;
 }
 

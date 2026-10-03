@@ -4,6 +4,9 @@
 
 #include "components/OptionPopup.h"
 
+GfxRenderer mappedInputRenderer;
+MappedInputManager mappedInputManager(gpio, mappedInputRenderer);
+
 namespace {
 
 class PopupTouchHarness {
@@ -51,6 +54,31 @@ TEST(OptionPopup, ConsecutiveTouchSelectionsDoNotLoseSecondRelease) {
   EXPECT_EQ(firstSelections, 1);
   EXPECT_EQ(secondSelections, 1);
   EXPECT_FALSE(popup.isActive());
+}
+
+TEST(OptionPopup, TapOpenedPopupLetsTheTappedRowRenderFirst) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  const char* options[] = {"First", "Second"};
+  int updates = 0;
+  const auto requestUpdate = [&] { ++updates; };
+
+  mappedInputManager.tapOrHeld = true;
+  popup.show("Tapped", options, 2, 0, [](const int) {});
+  mappedInputManager.tapOrHeld = false;
+  EXPECT_TRUE(ListSelection::tapRowShown);
+  EXPECT_FALSE(popup.processRender(renderer, input));  // the list's frame, row selected
+  EXPECT_TRUE(popup.handleInput(input, requestUpdate));
+  EXPECT_EQ(updates, 1);
+  EXPECT_TRUE(popup.processRender(renderer, input));  // then the popup over it
+  popup.dismiss(input, requestUpdate);
+  EXPECT_FALSE(ListSelection::tapRowShown);
+
+  popup.show("Buttons", options, 2, 0, [](const int) {});
+  EXPECT_FALSE(ListSelection::tapRowShown);
+  EXPECT_TRUE(popup.processRender(renderer, input));  // no extra frame without a tap
 }
 
 TEST(OptionPopup, MenuAndSortDecorationsDoNotLeakToNextPopup) {

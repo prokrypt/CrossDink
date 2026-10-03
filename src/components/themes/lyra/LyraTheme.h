@@ -25,7 +25,7 @@ constexpr ThemeMetrics values = {.batteryWidth = StatusBarMetrics::batteryWidth,
                                  .listRowRadius = 6,
                                  .listInset = 20,
                                  .listSidePadding = 8,
-                                 .listSelectionStyle = 1,
+                                 .listSelectionStyle = 4,  // fui::SelectionStyle::Outline
                                  .listScrollWidth = 4,
                                  .listScrollSide = 0,
                                  .listTitleBold = false,
