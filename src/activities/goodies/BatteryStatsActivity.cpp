@@ -65,16 +65,24 @@ void formatPct(char* out, const size_t size, const uint16_t centi, const bool fi
   }
 }
 
-// "4.12±0.20%/h over 5h 10 min".
+// "4.12±0.20%/h over 5h 10m". errC is the ± squared (0.01 %², see LogStats).
+// A ± past the rate shows as a range from 0 (drain is never negative);
+// perDay adds the rate per day ("0.04 (0-0.15)%/h, ~1.0%/day over 2d 3h").
 void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t coarseC, const uint32_t errC,
-                const uint32_t seconds) {
+                const uint32_t seconds, const bool perDay = false) {
   if (dropC < minDropC(dropC, coarseC) || seconds < 60) {
     snprintf(out, size, "%s", NOT_ENOUGH);
     return;
   }
-  char span[24];
+  char span[24], day[24] = "";
   formatDur(seconds, span, sizeof(span));
-  snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, errC * 36.0f / seconds, span);
+  const float rate = dropC * 36.0f / seconds, err = sqrtf(static_cast<float>(errC)) * 36.0f / seconds;
+  if (perDay) snprintf(day, sizeof(day), ", ~%.1f%%/day", rate * 24);
+  if (err > rate) {
+    snprintf(out, size, "%.2f (0-%.2f)%%/h%s over %s", rate, rate + err, day, span);
+  } else {
+    snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h%s over %s", rate, err, day, span);
+  }
 }
 
 constexpr uint32_t SUM_MIN_READ = 32 * 1024;  // a load that read less leaves battery.sum as it is
@@ -191,7 +199,7 @@ void BatteryStatsActivity::buildLines() {
   auto add = [this](const char* fmt, auto... args) {
     if (lineCount < MAX_LINES) snprintf(lines[lineCount++], sizeof(lines[0]), fmt, args...);
   };
-  char a[40], b[40];
+  char a[64], b[40];
 
   static const BatteryMonitor monitor;
   int16_t tempDeci = 0;
@@ -224,7 +232,7 @@ void BatteryStatsActivity::buildLines() {
     }
     formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
     add("Awake drain: %s", a);
-    formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1]);
+    formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1], true);
     add("Asleep drain: %s", a);
     // Awake drain for the live Wi-Fi and light state; the light's share scales
     // with the LED duty against the state's logged average duty.
@@ -256,7 +264,7 @@ void BatteryStatsActivity::buildLines() {
       const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pctNowC) * span / drop);
       char err[24];
       formatDur(left, a, sizeof(a));
-      formatDur(static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err,
+      formatDur(static_cast<uint32_t>(left * sqrtf(static_cast<float>(st.errC[0] + st.errC[1])) / drop), err,
                 sizeof(err));
       add("Est to empty: %s \xC2\xB1%s (avg; %s)", a, err, b);
     } else {

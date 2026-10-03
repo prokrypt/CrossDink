@@ -29,8 +29,9 @@ struct BatteryLogParser {
     uint16_t chargeFromC, chargeToC;  // 0.01 %
     bool chargeFromFine, chargeToFine, charging;
     // On battery, over the whole log; [0] awake, [1] asleep. In 0.01 %: drop,
-    // the part of it from whole-percent rows, and its ± (each unbroken run of
-    // steps adds its rows' precision, 1 or 100: inside a run the roundings cancel).
+    // the part of it from whole-percent rows, and its ± squared (each unbroken
+    // run of steps adds its rows' precision squared, 1 or 10000: inside a run the
+    // roundings cancel; runs round independently, so their ± add in quadrature).
     uint32_t battS[2], dropC[2], coarseC[2], errC[2];
     int8_t run;  // category of the run the last step extended, -1 = none
     bool runFine;
@@ -140,7 +141,7 @@ struct BatteryLogParser {
         st.battS[cat] += dt;
         st.netC[cat] += drop;
         if (!fine) st.netCoarseC[cat] += drop;
-        if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
+        if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 10000;  // ± squared
         st.run = static_cast<int8_t>(cat);
         st.runFine = fine;
       } else if (!prevUsb && !usb && prevFine) {
