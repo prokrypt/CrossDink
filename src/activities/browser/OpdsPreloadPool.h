@@ -62,7 +62,7 @@ class OpdsPreloadPool {
  private:
   struct QueuedPage {
     std::string url;
-    bool evict;
+    bool evict = false;
     bool revalidate = false;
     // Empty authorizationOrigin: the pool's credentials.
     std::string username;
