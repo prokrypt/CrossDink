@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "CrossPointSettings.h"
@@ -17,8 +18,11 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
+#include "components/icons/markIcons.h"
 #include "fontIds.h"
 #include "network/WifiBackgroundJoin.h"
+#include "network/WifiUtils.h"
+#include "util/UrlUtils.h"
 
 namespace fui = freeink::ui;
 
@@ -77,19 +81,79 @@ void OpdsServerListActivity::onEnter() {
   // Silent, no screen: the join runs on its own task while the list draws and
   // takes input, and the browser skips the Wi-Fi screen if it got the link.
   leavingToBrowser = false;
-  if (pickerMode) wifi_background_join::start();
+  if (pickerMode) {
+    wifi_background_join::start();
+    prefetchIndex = 0;
+    if (!pageCache && psramHeapAvailable()) {
+      const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
+      pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
+      rootCached.reset();
+      pageCachedAt = 0;
+    }
+  }
+}
+
+// Fetches the root page of one server at a time (as the browser preloads the
+// root page's feeds), once the background join is up. Each page that lands
+// redraws the list with its check mark.
+void OpdsServerListActivity::pumpPrefetch() {
+#ifndef SIMULATOR
+  if (!pageCache || !hasActiveStationWifiConnection()) return;
+  if (preload) {
+    preload->pump();
+    if (preload->busy()) return;
+    preload.reset();  // done, or failed: on to the next server
+  }
+  const auto& servers = OPDS_STORE.getServers();
+  while (prefetchIndex < servers.size()) {
+    const auto& server = servers[prefetchIndex++];
+    if (server.url.empty() || pageCache->contains(UrlUtils::buildUrl(server.url, ""))) continue;
+    preload = makeUniqueNoThrow<OpdsPreloadPool>(*pageCache, OPDS_PAGE_MAX_BYTES, server.username, server.password,
+                                                 UrlUtils::ensureProtocol(server.url));
+    if (!preload) {
+      LOG_ERR("OPDS", "OOM: server list preload pool");
+      prefetchIndex = servers.size();
+      return;
+    }
+    preload->enqueue(UrlUtils::buildUrl(server.url, ""), true);
+    preload->pump();
+    break;
+  }
+  if (pageCache->changes() == pageCachedAt) return;
+  pageCachedAt = pageCache->changes();
+  std::bitset<OpdsServerStore::MAX_SERVERS> cached;
+  for (size_t i = 0; i < servers.size() && i < cached.size(); ++i) {
+    if (pageCache->contains(UrlUtils::buildUrl(servers[i].url, ""))) cached.set(i);
+  }
+  if (cached == rootCached) return;
+  {
+    RenderLock lock(*this);
+    rootCached = cached;
+  }
+  requestUpdate();  // a page landed: redraw the list with its check mark
+#endif
 }
 
 void OpdsServerListActivity::onExit() {
   Activity::onExit();
+  preload.reset();  // joins a fetch in flight before the cache goes
+  if (pickerMode && leavingToBrowser) {
+    opds_page_cache_handoff::give(std::move(pageCache));
+  } else {
+    pageCache.reset();
+  }
   // Back to Home or into the server editor: the link is not needed any more.
   if (pickerMode && !leavingToBrowser) wifi_background_join::stop();
 }
 
-bool OpdsServerListActivity::allowsRadioIdleSleep() { return !wifi_background_join::joining(); }
+// Not while the join or a root-page fetch is running, as the browser's list.
+bool OpdsServerListActivity::allowsRadioIdleSleep() {
+  return !wifi_background_join::joining() && !(preload && preload->busy());
+}
 
 void OpdsServerListActivity::loop() {
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+  if (pickerMode) pumpPrefetch();
 
   auto activateSelected = [this] { handleSelection(); };
 
@@ -163,6 +227,7 @@ void OpdsServerListActivity::handleSelection() {
         OPDS_STORE.loadFromFile();
         selectedIndex = 0;
         topIndex = 0;
+        prefetchIndex = 0;  // a new server gets its page too
         requestUpdate();
       });
     }
@@ -229,10 +294,13 @@ void OpdsServerListActivity::buildListScreen(UiApp::ScreenType& screen) {
   // the URL when a name is set, or the current folder/format values.
   std::vector<fui::ListItem> items;
   items.reserve(itemCount);
+  // As the browser's rows: a check in the row inset for a page already cached.
+  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_20);
   for (int i = 0; i < serverCount; i++) {
     fui::ListItem item;
     item.label = servers[i].name.empty() ? servers[i].url.c_str() : servers[i].name.c_str();
     if (!servers[i].name.empty()) item.subtitle = servers[i].url.c_str();
+    if (static_cast<size_t>(i) < rootCached.size() && rootCached[i]) item.icon = mark;
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);
   }
