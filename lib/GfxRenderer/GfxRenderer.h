@@ -357,6 +357,8 @@ class GfxRenderer {
   // Grayscale functions
   void setRenderMode(RenderMode mode);
   bool grayPlanesAreAbsolute() const { return absoluteGrayPlanes; }
+  // Plane encoding for passes rendered before their Direct base starts (into PSRAM).
+  void setAbsoluteGrayPlanes(bool absolute) const { absoluteGrayPlanes = absolute; }
   bool supportsAbsoluteGrayscale() const;
   bool displayAbsoluteGrayscaleBase(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
   // Direct grayscale folds the B/W base into the grayscale pass

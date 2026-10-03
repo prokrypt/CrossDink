@@ -13,6 +13,14 @@
 // ImageBlock::render() already validates this before entering the pixel loop,
 // and the JPEG/PNG callbacks pre-clamp destination ranges to screen bounds.
 struct DirectPixelWriter {
+  // Reader Images "Display: BW dark / BW / Dither": images skip the gray
+  // planes. In the BW pass BW dark blackens every non-white level (the default
+  // BW mapping), BW only the two dark levels, and Dither error-diffuses cached
+  // images (ImageBlock), which writes only levels 0/3 here. Set by the reader
+  // for the duration of a page render only.
+  enum BwImages : uint8_t { BW_IMAGES_OFF, BW_IMAGES_DARK, BW_IMAGES_BW, BW_IMAGES_DITHER };
+  static inline uint8_t bwImages = BW_IMAGES_OFF;
+
   uint8_t* fb;
   GfxRenderer::RenderMode mode;
   uint16_t displayWidthBytes;  // Runtime framebuffer stride (X4: 100, X3: 99)
@@ -108,7 +116,7 @@ struct DirectPixelWriter {
     bool state;
     switch (mode) {
       case GfxRenderer::BW:
-        draw = (pixelValue < 3);
+        draw = pixelValue < (bwImages == BW_IMAGES_BW ? 2 : 3);
         state = true;
         break;
       case GfxRenderer::GRAYSCALE_MSB:

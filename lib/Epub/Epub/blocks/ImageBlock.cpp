@@ -1,5 +1,6 @@
 #include "ImageBlock.h"
 
+#include <BitmapHelpers.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <Knobs.h>
@@ -274,6 +275,26 @@ RetainedPxcEntry* prepareRetainedPxcEntry(const size_t pixelBytes) {
   return allocateRetainedPxcEntry(*empty, pixelBytes) ? empty : nullptr;
 }
 
+// Images "Display: Dither": Atkinson error diffusion of the cached 2-bit levels to
+// black/white (levels 0/3), the same 1-bit look as cover thumbnails. Rows must
+// arrive top to bottom, which the BW pass guarantees (no strips there).
+// The ditherer's three error rows (~6 bytes per image column) are heap
+// allocated per draw; on OOM it falls back to a plain 50% threshold.
+struct BwDiffuser {
+  bool on;
+  Atkinson1BitDitherer ditherer;
+  BwDiffuser(const GfxRenderer& renderer, const int width)
+      : on(DirectPixelWriter::bwImages == DirectPixelWriter::BW_IMAGES_DITHER &&
+           renderer.getRenderMode() == GfxRenderer::BW),
+        ditherer(on ? width : 0) {}
+  uint8_t level(const uint8_t value, const int col) {
+    return on ? (ditherer.processPixel(value * 85, col) ? 3 : 0) : value;
+  }
+  void nextRow() {
+    if (on) ditherer.nextRow();
+  }
+};
+
 bool renderCachedPixels(GfxRenderer& renderer, const uint8_t* pixels, const uint16_t cachedWidth,
                         const uint16_t cachedHeight, const int x, const int y) {
   if (!pixels) return false;
@@ -281,6 +302,7 @@ bool renderCachedPixels(GfxRenderer& renderer, const uint8_t* pixels, const uint
   if (clip.empty()) return true;
 
   const int bytesPerRow = (cachedWidth + 3) / 4;
+  BwDiffuser bw(renderer, cachedWidth);
   DirectPixelWriter pw;
   pw.init(renderer);
   for (int row = clip.y0; row < clip.y1; ++row) {
@@ -289,8 +311,9 @@ bool renderCachedPixels(GfxRenderer& renderer, const uint8_t* pixels, const uint
     for (int col = clip.x0; col < clip.x1; ++col) {
       const int byteIdx = col >> 2;
       const int bitShift = 6 - (col & 3) * 2;
-      pw.writePixel(x + col, (rowBuffer[byteIdx] >> bitShift) & 0x03);
+      pw.writePixel(x + col, bw.level((rowBuffer[byteIdx] >> bitShift) & 0x03, col));
     }
+    bw.nextRow();
   }
   return true;
 }
@@ -373,6 +396,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     return false;
   }
 
+  BwDiffuser bw(renderer, cachedWidth);
   DirectPixelWriter pw;
   pw.init(renderer);
 
@@ -412,8 +436,9 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
       const int bitShift = 6 - (col & 3) * 2;  // MSB first within byte
       uint8_t pixelValue = (rowBuffer[byteIdx] >> bitShift) & 0x03;
 
-      pw.writePixel(x + col, pixelValue);
+      pw.writePixel(x + col, bw.level(pixelValue, col));
     }
+    bw.nextRow();
   }
 
   free(readBuffer);
@@ -543,6 +568,8 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   // passes; on first view this just moves the one-time decode to the BW pass.
   FontCacheManager* fcm = renderer.getFontCacheManager();
   if (fcm && fcm->isScanning()) return;
+  // BW images: every gray plane (legacy, tiled, deferred) leaves them out.
+  if (DirectPixelWriter::bwImages && renderer.getRenderMode() != GfxRenderer::BW) return;
 
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
@@ -638,6 +665,13 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     rememberImageFailure(imagePath);
     renderPlaceholder(renderer, x, y, foregroundBlack);
     return;
+  }
+  // The decoder drew a plain threshold; redraw diffused from the cache it
+  // just wrote so the first view matches later ones.
+  if (DirectPixelWriter::bwImages == DirectPixelWriter::BW_IMAGES_DITHER && !config.cachePath.empty() &&
+      hasValidCache()) {
+    renderer.fillRect(x, y, width, height, !foregroundBlack);
+    renderFromCache(renderer, cachePath, x, y, width, height);
   }
 
   renderer.preserveImagePolarity(x, y, width, height);
