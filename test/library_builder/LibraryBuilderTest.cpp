@@ -634,7 +634,7 @@ TEST_F(LibraryBuilderTest, InterruptedUpgradeKeepsValidOldLiveIndexOverStaleBack
   before.close();
   ASSERT_TRUE(downgradeIndexToVersionFive());
 
-  constexpr char BACKUP[] = "/.crossdink/library.bak";
+  constexpr char BACKUP[] = "/.crossdink/library.idx.bak";
   fake::files[BACKUP] = std::make_shared<fake::Node>(*fake::files[INDEX]);
   ClixHeader backupHeader{};
   std::memcpy(&backupHeader, fake::files[BACKUP]->bytes.data(), sizeof(backupHeader));
@@ -740,7 +740,7 @@ TEST_F(LibraryBuilderTest, InterruptedUpgradeRestoresVersionThreeBackup) {
   ASSERT_TRUE(recordAtPath(before, "/a.epub", original));
   before.close();
 
-  constexpr char BACKUP[] = "/.crossdink/library.bak";
+  constexpr char BACKUP[] = "/.crossdink/library.idx.bak";
   fake::files[BACKUP] = std::make_shared<fake::Node>(*fake::files[INDEX]);
   fake::files[BACKUP]->bytes[offsetof(ClixHeader, formatVersion)] = 3;
   fake::files[INDEX]->bytes[0] = 'X';  // Damaged live index after install.
