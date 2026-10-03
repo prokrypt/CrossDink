@@ -319,9 +319,9 @@ bool finalizeThumbBmp(const std::string& tmpPath, const std::string& thumbPath) 
 // CrossInk and CrossDink before /.crossdink keyed caches by the book's path.
 constexpr char kLegacyCacheDir[] = "/.crosspoint";
 
-// Copies the top-level files of `from` that `to` lacks: progress, reader
-// settings, stats, book.bin and covers. Section layouts sit in subfolders and
-// rebuild as chapters are read. Each file lands through a .part temp.
+// Copies the user data `from` holds and `to` lacks: progress, reader settings
+// and stats (HalStorage::isBookUserData). book.bin, covers, thumbnails and
+// sections regenerate. Each file lands through a .part temp.
 bool copyTopLevelFiles(const std::string& from, const std::string& to) {
   HalFile dir = Storage.open(from.c_str());
   if (!dir || !dir.isDirectory()) {
@@ -336,7 +336,7 @@ bool copyTopLevelFiles(const std::string& from, const std::string& to) {
     const bool isDirectory = entry.isDirectory();
     const size_t nameLen = entry.getName(name, sizeof(name));
     entry.close();
-    if (isDirectory || nameLen == 0 || nameLen >= sizeof(name)) continue;
+    if (isDirectory || nameLen == 0 || nameLen >= sizeof(name) || !HalStorage::isBookUserData(name)) continue;
     const std::string src = from + "/" + name;
     const std::string dst = to + "/" + name;
     if (Storage.exists(dst.c_str())) continue;

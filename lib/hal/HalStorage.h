@@ -5,6 +5,7 @@
 #include <freertos/semphr.h>
 
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,6 +26,21 @@ enum class UsbDriveState : uint8_t {
 
 class HalStorage {
  public:
+  // A book cache file the reader cannot rebuild (progress, per-book settings
+  // and stats); everything else in a book cache regenerates. Only these are
+  // read or copied from /.crosspoint.
+  static bool isBookUserData(const char* name) {
+    const size_t len = strlen(name);
+    const auto endsWith = [&](const char* suffix) {
+      const size_t n = strlen(suffix);
+      return len >= n && strcmp(name + len - n, suffix) == 0;
+    };
+    return strcmp(name, "progress.bin") == 0 || strcmp(name, "progress.bin.bak") == 0 ||
+           strcmp(name, "progress_percent.bin") == 0 || strcmp(name, "reader_settings.bin") == 0 ||
+           strcmp(name, "dictionary_history.txt") == 0 || strcmp(name, "reading_stats_off") == 0 ||
+           (strncmp(name, "stats", 5) == 0 && (endsWith(".bin") || endsWith(".bin.bak")));
+  }
+
   HalStorage();
   ~HalStorage();
   bool begin();
