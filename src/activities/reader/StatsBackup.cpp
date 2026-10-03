@@ -13,6 +13,7 @@
 
 #include "GlobalReadingStats.h"
 #include "ReadingStatsUtils.h"
+#include "StatsBackupNames.h"
 
 namespace {
 constexpr char LOG_TAG[] = "SBACK";
@@ -206,7 +207,7 @@ bool backupGlobalStats(const bool manual, char* outFileName, const size_t outFil
   return true;
 }
 
-int pruneBackups(const int keep) {
+int pruneBackups(int keep) {
   if (keep < 0) return 0;
 
   FsFile dir = Storage.open(BACKUP_DIR);
@@ -231,21 +232,30 @@ int pruneBackups(const int keep) {
   }
   dir.close();
 
-  if (static_cast<int>(names.size()) <= keep) return 0;
-
-  std::sort(names.begin(), names.end(),
-            [](const BackupName& lhs, const BackupName& rhs) { return strcmp(lhs.value, rhs.value) < 0; });
-
+  // Keep the newest `keep` of each set; the newest file of a set is never removed.
+  keep = std::max(keep, 1);
   int removed = 0;
-  const int toRemove = static_cast<int>(names.size()) - keep;
-  for (int i = 0; i < toRemove; ++i) {
-    char path[128];
-    const int pathWritten = snprintf(path, sizeof(path), "%s/%s", BACKUP_DIR, names[static_cast<size_t>(i)].value);
-    if (pathWritten <= 0 || static_cast<size_t>(pathWritten) >= sizeof(path)) continue;
-    if (Storage.remove(path)) {
-      removed++;
-    } else {
-      LOG_ERR(LOG_TAG, "Failed to prune stats backup: %s", path);
+  for (const bool daily : {true, false}) {
+    std::vector<BackupName> set;
+    set.reserve(names.size());
+    for (const BackupName& n : names) {
+      if (isDailyStatsBackupName(n.value) == daily) set.push_back(n);
+    }
+    if (static_cast<int>(set.size()) <= keep) continue;
+
+    std::sort(set.begin(), set.end(),
+              [](const BackupName& lhs, const BackupName& rhs) { return statsBackupOlder(lhs.value, rhs.value); });
+
+    const int toRemove = static_cast<int>(set.size()) - keep;
+    for (int i = 0; i < toRemove; ++i) {
+      char path[128];
+      const int pathWritten = snprintf(path, sizeof(path), "%s/%s", BACKUP_DIR, set[static_cast<size_t>(i)].value);
+      if (pathWritten <= 0 || static_cast<size_t>(pathWritten) >= sizeof(path)) continue;
+      if (Storage.remove(path)) {
+        removed++;
+      } else {
+        LOG_ERR(LOG_TAG, "Failed to prune stats backup: %s", path);
+      }
     }
   }
 
