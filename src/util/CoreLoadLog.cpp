@@ -32,6 +32,8 @@ constexpr UBaseType_t kMaxTasks = 48;
 constexpr int kTopTasks = 5;
 // Skip the line when both cores were nearly idle, so an idle device stays quiet.
 constexpr uint32_t kMinLoggedLoadPct = 5;
+// Tasks under this share of a core are left out of the task list.
+constexpr unsigned kMinListedTaskPct = 10;
 
 struct PreviousRunTime {
   TaskHandle_t handle;
@@ -113,7 +115,8 @@ void logLowestStackHeadroom(const UBaseType_t count) {
 
 namespace CoreLoadLog {
 
-void logSinceLast() {
+void formatSinceLast(char* out, const size_t size) {
+  out[0] = '\0';
   const UBaseType_t count = uxTaskGetSystemState(statuses, kMaxTasks, nullptr);
   if (count == 0) {
     LOG_ERR("CPU", "More than %u tasks; core load not sampled", static_cast<unsigned>(kMaxTasks));
@@ -147,10 +150,14 @@ void logSinceLast() {
   }
   if (loadPct[0] < kMinLoggedLoadPct && loadPct[1] < kMinLoggedLoadPct) return;
 
+  char act[24];
+  PerfLog::currentActivity(act, sizeof(act));
+  int written = snprintf(out, size, " core0 %u%% core1 %u%% over %lu ms act=%s |", static_cast<unsigned>(loadPct[0]),
+                         static_cast<unsigned>(loadPct[1]), static_cast<unsigned long>(elapsedUs / 1000), act);
+  if (written < 0 || static_cast<size_t>(written) >= size) return;
+  size_t used = static_cast<size_t>(written);
+
   // Busiest non-idle tasks, percent of one core over the interval.
-  char top[200];
-  size_t used = 0;
-  top[0] = '\0';
   for (int rank = 0; rank < kTopTasks; rank++) {
     int best = -1;
     for (UBaseType_t i = 0; i < count; i++) {
@@ -160,20 +167,16 @@ void logSinceLast() {
     if (best < 0) break;
     const auto pct =
         static_cast<unsigned>(std::min<int64_t>(elapsedUs, static_cast<int64_t>(deltas[best])) * 100 / elapsedUs);
-    const int written = snprintf(top + used, sizeof(top) - used, " %s(%c)%u%%", statuses[best].pcTaskName,
-                                 coreTag(statuses[best].xHandle), pct);
-    if (written < 0 || static_cast<size_t>(written) >= sizeof(top) - used) break;
+    if (pct < kMinListedTaskPct) break;
+    written = snprintf(out + used, size - used, " %s(%c)%u%%", statuses[best].pcTaskName,
+                       coreTag(statuses[best].xHandle), pct);
+    if (written < 0 || static_cast<size_t>(written) >= size - used) break;
     used += static_cast<size_t>(written);
     deltas[best] = 0;
   }
-
-  char act[24];
-  PerfLog::currentActivity(act, sizeof(act));
-  LOG_INF("CPU", "core0 %u%% core1 %u%% over %lu ms act=%s |%s", static_cast<unsigned>(loadPct[0]),
-          static_cast<unsigned>(loadPct[1]), static_cast<unsigned long>(elapsedUs / 1000), act, top);
 }
 
-// Separate baseline from logSinceLast(): one per [PM] window.
+// Separate baseline from formatSinceLast(): one per [PM] window.
 namespace {
 EXT_RAM_NOINIT_ATTR PreviousRunTime windowPrevious[kMaxTasks];
 UBaseType_t windowPreviousCount = 0;

@@ -257,52 +257,76 @@ const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
   }
 }
 
-void logMemoryStats(const char* phase, const bool onlyIfChanged = false) {
-  // Periodic lines skip small churn; a new low-water mark always prints.
+void logMemoryStats(const char* phase) {
+#if defined(BOARD_HAS_PSRAM)
+  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u psram free=%u total=%u min=%u maxAlloc=%u", phase,
+          ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), ESP.getFreePsram(),
+          ESP.getPsramSize(), ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
+#else
+  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u", phase, ESP.getFreeHeap(), ESP.getHeapSize(),
+          ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+#endif
+}
+
+// Memory part of the 2 s [SYS] line: empty unless heap or PSRAM moved or the
+// heap low-water mark dropped. The constant totals are in the [MEM] Boot line;
+// PSRAM min/maxAlloc rarely move and print only when they did.
+void formatPeriodicMemory(char* out, const size_t size) {
   constexpr uint32_t PERIODIC_HEAP_DELTA = 1024;
   constexpr uint32_t PERIODIC_PSRAM_DELTA = 8 * 1024;
-  static bool hasPreviousPeriodicStats = false;
+  static bool hasPrevious = false;
   static uint32_t previousFreeHeap = 0;
   static uint32_t previousMinFreeHeap = 0;
-#if defined(BOARD_HAS_PSRAM)
-  static uint32_t previousFreePsram = 0;
-#endif
   const auto movedBy = [](const uint32_t a, const uint32_t b, const uint32_t delta) {
     return (a > b ? a - b : b - a) >= delta;
   };
 
+  out[0] = '\0';
   const uint32_t freeHeap = ESP.getFreeHeap();
   const uint32_t minFreeHeap = ESP.getMinFreeHeap();
+  bool moved =
+      !hasPrevious || movedBy(freeHeap, previousFreeHeap, PERIODIC_HEAP_DELTA) || minFreeHeap != previousMinFreeHeap;
 #if defined(BOARD_HAS_PSRAM)
+  static uint32_t previousFreePsram = 0;
   const uint32_t freePsram = ESP.getFreePsram();
+  moved = moved || movedBy(freePsram, previousFreePsram, PERIODIC_PSRAM_DELTA);
 #endif
+  if (!moved) return;
 
-  if (onlyIfChanged && hasPreviousPeriodicStats && !movedBy(freeHeap, previousFreeHeap, PERIODIC_HEAP_DELTA) &&
-      minFreeHeap == previousMinFreeHeap
+  hasPrevious = true;
+  previousFreeHeap = freeHeap;
+  previousMinFreeHeap = minFreeHeap;
 #if defined(BOARD_HAS_PSRAM)
-      && !movedBy(freePsram, previousFreePsram, PERIODIC_PSRAM_DELTA)
-#endif
-  ) {
-    return;
+  static uint32_t previousMinPsram = 0;
+  static uint32_t previousMaxAllocPsram = 0;
+  previousFreePsram = freePsram;
+  const uint32_t minPsram = ESP.getMinFreePsram();
+  const uint32_t maxAllocPsram = ESP.getMaxAllocPsram();
+  const int written = snprintf(out, size, " heap free=%u min=%u maxAlloc=%u psram free=%u", freeHeap, minFreeHeap,
+                               ESP.getMaxAllocHeap(), freePsram);
+  if (written > 0 && static_cast<size_t>(written) < size &&
+      (minPsram != previousMinPsram || maxAllocPsram != previousMaxAllocPsram)) {
+    previousMinPsram = minPsram;
+    previousMaxAllocPsram = maxAllocPsram;
+    snprintf(out + written, size - written, " min=%u maxAlloc=%u", minPsram, maxAllocPsram);
   }
-
-  if (onlyIfChanged) {
-    hasPreviousPeriodicStats = true;
-    previousFreeHeap = freeHeap;
-    previousMinFreeHeap = minFreeHeap;
-#if defined(BOARD_HAS_PSRAM)
-    previousFreePsram = freePsram;
-#endif
-  }
-
-#if defined(BOARD_HAS_PSRAM)
-  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u psram free=%u total=%u min=%u maxAlloc=%u", phase,
-          freeHeap, ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), freePsram, ESP.getPsramSize(),
-          ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
 #else
-  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u", phase, freeHeap, ESP.getHeapSize(),
-          ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+  snprintf(out, size, " heap free=%u min=%u maxAlloc=%u", freeHeap, minFreeHeap, ESP.getMaxAllocHeap());
 #endif
+}
+
+// One [SYS] line every 2 s with whichever parts have news: memory, then SD and
+// image counters ([PERF] before), then core load with its task list last
+// ([CPU] before). Each part keeps its old field names. The parts append into
+// one 384 B stack buffer on loopTask (its [STK] headroom is logged).
+void logSystemLine() {
+  char line[384];
+  formatPeriodicMemory(line, sizeof(line));
+  size_t used = strlen(line);
+  PerfLog::logPeriodic(line + used, sizeof(line) - used);
+  used += strlen(line + used);
+  CoreLoadLog::formatSinceLast(line + used, sizeof(line) - used);
+  if (line[0] != '\0') LOG_INF("SYS", "%s", line + 1);
 }
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
@@ -2576,9 +2600,10 @@ static bool loopPassBlocked = false;
 
 static void loopPass() {
   static unsigned long maxLoopDuration = 0;
+  static unsigned long lastSlowLoopLog = 0;
   const unsigned long loopStartTime = millis();
   PerfLog::noteLoopPass();
-  static unsigned long lastMemPrint = 0;
+  static unsigned long lastSysLog = 0;
 
   // Keep release suppression in the mapped-input layer in sync with every
   // hardware input frame. A shortcut may open an activity that never queries
@@ -2619,17 +2644,11 @@ static void loopPass() {
 
   // Not gated on Serial: without a USB host these lines still reach the
   // PSRAM log ring (debug builds), which is how they get read off the device.
-  if (millis() - lastMemPrint >= 2000) {
-    logMemoryStats("Periodic", true);
-    lastMemPrint = millis();
+  if (millis() - lastSysLog >= 2000) {
+    logSystemLine();
+    lastSysLog = millis();
   }
   Frontlight.flushLog();
-  static unsigned long lastCoreLoadLog = 0;
-  if (millis() - lastCoreLoadLog >= 2000) {
-    CoreLoadLog::logSinceLast();
-    PerfLog::logPeriodic();
-    lastCoreLoadLog = millis();
-  }
 
   if (!buttonShortcutController.isQuickLocked() && UsbSerialFileTransfer::process(activityManager.isHomeActivity()) ==
                                                        UsbSerialFileTransfer::ProcessResult::ScreenshotRequested) {
@@ -2946,6 +2965,11 @@ static void loopPass() {
               activityManager.currentActivityName(), activityDuration, loopDuration - activityDuration);
       (void)activityDuration;
     }
+  } else if (loopDuration >= 200 && millis() - lastSlowLoopLog >= 5000) {
+    // Stalls below the boot's maximum, at most one line per 5 s.
+    lastSlowLoopLog = millis();
+    LOG_DBG("LOOP", "Slow loop: %lu ms (activity %s: %lu ms, rest of loop: %lu ms)", loopDuration,
+            activityManager.currentActivityName(), activityDuration, loopDuration - activityDuration);
   }
 
   // Add delay at the end of the loop to prevent tight spinning

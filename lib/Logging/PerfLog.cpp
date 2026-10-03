@@ -13,6 +13,7 @@
 #include <freertos/task.h>
 #include <sdkconfig.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdio>
@@ -710,7 +711,8 @@ void noteImage(const bool cacheHit, const uint32_t ms) {
   if (!cacheHit) add(imgDecodeMs, ms);
 }
 
-void logPeriodic() {
+void logPeriodic(char* out, const uint32_t size) {
+  out[0] = '\0';
   const uint32_t opens = take(sdOpens);
   const uint32_t misses = take(sdMisses);
   const uint32_t rb = take(sdReadBytes);
@@ -720,13 +722,27 @@ void logPeriodic() {
   const uint32_t hits = take(imgHits);
   const uint32_t decodes = take(imgMisses);
   const uint32_t decodeMs = take(imgDecodeMs);
-  if (opens | rb | wb | hits | decodes) {
-    LOG_DBG("PERF", "sd open=%lu miss=%lu rd=%luKB/%lums wr=%luKB/%lums img hit=%lu dec=%lu/%lums",
-            static_cast<unsigned long>(opens), static_cast<unsigned long>(misses),
-            static_cast<unsigned long>(rb / 1024), static_cast<unsigned long>(rus / 1000),
-            static_cast<unsigned long>(wb / 1024), static_cast<unsigned long>(wus / 1000),
-            static_cast<unsigned long>(hits), static_cast<unsigned long>(decodes),
-            static_cast<unsigned long>(decodeMs));
+  // Zero fields are left out: " sd open=3 rd=12KB/40ms img hit=1 dec=2/80ms".
+  using UL = unsigned long;
+  size_t used = 0;
+  const auto advance = [&](const int written) {
+    if (written > 0) used = std::min<size_t>(size - 1, used + static_cast<size_t>(written));
+  };
+  if (opens | rb | wb) {
+    advance(snprintf(out + used, size - used, " sd open=%lu", static_cast<UL>(opens)));
+    if (misses) advance(snprintf(out + used, size - used, " miss=%lu", static_cast<UL>(misses)));
+    if (rb | rus) {
+      advance(snprintf(out + used, size - used, " rd=%luKB/%lums", static_cast<UL>(rb / 1024),
+                       static_cast<UL>(rus / 1000)));
+    }
+    if (wb | wus) {
+      advance(snprintf(out + used, size - used, " wr=%luKB/%lums", static_cast<UL>(wb / 1024),
+                       static_cast<UL>(wus / 1000)));
+    }
+  }
+  if (hits | decodes) {
+    advance(snprintf(out + used, size - used, " img hit=%lu dec=%lu/%lums", static_cast<UL>(hits),
+                     static_cast<UL>(decodes), static_cast<UL>(decodeMs)));
   }
 #if CONFIG_PM_PROFILING
   static uint32_t lastPmMs = 0;

@@ -131,7 +131,7 @@ init(autoreset=True)
 # Color mapping for log lines
 COLOR_KEYWORDS: dict[str, list[str]] = {
     Fore.RED: ["ERROR", "[ERR]", "[SCT]", "FAILED", "WARNING"],
-    Fore.CYAN: ["[MEM]", "FREE:"],
+    Fore.CYAN: ["[MEM]", "[SYS]", "FREE:"],
     Fore.MAGENTA: [
         "[GFX]",
         "[ERS]",
@@ -247,6 +247,16 @@ def parse_memory_samples(line: str) -> list[tuple[str, tuple[int | None, int | N
     ]
 
 
+def fill_from_last(pool: str, values: tuple, last_seen: dict) -> tuple:
+    """[SYS] (2 s) omits the constant totals and an unchanged PSRAM maxAlloc: reuse the last
+    value seen for that pool ([MEM] Boot has every field). Lines without free= are left alone."""
+    if values[0] is None:
+        return values
+    filled = tuple(last_seen.get((pool, i)) if v is None else v for i, v in enumerate(values))
+    last_seen.update({(pool, i): v for i, v in enumerate(filled) if v is not None})
+    return filled
+
+
 def serial_worker(ser, kwargs: dict[str, str]) -> None:
     """
     Runs in a background thread. Handles reading serial data, printing to console,
@@ -273,6 +283,7 @@ def serial_worker(ser, kwargs: dict[str, str]) -> None:
 
     expecting_screenshot = False
     screenshot_size = 0
+    last_seen: dict[tuple[str, int], int] = {}
     screenshot_data = b""
 
     try:
@@ -322,8 +333,9 @@ def serial_worker(ser, kwargs: dict[str, str]) -> None:
                     formatted_line = re.sub(r"^\[\d+\]", f"[{pc_time}]", clean_line)
 
                     # Check for Memory Line
-                    if "[MEM]" in formatted_line:
-                        for pool, (free_val, total_val, max_alloc_val) in parse_memory_samples(formatted_line):
+                    if "[MEM]" in formatted_line or "[SYS]" in formatted_line:
+                        for pool, values in parse_memory_samples(formatted_line):
+                            free_val, total_val, max_alloc_val = fill_from_last(pool, values, last_seen)
                             if free_val is not None and total_val is not None:
                                 with data_lock:
                                     if pool == "psram":
