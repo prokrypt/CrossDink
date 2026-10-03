@@ -345,11 +345,11 @@ TEST(DirectPixelWriterLevels, ImageViewerDecodeOnceWritesBothBitPlanes) {
   };
   std::vector<uint8_t> lsb, msb;
   writeLevels(DirectPixelWriter::BW_IMAGES_OFF, lsb, msb);
-  EXPECT_EQ(lsb[0], 0x5F);  // bit 0 of levels 0,1,2,3, then untouched white
-  EXPECT_EQ(msb[0], 0x3F);  // bit 1
-  EXPECT_EQ(lsb[0] & msb[0], 0x1F);  // B/W image: only level 3 is white
+  EXPECT_EQ(lsb[0], 0x5F);                                   // bit 0 of levels 0,1,2,3, then untouched white
+  EXPECT_EQ(msb[0], 0x3F);                                   // bit 1
+  EXPECT_EQ(lsb[0] & msb[0], 0x1F);                          // B/W image: only level 3 is white
   EXPECT_EQ(r.bw, std::vector<uint8_t>(r.bw.size(), 0xA5));  // framebuffer untouched
-  writeLevels(DirectPixelWriter::BW_IMAGES_BW, lsb, msb);  // levels 2 and 3 turn white
+  writeLevels(DirectPixelWriter::BW_IMAGES_BW, lsb, msb);    // levels 2 and 3 turn white
   EXPECT_EQ(lsb[0], 0x3F);
   EXPECT_EQ(msb[0], 0x3F);
 }

@@ -58,9 +58,7 @@ size_t OpdsPreloadPool::runningCount() const {
                                            [](const Worker& worker) { return worker.prefetcher.running(); }));
 }
 
-bool OpdsPreloadPool::backingOff() const {
-  return failedAtMs != 0 && millis() - failedAtMs < FAILURE_BACKOFF_MS;
-}
+bool OpdsPreloadPool::backingOff() const { return failedAtMs != 0 && millis() - failedAtMs < FAILURE_BACKOFF_MS; }
 
 // A queue held by the failure backoff does not count: the radio may idle.
 bool OpdsPreloadPool::busy() const { return (!queue.empty() && !backingOff()) || runningCount() > 0; }
