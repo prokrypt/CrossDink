@@ -99,6 +99,7 @@ void apply() {
   t.touchMultiSwipeMaxMs = KNOBS.multiSwipeMaxMs;
   t.touchMultiSeparationSlopPx = KNOBS.multiSeparationSlopPx;
   t.touchLongPressMs = KNOBS.touchLongPressMs;
+  t.touchContactJumpPx = KNOBS.contactJumpPx;
   InputManager::setTuning(t);
 }
 

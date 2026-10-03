@@ -63,11 +63,15 @@ class GoodiesActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  // Keyboard test: knob and Turbo changes wait to be written until the page is left.
+  bool holdsSettingsFlush() const override { return level == Level::KeyboardTest; }
 
  private:
-  enum class Level : uint8_t { Root, DisplayTests, Knobs };
-  static constexpr int TOKEN_ROW = 2;  // Root: Display test, Wi-Fi remote, API token, Knobs, Battery & stats
+  enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest };
+  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Battery & stats
+  static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
+  static constexpr int KBD_TEST_ROW = 4;
   struct Entry {
     std::string label;
     int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
@@ -86,6 +90,8 @@ class GoodiesActivity final : public Activity {
   int topIndex = 0;
   int knobTab = 0;  // Knobs: one tab per Knobs.def group
   int pendingTab = -1;
+  int pendingStep = -1;
+  std::string kbdTestText;  // Keyboard test scratch text; never saved
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};
@@ -109,6 +115,9 @@ class GoodiesActivity final : public Activity {
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onTabEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onStepEvent(const freeink::ui::ActionEvent& event, void* user);
+  void stepKbdTest(int row, int dir);
+  void buildKbdTestRows(UiApp::ScreenType& screen);
   void switchKnobTab(int tab);
   void buildListScreen(UiApp::ScreenType& screen);
 };
