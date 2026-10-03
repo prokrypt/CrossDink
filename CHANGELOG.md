@@ -64,6 +64,9 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- File Transfer: an upload no longer fails when you switch away from the browser tab on a phone. The device keeps the partial file for 60 s, and the page reconnects when you come back and continues where it stopped. The page also keeps the phone's screen on while it uploads (Chrome, iOS Safari 16.4+).
+- File Transfer uploads from phones are faster. X4 Pro accepts twice as much unacknowledged data (64 KB TCP window), and the web page reads the file in 192 KB pieces ahead of sending and paces itself on the device's progress replies instead of a 5 ms timer, which phone browsers slow down.
+- Web file manager: the first click on a column header sorts largest, newest or Z first; a second click flips it. Folders stay on top.
 - X4 Pro: less power while Wi-Fi idles. The web server sleeps until traffic arrives instead of checking 10 times a second, the debug log tail waits for new lines instead of checking every 50 ms, mDNS wakes 2 times a second instead of 10, and a 404 (such as a log watcher probing a route) no longer holds full power for half a second. Debug builds: the Goodies Wi-Fi remote idles in the deepest modem sleep (Goodies > Knobs > Wi-Fi: wifiMaxModem, wifiListenInterval), the main loop ticks once a second while only the remote holds Wi-Fi (remote commands wake it at once), and the remote's server answers `/api/status`.
 - Debug builds (X4 Pro): the serial `KBDEXP` command and the display test `pll` step take only the three Knobs > kbdPll choices (0 = panel default, 1 = 40 Hz, 2 = 50 Hz) and refuse anything else, instead of any raw PLL byte.
 - Settings are written to the SD card once, when you leave the screen or panel where you changed them (Settings and its pages, the Frontlight panel, Goodies > Knobs), or before sleep, restart or a firmware update, instead of on every change. Changes with no screen to leave (light slide or toggle, power shortcut, remote `SET`/`KNOB`) are written at the next of those. Nothing is written when the values match what is already on the card. A book's reader settings file is now replaced in one step, so a power cut while saving it leaves the old file instead of a cut-off one.
@@ -171,6 +174,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Web File Manager: the Modified column is hidden on screens up to 800 px wide (was 600 px), so phones with a small display size or zoomed-out browser no longer squeeze file names to a few letters per line.
 - X4 Pro: after a crash or restart the device could get stuck rebooting about 0.3 s into every boot, so it looked like it would not wake until the reset button was pressed. A charger or button line left armed by the previous run no longer fires before its handler is ready.
 - X4 Pro: with the cable out the charger status line now has a pull-down while awake (it was left floating after the first battery read), so it reads "not charging" reliably.
 - X4 Pro: if going to sleep ever gets stuck (seen once: the device stayed dark and ignored the power button until reset), it now restarts after 30 s instead of staying dead, and the next boot reports which sleep step stuck.

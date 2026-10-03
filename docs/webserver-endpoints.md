@@ -457,6 +457,8 @@ Protocol:
 4. Server sends `PROGRESS:<received>:<total>` every 64 KB or at completion
 5. Server sends `DONE` when complete or `ERROR:<message>` on failure
 
+If the socket drops mid-upload, the server keeps the partial file open for 60 s. A `START` with the same name, size and path in that time gets `READY:<received>`, and the client continues from that byte offset. Any other `START`, or the 60 s passing, deletes the partial file.
+
 Example session:
 
 ```text
