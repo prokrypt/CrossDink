@@ -776,3 +776,5 @@ STR_STATUS_BAR_EMPTY: "Vacío"
 STR_STATUS_BAR_CLOCK: "Reloj"
 STR_STATUS_BAR_BOTH: "Ambas"
 STR_CLOCK_OUTSIDE_READER: "Reloj fuera del lector"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Intercambiar biblioteca/archivos"

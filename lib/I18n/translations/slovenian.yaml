@@ -601,3 +601,5 @@ STR_STATUS_BAR_EMPTY: "Prazno"
 STR_STATUS_BAR_CLOCK: "Ura"
 STR_STATUS_BAR_BOTH: "Obe"
 STR_CLOCK_OUTSIDE_READER: "Ura zunaj bralnika"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Zamenjaj knjižnico/datoteke"

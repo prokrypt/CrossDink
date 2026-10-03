@@ -621,3 +621,5 @@ STR_STATUS_BAR_EMPTY: "Puste"
 STR_STATUS_BAR_CLOCK: "Zegar"
 STR_STATUS_BAR_BOTH: "Oba"
 STR_CLOCK_OUTSIDE_READER: "Zegar poza czytnikiem"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Zamień bibliotekę/przeglądarkę plików"

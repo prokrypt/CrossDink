@@ -598,3 +598,5 @@ STR_STATUS_BAR_EMPTY: "ריק"
 STR_STATUS_BAR_CLOCK: "שעון"
 STR_STATUS_BAR_BOTH: "שניהם"
 STR_CLOCK_OUTSIDE_READER: "שעון מחוץ לקורא"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "החלפת ספרייה/דפדפן קבצים"

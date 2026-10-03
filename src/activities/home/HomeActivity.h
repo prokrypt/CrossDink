@@ -109,6 +109,7 @@ class HomeActivity final : public Activity {
 
   void openBook(const std::string& path);
   void onFileBrowserOpen();
+  void onMinimalBrowseOpen();
   void onContinueReading();
   void onLibraryOpen();
   void onSettingsOpen();
