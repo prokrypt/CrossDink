@@ -389,8 +389,8 @@ bool FontDownloadActivity::fetchAndParseManifest() {
     // std::strings that can leave the next download without a TLS-sized block.
     manifestStringArena_ = makeUniqueNoThrow<char[]>(stringBytes);
     if (!manifestStringArena_) {
-      LOG_ERR("FONT", "OOM: %zu-byte font manifest string arena (free=%u maxAlloc=%u)", stringBytes, ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
+      LOG_ERR("FONT", "OOM: %zu-byte font manifest string arena (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", stringBytes,
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       errorMessage_ = tr(STR_MEMORY_ERROR);
       return false;
     }
@@ -401,15 +401,15 @@ bool FontDownloadActivity::fetchAndParseManifest() {
     baseUrl_ = doc["baseUrl"] | "";
     manifestFiles_ = makeUniqueNoThrow<ManifestFile[]>(retainedFileCount);
     if (retainedFileCount > 0 && !manifestFiles_) {
-      LOG_ERR("FONT", "OOM: %zu-entry font manifest file table (free=%u maxAlloc=%u)", retainedFileCount,
-              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      LOG_ERR("FONT", "OOM: %zu-entry font manifest file table (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+              retainedFileCount, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       errorMessage_ = tr(STR_MEMORY_ERROR);
       return false;
     }
     manifestFamilies_ = makeUniqueNoThrow<ManifestFamily[]>(retainedFamilyCount);
     if (retainedFamilyCount > 0 && !manifestFamilies_) {
-      LOG_ERR("FONT", "OOM: %zu-entry font manifest family table (free=%u maxAlloc=%u)", retainedFamilyCount,
-              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      LOG_ERR("FONT", "OOM: %zu-entry font manifest family table (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+              retainedFamilyCount, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       errorMessage_ = tr(STR_MEMORY_ERROR);
       return false;
     }
@@ -480,8 +480,8 @@ bool FontDownloadActivity::fetchAndParseManifest() {
   // state now that the manifest JsonDocument has been released, keeping peak
   // heap usage down on devices with many SD fonts installed.
   if (!fontInstaller_.refreshRegistry()) {
-    LOG_ERR("FONT", "Not enough contiguous heap to scan installed fonts (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_ERR("FONT", "Not enough contiguous heap to scan installed fonts (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     errorMessage_ = tr(STR_MEMORY_ERROR);
     return false;
   }
@@ -667,8 +667,8 @@ bool FontDownloadActivity::rebuildListItems() {
     // explicit low-memory fallback. The log reports its exact byte size.
     auto items = makeUniqueNoThrow<fui::ListItem[]>(required);
     if (!items) {
-      LOG_ERR("FONT", "Failed to allocate %zu-byte font list (heap=%u maxAlloc=%u)", required * sizeof(fui::ListItem),
-              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      LOG_ERR("FONT", "Failed to allocate %zu-byte font list (heap=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+              required * sizeof(fui::ListItem), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       listItemCount_ = 0;
       return false;
     }
@@ -915,7 +915,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       return;
     }
     if (actualCrc != file.crc32) {
-      LOG_ERR("FONT", "CRC32 mismatch for %s: got %08x expected %08x", file.name, actualCrc, file.crc32);
+      LOG_ERR("FONT", "CRC32 mismatch for %s: got %08" PRIx32 " expected %08lx", file.name, actualCrc, file.crc32);
       Storage.remove(tempPath);
       failDownload(std::string("Downloaded file did not match: ") + file.name, tr(STR_FONT_DOWNLOAD_CHECKSUM_HINT));
       return;

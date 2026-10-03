@@ -108,15 +108,15 @@ bool ZipFileStreamReader::begin(const std::string& zipPathIn, const char* filena
 
   readBuffer = static_cast<uint8_t*>(malloc(chunkSize));
   if (!readBuffer) {
-    LOG_ERR("ZIP", "Failed to allocate cooperative read buffer (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap(), chunkSize);
+    LOG_ERR("ZIP", "Failed to allocate cooperative read buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
     abort();
     return false;
   }
   outputBuffer = static_cast<uint8_t*>(malloc(chunkSize));
   if (!outputBuffer) {
-    LOG_ERR("ZIP", "Failed to allocate cooperative output buffer (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap(), chunkSize);
+    LOG_ERR("ZIP", "Failed to allocate cooperative output buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
     abort();
     return false;
   }
@@ -126,8 +126,8 @@ bool ZipFileStreamReader::begin(const std::string& zipPathIn, const char* filena
     inflateCtx.readBuf = readBuffer;
     inflateCtx.readBufSize = chunkSize;
     if (!inflateCtx.reader.init(true)) {
-      LOG_ERR("ZIP", "Failed to init cooperative inflate reader (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap(), chunkSize);
+      LOG_ERR("ZIP", "Failed to init cooperative inflate reader (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       abort();
       return false;
     }
@@ -774,7 +774,7 @@ uint8_t* ZipFile::readFileToMemory(const char* filename, size_t* size, const boo
   const auto dataSize = trailingNullByte ? inflatedDataSize + 1 : inflatedDataSize;
   const auto data = static_cast<uint8_t*>(malloc(dataSize));
   if (data == nullptr) {
-    LOG_ERR("ZIP", "Failed to allocate memory for output buffer (%zu bytes)", dataSize);
+    LOG_ERR("ZIP", "Failed to allocate memory for output buffer (%lu bytes)", dataSize);
     return nullptr;
   }
 
@@ -959,15 +959,16 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     auto* fileReadBuffer = static_cast<uint8_t*>(malloc(chunkSize));
     if (!fileReadBuffer) {
-      LOG_ERR("ZIP", "Failed to allocate memory for zip file read buffer (free=%u, maxAlloc=%u, chunk=%zu)",
+      LOG_ERR("ZIP",
+              "Failed to allocate memory for zip file read buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
               ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       return false;
     }
 
     auto* outputBuffer = static_cast<uint8_t*>(malloc(chunkSize));
     if (!outputBuffer) {
-      LOG_ERR("ZIP", "Failed to allocate memory for output buffer (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap(), chunkSize);
+      LOG_ERR("ZIP", "Failed to allocate memory for output buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       free(fileReadBuffer);
       return false;
     }
@@ -977,8 +978,8 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     InflateStream inflate;
     if (!inflate.init(true)) {
-      LOG_ERR("ZIP", "Failed to init inflate stream for %s (free=%u, maxAlloc=%u, chunk=%zu)", filename,
-              ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
+      LOG_ERR("ZIP", "Failed to init inflate stream for %s (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+              filename, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       free(outputBuffer);
       free(fileReadBuffer);
       return false;

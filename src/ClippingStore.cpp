@@ -205,12 +205,12 @@ bool ClippingStore::readClippingPreview(const size_t index, std::string& out) co
   if (!Storage.openFileForRead("CLIP", storeFilePath, f)) return false;
   if (!f.seek(clipping->textOffset)) {
     f.close();
-    LOG_ERR("CLIP", "Failed to seek clipping preview at %u", clipping->textOffset);
+    LOG_ERR("CLIP", "Failed to seek clipping preview at %lu", clipping->textOffset);
     return false;
   }
   const bool ok = clippingPreview::read(f, clipping->textLength, out);
   f.close();
-  if (!ok) LOG_ERR("CLIP", "Failed to read clipping preview at %u", clipping->textOffset);
+  if (!ok) LOG_ERR("CLIP", "Failed to read clipping preview at %lu", clipping->textOffset);
   return ok;
 }
 
@@ -231,7 +231,7 @@ bool ClippingStore::readClippingText(const Clipping& clipping, std::string& out)
   }
   if (!f.seek(clipping.textOffset)) {
     f.close();
-    LOG_ERR("CLIP", "Failed to seek clipping text at %u: %s", clipping.textOffset, storeFilePath.c_str());
+    LOG_ERR("CLIP", "Failed to seek clipping text at %lu: %s", clipping.textOffset, storeFilePath.c_str());
     return false;
   }
   out.resize(clipping.textLength);
@@ -240,7 +240,7 @@ bool ClippingStore::readClippingText(const Clipping& clipping, std::string& out)
   f.close();
   if (!ok) {
     out.clear();
-    LOG_ERR("CLIP", "Failed to read clipping text at %u: %s", clipping.textOffset, storeFilePath.c_str());
+    LOG_ERR("CLIP", "Failed to read clipping text at %lu: %s", clipping.textOffset, storeFilePath.c_str());
   }
   return ok;
 }

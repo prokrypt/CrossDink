@@ -52,7 +52,8 @@ struct PngContext {
 void* pngOpenWithHandle(const char* filename, int32_t* size) {
   auto f = makeUniqueNoThrow<FsFile>();
   if (!f) {
-    LOG_ERR("PNG", "OOM: PNG file handle (%u free, %u max alloc)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("PNG", "OOM: PNG file handle (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     return nullptr;
   }
   if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {

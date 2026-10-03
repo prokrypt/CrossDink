@@ -748,7 +748,7 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
   void* const storage = HalFile::allocateImplStorage();
   HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
   if (!impl) {
-    LOG_ERR("SD", "OOM: HalFile wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
+    LOG_ERR("SD", "OOM: HalFile wrapper for %s (%" PRIu32 " free, %" PRIu32 " max alloc)", path, ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     StorageLock lock;
     fsFile.close();
@@ -884,8 +884,8 @@ bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFi
   void* const storage = HalFile::allocateImplStorage();
   HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
   if (!impl) {
-    LOG_ERR(moduleName, "OOM: HalFile read wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_ERR(moduleName, "OOM: HalFile read wrapper for %s (%" PRIu32 " free, %" PRIu32 " max alloc)", path,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     StorageLock lock;
     fsFile.close();
     return false;
@@ -924,8 +924,8 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
   void* const storage = HalFile::allocateImplStorage();
   HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
   if (!impl) {
-    LOG_ERR(moduleName, "OOM: HalFile write wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_ERR(moduleName, "OOM: HalFile write wrapper for %s (%" PRIu32 " free, %" PRIu32 " max alloc)", path,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     StorageLock lock;
     fsFile.close();
     return false;
@@ -1171,7 +1171,7 @@ HalFile HalFile::openNextFile() {
   ImplPtr childImpl(storage ? ::new (storage) Impl(std::move(fsFile)) : nullptr);
   if (!childImpl) {
     allocationFailed_ = true;
-    LOG_ERR("SD", "OOM: HalFile directory entry wrapper (%u free, %u max alloc)", ESP.getFreeHeap(),
+    LOG_ERR("SD", "OOM: HalFile directory entry wrapper (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     fsFile.close();
     return HalFile();

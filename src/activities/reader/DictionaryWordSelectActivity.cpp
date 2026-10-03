@@ -266,7 +266,7 @@ void DictionaryWordSelectActivity::prebuildAdvanceTable() {
   auto codepoints = makeUniqueNoThrow<uint32_t[]>(ADVANCE_CODEPOINT_CAPACITY);
   if (!codepoints) {
     const auto heap = MemoryBudget::snapshot();
-    LOG_ERR("DICT", "OOM allocating advance collector (%u bytes, free=%u maxAlloc=%u)",
+    LOG_ERR("DICT", "OOM allocating advance collector (%u bytes, free=%lu maxAlloc=%lu)",
             static_cast<unsigned>(ADVANCE_CODEPOINT_CAPACITY * sizeof(uint32_t)), heap.freeHeap, heap.maxAllocHeap);
     return;
   }
@@ -446,7 +446,8 @@ bool DictionaryWordSelectActivity::allocateWorkingSet() {
     const auto before = heap;
     if (renderer.releaseSdCardFontForLowMemory(SETTINGS.getReaderFontId())) {
       heap = MemoryBudget::snapshot();
-      LOG_DBG("DICT", "Released reader SD-font caches for %u-byte working set: free=%u->%u maxAlloc=%u->%u",
+      LOG_DBG("DICT",
+              "Released reader SD-font caches for %u-byte working set: free=%lu->%" PRIu32 " maxAlloc=%lu->%" PRIu32,
               static_cast<unsigned>(totalBytes), before.freeHeap, heap.freeHeap, before.maxAllocHeap,
               heap.maxAllocHeap);
     }
@@ -461,8 +462,8 @@ bool DictionaryWordSelectActivity::allocateWorkingSet() {
     workingSet_.words = makeUniqueNoThrow<WordSelectNavigator::WordInfo[]>(budget.wordCount);
     if (!workingSet_.words) {
       heap = MemoryBudget::snapshot();
-      LOG_ERR("DICT", "OOM allocating word metadata (%u bytes, free=%u maxAlloc=%u)", static_cast<unsigned>(wordBytes),
-              heap.freeHeap, heap.maxAllocHeap);
+      LOG_ERR("DICT", "OOM allocating word metadata (%u bytes, free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+              static_cast<unsigned>(wordBytes), heap.freeHeap, heap.maxAllocHeap);
       workingSet_.clear();
       return false;
     }
@@ -471,7 +472,7 @@ bool DictionaryWordSelectActivity::allocateWorkingSet() {
     workingSet_.textPool = makeUniqueNoThrow<char[]>(budget.textBytes);
     if (!workingSet_.textPool) {
       heap = MemoryBudget::snapshot();
-      LOG_ERR("DICT", "OOM allocating word text arena (%u bytes, free=%u maxAlloc=%u)",
+      LOG_ERR("DICT", "OOM allocating word text arena (%u bytes, free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
               static_cast<unsigned>(budget.textBytes), heap.freeHeap, heap.maxAllocHeap);
       workingSet_.clear();
       return false;
@@ -481,8 +482,8 @@ bool DictionaryWordSelectActivity::allocateWorkingSet() {
     workingSet_.rows = makeUniqueNoThrow<WordSelectNavigator::Row[]>(budget.rowCount);
     if (!workingSet_.rows) {
       heap = MemoryBudget::snapshot();
-      LOG_ERR("DICT", "OOM allocating row metadata (%u bytes, free=%u maxAlloc=%u)", static_cast<unsigned>(rowBytes),
-              heap.freeHeap, heap.maxAllocHeap);
+      LOG_ERR("DICT", "OOM allocating row metadata (%u bytes, free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+              static_cast<unsigned>(rowBytes), heap.freeHeap, heap.maxAllocHeap);
       workingSet_.clear();
       return false;
     }
@@ -491,7 +492,7 @@ bool DictionaryWordSelectActivity::allocateWorkingSet() {
     workingSet_.measurementScratch = makeUniqueNoThrow<char[]>(scratchBytes);
     if (!workingSet_.measurementScratch) {
       heap = MemoryBudget::snapshot();
-      LOG_ERR("DICT", "OOM allocating word measurement scratch (%u bytes, free=%u maxAlloc=%u)",
+      LOG_ERR("DICT", "OOM allocating word measurement scratch (%u bytes, free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
               static_cast<unsigned>(scratchBytes), heap.freeHeap, heap.maxAllocHeap);
       workingSet_.clear();
       return false;

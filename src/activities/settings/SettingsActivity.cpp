@@ -382,7 +382,9 @@ void SettingsActivity::rebuildSettingsLists() {
       controlsPowerSettings.size() < controlsPowerMinCount || controlsPowerSettings.size() > controlsPowerMaxCount ||
       controlsFrontButtonSettings.size() != expectedFrontButtonCount ||
       controlsSideButtonSettings.size() != expectedSideButtonCount) {
-    LOG_ERR("SET", "Unexpected controls menu counts: controls=%u/%u home=%u power=%u front=%u side=%u",
+    LOG_ERR("SET",
+            "Unexpected controls menu counts: controls=%" PRIu32 "/%" PRIu32 " home=%" PRIu32 " power=%" PRIu32
+            " front=%" PRIu32 " side=%" PRIu32,
             static_cast<uint32_t>(controlsSettings.size()), static_cast<uint32_t>(expectedControlsCount),
             static_cast<uint32_t>(controlsHomeButtonSettings.size()),
             static_cast<uint32_t>(controlsPowerSettings.size()),

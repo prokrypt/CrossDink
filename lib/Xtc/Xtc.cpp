@@ -456,7 +456,7 @@ bool Xtc::generateCoverBmp() const {
   bitmapSize = ((pageInfo.width + 7) / 8) * pageInfo.height;
   auto pageBuffer = makeUniqueNoThrow<uint8_t[]>(bitmapSize);
   if (!pageBuffer) {
-    LOG_ERR("XTC", "Failed to allocate page buffer (%lu bytes)", bitmapSize);
+    LOG_ERR("XTC", "Failed to allocate page buffer (%zu bytes)", bitmapSize);
     return false;
   }
 

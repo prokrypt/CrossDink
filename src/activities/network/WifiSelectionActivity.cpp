@@ -335,13 +335,14 @@ void WifiSelectionActivity::onRowEvent(const fui::ActionEvent& event, void* user
 
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
-  LOG_INF("WIFI", "selection enter free=%u maxAlloc=%u stack=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
-          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  LOG_INF("WIFI", "selection enter free=%" PRIu32 " maxAlloc=%" PRIu32 " stack=%u", ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
   // WiFi startup needs several contiguous driver buffers. Release the SD-font
   // catalog as well as the active font before the radio allocates them.
   sdFontSystem.releaseForNetwork(renderer);
   ensureWifiEventLoggingRegistered();
-  LOG_INF("WIFI", "event logging registered free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_INF("WIFI", "event logging registered free=%" PRIu32 " maxAlloc=%" PRIu32, ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
 
   // Reset state
   selectedNetworkIndex = 0;
@@ -362,9 +363,9 @@ void WifiSelectionActivity::onEnter() {
   lastLoggedWifiStatus = -1;
   manualNetworkListRequested = false;
   autoAttemptedSsids.clear();
-  LOG_INF("WIFI", "loading credentials free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_INF("WIFI", "loading credentials free=%" PRIu32 " maxAlloc=%" PRIu32, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   const size_t savedCredentialCount = WIFI_STORE.getCredentialCount();
-  LOG_INF("WIFI", "credentials loaded count=%u free=%u maxAlloc=%u stack=%u",
+  LOG_INF("WIFI", "credentials loaded count=%u free=%" PRIu32 " maxAlloc=%" PRIu32 " stack=%u",
           static_cast<unsigned>(savedCredentialCount), ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
   autoAttemptedSsids.reserve(savedCredentialCount);
@@ -376,11 +377,12 @@ void WifiSelectionActivity::onEnter() {
   visibleRows = 1;
   topIndex = 0;
   applySharedUiTheme(app, uiTarget);
-  LOG_INF("WIFI", "MAC/theme initialized free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_INF("WIFI", "MAC/theme initialized free=%" PRIu32 " maxAlloc=%" PRIu32, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   app.on(ACTION_ROW, &WifiSelectionActivity::onRowEvent, this);
   app.setScreen(&WifiSelectionActivity::listScreen, this);
 
-  LOG_INF("WIFI", "starting auto-connect/scan free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_INF("WIFI", "starting auto-connect/scan free=%" PRIu32 " maxAlloc=%" PRIu32, ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
 
   // Attempt to auto-connect to known networks. Try the last successful
   // network first for speed, then scan and try any visible saved networks by
@@ -419,11 +421,12 @@ void WifiSelectionActivity::onExit() {
     WiFi.mode(WIFI_OFF);
   }
 
-  LOG_DBG("WIFI", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WIFI", "Free heap at onExit end: %" PRId32 " bytes", ESP.getFreeHeap());
 }
 
 void WifiSelectionActivity::releaseWifiForNetworkList() {
-  LOG_INF("WIFI", "Releasing WiFi before network list free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_INF("WIFI", "Releasing WiFi before network list free=%" PRIu32 " maxAlloc=%" PRIu32, ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
 
   WiFi.scanDelete();
   if (!WiFi.disconnect(false)) {
@@ -436,8 +439,8 @@ void WifiSelectionActivity::releaseWifiForNetworkList() {
     LOG_ERR("WIFI", "Failed to switch WiFi off before network list");
   }
 
-  LOG_INF("WIFI", "WiFi released before network list mode=%d free=%u maxAlloc=%u", static_cast<int>(WiFi.getMode()),
-          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_INF("WIFI", "WiFi released before network list mode=%d free=%" PRIu32 " maxAlloc=%" PRIu32,
+          static_cast<int>(WiFi.getMode()), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   rebuildNetworkRowItems();
 }
 
@@ -466,8 +469,9 @@ void WifiSelectionActivity::startWifiScan(const bool autoScan) {
   requestUpdate();
 
   // Set WiFi mode to station
-  LOG_INF("WIFI", "Starting WiFi scan (mode=%d status=%d/%s heap=%u maxAlloc=%u)", static_cast<int>(WiFi.getMode()),
-          static_cast<int>(WiFi.status()), wifiStatusName(WiFi.status()), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_INF("WIFI", "Starting WiFi scan (mode=%d status=%d/%s heap=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+          static_cast<int>(WiFi.getMode()), static_cast<int>(WiFi.status()), wifiStatusName(WiFi.status()),
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   if (!WiFi.mode(WIFI_STA)) {
     LOG_ERR("WIFI", "Failed to set station mode before WiFi scan");
     showWifiScanFailure();
@@ -631,7 +635,7 @@ void WifiSelectionActivity::selectNetwork(const int index) {
     // Use saved password - connect directly
     enteredPassword = savedCred->password;
     usedSavedPassword = true;
-    LOG_INF("WIFI", "Selected network: ssid=%s encrypted=%d saved=1 rssi=%d", selectedSSID.c_str(),
+    LOG_INF("WIFI", "Selected network: ssid=%s encrypted=%d saved=1 rssi=%ld", selectedSSID.c_str(),
             selectedRequiresPassword, network.rssi);
     attemptConnection();
     return;
@@ -641,7 +645,7 @@ void WifiSelectionActivity::selectNetwork(const int index) {
     promptPasswordEntry();
   } else {
     // Connect directly for open networks
-    LOG_INF("WIFI", "Selected open network: ssid=%s rssi=%d", selectedSSID.c_str(), network.rssi);
+    LOG_INF("WIFI", "Selected open network: ssid=%s rssi=%ld", selectedSSID.c_str(), network.rssi);
     attemptConnection();
   }
 }
@@ -783,7 +787,8 @@ void WifiSelectionActivity::attemptConnection() {
     requestUpdate();
   }
 
-  LOG_INF("WIFI", "Connecting to ssid=%s auto=%d saved=%d encrypted=%d passProvided=%d heap=%u maxAlloc=%u",
+  LOG_INF("WIFI",
+          "Connecting to ssid=%s auto=%d saved=%d encrypted=%d passProvided=%d heap=%" PRIu32 " maxAlloc=%" PRIu32,
           selectedSSID.c_str(), autoConnecting, usedSavedPassword, selectedRequiresPassword, !enteredPassword.empty(),
           ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
@@ -904,7 +909,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
     uint8_t connectedBssid[6] = {};
     WiFi.BSSID(connectedBssid);
-    LOG_DBG("WIFI", "Connected BSSID: %02x:%02x:%02x:%02x:%02x:%02x, channel: %d, RSSI: %d dBm",
+    LOG_DBG("WIFI", "Connected BSSID: %02x:%02x:%02x:%02x:%02x:%02x, channel: %" PRId32 ", RSSI: %d dBm",
             static_cast<unsigned>(connectedBssid[0]), static_cast<unsigned>(connectedBssid[1]),
             static_cast<unsigned>(connectedBssid[2]), static_cast<unsigned>(connectedBssid[3]),
             static_cast<unsigned>(connectedBssid[4]), static_cast<unsigned>(connectedBssid[5]), WiFi.channel(),

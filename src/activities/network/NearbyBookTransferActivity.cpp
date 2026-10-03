@@ -155,8 +155,8 @@ bool NearbyBookTransferActivity::startRadio() {
     return false;
   }
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
-  LOG_INF(LOG_TAG, "radio ready: free=%u maxAlloc=%u stack=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
-          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  LOG_INF(LOG_TAG, "radio ready: free=%" PRIu32 " maxAlloc=%" PRIu32 " stack=%u", ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 #endif
   return true;
 }
