@@ -537,6 +537,8 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // behind a remote-token check (docs/serial-remote.md).
   server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
   server->on("/api/upload", HTTP_POST, [this] { handleApiUploadPost(); }, [this] { handleApiUpload(); });
+  // Registered here for both modes (first match wins over registerFullRoutes()); token-gated only while log-only.
+  server->on("/api/files", HTTP_GET, [this] { handleApiFiles(); });
 #endif
   server->on("/api/status", HTTP_GET, [this] {
     releasePollHold();
@@ -550,7 +552,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   });
   if (logOnly) {
     // Nothing else: no SD access behind other screens beyond the token-gated
-    // /api/download and /api/upload, and /api/status's
+    // /api/download, /api/upload and /api/files, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
     const char* remoteHeaders[] = {"X-Token"};
     server->collectHeaders(remoteHeaders, 1);
@@ -667,7 +669,9 @@ void CrossPointWebServer::registerFullRoutes() {
     server->send(200, "application/json", json);
   });
 #endif
+#if !CROSSDINK_SERIAL_REMOTE
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+#endif
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
   // Upload endpoint with special handling for multipart form data
@@ -1337,6 +1341,15 @@ void CrossPointWebServer::handleApiDownload() const {
   const int status = checkRemoteToken(*server, out, sizeof(out));
   if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
   handleDownload();
+}
+
+void CrossPointWebServer::handleApiFiles() const {
+  if (logOnly_) {
+    static char out[32];
+    const int status = checkRemoteToken(*server, out, sizeof(out));
+    if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
+  }
+  handleFileListData();
 }
 
 namespace {
