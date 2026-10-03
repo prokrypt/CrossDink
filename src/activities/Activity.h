@@ -28,6 +28,9 @@ class Activity {
 
   ActivityResultHandler resultHandler;
   ActivityResult result;
+  // Touch lists hide their selection until a nav button press on this screen
+  // (see ListSelection.h); ActivityManager sets and reads it.
+  bool listSelectionRevealed = false;
 
   // Use when a screen exits on Back press instead of Back release so the
   // parent screen does not also receive the held button's release.
@@ -106,6 +109,9 @@ class Activity {
   // After a full-screen child pops, ActivityManager must redraw that source
   // activity before pushing one of these overlays again.
   virtual bool requiresFreshBackdrop() const { return false; }
+  // Popup activities drawn over the source's last frame. Opened by a tap, the
+  // source repaints first so the tapped row shows selected under the popup.
+  virtual bool drawsOverSourceFrame() const { return false; }
   // A backdrop-only render must not make a paused reader count overlay time as
   // reading time. Readers clear that transient render timestamp here.
   virtual void onBackdropRenderedForOverlay() {}

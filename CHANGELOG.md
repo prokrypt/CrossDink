@@ -61,6 +61,9 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Settings: the selected tab is marked by a bar under its name instead of a black (inverted) highlight, and tapping a tab no longer highlights it; the box around the tab bar stays. Up/Down now wrap within the list and no longer move onto the tabs; long-press Up/Down still switches tabs.
+- Touch devices: lists open with no row highlighted. The first Up, Down or Confirm press shows the highlight without moving or opening anything; a row tapped to open a popup stays highlighted while the popup is up. The Home screen and the chapter list (current chapter) keep their highlight.
+- Selection and tap highlights everywhere (list rows, Home menu tiles and cover cards, settings tabs, popups, reader drawer, buttons, keyboard keys and number fields) are marked with a thin outline instead of a dotted gray fill, which leaves less ghosting on the screen when the selection moves.
 - X4 Pro: with a USB host attached that is not reading the serial port, log lines skip the serial output instead of waiting up to 1 ms each (about 23 ms per page turn). The PSRAM and RTC logs still keep every line.
 - X4 Pro: idle loop. After 2 s with no input the main loop wakes once a second (was every 250 ms until 10 s). Under Quick Lock it waits the same way instead of every 10 ms.
 - X4 Pro: the main loop wakes at once when a screen finishes drawing, when another task asks for a redraw, or when the charger starts or stops, instead of noticing at its next idle tick.
@@ -162,6 +165,8 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Settings: the first Up/Down press after opening Settings (or switching tabs) selects the first/last item instead of doing nothing. Confirm with nothing selected no longer switches tabs; long-press Up/Down does.
+- Tapping a list row that opens a popup now shows the row selected before the popup appears, instead of only after it closes.
 - X4 Pro: the transfer light pulse (File Transfer, Calibre, USB Drive, firmware updates) no longer touches your brightness setting. Opening the Frontlight pulldown, a warmth swipe or Quick Lock during a transfer used to pick up the pulse's level or turn a light that was off on, and could save that; they now always see and keep your own level and on/off, and opening the pulldown stops the pulse at your level. A light that Light Timeout has faded out counts as off: the pulse runs 0-10% and the light stays dark after it.
 - X4 Pro (debug builds): Goodies > Battery & stats no longer shows a longer time to empty for a brighter frontlight. When the log showed less drain with the light on than off (the light-off stretches held heavier work, like transfers), the light's share came out negative and grew with brightness; the light now only ever adds drain, so the estimate stays at the light-off rate until the log shows the light costing more.
 - X4 Pro (debug builds): the battery log reads voltage and temperature for every row (at most 5 s old) instead of only on % and charger rows. A USB or charging change is logged only after it has held for 5 s, so a loose plug no longer floods the log, and "charged" is logged only when charging stops at 95% or more with the cable in (a quick on/off while asleep is dropped too). Sleep and restarts log wifi_off when Wi-Fi was on, so every wifi_on has its wifi_off. Drain rates net out the gauge's rise after unplugging (each on-battery stretch counts its start-to-end drop) instead of counting only the drops, which overstated drain by about 1% per charge.

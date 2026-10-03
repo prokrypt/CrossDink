@@ -131,6 +131,8 @@ class ActivityManager {
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
   std::atomic<bool> restoredActivityNeedsRender{false};
+  // Render task only: the activity the last frame came from (ListSelection).
+  const Activity* listSelectionOwner = nullptr;
 
   Activity* findEpubReader() const;
   bool handleGlobalHomeGesture();

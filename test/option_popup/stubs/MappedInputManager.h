@@ -56,6 +56,8 @@ class MappedInputManager {
     return true;
   }
 
+  bool wasTapOrHeld() const { return tapOrHeld; }
+
   SwipeDir wasSwipe() const {
     const SwipeDir result = swipe;
     swipe = SwipeDir::None;
@@ -117,6 +119,8 @@ class MappedInputManager {
   }
 
   bool isPowerReleaseSuppressed() const { return powerReleaseSuppressed; }
+
+  bool tapOrHeld = false;  // what wasTapOrHeld() reports
 
  private:
   const GfxRenderer& renderer;

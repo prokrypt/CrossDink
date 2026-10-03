@@ -1318,7 +1318,8 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       }
       y += noteLineHeight;
     }
-    while (noteLines.size() < 2) y += noteLineHeight;
+    // The note area is always two lines tall (noteHeight); pad a one-line note.
+    if (noteLines.size() < 2) y += noteLineHeight * static_cast<int>(2 - noteLines.size());
 
     const int separatorY = y + metrics.optionPopupTitleGap / 2;
     renderer.drawLine(dialogX + innerPadding, separatorY, dialogX + dialogW - innerPadding, separatorY, true);
@@ -1364,7 +1365,7 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
         if (disabled) {
           rowColor = Color::LightGray;
         } else if (selected) {
-          rowColor = metrics.optionPopupSelectionLight ? Color::LightGray : Color::Black;
+          rowColor = metrics.optionPopupSelectionLight ? Color::White : Color::Black;
         } else {
           rowColor = Color::White;
         }
@@ -1372,6 +1373,10 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
           renderer.fillRoundedRect(itemRectX, itemY, itemRectW, rowHeight, selectionRadius, rowColor);
         } else {
           renderer.fillRect(itemRectX, itemY, itemRectW, rowHeight, rowColor == Color::Black);
+        }
+        // Light selection is a 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
+        if (selected && metrics.optionPopupSelectionLight) {
+          renderer.drawRoundedRect(itemRectX, itemY, itemRectW, rowHeight, 2, selectionRadius, true);
         }
       }
 
