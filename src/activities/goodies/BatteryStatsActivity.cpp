@@ -12,6 +12,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <WiFi.h>
 #include <esp_sleep.h>
 
@@ -348,6 +349,13 @@ void BatteryStatsActivity::buildLines() {
     formatDur(st.awakeS, a, sizeof(a));
     formatDur(st.asleepS, b, sizeof(b));
     add("Awake %s  Asleep %s", a, b);
+  }
+  PerfLog::LightSleepStats ls;
+  if (PerfLog::lightSleepStats(ls)) {
+    formatDur(ls.upS, a, sizeof(a));
+    add("Light sleep %lu (%u%% of %s)  Rej %lu%s%s", static_cast<unsigned long>(ls.sleeps), ls.sleepPct, a,
+        static_cast<unsigned long>(ls.rejects), ls.rejectCause ? ", last " : "",
+        ls.rejectCause ? ls.rejectCauseName : "");
   }
   const auto& c = HalDisplay::refreshCounts().n;
   add("Session refresh counts: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
