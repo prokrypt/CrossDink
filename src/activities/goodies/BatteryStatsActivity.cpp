@@ -231,12 +231,18 @@ void BatteryStatsActivity::buildLines() {
     builtState = estimateState();
     const bool wifiNow = builtState >> 8;
     const uint8_t lightNow = builtState & 0xFF;
-    const int k = wifiNow ? 2 : 0;
     auto rateOf = [&st](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
       return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
     };
-    const float avgDuty = st.stateS[k + 1] ? static_cast<float>(st.stateDuty[k + 1]) / st.stateS[k + 1] : 0.0f;
-    const float rate = BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), avgDuty, lightNow);
+    auto dutyOf = [&st](const int i) {
+      return st.stateS[i] ? static_cast<float>(st.stateDuty[i]) / st.stateS[i] : 0.0f;
+    };
+    auto rateFor = [&](const int k, const int o) {  // k: this Wi-Fi state, o: the other
+      return BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), dutyOf(k + 1), lightNow,
+                                              BatteryEstimate::ledSlope(rateOf(o), rateOf(o + 1), dutyOf(o + 1)));
+    };
+    // Wi-Fi only adds drain, so with it on the estimate never beats Wi-Fi off.
+    const float rate = wifiNow ? std::max(rateFor(2, 0), rateFor(0, 2)) : rateFor(0, 2);
     const uint32_t pctNowC = powerManager.getBatteryPercent256() * 100u / 256u;
     const uint32_t drop = st.dropC[0] + st.dropC[1];
     const uint32_t span = st.battS[0] + st.battS[1];
