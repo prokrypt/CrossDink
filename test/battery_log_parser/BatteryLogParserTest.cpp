@@ -98,5 +98,5 @@ TEST(BatteryLogParser, WholePercentStepsAreSkipped) {
     p.parseRow(row);
   }
   EXPECT_EQ(p.st.errC[0] + p.st.errC[1], 1u);  // only the fine->fine step
-  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);  // open stretch, not yet in dropC
+  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);   // open stretch, not yet in dropC
 }
