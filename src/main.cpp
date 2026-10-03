@@ -89,6 +89,7 @@
 #include "network/WifiUtils.h"
 #include "platform/InputTask.h"
 #include "platform/InputWake.h"
+#include "platform/PinMon.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
 
@@ -1731,6 +1732,7 @@ void setup() {
   gpio.setSharedConfirmPowerShortPressEmitsPower(true);
   powerManager.begin();
   InputWake::begin();
+  PinMon::begin();
   PerfLog::setWakeCounter(&InputWake::takeWakeCounts);
   PerfLog::setPmWindowHook(&CoreLoadLog::logQuietWindowTasks);
 

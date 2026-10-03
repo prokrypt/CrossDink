@@ -67,6 +67,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "platform/PinMon.h"
 #include "util/UrlUtils.h"
 
 extern GfxRenderer renderer;
@@ -379,6 +380,10 @@ void cmdGaugeInt(const char* args) {
     reply("ERR:GAUGEINT:seconds_5_to_600");
     return;
   }
+  if (PinMon::enabled()) {
+    reply("ERR:GAUGEINT:pinmon_on");  // both use the same pins: PINMON off first
+    return;
+  }
   if (gaugeint::running.exchange(true)) {
     reply("ERR:GAUGEINT:busy");
     return;
@@ -390,6 +395,25 @@ void cmdGaugeInt(const char* args) {
     return;
   }
   reply("OK:GAUGEINT started %lus (+5s baseline); result in the log as [SER] GAUGEINT done", s);
+}
+
+// PINMON [on|off|status]: the passive unused-pin monitor (src/platform/PinMon.h).
+void cmdPinMon(const char* args) {
+  if (strcmp(args, "on") == 0) {
+    if (gaugeint::running) {
+      reply("ERR:PINMON:gaugeint_running");
+      return;
+    }
+    PinMon::setEnabled(true);
+  } else if (strcmp(args, "off") == 0) {
+    PinMon::setEnabled(false);
+  } else if (*args && strcmp(args, "status") != 0) {
+    reply("ERR:PINMON:on_off_status");
+    return;
+  }
+  char s[200];
+  PinMon::status(s, sizeof(s));
+  reply("OK:PINMON %s", s);
 }
 
 void cmdStatus() {
@@ -850,6 +874,8 @@ bool handleLine(const char* line) {
     cmdHeap();
   } else if (strcmp(verb, "GAUGEINT") == 0) {
     cmdGaugeInt(args);
+  } else if (strcmp(verb, "PINMON") == 0) {
+    cmdPinMon(args);
   } else if (strcmp(verb, "FBINFO") == 0) {
     reply("OK:FBINFO %u %u %u", static_cast<unsigned>(display.getDisplayWidth()),
           static_cast<unsigned>(display.getDisplayHeight()), static_cast<unsigned>(display.getBufferSize()));

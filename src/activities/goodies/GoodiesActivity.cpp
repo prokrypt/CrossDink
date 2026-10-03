@@ -35,6 +35,7 @@
 #include "network/FirmwareFlasher.h"
 #include "network/SerialRemote.h"
 #include "network/WifiUtils.h"
+#include "platform/PinMon.h"
 #include "util/TransferLightPulse.h"
 #include "util/WorkerTask.h"
 
@@ -469,10 +470,22 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({"API token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}});
     entries.push_back({"Keyboard test", -1, {}});
+    entries.push_back({"Pin monitor", -1, {}, PinMon::enabled() ? "On" : "Off"});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}});
 #endif
+  } else if (level == Level::PinMon) {
+    // Read when opened: the toggle, then per pin level, changes and wakes since boot.
+    entries.push_back({"Monitor", -1, {}, PinMon::enabled() ? "On" : "Off"});
+    for (size_t i = 0; i < PinMon::PIN_COUNT; ++i) {
+      const PinMon::PinStat p = PinMon::stat(i);
+      char label[12], value[48];
+      snprintf(label, sizeof(label), "GPIO%u", p.gpio);
+      snprintf(value, sizeof(value), "%s%s, %lu changes, %lu wakes", p.chatter ? "chatter off, " : "",
+               p.level ? "high" : "low", static_cast<unsigned long>(p.changes), static_cast<unsigned long>(p.wakes));
+      entries.push_back({label, -1, {}, value});
+    }
   } else if (level == Level::KeyboardTest) {
     entries.push_back({"Type", -1, {}, kbdTestPreview(kbdTestText)});
     entries.push_back({tr(STR_TURBO_KEYBOARD), KBD_TURBO, {}, turboRowValue()});
@@ -550,6 +563,8 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::Knobs);
     } else if (index == KBD_TEST_ROW) {
       showLevel(Level::KeyboardTest);
+    } else if (index == PINMON_ROW) {
+      showLevel(Level::PinMon);
     } else {
 #ifndef SIMULATOR
       startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
@@ -559,6 +574,12 @@ void GoodiesActivity::activate(const int index) {
                              });
 #endif
     }
+    return;
+  }
+  if (level == Level::PinMon) {
+    // Monitor: switches now (PinMon arms or releases the pins), RAM only. Other rows: refresh.
+    if (index == 0) PinMon::setEnabled(!PinMon::enabled());
+    showLevel(Level::PinMon);
     return;
   }
   if (level == Level::KeyboardTest) {
@@ -969,6 +990,7 @@ void GoodiesActivity::render(RenderLock&&) {
   const char* title = level == Level::Root           ? tr(STR_GOODIES)
                       : level == Level::Knobs        ? "Knobs"
                       : level == Level::KeyboardTest ? "Keyboard test"
+                      : level == Level::PinMon       ? "Pin monitor"
                                                      : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
