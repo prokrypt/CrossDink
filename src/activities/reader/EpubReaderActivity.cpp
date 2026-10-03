@@ -6629,6 +6629,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // Section loading/indexing can need a large contiguous block. Return the
     // render-only strip before starting that work.
     releaseGrayscaleStripScratch();
+    const uint32_t sectionStartMs = millis();
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d (free=%u, maxAlloc=%u)", filepath.c_str(), currentSpineIndex,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap());
@@ -6997,8 +6998,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       showRenderModeToast(static_cast<uint8_t>(usedRenderMode));
     }
 
+    PerfLog::bookOpenStage("section", millis() - sectionStartMs);
     if (!section) {
       LOG_ERR("ERS", "Section load/build did not produce a section");
+      PerfLog::bookOpenEnd();
       showPendingSyncSaveError();
       return;
     }
@@ -7270,8 +7273,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
 
     const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
-    if (!renderContents(std::move(p), renderFontId, layout.marginTop, layout.marginRight, layout.marginBottom,
-                        layout.marginLeft, /*updatePanel=*/true, prerendered)) {
+    const uint32_t pageStartMs = millis();
+    const bool pageShown = renderContents(std::move(p), renderFontId, layout.marginTop, layout.marginRight,
+                                          layout.marginBottom, layout.marginLeft, /*updatePanel=*/true, prerendered);
+    PerfLog::bookOpenStage("page", millis() - pageStartMs);
+    PerfLog::bookOpenEnd();
+    if (!pageShown) {
       currentPageFootnotes.clear();
 #if CROSSDINK_APP_CAP_TOUCH
       currentPageFootnoteTouchTargets.fill({});

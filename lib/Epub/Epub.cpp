@@ -8,6 +8,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <PngToBmpConverter.h>
 #include <Utf8.h>
 #include <ZipFile.h>
@@ -322,8 +323,9 @@ constexpr char kLegacyCacheDir[] = "/.crosspoint";
 
 // Copies the user data `from` holds and `to` lacks: progress, reader settings
 // and stats (HalStorage::isBookUserData). book.bin, covers, thumbnails and
-// sections regenerate. Each file lands through a .part temp.
-bool copyTopLevelFiles(const std::string& from, const std::string& to) {
+// sections regenerate. Each file lands through a .part temp. `files` and
+// `bytes` count what was copied, for the log.
+bool copyTopLevelFiles(const std::string& from, const std::string& to, uint32_t& files, uint32_t& bytes) {
   HalFile dir = Storage.open(from.c_str());
   if (!dir || !dir.isDirectory()) {
     dir.close();
@@ -347,6 +349,7 @@ bool copyTopLevelFiles(const std::string& from, const std::string& to) {
     bool copied = Storage.openFileForRead("EBP", src, in) && Storage.openFileForWrite("EBP", part, out);
     for (int n; copied && (n = in.read(buf, sizeof(buf))) != 0;) {
       copied = n > 0 && out.write(buf, n) == static_cast<size_t>(n);
+      if (copied) bytes += static_cast<uint32_t>(n);
     }
     in.close();
     copied = copied && out.sync();
@@ -354,6 +357,8 @@ bool copyTopLevelFiles(const std::string& from, const std::string& to) {
     if (!copied || !Storage.rename(part.c_str(), dst.c_str())) {
       Storage.remove(part.c_str());
       ok = false;
+    } else {
+      files++;
     }
   }
   dir.close();
@@ -670,7 +675,9 @@ bool Epub::hasCache(const std::string& filepath, const std::string& cacheDir) {
 }
 
 std::string Epub::resolveCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
+  const uint32_t keyStartMs = millis();
   const std::string cachePath = cachePathForFilePath(filepath, cacheDir);
+  PerfLog::bookOpenStage("key", millis() - keyStartMs);
   if (Storage.exists(cachePath.c_str())) {
     return cachePath;
   }
@@ -682,10 +689,19 @@ std::string Epub::resolveCachePathForFilePath(const std::string& filepath, const
        {legacyDir + std::to_string(ZipFile::fnvHash64(filepath.c_str(), filepath.size())),
         legacyDir + std::to_string(std::hash<std::string>{}(filepath))}) {
     if (!Storage.exists(legacyPath.c_str())) continue;
-    if (copyTopLevelFiles(legacyPath, cachePath)) {
-      LOG_INF("EBP", "Copied legacy EPUB cache: %s -> %s", legacyPath.c_str(), cachePath.c_str());
+    const uint32_t startMs = millis();
+    uint32_t files = 0;
+    uint32_t bytes = 0;
+    const bool copied = copyTopLevelFiles(legacyPath, cachePath, files, bytes);
+    const uint32_t copyMs = millis() - startMs;
+    PerfLog::bookOpenStage("legacy", copyMs);
+    if (copied) {
+      LOG_INF("EBP", "Copied legacy EPUB cache: %s -> %s (%lu files, %lu B, %lu ms)", legacyPath.c_str(),
+              cachePath.c_str(), static_cast<unsigned long>(files), static_cast<unsigned long>(bytes),
+              static_cast<unsigned long>(copyMs));
     } else {
-      LOG_ERR("EBP", "Failed to copy legacy EPUB cache: %s -> %s", legacyPath.c_str(), cachePath.c_str());
+      LOG_ERR("EBP", "Failed to copy legacy EPUB cache: %s -> %s (%lu files, %lu B copied)", legacyPath.c_str(),
+              cachePath.c_str(), static_cast<unsigned long>(files), static_cast<unsigned long>(bytes));
     }
     break;
   }

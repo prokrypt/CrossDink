@@ -5,12 +5,16 @@
 #include <Arduino.h>
 #include <Logging.h>
 #include <esp_attr.h>
+#include <esp_rom_crc.h>
 #include <esp_rtc_time.h>
+#include <esp_system.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <sdkconfig.h>
 
 #include <atomic>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 
@@ -85,6 +89,89 @@ RTC_NOINIT_ATTR uint32_t sleepAwakeMs;
 RTC_NOINIT_ATTR char sleepReason[20];
 RTC_NOINIT_ATTR char sleepActivity[24];
 
+// RTC event trail: the last activity entries and [ERR] line, for the boot
+// after a deep sleep (the PSRAM ring is gone by then). Follows the rule in
+// plan/rtc-memory-compat.md: one struct with a CrossDink-only magic, version,
+// size and CRC32, reset on power-on or any mismatch. 192 B of RTC slow memory.
+struct Trail {
+  static constexpr uint32_t MAGIC = 0x54524C31;  // "TRL1"
+  static constexpr uint16_t VERSION = 1;
+  static constexpr unsigned EVENTS = 8;
+  uint32_t magic;
+  uint16_t version;
+  uint16_t size;
+  uint8_t head;  // next event slot
+  uint8_t count;
+  uint8_t pad[2];
+  struct Event {
+    uint32_t atMs;  // RTC clock: keeps counting through deep sleep and restarts
+    char name[12];
+  } events[EVENTS];
+  uint32_t errAtMs;
+  char err[44];
+  uint32_t crc;  // over everything before it
+};
+static_assert(sizeof(Trail) == 192, "Trail layout changed: bump Trail::VERSION");
+RTC_NOINIT_ATTR Trail trail;
+portMUX_TYPE trailMux = portMUX_INITIALIZER_UNLOCKED;
+bool trailChecked = false;
+
+uint32_t trailCrc() { return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&trail), offsetof(Trail, crc)); }
+uint32_t rtcMs() { return static_cast<uint32_t>(esp_rtc_get_time_us() / 1000); }
+void copyName(char* out, const size_t size, const char* in) {
+  size_t i = 0;
+  for (; in && in[i] && in[i] != '\n' && i + 1 < size; i++) out[i] = in[i];
+  out[i] = '\0';
+}
+
+// Caller holds trailMux. Checked once per boot, like BatteryLog's stats.
+Trail& trailLocked() {
+  if (!trailChecked) {
+    trailChecked = true;
+    if (trail.magic != Trail::MAGIC || trail.version != Trail::VERSION || trail.size != sizeof(Trail) ||
+        trail.crc != trailCrc() || esp_reset_reason() == ESP_RST_POWERON) {
+      memset(&trail, 0, sizeof(trail));
+      trail.magic = Trail::MAGIC;
+      trail.version = Trail::VERSION;
+      trail.size = sizeof(Trail);
+      trail.crc = trailCrc();
+    }
+  }
+  return trail;
+}
+
+void logTrail() {
+  Trail t;
+  portENTER_CRITICAL_SAFE(&trailMux);
+  t = trailLocked();
+  portEXIT_CRITICAL_SAFE(&trailMux);
+  const uint32_t now = rtcMs();
+  const unsigned count = t.count < Trail::EVENTS ? t.count : Trail::EVENTS;
+  char text[200] = "none";
+  size_t pos = 0;
+  for (unsigned i = 0; i < count; i++) {
+    Trail::Event& e = t.events[(t.head % Trail::EVENTS + Trail::EVENTS - count + i) % Trail::EVENTS];
+    e.name[sizeof(e.name) - 1] = '\0';
+    const int n = snprintf(text + pos, sizeof(text) - pos, "%s%s -%lus", i ? ", " : "", e.name,
+                           static_cast<unsigned long>((now - e.atMs) / 1000));
+    if (n < 0 || static_cast<size_t>(n) >= sizeof(text) - pos) break;
+    pos += static_cast<size_t>(n);
+  }
+  LOG_INF("BOOT", "trail: %s", text);
+  if (t.err[0] != '\0') {
+    t.err[sizeof(t.err) - 1] = '\0';
+    LOG_INF("BOOT", "trail: last err -%lus %s", static_cast<unsigned long>((now - t.errAtMs) / 1000), t.err);
+  }
+}
+
+// [ERS] open: stages of the book open in progress (openStartMs != 0). Main
+// loop, then the render task, never both at once.
+constexpr int OPEN_STAGES = 10;
+uint32_t openStartMs = 0;
+const char* openStageName[OPEN_STAGES];
+uint32_t openStageMs[OPEN_STAGES];
+int openStageCount = 0;
+
 uint32_t take(std::atomic<uint32_t>& counter) { return counter.exchange(0, std::memory_order_relaxed); }
 void add(std::atomic<uint32_t>& counter, const uint32_t value) { counter.fetch_add(value, std::memory_order_relaxed); }
 
@@ -111,15 +198,81 @@ uint32_t pmLastRejectCause = 0;  // RTC_CNTL reject-cause bits of the last rejec
 // Light-sleep exits per wake cause (esp_sleep_get_wakeup_causes bitmap), from
 // the PM exit hook: the idle task, flash code, cache on.
 std::atomic<uint32_t> wakeTimer{0}, wakeGpio{0}, wakeWifi{0}, wakeOther{0};
+// Timer wakes whose deadline was the next esp_timer alarm; the rest were a
+// FreeRTOS tick (a task's delay or timeout). Set by the entry hook, read by
+// the exit hook; the PM switch lock keeps one sleep's pair together.
+std::atomic<uint32_t> wakeEspTimer{0};
+bool sleepEndsOnEspTimer = false;
+esp_err_t noteSleepStart(const int64_t sleepUs, void*) {
+  // The PM sleeps until min(next RTOS tick, next esp_timer alarm).
+  sleepEndsOnEspTimer = esp_timer_get_next_alarm_for_wake_up() - esp_timer_get_time() <= sleepUs;
+  return ESP_OK;
+}
 esp_err_t countWake(const int64_t sleptUs, void*) {
   if (sleptUs <= 0) return ESP_OK;  // the sleep was skipped or rejected
   const uint32_t causes = esp_sleep_get_wakeup_causes();
-  if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) add(wakeTimer, 1);
+  if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) {
+    add(wakeTimer, 1);
+    if (sleepEndsOnEspTimer) add(wakeEspTimer, 1);
+  }
   if (causes & BIT(ESP_SLEEP_WAKEUP_GPIO)) add(wakeGpio, 1);
   if (causes & BIT(ESP_SLEEP_WAKEUP_WIFI)) add(wakeWifi, 1);
   if (causes & ~(BIT(ESP_SLEEP_WAKEUP_TIMER) | BIT(ESP_SLEEP_WAKEUP_GPIO) | BIT(ESP_SLEEP_WAKEUP_WIFI)))
     add(wakeOther, 1);
   return ESP_OK;
+}
+#endif
+
+#if CONFIG_ESP_TIMER_PROFILING
+// esp_timer callbacks per timer since the previous [PM] window, from
+// esp_timer_dump (cumulative counts); writes the three busiest as
+// " name N, name N, name N" ("" if none ran). `buf` is scratch for the dump.
+struct TimerRuns {
+  char name[24];  // the dump's name column: up to 20 chars, or "timer@<addr>"
+  uint32_t runs;
+};
+constexpr int MAX_TIMERS = 24;
+TimerRuns timerPrev[MAX_TIMERS];
+int timerPrevCount = 0;
+void topTimers(char* buf, const size_t bufSize, char* out, const size_t outSize) {
+  out[0] = '\0';
+  FILE* stream = fmemopen(buf, bufSize - 1, "w");
+  if (!stream) return;
+  esp_timer_dump(stream);
+  const long used = ftell(stream);
+  fclose(stream);
+  buf[used > 0 && used < static_cast<long>(bufSize) ? used : 0] = '\0';
+  static TimerRuns now[MAX_TIMERS];  // main loop only
+  uint32_t delta[MAX_TIMERS];
+  int count = 0;
+  char* save = nullptr;
+  // Rows: "name  period  alarm  armed  triggered  skipped  cb_us"; the title
+  // and header rows fail the scan.
+  for (char* line = strtok_r(buf, "\n", &save); line && count < MAX_TIMERS; line = strtok_r(nullptr, "\n", &save)) {
+    unsigned long runs = 0;
+    if (sscanf(line, "%23s %*lld %*lld %*d %lu", now[count].name, &runs) != 2) continue;
+    now[count].runs = static_cast<uint32_t>(runs);
+    delta[count] = now[count].runs;
+    for (int i = 0; i < timerPrevCount; i++) {
+      if (strcmp(timerPrev[i].name, now[count].name) == 0) delta[count] -= timerPrev[i].runs;
+    }
+    count++;
+  }
+  size_t pos = 0;
+  for (int rank = 0; rank < 3; rank++) {
+    int best = -1;
+    for (int i = 0; i < count; i++) {
+      if (delta[i] != 0 && (best < 0 || delta[i] > delta[best])) best = i;
+    }
+    if (best < 0) break;
+    const int n = snprintf(out + pos, outSize - pos, "%s %s %lu", rank ? "," : "", now[best].name,
+                           static_cast<unsigned long>(delta[best]));
+    if (n < 0 || static_cast<size_t>(n) >= outSize - pos) break;
+    pos += static_cast<size_t>(n);
+    delta[best] = 0;
+  }
+  memcpy(timerPrev, now, sizeof(TimerRuns) * count);
+  timerPrevCount = count;
 }
 #endif
 
@@ -222,13 +375,19 @@ void logPmLocks(const char* act) {
   if (wakeCounter) wakeCounter(wakeButtons, wakeTouch);
   const long lsWindow = sleeps - pmPrevSleeps;
   const long gpioWakes = static_cast<long>(wakeButtons + wakeTouch);
-  char causeText[64] = "";
+  char causeText[80] = "";
 #if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
-  // Sleep exits by cause (several can share one exit).
-  snprintf(causeText, sizeof(causeText), " cause=t:%lu g:%lu w:%lu o:%lu", static_cast<unsigned long>(take(wakeTimer)),
+  // Sleep exits by cause (several can share one exit); timer exits split by
+  // the deadline that ended them (esp_timer alarm or RTOS tick).
+  const uint32_t timerWakes = take(wakeTimer);
+  const uint32_t espTimerWakes = take(wakeEspTimer);
+  snprintf(causeText, sizeof(causeText), " cause=t:%lu(esp %lu,rtos %lu) g:%lu w:%lu o:%lu",
+           static_cast<unsigned long>(timerWakes), static_cast<unsigned long>(espTimerWakes),
+           static_cast<unsigned long>(timerWakes > espTimerWakes ? timerWakes - espTimerWakes : 0),
            static_cast<unsigned long>(take(wakeGpio)), static_cast<unsigned long>(take(wakeWifi)),
            static_cast<unsigned long>(take(wakeOther)));
 #endif
+
 #ifdef RTC_CNTL_SLP_REJECT_CAUSE_REG
   // The last rejected sleep's cause, in wakeup-trigger bits (S3: 0 ext0, 1 ext1,
   // 2 GPIO, 3 timer, 5 Wi-Fi, 6/7 UART, 8 touch).
@@ -246,6 +405,14 @@ void logPmLocks(const char* act) {
           static_cast<unsigned long>(wakeButtons), static_cast<unsigned long>(wakeTouch),
           lsWindow > gpioWakes ? lsWindow - gpioWakes : 0L, causeText, static_cast<unsigned long>(take(loopPasses)),
           topText);
+#if CONFIG_ESP_TIMER_PROFILING
+  {
+    // The lock table is parsed by now; its buffer takes the timer dump.
+    char timers[96];
+    topTimers(dump, sizeof(dump), timers, sizeof(timers));
+    if (timers[0] != '\0') LOG_DBG("PM", "esp_timer runs:%s", timers);
+  }
+#endif
   // Every attempt rejected: name what could be doing it, at most once a minute.
   // A wake pin whose level now equals its armed level rejects every sleep.
   static long long lastRejectDiagUs = 0;
@@ -420,6 +587,7 @@ void noteDeepSleep(const char* reason, const char* activity) {
 }
 
 void logLastSleep() {
+  logTrail();
   if (sleepMagic != SLEEP_MAGIC) {
     LOG_INF("BOOT", "last sleep: none recorded (cold boot, power loss or restart)");
     return;
@@ -432,6 +600,67 @@ void logLastSleep() {
   const uint64_t sleptUs = esp_rtc_get_time_us() - sleepEnteredUs;
   LOG_INF("BOOT", "last sleep: reason=%s act=%s awake=%lu s slept=%lu s", sleepReason, sleepActivity,
           static_cast<unsigned long>(sleepAwakeMs / 1000), static_cast<unsigned long>(sleptUs / 1000000ULL));
+}
+
+void noteActivity(const char* name) {
+  portENTER_CRITICAL_SAFE(&trailMux);
+  Trail& t = trailLocked();
+  Trail::Event& e = t.events[t.head % Trail::EVENTS];
+  e.atMs = rtcMs();
+  copyName(e.name, sizeof(e.name), name);
+  t.head = static_cast<uint8_t>((t.head + 1) % Trail::EVENTS);
+  if (t.count < Trail::EVENTS) t.count++;
+  t.crc = trailCrc();
+  portEXIT_CRITICAL_SAFE(&trailMux);
+}
+
+void noteError(const char* line) {
+  // "[ms] [ERR] [ORIGIN] message": keep from the origin on.
+  const char* tag = line ? strstr(line, "[ERR] ") : nullptr;
+  if (!tag) return;
+  portENTER_CRITICAL_SAFE(&trailMux);
+  Trail& t = trailLocked();
+  t.errAtMs = rtcMs();
+  copyName(t.err, sizeof(t.err), tag + 6);
+  t.crc = trailCrc();
+  portEXIT_CRITICAL_SAFE(&trailMux);
+}
+
+void bookOpenBegin() {
+  openStartMs = millis() | 1;
+  openStageCount = 0;
+}
+
+void bookOpenStage(const char* name, const uint32_t ms) {
+  if (openStartMs == 0) return;
+  for (int i = 0; i < openStageCount; i++) {
+    if (strcmp(openStageName[i], name) == 0) {
+      openStageMs[i] += ms;
+      return;
+    }
+  }
+  if (openStageCount >= OPEN_STAGES) return;
+  openStageName[openStageCount] = name;
+  openStageMs[openStageCount++] = ms;
+}
+
+void bookOpenEnd() {
+  if (openStartMs == 0) return;
+  const uint32_t total = millis() - openStartMs;
+  openStartMs = 0;
+  char stages[160];
+  size_t pos = 0;
+  uint32_t sum = 0;
+  stages[0] = '\0';
+  for (int i = 0; i < openStageCount; i++) {
+    const int n = snprintf(stages + pos, sizeof(stages) - pos, "%s=%lu ", openStageName[i],
+                           static_cast<unsigned long>(openStageMs[i]));
+    if (n < 0 || static_cast<size_t>(n) >= sizeof(stages) - pos) break;
+    pos += static_cast<size_t>(n);
+    sum += openStageMs[i];
+  }
+  LOG_INF("ERS", "open: %sother=%lu total=%lu", stages, static_cast<unsigned long>(total > sum ? total - sum : 0),
+          static_cast<unsigned long>(total));
 }
 
 void noteRestart() {
@@ -485,6 +714,7 @@ void logPeriodic() {
   if (!hooked) {
     hooked = true;
     esp_pm_sleep_cbs_register_config_t cbs = {};
+    cbs.enter_cb = noteSleepStart;
     cbs.exit_cb = countWake;
     if (esp_pm_light_sleep_register_cbs(&cbs) != ESP_OK) LOG_ERR("PM", "sleep exit hook failed: no cause= counts");
   }
