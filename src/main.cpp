@@ -2288,12 +2288,14 @@ static void updateFlashDuck() {
   // The user (brightness, toggle, Quick Lock) or the light timeout took over.
   if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
   const bool fresh = !flashDuckActive || flashDuckUpStartMs != 0;  // a new flash (back-to-back: from here)
+  // Never duck below 2% of full: lower duty shifts the frontlight color. Every duck level below derives from this.
+  const unsigned long minPct = std::max<unsigned long>(KNOBS.flashDuckMinPct, 2);
   if (!flashDuckActive) {
     if (!ducking || holdLate || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
         Frontlight.idleDimPercent() != 100) {
       return;
     }
-    if (Frontlight.brightness() <= KNOBS.flashDuckMinPct) {
+    if (Frontlight.brightness() <= minPct) {
       static uint32_t skippedMs = 0;  // logged once per flash
       const uint32_t flashMs = markMs != 0 ? markMs : swingMs;
       if (flashMs != skippedMs) {
@@ -2308,10 +2310,10 @@ static void updateFlashDuck() {
   }
   // Each ramp moves only one way from where the light is, between 100% and
   // the Flash Dim Level (a % of the user's brightness; 0 = dark), but never
-  // below flashDuckMinPct of full (rounded up; at 100 the duck is over).
+  // below minPct (>= 2) of full (rounded up; at 100 the duck is over).
   const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
   const unsigned long floor = std::min<unsigned long>(
-      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (KNOBS.flashDuckMinPct * 100 + b - 1) / b),
+      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b),
       100);
   static bool darkLogged = false;
   unsigned long level;
