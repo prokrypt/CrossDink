@@ -8442,12 +8442,15 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // extra flash. Restart the countdown instead (a manual Refresh, <0, still runs).
   const bool grayCadenceDue = needsAnyGrayscale && pagesUntilFullRefresh >= 0 && pagesUntilFullRefresh <= 1 &&
                               renderer.shouldSkipImageBlanking();
-  // Noflash holds B/W over the Fast base; image pages ghost that way (b95d17a), so they swing fully.
+  // Noflash holds B/W over the Fast base; gray image pages ghost that way (b95d17a), so they swing
+  // fully. B/W images carry no gray (their planes skip them), so those pages hold in Sharpflash too:
+  // only text AA is left, and a per-page flash there is what B/W images are picked to avoid.
   // The full swing owed after open/cover is spent only by a page that runs a gray pass. Held pixels
   // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
+  const bool grayImages = pageHasImages && !DirectPixelWriter::bwImages;
   if (updatePanel) {
-    renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
-                           !smoothFullSwingPending && !grayCadenceDue);
+    renderer.setSmoothGray((SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH || pageHasImages) &&
+                           !grayImages && !smoothFullSwingPending && !grayCadenceDue);
     // Night mode: text AA only. Image pages keep their polarity-preserved B/W
     // images and no gray, as before (the panel-polarity fold would negate them).
     renderer.setInvertedTextGray(!pageHasImages);
@@ -8531,11 +8534,14 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       } else {
         renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
       }
+      // B/W images leave no gray residue to schedule a cleanup, so the page
+      // counts toward the cadence like a text page (and as it does with AA off).
+      if (!grayImages && !cleanBase) pagesUntilFullRefresh--;
     } else {
       renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     }
-    // The image's own page doesn't count toward the full refresh cadence. The
+    // A gray image's own page doesn't count toward the full refresh cadence. The
     // cleanup for its gray residue is scheduled only once the grayscale pass
     // below reaches the panel (markGrayscaleShown), so quickly skipped image
     // pages stay flash-free.
