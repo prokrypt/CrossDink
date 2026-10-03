@@ -426,6 +426,7 @@ bool BmpViewerActivity::showImage(const bool gray, const std::function<bool()>& 
 
 const BmpViewerActivity::DecodedImage* BmpViewerActivity::decodedImage(const uint8_t look) {
   for (auto it = recentImages.begin(); it != recentImages.end(); ++it) {
+    // cppcheck-suppress useStlAlgorithm ; the hit rotates in place
     if (it->path == filePath && it->look == look) {
       std::rotate(it, it + 1, recentImages.end());  // newest last
       return &recentImages.back();
@@ -506,6 +507,7 @@ bool BmpViewerActivity::decodeBmpLevels(DecodedImage& image) {
     const size_t levelRowBytes = (bitmap.getWidth() + 3) / 4;
     BmpLevelJob job{&bitmap, &file, pixels.get(), fileRow.get(), nullptr};
     DecodePipeline pipeline;
+    // cppcheck-suppress variableScope ; written through the out-param below
     int rc = 0;
     bool split = false;
     ok = fileRow != nullptr;

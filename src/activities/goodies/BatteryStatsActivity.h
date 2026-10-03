@@ -55,7 +55,7 @@ class BatteryStatsActivity final : public Activity {
   bool loading = false;
   uint32_t loadStartMs = 0;  // for the "read N B in M ms" log line
   uint32_t loadBytes = 0;
-  char lines[MAX_LINES][80];
+  char lines[MAX_LINES][80] = {};
   int lineCount = 0;
   int scroll = 0;           // first line drawn
   bool more = false;        // lines were cut off below
