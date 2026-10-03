@@ -2283,7 +2283,7 @@ void installFlashDuckRenderWait() {
   RenderLock::waitTick = &flashDuckRenderWait;
 }
 
-// A running transfer pulse owns the light (each step resets the dim), so the
+// A running transfer pulse owns the light (the dim doesn't show under it), so the
 // Light Timeout counts from the pulse's last step: fading during it would
 // flicker, and a pulse longer than the timeout would end in a snap to dark.
 static unsigned long lastPulseMs = 0;
