@@ -1993,35 +1993,23 @@ bool Epub::ensureOptimizerImageIndex() {
   } else {
     // Caller loans the framebuffer for legacy ZIP inflation. JSON is temporary;
     // no manifest or record array survives reader setup.
-    if (!extractItemToFile(kOptimizerManifestPath, manifest, kOptimizerPxcExtractionChunkSize)) return false;
-    FsFile input;
-    if (!Storage.openFileForRead("EBP", manifest, input)) {
-      Storage.remove(manifest.c_str());
-      return false;
-    }
+    // Parsed from PSRAM: no temp file on the card. Without PSRAM the index is
+    // skipped and images take the normal decode path.
+    size_t manifestSize = 0;
+    HeapByteBuffer manifestBytes = readItemToPsram(kOptimizerManifestPath, manifestSize);
     // Bind the legacy JSON bytes to the central-directory identity as well.
-    uint32_t manifestCrc = 0;
-    uint8_t manifestChunk[256];
-    bool manifestOk = input.size() == identity.uncompressedSize;
-    size_t remaining = identity.uncompressedSize;
-    while (manifestOk && remaining) {
-      const size_t n = std::min(remaining, sizeof(manifestChunk));
-      manifestOk = input.read(manifestChunk, n) == static_cast<int>(n);
-      if (manifestOk) manifestCrc = OptimizerFormat::crc(manifestCrc, manifestChunk, n);
-      remaining -= n;
-    }
-    if (!manifestOk || manifestCrc != identity.crc32 || !input.seek(0)) {
-      LOG_ERR("EBP", "Invalid optimizer manifest CRC/size");
-      input.close();
-      Storage.remove(manifest.c_str());
+    if (!manifestBytes || manifestSize != identity.uncompressedSize ||
+        OptimizerFormat::crc(0, manifestBytes.get(), manifestSize) != identity.crc32) {
+      LOG_ERR("EBP", "Invalid or unreadable optimizer manifest (%u B)", static_cast<unsigned>(manifestSize));
       return false;
     }
     JsonDocument filter;
     buildOptimizerManifestJsonFilter(filter);
     JsonDocument doc;
-    const auto error = deserializeJson(doc, input, DeserializationOption::Filter(filter.as<JsonVariantConst>()));
-    input.close();
-    Storage.remove(manifest.c_str());
+    // const input: ArduinoJson copies the strings it keeps, so the buffer can go now.
+    const auto error = deserializeJson(doc, reinterpret_cast<const char*>(manifestBytes.get()), manifestSize,
+                                       DeserializationOption::Filter(filter.as<JsonVariantConst>()));
+    manifestBytes.reset();
     JsonArrayConst images = doc["images"];
     if (error || strcmp(doc["format"] | "", kOptimizerManifestFormat) || (doc["version"] | 0) != 1 || images.isNull() ||
         images.size() > 256)
