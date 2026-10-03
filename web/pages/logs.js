@@ -127,6 +127,7 @@ font(0);
 // (/api/battery-pending), columns as BatteryLog.h, plus live readings and
 // refresh counts from /api/status. Rows without an RTC time (epoch 0) are left out.
 let bat = [];
+let batAll = []; // bat plus rows with a blank %, which the counters still read
 let sum = null; // /api/battery-sum: the device's saved counts and where they end
 let sumRows = null; // the rows after them, once that file has loaded
 let segs = [];
@@ -328,7 +329,7 @@ function stateTable() {
   const pct = status.battery ? status.battery.percent : bat[bat.length - 1].pct;
   const names = ['awake', 'awake, light on', 'awake, Wi-Fi on', 'awake, Wi-Fi on, light on'];
   const row = (k, secs, dropC, r, runtime) => [k, hrs(secs), +(dropC / 100).toFixed(2) + '%', r, runtime];
-  const ok = (secs, dropC) => secs >= 60 && dropC >= 20;
+  const ok = (secs, dropC) => secs >= 1800 && dropC >= 50; // as the estimate's rateOf
   const rows = names.map((k, i) => (s.ss[i] ? row(k, s.ss[i], s.sd[i], ok(s.ss[i], s.sd[i]) ? ((s.sd[i] * 36) / s.ss[i]).toFixed(2) + '%/h' : '-', ok(s.ss[i], s.sd[i]) ? hrs((pct * 100 * s.ss[i]) / s.sd[i]) : '-') : null)).filter(Boolean);
   if (s.b[1]) rows.push(row('asleep', s.b[1], s.d[1], rate(s.d[1] / 100, s.b[1], Math.sqrt(s.e[1]) / 100, 0.2), left(pct, s.d[1] / 100, s.b[1], Math.sqrt(s.e[1]) / 100, 0.2)));
   table('states', ['State', 'Time', 'Drop', 'Rate', `Runtime from ${pct}%`], rows);
@@ -392,30 +393,33 @@ const lightDuty = (p) => {
   return Math.max(Math.floor((1023 * g + 32767) / 65535), 1);
 };
 const ledSlope = (off, on, avg) => (off > 0 && on > off ? (on - off) / Math.max(avg, 1) : -1);
-const lightScaledRate = (off, on, avg, light, other = -1) => {
+const lightScaledRate = (off, on, avg, light, other = -1, max = 1e9) => {
   let slope = ledSlope(off, on, avg);
   if (other >= 0 && (slope < 0 || other < slope)) slope = other;
+  slope = Math.min(slope, max);
   if (slope >= 0) {
     const base = Math.max(off, on - slope * avg);
     if (base > 0) return base + slope * lightDuty(light);
   }
-  if (light === 0) return off;
-  return off > 0 && on > 0 ? off : on;
+  return off > 0 ? off : on; // light-off drain is a lower bound with the light on
 };
 
 // The Summary counters, counted from the log like Goodies > Battery & stats does
 // (BatteryLogParser::parseRow, same rules, same 0.01 % units): from the last
 // stats_reset row, or the first row.
 const UNPLUG_SKIP_S = 1800;
+const RUN_ERR_C = 625; // (0.25 %)^2
+const FULL_C = 9500; // a charge ending at or above this may still be on a charger ...
+const FULL_DROP_C = 5; // ... until the % drops this far below the charge end
 function logStats() {
-  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], e: [0, 0], run: -1, n: [0, 0], sd: [0, 0, 0, 0], ss: [0, 0, 0, 0], su: [0, 0, 0, 0] });
+  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], e: [0, 0], run: -1, n: [0, 0], ne: [0, 0], sd: [0, 0, 0, 0], ss: [0, 0, 0, 0], su: [0, 0, 0, 0] });
   // The open stretch of on-battery steps keeps a signed net drop per category (n),
   // so the gauge's rise after an unplug cancels drops; it is added to d (a
   // negative net as 0) when the stretch ends.
   const end = (s) => {
     for (const k of [0, 1]) {
-      if (s.n[k] > 0) s.d[k] += s.n[k];
-      s.n[k] = 0;
+      if (s.n[k] > 0) (s.d[k] += s.n[k]), (s.e[k] += s.ne[k]);
+      s.n[k] = s.ne[k] = 0;
     }
     s.run = -1;
   };
@@ -424,7 +428,10 @@ function logStats() {
   let ref = null; // drop reference: as prev, but a whole-% row after fractional ones is skipped
   let wifi = false; // Wi-Fi state after the previous row
   let light = 0;
-  let rows = bat;
+  let changed = 0; // last light, Wi-Fi, wake or boot change
+  let hold = 0; // charge-end % while it may still be on a charger
+  let skip = 120; // the device's stateSkipS
+  let rows = batAll;
   if (sumRows) {
     // Start from the device's saved counts (battery.sum, which keep rows of rotated-out
     // files) and count on from the rows after them, as the device does.
@@ -432,16 +439,21 @@ function logStats() {
     s = {
       reset: sum.reset, first: sum.first, last: sum.last, cold: sum.coldBoots, rst: sum.restarts, wakes: sum.wakes, falseWakes: sum.falseWakes,
       awake: sum.awakeS, asleep: sum.asleepS, charged: sum.chargedEpoch, from: pc(sum.chargeFromC, sum.chargeFromFine), to: pc(sum.chargeToC, sum.chargeToFine),
-      charging: sum.charging, b: sum.battS, d: sum.dropC, e: sum.errC, run: sum.run, n: sum.netC, sd: sum.stateDropC, ss: sum.stateS, su: sum.stateDuty,
+      charging: sum.charging, b: sum.battS, d: sum.dropC, e: sum.errC, run: sum.run, n: sum.netC, ne: sum.netErrC, sd: sum.stateDropC, ss: sum.stateS, su: sum.stateDuty,
     };
-    prev = { t: sum.prevEpoch, ev: sum.prevAwake ? '' : 'sleep', det: '', usb: sum.prevUsb, c: sum.prevRowC, fine: sum.prevRowFine };
+    prev = { t: sum.prevEpoch, ev: sum.prevAwake ? '' : 'sleep', det: '', plug: sum.prevUsb, c: sum.prevRowC, fine: sum.prevRowFine, pct: sum.prevRowC / 100, q: sum.prevRowFine ? 0.01 : 1 };
     if (!sum.prevEpoch) prev = null;
     ref = pc(sum.prevC, sum.prevFine);
     wifi = sum.prevWifi;
     light = sum.prevLight;
+    changed = sum.stateChangeEpoch;
+    hold = sum.fullHoldC;
+    skip = sum.stateSkipS;
     rows = sumRows;
   }
-  for (const r of rows) {
+  for (const r0 of rows) {
+    // A blank % (logged before the gauge first answered) takes the previous row's.
+    const r = r0.blank ? { ...r0, c: prev ? prev.c : 0, fine: prev ? prev.fine : false, pct: prev ? prev.pct : 0, q: prev ? prev.q : 1 } : r0;
     const c = r.ev === 'boot' && cold(r.det);
     if (r.ev === 'stats_reset') s = zero(true);
     else if (s.first && prev && r.t >= prev.t && !c) {
@@ -450,9 +462,11 @@ function logStats() {
       const awake = !(prev.ev === 'sleep' || prev.det.startsWith('asleep'));
       s[awake ? 'awake' : 'asleep'] += dt;
       const k = awake ? 0 : 1;
+      const onBattery = !prev.plug && !r.plug && !hold;
       // Awake steps between fractional rows by Wi-Fi and light, leaving out the
-      // first half hour after a charge (the gauge rises then).
-      if (awake && !prev.usb && !r.usb && r.fine && prev.fine && (!s.charged || prev.t >= s.charged + UNPLUG_SKIP_S)) {
+      // first half hour after a charge (the gauge rises then) and the first
+      // `skip` s after a light, Wi-Fi, wake or boot change (it sags or recovers).
+      if (awake && onBattery && r.fine && prev.fine && (!s.charged || prev.t >= s.charged + UNPLUG_SKIP_S) && prev.t >= changed + skip) {
         const i = (wifi ? 2 : 0) + (light ? 1 : 0);
         s.sd[i] += prev.c - r.c;
         s.ss[i] += dt;
@@ -461,13 +475,14 @@ function logStats() {
       // Drops come from fractional rows only: a whole row inside fractional data
       // counts its time, and the drop is taken across it from ref; whole-% steps
       // are left out (each adds +-1% to a drop of ~0.01%). Each unbroken run of
-      // steps adds 0.01 % squared to e (runs round independently, so the ± is sqrt(e)).
-      if (!prev.usb && !r.usb && r.fine && ref.fine) {
+      // steps adds RUN_ERR to ne (the gauge wanders between rows; runs wander
+      // independently, so the ± is sqrt(e)); a stretch's ne counts with its drop.
+      if (onBattery && r.fine && ref.fine) {
         s.b[k] += dt;
         s.n[k] += ref.c - r.c;
-        if (s.run !== k) s.e[k] += 1;
+        if (s.run !== k) s.ne[k] += RUN_ERR_C;
         s.run = k;
-      } else if (!prev.usb && !r.usb && ref.fine) s.b[k] += dt;
+      } else if (onBattery && ref.fine) s.b[k] += dt;
       else end(s);
     } else end(s);
     s.first ||= r.t;
@@ -476,16 +491,22 @@ function logStats() {
     if (r.ev === 'wake') s.wakes++;
     const f = /false_wakes=(\d+)/.exec(r.det);
     if (f) s.falseWakes += +f[1];
-    // Last charge session: USB or charging rows, merged across gaps under 60 s (USB flapping).
-    if (r.usb || r.chg) {
+    // Last charge session: USB or charging rows (a "charged" row counts as
+    // plugged), merged across gaps under 60 s (USB flapping).
+    if (r.plug || r.chg) {
       if (!s.charging && (!s.charged || r.t - s.charged >= 60)) s.from = r;
       s.charging = true;
-    } else if (s.charging) (s.charging = false), (s.charged = r.t);
+    } else if (s.charging) {
+      (s.charging = false), (s.charged = r.t);
+      hold = r.c >= FULL_C ? r.c : 0; // a charge ending near full may still be on a charger
+    }
+    if (hold && r.fine && r.c + FULL_DROP_C <= hold) hold = 0;
     if (s.charging || s.charged === r.t) s.to = r;
-    if (!ref || r.fine || !ref.fine || r.usb || prev.usb || r.ev === 'stats_reset' || c) ref = r;
+    if (!ref || r.fine || !ref.fine || r.plug || prev.plug || r.ev === 'stats_reset' || c) ref = r;
     prev = r;
     if (['boot', 'wake', 'sleep', 'wifi_off'].includes(r.ev)) wifi = false;
     if (r.ev === 'wifi_on') wifi = true;
+    if (['boot', 'wake', 'wifi_on', 'wifi_off'].includes(r.ev) || r.light !== light) changed = r.t;
     light = r.light;
   }
   end(s);
@@ -497,18 +518,19 @@ function logStats() {
 // has no rate. The web page is served over Wi-Fi, so Wi-Fi is on; the light is
 // the last logged one.
 function estToEmpty(s, pct, lightNow) {
-  const rateOf = (i) => (s.ss[i] >= 60 && s.sd[i] >= 20 ? s.sd[i] / s.ss[i] : 0); // 0.01 % per s
+  const rateOf = (i) => (s.ss[i] >= 1800 && s.sd[i] >= 50 ? s.sd[i] / s.ss[i] : 0); // 0.01 % per s, 0 = under 0.5% or 30 min
   const dutyOf = (i) => (s.ss[i] ? s.su[i] / s.ss[i] : 0);
-  const rateFor = (k, o) => lightScaledRate(rateOf(k), rateOf(k + 1), dutyOf(k + 1), lightNow, ledSlope(rateOf(o), rateOf(o + 1), dutyOf(o + 1)));
+  const maxSlope = (sum ? sum.ledMaxDrain : 200) / 360 / 1023; // the LED's full-duty drain (0.1 %/h) per duty unit, in 0.01 % per s
+  const rateFor = (k, o) => lightScaledRate(rateOf(k), rateOf(k + 1), dutyOf(k + 1), lightNow, ledSlope(rateOf(o), rateOf(o + 1), dutyOf(o + 1)), maxSlope);
   const rate = Math.max(rateFor(2, 0), rateFor(0, 2)); // Wi-Fi only adds drain: never better than Wi-Fi off
   const state = `Wi-Fi on, light ${lightNow ? lightNow + '%' : 'off'}`;
   const pctC = pct * 100;
-  if (rate > 0) return `${hrs(pctC / rate)} (${state})`;
+  if (rate > 0) return `${hrs(pctC / rate)} awake (${state})`;
   const drop = s.d[0] + s.d[1];
   const span = s.b[0] + s.b[1];
   if (drop >= 20 && span >= 60) {
     const l = (pctC * span) / drop;
-    return `${hrs(l)} ±${hrs((l * Math.sqrt(s.e[0] + s.e[1])) / drop)} (avg; ${state})`;
+    return `${hrs(l)} ±${hrs((l * Math.sqrt(s.e[0] + s.e[1])) / drop)} calendar (${state})`;
   }
   return NOT_ENOUGH;
 }
@@ -582,9 +604,9 @@ tab();
     text
       .split('\n')
       .map((l) => l.split(','))
-      .filter((f) => f.length >= 10 && +f[0] > 0 && f[3] !== '') // a blank % is a row before the gauge first answered
+      .filter((f) => f.length >= 10 && +f[0] > 0)
       .map((f) => ({
-        t: +f[0], local: f[1], pct: +f[3], c: Math.round(+f[3] * 100), fine: f[3].includes('.'), q: f[3].includes('.') ? 0.01 : 1, mv: +f[4], chg: f[5] === '1', usb: f[6] === '1',
+        t: +f[0], local: f[1], pct: +f[3], blank: f[3] === '', c: Math.round(+f[3] * 100), fine: f[3].includes('.'), q: f[3].includes('.') ? 0.01 : 1, mv: +f[4], chg: f[5] === '1', usb: f[6] === '1', plug: f[6] === '1' || f[9] === 'charged',
         temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
       }));
   // Newest first: battery.csv and the unwritten rows draw at once, then each
@@ -597,7 +619,8 @@ tab();
     const text = files.slice().reverse().join('\n') + '\n' + pending;
     const tail = sum && sum.file < files.length ? files.slice(0, sum.file + 1).reverse() : null;
     sumRows = tail && parse(tail.map((t, j) => (j ? t : t.slice(sum.offset))).join('\n') + '\n' + pending);
-    bat = parse(text);
+    batAll = parse(text);
+    bat = batAll.filter((r) => !r.blank); // graphs skip rows logged before the gauge answered
     const count = (n, t) => [n, parse(t).length, t.split('\n').filter((l) => l && !l.startsWith('epoch_utc')).length]; // header not counted
     srcs = files.map((t, j) => count('battery' + (j ? '.' + j : '') + '.csv', t)).concat([count('buffer', pending)]);
     hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);

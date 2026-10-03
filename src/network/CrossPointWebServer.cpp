@@ -12,6 +12,7 @@
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <PerfLog.h>
@@ -645,7 +646,6 @@ void CrossPointWebServer::registerFullRoutes() {
     doc["chargeToFine"] = s.chargeToFine;
     doc["charging"] = s.charging;
     doc["run"] = s.run;
-    doc["runFine"] = s.runFine;
     const auto pair = [&doc](const char* key, const auto& v) {
       JsonArray a = doc[key].to<JsonArray>();
       a.add(v[0]);
@@ -653,10 +653,9 @@ void CrossPointWebServer::registerFullRoutes() {
     };
     pair("battS", s.battS);
     pair("dropC", s.dropC);
-    pair("coarseC", s.coarseC);
     pair("errC", s.errC);
     pair("netC", s.netC);
-    pair("netCoarseC", s.netCoarseC);
+    pair("netErrC", s.netErrC);
     // Awake drain by state [Wi-Fi * 2 + light on]: the web Battery tab's Est to empty.
     JsonArray sd = doc["stateDropC"].to<JsonArray>(), ss = doc["stateS"].to<JsonArray>(),
               su = doc["stateDuty"].to<JsonArray>();
@@ -674,6 +673,10 @@ void CrossPointWebServer::registerFullRoutes() {
     doc["prevRowFine"] = p->prevRowFine;
     doc["prevWifi"] = p->prevWifi;
     doc["prevLight"] = p->prevLight;
+    doc["stateChangeEpoch"] = p->stateChangeEpoch;
+    doc["fullHoldC"] = p->fullHoldC;
+    doc["stateSkipS"] = p->stateSkipS;
+    doc["ledMaxDrain"] = KNOBS.ledMaxDrain;  // the page's Est to empty caps the LED share with the device's knob
     String json;
     serializeJson(doc, json);
     server->send(200, "application/json", json);

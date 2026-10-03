@@ -29,20 +29,22 @@ struct BatteryLogParser {
     uint16_t chargeFromC, chargeToC;  // 0.01 %
     bool chargeFromFine, chargeToFine, charging;
     // On battery, over the whole log; [0] awake, [1] asleep. In 0.01 %: drop,
-    // the part of it from whole-percent rows, and its ± squared (each unbroken
-    // run of steps adds its rows' precision squared, 1 or 10000: inside a run the
-    // roundings cancel; runs round independently, so their ± add in quadrature).
-    uint32_t battS[2], dropC[2], coarseC[2], errC[2];
+    // and its ± squared (each unbroken run of steps adds RUN_ERR_C, the gauge's
+    // wander between rows: inside a run it cancels; runs wander independently,
+    // so their ± add in quadrature).
+    uint32_t battS[2], dropC[2], errC[2];
     int8_t run;  // category of the run the last step extended, -1 = none
-    bool runFine;
     // The open stretch of on-battery steps: net drop per category, signed, so
-    // the gauge's rise after an unplug cancels drops instead of being ignored.
-    // Added to dropC (a negative net as 0) when the stretch ends.
-    int32_t netC[2], netCoarseC[2];
+    // the gauge's rise after an unplug cancels drops instead of being ignored,
+    // and its runs' ±. Added to dropC and errC when the stretch ends, unless
+    // the net is a rise (then neither counts).
+    int32_t netC[2];
+    uint32_t netErrC[2];
     // Awake on battery, between fractional rows, by state [Wi-Fi * 2 + light on]:
     // signed drop in 0.01 %, seconds, and LED duty (BatteryEstimate::lightDuty)
     // x seconds. The first UNPLUG_SKIP_S after a charge is left out (the gauge
-    // rises then).
+    // rises then), and steps starting under stateSkipS after a light, Wi-Fi,
+    // wake or boot change (the gauge sags or recovers with the load).
     int32_t stateDropC[4];
     uint32_t stateS[4];
     uint64_t stateDuty[4];
@@ -50,6 +52,9 @@ struct BatteryLogParser {
   static constexpr uint32_t CHARGE_MERGE_S = 60;
   static constexpr uint32_t UNPLUG_SKIP_S = 1800;
   static constexpr int MAX_POINTS = 400;
+  static constexpr uint32_t RUN_ERR_C = 625;  // (0.25 %)²: fractional rows rose up to 0.61% between rows (10/1 log)
+  static constexpr uint16_t FULL_C = 9500;    // a charge ending at or above this may still be on a charger
+  static constexpr uint16_t FULL_DROP_C = 5;  // ... until the % drops this far below the charge end
 
   Point points[MAX_POINTS];
   int pointCount;
@@ -62,14 +67,22 @@ struct BatteryLogParser {
   bool prevRowFine;
   bool prevWifi;
   uint8_t prevLight;
+  uint32_t stateChangeEpoch;  // last light, Wi-Fi, wake or boot change
+  // The charge-end % while it may still be on a charger, 0 = not: with no VBUS
+  // pin a charge that terminates on a wall adapter logs as unplugged, then sits
+  // at 100%; those steps stay out of the drain sums.
+  uint16_t fullHoldC;
+  // Set before the first row (BatteryLogSum::load drops a battery.sum made with another value).
+  uint16_t stateSkipS = 120;
 
   static void endStretch(LogStats& s) {
     for (int k = 0; k < 2; ++k) {
       if (s.netC[k] > 0) {
         s.dropC[k] += static_cast<uint32_t>(s.netC[k]);
-        s.coarseC[k] += static_cast<uint32_t>(std::clamp<int32_t>(s.netCoarseC[k], 0, s.netC[k]));
+        s.errC[k] += s.netErrC[k];
       }
-      s.netC[k] = s.netCoarseC[k] = 0;
+      s.netC[k] = 0;
+      s.netErrC[k] = 0;
     }
     s.run = -1;
   }
@@ -99,19 +112,24 @@ struct BatteryLogParser {
     const uint32_t epoch = strtoul(line, nullptr, 10);
     if (epoch == 0 || n < 10) return;  // header, or no RTC time
     const char* detail = n > 10 ? f[10] : nullptr;
-    enum Ev : uint8_t { OTHER, STATS_RESET, BOOT, WAKE, SLEEP, WIFI_ON, WIFI_OFF };
+    enum Ev : uint8_t { OTHER, STATS_RESET, BOOT, WAKE, SLEEP, WIFI_ON, WIFI_OFF, CHARGED };
     Ev ev = OTHER;
     {
       const size_t len = detail ? static_cast<size_t>(detail - 1 - f[9]) : strlen(f[9]);
-      static constexpr const char* NAMES[] = {"", "stats_reset", "boot", "wake", "sleep", "wifi_on", "wifi_off"};
-      for (int i = 1; i < 7; ++i) {
+      static constexpr const char* NAMES[] = {"",      "stats_reset", "boot",     "wake",
+                                              "sleep", "wifi_on",     "wifi_off", "charged"};
+      for (int i = 1; i < 8; ++i) {
         if (strlen(NAMES[i]) == len && memcmp(f[9], NAMES[i], len) == 0) ev = static_cast<Ev>(i);
       }
     }
-    bool fine = false;
-    const uint16_t pctC = parseCenti(f[3], fine);
+    // A blank % (logged before the gauge's first read) is the previous row's.
+    const bool blank = *f[3] == ',';
+    bool fine = prevRowFine;
+    const uint16_t pctC = blank ? prevRowC : parseCenti(f[3], fine);
     const uint8_t pct = static_cast<uint8_t>(pctC / 100);
-    const bool usb = *f[6] == '1';
+    // "charged" counts as plugged until the next row: the charger may have
+    // stopped without a cable change (no VBUS pin, see fullHoldC).
+    const bool usb = *f[6] == '1' || ev == CHARGED;
     const bool asleep = ev == SLEEP || (detail && strncmp(detail, "asleep", 6) == 0);
     const bool cold = ev == BOOT && detail && strstr(detail, "reset=POWERON");
 
@@ -128,8 +146,10 @@ struct BatteryLogParser {
       // taken across it from prevC; the step from a whole row to a fractional
       // one is skipped (its rounding would be a drop of up to 1%).
       const int cat = prev.awake ? 0 : 1;
-      if (prev.awake && !prevUsb && !usb && fine && prevRowFine &&
-          (st.chargedEpoch == 0 || prev.epoch >= st.chargedEpoch + UNPLUG_SKIP_S)) {
+      const bool onBattery = !prevUsb && !usb && fullHoldC == 0;
+      if (prev.awake && onBattery && fine && prevRowFine &&
+          (st.chargedEpoch == 0 || prev.epoch >= st.chargedEpoch + UNPLUG_SKIP_S) &&
+          prev.epoch >= stateChangeEpoch + stateSkipS) {
         const int k = (prevWifi ? 2 : 0) + (prevLight ? 1 : 0);
         st.stateDropC[k] += static_cast<int32_t>(prevRowC) - pctC;
         st.stateS[k] += dt;
@@ -137,13 +157,12 @@ struct BatteryLogParser {
       }
       // Whole-percent steps (older rows, charger events logged asleep) are left out: each
       // adds +-1% to a drop of ~0.01%, which swamps the rate (the "0.03 +- 1.54%" asleep drain).
-      if (!prevUsb && !usb && fine && prevFine) {
+      if (onBattery && fine && prevFine) {
         st.battS[cat] += dt;
         st.netC[cat] += drop;
-        if (st.run != cat || st.runFine != fine) st.errC[cat] += 1;  // ± squared (fine rows only)
+        if (st.run != cat) st.netErrC[cat] += RUN_ERR_C;
         st.run = static_cast<int8_t>(cat);
-        st.runFine = fine;
-      } else if (!prevUsb && !usb && prevFine) {
+      } else if (onBattery && prevFine) {
         st.battS[cat] += dt;
       } else {
         endStretch(st);
@@ -168,7 +187,9 @@ struct BatteryLogParser {
     } else if (st.charging) {
       st.charging = false;
       st.chargedEpoch = epoch;
+      fullHoldC = pctC >= FULL_C ? pctC : 0;
     }
+    if (fullHoldC != 0 && fine && pctC + FULL_DROP_C <= fullHoldC) fullHoldC = 0;
     if (st.charging || st.chargedEpoch == epoch) {
       st.chargeToC = pctC;
       st.chargeToFine = fine;
@@ -190,7 +211,9 @@ struct BatteryLogParser {
     prevRowFine = fine;
     if (ev == BOOT || ev == WAKE || ev == SLEEP || ev == WIFI_OFF) prevWifi = false;
     if (ev == WIFI_ON) prevWifi = true;
-    prevLight = static_cast<uint8_t>(atoi(f[8]));
-    points[pointCount++] = prev;
+    const auto light = static_cast<uint8_t>(atoi(f[8]));
+    if (ev == BOOT || ev == WAKE || ev == WIFI_ON || ev == WIFI_OFF || light != prevLight) stateChangeEpoch = epoch;
+    prevLight = light;
+    if (!blank) points[pointCount++] = prev;
   }
 };
