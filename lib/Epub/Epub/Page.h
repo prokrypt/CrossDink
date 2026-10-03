@@ -213,6 +213,13 @@ class Page {
                        [](const std::unique_ptr<PageElement>& el) { return el->getTag() == TAG_PageImage; });
   }
 
+  // Text AA has nothing to draw on a page without text (e.g. a B/W image page).
+  bool hasText() const {
+    return std::any_of(elements.begin(), elements.end(), [](const std::unique_ptr<PageElement>& el) {
+      return el->getTag() == TAG_PageLine || el->getTag() == TAG_PageTableFragment;
+    });
+  }
+
   void prepareImageCaches() const;
 
   bool hasImagesNeedingDecode() const {

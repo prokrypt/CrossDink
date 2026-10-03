@@ -6,8 +6,11 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstring>
+#include <functional>
+#include <string_view>
 
 #include "TextPool.h"
 
@@ -19,6 +22,9 @@ constexpr char DICT_BIN[] = "dictionary.bin";
 std::string lookupDictPathOverride;
 bool lookupDictPathOverrideActive = false;
 constexpr char GLOBAL_DICT_DIR[] = "/.crossdink";
+// Hash of the last book cache folder found without a per-book dictionary.bin,
+// so the reader and drawer stop re-probing the card for it on every open.
+std::atomic<size_t> bookDictMiss{0};
 
 bool isTextDefinitionType(char type) {
   switch (type) {
@@ -135,8 +141,13 @@ std::string Dictionary::readConfiguredDictPath(const char* cachePath) {
   // Try per-book dictionary.bin first when cachePath is provided.
   if (cachePath && cachePath[0] != '\0') {
     snprintf(binPath, sizeof(binPath), "%s/%s", cachePath, DICT_BIN);
+    const size_t bookKey = std::hash<std::string_view>{}(cachePath);
     HalFile f;
-    if (Storage.openFileForRead("DICT", binPath, f)) {
+    if (bookDictMiss.load(std::memory_order_relaxed) == bookKey) {
+      // Known absent; fall through to global.
+    } else if (!Storage.openFileForRead("DICT", binPath, f)) {
+      bookDictMiss.store(bookKey, std::memory_order_relaxed);
+    } else {
       const int sz = static_cast<int>(f.fileSize());
       if (sz > 0) {
         std::string result(sz, '\0');
@@ -169,6 +180,8 @@ std::string Dictionary::readConfiguredDictPath(const char* cachePath) {
   result.resize(static_cast<size_t>(n));
   return result;
 }
+
+void Dictionary::forgetBookDictPathMiss() { bookDictMiss.store(0, std::memory_order_relaxed); }
 
 void Dictionary::setLookupDictPathOverride(const char* folderPath) {
   lookupDictPathOverride = folderPath ? folderPath : "";

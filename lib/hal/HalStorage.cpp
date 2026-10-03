@@ -1129,11 +1129,12 @@ bool HalFile::close() {
   iterationFailed_ = false;
 #if CROSSDINK_PERF_LOG
   // Opened to write: a truncating open is a mutation even with no bytes.
-  if (path[0] != '\0' && openUs + us + closeUs + waitUs >= SDW_SLOW_US) {
-    LOG_DBG("SDW", "write %s %s %lu B %lu ms slow: open=%lu close=%lu wait=%lu ms new=%d", module ? module : "-", path,
-            static_cast<unsigned long>(bytes), static_cast<unsigned long>(us / 1000),
-            static_cast<unsigned long>(openUs / 1000), static_cast<unsigned long>(closeUs / 1000),
-            static_cast<unsigned long>(waitUs / 1000), created ? 1 : 0);
+  const uint32_t totalUs = openUs + us + closeUs + waitUs;
+  if (path[0] != '\0' && totalUs >= SDW_SLOW_US) {
+    LOG_DBG("SDW", "write %s %s %lu B %lu ms slow %lu ms: open=%lu close=%lu wait=%lu ms new=%d", module ? module : "-",
+            path, static_cast<unsigned long>(bytes), static_cast<unsigned long>(us / 1000),
+            static_cast<unsigned long>(totalUs / 1000), static_cast<unsigned long>(openUs / 1000),
+            static_cast<unsigned long>(closeUs / 1000), static_cast<unsigned long>(waitUs / 1000), created ? 1 : 0);
   } else {
     SDW_LOG(path[0] != '\0', "write %s %s %lu B %lu ms", module ? module : "-", path, static_cast<unsigned long>(bytes),
             static_cast<unsigned long>(us / 1000));
