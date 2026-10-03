@@ -657,11 +657,23 @@ void CrossPointWebServer::registerFullRoutes() {
     pair("errC", s.errC);
     pair("netC", s.netC);
     pair("netCoarseC", s.netCoarseC);
+    // Awake drain by state [Wi-Fi * 2 + light on]: the web Battery tab's Est to empty.
+    JsonArray sd = doc["stateDropC"].to<JsonArray>(), ss = doc["stateS"].to<JsonArray>(),
+              su = doc["stateDuty"].to<JsonArray>();
+    for (int k = 0; k < 4; ++k) {
+      sd.add(s.stateDropC[k]);
+      ss.add(s.stateS[k]);
+      su.add(static_cast<double>(s.stateDuty[k]));  // ArduinoJson 64-bit ints may be off; a double holds it exactly
+    }
     doc["prevEpoch"] = p->prev.epoch;
     doc["prevAwake"] = p->prev.awake;
     doc["prevC"] = p->prevC;
     doc["prevFine"] = p->prevFine;
     doc["prevUsb"] = p->prevUsb;
+    doc["prevRowC"] = p->prevRowC;
+    doc["prevRowFine"] = p->prevRowFine;
+    doc["prevWifi"] = p->prevWifi;
+    doc["prevLight"] = p->prevLight;
     String json;
     serializeJson(doc, json);
     server->send(200, "application/json", json);
