@@ -137,8 +137,7 @@ struct BatteryLogParser {
       if (!prevUsb && !usb && fine == prevFine) {
         st.battS[cat] += dt;
         st.netC[cat] += drop;
-        if (!fine) st.netCoarseC[cat] += drop;
-        if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
+        if (st.run != cat || st.runFine != fine) st.errC[cat] += 1;  // fine rows only
         st.run = static_cast<int8_t>(cat);
         st.runFine = fine;
       } else if (!prevUsb && !usb && prevFine) {
