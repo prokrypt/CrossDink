@@ -474,7 +474,7 @@ void GoodiesActivity::showLevel(const Level next) {
     entries.push_back({"API Token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}, ">"});
     entries.push_back({"Keyboard Test", -1, {}, ">"});
-    entries.push_back({"Pin Monitor", -1, {}});
+    entries.push_back({"Pin Monitor", -1, {}, PinMon::enabled() ? "On >" : "Off >"});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}, ">"});
@@ -538,12 +538,11 @@ void GoodiesActivity::showLevel(const Level next) {
     rowItems[i].actionValue = static_cast<int16_t>(i);
     if (!entries[i].value.empty()) rowItems[i].value = entries[i].value.c_str();
   }
-  // Pin Monitor shows its state as a switch, as Settings toggles do. The Root
-  // row still opens the page (per-pin stats); the page's first row switches it.
-  if (level == Level::Root || level == Level::PinMon) {
-    fui::ListItem& pinMon = rowItems[level == Level::Root ? PINMON_ROW : 0];
-    pinMon.toggle = true;
-    pinMon.toggleChecked = PinMon::enabled();
+  // The page's Monitor row is a switch (tapping it toggles). The Root row opens the page, so it shows
+  // the state as text with ">" like every other row that opens a page; a switch would drop the ">".
+  if (level == Level::PinMon) {
+    rowItems[0].toggle = true;
+    rowItems[0].toggleChecked = PinMon::enabled();
   }
   selectedIndex = 0;
   topIndex = 0;
