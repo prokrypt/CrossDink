@@ -87,7 +87,7 @@ class OpdsPreloadPool {
   Worker workers[MAX_WORKERS];
   std::vector<QueuedPage> queue;
   std::string changedUrl;
-  bool heapLimited = false;  // logs the heap skip once per stall
-  bool active = false;       // something was started since the last idle log
+  bool heapLimited = false;      // logs the heap skip once per stall
+  bool active = false;           // something was started since the last idle log
   unsigned long failedAtMs = 0;  // millis() of the last network failure (0: none)
 };

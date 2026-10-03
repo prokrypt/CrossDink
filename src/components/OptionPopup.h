@@ -9,8 +9,8 @@
 
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
-#include "components/TouchActionButtons.h"
 #include "components/ListSelection.h"
+#include "components/TouchActionButtons.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"

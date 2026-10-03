@@ -17,7 +17,8 @@ const char* const ROWS[] = {
     "1790897700,2026-10-01 16:35:00,953000,81.65,4009,0,0,32.5,0,wifi_off,",
     "1790897800,2026-10-01 16:36:40,1053000,81.60,4008,0,0,32.5,0,sleep,request",
     "1790900000,2026-10-01 17:13:20,0,81,4100,1,1,,0,chg_on,asleep",
-    "1790901000,2026-10-01 17:30:00,712,85.00,4180,1,1,31.0,0,wake,reset=DEEPSLEEP wake=EXT1 false_wakes=2 awake_ms=248",
+    "1790901000,2026-10-01 17:30:00,712,85.00,4180,1,1,31.0,0,wake,reset=DEEPSLEEP wake=EXT1 false_wakes=2 "
+    "awake_ms=248",
     "1790904000,2026-10-01 18:20:00,3000712,95.10,4190,0,1,31.0,0,charged,",
     "1790904100,2026-10-01 18:21:40,3100712,95.10,4190,0,0,31.0,0,usb_out,",
     "1790910000,2026-10-01 20:00:00,9000712,94.00,4170,0,0,30.0,10,light,",
@@ -75,7 +76,7 @@ TEST(BatteryLogParser, ResumeFromSavedBytesMatchesOnePass) {
     EXPECT_EQ(dump(resumed), dump(full)) << "cut at row " << cut;
   }
   EXPECT_TRUE(full.st.reset);
-  EXPECT_EQ(full.st.restarts, 1u);  // after the stats_reset row
+  EXPECT_EQ(full.st.restarts, 1u);    // after the stats_reset row
   EXPECT_EQ(full.pointCount, N - 2);  // header and the no-clock row are skipped
 }
 
@@ -97,5 +98,5 @@ TEST(BatteryLogParser, WholePercentStepsAreSkipped) {
     p.parseRow(row);
   }
   EXPECT_EQ(p.st.errC[0] + p.st.errC[1], 1u);  // only the fine->fine step
-  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);  // open stretch, not yet in dropC
+  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);   // open stretch, not yet in dropC
 }
