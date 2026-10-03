@@ -79,7 +79,7 @@ class OpdsBookBrowserActivity final : public Activity {
   std::vector<HistoryEntry> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
-  std::string searchDescriptionUrl;  // OpenSearch description; fetched on first search
+  std::string searchDescriptionUrl;                   // OpenSearch description; fetched on first search
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> onSd;        // book rows already in the download folder
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> pageCached;  // feed rows whose page is in pageCache
   uint32_t pageCachedAt = 0;                          // pageCache->changes() when pageCached was set
