@@ -410,9 +410,9 @@ const lightScaledRate = (off, on, avg, light, other = -1, max = 1e9) => {
 const UNPLUG_SKIP_S = 1800;
 const RUN_ERR_C = 625; // (0.25 %)^2 per run while there are too few runs to fit
 // Run sums per category: [n, sum d t, sum d^2, sum t^2] (d: drop in 0.01 %, t: s).
-// The drop's ± squared, as BatteryLogParser::errSq: the runs' scatter around the
-// fitted rate times n / (n - 1).
-const errSq = ([n, dt, d2, t2]) => (n < 3 || !t2 ? n * RUN_ERR_C : (Math.max(d2 - (dt * dt) / t2, 0) * n) / (n - 1));
+// The drop's ± squared, as BatteryLogParser::errSq: the smaller of RUN_ERR_C per
+// run and the runs' scatter around the fitted rate times n / (n - 1).
+const errSq = ([n, dt, d2, t2]) => (n < 3 || !t2 ? n * RUN_ERR_C : Math.min(n * RUN_ERR_C, (Math.max(d2 - (dt * dt) / t2, 0) * n) / (n - 1)));
 const FULL_C = 9500; // a charge ending at or above this may still be on a charger ...
 const FULL_DROP_C = 5; // ... until the % drops this far below the charge end
 function logStats() {

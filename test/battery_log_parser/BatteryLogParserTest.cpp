@@ -138,6 +138,20 @@ TEST(BatteryLogParser, ErrorFollowsRunScatter) {
   EXPECT_NEAR(BatteryLogParser::errSq(p.st, 1), 12.5f * 50 / 49, 0.01f);
 }
 
+// Awake runs scatter with use (reading, Wi-Fi, transfers): the 0.25 % per run bound wins.
+TEST(BatteryLogParser, ScatterAboveModelKeepsModel) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,80.00,4000,0,0,30,0,wake,", "1790899600,x,0,78.00,4000,0,0,30,0,sleep,",
+                          "1790899700,x,0,78.00,4000,0,0,30,0,wake,", "1790903300,x,0,77.90,4000,0,0,30,0,sleep,",
+                          "1790903400,x,0,77.90,4000,0,0,30,0,wake,", "1790907000,x,0,75.90,4000,0,0,30,0,sleep,",
+                          "1790907100,x,0,75.90,4000,0,0,30,0,wake,", "1790910700,x,0,75.80,4000,0,0,30,0,sleep,"}) {
+    p.parseRow(row);
+  }
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.st.runs[0].n, 4u);
+  EXPECT_FLOAT_EQ(BatteryLogParser::errSq(p.st, 0), 4.0f * BatteryLogParser::RUN_ERR_C);
+}
+
 // A stretch that netted a rise adds neither drop nor ±.
 TEST(BatteryLogParser, RiseAddsNoError) {
   static BatteryLogParser p{};

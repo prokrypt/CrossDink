@@ -114,14 +114,16 @@ struct BatteryLogParser {
 
   // The drop's ± squared in 0.01 %², category k. Runs drain d = r t + e with
   // the gauge's wander e independent per run (inside a run it cancels), so
-  // var(drop) = n var(e), and var(e) is the runs' scatter around the fitted
-  // rate: (sum d² - (sum d t)² / sum t²) / (n - 1), the 0.01 % rounding
-  // included. RUN_ERR_C per run under 3 runs.
+  // var(drop) = n var(e). Two bounds on var(e), the smaller wins: RUN_ERR_C
+  // (load sag, large across many short sleeps), and the runs' scatter around
+  // the fitted rate, (sum d² - (sum d t)² / sum t²) / (n - 1), which also holds
+  // real usage changes (large when awake). The scatter needs 3 runs.
   static float errSq(const LogStats& s, const int k) {
     const RunSums& r = s.runs[k];
-    if (r.n < 3 || r.t2 == 0) return static_cast<float>(r.n) * RUN_ERR_C;
+    const double model = static_cast<double>(r.n) * RUN_ERR_C;
+    if (r.n < 3 || r.t2 == 0) return static_cast<float>(model);
     const double rss = static_cast<double>(r.d2) - static_cast<double>(r.dt) * r.dt / static_cast<double>(r.t2);
-    return static_cast<float>(std::max(rss, 0.0) * r.n / (r.n - 1));
+    return static_cast<float>(std::min(model, std::max(rss, 0.0) * r.n / (r.n - 1)));
   }
 
   // "71.43" -> 7143, "71" -> 7100; fine = the field had a fraction.
