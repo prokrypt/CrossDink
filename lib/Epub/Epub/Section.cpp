@@ -70,7 +70,7 @@ size_t sectionHtmlStreamChunkSize(const bool preview) {
   const size_t largeStreamBudget =
       InflateStream::requiredInternalStorageSize(true) + (2U * SECTION_HTML_STREAM_CHUNK_SIZE);
   if (maxAlloc < largeStreamBudget) {
-    LOG_DBG("SCT", "Using low-memory HTML stream chunk (maxAlloc=%u)", maxAlloc);
+    LOG_DBG("SCT", "Using low-memory HTML stream chunk (maxAlloc=%lu)", maxAlloc);
     return LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE;
   }
   return SECTION_HTML_STREAM_CHUNK_SIZE;
@@ -478,8 +478,9 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   const bool effectiveFocusReadingEnabled = focusReadingEnabled;
   const bool effectiveGuideReadingEnabled = guideReadingEnabled;
   LOG_DBG("SCT",
-          "Create section start: spine=%d mode=%u preview=%u viewport=%ux%u image=%u focus=%u guide=%u free=%u "
-          "maxAlloc=%u",
+          "Create section start: spine=%d mode=%u preview=%u viewport=%ux%u image=%u focus=%u guide=%u free=%" PRIu32
+          " "
+          "maxAlloc=%" PRIu32,
           spineIndex, static_cast<unsigned>(renderMode), buildOptions.isPreview() ? 1U : 0U, viewportWidth,
           viewportHeight, imageRendering, effectiveFocusReadingEnabled, effectiveGuideReadingEnabled, ESP.getFreeHeap(),
           ESP.getMaxAllocHeap());
@@ -628,7 +629,9 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       const auto cssHeapBefore = MemoryBudget::snapshot();
       const bool cssLoaded = cssParser->loadFromCache();
       const auto cssHeapAfter = MemoryBudget::snapshot();
-      LOG_DBG("SCT", "CSS cache load: ok=%u partial=%u rules=%u free=%u->%u delta=%d maxAlloc=%u->%u delta=%d",
+      LOG_DBG("SCT",
+              "CSS cache load: ok=%u partial=%u rules=%u free=%lu->%lu delta=%" PRId32
+              " maxAlloc=%lu->%lu delta=%" PRId32,
               cssLoaded ? 1U : 0U, cssParser->isCachePartial() ? 1U : 0U, static_cast<unsigned>(cssParser->ruleCount()),
               cssHeapBefore.freeHeap, cssHeapAfter.freeHeap,
               static_cast<int32_t>(cssHeapAfter.freeHeap) - static_cast<int32_t>(cssHeapBefore.freeHeap),
@@ -721,8 +724,8 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       break;
     }
   }
-  LOG_DBG("SCT", "Parser done: spine=%d success=%u pages=%u free=%u maxAlloc=%u", spineIndex, success, pageCount,
-          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_DBG("SCT", "Parser done: spine=%d success=%u pages=%u free=%" PRIu32 " maxAlloc=%" PRIu32, spineIndex, success,
+          pageCount, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   if (imagesWereSuppressed) *imagesWereSuppressed = visitor.wasLowMemoryFallbackTriggered();
   if (layoutAbortedForLowMemory) {
@@ -873,7 +876,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
 
   LOG_DBG("SCT",
           "Start incremental section build: spine=%d mode=%u preview=%u viewport=%ux%u image=%u focus=%u guide=%u "
-          "free=%u maxAlloc=%u",
+          "free=%" PRIu32 " maxAlloc=%" PRIu32,
           spineIndex, static_cast<unsigned>(renderMode), buildOptions.isPreview() ? 1U : 0U, viewportWidth,
           viewportHeight, imageRendering, focusReadingEnabled, guideReadingEnabled, ESP.getFreeHeap(),
           ESP.getMaxAllocHeap());
@@ -966,7 +969,9 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
       const auto cssHeapBefore = MemoryBudget::snapshot();
       const bool cssLoaded = ctx->cssParser->loadFromCache();
       const auto cssHeapAfter = MemoryBudget::snapshot();
-      LOG_DBG("SCT", "CSS cache load: ok=%u partial=%u rules=%u free=%u->%u delta=%d maxAlloc=%u->%u delta=%d",
+      LOG_DBG("SCT",
+              "CSS cache load: ok=%u partial=%u rules=%u free=%lu->%lu delta=%" PRId32
+              " maxAlloc=%lu->%lu delta=%" PRId32,
               cssLoaded ? 1U : 0U, ctx->cssParser->isCachePartial() ? 1U : 0U,
               static_cast<unsigned>(ctx->cssParser->ruleCount()), cssHeapBefore.freeHeap, cssHeapAfter.freeHeap,
               static_cast<int32_t>(cssHeapAfter.freeHeap) - static_cast<int32_t>(cssHeapBefore.freeHeap),

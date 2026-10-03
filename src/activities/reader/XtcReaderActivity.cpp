@@ -1376,7 +1376,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
   // Allocate page buffer
   uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(pageBufferSize));
   if (!pageBuffer) {
-    LOG_ERR("XTR", "Failed to allocate page buffer (%lu bytes)", pageBufferSize);
+    LOG_ERR("XTR", "Failed to allocate page buffer (%u bytes)", pageBufferSize);
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), tr(STR_MEMORY_ERROR), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
@@ -1386,7 +1386,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
   // Load page data
   size_t bytesRead = xtc->loadPage(pageToRender, pageBuffer, pageBufferSize);
   if (bytesRead == 0) {
-    LOG_ERR("XTR", "Failed to load page %lu: bufferSize=%lu bitDepth=%u error=%s", pageToRender, pageBufferSize,
+    LOG_ERR("XTR", "Failed to load page %lu: bufferSize=%u bitDepth=%u error=%s", pageToRender, pageBufferSize,
             bitDepth, xtc::errorToString(xtc->getLastError()));
     free(pageBuffer);
     renderer.clearScreen();

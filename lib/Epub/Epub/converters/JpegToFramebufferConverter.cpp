@@ -61,7 +61,8 @@ constexpr size_t JPEG_PIPELINE_SLOT_BYTES = (MAX_BUFFERED_PIXELS + 8) * sizeof(u
 void* jpegOpen(const char* filename, int32_t* size) {
   auto f = makeUniqueNoThrow<FsFile>();
   if (!f) {
-    LOG_ERR("JPG", "OOM: JPEG file handle (%u free, %u max alloc)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("JPG", "OOM: JPEG file handle (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     return nullptr;
   }
   if (!Storage.openFileForRead("JPG", std::string(filename), *f)) {

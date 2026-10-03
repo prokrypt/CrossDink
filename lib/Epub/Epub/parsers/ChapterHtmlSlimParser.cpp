@@ -432,8 +432,8 @@ bool ChapterHtmlSlimParser::shouldAbortForLowMemory(const char* stage) {
     attemptedTextLayoutFontCacheRelease = true;
     if (renderer.releaseSdCardFontForLowMemory(fontId)) {
       const auto afterRelease = MemoryBudget::snapshot();
-      LOG_DBG("EHP", "Released SD font caches before %s: free=%u->%u maxAlloc=%u->%u", stage, heap.freeHeap,
-              afterRelease.freeHeap, heap.maxAllocHeap, afterRelease.maxAllocHeap);
+      LOG_DBG("EHP", "Released SD font caches before %s: free=%" PRIu32 "->%lu maxAlloc=%" PRIu32 "->%lu", stage,
+              heap.freeHeap, afterRelease.freeHeap, heap.maxAllocHeap, afterRelease.maxAllocHeap);
       heap = afterRelease;
       if (MemoryBudget::hasHeapForEpubTextLayoutStart(heap)) {
         return false;
@@ -441,8 +441,8 @@ bool ChapterHtmlSlimParser::shouldAbortForLowMemory(const char* stage) {
     }
   }
 
-  LOG_ERR("EHP", "Low heap during %s (%u free, %u max alloc); aborting section build", stage, heap.freeHeap,
-          heap.maxAllocHeap);
+  LOG_ERR("EHP", "Low heap during %s (%" PRIu32 " free, %" PRIu32 " max alloc); aborting section build", stage,
+          heap.freeHeap, heap.maxAllocHeap);
   lowMemoryAbort = true;
   return true;
 }
@@ -451,7 +451,8 @@ bool ChapterHtmlSlimParser::startNewPage(const char* reason) {
   currentPage.reset(new (std::nothrow) Page());
   if (!currentPage) {
     const auto heap = MemoryBudget::snapshot();
-    LOG_ERR("EHP", "Failed to create page during %s (%u free, %u max alloc)", reason, heap.freeHeap, heap.maxAllocHeap);
+    LOG_ERR("EHP", "Failed to create page during %s (%lu free, %lu max alloc)", reason, heap.freeHeap,
+            heap.maxAllocHeap);
     lowMemoryAbort = true;
     return false;
   }
@@ -558,7 +559,8 @@ void ChapterHtmlSlimParser::locatePreviewBlockStart() {
     LOG_DBG("EHP", "No enclosing block located for preview anchor '%s'; starting at the anchor", previewAnchor.c_str());
     return;
   }
-  LOG_DBG("EHP", "Preview anchor '%s' resolves to block at element #%u", previewAnchor.c_str(), previewStartOrdinal);
+  LOG_DBG("EHP", "Preview anchor '%s' resolves to block at element #%" PRIu32, previewAnchor.c_str(),
+          previewStartOrdinal);
 }
 
 bool ChapterHtmlSlimParser::handlePreviewScanStart(const XML_Char** atts) {
@@ -838,7 +840,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
                                                        blockStyle, trackReferenceCharacters));
   if (!currentTextBlock) {
     const auto heap = MemoryBudget::snapshot();
-    LOG_ERR("EHP", "Failed to create text block (%u free, %u max alloc)", heap.freeHeap, heap.maxAllocHeap);
+    LOG_ERR("EHP", "Failed to create text block (%lu free, %lu max alloc)", heap.freeHeap, heap.maxAllocHeap);
     lowMemoryAbort = true;
     return;
   }
@@ -1433,7 +1435,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
       }
 
       if (destCell.lines.size() > TableFragmentCell::MAX_SERIALIZED_LINES) {
-        LOG_DBG("EHP", "Table layout fallback: cell line count %u exceeds fragment max %u",
+        LOG_DBG("EHP", "Table layout fallback: cell line count %" PRIu32 " exceeds fragment max %u",
                 static_cast<uint32_t>(destCell.lines.size()), TableFragmentCell::MAX_SERIALIZED_LINES);
         return false;
       }
@@ -1591,7 +1593,7 @@ void ChapterHtmlSlimParser::emitCurrentTableBuffer() {
   }
 
   if (table->unsupported) {
-    LOG_DBG("EHP", "Table layout fallback: unsupported structure (%u rows, %u cols, %u cells)",
+    LOG_DBG("EHP", "Table layout fallback: unsupported structure (%" PRIu32 " rows, %u cols, %u cells)",
             static_cast<uint32_t>(table->rows.size()), table->maxCols, table->totalCells);
     emitBufferedTableAsParagraphs(*table);
     return;
@@ -1606,7 +1608,7 @@ void ChapterHtmlSlimParser::fallbackCurrentTableBufferToParagraphs(const char* r
   }
 
   const auto heap = MemoryBudget::snapshot();
-  LOG_DBG("EHP", "Table layout fallback: %s (%u rows, %u cols, %u cells, free=%u, maxAlloc=%u)", reason,
+  LOG_DBG("EHP", "Table layout fallback: %s (%" PRIu32 " rows, %u cols, %u cells, free=%lu, maxAlloc=%lu)", reason,
           static_cast<uint32_t>(currentTableBuffer->rows.size()), currentTableBuffer->maxCols,
           currentTableBuffer->totalCells, heap.freeHeap, heap.maxAllocHeap);
 
@@ -2022,7 +2024,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
           makeUniqueNoThrow<CompactTableLayout>(self->renderer, self->fontId, self->viewportWidth, self->viewportHeight,
                                                 lineHeight, TABLE_CELL_PADDING, tableBlockStyle);
       if (!self->currentCompactTable || !self->currentCompactTable->valid()) {
-        LOG_ERR("EHP", "Failed to allocate compact table layout (free=%u, maxAlloc=%u)", heap.freeHeap,
+        LOG_ERR("EHP", "Failed to allocate compact table layout (free=%lu, maxAlloc=%lu)", heap.freeHeap,
                 heap.maxAllocHeap);
         self->lowMemoryAbort = true;
         return;
@@ -2036,17 +2038,17 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->compactFragmentFootnotes.reserve(Page::MAX_FOOTNOTES_PER_PAGE);
       self->compactFragmentHeight = 1;
       self->compactFragmentColumnCount = 0;
-      LOG_DBG("EHP", "Compact table layout selected (free=%u, maxAlloc=%u)", heap.freeHeap, heap.maxAllocHeap);
+      LOG_DBG("EHP", "Compact table layout selected (free=%lu, maxAlloc=%lu)", heap.freeHeap, heap.maxAllocHeap);
     } else {
       self->currentTableBuffer = makeUniqueNoThrow<BufferedTable>();
       if (!self->currentTableBuffer) {
-        LOG_ERR("EHP", "Failed to buffer rich table (free=%u, maxAlloc=%u)", heap.freeHeap, heap.maxAllocHeap);
+        LOG_ERR("EHP", "Failed to buffer rich table (free=%lu, maxAlloc=%lu)", heap.freeHeap, heap.maxAllocHeap);
         self->lowMemoryAbort = true;
         return;
       }
       self->currentTableBuffer->blockStyle = tableBlockStyle;
       self->currentTableBuffer->streaming = true;
-      LOG_DBG("EHP", "Rich table layout selected (free=%u, maxAlloc=%u)", heap.freeHeap, heap.maxAllocHeap);
+      LOG_DBG("EHP", "Rich table layout selected (free=%lu, maxAlloc=%lu)", heap.freeHeap, heap.maxAllocHeap);
     }
     self->tableDepth += 1;
     self->tableRowIndex = 0;
@@ -2280,7 +2282,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
               MemoryBudget::shouldReleaseSdFontCachesForEpubInlineImage(releaseHeapBefore) &&
               self->renderer.releaseSdCardFontForLowMemory(self->fontId, /*preserveAdvanceTable=*/true)) {
             const auto releaseHeapAfter = MemoryBudget::snapshot();
-            LOG_DBG("EHP", "Released SD font caches before image extraction: free=%u->%u maxAlloc=%u->%u src=%s",
+            LOG_DBG("EHP", "Released SD font caches before image extraction: free=%lu->%lu maxAlloc=%lu->%lu src=%s",
                     releaseHeapBefore.freeHeap, releaseHeapAfter.freeHeap, releaseHeapBefore.maxAllocHeap,
                     releaseHeapAfter.maxAllocHeap, src.c_str());
           }
@@ -2544,7 +2546,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 if (!self->lowMemoryImageFallback &&
                     !MemoryBudget::hasHeapForEpubInlineImage("EHP", cachedImagePath.c_str())) {
                   self->lowMemoryImageFallback = true;
-                  LOG_ERR("EHP", "Disabling remaining image extraction after failure (%u free, %u max alloc)",
+                  LOG_ERR("EHP", "Disabling remaining image extraction after failure (%lu free, %lu max alloc)",
                           postFailureFreeHeap, postFailureMaxAllocHeap);
                 }
                 LOG_ERR("EHP", "Failed to get image dimensions");
@@ -3573,7 +3575,7 @@ void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
 
   const auto heap = MemoryBudget::snapshot();
   if (!MemoryBudget::hasHeap(heap, MIN_FREE_HEAP_FOR_SECTION_PREWARM, MIN_MAX_ALLOC_FOR_SECTION_PREWARM)) {
-    LOG_DBG("EHP", "Skipping section advance prewarm: low heap (free=%u, maxAlloc=%u, need %u/%u)", heap.freeHeap,
+    LOG_DBG("EHP", "Skipping section advance prewarm: low heap (free=%lu, maxAlloc=%lu, need %lu/%lu)", heap.freeHeap,
             heap.maxAllocHeap, MIN_FREE_HEAP_FOR_SECTION_PREWARM, MIN_MAX_ALLOC_FOR_SECTION_PREWARM);
     return;
   }
@@ -3663,7 +3665,7 @@ void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
 
   renderer.ensureSdCardFontReady(fontId, codepoints.get(), cpCount, /*includeSpace=*/true, hyphenationEnabled,
                                  /*styleMask=*/0x0F);
-  LOG_DBG("EHP", "Section advance prewarm: codepoints=%u time=%lu ms free=%u maxAlloc=%u",
+  LOG_DBG("EHP", "Section advance prewarm: codepoints=%u time=%lu ms free=%" PRIu32 " maxAlloc=%" PRIu32,
           static_cast<unsigned>(cpCount), millis() - startMs, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
@@ -3868,8 +3870,8 @@ void ChapterHtmlSlimParser::abortParse() {
 
 bool ChapterHtmlSlimParser::finishParse() {
   if (activeParser) {
-    LOG_DBG("EHP", "Time to parse and build pages: %lu ms (free=%u, maxAlloc=%u)", millis() - parseStartTime_,
-            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_DBG("EHP", "Time to parse and build pages: %lu ms (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
+            millis() - parseStartTime_, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     destroyXmlParser(activeParser);
     activeParser = nullptr;
   }

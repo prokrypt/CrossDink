@@ -179,7 +179,7 @@ size_t getArduinoLoopTaskStackSize(void) { return CROSSDINK_LOOP_STACK_BYTES; }
 #endif
 
 static void logBootHeap(const char* stage) {
-  LOG_DBG("BOOTMEM", "%s: free=%u maxAlloc=%u", stage, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_DBG("BOOTMEM", "%s: free=%" PRIu32 " maxAlloc=%" PRIu32, stage, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
 // Fonts
@@ -868,7 +868,8 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
   auto syncActivity = makeUniqueNoThrow<KOReaderSyncActivity>(renderer, mappedInputManager, std::move(epubPath),
                                                               matchMethod, readerOrientation);
   if (!syncActivity) {
-    LOG_ERR("MAIN", "OOM: KOReader sync activity (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("MAIN", "OOM: KOReader sync activity (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     return false;
   }
   activityManager.replaceActivity(std::move(syncActivity));
@@ -890,8 +891,8 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         activityManager.replaceActivity(std::move(otaActivity));
         launched = true;
       } else {
-        LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                ESP.getMaxAllocHeap());
+        LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       }
       break;
     }
@@ -908,8 +909,8 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         activityManager.replaceActivity(std::move(authActivity));
         launched = true;
       } else {
-        LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                ESP.getMaxAllocHeap());
+        LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       }
       break;
     }
@@ -922,8 +923,8 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         activityManager.replaceActivity(std::move(fontsActivity));
         launched = true;
       } else {
-        LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                ESP.getMaxAllocHeap());
+        LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       }
       break;
     }
@@ -2077,7 +2078,7 @@ void setup() {
       // panel keeps showing the pre-reboot popup until that first paint lands.
       break;
     case BootResume::Network:
-      LOG_INF("BOOT", "Minimal network boot ready: target=%lu free=%u maxAlloc=%u",
+      LOG_INF("BOOT", "Minimal network boot ready: target=%lu free=%" PRIu32 " maxAlloc=%" PRIu32,
               static_cast<unsigned long>(snapshotTarget), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       break;
     case BootResume::SplashlessWake:
@@ -2656,7 +2657,7 @@ static void loopPass() {
     // never a half-drawn frame.
     RenderLock lock;
     const uint32_t bufferSize = display.getBufferSize();
-    logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
+    logSerial.printf("SCREENSHOT_START:%" PRIu32 "\n", bufferSize);
     uint8_t* buf = display.getFrameBuffer();
     logSerial.write(buf, bufferSize);
     logSerial.printf("SCREENSHOT_END\n");

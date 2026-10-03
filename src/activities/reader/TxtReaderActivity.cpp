@@ -1070,7 +1070,7 @@ bool TxtReaderActivity::loadPageIndexCache() {
   int32_t fontId;
   serialization::readPod(f, fontId);
   if (fontId != cachedFontId) {
-    LOG_DBG("TRS", "Cache font ID mismatch (%d != %d), rebuilding", fontId, cachedFontId);
+    LOG_DBG("TRS", "Cache font ID mismatch (%" PRId32 " != %d), rebuilding", fontId, cachedFontId);
     return false;
   }
 
@@ -1093,7 +1093,7 @@ bool TxtReaderActivity::loadPageIndexCache() {
   uint32_t numPages;
   serialization::readPod(f, numPages);
   if (numPages > MAX_CACHE_PAGES) {
-    LOG_ERR("TRS", "Cache numPages %u exceeds cap %u, cache invalid", numPages, MAX_CACHE_PAGES);
+    LOG_ERR("TRS", "Cache numPages %" PRIu32 " exceeds cap %lu, cache invalid", numPages, MAX_CACHE_PAGES);
     f.close();
     return false;
   }
@@ -1250,7 +1250,8 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
               savedOffset = off;
               offsetKnown = true;
             } else {
-              LOG_DBG("SLP", "TXT: index.bin offset %u out of range (fileSize=%u), ignoring", off, txt.getFileSize());
+              LOG_DBG("SLP", "TXT: index.bin offset %" PRIu32 " out of range (fileSize=%u), ignoring", off,
+                      txt.getFileSize());
             }
           }
         }

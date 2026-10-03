@@ -537,7 +537,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
   constexpr int MAX_IMAGE_HEIGHT = 3072;
 
   if (width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT || width == 0 || height == 0) {
-    LOG_ERR("PNG", "Image too large or zero (%ux%u)", width, height);
+    LOG_ERR("PNG", "Image too large or zero (%" PRIu32 "x%" PRIu32 ")", width, height);
     return false;
   }
 
@@ -582,7 +582,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
 
   // Validate raw row bytes won't cause memory issues
   if (rawRowBytes > 16384) {
-    LOG_ERR("PNG", "Row too large: %u bytes", rawRowBytes);
+    LOG_ERR("PNG", "Row too large: %" PRIu32 " bytes", rawRowBytes);
     return false;
   }
 
@@ -602,7 +602,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
   const size_t scanlineRowBytes = rawRowBytes;
   auto scanlineRows = makeUniqueNoThrow<uint8_t[]>(scanlineRowBytes * 2);
   if (!scanlineRows) {
-    LOG_ERR("PNG", "OOM: scanline buffers (%u bytes each)", rawRowBytes);
+    LOG_ERR("PNG", "OOM: scanline buffers (%" PRIu32 " bytes each)", rawRowBytes);
     return false;
   }
   ctx.currentRow = scanlineRows.get();
@@ -738,7 +738,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
   for (uint32_t y = 0; y < height; y++) {
     // Decode one scanline
     if (!decodeScanline(ctx)) {
-      LOG_ERR("PNG", "Failed to decode scanline %u", y);
+      LOG_ERR("PNG", "Failed to decode scanline %" PRIu32, y);
       success = false;
       break;
     }

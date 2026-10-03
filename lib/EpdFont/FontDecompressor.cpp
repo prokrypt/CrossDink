@@ -177,7 +177,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
   // Fallback: hot group slot
   uint16_t groupIndex = getGroupIndex(fontData, glyphIndex);
   if (groupIndex >= fontData->groupCount) {
-    LOG_ERR("FDC", "Glyph %u not found in any group", glyphIndex);
+    LOG_ERR("FDC", "Glyph %" PRIu32 " not found in any group", glyphIndex);
     stats.getBitmapTimeUs += micros() - tStart;
     return nullptr;
   }
@@ -191,7 +191,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     hotGroupFont = nullptr;
     hotGroupIndex = UINT16_MAX;
     if (!ensureCapacity(hotGroup, hotGroupCapacity, group.uncompressedSize)) {
-      LOG_ERR("FDC", "Failed to allocate %u bytes for hot group %u", group.uncompressedSize, groupIndex);
+      LOG_ERR("FDC", "Failed to allocate %lu bytes for hot group %u", group.uncompressedSize, groupIndex);
       stats.getBitmapTimeUs += micros() - tStart;
       return nullptr;
     }
@@ -364,7 +364,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
   slot.buffer = static_cast<uint8_t*>(malloc(totalBytes));
   slot.glyphs = static_cast<PageGlyphEntry*>(malloc(glyphCount * sizeof(PageGlyphEntry)));
   if (!slot.buffer || !slot.glyphs) {
-    LOG_ERR("FDC", "Failed to allocate page buffer (%u bytes, %u glyphs)", totalBytes, glyphCount);
+    LOG_ERR("FDC", "Failed to allocate page buffer (%" PRIu32 " bytes, %u glyphs)", totalBytes, glyphCount);
     free(slot.buffer);
     free(slot.glyphs);
     slot = {};
@@ -473,7 +473,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
     auto* tempBuf = static_cast<uint8_t*>(malloc(group.uncompressedSize));
     if (!tempBuf) {
-      LOG_ERR("FDC", "Failed to allocate temp buffer (%u bytes) for group %u", group.uncompressedSize, groupIdx);
+      LOG_ERR("FDC", "Failed to allocate temp buffer (%lu bytes) for group %u", group.uncompressedSize, groupIdx);
       missed++;
       continue;
     }
@@ -502,8 +502,8 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     free(tempBuf);
   }
 
-  LOG_DBG("FDC", "Prewarm: %u glyphs in %u bytes from %u groups (%d missed)", glyphCount, writeOffset, groupCount,
-          missed);
+  LOG_DBG("FDC", "Prewarm: %u glyphs in %" PRIu32 " bytes from %u groups (%d missed)", glyphCount, writeOffset,
+          groupCount, missed);
 
   return missed;
 }

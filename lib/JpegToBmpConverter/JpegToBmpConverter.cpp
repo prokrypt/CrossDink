@@ -596,7 +596,7 @@ static bool isProgressiveJpeg(FsFile& file) {
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
                                                      bool oneBit, bool crop, bool adaptiveContain, bool imageLevels) {
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
-    LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);
+    LOG_ERR("JPG", "Not enough heap for JPEG decoder (%" PRIu32 " free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);
     return false;
   }
 

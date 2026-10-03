@@ -84,7 +84,7 @@ bool FileIndex::open(const char* dirPath, AcceptFn accept) {
     return true;
   }
 
-  LOG_INF("FIDX", "building index for %s (%u dirs, %u files)", dirPath, dirs, files);
+  LOG_INF("FIDX", "building index for %s (%" PRIu32 " dirs, %" PRIu32 " files)", dirPath, dirs, files);
   return build(dirPath, accept, signature, dirs, files);
 }
 
@@ -358,7 +358,7 @@ bool FileIndex::build(const char* dirPath, AcceptFn accept, uint32_t signature, 
   }
   hdr = newHdr;
   opened = true;
-  LOG_INF("FIDX", "index built: %u dirs, %u files", dirCount, fileCount);
+  LOG_INF("FIDX", "index built: %" PRIu32 " dirs, %" PRIu32 " files", dirCount, fileCount);
   return true;
 }
 

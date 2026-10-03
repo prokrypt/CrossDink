@@ -362,7 +362,8 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
 
     constexpr size_t maxStoredCumulativeSize = std::numeric_limits<uint32_t>::max();
     if (itemSize > maxStoredCumulativeSize || cumSize > maxStoredCumulativeSize - itemSize) {
-      LOG_ERR("BMC", "Spine cumulative size overflow for item %d (cumSize=%u, itemSize=%zu)", i, cumSize, itemSize);
+      LOG_ERR("BMC", "Spine cumulative size overflow for item %d (cumSize=%" PRIu32 ", itemSize=%zu)", i, cumSize,
+              itemSize);
       zip.close();
       closeBuildFiles();
       return false;

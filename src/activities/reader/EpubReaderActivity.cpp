@@ -1087,8 +1087,8 @@ bool releaseReaderSdFontCachesForLowMemory(const GfxRenderer& renderer, const ch
   }
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const auto after = MemoryBudget::snapshot();
-  LOG_DBG(tag, "Released SD font caches after %s: free=%u->%u maxAlloc=%u->%u", reason, before.freeHeap, after.freeHeap,
-          before.maxAllocHeap, after.maxAllocHeap);
+  LOG_DBG(tag, "Released SD font caches after %s: free=%lu->%lu maxAlloc=%lu->%lu", reason, before.freeHeap,
+          after.freeHeap, before.maxAllocHeap, after.maxAllocHeap);
 #endif
   return true;
 }
@@ -2778,7 +2778,8 @@ void EpubReaderActivity::openReaderMenu() {
   startActivityForResult(std::move(menuActivity), [this](const ActivityResult& result) {
 #if !CROSSDINK_APP_CAP_TOUCH
     const auto heapAfterMenu = MemoryBudget::snapshot();
-    LOG_DBG("ERDM", "Button drawer returned: free=%u maxAlloc=%u", heapAfterMenu.freeHeap, heapAfterMenu.maxAllocHeap);
+    LOG_DBG("ERDM", "Button drawer returned: free=%lu maxAlloc=%lu", heapAfterMenu.freeHeap,
+            heapAfterMenu.maxAllocHeap);
 #endif
     if (const auto* chapter = std::get_if<ChapterResult>(&result.data)) {
       touchReaderDrawerState = chapter->drawerState;
@@ -2905,7 +2906,7 @@ bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
   }
 
   if (!backgroundBuildPausedForLowMemory) {
-    LOG_DBG("ERS", "Pausing background section build: low heap (free=%u, maxAlloc=%u, need %u/%u)", heap.freeHeap,
+    LOG_DBG("ERS", "Pausing background section build: low heap (free=%lu, maxAlloc=%lu, need %lu/%lu)", heap.freeHeap,
             heap.maxAllocHeap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC);
   }
   backgroundBuildPausedForLowMemory = true;
@@ -4689,7 +4690,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
         // ActivityManager owns this one-shot handoff across deferred reader teardown.
         auto restartActivity = makeUniqueNoThrow<KOReaderSyncActivity>(renderer, mappedInput, SETTINGS.orientation);
         if (!restartActivity) {
-          LOG_ERR("KOSync", "OOM: restart handoff (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+          LOG_ERR("KOSync", "OOM: restart handoff (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
           drawToast(renderer, tr(STR_KOREADER_SYNC_LOW_MEMORY));
           delay(1200);
           requestUpdate();
@@ -5168,7 +5170,7 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
     const uint32_t wordReserveBytes = static_cast<uint32_t>(maxSelectableWords * sizeof(WordRef));
     const auto heapBeforeWords = MemoryBudget::snapshot();
     if (heapBeforeWords.maxAllocHeap < wordReserveBytes + CLIP_SELECTION_WORD_RESERVE_HEADROOM) {
-      LOG_ERR("CLIP", "Low heap for clipping selection (%u free, %u max alloc, need block %u); skipping",
+      LOG_ERR("CLIP", "Low heap for clipping selection (%lu free, %lu max alloc, need block %lu); skipping",
               heapBeforeWords.freeHeap, heapBeforeWords.maxAllocHeap,
               wordReserveBytes + CLIP_SELECTION_WORD_RESERVE_HEADROOM);
       section->currentPage = startPage;
@@ -6633,8 +6635,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     releaseGrayscaleStripScratch();
     const uint32_t sectionStartMs = millis();
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
-    LOG_DBG("ERS", "Loading file: %s, index: %d (free=%u, maxAlloc=%u)", filepath.c_str(), currentSpineIndex,
-            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_DBG("ERS", "Loading file: %s, index: %d (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")", filepath.c_str(),
+            currentSpineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     const int readerFontId = SETTINGS.getReaderFontId();
     const EpubRenderMode selectedRenderMode = normalizeRenderMode(SETTINGS.epubRenderMode);
     const bool fullSectionIndexing = SETTINGS.indexingMethod == CrossPointSettings::INDEXING_FULL_SECTION;
@@ -6651,8 +6653,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                                           : std::string(sectionCacheSuffixForRenderMode(renderMode));
       section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer, cacheSuffix.c_str());
       if (!section) {
-        LOG_ERR("ERS", "Failed to allocate section for spine %d (font=%d, free=%u, maxAlloc=%u)", currentSpineIndex,
-                fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        LOG_ERR("ERS", "Failed to allocate section for spine %d (font=%d, free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
+                currentSpineIndex, fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
         return false;
       }
       const ReaderRenderSpec spec =
@@ -6689,10 +6691,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "uncached section build");
       }
       if (partialCacheLoaded) {
-        LOG_DBG("ERS", "Partial cache found (%u pages), resuming build... (free=%u, maxAlloc=%u)", section->pageCount,
-                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        LOG_DBG("ERS", "Partial cache found (%u pages), resuming build... (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
+                section->pageCount, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       } else {
-        LOG_DBG("ERS", "Cache not found, building... (free=%u, maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        LOG_DBG("ERS", "Cache not found, building... (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
+                ESP.getMaxAllocHeap());
       }
 
       const auto popupFn = [this]() {
@@ -6723,8 +6726,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           section.reset();
           section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer, cacheSuffix.c_str());
           if (!section) {
-            LOG_ERR("ERS", "Failed to allocate %s section builder for spine %d (free=%u, maxAlloc=%u)", profile.label,
-                    currentSpineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+            LOG_ERR("ERS",
+                    "Failed to allocate %s section builder for spine %d (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
+                    profile.label, currentSpineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
             layoutAbortedForLowMemory = true;
             return false;
           }
@@ -6845,13 +6849,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           activeSectionLayoutSignature = readerRenderSpecSignature(spec);
           usedRenderMode = profile.renderMode;
           safeModeBuildSucceeded = profile.safeMode;
-          LOG_DBG("ERS",
-                  "%s section cache built: spine=%d font=%d mode=%u embedded=%u focus=%u guide=%u pages=%u free=%u "
-                  "maxAlloc=%u building=%u",
-                  profile.label, currentSpineIndex, fontId, static_cast<unsigned>(profile.renderMode),
-                  static_cast<unsigned>(profile.embeddedStyle), static_cast<unsigned>(profile.focusReadingEnabled),
-                  static_cast<unsigned>(profile.guideReadingEnabled), section->pageCount, ESP.getFreeHeap(),
-                  ESP.getMaxAllocHeap(), section->isBuilding() ? 1U : 0U);
+          LOG_DBG(
+              "ERS",
+              "%s section cache built: spine=%d font=%d mode=%u embedded=%u focus=%u guide=%u pages=%u free=%" PRIu32
+              " "
+              "maxAlloc=%" PRIu32 " building=%u",
+              profile.label, currentSpineIndex, fontId, static_cast<unsigned>(profile.renderMode),
+              static_cast<unsigned>(profile.embeddedStyle), static_cast<unsigned>(profile.focusReadingEnabled),
+              static_cast<unsigned>(profile.guideReadingEnabled), section->pageCount, ESP.getFreeHeap(),
+              ESP.getMaxAllocHeap(), section->isBuilding() ? 1U : 0U);
         }
         return buildSucceeded;
       };
@@ -6962,11 +6968,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "section cache build");
       }
       if (usedReadablePartialFallback) {
-        LOG_DBG("ERS", "Continuing from readable partial cache after failed build: pages=%u free=%u maxAlloc=%u",
+        LOG_DBG("ERS",
+                "Continuing from readable partial cache after failed build: pages=%u free=%" PRIu32
+                " maxAlloc=%" PRIu32,
                 section->pageCount, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       } else {
-        LOG_DBG("ERS", "Cache build complete: pages=%u font=%d mode=%u free=%u maxAlloc=%u", section->pageCount,
-                activeSectionFontId, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        LOG_DBG("ERS", "Cache build complete: pages=%u font=%d mode=%u free=%" PRIu32 " maxAlloc=%" PRIu32,
+                section->pageCount, activeSectionFontId, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(),
+                ESP.getMaxAllocHeap());
       }
 
       if (!buildingFootnotePreview && safeModeBuildSucceeded) {
@@ -6980,7 +6989,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
 
     } else {
-      LOG_DBG("ERS", "Cache found, skipping build... (pages=%u, font=%d mode=%u free=%u, maxAlloc=%u)",
+      LOG_DBG("ERS",
+              "Cache found, skipping build... (pages=%u, font=%d mode=%u free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
               section->pageCount, activeSectionFontId, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(),
               ESP.getMaxAllocHeap());
     }
@@ -7402,8 +7412,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
     return;
   }
 
-  LOG_DBG("ERS", "Silently indexing next chapter: %d (free=%u, maxAlloc=%u)", nextSpineIndex, ESP.getFreeHeap(),
-          ESP.getMaxAllocHeap());
+  LOG_DBG("ERS", "Silently indexing next chapter: %d (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")", nextSpineIndex,
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   silentPrefetchCancelRequested.store(false, std::memory_order_relaxed);
   silentPrefetchBuildActive.store(true, std::memory_order_release);
   struct ClearSilentPrefetchBuildActive {
@@ -7449,8 +7459,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
     layoutAbortedForLowMemory = attemptAbortedForLowMemory;
     if (succeeded) {
       usedRenderMode = profile.renderMode;
-      LOG_DBG("ERS", "Silent indexing complete: chapter=%d pages=%u mode=%u free=%u maxAlloc=%u", nextSpineIndex,
-              attemptSection->pageCount, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(),
+      LOG_DBG("ERS", "Silent indexing complete: chapter=%d pages=%u mode=%u free=%" PRIu32 " maxAlloc=%" PRIu32,
+              nextSpineIndex, attemptSection->pageCount, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(),
               ESP.getMaxAllocHeap());
     }
     return succeeded;
@@ -7582,8 +7592,8 @@ void EpubReaderActivity::silentIndexWorkerMain(void* param) {
 
 void EpubReaderActivity::runSilentIndexWorker() {
   auto& job = silentWorker;
-  LOG_DBG("ERS", "Silently indexing next chapter on core %d: %d (free=%u, maxAlloc=%u)", xPortGetCoreID(),
-          job.spineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_DBG("ERS", "Silently indexing next chapter on core %d: %d (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
+          xPortGetCoreID(), job.spineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   auto nextSection =
       makeUniqueNoThrow<Section>(epub, job.spineIndex, renderer, sectionCacheSuffixForRenderMode(job.renderMode));
   if (!nextSection) {
@@ -7624,7 +7634,7 @@ void EpubReaderActivity::runSilentIndexWorker() {
     job.needsRenderLane = true;
     return;
   }
-  LOG_DBG("ERS", "Worker indexing complete: chapter=%d pages=%u free=%u maxAlloc=%u", job.spineIndex,
+  LOG_DBG("ERS", "Worker indexing complete: chapter=%d pages=%u free=%" PRIu32 " maxAlloc=%" PRIu32, job.spineIndex,
           nextSection->pageCount, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   job.succeeded = true;
 }
@@ -7677,7 +7687,8 @@ void EpubReaderActivity::maybeStartHomeThumbWorker() {
   // only while the job runs.
   constexpr uint32_t STACK_BYTES = 8192;
   if (!MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, STACK_BYTES + 4096U)) {
-    LOG_DBG("ERS", "Skipping Home thumbs: low heap (free=%u, maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_DBG("ERS", "Skipping Home thumbs: low heap (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     return;
   }
   powerManager.beginBackgroundWork();
@@ -7777,8 +7788,8 @@ bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int margi
   // Decoder buffers go to PSRAM; the stack is internal RAM only while it runs.
   constexpr uint32_t STACK_BYTES = 12288;
   if (fits && (!job.renderer || !MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, STACK_BYTES + 4096U))) {
-    LOG_ERR("ERS", "Image cache worker unavailable (frame=%u, free=%u, maxAlloc=%u)", job.frame ? 1U : 0U,
-            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("ERS", "Image cache worker unavailable (frame=%u, free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
+            job.frame ? 1U : 0U, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     fits = false;
   }
   if (!fits || count == 0) {
@@ -8262,14 +8273,16 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
     bool prewarmSucceeded = prewarmVisibleText();
     if (!prewarmSucceeded && renderer.isSdCardFont(fontId)) {
-      LOG_ERR("ERS", "SD-font page prewarm failed (font=%d free=%u maxAlloc=%u); releasing caches and retrying", fontId,
-              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      LOG_ERR("ERS",
+              "SD-font page prewarm failed (font=%d free=%" PRIu32 " maxAlloc=%" PRIu32
+              "); releasing caches and retrying",
+              fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       renderer.releaseSdCardFontForLowMemory(fontId, /*preserveAdvanceTable=*/true);
       prewarmSucceeded = prewarmVisibleText();
     }
     if (!prewarmSucceeded) {
-      LOG_ERR("ERS", "Font page prewarm failed after retry (font=%d free=%u maxAlloc=%u)", fontId, ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
+      LOG_ERR("ERS", "Font page prewarm failed after retry (font=%d free=%" PRIu32 " maxAlloc=%" PRIu32 ")", fontId,
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       return false;
     }
   }
@@ -9379,8 +9392,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
       return false;
     }
 
-    LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding (free=%u, maxAlloc=%u)", spineIndex,
-            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
+            spineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     if (!rebuildSectionWithFallback()) {
       LOG_ERR("SLP", "EPUB: failed to rebuild section cache for spine %d", spineIndex);
       return false;
@@ -9417,7 +9430,9 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
       saveBookRenderModeForCache(epub->getCachePath(), SETTINGS.epubRenderMode);
     }
     releaseReaderSdFontCachesForLowMemory(renderer, "SLP", "sleep-page section cache rebuild");
-    LOG_DBG("SLP", "EPUB: section cache rebuilt for spine %d (pages=%u, font=%d, mode=%u free=%u, maxAlloc=%u)",
+    LOG_DBG("SLP",
+            "EPUB: section cache rebuilt for spine %d (pages=%u, font=%d, mode=%u free=%" PRIu32 ", maxAlloc=%" PRIu32
+            ")",
             spineIndex, section->pageCount, renderFontId, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
   }

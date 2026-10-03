@@ -165,11 +165,11 @@ void start() {
                               TaskCores::kWorker) != pdPASS) {
     task = nullptr;
     gaveUp = true;
-    LOG_ERR("LIBPW", "Cannot start background Library build (%u free, %u max alloc)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_ERR("LIBPW", "Cannot start background Library build (%" PRIu32 " free, %" PRIu32 " max alloc)",
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     return;
   }
-  LOG_INF("LIBPW", "Background Library build started (%u free, %u max alloc)", ESP.getFreeHeap(),
+  LOG_INF("LIBPW", "Background Library build started (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
           ESP.getMaxAllocHeap());
 }
 }  // namespace
@@ -190,8 +190,8 @@ void tick(const bool idle) {
   if (ESP.getFreeHeap() < kMinFreeHeap || ESP.getMaxAllocHeap() < kMinMaxAlloc) {
     if (lastSkip != SkipReason::LowHeap) {
       lastSkip = SkipReason::LowHeap;
-      LOG_INF("LIBPW", "Background Library build waiting for heap (%u free, %u max alloc)", ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
+      LOG_INF("LIBPW", "Background Library build waiting for heap (%" PRIu32 " free, %" PRIu32 " max alloc)",
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     }
     return;
   }

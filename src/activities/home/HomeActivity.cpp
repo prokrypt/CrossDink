@@ -1255,8 +1255,8 @@ bool HomeActivity::storeCoverBuffer() {
   const size_t needed = renderer.getRegionByteSize(coverRectX, coverRectY, coverRectW, coverRectH);
   if (needed == 0) return false;
   if (ESP.getFreeHeap() < needed || ESP.getMaxAllocHeap() < needed) {
-    LOG_DBG("HOME", "Skipping cover buffer cache (%zu bytes, free=%u, maxAlloc=%u)", needed, ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_DBG("HOME", "Skipping cover buffer cache (%zu bytes, free=%" PRIu32 ", maxAlloc=%" PRIu32 ")", needed,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     return false;
   }
   coverBuffer = static_cast<uint8_t*>(malloc(needed));
@@ -1330,7 +1330,8 @@ bool HomeActivity::allocateCarouselFrameSlots(int targetFrameCount) {
         break;
       }
       if (!usePsram && !hasHeapForCarouselFrameCache()) {
-        LOG_INF("HOME", "carousel: low heap after frame cache alloc (%u free, %u maxAlloc); skipping cache",
+        LOG_INF("HOME",
+                "carousel: low heap after frame cache alloc (%" PRIu32 " free, %" PRIu32 " maxAlloc); skipping cache",
                 ESP.getFreeHeap(), ESP.getMaxAllocHeap());
         allocFailed = true;
         break;

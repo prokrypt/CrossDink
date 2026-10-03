@@ -1,11 +1,13 @@
 #include "HalSystem.h"
 
+#include <algorithm>
 #include <string>
 
 #include "AppVersion.h"
 #include "Arduino.h"
 #include "HalStorage.h"
 #include "Logging.h"
+#include "PsramLog.h"
 #include "esp_app_desc.h"
 #include "esp_debug_helpers.h"
 #include "esp_private/esp_cpu_internal.h"
@@ -292,6 +294,22 @@ void checkPanic() {
     auto file = Storage.open("/debug/crash_report.txt", O_WRITE | O_CREAT | O_TRUNC);
     if (file) {
       const size_t written = file.write(panicInfo.c_str(), panicInfo.size());
+#if CROSSDINK_PSRAM_LOG
+      // The PSRAM ring survives a panic reset: add its last 16 KB, which holds
+      // far more of the run-up to the crash than the RTC lines above.
+      static constexpr char header[] = "\n\nPSRAM log (last 16 KB):\n";
+      file.write(header, sizeof(header) - 1);
+      const uint32_t end = PsramLog::end();
+      uint32_t cursor = std::max<uint32_t>(PsramLog::oldest(), end > 16384 ? end - 16384 : 0);
+      char chunk[512];  // stack, not heap: runs once in setup() on the loop task
+      size_t n;
+      while (cursor < end && (n = PsramLog::read(cursor, chunk, std::min<size_t>(sizeof(chunk), end - cursor))) > 0) {
+        if (file.write(chunk, n) != n) {
+          LOG_ERR("SYS", "Crash report: PSRAM log write failed");
+          break;
+        }
+      }
+#endif
       file.close();
       if (written == panicInfo.size()) {
         // Keep the crash data for CrashActivity, but mark it consumed so a
@@ -341,7 +359,7 @@ std::string getPanicInfo(bool full) {
     info += "\n\nLast logs:\n" + getLastLogs();
     auto toHex = [](uint32_t value) {
       char buffer[9];
-      snprintf(buffer, sizeof(buffer), "%08X", value);
+      snprintf(buffer, sizeof(buffer), "%08" PRIX32, value);
       return std::string(buffer);
     };
 #if CONFIG_IDF_TARGET_ARCH_RISCV

@@ -32,8 +32,8 @@ function show() {
   const kind = $('src').selectedOptions[0]?.dataset.dl || '';
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const wrap = (c, h) => (c ? `<span class="${c}">${h}</span>` : h);
-  // Logs: errors and crashes red, DBG dimmed, each [TAG] a stable hue from its name.
-  const lvl = (l) => (/\[ERR\]|Guru Meditation|panic|abort\(\)|assert failed/.test(l) ? 'e' : l.includes('[DBG]') ? 'd' : '');
+  // Logs: errors and crashes red, warnings amber, DBG dimmed, each [TAG] a stable hue from its name.
+  const lvl = (l) => (/\[ERR\]|Guru Meditation|panic|abort\(\)|assert failed/.test(l) ? 'e' : l.includes('[WRN]') ? 'w' : l.includes('[DBG]') ? 'd' : '');
   const hue = (t) => ([...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) * 137) % 360;
   const tag = (l) => l.replace(/^(\[\s*\d+\] \[\w+\] )\[([^\]]+)\]/, (m, a, t) => `${a}<span style="color:hsl(${hue(t)} 60% var(--tl))">[${t}]</span>`);
   // JSON: keys, strings, numbers, true/false/null.

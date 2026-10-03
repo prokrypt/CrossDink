@@ -51,7 +51,7 @@ int ReaderActivity::initialRefreshCountdown() const {
 ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path) {
   EpubOpenResult result;
   if (!Storage.exists(path.c_str())) {
-    LOG_ERR("READER", "File does not exist: %s", path.c_str());
+    LOG_WRN("READER", "File does not exist: %s", path.c_str());
     return result;
   }
 
@@ -110,7 +110,7 @@ void ReaderActivity::queueEpubOpenAlert(const Epub::OpenFailure failure) {
 
 std::unique_ptr<Xtc> ReaderActivity::loadXtc(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
-    LOG_ERR("READER", "File does not exist: %s", path.c_str());
+    LOG_WRN("READER", "File does not exist: %s", path.c_str());
     return nullptr;
   }
 
@@ -129,7 +129,7 @@ std::unique_ptr<Xtc> ReaderActivity::loadXtc(const std::string& path) {
 
 std::unique_ptr<Txt> ReaderActivity::loadTxt(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
-    LOG_ERR("READER", "File does not exist: %s", path.c_str());
+    LOG_WRN("READER", "File does not exist: %s", path.c_str());
     return nullptr;
   }
 
