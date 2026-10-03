@@ -180,6 +180,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- X4 Pro (debug builds): Goodies > Battery & stats and the web Battery section no longer show a drain ± bigger than the drain itself ("Asleep drain: 0.04±0.11%/h"). Each sleep's rounding added to the ± in a straight line, so many short sleeps inflated it and it never shrank as the log grew; the roundings are independent, so they now add in quadrature and the ± shrinks as more is logged. A ± that would still reach below zero shows as a range from 0 ("0.04 (0-0.09)%/h"), and the asleep drain also gives the rate per day ("~1.0%/day").
 - Web File Manager: the Modified column is hidden on screens up to 800 px wide (was 600 px), so phones with a small display size or zoomed-out browser no longer squeeze file names to a few letters per line.
 - X4 Pro (debug builds): Goodies > Battery & stats no longer shows a longer time to empty for a brighter frontlight. When the log showed less drain with the light on than off (the light-off stretches held heavier work, like transfers), the light's share came out negative and grew with brightness; the light now only ever adds drain, so the estimate stays at the light-off rate until the log shows the light costing more.
 - X4 Pro: after a crash or restart the device could get stuck rebooting about 0.3 s into every boot, so it looked like it would not wake until the reset button was pressed. A charger or button line left armed by the previous run no longer fires before its handler is ready.
