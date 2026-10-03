@@ -36,4 +36,19 @@ int main() {
   CHECK(!ZipFile("test.epub").readStoredFileToStream("stored.pxc2", failed));
   CHECK(!ZipFile("test.epub").readStoredFileToStream("absent.pxc2", failed));
   puts("Stored-only ZIP rejects deflated PXC2 without initializing an inflater");
+  // Central-directory table: binary search answers both entries and misses,
+  // and a changed file (size differs) rebuilds it instead of reusing offsets.
+  size_t size = 0;
+  CHECK(ZipFile("test.epub").getInflatedFileSize("stored.pxc2", &size) && size == 2139);
+  CHECK(ZipFile("test.epub").getInflatedFileSize("deflated.pxc2", &size) && size == 2139);
+  CHECK(!ZipFile("test.epub").getInflatedFileSize("stored.pxc", &size));
+  std::vector<uint8_t> grown = Storage.bytes("test.epub");
+  grown.resize(grown.size() + 64, 0);  // a size change rebuilds; EOCD is still found in the last 1 KB
+  Storage.put("test.epub", grown);
+  CHECK(ZipFile("test.epub").getInflatedFileSize("stored.pxc2", &size) && size == 2139);
+  Storage.put("other.epub", grown);
+  CHECK(ZipFile("other.epub").getInflatedFileSize("deflated.pxc2", &size) && size == 2139);
+  Output again;
+  CHECK(ZipFile("test.epub").readStoredFileToStream("stored.pxc2", again) && again.count == stored.count);
+  puts("Central-directory table finds entries, rejects misses, and rebuilds per file");
 }

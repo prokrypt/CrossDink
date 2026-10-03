@@ -63,8 +63,8 @@ void saveCachedEpubPercentToCachePath(const std::string& cachePath, const float 
   const float clamped = clampProgressPercent(progress);
   const uint16_t basisPoints = static_cast<uint16_t>((clamped * 100.0f) + 0.5f);
 
-  // Home and the sleep screen recompute this on every visit; a read is cheaper
-  // on the card than rewriting an identical value.
+  // The reader saves this on every exit; a read is cheaper on the card than
+  // rewriting an identical value.
   uint16_t existing = 0;
   if (readCachedEpubBasisPoints(cachePath, existing) && existing == basisPoints) {
     return;
@@ -115,7 +115,7 @@ float loadEpubSizeProgressPercentFromCachePath(const std::string& cachePath) {
         static_cast<float>(prevChapterSize) + (static_cast<float>(currentChapterSize) * chapterProgress);
     progressPercent = clampProgressPercent((totalProgress / static_cast<float>(bookSize)) * 100.0f);
   }
-  saveCachedEpubPercentToCachePath(cachePath, progressPercent);
+  // Computed in memory only: browsing never writes the card. The reader saves the cache on exit.
   return progressPercent;
 }
 
@@ -137,7 +137,6 @@ float loadEpubProgressPercent(const RecentBook& book) {
   const float chapterProgress = static_cast<float>(progress.pageNumber + 1) / static_cast<float>(progress.pageCount);
   const float progressPercent =
       clampProgressPercent(epub.calculateProgress(progress.spineIndex, chapterProgress) * 100.0f);
-  saveCachedEpubPercentToCachePath(epub.getCachePath(), progressPercent);
   return progressPercent;
 }
 
