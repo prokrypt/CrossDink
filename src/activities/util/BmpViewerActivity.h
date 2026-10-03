@@ -31,8 +31,8 @@ class BmpViewerActivity final : public Activity {
   // no button hints). Their AND is the B/W image.
   struct DecodedImage {
     std::string path;
-    uint8_t look = 0;  // DirectPixelWriter::bwImages it was decoded for
-    bool gray = false;  // shows with a gray refresh; false = one FAST refresh
+    uint8_t look = 0;                         // DirectPixelWriter::bwImages it was decoded for
+    bool gray = false;                        // shows with a gray refresh; false = one FAST refresh
     int x = 0, y = 0, width = 0, height = 0;  // picture rect, for night-mode polarity
     HeapByteBuffer lsb;
     HeapByteBuffer msb;
