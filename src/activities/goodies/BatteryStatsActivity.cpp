@@ -240,10 +240,12 @@ void BatteryStatsActivity::buildLines() {
     const uint32_t pctNowC = powerManager.getBatteryPercent256() * 100u / 256u;
     const uint32_t drop = st.dropC[0] + st.dropC[1];
     const uint32_t span = st.battS[0] + st.battS[1];
+    char light[8];
+    snprintf(light, sizeof(light), "%u%%", lightNow);
+    snprintf(b, sizeof(b), "Wi-Fi %s, light %s", wifiNow ? "on" : "off", lightNow ? light : "off");
     if (rate > 0) {
       formatDur(static_cast<uint32_t>(pctNowC / rate), a, sizeof(a));
-      snprintf(b, sizeof(b), "%u%%", lightNow);
-      add("Est to empty: %s (Wi-Fi %s, light %s)", a, wifiNow ? "on" : "off", lightNow ? b : "off");
+      add("Est to empty: %s (%s)", a, b);
     } else if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
       // The drop's ± moves the estimate by about left * ± / drop.
       const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pctNowC) * span / drop);
@@ -251,7 +253,7 @@ void BatteryStatsActivity::buildLines() {
       formatDur(left, a, sizeof(a));
       formatDur(static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err,
                 sizeof(err));
-      add("Est to empty: %s \xC2\xB1%s (avg)", a, err);
+      add("Est to empty: %s \xC2\xB1%s (avg; %s)", a, err, b);
     } else {
       add("Est to empty: %s", NOT_ENOUGH);
     }
