@@ -12,6 +12,13 @@
 // object is the page's saved parse checkpoint (battery.sum), so every bit of
 // state carried from one row to the next lives in it.
 struct BatteryLogParser {
+  // Unbroken runs of on-battery steps in one category: count and the sums the
+  // drop's ± is fitted from (errSq): d = drop (0.01 %), t = seconds.
+  struct RunSums {
+    uint32_t n;
+    int64_t dt;
+    uint64_t d2, t2;
+  };
   struct Point {
     uint32_t epoch;
     uint8_t pct;
@@ -28,18 +35,19 @@ struct BatteryLogParser {
     uint32_t chargedEpoch, chargeStartEpoch;
     uint16_t chargeFromC, chargeToC;  // 0.01 %
     bool chargeFromFine, chargeToFine, charging;
-    // On battery, over the whole log; [0] awake, [1] asleep. In 0.01 %: drop,
-    // and its ± squared (each unbroken run of steps adds RUN_ERR_C, the gauge's
-    // wander between rows: inside a run it cancels; runs wander independently,
-    // so their ± add in quadrature).
-    uint32_t battS[2], dropC[2], errC[2];
-    int8_t run;  // category of the run the last step extended, -1 = none
+    // On battery, over the whole log; [0] awake, [1] asleep: seconds, drop in
+    // 0.01 %, and its runs (the ± is their scatter, errSq).
+    uint32_t battS[2], dropC[2];
+    RunSums runs[2];
+    int8_t run;    // category of the open run, -1 = none
+    int32_t runC;  // the open run's drop and seconds
+    uint32_t runS;
     // The open stretch of on-battery steps: net drop per category, signed, so
     // the gauge's rise after an unplug cancels drops instead of being ignored,
-    // and its runs' ±. Added to dropC and errC when the stretch ends, unless
-    // the net is a rise (then neither counts).
+    // and its runs. Added to dropC and runs when the stretch ends, unless the
+    // net is a rise (then neither counts).
     int32_t netC[2];
-    uint32_t netErrC[2];
+    RunSums netRuns[2];
     // Awake on battery, between fractional rows, by state [Wi-Fi * 2 + light on]:
     // signed drop in 0.01 %, seconds, and LED duty (BatteryEstimate::lightDuty)
     // x seconds. The first UNPLUG_SKIP_S after a charge is left out (the gauge
@@ -52,7 +60,7 @@ struct BatteryLogParser {
   static constexpr uint32_t CHARGE_MERGE_S = 60;
   static constexpr uint32_t UNPLUG_SKIP_S = 1800;
   static constexpr int MAX_POINTS = 400;
-  static constexpr uint32_t RUN_ERR_C = 625;  // (0.25 %)²: fractional rows rose up to 0.61% between rows (10/1 log)
+  static constexpr uint32_t RUN_ERR_C = 625;  // (0.25 %)² per run while there are too few runs to fit
   static constexpr uint16_t FULL_C = 9500;    // a charge ending at or above this may still be on a charger
   static constexpr uint16_t FULL_DROP_C = 5;  // ... until the % drops this far below the charge end
 
@@ -75,16 +83,45 @@ struct BatteryLogParser {
   // Set before the first row (BatteryLogSum::load drops a battery.sum made with another value).
   uint16_t stateSkipS = 120;
 
+  static void closeRun(LogStats& s) {
+    if (s.run >= 0 && s.runS > 0) {  // run is 0, not -1, in a zeroed parser
+      RunSums& r = s.netRuns[s.run];
+      ++r.n;
+      r.dt += static_cast<int64_t>(s.runC) * s.runS;
+      r.d2 += static_cast<uint64_t>(static_cast<int64_t>(s.runC) * s.runC);
+      r.t2 += static_cast<uint64_t>(s.runS) * s.runS;
+    }
+    s.run = -1;
+    s.runC = 0;
+    s.runS = 0;
+  }
+
   static void endStretch(LogStats& s) {
+    closeRun(s);
     for (int k = 0; k < 2; ++k) {
       if (s.netC[k] > 0) {
         s.dropC[k] += static_cast<uint32_t>(s.netC[k]);
-        s.errC[k] += s.netErrC[k];
+        RunSums& r = s.runs[k];
+        r.n += s.netRuns[k].n;
+        r.dt += s.netRuns[k].dt;
+        r.d2 += s.netRuns[k].d2;
+        r.t2 += s.netRuns[k].t2;
       }
       s.netC[k] = 0;
-      s.netErrC[k] = 0;
+      s.netRuns[k] = {};
     }
-    s.run = -1;
+  }
+
+  // The drop's ± squared in 0.01 %², category k. Runs drain d = r t + e with
+  // the gauge's wander e independent per run (inside a run it cancels), so
+  // var(drop) = n var(e), and var(e) is the runs' scatter around the fitted
+  // rate: (sum d² - (sum d t)² / sum t²) / (n - 1), the 0.01 % rounding
+  // included. RUN_ERR_C per run under 3 runs.
+  static float errSq(const LogStats& s, const int k) {
+    const RunSums& r = s.runs[k];
+    if (r.n < 3 || r.t2 == 0) return static_cast<float>(r.n) * RUN_ERR_C;
+    const double rss = static_cast<double>(r.d2) - static_cast<double>(r.dt) * r.dt / static_cast<double>(r.t2);
+    return static_cast<float>(std::max(rss, 0.0) * r.n / (r.n - 1));
   }
 
   // "71.43" -> 7143, "71" -> 7100; fine = the field had a fraction.
@@ -160,8 +197,10 @@ struct BatteryLogParser {
       if (onBattery && fine && prevFine) {
         st.battS[cat] += dt;
         st.netC[cat] += drop;
-        if (st.run != cat) st.netErrC[cat] += RUN_ERR_C;
+        if (st.run != cat) closeRun(st);
         st.run = static_cast<int8_t>(cat);
+        st.runC += drop;
+        st.runS += dt;
       } else if (onBattery && prevFine) {
         st.battS[cat] += dt;
       } else {
