@@ -19,6 +19,23 @@
 #include "util/DaylightSaving.h"
 
 namespace {
+// FAT has no atomic replace. Park the old file as <dst>.davold, move the new
+// one in, then drop the parked copy; a failed move puts the old file back, so
+// an SD error between the two steps never loses both copies.
+bool replaceFile(const String& srcPath, const String& dstPath, const bool dstExists) {
+  const String oldPath = dstPath + ".davold";
+  if (dstExists) {
+    Storage.remove(oldPath.c_str());
+    if (!Storage.rename(dstPath.c_str(), oldPath.c_str())) return false;
+  }
+  if (Storage.rename(srcPath.c_str(), dstPath.c_str())) {
+    if (dstExists) Storage.remove(oldPath.c_str());
+    return true;
+  }
+  if (dstExists) Storage.rename(oldPath.c_str(), dstPath.c_str());
+  return false;
+}
+
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 constexpr size_t HIDDEN_ITEM_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
 
@@ -146,14 +163,7 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     if (_putOk) {
       String tempPath = _putPath + ".davtmp";
       sdFontSystem.markRegistryDirtyForPath(_putPath.c_str());
-      if (_putExisted) Storage.remove(_putPath.c_str());
-      HalFile tmp = Storage.open(tempPath.c_str());
-      if (tmp) {
-        _putOk = tmp.rename(_putPath.c_str());
-        tmp.close();
-      } else {
-        _putOk = false;
-      }
+      _putOk = replaceFile(tempPath, _putPath, _putExisted);
       if (!_putOk) Storage.remove(tempPath.c_str());
     }
     LOG_DBG("DAV", "PUT END: %u bytes, ok=%d", raw.totalSize, _putOk);
@@ -607,19 +617,8 @@ void WebDAVHandler::handleMove(WebServer& s) {
   }
 
   sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
-  if (dstExists) {
-    Storage.remove(dstPath.c_str());
-  }
-
-  HalFile file = Storage.open(srcPath.c_str());
-  if (!file) {
-    s.send(500, "text/plain", "Failed to open source");
-    return;
-  }
-
   clearBookCache(srcPath.c_str());
-  bool success = file.rename(dstPath.c_str());
-  file.close();
+  const bool success = replaceFile(srcPath, dstPath, dstExists);
 
   if (success) {
     ImageFolderIndex::invalidateForPath(srcPath.c_str());
