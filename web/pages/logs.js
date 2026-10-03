@@ -139,7 +139,13 @@ const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1
 // estimates carry that ±, and wait for a 2% drop ('-' until then).
 // u: the drop's ± in %; min: the smallest drop worth a rate (2% whole, 0.2% fractional).
 const minDrop = (u) => (u >= 1 ? 2 : 0.2);
-const rate = (drop, s, u = 1, min = minDrop(u)) => (drop >= min && s >= 60 ? ((drop * 3600) / s).toFixed(2) + '±' + ((u * 3600) / s).toFixed(2) + '%/h' : '-');
+// A ± past the rate shows as a range from 0: drain is never negative.
+const rate = (drop, s, u = 1, min = minDrop(u)) => {
+  if (!(drop >= min && s >= 60)) return '-';
+  const r = (drop * 3600) / s;
+  const e = (u * 3600) / s;
+  return e > r ? `${r.toFixed(2)} (0-${(r + e).toFixed(2)})%/h` : r.toFixed(2) + '±' + e.toFixed(2) + '%/h';
+};
 const left = (pct, drop, s, u = 1, min = minDrop(u)) => (drop >= min && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s * u) / drop / drop) : '-');
 const unit = (g) => Math.max(g.a.q, g.b.q);
 const NOT_ENOUGH = 'not enough data';
@@ -407,7 +413,7 @@ function logStats() {
     s = {
       reset: sum.reset, first: sum.first, last: sum.last, cold: sum.coldBoots, rst: sum.restarts, wakes: sum.wakes, falseWakes: sum.falseWakes,
       awake: sum.awakeS, asleep: sum.asleepS, charged: sum.chargedEpoch, from: pc(sum.chargeFromC, sum.chargeFromFine), to: pc(sum.chargeToC, sum.chargeToFine),
-      charging: sum.charging, b: sum.battS, d: sum.dropC.map(c), dc: sum.coarseC.map(c), e: sum.errC.map(c), run: sum.run, runQ: sum.runFine ? 0.01 : 1,
+      charging: sum.charging, b: sum.battS, d: sum.dropC.map(c), dc: sum.coarseC.map(c), e: sum.errC.map((v) => v / 1e4), run: sum.run, runQ: sum.runFine ? 0.01 : 1,
       n: sum.netC.map(c), nc: sum.netCoarseC.map(c),
     };
     prev = sum.prevEpoch ? { t: sum.prevEpoch, ev: sum.prevAwake ? '' : 'sleep', det: '', usb: sum.prevUsb } : null;
@@ -426,13 +432,14 @@ function logStats() {
       // Same rule as the device, over the whole log: drops between rows of one
       // precision; a whole row inside fractional data counts time only; a step
       // from a whole row to a fractional one is skipped. Each unbroken run of
-      // steps adds its rows' precision to the ± (inside a run roundings cancel).
+      // steps adds its rows' precision squared to e (inside a run roundings
+      // cancel; runs round independently, so the ± is sqrt(e)).
       const k = awake ? 0 : 1;
       if (!prev.usb && !r.usb && ref.q === r.q) {
         s.b[k] += dt;
         s.n[k] += drop;
         if (r.q === 1) s.nc[k] += drop;
-        if (s.run !== k || s.runQ !== r.q) s.e[k] += r.q;
+        if (s.run !== k || s.runQ !== r.q) s.e[k] += r.q * r.q;
         (s.run = k), (s.runQ = r.q);
       } else if (!prev.usb && !r.usb && ref.q < r.q) s.b[k] += dt;
       else end(s);
@@ -480,14 +487,16 @@ function summary() {
     const p = (r) => (r.q < 1 ? r.pct.toFixed(2) : r.pct) + '%';
     const drain = (k) => {
       const m = min(s.d[k], s.dc[k]);
-      return s.d[k] >= m && s.b[k] >= 60 ? rate(s.d[k], s.b[k], s.e[k], m) + ' over ' + hrs(s.b[k]) : NOT_ENOUGH;
+      if (!(s.d[k] >= m && s.b[k] >= 60)) return NOT_ENOUGH;
+      const day = k ? `, ~${((s.d[k] * 86400) / s.b[k]).toFixed(1)}%/day` : '';
+      return rate(s.d[k], s.b[k], Math.sqrt(s.e[k]), m) + day + ' over ' + hrs(s.b[k]);
     };
     const m = min(drop, s.dc[0] + s.dc[1]);
     rows.push(
       ['Last charged', s.charging ? `charging from ${p(s.from)} (now ${p(s.to)})` : s.charged && now > s.charged ? `${hrs(now - s.charged)} ago from ${p(s.from)} to ${p(s.to)}` : 'not in the log'],
       ['Awake drain', drain(0)],
       ['Asleep drain', drain(1)],
-      ['Est. left at that pace', drop >= m && span >= 60 ? left(pct, drop, span, s.e[0] + s.e[1], m) : NOT_ENOUGH],
+      ['Est. left at that pace', drop >= m && span >= 60 ? left(pct, drop, span, Math.sqrt(s.e[0] + s.e[1]), m) : NOT_ENOUGH],
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
