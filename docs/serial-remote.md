@@ -29,7 +29,7 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:SET <key> <value>` | `OK:SET <key> <value>` | Toggle, enum (raw value) or numeric setting by its web API key; saved to SD. |
 | `CMD:SET get <key>` / `list [from]` | `OK:SET <key> <value> ...` | Reads a setting as `SET` takes it, plus `min= max= step=` (numbers) or `values=` (enums). `list` pages `key=value` pairs from index `from` (`next=N` while more remain). Strings are quoted; only device name, folders and the KOReader server URL (user:pass masked) are readable, other strings read `"****"`. |
 | `CMD:KBDEXP <flags> [frames] [pll]` / `CMD:KBDEXP off` | `OK:KBDEXP ...` | Sets or clears a keyboard refresh override in RAM (no SD write); applied at the next keyboard open, kept until `off` or reboot. `pll` is a `kbdPll` index (0 = panel default, 1 = 40 Hz, 2 = 50 Hz; anything else is refused) and applies with or without flag 4. |
-| `CMD:KNOB list [from]` / `get <id>` / `set <id> <value>` / `reset [<id>]` | `OK:KNOB ...` | Goodies > Knobs ([goodies.md](goodies.md)). `list` pages `id=value` pairs from index `from` (`next=N` while more remain); `get` adds default, min, max, step and unit; `set` clamps and snaps to the step, applies at once and saves `knobs.json`; `reset` without an id resets all and deletes the file. |
+| `CMD:KNOB list [from]` / `changed [from]` / `get <id>` / `set <id> <value>` / `reset [<id>]` | `OK:KNOB ...` | Goodies > Knobs ([goodies.md](goodies.md)). `list` pages `id=value` pairs from index `from` (`next=N` while more remain); `changed` pages only knobs off their default (the on-device `*`) as `id=value/default`, and an empty `OK:KNOB` means none; `get` adds default, min, max, step and unit; `set` clamps and snaps to the step, applies at once and saves `knobs.json`; `reset` without an id resets all and deletes the file. |
 | `CMD:REFRESH [fast\|half\|full]` | `OK:REFRESH` | Re-sends the current framebuffer. |
 | `CMD:HOME` | `OK:HOME` | |
 | `CMD:OPEN <path>` | `OK:OPEN` | Opens a book in the reader. |
@@ -94,6 +94,20 @@ slot; OTA rollback still applies on the next boot.
 | 400 | `ERR:OTA:<reason>` | `TOO_SMALL`, `TOO_LARGE`, `BAD_MAGIC`, `BAD_CHIP`, `WRONG_BOARD`, `BAD_SIZE`, `BAD_CHECKSUM`, `BAD_SHA`, `ERASE_FAIL`, `WRITE_FAIL`, `OTADATA_FAIL`, `READ_FAIL` (connection dropped), `OOM`. The running firmware stays selected. |
 
 Needs `Content-Length` (curl sends it). Each 64 KiB flash erase pauses the screen briefly during the upload.
+
+## Wi-Fi: SD file download and upload
+
+`GET /api/download?path=<file>` and `POST /api/upload?path=<dir>` (multipart field `file`) are File Transfer's
+`/download` and `/upload` behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
+the `token` query argument or an `X-Token` header; bad tokens count toward the lockout. Paths are SD-rooted
+(`..` stops at `/`); hidden items and `/debug/remote-token` are refused (`403`) unless Show Hidden Files is on (the
+token file always). Upload refuses an existing name (`400 File already exists: <name>`); delete first.
+Both stream through a 4 KB buffer.
+
+```sh
+curl -s -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
+curl -s -H "X-Token: $(cat remote-token)" -F "file=@book.epub" "http://10.0.1.67/api/upload?path=/Books"
+```
 
 ## Wi-Fi: live log tail
 

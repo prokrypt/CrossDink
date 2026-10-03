@@ -532,6 +532,10 @@ void CrossPointWebServer::begin(const bool logOnly) {
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
   server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
   server->on("/api/ota", HTTP_POST, [this] { handleOtaDone(); }, [this] { handleOtaData(); });
+  // Token-gated SD file transfer, in log-only mode too: the web UI handlers
+  // behind a remote-token check (docs/serial-remote.md).
+  server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
+  server->on("/api/upload", HTTP_POST, [this] { handleApiUploadPost(); }, [this] { handleApiUpload(); });
 #endif
   server->on("/api/status", HTTP_GET, [this] {
     releasePollHold();
@@ -544,7 +548,8 @@ void CrossPointWebServer::begin(const bool logOnly) {
     handleNotFound();
   });
   if (logOnly) {
-    // Nothing else: no SD access behind other screens, and /api/status's
+    // Nothing else: no SD access behind other screens beyond the token-gated
+    // /api/download and /api/upload, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
     const char* remoteHeaders[] = {"X-Token"};
     server->collectHeaders(remoteHeaders, 1);
@@ -673,10 +678,11 @@ void CrossPointWebServer::startWsAndUdp() {
 bool CrossPointWebServer::startServeTask(const bool psramStack) {
   // Internal-RAM stack (8 KB) only while the server runs: handlers write to
   // the SD card, and task stacks must stay reachable while flash is busy.
-  // The log-only server has no such handlers, so its stack goes to PSRAM
-  // (internal fallback). UI core: on core 0 with Wi-Fi, lwIP and the loop,
-  // uploads held core 0 at 92% (WebServer 36%) while core 1 did ~20%. The
-  // upload writer takes core 0.
+  // The log-only server's only SD handlers (/api/download, /api/upload) do no
+  // flash writes, and the SDMMC driver bounces PSRAM buffers through its DMA
+  // buffer, so its stack goes to PSRAM (internal fallback). UI core: on core 0
+  // with Wi-Fi, lwIP and the loop, uploads held core 0 at 92% (WebServer 36%)
+  // while core 1 did ~20%. The upload writer takes core 0.
   // Set before the task can run: serverTaskMain reads it to decide how to exit.
   serverTaskPsram = psramStack;
   if (serverTaskPsram &&
@@ -1191,6 +1197,44 @@ void CrossPointWebServer::handleRemoteCmd() const {
   const int status = SerialRemote::runFromOtherTask(server->arg("token").c_str(), server->arg("cmd").c_str(),
                                                     clientIp(*server), out, sizeof(out), 12000);
   server->send(status, "text/plain; charset=utf-8", out);
+}
+
+// Token check for the file routes: `token` argument or X-Token header, run as
+// PING on the main task so the per-IP lockout applies. Returns the HTTP status.
+static int checkRemoteToken(WebServer& server, char* out, const size_t outLen) {
+  const String token = server.hasArg("token") ? server.arg("token") : server.header("X-Token");
+  return SerialRemote::runFromOtherTask(token.c_str(), "PING", clientIp(server), out, outLen, 12000);
+}
+
+void CrossPointWebServer::handleApiDownload() const {
+  static char out[32];
+  const int status = checkRemoteToken(*server, out, sizeof(out));
+  if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
+  handleDownload();
+}
+
+namespace {
+// /api/upload state, server task only. 0 = no file part seen yet.
+int apiUploadStatus = 0;
+char apiUploadOut[32];
+}  // namespace
+
+void CrossPointWebServer::handleApiUpload() {
+  if (server->upload().status == UPLOAD_FILE_START) {
+    apiUploadStatus = checkRemoteToken(*server, apiUploadOut, sizeof(apiUploadOut));
+  }
+  if (apiUploadStatus == 200) handleUpload(upload);
+}
+
+void CrossPointWebServer::handleApiUploadPost() {
+  if (apiUploadStatus == 200) {
+    handleUploadPost(upload);
+  } else if (apiUploadStatus != 0) {
+    server->send(apiUploadStatus, "text/plain; charset=utf-8", apiUploadOut);
+  } else {
+    server->send(400, "text/plain", "Missing file");
+  }
+  apiUploadStatus = 0;
 }
 
 namespace {

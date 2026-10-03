@@ -222,6 +222,9 @@ class CrossPointWebServer {
   void handlePsramLog() const;
   void handleRemoteCmd() const;
   void handleScreenshot() const;
+  void handleApiDownload() const;
+  void handleApiUpload();
+  void handleApiUploadPost();
   void handleOtaData() const;
   void handleOtaDone() const;
 #endif
