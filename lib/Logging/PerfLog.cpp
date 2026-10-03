@@ -226,10 +226,12 @@ esp_err_t countWake(const int64_t sleptUs, void*) {
 #if CONFIG_ESP_TIMER_PROFILING
 // esp_timer callbacks per timer since the previous [PM] window, from
 // esp_timer_dump (cumulative counts); writes the three busiest as
-// " name N, name N, name N" ("" if none ran). `buf` is scratch for the dump.
+// " name/<period>ms N, ..." ("" if none ran). Timers sharing name and period
+// (most are "ETSTimer") are summed. `buf` is scratch for the dump.
 struct TimerRuns {
   char name[24];  // the dump's name column: up to 20 chars, or "timer@<addr>"
-  uint32_t runs;
+  uint32_t periodMs;
+  uint32_t runs;  // summed over timers sharing name and period (many are "ETSTimer")
 };
 constexpr int MAX_TIMERS = 24;
 TimerRuns timerPrev[MAX_TIMERS];
@@ -249,14 +251,29 @@ void topTimers(char* buf, const size_t bufSize, char* out, const size_t outSize)
   // Rows: "name  period  alarm  armed  triggered  skipped  cb_us"; the title
   // and header rows fail the scan.
   for (char* line = strtok_r(buf, "\n", &save); line && count < MAX_TIMERS; line = strtok_r(nullptr, "\n", &save)) {
+    long long periodUs = 0;
     unsigned long runs = 0;
-    if (sscanf(line, "%23s %*lld %*lld %*d %lu", now[count].name, &runs) != 2) continue;
-    now[count].runs = static_cast<uint32_t>(runs);
-    delta[count] = now[count].runs;
-    for (int i = 0; i < timerPrevCount; i++) {
-      if (strcmp(timerPrev[i].name, now[count].name) == 0) delta[count] -= timerPrev[i].runs;
+    TimerRuns& row = now[count];
+    if (sscanf(line, "%23s %lld %*s %*s %lu", row.name, &periodUs, &runs) != 3) continue;
+    row.periodMs = static_cast<uint32_t>(periodUs / 1000);
+    row.runs = static_cast<uint32_t>(runs);
+    int same = 0;
+    while (same < count && (now[same].periodMs != row.periodMs || strcmp(now[same].name, row.name) != 0)) same++;
+    if (same < count) {
+      now[same].runs += row.runs;
+    } else {
+      count++;
     }
-    count++;
+  }
+  for (int i = 0; i < count; i++) {
+    delta[i] = now[i].runs;
+    for (int j = 0; j < timerPrevCount; j++) {
+      if (timerPrev[j].periodMs == now[i].periodMs && strcmp(timerPrev[j].name, now[i].name) == 0) {
+        // A deleted timer can shrink the sum; count the window from zero then.
+        if (timerPrev[j].runs <= now[i].runs) delta[i] = now[i].runs - timerPrev[j].runs;
+        break;
+      }
+    }
   }
   size_t pos = 0;
   for (int rank = 0; rank < 3; rank++) {
@@ -265,8 +282,8 @@ void topTimers(char* buf, const size_t bufSize, char* out, const size_t outSize)
       if (delta[i] != 0 && (best < 0 || delta[i] > delta[best])) best = i;
     }
     if (best < 0) break;
-    const int n = snprintf(out + pos, outSize - pos, "%s %s %lu", rank ? "," : "", now[best].name,
-                           static_cast<unsigned long>(delta[best]));
+    const int n = snprintf(out + pos, outSize - pos, "%s %s/%lums %lu", rank ? "," : "", now[best].name,
+                           static_cast<unsigned long>(now[best].periodMs), static_cast<unsigned long>(delta[best]));
     if (n < 0 || static_cast<size_t>(n) >= outSize - pos) break;
     pos += static_cast<size_t>(n);
     delta[best] = 0;
@@ -408,7 +425,7 @@ void logPmLocks(const char* act) {
 #if CONFIG_ESP_TIMER_PROFILING
   {
     // The lock table is parsed by now; its buffer takes the timer dump.
-    char timers[96];
+    char timers[128];
     topTimers(dump, sizeof(dump), timers, sizeof(timers));
     if (timers[0] != '\0') LOG_DBG("PM", "esp_timer runs:%s", timers);
   }
