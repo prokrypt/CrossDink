@@ -514,7 +514,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     return config;
   }();
   uint8_t legacyXtcTopUsesBottom = 0;
-  uint8_t showClockOutsideReader = 0;
+  DisplayStatusBarConfig displayStatusBar;
   // Clock visibility mode (requires an RTC-backed clock).
   uint8_t hideClock = HIDE_CLOCK_ALWAYS;
   // Clock UTC offset in quarter-hour steps, biased by 48 so it fits in uint8_t.
@@ -826,7 +826,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   bool shortPowerPressWakes() const { return shortPwrBtn == SLEEP || shortPwrBtn == WAKE_ONLY; }
 
-  bool shouldShowClockOutsideReader() const { return showClockOutsideReader != 0; }
   bool shouldTrackReadingStats() const { return trackReadingStats != 0; }
   static const char* getDefaultDeviceName();
   const char* getEffectiveDeviceName() const;
