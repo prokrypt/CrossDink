@@ -688,8 +688,11 @@ void HomeActivity::fillCoverGridFromLibrary() {
   }
   auto& index = reader->index;
   const bool indexOpen = index.open(library::libraryIndexPath());
-  const bool needsRefresh = library::libraryIndexNeedsRefresh() || !indexOpen ||
-                            index.header().metadataEnabled != static_cast<uint8_t>(SETTINGS.libraryUseMetadata != 0);
+  // An existing index paints now; the background build (LibraryPrewarm)
+  // reconciles card changes, and the next Home entry shows them. Scanning here
+  // on every boot and wake held the first paint behind a popup.
+  const bool needsRefresh =
+      !indexOpen || index.header().metadataEnabled != static_cast<uint8_t>(SETTINGS.libraryUseMetadata != 0);
   if (needsRefresh) {
     index.close();
     // Home has not painted yet. Give the same visible scan feedback as Library
@@ -702,11 +705,15 @@ void HomeActivity::fillCoverGridFromLibrary() {
       initialRefreshMode = HalDisplay::FAST_REFRESH;
     }
     library::BuildStats stats;
+    const uint32_t generation = Storage.libraryContentGeneration();
     if (!library::buildLibraryIndex("/", stats, SETTINGS.libraryUseMetadata != 0) ||
         !index.open(library::libraryIndexPath())) {
       LOG_ERR("HOME", "Cannot populate cover grid from library index");
       return;
     }
+    // Same rule as the Library: a full, undegraded scan is current, so the
+    // background build does not walk the card a second time.
+    if (!stats.ranksDegraded && !stats.dedupDegraded && !stats.arrivalDegraded) Storage.noteLibraryScanned(generation);
   }
 
   for (uint16_t row = 0; row < index.bookCount() && recentBooks.size() < CoverGridHomeUi::MAX_BOOKS; ++row) {

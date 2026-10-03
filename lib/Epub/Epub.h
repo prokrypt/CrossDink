@@ -124,6 +124,8 @@ class Epub {
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
   // The content key itself; false when the file cannot be read.
   static bool contentKeyFor(const std::string& filepath, uint64_t& out);
+  // Content keys read from the card (memo misses) since boot; scan counters only.
+  static uint32_t contentKeyReads();
   // Drops remembered content keys; call after a book file is replaced.
   static void forgetCacheKeys();
   // Resolve the cache path and copy an older path-keyed /.crosspoint cache in

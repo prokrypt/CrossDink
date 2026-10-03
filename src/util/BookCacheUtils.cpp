@@ -359,8 +359,8 @@ bool preserveUserStateFiles(const std::string& cachePath, const std::vector<Reso
   return ok;
 }
 
+// Callers forget remembered content keys first; see clearBookCachePreservingUserState().
 bool clearBookCacheForPath(const std::string& path) {
-  Epub::forgetCacheKeys();  // the file may have been replaced
   if (FsHelpers::hasEpubExtension(path)) {
     return Epub(path, "/.crossdink").clearCache();
   }
@@ -477,8 +477,13 @@ void carryEpubReadingState(const std::string& path, const uint64_t oldKey) {
 }
 
 bool clearBookCachePreservingUserState(const std::string& path, const bool carryFromIndexedKey) {
-  Epub::forgetCacheKeys();  // the file may have been replaced
-  if (carryFromIndexedKey) carryEpubReadingState(path, 0);
+  // The file may have been replaced. The Library builder (carryFromIndexedKey
+  // false) has just read this book's key from the current file, so its memo
+  // entry is fresh; forgetting it would read the 16 KB tail twice more here.
+  if (carryFromIndexedKey) {
+    Epub::forgetCacheKeys();
+    carryEpubReadingState(path, 0);
+  }
   size_t preservedCount = 0;
   const PreservedCacheFile* preservedFiles = preservedFilesForPath(path, preservedCount);
   if (!preservedFiles || preservedCount == 0) {

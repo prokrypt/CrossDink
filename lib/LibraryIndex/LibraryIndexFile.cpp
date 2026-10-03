@@ -20,6 +20,8 @@ bool LibraryIndexFile::openForReconciliation(const char* path) { return openImpl
 bool LibraryIndexFile::openImpl(const char* path, const bool acceptStaleFold) {
   close();
   readFailed = false;
+  readCalls = 0;
+  readBytes = 0;
   if (!Storage.openFileForRead("LIBIDX", path, file)) {
     readFailed = true;
     return false;
@@ -47,14 +49,42 @@ bool LibraryIndexFile::openImpl(const char* path, const bool acceptStaleFold) {
 
 void LibraryIndexFile::close() {
   if (file.isOpen()) file.close();
+  mem.reset();
+  memSize = 0;
   opened = false;
+}
+
+bool LibraryIndexFile::loadIntoMemory() {
+  if (!opened || mem) return opened && mem;
+  auto copy = makePsramByteBufferNoThrow(head.selfSize);
+  if (!copy) return false;
+  if (!file.seekSet(0) || file.read(copy.get(), head.selfSize) != static_cast<int>(head.selfSize)) {
+    LOG_ERR("LIBIDX", "index copy to PSRAM failed; reading from the card");
+    return false;
+  }
+  readCalls++;
+  readBytes += head.selfSize;
+  mem = std::move(copy);
+  memSize = head.selfSize;
+  file.close();
+  return true;
 }
 
 bool LibraryIndexFile::readAt(const uint32_t offset, void* dst, const size_t len) {
   if (!opened) return false;
+  if (mem) {
+    if (offset > memSize || len > memSize - offset) {
+      readFailed = true;
+      return false;
+    }
+    memcpy(dst, mem.get() + offset, len);
+    return true;
+  }
   // Every offset handed to this function comes from the header, and the header
   // was validated against the real file size, so a short read means the card
   // changed under us rather than a bad computation.
+  readCalls++;
+  readBytes += len;
   if (!file.seekSet(offset) || file.read(dst, len) != static_cast<int>(len)) {
     readFailed = true;
     return false;
