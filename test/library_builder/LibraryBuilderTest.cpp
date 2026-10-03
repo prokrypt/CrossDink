@@ -97,6 +97,7 @@ class LibraryBuilderTest : public ::testing::Test {
     bookMetadata.clear();
     cachedBookMetadata.clear();
     metadataCacheUse.clear();
+    unreadableContentKeys.clear();
     preservedCacheClears.clear();
     preserveCacheState = true;
     fake::add("/a.epub");
@@ -120,6 +121,28 @@ TEST_F(LibraryBuilderTest, UnchangedRebuildReusesMetadataAndDoesNotReplaceIndex)
   EXPECT_EQ(stats.metadataReused, 2);
   EXPECT_FALSE(stats.indexReplaced);
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
+}
+
+TEST_F(LibraryBuilderTest, FailedContentKeyIsNotReadAgainUntilRefresh) {
+  unreadableContentKeys = {"/a.epub"};
+  initial();
+  unreadableContentKeys.clear();
+  fake::contentKeyReads = 0;
+
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(fake::contentKeyReads, 0u);
+  EXPECT_FALSE(stats.indexReplaced);
+
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true, nullptr, /*retryFailedMetadata=*/true));
+  EXPECT_EQ(fake::contentKeyReads, 1u);
+  EXPECT_TRUE(stats.indexReplaced);
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  ClixRecord record{};
+  uint64_t key = 0;
+  ASSERT_TRUE(recordAtPath(index, "/a.epub", record));
+  ASSERT_TRUE(index.readContentKey(record, key));
+  EXPECT_NE(key, 0u);
 }
 
 TEST_F(LibraryBuilderTest, MissingModificationDateClearsDerivedCacheThroughStatePreservingPath) {

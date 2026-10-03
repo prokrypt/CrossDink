@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@ struct FakeMetadata {
 inline std::map<std::string, FakeMetadata> bookMetadata;
 inline std::map<std::string, FakeMetadata> cachedBookMetadata;
 inline std::vector<bool> metadataCacheUse;
+inline std::set<std::string> unreadableContentKeys;
 
 class Epub {
   std::string path;
@@ -30,6 +32,7 @@ class Epub {
   static uint32_t contentKeyReads() { return fake::contentKeyReads; }
   static bool contentKeyFor(const std::string& path, uint64_t& out) {
     ++fake::contentKeyReads;
+    if (unreadableContentKeys.count(path)) return false;
     out = std::hash<std::string>{}(path) | 1;
     return true;
   }

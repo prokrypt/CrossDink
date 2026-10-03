@@ -367,6 +367,7 @@ struct WalkState {
   bool dedupDegraded = false;
   bool failed = false;
   bool creationTimesUnchanged = true;
+  bool contentKeysUnchanged = true;
   bool readMetadata = false;
   bool retryFailedMetadata = false;
   LibraryIndexFile* previous = nullptr;
@@ -457,11 +458,14 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
     }
     const bool sameFile = priorIndex >= 0 && st.prior[priorIndex].fileSize == fileSize && modificationTime != 0 &&
                           priorRecord.modificationTime == modificationTime;
-    if (sameFile && priorKey != 0) {
+    // A v7 key of 0 means the tail read failed. Like a failed metadata read it
+    // stays until the Library's Refresh retries it, not a 16 KB read per scan.
+    if (sameFile && (priorKey != 0 || (st.previous->header().formatVersion >= 7 && !st.retryFailedMetadata))) {
       entry.contentKey = priorKey;
     } else if (Epub::contentKeyFor(fullPath, entry.contentKey) && priorKey != 0 && priorKey != entry.contentKey) {
       carryEpubReadingState(fullPath, priorKey);
     }
+    if (sameFile && entry.contentKey != priorKey) st.contentKeysUnchanged = false;
   }
   // A fold update invalidates derived sort keys, not the stored book metadata.
   const bool reuseSortKeys = reuseMetadata && st.previous->header().foldVersion == CLIX_FOLD_VERSION;
@@ -1511,6 +1515,7 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
       previous.header().foldVersion == CLIX_FOLD_VERSION &&
       previous.header().metadataEnabled == static_cast<uint8_t>(readMetadata) && st.books == priorCount &&
       st.reused == priorCount && stats.metadataReused == priorCount && st.creationTimesUnchanged &&
+      st.contentKeysUnchanged &&
       st.unreadableSkipped == 0 &&
       (previous.header().flags & (CLIX_FLAG_RANKS_DEGRADED | CLIX_FLAG_ARRIVAL_DEGRADED)) == 0 &&
       // The dedup cap degrades the same card the same way every time; with
