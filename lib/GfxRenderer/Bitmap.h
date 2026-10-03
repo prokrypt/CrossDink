@@ -73,6 +73,14 @@ class Bitmap {
   // Downsample high-color images before error diffusion. This is intentionally
   // limited to smaller output dimensions; the renderer still handles upscale.
   bool setDitheredOutputSize(int targetWidth, int targetHeight);
+  // Image viewer BW looks, set before parseHeaders(): every pixel comes out black (0) or
+  // white (3), black when its adjusted luminance is below blackBelow. With dithering on,
+  // 1-bit Atkinson diffusion replaces the threshold. 0 keeps the 4-level output.
+  void setBwOutput(const uint8_t blackBelow) { bwBlackBelow = blackBelow; }
+  // Serve rows from a copy of the file's pixel data (pixelDataBytes() from bfOffBits) instead
+  // of the file. The caller keeps it alive while the Bitmap reads.
+  size_t pixelDataBytes() const { return static_cast<size_t>(rowBytes) * height; }
+  void setPixelData(const uint8_t* data) { pixelData = data; }
   int getWidth() const { return outputWidth; }
   int getHeight() const { return outputHeight; }
   bool isTopDown() const { return topDown; }
@@ -88,6 +96,8 @@ class Bitmap {
   HalFile& file;
   bool dithering = false;
   bool imageLevels = false;
+  uint8_t bwBlackBelow = 0;
+  const uint8_t* pixelData = nullptr;
   int width = 0;
   int height = 0;
   bool topDown = false;
@@ -108,4 +118,5 @@ class Bitmap {
 
   mutable AtkinsonDitherer* atkinsonDitherer = nullptr;
   mutable FloydSteinbergDitherer* fsDitherer = nullptr;
+  mutable std::unique_ptr<Atkinson1BitDitherer> bwDitherer;
 };

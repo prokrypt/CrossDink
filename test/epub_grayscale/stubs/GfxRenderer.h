@@ -32,6 +32,7 @@ class GfxRenderer {
   int getScreenHeight() const { return orientation == Portrait || orientation == PortraitInverted ? width : height; }
   Orientation getOrientation() const { return orientation; }
   RenderMode getRenderMode() const { return mode; }
+  bool grayPlanesAreAbsolute() const { return false; }
   void setRenderMode(RenderMode m) { mode = m; }
   bool supportsStripGrayscale() const { return supported && !inverted; }
   bool isStripTargetActive() const { return active; }

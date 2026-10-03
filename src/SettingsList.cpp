@@ -20,6 +20,10 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
                           {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
                           "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY));
+    add(SettingInfo::Enum(
+        StrId::STR_IMAGE_VIEWER, &CrossPointSettings::imageViewerMode,
+        {StrId::STR_SAME_AS_READER, StrId::STR_BW_DARK, StrId::STR_BW, StrId::STR_DITHER, StrId::STR_GRAY},
+        "imageViewerMode", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Toggle(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
                             "quickResumeSleepScreen", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
@@ -127,11 +131,11 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                           {StrId::STR_STATE_OFF, StrId::STR_AA_SHARP, StrId::STR_AA_SMOOTH}, "textAntiAliasing",
                           StrId::STR_CAT_READER));
     {
-      auto images = SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
-                                      {StrId::STR_IMAGES_BW_DARK, StrId::STR_IMAGES_BW, StrId::STR_IMAGES_DITHER,
-                                       StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
-                                       StrId::STR_IMAGES_SUPPRESS},
-                                      "imageRendering", StrId::STR_CAT_READER);
+      auto images =
+          SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
+                            {StrId::STR_IMAGES_BW_DARK, StrId::STR_IMAGES_BW, StrId::STR_IMAGES_DITHER,
+                             StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
+                            "imageRendering", StrId::STR_CAT_READER);
       images.enumRawValues = {CrossPointSettings::IMAGES_DISPLAY_BW_DARK, CrossPointSettings::IMAGES_DISPLAY_BW,
                               CrossPointSettings::IMAGES_DISPLAY_DITHER,  CrossPointSettings::IMAGES_DISPLAY,
                               CrossPointSettings::IMAGES_PLACEHOLDER,     CrossPointSettings::IMAGES_SUPPRESS};
@@ -264,6 +268,8 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Toggle(StrId::STR_CUSTOM_BOOTSCREEN, &CrossPointSettings::customBootscreenEnabled,
                             "customBootscreenEnabled", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_TURBO_KEYBOARD, &CrossPointSettings::turboKeyboard, "turboKeyboard",
+                            StrId::STR_CAT_SYSTEM));
+    add(SettingInfo::Toggle(StrId::STR_MAX_WIFI_POWERSAVE, &CrossPointSettings::maxWifiPowersave, "maxWifiPowersave",
                             StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                             StrId::STR_CAT_SYSTEM));
@@ -466,7 +472,7 @@ void applySettingChange(uint8_t CrossPointSettings::* const member) {
     Frontlight.setBrightness(SETTINGS.frontlightBrightness);
     Frontlight.setWarmth(SETTINGS.frontlightWarmth);
     Frontlight.setOn(SETTINGS.frontlightOn != 0);
-    BatteryLog::lightChanged();  // remote SET writes a light row like any user change
+    BatteryLog::lightChanged();                        // remote SET writes a light row like any user change
     activityManager.notifyExternalFrontlightChange();  // an open Frontlight panel takes the new values
   } else if (member == &S::fontFamily) {
     // A built-in pick drops the SD family, which getReaderFontId() would prefer.

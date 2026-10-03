@@ -16,7 +16,6 @@
 
 namespace {
 constexpr char LOG_TAG[] = "SBACK";
-constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
 constexpr char BACKUP_DIR[] = "/.crossink-stats-backup";
 constexpr int DEFAULT_BACKUP_KEEP_COUNT = 7;
 
@@ -103,29 +102,11 @@ bool chooseBackupName(const bool manual, char* out, const size_t outLen) {
 }
 
 bool readStatsFile(std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE>& buffer, size_t& outSize) {
-  outSize = 0;
-
-  FsFile file;
-  if (!Storage.openFileForRead(LOG_TAG, GLOBAL_STATS_PATH, file)) {
-    LOG_ERR(LOG_TAG, "Could not open stats file for backup: %s", GLOBAL_STATS_PATH);
+  outSize = GlobalReadingStats::readLocalFile(buffer);
+  if (outSize < GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE) {
+    LOG_ERR(LOG_TAG, "No readable global stats to back up");
     return false;
   }
-
-  const size_t fileSize = file.fileSize();
-  if (fileSize < GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE || fileSize > buffer.size()) {
-    LOG_ERR(LOG_TAG, "Stats file has unsupported size for backup: %u bytes", static_cast<unsigned>(fileSize));
-    file.close();
-    return false;
-  }
-
-  const int read = file.read(buffer.data(), fileSize);
-  file.close();
-  if (read != static_cast<int>(fileSize)) {
-    LOG_ERR(LOG_TAG, "Failed to read stats file for backup: %d/%u bytes", read, static_cast<unsigned>(fileSize));
-    return false;
-  }
-
-  outSize = fileSize;
   return true;
 }
 
@@ -180,30 +161,6 @@ bool writeBackupFile(const char* path, const uint8_t* data, const size_t size) {
   return true;
 }
 
-// Identical automatic-backup suppression adapted from Sichroteph/YACP commit
-// 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT). The fixed 64-byte chunk
-// keeps the comparison well below the C3's local-stack budget.
-bool backupFileMatches(const char* path, const uint8_t* expected, const size_t expectedSize) {
-  FsFile file;
-  if (!Storage.openFileForRead(LOG_TAG, path, file) || file.fileSize() != expectedSize) {
-    if (file) file.close();
-    return false;
-  }
-
-  uint8_t chunk[64];
-  size_t offset = 0;
-  while (offset < expectedSize) {
-    const size_t requested = std::min(sizeof(chunk), expectedSize - offset);
-    const int read = file.read(chunk, requested);
-    if (read != static_cast<int>(requested) || memcmp(chunk, expected + offset, requested) != 0) {
-      file.close();
-      return false;
-    }
-    offset += requested;
-  }
-  file.close();
-  return true;
-}
 }  // namespace
 
 bool backupGlobalStats(const bool manual, char* outFileName, const size_t outFileNameLen) {
@@ -218,10 +175,6 @@ bool backupGlobalStats(const bool manual, char* outFileName, const size_t outFil
     return false;
   }
 
-  std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE> data{};
-  size_t dataSize = 0;
-  if (!readStatsFile(data, dataSize)) return false;
-
   char backupPath[128];
   const int pathWritten = snprintf(backupPath, sizeof(backupPath), "%s/%s", BACKUP_DIR, fileName);
   if (pathWritten <= 0 || static_cast<size_t>(pathWritten) >= sizeof(backupPath)) {
@@ -229,13 +182,19 @@ bool backupGlobalStats(const bool manual, char* outFileName, const size_t outFil
     return false;
   }
 
-  if (!manual && Storage.exists(backupPath) && backupFileMatches(backupPath, data.data(), dataSize)) {
+  // Automatic backups are dated: one per day, the first sleep's. The live
+  // stats stay current; the backup lags by up to a day.
+  if (!manual && Storage.exists(backupPath)) {
     if (outFileName != nullptr && outFileNameLen > 0) {
       copyString(fileName, outFileName, outFileNameLen);
     }
-    LOG_DBG(LOG_TAG, "Automatic stats backup already current: %s", backupPath);
+    LOG_DBG(LOG_TAG, "Automatic stats backup already made today: %s", backupPath);
     return true;
   }
+
+  std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE> data{};
+  size_t dataSize = 0;
+  if (!readStatsFile(data, dataSize)) return false;
 
   if (!writeBackupFile(backupPath, data.data(), dataSize)) return false;
   pruneBackups(DEFAULT_BACKUP_KEEP_COUNT);

@@ -1,7 +1,8 @@
 #pragma once
 #include <Arduino.h>
-#include <atomic>
 #include <EInkDisplay.h>
+
+#include <atomic>
 
 class HalDisplay {
  public:
@@ -164,6 +165,8 @@ class HalDisplay {
   bool shouldSkipImageBlanking() const;
   // UC8179 Smooth text AA (short balanced gray nudge); other panels ignore it.
   void setSmoothGray(bool smooth);
+  // Night mode: let text AA run on the inverted panel (UC8179 only; others ignore it).
+  void setInvertedTextGray(bool enabled);
   // UC8179: Fast diffs against the true on-screen frame (and the driver runs its
   // clean waveform itself when that frame is unknown), so a screen change needs
   // no separate cleanup refresh.

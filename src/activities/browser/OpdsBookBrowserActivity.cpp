@@ -55,7 +55,7 @@ constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 // PSRAM page cache (S3 only): whole raw feed responses, so Back/Prev and the
 // prefetched next page parse locally instead of refetching.
-KNOB_ALIAS(OPDS_PAGE_CACHE_MAX_BYTES, opdsCacheCap);  // Goodies > Knobs (a cap below 2 MB)
+constexpr size_t OPDS_PAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 constexpr size_t OPDS_PAGE_MAX_BYTES = 512 * 1024;
 // A kept-alive feed connection idle longer than this is closed before the
 // next request. Some servers and load balancers drop an idle socket without a
@@ -902,6 +902,7 @@ void OpdsBookBrowserActivity::markCachedFeeds() {
 // rescans the folder, so 50 books would read it 50 times. Read-only.
 void OpdsBookBrowserActivity::markBooksOnSd() {
   onSd.reset();
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long startMs = millis();
   // Transient: the page's expected file names, freed on return.
   std::vector<std::string> names(entryCount);
@@ -995,6 +996,7 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   // Read-only open: one directory lookup, no SD write until Confirm.
   std::string path = bookDownloadPath(book, server.filenameFormat);
   std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
+  // cppcheck-suppress stlcstrAssignment ; title is a PsramString, not std::string
   std::string details = book.title.c_str();
   HalFile existing = Storage.open(path.c_str());
   const bool onSdAlready = existing && !existing.isDirectory();

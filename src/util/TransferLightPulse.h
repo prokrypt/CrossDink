@@ -26,9 +26,11 @@ class TransferLightPulse {
   // and stop the pulse until end().
   static void yieldToUser();
 
+  // KNOBS.pulseHoldMs, read while the hold runs (Goodies > Knobs applies live).
+  static constexpr uint32_t KNOB_HOLD = UINT32_MAX;
   // A light that is on keeps its level for holdMs before pulsing starts (0 =
   // pulse at once). A user change during the hold is kept as usual.
-  void begin(uint32_t holdMs = KNOBS.pulseHoldMs);
+  void begin(uint32_t holdMs = KNOB_HOLD);
   void update(bool transferActive);
   // Stops the pulse and holds the light steady at the top of its band until end().
   void holdOn();
@@ -37,6 +39,9 @@ class TransferLightPulse {
 
  private:
   void write(uint8_t percent);
+  // Pulse band from basePercent and the floor/peak knobs, read at each use (live).
+  uint8_t lowPercent() const;
+  uint8_t highPercent() const;
 
   uint32_t pulseStartMs = 0;
   uint32_t stopAtMs = 0;  // end of the cycle the pulse fades out on; 0 = running
@@ -44,9 +49,7 @@ class TransferLightPulse {
   uint32_t holdStartMs = 0;
   uint32_t holdMs = 0;
   uint8_t written = 0;
-  uint8_t basePercent = 0;   // idle level: the user's brightness, 0 if off
-  uint8_t lowPercent = 0;    // pulse band
-  uint8_t highPercent = 0;
+  uint8_t basePercent = 0;  // idle level: the user's brightness, 0 if off
   bool armed = false;
   bool userOverride = false;
   bool pulsing = false;

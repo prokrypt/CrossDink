@@ -38,15 +38,15 @@ void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
 
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 2;
-constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
-constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossdink-settings.json";
-constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossdink-settings.json.bak";
+constexpr char SETTINGS_FILE_BIN[] = "/.crossdink/settings.bin";
+constexpr char SETTINGS_FILE_JSON[] = "/.crossdink/settings.json";
+constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crossdink/settings.json.bak";
 // CrossInk's file: imported once, never written, so flashing back to CrossInk keeps its settings.
 constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
 constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
-constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
-constexpr char LANG_FILE_BIN[] = "/.crosspoint/language.bin";
-constexpr char LANG_FILE_BAK[] = "/.crosspoint/language.bin.bak";
+constexpr char SETTINGS_FILE_BAK[] = "/.crossdink/settings.bin.bak";
+constexpr char LANG_FILE_BIN[] = "/.crossdink/language.bin";
+constexpr char LANG_FILE_BAK[] = "/.crossdink/language.bin.bak";
 constexpr uint8_t INVALID_READER_FONT_SIZE = 0xFF;
 constexpr uint8_t TILT_DIRECTION_SCHEMA_CURRENT = 2;
 // X3 hardware predates this migration by less than a year. Reject the RTC's
@@ -956,11 +956,10 @@ bool CrossPointSettings::loadFromFile() {
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile() && flush()) {
           LOG_DBG("CPS", "%s",
-                  migrateToCurrentPath ? "Imported settings into crossdink-settings.json"
-                                       : "Resaved settings to update format");
+                  migrateToCurrentPath ? "Imported settings into settings.json" : "Resaved settings to update format");
         } else {
           LOG_ERR("CPS", "%s",
-                  migrateToCurrentPath ? "Failed to save imported settings to crossdink-settings.json"
+                  migrateToCurrentPath ? "Failed to save imported settings to settings.json"
                                        : "Failed to resave settings after format update");
         }
       }
@@ -970,17 +969,16 @@ bool CrossPointSettings::loadFromFile() {
     return JsonLoadStatus::MissingOrEmpty;
   };
 
-  // Prefer CrossDink's namespaced settings file. Use the old generic file only
-  // as a migration fallback so other firmware can keep its own settings.json.
+  // The CrossDink settings file takes precedence even when damaged. Falling
+  // through would import another firmware's settings and replace the user's
+  // CrossDink preferences.
   const bool hasCrossDinkSettings = Storage.exists(SETTINGS_FILE_JSON) || Storage.exists(SETTINGS_FILE_JSON_BAK);
   JsonLoadStatus jsonStatus = loadJsonSettings(SETTINGS_FILE_JSON, false);
-  // A CrossDink-specific settings file takes precedence even when it is
-  // damaged. Falling through would import another firmware's settings.json
-  // and replace the user's CrossDink preferences.
   if (hasCrossDinkSettings || jsonStatus != JsonLoadStatus::MissingOrEmpty) {
     return jsonStatus == JsonLoadStatus::Loaded;
   }
 
+  // First boot on /.crossdink: import CrossInk's file, else CrossPoint's.
   jsonStatus = loadJsonSettings(CROSSINK_SETTINGS_FILE_JSON, true);
   if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
 
@@ -998,7 +996,7 @@ bool CrossPointSettings::loadFromFile() {
       migrateLanguageBinaryFile();
       if (saveToFile() && flush()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
-        LOG_DBG("CPS", "Migrated settings.bin to crossdink-settings.json");
+        LOG_DBG("CPS", "Migrated settings.bin to settings.json");
         return true;
       } else {
         LOG_ERR("CPS", "Failed to save migrated settings to JSON");
@@ -1031,7 +1029,7 @@ bool CrossPointSettings::migrateLanguageBinaryFile() {
   Storage.rename(LANG_FILE_BIN, LANG_FILE_BAK);
   saveToFile();
   flush();
-  LOG_DBG("CPS", "Migrated language.bin into crossdink-settings.json");
+  LOG_DBG("CPS", "Migrated language.bin into settings.json");
   return true;
 }
 
@@ -1247,8 +1245,8 @@ bool CrossPointSettings::verifySleepTimeoutMigrationContract() {
   const bool migratedValueDrivesTimeout = settings.getSleepTimeoutMs() == 5UL * 60UL * 1000UL;
 
   settings.sleepTimeoutStep = sleepTimeoutStepForMinutes(25);  // between 20 and 30: the shorter
-  const bool oldMinutesTakeNearestStep = settings.getSleepTimeoutMs() == 20UL * 60UL * 1000UL &&
-                                         sleepTimeoutStepForMinutes(15) == 6;
+  const bool oldMinutesTakeNearestStep =
+      settings.getSleepTimeoutMs() == 20UL * 60UL * 1000UL && sleepTimeoutStepForMinutes(15) == 6;
 
   settings.sleepTimeoutStep = SLEEP_TIMEOUT_NEVER_STEP - 1;
   const bool longestIsTwelveHours = settings.getSleepTimeoutMs() == 12UL * 60UL * 60UL * 1000UL;

@@ -7,17 +7,18 @@ nav_order: 16
 
 CrossDink caches data aggressively on the SD card to minimize RAM use. The ESP32-C3 has about 380 KB of usable RAM, so rebuilding every book structure in memory on every open would be too expensive.
 
-The main data directory is `.crosspoint` on the SD card. It stores render caches and persistent user/device data.
+The main data directory is `.crossdink` on the SD card. It stores render caches and persistent user/device data.
+
+CrossInk's `/.crosspoint` is read in place: a `/.crossdink` file or folder that does not exist yet is read from the same path under `/.crosspoint`, and folder listings show the entries of both. Every write goes to `/.crossdink`, so each file moves over the first time it is saved (an in-place update of a file only `/.crosspoint` has copies that one file first). Removing a path that `/.crosspoint` also has adds it to `/.crossdink/.deleted`, so the old copy stops showing. Temp files, EPUB cache folders and caches (book.bin, sections, covers, thumbnails, image caches, the Home carousel, font catalog, sleep frame and file index) are not read through; they rebuild. Of an XTC/TXT cache folder only its user data shows through: progress, reader settings and stats. EPUB caches are named by content (`epub_<FNV-1a 64 of the file size and its last 16 KB>`), so the same user data is copied from the book's path-named `/.crosspoint` folder the first time it is opened. `/.crosspoint` is left as it was for CrossInk and older builds. Each EPUB cache folder has a `path.txt` naming its book.
 
 ## Directory Layout
 
 ```text
-.crosspoint/
+.crossdink/
 ├── global_stats.bin        # All-time reading stats, including total books read
 ├── global_stats.bin.bak    # Backup used if the main global stats file is corrupt
 ├── synced_stats/           # Stats snapshots received from other readers
-├── crossdink-settings.json  # CrossDink device settings
-├── settings.json           # Legacy settings fallback, if present
+├── settings.json           # CrossDink device settings
 ├── settings.bin.bak        # Legacy binary settings file after migration, if present
 ├── state.json              # Last-opened book and sleep/session state
 ├── state.bin.bak           # Legacy binary state file after migration, if present
@@ -56,7 +57,7 @@ Four-tone sleep covers use separate `_absolute.bmp` files so older cover shading
 
 ## Clearing Cache Data
 
-Deleting the entire `.crosspoint` directory resets caches, settings, saved network/server data, bookmarks, recent books, reading progress, and reading stats.
+Deleting the entire `.crossdink` directory resets caches, settings, saved network/server data, bookmarks, recent books, reading progress, and reading stats.
 
 To clear EPUB/XTC render caches from the device UI without deleting settings or global stats, use:
 
@@ -69,7 +70,7 @@ Cache folders are path-based. Moving a book file can create a new cache director
 EPUB reader font, page layout, styling, and reading-aid settings normally come from the global Reader settings. Changes made inside an EPUB override only the fields whose values differ from the global defaults; the other fields continue to inherit later global changes. EPUB render mode is stored separately per book so a problematic title can be switched to Balanced or Light rendering from the File Browser or Recent Books long-press menus before opening it. Older full-snapshot book overrides retain their original behavior until reset or edited again.
 
 EPUB clippings and highlights live outside the EPUB render-cache folder in
-`/.crosspoint/clippings/`. Each book gets a binary clipping file named from the
+`/.crossdink/clippings/`. Each book gets a binary clipping file named from the
 book type and the CRC32 of the book path. The same clipping record powers the
 in-reader highlight, the clipping list, and jump-back behavior. CrossDink also
 appends a Kindle-style text export to `/My Clippings.txt` on the SD-card root;
@@ -79,7 +80,7 @@ to `/My Clippings.txt`.
 
 Cache data is cleared by supported CrossDink delete/move flows. If you remove or rename books outside CrossDink by editing the SD card directly, old cache folders may remain until you clear reading cache.
 
-All-time reading stats can also be backed up outside `.crosspoint` in:
+All-time reading stats can also be backed up outside `.crossdink` in:
 
 ```text
 /.crossink-stats-backup/

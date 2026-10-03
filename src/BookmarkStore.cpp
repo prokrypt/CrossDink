@@ -17,7 +17,7 @@ constexpr uint8_t VERSION = 5;
 // Stored count is uint16_t in v3+, but we keep an in-memory safety cap for ESP32-C3 RAM.
 constexpr uint16_t MAX_BOOKMARKS = 1024;
 constexpr size_t INITIAL_BOOKMARK_RESERVE = 8;
-constexpr char BOOKMARKS_DIR[] = "/.crosspoint/bookmarks";
+constexpr char BOOKMARKS_DIR[] = "/.crossdink/bookmarks";
 constexpr char READ_FOLDER[] = "/Read";
 
 struct BookmarkFileHeader {

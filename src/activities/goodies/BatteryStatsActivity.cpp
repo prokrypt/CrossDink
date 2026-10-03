@@ -227,7 +227,7 @@ void BatteryStatsActivity::buildLines() {
     formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1]);
     add("Asleep drain: %s", a);
     // Awake drain for the live Wi-Fi and light state; the light's share scales
-    // with brightness against the state's logged average.
+    // with the LED duty against the state's logged average duty.
     builtState = estimateState();
     const bool wifiNow = builtState >> 8;
     const uint8_t lightNow = builtState & 0xFF;
@@ -235,8 +235,8 @@ void BatteryStatsActivity::buildLines() {
     auto rateOf = [&st](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
       return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
     };
-    const float avgLight = st.stateS[k + 1] ? static_cast<float>(st.stateLight[k + 1]) / st.stateS[k + 1] : 0.0f;
-    const float rate = BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), avgLight, lightNow);
+    const float avgDuty = st.stateS[k + 1] ? static_cast<float>(st.stateDuty[k + 1]) / st.stateS[k + 1] : 0.0f;
+    const float rate = BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), avgDuty, lightNow);
     const uint32_t pctNowC = powerManager.getBatteryPercent256() * 100u / 256u;
     const uint32_t drop = st.dropC[0] + st.dropC[1];
     const uint32_t span = st.battS[0] + st.battS[1];
@@ -277,10 +277,9 @@ void BatteryStatsActivity::buildLines() {
         ls.rejectCause ? ls.rejectCauseName : "");
   }
   const auto& c = HalDisplay::refreshCounts().n;
-  add("Ref: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
-      static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),
-      static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]), static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]),
-      static_cast<unsigned long>(c[HalDisplay::FLASHING]));
+  add("Ref: Fa %lu  Ha %lu  Fu %lu  Gr %lu  Fl %lu", static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]),
+      static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]), static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]),
+      static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]), static_cast<unsigned long>(c[HalDisplay::FLASHING]));
 
   int8_t panelC = 0;
   uint32_t panelAgeMs = 0;

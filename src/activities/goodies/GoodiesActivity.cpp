@@ -33,8 +33,8 @@
 #include "components/UiAppHelpers.h"
 #include "network/CrossPointWebServer.h"
 #include "network/FirmwareFlasher.h"
-#include "network/SerialRemote.h"
 #include "network/NetworkName.h"
+#include "network/SerialRemote.h"
 #include "network/WifiUtils.h"
 #include "platform/PinMon.h"
 #include "util/TransferLightPulse.h"
@@ -405,8 +405,8 @@ constexpr int KNOB_DIM_LEVEL = -3;  // Flash Dim Level: the Display > Frontlight
 constexpr int MAX_KNOB_TABS = 8;
 constexpr int KBD_TURBO = -4;  // Keyboard test: the Turbo Keyboard setting, not a knob
 // Keyboard test: the knobs that change typing feel, under Turbo keyboard.
-constexpr const char* KBD_TEST_KNOBS[] = {
-    "kbdFrames", "kbdPll", "kbdHighlightDelayMs", "kbdTouchHoldMs", "kbdTouchDelHoldMs", "contactJumpPx", "tapSlopPx"};
+constexpr const char* KBD_TEST_KNOBS[] = {"kbdFrames",         "kbdHighlightDelayMs", "kbdTouchHoldMs",
+                                          "kbdTouchDelHoldMs", "contactJumpPx",       "tapSlopPx"};
 
 // Knob groups in Knobs.def order (rows of a group are contiguous): one tab each.
 int knobGroups(const char* (&out)[MAX_KNOB_TABS]) {
