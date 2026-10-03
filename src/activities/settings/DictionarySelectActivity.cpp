@@ -213,6 +213,7 @@ bool DictionarySelectActivity::applySelection() {
     if (Storage.openFileForWrite("DSEL", bookCachePath + "/dictionary.bin", f)) {
       f.write(reinterpret_cast<const uint8_t*>(folder.c_str()), folder.size());
       f.close();
+      Dictionary::forgetBookDictPathMiss();
     } else {
       LOG_ERR("DSEL", "Could not save per-book dictionary");
     }

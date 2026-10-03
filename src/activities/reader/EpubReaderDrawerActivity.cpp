@@ -2423,6 +2423,7 @@ bool EpubReaderDrawerActivity::saveBookDictionary(const std::string& path) {
   const bool ok =
       path.empty() || file.write(reinterpret_cast<const uint8_t*>(path.c_str()), path.size()) == path.size();
   file.close();
+  Dictionary::forgetBookDictPathMiss();
   if (!ok) LOG_ERR("ERDM", "Short write saving per-book dictionary");
   return ok;
 }
