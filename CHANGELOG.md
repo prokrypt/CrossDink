@@ -206,6 +206,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Reading-stats backups: the daily backups (`stats_YYYY-MM-DD.bin`) and the manual or clockless ones are kept as two separate sets of 7, so a run of manual backups no longer pushes out the week of daily ones, and clockless `stats_backup_NNN.bin` files are pruned oldest first (also past 999). The newest backup of each set is never removed.
 - File Transfer with the Wi-Fi remote on: choosing Join Network no longer restarts to Home when memory is a little short; the remote keeps the connection, so nothing needs to be freed.
 - File Transfer: Exit no longer hangs on the server. A WebDAV upload still running is cancelled (its partial file is removed) instead of making Exit wait until it ends, a stalled connection is cut after half a second, and if the server still has not stopped after 15 s the device restarts to Home. Debug builds log what Exit is waiting on (`[WEB] stop: waited ...`: task state, step, request age, open connections), once a second while it waits.
 - Touch Home (Lyra and Classic list menus): swipe up shows the last menu page (Goodies when the menu has more rows than fit); swipe down goes back to the first. Before, those rows were only reachable with the Down button.
