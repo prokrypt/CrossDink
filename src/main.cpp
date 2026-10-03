@@ -2864,10 +2864,9 @@ static void loopPass() {
 
   // The header's Wi-Fi glyph and battery percent: one ordinary repaint of the
   // current screen when the link comes or goes or the percent changes. Only
-  // screens whose last frame drew a header status bar (never the reader), only
-  // once input has paused and no refresh is on the panel (a link coming up just
-  // after a screen change otherwise queued a second full refresh behind the
-  // first); requestedFor stops a repeat if that repaint shows no header.
+  // screens whose last frame drew a header status bar (never the reader), and
+  // the percent only once input has paused; requestedFor stops a repeat if that
+  // repaint shows no header.
   {
     static unsigned long lastHeaderStatusPoll = 0;
     static int requestedFor = -1;
@@ -2887,12 +2886,10 @@ static void loopPass() {
         percent = powerManager.getBatteryPercentage();
       }
       const bool inputPaused = millis() - lastActivityTime >= 2000;
-      const bool stale = shownWifi != connected || shownPercent != percent;
+      const bool stale = shownWifi != connected || (inputPaused && shownPercent != percent);
       const int want = connected << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
-      } else if (!inputPaused || renderer.isRefreshPending()) {
-        // Next poll: an input-driven frame meanwhile draws the new status anyway.
       } else if (requestedFor != want) {
         requestedFor = want;
         activityManager.requestUpdate();
