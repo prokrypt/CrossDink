@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <PerfLog.h>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -67,7 +68,9 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   if (uncached) {
     // The popup replaces the restored Quick Resume frame, so the reader must clean it.
     allowFastInitialRefresh = false;
+    const uint32_t popupStartMs = millis();
     GUI.drawPopup(renderer, tr(STR_INDEXING));
+    PerfLog::bookOpenStage("popup", millis() - popupStartMs);
   }
   // Keep one settings snapshot for both EPUB preparation and the reader handoff.
   result.readerSettings = EpubReaderActivity::readBookReaderSettings(*epub);
@@ -75,10 +78,14 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   // rebuild stale/missing CSS and need miniz's ~43 KB streaming workspace. The
   // panel keeps showing its last image, and the next activity redraws fully.
   GfxRenderer::FrameBufferLoan loan(renderer);
+  uint32_t stageStartMs = millis();
   const bool loaded = epub->load(
       true, result.readerSettings.hasSafeModeOverride || result.readerSettings.readerSettings.embeddedStyle == 0,
       Epub::XLocationLoadMode::Immediate, true);
+  PerfLog::bookOpenStage(uncached ? "index" : "meta", millis() - stageStartMs);
+  stageStartMs = millis();
   if (loaded) epub->ensureOptimizerImageIndex();
+  PerfLog::bookOpenStage("imgidx", millis() - stageStartMs);
   loan.end();
   if (loaded) {
     result.epub = std::move(epub);
@@ -214,8 +221,10 @@ void ReaderActivity::onEnter() {
     }
     onGoToTxtReader(std::move(txt));
   } else {
+    PerfLog::bookOpenBegin();
     auto result = loadEpub(initialBookPath);
     if (!result.epub) {
+      PerfLog::bookOpenEnd();  // the failed open's stages
       queueEpubOpenAlert(result.failure);
       onGoBack();
       return;
