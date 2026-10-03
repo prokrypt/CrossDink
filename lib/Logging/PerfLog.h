@@ -52,7 +52,20 @@ void noteRestart();
 // deep sleep, not power loss) and the next boot prints them with logLastSleep()
 // as "[BOOT] last sleep: ...", since the PSRAM log ring does not survive.
 void noteDeepSleep(const char* reason, const char* activity);
+// Also prints the RTC event trail ("[BOOT] trail: ...") left by the previous
+// boots: the last 8 activity entries and the last [ERR] line, which survive
+// deep sleep and restarts (not power loss) while the PSRAM ring does not.
 void logLastSleep();
+// Trail entries (RTC slow memory, CRC-guarded; name is copied).
+void noteActivity(const char* name);
+void noteError(const char* line);
+// "[ERS] open: <stage>=<ms> ... other= total=" once per book open, from
+// bookOpenBegin() (the reader starts loading) to bookOpenEnd() (first page on
+// the panel, or the open failed). Stages add up under a string-literal name
+// and are dropped outside an open.
+void bookOpenBegin();
+void bookOpenStage(const char* name, uint32_t ms);
+void bookOpenEnd();
 // SD activity (HalStorage) and image decode/cache results (ImageBlock).
 void noteSdOpen(bool opened);
 void noteSdRead(uint32_t bytes, uint32_t us);
@@ -99,6 +112,11 @@ inline void noteBootPhase(const char*) {}
 inline void noteRestart() {}
 inline void noteDeepSleep(const char*, const char*) {}
 inline void logLastSleep() {}
+inline void noteActivity(const char*) {}
+inline void noteError(const char*) {}
+inline void bookOpenBegin() {}
+inline void bookOpenStage(const char*, uint32_t) {}
+inline void bookOpenEnd() {}
 inline void noteSdOpen(bool) {}
 inline void noteSdRead(uint32_t, uint32_t) {}
 inline void noteSdWrite(uint32_t, uint32_t) {}

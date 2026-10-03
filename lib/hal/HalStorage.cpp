@@ -32,9 +32,23 @@
   do {                                          \
     if (ok) LOG_DBG("SDW", fmt, ##__VA_ARGS__); \
   } while (0)
+// An op that took this long, lock wait included, also prints its time.
+constexpr uint32_t SDW_SLOW_US = 100 * 1000;
+#define SDW_LOG_TIMED(ok, startUs, fmt, ...)                                                        \
+  do {                                                                                              \
+    const uint32_t sdwUs_ = micros() - (startUs);                                                   \
+    if (!(ok)) break;                                                                               \
+    if (sdwUs_ >= SDW_SLOW_US)                                                                      \
+      LOG_DBG("SDW", fmt " slow %lu ms", ##__VA_ARGS__, static_cast<unsigned long>(sdwUs_ / 1000)); \
+    else                                                                                            \
+      LOG_DBG("SDW", fmt, ##__VA_ARGS__);                                                           \
+  } while (0)
 #else
 #define SDW_LOG(ok, fmt, ...) \
   do {                        \
+  } while (0)
+#define SDW_LOG_TIMED(ok, startUs, fmt, ...) \
+  do {                                       \
   } while (0)
 #endif
 
@@ -538,18 +552,22 @@ size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t buffe
 
 bool HalStorage::writeFile(const char* path, const String& content) {
   if (affectsLibrary(path)) markLibraryContentChanged(path);
+#if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
+#endif
   bool ok;
   {
     StorageLock lock;
     ensureParentLocked(path);
     ok = SDCard.writeFile(path, content);
   }
-  SDW_LOG(ok, "write - %s %u B", path, static_cast<unsigned>(content.length()));
+  SDW_LOG_TIMED(ok, startUs, "write - %s %u B", path, static_cast<unsigned>(content.length()));
   return ok;
 }
 
 bool HalStorage::ensureDirectoryExists(const char* path) {
 #if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
   bool ok;
   bool existed;
   {
@@ -557,7 +575,7 @@ bool HalStorage::ensureDirectoryExists(const char* path) {
     existed = SDCard.exists(path);
     ok = SDCard.ensureDirectoryExists(path);
   }
-  SDW_LOG(ok && !existed, "mkdir %s", path);
+  SDW_LOG_TIMED(ok && !existed, startUs, "mkdir %s", path);
   return ok;
 #else
   HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path);
@@ -591,6 +609,24 @@ struct HalFile::LegacyMerge {
   }
 };
 
+#if CROSSDINK_PERF_LOG
+// Lock wait and open time of a write handle, for its [SDW] line. The existence
+// probe (did the open add a directory entry?) runs under the lock but is left
+// out of both.
+struct OpenTiming {
+  uint32_t callUs = micros();
+  uint32_t lockedUs = 0;
+  uint32_t probeUs = 0;
+  bool created = false;
+  void locked(const bool isNew) {
+    const uint32_t gotLockUs = micros();
+    created = isNew;
+    lockedUs = micros();
+    probeUs = lockedUs - gotLockUs;
+  }
+};
+#endif
+
 class HalFile::Impl {
  public:
   Impl(FsFile&& fsFile) : file(std::move(fsFile)) {}
@@ -598,17 +634,34 @@ class HalFile::Impl {
   std::unique_ptr<LegacyMerge> merge;
 #if CROSSDINK_PERF_LOG
   // [SDW] bookkeeping for handles opened to write: one line at close with the
-  // path tail, bytes written and time spent in write().
+  // path, bytes written and time spent in write(); a slow one (open, writes,
+  // close and lock waits over SDW_SLOW_US) also splits that time.
+  void tagWrite(const char* module, const char* path, const OpenTiming& timing) {
+    openUs = micros() - timing.lockedUs;
+    waitUs = timing.lockedUs - timing.callUs - timing.probeUs;
+    created = timing.created;
+    tagWrite(module, path);
+  }
   void tagWrite(const char* module, const char* path) {
     writeModule = module ? module : "-";
-    const size_t len = path ? strlen(path) : 0;
-    const char* tail = len >= sizeof(writePath) ? path + len - (sizeof(writePath) - 1) : (path ? path : "");
-    snprintf(writePath, sizeof(writePath), "%s", tail);
+    if (!path) path = "";
+    // Too long: keep the root and the file name, drop the middle.
+    const size_t len = strlen(path);
+    constexpr size_t head = 16;
+    if (len < sizeof(writePath)) {
+      snprintf(writePath, sizeof(writePath), "%s", path);
+    } else {
+      snprintf(writePath, sizeof(writePath), "%.*s..%s", static_cast<int>(head), path,
+               path + len - (sizeof(writePath) - 1 - head - 2));
+    }
   }
   const char* writeModule = nullptr;
-  char writePath[56] = "";
+  char writePath[80] = "";
   uint32_t writeBytes = 0;
   uint32_t writeUs = 0;
+  uint32_t openUs = 0;
+  uint32_t waitUs = 0;  // waiting for the storage lock, all calls
+  bool created = false;
 #endif
 };
 
@@ -652,8 +705,14 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
   }
   FsFile fsFile;
   std::unique_ptr<HalFile::LegacyMerge> merge;
+#if CROSSDINK_PERF_LOG
+  OpenTiming timing;
+#endif
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
+#if CROSSDINK_PERF_LOG
+    timing.locked(writing && (oflag & O_CREAT) && !SDCard.exists(path));
+#endif
     if (writing && inDataRoot(path)) {
       // An in-place update starts from the /.crosspoint copy when that is all there is.
       if ((oflag & O_TRUNC) == 0 && !SDCard.exists(path)) {
@@ -698,7 +757,7 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
     return failed;
   }
 #if CROSSDINK_PERF_LOG
-  if ((oflag & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)) != 0) impl->tagWrite(nullptr, path);
+  if (writing) impl->tagWrite(nullptr, path, timing);
 #endif
   impl->merge = std::move(merge);
   return HalFile(std::move(impl));
@@ -706,6 +765,7 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
 
 bool HalStorage::mkdir(const char* path, const bool pFlag) {
 #if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
   bool ok;
   bool existed;
   {
@@ -714,7 +774,7 @@ bool HalStorage::mkdir(const char* path, const bool pFlag) {
     existed = SDCard.exists(path);
     ok = SDCard.mkdir(path, pFlag);
   }
-  SDW_LOG(ok && !existed, "mkdir %s", path);
+  SDW_LOG_TIMED(ok && !existed, startUs, "mkdir %s", path);
   return ok;
 #else
   HAL_STORAGE_WRAPPED_CALL(mkdir, path, pFlag);
@@ -728,6 +788,9 @@ bool HalStorage::exists(const char* path) {
 
 bool HalStorage::remove(const char* path) {
   if (affectsLibrary(path)) markLibraryContentChanged(path);
+#if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
+#endif
   bool ok;
   {
     StorageLock lock;
@@ -737,11 +800,14 @@ bool HalStorage::remove(const char* path) {
       ok = true;
     }
   }
-  SDW_LOG(ok, "remove %s", path);
+  SDW_LOG_TIMED(ok, startUs, "remove %s", path);
   return ok;
 }
 bool HalStorage::rename(const char* oldPath, const char* newPath) {
   if (affectsLibrary(oldPath) || affectsLibrary(newPath)) markLibraryContentChanged(newPath);
+#if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
+#endif
   bool ok;
   {
     StorageLock lock;
@@ -758,7 +824,7 @@ bool HalStorage::rename(const char* oldPath, const char* newPath) {
       }
     }
   }
-  SDW_LOG(ok, "rename %s -> %s", oldPath, newPath);
+  SDW_LOG_TIMED(ok, startUs, "rename %s -> %s", oldPath, newPath);
   return ok;
 }
 
@@ -841,8 +907,14 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
   file.close();
   FsFile fsFile;
   bool ok = false;
+#if CROSSDINK_PERF_LOG
+  OpenTiming timing;
+#endif
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
+#if CROSSDINK_PERF_LOG
+    timing.locked(!SDCard.exists(path));
+#endif
     ensureParentLocked(path);
     ok = SDCard.openFileForWrite(moduleName, path, fsFile);
   }
@@ -859,7 +931,7 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
     return false;
   }
 #if CROSSDINK_PERF_LOG
-  impl->tagWrite(moduleName, path);
+  impl->tagWrite(moduleName, path, timing);
 #endif
   file = HalFile(std::move(impl));
   return true;
@@ -968,6 +1040,7 @@ int HalFile::read(void* buf, size_t count) {
 int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
 size_t HalFile::write(const void* buf, size_t count) {
 #if CROSSDINK_PERF_LOG
+  const uint32_t callUs = micros();
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
   const uint32_t startUs = micros();
@@ -976,6 +1049,7 @@ size_t HalFile::write(const void* buf, size_t count) {
   PerfLog::noteSdWrite(static_cast<uint32_t>(n), us);
   impl->writeBytes += n;
   impl->writeUs += us;
+  impl->waitUs += startUs - callUs;
   return n;
 #else
   HAL_FILE_WRAPPED_CALL(write, buf, count);
@@ -1032,19 +1106,39 @@ bool HalFile::close() {
   memcpy(path, impl->writePath, sizeof(path));
   const uint32_t bytes = impl->writeBytes;
   const uint32_t us = impl->writeUs;
+  const uint32_t openUs = impl->openUs;
+  uint32_t waitUs = impl->waitUs;
+  const bool created = impl->created;
+  const uint32_t callUs = micros();
+  uint32_t closeUs = 0;
 #endif
   bool ok;
   {
     HalStorage::StorageLock lock;
+#if CROSSDINK_PERF_LOG
+    const uint32_t lockedUs = micros();
+    waitUs += lockedUs - callUs;
+#endif
     ok = impl->file.close();
+#if CROSSDINK_PERF_LOG
+    closeUs = micros() - lockedUs;
+#endif
     impl.reset();
   }
   allocationFailed_ = false;
   iterationFailed_ = false;
 #if CROSSDINK_PERF_LOG
   // Opened to write: a truncating open is a mutation even with no bytes.
-  SDW_LOG(path[0] != '\0', "write %s %s %lu B %lu ms", module ? module : "-", path, static_cast<unsigned long>(bytes),
-          static_cast<unsigned long>(us / 1000));
+  const uint32_t totalUs = openUs + us + closeUs + waitUs;
+  if (path[0] != '\0' && totalUs >= SDW_SLOW_US) {
+    LOG_DBG("SDW", "write %s %s %lu B %lu ms slow %lu ms: open=%lu close=%lu wait=%lu ms new=%d", module ? module : "-",
+            path, static_cast<unsigned long>(bytes), static_cast<unsigned long>(us / 1000),
+            static_cast<unsigned long>(totalUs / 1000), static_cast<unsigned long>(openUs / 1000),
+            static_cast<unsigned long>(closeUs / 1000), static_cast<unsigned long>(waitUs / 1000), created ? 1 : 0);
+  } else {
+    SDW_LOG(path[0] != '\0', "write %s %s %lu B %lu ms", module ? module : "-", path, static_cast<unsigned long>(bytes),
+            static_cast<unsigned long>(us / 1000));
+  }
 #endif
   return ok;
 }

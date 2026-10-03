@@ -1,11 +1,13 @@
 #include "Logging.h"
 
 #include <BoardConfig.h>
+#include <PerfLog.h>
 #include <PsramLog.h>
 #include <esp_rom_sys.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #ifdef SIMULATOR
@@ -115,6 +117,7 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
 #endif
   addToLogRingBuffer(buf);
   PsramLog::append(buf, strnlen(buf, sizeof(buf)));
+  if (strcmp(level, "ERR") == 0) PerfLog::noteError(buf);
 }
 
 #if defined(SIMULATOR)

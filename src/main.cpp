@@ -1823,6 +1823,8 @@ void setup() {
 
   const auto wakeupReason = gpio.getWakeupReason();
 #ifndef SIMULATOR
+  // Marks for the gap between "Input wake armed" and the IMU/RTC lines.
+  LOG_INF("BOOT", "mark: power-button wake check");
   const bool shortPressWakes = readWakeShortPressFromNvs();
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton &&
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
@@ -1847,7 +1849,9 @@ void setup() {
   const bool recoveryFirmwareMode = false;
 #endif
 
+  LOG_INF("BOOT", "mark: IMU probe");
   halTiltSensor.begin();
+  LOG_INF("BOOT", "mark: RTC read");
   halClock.begin();
 #ifndef SIMULATOR
   // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
