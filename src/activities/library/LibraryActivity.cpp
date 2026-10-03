@@ -888,7 +888,7 @@ void LibraryActivity::loop() {
     }
   }
   // Prepare at most one visible cover per turn, leaving an input check between
-  // EPUB parses. Redraw as each thumbnail becomes available.
+  // EPUB parses. Redraw once the page's missing thumbnails are all available.
   loadGridPageCovers();
 }
 
@@ -1283,11 +1283,16 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
 void LibraryActivity::loadGridPageCovers() {
   if (!gridEnabled() || gridCoverWidth <= 0 || gridCoverHeight <= 0 || gridPageStart == loadedGridPageStart) return;
   const int pageEnd = std::min(gridPageStart + GRID_PAGE_SIZE, rowCount());
-  if (nextGridCoverRow < 0) nextGridCoverRow = gridPageStart;
-  if (nextGridCoverRow < pageEnd && loadGridCover(nextGridCoverRow++)) requestUpdate();
+  if (nextGridCoverRow < 0) {
+    nextGridCoverRow = gridPageStart;
+    gridCoverAdded = false;
+  }
+  if (nextGridCoverRow < pageEnd && loadGridCover(nextGridCoverRow++)) gridCoverAdded = true;
   if (nextGridCoverRow >= pageEnd) {
     loadedGridPageStart = gridPageStart;
     nextGridCoverRow = -1;
+    // One repaint once the page's covers are ready, not one per thumbnail.
+    if (gridCoverAdded) requestUpdate();
   }
 }
 

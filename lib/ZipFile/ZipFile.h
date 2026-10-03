@@ -63,6 +63,7 @@ class ZipFile {
     uint32_t centralDirOffset;
     uint16_t totalEntries;
     bool isSet;
+    uint32_t centralDirSize;
   };
 
   // Target for batch uncompressed size lookup (sorted by hash, then len)
@@ -102,7 +103,7 @@ class ZipFile {
  private:
   const std::string& filePath;
   HalFile file;
-  ZipDetails zipDetails = {0, 0, false};
+  ZipDetails zipDetails = {0, 0, false, 0};
   std::unordered_map<std::string, FileStatSlim> fileStatSlimCache;
 
   // Cursor for sequential central-dir scanning optimization
@@ -110,6 +111,9 @@ class ZipFile {
   bool lastCentralDirPosValid = false;
 
   bool loadFileStatSlim(const char* filename, FileStatSlim* fileStat);
+  // Answers from the shared central-directory table, building it on first use.
+  // Returns false when the table is unavailable and the caller must scan.
+  bool lookupDirectoryTable(const char* filename, FileStatSlim* fileStat, bool& found);
   long getDataOffset(const FileStatSlim& fileStat);
   bool loadZipDetails();
 
