@@ -2889,7 +2889,10 @@ static void loopPass() {
       const int want = connected << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
-      } else if (requestedFor != want) {
+      } else if (requestedFor != want && !renderer.isRefreshPending()) {
+        // Never right behind a screen change: that frame's waveform is still
+        // running and this one would wait it out holding the render lock. The
+        // next poll retries, unless a frame drawn meanwhile already shows it.
         requestedFor = want;
         activityManager.requestUpdate();
       }

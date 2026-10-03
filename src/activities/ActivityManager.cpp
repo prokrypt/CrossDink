@@ -1552,6 +1552,9 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
     return RequestUpdateResult::Rejected;
   }
 
+  // This frame draws everything requested so far: drop a pending deferred
+  // request so the next loop pass doesn't draw the same frame again.
+  requestedUpdate = false;
   xTaskNotify(renderTaskHandle, 1, eIncrement);
   while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(RenderLock::WAIT_TICK_MS)) == 0) {
     if (RenderLock::waitTick) RenderLock::waitTick();
