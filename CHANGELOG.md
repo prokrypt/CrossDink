@@ -207,6 +207,7 @@
 
 ### Fixed
 - File Transfer with the Wi-Fi remote on: choosing Join Network no longer restarts to Home when memory is a little short; the remote keeps the connection, so nothing needs to be freed.
+- File Transfer: Exit no longer hangs on the server. A WebDAV upload still running is cancelled (its partial file is removed) instead of making Exit wait until it ends, a stalled connection is cut after half a second, and if the server still has not stopped after 15 s the device restarts to Home. Debug builds log what Exit is waiting on (`[WEB] stop: waited ...`: task state, step, request age, open connections), once a second while it waits.
 - Touch Home (Lyra and Classic list menus): swipe up shows the last menu page (Goodies when the menu has more rows than fit); swipe down goes back to the first. Before, those rows were only reachable with the Down button.
 - X4 Pro: with Text Anti-Aliasing on (Noflash or Sharpflash) and book images set to BW dark, BW or Dither, turning between image pages no longer flashes. Those pages hold their black-and-white images and only add gray to the text, like Noflash text pages (Sharpflash text pages still flash once each). A page with no text (only images) skips the anti-aliasing pass, so it turns as fast as with anti-aliasing off; they now count toward the Refresh Frequency cleanup, which swings once every N pages as on text pages. Gray images keep the full swing.
 - Library: an EPUB whose content key could not be read no longer re-reads its last 16 KB on every scan; Refresh retries it.
