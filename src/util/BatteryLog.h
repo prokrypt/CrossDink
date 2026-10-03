@@ -16,27 +16,11 @@
 namespace BatteryLog {
 
 // Kept in RTC memory: survives deep sleep and restarts, cleared on power loss
-// or by reset(). The "since last charged" fields restart when charging stops
-// (charge done, or the cable pulled while charging), awake or asleep.
+// or by reset(). The counters on the stats pages come from the CSV, not from here.
 struct Stats {
   uint32_t magic;
   uint16_t version;
-  uint16_t size;   // sizeof(Stats)
-  uint32_t boots;  // power-on, crash and restart boots
-  uint32_t wakes;  // deep-sleep wakes
-  uint32_t awakeS;
-  uint32_t asleepS;
-  // Since last charged.
-  uint32_t chargedEpoch;  // 0 = not seen since reset
-  uint32_t battAwakeS;
-  uint32_t battAsleepS;
-  uint32_t dropAwakePct;
-  uint32_t dropAsleepPct;
-  uint16_t chargedPct;
-  // Set at sleep and at each charge wake, used at the next wake.
-  uint16_t sleepPct;
-  uint32_t sleepEpoch;
-  bool sleepUsb;
+  uint16_t size;  // sizeof(Stats)
   // Power-button wakes too short to boot (Short Power Button not set to wake):
   // all time, and since the last real wake with the ms they spent awake.
   uint32_t falseWakes;
