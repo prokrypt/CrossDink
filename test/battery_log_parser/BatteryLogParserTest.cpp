@@ -36,13 +36,12 @@ std::string dump(const BatteryLogParser& p) {
   const auto& s = p.st;
   char b[512];
   std::string o;
-  snprintf(b, sizeof(b), "%u %u %d %u %u %u %u %u %u %u %u %u %u %d %d %d %d %d|", s.first, s.last, s.reset,
-           s.coldBoots, s.restarts, s.wakes, s.falseWakes, s.awakeS, s.asleepS, s.chargedEpoch, s.chargeStartEpoch,
-           s.chargeFromC, s.chargeToC, s.chargeFromFine, s.chargeToFine, s.charging, s.run, s.runFine);
+  snprintf(b, sizeof(b), "%u %u %d %u %u %u %u %u %u %u %u %u %u %d %d %d %d|", s.first, s.last, s.reset, s.coldBoots,
+           s.restarts, s.wakes, s.falseWakes, s.awakeS, s.asleepS, s.chargedEpoch, s.chargeStartEpoch, s.chargeFromC,
+           s.chargeToC, s.chargeFromFine, s.chargeToFine, s.charging, s.run);
   o += b;
   for (int k = 0; k < 2; ++k) {
-    snprintf(b, sizeof(b), "%u %u %u %u %d %d|", s.battS[k], s.dropC[k], s.coarseC[k], s.errC[k], s.netC[k],
-             s.netCoarseC[k]);
+    snprintf(b, sizeof(b), "%u %u %u %d %u|", s.battS[k], s.dropC[k], s.errC[k], s.netC[k], s.netErrC[k]);
     o += b;
   }
   for (int k = 0; k < 4; ++k) {
@@ -50,8 +49,9 @@ std::string dump(const BatteryLogParser& p) {
              static_cast<unsigned long long>(s.stateDuty[k]));
     o += b;
   }
-  snprintf(b, sizeof(b), "%d %u %d %d %u %u %d %d %d %d %d|", p.pointCount, p.prevC, p.prevFine, p.prevUsb, p.prevRowC,
-           p.prev.epoch, p.prev.pct, p.prev.awake, p.prevRowFine, p.prevWifi, p.prevLight);
+  snprintf(b, sizeof(b), "%d %u %d %d %u %u %d %d %d %d %d %u %u %u|", p.pointCount, p.prevC, p.prevFine, p.prevUsb,
+           p.prevRowC, p.prev.epoch, p.prev.pct, p.prev.awake, p.prevRowFine, p.prevWifi, p.prevLight,
+           p.stateChangeEpoch, p.fullHoldC, p.stateSkipS);
   o += b;
   for (int i = 0; i < p.pointCount; ++i) {
     snprintf(b, sizeof(b), "%u,%u,%d;", p.points[i].epoch, p.points[i].pct, p.points[i].awake);
@@ -97,6 +97,74 @@ TEST(BatteryLogParser, WholePercentStepsAreSkipped) {
                           "1790903200,x,0,79.00,3990,0,0,30,0,pct,", "1790906800,x,0,78.99,3989,0,0,30,0,pct,"}) {
     p.parseRow(row);
   }
-  EXPECT_EQ(p.st.errC[0] + p.st.errC[1], 1u);  // only the fine->fine step
-  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);   // open stretch, not yet in dropC
+  EXPECT_EQ(p.st.netErrC[0] + p.st.netErrC[1], BatteryLogParser::RUN_ERR_C);  // only the fine->fine step
+  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);                                  // open stretch, not yet in dropC or errC
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.st.errC[0] + p.st.errC[1], BatteryLogParser::RUN_ERR_C);
+}
+
+// A stretch that netted a rise adds neither drop nor ±.
+TEST(BatteryLogParser, RiseAddsNoError) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,80.00,4000,0,0,30,0,pct,", "1790899600,x,0,80.10,4010,0,0,30,0,pct,"}) {
+    p.parseRow(row);
+  }
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.st.dropC[0], 0u);
+  EXPECT_EQ(p.st.errC[0], 0u);
+}
+
+// Wall adapter: charging stops at 100% and logs as unplugged; the flat hours on
+// the charger stay out of the drain until the gauge drops 0.05%.
+TEST(BatteryLogParser, FullChargeEndHoldsUntilDrop) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,99.00,4190,1,1,30,0,chg_on,", "1790897000,x,0,100.00,4200,0,0,30,0,chg_off,",
+                          "1790917000,x,0,100.00,4200,0,0,30,0,pct,", "1790918000,x,0,99.96,4195,0,0,30,0,pct,",
+                          "1790919000,x,0,99.94,4194,0,0,30,0,pct,", "1790922600,x,0,99.80,4190,0,0,30,0,pct,"}) {
+    p.parseRow(row);
+  }
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.st.battS[0], 3600u);  // only from 99.94 on
+  EXPECT_EQ(p.st.dropC[0], 14u);
+}
+
+// "charged" with the cable reading out: the step after it is still plugged.
+TEST(BatteryLogParser, ChargedRowCountsAsPlugged) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,90.00,4190,1,1,30,0,chg_on,", "1790897000,x,0,96.00,4200,0,0,30,0,charged,",
+                          "1790900600,x,0,95.90,4190,0,0,30,0,usb_out,"}) {
+    p.parseRow(row);
+  }
+  EXPECT_EQ(p.st.battS[0], 0u);
+  EXPECT_EQ(p.st.chargedEpoch, 1790900600u);
+  EXPECT_EQ(p.st.chargeToC, 9590u);
+}
+
+// Per-state sums skip steps starting under stateSkipS after a light or Wi-Fi change.
+TEST(BatteryLogParser, StateSumsSkipAfterChange) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,80.00,4000,0,0,30,0,pct,", "1790896600,x,0,79.90,4000,0,0,30,0,pct,",
+                          "1790897200,x,0,79.80,4000,0,0,30,40,light,", "1790897350,x,0,79.60,4000,0,0,30,40,pct,",
+                          "1790897950,x,0,79.50,4000,0,0,30,40,pct,"}) {
+    p.parseRow(row);
+  }
+  EXPECT_EQ(p.st.stateS[0], 1200u);  // light off: both steps before the light row
+  EXPECT_EQ(p.st.stateS[1], 600u);   // light on: the dip in the first 150 s is skipped
+  EXPECT_EQ(p.st.stateDropC[1], 10);
+  EXPECT_EQ(p.st.battS[0], 1950u);  // the overall drain keeps every step
+}
+
+// A row logged before the gauge's first read has a blank %: it reads as the
+// previous row's, so it is no drop and no graph point.
+TEST(BatteryLogParser, BlankPercentIsNoReading) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,80.00,4000,0,0,30,0,pct,", "1790896600,x,0,,4000,0,0,30,0,boot,reset=SW",
+                          "1790897200,x,0,79.80,4000,0,0,30,0,pct,"}) {
+    p.parseRow(row);
+  }
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.pointCount, 2);
+  EXPECT_EQ(p.st.restarts, 1u);
+  EXPECT_EQ(p.st.dropC[0], 20u);
+  EXPECT_EQ(p.st.battS[0], 1200u);
 }

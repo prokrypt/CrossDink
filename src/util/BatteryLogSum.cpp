@@ -3,6 +3,7 @@
 #if CROSSDINK_GOODIES && !defined(SIMULATOR)
 
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <esp_rom_crc.h>
 
@@ -14,7 +15,7 @@ namespace BatteryLogSum {
 namespace {
 constexpr char SUM_PATH[] = "/debug/logs/battery.sum";
 constexpr char SUM_TMP_PATH[] = "/debug/logs/battery.sum.tmp";
-constexpr uint32_t SUM_MAGIC = 0x42535534;  // "BSU4": bump on any parse rule change
+constexpr uint32_t SUM_MAGIC = 0x42535535;  // "BSU5": bump on any parse rule change
 struct Header {
   uint32_t magic;
   uint32_t size;     // sizeof(BatteryLogParser): a layout change drops the file
@@ -41,7 +42,8 @@ bool load(BatteryLogParser& p, int& fileIndex, uint32_t& offset) {
   if (!f) return false;
   Header h{};
   const bool ok = f.read(&h, sizeof(h)) == static_cast<int>(sizeof(h)) && h.magic == SUM_MAGIC && h.size == sizeof(p) &&
-                  f.read(&p, sizeof(p)) == static_cast<int>(sizeof(p)) && parserCrc(p) == h.crc;
+                  f.read(&p, sizeof(p)) == static_cast<int>(sizeof(p)) && parserCrc(p) == h.crc &&
+                  p.stateSkipS == KNOBS.batteryStateSkipS;
   f.close();
   if (!ok) {
     LOG_INF("BAT", "battery.sum unusable");
