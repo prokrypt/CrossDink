@@ -206,7 +206,8 @@ void BatteryStatsActivity::buildLines() {
   int16_t tempDeci = 0;
   const bool tempKnown = monitor.readTemperatureDeciC(tempDeci);
   const uint32_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
-  add("%u.%02u%%  %umV  %s  %s", static_cast<unsigned>(pctC / 100), static_cast<unsigned>(pctC % 100), monitor.readMillivolts(), monitor.isCharging() ? "charging" : "",
+  add("%u.%02u%%  %umV  %s  %s", static_cast<unsigned>(pctC / 100), static_cast<unsigned>(pctC % 100),
+      monitor.readMillivolts(), monitor.isCharging() ? "charging" : "",
       gpio.isUsbConnectedCached() ? "USB" : "on battery");
   if (tempKnown) {
     snprintf(lines[lineCount - 1] + strlen(lines[lineCount - 1]), sizeof(lines[0]) - strlen(lines[lineCount - 1]),
