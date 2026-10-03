@@ -53,3 +53,15 @@ TEST(BatteryEstimate, OtherWifiStateGivesLightShare) {
   EXPECT_FLOAT_EQ(lightScaledRate(0.0f, 3.0f, 325.0f, 80, -1.0f), 3.0f);
   EXPECT_FLOAT_EQ(lightScaledRate(2.0f, 3.0f, 325.0f, 100, 0.5f), 2.0f + 1023.0f / 325.0f);
 }
+
+// Device log 10/3 08:06 (.67, 1002u): Wi-Fi on, light off 0.00248 c%/s (remote idle); light on
+// 0.13152 at duty 19.2 (reading), a slope of 0.0067 c%/s per duty unit: 247 %/h at full light.
+// Wi-Fi off gives 0.000487; the smaller slope wins and the light-off drain is at least the
+// light-on drain less that share.
+TEST(BatteryEstimate, SmallerSlopeWinsAndLightOffDrainIsAtLeastLightOnLessLed) {
+  const float slope = ledSlope(0.01263f, 0.05139f, 78.6f);
+  const float base = 0.13152f - slope * 19.2f;
+  EXPECT_FLOAT_EQ(lightScaledRate(0.00248f, 0.13152f, 19.2f, 0, slope), base);
+  EXPECT_FLOAT_EQ(lightScaledRate(0.00248f, 0.13152f, 19.2f, 30, slope), base + slope * lightDuty(30));
+  EXPECT_GT(lightScaledRate(0.00248f, 0.13152f, 19.2f, 0, slope), 0.01263f);  // above Wi-Fi off, light off
+}
