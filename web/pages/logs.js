@@ -140,12 +140,11 @@ const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1
 // estimates carry that ±, and wait for a 2% drop ('-' until then).
 // u: the drop's ± in %; min: the smallest drop worth a rate (2% whole, 0.2% fractional).
 const minDrop = (u) => (u >= 1 ? 2 : 0.2);
-// A ± past the rate shows as a range from 0: drain is never negative.
-const rate = (drop, s, u = 1, min = minDrop(u)) => {
+// "0.03 ±0.01%/h", or per day ("0.75 ±0.19%/day"), as the device's formatRate.
+const rate = (drop, s, u = 1, min = minDrop(u), perDay = false) => {
   if (!(drop >= min && s >= 60)) return '-';
-  const r = (drop * 3600) / s;
-  const e = (u * 3600) / s;
-  return e > r ? `${r.toFixed(2)} (0-${(r + e).toFixed(2)})%/h` : r.toFixed(2) + '±' + e.toFixed(2) + '%/h';
+  const k = perDay ? 86400 : 3600;
+  return `${((drop * k) / s).toFixed(2)} ±${((u * k) / s).toFixed(2)}%/${perDay ? 'day' : 'h'}`;
 };
 const left = (pct, drop, s, u = 1, min = minDrop(u)) => (drop >= min && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s * u) / drop / drop) : '-');
 const unit = (g) => Math.max(g.a.q, g.b.q);
@@ -570,8 +569,7 @@ function summary() {
     // Drops are in 0.01 % like the device; a drain needs 0.2% over a minute.
     const drain = (k) => {
       if (!(s.d[k] >= 20 && s.b[k] >= 60)) return NOT_ENOUGH;
-      const day = k ? `, ~${((s.d[k] * 864) / s.b[k]).toFixed(1)}%/day` : '';
-      return rate(s.d[k] / 100, s.b[k], Math.sqrt(errSq(s.r[k])) / 100, 0.2) + day + ' over ' + hrs(s.b[k]);
+      return rate(s.d[k] / 100, s.b[k], Math.sqrt(errSq(s.r[k])) / 100, 0.2, k === 1) + ' over ' + hrs(s.b[k]);
     };
     rows.push(
       ['Last charged', s.charging ? `charging from ${p(s.from)} (now ${p(s.to)})` : s.charged && now > s.charged ? `${hrs(now - s.charged)} ago from ${p(s.from)} to ${p(s.to)}` : 'not in the log'],
