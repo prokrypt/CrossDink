@@ -368,6 +368,10 @@ struct WalkState {
   bool failed = false;
   bool creationTimesUnchanged = true;
   bool contentKeysUnchanged = true;
+  // Unchanged-card pre-check: compare each book with the previous index, stage
+  // nothing, and stop at the first difference (verifyMismatch).
+  bool verifyOnly = false;
+  bool verifyMismatch = false;
   bool readMetadata = false;
   bool retryFailedMetadata = false;
   LibraryIndexFile* previous = nullptr;
@@ -600,6 +604,37 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
   return true;
 }
 
+// Pre-check for one book: same path, size, modification and creation time, and
+// a metadata status the full build would reuse. Reads the prior record and its
+// creation time only (memcpy when the index is in PSRAM) and writes nothing.
+// False stops the walk; the full build then runs as before.
+[[gnu::noinline]] bool verifyRecord(WalkState& st, const std::string& name, const uint32_t fileSize,
+                                    const std::string& fullPath, const uint32_t creationTime,
+                                    const uint32_t modificationTime) {
+  const int priorIndex = findPrior(st, clixPathHash(fullPath.data(), fullPath.size()));
+  bool same = priorIndex >= 0 && modificationTime != 0 && st.prior[priorIndex].fileSize == fileSize;
+  ClixRecord record{};
+  if (same) {
+    const uint16_t ordinal = priorOrdinal(st.prior[priorIndex]);
+    uint32_t priorCreationTime = 0;
+    same = st.previous->readRecord(ordinal, record) && st.previous->readCreationTime(ordinal, priorCreationTime) &&
+           record.modificationTime == modificationTime && priorCreationTime == creationTime;
+  }
+  if (same) {
+    const bool extractionExpected = st.readMetadata && FsHelpers::hasEpubExtension(name);
+    same = record.metadataStatus == (extractionExpected ? CLIX_METADATA_EXTRACTED : CLIX_METADATA_NOT_ATTEMPTED) ||
+           (extractionExpected && record.metadataStatus == CLIX_METADATA_FAILED);
+  }
+  if (!same) {
+    st.verifyMismatch = true;
+    st.failed = true;
+    return false;
+  }
+  markPriorMatched(st.prior[priorIndex]);
+  st.books++;
+  return true;
+}
+
 struct DedupFrame {
   WalkState& state;
   uint16_t base;
@@ -717,6 +752,10 @@ void walk(WalkState& st, const std::string& path, const int depth) {
               static_cast<unsigned>(CLIX_MAX_RECORDS));
       st.failed = true;
       break;
+    }
+    if (st.verifyOnly) {
+      if (!verifyRecord(st, name, size, joinLibraryPath(path, name), creationTime, modificationTime)) break;
+      continue;
     }
     if (!folderEmitted) {
       // Folders are emitted lazily, so only directories that actually hold a
@@ -1423,6 +1462,9 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
   LibraryIndexFile previous;
   if (Storage.exists(INDEX_PATH)) {
     if (previous.openForReconciliation(INDEX_PATH)) {
+      // Best effort: every later prior read becomes a memcpy. Without PSRAM
+      // (or on a short read) they stay small card reads, as before.
+      if (!previous.loadIntoMemory()) LOG_DBG("LIBIDX", "previous index read from the card");
       nextFirstSeen = previous.header().nextFirstSeen;
       priorCount = previous.bookCount();
       priorList = makeUniqueNoThrow<PriorEntry[]>(priorCount == 0 ? 1 : priorCount);
@@ -1451,18 +1493,63 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
     }
   }
 
+  const auto initWalkState = [&](WalkState& w) {
+    w.nameBuf = nameBuf.get();
+    w.stagedEntry = stagedEntry.get();
+    w.dedupKeys = dedupKeys.get();
+    w.dedupDegraded = !dedupKeys;
+    w.nextFirstSeen = nextFirstSeen;
+    w.prior = priorList.get();
+    w.priorCount = priorList ? priorCount : 0;
+    w.readMetadata = readMetadata;
+    w.retryFailedMetadata = retryFailedMetadata;
+    w.previous = previous.isOpen() ? &previous : nullptr;
+    w.stats = &stats;
+  };
+
+  // Most scans find the card unchanged. Walk it against the previous index
+  // first and stage nothing: no library.stage writes and two prior reads per
+  // book instead of ~32. The first difference falls through to the full build.
+  if (previous.isOpen() && previous.header().formatVersion == CLIX_FORMAT_VERSION &&
+      previous.header().foldVersion == CLIX_FOLD_VERSION &&
+      previous.header().metadataEnabled == static_cast<uint8_t>(readMetadata) && !retryFailedMetadata &&
+      (previous.header().flags & (CLIX_FLAG_RANKS_DEGRADED | CLIX_FLAG_ARRIVAL_DEGRADED)) == 0) {
+    const uint32_t verifyStartMs = millis();
+    WalkState check;
+    initWalkState(check);
+    check.verifyOnly = true;
+    walk(check, rootPath, 0);
+    gCounters.walkMs = millis() - verifyStartMs;
+    if (!check.failed && check.books == priorCount && check.unreadableSkipped == 0 &&
+        ((previous.header().flags & CLIX_FLAG_DEDUP_DEGRADED) != 0) == check.dedupDegraded) {
+      stats.books = check.books;
+      stats.folders = previous.header().folderCount;
+      stats.duplicatesDropped = check.duplicatesDropped;
+      stats.dedupDegraded = check.dedupDegraded;
+      stats.unchanged = check.books;
+      stats.metadataReused = check.books;
+      gCounters.indexReads = previous.cardReads();
+      gCounters.indexReadBytes = previous.cardReadBytes();
+      previous.close();
+      stats.walkMs = millis() - startMs;
+      LOG_INF("LIBIDX", "unchanged: %u books checked, nothing staged, %ums", static_cast<unsigned>(stats.books),
+              static_cast<unsigned>(stats.walkMs));
+      logScanCounters(stats.books);
+      return true;
+    }
+    if (gBuildCancelled) {
+      LOG_INF("LIBIDX", "build stopped by its owner; keeping the previous index");
+      stats.cancelled = true;
+      return false;
+    }
+    LOG_DBG("LIBIDX", "card changed (%s after %u books, %ums); full build",
+            check.verifyMismatch ? "difference" : "walk stopped", static_cast<unsigned>(check.books),
+            static_cast<unsigned>(gCounters.walkMs));
+    for (uint16_t i = 0; i < priorCount && priorList; i++) priorList[i].ordinalAndMatched &= PRIOR_ORDINAL_MASK;
+  }
+
   WalkState st;
-  st.nameBuf = nameBuf.get();
-  st.stagedEntry = stagedEntry.get();
-  st.dedupKeys = dedupKeys.get();
-  st.dedupDegraded = !dedupKeys;
-  st.nextFirstSeen = nextFirstSeen;
-  st.prior = priorList.get();
-  st.priorCount = priorList ? priorCount : 0;
-  st.readMetadata = readMetadata;
-  st.retryFailedMetadata = retryFailedMetadata;
-  st.previous = previous.isOpen() ? &previous : nullptr;
-  st.stats = &stats;
+  initWalkState(st);
 
   if (!Storage.openFileForWrite("LIBIDX", STAGE_PATH, st.stage) ||
       !Storage.openFileForWrite("LIBIDX", folderStagePath, st.folders)) {

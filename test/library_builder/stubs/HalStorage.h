@@ -23,6 +23,7 @@ inline int failWrite = -1;
 inline int failRename = -1;
 inline std::string failRenameToPath;
 inline int failAlloc = -1;
+inline bool psram = false;
 inline bool failDirectorySeek = false;
 inline std::string failDirectoryIterationPath;
 inline std::string failOpenPath;
@@ -57,6 +58,7 @@ inline void reset() {
   failRename = -1;
   failRenameToPath.clear();
   failAlloc = -1;
+  psram = false;
   failDirectorySeek = false;
   failDirectoryIterationPath.clear();
   failOpenPath.clear();

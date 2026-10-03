@@ -303,6 +303,65 @@ TEST_F(LibraryBuilderTest, StagingAndIndexWritesAreBatched) {
   EXPECT_LT(fake::writesByPath["/.crossdink/library.new"], 32u);
 }
 
+TEST_F(LibraryBuilderTest, UnchangedCardIsCheckedWithoutStaging) {
+  fake::add("/folder/c.txt");
+  initial();
+  const auto old = fake::files[INDEX]->bytes;
+  fake::writesByPath.clear();
+  fake::contentKeyReads = 0;
+
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+
+  EXPECT_FALSE(stats.indexReplaced);
+  EXPECT_EQ(stats.books, 3);
+  EXPECT_EQ(stats.unchanged, 3);
+  EXPECT_EQ(stats.folders, 2);
+  EXPECT_TRUE(fake::writesByPath.empty());
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+  EXPECT_EQ(fake::contentKeyReads, 0u);
+  EXPECT_EQ(fake::files[INDEX]->bytes, old);
+}
+
+TEST_F(LibraryBuilderTest, ChangeFoundByThePreCheckStillRebuildsWithArrivalOrder) {
+  for (const bool psram : {false, true}) {
+    SetUp();
+    fake::psram = psram;
+    fake::add("/c.epub", "book", 5);
+    initial();
+    LibraryIndexFile before;
+    ASSERT_TRUE(before.open(INDEX));
+    const std::string firstArrival = pathAt(before, SortOrder::RecentAsc, 0);
+    before.close();
+    fake::files["/c.epub"]->created = 9;
+    fake::add("/d.epub", "a new book", 7);
+
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+
+    EXPECT_TRUE(stats.indexReplaced);
+    EXPECT_EQ(stats.added, 1);
+    EXPECT_EQ(stats.unchanged, 3);
+    LibraryIndexFile index;
+    ASSERT_TRUE(index.open(INDEX));
+    EXPECT_EQ(index.bookCount(), 4);
+    EXPECT_EQ(pathAt(index, SortOrder::RecentAsc, 0), firstArrival);
+    EXPECT_EQ(pathAt(index, SortOrder::RecentDesc, 0), "/c.epub");
+  }
+}
+
+TEST_F(LibraryBuilderTest, PsramCopyOfThePreviousIndexReplacesPerBookCardReads) {
+  for (unsigned i = 0; i < 40; i++) fake::add("/book" + numbered("", i) + ".epub");
+  initial();
+  fake::resetIoCounters();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  const unsigned cardReads = fake::reads;
+
+  fake::psram = true;
+  fake::resetIoCounters();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_FALSE(stats.indexReplaced);
+  EXPECT_LT(fake::reads + 80, cardReads);
+}
+
 TEST_F(LibraryBuilderTest, ParentDuplicateTrackingSurvivesDirectoryRecursion) {
   fake::add("/folder/c.txt");
   fake::duplicateDirectoryEntry("/a.epub");
