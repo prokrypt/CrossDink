@@ -67,11 +67,12 @@ class GoodiesActivity final : public Activity {
   bool holdsSettingsFlush() const override { return level == Level::KeyboardTest; }
 
  private:
-  enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest };
-  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Battery & stats
+  enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon };
+  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats
   static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
   static constexpr int KBD_TEST_ROW = 4;
+  static constexpr int PINMON_ROW = 5;
   struct Entry {
     std::string label;
     int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
