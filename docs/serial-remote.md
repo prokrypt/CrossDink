@@ -59,15 +59,18 @@ the response body: 200 for `OK:`, 400 for `ERR:`, 404 unknown command, 503 busy 
 Transfer serves `/api/cmd` itself once it is on the network.
 
 `GET` or `POST /api/screenshot` (token as for `/api/cmd`) returns the framebuffer as a binary PBM (P4, 1 = black)
-in the panel's native orientation, the same frame as `TOUCH` coordinates. It is copied on the main task under the
+in the panel's native orientation, the same frame as `TOUCH` coordinates. While the last gray pass is still on the
+panel (no B/W refresh since), it returns a PGM instead (P5, maxval 255, 4 levels: 0 black, 85 dark gray, 170 light
+gray, 255 white; `Content-Type: image/x-portable-graymap`). Check the first two bytes (`P4`/`P5`). The levels are
+the ones sent to the panel, not a read-back of the ink. It is copied on the main task under the
 render lock, so it is never half-drawn; it shows what was last drawn, even if the panel refresh is still running.
 
 ```sh
 # remote-token: the PIN from Goodies > API token (tap to show), one line
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=KBDEXP 15 6" http://10.0.1.67/api/cmd
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=GOTO settings" http://10.0.1.67/api/cmd
-curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pbm http://10.0.1.67/api/screenshot
-convert screen.pbm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
+curl -s --data-urlencode "token=$(cat remote-token)" -o screen.pnm http://10.0.1.67/api/screenshot
+convert screen.pnm -rotate -90 screen.png  # portrait view (ImageMagick), as saved screenshots
 ```
 
 ## Wi-Fi: POST /api/ota

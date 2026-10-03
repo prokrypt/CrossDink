@@ -4,6 +4,7 @@
 #include <BitmapHelpers.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalDisplay.h>
 #include <HalStorage.h>
 #include <Logging.h>
 
@@ -134,12 +135,27 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
     return false;
   }
 
+  // While the last gray pass is still on the panel, save its 4 levels as a
+  // 4-bit BMP (palette index = level: black, dark, light, white).
+  const bool gray = display.grayShotReady();
+  const uint32_t rowSizePadded = (phyWidth * (gray ? 4 : 1) + 31) / 32 * 4;
+
   BmpHeader header;
 
   createBmpHeader(&header, phyWidth, phyHeight, BmpRowOrder::BottomUp);
+  BmpHeader::RgbQuad lightWhite[2] = {{170, 170, 170, 0}, {255, 255, 255, 0}};
+  if (gray) {
+    header.colors[1] = {85, 85, 85, 0};
+    header.infoHeader.biBitCount = 4;
+    header.infoHeader.biClrUsed = header.infoHeader.biClrImportant = 4;
+    header.infoHeader.biSizeImage = rowSizePadded * phyHeight;
+    header.fileHeader.bfOffBits = sizeof(header) + sizeof(lightWhite);
+    header.fileHeader.bfSize = header.fileHeader.bfOffBits + header.infoHeader.biSizeImage;
+  }
 
   bool write_error = false;
-  if (file.write(reinterpret_cast<uint8_t*>(&header), sizeof(header)) != sizeof(header)) {
+  if (file.write(reinterpret_cast<uint8_t*>(&header), sizeof(header)) != sizeof(header) ||
+      (gray && file.write(reinterpret_cast<uint8_t*>(lightWhite), sizeof(lightWhite)) != sizeof(lightWhite))) {
     write_error = true;
   }
 
@@ -150,9 +166,9 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
     return false;
   }
 
-  const uint32_t rowSizePadded = (phyWidth + 31) / 32 * 4;
-  // Max row size for 528px height (X3) after rotation = 68 bytes; use fixed buffer to avoid VLA
-  constexpr size_t kMaxRowSize = 68;
+  // Max row size for 528px height (X3) after rotation = 264 bytes at 4 bpp (68 at 1 bpp); fixed buffer to
+  // avoid a VLA. Callers run on loopTask or the 16 KB render task; both have the room.
+  constexpr size_t kMaxRowSize = 264;
   if (rowSizePadded > kMaxRowSize) {
     LOG_ERR("SCR", "Row size %u exceeds buffer capacity", rowSizePadded);
     // Explicitly close() file before calling Storage.remove()
@@ -171,6 +187,10 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
       // BMP rows are bottom-to-top, so outY=0 is the bottom of the displayed image
       int srcX = width - 1 - outY;     // phyHeight == width
       int srcY = phyWidth - 1 - outX;  // phyWidth == height
+      if (gray) {
+        rowBuffer[outX / 2] |= display.grayShotLevel(srcX, srcY) << ((outX & 1) ? 0 : 4);
+        continue;
+      }
       int fbIndex = srcY * (width / 8) + (srcX / 8);
       uint8_t pixel = (framebuffer[fbIndex] >> (7 - (srcX % 8))) & 0x01;
       rowBuffer[outX / 8] |= pixel << (7 - (outX % 8));
