@@ -54,11 +54,11 @@ struct BatteryLogParser {
   Point points[MAX_POINTS];
   int pointCount;
   LogStats st;
-  Point prev;             // last row read, carried across the files
-  uint16_t prevC;         // drop reference % in 0.01 % (the previous row, or the last fractional one)
-  bool prevFine;          // that % had a fraction
+  Point prev;      // last row read, carried across the files
+  uint16_t prevC;  // drop reference % in 0.01 % (the previous row, or the last fractional one)
+  bool prevFine;   // that % had a fraction
   bool prevUsb;
-  uint16_t prevRowC;      // the previous row's % in 0.01 %, its precision, Wi-Fi and light
+  uint16_t prevRowC;  // the previous row's % in 0.01 %, its precision, Wi-Fi and light
   bool prevRowFine;
   bool prevWifi;
   uint8_t prevLight;
