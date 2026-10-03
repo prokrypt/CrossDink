@@ -88,7 +88,6 @@
 #include "components/themes/BaseTheme.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
-#include "network/WifiUtils.h"
 #include "platform/InputTask.h"
 #include "platform/InputWake.h"
 #include "platform/PinMon.h"
@@ -2855,72 +2854,8 @@ static void loopPass() {
     }
   }
 
-  // Refresh the battery icon when USB is plugged or unplugged.
-  // Placed after sleep guards so we never queue a render that won't be processed.
-  if (gpio.wasUsbStateChanged()) {
-    activityManager.requestUpdate();
-  }
-
-  // The header's Wi-Fi glyph and battery percent: one ordinary repaint of the
-  // current screen when the link comes or goes or the percent changes. Only
-  // screens whose last frame drew a header status bar (never the reader), and
-  // the percent only once input has paused; requestedFor stops a repeat if that
-  // repaint shows no header.
-  {
-    static unsigned long lastHeaderStatusPoll = 0;
-    static int requestedFor = -1;
-    if (millis() - lastHeaderStatusPoll >= 1000) {
-      lastHeaderStatusPoll = millis();
-      const int shownWifi = BaseTheme::wifiStatusShown();
-      const int shownPercent = BaseTheme::batteryPercentShown();
-      const int connected = wifiHeaderBars();
-      // Every 10 s: ADC boards smooth the percent on each read, so a faster
-      // poll would move it (gauge reads are cached for BATTERY_POLL_MS).
-      static int percent = -1;
-      static unsigned long lastPercentRead = 0;
-      // A mismatch re-reads first, so a frame drawn after the last read can't
-      // trigger a repaint of the value it already shows.
-      if (percent < 0 || millis() - lastPercentRead >= 10000 || (shownPercent >= 0 && shownPercent != percent)) {
-        lastPercentRead = millis();
-        percent = powerManager.getBatteryPercentage();
-      }
-      const bool inputPaused = millis() - lastActivityTime >= 2000;
-      const bool stale = shownWifi != connected || (inputPaused && shownPercent != percent);
-      const int want = connected << 8 | percent;
-      if (shownWifi < 0 || !stale) {
-        requestedFor = -1;
-      } else if (requestedFor != want && !renderer.isRefreshPending()) {
-        // Never right behind a screen change: that frame's waveform is still
-        // running and this one would wait it out holding the render lock. The
-        // next poll retries, unless a frame drawn meanwhile already shows it.
-        requestedFor = want;
-        activityManager.requestUpdate();
-      }
-    }
-  }
-
-  // While on external power the percent climbs with no user interaction to
-  // repaint it (gauge boards like the X4 Pro report SoC continuously), so poll
-  // for a change once a minute. Off-charger the percent moves too slowly to
-  // justify unsolicited e-ink refreshes.
-#ifdef SIMULATOR
-  const bool usbConnected = gpio.isUsbConnected();
-#else
-  const bool usbConnected = gpio.isUsbConnectedCached();
-#endif
-  if (usbConnected) {
-    static unsigned long lastBatteryPollTime = 0UL;
-    static uint16_t lastBatteryPercent = 0xFFFF;
-    if (millis() - lastBatteryPollTime >= 60000UL) {
-      lastBatteryPollTime = millis();
-      const uint16_t percent = powerManager.getBatteryPercentage();
-      if (lastBatteryPercent != 0xFFFF && percent != lastBatteryPercent) {
-        activityManager.requestUpdate();
-      }
-      lastBatteryPercent = percent;
-    }
-  }
-
+  // No repaint for the header's Wi-Fi glyph, battery percent or charging icon:
+  // they update on the next frame drawn for another reason.
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_on_exit::loop();

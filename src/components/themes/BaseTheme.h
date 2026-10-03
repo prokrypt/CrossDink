@@ -343,10 +343,4 @@ class BaseTheme {
   // x is the glyph's left edge, batteryY the battery rect's y.
   static void drawWifiStatus(const GfxRenderer& renderer, int x, int batteryY, bool foregroundBlack = true);
   static constexpr int wifiGlyphWidth = 15;
-  // What the last frame's header status bar showed, -1 when it drew none:
-  // Wi-Fi glyph 0 (none) / 1-4 bars and battery percent. ActivityManager resets both before
-  // each render; the main loop reads them.
-  static void beginFrameStatus();
-  static int wifiStatusShown();
-  static int batteryPercentShown();
 };

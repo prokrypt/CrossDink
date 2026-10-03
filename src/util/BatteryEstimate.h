@@ -29,18 +29,21 @@ inline float ledSlope(const float offRate, const float onRate, const float avgDu
 // duty (lightDuty). The light's share scales with the duty. The light only adds
 // drain: when the light-on stretches drained less (the light-off ones held
 // heavier work), it adds nothing rather than making a brighter light last longer.
-// The LED draws the same with Wi-Fi on or off, so when this pair can't tell the
-// light's share, the other Wi-Fi state's ledSlope (< 0 = unknown) gives it, and
-// a missing light-off rate is the light-on one less that share.
+// The LED draws the same with Wi-Fi on or off, so its share per duty unit is the
+// smaller of this pair's and the other Wi-Fi state's ledSlope (otherSlope, < 0 =
+// unknown): a bigger one means that state's light-on stretches held heavier work
+// (Wi-Fi remote idle with the light off, reading with it on). The light-off drain
+// is at least the light-on drain less the light's share.
 inline float lightScaledRate(const float offRate, const float onRate, const float avgDuty, const uint8_t light,
                              const float otherSlope = -1.0f) {
-  if (otherSlope >= 0 && ledSlope(offRate, onRate, avgDuty) < 0) {
-    const float off = offRate > 0 ? offRate : onRate - otherSlope * avgDuty;
-    if (off > 0) return off + otherSlope * lightDuty(light);
+  float slope = ledSlope(offRate, onRate, avgDuty);
+  if (otherSlope >= 0 && (slope < 0 || otherSlope < slope)) slope = otherSlope;
+  if (slope >= 0) {
+    const float base = std::max(offRate, onRate - slope * avgDuty);
+    if (base > 0) return base + slope * lightDuty(light);
   }
   if (light == 0) return offRate;
-  if (offRate <= 0 || onRate <= 0) return onRate;
-  return offRate + std::max(onRate - offRate, 0.0f) * lightDuty(light) / std::max(avgDuty, 1.0f);
+  return offRate > 0 && onRate > 0 ? offRate : onRate;
 }
 
 }  // namespace BatteryEstimate

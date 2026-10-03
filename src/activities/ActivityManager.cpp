@@ -32,7 +32,6 @@
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/ListSelection.h"
 #include "components/TouchRegistry.h"
-#include "components/themes/BaseTheme.h"
 #include "home/AlertActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
@@ -574,7 +573,6 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
-      BaseTheme::beginFrameStatus();
       if (currentActivity.get() != listSelectionOwner) {
         listSelectionOwner = currentActivity.get();
         ListSelection::tapRowShown = false;  // a popup of the previous screen
