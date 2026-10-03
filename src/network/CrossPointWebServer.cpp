@@ -714,7 +714,8 @@ void CrossPointWebServer::registerFullRoutes() {
   const char* davHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
                               "Lock-Token", "Timeout",     "If-None-Match", "X-Token"};
   server->collectHeaders(davHeaders, 8);
-  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+  server->addHandler(new WebDAVHandler(&stopRequested));
 }
 
 void CrossPointWebServer::startWsAndUdp() {
@@ -761,11 +762,7 @@ bool CrossPointWebServer::upgradeToFull() {
   // Park the log-only serving task. The listening socket stays open, so a
   // client arriving meanwhile waits in lwIP's backlog instead of being refused.
   stopRequested.store(true, std::memory_order_release);
-  if (serverTask) {
-    xSemaphoreTake(serverStopped, portMAX_DELAY);
-    if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
-    serverTask = nullptr;
-  }
+  if (serverTask && !waitForServeTask()) return false;  // the caller's stop() restarts
   {
     PsramSmallAllocScope psramSmallAllocs;
     registerFullRoutes();
@@ -788,12 +785,18 @@ void CrossPointWebServer::stop() {
 
   running.store(false, std::memory_order_release);
   // Hand the server back to this task: the serving task finishes its current
-  // request (bounded by WebServer's client timeouts), then exits.
+  // request, then exits.
   stopRequested.store(true, std::memory_order_release);
-  if (serverTask) {
-    xSemaphoreTake(serverStopped, portMAX_DELAY);
-    if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
+  if (serverTask && !waitForServeTask()) {
+    LOG_ERR("WEB", "stop: serving task stuck in %s for %lu ms, restarting", servePhase.load(std::memory_order_relaxed),
+            static_cast<unsigned long>(STOP_GIVE_UP_MS));
+    silentRestart();
+    // ponytail: only reached when deep sleep is already under way. The stuck
+    // task still uses the server, so leak it rather than free it under the task.
+    (void)server.release();
+    (void)wsServer.release();
     serverTask = nullptr;
+    return;
   }
   if (transferActive.exchange(false, std::memory_order_relaxed)) powerManager.endBackgroundWork();
   powerManager.setRadioIdleSleepAllowed(false);
@@ -830,6 +833,78 @@ void CrossPointWebServer::stop() {
   LOG_DBG("WEB", "[MEM] Free heap final: %d bytes", ESP.getFreeHeap());
 }
 
+template <typename Fn>
+void CrossPointWebServer::forEachSocket(Fn fn) const {
+#ifndef SIMULATOR
+  // This server's sockets, found by local port: the HTTP listener and its
+  // clients, the WebSocket listener and clients, the discovery UDP socket.
+  for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd) {
+    sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (lwip_getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) continue;
+    // sin_port and sin6_port share an offset.
+    const uint16_t local = ntohs(reinterpret_cast<const sockaddr_in*>(&addr)->sin_port);
+    if (local != port && !(wsServer && local == wsPort) && !(udpActive && local == LOCAL_UDP_PORT)) continue;
+    fn(fd, local);
+  }
+#else
+  (void)fn;
+#endif
+}
+
+bool CrossPointWebServer::waitForServeTask() {
+  const unsigned long startMs = millis();
+  logStopWait(0);
+  bool shut = false;
+  while (xSemaphoreTake(serverStopped, pdMS_TO_TICKS(shut ? 1000 : STOP_GRACE_MS)) != pdTRUE) {
+    const unsigned long waitedMs = millis() - startMs;
+    logStopWait(waitedMs);
+    if (waitedMs >= STOP_GIVE_UP_MS) return false;
+    if (shut) continue;
+    shut = true;
+#ifndef SIMULATOR
+    // A blocked recv/send/select on these sockets returns at once; the
+    // Arduino read loops then give up within their 5 s client timeout.
+    forEachSocket([](const int fd, uint16_t) {
+      sockaddr_storage peer;
+      socklen_t len = sizeof(peer);
+      if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0) lwip_shutdown(fd, SHUT_RDWR);
+    });
+#endif
+  }
+  if (shut) LOG_INF("WEB", "stop: serving task done after %lu ms", millis() - startMs);
+  if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
+  serverTask = nullptr;
+  return true;
+}
+
+void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
+  // fd:localPort<peer for each of this server's sockets; "-" = listener or UDP.
+  char socks[200] = "";
+  size_t used = 0;
+  forEachSocket([&](const int fd, const uint16_t local) {
+    char ip[16] = "-";
+    unsigned peerPort = 0;
+#ifndef SIMULATOR
+    sockaddr_in peer{};
+    socklen_t len = sizeof(peer);
+    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0 && peer.sin_family == AF_INET) {
+      inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
+      peerPort = ntohs(peer.sin_port);
+    }
+#endif
+    if (used < sizeof(socks)) {
+      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u", fd, local, ip, peerPort);
+    }
+  });
+  const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
+  // eRunning, eReady, eBlocked, eSuspended, eDeleted, eInvalid
+  const char state = serverTask ? "RrBSDI"[std::min<int>(eTaskGetState(serverTask), 5)] : '-';
+  LOG_INF("WEB", "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, ws upload %d, sockets%s",
+          waitedMs, state, servePhase.load(std::memory_order_relaxed), reqStart ? millis() - reqStart : 0UL,
+          wsUploadInProgress ? 1 : 0, used ? socks : " none");
+}
+
 void CrossPointWebServer::serverTaskMain(void* param) {
   auto* self = static_cast<CrossPointWebServer*>(param);
   const bool parks = self->serverTaskPsram;
@@ -858,6 +933,7 @@ void CrossPointWebServer::serveUntilStopped() {
         readable = false;
         vTaskDelay(pdMS_TO_TICKS(IDLE_POLL_MS));
       } else {
+        servePhase.store("select", std::memory_order_relaxed);
         readable = waitForTraffic();
       }
       continue;
@@ -866,6 +942,7 @@ void CrossPointWebServer::serveUntilStopped() {
       handleClient();
     }
     // Not yield(): lower-priority workers and IDLE0 need the core too.
+    servePhase.store("tick", std::memory_order_relaxed);
     vTaskDelay(1);
   }
   PerfLog::noteTaskExit("WebServer");
@@ -911,6 +988,7 @@ bool CrossPointWebServer::handleClient() {
     pollRequest = false;
     requestStartMs.store(millis() | 1, std::memory_order_relaxed);
   }
+  servePhase.store("http", std::memory_order_relaxed);
   server->handleClient();
   if (pending) {
     if (!pollRequest) lastTransferMs = millis();
@@ -918,6 +996,7 @@ bool CrossPointWebServer::handleClient() {
   }
 
   // Handle WebSocket events
+  servePhase.store("ws", std::memory_order_relaxed);
   if (wsServer) {
     wsServer->loop();
   }
@@ -927,6 +1006,7 @@ bool CrossPointWebServer::handleClient() {
   }
 
   // Respond to discovery broadcasts
+  servePhase.store("udp", std::memory_order_relaxed);
   if (udpActive) {
     int packetSize = udp.parsePacket();
     if (packetSize > 0) {
@@ -1019,21 +1099,13 @@ void CrossPointWebServer::setIdleModemSleep() {
 
 bool CrossPointWebServer::waitForTraffic() {
 #ifndef SIMULATOR
-  // This server's sockets, found by local port: the HTTP listener and its
-  // clients, the WebSocket listener and clients, the discovery UDP socket.
   fd_set fds;
   FD_ZERO(&fds);
   int maxFd = -1;
-  for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd) {
-    sockaddr_storage addr;
-    socklen_t len = sizeof(addr);
-    if (lwip_getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) continue;
-    // sin_port and sin6_port share an offset.
-    const uint16_t local = ntohs(reinterpret_cast<const sockaddr_in*>(&addr)->sin_port);
-    if (local != port && !(wsServer && local == wsPort) && !(udpActive && local == LOCAL_UDP_PORT)) continue;
+  forEachSocket([&](const int fd, uint16_t) {
     FD_SET(fd, &fds);
     maxFd = std::max(maxFd, fd);
-  }
+  });
   if (maxFd >= 0) {
     timeval timeout = {static_cast<time_t>(IDLE_POLL_MS / 1000), static_cast<suseconds_t>(IDLE_POLL_MS % 1000 * 1000)};
     const int ready = lwip_select(maxFd + 1, &fds, nullptr, nullptr, &timeout);

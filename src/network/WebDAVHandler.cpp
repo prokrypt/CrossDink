@@ -127,6 +127,13 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     LOG_DBG("DAV", "PUT START: %s", _putPath.c_str());
 
   } else if (raw.status == RAW_WRITE) {
+    if (_stopping->load(std::memory_order_acquire)) {
+      // The next read sees no client and ends the body with RAW_ABORTED.
+      if (_putOk) LOG_INF("DAV", "PUT aborted by server stop after %u bytes", raw.totalSize);
+      _putOk = false;
+      server.client().stop();
+      return;
+    }
     if (_putFile && _putOk) {
       size_t written = _putFile.write(raw.buf, raw.currentSize);
       if (written != raw.currentSize) {

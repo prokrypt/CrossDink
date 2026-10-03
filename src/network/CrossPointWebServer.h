@@ -102,7 +102,8 @@ class CrossPointWebServer {
   bool upgradeToFull();
 
   // Stop the web server. Waits for the serving task to finish its current
-  // request, so never call it from a request handler.
+  // request (an in-flight WebDAV PUT is aborted), so never call it from a
+  // request handler. See waitForServeTask() for the time limits.
   void stop();
 
   // Check if server is running
@@ -190,6 +191,19 @@ class CrossPointWebServer {
   bool serverTaskPsram = false;
   SemaphoreHandle_t serverStopped = nullptr;
   std::atomic<bool> stopRequested{false};
+  // Serving task: what it is in ("http", "ws", "udp", "select", "tick"), for stop()'s log.
+  std::atomic<const char*> servePhase{"start"};
+  // stop(): STOP_GRACE_MS for the current request, then this server's
+  // connections are shut down (unblocks a stalled upload or a dead peer).
+  // Past STOP_GIVE_UP_MS the device restarts instead of hanging the screen.
+  static constexpr uint32_t STOP_GRACE_MS = 500;
+  static constexpr uint32_t STOP_GIVE_UP_MS = 15000;
+  // Waits for the serving task to exit and deletes it; false when it is stuck.
+  bool waitForServeTask();
+  void logStopWait(unsigned long waitedMs) const;
+  // fn(fd, localPort) for each open socket on this server's ports.
+  template <typename Fn>
+  void forEachSocket(Fn fn) const;
   static void serverTaskMain(void* param);
   void serveUntilStopped();
   bool handleClient();  // true when it served a request
