@@ -65,9 +65,8 @@ void formatPct(char* out, const size_t size, const uint16_t centi, const bool fi
   }
 }
 
-// "4.12±0.20%/h over 5h 10m". errC is the ± squared (0.01 %², see LogStats).
-// A ± past the rate shows as a range from 0 (drain is never negative);
-// perDay shows only the rate per day ("0.99±0.20%/day over 6h 8m").
+// "4.12 ±0.20%/h over 5h 10m". errC is the ± squared (0.01 %², see LogStats).
+// perDay shows only the rate per day ("0.99 ±0.20%/day over 6h 8m").
 void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t errC, const uint32_t seconds,
                 const bool perDay = false) {
   if (dropC < MIN_DROP_C || seconds < 60) {
@@ -79,11 +78,7 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32
   const float unit = perDay ? 24.0f : 1.0f;
   const char* per = perDay ? "day" : "h";
   const float rate = dropC * 36.0f / seconds * unit, err = sqrtf(static_cast<float>(errC)) * 36.0f / seconds * unit;
-  if (err > rate) {
-    snprintf(out, size, "%.2f (0-%.2f)%%/%s over %s", rate, rate + err, per, span);
-  } else {
-    snprintf(out, size, "%.2f\xC2\xB1%.2f%%/%s over %s", rate, err, per, span);
-  }
+  snprintf(out, size, "%.2f \xC2\xB1%.2f%%/%s over %s", rate, err, per, span);
 }
 
 constexpr uint32_t SUM_MIN_READ = 32 * 1024;  // a load that read less leaves battery.sum as it is
