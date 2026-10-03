@@ -683,7 +683,8 @@ void KeyboardEntryActivity::loop() {
       if (tapHighlight) selectionShown = true;
       // Turbo: the tapped key shows gray in the refresh that prints it (no
       // press refresh); it stays until the next key.
-      else interactions.setFlash(ACTION_KEY, result.event.value);
+      else
+        interactions.setFlash(ACTION_KEY, result.event.value);
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestStrokeUpdate();
