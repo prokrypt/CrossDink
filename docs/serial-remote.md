@@ -117,7 +117,8 @@ Offsets count every byte since the ring started, so they carry across software r
 panics). If the ring overwrote text since the last poll the reply starts with `[psram-log gap N bytes]`; if
 it restarted (power loss, deep sleep) it starts with `[psram-log restarted]` and the whole new ring. `wait`
 (max 5000) holds an empty reply until new text arrives; that holds up only the web server task, so
-`/api/cmd` answers after the current poll. Tail from the start of the ring (`o=0`), then follow:
+`/api/cmd` answers after the current poll. `?size=1` returns only the headers (`X-Log-Next` minus
+`X-Log-Oldest` is the bytes held). Tail from the start of the ring (`o=0`), then follow:
 
 ```sh
 o=0; while :; do n=$(curl -s --connect-timeout 3 --max-time 10 -D - -o /dev/stderr "http://10.0.1.67/api/psram-log?since=$o&wait=2000" | tr -d '\r' | awk 'tolower($1)=="x-log-next:"{print $2}'); o=${n:-$o}; done 2>&1

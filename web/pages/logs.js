@@ -70,8 +70,8 @@ async function load() {
 (async () => {
   $('src').length = 0;
   add('Device status (/api/status)', '/api/status', 'status.json');
-  // since=max returns a one-line reply instead of the whole ring: a cheap probe.
-  const p = await fetch('/api/psram-log?since=4294967295').catch(() => null);
+  // ?size returns only the X-Log headers: a cheap probe.
+  const p = await fetch('/api/psram-log?size=1').catch(() => null);
   if (p && p.ok) {
     const size = p.headers.get('X-Log-Next') - p.headers.get('X-Log-Oldest');
     add('PSRAM log (' + size.toLocaleString() + 'B)', '/api/psram-log', 'psram-log.txt');
