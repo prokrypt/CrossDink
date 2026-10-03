@@ -2315,8 +2315,7 @@ static void updateFlashDuck() {
   // below minPct (>= 2) of full (rounded up; at 100 the duck is over).
   const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
   const unsigned long floor = std::min<unsigned long>(
-      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b),
-      100);
+      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b), 100);
   static bool darkLogged = false;
   unsigned long level;
   if (ducking) {
