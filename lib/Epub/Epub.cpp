@@ -13,6 +13,7 @@
 #include <ZipFile.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
@@ -359,23 +360,45 @@ bool copyTopLevelFiles(const std::string& from, const std::string& to) {
   return ok;
 }
 
-// ponytail: 16-entry path->key memo, not checked against the file. Every
-// replace route (upload, OPDS, delete, WebDAV) goes through the
-// clearBookCache*() helpers, which call Epub::forgetCacheKeys(); so does USB
-// Drive exit. It also keeps a second open of a book the reader holds open off
-// the card, which SdFat refuses on hardware.
+// ponytail: path->key memo (256 entries in PSRAM, else 16), not checked
+// against the file. Every replace route (upload, OPDS, delete, WebDAV) goes
+// through the clearBookCache*() helpers, which call Epub::forgetCacheKeys()
+// (the Library builder skips it for a key it has just read); so does USB Drive
+// exit. It also keeps a second open of a book the reader holds open off the
+// card, which SdFat refuses on hardware.
 struct CacheKeyMemo {
   uint64_t pathHash;
   uint64_t key;
 };
-CacheKeyMemo cacheKeyMemo[16] = {};
-uint8_t cacheKeyMemoNext = 0;
+// 256 x 16 B keeps a first scan's keys (up to 256 books), so a cancelled one (Home left
+// mid-scan) does not re-read every tail on its retry. Allocated on first use.
+constexpr size_t kBigMemoEntries = 256;
+CacheKeyMemo smallKeyMemo[16] = {};
+HeapByteBuffer bigKeyMemo;
+CacheKeyMemo* cacheKeyMemo = smallKeyMemo;
+size_t cacheKeyMemoSize = std::size(smallKeyMemo);
+size_t cacheKeyMemoNext = 0;
+bool bigKeyMemoTried = false;
 std::mutex cacheKeyMemoMutex;
+
+// Caller holds cacheKeyMemoMutex.
+void growCacheKeyMemo() {
+  if (bigKeyMemoTried) return;
+  bigKeyMemoTried = true;
+  bigKeyMemo = makePsramByteBufferNoThrow(kBigMemoEntries * sizeof(CacheKeyMemo));
+  if (!bigKeyMemo) return;
+  memset(bigKeyMemo.get(), 0, kBigMemoEntries * sizeof(CacheKeyMemo));
+  cacheKeyMemo = reinterpret_cast<CacheKeyMemo*>(bigKeyMemo.get());
+  cacheKeyMemoSize = kBigMemoEntries;
+  cacheKeyMemoNext = 0;
+}
+std::atomic<uint32_t> contentKeyReadCount{0};
 
 // FNV-1a 64 of the file size plus its last 16 KB. An EPUB's ZIP central
 // directory sits at the end and lists every entry's CRC-32 and offset, so the
 // tail fingerprints the whole book without reading all of it.
 bool readContentKey(const std::string& filepath, uint64_t& out) {
+  contentKeyReadCount.fetch_add(1, std::memory_order_relaxed);
   HalFile file;
   if (!Storage.openFileForReadIfPresent("EBP", filepath, file)) {
     // A book that exists but won't open is usually held open elsewhere (SdFat
@@ -392,15 +415,27 @@ bool readContentKey(const std::string& filepath, uint64_t& out) {
   }
   const uint32_t start = size > kTailBytes ? size - kTailBytes : 0;
   bool ok = file.seekSet(start);
-  uint8_t buf[256];
-  for (uint32_t left = size - start; ok && left > 0;) {
-    const int n = file.read(buf, std::min<uint32_t>(left, sizeof(buf)));
+  // Sector-aligned 4 KB reads let SdFat move whole sectors straight into the
+  // buffer instead of 64 trips through its one-sector cache. Internal RAM so
+  // the card driver can DMA into it; the 256 B stack buffer is the fallback.
+  constexpr size_t kBigChunk = 4096;
+  uint8_t small[256];
+  auto big = makeInternalByteBufferNoThrow(kBigChunk);
+  uint8_t* const buf = big ? big.get() : small;
+  const size_t cap = big ? kBigChunk : sizeof(small);
+  for (uint32_t pos = start, left = size - start; ok && left > 0;) {
+    // The first read only runs to the next sector boundary; the rest are aligned.
+    const size_t want = std::min<uint32_t>(left, cap - (big ? pos % 512 : 0));
+    const int n = file.read(buf, want);
     ok = n > 0;
     for (int i = 0; i < n; i++) {
       hash ^= buf[i];
       hash *= 1099511628211ull;
     }
-    if (ok) left -= n;
+    if (ok) {
+      left -= n;
+      pos += n;
+    }
   }
   file.close();
   if (!ok) {
@@ -415,17 +450,18 @@ bool contentKey(const std::string& filepath, uint64_t& out) {
   const uint64_t pathHash = ZipFile::fnvHash64(filepath.c_str(), filepath.size());
   {
     std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
-    for (const auto& entry : cacheKeyMemo) {
-      if (entry.pathHash == pathHash) {
-        out = entry.key;
+    for (size_t i = 0; i < cacheKeyMemoSize; i++) {
+      if (cacheKeyMemo[i].pathHash == pathHash) {
+        out = cacheKeyMemo[i].key;
         return true;
       }
     }
   }
   if (!readContentKey(filepath, out)) return false;
   std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
+  growCacheKeyMemo();
   cacheKeyMemo[cacheKeyMemoNext] = {pathHash, out};
-  cacheKeyMemoNext = (cacheKeyMemoNext + 1) % std::size(cacheKeyMemo);
+  cacheKeyMemoNext = (cacheKeyMemoNext + 1) % cacheKeyMemoSize;
   return true;
 }
 
@@ -622,9 +658,11 @@ std::string Epub::cachePathForFilePath(const std::string& filepath, const std::s
 
 bool Epub::contentKeyFor(const std::string& filepath, uint64_t& out) { return contentKey(filepath, out); }
 
+uint32_t Epub::contentKeyReads() { return contentKeyReadCount.load(std::memory_order_relaxed); }
+
 void Epub::forgetCacheKeys() {
   std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
-  std::fill(std::begin(cacheKeyMemo), std::end(cacheKeyMemo), CacheKeyMemo{});
+  std::fill(cacheKeyMemo, cacheKeyMemo + cacheKeyMemoSize, CacheKeyMemo{});
 }
 
 bool Epub::hasCache(const std::string& filepath, const std::string& cacheDir) {

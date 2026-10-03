@@ -8,6 +8,7 @@
 // recordStart + 128k, so no offset table has to be loaded to find it.
 
 #include <HalStorage.h>
+#include <Memory.h>
 
 #include <cstdint>
 #include <string>
@@ -57,8 +58,17 @@ class LibraryIndexFile {
   // history without exposing stale sort/search keys to the browser.
   bool openForReconciliation(const char* path);
   void close();
+  // Copies the whole index into PSRAM and closes the file: later reads are
+  // memcpy, and the file can be renamed by a rebuild while this stays open.
+  // ~325 B per book. False, with the file still open, without PSRAM or on a
+  // short read.
+  bool loadIntoMemory();
+  bool inMemory() const { return bool(mem); }
   bool isOpen() const { return opened; }
   bool ioFailed() const { return readFailed; }
+  // Card reads since open(), for the builder's scan counters (LOG_DBG only).
+  uint32_t cardReads() const { return readCalls; }
+  uint32_t cardReadBytes() const { return readBytes; }
 
   ClixValidity validity() const { return lastValidity; }
   const ClixHeader& header() const { return head; }
@@ -123,9 +133,13 @@ class LibraryIndexFile {
   bool readTail(const ClixRecord& record, uint32_t skip, void* out, size_t len);
 
   HalFile file;
+  HeapByteBuffer mem;
+  uint32_t memSize = 0;
   ClixHeader head{};
   bool opened = false;
   bool readFailed = false;
+  uint32_t readCalls = 0;
+  uint32_t readBytes = 0;
   ClixValidity lastValidity = ClixValidity::BadMagic;
 };
 
