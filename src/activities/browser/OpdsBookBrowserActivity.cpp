@@ -996,7 +996,8 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   // Read-only open: one directory lookup, no SD write until Confirm.
   std::string path = bookDownloadPath(book, server.filenameFormat);
   std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
-  std::string details = book.title;
+  // cppcheck-suppress stlcstrAssignment ; title is a PsramString, not std::string
+  std::string details = book.title.c_str();
   HalFile existing = Storage.open(path.c_str());
   const bool onSdAlready = existing && !existing.isDirectory();
   if (onSdAlready) {
