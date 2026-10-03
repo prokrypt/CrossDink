@@ -10,6 +10,7 @@
 #include <Epub/Page.h>
 #include <Epub/PageCountEstimator.h>
 #include <Epub/blocks/TextBlock.h>
+#include <Epub/converters/DirectPixelWriter.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -8194,6 +8195,22 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // A drawn-ahead frame serves at most this render; any other render may
   // change what the next page should look like.
   clearPrerenderedPage();
+  // BW images cover this render only; other screens keep the default mapping.
+  struct BwImagesScope {
+    explicit BwImagesScope(const uint8_t mode) { DirectPixelWriter::bwImages = mode; }
+    ~BwImagesScope() { DirectPixelWriter::bwImages = DirectPixelWriter::BW_IMAGES_OFF; }
+  } bwImagesScope([] {
+    switch (SETTINGS.imageRendering) {
+      case CrossPointSettings::IMAGES_DISPLAY_BW_DARK:
+        return DirectPixelWriter::BW_IMAGES_DARK;
+      case CrossPointSettings::IMAGES_DISPLAY_BW:
+        return DirectPixelWriter::BW_IMAGES_BW;
+      case CrossPointSettings::IMAGES_DISPLAY_DITHER:
+        return DirectPixelWriter::BW_IMAGES_DITHER;
+      default:
+        return DirectPixelWriter::BW_IMAGES_OFF;
+    }
+  }());
 #if CROSSDINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     if (!touchReaderPreviewAllocationAttempted) {
@@ -8248,7 +8265,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
   const bool pageHasImages = page->hasImages();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-  bool needsImageGrayscale = pageHasImages;
+  bool needsImageGrayscale = pageHasImages && !DirectPixelWriter::bwImages;
   bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack &&
                             !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
@@ -8448,7 +8465,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       grayImageOnPanel = {currentSpineIndex, section ? section->currentPage : -1, imgX, imgY, imgW, imgH};
     }
   };
-  if (pageHasImages && !deferImageLoading) {
+  // BW images with no text AA draw no gray at all: refresh like a plain text
+  // page. A gray base with nothing after it may never reach the panel (UC8179
+  // skips the base over direct gray and waits for the gray pass).
+  if (pageHasImages && !deferImageLoading && (needsAnyGrayscale || !DirectPixelWriter::bwImages)) {
     // Keep the legacy blank/base sequence unless the controller can transition
     // directly to the complete image base.
     if (hasImageBox) {
@@ -8993,7 +9013,7 @@ void EpubReaderActivity::refreshChapterGroupEstimate(const uint16_t viewportWidt
   mix(SETTINGS.paragraphAlignment);
   mix(SETTINGS.hyphenationEnabled);
   mix(SETTINGS.embeddedStyle);
-  mix(SETTINGS.imageRendering);
+  mix(SETTINGS.imageLayoutMode());
   mix(SETTINGS.focusReadingEnabled);
   mix(SETTINGS.guideReadingEnabled);
   mix(SETTINGS.wordSpacing);

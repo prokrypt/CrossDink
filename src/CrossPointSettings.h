@@ -366,7 +366,17 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   enum RECENT_BOOKS_VIEW { RECENT_BOOKS_LIST = 0, RECENT_BOOKS_GRID = 1, RECENT_BOOKS_VIEW_COUNT };
 
   // Image rendering in EPUB reader
-  enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
+  // IMAGES_DISPLAY draws images in the 4-level gray pass; the BW variants lay
+  // out the same and draw 1-bit with no image gray pass.
+  enum IMAGE_RENDERING {
+    IMAGES_DISPLAY = 0,
+    IMAGES_PLACEHOLDER = 1,
+    IMAGES_SUPPRESS = 2,
+    IMAGES_DISPLAY_BW = 3,
+    IMAGES_DISPLAY_BW_DARK = 4,
+    IMAGES_DISPLAY_DITHER = 5,
+    IMAGE_RENDERING_COUNT
+  };
   enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
   enum PAGE_TURN_GESTURE {
     TAP_AND_SWIPE = 0,
@@ -661,6 +671,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t readingIdleTimeThresholdUnits = 30;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  // The layout/cache view of imageRendering: BW variants lay out as Display.
+  uint8_t imageLayoutMode() const { return imageRendering >= IMAGES_DISPLAY_BW ? IMAGES_DISPLAY : imageRendering; }
   // Long-press Confirm (menu button) quick action in reader (0 = off)
   uint8_t longPressMenuAction = LONG_MENU_OFF;
   // Long-press Back quick action in reader (defaults to the historical file browser shortcut)
