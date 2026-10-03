@@ -655,9 +655,22 @@ void CrossPointWebServer::registerFullRoutes() {
     };
     pair("battS", s.battS);
     pair("dropC", s.dropC);
-    pair("errC", s.errC);
     pair("netC", s.netC);
-    pair("netErrC", s.netErrC);
+    doc["runC"] = s.runC;
+    doc["runS"] = s.runS;
+    // Run sums [n, dt, d2, t2] per category; doubles hold the 64-bit sums exactly.
+    const auto runs = [&doc](const char* key, const BatteryLogParser::RunSums* r) {
+      JsonArray a = doc[key].to<JsonArray>();
+      for (int k = 0; k < 2; ++k) {
+        JsonArray v = a.add<JsonArray>();
+        v.add(r[k].n);
+        v.add(static_cast<double>(r[k].dt));
+        v.add(static_cast<double>(r[k].d2));
+        v.add(static_cast<double>(r[k].t2));
+      }
+    };
+    runs("runs", s.runs);
+    runs("netRuns", s.netRuns);
     // Awake drain by state [Wi-Fi * 2 + light on]: the web Battery tab's Est to empty.
     JsonArray sd = doc["stateDropC"].to<JsonArray>(), ss = doc["stateS"].to<JsonArray>(),
               su = doc["stateDuty"].to<JsonArray>();

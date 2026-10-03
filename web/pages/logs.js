@@ -140,12 +140,11 @@ const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1
 // estimates carry that ±, and wait for a 2% drop ('-' until then).
 // u: the drop's ± in %; min: the smallest drop worth a rate (2% whole, 0.2% fractional).
 const minDrop = (u) => (u >= 1 ? 2 : 0.2);
-// A ± past the rate shows as a range from 0: drain is never negative.
-const rate = (drop, s, u = 1, min = minDrop(u)) => {
+// "0.03 ±0.01%/h", or per day ("0.75 ±0.19%/day"), as the device's formatRate.
+const rate = (drop, s, u = 1, min = minDrop(u), perDay = false) => {
   if (!(drop >= min && s >= 60)) return '-';
-  const r = (drop * 3600) / s;
-  const e = (u * 3600) / s;
-  return e > r ? `${r.toFixed(2)} (0-${(r + e).toFixed(2)})%/h` : r.toFixed(2) + '±' + e.toFixed(2) + '%/h';
+  const k = perDay ? 86400 : 3600;
+  return `${((drop * k) / s).toFixed(2)} ±${((u * k) / s).toFixed(2)}%/${perDay ? 'day' : 'h'}`;
 };
 const left = (pct, drop, s, u = 1, min = minDrop(u)) => (drop >= min && s >= 60 ? hrs((pct * s) / drop) + ' ±' + hrs((pct * s * u) / drop / drop) : '-');
 const unit = (g) => Math.max(g.a.q, g.b.q);
@@ -331,7 +330,7 @@ function stateTable() {
   const row = (k, secs, dropC, r, runtime) => [k, hrs(secs), +(dropC / 100).toFixed(2) + '%', r, runtime];
   const ok = (secs, dropC) => secs >= 1800 && dropC >= 50; // as the estimate's rateOf
   const rows = names.map((k, i) => (s.ss[i] ? row(k, s.ss[i], s.sd[i], ok(s.ss[i], s.sd[i]) ? ((s.sd[i] * 36) / s.ss[i]).toFixed(2) + '%/h' : '-', ok(s.ss[i], s.sd[i]) ? hrs((pct * 100 * s.ss[i]) / s.sd[i]) : '-') : null)).filter(Boolean);
-  if (s.b[1]) rows.push(row('asleep', s.b[1], s.d[1], rate(s.d[1] / 100, s.b[1], Math.sqrt(s.e[1]) / 100, 0.2), left(pct, s.d[1] / 100, s.b[1], Math.sqrt(s.e[1]) / 100, 0.2)));
+  if (s.b[1]) rows.push(row('asleep', s.b[1], s.d[1], rate(s.d[1] / 100, s.b[1], Math.sqrt(errSq(s.r[1])) / 100, 0.2), left(pct, s.d[1] / 100, s.b[1], Math.sqrt(errSq(s.r[1])) / 100, 0.2)));
   table('states', ['State', 'Time', 'Drop', 'Rate', `Runtime from ${pct}%`], rows);
 }
 
@@ -408,20 +407,32 @@ const lightScaledRate = (off, on, avg, light, other = -1, max = 1e9) => {
 // (BatteryLogParser::parseRow, same rules, same 0.01 % units): from the last
 // stats_reset row, or the first row.
 const UNPLUG_SKIP_S = 1800;
-const RUN_ERR_C = 625; // (0.25 %)^2
+const RUN_ERR_C = 625; // (0.25 %)^2 per run while there are too few runs to fit
+// Run sums per category: [n, sum d t, sum d^2, sum t^2] (d: drop in 0.01 %, t: s).
+// The drop's ± squared, as BatteryLogParser::errSq: the smaller of RUN_ERR_C per
+// run and the runs' scatter around the fitted rate times n / (n - 1).
+const errSq = ([n, dt, d2, t2]) => (n < 3 || !t2 ? n * RUN_ERR_C : Math.min(n * RUN_ERR_C, (Math.max(d2 - (dt * dt) / t2, 0) * n) / (n - 1)));
 const FULL_C = 9500; // a charge ending at or above this may still be on a charger ...
 const FULL_DROP_C = 5; // ... until the % drops this far below the charge end
 function logStats() {
-  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], e: [0, 0], run: -1, n: [0, 0], ne: [0, 0], sd: [0, 0, 0, 0], ss: [0, 0, 0, 0], su: [0, 0, 0, 0] });
+  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], r: [[0, 0, 0, 0], [0, 0, 0, 0]], run: -1, rc: 0, rs: 0, n: [0, 0], nr: [[0, 0, 0, 0], [0, 0, 0, 0]], sd: [0, 0, 0, 0], ss: [0, 0, 0, 0], su: [0, 0, 0, 0] });
   // The open stretch of on-battery steps keeps a signed net drop per category (n),
   // so the gauge's rise after an unplug cancels drops; it is added to d (a
   // negative net as 0) when the stretch ends.
-  const end = (s) => {
-    for (const k of [0, 1]) {
-      if (s.n[k] > 0) (s.d[k] += s.n[k]), (s.e[k] += s.ne[k]);
-      s.n[k] = s.ne[k] = 0;
+  const close = (s) => {
+    if (s.run >= 0 && s.rs > 0) {
+      const r = s.nr[s.run];
+      r[0]++, (r[1] += s.rc * s.rs), (r[2] += s.rc * s.rc), (r[3] += s.rs * s.rs);
     }
-    s.run = -1;
+    (s.run = -1), (s.rc = s.rs = 0);
+  };
+  const end = (s) => {
+    close(s);
+    for (const k of [0, 1]) {
+      if (s.n[k] > 0) (s.d[k] += s.n[k]), (s.r[k] = s.r[k].map((v, i) => v + s.nr[k][i]));
+      s.n[k] = 0;
+      s.nr[k] = [0, 0, 0, 0];
+    }
   };
   let s = zero(false);
   let prev = null; // the previous row
@@ -439,7 +450,7 @@ function logStats() {
     s = {
       reset: sum.reset, first: sum.first, last: sum.last, cold: sum.coldBoots, rst: sum.restarts, wakes: sum.wakes, falseWakes: sum.falseWakes,
       awake: sum.awakeS, asleep: sum.asleepS, charged: sum.chargedEpoch, from: pc(sum.chargeFromC, sum.chargeFromFine), to: pc(sum.chargeToC, sum.chargeToFine),
-      charging: sum.charging, b: sum.battS, d: sum.dropC, e: sum.errC, run: sum.run, n: sum.netC, ne: sum.netErrC, sd: sum.stateDropC, ss: sum.stateS, su: sum.stateDuty,
+      charging: sum.charging, b: sum.battS, d: sum.dropC, r: sum.runs, run: sum.run, rc: sum.runC, rs: sum.runS, n: sum.netC, nr: sum.netRuns, sd: sum.stateDropC, ss: sum.stateS, su: sum.stateDuty,
     };
     prev = { t: sum.prevEpoch, ev: sum.prevAwake ? '' : 'sleep', det: '', plug: sum.prevUsb, c: sum.prevRowC, fine: sum.prevRowFine, pct: sum.prevRowC / 100, q: sum.prevRowFine ? 0.01 : 1 };
     if (!sum.prevEpoch) prev = null;
@@ -475,13 +486,15 @@ function logStats() {
       // Drops come from fractional rows only: a whole row inside fractional data
       // counts its time, and the drop is taken across it from ref; whole-% steps
       // are left out (each adds +-1% to a drop of ~0.01%). Each unbroken run of
-      // steps adds RUN_ERR to ne (the gauge wanders between rows; runs wander
-      // independently, so the ± is sqrt(e)); a stretch's ne counts with its drop.
+      // steps in one category is one sample for the ± (errSq); a stretch's runs
+      // count with its drop.
       if (onBattery && r.fine && ref.fine) {
         s.b[k] += dt;
         s.n[k] += ref.c - r.c;
-        if (s.run !== k) s.ne[k] += RUN_ERR_C;
+        if (s.run !== k) close(s);
         s.run = k;
+        s.rc += ref.c - r.c;
+        s.rs += dt;
       } else if (onBattery && ref.fine) s.b[k] += dt;
       else end(s);
     } else end(s);
@@ -530,7 +543,7 @@ function estToEmpty(s, pct, lightNow) {
   const span = s.b[0] + s.b[1];
   if (drop >= 20 && span >= 60) {
     const l = (pctC * span) / drop;
-    return `${hrs(l)} ±${hrs((l * Math.sqrt(s.e[0] + s.e[1])) / drop)} calendar (${state})`;
+    return `${hrs(l)} ±${hrs((l * Math.sqrt(errSq(s.r[0]) + errSq(s.r[1]))) / drop)} calendar (${state})`;
   }
   return NOT_ENOUGH;
 }
@@ -556,8 +569,7 @@ function summary() {
     // Drops are in 0.01 % like the device; a drain needs 0.2% over a minute.
     const drain = (k) => {
       if (!(s.d[k] >= 20 && s.b[k] >= 60)) return NOT_ENOUGH;
-      const day = k ? `, ~${((s.d[k] * 864) / s.b[k]).toFixed(1)}%/day` : '';
-      return rate(s.d[k] / 100, s.b[k], Math.sqrt(s.e[k]) / 100, 0.2) + day + ' over ' + hrs(s.b[k]);
+      return rate(s.d[k] / 100, s.b[k], Math.sqrt(errSq(s.r[k])) / 100, 0.2, k === 1) + ' over ' + hrs(s.b[k]);
     };
     rows.push(
       ['Last charged', s.charging ? `charging from ${p(s.from)} (now ${p(s.to)})` : s.charged && now > s.charged ? `${hrs(now - s.charged)} ago from ${p(s.from)} to ${p(s.to)}` : 'not in the log'],

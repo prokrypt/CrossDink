@@ -65,9 +65,9 @@ void formatPct(char* out, const size_t size, const uint16_t centi, const bool fi
   }
 }
 
-// "4.12 ±0.20%/h over 5h 10m". errC is the ± squared (0.01 %², see LogStats).
+// "4.12 ±0.20%/h over 5h 10m". errC is the ± squared (0.01 %², BatteryLogParser::errSq).
 // perDay shows only the rate per day ("0.99 ±0.20%/day over 6h 8m").
-void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t errC, const uint32_t seconds,
+void formatRate(char* out, const size_t size, const uint32_t dropC, const float errC, const uint32_t seconds,
                 const bool perDay = false) {
   if (dropC < MIN_DROP_C || seconds < 60) {
     snprintf(out, size, "%s", NOT_ENOUGH);
@@ -77,7 +77,7 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32
   formatDur(seconds, span, sizeof(span));
   const float unit = perDay ? 24.0f : 1.0f;
   const char* per = perDay ? "day" : "h";
-  const float rate = dropC * 36.0f / seconds * unit, err = sqrtf(static_cast<float>(errC)) * 36.0f / seconds * unit;
+  const float rate = dropC * 36.0f / seconds * unit, err = sqrtf(errC) * 36.0f / seconds * unit;
   snprintf(out, size, "%.2f \xC2\xB1%.2f%%/%s over %s", rate, err, per, span);
 }
 
@@ -228,9 +228,9 @@ void BatteryStatsActivity::buildLines() {
     } else {
       add("Chg: not in the log");
     }
-    formatRate(a, sizeof(a), st.dropC[0], st.errC[0], st.battS[0]);
+    formatRate(a, sizeof(a), st.dropC[0], BatteryLogParser::errSq(st, 0), st.battS[0]);
     add("Awake drain: %s", a);
-    formatRate(a, sizeof(a), st.dropC[1], st.errC[1], st.battS[1], true);
+    formatRate(a, sizeof(a), st.dropC[1], BatteryLogParser::errSq(st, 1), st.battS[1], true);
     add("Asleep drain: %s", a);
     // Awake drain for the live Wi-Fi and light state; the light's share scales
     // with the LED duty against the state's logged average duty.
@@ -269,8 +269,9 @@ void BatteryStatsActivity::buildLines() {
       const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pctNowC) * span / drop);
       char err[24];
       formatDur(left, a, sizeof(a));
-      formatDur(static_cast<uint32_t>(left * sqrtf(static_cast<float>(st.errC[0] + st.errC[1])) / drop), err,
-                sizeof(err));
+      formatDur(
+          static_cast<uint32_t>(left * sqrtf(BatteryLogParser::errSq(st, 0) + BatteryLogParser::errSq(st, 1)) / drop),
+          err, sizeof(err));
       add("Est to empty: %s \xC2\xB1%s calendar (%s)", a, err, b);
     } else {
       add("Est to empty: %s", NOT_ENOUGH);

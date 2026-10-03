@@ -40,8 +40,15 @@ std::string dump(const BatteryLogParser& p) {
            s.restarts, s.wakes, s.falseWakes, s.awakeS, s.asleepS, s.chargedEpoch, s.chargeStartEpoch, s.chargeFromC,
            s.chargeToC, s.chargeFromFine, s.chargeToFine, s.charging, s.run);
   o += b;
+  snprintf(b, sizeof(b), "%d %u|", s.runC, s.runS);
+  o += b;
   for (int k = 0; k < 2; ++k) {
-    snprintf(b, sizeof(b), "%u %u %u %d %u|", s.battS[k], s.dropC[k], s.errC[k], s.netC[k], s.netErrC[k]);
+    for (const auto& r : {s.runs[k], s.netRuns[k]}) {
+      snprintf(b, sizeof(b), "%u %lld %llu %llu ", r.n, static_cast<long long>(r.dt),
+               static_cast<unsigned long long>(r.d2), static_cast<unsigned long long>(r.t2));
+      o += b;
+    }
+    snprintf(b, sizeof(b), "%u %u %d|", s.battS[k], s.dropC[k], s.netC[k]);
     o += b;
   }
   for (int k = 0; k < 4; ++k) {
@@ -97,10 +104,52 @@ TEST(BatteryLogParser, WholePercentStepsAreSkipped) {
                           "1790903200,x,0,79.00,3990,0,0,30,0,pct,", "1790906800,x,0,78.99,3989,0,0,30,0,pct,"}) {
     p.parseRow(row);
   }
-  EXPECT_EQ(p.st.netErrC[0] + p.st.netErrC[1], BatteryLogParser::RUN_ERR_C);  // only the fine->fine step
-  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);                                  // open stretch, not yet in dropC or errC
+  EXPECT_EQ(p.st.runS, 3600u);                // only the fine->fine step, still open
+  EXPECT_EQ(p.st.netC[0] + p.st.netC[1], 1);  // open stretch, not yet in dropC
   BatteryLogParser::endStretch(p.st);
-  EXPECT_EQ(p.st.errC[0] + p.st.errC[1], BatteryLogParser::RUN_ERR_C);
+  EXPECT_EQ(p.st.runs[0].n + p.st.runs[1].n, 1u);
+  EXPECT_FLOAT_EQ(BatteryLogParser::errSq(p.st, 0) + BatteryLogParser::errSq(p.st, 1), BatteryLogParser::RUN_ERR_C);
+}
+
+// 1002z on .67: 50 short sleeps at a steady 0.75 %/day read "0.75 ±5.71%/day"
+// when every run added 0.25 %. The ± now comes from the runs' own scatter.
+TEST(BatteryLogParser, ErrorFollowsRunScatter) {
+  static BatteryLogParser p{};
+  char row[96];
+  uint32_t t = 1790896000;
+  uint32_t c = 8000;
+  for (int i = 0; i < 50; ++i) {
+    snprintf(row, sizeof(row), "%u,x,0,%u.%02u,4000,0,0,30,0,sleep,", t, c / 100, c % 100);
+    p.parseRow(row);
+    t += 540;
+    c -= i % 2;  // 0.75 %/day is 0.005 % per 9 min: the gauge shows 0.00 or 0.01
+    snprintf(row, sizeof(row), "%u,x,0,%u.%02u,4000,0,0,30,0,wake,", t, c / 100, c % 100);
+    p.parseRow(row);
+    t += 60;
+    c -= 2;
+  }
+  snprintf(row, sizeof(row), "%u,x,0,%u.%02u,4000,0,0,30,0,sleep,", t, c / 100, c % 100);
+  p.parseRow(row);
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.st.runs[1].n, 50u);
+  EXPECT_EQ(p.st.dropC[1], 25u);
+  // Old model: 50 x (0.25 %)² = (1.77 %)² on a 0.25 % drop. Fitted: the 0.00/0.01
+  // scatter, (0.036 %)².
+  EXPECT_NEAR(BatteryLogParser::errSq(p.st, 1), 12.5f * 50 / 49, 0.01f);
+}
+
+// Awake runs scatter with use (reading, Wi-Fi, transfers): the 0.25 % per run bound wins.
+TEST(BatteryLogParser, ScatterAboveModelKeepsModel) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,80.00,4000,0,0,30,0,wake,", "1790899600,x,0,78.00,4000,0,0,30,0,sleep,",
+                          "1790899700,x,0,78.00,4000,0,0,30,0,wake,", "1790903300,x,0,77.90,4000,0,0,30,0,sleep,",
+                          "1790903400,x,0,77.90,4000,0,0,30,0,wake,", "1790907000,x,0,75.90,4000,0,0,30,0,sleep,",
+                          "1790907100,x,0,75.90,4000,0,0,30,0,wake,", "1790910700,x,0,75.80,4000,0,0,30,0,sleep,"}) {
+    p.parseRow(row);
+  }
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.st.runs[0].n, 4u);
+  EXPECT_FLOAT_EQ(BatteryLogParser::errSq(p.st, 0), 4.0f * BatteryLogParser::RUN_ERR_C);
 }
 
 // A stretch that netted a rise adds neither drop nor ±.
@@ -111,7 +160,7 @@ TEST(BatteryLogParser, RiseAddsNoError) {
   }
   BatteryLogParser::endStretch(p.st);
   EXPECT_EQ(p.st.dropC[0], 0u);
-  EXPECT_EQ(p.st.errC[0], 0u);
+  EXPECT_EQ(p.st.runs[0].n, 0u);
 }
 
 // Wall adapter: charging stops at 100% and logs as unplugged; the flat hours on
