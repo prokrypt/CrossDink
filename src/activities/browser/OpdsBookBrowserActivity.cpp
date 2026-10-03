@@ -39,6 +39,7 @@
 #include "components/icons/markIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "network/WifiBackgroundJoin.h"
 #include "util/BookCacheUtils.h"
 #include "util/DaylightSaving.h"
 #include "util/StringUtils.h"
@@ -187,7 +188,8 @@ void OpdsBookBrowserActivity::onEnter() {
   // Use deterministic catalog data so the UI can be exercised without WiFi or an OPDS server.
   fetchFeed(currentPath);
 #else
-  checkAndConnectWifi();
+  awaitingBackgroundJoin = wifi_background_join::joining();
+  if (!awaitingBackgroundJoin) checkAndConnectWifi();
 #endif
 }
 
@@ -282,6 +284,11 @@ void OpdsBookBrowserActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
         TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
       state == BrowserState::CHECK_WIFI ? onGoHome() : navigateBack();
+      return;
+    }
+    if (awaitingBackgroundJoin && !wifi_background_join::joining()) {
+      awaitingBackgroundJoin = false;
+      checkAndConnectWifi();
     }
     return;
   }

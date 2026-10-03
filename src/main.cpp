@@ -88,6 +88,7 @@
 #include "components/themes/BaseTheme.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "network/WifiBackgroundJoin.h"
 #include "network/WifiUtils.h"
 #include "platform/InputTask.h"
 #include "platform/InputWake.h"
@@ -1615,6 +1616,7 @@ void enterDeepSleep(bool fromTimeout) {
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
     activityManager.goToSleep(fromTimeout);
+    wifi_background_join::wait();  // the OPDS list's onExit() may have queued the radio off
     HalPowerManager::sleepStep = "sleep writes";
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     flushSettingsStores();

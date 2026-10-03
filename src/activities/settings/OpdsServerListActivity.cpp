@@ -18,6 +18,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "network/WifiBackgroundJoin.h"
 
 namespace fui = freeink::ui;
 
@@ -72,9 +73,20 @@ void OpdsServerListActivity::onEnter() {
   app.on(ACTION_ROW, &OpdsServerListActivity::onRowEvent, this);
   app.setScreen(&OpdsServerListActivity::listScreen, this);
   requestUpdate();
+
+  // Silent, no screen: the join runs on its own task while the list draws and
+  // takes input, and the browser skips the Wi-Fi screen if it got the link.
+  leavingToBrowser = false;
+  if (pickerMode) wifi_background_join::start();
 }
 
-void OpdsServerListActivity::onExit() { Activity::onExit(); }
+void OpdsServerListActivity::onExit() {
+  Activity::onExit();
+  // Back to Home or into the server editor: the link is not needed any more.
+  if (pickerMode && !leavingToBrowser) wifi_background_join::stop();
+}
+
+bool OpdsServerListActivity::allowsRadioIdleSleep() { return !wifi_background_join::joining(); }
 
 void OpdsServerListActivity::loop() {
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
@@ -139,6 +151,7 @@ void OpdsServerListActivity::handleSelection() {
   if (pickerMode) {
     // Picker mode: select a server or add the first one without leaving the flow.
     if (selectedIndex < serverCount) {
+      leavingToBrowser = true;
       activityManager.goToOpdsServer(static_cast<uint32_t>(selectedIndex));
     } else {
       auto editor = makeUniqueNoThrow<OpdsSettingsActivity>(renderer, mappedInput, -1);

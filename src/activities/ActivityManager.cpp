@@ -43,6 +43,7 @@
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
 #include "network/UsbDriveActivity.h"
+#include "network/WifiBackgroundJoin.h"
 #include "platform/InputTask.h"
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
@@ -865,7 +866,10 @@ void ActivityManager::loop() {
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
 #endif
-      if (currentActivity->usesWifi()) kosync_on_exit::yieldRadio();
+      if (currentActivity->usesWifi()) {
+        kosync_on_exit::yieldRadio();
+        wifi_background_join::wait();  // likewise the OPDS list's join or teardown task
+      }
       currentActivity->onEnter();
 
       // cppcheck-suppress knownConditionTrueFalse ; onEnter() above may queue another navigation
