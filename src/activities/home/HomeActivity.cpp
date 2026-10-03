@@ -2239,6 +2239,20 @@ void HomeActivity::loop() {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const auto menuItems = buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
                                                         metrics.homeContinueReadingInMenu && !recentBooks.empty());
+    // The menu pages by selection (drawButtonMenu), so a swipe is the only way
+    // a touch user reaches items past the first page, e.g. Goodies.
+    // ponytail: jumps to the last/first item; a menu with 3+ pages skips the
+    // middle ones on swipe (buttons still step through them).
+    const auto swipe = mappedInput.wasSwipe();
+    if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+      const int offset = getHomeMenuSelectionOffset(recentBooks);
+      const int next = offset + (swipe == MappedInputManager::SwipeDir::Up ? menuItems.size() - 1 : 0);
+      if (next != selectorIndex) {
+        selectorIndex = next;
+        requestUpdate();
+      }
+      return;
+    }
     auto handleTouch = [&](const bool activate) {
       int touchedBookIndex = -1;
       if (activate ? mappedInput.wasCoverTapped(touchedBookIndex) : mappedInput.wasCoverTouchedDown(touchedBookIndex)) {
