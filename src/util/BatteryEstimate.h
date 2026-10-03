@@ -1,21 +1,17 @@
 #pragma once
 
+#include <FrontlightGamma.h>
+
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 
 namespace BatteryEstimate {
 
-// The X4 Pro LED duty (0-1023) for a brightness %: FrontlightManager's
-// perceptual curve (GAMMA_TABLE, round(65535 * (pct/100)^1.6554), scaled to
-// 10 bits, at least 1 LSB when lit). The LED draw follows this duty, not the
-// %: 1% is 1/1023 of full, 10% is 23, 50% is 325. Warmth only splits this duty between the warm and cool LEDs, so it
-// leaves the total alone. Keep in step with FrontlightManager.cpp's GAMMA_TABLE.
-inline uint16_t lightDuty(const uint8_t pct) {
-  if (pct == 0) return 0;
-  const uint32_t g = std::lround(65535.0f * std::pow(std::min<uint8_t>(pct, 100) / 100.0f, 1.6554f));
-  return static_cast<uint16_t>(std::max<uint32_t>((1023u * g + 32767u) / 65535u, 1u));
-}
+// The X4 Pro LED duty (0-1023) for a brightness %: FrontlightManager's own
+// perceptual curve on the 10-bit range. The LED draw follows this duty, not
+// the %: 1% is 1/1023 of full, 10% is 23, 50% is 325. Warmth only splits this
+// duty between the warm and cool LEDs, so it leaves the total alone.
+inline uint16_t lightDuty(const uint8_t pct) { return FrontlightGamma::perceptualDuty(pct, 1023); }
 
 // The light's drain per duty unit from one Wi-Fi state's light-off and light-on
 // rates (lightScaledRate's arguments), < 0 when that pair can't tell: a side
