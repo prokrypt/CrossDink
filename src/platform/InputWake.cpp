@@ -79,9 +79,8 @@ void logStatPad(const char* when, const int n, const StatPad& p) {
           fieldBit(p.pad, RTC_IO_PAD21_RDE_S), fieldBit(p.pad, RTC_IO_PAD21_RUE_S),
           fieldBit(p.pin, RTC_GPIO_PIN21_WAKEUP_ENABLE_S),
           static_cast<unsigned>((p.pin >> RTC_GPIO_PIN21_INT_TYPE_S) & 7),
-          fieldBit(p.status, RTC_GPIO_STATUS_INT_S + n),
-          fieldBit(p.hold, n), static_cast<unsigned long>(p.iomux), static_cast<unsigned long>(p.pad),
-          static_cast<unsigned long>(p.pin));
+          fieldBit(p.status, RTC_GPIO_STATUS_INT_S + n), fieldBit(p.hold, n), static_cast<unsigned long>(p.iomux),
+          static_cast<unsigned long>(p.pad), static_cast<unsigned long>(p.pin));
 }
 #endif
 
@@ -265,8 +264,8 @@ void InputWake::describePins(char* out, const uint32_t size) {
     const bool high = RTCIO.pin[pin].int_type == GPIO_INTR_HIGH_LEVEL;
     const auto mux = (REG_READ(RTC_IO_TOUCH_PAD0_REG + 4 * pin) >> RTC_IO_PAD21_MUX_SEL_S) & 1;
     const int n = snprintf(out + used, size - used, " rtc %d:%c%lu/%dm%lu", pin, high ? 'H' : 'L',
-                           static_cast<unsigned long>((rtcIn >> pin) & 1),
-                           gpio_get_level(static_cast<gpio_num_t>(pin)), static_cast<unsigned long>(mux));
+                           static_cast<unsigned long>((rtcIn >> pin) & 1), gpio_get_level(static_cast<gpio_num_t>(pin)),
+                           static_cast<unsigned long>(mux));
     if (n <= 0) break;
     used += static_cast<size_t>(n);
   }

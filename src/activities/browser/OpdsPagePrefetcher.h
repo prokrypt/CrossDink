@@ -68,7 +68,7 @@ class OpdsPagePrefetcher {
 
   Request job;
   OpdsPageBuffer page;
-  bool succeeded = false;  // written by the task before running() clears
+  bool succeeded = false;      // written by the task before running() clears
   bool networkFailed = false;  // likewise
   std::atomic<bool> cancelRequested{false};
   WorkerTask task;

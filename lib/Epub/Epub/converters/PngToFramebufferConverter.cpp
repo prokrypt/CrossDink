@@ -400,11 +400,10 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   ctx.screenHeight = renderer.getScreenHeight();
 
   // PNGdec only reads the buffer; its API is not const.
-  int rc = config.sourceData
-               ? png->openRAM(const_cast<uint8_t*>(config.sourceData), static_cast<int>(config.sourceSize),
-                              pngDrawCallback)
-               : png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle,
-                           pngSeekWithHandle, pngDrawCallback);
+  int rc = config.sourceData ? png->openRAM(const_cast<uint8_t*>(config.sourceData),
+                                            static_cast<int>(config.sourceSize), pngDrawCallback)
+                             : png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle,
+                                         pngSeekWithHandle, pngDrawCallback);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
     delete png;
