@@ -32,14 +32,13 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
   std::vector<OpdsServer> servers;
   bool loaded_ = false;
 
-  static constexpr size_t MAX_SERVERS = 8;
-
   OpdsServerStore() = default;
   bool migrateFromSettings();
 
   friend class PersistableStore<OpdsServerStore>;
 
  public:
+  static constexpr size_t MAX_SERVERS = 8;
   static const char* getFilePath() { return "/.crossdink/opds.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
