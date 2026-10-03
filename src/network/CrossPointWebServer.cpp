@@ -58,6 +58,7 @@
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
+#include "network/NetworkName.h"
 #include "network/SdWriteBehind.h"
 #include "util/BatteryLog.h"
 #include "util/BookCacheUtils.h"
@@ -867,7 +868,7 @@ bool CrossPointWebServer::handleClient() {
         if (strcmp(buffer, "hello") == 0) {
           String hostname = WiFi.getHostname();
           if (hostname.isEmpty()) {
-            hostname = "crosspoint";
+            hostname = NET_HOSTNAME;
           }
           String message = "crosspoint (on " + hostname + ");" + String(wsPort);
           udp.beginPacket(udp.remoteIP(), udp.remotePort());
