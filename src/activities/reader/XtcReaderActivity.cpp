@@ -1484,7 +1484,7 @@ void XtcReaderActivity::loadProgress() {
 }
 
 bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, const GfxRenderer& renderer) {
-  Xtc xtc(filePath, "/.crosspoint");
+  Xtc xtc(filePath, "/.crossdink");
   if (!xtc.load()) {
     LOG_DBG("SLP", "XTC: failed to load %s", filePath.c_str());
     return false;

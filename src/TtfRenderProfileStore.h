@@ -41,7 +41,7 @@ class TtfRenderProfileStore : public PersistableStore<TtfRenderProfileStore> {
   friend class PersistableStore<TtfRenderProfileStore>;
 
  public:
-  static const char* getFilePath() { return "/.crosspoint/ttf-rendering.json"; }
+  static const char* getFilePath() { return "/.crossdink/ttf-rendering.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
 

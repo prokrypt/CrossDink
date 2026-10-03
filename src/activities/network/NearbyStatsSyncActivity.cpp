@@ -83,8 +83,8 @@ void NearbyStatsSyncActivity::setState(const State state) {
 namespace {
 
 constexpr const char* LOG_TAG = "NSYNC";
-constexpr const char* CROSSPOINT_ROOT = "/.crosspoint";
-constexpr const char* SYNCED_STATS_DIR = "/.crosspoint/synced_stats";
+constexpr const char* CROSSPOINT_ROOT = "/.crossdink";
+constexpr const char* SYNCED_STATS_DIR = "/.crossdink/synced_stats";
 constexpr uint8_t ESPNOW_CHANNEL = 1;
 constexpr uint8_t PROTOCOL_VERSION = 1;
 constexpr uint8_t MIN_STATS_BYTES = static_cast<uint8_t>(GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE);

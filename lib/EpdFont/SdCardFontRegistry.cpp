@@ -544,7 +544,7 @@ bool SdCardFontRegistry::rebuildIndex(uint64_t fingerprint, uint32_t generation)
             [](const SdCardFontFamilyInfo& a, const SdCardFontFamilyInfo& b) { return a.name < b.name; });
   char familyPath[160];
 
-  if (!Storage.mkdir("/.crosspoint", true) && !Storage.exists("/.crosspoint")) return false;
+  if (!Storage.mkdir("/.crossdink", true) && !Storage.exists("/.crossdink")) return false;
   HalFile file;
   if (!Storage.openFileForWrite("SDREG", TempPath, file)) return false;
   Header header;

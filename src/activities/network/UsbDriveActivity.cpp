@@ -1,6 +1,7 @@
 #include "UsbDriveActivity.h"
 
 #include <Arduino.h>
+#include <Epub.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <LibraryBuilder.h>
@@ -67,6 +68,7 @@ void UsbDriveActivity::onExit() {
   library::invalidateLibraryIndex();
 #ifndef SIMULATOR
   if (!restartRequested) Storage.endUsbDrive();
+  Epub::forgetCacheKeys();  // the host may have replaced books
 #endif
   Activity::onExit();
 }

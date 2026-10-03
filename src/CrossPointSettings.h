@@ -723,7 +723,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
   uint16_t keyboardLayouts = 0;
-  // UC8179 turbo keyboard refresh (kbd-exp flags 101: balanced DU typing, no OLD re-stream, no tap highlight); CMD:KBDEXP overrides it.
+  // UC8179 turbo keyboard refresh (kbd-exp flags 101: balanced DU typing, no OLD re-stream, no tap highlight);
+  // CMD:KBDEXP overrides it.
   uint8_t turboKeyboard = 1;
   // Goodies > Wi-Fi remote toggle (debug builds): rejoin in the background after every boot.
   uint8_t goodiesWifiRemote = 0;
@@ -744,7 +745,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
   static constexpr uint16_t POWER_BUTTON_WAKE_LONG_MS = POWER_BUTTON_LONG_PRESS_MS;
-  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1, 2, 3, 4, 5, 10, 15, 20, 30, 60, 120, 240, 360, 480, 600, 720};
+  static constexpr uint16_t SLEEP_TIMEOUT_STEP_MINUTES[] = {1,  2,  3,   4,   5,   10,  15,  20,
+                                                            30, 60, 120, 240, 360, 480, 600, 720};
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_STEP = std::size(SLEEP_TIMEOUT_STEP_MINUTES);
   static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
   static constexpr uint8_t MIN_READER_FONT_POINT_SIZE = 8;
@@ -812,7 +814,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   bool saveToFile() const;
   bool flush() const;  // no-op without a pending snapshot; skips an unchanged file
   bool loadFromFile();
-  static const char* getFilePath() { return "/.crosspoint/crossdink-settings.json"; }
+  static const char* getFilePath() { return "/.crossdink/settings.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc, bool importingCrossPoint = false);
 

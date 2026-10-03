@@ -13,8 +13,8 @@
 
 namespace {
 constexpr uint8_t RECENT_BOOKS_FILE_VERSION = 3;
-constexpr char RECENT_BOOKS_FILE_BIN[] = "/.crosspoint/recent.bin";
-constexpr char RECENT_BOOKS_FILE_BAK[] = "/.crosspoint/recent.bin.bak";
+constexpr char RECENT_BOOKS_FILE_BIN[] = "/.crossdink/recent.bin";
+constexpr char RECENT_BOOKS_FILE_BAK[] = "/.crossdink/recent.bin.bak";
 }  // namespace
 
 void RecentBooksStore::toJson(JsonDocument& doc) const {
@@ -174,12 +174,12 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
   // Use buildIfMissing=false to avoid heavy epub loading on boot; getTitle()/getAuthor() may be
   // blank until the book is opened, and entries with missing title are omitted from recent list.
   if (FsHelpers::hasEpubExtension(lastBookFileName)) {
-    Epub epub(path, "/.crosspoint");
+    Epub epub(path, "/.crossdink");
     epub.load(false, true, Epub::XLocationLoadMode::Skip);
     return RecentBook{path, epub.getTitle(), epub.getAuthor(), epub.getThumbBmpPath()};
   } else if (FsHelpers::hasXtcExtension(lastBookFileName)) {
     // Handle XTC file
-    Xtc xtc(path, "/.crosspoint");
+    Xtc xtc(path, "/.crossdink");
     if (xtc.load()) {
       return RecentBook{path, xtc.getTitle(), xtc.getAuthor(), xtc.getThumbBmpPath()};
     }

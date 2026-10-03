@@ -104,6 +104,10 @@ class LibraryIndexFile {
   bool readGenre(const ClixRecord& record, std::string& out);
   // V6 sortable signed float bits; UINT32_MAX means no usable order.
   bool readSeriesPosition(const ClixRecord& record, uint32_t& out);
+  // V7 EPUB content key (Epub cache folder name); 0 for other formats or unknown.
+  bool readContentKey(const ClixRecord& record, uint64_t& out);
+  // Content key the live index recorded for `path`, i.e. before the file last changed.
+  static bool indexedContentKey(const std::string& path, uint64_t& out);
 
   // Absolute path of the book, rebuilt from its folder record.
   bool readPath(const ClixRecord& record, std::string& out);
@@ -116,6 +120,7 @@ class LibraryIndexFile {
   bool openImpl(const char* path, bool acceptStaleFold);
   bool readAt(uint32_t offset, void* dst, size_t len);
   bool readBlobField(const ClixRecord& record, uint8_t field, std::string& out);
+  bool readTail(const ClixRecord& record, uint32_t skip, void* out, size_t len);
 
   HalFile file;
   ClixHeader head{};

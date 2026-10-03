@@ -6,7 +6,7 @@
 #include "ReadingStatsUtils.h"
 
 // Cumulative reading statistics across all books, persisted to
-// /.crosspoint/global_stats_dink.bin (two slots; global_stats.bin is read until the first save).
+// /.crossdink/global_stats_dink.bin (two slots; global_stats.bin is read until the first save).
 struct GlobalReadingStats {
   uint32_t totalSessions = 0;        // Total book-open events across all books
   uint32_t totalReadingSeconds = 0;  // Accumulated reading time across all books
@@ -30,7 +30,7 @@ struct GlobalReadingStats {
   static bool hasSyncedStats();
 
   // Loads this device's local stats plus one synced stats file per other device
-  // from /.crosspoint/synced_stats/. A stale file matching this device's MAC is
+  // from /.crossdink/synced_stats/. A stale file matching this device's MAC is
   // skipped to avoid double counting.
   static GlobalReadingStats loadAggregated();
 

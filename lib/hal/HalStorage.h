@@ -118,6 +118,7 @@ class HalStorage {
 class HalFile : public Print {
   friend class HalStorage;
   class Impl;
+  struct LegacyMerge;
   struct ImplDeleter {
     void operator()(Impl* impl) const;
   };

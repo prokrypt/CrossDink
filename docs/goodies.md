@@ -11,7 +11,7 @@
   `http://crosspoint.local/api/psram-log`), plus the token-gated `POST /api/cmd` from
   [serial-remote.md](serial-remote.md#wi-fi-post-apicmd). It has no file, settings, upload or `/api/status` routes, so
   nothing touches the SD card or the I2C bus behind other screens. Tap again to turn Wi-Fi off. The toggle is
-  saved in `crossdink-settings.json` (`goodiesWifiRemote`), written only when it changes. Wi-Fi screens that need
+  saved in `settings.json` (`goodiesWifiRemote`), written only when it changes. Wi-Fi screens that need
   port 80, ESP-NOW or scans (File Transfer, Calibre Connect, Nearby, KOReader sync, Wi-Fi networks) take the radio
   while open. OPDS, firmware update, font download, clock sync and KOReader login share it: once the screen has a
   link the remote serves on it (no join of its own), and restarts when the screen closes; afterwards, and after every sleep wake,
@@ -28,7 +28,7 @@
   leave it (by the time Goodies closes), or before sleep, restart or a flash.
 - **Knobs** lists the tunable constants in `lib/Knobs/Knobs.def`, one tab per area (tap or long-press Up/Down to switch), as `id value unit`
   (`*` = changed). A row opens a slider within the knob's min/max/step; the value applies at once and non-default
-  values are saved to `/.crosspoint/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
+  values are saved to `/.crossdink/knobs.json` (`{"paintFrames": 14}`). **Reset all** restores every default and
   deletes the file. Three crash boots in a row (panic, watchdog or power cycle; wakes from sleep
   and intentional restarts reset the count) that never stay up 30 s move the file to `knobs.bad.json` and boot on
   defaults (`KNOB` log lines). Holding Back while the device starts ignores the file for that boot (safe boot).

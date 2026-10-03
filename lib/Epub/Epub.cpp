@@ -18,6 +18,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <iterator>
+#include <mutex>
 #include <string_view>
 #include <utility>
 
@@ -314,8 +316,117 @@ bool finalizeThumbBmp(const std::string& tmpPath, const std::string& thumbPath) 
   return true;
 }
 
-std::string legacyCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
-  return cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(filepath));
+// CrossInk and CrossDink before /.crossdink keyed caches by the book's path.
+constexpr char kLegacyCacheDir[] = "/.crosspoint";
+
+// Copies the top-level files of `from` that `to` lacks: progress, reader
+// settings, stats, book.bin and covers. Section layouts sit in subfolders and
+// rebuild as chapters are read. Each file lands through a .part temp.
+bool copyTopLevelFiles(const std::string& from, const std::string& to) {
+  HalFile dir = Storage.open(from.c_str());
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return false;
+  }
+  Storage.mkdir(to.c_str());
+  bool ok = true;
+  char name[128];
+  uint8_t buf[256];
+  for (HalFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    const size_t nameLen = entry.getName(name, sizeof(name));
+    entry.close();
+    if (isDirectory || nameLen == 0 || nameLen >= sizeof(name)) continue;
+    const std::string src = from + "/" + name;
+    const std::string dst = to + "/" + name;
+    if (Storage.exists(dst.c_str())) continue;
+    const std::string part = dst + ".part";
+    HalFile in;
+    HalFile out;
+    bool copied = Storage.openFileForRead("EBP", src, in) && Storage.openFileForWrite("EBP", part, out);
+    for (int n; copied && (n = in.read(buf, sizeof(buf))) != 0;) {
+      copied = n > 0 && out.write(buf, n) == static_cast<size_t>(n);
+    }
+    in.close();
+    copied = copied && out.sync();
+    out.close();
+    if (!copied || !Storage.rename(part.c_str(), dst.c_str())) {
+      Storage.remove(part.c_str());
+      ok = false;
+    }
+  }
+  dir.close();
+  return ok;
+}
+
+// ponytail: 16-entry path->key memo, not checked against the file. Every
+// replace route (upload, OPDS, delete, WebDAV) goes through the
+// clearBookCache*() helpers, which call Epub::forgetCacheKeys(); so does USB
+// Drive exit. It also keeps a second open of a book the reader holds open off
+// the card, which SdFat refuses on hardware.
+struct CacheKeyMemo {
+  uint64_t pathHash;
+  uint64_t key;
+};
+CacheKeyMemo cacheKeyMemo[16] = {};
+uint8_t cacheKeyMemoNext = 0;
+std::mutex cacheKeyMemoMutex;
+
+// FNV-1a 64 of the file size plus its last 16 KB. An EPUB's ZIP central
+// directory sits at the end and lists every entry's CRC-32 and offset, so the
+// tail fingerprints the whole book without reading all of it.
+bool readContentKey(const std::string& filepath, uint64_t& out) {
+  HalFile file;
+  if (!Storage.openFileForReadIfPresent("EBP", filepath, file)) {
+    // A book that exists but won't open is usually held open elsewhere (SdFat
+    // allows one reader per file); its cache path falls back to the path hash.
+    if (Storage.exists(filepath.c_str())) LOG_ERR("EBP", "Cannot open %s for its cache key", filepath.c_str());
+    return false;
+  }
+  constexpr size_t kTailBytes = 16 * 1024;
+  const uint32_t size = static_cast<uint32_t>(file.size());
+  uint64_t hash = 14695981039346656037ull;
+  for (int i = 0; i < 4; i++) {
+    hash ^= static_cast<uint8_t>(size >> (8 * i));
+    hash *= 1099511628211ull;
+  }
+  const uint32_t start = size > kTailBytes ? size - kTailBytes : 0;
+  bool ok = file.seekSet(start);
+  uint8_t buf[256];
+  for (uint32_t left = size - start; ok && left > 0;) {
+    const int n = file.read(buf, std::min<uint32_t>(left, sizeof(buf)));
+    ok = n > 0;
+    for (int i = 0; i < n; i++) {
+      hash ^= buf[i];
+      hash *= 1099511628211ull;
+    }
+    if (ok) left -= n;
+  }
+  file.close();
+  if (!ok) {
+    LOG_ERR("EBP", "Cannot read cache key from %s", filepath.c_str());
+    return false;
+  }
+  out = hash;
+  return true;
+}
+
+bool contentKey(const std::string& filepath, uint64_t& out) {
+  const uint64_t pathHash = ZipFile::fnvHash64(filepath.c_str(), filepath.size());
+  {
+    std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
+    for (const auto& entry : cacheKeyMemo) {
+      if (entry.pathHash == pathHash) {
+        out = entry.key;
+        return true;
+      }
+    }
+  }
+  if (!readContentKey(filepath, out)) return false;
+  std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
+  cacheKeyMemo[cacheKeyMemoNext] = {pathHash, out};
+  cacheKeyMemoNext = (cacheKeyMemoNext + 1) % std::size(cacheKeyMemo);
+  return true;
 }
 
 class CoverImageRefScanner final : public Print {
@@ -502,8 +613,18 @@ Epub::Epub(std::string filepath, const std::string& cacheDir) : filepath(std::mo
 }
 
 std::string Epub::cachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
-  // Keep on-disk EPUB cache keys stable across standard library/toolchain changes.
-  return cacheDir + "/epub_" + std::to_string(ZipFile::fnvHash64(filepath.c_str(), filepath.size()));
+  // Keyed by content so a moved or renamed book keeps its cache. An unreadable
+  // file falls back to its path hash; it cannot be opened as a book anyway.
+  uint64_t key = 0;
+  if (!contentKey(filepath, key)) key = ZipFile::fnvHash64(filepath.c_str(), filepath.size());
+  return cacheDir + "/epub_" + std::to_string(key);
+}
+
+bool Epub::contentKeyFor(const std::string& filepath, uint64_t& out) { return contentKey(filepath, out); }
+
+void Epub::forgetCacheKeys() {
+  std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
+  std::fill(std::begin(cacheKeyMemo), std::end(cacheKeyMemo), CacheKeyMemo{});
 }
 
 bool Epub::hasCache(const std::string& filepath, const std::string& cacheDir) {
@@ -516,15 +637,19 @@ std::string Epub::resolveCachePathForFilePath(const std::string& filepath, const
     return cachePath;
   }
 
-  const std::string legacyCachePath = legacyCachePathForFilePath(filepath, cacheDir);
-  if (legacyCachePath == cachePath || !Storage.exists(legacyCachePath.c_str())) {
-    return cachePath;
-  }
-
-  if (Storage.rename(legacyCachePath.c_str(), cachePath.c_str())) {
-    LOG_INF("EBP", "Migrated legacy EPUB cache: %s -> %s", legacyCachePath.c_str(), cachePath.c_str());
-  } else {
-    LOG_ERR("EBP", "Failed to migrate legacy EPUB cache: %s -> %s", legacyCachePath.c_str(), cachePath.c_str());
+  // First open since /.crossdink: copy the path-keyed cache (FNV, or the older
+  // std::hash name) and leave it in place, so older firmware keeps its progress.
+  const std::string legacyDir = std::string(kLegacyCacheDir) + "/epub_";
+  for (const std::string& legacyPath :
+       {legacyDir + std::to_string(ZipFile::fnvHash64(filepath.c_str(), filepath.size())),
+        legacyDir + std::to_string(std::hash<std::string>{}(filepath))}) {
+    if (!Storage.exists(legacyPath.c_str())) continue;
+    if (copyTopLevelFiles(legacyPath, cachePath)) {
+      LOG_INF("EBP", "Copied legacy EPUB cache: %s -> %s", legacyPath.c_str(), cachePath.c_str());
+    } else {
+      LOG_ERR("EBP", "Failed to copy legacy EPUB cache: %s -> %s", legacyPath.c_str(), cachePath.c_str());
+    }
+    break;
   }
   return cachePath;
 }
@@ -937,6 +1062,8 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
     return false;
   }
 
+  if (buildIfMissing) recordBookPath();
+
   // Try to load existing cache first
   if (bookMetadataCache->load()) {
     if (!skipLoadingCss) {
@@ -1174,11 +1301,26 @@ bool Epub::clearCache() const {
 }
 
 void Epub::setupCacheDir() const {
-  if (Storage.exists(cachePath.c_str())) {
-    return;
-  }
+  if (!Storage.exists(cachePath.c_str())) Storage.mkdir(cachePath.c_str());
+  recordBookPath();
+}
 
-  Storage.mkdir(cachePath.c_str());
+// path.txt names the book a content-keyed folder belongs to. Rewritten only
+// when the book was moved or renamed.
+void Epub::recordBookPath() const {
+  const std::string pathFile = cachePath + "/path.txt";
+  char stored[256];
+  int len = 0;
+  HalFile file;
+  if (Storage.openFileForReadIfPresent("EBP", pathFile, file)) {
+    len = file.read(stored, sizeof(stored));
+    file.close();
+  }
+  if (len >= 0 && static_cast<size_t>(len) == filepath.size() && memcmp(stored, filepath.data(), len) == 0) return;
+  if (!Storage.exists(cachePath.c_str())) return;
+  if (!Storage.writeFile(pathFile.c_str(), filepath.c_str())) {
+    LOG_ERR("EBP", "Failed to write %s", pathFile.c_str());
+  }
 }
 
 const std::string& Epub::getCachePath() const { return cachePath; }
@@ -1591,8 +1733,7 @@ class BufferSink final : public Print {
 constexpr size_t kItemPsramReserve = 1024 * 1024;
 }  // namespace
 
-HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size,
-                                     const std::atomic<bool>* cancel) const {
+HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size, const std::atomic<bool>* cancel) const {
   size = 0;
   size_t itemSize = 0;
   if (!getItemSize(itemHref, &itemSize) || itemSize == 0) return {};
@@ -1614,8 +1755,8 @@ HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size,
   } else {
     ok = readItemContentsToStream(itemHref, sink, 4096);
   }
-  LOG_DBG("EBP", "Read %s to PSRAM: ok=%d bytes=%u in %ums", itemHref.c_str(), ok,
-          static_cast<unsigned>(sink.length), static_cast<unsigned>(millis() - start));
+  LOG_DBG("EBP", "Read %s to PSRAM: ok=%d bytes=%u in %ums", itemHref.c_str(), ok, static_cast<unsigned>(sink.length),
+          static_cast<unsigned>(millis() - start));
   if (!ok || sink.length != itemSize) return {};
   size = itemSize;
   return data;

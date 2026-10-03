@@ -5,8 +5,8 @@
 
 namespace fontcatalog {
 // Rebuildable cache: separate from user font files and EPUB caches.
-inline constexpr char Path[] = "/.crosspoint/font-catalog.bin";
-inline constexpr char TempPath[] = "/.crosspoint/font-catalog.tmp";
+inline constexpr char Path[] = "/.crossdink/font-catalog.bin";
+inline constexpr char TempPath[] = "/.crossdink/font-catalog.tmp";
 inline constexpr uint32_t Magic = 0x46434931;
 inline constexpr uint32_t Version = 1;
 #if CROSSDINK_SCALABLE_FONTS
