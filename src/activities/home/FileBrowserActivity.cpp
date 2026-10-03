@@ -901,13 +901,14 @@ void FileBrowserActivity::renameFile(const std::string& oldPath, const std::stri
   std::string oldCachePath;
   const char* bookType = nullptr;
   if (FsHelpers::hasEpubExtension(oldPath)) {
-    oldCachePath = Epub::cachePathForFilePath(oldPath, "/.crosspoint");
+    // Resolve so a not-yet-copied /.crosspoint cache comes along before the rename.
+    oldCachePath = Epub::resolveCachePathForFilePath(oldPath, "/.crossdink");
     bookType = "epub";
   } else if (FsHelpers::hasXtcExtension(oldPath)) {
-    oldCachePath = Xtc(oldPath, "/.crosspoint").getCachePath();
+    oldCachePath = Xtc(oldPath, "/.crossdink").getCachePath();
     bookType = "xtc";
   } else if (FsHelpers::hasTxtExtension(oldPath) || FsHelpers::hasMarkdownExtension(oldPath)) {
-    oldCachePath = Txt(oldPath, "/.crosspoint").getCachePath();
+    oldCachePath = Txt(oldPath, "/.crossdink").getCachePath();
     bookType = "txt";
   }
 

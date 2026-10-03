@@ -130,6 +130,7 @@ let bat = [];
 let sum = null; // /api/battery-sum: the device's saved counts and where they end
 let sumRows = null; // the rows after them, once that file has loaded
 let segs = [];
+let srcs = []; // [name, rows parsed, lines] per battery file and the unwritten buffer
 let status = {};
 
 const hrs = (s) => (s < 3600 ? Math.round(s / 60) + 'min' : (s / 3600).toFixed(1) + 'h');
@@ -490,9 +491,11 @@ function summary() {
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
-      ['Log', `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}` + (s.reset ? `, counters since reset ${when(s.first)}` : '')]
+      ['Earliest log', s.first && now > s.first ? `${hrs(now - s.first)} ago${s.reset ? ' (reset)' : ''}` : 'none'],
+      ['Log', `${bat.length} rows, ${when(bat[0].t)} to ${when(bat[bat.length - 1].t)}`]
     );
   } else rows.push(['Log', 'no rows with a clock time']);
+  if (srcs.length) rows.push(['Rows parsed', srcs.map(([n, r, l]) => `${n} ${r}` + (r < l ? ` of ${l} lines` : '')).join(', ')]);
   const ls = b.stats && b.stats.lightSleep;
   if (ls) rows.push(['Light sleep since boot', `${ls.count}, ${ls.pct}% of ${hrs(ls.upS)}, rejected ${ls.rejects}` + (ls.rejectCause ? `, last ${ls.rejectCauseName} (0x${ls.rejectCause.toString(16)})` : '')]);
   if (b.stats && b.stats.refresh) rows.push(['Refreshes since power-on', Object.entries(b.stats.refresh).map(([k, v]) => k + ' ' + v).join(', ')]);
@@ -541,6 +544,8 @@ tab();
     const tail = sum && sum.file < files.length ? files.slice(0, sum.file + 1).reverse() : null;
     sumRows = tail && parse(tail.map((t, j) => (j ? t : t.slice(sum.offset))).join('\n') + '\n' + pending);
     bat = parse(text);
+    const count = (n, t) => [n, parse(t).length, t.split('\n').filter((l) => l && !l.startsWith('epoch_utc')).length]; // header not counted
+    srcs = files.map((t, j) => count('battery' + (j ? '.' + j : '') + '.csv', t)).concat([count('buffer', pending)]);
     hasBat = bat.length > 0 || !!(status.battery && status.battery.stats);
     if (hasBat) summary();
     if (bat.length > 1) {

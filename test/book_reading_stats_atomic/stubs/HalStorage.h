@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Print.h>
+#include <fcntl.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -39,6 +40,10 @@ class HalFile : public Print {
   }
   size_t write(const void* input, const size_t length) { return write(static_cast<const uint8_t*>(input), length); }
 
+  bool seekSet(const size_t position) {
+    cursor_ = position;
+    return static_cast<bool>(data_);
+  }
   void flush() {}
   bool sync() const { return static_cast<bool>(data_); }
   bool close() {
@@ -47,6 +52,10 @@ class HalFile : public Print {
     return true;
   }
   size_t fileSize() const { return data_ ? data_->bytes.size() : 0; }
+  // Directory listing is not modelled: synced-stats scans see an empty folder.
+  bool isDirectory() const { return false; }
+  HalFile openNextFile() { return {}; }
+  size_t getName(char*, size_t) const { return 0; }
   explicit operator bool() const { return static_cast<bool>(data_); }
 
  private:
@@ -96,6 +105,13 @@ class HalStorage {
     files_[path] = data;
     file = HalFile(std::move(data));
     return true;
+  }
+
+  // In-place open (O_RDWR | O_CREAT): keeps existing bytes.
+  HalFile open(const char* path, int = 0) {
+    auto& data = files_[path];
+    if (!data) data = std::make_shared<HostFileData>();
+    return HalFile(data);
   }
 
   void failNextRenameFrom(std::string path) { failRenameFrom_.insert(std::move(path)); }

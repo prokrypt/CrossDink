@@ -26,11 +26,11 @@
 namespace library {
 namespace {
 
-constexpr char INDEX_PATH[] = "/.crosspoint/library.idx";
-constexpr char NEW_PATH[] = "/.crosspoint/library.new";
-constexpr char BACKUP_PATH[] = "/.crosspoint/library.bak";
-constexpr char STAGE_PATH[] = "/.crosspoint/library.stage";
-constexpr char CACHE_DIR[] = "/.crosspoint";
+constexpr const char* INDEX_PATH = CLIX_INDEX_PATH;
+constexpr char NEW_PATH[] = "/.crossdink/library.new";
+constexpr char BACKUP_PATH[] = "/.crossdink/library.bak";
+constexpr char STAGE_PATH[] = "/.crossdink/library.stage";
+constexpr char CACHE_DIR[] = "/.crossdink";
 constexpr size_t LIBRARY_IO_BUFFER_SIZE = 4096;
 
 // Matches lib/FileIndex's buffer so a name this walk accepts is one the file
@@ -49,6 +49,7 @@ struct StagedEntry {
   uint32_t creationTime;
   uint32_t seriesPosition;
   uint64_t pathHash;
+  uint64_t contentKey;  // EPUB cache key; 0 for other formats or an unreadable file
   char name[STAGE_NAME_BYTES];
   // Cleaned source spelling from this book. The spelling actually shown
   // is chosen later, across every book by the same person.
@@ -424,6 +425,22 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
          (extractionExpected && !st.retryFailedMetadata && priorRecord.metadataStatus == CLIX_METADATA_FAILED)) &&
         (!extractionExpected || st.previous->header().formatVersion >= 6);
   }
+  // An unchanged EPUB keeps its key; a new or changed one reads its 16 KB tail.
+  // A changed one (re-uploaded, edited over USB) carries its progress and stats.
+  if (FsHelpers::hasEpubExtension(name)) {
+    uint64_t priorKey = 0;
+    if (priorIndex >= 0 && !st.previous->readContentKey(priorRecord, priorKey) && st.previous->ioFailed()) {
+      st.failed = true;
+      return false;
+    }
+    const bool sameFile = priorIndex >= 0 && st.prior[priorIndex].fileSize == fileSize && modificationTime != 0 &&
+                          priorRecord.modificationTime == modificationTime;
+    if (sameFile && priorKey != 0) {
+      entry.contentKey = priorKey;
+    } else if (Epub::contentKeyFor(fullPath, entry.contentKey) && priorKey != 0 && priorKey != entry.contentKey) {
+      carryEpubReadingState(fullPath, priorKey);
+    }
+  }
   // A fold update invalidates derived sort keys, not the stored book metadata.
   const bool reuseSortKeys = reuseMetadata && st.previous->header().foldVersion == CLIX_FOLD_VERSION;
 
@@ -469,7 +486,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
         modificationTime == 0 ||
         (priorIndex >= 0 && (st.prior[priorIndex].fileSize != fileSize || priorRecord.modificationTime == 0 ||
                              priorRecord.modificationTime != modificationTime));
-    if (sourceChanged && !clearBookCachePreservingUserState(fullPath)) {
+    if (sourceChanged && !clearBookCachePreservingUserState(fullPath, false)) {
       LOG_ERR("LIBIDX", "Cannot invalidate stale EPUB cache while preserving reading state: %s", fullPath.c_str());
       st.failed = true;
       return false;
@@ -709,7 +726,8 @@ void walk(WalkState& st, const std::string& path, const int depth) {
 // truth.
 uint32_t blobBytesFor(const StagedEntry& entry, const StagedEntry& canonical) {
   return sizeof(entry.pathHash) + entry.record.nameLen + 1u + canonical.authorLen + 1u + entry.titleLen + 1u +
-         entry.authorLen + 1u + entry.seriesLen + 1u + entry.genreLen + sizeof(entry.seriesPosition);
+         entry.authorLen + 1u + entry.seriesLen + 1u + entry.genreLen + sizeof(entry.seriesPosition) +
+         sizeof(entry.contentKey);
 }
 
 bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order, const uint16_t* resolvedFirstSeen,
@@ -1281,6 +1299,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
     put(&entry.genreLen, 1);
     if (entry.genreLen > 0) put(entry.genre, entry.genreLen);
     put(&entry.seriesPosition, sizeof(entry.seriesPosition));
+    put(&entry.contentKey, sizeof(entry.contentKey));
     blobWritten += blobBytesFor(entry, canonical);
   }
   header.nameLen = blobWritten;

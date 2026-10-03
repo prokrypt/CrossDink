@@ -66,11 +66,11 @@ class KeyboardEntryActivity : public Activity {
   // exit. CMD:KBDEXP 100 = the same with the re-stream.
   static constexpr uint8_t KBD_EXP_TURBO_KEYBOARD =
       KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT | KBD_EXP_NO_TAP_HIGHLIGHT | KBD_EXP_OTP_ON_OPEN;
-  // DU frames per phase (two phases). User 10/1 on 88859a0: 6 = acceptable gray
-  // and ghosting (4 ghosts, 5 dirtied before the VCOM fix).
-  static constexpr uint8_t KBD_EXP_DEFAULT_FRAMES = 6;
   uint8_t kbdExpFlags = 0;
-  uint8_t kbdExpFrames = KBD_EXP_DEFAULT_FRAMES;
+  // DU frames per phase (two phases): KNOBS.kbdFrames, read per frame (default 6;
+  // user 10/1 on 88859a0: acceptable gray and ghosting, 4 ghosts). Non-zero here
+  // is a CMD:KBDEXP override.
+  uint8_t kbdExpFrames = 0;
   uint8_t kbdExpPll = 0;
   bool kbdExpFirstFrame = true;
   std::atomic<unsigned long> strokeAtMs{0};

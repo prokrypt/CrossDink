@@ -321,10 +321,10 @@ RecentBook recentBookForPath(const std::string& path) {
 
 std::string bookStatsCachePathFor(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
-    return Epub::cachePathForFilePath(path, "/.crosspoint");
+    return Epub::cachePathForFilePath(path, "/.crossdink");
   }
   if (FsHelpers::hasXtcExtension(path)) {
-    return Xtc(path, "/.crosspoint").getCachePath();
+    return Xtc(path, "/.crossdink").getCachePath();
   }
   return {};
 }
@@ -350,7 +350,7 @@ std::string loadChapterTitleForPath(const std::string& path) {
     return {};
   }
 
-  Epub epub(path, "/.crosspoint");
+  Epub epub(path, "/.crossdink");
   if (!epub.load(false, true, Epub::XLocationLoadMode::Skip)) {
     return {};
   }

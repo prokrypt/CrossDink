@@ -27,10 +27,10 @@
 
 // Time to Sleep labels, one per CrossPointSettings::SLEEP_TIMEOUT_STEP_MINUTES entry, then Never.
 inline constexpr StrId SLEEP_TIMEOUT_STEP_LABELS[] = {
-    StrId::STR_1_MIN,    StrId::STR_2_MIN,    StrId::STR_3_MIN,    StrId::STR_4_MIN,     StrId::STR_5_MIN,
-    StrId::STR_10_MIN,   StrId::STR_15_MIN,   StrId::STR_20_MIN,   StrId::STR_30_MIN,   StrId::STR_1_HOUR,    StrId::STR_2_HOURS,
-    StrId::STR_4_HOURS,  StrId::STR_6_HOURS,  StrId::STR_8_HOURS,  StrId::STR_10_HOURS,  StrId::STR_12_HOURS,
-    StrId::STR_SLEEP_NEVER};
+    StrId::STR_1_MIN,    StrId::STR_2_MIN,      StrId::STR_3_MIN,   StrId::STR_4_MIN,   StrId::STR_5_MIN,
+    StrId::STR_10_MIN,   StrId::STR_15_MIN,     StrId::STR_20_MIN,  StrId::STR_30_MIN,  StrId::STR_1_HOUR,
+    StrId::STR_2_HOURS,  StrId::STR_4_HOURS,    StrId::STR_6_HOURS, StrId::STR_8_HOURS, StrId::STR_10_HOURS,
+    StrId::STR_12_HOURS, StrId::STR_SLEEP_NEVER};
 static_assert(std::size(SLEEP_TIMEOUT_STEP_LABELS) == CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP + 1);
 
 inline std::string fontSizePointLabel(const uint8_t pointSize) { return std::to_string(pointSize) + " pt"; }
@@ -590,7 +590,7 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
 // Four edge gesture entries are compiled only for touch devices.
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 105 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0);
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 106 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0);
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the
@@ -981,7 +981,7 @@ inline std::vector<SettingInfo> buildControlsSideButtonSettingsList(const std::v
 
 inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> displaySettings;
-  displaySettings.reserve(9);
+  displaySettings.reserve(10);
 
   auto addDisplaySetting = [&](StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
@@ -1004,6 +1004,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   addDisplaySetting(StrId::STR_UI_THEME);
   addDisplaySetting(StrId::STR_UI_SCALE);
   addDisplaySetting(StrId::STR_SUNLIGHT_FADING_FIX);
+  addDisplaySetting(StrId::STR_IMAGE_VIEWER);
 
   return displaySettings;
 }
@@ -1067,7 +1068,7 @@ inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<
 
 inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(12);
+  settings.reserve(13);
   addSettingByName(settings, allSettings, StrId::STR_DEVICE_NAME);
   addSettingByName(settings, allSettings, StrId::STR_TIME_TO_SLEEP);
   addSettingByName(settings, allSettings, StrId::STR_CUSTOM_BOOTSCREEN);
@@ -1076,6 +1077,7 @@ inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<
   // UC8179-only: the fast path is a driver experiment (KeyboardEntryActivity).
   addSettingByName(settings, allSettings, StrId::STR_TURBO_KEYBOARD);
 #endif
+  addSettingByName(settings, allSettings, StrId::STR_MAX_WIFI_POWERSAVE);
   settings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
   if (halClock.isAvailable()) {
     addSettingByName(settings, allSettings, StrId::STR_CLOCK_FORMAT);

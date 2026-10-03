@@ -26,8 +26,8 @@ const Info INFO[] = {
 };
 
 namespace {
-constexpr char PATH[] = "/.crosspoint/knobs.json";
-constexpr char BAD_PATH[] = "/.crosspoint/knobs.bad.json";
+constexpr char PATH[] = "/.crossdink/knobs.json";
+constexpr char BAD_PATH[] = "/.crossdink/knobs.bad.json";
 // Fields have their constants' types, so each gets its own accessor pair.
 int32_t (*const GET[])() = {
 #define X(group, id, ...) [] { return static_cast<int32_t>(KNOBS.id); },

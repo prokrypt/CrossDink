@@ -1567,7 +1567,7 @@ bool EpubReaderActivity::bookUsesLandscapeLayout(const Epub& epub) {
 }
 
 uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
-  Epub epub(filePath, "/.crosspoint");
+  Epub epub(filePath, "/.crossdink");
   epub.setupCacheDir();
   const BookReaderSettingsData data = loadBookReaderSettingsFile(epub.getCachePath());
   return data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
@@ -1575,13 +1575,13 @@ uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
 }
 
 bool EpubReaderActivity::saveBookRenderMode(const std::string& filePath, const uint8_t renderMode) {
-  Epub epub(filePath, "/.crosspoint");
+  Epub epub(filePath, "/.crossdink");
   epub.setupCacheDir();
   return saveBookRenderModeForCache(epub.getCachePath(), renderMode);
 }
 
 bool EpubReaderActivity::resetBookReaderSettings(const std::string& filePath) {
-  Epub epub(filePath, "/.crosspoint");
+  Epub epub(filePath, "/.crossdink");
   const std::string settingsPath = epub.getCachePath() + READER_SETTINGS_FILE_NAME;
   if (!Storage.exists(settingsPath.c_str())) {
     return true;
@@ -2556,6 +2556,7 @@ void EpubReaderActivity::onEnter() {
 
 void EpubReaderActivity::onExit() {
   renderer.setSmoothGray(false);
+  renderer.setInvertedTextGray(false);
   waitSilentIndexWorker(/*cancel=*/true);
   waitDrawAhead(/*publish=*/false);
   // Not cancelled: at most two thumbs remain, and Home would make them anyway.
@@ -2614,7 +2615,7 @@ void EpubReaderActivity::onExit() {
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
-  APP_STATE.readerActivityLoadCount = 0;  // saved by ReaderExitSave below
+  APP_STATE.setReaderActivityLoadCount(0);
 
   syncStatsTrackingState();
   if (statsTrackingActive) {
@@ -7816,9 +7817,14 @@ void EpubReaderActivity::imageCacheWorkerMain(void* param) {
   const auto seed = [](void* context, const char* source, const int width, const int height, const char* destination) {
     return static_cast<EpubReaderActivity*>(context)->epub->seedOptimizerImageCache(source, width, height, destination);
   };
+  const auto load = [](void* context, const char* source, size_t& size) {
+    auto* reader = static_cast<EpubReaderActivity*>(context);
+    return reader->epub->readItemToPsram(source, size, &reader->imageCacheWorker.cancel);
+  };
   for (uint8_t i = 0; i < job.count && !job.cancel.load(); ++i) {
     auto& item = job.items[i];
-    item.result = item.block->buildCacheInBackground(*job.renderer, item.x, item.y, self, extract, seed, job.cancel);
+    item.result =
+        item.block->buildCacheInBackground(*job.renderer, item.x, item.y, self, extract, seed, load, job.cancel);
   }
   const bool cancelled = job.cancel.load();
   LOG_DBG("ERS", "Image caches %s: %u in %lums, stack left %u", cancelled ? "cancelled" : "done",
@@ -8435,6 +8441,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (updatePanel) {
     renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !pageHasImages &&
                            !smoothFullSwingPending && !grayCadenceDue);
+    // Night mode: text AA only. Image pages keep their polarity-preserved B/W
+    // images and no gray, as before (the panel-polarity fold would negate them).
+    renderer.setInvertedTextGray(!pageHasImages);
     if (needsAnyGrayscale) smoothFullSwingPending = false;
   }
   if (grayCadenceDue) {
@@ -9254,7 +9263,7 @@ void EpubReaderActivity::restoreSavedPosition() {
   requestUpdate();
 }
 bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
-  auto epub = makeUniqueNoThrow<Epub>(filePath, "/.crosspoint");
+  auto epub = makeUniqueNoThrow<Epub>(filePath, "/.crossdink");
   if (!epub) {
     LOG_ERR("SLP", "EPUB: failed to allocate book for sleep-page rendering");
     return false;

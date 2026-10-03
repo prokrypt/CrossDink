@@ -16,3 +16,16 @@ target_link_libraries(BookReadingStatsAtomicTest PRIVATE
 )
 
 gtest_discover_tests(BookReadingStatsAtomicTest)
+
+add_executable(GlobalStatsSlotsTest
+  GlobalStatsSlotsTest.cpp
+  GlobalStatsLinkStubs.cpp
+  ${REPO_ROOT}/src/activities/reader/GlobalReadingStats.cpp
+)
+target_include_directories(GlobalStatsSlotsTest PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  ${REPO_ROOT}/src
+  ${REPO_ROOT}/src/activities/reader
+)
+target_link_libraries(GlobalStatsSlotsTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(GlobalStatsSlotsTest)

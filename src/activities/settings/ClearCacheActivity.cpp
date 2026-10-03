@@ -66,7 +66,7 @@ void ClearCacheActivity::render(RenderLock&&) {
 
 void ClearCacheActivity::clearCache() {
   // Open .crosspoint directory
-  auto root = Storage.open("/.crosspoint");
+  auto root = Storage.open("/.crossdink");
   if (!root || !root.isDirectory()) {
     LOG_DBG("CLEAR_CACHE", "Failed to open cache directory");
     if (root) root.close();
@@ -87,7 +87,7 @@ void ClearCacheActivity::clearCache() {
     // Only clean directories matching known book cache names. Top-level files
     // such as global_stats.bin are intentionally skipped.
     if (file.isDirectory() && isBookCacheDirectoryName(itemName.c_str())) {
-      String fullPath = "/.crosspoint/" + itemName;
+      String fullPath = "/.crossdink/" + itemName;
 
       file.close();  // Close before attempting to delete
 

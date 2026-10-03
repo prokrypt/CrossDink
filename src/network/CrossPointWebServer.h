@@ -162,8 +162,8 @@ class CrossPointWebServer {
   void updateTransferIdle();
   void endTransferHold();
   void releasePollHold();
-  // Idle STA modem sleep: MAX_MODEM for the log-only remote (Knobs wifiMaxModem,
-  // wifiListenInterval), else MIN_MODEM.
+  // Idle STA modem sleep: MAX_MODEM for the log-only remote (Settings > Max
+  // Wi-Fi powersave, listen interval 3), else MIN_MODEM.
   void setIdleModemSleep();
   // Idle STA: blocks until one of this server's sockets is readable or
   // IDLE_POLL_MS passes (to notice stop requests). False on a timeout.

@@ -5,7 +5,7 @@
 #include <ObfuscationUtils.h>
 
 bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& doc) {
-  Storage.mkdir("/.crosspoint");
+  Storage.mkdir("/.crossdink");
   String json;
   serializeJson(doc, json);
   if (!Storage.writeFile(path, json)) {
@@ -24,7 +24,7 @@ bool PersistableStoreBase::writeDocToFileAtomically(const char* path, const Json
 bool PersistableStoreBase::writeStringToFileAtomically(const char* path, const String& json) {
   // Callers may save unchanged values; an identical file is not rewritten.
   if (Storage.exists(path) && Storage.readFile(path) == json) return true;
-  Storage.mkdir("/.crosspoint");
+  Storage.mkdir("/.crossdink");
 
   const std::string tempPath = std::string(path) + ".tmp";
   if (Storage.exists(tempPath.c_str()) && !Storage.remove(tempPath.c_str())) {

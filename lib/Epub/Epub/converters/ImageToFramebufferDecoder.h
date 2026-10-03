@@ -21,6 +21,9 @@ struct RenderConfig {
   bool performanceMode = false;
   bool useExactDimensions = false;  // If true, use maxWidth/maxHeight as exact output size (no recalculation)
   std::string cachePath;            // If non-empty, decoder will write pixel cache to this path
+  // If set, the decoder reads the image from this in-memory copy (PSRAM) instead of opening imagePath.
+  const uint8_t* sourceData = nullptr;
+  size_t sourceSize = 0;
   // If set and turned true, the decode stops at its next output block and fails.
   const std::atomic<bool>* cancel = nullptr;
 };

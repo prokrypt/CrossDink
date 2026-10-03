@@ -153,6 +153,7 @@ void TxtReaderActivity::onEnter() {
 
 void TxtReaderActivity::onExit() {
   renderer.setSmoothGray(false);
+  renderer.setInvertedTextGray(false);
   mappedInput.setReaderTouchscreenOverride(false);
   Activity::onExit();
   if (auto* fontCache = renderer.getFontCacheManager()) {
@@ -173,7 +174,7 @@ void TxtReaderActivity::onExit() {
 
   pageOffsets.clear();
   currentPageLines.clear();
-  APP_STATE.readerActivityLoadCount = 0;
+  APP_STATE.setReaderActivityLoadCount(0);
   APP_STATE.saveToFile();
   txt.reset();
 }
@@ -893,6 +894,7 @@ void TxtReaderActivity::renderPage() {
   renderStatusBar();
 
   renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !smoothFullSwingPending);
+  renderer.setInvertedTextGray(true);  // night mode: text AA on the inverted panel
   smoothFullSwingPending = false;
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
@@ -1137,7 +1139,7 @@ void TxtReaderActivity::savePageIndexCache() const {
 }
 
 bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
-  Txt txt(filePath, "/.crosspoint");
+  Txt txt(filePath, "/.crossdink");
   if (!txt.load()) {
     LOG_DBG("SLP", "TXT: failed to load %s", filePath.c_str());
     return false;

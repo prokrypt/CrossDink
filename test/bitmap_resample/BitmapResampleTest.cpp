@@ -173,3 +173,41 @@ TEST(BitmapResample, PaletteFollowsExtendedInfoHeader) {
     EXPECT_EQ(nonWhiteBytes, 0) << "imageLevels=" << imageLevels;
   }
 }
+
+TEST(BitmapResample, BwOutputIsOnlyBlackOrWhite) {
+  // Image Viewer BW/Dither: threshold and 1-bit diffusion both emit levels 0/3 only.
+  for (const bool dither : {false, true}) {
+    HalFile file(create24BitBmp(64, 32));
+    Bitmap bitmap(file, dither);
+    bitmap.setBwOutput(128);
+    ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
+    std::vector<uint8_t> row((64 + 3) / 4);
+    std::vector<uint8_t> sourceRow(bitmap.getRowBytes());
+    int black = 0;
+    for (int y = 0; y < 32; y++) {
+      ASSERT_EQ(bitmap.readNextRow(row.data(), sourceRow.data()), BmpReaderError::Ok);
+      for (int x = 0; x < 64; x++) {
+        const uint8_t level = (row[x / 4] >> (6 - (x % 4) * 2)) & 0x3;
+        ASSERT_TRUE(level == 0 || level == 3);
+        black += level == 0;
+      }
+    }
+    EXPECT_GT(black, 0);
+    EXPECT_LT(black, 64 * 32);
+  }
+}
+
+TEST(BitmapResample, PixelDataCopyMatchesFileRows) {
+  const auto bmp = create24BitBmp(37, 11);
+  HalFile fileA(bmp), fileB(bmp);
+  Bitmap fromFile(fileA, true), fromMemory(fileB, true);
+  ASSERT_EQ(fromFile.parseHeaders(), BmpReaderError::Ok);
+  ASSERT_EQ(fromMemory.parseHeaders(), BmpReaderError::Ok);
+  fromMemory.setPixelData(bmp.data() + 54);
+  std::vector<uint8_t> a((37 + 3) / 4), b(a.size()), raw(fromFile.getRowBytes());
+  for (int y = 0; y < 11; y++) {
+    ASSERT_EQ(fromFile.readNextRow(a.data(), raw.data()), BmpReaderError::Ok);
+    ASSERT_EQ(fromMemory.readNextRow(b.data(), raw.data()), BmpReaderError::Ok);
+    EXPECT_EQ(a, b) << "row " << y;
+  }
+}

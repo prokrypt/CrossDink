@@ -13,9 +13,8 @@ class ReaderProgressSaveDebouncer {
   // Leaving the reader and going to sleep always flush, so these only bound
   // what a crash, reset or dead battery can lose: at most this many page turns
   // or this much time since the last save.
-  // Goodies > Knobs; copied at construction and setShadowed(), so the next book.
-  static KNOB_ALIAS(PAGE_CHANGE_INTERVAL, progressSavePages);
-  static KNOB_ALIAS(MAX_SAVE_INTERVAL_MS, progressSaveMaxMs);
+  static constexpr uint8_t PAGE_CHANGE_INTERVAL = 30;
+  static constexpr unsigned long MAX_SAVE_INTERVAL_MS = 15UL * 60UL * 1000UL;
   // With ReaderProgressShadow holding the position in RTC memory, crashes and
   // resets no longer lose pages; these bound only what power loss can lose.
   static constexpr uint8_t SHADOWED_PAGE_CHANGE_INTERVAL = 200;

@@ -14,7 +14,6 @@ X("Panel", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          /
 X("Panel", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
 X("Panel", tempMaxAgeMs, uint32_t, 600000, 60000, 3600000, 60000, "ms")        // older samples ignored
 X("Panel", kbdFrames, uint8_t, 6, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
-X("Panel", kbdPll, uint8_t, 0, 0, 2, 1, "")                          // Turbo keyboard PLL: panel, 1 = 40 Hz, 2 = 50 Hz
 
 // Frontlight
 // Flash duck, per waveform: dark this much after the swing the driver reports, back up this much after
@@ -97,7 +96,6 @@ X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // batt
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache
 X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
 X("Power", tiltCooldownMs, unsigned long, 600, 100, 3000, 50, "ms")      // min time between tilt flicks
-X("Power", bootSleepGraceMs, unsigned long, 2000, 1000, 10000, 500, "ms") // power actions ignored after boot
 
 // Memory gates: raise only (the default is the floor); a lower gate lets an
 // allocation run short, and a bare new aborts.
@@ -127,13 +125,10 @@ X("Book", popupPages, int, 20, 1, 200, 1, "pg")                     // indexing 
 X("Book", popupBytes, size_t, 98304, 8192, 524288, 8192, "B")       // indexing popup: spine items this large
 X("Book", popupDeadlineMs, unsigned long, 1000, 100, 5000, 100, "ms")  // indexing popup: build stalls this long
 X("Book", pageTurnGapMs, unsigned long, 200, 0, 1000, 10, "ms")     // faster manual turns are queued
-X("Book", progressSavePages, uint8_t, 30, 1, 255, 1, "pg")          // save progress every N turns (next book)
-X("Book", progressSaveMaxMs, unsigned long, 900000, 60000, 3600000, 60000, "ms")  // and at least this often
 X("Book", homeThumbIdleMs, unsigned long, 3000, 500, 30000, 500, "ms")  // idle before the Home cover thumb
 X("Book", fontPrewarmDelayMs, unsigned long, 400, 0, 5000, 100, "ms")   // idle before the SD font prewarm
 X("Book", pageLoadRetries, int, 3, 1, 10, 1, "")                        // page load retries
 X("Book", pxcCacheCap, size_t, 131072, 32768, 131072, 8192, "B")        // decoded image cache (compiled max)
-X("Book", opdsCacheCap, size_t, 2097152, 262144, 2097152, 262144, "B")  // OPDS page cache (compiled max)
 
 // Wi-Fi
 X("Wi-Fi", rejoinTimeoutMs, uint32_t, 20000, 5000, 60000, 1000, "ms")       // Goodies remote join timeout
@@ -147,8 +142,6 @@ X("Wi-Fi", hintedConnectTimeoutMs, unsigned long, 6000, 1000, 30000, 1000, "ms")
 X("Wi-Fi", wifiAbandonMs, unsigned long, 300000, 30000, 1800000, 30000, "ms")  // File Transfer gives up on lost Wi-Fi
 X("Wi-Fi", transferLingerMs, unsigned long, 500, 0, 5000, 100, "ms")        // full clock after the last byte
 X("Wi-Fi", serverIdlePollMs, uint32_t, 250, 10, 500, 10, "ms")              // idle server: stop check (traffic wakes it)
-X("Wi-Fi", wifiMaxModem, uint8_t, 1, 0, 1, 1, "")                          // log-only remote idle: 1 = MAX_MODEM, 0 = MIN
-X("Wi-Fi", wifiListenInterval, uint8_t, 3, 1, 10, 1, "bcn")                // MAX_MODEM beacons per wake (next association)
 X("Wi-Fi", serverActivePasses, int, 64, 1, 256, 1, "")                      // handleClient passes per tick
 X("Wi-Fi", httpTimeoutMs, int, 60000, 5000, 120000, 5000, "ms")             // download HTTP timeout
 X("Wi-Fi", httpReadPollMs, int, 5000, 500, 30000, 500, "ms")                // download per-read poll

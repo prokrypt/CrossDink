@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -24,8 +26,13 @@ class Epub {
 
  public:
   Epub(const std::string& path, const char*) : path(path) {}
+  static void forgetCacheKeys() {}
+  static bool contentKeyFor(const std::string& path, uint64_t& out) {
+    out = std::hash<std::string>{}(path) | 1;
+    return true;
+  }
 
-  std::string getCachePath() const { return "/.crosspoint/cache_" + path.substr(1); }
+  std::string getCachePath() const { return "/.crossdink/cache_" + path.substr(1); }
   bool clearCache() const {
     const std::string cachePath = getCachePath();
     return !Storage.exists(cachePath.c_str()) || Storage.removeDir(cachePath.c_str());

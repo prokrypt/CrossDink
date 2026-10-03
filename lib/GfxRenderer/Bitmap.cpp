@@ -173,6 +173,17 @@ BmpReaderError Bitmap::parseHeaders() {
     }
   }
 
+  // BW output with dithering: 1-bit diffusion of every image, native palette or not.
+  if (bwBlackBelow && dithering) {
+    bwDitherer = makeUniqueNoThrow<Atkinson1BitDitherer>(width);
+    if (!bwDitherer || !bwDitherer->isValid()) {
+      bwDitherer.reset();
+      LOG_ERR("BMP", "Failed to allocate 1-bit ditherer");
+      return BmpReaderError::OomRowBuffer;
+    }
+    return BmpReaderError::Ok;
+  }
+
   // Decide pixel processing strategy:
   //  - Native palette → direct mapping, no processing needed
   //  - High-color + dithering enabled → error-diffusion dithering (Atkinson or Floyd-Steinberg)
@@ -230,6 +241,10 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   // wallpaper fitted to an X3 becomes 475x792 here, so error diffusion never
   // has to survive the renderer's later non-integer scale.
   const int sourceY = std::min(height - 1, (outputRowsRead * height + height / 2) / outputHeight);
+  if (pixelData) {
+    memcpy(rowBuffer, pixelData + static_cast<size_t>(sourceY) * rowBytes, rowBytes);
+    sourceRowsRead = sourceY + 1;
+  }
   while (sourceRowsRead <= sourceY) {
     if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;
     sourceRowsRead++;
@@ -243,7 +258,11 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   // Helper lambda to pack 2bpp color into the output stream
   auto packPixel = [&](const uint8_t lum, const int outputX) {
     uint8_t color;
-    if (atkinsonDitherer) {
+    if (bwDitherer) {
+      color = bwDitherer->processPixel(lum, outputX) ? 3 : 0;  // adjusts lum itself
+    } else if (bwBlackBelow) {
+      color = adjustPixel(lum) < bwBlackBelow ? 0 : 3;
+    } else if (atkinsonDitherer) {
       color = atkinsonDitherer->processPixel(adjustPixel(lum), outputX);
     } else if (fsDitherer) {
       color = fsDitherer->processPixel(adjustPixel(lum), outputX);
@@ -302,7 +321,9 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
     packPixel(lum, outputX);
   }
 
-  if (atkinsonDitherer)
+  if (bwDitherer)
+    bwDitherer->nextRow();
+  else if (atkinsonDitherer)
     atkinsonDitherer->nextRow();
   else if (fsDitherer)
     fsDitherer->nextRow();
@@ -323,6 +344,7 @@ BmpReaderError Bitmap::rewindToData() const {
   // Reset dithering when rewinding
   if (fsDitherer) fsDitherer->reset();
   if (atkinsonDitherer) atkinsonDitherer->reset();
+  if (bwDitherer) bwDitherer->reset();
   sourceRowsRead = 0;
   outputRowsRead = 0;
 
