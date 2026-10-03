@@ -2856,7 +2856,7 @@ static void loopPass() {
       lastHeaderStatusPoll = millis();
       const int shownWifi = BaseTheme::wifiStatusShown();
       const int shownPercent = BaseTheme::batteryPercentShown();
-      const int connected = hasActiveStationWifiConnection() ? 1 : 0;
+      const int connected = wifiHeaderBars();
       // Every 10 s: ADC boards smooth the percent on each read, so a faster
       // poll would move it (gauge reads are cached for BATTERY_POLL_MS).
       static int percent = -1;
