@@ -12,7 +12,8 @@ void clearBookCache(const std::string& path);
 // preservation fails.
 // A replaced EPUB (new content key) also gets its progress and stats carried
 // over from the key library.idx recorded; the Library builder, which holds that
-// index open, passes false and carries them itself.
+// index open and has just read the book's content key, passes false and
+// carries them itself; the remembered key is then reused, not forgotten.
 bool clearBookCachePreservingUserState(const std::string& path, bool carryFromIndexedKey = true);
 
 // Copies progress and per-book stats from the cache of an EPUB's previous
