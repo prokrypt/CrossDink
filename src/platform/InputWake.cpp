@@ -37,10 +37,12 @@ bool allInputsCovered = false;
 int8_t chargePin = -1;
 std::atomic<bool> chargeWoke{false};
 #if CROSSDINK_PERF_LOG
-// Line interrupts per kind for the [PM] wake counts (ISR writes; DRAM).
+// Line interrupts per kind for the [PM] wake counts (ISR writes; DRAM). The
+// touch count runs since boot; takeWakeCounts() reports its delta.
 int8_t touchWakePin = -1;
 std::atomic<uint32_t> buttonWakes{0};
 std::atomic<uint32_t> touchWakes{0};
+uint32_t touchWakesTaken = 0;
 #endif
 
 #if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
@@ -275,10 +277,20 @@ void InputWake::describePins(char* out, const uint32_t size) {
 void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
 #if CROSSDINK_PERF_LOG
   buttons = buttonWakes.exchange(0, std::memory_order_relaxed);
-  touch = touchWakes.exchange(0, std::memory_order_relaxed);
+  const uint32_t total = touchWakes.load(std::memory_order_relaxed);
+  touch = total - touchWakesTaken;
+  touchWakesTaken = total;
 #else
   buttons = 0;
   touch = 0;
+#endif
+}
+
+uint32_t InputWake::touchWakeTotal() {
+#if CROSSDINK_PERF_LOG
+  return touchWakes.load(std::memory_order_relaxed);
+#else
+  return 0;
 #endif
 }
 
@@ -302,5 +314,7 @@ void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
   buttons = 0;
   touch = 0;
 }
+
+uint32_t InputWake::touchWakeTotal() { return 0; }
 
 #endif
