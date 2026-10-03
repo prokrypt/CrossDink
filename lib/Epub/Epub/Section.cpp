@@ -345,7 +345,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.guideReadingEnabled != fileGuideReadingEnabled || spec.wordSpacing != fileWordSpacing ||
         static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
       file.close();
-      LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
+      LOG_INF("SCT", "Section cache params changed, rebuilding");
       clearCache();
       return false;
     }
