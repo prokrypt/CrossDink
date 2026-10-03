@@ -2873,8 +2873,10 @@ static void loopPass() {
         percent = powerManager.getBatteryPercentage();
       }
       const bool inputPaused = millis() - lastActivityTime >= 2000;
-      const bool stale = shownWifi != connected || (inputPaused && shownPercent != percent);
-      const int want = connected << 8 | percent;
+      // Only the link coming or going repaints; bar-count changes wait for a repaint that happens anyway.
+      const bool linkChanged = (shownWifi == 0) != (connected == 0);
+      const bool stale = linkChanged || (inputPaused && shownPercent != percent);
+      const int want = (connected > 0) << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
       } else if (requestedFor != want) {
