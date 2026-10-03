@@ -451,10 +451,9 @@ void NearbyBookTransferActivity::fillSendWindow() {
   const uint64_t chunkCount =
       (session_.totalBytes() + negotiatedChunkBytes_ - 1) / static_cast<uint64_t>(negotiatedChunkBytes_);
   while (sendSequence_ < chunkCount && sendSequence_ - session_.nextSequence() < SEND_WINDOW) {
-    const int bytesRead =
-        sourceFile_.seek64(static_cast<uint64_t>(sendSequence_) * negotiatedChunkBytes_)
-            ? sourceFile_.read(chunkBuffer_.data(), negotiatedChunkBytes_)
-            : -1;
+    const int bytesRead = sourceFile_.seek64(static_cast<uint64_t>(sendSequence_) * negotiatedChunkBytes_)
+                              ? sourceFile_.read(chunkBuffer_.data(), negotiatedChunkBytes_)
+                              : -1;
     if (bytesRead <= 0) {
       setError(tr(STR_NEARBY_TRANSFER_SOURCE_FAILED));
       return;

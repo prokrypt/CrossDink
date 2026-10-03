@@ -277,10 +277,9 @@ void BatteryStatsActivity::buildLines() {
         ls.rejectCause ? ls.rejectCauseName : "");
   }
   const auto& c = HalDisplay::refreshCounts().n;
-  add("Ref: Fa %lu  Ha %lu  Fu %lu  Gr %lu  Fl %lu",
-      static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),
-      static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]), static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]),
-      static_cast<unsigned long>(c[HalDisplay::FLASHING]));
+  add("Ref: Fa %lu  Ha %lu  Fu %lu  Gr %lu  Fl %lu", static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]),
+      static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]), static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]),
+      static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]), static_cast<unsigned long>(c[HalDisplay::FLASHING]));
 
   int8_t panelC = 0;
   uint32_t panelAgeMs = 0;

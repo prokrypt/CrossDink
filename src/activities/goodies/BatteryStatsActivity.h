@@ -33,7 +33,7 @@ class BatteryStatsActivity final : public Activity {
   static constexpr int MAX_LINES = 16;
 
   static constexpr size_t LOAD_BUF_BYTES = 4096;
-  static constexpr uint32_t LOAD_STEP_MS = 20;    // per loop(), so input stays responsive
+  static constexpr uint32_t LOAD_STEP_MS = 20;  // per loop(), so input stays responsive
 
   void startLoad();
   bool resumeFromSum();  // battery.sum matches a log file: resume after its last row
@@ -48,17 +48,17 @@ class BatteryStatsActivity final : public Activity {
   HalFile file;
   std::unique_ptr<char[]> buf;
   size_t fill = 0;
-  int fileIndex = 0;      // BatteryLog::LOG_PATHS index being read; counts down to 0 = battery.csv
-  uint32_t fileOff = 0;   // bytes of that file read up to its last full row
-  int sumFile = -1;       // where the last full row read ends: file index and offset
+  int fileIndex = 0;     // BatteryLog::LOG_PATHS index being read; counts down to 0 = battery.csv
+  uint32_t fileOff = 0;  // bytes of that file read up to its last full row
+  int sumFile = -1;      // where the last full row read ends: file index and offset
   uint32_t sumOff = 0;
   bool loading = false;
   uint32_t loadStartMs = 0;  // for the "read N B in M ms" log line
   uint32_t loadBytes = 0;
   char lines[MAX_LINES][80];
   int lineCount = 0;
-  int scroll = 0;     // first line drawn
-  bool more = false;  // lines were cut off below
+  int scroll = 0;           // first line drawn
+  bool more = false;        // lines were cut off below
   uint16_t builtState = 0;  // estimateState() the estimate line was built for
   uint16_t seenState = 0;   // last estimateState() seen in loop(), and since when
   uint32_t seenMs = 0;
