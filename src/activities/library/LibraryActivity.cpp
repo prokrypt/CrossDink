@@ -109,21 +109,51 @@ void LibraryActivity::onEnter() {
   app.setScreen(&LibraryActivity::listScreen, this);
   // Card contents may change through USB, Wi-Fi, transfers or file actions.
   // Storage counts those, so an unchanged card reopens the index directly.
-  rebuildIndex(true);
+  rebuildIndex(true, false, /*background=*/true);
   resetViewport();
   ignoreConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   requestUpdate();
 }
 
 void LibraryActivity::onExit() {
+  // A refresh still running would compete with the book or screen opening next;
+  // Home retries it.
+  LibraryPrewarm::stop(false);
+  backgroundRefresh = false;
   index.close();
   filtered.reset();
   rowCache.reset();
   Activity::onExit();
 }
 
-bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force) {
+void LibraryActivity::onUserInput() {
+  lastInputMs = millis();
+  LibraryPrewarm::pause();
+}
+
+// Holds off auto sleep while the background refresh runs, as Home does.
+bool LibraryActivity::preventAutoSleep() { return LibraryPrewarm::working(); }
+
+bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force, const bool background) {
   uiReady = false;
+  backgroundRefresh = false;
+  index.close();
+  // Card changed (or Home's build is still running): show the previous index
+  // from PSRAM now and let the background build reconcile it; the list reloads
+  // when it lands. The copy frees library.idx for the build to replace. Without
+  // PSRAM, or when no background build can start, scan in the foreground below.
+  if (background && !force && (LibraryPrewarm::active() || !Storage.libraryScanCurrent()) &&
+      index.open(library::libraryIndexPath()) && index.loadIntoMemory()) {
+    LibraryPrewarm::tick(true);
+    if (LibraryPrewarm::active()) {
+      LOG_DBG("LIB", "Showing the previous index while the card is rescanned");
+      backgroundRefresh = true;
+      scanFailed = false;
+      resolveRecents();
+      applyFilter();
+      return true;
+    }
+  }
   index.close();
   // Home may have been indexing in the background; finishing that walk is
   // cheaper than starting a new one, and usually it is already done.
@@ -168,6 +198,20 @@ bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force) {
   resolveRecents();
   applyFilter();
   return !scanFailed;
+}
+
+void LibraryActivity::finishBackgroundRefresh() {
+  backgroundRefresh = false;
+  index.close();
+  // A failed or degraded background build leaves the previous index; the next
+  // visit rebuilds in the foreground, as before.
+  if (!index.open(library::libraryIndexPath()) && !index.openForReconciliation(library::libraryIndexPath())) {
+    LOG_ERR("LIB", "Cannot reopen library index after background refresh");
+    scanFailed = true;
+  }
+  resolveRecents();
+  applyFilter();
+  keepViewportAfterReload();
 }
 
 void LibraryActivity::resolveRecents() {
@@ -446,6 +490,10 @@ void LibraryActivity::reloadAfterBookAction() {
   // Deleting or moving a book changes the storage generation and rescans;
   // cache, stats and settings actions only refresh recents and rows.
   rebuildIndex(true);
+  keepViewportAfterReload();
+}
+
+void LibraryActivity::keepViewportAfterReload() {
   selection = std::min(selection, std::max(CONTROL_COUNT, CONTROL_COUNT + rowCount() - 1));
   listNav.selected = selection - CONTROL_COUNT;
   listNav.top = topIndex;
@@ -688,6 +736,12 @@ void LibraryActivity::loop() {
   latchInput();
   if (RenderLock::peek()) return;
   RenderLock lock;
+  if (backgroundRefresh) {
+    // Paused by input; resumes after Home's quiet spell so the walk never
+    // competes with row reads or drawing.
+    LibraryPrewarm::tick(millis() - lastInputMs >= 500);
+    if (!LibraryPrewarm::active()) finishBackgroundRefresh();
+  }
   const PendingInput input = pending;
   pending = {};
   if (pendingCacheDeletedFeedback && millis() - cacheDeletedFeedbackShowTime >= ACTION_FEEDBACK_MS) {

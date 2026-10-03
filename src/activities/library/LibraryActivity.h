@@ -20,6 +20,8 @@ class LibraryActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool blocksGlobalInput() const override { return actionPopup.isActive(); }
+  void onUserInput() override;
+  bool preventAutoSleep() override;
 
  private:
   enum class Sort : uint8_t { DateAdded, Title, AuthorLast, AuthorFirst, RecentlyRead, Series, Genre };
@@ -48,6 +50,10 @@ class LibraryActivity final : public Activity {
   bool longPressFired = false;
   bool ignoreConfirmRelease = false;
   bool scanFailed = false;
+  // Showing the previous index (held in PSRAM) while the background build
+  // reconciles the card.
+  bool backgroundRefresh = false;
+  unsigned long lastInputMs = 0;
   bool filterFailed = false;
   bool pendingCacheDeletedFeedback = false;
   unsigned long cacheDeletedFeedbackShowTime = 0;
@@ -136,7 +142,14 @@ class LibraryActivity final : public Activity {
   bool hasActiveFilter() const;
   // Rescans the card only when storage reports a Library-visible change since
   // the last successful scan (or `force`); otherwise reopens the saved index.
-  bool rebuildIndex(bool showScanning, bool force = false);
+  // `background` (Library entry): with a stale index, show it from PSRAM and
+  // rescan on the LibraryPrewarm task instead of behind the popup.
+  bool rebuildIndex(bool showScanning, bool force = false, bool background = false);
+  // The background build that rebuildIndex() left running has finished:
+  // reopen the new index and redraw in place.
+  void finishBackgroundRefresh();
+  // Clamps the selection and reloads grid covers/progress after the rows changed.
+  void keepViewportAfterReload();
   CachedRow& rowFor(int row);
   void fillRow(int row, CachedRow& out);
   void invalidateRowCache();
