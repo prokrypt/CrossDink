@@ -1,0 +1,31 @@
+name: Upstream ref check
+
+# Fails if a PR title/body or our own (first-parent) commit messages carry
+# upstream issue/PR refs or closing keywords. See combines/pr-split-plan.md.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan title, body and first-parent commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          PAT='([Ff]ix(e[sd])?|[Cc]lose[sd]?|[Rr]esolve[sd]?)[: ]+[A-Za-z0-9_./-]*#[0-9]+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+'
+          if { printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY"; git log --first-parent --format='%h %B' "$BASE_SHA..$HEAD_SHA"; } \
+              | grep -nE "$PAT" | grep -v 'github.com/prokrypt/'; then
+            echo "::error::Remove upstream refs/closing keywords (list commits as 'sha subject' only)"
+            exit 1
+          fi
