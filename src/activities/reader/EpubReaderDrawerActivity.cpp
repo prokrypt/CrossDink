@@ -3094,7 +3094,7 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
     }
     case RowId::Images: {
       // Indexed by raw value (IMAGE_RENDERING order).
-      static const std::array<StrId, 6> labels = {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
+      static const std::array<StrId, 6> labels = {StrId::STR_IMAGES_DISPLAY,  StrId::STR_IMAGES_PLACEHOLDER,
                                                   StrId::STR_IMAGES_SUPPRESS, StrId::STR_IMAGES_BW,
                                                   StrId::STR_IMAGES_BW_DARK,  StrId::STR_IMAGES_DITHER};
       return I18N.get(labels[std::min<size_t>(draft.imageRendering, labels.size() - 1)]);

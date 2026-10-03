@@ -12,7 +12,7 @@ HalDisplay display;
 #if CROSSDINK_GOODIES
 namespace {
 RTC_NOINIT_ATTR HalDisplay::RefreshCounts rtcRefreshCounts;  // survives deep sleep; random after power loss
-constexpr uint32_t REFRESH_COUNTS_MAGIC = 0x52465243;       // "RFRC"
+constexpr uint32_t REFRESH_COUNTS_MAGIC = 0x52465243;        // "RFRC"
 }  // namespace
 
 HalDisplay::RefreshCounts& HalDisplay::refreshCounts() {
@@ -338,9 +338,7 @@ void HalDisplay::markFlash(const bool flashes, const FlashKind kind) {
   count(FLASHING);
 }
 
-void HalDisplay::markFlash(const RefreshMode mode) {
-  markFlash(mode != FAST_REFRESH);
-}
+void HalDisplay::markFlash(const RefreshMode mode) { markFlash(mode != FAST_REFRESH); }
 
 uint32_t HalDisplay::flashEndsMs() const {
 #ifndef SIMULATOR
@@ -409,7 +407,7 @@ void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
   HalSpiBus::Lock spiLock;
   shotPlane(lsbPlane, rows, static_cast<uint32_t>(yStart) * getDisplayWidthBytes(),
-             static_cast<uint32_t>(numRows) * getDisplayWidthBytes());
+            static_cast<uint32_t>(numRows) * getDisplayWidthBytes());
   einkDisplay.writeGrayscalePlaneStrip(lsbPlane ? EInkDisplay::GRAY_PLANE_LSB : EInkDisplay::GRAY_PLANE_MSB, rows,
                                        yStart, numRows);
 }

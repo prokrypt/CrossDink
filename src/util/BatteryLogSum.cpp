@@ -40,8 +40,8 @@ bool load(BatteryLogParser& p, int& fileIndex, uint32_t& offset) {
   HalFile f = Storage.open(SUM_PATH, O_RDONLY);
   if (!f) return false;
   Header h{};
-  const bool ok = f.read(&h, sizeof(h)) == static_cast<int>(sizeof(h)) && h.magic == SUM_MAGIC &&
-                  h.size == sizeof(p) && f.read(&p, sizeof(p)) == static_cast<int>(sizeof(p)) && parserCrc(p) == h.crc;
+  const bool ok = f.read(&h, sizeof(h)) == static_cast<int>(sizeof(h)) && h.magic == SUM_MAGIC && h.size == sizeof(p) &&
+                  f.read(&p, sizeof(p)) == static_cast<int>(sizeof(p)) && parserCrc(p) == h.crc;
   f.close();
   if (!ok) {
     LOG_INF("BAT", "battery.sum unusable");

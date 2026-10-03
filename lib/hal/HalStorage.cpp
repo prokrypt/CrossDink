@@ -389,6 +389,21 @@ bool inDataRoot(const char* path) {
          strncmp(path + kDataRootLen, "/settings.json", 14) != 0;
 }
 
+// Caches, thumbnails and covers regenerate in /.crossdink rather than being read
+// from /.crosspoint: book cache folders show through only their user data, and
+// the root-level caches not at all.
+bool twinAllowed(const char* path) {
+  if (path[kDataRootLen] == '\0') return true;
+  const char* first = path + kDataRootLen + 1;
+  for (const char* cache : {"home_carousel_cache.bin", "font-catalog.bin", "sleep_frame.bin", "fileindex"}) {
+    const size_t n = strlen(cache);
+    if (strncmp(first, cache, n) == 0 && (first[n] == '\0' || first[n] == '/')) return false;
+  }
+  if (strncmp(first, "xtc_", 4) != 0 && strncmp(first, "txt_", 4) != 0) return true;
+  const char* slash = strchr(first, '/');
+  return slash && !strchr(slash + 1, '/') && HalStorage::isBookUserData(slash + 1);
+}
+
 // Caller holds the storage lock. True when `path` or a folder above it was removed.
 bool isDeletedLocked(const char* path) {
   if (deletedPaths.empty()) return false;
@@ -403,7 +418,7 @@ bool isDeletedLocked(const char* path) {
 // Caller holds the storage lock. The /.crosspoint twin of `path` if it exists
 // and shows through (in twinPath, valid until the lock is released), else null.
 const char* legacyTwinLocked(const char* path) {
-  if (!inDataRoot(path)) return nullptr;
+  if (!inDataRoot(path) || !twinAllowed(path)) return nullptr;
   if (legacyRoot == LegacyRoot::Unknown) {
     if (!SDCard.ready()) return nullptr;
     legacyRoot = SDCard.exists(kLegacyRoot) ? LegacyRoot::Present : LegacyRoot::Absent;
@@ -569,10 +584,9 @@ struct HalFile::LegacyMerge {
   bool hides(FsFile& entry) const {
     char name[64];
     const size_t nameLen = entry.getName(name, sizeof(name));
-    if (nameLen == 0 || nameLen >= sizeof(name) - 1 || isTempName(name) ||
-        (entry.isDirectory() && strncmp(name, "epub_", 5) == 0))
-      return true;
+    if (nameLen == 0 || nameLen >= sizeof(name) - 1 || isTempName(name)) return true;
     const std::string path = dataDir + "/" + name;
+    if (!inDataRoot(path.c_str()) || !twinAllowed(path.c_str())) return true;
     return isDeletedLocked(path.c_str()) || (!handleIsLegacy && SDCard.exists(path.c_str()));
   }
 };

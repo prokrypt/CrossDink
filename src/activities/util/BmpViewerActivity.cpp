@@ -110,7 +110,7 @@ void fitBitmap(const Bitmap& bitmap, const int pageWidth, const int pageHeight, 
 struct BmpLevelJob {
   Bitmap* bitmap;
   HalFile* file;
-  uint8_t* pixels;  // PSRAM copy of the pixel data, or nullptr to read rows from the SD card
+  uint8_t* pixels;   // PSRAM copy of the pixel data, or nullptr to read rows from the SD card
   uint8_t* fileRow;  // raw row scratch for Bitmap::readNextRow
   DecodePipeline* pipeline;
 };
@@ -426,6 +426,7 @@ bool BmpViewerActivity::showImage(const bool gray, const std::function<bool()>& 
 
 const BmpViewerActivity::DecodedImage* BmpViewerActivity::decodedImage(const uint8_t look) {
   for (auto it = recentImages.begin(); it != recentImages.end(); ++it) {
+    // cppcheck-suppress useStlAlgorithm ; the hit rotates in place
     if (it->path == filePath && it->look == look) {
       std::rotate(it, it + 1, recentImages.end());  // newest last
       return &recentImages.back();
@@ -494,8 +495,8 @@ bool BmpViewerActivity::decodeBmpLevels(DecodedImage& image) {
     image.gray = !look && bitmap.hasGreyscale();
     image.x = sink.x;
     image.y = sink.y;
-    image.width = sink.scale < 1.0f ? static_cast<int>(std::floor((bitmap.getWidth() - 1) * sink.scale)) + 1
-                                    : bitmap.getWidth();
+    image.width =
+        sink.scale < 1.0f ? static_cast<int>(std::floor((bitmap.getWidth() - 1) * sink.scale)) + 1 : bitmap.getWidth();
     image.height = sink.scale < 1.0f ? static_cast<int>(std::floor((bitmap.getHeight() - 1) * sink.scale)) + 1
                                      : bitmap.getHeight();
 
@@ -506,6 +507,7 @@ bool BmpViewerActivity::decodeBmpLevels(DecodedImage& image) {
     const size_t levelRowBytes = (bitmap.getWidth() + 3) / 4;
     BmpLevelJob job{&bitmap, &file, pixels.get(), fileRow.get(), nullptr};
     DecodePipeline pipeline;
+    // cppcheck-suppress variableScope ; written through the out-param below
     int rc = 0;
     bool split = false;
     ok = fileRow != nullptr;
@@ -518,8 +520,7 @@ bool BmpViewerActivity::decodeBmpLevels(DecodedImage& image) {
       HeapByteBuffer levelRow = makePsramByteBufferNoThrow(levelRowBytes);
       ok = levelRow != nullptr;
       if (ok) loadBmpPixels(job);
-      for (int bmpY = 0; ok && bmpY < bitmap.getHeight() && !drawCancelled.load(std::memory_order_acquire);
-           bmpY++) {
+      for (int bmpY = 0; ok && bmpY < bitmap.getHeight() && !drawCancelled.load(std::memory_order_acquire); bmpY++) {
         ok = bitmap.readNextRow(levelRow.get(), fileRow.get()) == BmpReaderError::Ok;
         if (ok) writeBmpLevelRow(sink, levelRow.get(), bmpY);
       }
