@@ -28,18 +28,21 @@ inline float ledSlope(const float offRate, const float onRate, const float avgDu
 // The LED draws the same with Wi-Fi on or off, so its share per duty unit is the
 // smaller of this pair's and the other Wi-Fi state's ledSlope (otherSlope, < 0 =
 // unknown): a bigger one means that state's light-on stretches held heavier work
-// (Wi-Fi remote idle with the light off, reading with it on). The light-off drain
-// is at least the light-on drain less the light's share.
+// (Wi-Fi remote idle with the light off, reading with it on), and it is at most
+// maxSlope, the LED's own full-duty drain. The light-off drain is at least the
+// light-on drain less the light's share. With no share, a missing side takes the
+// other one, so the result is always awake drain (0 = neither side known).
 inline float lightScaledRate(const float offRate, const float onRate, const float avgDuty, const uint8_t light,
-                             const float otherSlope = -1.0f) {
+                             const float otherSlope = -1.0f, const float maxSlope = 1e9f) {
   float slope = ledSlope(offRate, onRate, avgDuty);
   if (otherSlope >= 0 && (slope < 0 || otherSlope < slope)) slope = otherSlope;
+  slope = std::min(slope, maxSlope);
   if (slope >= 0) {
     const float base = std::max(offRate, onRate - slope * avgDuty);
     if (base > 0) return base + slope * lightDuty(light);
   }
-  if (light == 0) return offRate;
-  return offRate > 0 && onRate > 0 ? offRate : onRate;
+  // Light-off drain is a lower bound with the light on.
+  return offRate > 0 ? offRate : onRate;
 }
 
 }  // namespace BatteryEstimate

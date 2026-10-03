@@ -11,6 +11,7 @@
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Memory.h>
 #include <PerfLog.h>
 #include <WiFi.h>
@@ -38,10 +39,9 @@
 
 namespace {
 
-// A logged % is whole ("71", older rows and rows logged asleep) or has the
-// CW2017 fraction ("71.43"), so a drop is exact to ±1 or ±0.01: rates and
-// estimates carry that ±, and wait for a 2% drop (0.2% when mostly fractional).
-uint32_t minDropC(const uint32_t dropC, const uint32_t coarseC) { return coarseC * 2 >= dropC ? 200 : 20; }
+// Drops count between fractional rows only ("71.43"); rates and estimates carry
+// the gauge's ± (see LogStats) and wait for a 0.2% drop.
+constexpr uint32_t MIN_DROP_C = 20;
 constexpr char NOT_ENOUGH[] = "not enough data";
 
 // "12m", "1h 21m", "2d 3h".
@@ -68,9 +68,9 @@ void formatPct(char* out, const size_t size, const uint16_t centi, const bool fi
 // "4.12±0.20%/h over 5h 10m". errC is the ± squared (0.01 %², see LogStats).
 // A ± past the rate shows as a range from 0 (drain is never negative);
 // perDay adds the rate per day ("0.04 (0-0.15)%/h, ~1.0%/day over 2d 3h").
-void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t coarseC, const uint32_t errC,
-                const uint32_t seconds, const bool perDay = false) {
-  if (dropC < minDropC(dropC, coarseC) || seconds < 60) {
+void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t errC, const uint32_t seconds,
+                const bool perDay = false) {
+  if (dropC < MIN_DROP_C || seconds < 60) {
     snprintf(out, size, "%s", NOT_ENOUGH);
     return;
   }
@@ -122,6 +122,7 @@ void BatteryStatsActivity::startLoad() {
   if (!buf) LOG_ERR("BAT", "Cannot allocate log buffer");
   if (buf && !resumeFromSum()) {
     parser = {};
+    parser.stateSkipS = KNOBS.batteryStateSkipS;
     fileIndex = BatteryLog::LOG_FILES - 1;  // the oldest; missing files read as empty
     fileOff = 0;
     file = Storage.open(BatteryLog::LOG_PATHS[fileIndex], O_RDONLY);
@@ -230,24 +231,29 @@ void BatteryStatsActivity::buildLines() {
     } else {
       add("Chg: not in the log");
     }
-    formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
+    formatRate(a, sizeof(a), st.dropC[0], st.errC[0], st.battS[0]);
     add("Awake drain: %s", a);
-    formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1], true);
+    formatRate(a, sizeof(a), st.dropC[1], st.errC[1], st.battS[1], true);
     add("Asleep drain: %s", a);
     // Awake drain for the live Wi-Fi and light state; the light's share scales
     // with the LED duty against the state's logged average duty.
     builtState = estimateState();
     const bool wifiNow = builtState >> 8;
     const uint8_t lightNow = builtState & 0xFF;
-    auto rateOf = [&st](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
-      return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
+    // 0.01 % per s, 0 = under 0.5% or 30 min: one short stretch is mostly the gauge's wander.
+    auto rateOf = [&st](const int i) {
+      return st.stateS[i] >= 1800 && st.stateDropC[i] >= 50 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i]
+                                                            : 0.0f;
     };
     auto dutyOf = [&st](const int i) {
       return st.stateS[i] ? static_cast<float>(st.stateDuty[i]) / st.stateS[i] : 0.0f;
     };
+    // The LED's full-duty drain (0.1 %/h) per duty unit, in 0.01 % per s.
+    const float maxSlope = KNOBS.ledMaxDrain / 360.0f / 1023;
     auto rateFor = [&](const int k, const int o) {  // k: this Wi-Fi state, o: the other
       return BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), dutyOf(k + 1), lightNow,
-                                              BatteryEstimate::ledSlope(rateOf(o), rateOf(o + 1), dutyOf(o + 1)));
+                                              BatteryEstimate::ledSlope(rateOf(o), rateOf(o + 1), dutyOf(o + 1)),
+                                              maxSlope);
     };
     // Wi-Fi only adds drain, so with it on the estimate never beats Wi-Fi off.
     const float rate = wifiNow ? std::max(rateFor(2, 0), rateFor(0, 2)) : rateFor(0, 2);
@@ -259,15 +265,16 @@ void BatteryStatsActivity::buildLines() {
     snprintf(b, sizeof(b), "Wi-Fi %s, light %s", wifiNow ? "on" : "off", lightNow ? light : "off");
     if (rate > 0) {
       formatDur(static_cast<uint32_t>(pctNowC / rate), a, sizeof(a));
-      add("Est to empty: %s (%s)", a, b);
-    } else if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
+      add("Est to empty: %s awake (%s)", a, b);
+    } else if (drop >= MIN_DROP_C && span >= 60) {
+      // No awake rate: drop over the whole on-battery span, sleep included.
       // The drop's ± moves the estimate by about left * ± / drop.
       const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pctNowC) * span / drop);
       char err[24];
       formatDur(left, a, sizeof(a));
       formatDur(static_cast<uint32_t>(left * sqrtf(static_cast<float>(st.errC[0] + st.errC[1])) / drop), err,
                 sizeof(err));
-      add("Est to empty: %s \xC2\xB1%s (avg; %s)", a, err, b);
+      add("Est to empty: %s \xC2\xB1%s calendar (%s)", a, err, b);
     } else {
       add("Est to empty: %s", NOT_ENOUGH);
     }

@@ -647,7 +647,6 @@ void CrossPointWebServer::registerFullRoutes() {
     doc["chargeToFine"] = s.chargeToFine;
     doc["charging"] = s.charging;
     doc["run"] = s.run;
-    doc["runFine"] = s.runFine;
     const auto pair = [&doc](const char* key, const auto& v) {
       JsonArray a = doc[key].to<JsonArray>();
       a.add(v[0]);
@@ -655,10 +654,9 @@ void CrossPointWebServer::registerFullRoutes() {
     };
     pair("battS", s.battS);
     pair("dropC", s.dropC);
-    pair("coarseC", s.coarseC);
     pair("errC", s.errC);
     pair("netC", s.netC);
-    pair("netCoarseC", s.netCoarseC);
+    pair("netErrC", s.netErrC);
     doc["prevEpoch"] = p->prev.epoch;
     doc["prevAwake"] = p->prev.awake;
     doc["prevC"] = p->prevC;
