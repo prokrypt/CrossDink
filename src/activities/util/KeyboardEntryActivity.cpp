@@ -166,9 +166,7 @@ void KeyboardEntryActivity::onEnter() {
   rightLongHandled = false;
   savedCursorPos = 0;
   rightStartCursorPos = 0;
-  touchRouter.reset();
-  touchRouter.holdMs = TOUCH_LONG_PRESS_MS;
-  touchRouter.overrideHoldMs = TOUCH_DEL_LONG_PRESS_MS;
+  touchRouter.reset();  // hold times are set each loop(): Goodies > Knobs applies live
   interactionsReady = false;
   loadKbdExperiment();
   requestUpdate();
@@ -197,7 +195,7 @@ KbdExpOverride gKbdExpOverride;
 
 void KeyboardEntryActivity::setExperimentOverride(const uint8_t flags, const uint8_t frames, const uint8_t pll) {
   if (pll >= knobs::PLL_CHOICES) {
-    LOG_ERR("KBD", "KBDEXP pll %u: not a kbdPll index (0-%d), ignored", pll, knobs::PLL_CHOICES - 1);
+    LOG_ERR("KBD", "KBDEXP pll %u: not a PLL choice (0-%d), ignored", pll, knobs::PLL_CHOICES - 1);
     return;
   }
   gKbdExpOverride = {true, flags, frames, pll};
@@ -213,9 +211,9 @@ void KeyboardEntryActivity::clearExperimentOverride() { gKbdExpOverride = {}; }
 // override all three values over serial (CMD:KBDEXP).
 void KeyboardEntryActivity::loadKbdExperiment() {
   kbdExpFlags = SETTINGS.turboKeyboard ? KBD_EXP_TURBO_KEYBOARD : 0;
-  kbdExpFrames = KNOBS.kbdFrames;
-  // Goodies > Knobs kbdPll picks from a whitelist only: panel default, 40 or 50 Hz.
-  kbdExpPll = knobs::PLL_BYTES[KNOBS.kbdPll];
+  // 0 = KNOBS.kbdFrames, read at each frame (live); panel default PLL. CMD:KBDEXP may override both.
+  kbdExpFrames = 0;
+  kbdExpPll = knobs::PLL_BYTES[0];
   kbdExpFirstFrame = true;
   if (gKbdExpOverride.active) {
     kbdExpFlags = gKbdExpOverride.flags;
@@ -629,6 +627,8 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
 
 void KeyboardEntryActivity::loop() {
 #if CROSSDINK_APP_CAP_TOUCH
+  touchRouter.holdMs = TOUCH_LONG_PRESS_MS;  // Goodies > Knobs, live
+  touchRouter.overrideHoldMs = TOUCH_DEL_LONG_PRESS_MS;
   if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
     onCancel();
     return;
@@ -681,7 +681,7 @@ void KeyboardEntryActivity::loop() {
       highlightPending = false;
       // The tapped key keeps the highlight; only the initial preselect is hidden.
       if (tapHighlight) selectionShown = true;
-      // Turbo: the tapped key shows inverted in the refresh that prints it (no
+      // Turbo: the tapped key shows gray in the refresh that prints it (no
       // press refresh); it stays until the next key.
       else
         interactions.setFlash(ACTION_KEY, result.event.value);
@@ -897,7 +897,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
 
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
@@ -1201,14 +1201,16 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
-  // Turbo highlights only the last tapped key (the tap flash, drawn inverted).
-  // A key under a finger when some refresh lands stays plain, else only keys
-  // held during another key's refresh lit up while typing fast.
-  if (kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT) {
-    props.keyStyles = fui::defaultKeyStyles();
-    props.keyStyles.focused = props.keyStyles.active;
-    props.keyStyles.active = props.keyStyles.normal;
-  }
+  // Key highlights use upstream's light-gray dither, not an inverted key. The
+  // dither is 1-bit pixels, so the turbo DU path draws it like any glyph.
+  props.keyStyles = fui::defaultKeyStyles();
+  fui::BoxStyle gray = props.keyStyles.normal;
+  gray.background = fui::Paint::dither(fui::Color::LightGray);
+  props.keyStyles.selected = props.keyStyles.focused = props.keyStyles.active = gray;
+  // Turbo highlights only the last tapped key (the tap flash). A key under a
+  // finger when some refresh lands stays plain, else only keys held during
+  // another key's refresh lit up while typing fast.
+  if (kbdExpFlags & KBD_EXP_NO_TAP_HIGHLIGHT) props.keyStyles.active = props.keyStyles.normal;
   props.selectedIndex = cursorMode || !selectionShown ? -1 : static_cast<int16_t>(selectedLogicalIndex());
   props.labelText.font = layoutId == fui::KeyboardLayoutId::ArabicAr && !symbols ? fui::GfxRendererTarget::FONT_SMALL
                                                                                  : fui::GfxRendererTarget::FONT_BODY;
@@ -1246,7 +1248,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // framebuffer, so the next refresh could drive those pixels off true state.
   freeink::Uc8179KbdExperiment exp;
   exp.flags = static_cast<uint8_t>(kbdExpFlags & (KBD_EXP_SKIP_RESYNC | KBD_EXP_DU_LUT));
-  exp.lutFrames = kbdExpFrames;
+  exp.lutFrames = kbdExpFrames ? kbdExpFrames : KNOBS.kbdFrames;  // the SDK's gated DU generator takes it
   exp.pll = kbdExpPll;  // also on OTP Fast: PLL scales every frame alike, so balance holds
   // The first keyboard frame lands on the previous screen: plain OTP Fast (64)
   // or a flashing Half (16).
@@ -1278,7 +1280,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
           kbdExpFlags, static_cast<unsigned long>(++kbdFrame), stroke ? CAUSE_NAMES[cause & 3] : "redraw",
           stroke ? now - stroke : 0UL, now - displayStartMs, static_cast<unsigned>(timing.uploadMs),
           static_cast<unsigned>(timing.drfMs), static_cast<unsigned>(timing.drfRows),
-          static_cast<unsigned>(timing.syncMs), prevKeyToInk, kbdExpFrames, exp.pll);
+          static_cast<unsigned>(timing.syncMs), prevKeyToInk, exp.lutFrames, exp.pll);
   prevFrameStrokeMs = stroke;
 #else
   (void)displayStartMs;

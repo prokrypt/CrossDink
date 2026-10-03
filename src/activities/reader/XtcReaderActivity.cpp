@@ -109,6 +109,12 @@ bool streamXtchRenderPass(const Xtc& xtc, const uint32_t pageIndex, const uint16
   LOG_ERR("XTR", "Failed to stream XTCH page %lu: %s", pageIndex, xtc::errorToString(error));
   return false;
 }
+
+// Error text centred on the panel (was a fixed y=300).
+int centredErrorY(const GfxRenderer& renderer) {
+  return (renderer.getScreenHeight() - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
+}
+
 }  // namespace
 
 void XtcReaderActivity::onEnter() {
@@ -160,7 +166,7 @@ void XtcReaderActivity::onExit() {
   }
   ReaderProgressShadow::unbind(progressFlushed);
 
-  APP_STATE.readerActivityLoadCount = 0;
+  APP_STATE.setReaderActivityLoadCount(0);
   APP_STATE.saveToFile();
 
   syncStatsTrackingState();
@@ -1315,7 +1321,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
       renderer.clearScreen();
       const char* message =
           xtc->getLastError() == xtc::XtcError::MEMORY_ERROR ? tr(STR_MEMORY_ERROR) : tr(STR_PAGE_LOAD_ERROR);
-      renderer.drawCenteredText(UI_12_FONT_ID, 300, message, true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), message, true, EpdFontFamily::BOLD);
       renderer.displayBuffer();
     };
     // XTCH stores two 48 KB planes. Stream each rendering pass through a 1 KB
@@ -1370,9 +1376,9 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
   // Allocate page buffer
   uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(pageBufferSize));
   if (!pageBuffer) {
-    LOG_ERR("XTR", "Failed to allocate page buffer (%lu bytes)", pageBufferSize);
+    LOG_ERR("XTR", "Failed to allocate page buffer (%u bytes)", pageBufferSize);
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_MEMORY_ERROR), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), tr(STR_MEMORY_ERROR), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
@@ -1380,11 +1386,12 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
   // Load page data
   size_t bytesRead = xtc->loadPage(pageToRender, pageBuffer, pageBufferSize);
   if (bytesRead == 0) {
-    LOG_ERR("XTR", "Failed to load page %lu: bufferSize=%lu bitDepth=%u error=%s", pageToRender, pageBufferSize,
+    LOG_ERR("XTR", "Failed to load page %lu: bufferSize=%u bitDepth=%u error=%s", pageToRender, pageBufferSize,
             bitDepth, xtc::errorToString(xtc->getLastError()));
     free(pageBuffer);
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, centredErrorY(renderer), tr(STR_PAGE_LOAD_ERROR), true,
+                              EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
@@ -1477,7 +1484,7 @@ void XtcReaderActivity::loadProgress() {
 }
 
 bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, const GfxRenderer& renderer) {
-  Xtc xtc(filePath, "/.crosspoint");
+  Xtc xtc(filePath, "/.crossdink");
   if (!xtc.load()) {
     LOG_DBG("SLP", "XTC: failed to load %s", filePath.c_str());
     return false;

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <BoardConfig.h>
 
+#include <cinttypes>  // PRIu32 etc. for uint32_t arguments
 #include <string>
 
 /*
@@ -11,8 +12,11 @@ Can be set in platformio.ini build_flags or as a compile definition
 
 Define LOG_LEVEL to control log verbosity:
 0 = ERR only
-1 = ERR + INF
-2 = ERR + INF + DBG
+1 = ERR + WRN + INF
+2 = ERR + WRN + INF + DBG
+
+LOG_WRN is for expected, handled conditions (a cancelled download, a stale
+token, a removed file) so [ERR] stays meaningful for real failures.
 If not defined, defaults to 0
 
 If you have a legitimate need for raw Serial access (e.g., binary data,
@@ -31,7 +35,7 @@ serial transport and won't trigger deprecation warnings.
 static auto& logSerial = BoardConfig::serialTransport();
 #define LOG_SERIAL_HAS_TX_TIMEOUT FREEINK_SERIAL_HAS_TX_TIMEOUT
 
-void logPrintf(const char* level, const char* origin, const char* format, ...);
+void logPrintf(const char* level, const char* origin, const char* format, ...) __attribute__((format(printf, 3, 4)));
 
 // Serializes logSerial writers so a protocol reply or binary stream is never
 // split by a log line from another task. Recursive, so a holder may call
@@ -77,8 +81,10 @@ inline bool logSerialWriteAll(const char* data, size_t len, uint32_t budgetMs = 
 #endif
 
 #if LOG_LEVEL >= 1
+#define LOG_WRN(origin, format, ...) logPrintf("WRN", origin, format "\n", ##__VA_ARGS__)
 #define LOG_INF(origin, format, ...) logPrintf("INF", origin, format "\n", ##__VA_ARGS__)
 #else
+#define LOG_WRN(origin, format, ...)
 #define LOG_INF(origin, format, ...)
 #endif
 
@@ -90,6 +96,7 @@ inline bool logSerialWriteAll(const char* data, size_t len, uint32_t budgetMs = 
 #else
 #define LOG_DBG(origin, format, ...)
 #define LOG_ERR(origin, format, ...)
+#define LOG_WRN(origin, format, ...)
 #define LOG_INF(origin, format, ...)
 #endif
 

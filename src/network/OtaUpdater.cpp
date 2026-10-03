@@ -45,8 +45,8 @@ constexpr char binSuffix[] = ".bin";
 constexpr size_t VERSION_SEGMENT_COUNT = 4;
 constexpr size_t OTA_PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr size_t OTA_HASH_CHUNK = 4096;
-constexpr char OTA_STAGE_DIR[] = "/.crosspoint";
-constexpr char OTA_STAGE_PATH[] = "/.crosspoint/ota-update.bin";
+constexpr char OTA_STAGE_DIR[] = "/.crossdink";
+constexpr char OTA_STAGE_PATH[] = "/.crossdink/ota-update.bin";
 
 struct ParsedVersion {
   int segments[VERSION_SEGMENT_COUNT] = {0, 0, 0, 0};
@@ -403,7 +403,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   }
 
   if (otaSize > 0 && otaSize > updatePartition->size) {
-    LOG_ERR("OTA", "Firmware too large: %zu > %zu", otaSize, updatePartition->size);
+    LOG_ERR("OTA", "Firmware too large: %zu > %lu", otaSize, updatePartition->size);
     return INTERNAL_UPDATE_ERROR;
   }
   // OTA reports download and flash as one unit of work, so the progress bar
@@ -448,8 +448,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   // manifest supplied a digest that pins the firmware bytes. Older HTTPS
   // releases without a digest retain the verified esp_http_client path.
   if (hasManifestSha256) downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
-  LOG_INF("OTA", "Staging firmware download: url=%s heap=%u maxAlloc=%u", otaUrl.c_str(), ESP.getFreeHeap(),
-          ESP.getMaxAllocHeap());
+  LOG_INF("OTA", "Staging firmware download: url=%s heap=%" PRIu32 " maxAlloc=%" PRIu32, otaUrl.c_str(),
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   const auto transferResult = HttpDownloader::downloadToFile(
       otaUrl, OTA_STAGE_PATH,
       [&](const size_t downloaded, const size_t total) {

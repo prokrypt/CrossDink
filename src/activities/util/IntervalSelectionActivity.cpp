@@ -356,7 +356,6 @@ void IntervalSelectionActivity::loop() {
   const int barWidth = std::min(360, std::max(0, screenWidth - 40));
   constexpr int barHeight = 16;
   const int barX = std::max(0, (screenWidth - barWidth) / 2);
-  const int barY = 140;
   const bool useLegacyTouchBar = !usesReaderSlider();
   // Live drag on the slider: once a touch lands on the bar, the value follows the
   // finger until release. Runs before the Back/Confirm handlers because the release
@@ -524,12 +523,14 @@ void IntervalSelectionActivity::render(RenderLock&&) {
 
   char formattedValue[32] = {};
   formatValue(formattedValue, sizeof(formattedValue));
-  renderer.drawCenteredText(UI_12_FONT_ID, 90, formattedValue, true, EpdFontFamily::BOLD);
+  // Below the header, whatever its height (a fixed y=90 touched Lyra's divider).
+  const int valueY = header.y + header.height + metrics.verticalSpacing;
+  renderer.drawCenteredText(UI_12_FONT_ID, valueY, formattedValue, true, EpdFontFamily::BOLD);
 
   const int barWidth = std::min(360, std::max(0, screenWidth - 40));
   constexpr int barHeight = 16;
   const int barX = std::max(0, (screenWidth - barWidth) / 2);
-  const int barY = 140;
+  barY = valueY + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing * 2;
 
   renderer.drawRect(barX, barY, barWidth, barHeight);
 

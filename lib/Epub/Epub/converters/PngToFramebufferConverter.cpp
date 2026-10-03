@@ -52,7 +52,8 @@ struct PngContext {
 void* pngOpenWithHandle(const char* filename, int32_t* size) {
   auto f = makeUniqueNoThrow<FsFile>();
   if (!f) {
-    LOG_ERR("PNG", "OOM: PNG file handle (%u free, %u max alloc)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("PNG", "OOM: PNG file handle (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     return nullptr;
   }
   if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {
@@ -399,8 +400,11 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   ctx.screenWidth = renderer.getScreenWidth();
   ctx.screenHeight = renderer.getScreenHeight();
 
-  int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
-                     pngDrawCallback);
+  // PNGdec only reads the buffer; its API is not const.
+  int rc = config.sourceData ? png->openRAM(const_cast<uint8_t*>(config.sourceData),
+                                            static_cast<int>(config.sourceSize), pngDrawCallback)
+                             : png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle,
+                                         pngSeekWithHandle, pngDrawCallback);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
     delete png;

@@ -119,31 +119,32 @@ void ClockSyncActivity::render(RenderLock&&) {
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, tr(STR_CLOCK_SYNC), false);
-
-  const int midY = pageHeight / 2;
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int top = (pageHeight - lineHeight) / 2;
+  const int detailY = top + lineHeight + metrics.verticalSpacing;
 
   switch (state) {
     case SYNCING:
-      renderer.drawCenteredText(UI_12_FONT_ID, midY, tr(STR_CLOCK_SYNCING));
+      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CLOCK_SYNCING));
       break;
     case SUCCESS: {
-      renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_CLOCK_SYNC_OK), true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CLOCK_SYNC_OK), true, EpdFontFamily::BOLD);
       if (syncedTime[0] != '\0') {
         // Sized for the longest translated label plus a 12-hour time. UTF-8
         // translations can use multiple bytes per displayed character.
         char line[64];
         snprintf(line, sizeof(line), "%s %s", tr(STR_CURRENT_TIME), syncedTime);
-        renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, line);
+        renderer.drawCenteredText(UI_10_FONT_ID, detailY, line);
       }
       break;
     }
     case NO_WIFI:
-      renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_CLOCK_SYNC_NO_WIFI), true, EpdFontFamily::BOLD);
-      renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_CLOCK_SYNC_NO_WIFI_HINT));
+      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CLOCK_SYNC_NO_WIFI), true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_10_FONT_ID, detailY, tr(STR_CLOCK_SYNC_NO_WIFI_HINT));
       break;
     case FAILED:
-      renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_CLOCK_SYNC_FAIL), true, EpdFontFamily::BOLD);
-      renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_CHECK_SERIAL_OUTPUT));
+      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CLOCK_SYNC_FAIL), true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_10_FONT_ID, detailY, tr(STR_CHECK_SERIAL_OUTPUT));
       break;
   }
 

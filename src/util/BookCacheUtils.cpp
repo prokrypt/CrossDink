@@ -2,6 +2,7 @@
 
 #include <Epub.h>
 #include <FsHelpers.h>
+#include <LibraryIndexFile.h>
 #include <Logging.h>
 #include <Txt.h>
 #include <Xtc.h>
@@ -52,16 +53,17 @@ constexpr size_t MAX_PRESERVED_CACHE_FILES = std::size(EPUB_USER_STATE_FILES) > 
 constexpr size_t MAX_STATS_FILES_TO_PRESERVE = 8;
 constexpr char STATS_PREFIX[] = "stats";
 constexpr char STATS_SUFFIX[] = ".bin";
+constexpr char STATS_SLOT_SUFFIX[] = ".bin.bak";
 
 std::string getBookCachePath(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
-    return Epub(path, "/.crosspoint").getCachePath();
+    return Epub(path, "/.crossdink").getCachePath();
   }
   if (FsHelpers::hasXtcExtension(path)) {
-    return Xtc(path, "/.crosspoint").getCachePath();
+    return Xtc(path, "/.crossdink").getCachePath();
   }
   if (FsHelpers::hasTxtExtension(path)) {
-    return Txt(path, "/.crosspoint").getCachePath();
+    return Txt(path, "/.crossdink").getCachePath();
   }
   return "";
 }
@@ -86,8 +88,12 @@ bool isStatsFileName(const char* name) {
   const size_t nameLen = strlen(name);
   constexpr size_t prefixLen = std::size(STATS_PREFIX) - 1;
   constexpr size_t suffixLen = std::size(STATS_SUFFIX) - 1;
-  return nameLen >= prefixLen + suffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
-         strcmp(name + nameLen - suffixLen, STATS_SUFFIX) == 0;
+  // stats_v5.bin.bak is the second stats slot (TwoSlotFile.h) and may hold the newest save.
+  constexpr size_t slotSuffixLen = std::size(STATS_SLOT_SUFFIX) - 1;
+  return (nameLen >= prefixLen + suffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
+          strcmp(name + nameLen - suffixLen, STATS_SUFFIX) == 0) ||
+         (nameLen >= prefixLen + slotSuffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
+          strcmp(name + nameLen - slotSuffixLen, STATS_SLOT_SUFFIX) == 0);
 }
 
 int statsFileVersion(const char* name) {
@@ -273,7 +279,7 @@ bool recoverInterruptedPreservation(const std::string& cachePath, const Preserve
     LOG_ERR("BookCache", "Missing stats recovery temp prefix: %s", cachePath.c_str());
     return false;
   }
-  // Normal clears do not enumerate the potentially large /.crosspoint folder.
+  // Normal clears do not enumerate the potentially large /.crossdink folder.
   // A marker is synced before any stats file is moved out of its cache.
   if (!Storage.exists(statsRecoveryMarkerPath(cachePath, statsTmpPrefix).c_str())) return true;
 
@@ -353,15 +359,16 @@ bool preserveUserStateFiles(const std::string& cachePath, const std::vector<Reso
   return ok;
 }
 
+// Callers forget remembered content keys first; see clearBookCachePreservingUserState().
 bool clearBookCacheForPath(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
-    return Epub(path, "/.crosspoint").clearCache();
+    return Epub(path, "/.crossdink").clearCache();
   }
   if (FsHelpers::hasXtcExtension(path)) {
-    return Xtc(path, "/.crosspoint").clearCache();
+    return Xtc(path, "/.crossdink").clearCache();
   }
   if (FsHelpers::hasTxtExtension(path)) {
-    return Txt(path, "/.crosspoint").clearCache();
+    return Txt(path, "/.crossdink").clearCache();
   }
   return false;
 }
@@ -425,7 +432,58 @@ bool isBookCacheDirectoryName(const char* name) {
 
 void clearBookCache(const std::string& path) { clearBookCachePreservingUserState(path); }
 
-bool clearBookCachePreservingUserState(const std::string& path) {
+void carryEpubReadingState(const std::string& path, const uint64_t oldKey) {
+  uint64_t newKey = 0;
+  if (!FsHelpers::hasEpubExtension(path) || !Epub::contentKeyFor(path, newKey) || newKey == oldKey) return;
+  const std::string newDir = "/.crossdink/epub_" + std::to_string(newKey);
+  if (Storage.exists((newDir + "/progress.bin").c_str())) return;
+  uint64_t indexedKey = oldKey;
+  if (indexedKey == 0 && (!library::LibraryIndexFile::indexedContentKey(path, indexedKey) || indexedKey == newKey))
+    return;
+  const std::string oldDir = "/.crossdink/epub_" + std::to_string(indexedKey);
+  FsFile dir = Storage.open(oldDir.c_str());
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return;
+  }
+  Storage.mkdir(newDir.c_str());
+  char name[96];
+  uint8_t buf[256];
+  for (FsFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    const size_t nameLen = entry.getName(name, sizeof(name));
+    entry.close();
+    if (isDirectory || nameLen == 0 || nameLen >= sizeof(name) ||
+        !(strcmp(name, "progress.bin") == 0 || strcmp(name, "progress.bin.bak") == 0 || isStatsFileName(name)))
+      continue;
+    // Copied, not moved: the old cache may still belong to an identical copy elsewhere.
+    const std::string src = oldDir + "/" + name;
+    const std::string dst = newDir + "/" + name;
+    FsFile in;
+    FsFile out;
+    bool ok = Storage.openFileForRead("BookCache", src.c_str(), in) &&
+              Storage.openFileForWrite("BookCache", dst.c_str(), out);
+    for (int n; ok && (n = in.read(buf, sizeof(buf))) != 0;) ok = n > 0 && out.write(buf, n) == static_cast<size_t>(n);
+    in.close();
+    ok = ok && out.sync();
+    out.close();
+    if (!ok) {
+      Storage.remove(dst.c_str());
+      LOG_ERR("BookCache", "Failed to carry %s to the replaced book's cache %s", name, newDir.c_str());
+    }
+  }
+  dir.close();
+  LOG_INF("BookCache", "Carried progress and stats: %s -> %s", oldDir.c_str(), newDir.c_str());
+}
+
+bool clearBookCachePreservingUserState(const std::string& path, const bool carryFromIndexedKey) {
+  // The file may have been replaced. The Library builder (carryFromIndexedKey
+  // false) has just read this book's key from the current file, so its memo
+  // entry is fresh; forgetting it would read the 16 KB tail twice more here.
+  if (carryFromIndexedKey) {
+    Epub::forgetCacheKeys();
+    carryEpubReadingState(path, 0);
+  }
   size_t preservedCount = 0;
   const PreservedCacheFile* preservedFiles = preservedFilesForPath(path, preservedCount);
   if (!preservedFiles || preservedCount == 0) {

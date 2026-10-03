@@ -175,6 +175,7 @@ void XtcReaderMenuActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.inputMask = fui::InputTouch;
   props.labelText = screen.theme().bodyText;
   props.valueText = screen.theme().smallText;
+  props.valueInset = 8;
   visibleRows = std::max(1, static_cast<int>(configureUiList(props, screen.theme(), screen.body())));
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(items.size()));
   props.topIndex = topIndex;
@@ -187,9 +188,11 @@ void XtcReaderMenuActivity::refreshListItems() {
     listItems[index].label = I18N.get(items[index].labelId);
     listItems[index].actionValue = static_cast<int16_t>(index);
     if (items[index].action == MenuAction::DISABLE_TOUCHSCREEN) {
-      listItems[index].value = I18N.get(SETTINGS.disableReaderTouchscreen ? StrId::STR_ON : StrId::STR_OFF);
+      listItems[index].toggle = true;
+      listItems[index].toggleChecked = SETTINGS.disableReaderTouchscreen;
     } else if (items[index].action == MenuAction::TOGGLE_BOOK_STATS_TRACKING) {
-      listItems[index].value = I18N.get(bookStatsEnabled ? StrId::STR_ON : StrId::STR_OFF);
+      listItems[index].toggle = true;
+      listItems[index].toggleChecked = bookStatsEnabled;
     }
   }
 }
@@ -209,16 +212,15 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const int titleLineHeight = renderer.getLineHeight(kTitleFontId);
   const int titleBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight +
                                std::max(0, static_cast<int>(titleLines.size()) - 1) * kTitleLineGap;
-  const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
+  // Title block sits under the battery row: half a spacing above, one spacing below.
+  const int titleTopGap = metrics.verticalSpacing / 2;
+  const int headerHeight = std::max(
+      metrics.headerHeight, metrics.batteryBarHeight + titleTopGap + titleBlockHeight + metrics.verticalSpacing);
   listHeaderHeight = headerHeight;
   const Rect header{0, metrics.topPadding, pageWidth, headerHeight};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
-  } else {
-    GUI.drawHeader(renderer, header, "");
-  }
+  TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
 
-  const int titleY = metrics.topPadding + metrics.batteryBarHeight + 3;
+  const int titleY = metrics.topPadding + metrics.batteryBarHeight + titleTopGap;
   for (int i = 0; i < static_cast<int>(titleLines.size()); ++i) {
     renderer.drawText(kTitleFontId, titleX, titleY + i * (titleLineHeight + kTitleLineGap), titleLines[i].c_str(), true,
                       EpdFontFamily::BOLD);
@@ -228,7 +230,7 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
 
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   renderer.displayBuffer();
 }

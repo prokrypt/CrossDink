@@ -27,11 +27,14 @@ bool wasTapped(const MappedInputManager& input, const Rect& header);
 bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer);
 // Without touch hardware these draw the plain header (GUI.drawHeader /
 // CompactHeader::drawTitle) instead, so callers need no touch check.
+// showBack=false keeps the title where it would be but hides the back icon,
+// for states that cannot be left (e.g. while installing).
 void draw(GfxRenderer& renderer, const Rect& header, const char* title, bool readerContext, int rightReserve = 0,
-          const char* subtitle = nullptr, int verticalOffset = TITLE_VERTICAL_OFFSET, bool showStatus = true);
+          const char* subtitle = nullptr, int verticalOffset = TITLE_VERTICAL_OFFSET, bool showStatus = true,
+          bool showBack = true);
 void draw(const GfxRenderer& renderer, freeink::ui::GfxRendererTarget& target, const Rect& header, const char* title,
           bool readerContext, int rightReserve = 0, const char* subtitle = nullptr,
-          int verticalOffset = TITLE_VERTICAL_OFFSET, bool showStatus = true);
+          int verticalOffset = TITLE_VERTICAL_OFFSET, bool showStatus = true, bool showBack = true);
 void drawCompact(GfxRenderer& renderer, const char* title, bool readerContext = false, bool showDate = false,
                  int verticalOffset = TITLE_VERTICAL_OFFSET);
 

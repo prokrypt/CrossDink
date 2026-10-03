@@ -21,6 +21,13 @@ class OpdsServerListActivity final : public Activity {
 
   void onEnter() override;
   void onExit() override;
+  // From Home, the list joins the saved Wi-Fi network in the background so the
+  // browser finds the link up; the Goodies remote may serve on it meanwhile.
+  bool usesWifi() const override { return pickerMode; }
+  bool sharesWifiWithRemote() const override { return true; }
+  // Once the join has settled, the idle list lets the loop power save with
+  // Wi-Fi up, as the browser's list does.
+  bool allowsRadioIdleSleep() override;
   void loop() override;
   void render(RenderLock&&) override;
 
@@ -32,6 +39,8 @@ class OpdsServerListActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
   bool pickerMode = false;
+  // A server was picked: the browser takes over the background join's link.
+  bool leavingToBrowser = false;
   OptionPopup optionPopup;
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it

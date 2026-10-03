@@ -65,7 +65,7 @@ struct BuildControl {
   void* context = nullptr;
 };
 
-// Walk `rootPath`, write `/.crosspoint/library.idx`, and report what happened.
+// Walk `rootPath`, write `/.crossdink/library.idx`, and report what happened.
 // The previous index, including its monotonic "recently added" counter, is read
 // internally so callers cannot accidentally split one rebuild state across two
 // file opens.

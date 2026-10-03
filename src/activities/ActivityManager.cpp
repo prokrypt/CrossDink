@@ -43,6 +43,7 @@
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
 #include "network/UsbDriveActivity.h"
+#include "network/WifiBackgroundJoin.h"
 #include "platform/InputTask.h"
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
@@ -103,9 +104,9 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   if (context.activeReaderBook) {
     if (FsHelpers::hasEpubExtension(currentPath)) {
       context.showReadingStatsAction =
-          BookStatsTracking::isEnabled(Epub::cachePathForFilePath(currentPath, "/.crosspoint"));
+          BookStatsTracking::isEnabled(Epub::cachePathForFilePath(currentPath, "/.crossdink"));
     } else if (FsHelpers::hasXtcExtension(currentPath)) {
-      context.showReadingStatsAction = BookStatsTracking::isEnabled(Xtc(currentPath, "/.crosspoint").getCachePath());
+      context.showReadingStatsAction = BookStatsTracking::isEnabled(Xtc(currentPath, "/.crossdink").getCachePath());
     }
     context.bookTitle = activity.getCurrentBookTitle();
     context.bookPath = currentPath;
@@ -135,7 +136,7 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     context.bookPath = APP_STATE.openEpubPath;
     context.bookTitle = fileNameFromPath(context.bookPath);
     statsTitle = context.bookTitle;
-    cachePath = Epub::cachePathForFilePath(context.bookPath, "/.crosspoint");
+    cachePath = Epub::cachePathForFilePath(context.bookPath, "/.crossdink");
     if (BookStatsTracking::isBookEnabled(cachePath))
       bookStats = BookReadingStats::load(cachePath);
     else {
@@ -856,11 +857,19 @@ void ActivityManager::loop() {
       // Only Home waits for its first frame; anything else (USB Drive included)
       // must find the reader's exit writes on SD before it starts.
       if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
+      // USB Drive owns the card from onEnter() and skips the deferred flush below.
+      if (settingsFlushPending && currentActivity->requiresExclusiveStorageLoop()) {
+        settingsFlushPending = false;
+        flushSettingsStores();
+      }
 #if CROSSDINK_GOODIES
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
 #endif
-      if (currentActivity->usesWifi()) kosync_on_exit::yieldRadio();
+      if (currentActivity->usesWifi()) {
+        kosync_on_exit::yieldRadio();
+        wifi_background_join::wait();  // likewise the OPDS list's join or teardown task
+      }
       currentActivity->onEnter();
 
       // cppcheck-suppress knownConditionTrueFalse ; onEnter() above may queue another navigation
@@ -908,10 +917,9 @@ void ActivityManager::loop() {
     }
   }
 
-  // Home's first frame is refreshing on the panel: the reader's exit writes run
-  // in that wait instead of before Home rendered.
-  if (!currentActivity || !currentActivity->isHomeActivity() ||
-      currentActivityPainted.load(std::memory_order_acquire)) {
+  // The new screen's first frame is refreshing on the panel: the reader's exit
+  // writes (Home) and deferred settings run in that wait instead of before it drew.
+  if (!currentActivity || currentActivityPainted.load(std::memory_order_acquire)) {
     ReaderExitSave::flush();
     // Settings changed on a screen or panel are written once it has closed,
     // while the screen below refreshes.
@@ -1134,7 +1142,7 @@ bool ActivityManager::resumeFileTransferFromNetworkBoot(const uint32_t payload) 
   auto activity = makeUniqueNoThrow<CrossPointWebServerActivity>(
       renderer, mappedInput, static_cast<NetworkMode>(rawMode), std::move(returnBookPath), true);
   if (!activity) {
-    LOG_ERR("ACT", "OOM: file transfer after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+    LOG_ERR("ACT", "OOM: file transfer after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     return false;
   }
@@ -1207,7 +1215,7 @@ bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool netw
   OPDS_STORE.release();
   auto browser = makeUniqueNoThrow<OpdsBookBrowserActivity>(renderer, mappedInput, std::move(server));
   if (!browser) {
-    LOG_ERR("ACT", "OOM: OPDS browser after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+    LOG_ERR("ACT", "OOM: OPDS browser after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     return false;
   }
@@ -1548,6 +1556,9 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
     return RequestUpdateResult::Rejected;
   }
 
+  // This frame draws everything requested so far: drop a pending deferred
+  // request so the next loop pass doesn't draw the same frame again.
+  requestedUpdate = false;
   xTaskNotify(renderTaskHandle, 1, eIncrement);
   while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(RenderLock::WAIT_TICK_MS)) == 0) {
     if (RenderLock::waitTick) RenderLock::waitTick();

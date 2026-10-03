@@ -1,6 +1,7 @@
 #include "UsbDriveActivity.h"
 
 #include <Arduino.h>
+#include <Epub.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <LibraryBuilder.h>
@@ -8,7 +9,6 @@
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
-#include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -68,6 +68,7 @@ void UsbDriveActivity::onExit() {
   library::invalidateLibraryIndex();
 #ifndef SIMULATOR
   if (!restartRequested) Storage.endUsbDrive();
+  Epub::forgetCacheKeys();  // the host may have replaced books
 #endif
   Activity::onExit();
 }
@@ -213,10 +214,11 @@ void UsbDriveActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const char* title = tr(STR_USB_DRIVE);
   const bool canExitWithInput = state == State::WaitingForHost || state == State::IoError;
-  if (mappedInput.hasTouchHardware() && canExitWithInput) {
-    TouchHeaderBackButton::drawCompact(renderer, title);
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (canExitWithInput) {
+    TouchHeaderBackButton::draw(renderer, header, title, false);
   } else {
-    CompactHeader::drawTitle(renderer, title);
+    GUI.drawHeader(renderer, header, title);  // no back icon while input cannot exit
   }
 
   if (preparing) {
@@ -242,7 +244,7 @@ void UsbDriveActivity::render(RenderLock&&) {
     }
 
   if (state == State::WaitingForHost || state == State::IoError) {
-    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
+    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_EXIT)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
   renderer.displayBuffer(screenTransitionRefresh.modeFor(0));

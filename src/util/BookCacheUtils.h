@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 // Clears the reading cache for a book file if its extension is recognised
@@ -9,7 +10,16 @@ void clearBookCache(const std::string& path);
 // Clears derived reading cache files while preserving user-owned state such as
 // progress and per-book stats. Returns false if the cache clear or state
 // preservation fails.
-bool clearBookCachePreservingUserState(const std::string& path);
+// A replaced EPUB (new content key) also gets its progress and stats carried
+// over from the key library.idx recorded; the Library builder, which holds that
+// index open and has just read the book's content key, passes false and
+// carries them itself; the remembered key is then reused, not forgotten.
+bool clearBookCachePreservingUserState(const std::string& path, bool carryFromIndexedKey = true);
+
+// Copies progress and per-book stats from the cache of an EPUB's previous
+// content (oldKey; 0 looks it up in library.idx) into its current cache, unless
+// that already has progress.
+void carryEpubReadingState(const std::string& path, uint64_t oldKey);
 
 // Clears a known book cache directory while preserving dictionary lookup
 // history and per-book stats.

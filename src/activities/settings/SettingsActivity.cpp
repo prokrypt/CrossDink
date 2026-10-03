@@ -37,6 +37,7 @@
 #include "SettingsList.h"
 #include "SilentRestart.h"
 #include "StatusBarSettingsActivity.h"
+#include "activities/home/BookActions.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -381,7 +382,9 @@ void SettingsActivity::rebuildSettingsLists() {
       controlsPowerSettings.size() < controlsPowerMinCount || controlsPowerSettings.size() > controlsPowerMaxCount ||
       controlsFrontButtonSettings.size() != expectedFrontButtonCount ||
       controlsSideButtonSettings.size() != expectedSideButtonCount) {
-    LOG_ERR("SET", "Unexpected controls menu counts: controls=%u/%u home=%u power=%u front=%u side=%u",
+    LOG_ERR("SET",
+            "Unexpected controls menu counts: controls=%" PRIu32 "/%" PRIu32 " home=%" PRIu32 " power=%" PRIu32
+            " front=%" PRIu32 " side=%" PRIu32,
             static_cast<uint32_t>(controlsSettings.size()), static_cast<uint32_t>(expectedControlsCount),
             static_cast<uint32_t>(controlsHomeButtonSettings.size()),
             static_cast<uint32_t>(controlsPowerSettings.size()),
@@ -1164,11 +1167,22 @@ void SettingsActivity::toggleCurrentSetting() {
                                });
         break;
       case SettingAction::BackupStats:
-        startActivityForResult(std::make_unique<BackupStatsActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(
+            std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                   BookActions::confirmationHeading(StrId::STR_BACKUP_NOW),
+                                                   tr(STR_BACKUP_STATS_CONFIRM)),
+            [this, resultHandler](const ActivityResult& result) {
+              if (result.isCancelled) {
+                requestUpdate();
+                return;
+              }
+              startActivityForResult(std::make_unique<BackupStatsActivity>(renderer, mappedInput), resultHandler);
+            });
         break;
       case SettingAction::ResetGlobalStats:
         startActivityForResult(
-            std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_ALL_TIME_STATS),
+            std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                   BookActions::confirmationHeading(StrId::STR_RESET_ALL_TIME_STATS),
                                                    tr(STR_RESET_ALL_TIME_STATS_CONFIRM)),
             [this](const ActivityResult& result) {
               if (!result.isCancelled && !GlobalReadingStats::resetLocal()) {
@@ -1177,9 +1191,21 @@ void SettingsActivity::toggleCurrentSetting() {
               requestUpdate();
             });
         break;
-      case SettingAction::ClearCache:
-        startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
+      case SettingAction::ClearCache: {
+        const std::string body = std::string(tr(STR_CLEAR_CACHE_WARNING_1)) + " " + tr(STR_CLEAR_CACHE_WARNING_2) +
+                                 " " + tr(STR_CLEAR_CACHE_WARNING_3) + " " + tr(STR_CLEAR_CACHE_WARNING_4);
+        auto confirm = std::make_unique<ConfirmationActivity>(
+            renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_CLEAR_READING_CACHE), body);
+        confirm->setConfirmOption(tr(STR_CLEAR_BUTTON), false);
+        startActivityForResult(std::move(confirm), [this, resultHandler](const ActivityResult& result) {
+          if (result.isCancelled) {
+            requestUpdate();
+            return;
+          }
+          startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
+        });
         break;
+      }
       case SettingAction::CheckForUpdates:
         silentRestartToNetwork(NetworkBootTarget::OTA);
         break;

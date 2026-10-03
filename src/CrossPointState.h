@@ -31,7 +31,6 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint16_t recentBootImages[BOOT_RECENT_COUNT] = {};  // circular buffer of recent boot-screen indices
   uint8_t recentBootPos = 0;                          // next write slot
   uint8_t recentBootFill = 0;                         // valid entries (0..BOOT_RECENT_COUNT)
-  uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   // One-shot marker set when a Quick Lock timeout puts the device to sleep.
   // The next boot uses it only to discard Quick Lock's temporary frontlight state.
@@ -52,12 +51,17 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   void clearRecentSleepHistory();
 
   void pushRecentBoot(uint16_t idx);
+
+  // Reader crash guard: boots into the reader since one last closed cleanly.
+  // Kept in RTC memory, not state.json (CrossPointState.cpp).
+  uint8_t readerActivityLoadCount() const;
+  void setReaderActivityLoadCount(uint8_t count);
   ~CrossPointState() = default;
 
   bool saveToFile() const;
 
   bool loadFromFile();
-  static const char* getFilePath() { return "/.crosspoint/state.json"; }
+  static const char* getFilePath() { return "/.crossdink/state.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
   uint16_t pendingBookmarkSpine = UINT16_MAX;

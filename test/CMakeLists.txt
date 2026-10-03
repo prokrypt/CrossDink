@@ -30,6 +30,7 @@ target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}/lib
   ${REPO_ROOT}/lib/Knobs
   ${REPO_ROOT}/lib/MemoryBudget
+  ${REPO_ROOT}/freeink-sdk/libs/hardware/FrontlightManager/include
 )
 target_compile_options(crosspoint_test_common INTERFACE
   -Wall
@@ -70,6 +71,8 @@ add_subdirectory(reader_status_bar_config)
 add_subdirectory(two_finger_swipe)
 add_subdirectory(edge_slide)
 add_subdirectory(battery_estimate)
+add_subdirectory(battery_log_parser)
+add_subdirectory(stats_backup_names)
 add_subdirectory(option_popup)
 add_subdirectory(sleep_wake_policy)
 add_subdirectory(firmware_board_tag)
@@ -83,6 +86,7 @@ add_subdirectory(ligature_guard)
 add_subdirectory(chapter_html_slim_parser)
 add_subdirectory(korean_line_breaking)
 add_subdirectory(input_release_guard)
+add_subdirectory(touch_noise_monitor)
 add_subdirectory(release_suppression)
 add_subdirectory(bitmap_resample)
 add_subdirectory(pxc_v2)

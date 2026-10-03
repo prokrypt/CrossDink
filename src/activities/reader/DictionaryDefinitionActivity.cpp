@@ -1717,7 +1717,7 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
   const char* btn3 = showLookupButton ? tr(STR_DICT_SWITCH) : "";
   const char* btn4 = nullptr;
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), btn2, btn3, btn4);
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   wordSelectHintsVisible_ = false;
 
   if (hasModalBackground()) {

@@ -735,7 +735,7 @@ void pollHttp() {
     return finishHttp(429);
   }
   if (!tokenMatches(httpToken)) {
-    LOG_ERR("SER", "Wi-Fi remote: bad token");
+    LOG_WRN("SER", "Wi-Fi remote: bad token");
     strcpy(httpReply, "ERR:token");
     if (++s->misses >= 5) {
       s->misses = 0;

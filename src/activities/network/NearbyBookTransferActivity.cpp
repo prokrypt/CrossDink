@@ -155,8 +155,8 @@ bool NearbyBookTransferActivity::startRadio() {
     return false;
   }
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
-  LOG_INF(LOG_TAG, "radio ready: free=%u maxAlloc=%u stack=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
-          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  LOG_INF(LOG_TAG, "radio ready: free=%" PRIu32 " maxAlloc=%" PRIu32 " stack=%u", ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 #endif
   return true;
 }
@@ -859,7 +859,7 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
-  const Rect header{0, metrics.topPadding, width, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_NEARBY_BOOK_TRANSFER), false);
 
   const Rect textArea{metrics.contentSidePadding, 0, width - metrics.contentSidePadding * 2, height};

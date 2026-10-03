@@ -1,4 +1,5 @@
 #pragma once
+#include <Memory.h>
 #include <Print.h>
 
 #include <atomic>
@@ -108,6 +109,7 @@ class Epub {
   CssParseStatus parseCssFiles(bool forceRebuild = false) const;
   void discoverCssFilesFromZip();
   void releaseCssFileList();
+  void recordBookPath() const;
 
  public:
   enum class XLocationLoadMode : uint8_t {
@@ -117,9 +119,17 @@ class Epub {
 
   explicit Epub(std::string filepath, const std::string& cacheDir);
   ~Epub() = default;
+  // Folder named by the book's content key (see Epub.cpp), so it survives a
+  // move or rename. Reads the file's last 16 KB the first time per path.
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
-  // Resolve the stable cache path and migrate an older hash-named directory if
-  // needed, without opening the EPUB or loading its metadata/location indexes.
+  // The content key itself; false when the file cannot be read.
+  static bool contentKeyFor(const std::string& filepath, uint64_t& out);
+  // Content keys read from the card (memo misses) since boot; scan counters only.
+  static uint32_t contentKeyReads();
+  // Drops remembered content keys; call after a book file is replaced.
+  static void forgetCacheKeys();
+  // Resolve the cache path and copy an older path-keyed /.crosspoint cache in
+  // if needed, without loading the EPUB's metadata/location indexes.
   static std::string resolveCachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
 
   // True when a metadata cache already exists for this book, i.e. load() will
@@ -186,6 +196,11 @@ class Epub {
   // Stops early and fails, removing destPath, once *cancel turns true.
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096,
                          const std::atomic<bool>* cancel = nullptr) const;
+  // Inflates an item into a new PSRAM buffer, so a book image can be decoded
+  // without an SD copy. Empty (size 0) when PSRAM is short, or the read fails
+  // or is cancelled; the caller then extracts to the card.
+  HeapByteBuffer readItemToPsram(const std::string& itemHref, size_t& size,
+                                 const std::atomic<bool>* cancel = nullptr) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
   bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
   // Seeds the normal local cache from an exact optimizer sidecar, or streams a

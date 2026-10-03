@@ -293,7 +293,7 @@ class SimulatorSmokeTest {
         SETTINGS.tapToHideStatusBar) {
       fail("Reader controls settings round-trip mismatch");
     }
-    constexpr char CROSSDINK_SETTINGS_FILE_BAK[] = "/.crosspoint/crossdink-settings.json.bak";
+    constexpr char CROSSDINK_SETTINGS_FILE_BAK[] = "/.crossdink/settings.json.bak";
     constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
     const char* const crossDinkSettingsPath = CrossPointSettings::getFilePath();
     const bool hadCrossDinkSettings = Storage.exists(crossDinkSettingsPath);
@@ -333,6 +333,8 @@ class SimulatorSmokeTest {
 
     // A corrupt CrossDink file still blocks the foreign fallback. It is safer
     // to leave settings unchanged than to silently import CrossPoint values.
+    // Saves keep a .bak copy that a corrupt file falls back to; drop it here.
+    if (Storage.exists(CROSSDINK_SETTINGS_FILE_BAK)) Storage.remove(CROSSDINK_SETTINGS_FILE_BAK);
     if (!Storage.writeFile(crossDinkSettingsPath, "{")) fail("Could not corrupt CrossDink settings test fixture");
     if (SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
@@ -350,9 +352,18 @@ class SimulatorSmokeTest {
     SETTINGS.previousPageGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
     if (!SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
-        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || !Storage.exists(crossDinkSettingsPath) ||
-        Storage.exists(CROSSDINK_SETTINGS_FILE_BAK)) {
+        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || !Storage.exists(crossDinkSettingsPath)) {
       fail("Interrupted CrossDink settings save did not recover before CrossPoint import");
+    }
+
+    // A save torn mid-write: settings.json is garbage, the .bak copy written first is whole.
+    if (!Storage.writeFile(CROSSDINK_SETTINGS_FILE_BAK, crossDinkJson) ||
+        !Storage.writeFile(crossDinkSettingsPath, "{\"touchRead")) {
+      fail("Could not create torn CrossDink settings fixture");
+    }
+    SETTINGS.pageTurnGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
+    if (!SETTINGS.loadFromFile() || SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY) {
+      fail("Torn CrossDink settings.json did not fall back to its .bak copy");
     }
 
     if (hadCrossDinkSettings) {
@@ -734,13 +745,14 @@ class SimulatorSmokeTest {
   static void verifyCachedHomeProgressMigration() {
     const RecentBook book{"/books/legacy-home-smoke.epub", "Legacy Home smoke", {}, {}};
     const std::string legacy = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
-    const std::string current = Epub::cachePathForFilePath(book.path, "/.crosspoint");
+    const std::string current = Epub::cachePathForFilePath(book.path, "/.crossdink");
     if (legacy == current || Storage.exists(book.path.c_str())) fail("Invalid legacy Home fixture");
     if (!Storage.mkdir(legacy.c_str())) fail("Cannot create legacy Home cache");
     RecentBookProgress::saveCachedEpubPercent(legacy, 42.5f);
-    // There is deliberately no EPUB or book.bin. This must migrate and read the
-    // tiny saved percentage without attempting to open, parse or index a book.
-    if (RecentBookProgress::loadCachedEpubPercent(book) != 42.5f || Storage.exists(legacy.c_str()) ||
+    // There is deliberately no EPUB or book.bin. This must copy and read the
+    // tiny saved percentage without attempting to open, parse or index a book,
+    // and leave the /.crosspoint original for older firmware.
+    if (RecentBookProgress::loadCachedEpubPercent(book) != 42.5f || !Storage.exists(legacy.c_str()) ||
         !Storage.exists(current.c_str()) || BookMetadataCache::exists(current))
       fail("Home did not recover legacy cached progress without opening the EPUB");
     if (!Storage.mkdir(legacy.c_str())) fail("Cannot recreate stale legacy Home cache");
@@ -866,12 +878,12 @@ class SimulatorSmokeTest {
           if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_ISOLATED_FONTS")) {
             // A clean resize must use resident metadata, even with the cache temporarily unavailable.
             namespace fs = std::filesystem;
-            fs::rename("fs_/.crosspoint/font-catalog.bin", "fs_/.crosspoint/font-catalog.saved");
+            fs::rename("fs_/.crossdink/font-catalog.bin", "fs_/.crossdink/font-catalog.saved");
             if (!ReaderUtils::changeReaderFontSizeWithFeedback(renderer, true, FontSizeStepMode::Clamp))
               fail("Clean resize failed");
             sdFontSystem.ensureLoaded(renderer);
-            if (fs::exists("fs_/.crosspoint/font-catalog.bin")) fail("Clean resize reread/rebuilt the index");
-            fs::rename("fs_/.crosspoint/font-catalog.saved", "fs_/.crosspoint/font-catalog.bin");
+            if (fs::exists("fs_/.crossdink/font-catalog.bin")) fail("Clean resize reread/rebuilt the index");
+            fs::rename("fs_/.crossdink/font-catalog.saved", "fs_/.crossdink/font-catalog.bin");
             if (!ReaderUtils::changeReaderFontSizeWithFeedback(renderer, false, FontSizeStepMode::Clamp))
               fail("Clean reverse resize failed");
             sdFontSystem.ensureLoaded(renderer);

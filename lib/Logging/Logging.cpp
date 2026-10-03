@@ -1,11 +1,16 @@
 #include "Logging.h"
 
 #include <BoardConfig.h>
+#include <PerfLog.h>
 #include <PsramLog.h>
 #include <esp_rom_sys.h>
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+#include <esp_log.h>
+#endif
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #ifdef SIMULATOR
@@ -21,10 +26,18 @@ void MySerialImpl::flush() { logSerial.flush(); }
 #define MAX_ENTRY_LEN 256
 // A log line waits at most this long for a reply or stream holding the port.
 static constexpr uint32_t LOG_LINE_LOCK_WAIT_MS = 2;
+#if CROSSDINK_PSRAM_LOG
+// The crash report reads the PSRAM ring (HalSystem::checkPanic), so the RTC
+// copy only needs a few short lines; this frees ~3.5 KB of RTC slow memory.
+#define MAX_LOG_LINES 4
+#define RTC_ENTRY_LEN 128
+#else
 #define MAX_LOG_LINES 16
+#define RTC_ENTRY_LEN MAX_ENTRY_LEN
+#endif
 
 // Simple ring buffer log, useful for error reporting when we encounter a crash
-RTC_NOINIT_ATTR char logMessages[MAX_LOG_LINES][MAX_ENTRY_LEN];
+RTC_NOINIT_ATTR char logMessages[MAX_LOG_LINES][RTC_ENTRY_LEN];
 RTC_NOINIT_ATTR size_t logHead = 0;
 // Magic word written alongside logHead to detect uninitialized RTC memory.
 // RTC_NOINIT_ATTR is not zeroed on cold boot, so logHead may appear in-range
@@ -56,10 +69,39 @@ void addToLogRingBuffer(const char* message) {
     logHead = 0;
     rtcLogMagic = LOG_RTC_MAGIC;
   }
-  strncpy(logMessages[logHead], message, MAX_ENTRY_LEN - 1);
-  logMessages[logHead][MAX_ENTRY_LEN - 1] = '\0';
+  char* entry = logMessages[logHead];
+  strncpy(entry, message, RTC_ENTRY_LEN - 1);
+  entry[RTC_ENTRY_LEN - 1] = '\0';
+  // Cut off: keep a newline so getLastLogs() doesn't join it to the next line.
+  if (entry[RTC_ENTRY_LEN - 2] != '\0') entry[RTC_ENTRY_LEN - 2] = '\n';
   logHead = (logHead + 1) % MAX_LOG_LINES;
   LOG_RING_UNLOCK();
+}
+
+// Writes one finished line to the console, or skips it when the port is busy
+// or the host isn't reading. The RTC and PSRAM rings are the caller's job.
+static void logSerialEmit(const char* buf, const size_t len) {
+#if defined(SIMULATOR)
+  (void)len;
+  std::fputs(buf, stderr);
+#elif FREEINK_LOG_TRANSPORT == FREEINK_LOG_TRANSPORT_ROM_PRINTF
+  // IDF/ROM console path for boards monitored over USB-Serial-JTAG, where the
+  // HWCDC `operator bool` reads false under `pio device monitor` and logs would
+  // otherwise be silently dropped (e.g. Sticky).
+  (void)len;
+  esp_rom_printf("%s", buf);
+#else
+  if (logSerialHostConnected() && logSerialLock(LOG_LINE_LOCK_WAIT_MS)) {
+#if LOG_SERIAL_HAS_TX_TIMEOUT
+    // A host that is attached but not reading leaves the TX ring full: skip the
+    // line rather than wait out the TX timeout on every log call. The RTC and
+    // PSRAM rings still get it.
+    if (static_cast<size_t>(logSerial.availableForWrite()) >= len)
+#endif
+      logSerial.print(buf);
+    logSerialUnlock();
+  }
+#endif
 }
 
 // Since logging can take a large amount of flash, we want to make the format string as short as possible.
@@ -94,27 +136,11 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
     if (static_cast<size_t>(len) >= room) buf[sizeof(buf) - 2] = '\n';
   }
   va_end(args);
-#if defined(SIMULATOR)
-  std::fputs(buf, stderr);
-#elif FREEINK_LOG_TRANSPORT == FREEINK_LOG_TRANSPORT_ROM_PRINTF
-  // IDF/ROM console path for boards monitored over USB-Serial-JTAG, where the
-  // HWCDC `operator bool` reads false under `pio device monitor` and logs would
-  // otherwise be silently dropped (e.g. Sticky).
-  esp_rom_printf("%s", buf);
-#else
-  if (logSerialHostConnected() && logSerialLock(LOG_LINE_LOCK_WAIT_MS)) {
-#if LOG_SERIAL_HAS_TX_TIMEOUT
-    // A host that is attached but not reading leaves the TX ring full: skip the
-    // line rather than wait out the TX timeout on every log call. The RTC and
-    // PSRAM rings below still get it.
-    if (static_cast<size_t>(logSerial.availableForWrite()) >= strnlen(buf, sizeof(buf)))
-#endif
-      logSerial.print(buf);
-    logSerialUnlock();
-  }
-#endif
+  const size_t len = strnlen(buf, sizeof(buf));
+  logSerialEmit(buf, len);
   addToLogRingBuffer(buf);
-  PsramLog::append(buf, strnlen(buf, sizeof(buf)));
+  PsramLog::append(buf, len);
+  if (strcmp(level, "ERR") == 0) PerfLog::noteError(buf);  // [WRN] is not an error
 }
 
 #if defined(SIMULATOR)
@@ -154,8 +180,28 @@ bool logSerialHostConnected() {
   return connected;
 }
 
+#if CROSSDINK_PSRAM_LOG
+namespace {
+// ESP-IDF's own lines (E (1234) wifi: ...) go to the same console and PSRAM
+// ring as logPrintf, so a remote dump shows them next to the app's lines.
+// IDF never calls esp_log from an ISR (early logs use the ROM printf).
+int espLogVprintf(const char* format, va_list args) {
+  char buf[MAX_ENTRY_LEN];
+  const int n = vsnprintf(buf, sizeof(buf), format, args);
+  if (n <= 0) return n;
+  const size_t len = std::min<size_t>(n, sizeof(buf) - 1);
+  logSerialEmit(buf, len);
+  PsramLog::append(buf, len);
+  return n;
+}
+}  // namespace
+#endif
+
 void logSerialInit() {
   if (logSerialMutex == nullptr) logSerialMutex = xSemaphoreCreateRecursiveMutexStatic(&logSerialMutexStorage);
+#if CROSSDINK_PSRAM_LOG
+  esp_log_set_vprintf(espLogVprintf);
+#endif
 }
 
 bool logSerialLock(const uint32_t waitMs) {
@@ -199,14 +245,14 @@ std::string getLastLogs() {
   const size_t head = logHead % MAX_LOG_LINES;
   LOG_RING_UNLOCK();
   std::string output;
-  char line[MAX_ENTRY_LEN];
+  char line[RTC_ENTRY_LEN];
   for (size_t i = 0; i < MAX_LOG_LINES; i++) {
     const size_t idx = (head + i) % MAX_LOG_LINES;
     LOG_RING_LOCK();
-    memcpy(line, logMessages[idx], MAX_ENTRY_LEN);
+    memcpy(line, logMessages[idx], RTC_ENTRY_LEN);
     LOG_RING_UNLOCK();
-    line[MAX_ENTRY_LEN - 1] = '\0';
-    if (line[0] != '\0') output.append(line, strnlen(line, MAX_ENTRY_LEN));
+    line[RTC_ENTRY_LEN - 1] = '\0';
+    if (line[0] != '\0') output.append(line, strnlen(line, RTC_ENTRY_LEN));
   }
   return output;
 }

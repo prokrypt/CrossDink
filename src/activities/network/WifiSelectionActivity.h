@@ -38,8 +38,7 @@ enum class WifiSelectionState {
   CONNECTING,         // Attempting to connect
   CONNECTED,          // Successfully connected
   SAVE_PROMPT,        // Asking user if they want to save the password
-  CONNECTION_FAILED,  // Connection failed
-  FORGET_PROMPT       // Asking user if they want to forget the network
+  CONNECTION_FAILED   // Connection failed
 };
 
 /**
@@ -105,7 +104,6 @@ class WifiSelectionActivity final : public Activity {
 
   // Save/forget prompt selection (0 = Yes, 1 = No)
   int savePromptSelection = 0;
-  int forgetPromptSelection = 0;
 
   // Connection timeout
   static KNOB_ALIAS(CONNECTION_TIMEOUT_MS, connectTimeoutMs);  // Goodies > Knobs
@@ -140,7 +138,7 @@ class WifiSelectionActivity final : public Activity {
   void renderConnected(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderSavePrompt(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderConnectionFailed(const Rect* screen, const ThemeMetrics* metrics) const;
-  void renderForgetPrompt(const Rect* screen, const ThemeMetrics* metrics) const;
+  void promptForget();
 
   void startWifiScan(bool autoScan = false);
   void releaseWifiForNetworkList();

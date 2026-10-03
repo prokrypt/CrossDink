@@ -47,8 +47,8 @@ std::string logUrl(const std::string& url) {
 }
 
 void logNetworkState(const char* phase) {
-  LOG_DBG("HTTP", "%s: heap free=%u maxAlloc=%u wifi=%d rssi=%d", phase, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
-          static_cast<int>(WiFi.status()), WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
+  LOG_DBG("HTTP", "%s: heap free=%" PRIu32 " maxAlloc=%" PRIu32 " wifi=%d rssi=%d", phase, ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), static_cast<int>(WiFi.status()), WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
 }
 
 void logDownloadState(const char* phase, const size_t downloaded, const size_t total, const uint32_t idleMs) {
@@ -145,8 +145,8 @@ bool shouldAbortTransfer(Sink& sink) {
 // and a slow card (large maxWrite) apart.
 [[maybe_unused]] void logStallDiagnostics(const char* what, const Sink& sink) {
   const bool connected = WiFi.status() == WL_CONNECTED;
-  LOG_ERR("HTTP", "%s: got %zu of %zu bytes idle=%lu maxWrite=%lu wifi=%d rssi=%d heap=%u maxAlloc=%u", what,
-          sink.downloaded, sink.total,
+  LOG_ERR("HTTP", "%s: got %zu of %zu bytes idle=%lu maxWrite=%lu wifi=%d rssi=%d heap=%" PRIu32 " maxAlloc=%" PRIu32,
+          what, sink.downloaded, sink.total,
           sink.lastDataMs != 0 ? static_cast<unsigned long>(millis() - sink.lastDataMs) : 0UL,
           static_cast<unsigned long>(sink.maxWriteMs), static_cast<int>(WiFi.status()), connected ? WiFi.RSSI() : 0,
           ESP.getFreeHeap(), ESP.getMaxAllocHeap());
@@ -772,8 +772,12 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (insufficientSpace) result = INSUFFICIENT_SPACE;
 
   if (result != OK) {
-    LOG_ERR("HTTP", "Transfer failed: error=%d downloaded=%zu expected=%zu preservePartial=%d resumePartial=%d",
-            static_cast<int>(result), sink.downloaded, sink.total, options.preservePartial, options.resumePartial);
+    if (result == ABORTED) {
+      LOG_WRN("HTTP", "Transfer cancelled: downloaded=%zu expected=%zu", sink.downloaded, sink.total);
+    } else {
+      LOG_ERR("HTTP", "Transfer failed: error=%d downloaded=%zu expected=%zu preservePartial=%d resumePartial=%d",
+              static_cast<int>(result), sink.downloaded, sink.total, options.preservePartial, options.resumePartial);
+    }
     // A full card cannot take the rest either: free the space now.
     if (result == ABORTED || result == INSUFFICIENT_SPACE || !options.preservePartial) {
       Storage.remove(writePath.c_str());

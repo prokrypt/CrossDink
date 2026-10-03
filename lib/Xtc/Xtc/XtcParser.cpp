@@ -139,7 +139,8 @@ XtcError XtcParser::readHeader() {
 
   // Verify magic number (accept both XTC and XTCH)
   if (m_header.magic != XTC_MAGIC && m_header.magic != XTCH_MAGIC) {
-    LOG_DBG("XTC", "Invalid magic: 0x%08X (expected 0x%08X or 0x%08X)", m_header.magic, XTC_MAGIC, XTCH_MAGIC);
+    LOG_DBG("XTC", "Invalid magic: 0x%08" PRIX32 " (expected 0x%08lX or 0x%08lX)", m_header.magic, XTC_MAGIC,
+            XTCH_MAGIC);
     return XtcError::INVALID_MAGIC;
   }
 
@@ -515,7 +516,8 @@ size_t XtcParser::loadPage(uint32_t pageIndex, uint8_t* buffer, size_t bufferSiz
 
   // Seek to page data
   if (!m_file.seek64(page.offset)) {
-    LOG_DBG("XTC", "Failed to seek to page %u at offset %llu", pageIndex, static_cast<unsigned long long>(page.offset));
+    LOG_DBG("XTC", "Failed to seek to page %" PRIu32 " at offset %llu", pageIndex,
+            static_cast<unsigned long long>(page.offset));
     m_lastError = XtcError::READ_ERROR;
     return 0;
   }
@@ -524,7 +526,7 @@ size_t XtcParser::loadPage(uint32_t pageIndex, uint8_t* buffer, size_t bufferSiz
   XtgPageHeader pageHeader;
   size_t headerRead = m_file.read(reinterpret_cast<uint8_t*>(&pageHeader), sizeof(XtgPageHeader));
   if (headerRead != sizeof(XtgPageHeader)) {
-    LOG_DBG("XTC", "Failed to read page header for page %u", pageIndex);
+    LOG_DBG("XTC", "Failed to read page header for page %" PRIu32, pageIndex);
     m_lastError = XtcError::READ_ERROR;
     return 0;
   }
@@ -532,8 +534,8 @@ size_t XtcParser::loadPage(uint32_t pageIndex, uint8_t* buffer, size_t bufferSiz
   // Verify page magic (XTG for 1-bit, XTH for 2-bit)
   const uint32_t expectedMagic = (m_bitDepth == 2) ? XTH_MAGIC : XTG_MAGIC;
   if (pageHeader.magic != expectedMagic) {
-    LOG_DBG("XTC", "Invalid page magic for page %u: 0x%08X (expected 0x%08X)", pageIndex, pageHeader.magic,
-            expectedMagic);
+    LOG_DBG("XTC", "Invalid page magic for page %" PRIu32 ": 0x%08" PRIX32 " (expected 0x%08lX)", pageIndex,
+            pageHeader.magic, expectedMagic);
     m_lastError = XtcError::INVALID_MAGIC;
     return 0;
   }

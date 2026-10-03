@@ -223,7 +223,7 @@ void KOReaderSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
       values[i] =
           KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART ? tr(STR_SMART_SYNC) : tr(STR_ASK_EVERY_TIME);
     } else {
-      values[i] = KOREADER_STORE.hasCredentials() ? "" : std::string("[") + tr(STR_SET_CREDENTIALS_FIRST) + "]";
+      values[i] = "";  // Authenticate: no value; the row is dimmed below until credentials exist
     }
   }
 
@@ -236,6 +236,11 @@ void KOReaderSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
     item.toggle = i == 4 || i == 6;
     item.toggleChecked = i == 4 ? KOREADER_STORE.getSendMetadata() : SETTINGS.koSyncOnExit != 0;
     item.actionValue = static_cast<int16_t>(i);
+    // Visual-only dimming (dithered gray); the row stays tappable. Skipped
+    // while selected so the button cursor stays visible on it.
+    if (i == 8 && !KOREADER_STORE.hasCredentials() && static_cast<size_t>(i) != selectedIndex) {
+      item.state = fui::StateDisabled;
+    }
     items.push_back(item);
   }
 

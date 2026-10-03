@@ -14,9 +14,9 @@ class BackupStatsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum State { WARNING, SUCCESS, FAILED };
+  enum State { SUCCESS, FAILED };
 
-  State state = WARNING;
+  State state = FAILED;
   char backupFileName[64] = {};
 
   void goBack() { finish(); }

@@ -136,7 +136,7 @@ void wifiOff() {
 
 void KOReaderSyncActivity::ensureEpubLoaded() {
   if (!epub) {
-    epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
+    epub = std::make_shared<Epub>(epubPath, "/.crossdink");
     epub->setupCacheDir();
     // Load metadata only (no CSS needed for progress mapping, don't rebuild if cache is missing).
     if (!epub->load(false, true, Epub::XLocationLoadMode::Immediate, true)) {
@@ -688,8 +688,8 @@ void KOReaderSyncActivity::onEnter() {
     return;
   }
 
-  LOG_INF("KOSync", "network entry free=%u maxAlloc=%u stack=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
-          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  LOG_INF("KOSync", "network entry free=%" PRIu32 " maxAlloc=%" PRIu32 " stack=%u", ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
   uint8_t syncOrientation =
       readerOrientation < CrossPointSettings::ORIENTATION_COUNT ? readerOrientation : SETTINGS.orientation;
   const PendingOverlayResume& resume = APP_STATE.pendingOverlayResume;
@@ -727,8 +727,8 @@ void KOReaderSyncActivity::onEnter() {
   }
 
   // Launch WiFi selection subactivity
-  LOG_INF("KOSync", "launch WiFi selection free=%u maxAlloc=%u stack=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
-          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  LOG_INF("KOSync", "launch WiFi selection free=%" PRIu32 " maxAlloc=%" PRIu32 " stack=%u", ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, true, true),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
 }
@@ -762,11 +762,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_KOREADER_SYNC), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_KOREADER_SYNC));
-  }
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_KOREADER_SYNC), true);
 
   int top = screen.y + screen.height / 2 - 40;
   if (state == NO_CREDENTIALS) {
@@ -797,12 +793,13 @@ void KOReaderSyncActivity::render(RenderLock&&) {
     // Remote chapter name requires Epub (loaded lazily in performSync before this state).
     const int remoteTocIndex = epub->getTocIndexForSpineIndex(remotePosition.spineIndex);
     const std::string remoteChapter =
-        (remoteTocIndex >= 0) ? epub->getTocItem(remoteTocIndex).title
-                              : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(remotePosition.spineIndex + 1));
+        (remoteTocIndex >= 0)
+            ? epub->getTocItem(remoteTocIndex).title
+            : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(remotePosition.spineIndex + 1));
     // Local chapter name was pre-computed before Epub was released.
     const std::string localChapter =
         !localChapterName.empty() ? localChapterName
-                                  : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex + 1));
+                                  : (std::string(tr(STR_SECTION_PREFIX)) + " " + std::to_string(currentSpineIndex + 1));
 
     // Remote progress - chapter and page
     renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_REMOTE_LABEL), true);

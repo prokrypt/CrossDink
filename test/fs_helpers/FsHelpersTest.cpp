@@ -26,7 +26,7 @@ TEST(IsSafePathComponent, RejectsEmptyDotAndPathSeparators) {
 }
 
 TEST(NormalisePath, CollapsesParentReferenceWithinPath) {
-  EXPECT_EQ(FsHelpers::normalisePath("/Books/../.crosspoint/x"), ".crosspoint/x");
+  EXPECT_EQ(FsHelpers::normalisePath("/Books/../.crossdink/x"), ".crossdink/x");
 }
 
 TEST(NormalisePath, DropsLeadingParentReferencesPastRoot) { EXPECT_EQ(FsHelpers::normalisePath("/../../etc"), "etc"); }

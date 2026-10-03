@@ -207,6 +207,7 @@ void LibrarySettingsActivity::buildScreen(UiApp::ScreenType& screen) {
   props.inputMask = fui::InputTouch;
   props.rowHeight = 44;
   props.rowGap = 0;
+  props.valueInset = 8;  // same air as Settings rows
   props.labelText = props.valueText = props.headerText = screen.theme().bodyText;
   props.headerText.bold = true;
   props.rtl = (I18N.getLanguage() == Language::AR || I18N.getLanguage() == Language::HE);

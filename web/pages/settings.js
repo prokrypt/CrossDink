@@ -217,7 +217,7 @@ let allSettings = [];
       let html = '';
 
       for (const category in groups) {
-        html += '<div class="card"><h2>' + escapeHtml(category) + '</h2>';
+        html += '<div class="card"><h2>⚙️ ' + escapeHtml(category) + '</h2>';
         groups[category].forEach(function(s) {
           html += '<div class="setting-row" id="row-setting-' + s.key + '">' +
             '<span class="setting-name">' + escapeHtml(s.name) + '</span>' +
@@ -259,7 +259,7 @@ let allSettings = [];
 
     if (Object.keys(changes).length === 0) {
       showMessage('No changes to save.', false);
-      btn.textContent = 'Save Settings';
+      btn.textContent = '💾 Save Settings';
       return;
     }
 
@@ -289,7 +289,7 @@ let allSettings = [];
       showMessage('Error: ' + e.message, true);
     }
 
-    btn.textContent = 'Save Settings';
+    btn.textContent = '💾 Save Settings';
   }
 
   // Reader bars use one complete request so the two layouts change together.
@@ -374,14 +374,14 @@ let allSettings = [];
       const response = await fetch('/api/status-bars');
       if (!response.ok) throw new Error('Failed to load status bars');
       statusBars = await response.json();
-      container.innerHTML = '<div class="card"><h2>' + escapeHtml(statusBars.labels.top) + ' / ' +
+      container.innerHTML = '<div class="card"><h2>⚙️ ' + escapeHtml(statusBars.labels.top) + ' / ' +
         escapeHtml(statusBars.labels.bottom) + '</h2>' + renderStatusBar('top') +
         renderStatusBar('bottom') +
         statusBarRow(statusBars.labels.xtcMode, statusBarSelect('bar-xtc-mode',
           statusBars.xtcModes.map(function(label, index) { return { value: index, label: label }; }),
           statusBars.xtcMode, 'statusBarChanged()')) +
-        '<div class="save-container"><button class="save-btn" id="statusBarsSaveBtn" ' +
-        'onclick="saveStatusBars()" disabled>Save Status Bars</button></div></div>';
+        '<div class="save-container"><button class="btn btn-primary" id="statusBarsSaveBtn" ' +
+        'onclick="saveStatusBars()" disabled>💾 Save Status Bars</button></div></div>';
       updateStatusBarPreview('top');
       updateStatusBarPreview('bottom');
     } catch (error) {
@@ -433,15 +433,15 @@ let allSettings = [];
       '</div>' +
       lastConnected +
       '<div class="opds-actions">' +
-        '<button class="btn-small btn-save-server" onclick="saveWifiNetwork(' + idx + ')">Save</button>' +
-        (isNew ? '' : '<button class="btn-small btn-delete" onclick="deleteWifiNetwork(' + idx + ')">Delete</button>') +
+        '<button class="btn btn-primary" onclick="saveWifiNetwork(' + idx + ')">💾 Save</button>' +
+        (isNew ? '' : '<button class="btn btn-danger" onclick="deleteWifiNetwork(' + idx + ')">🗑️ Delete</button>') +
       '</div>' +
     '</div>';
   }
 
   function renderWifiSection() {
     const container = document.getElementById('wifi-container');
-    let html = '<div class="card"><h2>Wi-Fi Networks</h2>';
+    let html = '<div class="card"><h2>📶 Wi-Fi Networks</h2>';
 
     if (wifiNetworks.length === 0) {
       html += '<p style="color:var(--label-color);text-align:center;">No Wi-Fi networks saved</p>';
@@ -452,7 +452,7 @@ let allSettings = [];
     }
 
     html += '<div style="margin-top:12px;text-align:center;">' +
-      '<button class="btn-small btn-add" onclick="addWifiNetwork()">+ Add Network</button>' +
+      '<button class="btn btn-primary" onclick="addWifiNetwork()">➕ Add Network</button>' +
     '</div></div>';
     container.innerHTML = html;
   }
@@ -471,7 +471,7 @@ let allSettings = [];
   function addWifiNetwork() {
     const container = document.getElementById('wifi-container');
     const card = container.querySelector('.card');
-    const addBtn = card.querySelector('.btn-add').parentElement;
+    const addBtn = card.lastElementChild;
     // Prevent multiple unsaved new-network forms at once (idx -1 -> id "new")
     if (document.getElementById('wifi-new')) return;
     addBtn.insertAdjacentHTML('beforebegin', renderWifiNetwork({ssid:'',hasPassword:false,isLastConnected:false}, -1));
@@ -507,7 +507,7 @@ let allSettings = [];
   }
 
   async function deleteWifiNetwork(idx) {
-    if (!confirm('Delete this Wi-Fi network?')) return;
+    if (!(await confirmModal('🗑️ Delete Wi-Fi Network', 'Delete this Wi-Fi network?'))) return;
     try {
       const resp = await fetch('/api/wifi/delete', {
         method: 'POST',
@@ -556,15 +556,15 @@ let allSettings = [];
         '</select></span>' +
       '</div>' +
       '<div class="opds-actions">' +
-        '<button class="btn-small btn-save-server" onclick="saveOpdsServer(' + idx + ')">Save</button>' +
-        (isNew ? '' : '<button class="btn-small btn-delete" onclick="deleteOpdsServer(' + idx + ')">Delete</button>') +
+        '<button class="btn btn-primary" onclick="saveOpdsServer(' + idx + ')">💾 Save</button>' +
+        (isNew ? '' : '<button class="btn btn-danger" onclick="deleteOpdsServer(' + idx + ')">🗑️ Delete</button>') +
       '</div>' +
     '</div>';
   }
 
   function renderOpdsSection() {
     const container = document.getElementById('opds-container');
-    let html = '<div class="card"><h2>OPDS Servers</h2>';
+    let html = '<div class="card"><h2>📚 OPDS Servers</h2>';
 
     if (opdsServers.length === 0) {
       html += '<p style="color:var(--label-color);text-align:center;">No OPDS servers configured</p>';
@@ -575,7 +575,7 @@ let allSettings = [];
     }
 
     html += '<div style="margin-top:12px;text-align:center;">' +
-      '<button class="btn-small btn-add" onclick="addOpdsServer()">+ Add Server</button>' +
+      '<button class="btn btn-primary" onclick="addOpdsServer()">➕ Add Server</button>' +
     '</div></div>';
     container.innerHTML = html;
   }
@@ -594,7 +594,7 @@ let allSettings = [];
   function addOpdsServer() {
     const container = document.getElementById('opds-container');
     const card = container.querySelector('.card');
-    const addBtn = card.querySelector('.btn-add').parentElement;
+    const addBtn = card.lastElementChild;
     // Prevent multiple unsaved new-server forms at once (idx -1 → id "new")
     if (document.getElementById('opds-new')) return;
     addBtn.insertAdjacentHTML('beforebegin', renderOpdsServer({name:'',url:'',username:'',hasPassword:false,filenameFormat:'author_title'}, -1));
@@ -629,7 +629,7 @@ let allSettings = [];
   }
 
   async function deleteOpdsServer(idx) {
-    if (!confirm('Delete this OPDS server?')) return;
+    if (!(await confirmModal('🗑️ Delete OPDS Server', 'Delete this OPDS server?'))) return;
     try {
       const resp = await fetch('/api/opds/delete', {
         method: 'POST',

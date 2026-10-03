@@ -342,7 +342,7 @@ bool DictionaryLookupController::render() {
   if (state == LookupState::AltFormPrompt) {
     renderer.clearScreen();
     const int pageWidth = renderer.getScreenWidth();
-    const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+    const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
 #if CROSSDINK_APP_CAP_TOUCH
     if (mappedInput.hasTouchHardware()) {
       TouchHeaderBackButton::draw(renderer, altFormUiTarget, header, tr(STR_DICT_SEARCH_ALT_FORMS), true);
@@ -400,7 +400,7 @@ bool DictionaryLookupController::render() {
   if (state == LookupState::NotFound) {
     renderer.clearScreen();
     const int pageWidth = renderer.getScreenWidth();
-    const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+    const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
     char title[kDictionaryNotFoundTitleCapacity];
     dictionaryNotFoundTitle(title);
 #if CROSSDINK_APP_CAP_TOUCH

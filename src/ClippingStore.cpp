@@ -20,7 +20,7 @@ constexpr uint8_t TEXT_OFFSET_VERSION = 2;
 constexpr uint8_t LAYOUT_SIGNATURE_VERSION = 3;
 constexpr uint8_t VERSION = 4;
 constexpr size_t INITIAL_CLIPPING_RESERVE = 4;
-constexpr char CLIPPINGS_DIR[] = "/.crosspoint/clippings";
+constexpr char CLIPPINGS_DIR[] = "/.crossdink/clippings";
 constexpr size_t TEXT_COPY_BUFFER_SIZE = 128;
 
 struct ClippingFileHeader {
@@ -205,12 +205,12 @@ bool ClippingStore::readClippingPreview(const size_t index, std::string& out) co
   if (!Storage.openFileForRead("CLIP", storeFilePath, f)) return false;
   if (!f.seek(clipping->textOffset)) {
     f.close();
-    LOG_ERR("CLIP", "Failed to seek clipping preview at %u", clipping->textOffset);
+    LOG_ERR("CLIP", "Failed to seek clipping preview at %lu", clipping->textOffset);
     return false;
   }
   const bool ok = clippingPreview::read(f, clipping->textLength, out);
   f.close();
-  if (!ok) LOG_ERR("CLIP", "Failed to read clipping preview at %u", clipping->textOffset);
+  if (!ok) LOG_ERR("CLIP", "Failed to read clipping preview at %lu", clipping->textOffset);
   return ok;
 }
 
@@ -231,7 +231,7 @@ bool ClippingStore::readClippingText(const Clipping& clipping, std::string& out)
   }
   if (!f.seek(clipping.textOffset)) {
     f.close();
-    LOG_ERR("CLIP", "Failed to seek clipping text at %u: %s", clipping.textOffset, storeFilePath.c_str());
+    LOG_ERR("CLIP", "Failed to seek clipping text at %lu: %s", clipping.textOffset, storeFilePath.c_str());
     return false;
   }
   out.resize(clipping.textLength);
@@ -240,7 +240,7 @@ bool ClippingStore::readClippingText(const Clipping& clipping, std::string& out)
   f.close();
   if (!ok) {
     out.clear();
-    LOG_ERR("CLIP", "Failed to read clipping text at %u: %s", clipping.textOffset, storeFilePath.c_str());
+    LOG_ERR("CLIP", "Failed to read clipping text at %lu: %s", clipping.textOffset, storeFilePath.c_str());
   }
   return ok;
 }
@@ -365,7 +365,7 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
 
 bool ClippingStore::writeToFile(const std::string* replacementText, const size_t replacementIndex,
                                 const std::string* sourcePathOverride) {
-  Storage.mkdir("/.crosspoint");
+  Storage.mkdir("/.crossdink");
   Storage.mkdir(CLIPPINGS_DIR);
 
   const std::string tmpPath = storeFilePath + ".tmp";

@@ -28,10 +28,6 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   // by level: up to 10% -> 0-10, 11-25% -> 10-25, above 25% -> 10 to the level
   // (knobs: floor 10, peak 25).
   basePercent = Frontlight.isOn() && Frontlight.idleDimPercent() > 0 ? Frontlight.brightness() : 0;
-  lowPercent = basePercent > kLitFloorPercent ? kLitFloorPercent : 0;
-  highPercent = basePercent > kPeakPercent       ? basePercent
-                : basePercent > kLitFloorPercent ? kPeakPercent
-                                                 : kLitFloorPercent;
   // An overlay at the level already shown: no PWM write, and the user's
   // brightness/on state (pulldown, SETTINGS) never sees the pulse.
   Frontlight.setOverlay(basePercent);
@@ -40,8 +36,15 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
     entryHold = true;
     holdStartMs = millis();
     holdMs = holdForMs;
-    LOG_DBG("LIGHT", "Transfer light hold %u%% for %lu ms", basePercent, static_cast<unsigned long>(holdMs));
+    LOG_DBG("LIGHT", "Transfer light hold %u%% for %lu ms", basePercent,
+            static_cast<unsigned long>(holdMs == KNOB_HOLD ? KNOBS.pulseHoldMs : holdMs));
   }
+}
+
+uint8_t TransferLightPulse::lowPercent() const { return basePercent > kLitFloorPercent ? kLitFloorPercent : 0; }
+
+uint8_t TransferLightPulse::highPercent() const {
+  return basePercent > kPeakPercent ? basePercent : basePercent > kLitFloorPercent ? kPeakPercent : kLitFloorPercent;
 }
 
 void TransferLightPulse::write(const uint8_t percent) {
@@ -74,7 +77,8 @@ void TransferLightPulse::update(const bool transferActive) {
 
   const uint32_t now = millis();
   if (entryHold) {
-    if (now - holdStartMs < holdMs) return;  // data during the hold is ignored
+    // Data during the hold is ignored.
+    if (now - holdStartMs < (holdMs == KNOB_HOLD ? KNOBS.pulseHoldMs : holdMs)) return;
     entryHold = false;
     LOG_DBG("LIGHT", "Transfer light hold over after %lu ms (%s)", static_cast<unsigned long>(now - holdStartMs),
             transferActive ? "data" : "idle");
@@ -103,12 +107,12 @@ void TransferLightPulse::update(const bool transferActive) {
   if (pulsing) {
     // One cycle at constant speed: level -> high -> low -> level, so every
     // cycle starts and ends at the user's level.
-    const uint32_t span = highPercent - lowPercent;
-    const uint32_t up = highPercent - basePercent;
+    const uint8_t low = lowPercent();
+    const uint8_t high = highPercent();
+    const uint32_t span = high - low;
+    const uint32_t up = high - basePercent;
     const uint32_t d = (now - pulseStartMs) % kCycleMs * 2 * span / kCycleMs;
-    target = static_cast<uint8_t>(d < up          ? basePercent + d
-                                  : d < up + span ? highPercent - (d - up)
-                                                  : lowPercent + (d - up - span));
+    target = static_cast<uint8_t>(d < up ? basePercent + d : d < up + span ? high - (d - up) : low + (d - up - span));
   }
   if (target != written && (target == basePercent || now - lastWriteMs >= WRITE_INTERVAL_MS)) {
     write(target);
@@ -121,8 +125,8 @@ void TransferLightPulse::holdOn() {
   }
   held = true;
   entryHold = false;
-  write(highPercent);
-  LOG_DBG("LIGHT", "Transfer pulse held at %u%%", highPercent);
+  write(highPercent());
+  LOG_DBG("LIGHT", "Transfer pulse held at %u%%", highPercent());
 }
 
 void TransferLightPulse::end() {

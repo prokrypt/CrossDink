@@ -25,6 +25,8 @@ bool takeChargeWake();
 
 // Debug: button and touch line interrupts since the previous call (cleared).
 void takeWakeCounts(uint32_t& buttons, uint32_t& touch);
+// Debug: touch line interrupts since boot (not cleared); 0 without the perf log.
+uint32_t touchWakeTotal();
 // "pin armed/now" per line, e.g. "0 L/1 21 int:H/0" (int: ends the wait only,
 // not a light-sleep wake), for [PM]'s all-rejected line.
 void describePins(char* out, uint32_t size);

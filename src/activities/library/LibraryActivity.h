@@ -11,6 +11,7 @@
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
+#include "util/WorkerTask.h"
 
 class LibraryActivity final : public Activity {
  public:
@@ -20,6 +21,8 @@ class LibraryActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool blocksGlobalInput() const override { return actionPopup.isActive(); }
+  void onUserInput() override;
+  bool preventAutoSleep() override;
 
  private:
   enum class Sort : uint8_t { DateAdded, Title, AuthorLast, AuthorFirst, RecentlyRead, Series, Genre };
@@ -40,6 +43,19 @@ class LibraryActivity final : public Activity {
   int gridPageStart = 0;
   int loadedGridPageStart = -1;
   int nextGridCoverRow = -1;
+  bool gridCoverAdded = false;
+  // One grid cover thumbnail at a time, made on the worker core (book load,
+  // image decode, SD write: up to ~850 ms) while the loop keeps taking input.
+  struct GridThumbJob {
+    std::string path;
+    int16_t width = 0;
+    int16_t height = 0;
+    bool done = false;
+    bool generated = false;
+    bool coverMissing = false;
+    std::string thumbBmpPath;
+  } gridThumb;
+  WorkerTask gridThumbTask;
   int16_t gridCoverWidth = 0;
   int16_t gridCoverHeight = 0;
   int gridProgressRow = -1;
@@ -48,6 +64,10 @@ class LibraryActivity final : public Activity {
   bool longPressFired = false;
   bool ignoreConfirmRelease = false;
   bool scanFailed = false;
+  // Showing the previous index (held in PSRAM) while the background build
+  // reconciles the card.
+  bool backgroundRefresh = false;
+  unsigned long lastInputMs = 0;
   bool filterFailed = false;
   bool pendingCacheDeletedFeedback = false;
   unsigned long cacheDeletedFeedbackShowTime = 0;
@@ -122,6 +142,8 @@ class LibraryActivity final : public Activity {
   void buildGrid(UiApp::ScreenType& screen);
   void loadGridPageCovers();
   bool loadGridCover(int row);
+  static void makeGridThumb(void* job);
+  bool applyGridThumb();
   void loadGridProgress();
   bool gridEnabled() const;
   void buildSortHeader(UiApp::ScreenType& screen);
@@ -136,7 +158,14 @@ class LibraryActivity final : public Activity {
   bool hasActiveFilter() const;
   // Rescans the card only when storage reports a Library-visible change since
   // the last successful scan (or `force`); otherwise reopens the saved index.
-  bool rebuildIndex(bool showScanning, bool force = false);
+  // `background` (Library entry): with a stale index, show it from PSRAM and
+  // rescan on the LibraryPrewarm task instead of behind the popup.
+  bool rebuildIndex(bool showScanning, bool force = false, bool background = false);
+  // The background build that rebuildIndex() left running has finished:
+  // reopen the new index and redraw in place.
+  void finishBackgroundRefresh();
+  // Clamps the selection and reloads grid covers/progress after the rows changed.
+  void keepViewportAfterReload();
   CachedRow& rowFor(int row);
   void fillRow(int row, CachedRow& out);
   void invalidateRowCache();

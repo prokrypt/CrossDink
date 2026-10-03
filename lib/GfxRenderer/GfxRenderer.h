@@ -395,6 +395,7 @@ class GfxRenderer {
   bool fastTracksPanel() const;
   bool shouldSkipImageBlanking() const;
   void setSmoothGray(bool smooth) { display.setSmoothGray(smooth); }
+  void setInvertedTextGray(bool enabled) { display.setInvertedTextGray(enabled); }
   bool supportsStripGrayscale() const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer

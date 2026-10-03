@@ -3,8 +3,14 @@
 #include <HalStorage.h>
 #include <WebServer.h>
 
+#include <atomic>
+
 class WebDAVHandler : public RequestHandler {
  public:
+  // stopping: the server's stop flag. A PUT in flight when it is set is
+  // aborted (temp file removed) instead of holding up stop() until it ends.
+  explicit WebDAVHandler(const std::atomic<bool>* stopping) : _stopping(stopping) {}
+
   // RequestHandler interface
   bool canHandle(WebServer& server, HTTPMethod method, const String& uri) override;
   bool canRaw(WebServer& server, const String& uri) override;
@@ -12,6 +18,7 @@ class WebDAVHandler : public RequestHandler {
   bool handle(WebServer& server, HTTPMethod method, const String& uri) override;
 
  private:
+  const std::atomic<bool>* _stopping;
   // PUT streaming state (raw() is called in chunks)
   HalFile _putFile;
   String _putPath;

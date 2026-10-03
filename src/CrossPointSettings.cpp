@@ -25,6 +25,7 @@
 #include "SettingsList.h"
 #include "fontIds.h"
 #include "util/FrontlightSchedule.h"
+#include "util/InPlaceFileWrite.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/TwoFingerSwipe.h"
 
@@ -38,15 +39,15 @@ void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
 
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 2;
-constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
-constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossdink-settings.json";
-constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crosspoint/crossdink-settings.json.bak";
+constexpr char SETTINGS_FILE_BIN[] = "/.crossdink/settings.bin";
+constexpr char SETTINGS_FILE_JSON[] = "/.crossdink/settings.json";
+constexpr char SETTINGS_FILE_JSON_BAK[] = "/.crossdink/settings.json.bak";
 // CrossInk's file: imported once, never written, so flashing back to CrossInk keeps its settings.
 constexpr char CROSSINK_SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
 constexpr char LEGACY_SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
-constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
-constexpr char LANG_FILE_BIN[] = "/.crosspoint/language.bin";
-constexpr char LANG_FILE_BAK[] = "/.crosspoint/language.bin.bak";
+constexpr char SETTINGS_FILE_BAK[] = "/.crossdink/settings.bin.bak";
+constexpr char LANG_FILE_BIN[] = "/.crossdink/language.bin";
+constexpr char LANG_FILE_BAK[] = "/.crossdink/language.bin.bak";
 constexpr uint8_t INVALID_READER_FONT_SIZE = 0xFF;
 constexpr uint8_t TILT_DIRECTION_SCHEMA_CURRENT = 2;
 // X3 hardware predates this migration by less than a year. Reject the RTC's
@@ -924,9 +925,20 @@ bool CrossPointSettings::saveToFile() const {
 bool CrossPointSettings::flush() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   if (pendingJson.isEmpty()) return true;
-  if (!PersistableStoreBase::writeStringToFileAtomically(SETTINGS_FILE_JSON, pendingJson)) {
-    LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
-    return false;
+  // Two copies rewritten in place, .bak first, so one always parses (load falls
+  // back to .bak). No temp file, rename or remove: creating settings.json.tmp
+  // took 580-615 ms on the card. Padding spaces from a longer save are trimmed.
+  const String onCard = Storage.exists(SETTINGS_FILE_JSON) ? Storage.readFile(SETTINGS_FILE_JSON) : String();
+  size_t onCardLen = onCard.length();
+  while (onCardLen > 0 && onCard[onCardLen - 1] == ' ') --onCardLen;
+  if (onCardLen != pendingJson.length() || strncmp(onCard.c_str(), pendingJson.c_str(), onCardLen) != 0) {
+    Storage.mkdir("/.crossdink");
+    const auto* data = reinterpret_cast<const uint8_t*>(pendingJson.c_str());
+    if (!writeFileInPlace("CPS", SETTINGS_FILE_JSON_BAK, data, pendingJson.length(), true) ||
+        !writeFileInPlace("CPS", SETTINGS_FILE_JSON, data, pendingJson.length(), true)) {
+      LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
+      return false;
+    }
   }
   pendingJson = String();
   return true;
@@ -956,11 +968,10 @@ bool CrossPointSettings::loadFromFile() {
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile() && flush()) {
           LOG_DBG("CPS", "%s",
-                  migrateToCurrentPath ? "Imported settings into crossdink-settings.json"
-                                       : "Resaved settings to update format");
+                  migrateToCurrentPath ? "Imported settings into settings.json" : "Resaved settings to update format");
         } else {
           LOG_ERR("CPS", "%s",
-                  migrateToCurrentPath ? "Failed to save imported settings to crossdink-settings.json"
+                  migrateToCurrentPath ? "Failed to save imported settings to settings.json"
                                        : "Failed to resave settings after format update");
         }
       }
@@ -970,17 +981,21 @@ bool CrossPointSettings::loadFromFile() {
     return JsonLoadStatus::MissingOrEmpty;
   };
 
-  // Prefer CrossDink's namespaced settings file. Use the old generic file only
-  // as a migration fallback so other firmware can keep its own settings.json.
+  // The CrossDink settings file takes precedence even when damaged. Falling
+  // through would import another firmware's settings and replace the user's
+  // CrossDink preferences.
   const bool hasCrossDinkSettings = Storage.exists(SETTINGS_FILE_JSON) || Storage.exists(SETTINGS_FILE_JSON_BAK);
   JsonLoadStatus jsonStatus = loadJsonSettings(SETTINGS_FILE_JSON, false);
-  // A CrossDink-specific settings file takes precedence even when it is
-  // damaged. Falling through would import another firmware's settings.json
-  // and replace the user's CrossDink preferences.
+  // A save torn mid-write leaves settings.json unreadable; its .bak copy was written first.
+  if (jsonStatus != JsonLoadStatus::Loaded && Storage.exists(SETTINGS_FILE_JSON_BAK)) {
+    LOG_ERR("CPS", "%s unreadable; loading %s", SETTINGS_FILE_JSON, SETTINGS_FILE_JSON_BAK);
+    jsonStatus = loadJsonSettings(SETTINGS_FILE_JSON_BAK, false);
+  }
   if (hasCrossDinkSettings || jsonStatus != JsonLoadStatus::MissingOrEmpty) {
     return jsonStatus == JsonLoadStatus::Loaded;
   }
 
+  // First boot on /.crossdink: import CrossInk's file, else CrossPoint's.
   jsonStatus = loadJsonSettings(CROSSINK_SETTINGS_FILE_JSON, true);
   if (jsonStatus != JsonLoadStatus::MissingOrEmpty) return jsonStatus == JsonLoadStatus::Loaded;
 
@@ -998,7 +1013,7 @@ bool CrossPointSettings::loadFromFile() {
       migrateLanguageBinaryFile();
       if (saveToFile() && flush()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
-        LOG_DBG("CPS", "Migrated settings.bin to crossdink-settings.json");
+        LOG_DBG("CPS", "Migrated settings.bin to settings.json");
         return true;
       } else {
         LOG_ERR("CPS", "Failed to save migrated settings to JSON");
@@ -1031,7 +1046,7 @@ bool CrossPointSettings::migrateLanguageBinaryFile() {
   Storage.rename(LANG_FILE_BIN, LANG_FILE_BAK);
   saveToFile();
   flush();
-  LOG_DBG("CPS", "Migrated language.bin into crossdink-settings.json");
+  LOG_DBG("CPS", "Migrated language.bin into settings.json");
   return true;
 }
 

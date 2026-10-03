@@ -31,12 +31,10 @@ void NearbyStatsSyncActivity::loop() {
 }
 
 void NearbyStatsSyncActivity::render(RenderLock&&) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
   renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_NEARBY_STATS_SIMULATOR_UNAVAILABLE), true,
                             EpdFontFamily::BOLD);
@@ -85,9 +83,8 @@ void NearbyStatsSyncActivity::setState(const State state) {
 namespace {
 
 constexpr const char* LOG_TAG = "NSYNC";
-constexpr const char* CROSSPOINT_ROOT = "/.crosspoint";
-constexpr const char* GLOBAL_STATS_PATH = "/.crosspoint/global_stats.bin";
-constexpr const char* SYNCED_STATS_DIR = "/.crosspoint/synced_stats";
+constexpr const char* CROSSPOINT_ROOT = "/.crossdink";
+constexpr const char* SYNCED_STATS_DIR = "/.crossdink/synced_stats";
 constexpr uint8_t ESPNOW_CHANNEL = 1;
 constexpr uint8_t PROTOCOL_VERSION = 1;
 constexpr uint8_t MIN_STATS_BYTES = static_cast<uint8_t>(GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE);
@@ -143,24 +140,6 @@ bool isValidStatsPayload(const uint8_t* data, const uint8_t size) {
 
 bool ensureSyncedStatsDirectory() {
   return Storage.ensureDirectoryExists(CROSSPOINT_ROOT) && Storage.ensureDirectoryExists(SYNCED_STATS_DIR);
-}
-
-bool readSmallFile(const char* path, std::array<uint8_t, MAX_STATS_BYTES>& out, uint8_t& outSize) {
-  outSize = 0;
-  FsFile file;
-  if (!Storage.openFileForRead(LOG_TAG, path, file)) return false;
-  const size_t fileSize = file.fileSize();
-  if (fileSize < MIN_STATS_BYTES || fileSize > MAX_STATS_BYTES) {
-    file.close();
-    return false;
-  }
-
-  const int read = file.read(out.data(), fileSize);
-  file.close();
-  if (read != static_cast<int>(fileSize) || !isValidStatsPayload(out.data(), static_cast<uint8_t>(fileSize)))
-    return false;
-  outSize = static_cast<uint8_t>(fileSize);
-  return true;
 }
 
 bool writeSyncedStatsFile(const std::string& path, const uint8_t* data, const uint8_t size) {
@@ -322,7 +301,9 @@ bool NearbyStatsSyncActivity::prepareLocalStats() {
   // Ensure a valid local stats payload exists before exchanging stats.
   GlobalReadingStats::load().save();
 
-  if (!readSmallFile(GLOBAL_STATS_PATH, localStats_, localStatsSize_)) {
+  const size_t localSize = GlobalReadingStats::readLocalFile(localStats_);
+  localStatsSize_ = static_cast<uint8_t>(localSize);
+  if (localSize < MIN_STATS_BYTES || !isValidStatsPayload(localStats_.data(), localStatsSize_)) {
     setError("local stats unavailable");
     return false;
   }
@@ -623,12 +604,10 @@ void NearbyStatsSyncActivity::setError(const std::string& error) {
 }
 
 void NearbyStatsSyncActivity::render(RenderLock&&) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
 
   const int centerY = pageHeight / 2 - 20;

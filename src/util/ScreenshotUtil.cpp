@@ -170,7 +170,7 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
   // avoid a VLA. Callers run on loopTask or the 16 KB render task; both have the room.
   constexpr size_t kMaxRowSize = 264;
   if (rowSizePadded > kMaxRowSize) {
-    LOG_ERR("SCR", "Row size %u exceeds buffer capacity", rowSizePadded);
+    LOG_ERR("SCR", "Row size %lu exceeds buffer capacity", rowSizePadded);
     // Explicitly close() file before calling Storage.remove()
     file.close();
     Storage.remove(filename);

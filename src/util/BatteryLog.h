@@ -9,33 +9,18 @@
 // sleep or power loss) and are appended to /debug/logs/battery.csv, as
 //   epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c,light_pct,event,detail
 // Flushed before deep sleep, and from the main loop after 2 s without input
-// once a boot left rows, the ring is 3/4 full, or the battery is at 5% or
-// less off USB. At 256 KB the file becomes /debug/logs/battery.1.csv (one old copy).
+// once a boot left rows, the ring is 3/4 full, or 4 KB is waiting with the
+// battery at 5% or less off USB. At 256 KB the file becomes /debug/logs/battery.1.csv, which
+// moves on to battery.2.csv and battery.3.csv (three old copies).
 // The row's battery fields are the last main-loop reading, so any task may log.
 namespace BatteryLog {
 
 // Kept in RTC memory: survives deep sleep and restarts, cleared on power loss
-// or by reset(). The "since last charged" fields restart when charging stops
-// (charge done, or the cable pulled while charging), awake or asleep.
+// or by reset(). The counters on the stats pages come from the CSV, not from here.
 struct Stats {
   uint32_t magic;
   uint16_t version;
-  uint16_t size;   // sizeof(Stats)
-  uint32_t boots;  // power-on, crash and restart boots
-  uint32_t wakes;  // deep-sleep wakes
-  uint32_t awakeS;
-  uint32_t asleepS;
-  // Since last charged.
-  uint32_t chargedEpoch;  // 0 = not seen since reset
-  uint32_t battAwakeS;
-  uint32_t battAsleepS;
-  uint32_t dropAwakePct;
-  uint32_t dropAsleepPct;
-  uint16_t chargedPct;
-  // Set at sleep and at each charge wake, used at the next wake.
-  uint16_t sleepPct;
-  uint32_t sleepEpoch;
-  bool sleepUsb;
+  uint16_t size;  // sizeof(Stats)
   // Power-button wakes too short to boot (Short Power Button not set to wake):
   // all time, and since the last real wake with the ms they spent awake.
   uint32_t falseWakes;
@@ -96,6 +81,9 @@ inline void lightChanged(bool = false) {}
 #endif
 
 constexpr char LOG_PATH[] = "/debug/logs/battery.csv";
-constexpr char OLD_PATH[] = "/debug/logs/battery.1.csv";  // LOG_PATH rotates here at 256 KB
+// Newest first: LOG_PATH rotates to [1] at 256 KB, [1] to [2], [2] to [3], [3] is deleted.
+constexpr const char* LOG_PATHS[] = {LOG_PATH, "/debug/logs/battery.1.csv", "/debug/logs/battery.2.csv",
+                                     "/debug/logs/battery.3.csv"};
+constexpr int LOG_FILES = sizeof(LOG_PATHS) / sizeof(LOG_PATHS[0]);
 
 }  // namespace BatteryLog

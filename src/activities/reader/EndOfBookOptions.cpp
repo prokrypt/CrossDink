@@ -214,5 +214,5 @@ void EndOfBookOptions::render(GfxRenderer& renderer, const MappedInputManager& i
 
   const auto labels =
       input.mapLabels(input.withBackArrow(tr(STR_BACK)), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 }

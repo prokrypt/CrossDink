@@ -405,8 +405,8 @@ constexpr int KNOB_DIM_LEVEL = -3;  // Flash Dim Level: the Display > Frontlight
 constexpr int MAX_KNOB_TABS = 8;
 constexpr int KBD_TURBO = -4;  // Keyboard test: the Turbo Keyboard setting, not a knob
 // Keyboard test: the knobs that change typing feel, under Turbo keyboard.
-constexpr const char* KBD_TEST_KNOBS[] = {
-    "kbdFrames", "kbdPll", "kbdHighlightDelayMs", "kbdTouchHoldMs", "kbdTouchDelHoldMs", "contactJumpPx", "tapSlopPx"};
+constexpr const char* KBD_TEST_KNOBS[] = {"kbdFrames",         "kbdHighlightDelayMs", "kbdTouchHoldMs",
+                                          "kbdTouchDelHoldMs", "contactJumpPx",       "tapSlopPx"};
 
 // Knob groups in Knobs.def order (rows of a group are contiguous): one tab each.
 int knobGroups(const char* (&out)[MAX_KNOB_TABS]) {
@@ -471,17 +471,17 @@ void GoodiesActivity::showLevel(const Level next) {
     // ">" (as in Settings) marks a row that opens another menu or page.
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}, ">"});
     entries.push_back({tr(STR_WIFI_REMOTE), -1, {}, remoteRowValue()});
-    entries.push_back({"API token", -1, {}, tokenRowValue()});
+    entries.push_back({"API Token", -1, {}, tokenRowValue()});
     entries.push_back({"Knobs", -1, {}, ">"});
-    entries.push_back({"Keyboard test", -1, {}, ">"});
-    entries.push_back({"Pin monitor", -1, {}, PinMon::enabled() ? "On >" : "Off >"});
+    entries.push_back({"Keyboard Test", -1, {}, ">"});
+    entries.push_back({"Pin Monitor", -1, {}, PinMon::enabled() ? "On >" : "Off >"});
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}, ">"});
 #endif
   } else if (level == Level::PinMon) {
     // Read when opened: the toggle, then per pin level, changes and wakes since boot.
-    entries.push_back({"Monitor", -1, {}, PinMon::enabled() ? "On" : "Off"});
+    entries.push_back({"Monitor", -1, {}});
     for (size_t i = 0; i < PinMon::PIN_COUNT; ++i) {
       const PinMon::PinStat p = PinMon::stat(i);
       char label[12], value[48];
@@ -508,7 +508,7 @@ void GoodiesActivity::showLevel(const Level next) {
       }
       entries.push_back({knobs::INFO[i].id, i, {}, knobRowValue(i)});
     }
-    entries.push_back({"Reset all", KNOB_RESET_ALL, {}});
+    entries.push_back({"Reset All", KNOB_RESET_ALL, {}});
   } else {
     entries.reserve(display_script::BUILT_IN_COUNT + 8);
     for (int i = 0; i < display_script::BUILT_IN_COUNT; ++i) {
@@ -537,6 +537,12 @@ void GoodiesActivity::showLevel(const Level next) {
     rowItems[i].label = entries[i].label.c_str();
     rowItems[i].actionValue = static_cast<int16_t>(i);
     if (!entries[i].value.empty()) rowItems[i].value = entries[i].value.c_str();
+  }
+  // The page's Monitor row is a switch (tapping it toggles). The Root row opens the page, so it shows
+  // the state as text with ">" like every other row that opens a page; a switch would drop the ">".
+  if (level == Level::PinMon) {
+    rowItems[0].toggle = true;
+    rowItems[0].toggleChecked = PinMon::enabled();
   }
   selectedIndex = 0;
   topIndex = 0;
@@ -590,7 +596,7 @@ void GoodiesActivity::activate(const int index) {
     if (index == 0) {
       // A scratch field for trying typing feel and speed: kept while Goodies is open, never saved.
       startActivityForResult(
-          std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard test", kbdTestText),
+          std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, "Keyboard Test", kbdTestText),
           [this](const ActivityResult& result) {
             mappedInput.suppressNextConfirmRelease();
             if (!result.isCancelled) {
@@ -677,21 +683,22 @@ void GoodiesActivity::openDimLevel(const int row) {
 }
 
 void GoodiesActivity::confirmResetKnobs() {
-  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Reset all knobs?",
-                                                                "Defaults for every knob; knobs.json is deleted."),
-                         [this](const ActivityResult& result) {
-                           mappedInput.suppressNextConfirmRelease();
-                           if (!result.isCancelled) {
-                             knobs::resetAll();
-                             RenderLock lock(*this);
-                             for (size_t row = 0; row < entries.size(); ++row) {
-                               if (entries[row].builtIn < 0) continue;
-                               entries[row].value = knobRowValue(entries[row].builtIn);
-                               rowItems[row].value = entries[row].value.c_str();
-                             }
-                           }
-                           requestUpdate();
-                         });
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, std::string(tr(STR_CONFIRM)) + ": Reset All Knobs",
+                                             "Defaults for every knob; knobs.json is deleted."),
+      [this](const ActivityResult& result) {
+        mappedInput.suppressNextConfirmRelease();
+        if (!result.isCancelled) {
+          knobs::resetAll();
+          RenderLock lock(*this);
+          for (size_t row = 0; row < entries.size(); ++row) {
+            if (entries[row].builtIn < 0) continue;
+            entries[row].value = knobRowValue(entries[row].builtIn);
+            rowItems[row].value = entries[row].value.c_str();
+          }
+        }
+        requestUpdate();
+      });
 }
 
 std::string GoodiesActivity::remoteRowValue() {
@@ -947,6 +954,7 @@ void GoodiesActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.selectedIndex = static_cast<int16_t>(selectedIndex);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;
+  props.valueInset = 8;  // air between the value and the row edge, as in Settings
   props.labelText = screen.theme().bodyText;
   const auto rows = configureUiList(props, screen.theme(), screen.body());
   visibleRows = rows > 0 ? rows : 1;
@@ -1010,15 +1018,11 @@ void GoodiesActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const char* title = level == Level::Root           ? tr(STR_GOODIES)
                       : level == Level::Knobs        ? "Knobs"
-                      : level == Level::KeyboardTest ? "Keyboard test"
-                      : level == Level::PinMon       ? "Pin monitor"
+                      : level == Level::KeyboardTest ? "Keyboard Test"
+                      : level == Level::PinMon       ? "Pin Monitor"
                                                      : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);
-  } else {
-    GUI.drawHeader(renderer, header, title);
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);
   uiReady = false;
   app.render();
   uiReady = true;

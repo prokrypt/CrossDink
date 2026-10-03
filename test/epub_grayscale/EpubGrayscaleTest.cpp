@@ -326,3 +326,30 @@ TEST_F(EpubGrayscaleTest, CancelCallbackNamesCheckpointAndAborts) {
   EXPECT_FALSE(r.active);
   EXPECT_EQ(r.events, std::vector<std::string>{"cleanup"});
 }
+
+TEST(DirectPixelWriterLevels, ImageViewerDecodeOnceWritesBothBitPlanes) {
+  GfxRenderer r(16, 8);
+  r.orientation = GfxRenderer::LandscapeCounterClockwise;  // identity: logical == physical
+  const auto writeLevels = [&](const uint8_t look, std::vector<uint8_t>& lsb, std::vector<uint8_t>& msb) {
+    lsb.assign(size_t(r.stride) * r.height, 0xFF);
+    msb.assign(lsb.size(), 0xFF);
+    DirectPixelWriter::levelPlanes[0] = lsb.data();
+    DirectPixelWriter::levelPlanes[1] = msb.data();
+    DirectPixelWriter::bwImages = look;
+    DirectPixelWriter pw;
+    pw.init(r);
+    pw.beginRow(0);
+    for (int x = 0; x < 4; ++x) pw.writePixel(x, x);  // levels 0..3
+    DirectPixelWriter::levelPlanes[0] = DirectPixelWriter::levelPlanes[1] = nullptr;
+    DirectPixelWriter::bwImages = DirectPixelWriter::BW_IMAGES_OFF;
+  };
+  std::vector<uint8_t> lsb, msb;
+  writeLevels(DirectPixelWriter::BW_IMAGES_OFF, lsb, msb);
+  EXPECT_EQ(lsb[0], 0x5F);                                   // bit 0 of levels 0,1,2,3, then untouched white
+  EXPECT_EQ(msb[0], 0x3F);                                   // bit 1
+  EXPECT_EQ(lsb[0] & msb[0], 0x1F);                          // B/W image: only level 3 is white
+  EXPECT_EQ(r.bw, std::vector<uint8_t>(r.bw.size(), 0xA5));  // framebuffer untouched
+  writeLevels(DirectPixelWriter::BW_IMAGES_BW, lsb, msb);    // levels 2 and 3 turn white
+  EXPECT_EQ(lsb[0], 0x3F);
+  EXPECT_EQ(msb[0], 0x3F);
+}

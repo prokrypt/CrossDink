@@ -18,14 +18,15 @@ using namespace library;
 std::vector<std::string> preservedCacheClears;
 bool preserveCacheState = true;
 
-bool clearBookCachePreservingUserState(const std::string& path) {
+bool clearBookCachePreservingUserState(const std::string& path, bool) {
   preservedCacheClears.push_back(path);
   return preserveCacheState;
 }
+void carryEpubReadingState(const std::string&, uint64_t) {}
 
 namespace {
 
-constexpr char INDEX[] = "/.crosspoint/library.idx";
+constexpr char INDEX[] = "/.crossdink/library.idx";
 
 std::string numbered(const char* prefix, const unsigned value) {
   char text[32];
@@ -96,6 +97,7 @@ class LibraryBuilderTest : public ::testing::Test {
     bookMetadata.clear();
     cachedBookMetadata.clear();
     metadataCacheUse.clear();
+    unreadableContentKeys.clear();
     preservedCacheClears.clear();
     preserveCacheState = true;
     fake::add("/a.epub");
@@ -119,6 +121,28 @@ TEST_F(LibraryBuilderTest, UnchangedRebuildReusesMetadataAndDoesNotReplaceIndex)
   EXPECT_EQ(stats.metadataReused, 2);
   EXPECT_FALSE(stats.indexReplaced);
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
+}
+
+TEST_F(LibraryBuilderTest, FailedContentKeyIsNotReadAgainUntilRefresh) {
+  unreadableContentKeys = {"/a.epub"};
+  initial();
+  unreadableContentKeys.clear();
+  fake::contentKeyReads = 0;
+
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(fake::contentKeyReads, 0u);
+  EXPECT_FALSE(stats.indexReplaced);
+
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true, nullptr, /*retryFailedMetadata=*/true));
+  EXPECT_EQ(fake::contentKeyReads, 1u);
+  EXPECT_TRUE(stats.indexReplaced);
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  ClixRecord record{};
+  uint64_t key = 0;
+  ASSERT_TRUE(recordAtPath(index, "/a.epub", record));
+  ASSERT_TRUE(index.readContentKey(record, key));
+  EXPECT_NE(key, 0u);
 }
 
 TEST_F(LibraryBuilderTest, MissingModificationDateClearsDerivedCacheThroughStatePreservingPath) {
@@ -275,8 +299,102 @@ TEST_F(LibraryBuilderTest, StagingAndIndexWritesAreBatched) {
 
   ASSERT_TRUE(buildLibraryIndex("/", stats, false));
 
-  EXPECT_LT(fake::writesByPath["/.crosspoint/library.stage"], 64u);
-  EXPECT_LT(fake::writesByPath["/.crosspoint/library.new"], 32u);
+  EXPECT_LT(fake::writesByPath["/.crossdink/library.stage"], 64u);
+  EXPECT_LT(fake::writesByPath["/.crossdink/library.new"], 32u);
+}
+
+TEST_F(LibraryBuilderTest, UnchangedCardIsCheckedWithoutStaging) {
+  fake::add("/folder/c.txt");
+  initial();
+  const auto old = fake::files[INDEX]->bytes;
+  fake::writesByPath.clear();
+  fake::contentKeyReads = 0;
+
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+
+  EXPECT_FALSE(stats.indexReplaced);
+  EXPECT_EQ(stats.books, 3);
+  EXPECT_EQ(stats.unchanged, 3);
+  EXPECT_EQ(stats.folders, 2);
+  EXPECT_TRUE(fake::writesByPath.empty());
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+  EXPECT_EQ(fake::contentKeyReads, 0u);
+  EXPECT_EQ(fake::files[INDEX]->bytes, old);
+}
+
+TEST_F(LibraryBuilderTest, ChangeFoundByThePreCheckStillRebuildsWithArrivalOrder) {
+  for (const bool psram : {false, true}) {
+    SetUp();
+    fake::psram = psram;
+    fake::add("/c.epub", "book", 5);
+    initial();
+    LibraryIndexFile before;
+    ASSERT_TRUE(before.open(INDEX));
+    const std::string firstArrival = pathAt(before, SortOrder::RecentAsc, 0);
+    before.close();
+    fake::files["/c.epub"]->created = 9;
+    fake::add("/d.epub", "a new book", 7);
+
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+
+    EXPECT_TRUE(stats.indexReplaced);
+    EXPECT_EQ(stats.added, 1);
+    EXPECT_EQ(stats.unchanged, 3);
+    LibraryIndexFile index;
+    ASSERT_TRUE(index.open(INDEX));
+    EXPECT_EQ(index.bookCount(), 4);
+    EXPECT_EQ(pathAt(index, SortOrder::RecentAsc, 0), firstArrival);
+    EXPECT_EQ(pathAt(index, SortOrder::RecentDesc, 0), "/c.epub");
+  }
+}
+
+TEST_F(LibraryBuilderTest, PsramCopyOfThePreviousIndexReplacesPerBookCardReads) {
+  for (unsigned i = 0; i < 40; i++) fake::add("/book" + numbered("", i) + ".epub");
+  initial();
+  fake::resetIoCounters();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  const unsigned cardReads = fake::reads;
+
+  fake::psram = true;
+  fake::resetIoCounters();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_FALSE(stats.indexReplaced);
+  EXPECT_LT(fake::reads + 80, cardReads);
+}
+
+TEST_F(LibraryBuilderTest, PsramStagingWritesOnlyTheIndexAndMatchesTheCardStage) {
+  // 100 books outgrow the first build's 64-record PSRAM block, so the larger
+  // card also covers the spill from PSRAM to the stage file.
+  for (const unsigned count : {3u, 100u}) {
+    fake::reset();
+    bookMetadata.clear();
+    for (unsigned i = 0; i < count; i++) {
+      const std::string path = (i % 2 ? "/shelf/" : "/") + numbered("book", i) + ".epub";
+      fake::add(path, numbered("bytes", i), 10 + i % 7);
+      bookMetadata[path].title = numbered("Title ", (i * 37) % count);
+      bookMetadata[path].author = numbered("Writer ", i % 5);
+      bookMetadata[path].series = i % 3 ? numbered("Series ", i % 4) : "";
+    }
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+    const auto onCard = fake::files[INDEX]->bytes;
+
+    fake::files.erase(INDEX);
+    fake::psram = true;
+    fake::writesByPath.clear();
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+
+    EXPECT_EQ(fake::files[INDEX]->bytes, onCard) << count;
+    EXPECT_EQ(fake::writesByPath.count("/.crossdink/library.stage.f"), 0u) << count;
+    EXPECT_EQ(fake::writesByPath.count("/.crossdink/library.stage") != 0, count > 64) << count;
+    EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+
+    // A rebuild sized from the previous index stays in PSRAM.
+    fake::files["/" + numbered("book", 0) + ".epub"]->time++;
+    fake::writesByPath.clear();
+    ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+    EXPECT_TRUE(stats.indexReplaced);
+    EXPECT_EQ(fake::writesByPath.count("/.crossdink/library.stage"), 0u) << count;
+  }
 }
 
 TEST_F(LibraryBuilderTest, ParentDuplicateTrackingSurvivesDirectoryRecursion) {
@@ -516,7 +634,7 @@ TEST_F(LibraryBuilderTest, InterruptedUpgradeKeepsValidOldLiveIndexOverStaleBack
   before.close();
   ASSERT_TRUE(downgradeIndexToVersionFive());
 
-  constexpr char BACKUP[] = "/.crosspoint/library.bak";
+  constexpr char BACKUP[] = "/.crossdink/library.bak";
   fake::files[BACKUP] = std::make_shared<fake::Node>(*fake::files[INDEX]);
   ClixHeader backupHeader{};
   std::memcpy(&backupHeader, fake::files[BACKUP]->bytes.data(), sizeof(backupHeader));
@@ -622,7 +740,7 @@ TEST_F(LibraryBuilderTest, InterruptedUpgradeRestoresVersionThreeBackup) {
   ASSERT_TRUE(recordAtPath(before, "/a.epub", original));
   before.close();
 
-  constexpr char BACKUP[] = "/.crosspoint/library.bak";
+  constexpr char BACKUP[] = "/.crossdink/library.bak";
   fake::files[BACKUP] = std::make_shared<fake::Node>(*fake::files[INDEX]);
   fake::files[BACKUP]->bytes[offsetof(ClixHeader, formatVersion)] = 3;
   fake::files[INDEX]->bytes[0] = 'X';  // Damaged live index after install.
@@ -643,7 +761,7 @@ TEST_F(LibraryBuilderTest, FailedUpgradeKeepsVersionThreeShelfReadable) {
   bookMetadata["/a.epub"].series = "Earthsea";
   initial();
   fake::files[INDEX]->bytes[offsetof(ClixHeader, formatVersion)] = 3;
-  fake::failWritePath = "/.crosspoint/library.new";
+  fake::failWritePath = "/.crossdink/library.new";
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   LibraryIndexFile shelf;
@@ -1016,11 +1134,11 @@ TEST_F(LibraryBuilderTest, ReadWriteCloseAndAllocationFailuresRetainPreviousInde
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
   fake::failWrite = -1;
 
-  fake::failWritePath = "/.crosspoint/library.new";
+  fake::failWritePath = "/.crossdink/library.new";
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
 
-  fake::failClosePath = "/.crosspoint/library.new";
+  fake::failClosePath = "/.crossdink/library.new";
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
 
@@ -1047,8 +1165,8 @@ TEST_F(LibraryBuilderTest, TruncatedPersistedPathHashAbortsAndRetainsTheLiveInde
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, corrupted);
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage"));
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage.f"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage.f"));
 }
 
 TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndAtFormatCeilingKeepAllOrders) {
@@ -1110,8 +1228,8 @@ TEST_F(LibraryBuilderTest, BookPastFormatCeilingKeepsPreviousIndex) {
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, false));
   EXPECT_EQ(fake::files[INDEX]->bytes, previous);
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage"));
-  EXPECT_FALSE(Storage.exists("/.crosspoint/library.stage.f"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage.f"));
 }
 
 TEST_F(LibraryBuilderTest, SortAllocationFailureProducesValidDegradedIndex) {
@@ -1159,7 +1277,7 @@ TEST_F(LibraryBuilderTest, DirtyIndexClearsOnSuccessAndRetriesAfterFailure) {
   initial();
   EXPECT_FALSE(libraryIndexNeedsRefresh());
   invalidateLibraryIndex();
-  fake::failOpenPath = "/.crosspoint/library.idx";
+  fake::failOpenPath = "/.crossdink/library.idx";
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_TRUE(libraryIndexNeedsRefresh());
   ASSERT_TRUE(buildLibraryIndex("/", stats, true));

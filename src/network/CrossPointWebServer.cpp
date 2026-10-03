@@ -12,6 +12,7 @@
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <PerfLog.h>
@@ -61,6 +62,7 @@
 #include "network/NetworkName.h"
 #include "network/SdWriteBehind.h"
 #include "util/BatteryLog.h"
+#include "util/BatteryLogSum.h"
 #include "util/BookCacheUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
@@ -484,7 +486,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   apMode = isInApMode;
   logOnly_ = logOnly;
 
-  LOG_DBG("WEB", "[MEM] Free heap before begin: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap before begin: %" PRId32 " bytes", ESP.getFreeHeap());
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
 
   LOG_DBG("WEB", "Creating web server on port %d...", port);
@@ -536,6 +538,8 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // behind a remote-token check (docs/serial-remote.md).
   server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
   server->on("/api/upload", HTTP_POST, [this] { handleApiUploadPost(); }, [this] { handleApiUpload(); });
+  // Registered here for both modes (first match wins over registerFullRoutes()); token-gated only while log-only.
+  server->on("/api/files", HTTP_GET, [this] { handleApiFiles(); });
 #endif
   server->on("/api/status", HTTP_GET, [this] {
     releasePollHold();
@@ -549,7 +553,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   });
   if (logOnly) {
     // Nothing else: no SD access behind other screens beyond the token-gated
-    // /api/download and /api/upload, and /api/status's
+    // /api/download, /api/upload and /api/files, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
     const char* remoteHeaders[] = {"X-Token"};
     server->collectHeaders(remoteHeaders, 1);
@@ -574,7 +578,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
 
   // Show the correct IP based on network mode
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
-  LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %" PRId32 " bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServer::abortWsUpload(const char* tag) {
@@ -614,8 +618,75 @@ void CrossPointWebServer::registerFullRoutes() {
         server.get());
     server->sendContent("");
   });
+  // Goodies > Battery & stats' saved counts (battery.sum) and the log file + offset
+  // they end at, so the web Battery tab counts on from them; 404 when there are none.
+  server->on("/api/battery-sum", HTTP_GET, [this] {
+    auto p = makeUniqueNoThrow<BatteryLogParser>();
+    int file = 0;
+    uint32_t offset = 0;
+    if (!p || !BatteryLogSum::load(*p, file, offset)) {
+      server->send(404, "text/plain", "no battery.sum");
+      return;
+    }
+    const auto& s = p->st;
+    JsonDocument doc;
+    doc["file"] = file;
+    doc["offset"] = offset;
+    doc["first"] = s.first;
+    doc["last"] = s.last;
+    doc["reset"] = s.reset;
+    doc["coldBoots"] = s.coldBoots;
+    doc["restarts"] = s.restarts;
+    doc["wakes"] = s.wakes;
+    doc["falseWakes"] = s.falseWakes;
+    doc["awakeS"] = s.awakeS;
+    doc["asleepS"] = s.asleepS;
+    doc["chargedEpoch"] = s.chargedEpoch;
+    doc["chargeFromC"] = s.chargeFromC;
+    doc["chargeFromFine"] = s.chargeFromFine;
+    doc["chargeToC"] = s.chargeToC;
+    doc["chargeToFine"] = s.chargeToFine;
+    doc["charging"] = s.charging;
+    doc["run"] = s.run;
+    const auto pair = [&doc](const char* key, const auto& v) {
+      JsonArray a = doc[key].to<JsonArray>();
+      a.add(v[0]);
+      a.add(v[1]);
+    };
+    pair("battS", s.battS);
+    pair("dropC", s.dropC);
+    pair("errC", s.errC);
+    pair("netC", s.netC);
+    pair("netErrC", s.netErrC);
+    // Awake drain by state [Wi-Fi * 2 + light on]: the web Battery tab's Est to empty.
+    JsonArray sd = doc["stateDropC"].to<JsonArray>(), ss = doc["stateS"].to<JsonArray>(),
+              su = doc["stateDuty"].to<JsonArray>();
+    for (int k = 0; k < 4; ++k) {
+      sd.add(s.stateDropC[k]);
+      ss.add(s.stateS[k]);
+      su.add(static_cast<double>(s.stateDuty[k]));  // ArduinoJson 64-bit ints may be off; a double holds it exactly
+    }
+    doc["prevEpoch"] = p->prev.epoch;
+    doc["prevAwake"] = p->prev.awake;
+    doc["prevC"] = p->prevC;
+    doc["prevFine"] = p->prevFine;
+    doc["prevUsb"] = p->prevUsb;
+    doc["prevRowC"] = p->prevRowC;
+    doc["prevRowFine"] = p->prevRowFine;
+    doc["prevWifi"] = p->prevWifi;
+    doc["prevLight"] = p->prevLight;
+    doc["stateChangeEpoch"] = p->stateChangeEpoch;
+    doc["fullHoldC"] = p->fullHoldC;
+    doc["stateSkipS"] = p->stateSkipS;
+    doc["ledMaxDrain"] = KNOBS.ledMaxDrain;  // the page's Est to empty caps the LED share with the device's knob
+    String json;
+    serializeJson(doc, json);
+    server->send(200, "application/json", json);
+  });
 #endif
+#if !CROSSDINK_SERIAL_REMOTE
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+#endif
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
   // Upload endpoint with special handling for multipart form data
@@ -643,6 +714,7 @@ void CrossPointWebServer::registerFullRoutes() {
   // Font management endpoints
   server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
   server->on("/logs", HTTP_GET, [this] { handleLogsPage(); });
+  server->on("/battery", HTTP_GET, [this] { handleLogsPage(); });  // same page, Battery tab
   server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
   server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
   server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
@@ -661,7 +733,8 @@ void CrossPointWebServer::registerFullRoutes() {
   const char* davHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
                               "Lock-Token", "Timeout",     "If-None-Match", "X-Token"};
   server->collectHeaders(davHeaders, 8);
-  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+  server->addHandler(new WebDAVHandler(&stopRequested));
 }
 
 void CrossPointWebServer::startWsAndUdp() {
@@ -708,11 +781,7 @@ bool CrossPointWebServer::upgradeToFull() {
   // Park the log-only serving task. The listening socket stays open, so a
   // client arriving meanwhile waits in lwIP's backlog instead of being refused.
   stopRequested.store(true, std::memory_order_release);
-  if (serverTask) {
-    xSemaphoreTake(serverStopped, portMAX_DELAY);
-    if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
-    serverTask = nullptr;
-  }
+  if (serverTask && !waitForServeTask()) return false;  // the caller's stop() restarts
   {
     PsramSmallAllocScope psramSmallAllocs;
     registerFullRoutes();
@@ -735,18 +804,24 @@ void CrossPointWebServer::stop() {
 
   running.store(false, std::memory_order_release);
   // Hand the server back to this task: the serving task finishes its current
-  // request (bounded by WebServer's client timeouts), then exits.
+  // request, then exits.
   stopRequested.store(true, std::memory_order_release);
-  if (serverTask) {
-    xSemaphoreTake(serverStopped, portMAX_DELAY);
-    if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
+  if (serverTask && !waitForServeTask()) {
+    LOG_ERR("WEB", "stop: serving task stuck in %s for %lu ms, restarting", servePhase.load(std::memory_order_relaxed),
+            static_cast<unsigned long>(STOP_GIVE_UP_MS));
+    silentRestart();
+    // ponytail: only reached when deep sleep is already under way. The stuck
+    // task still uses the server, so leak it rather than free it under the task.
+    (void)server.release();
+    (void)wsServer.release();
     serverTask = nullptr;
+    return;
   }
   if (transferActive.exchange(false, std::memory_order_relaxed)) powerManager.endBackgroundWork();
   powerManager.setRadioIdleSleepAllowed(false);
   WiFi.setSleep(false);
 
-  LOG_DBG("WEB", "[MEM] Free heap before stop: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap before stop: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Close any in-progress WebSocket upload and remove partial file
   if (wsUploadInProgress && wsUploadFile) {
@@ -774,7 +849,79 @@ void CrossPointWebServer::stop() {
 
   // Note: Static upload variables (uploadFileName, uploadPath, uploadError) are declared
   // later in the file and will be cleared when they go out of scope or on next upload
-  LOG_DBG("WEB", "[MEM] Free heap final: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap final: %" PRId32 " bytes", ESP.getFreeHeap());
+}
+
+template <typename Fn>
+void CrossPointWebServer::forEachSocket(Fn fn) const {
+#ifndef SIMULATOR
+  // This server's sockets, found by local port: the HTTP listener and its
+  // clients, the WebSocket listener and clients, the discovery UDP socket.
+  for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd) {
+    sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (lwip_getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) continue;
+    // sin_port and sin6_port share an offset.
+    const uint16_t local = ntohs(reinterpret_cast<const sockaddr_in*>(&addr)->sin_port);
+    if (local != port && !(wsServer && local == wsPort) && !(udpActive && local == LOCAL_UDP_PORT)) continue;
+    fn(fd, local);
+  }
+#else
+  (void)fn;
+#endif
+}
+
+bool CrossPointWebServer::waitForServeTask() {
+  const unsigned long startMs = millis();
+  logStopWait(0);
+  bool shut = false;
+  while (xSemaphoreTake(serverStopped, pdMS_TO_TICKS(shut ? 1000 : STOP_GRACE_MS)) != pdTRUE) {
+    const unsigned long waitedMs = millis() - startMs;
+    logStopWait(waitedMs);
+    if (waitedMs >= STOP_GIVE_UP_MS) return false;
+    if (shut) continue;
+    shut = true;
+#ifndef SIMULATOR
+    // A blocked recv/send/select on these sockets returns at once; the
+    // Arduino read loops then give up within their 5 s client timeout.
+    forEachSocket([](const int fd, uint16_t) {
+      sockaddr_storage peer;
+      socklen_t len = sizeof(peer);
+      if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0) lwip_shutdown(fd, SHUT_RDWR);
+    });
+#endif
+  }
+  if (shut) LOG_INF("WEB", "stop: serving task done after %lu ms", millis() - startMs);
+  if (serverTaskPsram) vTaskDeleteWithCaps(serverTask);  // frees the PSRAM stack
+  serverTask = nullptr;
+  return true;
+}
+
+void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
+  // fd:localPort<peer for each of this server's sockets; "-" = listener or UDP.
+  char socks[200] = "";
+  size_t used = 0;
+  forEachSocket([&](const int fd, const uint16_t local) {
+    char ip[16] = "-";
+    unsigned peerPort = 0;
+#ifndef SIMULATOR
+    sockaddr_in peer{};
+    socklen_t len = sizeof(peer);
+    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0 && peer.sin_family == AF_INET) {
+      inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
+      peerPort = ntohs(peer.sin_port);
+    }
+#endif
+    if (used < sizeof(socks)) {
+      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u", fd, local, ip, peerPort);
+    }
+  });
+  const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
+  // eRunning, eReady, eBlocked, eSuspended, eDeleted, eInvalid
+  const char state = serverTask ? "RrBSDI"[std::min<int>(eTaskGetState(serverTask), 5)] : '-';
+  LOG_INF("WEB", "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, ws upload %d, sockets%s",
+          waitedMs, state, servePhase.load(std::memory_order_relaxed), reqStart ? millis() - reqStart : 0UL,
+          wsUploadInProgress ? 1 : 0, used ? socks : " none");
 }
 
 void CrossPointWebServer::serverTaskMain(void* param) {
@@ -805,6 +952,7 @@ void CrossPointWebServer::serveUntilStopped() {
         readable = false;
         vTaskDelay(pdMS_TO_TICKS(IDLE_POLL_MS));
       } else {
+        servePhase.store("select", std::memory_order_relaxed);
         readable = waitForTraffic();
       }
       continue;
@@ -813,6 +961,7 @@ void CrossPointWebServer::serveUntilStopped() {
       handleClient();
     }
     // Not yield(): lower-priority workers and IDLE0 need the core too.
+    servePhase.store("tick", std::memory_order_relaxed);
     vTaskDelay(1);
   }
   PerfLog::noteTaskExit("WebServer");
@@ -858,6 +1007,7 @@ bool CrossPointWebServer::handleClient() {
     pollRequest = false;
     requestStartMs.store(millis() | 1, std::memory_order_relaxed);
   }
+  servePhase.store("http", std::memory_order_relaxed);
   server->handleClient();
   if (pending) {
     if (!pollRequest) lastTransferMs = millis();
@@ -865,6 +1015,7 @@ bool CrossPointWebServer::handleClient() {
   }
 
   // Handle WebSocket events
+  servePhase.store("ws", std::memory_order_relaxed);
   if (wsServer) {
     wsServer->loop();
   }
@@ -874,6 +1025,7 @@ bool CrossPointWebServer::handleClient() {
   }
 
   // Respond to discovery broadcasts
+  servePhase.store("udp", std::memory_order_relaxed);
   if (udpActive) {
     int packetSize = udp.parsePacket();
     if (packetSize > 0) {
@@ -937,18 +1089,19 @@ void CrossPointWebServer::endTransferHold() {
 void CrossPointWebServer::setIdleModemSleep() {
   if (apMode) return;
 #ifndef SIMULATOR
-  const bool maxModem = logOnly_ && KNOBS.wifiMaxModem;
+  const bool maxModem = logOnly_ && SETTINGS.maxWifiPowersave;
   WiFi.setSleep(maxModem ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
   // listen_interval goes out in the association request: a change applies at
   // the next (re)association. Arduino's WiFi.begin() resets it to 0 (= 3).
   static uint8_t loggedMode = 0xFF, loggedInterval = 0;
+  constexpr uint8_t LISTEN_INTERVAL = 3;  // MAX_MODEM: beacons per wake
   wifi_config_t conf;
   uint8_t interval = 0;
   if (maxModem && esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK) {
     interval = conf.sta.listen_interval ? conf.sta.listen_interval : 3;
-    if (interval != KNOBS.wifiListenInterval) {
-      conf.sta.listen_interval = KNOBS.wifiListenInterval;
-      if (esp_wifi_set_config(WIFI_IF_STA, &conf) == ESP_OK) interval = KNOBS.wifiListenInterval;
+    if (interval != LISTEN_INTERVAL) {
+      conf.sta.listen_interval = LISTEN_INTERVAL;
+      if (esp_wifi_set_config(WIFI_IF_STA, &conf) == ESP_OK) interval = LISTEN_INTERVAL;
     }
   }
   // Logged only when it changes: a log line per poll would end every log long-poll.
@@ -965,21 +1118,13 @@ void CrossPointWebServer::setIdleModemSleep() {
 
 bool CrossPointWebServer::waitForTraffic() {
 #ifndef SIMULATOR
-  // This server's sockets, found by local port: the HTTP listener and its
-  // clients, the WebSocket listener and clients, the discovery UDP socket.
   fd_set fds;
   FD_ZERO(&fds);
   int maxFd = -1;
-  for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd) {
-    sockaddr_storage addr;
-    socklen_t len = sizeof(addr);
-    if (lwip_getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) continue;
-    // sin_port and sin6_port share an offset.
-    const uint16_t local = ntohs(reinterpret_cast<const sockaddr_in*>(&addr)->sin_port);
-    if (local != port && !(wsServer && local == wsPort) && !(udpActive && local == LOCAL_UDP_PORT)) continue;
+  forEachSocket([&](const int fd, uint16_t) {
     FD_SET(fd, &fds);
     maxFd = std::max(maxFd, fd);
-  }
+  });
   if (maxFd >= 0) {
     timeval timeout = {static_cast<time_t>(IDLE_POLL_MS / 1000), static_cast<suseconds_t>(IDLE_POLL_MS % 1000 * 1000)};
     const int ready = lwip_select(maxFd + 1, &fds, nullptr, nullptr, &timeout);
@@ -1211,6 +1356,15 @@ void CrossPointWebServer::handleApiDownload() const {
   const int status = checkRemoteToken(*server, out, sizeof(out));
   if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
   handleDownload();
+}
+
+void CrossPointWebServer::handleApiFiles() const {
+  if (logOnly_) {
+    static char out[32];
+    const int status = checkRemoteToken(*server, out, sizeof(out));
+    if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
+  }
+  handleFileListData();
 }
 
 namespace {
@@ -1446,21 +1600,11 @@ void CrossPointWebServer::handleStatus() const {
 #endif
 #if CROSSDINK_GOODIES && !defined(SIMULATOR)
   {
-    // The Goodies > Battery & stats counters (RTC memory), for the web Logs page.
+    // RTC counters and refresh counts for the web Logs page (the rest comes from the CSV).
     const BatteryLog::Stats& s = BatteryLog::stats();
     JsonObject st = battery["stats"].to<JsonObject>();
     st["now"] = BatteryLog::nowEpoch();
-    st["boots"] = s.boots;
-    st["wakes"] = s.wakes;
-    st["awakeS"] = s.awakeS;
-    st["asleepS"] = s.asleepS;
-    st["chargedEpoch"] = s.chargedEpoch;
-    st["chargedPct"] = s.chargedPct;
     st["falseWakes"] = s.falseWakes + s.pendingFalseWakes;
-    st["battAwakeS"] = s.battAwakeS;
-    st["battAsleepS"] = s.battAsleepS;
-    st["dropAwakePct"] = s.dropAwakePct;
-    st["dropAsleepPct"] = s.dropAsleepPct;
     const auto& c = HalDisplay::refreshCounts().n;
     JsonObject refresh = st["refresh"].to<JsonObject>();
     refresh["fast"] = c[HalDisplay::FAST_REFRESH];
@@ -1813,10 +1957,21 @@ void CrossPointWebServer::handleDownload() const {
   client.clear();
 #endif
   file.close();
+  LOG_DBG("WEB", "download done: server task stack min free %u",
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
 // Upload start time is used for the completion throughput summary.
 static unsigned long uploadStartTime = 0;
+
+// A half-written upload would be indexed as a book and block the retry with
+// "File already exists", so a failed or aborted upload leaves nothing behind.
+static void removePartialUpload(const CrossPointWebServer::UploadState& state) {
+  String filePath = state.path;
+  if (!filePath.endsWith("/")) filePath += "/";
+  filePath += state.fileName;
+  Storage.remove(filePath.c_str());
+}
 
 static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
   if (state.bufferPos > 0 && state.file) {
@@ -1859,7 +2014,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     }
 
     LOG_DBG("WEB", "[UPLOAD] START: %s to path: %s", state.fileName.c_str(), state.path.c_str());
-    LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes", ESP.getFreeHeap());
+    LOG_DBG("WEB", "[UPLOAD] Free heap: %" PRId32 " bytes", ESP.getFreeHeap());
 
     String filePath = state.path;
     if (!filePath.endsWith("/")) filePath += "/";
@@ -1909,6 +2064,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
           if (!flushUploadBuffer(state)) {
             state.error = "Failed to write to SD card - disk may be full";
             state.file.close();
+            removePartialUpload(state);
             return;
           }
         }
@@ -1924,6 +2080,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         state.error = "Failed to write final data to SD card";
       }
       state.file.close();
+      if (!state.error.isEmpty()) removePartialUpload(state);
 
       if (state.error.isEmpty()) {
         state.success = true;
@@ -1946,11 +2103,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     state.bufferPos = 0;  // Discard buffered data
     if (state.file) {
       state.file.close();
-      // Try to delete the incomplete file
-      String filePath = state.path;
-      if (!filePath.endsWith("/")) filePath += "/";
-      filePath += state.fileName;
-      Storage.remove(filePath.c_str());
+      removePartialUpload(state);
     }
     state.error = "Upload aborted";
     LOG_DBG("WEB", "Upload aborted");
@@ -2591,6 +2744,8 @@ void CrossPointWebServer::handlePostSettings() {
   int applied = 0;
   uint8_t CrossPointSettings::* twoFingerSwipeEdited = nullptr;
 
+  // Held while applying, released before the save, as handlePostStatusBars does.
+  std::unique_lock<std::mutex> lock(SETTINGS.getMutex());
   for (const auto& s : settings) {
     if (!s.key || !isWebSettingAvailable(s)) continue;
     if (!doc[s.key].is<JsonVariant>()) continue;
@@ -2661,7 +2816,13 @@ void CrossPointWebServer::handlePostSettings() {
   if (twoFingerSwipeEdited != nullptr) {
     CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, twoFingerSwipeEdited);
   }
-  SETTINGS.saveToFile();
+  lock.unlock();
+  if (!SETTINGS.saveToFile()) {
+    LOG_ERR("WEB", "Failed to save settings");
+    server->send(500, "text/plain", "Failed to save settings");
+    sdFontSystem.releaseRegistry();
+    return;
+  }
 
   LOG_DBG("WEB", "Applied %d setting(s)", applied);
   server->send(200, "text/plain", String("Applied ") + String(applied) + " setting(s)");
@@ -3253,7 +3414,7 @@ void CrossPointWebServer::handleFontUploadData() {
       filename.replace(' ', '_');
       // Validate filename: rejects path traversal (../, /, \) and enforces
       // a .cpfont basename of alphanumeric + hyphen + underscore. Without
-      // this an attacker could supply "../../.crosspoint/settings.json" as
+      // this an attacker could supply "../../.crossdink/settings.json" as
       // a "filename" and have it written outside the fonts directory.
       if (!FontInstaller::isValidCpfontFilename(filename.c_str())) {
         LOG_ERR("WEB", "Invalid font filename: %s", filename.c_str());

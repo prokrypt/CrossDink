@@ -14,7 +14,7 @@ struct LightSleepStats {
 // Debug-only timing and I/O counters behind compact, greppable log lines
 // (recipes in the device LOG-GUIDE):
 //   [LAT]  input -> render -> ink per user action
-//   [PERF] SD opens/bytes/ms and image cache hits/misses/decode ms per 2 s
+//   [SYS]  (part) SD opens/bytes/ms and image cache hits/misses/decode ms per 2 s
 //   [BOOT] first ink after reset, and silent restart request -> first ink
 //   [PM]   light-sleep residency, wake counts and PM lock hold times per
 //          activity (CONFIG_PM_PROFILING); a window ends every 30 s and on
@@ -52,15 +52,29 @@ void noteRestart();
 // deep sleep, not power loss) and the next boot prints them with logLastSleep()
 // as "[BOOT] last sleep: ...", since the PSRAM log ring does not survive.
 void noteDeepSleep(const char* reason, const char* activity);
+// Also prints the RTC event trail ("[BOOT] trail: ...") left by the previous
+// boots: the last 8 activity entries and the last [ERR] line, which survive
+// deep sleep and restarts (not power loss) while the PSRAM ring does not.
 void logLastSleep();
+// Trail entries (RTC slow memory, CRC-guarded; name is copied).
+void noteActivity(const char* name);
+void noteError(const char* line);
+// "[ERS] open: <stage>=<ms> ... other= total=" once per book open, from
+// bookOpenBegin() (the reader starts loading) to bookOpenEnd() (first page on
+// the panel, or the open failed). Stages add up under a string-literal name
+// and are dropped outside an open.
+void bookOpenBegin();
+void bookOpenStage(const char* name, uint32_t ms);
+void bookOpenEnd();
 // SD activity (HalStorage) and image decode/cache results (ImageBlock).
 void noteSdOpen(bool opened);
 void noteSdRead(uint32_t bytes, uint32_t us);
 void noteSdWrite(uint32_t bytes, uint32_t us);
 void noteImage(bool cacheHit, uint32_t ms);
-// One [PERF] line if anything changed since the last call; [PM] every 30 s
-// and when the rendered activity changed.
-void logPeriodic();
+// Writes the SD/image part of the [SYS] line to out (" sd open=.. img hit=..",
+// "" if nothing happened since the last call); logs [PM] every 30 s and when
+// the rendered activity changed.
+void logPeriodic(char* out, uint32_t size);
 // Name of the activity rendered last (render task), for per-activity lines.
 void currentActivity(char* out, uint32_t size);
 // Source of input wake counts for [PM]: returns and clears the button and
@@ -99,11 +113,18 @@ inline void noteBootPhase(const char*) {}
 inline void noteRestart() {}
 inline void noteDeepSleep(const char*, const char*) {}
 inline void logLastSleep() {}
+inline void noteActivity(const char*) {}
+inline void noteError(const char*) {}
+inline void bookOpenBegin() {}
+inline void bookOpenStage(const char*, uint32_t) {}
+inline void bookOpenEnd() {}
 inline void noteSdOpen(bool) {}
 inline void noteSdRead(uint32_t, uint32_t) {}
 inline void noteSdWrite(uint32_t, uint32_t) {}
 inline void noteImage(bool, uint32_t) {}
-inline void logPeriodic() {}
+inline void logPeriodic(char* out, uint32_t size) {
+  if (size > 0) out[0] = '\0';
+}
 inline void currentActivity(char* out, uint32_t size) {
   if (size > 0) out[0] = '\0';
 }

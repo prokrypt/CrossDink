@@ -377,6 +377,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     IMAGES_DISPLAY_DITHER = 5,
     IMAGE_RENDERING_COUNT
   };
+  // Image viewer look; Same as Reader follows imageRendering (Gray for Placeholder/Suppress).
+  enum IMAGE_VIEWER_MODE {
+    IMAGE_VIEWER_SAME_AS_READER = 0,
+    IMAGE_VIEWER_BW_DARK = 1,
+    IMAGE_VIEWER_BW = 2,
+    IMAGE_VIEWER_DITHER = 3,
+    IMAGE_VIEWER_GRAY = 4,
+    IMAGE_VIEWER_MODE_COUNT
+  };
   enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
   enum PAGE_TURN_GESTURE {
     TAP_AND_SWIPE = 0,
@@ -461,6 +470,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
   uint8_t sleepScreenCoverFilter = NO_FILTER;
+  uint8_t imageViewerMode = IMAGE_VIEWER_SAME_AS_READER;
   // Status bar settings (statusBar retained for migration only)
   uint8_t statusBar = FULL;
   uint8_t statusBarChapterPageCount = 1;
@@ -718,6 +728,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t turboKeyboard = 1;
   // Goodies > Wi-Fi remote toggle (debug builds): rejoin in the background after every boot.
   uint8_t goodiesWifiRemote = 0;
+  // Idle Wi-Fi remote: MAX_MODEM power save (wakes every listen interval)
+  // instead of MIN_MODEM. Applies the next time the remote goes idle.
+  uint8_t maxWifiPowersave = 1;
   // KOReader Sync > Sync on Book Exit: push progress in the background when a book closes.
   uint8_t koSyncOnExit = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
@@ -801,7 +814,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   bool saveToFile() const;
   bool flush() const;  // no-op without a pending snapshot; skips an unchanged file
   bool loadFromFile();
-  static const char* getFilePath() { return "/.crosspoint/crossdink-settings.json"; }
+  static const char* getFilePath() { return "/.crossdink/settings.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc, bool importingCrossPoint = false);
 

@@ -37,10 +37,12 @@ bool allInputsCovered = false;
 int8_t chargePin = -1;
 std::atomic<bool> chargeWoke{false};
 #if CROSSDINK_PERF_LOG
-// Line interrupts per kind for the [PM] wake counts (ISR writes; DRAM).
+// Line interrupts per kind for the [PM] wake counts (ISR writes; DRAM). The
+// touch count runs since boot; takeWakeCounts() reports its delta.
 int8_t touchWakePin = -1;
 std::atomic<uint32_t> buttonWakes{0};
 std::atomic<uint32_t> touchWakes{0};
+uint32_t touchWakesTaken = 0;
 #endif
 
 #if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
@@ -255,15 +257,40 @@ void InputWake::describePins(char* out, const uint32_t size) {
     if (n <= 0) break;
     used += static_cast<size_t>(n);
   }
+#if CROSSDINK_PERF_LOG && CONFIG_IDF_TARGET_ESP32S3
+  // Every RTC IO light-sleep wake the hardware holds, ours or not:
+  // "rtc pin:armed rtc-level/gpio-level m<1 = RTC side owns the pad>".
+  const uint32_t rtcIn = REG_READ(RTC_GPIO_IN_REG) >> RTC_GPIO_IN_NEXT_S;
+  for (int pin = 0; pin <= 21 && used < size; ++pin) {
+    if (!RTCIO.pin[pin].wakeup_enable) continue;
+    const bool high = RTCIO.pin[pin].int_type == GPIO_INTR_HIGH_LEVEL;
+    const auto mux = (REG_READ(RTC_IO_TOUCH_PAD0_REG + 4 * pin) >> RTC_IO_PAD21_MUX_SEL_S) & 1;
+    const int n = snprintf(out + used, size - used, " rtc %d:%c%lu/%dm%lu", pin, high ? 'H' : 'L',
+                           static_cast<unsigned long>((rtcIn >> pin) & 1), gpio_get_level(static_cast<gpio_num_t>(pin)),
+                           static_cast<unsigned long>(mux));
+    if (n <= 0) break;
+    used += static_cast<size_t>(n);
+  }
+#endif
 }
 
 void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
 #if CROSSDINK_PERF_LOG
   buttons = buttonWakes.exchange(0, std::memory_order_relaxed);
-  touch = touchWakes.exchange(0, std::memory_order_relaxed);
+  const uint32_t total = touchWakes.load(std::memory_order_relaxed);
+  touch = total - touchWakesTaken;
+  touchWakesTaken = total;
 #else
   buttons = 0;
   touch = 0;
+#endif
+}
+
+uint32_t InputWake::touchWakeTotal() {
+#if CROSSDINK_PERF_LOG
+  return touchWakes.load(std::memory_order_relaxed);
+#else
+  return 0;
 #endif
 }
 
@@ -287,5 +314,7 @@ void InputWake::takeWakeCounts(uint32_t& buttons, uint32_t& touch) {
   buttons = 0;
   touch = 0;
 }
+
+uint32_t InputWake::touchWakeTotal() { return 0; }
 
 #endif

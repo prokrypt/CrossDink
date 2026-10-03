@@ -321,10 +321,10 @@ RecentBook recentBookForPath(const std::string& path) {
 
 std::string bookStatsCachePathFor(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
-    return Epub::cachePathForFilePath(path, "/.crosspoint");
+    return Epub::cachePathForFilePath(path, "/.crossdink");
   }
   if (FsHelpers::hasXtcExtension(path)) {
-    return Xtc(path, "/.crosspoint").getCachePath();
+    return Xtc(path, "/.crossdink").getCachePath();
   }
   return {};
 }
@@ -350,7 +350,7 @@ std::string loadChapterTitleForPath(const std::string& path) {
     return {};
   }
 
-  Epub epub(path, "/.crosspoint");
+  Epub epub(path, "/.crossdink");
   if (!epub.load(false, true, Epub::XLocationLoadMode::Skip)) {
     return {};
   }
@@ -1208,13 +1208,13 @@ void SleepActivity::renderOverlaySleepScreen() const {
     const uint32_t freeBeforeRelease = ESP.getFreeHeap();
     const uint32_t maxAllocBeforeRelease = ESP.getMaxAllocHeap();
     if (renderer.releaseSdCardFontForLowMemory(SETTINGS.getReaderFontId())) {
-      LOG_DBG("SLP", "Released reader font cache for PNG overlay: free=%u->%u maxAlloc=%u->%u", freeBeforeRelease,
-              ESP.getFreeHeap(), maxAllocBeforeRelease, ESP.getMaxAllocHeap());
+      LOG_DBG("SLP", "Released reader font cache for PNG overlay: free=%lu->%" PRIu32 " maxAlloc=%lu->%" PRIu32,
+              freeBeforeRelease, ESP.getFreeHeap(), maxAllocBeforeRelease, ESP.getMaxAllocHeap());
     }
 
     constexpr size_t MIN_FREE_HEAP = 60 * 1024;  // PNG decoder ~42 KB + overhead
     if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
-      LOG_ERR("SLP", "Not enough heap for PNG overlay decoder: %u free, need %u for %s", ESP.getFreeHeap(),
+      LOG_ERR("SLP", "Not enough heap for PNG overlay decoder: %" PRIu32 " free, need %u for %s", ESP.getFreeHeap(),
               static_cast<unsigned>(MIN_FREE_HEAP), filename.c_str());
       return OverlayDrawResult::Failed;
     }

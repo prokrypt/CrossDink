@@ -8,6 +8,7 @@
 // recordStart + 128k, so no offset table has to be loaded to find it.
 
 #include <HalStorage.h>
+#include <Memory.h>
 
 #include <cstdint>
 #include <string>
@@ -57,8 +58,17 @@ class LibraryIndexFile {
   // history without exposing stale sort/search keys to the browser.
   bool openForReconciliation(const char* path);
   void close();
+  // Copies the whole index into PSRAM and closes the file: later reads are
+  // memcpy, and the file can be renamed by a rebuild while this stays open.
+  // ~325 B per book. False, with the file still open, without PSRAM or on a
+  // short read.
+  bool loadIntoMemory();
+  bool inMemory() const { return bool(mem); }
   bool isOpen() const { return opened; }
   bool ioFailed() const { return readFailed; }
+  // Card reads since open(), for the builder's scan counters (LOG_DBG only).
+  uint32_t cardReads() const { return readCalls; }
+  uint32_t cardReadBytes() const { return readBytes; }
 
   ClixValidity validity() const { return lastValidity; }
   const ClixHeader& header() const { return head; }
@@ -104,6 +114,10 @@ class LibraryIndexFile {
   bool readGenre(const ClixRecord& record, std::string& out);
   // V6 sortable signed float bits; UINT32_MAX means no usable order.
   bool readSeriesPosition(const ClixRecord& record, uint32_t& out);
+  // V7 EPUB content key (Epub cache folder name); 0 for other formats or unknown.
+  bool readContentKey(const ClixRecord& record, uint64_t& out);
+  // Content key the live index recorded for `path`, i.e. before the file last changed.
+  static bool indexedContentKey(const std::string& path, uint64_t& out);
 
   // Absolute path of the book, rebuilt from its folder record.
   bool readPath(const ClixRecord& record, std::string& out);
@@ -116,11 +130,16 @@ class LibraryIndexFile {
   bool openImpl(const char* path, bool acceptStaleFold);
   bool readAt(uint32_t offset, void* dst, size_t len);
   bool readBlobField(const ClixRecord& record, uint8_t field, std::string& out);
+  bool readTail(const ClixRecord& record, uint32_t skip, void* out, size_t len);
 
   HalFile file;
+  HeapByteBuffer mem;
+  uint32_t memSize = 0;
   ClixHeader head{};
   bool opened = false;
   bool readFailed = false;
+  uint32_t readCalls = 0;
+  uint32_t readBytes = 0;
   ClixValidity lastValidity = ClixValidity::BadMagic;
 };
 

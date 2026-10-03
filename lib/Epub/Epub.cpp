@@ -8,16 +8,20 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PerfLog.h>
 #include <PngToBmpConverter.h>
 #include <Utf8.h>
 #include <ZipFile.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <iterator>
+#include <mutex>
 #include <string_view>
 #include <utility>
 
@@ -42,9 +46,9 @@ constexpr size_t kOptimizerManifestMaxBytes = 64 * 1024;
 constexpr size_t kOptimizerMaxPxcBytes = 4 + 128 * 1024;
 constexpr uint16_t kOptimizerMaxPxcDimension = 1024;
 constexpr size_t kOptimizerMaxPxcRowBytes = (kOptimizerMaxPxcDimension + 3) / 4;
-// Legacy sidecar inflation borrows framebuffer scratch during page preflight.
-// Keep the remaining ZIP input/output allocations bounded.
-constexpr size_t kOptimizerPxcExtractionChunkSize = 256;
+// Two transient 4 KB ZIP buffers (internal heap); 256 B chunks cost one SD op per
+// 256 bytes (2 s for one 37 KB image on device). Sector-aligned writes go straight to the card.
+constexpr size_t kOptimizerPxcExtractionChunkSize = 4096;
 // The parser is single-threaded. Static row buffers avoid a cold-path heap
 // allocation and cap resize working memory at 512 bytes.
 uint8_t optimizerSourceRow[kOptimizerMaxPxcRowBytes];
@@ -237,7 +241,8 @@ std::unique_ptr<BookMetadataCache> makeBookMetadataCacheNoThrow(const std::strin
                                                                 const bool cacheCumulativeSpineSizes) {
   auto cache = makeUniqueNoThrow<BookMetadataCache>(cachePath, cacheCumulativeSpineSizes);
   if (!cache) {
-    LOG_ERR("EBP", "OOM: BookMetadataCache (%u free, %u max alloc)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("EBP", "OOM: BookMetadataCache (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
   }
   return cache;
 }
@@ -245,7 +250,8 @@ std::unique_ptr<BookMetadataCache> makeBookMetadataCacheNoThrow(const std::strin
 std::unique_ptr<CssParser> makeCssParserNoThrow(const std::string& cachePath) {
   auto parser = makeUniqueNoThrow<CssParser>(cachePath);
   if (!parser) {
-    LOG_ERR("EBP", "OOM: CssParser (%u free, %u max alloc)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("EBP", "OOM: CssParser (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
   }
   return parser;
 }
@@ -273,8 +279,8 @@ bool cachedBmpMatchesDimensions(const std::string& path, const int width, const 
                               absHeight <= height && (bmpWidth == width || absHeight == height);
   const bool matches = exactMatch || containedMatch;
   if (!matches) {
-    LOG_DBG("EBP", "Removing stale thumbnail dimensions: %s (%dx%d expected %dx%d)", path.c_str(), bmpWidth, absHeight,
-            width, height);
+    LOG_DBG("EBP", "Removing stale thumbnail dimensions: %s (%ldx%ld expected %dx%d)", path.c_str(), bmpWidth,
+            absHeight, width, height);
     Storage.remove(path.c_str());
   }
   return matches;
@@ -292,7 +298,7 @@ void releaseReaderSdFontCachesBeforeCoverDecode(const GfxRenderer* renderer, con
   if (!renderer->releaseSdCardFontForLowMemory(readerFontId)) return;
 
   const auto after = MemoryBudget::snapshot();
-  LOG_DBG("EBP", "Released SD font caches before %s: free=%u->%u maxAlloc=%u->%u", reason, before.freeHeap,
+  LOG_DBG("EBP", "Released SD font caches before %s: free=%lu->%lu maxAlloc=%lu->%lu", reason, before.freeHeap,
           after.freeHeap, before.maxAllocHeap, after.maxAllocHeap);
 }
 
@@ -314,8 +320,156 @@ bool finalizeThumbBmp(const std::string& tmpPath, const std::string& thumbPath) 
   return true;
 }
 
-std::string legacyCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
-  return cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(filepath));
+// CrossInk and CrossDink before /.crossdink keyed caches by the book's path.
+constexpr char kLegacyCacheDir[] = "/.crosspoint";
+
+// Copies the user data `from` holds and `to` lacks: progress, reader settings
+// and stats (HalStorage::isBookUserData). book.bin, covers, thumbnails and
+// sections regenerate. Each file lands through a .part temp. `files` and
+// `bytes` count what was copied, for the log.
+bool copyTopLevelFiles(const std::string& from, const std::string& to, uint32_t& files, uint32_t& bytes) {
+  HalFile dir = Storage.open(from.c_str());
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return false;
+  }
+  Storage.mkdir(to.c_str());
+  bool ok = true;
+  char name[128];
+  uint8_t buf[256];
+  for (HalFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    const size_t nameLen = entry.getName(name, sizeof(name));
+    entry.close();
+    if (isDirectory || nameLen == 0 || nameLen >= sizeof(name) || !HalStorage::isBookUserData(name)) continue;
+    const std::string src = from + "/" + name;
+    const std::string dst = to + "/" + name;
+    if (Storage.exists(dst.c_str())) continue;
+    const std::string part = dst + ".part";
+    HalFile in;
+    HalFile out;
+    bool copied = Storage.openFileForRead("EBP", src, in) && Storage.openFileForWrite("EBP", part, out);
+    for (int n; copied && (n = in.read(buf, sizeof(buf))) != 0;) {
+      copied = n > 0 && out.write(buf, n) == static_cast<size_t>(n);
+      if (copied) bytes += static_cast<uint32_t>(n);
+    }
+    in.close();
+    copied = copied && out.sync();
+    out.close();
+    if (!copied || !Storage.rename(part.c_str(), dst.c_str())) {
+      Storage.remove(part.c_str());
+      ok = false;
+    } else {
+      files++;
+    }
+  }
+  dir.close();
+  return ok;
+}
+
+// ponytail: path->key memo (256 entries in PSRAM, else 16), not checked
+// against the file. Every replace route (upload, OPDS, delete, WebDAV) goes
+// through the clearBookCache*() helpers, which call Epub::forgetCacheKeys()
+// (the Library builder skips it for a key it has just read); so does USB Drive
+// exit. It also keeps a second open of a book the reader holds open off the
+// card, which SdFat refuses on hardware.
+struct CacheKeyMemo {
+  uint64_t pathHash;
+  uint64_t key;
+};
+// 256 x 16 B keeps a first scan's keys (up to 256 books), so a cancelled one (Home left
+// mid-scan) does not re-read every tail on its retry. Allocated on first use.
+constexpr size_t kBigMemoEntries = 256;
+CacheKeyMemo smallKeyMemo[16] = {};
+HeapByteBuffer bigKeyMemo;
+CacheKeyMemo* cacheKeyMemo = smallKeyMemo;
+size_t cacheKeyMemoSize = std::size(smallKeyMemo);
+size_t cacheKeyMemoNext = 0;
+bool bigKeyMemoTried = false;
+std::mutex cacheKeyMemoMutex;
+
+// Caller holds cacheKeyMemoMutex.
+void growCacheKeyMemo() {
+  if (bigKeyMemoTried) return;
+  bigKeyMemoTried = true;
+  bigKeyMemo = makePsramByteBufferNoThrow(kBigMemoEntries * sizeof(CacheKeyMemo));
+  if (!bigKeyMemo) return;
+  memset(bigKeyMemo.get(), 0, kBigMemoEntries * sizeof(CacheKeyMemo));
+  cacheKeyMemo = reinterpret_cast<CacheKeyMemo*>(bigKeyMemo.get());
+  cacheKeyMemoSize = kBigMemoEntries;
+  cacheKeyMemoNext = 0;
+}
+std::atomic<uint32_t> contentKeyReadCount{0};
+
+// FNV-1a 64 of the file size plus its last 16 KB. An EPUB's ZIP central
+// directory sits at the end and lists every entry's CRC-32 and offset, so the
+// tail fingerprints the whole book without reading all of it.
+bool readContentKey(const std::string& filepath, uint64_t& out) {
+  contentKeyReadCount.fetch_add(1, std::memory_order_relaxed);
+  HalFile file;
+  if (!Storage.openFileForReadIfPresent("EBP", filepath, file)) {
+    // A book that exists but won't open is usually held open elsewhere (SdFat
+    // allows one reader per file); its cache path falls back to the path hash.
+    if (Storage.exists(filepath.c_str())) LOG_ERR("EBP", "Cannot open %s for its cache key", filepath.c_str());
+    return false;
+  }
+  constexpr size_t kTailBytes = 16 * 1024;
+  const uint32_t size = static_cast<uint32_t>(file.size());
+  uint64_t hash = 14695981039346656037ull;
+  for (int i = 0; i < 4; i++) {
+    hash ^= static_cast<uint8_t>(size >> (8 * i));
+    hash *= 1099511628211ull;
+  }
+  const uint32_t start = size > kTailBytes ? size - kTailBytes : 0;
+  bool ok = file.seekSet(start);
+  // Sector-aligned 4 KB reads let SdFat move whole sectors straight into the
+  // buffer instead of 64 trips through its one-sector cache. Internal RAM so
+  // the card driver can DMA into it; the 256 B stack buffer is the fallback.
+  constexpr size_t kBigChunk = 4096;
+  uint8_t small[256];
+  auto big = makeInternalByteBufferNoThrow(kBigChunk);
+  uint8_t* const buf = big ? big.get() : small;
+  const size_t cap = big ? kBigChunk : sizeof(small);
+  for (uint32_t pos = start, left = size - start; ok && left > 0;) {
+    // The first read only runs to the next sector boundary; the rest are aligned.
+    const size_t want = std::min<uint32_t>(left, cap - (big ? pos % 512 : 0));
+    const int n = file.read(buf, want);
+    ok = n > 0;
+    for (int i = 0; i < n; i++) {
+      hash ^= buf[i];
+      hash *= 1099511628211ull;
+    }
+    if (ok) {
+      left -= n;
+      pos += n;
+    }
+  }
+  file.close();
+  if (!ok) {
+    LOG_ERR("EBP", "Cannot read cache key from %s", filepath.c_str());
+    return false;
+  }
+  out = hash;
+  return true;
+}
+
+bool contentKey(const std::string& filepath, uint64_t& out) {
+  const uint64_t pathHash = ZipFile::fnvHash64(filepath.c_str(), filepath.size());
+  {
+    std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
+    for (size_t i = 0; i < cacheKeyMemoSize; i++) {
+      if (cacheKeyMemo[i].pathHash == pathHash) {
+        out = cacheKeyMemo[i].key;
+        return true;
+      }
+    }
+  }
+  if (!readContentKey(filepath, out)) return false;
+  std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
+  growCacheKeyMemo();
+  cacheKeyMemo[cacheKeyMemoNext] = {pathHash, out};
+  cacheKeyMemoNext = (cacheKeyMemoNext + 1) % cacheKeyMemoSize;
+  return true;
 }
 
 class CoverImageRefScanner final : public Print {
@@ -502,8 +656,20 @@ Epub::Epub(std::string filepath, const std::string& cacheDir) : filepath(std::mo
 }
 
 std::string Epub::cachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
-  // Keep on-disk EPUB cache keys stable across standard library/toolchain changes.
-  return cacheDir + "/epub_" + std::to_string(ZipFile::fnvHash64(filepath.c_str(), filepath.size()));
+  // Keyed by content so a moved or renamed book keeps its cache. An unreadable
+  // file falls back to its path hash; it cannot be opened as a book anyway.
+  uint64_t key = 0;
+  if (!contentKey(filepath, key)) key = ZipFile::fnvHash64(filepath.c_str(), filepath.size());
+  return cacheDir + "/epub_" + std::to_string(key);
+}
+
+bool Epub::contentKeyFor(const std::string& filepath, uint64_t& out) { return contentKey(filepath, out); }
+
+uint32_t Epub::contentKeyReads() { return contentKeyReadCount.load(std::memory_order_relaxed); }
+
+void Epub::forgetCacheKeys() {
+  std::lock_guard<std::mutex> lock(cacheKeyMemoMutex);
+  std::fill(cacheKeyMemo, cacheKeyMemo + cacheKeyMemoSize, CacheKeyMemo{});
 }
 
 bool Epub::hasCache(const std::string& filepath, const std::string& cacheDir) {
@@ -511,20 +677,35 @@ bool Epub::hasCache(const std::string& filepath, const std::string& cacheDir) {
 }
 
 std::string Epub::resolveCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
+  const uint32_t keyStartMs = millis();
   const std::string cachePath = cachePathForFilePath(filepath, cacheDir);
+  PerfLog::bookOpenStage("key", millis() - keyStartMs);
   if (Storage.exists(cachePath.c_str())) {
     return cachePath;
   }
 
-  const std::string legacyCachePath = legacyCachePathForFilePath(filepath, cacheDir);
-  if (legacyCachePath == cachePath || !Storage.exists(legacyCachePath.c_str())) {
-    return cachePath;
-  }
-
-  if (Storage.rename(legacyCachePath.c_str(), cachePath.c_str())) {
-    LOG_INF("EBP", "Migrated legacy EPUB cache: %s -> %s", legacyCachePath.c_str(), cachePath.c_str());
-  } else {
-    LOG_ERR("EBP", "Failed to migrate legacy EPUB cache: %s -> %s", legacyCachePath.c_str(), cachePath.c_str());
+  // First open since /.crossdink: copy the path-keyed cache (FNV, or the older
+  // std::hash name) and leave it in place, so older firmware keeps its progress.
+  const std::string legacyDir = std::string(kLegacyCacheDir) + "/epub_";
+  for (const std::string& legacyPath :
+       {legacyDir + std::to_string(ZipFile::fnvHash64(filepath.c_str(), filepath.size())),
+        legacyDir + std::to_string(std::hash<std::string>{}(filepath))}) {
+    if (!Storage.exists(legacyPath.c_str())) continue;
+    const uint32_t startMs = millis();
+    uint32_t files = 0;
+    uint32_t bytes = 0;
+    const bool copied = copyTopLevelFiles(legacyPath, cachePath, files, bytes);
+    const uint32_t copyMs = millis() - startMs;
+    PerfLog::bookOpenStage("legacy", copyMs);
+    if (copied) {
+      LOG_INF("EBP", "Copied legacy EPUB cache: %s -> %s (%lu files, %lu B, %lu ms)", legacyPath.c_str(),
+              cachePath.c_str(), static_cast<unsigned long>(files), static_cast<unsigned long>(bytes),
+              static_cast<unsigned long>(copyMs));
+    } else {
+      LOG_ERR("EBP", "Failed to copy legacy EPUB cache: %s -> %s (%lu files, %lu B copied)", legacyPath.c_str(),
+              cachePath.c_str(), static_cast<unsigned long>(files), static_cast<unsigned long>(bytes));
+    }
+    break;
   }
   return cachePath;
 }
@@ -830,7 +1011,7 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
     // Check heap before parsing - CSS parsing allocates heavily
     const uint32_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < MIN_HEAP_FOR_CSS_PARSING) {
-      LOG_ERR("EBP", "Insufficient heap for CSS parsing (%u bytes free, need %zu), skipping: %s", freeHeap,
+      LOG_ERR("EBP", "Insufficient heap for CSS parsing (%lu bytes free, need %zu), skipping: %s", freeHeap,
               MIN_HEAP_FOR_CSS_PARSING, cssPath.c_str());
       parsedAllCss = false;
       failedCssFileIndex = cssFileIndex + 1;
@@ -936,6 +1117,8 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
     bookMetadataCache.reset();
     return false;
   }
+
+  if (buildIfMissing) recordBookPath();
 
   // Try to load existing cache first
   if (bookMetadataCache->load()) {
@@ -1174,11 +1357,26 @@ bool Epub::clearCache() const {
 }
 
 void Epub::setupCacheDir() const {
-  if (Storage.exists(cachePath.c_str())) {
-    return;
-  }
+  if (!Storage.exists(cachePath.c_str())) Storage.mkdir(cachePath.c_str());
+  recordBookPath();
+}
 
-  Storage.mkdir(cachePath.c_str());
+// path.txt names the book a content-keyed folder belongs to. Rewritten only
+// when the book was moved or renamed.
+void Epub::recordBookPath() const {
+  const std::string pathFile = cachePath + "/path.txt";
+  char stored[256];
+  int len = 0;
+  HalFile file;
+  if (Storage.openFileForReadIfPresent("EBP", pathFile, file)) {
+    len = file.read(stored, sizeof(stored));
+    file.close();
+  }
+  if (len >= 0 && static_cast<size_t>(len) == filepath.size() && memcmp(stored, filepath.data(), len) == 0) return;
+  if (!Storage.exists(cachePath.c_str())) return;
+  if (!Storage.writeFile(pathFile.c_str(), filepath.c_str())) {
+    LOG_ERR("EBP", "Failed to write %s", pathFile.c_str());
+  }
 }
 
 const std::string& Epub::getCachePath() const { return cachePath; }
@@ -1568,6 +1766,75 @@ bool Epub::extractItemToFile(const std::string& itemHref, const std::string& des
   return success;
 }
 
+namespace {
+// Fills a fixed buffer; a byte past its end fails the write and ends the stream.
+class BufferSink final : public Print {
+ public:
+  BufferSink(uint8_t* data, const size_t capacity) : data(data), capacity(capacity) {}
+  size_t write(const uint8_t byte) override { return write(&byte, 1); }
+  size_t write(const uint8_t* buffer, const size_t size) override {
+    if (size > capacity - length) return 0;
+    memcpy(data + length, buffer, size);
+    length += size;
+    return size;
+  }
+  size_t length = 0;
+
+ private:
+  uint8_t* data;
+  size_t capacity;
+};
+// Forwards to the file and keeps the 4-byte PXC header (width, height) for validation.
+class PxcHeaderSink final : public Print {
+ public:
+  explicit PxcHeaderSink(Print& out) : out(out) {}
+  size_t write(const uint8_t byte) override { return write(&byte, 1); }
+  size_t write(const uint8_t* buffer, const size_t size) override {
+    for (size_t i = 0; i < size && seen < sizeof(header); ++i) header[seen++] = buffer[i];
+    return out.write(buffer, size);
+  }
+  uint16_t width() const { return seen < 4 ? 0 : static_cast<uint16_t>(header[0] | (header[1] << 8)); }
+  uint16_t height() const { return seen < 4 ? 0 : static_cast<uint16_t>(header[2] | (header[3] << 8)); }
+
+ private:
+  Print& out;
+  uint8_t header[4] = {};
+  size_t seen = 0;
+};
+// PSRAM left free while an image is held, for the reader's other PSRAM users.
+// ponytail: fixed reserve; base it on a measured PSRAM high-water mark if decodes start failing over.
+constexpr size_t kItemPsramReserve = 1024 * 1024;
+}  // namespace
+
+HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size, const std::atomic<bool>* cancel) const {
+  size = 0;
+  size_t itemSize = 0;
+  if (!getItemSize(itemHref, &itemSize) || itemSize == 0) return {};
+  if (byteHeapSnapshot(MemoryPool::Psram).largest < itemSize + kItemPsramReserve) {
+    LOG_DBG("EBP", "No PSRAM for %u-byte %s; extracting to SD", static_cast<unsigned>(itemSize), itemHref.c_str());
+    return {};
+  }
+  HeapByteBuffer data = makePsramByteBufferNoThrow(itemSize);
+  if (!data) {
+    LOG_ERR("EBP", "PSRAM allocation failed for %u-byte %s", static_cast<unsigned>(itemSize), itemHref.c_str());
+    return {};
+  }
+  const uint32_t start = millis();
+  BufferSink sink(data.get(), itemSize);
+  bool ok;
+  if (cancel) {
+    CancellableSink cancellable(sink, *cancel);
+    ok = readItemContentsToStream(itemHref, cancellable, 4096);
+  } else {
+    ok = readItemContentsToStream(itemHref, sink, 4096);
+  }
+  LOG_DBG("EBP", "Read %s to PSRAM: ok=%d bytes=%u in %ums", itemHref.c_str(), ok, static_cast<unsigned>(sink.length),
+          static_cast<unsigned>(millis() - start));
+  if (!ok || sink.length != itemSize) return {};
+  size = itemSize;
+  return data;
+}
+
 bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
   const std::string path = FsHelpers::normalisePath(itemHref);
   return ZipFile(filepath).getInflatedFileSize(path.c_str(), size);
@@ -1666,8 +1933,8 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
     if (!optimizerWorkspace) {
       optimizerWorkspace = makeUniqueNoThrow<PxcV2Workspace>();
       if (optimizerWorkspace)
-        LOG_DBG("EBP", "PXC2 workspace: %u bytes (free=%u maxAlloc=%u)", unsigned(sizeof(PxcV2Workspace)),
-                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        LOG_DBG("EBP", "PXC2 workspace: %u bytes (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                unsigned(sizeof(PxcV2Workspace)), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     }
     if (!optimizerWorkspace) {
       LOG_ERR("EBP", "OOM: PXC2 workspace (%u bytes)", unsigned(sizeof(PxcV2Workspace)));
@@ -1684,6 +1951,20 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
       Storage.remove(temp.c_str());
     }
     if (ok) LOG_DBG("EBP", "Materialized PXC2 image: %s", entry.pxcHref);
+    return ok;
+  }
+  if (entry.width == expectedWidth && entry.height == expectedHeight) {
+    // Exact size (the usual case): inflate straight into the temp file; no source copy or rescale pass.
+    FsFile output;
+    if (!Storage.openFileForWrite("EBP", temp, output)) return false;
+    PxcHeaderSink sink(output);
+    bool ok = readItemContentsToStream(entry.pxcHref, sink, kOptimizerPxcExtractionChunkSize) &&
+              sink.width() == entry.width && sink.height() == entry.height && output.size() == entry.bytes;
+    ok = OptimizerFormat::finishCache(output, Storage, ok, temp.c_str(), destPxcPath.c_str(), backup.c_str());
+    if (!ok) {
+      LOG_ERR("EBP", "PXC extraction failed: %s", entry.pxcHref);
+      Storage.remove(temp.c_str());
+    }
     return ok;
   }
   const std::string source = destPxcPath + ".optimizer.source";
@@ -1730,35 +2011,23 @@ bool Epub::ensureOptimizerImageIndex() {
   } else {
     // Caller loans the framebuffer for legacy ZIP inflation. JSON is temporary;
     // no manifest or record array survives reader setup.
-    if (!extractItemToFile(kOptimizerManifestPath, manifest, 256)) return false;
-    FsFile input;
-    if (!Storage.openFileForRead("EBP", manifest, input)) {
-      Storage.remove(manifest.c_str());
-      return false;
-    }
+    // Parsed from PSRAM: no temp file on the card. Without PSRAM the index is
+    // skipped and images take the normal decode path.
+    size_t manifestSize = 0;
+    HeapByteBuffer manifestBytes = readItemToPsram(kOptimizerManifestPath, manifestSize);
     // Bind the legacy JSON bytes to the central-directory identity as well.
-    uint32_t manifestCrc = 0;
-    uint8_t manifestChunk[256];
-    bool manifestOk = input.size() == identity.uncompressedSize;
-    size_t remaining = identity.uncompressedSize;
-    while (manifestOk && remaining) {
-      const size_t n = std::min(remaining, sizeof(manifestChunk));
-      manifestOk = input.read(manifestChunk, n) == static_cast<int>(n);
-      if (manifestOk) manifestCrc = OptimizerFormat::crc(manifestCrc, manifestChunk, n);
-      remaining -= n;
-    }
-    if (!manifestOk || manifestCrc != identity.crc32 || !input.seek(0)) {
-      LOG_ERR("EBP", "Invalid optimizer manifest CRC/size");
-      input.close();
-      Storage.remove(manifest.c_str());
+    if (!manifestBytes || manifestSize != identity.uncompressedSize ||
+        OptimizerFormat::crc(0, manifestBytes.get(), manifestSize) != identity.crc32) {
+      LOG_ERR("EBP", "Invalid or unreadable optimizer manifest (%u B)", static_cast<unsigned>(manifestSize));
       return false;
     }
     JsonDocument filter;
     buildOptimizerManifestJsonFilter(filter);
     JsonDocument doc;
-    const auto error = deserializeJson(doc, input, DeserializationOption::Filter(filter.as<JsonVariantConst>()));
-    input.close();
-    Storage.remove(manifest.c_str());
+    // const input: ArduinoJson copies the strings it keeps, so the buffer can go now.
+    const auto error = deserializeJson(doc, reinterpret_cast<const char*>(manifestBytes.get()), manifestSize,
+                                       DeserializationOption::Filter(filter.as<JsonVariantConst>()));
+    manifestBytes.reset();
     JsonArrayConst images = doc["images"];
     if (error || strcmp(doc["format"] | "", kOptimizerManifestFormat) || (doc["version"] | 0) != 1 || images.isNull() ||
         images.size() > 256)

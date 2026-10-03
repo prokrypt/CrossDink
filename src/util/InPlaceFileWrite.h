@@ -13,13 +13,18 @@
 //
 // Not atomic by itself: callers either tolerate a torn write (a cache that is
 // validated on read) or pair two slots so one always survives.
-inline bool writeFileInPlace(const char* moduleName, const char* path, const uint8_t* data, const size_t size) {
+//
+// padWithSpaces: for text whose readers skip trailing whitespace (JSON), a
+// shorter save fills the rest of the file with spaces instead of recreating it.
+inline bool writeFileInPlace(const char* moduleName, const char* path, const uint8_t* data, const size_t size,
+                             const bool padWithSpaces = false) {
   HalFile file = Storage.open(path, O_RDWR | O_CREAT);
   if (!file) {
     LOG_ERR(moduleName, "Could not open %s for in-place write", path);
     return false;
   }
-  if (file.fileSize() > size) {
+  const size_t pad = padWithSpaces && file.fileSize() > size ? file.fileSize() - size : 0;
+  if (!padWithSpaces && file.fileSize() > size) {
     // Nothing shrinks in practice; a longer file would keep stale trailing bytes.
     file.close();
     if (!Storage.remove(path)) {
@@ -37,7 +42,15 @@ inline bool writeFileInPlace(const char* moduleName, const char* path, const uin
     file.close();
     return false;
   }
-  const size_t written = file.write(data, size);
+  size_t written = file.write(data, size);
+  static constexpr uint8_t spaces[32] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+                                         ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+                                         ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
+  for (size_t left = pad; written == size && left > 0;) {
+    const size_t n = left < sizeof(spaces) ? left : sizeof(spaces);
+    if (file.write(spaces, n) != n) written = 0;
+    left -= n;
+  }
   if (written != size) {
     LOG_ERR(moduleName, "Short in-place write to %s: %u/%u bytes", path, static_cast<unsigned>(written),
             static_cast<unsigned>(size));

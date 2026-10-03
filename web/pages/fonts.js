@@ -40,7 +40,7 @@ function formatSize(bytes) {
 
           const btn = document.createElement('button');
           btn.className = 'btn btn-danger';
-          btn.textContent = 'Delete';
+          btn.textContent = '🗑️ Delete';
           // Capture name in the closure rather than interpolating into onclick.
           const familyName = f.name;
           btn.addEventListener('click', () => deleteFamily(familyName));
@@ -59,7 +59,7 @@ function formatSize(bytes) {
     }
 
     async function deleteFamily(name) {
-      if (!confirm('Delete font family "' + name + '"?')) return;
+      if (!(await confirmModal('🗑️ Delete Font Family', 'Delete font family "' + name + '"?'))) return;
       const status = document.getElementById('status');
       status.className = '';
       status.style.display = 'block';

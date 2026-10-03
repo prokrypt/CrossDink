@@ -352,7 +352,8 @@ uint32_t HalDisplay::flashEndsMs() const {
 HalDisplay::FlashKind HalDisplay::flashKind() const {
 #ifndef SIMULATOR
   if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) {
-    static_assert(static_cast<int>(freeink::Uc8179FlashKind::Paint) == static_cast<int>(FlashKind::Paint));
+    static_assert(static_cast<int>(freeink::Uc8179FlashKind::Paint) == static_cast<int>(FlashKind::Paint) &&
+                  static_cast<int>(freeink::Uc8179FlashKind::GrayDark) == static_cast<int>(FlashKind::GrayDark));
     return static_cast<FlashKind>(freeink::uc8179FlashKind());
   }
 #endif
@@ -410,6 +411,14 @@ void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, ui
             static_cast<uint32_t>(numRows) * getDisplayWidthBytes());
   einkDisplay.writeGrayscalePlaneStrip(lsbPlane ? EInkDisplay::GRAY_PLANE_LSB : EInkDisplay::GRAY_PLANE_MSB, rows,
                                        yStart, numRows);
+}
+
+void HalDisplay::setInvertedTextGray(const bool enabled) {
+#ifndef SIMULATOR
+  einkDisplay.setInvertedTextGray(enabled);
+#else
+  (void)enabled;
+#endif
 }
 
 void HalDisplay::setSmoothGray(const bool smooth) {

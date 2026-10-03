@@ -67,7 +67,7 @@ Specs forCoverGrid(const std::string& bookPath, const int thumbWidth, const int 
 
 std::string path(const std::string& bookPath, const std::string& coverBmpPath, const Spec& spec) {
   if (spec.kind == Kind::Adaptive) {
-    return Epub(bookPath, "/.crosspoint").getAdaptiveThumbBmpPath(spec.width, spec.height);
+    return Epub(bookPath, "/.crossdink").getAdaptiveThumbBmpPath(spec.width, spec.height);
   }
   if (spec.width == 0) return UITheme::getCoverThumbPath(coverBmpPath, spec.height);
   // Grid thumbs are exact slot sizes: no fallback to a legacy height-only thumb.

@@ -87,7 +87,7 @@ class BookmarkStore {
   static bool commitRenameMigration(RenameMigration& migration);
   static bool rollbackRenameMigration(RenameMigration& migration);
 
-  // Scan /.crosspoint/bookmarks/ and populate `out` with one entry per book that has bookmarks.
+  // Scan /.crossdink/bookmarks/ and populate `out` with one entry per book that has bookmarks.
   // Reads only the file header (does not load full bookmark records).
   // Caller should reserve `out` before calling.
   static bool getAllBookmarkedBooks(std::vector<BookmarkedBookEntry>& out);

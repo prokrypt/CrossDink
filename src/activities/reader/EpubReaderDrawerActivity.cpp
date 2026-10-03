@@ -490,7 +490,7 @@ void EpubReaderDrawerActivity::onExit() {
   ownedPreviewModel.reset();
   if (!mappedInput.hasTouchHardware()) {
     [[maybe_unused]] const auto heap = MemoryBudget::snapshot();
-    LOG_DBG("ERDM", "Button preview released: free=%u maxAlloc=%u", heap.freeHeap, heap.maxAllocHeap);
+    LOG_DBG("ERDM", "Button preview released: free=%lu maxAlloc=%lu", heap.freeHeap, heap.maxAllocHeap);
   }
   dictionaryRegistry.clear();
   // The reader remains active beneath this drawer. Keep the small catalog for
@@ -597,7 +597,7 @@ void EpubReaderDrawerActivity::showTtfRenderingOptions(const RowId row) {
 #endif
 
 void EpubReaderDrawerActivity::discoverDictionaries() {
-  dictionaryRegistry.discover();
+  dictionaryRegistry.refreshIfDirty();  // marked by the reader's onEnter()
   dictionaryLabels.clear();
   dictionaryPaths.clear();
   dictionaryLabels.reserve(dictionaryRegistry.getEntries().size() + 1);
@@ -2423,6 +2423,7 @@ bool EpubReaderDrawerActivity::saveBookDictionary(const std::string& path) {
   const bool ok =
       path.empty() || file.write(reinterpret_cast<const uint8_t*>(path.c_str()), path.size()) == path.size();
   file.close();
+  Dictionary::forgetBookDictPathMiss();
   if (!ok) LOG_ERR("ERDM", "Short write saving per-book dictionary");
   return ok;
 }
@@ -2546,7 +2547,7 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
     if (MemoryBudget::hasHeap(heap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE,
                               MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC))
       return false;
-    LOG_ERR("ERDM", "Button preview exhausted EPUB layout reserve: free=%u maxAlloc=%u", heap.freeHeap,
+    LOG_ERR("ERDM", "Button preview exhausted EPUB layout reserve: free=%lu maxAlloc=%lu", heap.freeHeap,
             heap.maxAllocHeap);
     restoreReaderDraftFont(draft, lastGoodPreviewSettings);
     previewUnavailable = true;

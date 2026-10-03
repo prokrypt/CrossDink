@@ -1,9 +1,12 @@
 <div class="card" id="bat" hidden>
       <div class="hd">
-        <h2>Battery</h2>
-        <button id="rz" class="btn ghost" hidden>Reset zoom</button>
+        <h2>🔋 Battery</h2>
+        <button id="rz" class="btn btn-small" hidden>🔍 Reset Zoom</button>
         <label class="meta" for="range">Range</label>
         <select id="range">
+          <option value="3600">1h</option>
+          <option value="7200">2h</option>
+          <option value="10800">3h</option>
           <option value="21600">6h</option>
           <option value="86400" selected>24h</option>
           <option value="259200">3 days</option>
@@ -22,30 +25,30 @@
       <div class="ch"><span>Temperature &deg;C</span><svg id="gt"></svg></div>
       <h3>Summary</h3>
       <div class="tw"><table id="sum"></table></div>
-      <h3>Drain by state <small>on battery, whole log</small></h3>
+      <h3>Drain by State <small>on battery, whole log</small></h3>
       <div class="tw"><table id="states"></table></div>
-      <h3>Discharge sessions</h3>
+      <h3>Discharge Sessions</h3>
       <div class="tw"><table id="dis"></table></div>
-      <h3>Charge sessions</h3>
+      <h3>Charge Sessions</h3>
       <div class="tw"><table id="chg"></table></div>
     </div>
 
     <div class="card" id="lg">
       <div class="hd">
-        <h2>Logs</h2>
-        <button id="all" class="btn ghost">Download all (.zip)</button>
+        <h2>📋 Logs</h2>
+        <button id="all" class="btn btn-small">📥 Download All (.zip)</button>
       </div>
       <div class="row">
         <div class="grp">
           <select id="src" aria-label="Log source"><option value="">Loading...</option></select>
-          <a id="dl" class="btn ghost" download title="Download the selected source">Download</a>
+          <a id="dl" class="btn" download title="Download the selected source">📥 Download</a>
         </div>
         <div class="grp">
           <input id="q" type="search" placeholder="Search lines" aria-label="Search lines" />
         </div>
         <div class="grp">
-          <button id="fm" class="btn ghost" title="Smaller text" aria-label="Smaller text">A−</button>
-          <button id="fp" class="btn ghost" title="Larger text" aria-label="Larger text">A+</button>
+          <button id="fm" class="btn" title="Smaller text" aria-label="Smaller text">A−</button>
+          <button id="fp" class="btn" title="Larger text" aria-label="Larger text">A+</button>
         </div>
       </div>
       <p id="meta" class="meta"></p>

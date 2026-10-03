@@ -135,7 +135,7 @@ class HalDisplay {
   // When that refresh is expected to end (UC8179), 0 when unknown.
   uint32_t flashEndsMs() const;
   // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
-  enum class FlashKind : uint8_t { Gray, Full, Paint };
+  enum class FlashKind : uint8_t { Gray, Full, Paint, GrayDark };  // GrayDark: Night Mode Sharpflash page
   FlashKind flashKind() const;
   // millis() when the refresh now starting was planned to flash (0: none, or
   // flashStartedMs has it), and its kind: the duck's fade starts here. UC8179:
@@ -165,6 +165,8 @@ class HalDisplay {
   bool shouldSkipImageBlanking() const;
   // UC8179 Smooth text AA (short balanced gray nudge); other panels ignore it.
   void setSmoothGray(bool smooth);
+  // Night mode: let text AA run on the inverted panel (UC8179 only; others ignore it).
+  void setInvertedTextGray(bool enabled);
   // UC8179: Fast diffs against the true on-screen frame (and the driver runs its
   // clean waveform itself when that frame is unknown), so a screen change needs
   // no separate cleanup refresh.

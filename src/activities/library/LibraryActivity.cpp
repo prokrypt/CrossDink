@@ -109,21 +109,52 @@ void LibraryActivity::onEnter() {
   app.setScreen(&LibraryActivity::listScreen, this);
   // Card contents may change through USB, Wi-Fi, transfers or file actions.
   // Storage counts those, so an unchanged card reopens the index directly.
-  rebuildIndex(true);
+  rebuildIndex(true, false, /*background=*/true);
   resetViewport();
   ignoreConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   requestUpdate();
 }
 
 void LibraryActivity::onExit() {
+  // A refresh still running would compete with the book or screen opening next;
+  // Home retries it.
+  LibraryPrewarm::stop(false);
+  backgroundRefresh = false;
+  gridThumbTask.join();  // it holds gridThumb
   index.close();
   filtered.reset();
   rowCache.reset();
   Activity::onExit();
 }
 
-bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force) {
+void LibraryActivity::onUserInput() {
+  lastInputMs = millis();
+  LibraryPrewarm::pause();
+}
+
+// Holds off auto sleep while the background refresh runs, as Home does.
+bool LibraryActivity::preventAutoSleep() { return LibraryPrewarm::working(); }
+
+bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force, const bool background) {
   uiReady = false;
+  backgroundRefresh = false;
+  index.close();
+  // Card changed (or Home's build is still running): show the previous index
+  // from PSRAM now and let the background build reconcile it; the list reloads
+  // when it lands. The copy frees library.idx for the build to replace. Without
+  // PSRAM, or when no background build can start, scan in the foreground below.
+  if (background && !force && (LibraryPrewarm::active() || !Storage.libraryScanCurrent()) &&
+      index.open(library::libraryIndexPath()) && index.loadIntoMemory()) {
+    LibraryPrewarm::tick(true);
+    if (LibraryPrewarm::active()) {
+      LOG_DBG("LIB", "Showing the previous index while the card is rescanned");
+      backgroundRefresh = true;
+      scanFailed = false;
+      resolveRecents();
+      applyFilter();
+      return true;
+    }
+  }
   index.close();
   // Home may have been indexing in the background; finishing that walk is
   // cheaper than starting a new one, and usually it is already done.
@@ -168,6 +199,20 @@ bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force) {
   resolveRecents();
   applyFilter();
   return !scanFailed;
+}
+
+void LibraryActivity::finishBackgroundRefresh() {
+  backgroundRefresh = false;
+  index.close();
+  // A failed or degraded background build leaves the previous index; the next
+  // visit rebuilds in the foreground, as before.
+  if (!index.open(library::libraryIndexPath()) && !index.openForReconciliation(library::libraryIndexPath())) {
+    LOG_ERR("LIB", "Cannot reopen library index after background refresh");
+    scanFailed = true;
+  }
+  resolveRecents();
+  applyFilter();
+  keepViewportAfterReload();
 }
 
 void LibraryActivity::resolveRecents() {
@@ -265,10 +310,25 @@ void LibraryActivity::loadGridProgress() {
   gridProgressRow = row;
   gridProgress = -1.0f;
   RecentBook book;
-  if (readBook(row, book)) {
-    gridProgress = FsHelpers::hasEpubExtension(book.path) ? RecentBookProgress::loadCachedEpubPercent(book)
-                                                          : RecentBookProgress::loadPercent(book);
+  if (!readBook(row, book)) return;
+  if (!FsHelpers::hasEpubExtension(book.path)) {
+    gridProgress = RecentBookProgress::loadPercent(book);
+    return;
   }
+  // The index holds the content key, so a selection move reads no book tail.
+  // A book not opened since /.crossdink falls back to the path route, which
+  // copies its old /.crosspoint cache in.
+  library::ClixRecord record{};
+  uint64_t key = 0;
+  const uint16_t ordinal = ordinalForRow(row);
+  if (ordinal != UINT16_MAX && index.readRecord(ordinal, record) && index.readContentKey(record, key) && key != 0) {
+    const std::string cachePath = "/.crossdink/epub_" + std::to_string(key);
+    if (Storage.exists(cachePath.c_str())) {
+      gridProgress = RecentBookProgress::loadCachedEpubPercentAt(cachePath);
+      return;
+    }
+  }
+  gridProgress = RecentBookProgress::loadCachedEpubPercent(book);
 }
 
 uint16_t LibraryActivity::ordinalForRow(const int row) {
@@ -367,22 +427,23 @@ void LibraryActivity::applyFilter() {
       cachePath.clear();
       if (type == library::FileEpub) {
         uint64_t pathHash = 0;
-        if (!index.readPathHash(record, pathHash)) {
+        if (!index.readPathHash(record, pathHash) || !readIndexedPath(record)) {
           LOG_ERR("LIB", "Cannot read Library book hash");
           filterFailed = true;
           filteredCount = 0;
           break;
         }
-        cachePath = "/.crosspoint/epub_" + std::to_string(pathHash);
+        // The index holds the content key; reading the book is the fallback.
+        uint64_t key = 0;
+        cachePath = index.readContentKey(record, key) && key != 0 ? "/.crossdink/epub_" + std::to_string(key)
+                                                                  : Epub::cachePathForFilePath(path, "/.crossdink");
         if (!Storage.exists(cachePath.c_str())) {
-          // Older EPUB caches used std::hash. Reading their stats here avoids
-          // requiring the user to open each finished book to migrate its cache.
-          if (!readIndexedPath(record)) {
-            filterFailed = true;
-            filteredCount = 0;
-            break;
+          // Not opened since /.crossdink: read the path-keyed /.crosspoint
+          // stats so finished books hide without opening each one first.
+          cachePath = "/.crosspoint/epub_" + std::to_string(pathHash);
+          if (!Storage.exists(cachePath.c_str())) {
+            cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(path));
           }
-          cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(path));
         }
       } else if (type == library::FileXtc) {
         if (!readIndexedPath(record)) {
@@ -390,7 +451,7 @@ void LibraryActivity::applyFilter() {
           filteredCount = 0;
           break;
         }
-        cachePath = Xtc(path, "/.crosspoint").getCachePath();
+        cachePath = Xtc(path, "/.crossdink").getCachePath();
       }
       if (!cachePath.empty() && BookReadingStats::load(cachePath).isCompleted) continue;
     }
@@ -430,6 +491,10 @@ void LibraryActivity::reloadAfterBookAction() {
   // Deleting or moving a book changes the storage generation and rescans;
   // cache, stats and settings actions only refresh recents and rows.
   rebuildIndex(true);
+  keepViewportAfterReload();
+}
+
+void LibraryActivity::keepViewportAfterReload() {
   selection = std::min(selection, std::max(CONTROL_COUNT, CONTROL_COUNT + rowCount() - 1));
   listNav.selected = selection - CONTROL_COUNT;
   listNav.top = topIndex;
@@ -448,6 +513,8 @@ void LibraryActivity::openDialog(std::unique_ptr<Activity>&& child, ActivityResu
     LOG_ERR("LIB", "Cannot allocate Library dialog");
     return;
   }
+  // Book actions (delete, clear cache) must not race a thumbnail being written.
+  gridThumbTask.join();
   app.clearTapFlash();
   startActivityForResult(std::move(child), [this, handler = std::move(handler)](const ActivityResult& result) {
     RenderLock lock;
@@ -672,6 +739,12 @@ void LibraryActivity::loop() {
   latchInput();
   if (RenderLock::peek()) return;
   RenderLock lock;
+  if (backgroundRefresh) {
+    // Paused by input; resumes after Home's quiet spell so the walk never
+    // competes with row reads or drawing.
+    LibraryPrewarm::tick(millis() - lastInputMs >= 500);
+    if (!LibraryPrewarm::active()) finishBackgroundRefresh();
+  }
   const PendingInput input = pending;
   pending = {};
   if (pendingCacheDeletedFeedback && millis() - cacheDeletedFeedbackShowTime >= ACTION_FEEDBACK_MS) {
@@ -818,7 +891,7 @@ void LibraryActivity::loop() {
     }
   }
   // Prepare at most one visible cover per turn, leaving an input check between
-  // EPUB parses. Redraw as each thumbnail becomes available.
+  // EPUB parses. Redraw once the page's missing thumbnails are all available.
   loadGridPageCovers();
 }
 
@@ -1211,13 +1284,27 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
 }
 
 void LibraryActivity::loadGridPageCovers() {
+  if (gridThumbTask.running()) return;
+  if (gridThumb.done && applyGridThumb()) {
+    // Made for a page since left: repaint in case the new one shows it.
+    if (nextGridCoverRow < 0) {
+      requestUpdate();
+    } else {
+      gridCoverAdded = true;
+    }
+  }
   if (!gridEnabled() || gridCoverWidth <= 0 || gridCoverHeight <= 0 || gridPageStart == loadedGridPageStart) return;
   const int pageEnd = std::min(gridPageStart + GRID_PAGE_SIZE, rowCount());
-  if (nextGridCoverRow < 0) nextGridCoverRow = gridPageStart;
-  if (nextGridCoverRow < pageEnd && loadGridCover(nextGridCoverRow++)) requestUpdate();
-  if (nextGridCoverRow >= pageEnd) {
+  if (nextGridCoverRow < 0) {
+    nextGridCoverRow = gridPageStart;
+    gridCoverAdded = false;
+  }
+  if (nextGridCoverRow < pageEnd && loadGridCover(nextGridCoverRow++)) gridCoverAdded = true;
+  if (nextGridCoverRow >= pageEnd && !gridThumbTask.running()) {
     loadedGridPageStart = gridPageStart;
     nextGridCoverRow = -1;
+    // One repaint once the page's covers are ready, not one per thumbnail.
+    if (gridCoverAdded) requestUpdate();
   }
 }
 
@@ -1229,33 +1316,60 @@ bool LibraryActivity::loadGridCover(const int row) {
   if (!FsHelpers::hasEpubExtension(book.path) && !FsHelpers::hasXtcExtension(book.path)) return false;
   const std::string thumbPath = UITheme::getCoverThumbPath(recent->coverBmpPath, gridCoverWidth, gridCoverHeight);
   if (hasValidGridThumb(thumbPath, gridCoverWidth, gridCoverHeight)) return false;
-  if (FsHelpers::hasEpubExtension(book.path)) {
-    Epub epub(book.path, "/.crosspoint");
+  gridThumb = GridThumbJob{};
+  gridThumb.path = book.path;
+  gridThumb.width = gridCoverWidth;
+  gridThumb.height = gridCoverHeight;
+  // 8 KB as Home's cover worker (4.8 KB used); decoder buffers go to PSRAM.
+  if (gridThumbTask.start(&LibraryActivity::makeGridThumb, &gridThumb, 8192, "LibThumb", false,
+                          WorkerTask::Stack::Psram)) {
+    return false;  // loadGridPageCovers() applies it once the task is done
+  }
+  makeGridThumb(&gridThumb);
+  return applyGridThumb();
+}
+
+// Worker task (or the loop as a fallback). Touches only the job: no renderer
+// (its SD font caches belong to the render task), no RECENT_BOOKS.
+void LibraryActivity::makeGridThumb(void* const ctx) {
+  auto& job = *static_cast<GridThumbJob*>(ctx);
+  if (FsHelpers::hasEpubExtension(job.path)) {
+    Epub epub(job.path, "/.crossdink");
     if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
-      LOG_ERR("LIB", "Cannot load EPUB cover for %s", book.path.c_str());
-      return false;
+      LOG_ERR("LIB", "Cannot load EPUB cover for %s", job.path.c_str());
+    } else if (epub.generateThumbBmp(job.width, job.height)) {
+      job.generated = true;
+      job.thumbBmpPath = epub.getThumbBmpPath();
+    } else {
+      job.coverMissing = !epub.hasCoverImage();
     }
-    if (epub.generateThumbBmp(gridCoverWidth, gridCoverHeight, &renderer, SETTINGS.getReaderFontId())) {
-      if (!RECENT_BOOKS.updateBook(book.path, recent->title, recent->author, epub.getThumbBmpPath(),
-                                   recent->coverState))
-        LOG_ERR("LIB", "Cannot update EPUB cover path for %s", book.path.c_str());
-      return true;
+  } else {
+    Xtc xtc(job.path, "/.crossdink");
+    if (!xtc.load()) {
+      LOG_ERR("LIB", "Cannot load XTC cover for %s", job.path.c_str());
+    } else if (xtc.generateThumbBmp(job.width, job.height)) {
+      job.generated = true;
+      job.thumbBmpPath = xtc.getThumbBmpPath();
     }
-    if (!epub.hasCoverImage()) {
-      if (!RECENT_BOOKS.updateBook(book.path, recent->title, recent->author, "", RecentBook::CoverState::Missing))
-        LOG_ERR("LIB", "Cannot mark missing EPUB cover for %s", book.path.c_str());
-    }
-    return false;
   }
-  Xtc xtc(book.path, "/.crosspoint");
-  if (!xtc.load()) {
-    LOG_ERR("LIB", "Cannot load XTC cover for %s", book.path.c_str());
-    return false;
+  job.done = true;
+}
+
+// Loop task. True when a new thumbnail is on the card.
+bool LibraryActivity::applyGridThumb() {
+  gridThumb.done = false;
+  const RecentBook* recent = recentBookForPath(gridThumb.path);
+  if (!recent) return gridThumb.generated;
+  if (gridThumb.generated) {
+    if (!RECENT_BOOKS.updateBook(gridThumb.path, recent->title, recent->author, gridThumb.thumbBmpPath,
+                                 recent->coverState))
+      LOG_ERR("LIB", "Cannot update cover path for %s", gridThumb.path.c_str());
+    return true;
   }
-  if (!xtc.generateThumbBmp(gridCoverWidth, gridCoverHeight)) return false;
-  if (!RECENT_BOOKS.updateBook(book.path, recent->title, recent->author, xtc.getThumbBmpPath(), recent->coverState))
-    LOG_ERR("LIB", "Cannot update XTC cover path for %s", book.path.c_str());
-  return true;
+  if (gridThumb.coverMissing &&
+      !RECENT_BOOKS.updateBook(gridThumb.path, recent->title, recent->author, "", RecentBook::CoverState::Missing))
+    LOG_ERR("LIB", "Cannot mark missing EPUB cover for %s", gridThumb.path.c_str());
+  return false;
 }
 
 void LibraryActivity::render(RenderLock&&) {

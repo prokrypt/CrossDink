@@ -40,13 +40,14 @@ constexpr uint32_t kRingBytes = 64 * 1024;
 constexpr uint32_t kRingMagicA = 0x4241544C;  // "BATL"
 constexpr uint32_t kRingMagicB = 0xC0DE0930;
 constexpr uint32_t kStatsMagic = 0x42415454;  // "BATT", CrossDink-only
-constexpr uint16_t kStatsVersion = 1;         // bump on any Stats layout change
+constexpr uint16_t kStatsVersion = 2;         // bump on any Stats layout change
 constexpr uint32_t kMaxFileBytes = 256 * 1024;
 constexpr char kHeader[] = "epoch_utc,local_time,uptime_ms,pct,mv,chg,usb,temp_c,light_pct,event,detail\n";
 constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kClockMs = 60 * 1000;
 constexpr uint32_t kFlushIdleMs = 2000;
 constexpr uint16_t kLowPct = 5;
+constexpr uint32_t kLowFlushBytes = 4 * 1024;
 constexpr uint32_t kMaxSleepEvents = sizeof(Stats::sleepEvents) / sizeof(Stats::SleepEvent);
 constexpr uint16_t kFullPct = 95;  // charging stopped at or above this, cable in: "charged"
 // A USB or charger change is logged once it has held this long: a loose plug
@@ -82,8 +83,6 @@ uint32_t slowAtMs = 0;            // last mV/temp read
 uint32_t usbSinceMs = 0;          // raw USB has differed from reading.usb since; 0 = same
 uint32_t chgSinceMs = 0;          // same for charging
 TaskHandle_t mainTask = nullptr;  // gauge I2C only from here (touch polls the bus too)
-uint32_t lastTickMs = 0;
-uint32_t carryMs = 0;
 bool bootFlushPending = false;
 bool wifiOn = false;
 
@@ -225,11 +224,13 @@ void writeRowAt(const uint32_t epoch, const Reading& r, const char* name, const 
     const int t = std::abs(static_cast<int>(r.tempDeciC));
     snprintf(temp, sizeof(temp), "%s%d.%d", r.tempDeciC < 0 ? "-" : "", t / 10, t % 10);
   }
-  // Two decimals when the gauge gave a fraction: "71.43".
-  char pct[8];
+  // Two decimals when the gauge gave a fraction: "71.43". Blank until the gauge
+  // has answered once this boot: getBatteryPercent256() is 0 before the first
+  // good read and the last good one after (HalPowerManager.cpp:318-323).
+  char pct[8] = "";
   if (r.pct256 != 0) {
     snprintf(pct, sizeof(pct), "%u.%02u", r.pct256 >> 8, (r.pct256 & 0xFF) * 100 / 256);
-  } else {
+  } else if (r.pct != 0) {
     snprintf(pct, sizeof(pct), "%u", r.pct);
   }
   char row[160];
@@ -271,45 +272,8 @@ void wifiEnded(const char* why) {
 // The row stays in the PSRAM ring; the next boot flushes it.
 void onRestart() { wifiEnded("restart"); }
 
-namespace {
-
-// Adds the sleep since sleepEpoch to the counters and restarts it at epoch.
-void settleSleep(Stats& s, const uint32_t epoch, const uint16_t pct, const bool usbNow) {
-  if (s.sleepEpoch != 0 && epoch > s.sleepEpoch) {
-    const uint32_t slept = epoch - s.sleepEpoch;
-    s.asleepS += slept;
-    if (!s.sleepUsb && !usbNow) {
-      s.battAsleepS += slept;
-      if (pct < s.sleepPct) s.dropAsleepPct += s.sleepPct - pct;
-    }
-  }
-  s.sleepEpoch = epoch;
-  s.sleepPct = pct;
-  s.sleepUsb = usbNow;
-}
-
-// Charging stopped: the "since last charged" counters start over.
-void markCharged(Stats& s, const uint32_t epoch, const uint16_t pct) {
-  s.chargedEpoch = epoch;
-  s.chargedPct = pct;
-  s.battAwakeS = s.battAsleepS = s.dropAwakePct = s.dropAsleepPct = 0;
-}
-
-// Adds the time since the last tick to the awake counters.
-void tick(const bool onUsb) {
-  const uint32_t nowMs = millis();
-  carryMs += nowMs - lastTickMs;
-  lastTickMs = nowMs;
-  const uint32_t s = carryMs / 1000;
-  carryMs %= 1000;
-  st().awakeS += s;
-  if (!onUsb) st().battAwakeS += s;
-}
-}  // namespace
-
 void onBoot() {
   mainTask = xTaskGetCurrentTaskHandle();
-  lastTickMs = millis();
   readClock();
   readQuick();
   readSlow();
@@ -318,14 +282,6 @@ void onBoot() {
   Stats& s = st();
   const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   const bool wake = cause != ESP_SLEEP_WAKEUP_UNDEFINED;
-  if (wake) {
-    s.wakes++;
-    const uint32_t epoch = epochNow();
-    if (epoch != 0) settleSleep(s, epoch, reading.pct, reading.usb);
-  } else {
-    s.boots++;
-  }
-  s.sleepEpoch = 0;
   // Charge starts/stops that woke the device briefly while it slept. A change
   // undone within kDebounceMs (a flapping STAT line) is dropped with its undo.
   const uint32_t events = std::min(s.sleepEventCount, kMaxSleepEvents);
@@ -340,7 +296,8 @@ void onBoot() {
     r.pct = e.pct;
     r.pct256 = 0;
     r.mv = e.mv;
-    r.chg = r.usb = e.chg;
+    r.chg = e.chg;
+    r.usb = e.chg || e.pct >= kFullPct;  // a charge that ended near full: the cable is still in
     r.tempKnown = false;
     r.light = 0;
     writeRowAt(e.epoch, r, e.chg ? "chg_on" : e.pct >= kFullPct ? "charged" : "chg_off", "asleep");
@@ -358,19 +315,17 @@ void onBoot() {
   seal();
   writeRow(wake ? "wake" : "boot", detail);
   powerManager.wakeOnChargeChange = true;
-  bootFlushPending = true;  // also saves rows a restart or crash left in the ring
+  // After a restart or crash the ring still holds rows the card lacks: write
+  // them soon. A clean deep-sleep wake wiped the ring, so this session's rows
+  // wait for the sleep flush (or the low-battery / 3/4-full flush); a power
+  // cut while awake loses them.
+  bootFlushPending = !(wake && esp_reset_reason() == ESP_RST_DEEPSLEEP);
 }
 
 void onSleep(const char* why) {
-  tick(reading.usb);
   readQuick();
   readSlow();
   wifiEnded("sleep");
-  Stats& s = st();
-  s.sleepEpoch = epochNow();
-  s.sleepPct = reading.pct;
-  s.sleepUsb = reading.usb;
-  seal();
   writeRow("sleep", why);
   flush();
 }
@@ -383,28 +338,23 @@ void poll(const uint32_t idleMs) {
 
   const Reading before = reading;
   readQuick(/*debounce=*/true);
-  tick(before.usb);
-  Stats& s = st();
   if (reading.usb != before.usb) writeRow(reading.usb ? "usb_in" : "usb_out", nullptr);
   if (reading.chg != before.chg) {
-    if (!reading.chg) markCharged(s, epochNow(), reading.pct);
-    // "charged": charging stopped near full with the cable in and settled.
-    const bool full = reading.usb && usbSinceMs == 0 && reading.pct >= kFullPct;
+    // "charged": charging stopped near full with the cable in. Without a USB
+    // host, USB is inferred from charging and drops in the same poll.
+    const bool full = (before.usb || reading.usb) && reading.pct >= kFullPct;
     writeRow(reading.chg ? "chg_on" : full ? "charged" : "chg_off", nullptr);
   }
-  if (reading.pct != before.pct) {
-    if (reading.pct < before.pct && !reading.usb) s.dropAwakePct += before.pct - reading.pct;
-    writeRow("pct", nullptr);
-  }
+  if (reading.pct != before.pct) writeRow("pct", nullptr);
   const bool wifi = WiFi.getMode() != WIFI_OFF;
   if (wifi != wifiOn) {
     wifiOn = wifi;
     writeRow(wifi ? "wifi_on" : "wifi_off", nullptr);
   }
-  seal();
   if (!ringReady || idleMs < kFlushIdleMs) return;
   const uint32_t pending = ring.head - ring.aux;
-  const bool low = !reading.usb && reading.pct <= kLowPct;
+  // Low battery: out in 4 KB lots (not row by row) before a brownout can take the ring.
+  const bool low = !reading.usb && reading.pct <= kLowPct && pending >= kLowFlushBytes;
   if (pending != 0 && (bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) {
     bootFlushPending = false;
   }
@@ -422,10 +372,6 @@ void onChargeWake() {
   const uint32_t epoch = epochNow();
   if (s.sleepEventCount < kMaxSleepEvents) {
     s.sleepEvents[s.sleepEventCount++] = {epoch, r.mv, static_cast<uint8_t>(std::min<uint16_t>(r.pct, 100)), r.chg};
-  }
-  if (epoch != 0) {
-    settleSleep(s, epoch, r.pct, r.chg || r.pct >= kFullPct);
-    if (!r.chg) markCharged(s, epoch, r.pct);
   }
   seal();
   // A flapping STAT line (charger fault blink) stops waking the device once the list is full.
@@ -470,10 +416,12 @@ bool flush() {
   }
   if (file.fileSize() >= kMaxFileBytes) {
     file.close();
-    Storage.remove(OLD_PATH);
-    if (!Storage.rename(LOG_PATH, OLD_PATH)) {
-      LOG_ERR("BAT", "Failed to rotate %s", LOG_PATH);
-      return false;
+    Storage.remove(LOG_PATHS[LOG_FILES - 1]);
+    for (int i = LOG_FILES - 1; i > 0; --i) {
+      if (Storage.exists(LOG_PATHS[i - 1]) && !Storage.rename(LOG_PATHS[i - 1], LOG_PATHS[i])) {
+        LOG_ERR("BAT", "Failed to rotate %s", LOG_PATHS[i - 1]);
+        return false;
+      }
     }
     return flush();  // the fresh file is empty, so this recurses once
   }

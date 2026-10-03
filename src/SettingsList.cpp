@@ -20,6 +20,10 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
                           {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
                           "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY));
+    add(SettingInfo::Enum(
+        StrId::STR_IMAGE_VIEWER, &CrossPointSettings::imageViewerMode,
+        {StrId::STR_SAME_AS_READER, StrId::STR_BW_DARK, StrId::STR_BW, StrId::STR_DITHER, StrId::STR_GRAY},
+        "imageViewerMode", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Toggle(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
                             "quickResumeSleepScreen", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
@@ -215,8 +219,8 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                           {StrId::STR_NO, StrId::STR_NAV_BUTTONS, StrId::STR_ALL_BUTTONS},
                           "frontButtonOrientationAware", StrId::STR_CAT_CONTROLS));
     add(SettingInfo::Enum(StrId::STR_LONG_PRESS_ACTION, &CrossPointSettings::longPressButtonBehavior,
-                          {StrId::STR_LONG_PRESS_BEHAVIOR_OFF, StrId::STR_LONG_PRESS_BEHAVIOR_SKIP,
-                           StrId::STR_CHANGE_FONT_SIZE, StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
+                          {StrId::STR_STATE_OFF, StrId::STR_LONG_PRESS_BEHAVIOR_SKIP, StrId::STR_CHANGE_FONT_SIZE,
+                           StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
                           "longPressButtonBehavior", StrId::STR_CAT_CONTROLS)
             .withEnumRawValues({CrossPointSettings::OFF, CrossPointSettings::CHAPTER_SKIP,
                                 CrossPointSettings::FONT_SIZE_CHANGE, CrossPointSettings::ORIENTATION_CHANGE}));
@@ -264,6 +268,8 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Toggle(StrId::STR_CUSTOM_BOOTSCREEN, &CrossPointSettings::customBootscreenEnabled,
                             "customBootscreenEnabled", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_TURBO_KEYBOARD, &CrossPointSettings::turboKeyboard, "turboKeyboard",
+                            StrId::STR_CAT_SYSTEM));
+    add(SettingInfo::Toggle(StrId::STR_MAX_WIFI_POWERSAVE, &CrossPointSettings::maxWifiPowersave, "maxWifiPowersave",
                             StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                             StrId::STR_CAT_SYSTEM));
@@ -387,8 +393,8 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Value(StrId::STR_CLOCK_UTC_OFFSET, &CrossPointSettings::clockUtcOffsetQ, {0, 104, 1},
                            "clockUtcOffsetQ", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Enum(StrId::STR_CLOCK_DST, &CrossPointSettings::clockDstRule,
-                          {StrId::STR_OFF, StrId::STR_DST_US_CANADA, StrId::STR_DST_EUROPE, StrId::STR_DST_AUSTRALIA,
-                           StrId::STR_DST_NEW_ZEALAND},
+                          {StrId::STR_STATE_OFF, StrId::STR_DST_US_CANADA, StrId::STR_DST_EUROPE,
+                           StrId::STR_DST_AUSTRALIA, StrId::STR_DST_NEW_ZEALAND},
                           "clockDstRule", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Enum(StrId::STR_CLOCK_FORMAT, &CrossPointSettings::clockFormat,
                           {StrId::STR_CLOCK_FORMAT_24H, StrId::STR_CLOCK_FORMAT_12H}, "clockFormat",

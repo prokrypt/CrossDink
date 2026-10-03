@@ -51,7 +51,7 @@ struct PsramPreferAllocator {
   using value_type = T;
   PsramPreferAllocator() noexcept = default;
   template <typename U>
-  // cppcheck-suppress noExplicitConstructor
+  // cppcheck-suppress noExplicitConstructor ; allocator rebind conversion
   PsramPreferAllocator(const PsramPreferAllocator<U>&) noexcept {}
   T* allocate(const size_t n) {
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR) && !defined(CROSSDINK_MEMORY_TEST)

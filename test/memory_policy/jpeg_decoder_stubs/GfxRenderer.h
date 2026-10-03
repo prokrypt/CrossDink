@@ -18,6 +18,7 @@ class GfxRenderer {
   int getWriteRows() const { return height; }
   RenderMode getRenderMode() const { return BW; }
   Orientation getOrientation() const { return LandscapeCounterClockwise; }
+  bool grayPlanesAreAbsolute() const { return false; }
 
  private:
   static constexpr int width = 800;

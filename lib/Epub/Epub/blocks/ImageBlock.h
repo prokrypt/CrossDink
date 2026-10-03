@@ -1,5 +1,6 @@
 #pragma once
 #include <HalStorage.h>
+#include <Memory.h>
 
 #include <atomic>
 #include <memory>
@@ -29,18 +30,22 @@ class ImageBlock final : public Block {
   using ExtractFn = bool (*)(void* context, const char* sourcePath, const char* destinationPath);
   using SeedCacheFn = bool (*)(void* context, const char* sourcePath, int width, int height,
                                const char* destinationPath);
+  // Inflates the source into a memory buffer (PSRAM) and sets size; empty when
+  // memory is short, so the caller extracts to the SD card instead.
+  using LoadFn = HeapByteBuffer (*)(void* context, const char* sourcePath, size_t& size);
   static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache);
 
   // First-view cache build off the render task. beginBackgroundCache() runs on
   // the render task first; buildCacheInBackground() then extracts the source
   // with the given callbacks and decodes it into `target` (an offscreen
-  // renderer) only to write the pixel cache. It touches no session state, so a
+  // renderer) only to write the pixel cache. With `load`, the source is decoded
+  // from memory and never written to the SD card. It touches no session state, so a
   // failure is reported back for rememberFailure() on the render task. While it
   // runs, render() draws this image's placeholder.
   enum class CacheBuild : uint8_t { Built, Failed, Cancelled };
   void beginBackgroundCache() const;
   CacheBuild buildCacheInBackground(GfxRenderer& target, int x, int y, void* context, ExtractFn extract,
-                                    SeedCacheFn seedCache, const std::atomic<bool>& cancel) const;
+                                    SeedCacheFn seedCache, LoadFn load, const std::atomic<bool>& cancel) const;
   void rememberFailure() const;
 
   BlockType getType() override { return IMAGE_BLOCK; }

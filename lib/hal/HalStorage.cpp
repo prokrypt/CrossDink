@@ -15,11 +15,13 @@
 #include "UsbDriveReadAhead.h"
 #endif
 
+#include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <vector>
 
 #include "HalSpiBus.h"
 
@@ -30,9 +32,23 @@
   do {                                          \
     if (ok) LOG_DBG("SDW", fmt, ##__VA_ARGS__); \
   } while (0)
+// An op that took this long, lock wait included, also prints its time.
+constexpr uint32_t SDW_SLOW_US = 100 * 1000;
+#define SDW_LOG_TIMED(ok, startUs, fmt, ...)                                                        \
+  do {                                                                                              \
+    const uint32_t sdwUs_ = micros() - (startUs);                                                   \
+    if (!(ok)) break;                                                                               \
+    if (sdwUs_ >= SDW_SLOW_US)                                                                      \
+      LOG_DBG("SDW", fmt " slow %lu ms", ##__VA_ARGS__, static_cast<unsigned long>(sdwUs_ / 1000)); \
+    else                                                                                            \
+      LOG_DBG("SDW", fmt, ##__VA_ARGS__);                                                           \
+  } while (0)
 #else
 #define SDW_LOG(ok, fmt, ...) \
   do {                        \
+  } while (0)
+#define SDW_LOG_TIMED(ok, startUs, fmt, ...) \
+  do {                                       \
   } while (0)
 #endif
 
@@ -56,7 +72,7 @@ bool extensionIs(const char* ext, const char* expected) {
 }
 
 // Whether a mutation of `path` can change what the Library lists. The Library
-// skips dot-prefixed entries (including /.crosspoint caches) and lists only
+// skips dot-prefixed entries (including /.crossdink caches) and lists only
 // the extensions in library::fileTypeFor(); a path without an extension is
 // treated as a folder. Over-reporting only costs one extra rescan.
 bool affectsLibrary(const char* path) {
@@ -343,6 +359,163 @@ class HalStorage::StorageLock {
   HalStorage::StorageLock lock;               \
   return SDCard.method(__VA_ARGS__);
 
+// CrossDink keeps its data in /.crossdink and reads CrossInk's /.crosspoint in
+// its place: a /.crossdink path that does not exist is read from its
+// /.crosspoint twin, and folder listings show both. Writes always land in
+// /.crossdink; an in-place update (read-write or append open) of a file that
+// only has a twin copies that one file first. A removed path whose twin
+// exists is listed in /.crossdink/.deleted so the twin stops showing through.
+// /.crosspoint is never written, so CrossInk and older builds keep their data.
+// EPUB caches are keyed by content, so lib/Epub copies each book's on its
+// first open instead.
+namespace {
+constexpr char kDataRoot[] = "/.crossdink";
+constexpr size_t kDataRootLen = sizeof(kDataRoot) - 1;
+constexpr char kLegacyRoot[] = "/.crosspoint";
+constexpr char kDeletedList[] = "/.crossdink/.deleted";
+enum class LegacyRoot : uint8_t { Unknown, Absent, Present };
+LegacyRoot legacyRoot = LegacyRoot::Unknown;
+std::vector<uint32_t> deletedPaths;  // hashes of the paths in .deleted
+// Only touched under the storage lock; kept off the caller's task stack.
+char twinPath[256];
+uint8_t copyBuf[512];
+
+uint32_t hashPath(const char* s, const size_t len) {
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < len; i++) h = (h ^ static_cast<uint8_t>(s[i])) * 16777619u;
+  return h;
+}
+
+bool isTempName(const char* name) {
+  const size_t len = strlen(name);
+  for (const char* suffix : {".tmp", ".part", ".stage", ".new"}) {
+    const size_t n = strlen(suffix);
+    if (len >= n && strcmp(name + len - n, suffix) == 0) return true;
+  }
+  return strcmp(name, "ota-update.bin") == 0;
+}
+
+// settings.json(.bak) never reads through: /.crosspoint/settings.json belongs to
+// CrossPoint/CrossInk, and CrossPointSettings imports it explicitly.
+bool inDataRoot(const char* path) {
+  return path && strncmp(path, kDataRoot, kDataRootLen) == 0 &&
+         (path[kDataRootLen] == '/' || path[kDataRootLen] == '\0') && strncmp(path + kDataRootLen, "/epub_", 6) != 0 &&
+         strncmp(path + kDataRootLen, "/settings.json", 14) != 0;
+}
+
+// Caches, thumbnails and covers regenerate in /.crossdink rather than being read
+// from /.crosspoint: book cache folders show through only their user data, and
+// the root-level caches not at all.
+bool twinAllowed(const char* path) {
+  if (path[kDataRootLen] == '\0') return true;
+  const char* first = path + kDataRootLen + 1;
+  for (const char* cache : {"home_carousel_cache.bin", "font-catalog.bin", "sleep_frame.bin", "fileindex"}) {
+    const size_t n = strlen(cache);
+    if (strncmp(first, cache, n) == 0 && (first[n] == '\0' || first[n] == '/')) return false;
+  }
+  if (strncmp(first, "xtc_", 4) != 0 && strncmp(first, "txt_", 4) != 0) return true;
+  const char* slash = strchr(first, '/');
+  return slash && !strchr(slash + 1, '/') && HalStorage::isBookUserData(slash + 1);
+}
+
+// Caller holds the storage lock. True when `path` or a folder above it was removed.
+bool isDeletedLocked(const char* path) {
+  if (deletedPaths.empty()) return false;
+  for (size_t i = kDataRootLen + 1;; i++) {
+    if (path[i] == '/' || path[i] == '\0') {
+      if (std::find(deletedPaths.begin(), deletedPaths.end(), hashPath(path, i)) != deletedPaths.end()) return true;
+    }
+    if (path[i] == '\0') return false;
+  }
+}
+
+// Caller holds the storage lock. The /.crosspoint twin of `path` if it exists
+// and shows through (in twinPath, valid until the lock is released), else null.
+const char* legacyTwinLocked(const char* path) {
+  if (!inDataRoot(path) || !twinAllowed(path)) return nullptr;
+  if (legacyRoot == LegacyRoot::Unknown) {
+    if (!SDCard.ready()) return nullptr;
+    legacyRoot = SDCard.exists(kLegacyRoot) ? LegacyRoot::Present : LegacyRoot::Absent;
+    FsFile list = legacyRoot == LegacyRoot::Present ? SDCard.open(kDeletedList, O_RDONLY) : FsFile();
+    size_t n = 0;
+    for (int c; list && (c = list.read()) >= 0;) {
+      if (c != '\n') {
+        if (n < sizeof(twinPath)) twinPath[n++] = static_cast<char>(c);
+        continue;
+      }
+      deletedPaths.push_back(hashPath(twinPath, n));
+      n = 0;
+    }
+    list.close();
+  }
+  if (legacyRoot == LegacyRoot::Absent || isDeletedLocked(path)) return nullptr;
+  if (snprintf(twinPath, sizeof(twinPath), "%s%s", kLegacyRoot, path + kDataRootLen) >=
+      static_cast<int>(sizeof(twinPath)))
+    return nullptr;
+  return SDCard.exists(twinPath) ? twinPath : nullptr;
+}
+
+// Caller holds the storage lock. Writes create missing /.crossdink folders,
+// since a folder may so far exist only in /.crosspoint.
+void ensureParentLocked(const char* path) {
+  if (!inDataRoot(path)) return;
+  const char* slash = strrchr(path, '/');
+  if (!slash || slash == path) return;
+  const std::string parent(path, slash - path);
+  if (!SDCard.exists(parent.c_str())) SDCard.mkdir(parent.c_str(), true);
+}
+
+// Caller holds the storage lock. Hides the twin of a removed path.
+void markDeletedLocked(const char* path) {
+  size_t len = strlen(path);
+  while (len > kDataRootLen && path[len - 1] == '/') len--;
+  deletedPaths.push_back(hashPath(path, len));
+  SDCard.mkdir(kDataRoot, true);
+  FsFile list = SDCard.open(kDeletedList, O_WRONLY | O_CREAT | O_APPEND);
+  if (!list || list.write(path, len) != len || list.write('\n') != 1) {
+    LOG_ERR("SD", "Cannot record %s in %s", path, kDeletedList);
+  }
+  list.close();
+}
+
+// Caller holds the storage lock. Copies the /.crosspoint file or folder `from`
+// to `to`, keeping whatever `to` already has.
+bool copyTwinLocked(const std::string& from, const std::string& to) {
+  FsFile in = SDCard.open(from.c_str(), O_RDONLY);
+  if (!in) return false;
+  if (in.isDirectory()) {
+    SDCard.mkdir(to.c_str(), true);
+    bool ok = true;
+    char name[64];
+    for (FsFile entry = in.openNextFile(); entry; entry = in.openNextFile()) {
+      const size_t nameLen = entry.getName(name, sizeof(name));
+      entry.close();
+      if (nameLen == 0 || nameLen >= sizeof(name) - 1 || isTempName(name)) continue;
+      ok = copyTwinLocked(from + "/" + name, to + "/" + name) && ok;
+    }
+    in.close();
+    return ok;
+  }
+  if (SDCard.exists(to.c_str())) {
+    in.close();
+    return true;
+  }
+  const std::string part = to + ".part";
+  FsFile out = SDCard.open(part.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+  bool ok = static_cast<bool>(out);
+  for (int n; ok && (n = in.read(copyBuf, sizeof(copyBuf))) != 0;) {
+    ok = n > 0 && out.write(copyBuf, n) == static_cast<size_t>(n);
+  }
+  in.close();
+  ok = ok && out.sync();
+  out.close();
+  if (ok && SDCard.rename(part.c_str(), to.c_str())) return true;
+  SDCard.remove(part.c_str());
+  LOG_ERR("SD", "Copy failed: %s -> %s", from.c_str(), to.c_str());
+  return false;
+}
+}  // namespace
+
 void HalStorage::shutdown() {
   const bool current = libraryScanCurrent();
   rtcLibraryScanCurrent = current ? LIBRARY_SCAN_CURRENT_MAGIC : 0;
@@ -355,33 +528,46 @@ uint64_t HalStorage::totalBytes() const { return SDCard.sdTotalBytes(); }
 
 uint64_t HalStorage::usedBytes() { HAL_STORAGE_WRAPPED_CALL(sdUsedBytes); }
 
-std::vector<String> HalStorage::listFiles(const char* path, int maxFiles) {
-  HAL_STORAGE_WRAPPED_CALL(listFiles, path, maxFiles);
+// The path to read for `path`: itself, or its /.crosspoint twin when only that
+// exists. Caller holds the storage lock; the result is valid until it is released.
+static const char* readablePathLocked(const char* path) {
+  if (!inDataRoot(path) || SDCard.exists(path)) return path;
+  const char* twin = legacyTwinLocked(path);
+  return twin ? twin : path;
 }
 
-String HalStorage::readFile(const char* path) { HAL_STORAGE_WRAPPED_CALL(readFile, path); }
+std::vector<String> HalStorage::listFiles(const char* path, int maxFiles) {
+  HAL_STORAGE_WRAPPED_CALL(listFiles, readablePathLocked(path), maxFiles);
+}
+
+String HalStorage::readFile(const char* path) { HAL_STORAGE_WRAPPED_CALL(readFile, readablePathLocked(path)); }
 
 bool HalStorage::readFileToStream(const char* path, Print& out, size_t chunkSize) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToStream, path, out, chunkSize);
+  HAL_STORAGE_WRAPPED_CALL(readFileToStream, readablePathLocked(path), out, chunkSize);
 }
 
 size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t bufferSize, size_t maxBytes) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, path, buffer, bufferSize, maxBytes);
+  HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, readablePathLocked(path), buffer, bufferSize, maxBytes);
 }
 
 bool HalStorage::writeFile(const char* path, const String& content) {
   if (affectsLibrary(path)) markLibraryContentChanged(path);
+#if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
+#endif
   bool ok;
   {
     StorageLock lock;
+    ensureParentLocked(path);
     ok = SDCard.writeFile(path, content);
   }
-  SDW_LOG(ok, "write - %s %u B", path, static_cast<unsigned>(content.length()));
+  SDW_LOG_TIMED(ok, startUs, "write - %s %u B", path, static_cast<unsigned>(content.length()));
   return ok;
 }
 
 bool HalStorage::ensureDirectoryExists(const char* path) {
 #if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
   bool ok;
   bool existed;
   {
@@ -389,7 +575,7 @@ bool HalStorage::ensureDirectoryExists(const char* path) {
     existed = SDCard.exists(path);
     ok = SDCard.ensureDirectoryExists(path);
   }
-  SDW_LOG(ok && !existed, "mkdir %s", path);
+  SDW_LOG_TIMED(ok && !existed, startUs, "mkdir %s", path);
   return ok;
 #else
   HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path);
@@ -403,23 +589,79 @@ void HalStorage::installDateTimeCallback(const UtcOffsetFn utcOffsetQuarterHours
   LOG_INF("SD", "Installed RTC-backed SD timestamp callback");
 }
 
+// A /.crossdink folder handle that also lists its /.crosspoint twin.
+struct HalFile::LegacyMerge {
+  FsFile dir;            // the /.crosspoint folder, listed after the handle's own entries
+  std::string dataDir;   // the /.crossdink path that was opened
+  bool handleIsLegacy;   // no /.crossdink folder yet: the handle is the twin itself
+  bool ownDone = false;  // the handle's own entries are used up
+  ~LegacyMerge() { dir.close(); }
+
+  // Caller holds the storage lock. A twin entry stays hidden when it was
+  // removed, is an EPUB cache or temp file, or /.crossdink lists it already.
+  bool hides(FsFile& entry) const {
+    char name[64];
+    const size_t nameLen = entry.getName(name, sizeof(name));
+    if (nameLen == 0 || nameLen >= sizeof(name) - 1 || isTempName(name)) return true;
+    const std::string path = dataDir + "/" + name;
+    if (!inDataRoot(path.c_str()) || !twinAllowed(path.c_str())) return true;
+    return isDeletedLocked(path.c_str()) || (!handleIsLegacy && SDCard.exists(path.c_str()));
+  }
+};
+
+#if CROSSDINK_PERF_LOG
+// Lock wait and open time of a write handle, for its [SDW] line. The existence
+// probe (did the open add a directory entry?) runs under the lock but is left
+// out of both.
+struct OpenTiming {
+  uint32_t callUs = micros();
+  uint32_t lockedUs = 0;
+  uint32_t probeUs = 0;
+  bool created = false;
+  void locked(const bool isNew) {
+    const uint32_t gotLockUs = micros();
+    created = isNew;
+    lockedUs = micros();
+    probeUs = lockedUs - gotLockUs;
+  }
+};
+#endif
+
 class HalFile::Impl {
  public:
   Impl(FsFile&& fsFile) : file(std::move(fsFile)) {}
   FsFile file;
+  std::unique_ptr<LegacyMerge> merge;
 #if CROSSDINK_PERF_LOG
   // [SDW] bookkeeping for handles opened to write: one line at close with the
-  // path tail, bytes written and time spent in write().
+  // path, bytes written and time spent in write(); a slow one (open, writes,
+  // close and lock waits over SDW_SLOW_US) also splits that time.
+  void tagWrite(const char* module, const char* path, const OpenTiming& timing) {
+    openUs = micros() - timing.lockedUs;
+    waitUs = timing.lockedUs - timing.callUs - timing.probeUs;
+    created = timing.created;
+    tagWrite(module, path);
+  }
   void tagWrite(const char* module, const char* path) {
     writeModule = module ? module : "-";
-    const size_t len = path ? strlen(path) : 0;
-    const char* tail = len >= sizeof(writePath) ? path + len - (sizeof(writePath) - 1) : (path ? path : "");
-    snprintf(writePath, sizeof(writePath), "%s", tail);
+    if (!path) path = "";
+    // Too long: keep the root and the file name, drop the middle.
+    const size_t len = strlen(path);
+    constexpr size_t head = 16;
+    if (len < sizeof(writePath)) {
+      snprintf(writePath, sizeof(writePath), "%s", path);
+    } else {
+      snprintf(writePath, sizeof(writePath), "%.*s..%s", static_cast<int>(head), path,
+               path + len - (sizeof(writePath) - 1 - head - 2));
+    }
   }
   const char* writeModule = nullptr;
-  char writePath[56] = "";
+  char writePath[80] = "";
   uint32_t writeBytes = 0;
   uint32_t writeUs = 0;
+  uint32_t openUs = 0;
+  uint32_t waitUs = 0;  // waiting for the storage lock, all calls
+  bool created = false;
 #endif
 };
 
@@ -457,13 +699,47 @@ HalFile& HalFile::operator=(HalFile&& other) {
 }
 
 HalFile HalStorage::open(const char* path, const oflag_t oflag) {
-  if ((oflag & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)) != 0 && affectsLibrary(path)) {
+  const bool writing = (oflag & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)) != 0;
+  if (writing && affectsLibrary(path)) {
     markLibraryContentChanged(path);
   }
   FsFile fsFile;
+  std::unique_ptr<HalFile::LegacyMerge> merge;
+#if CROSSDINK_PERF_LOG
+  OpenTiming timing;
+#endif
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
+#if CROSSDINK_PERF_LOG
+    timing.locked(writing && (oflag & O_CREAT) && !SDCard.exists(path));
+#endif
+    if (writing && inDataRoot(path)) {
+      // An in-place update starts from the /.crosspoint copy when that is all there is.
+      if ((oflag & O_TRUNC) == 0 && !SDCard.exists(path)) {
+        const char* twin = legacyTwinLocked(path);
+        if (twin) copyTwinLocked(twin, path);
+      }
+      if (oflag & O_CREAT) ensureParentLocked(path);
+    }
     fsFile = SDCard.open(path, oflag);
+    if (!writing && inDataRoot(path)) {
+      // A folder lists its /.crosspoint twin's entries too; a missing path
+      // reads the twin.
+      const bool found = static_cast<bool>(fsFile);
+      if (!found || fsFile.isDirectory()) {
+        const char* twin = legacyTwinLocked(path);
+        FsFile twinFile = twin ? SDCard.open(twin, O_RDONLY) : FsFile();
+        if (!found) {
+          fsFile = std::move(twinFile);
+          if (fsFile && fsFile.isDirectory())
+            merge.reset(new (std::nothrow) HalFile::LegacyMerge{FsFile(), path, true});
+        } else if (twinFile && twinFile.isDirectory()) {
+          merge.reset(new (std::nothrow) HalFile::LegacyMerge{std::move(twinFile), path, false});
+        } else {
+          twinFile.close();
+        }
+      }
+    }
   }
   PerfLog::noteSdOpen(static_cast<bool>(fsFile));
   if (!fsFile) {
@@ -472,7 +748,7 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
   void* const storage = HalFile::allocateImplStorage();
   HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
   if (!impl) {
-    LOG_ERR("SD", "OOM: HalFile wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
+    LOG_ERR("SD", "OOM: HalFile wrapper for %s (%" PRIu32 " free, %" PRIu32 " max alloc)", path, ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     StorageLock lock;
     fsFile.close();
@@ -481,13 +757,15 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
     return failed;
   }
 #if CROSSDINK_PERF_LOG
-  if ((oflag & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)) != 0) impl->tagWrite(nullptr, path);
+  if (writing) impl->tagWrite(nullptr, path, timing);
 #endif
+  impl->merge = std::move(merge);
   return HalFile(std::move(impl));
 }
 
 bool HalStorage::mkdir(const char* path, const bool pFlag) {
 #if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
   bool ok;
   bool existed;
   {
@@ -496,33 +774,57 @@ bool HalStorage::mkdir(const char* path, const bool pFlag) {
     existed = SDCard.exists(path);
     ok = SDCard.mkdir(path, pFlag);
   }
-  SDW_LOG(ok && !existed, "mkdir %s", path);
+  SDW_LOG_TIMED(ok && !existed, startUs, "mkdir %s", path);
   return ok;
 #else
   HAL_STORAGE_WRAPPED_CALL(mkdir, path, pFlag);
 #endif
 }
 
-bool HalStorage::exists(const char* path) { HAL_STORAGE_WRAPPED_CALL(exists, path); }
+bool HalStorage::exists(const char* path) {
+  StorageLock lock;
+  return SDCard.exists(path) || legacyTwinLocked(path) != nullptr;
+}
 
 bool HalStorage::remove(const char* path) {
   if (affectsLibrary(path)) markLibraryContentChanged(path);
+#if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
+#endif
   bool ok;
   {
     StorageLock lock;
     ok = SDCard.remove(path);
+    if (legacyTwinLocked(path)) {
+      markDeletedLocked(path);
+      ok = true;
+    }
   }
-  SDW_LOG(ok, "remove %s", path);
+  SDW_LOG_TIMED(ok, startUs, "remove %s", path);
   return ok;
 }
 bool HalStorage::rename(const char* oldPath, const char* newPath) {
   if (affectsLibrary(oldPath) || affectsLibrary(newPath)) markLibraryContentChanged(newPath);
+#if CROSSDINK_PERF_LOG
+  const uint32_t startUs = micros();
+#endif
   bool ok;
   {
     StorageLock lock;
+    ensureParentLocked(newPath);
     ok = SDCard.rename(oldPath, newPath);
+    // What only /.crosspoint holds under oldPath moves along as a copy.
+    if (const char* twin = legacyTwinLocked(oldPath)) {
+      const std::string from(twin);
+      if (copyTwinLocked(from, newPath)) {
+        markDeletedLocked(oldPath);
+        ok = true;
+      } else {
+        ok = false;
+      }
+    }
   }
-  SDW_LOG(ok, "rename %s -> %s", oldPath, newPath);
+  SDW_LOG_TIMED(ok, startUs, "rename %s -> %s", oldPath, newPath);
   return ok;
 }
 
@@ -532,6 +834,10 @@ bool HalStorage::rmdir(const char* path) {
   {
     StorageLock lock;
     ok = SDCard.rmdir(path);
+    if (legacyTwinLocked(path)) {
+      markDeletedLocked(path);
+      ok = true;
+    }
   }
   SDW_LOG(ok, "rmdir %s", path);
   return ok;
@@ -555,7 +861,15 @@ bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFi
   bool ok = false;
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
-    if (quietMiss) {
+    if (inDataRoot(path)) {
+      fsFile = SDCard.open(path, O_RDONLY);
+      if (!fsFile) {
+        const char* twin = legacyTwinLocked(path);
+        if (twin) fsFile = SDCard.open(twin, O_RDONLY);
+      }
+      ok = static_cast<bool>(fsFile);
+      if (!ok && !quietMiss) LOG_DBG("SD", "%s: open for read failed: %s", moduleName, path);
+    } else if (quietMiss) {
       // One open, no failure print: a missing file is an expected answer here.
       fsFile = SDCard.open(path, O_RDONLY);
       ok = static_cast<bool>(fsFile);
@@ -570,8 +884,8 @@ bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFi
   void* const storage = HalFile::allocateImplStorage();
   HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
   if (!impl) {
-    LOG_ERR(moduleName, "OOM: HalFile read wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_ERR(moduleName, "OOM: HalFile read wrapper for %s (%" PRIu32 " free, %" PRIu32 " max alloc)", path,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     StorageLock lock;
     fsFile.close();
     return false;
@@ -593,8 +907,15 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
   file.close();
   FsFile fsFile;
   bool ok = false;
+#if CROSSDINK_PERF_LOG
+  OpenTiming timing;
+#endif
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
+#if CROSSDINK_PERF_LOG
+    timing.locked(!SDCard.exists(path));
+#endif
+    ensureParentLocked(path);
     ok = SDCard.openFileForWrite(moduleName, path, fsFile);
   }
   if (!ok) {
@@ -603,14 +924,14 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
   void* const storage = HalFile::allocateImplStorage();
   HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
   if (!impl) {
-    LOG_ERR(moduleName, "OOM: HalFile write wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_ERR(moduleName, "OOM: HalFile write wrapper for %s (%" PRIu32 " free, %" PRIu32 " max alloc)", path,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     StorageLock lock;
     fsFile.close();
     return false;
   }
 #if CROSSDINK_PERF_LOG
-  impl->tagWrite(moduleName, path);
+  impl->tagWrite(moduleName, path, timing);
 #endif
   file = HalFile(std::move(impl));
   return true;
@@ -719,6 +1040,7 @@ int HalFile::read(void* buf, size_t count) {
 int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
 size_t HalFile::write(const void* buf, size_t count) {
 #if CROSSDINK_PERF_LOG
+  const uint32_t callUs = micros();
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
   const uint32_t startUs = micros();
@@ -727,6 +1049,7 @@ size_t HalFile::write(const void* buf, size_t count) {
   PerfLog::noteSdWrite(static_cast<uint32_t>(n), us);
   impl->writeBytes += n;
   impl->writeUs += us;
+  impl->waitUs += startUs - callUs;
   return n;
 #else
   HAL_FILE_WRAPPED_CALL(write, buf, count);
@@ -766,6 +1089,10 @@ void HalFile::rewindDirectory() {
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
   impl->file.rewindDirectory();
+  if (impl->merge) {
+    impl->merge->dir.rewindDirectory();
+    impl->merge->ownDone = false;
+  }
   allocationFailed_ = false;
   // SdFat's read-error bits are sticky for the lifetime of the handle and
   // FsFile does not expose clearError(). Reopen the directory to retry after
@@ -779,19 +1106,39 @@ bool HalFile::close() {
   memcpy(path, impl->writePath, sizeof(path));
   const uint32_t bytes = impl->writeBytes;
   const uint32_t us = impl->writeUs;
+  const uint32_t openUs = impl->openUs;
+  uint32_t waitUs = impl->waitUs;
+  const bool created = impl->created;
+  const uint32_t callUs = micros();
+  uint32_t closeUs = 0;
 #endif
   bool ok;
   {
     HalStorage::StorageLock lock;
+#if CROSSDINK_PERF_LOG
+    const uint32_t lockedUs = micros();
+    waitUs += lockedUs - callUs;
+#endif
     ok = impl->file.close();
+#if CROSSDINK_PERF_LOG
+    closeUs = micros() - lockedUs;
+#endif
     impl.reset();
   }
   allocationFailed_ = false;
   iterationFailed_ = false;
 #if CROSSDINK_PERF_LOG
   // Opened to write: a truncating open is a mutation even with no bytes.
-  SDW_LOG(path[0] != '\0', "write %s %s %lu B %lu ms", module ? module : "-", path, static_cast<unsigned long>(bytes),
-          static_cast<unsigned long>(us / 1000));
+  const uint32_t totalUs = openUs + us + closeUs + waitUs;
+  if (path[0] != '\0' && totalUs >= SDW_SLOW_US) {
+    LOG_DBG("SDW", "write %s %s %lu B %lu ms slow %lu ms: open=%lu close=%lu wait=%lu ms new=%d", module ? module : "-",
+            path, static_cast<unsigned long>(bytes), static_cast<unsigned long>(us / 1000),
+            static_cast<unsigned long>(totalUs / 1000), static_cast<unsigned long>(openUs / 1000),
+            static_cast<unsigned long>(closeUs / 1000), static_cast<unsigned long>(waitUs / 1000), created ? 1 : 0);
+  } else {
+    SDW_LOG(path[0] != '\0', "write %s %s %lu B %lu ms", module ? module : "-", path, static_cast<unsigned long>(bytes),
+            static_cast<unsigned long>(us / 1000));
+  }
 #endif
   return ok;
 }
@@ -800,20 +1147,31 @@ HalFile HalFile::openNextFile() {
   iterationFailed_ = false;
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
-  auto fsFile = impl->file.openNextFile();
-  if (!fsFile) {
-    const uint8_t error = impl->file.getError();
-    if (error != 0) {
-      iterationFailed_ = true;
-      LOG_ERR("SD", "Directory iteration failed (SdFat error 0x%02x)", error);
-    }
+  LegacyMerge* const merge = impl->merge.get();
+  FsFile fsFile;
+  if (!merge || !merge->ownDone) fsFile = impl->file.openNextFile();
+  if (!fsFile && impl->file.getError() != 0) {
+    iterationFailed_ = true;
+    LOG_ERR("SD", "Directory iteration failed (SdFat error 0x%02x)", impl->file.getError());
     return HalFile();
   }
+  if (merge && (merge->handleIsLegacy || !fsFile)) {
+    FsFile& twin = merge->handleIsLegacy ? impl->file : merge->dir;
+    if (!merge->handleIsLegacy) {
+      merge->ownDone = true;
+      fsFile = twin.openNextFile();
+    }
+    while (fsFile && merge->hides(fsFile)) {
+      fsFile.close();
+      fsFile = twin.openNextFile();
+    }
+  }
+  if (!fsFile) return HalFile();
   void* const storage = allocateImplStorage();
   ImplPtr childImpl(storage ? ::new (storage) Impl(std::move(fsFile)) : nullptr);
   if (!childImpl) {
     allocationFailed_ = true;
-    LOG_ERR("SD", "OOM: HalFile directory entry wrapper (%u free, %u max alloc)", ESP.getFreeHeap(),
+    LOG_ERR("SD", "OOM: HalFile directory entry wrapper (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     fsFile.close();
     return HalFile();

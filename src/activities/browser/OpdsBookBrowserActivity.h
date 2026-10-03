@@ -60,6 +60,9 @@ class OpdsBookBrowserActivity final : public Activity {
   bool fetchCancelled = false;
   // Set by loadFeed(): the page came straight from the cache, not the network.
   bool shownFromCache = false;
+  // The server list's background join is still running: loop() checks Wi-Fi
+  // once it has settled instead of the Wi-Fi screen restarting the join.
+  bool awaitingBackgroundJoin = false;
   // PSRAM devices only (null on C3): raw feed pages for Back/Prev, and the
   // background downloads of the next page and the first page's feeds.
   // Declared so the pool is destroyed (joined) before the cache.

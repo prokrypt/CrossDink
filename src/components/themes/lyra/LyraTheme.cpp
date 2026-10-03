@@ -585,11 +585,11 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       char buf[48];
       char statLine[64];
       BookReadingStats::formatDuration(stats->totalReadingSeconds, buf, sizeof(buf));
-      snprintf(statLine, sizeof(statLine), "%s%s", tr(STR_STATS_TOTAL_TIME), buf);
+      snprintf(statLine, sizeof(statLine), "%s %s", tr(STR_STATS_TOTAL_TIME), buf);
       renderer.drawText(SMALL_FONT_ID, textX, titleY, statLine, true);
       titleY += statsLineHeight;
       BookReadingStats::formatDuration(stats->totalReadingSeconds / stats->sessionCount, buf, sizeof(buf));
-      snprintf(statLine, sizeof(statLine), "%s%s", tr(STR_STATS_AVG_SESSION), buf);
+      snprintf(statLine, sizeof(statLine), "%s %s", tr(STR_STATS_AVG_SESSION), buf);
       renderer.drawText(SMALL_FONT_ID, textX, titleY, statLine, true);
       titleY += statsLineHeight;
     }

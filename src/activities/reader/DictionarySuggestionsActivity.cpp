@@ -129,16 +129,12 @@ void DictionarySuggestionsActivity::loop() {
 void DictionarySuggestionsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_DICT_DID_YOU_MEAN), true);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_DICT_DID_YOU_MEAN));
-  }
+  TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_DICT_DID_YOU_MEAN), true);
   uiReady = false;
   app.render();
   uiReady = true;
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

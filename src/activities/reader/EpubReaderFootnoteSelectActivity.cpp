@@ -169,14 +169,16 @@ void EpubReaderFootnoteSelectActivity::render(RenderLock&&) {
 
     bool prewarmSucceeded = prewarmVisibleText();
     if (!prewarmSucceeded && renderer.isSdCardFont(fontId)) {
-      LOG_ERR("FNS", "SD-font page prewarm failed (font=%d free=%u maxAlloc=%u); releasing caches and retrying", fontId,
-              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      LOG_ERR("FNS",
+              "SD-font page prewarm failed (font=%d free=%" PRIu32 " maxAlloc=%" PRIu32
+              "); releasing caches and retrying",
+              fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       renderer.releaseSdCardFontForLowMemory(fontId, /*preserveAdvanceTable=*/true);
       prewarmSucceeded = prewarmVisibleText();
     }
     if (!prewarmSucceeded) {
-      LOG_ERR("FNS", "Font page prewarm failed after retry (font=%d free=%u maxAlloc=%u)", fontId, ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
+      LOG_ERR("FNS", "Font page prewarm failed after retry (font=%d free=%" PRIu32 " maxAlloc=%" PRIu32 ")", fontId,
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
       GUI.drawPopup(renderer, tr(STR_MEMORY_ERROR));
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);

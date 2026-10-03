@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <PerfLog.h>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -50,11 +51,11 @@ int ReaderActivity::initialRefreshCountdown() const {
 ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path) {
   EpubOpenResult result;
   if (!Storage.exists(path.c_str())) {
-    LOG_ERR("READER", "File does not exist: %s", path.c_str());
+    LOG_WRN("READER", "File does not exist: %s", path.c_str());
     return result;
   }
 
-  auto epub = makeUniqueNoThrow<Epub>(path, "/.crosspoint");
+  auto epub = makeUniqueNoThrow<Epub>(path, "/.crossdink");
   if (!epub) {
     LOG_ERR("READER", "Failed to allocate EPUB object");
     result.failure = Epub::OpenFailure::OutOfMemory;
@@ -67,7 +68,9 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   if (uncached) {
     // The popup replaces the restored Quick Resume frame, so the reader must clean it.
     allowFastInitialRefresh = false;
+    const uint32_t popupStartMs = millis();
     GUI.drawPopup(renderer, tr(STR_INDEXING));
+    PerfLog::bookOpenStage("popup", millis() - popupStartMs);
   }
   // Keep one settings snapshot for both EPUB preparation and the reader handoff.
   result.readerSettings = EpubReaderActivity::readBookReaderSettings(*epub);
@@ -75,10 +78,14 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   // rebuild stale/missing CSS and need miniz's ~43 KB streaming workspace. The
   // panel keeps showing its last image, and the next activity redraws fully.
   GfxRenderer::FrameBufferLoan loan(renderer);
+  uint32_t stageStartMs = millis();
   const bool loaded = epub->load(
       true, result.readerSettings.hasSafeModeOverride || result.readerSettings.readerSettings.embeddedStyle == 0,
       Epub::XLocationLoadMode::Immediate, true);
+  PerfLog::bookOpenStage(uncached ? "index" : "meta", millis() - stageStartMs);
+  stageStartMs = millis();
   if (loaded) epub->ensureOptimizerImageIndex();
+  PerfLog::bookOpenStage("imgidx", millis() - stageStartMs);
   loan.end();
   if (loaded) {
     result.epub = std::move(epub);
@@ -103,11 +110,11 @@ void ReaderActivity::queueEpubOpenAlert(const Epub::OpenFailure failure) {
 
 std::unique_ptr<Xtc> ReaderActivity::loadXtc(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
-    LOG_ERR("READER", "File does not exist: %s", path.c_str());
+    LOG_WRN("READER", "File does not exist: %s", path.c_str());
     return nullptr;
   }
 
-  auto xtc = makeUniqueNoThrow<Xtc>(path, "/.crosspoint");
+  auto xtc = makeUniqueNoThrow<Xtc>(path, "/.crossdink");
   if (!xtc) {
     LOG_ERR("READER", "Failed to allocate XTC object");
     return nullptr;
@@ -122,11 +129,11 @@ std::unique_ptr<Xtc> ReaderActivity::loadXtc(const std::string& path) {
 
 std::unique_ptr<Txt> ReaderActivity::loadTxt(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
-    LOG_ERR("READER", "File does not exist: %s", path.c_str());
+    LOG_WRN("READER", "File does not exist: %s", path.c_str());
     return nullptr;
   }
 
-  auto txt = makeUniqueNoThrow<Txt>(path, "/.crosspoint");
+  auto txt = makeUniqueNoThrow<Txt>(path, "/.crossdink");
   if (!txt) {
     LOG_ERR("READER", "Failed to allocate TXT object");
     return nullptr;
@@ -214,8 +221,10 @@ void ReaderActivity::onEnter() {
     }
     onGoToTxtReader(std::move(txt));
   } else {
+    PerfLog::bookOpenBegin();
     auto result = loadEpub(initialBookPath);
     if (!result.epub) {
+      PerfLog::bookOpenEnd();  // the failed open's stages
       queueEpubOpenAlert(result.failure);
       onGoBack();
       return;

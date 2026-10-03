@@ -69,11 +69,12 @@ int findCurrentFontIndex(const SdCardFontRegistry* registry, const char* sdFontF
 }  // namespace
 
 FontSelectionActivity::FontSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                             const SdCardFontRegistry* registry)
+                                             const SdCardFontRegistry* registry, bool readerMode)
     : Activity("FontSelect", renderer, mappedInput),
       registry_(registry),
       uiTarget_(makeUiTarget(renderer)),
-      app_(uiTarget_, uiTarget_.deviceContext()) {}
+      app_(uiTarget_, uiTarget_.deviceContext()),
+      readerMode_(readerMode) {}
 
 void FontSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -379,7 +380,7 @@ void FontSelectionActivity::render(RenderLock&&) {
 
   const auto pageWidth = renderer.getScreenWidth();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_FONT_FAMILY), false);
+  TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_FONT_FAMILY), readerMode_);
 
   const int previewTop = afterHeader;
   const int listTop = previewTop + previewHeight + metrics_.verticalSpacing;
@@ -399,7 +400,7 @@ void FontSelectionActivity::render(RenderLock&&) {
   const char* confirmLabel = onPreviewed ? tr(STR_SELECT) : tr(STR_PREVIEW);
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, readerMode_);
 
   renderer.displayBuffer();
 }

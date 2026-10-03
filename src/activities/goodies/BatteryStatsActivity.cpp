@@ -11,6 +11,7 @@
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Knobs.h>
 #include <Memory.h>
 #include <PerfLog.h>
 #include <WiFi.h>
@@ -23,41 +24,25 @@
 #include <cstring>
 
 #include "MappedInputManager.h"
+#include "activities/home/BookActions.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BatteryEstimate.h"
 #include "util/BatteryLog.h"
+#include "util/BatteryLogSum.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
 
 namespace {
 
-// Pointer to field n (0-based) of a CSV row, or nullptr.
-const char* field(const char* row, int n) {
-  while (n-- > 0) {
-    row = strchr(row, ',');
-    if (!row) return nullptr;
-    ++row;
-  }
-  return row;
-}
-
-// A logged % is whole ("71", older rows and rows logged asleep) or has the
-// CW2017 fraction ("71.43"), so a drop is exact to ±1 or ±0.01: rates and
-// estimates carry that ±, and wait for a 2% drop (0.2% when mostly fractional).
-uint32_t minDropC(const uint32_t dropC, const uint32_t coarseC) { return coarseC * 2 >= dropC ? 200 : 20; }
+// Drops count between fractional rows only ("71.43"); rates and estimates carry
+// the gauge's ± (see LogStats) and wait for a 0.2% drop.
+constexpr uint32_t MIN_DROP_C = 20;
 constexpr char NOT_ENOUGH[] = "not enough data";
-
-// "71.43" -> 7143; fine = the field had a fraction.
-uint16_t parseCenti(const char* field, bool& fine) {
-  char* end = nullptr;
-  const float v = strtof(field, &end);
-  fine = end && memchr(field, '.', end - field) != nullptr;
-  return static_cast<uint16_t>(std::clamp(lroundf(v * 100), 0L, 10000L));
-}
 
 // "12m", "1h 21m", "2d 3h".
 void formatDur(const uint32_t seconds, char* out, const size_t size) {
@@ -80,23 +65,38 @@ void formatPct(char* out, const size_t size, const uint16_t centi, const bool fi
   }
 }
 
-// "4.12±0.20%/h over 5h 10 min".
-void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t coarseC, const uint32_t errC,
-                const uint32_t seconds) {
-  if (dropC < minDropC(dropC, coarseC) || seconds < 60) {
+// "4.12 ±0.20%/h over 5h 10m". errC is the ± squared (0.01 %², see LogStats).
+// perDay shows only the rate per day ("0.99 ±0.20%/day over 6h 8m").
+void formatRate(char* out, const size_t size, const uint32_t dropC, const uint32_t errC, const uint32_t seconds,
+                const bool perDay = false) {
+  if (dropC < MIN_DROP_C || seconds < 60) {
     snprintf(out, size, "%s", NOT_ENOUGH);
     return;
   }
   char span[24];
   formatDur(seconds, span, sizeof(span));
-  snprintf(out, size, "%.2f\xC2\xB1%.2f%%/h over %s", dropC * 36.0f / seconds, errC * 36.0f / seconds, span);
+  const float unit = perDay ? 24.0f : 1.0f;
+  const char* per = perDay ? "day" : "h";
+  const float rate = dropC * 36.0f / seconds * unit, err = sqrtf(static_cast<float>(errC)) * 36.0f / seconds * unit;
+  snprintf(out, size, "%.2f \xC2\xB1%.2f%%/%s over %s", rate, err, per, span);
+}
+
+constexpr uint32_t SUM_MIN_READ = 32 * 1024;  // a load that read less leaves battery.sum as it is
+
+// The live state the estimate is for: brightness (0 = off), +0x100 with Wi-Fi on.
+uint16_t estimateState() {
+  const uint8_t light = Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0;
+  return static_cast<uint16_t>(light | (WiFi.getMode() != WIFI_OFF ? 0x100 : 0));
 }
 }  // namespace
 
 void BatteryStatsActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::flush();  // so the graph includes this session
-  startLoad();          // the page draws at once; the log rows fill in when it is read
+  startLoad();
+  // Rows since battery.sum usually read in a few ms, so the first frame has the
+  // numbers; otherwise the page draws now and they fill in as loop() reads on.
+  step(LOAD_STEP_MS * 2);
   requestUpdate();
 }
 
@@ -107,22 +107,41 @@ void BatteryStatsActivity::onExit() {
 }
 
 // The log is read a few KB at a time from loop() so the page draws and takes
-// input right away; up to 2 x 256 KB of CSV is too much to read in one go.
+// input right away; a full read of up to 4 x 256 KB of CSV is too much for one go.
+// Usually battery.sum leaves only the rows since the last load to read.
 void BatteryStatsActivity::startLoad() {
   file.close();
-  pointCount = 0;
-  st = {};
-  prev = {};
   fill = 0;
-  fileIndex = 0;
+  sumFile = -1;
   // Heap, not stack: 4 KB reads are multi-sector, far faster than 512 B ones.
   if (!buf) buf = makeUniqueNoThrow<char[]>(LOAD_BUF_BYTES);
   if (!buf) LOG_ERR("BAT", "Cannot allocate log buffer");
-  if (buf) file = Storage.open(BatteryLog::OLD_PATH, O_RDONLY);  // only exists after the first rotation
+  if (buf && !resumeFromSum()) {
+    parser = {};
+    parser.stateSkipS = KNOBS.batteryStateSkipS;
+    fileIndex = BatteryLog::LOG_FILES - 1;  // the oldest; missing files read as empty
+    fileOff = 0;
+    file = Storage.open(BatteryLog::LOG_PATHS[fileIndex], O_RDONLY);
+  }
   loading = buf != nullptr;
   loadStartMs = millis();
   loadBytes = 0;
   buildLines();
+}
+
+bool BatteryStatsActivity::resumeFromSum() {
+  int i = 0;
+  uint32_t off = 0;
+  if (!BatteryLogSum::load(parser, i, off)) return false;
+  file = Storage.open(BatteryLog::LOG_PATHS[i], O_RDONLY);
+  if (!file || !file.seekSet(off)) {
+    file.close();
+    return false;
+  }
+  fileIndex = sumFile = i;
+  fileOff = sumOff = off;
+  LOG_INF("BAT", "Resuming the log at %s:%lu", BatteryLog::LOG_PATHS[i], static_cast<unsigned long>(off));
+  return true;
 }
 
 void BatteryStatsActivity::step(const uint32_t budgetMs) {
@@ -133,13 +152,19 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
     if (n <= 0) {
       file.close();
       fill = 0;  // a last row without a newline is still being written
-      if (++fileIndex == 1) {
-        file = Storage.open(BatteryLog::LOG_PATH, O_RDONLY);
+      if (fileOff != 0) {
+        sumFile = fileIndex;
+        sumOff = fileOff;
+      }
+      if (fileIndex > 0) {
+        file = Storage.open(BatteryLog::LOG_PATHS[--fileIndex], O_RDONLY);
+        fileOff = 0;
         continue;
       }
       loading = false;
       buf.reset();
-      endStretch(st);
+      if (loadBytes > SUM_MIN_READ && sumFile >= 0) BatteryLogSum::save(parser, sumFile, sumOff);
+      BatteryLogParser::endStretch(parser.st);
       LOG_INF("BAT", "Stats page read %lu B of log in %lu ms", static_cast<unsigned long>(loadBytes),
               static_cast<unsigned long>(millis() - loadStartMs));
       buildLines();
@@ -153,120 +178,17 @@ void BatteryStatsActivity::step(const uint32_t budgetMs) {
     char* line = buf.get();
     for (char* nl; (nl = strchr(line, '\n')) != nullptr; line = nl + 1) {
       *nl = '\0';
-      parseRow(line);
+      parser.parseRow(line);
     }
-    fill = strlen(line);
+    const size_t rest = strlen(line);
+    fileOff += static_cast<uint32_t>(fill - rest);
+    fill = rest;
     memmove(buf.get(), line, fill);
-    if (fill == LOAD_BUF_BYTES - 1) fill = 0;  // no row is this long; drop it
-  }
-}
-
-void BatteryStatsActivity::endStretch(LogStats& s) {
-  for (int k = 0; k < 2; ++k) {
-    if (s.netC[k] > 0) {
-      s.dropC[k] += static_cast<uint32_t>(s.netC[k]);
-      s.coarseC[k] += static_cast<uint32_t>(std::clamp<int32_t>(s.netCoarseC[k], 0, s.netC[k]));
+    if (fill == LOAD_BUF_BYTES - 1) {  // no row is this long; drop it
+      fileOff += static_cast<uint32_t>(fill);
+      fill = 0;
     }
-    s.netC[k] = s.netCoarseC[k] = 0;
   }
-  s.run = -1;
-}
-
-void BatteryStatsActivity::parseRow(const char* line) {
-  const uint32_t epoch = strtoul(line, nullptr, 10);
-  const char* pctField = field(line, 3);
-  const char* chgField = field(line, 5);
-  const char* usbField = field(line, 6);
-  const char* event = field(line, 9);
-  if (epoch == 0 || !pctField || !chgField || !usbField || !event) return;  // header, or no RTC time
-  const char* detail = field(line, 10);
-  auto is = [event](const char* name) {
-    const size_t len = strlen(name);
-    return strncmp(event, name, len) == 0 && (event[len] == ',' || event[len] == '\0');
-  };
-  bool fine = false;
-  const uint16_t pctC = parseCenti(pctField, fine);
-  const uint8_t pct = static_cast<uint8_t>(pctC / 100);
-  const bool usb = *usbField == '1';
-  const bool asleep = is("sleep") || (detail && strncmp(detail, "asleep", 6) == 0);
-  const bool boot = is("boot");
-  const bool cold = boot && detail && strstr(detail, "reset=POWERON");
-
-  if (is("stats_reset")) {
-    st = {};
-    st.reset = true;
-  } else if (st.first != 0 && prev.epoch != 0 && epoch >= prev.epoch && !cold) {
-    // The span from the previous row is awake or asleep; before a cold boot it was off.
-    const uint32_t dt = epoch - prev.epoch;
-    const int32_t drop = static_cast<int32_t>(prevC) - pctC;  // negative: the gauge rose
-    (prev.awake ? st.awakeS : st.asleepS) += dt;
-    // Drops come from rows of one precision: a whole row (a charger event
-    // logged asleep) inside fractional data counts its time, and the drop is
-    // taken across it from prevC; the step from a whole row to a fractional
-    // one is skipped (its rounding would be a drop of up to 1%).
-    const int cat = prev.awake ? 0 : 1;
-    if (prev.awake && !prevUsb && !usb && fine && prevRowFine &&
-        (st.chargedEpoch == 0 || prev.epoch >= st.chargedEpoch + UNPLUG_SKIP_S)) {
-      const int k = (prevWifi ? 2 : 0) + (prevLight ? 1 : 0);
-      st.stateDropC[k] += static_cast<int32_t>(prevRowC) - pctC;
-      st.stateS[k] += dt;
-      st.stateLight[k] += static_cast<uint64_t>(prevLight) * dt;
-    }
-    if (!prevUsb && !usb && fine == prevFine) {
-      st.battS[cat] += dt;
-      st.netC[cat] += drop;
-      if (!fine) st.netCoarseC[cat] += drop;
-      if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
-      st.run = static_cast<int8_t>(cat);
-      st.runFine = fine;
-    } else if (!prevUsb && !usb && prevFine) {
-      st.battS[cat] += dt;
-    } else {
-      endStretch(st);
-    }
-  } else {
-    endStretch(st);
-  }
-  if (st.first == 0) st.first = epoch;
-  st.last = epoch;
-  if (boot) ++(cold ? st.coldBoots : st.restarts);
-  if (is("wake")) ++st.wakes;
-  if (const char* f = detail ? strstr(detail, "false_wakes=") : nullptr) st.falseWakes += strtoul(f + 12, nullptr, 10);
-  if (usb || *chgField == '1') {
-    if (!st.charging && (st.chargedEpoch == 0 || epoch - st.chargedEpoch >= CHARGE_MERGE_S)) {
-      st.chargeFromC = pctC;
-      st.chargeStartEpoch = epoch;
-      st.chargeFromFine = fine;
-    }
-    st.charging = true;
-  } else if (st.charging) {
-    st.charging = false;
-    st.chargedEpoch = epoch;
-  }
-  if (st.charging || st.chargedEpoch == epoch) {
-    st.chargeToC = pctC;
-    st.chargeToFine = fine;
-  }
-
-  if (pointCount == MAX_POINTS) {
-    std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
-    pointCount = MAX_POINTS / 2;
-  }
-  prev = {epoch, pct, !asleep};
-  // A whole row after fractional ones is not a drop reference, unless a USB
-  // step, power-off gap or reset breaks the chain there.
-  if (fine || !prevFine || usb || prevUsb || is("stats_reset") || cold) {
-    prevC = pctC;
-    prevFine = fine;
-  }
-  prevUsb = usb;
-  prevRowC = pctC;
-  prevRowFine = fine;
-  if (boot || is("wake") || is("sleep") || is("wifi_off")) prevWifi = false;
-  if (is("wifi_on")) prevWifi = true;
-  const char* lightField = field(line, 8);
-  prevLight = lightField ? static_cast<uint8_t>(atoi(lightField)) : 0;
-  points[pointCount++] = prev;
 }
 
 void BatteryStatsActivity::buildLines() {
@@ -274,19 +196,21 @@ void BatteryStatsActivity::buildLines() {
   auto add = [this](const char* fmt, auto... args) {
     if (lineCount < MAX_LINES) snprintf(lines[lineCount++], sizeof(lines[0]), fmt, args...);
   };
-  char a[40], b[40];
+  char a[64], b[40];
 
   static const BatteryMonitor monitor;
   int16_t tempDeci = 0;
   const bool tempKnown = monitor.readTemperatureDeciC(tempDeci);
-  const uint16_t pct = powerManager.getBatteryPercentage();
-  add("%u%%  %umV  %s  %s", pct, monitor.readMillivolts(), monitor.isCharging() ? "charging" : "",
+  const uint32_t pctC = powerManager.getBatteryPercent256() * 100u / 256u;
+  add("%u.%02u%%  %umV  %s  %s", static_cast<unsigned>(pctC / 100), static_cast<unsigned>(pctC % 100),
+      monitor.readMillivolts(), monitor.isCharging() ? "charging" : "",
       gpio.isUsbConnectedCached() ? "USB" : "on battery");
   if (tempKnown) {
     snprintf(lines[lineCount - 1] + strlen(lines[lineCount - 1]), sizeof(lines[0]) - strlen(lines[lineCount - 1]),
              "  %.1fC", tempDeci / 10.0f);
   }
 
+  const auto& st = parser.st;
   if (loading) {
     // Read from loop() in slices (step()); these fill in when it is done.
     for (const char* name : {"Chg", "Awake drain", "Asleep drain", "Est to empty"}) add("%s: calculating...", name);
@@ -304,35 +228,50 @@ void BatteryStatsActivity::buildLines() {
     } else {
       add("Chg: not in the log");
     }
-    formatRate(a, sizeof(a), st.dropC[0], st.coarseC[0], st.errC[0], st.battS[0]);
+    formatRate(a, sizeof(a), st.dropC[0], st.errC[0], st.battS[0]);
     add("Awake drain: %s", a);
-    formatRate(a, sizeof(a), st.dropC[1], st.coarseC[1], st.errC[1], st.battS[1]);
+    formatRate(a, sizeof(a), st.dropC[1], st.errC[1], st.battS[1], true);
     add("Asleep drain: %s", a);
     // Awake drain for the live Wi-Fi and light state; the light's share scales
-    // with brightness against the state's logged average.
-    const bool wifiNow = WiFi.getMode() != WIFI_OFF;
-    const uint8_t lightNow = Frontlight.present() && Frontlight.isOn() ? Frontlight.brightness() : 0;
-    const int k = wifiNow ? 2 : 0;
-    auto rateOf = [this](const int i) {  // 0.01 % per s, 0 = under 0.2% or a minute
-      return st.stateS[i] >= 60 && st.stateDropC[i] >= 20 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i] : 0.0f;
+    // with the LED duty against the state's logged average duty.
+    builtState = estimateState();
+    const bool wifiNow = builtState >> 8;
+    const uint8_t lightNow = builtState & 0xFF;
+    // 0.01 % per s, 0 = under 0.5% or 30 min: one short stretch is mostly the gauge's wander.
+    auto rateOf = [&st](const int i) {
+      return st.stateS[i] >= 1800 && st.stateDropC[i] >= 50 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i]
+                                                            : 0.0f;
     };
-    const float avgLight = st.stateS[k + 1] ? static_cast<float>(st.stateLight[k + 1]) / st.stateS[k + 1] : 0.0f;
-    const float rate = BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), avgLight, lightNow);
+    auto dutyOf = [&st](const int i) {
+      return st.stateS[i] ? static_cast<float>(st.stateDuty[i]) / st.stateS[i] : 0.0f;
+    };
+    // The LED's full-duty drain (0.1 %/h) per duty unit, in 0.01 % per s.
+    const float maxSlope = KNOBS.ledMaxDrain / 360.0f / 1023;
+    auto rateFor = [&](const int k, const int o) {  // k: this Wi-Fi state, o: the other
+      return BatteryEstimate::lightScaledRate(rateOf(k), rateOf(k + 1), dutyOf(k + 1), lightNow,
+                                              BatteryEstimate::ledSlope(rateOf(o), rateOf(o + 1), dutyOf(o + 1)),
+                                              maxSlope);
+    };
+    // Wi-Fi only adds drain, so with it on the estimate never beats Wi-Fi off.
+    const float rate = wifiNow ? std::max(rateFor(2, 0), rateFor(0, 2)) : rateFor(0, 2);
     const uint32_t pctNowC = powerManager.getBatteryPercent256() * 100u / 256u;
     const uint32_t drop = st.dropC[0] + st.dropC[1];
     const uint32_t span = st.battS[0] + st.battS[1];
+    char light[8];
+    snprintf(light, sizeof(light), "%u%%", lightNow);
+    snprintf(b, sizeof(b), "Wi-Fi %s, light %s", wifiNow ? "on" : "off", lightNow ? light : "off");
     if (rate > 0) {
       formatDur(static_cast<uint32_t>(pctNowC / rate), a, sizeof(a));
-      snprintf(b, sizeof(b), "%u%%", lightNow);
-      add("Est to empty: %s (Wi-Fi %s, light %s)", a, wifiNow ? "on" : "off", lightNow ? b : "off");
-    } else if (drop >= minDropC(drop, st.coarseC[0] + st.coarseC[1]) && span >= 60) {
+      add("Est to empty: %s awake (%s)", a, b);
+    } else if (drop >= MIN_DROP_C && span >= 60) {
+      // No awake rate: drop over the whole on-battery span, sleep included.
       // The drop's ± moves the estimate by about left * ± / drop.
       const uint32_t left = static_cast<uint32_t>(static_cast<uint64_t>(pctNowC) * span / drop);
       char err[24];
       formatDur(left, a, sizeof(a));
-      formatDur(static_cast<uint32_t>(static_cast<uint64_t>(left) * (st.errC[0] + st.errC[1]) / drop), err,
+      formatDur(static_cast<uint32_t>(left * sqrtf(static_cast<float>(st.errC[0] + st.errC[1])) / drop), err,
                 sizeof(err));
-      add("Est to empty: %s \xC2\xB1%s (avg)", a, err);
+      add("Est to empty: %s \xC2\xB1%s calendar (%s)", a, err, b);
     } else {
       add("Est to empty: %s", NOT_ENOUGH);
     }
@@ -353,15 +292,14 @@ void BatteryStatsActivity::buildLines() {
   PerfLog::LightSleepStats ls;
   if (PerfLog::lightSleepStats(ls)) {
     formatDur(ls.upS, a, sizeof(a));
-    add("Light sleep %lu (%u%% of %s)  Rej %lu%s%s", static_cast<unsigned long>(ls.sleeps), ls.sleepPct, a,
+    add("LS %lu (%u%% of %s)  Rej %lu%s%s", static_cast<unsigned long>(ls.sleeps), ls.sleepPct, a,
         static_cast<unsigned long>(ls.rejects), ls.rejectCause ? ", last " : "",
         ls.rejectCause ? ls.rejectCauseName : "");
   }
   const auto& c = HalDisplay::refreshCounts().n;
-  add("Session refresh counts: Fast %lu  Half %lu  Full %lu  Gray %lu  Flash %lu",
-      static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]), static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]),
-      static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]), static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]),
-      static_cast<unsigned long>(c[HalDisplay::FLASHING]));
+  add("Ref: Fa %lu  Ha %lu  Fu %lu  Gr %lu  Fl %lu", static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]),
+      static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]), static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]),
+      static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]), static_cast<unsigned long>(c[HalDisplay::FLASHING]));
 
   int8_t panelC = 0;
   uint32_t panelAgeMs = 0;
@@ -384,9 +322,27 @@ Rect BatteryStatsActivity::resetRect() const {
   return Rect{header.x + header.width - w, l.touchRect.y, w, l.touchRect.height};
 }
 
+Rect BatteryStatsActivity::refreshRect() const {
+  const Rect reset = resetRect();
+  const int w = renderer.getTextWidth(UI_10_FONT_ID, tr(STR_DISPLAY_REFRESH)) + 24;
+  return Rect{reset.x - w, reset.y, w, reset.height};
+}
+
+// Re-reads the log and live readings, as on entering the page.
+void BatteryStatsActivity::refresh() {
+  BatteryLog::flush();
+  {
+    RenderLock lock(*this);  // render() reads points and lines
+    startLoad();
+  }
+  // As onEnter(): one frame with the numbers, not one before and one after the read.
+  step(LOAD_STEP_MS * 2);
+  requestUpdate();
+}
+
 void BatteryStatsActivity::confirmReset() {
-  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET) + std::string("?"),
-                                                        tr(STR_BATTERY_STATS));
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(
+      renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_RESET), tr(STR_BATTERY_STATS));
   if (!dialog) {
     LOG_ERR("BAT", "Cannot allocate reset dialog");
     return;
@@ -415,14 +371,34 @@ void BatteryStatsActivity::loop() {
     confirmReset();
     return;
   }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+    refresh();
+    return;
+  }
   if (mappedInput.hasTouchHardware()) {
     const Rect r = resetRect();
     if (mappedInput.wasTapInRect(r.x, r.y, r.width, r.height)) {
       confirmReset();
       return;
     }
+    const Rect f = refreshRect();
+    if (mappedInput.wasTapInRect(f.x, f.y, f.width, f.height)) {
+      refresh();
+      return;
+    }
   }
   if (loading) step(LOAD_STEP_MS);
+  // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
+  // for 1 s. No repaint of its own (a full page refresh after every light
+  // slide); the next frame (scroll, Refresh) shows it.
+  const uint16_t state = estimateState();
+  if (state != seenState) {
+    seenState = state;
+    seenMs = millis();
+  } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
+    RenderLock lock(*this);  // render() reads lines
+    buildLines();
+  }
   const auto swipe = mappedInput.wasSwipe();
   const bool down =
       mappedInput.wasReleased(MappedInputManager::Button::Down) || swipe == MappedInputManager::SwipeDir::Up;
@@ -438,16 +414,21 @@ void BatteryStatsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const Rect r = resetRect();
+  const Rect f = refreshRect();
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width + f.width);
   if (mappedInput.hasTouchHardware()) {
-    const Rect r = resetRect();
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_BATTERY_STATS), false, r.width);
+    // Bordered text buttons (the Update screen's style) in the back icon's
+    // band; the tap targets stay refreshRect() and resetRect().
     const auto l = TouchHeaderBackButton::layout(header);
-    renderer.drawText(UI_10_FONT_ID, r.x + 12,
-                      l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
-                          (l.iconRect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
-                      tr(STR_RESET));
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_BATTERY_STATS));
+    const int by = l.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
+                   (l.iconRect.height - TouchHeaderBackButton::ICON_SIZE) / 2;
+    TouchActionButtons::Layout actions;
+    actions.count = 2;
+    actions.buttons[0] = Rect{f.x + 4, by, f.width - 8, TouchHeaderBackButton::ICON_SIZE};
+    actions.buttons[1] = Rect{r.x + 4, by, r.width - 8, TouchHeaderBackButton::ICON_SIZE};
+    const char* const actionLabels[] = {tr(STR_DISPLAY_REFRESH), tr(STR_RESET)};
+    TouchActionButtons::draw(renderer, actions, actionLabels, -1, -1, UI_10_FONT_ID);
   }
   // Goodies text pages: the list rows' font and label margin.
   const int font = uiScaleSpec().bodyFontId;
@@ -463,6 +444,8 @@ void BatteryStatsActivity::render(RenderLock&&) {
     const int gy = y + gh * q / 4;
     for (int gx = x; gx < x + w; gx += 8) renderer.drawLine(gx, gy, gx + 2, gy);
   }
+  const Point* points = parser.points;
+  const int pointCount = parser.pointCount;
   if (pointCount >= 2 && points[pointCount - 1].epoch > points[0].epoch) {
     const uint32_t t0 = points[0].epoch;
     const uint32_t spanS = points[pointCount - 1].epoch - t0;
@@ -501,7 +484,8 @@ void BatteryStatsActivity::render(RenderLock&&) {
     }
   }
 
-  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_RESET), "", "");
+  const auto labels =
+      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_RESET), "", tr(STR_DISPLAY_REFRESH));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

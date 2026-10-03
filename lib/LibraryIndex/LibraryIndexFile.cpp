@@ -20,6 +20,8 @@ bool LibraryIndexFile::openForReconciliation(const char* path) { return openImpl
 bool LibraryIndexFile::openImpl(const char* path, const bool acceptStaleFold) {
   close();
   readFailed = false;
+  readCalls = 0;
+  readBytes = 0;
   if (!Storage.openFileForRead("LIBIDX", path, file)) {
     readFailed = true;
     return false;
@@ -47,14 +49,42 @@ bool LibraryIndexFile::openImpl(const char* path, const bool acceptStaleFold) {
 
 void LibraryIndexFile::close() {
   if (file.isOpen()) file.close();
+  mem.reset();
+  memSize = 0;
   opened = false;
+}
+
+bool LibraryIndexFile::loadIntoMemory() {
+  if (!opened || mem) return opened && mem;
+  auto copy = makePsramByteBufferNoThrow(head.selfSize);
+  if (!copy) return false;
+  if (!file.seekSet(0) || file.read(copy.get(), head.selfSize) != static_cast<int>(head.selfSize)) {
+    LOG_ERR("LIBIDX", "index copy to PSRAM failed; reading from the card");
+    return false;
+  }
+  readCalls++;
+  readBytes += head.selfSize;
+  mem = std::move(copy);
+  memSize = head.selfSize;
+  file.close();
+  return true;
 }
 
 bool LibraryIndexFile::readAt(const uint32_t offset, void* dst, const size_t len) {
   if (!opened) return false;
+  if (mem) {
+    if (offset > memSize || len > memSize - offset) {
+      readFailed = true;
+      return false;
+    }
+    memcpy(dst, mem.get() + offset, len);
+    return true;
+  }
   // Every offset handed to this function comes from the header, and the header
   // was validated against the real file size, so a short read means the card
   // changed under us rather than a bad computation.
+  readCalls++;
+  readBytes += len;
   if (!file.seekSet(offset) || file.read(dst, len) != static_cast<int>(len)) {
     readFailed = true;
     return false;
@@ -276,10 +306,9 @@ bool LibraryIndexFile::readGenre(const ClixRecord& record, std::string& out) {
   return head.formatVersion >= 3 && readBlobField(record, 4, out);
 }
 
-bool LibraryIndexFile::readSeriesPosition(const ClixRecord& record, uint32_t& out) {
-  out = CLIX_UNKNOWN_SERIES_POSITION;
-  if (!opened || head.formatVersion < 6 || record.nameOff > head.nameLen ||
-      sizeof(uint64_t) + record.nameLen > head.nameLen - record.nameOff)
+// Reads the fixed-size field `skip` bytes past the five length-prefixed text fields.
+bool LibraryIndexFile::readTail(const ClixRecord& record, const uint32_t skip, void* out, const size_t len) {
+  if (!opened || record.nameOff > head.nameLen || sizeof(uint64_t) + record.nameLen > head.nameLen - record.nameOff)
     return false;
   uint32_t at = record.nameOff + sizeof(uint64_t) + record.nameLen;
   for (uint8_t field = 0; field < 5; field++) {
@@ -290,7 +319,33 @@ bool LibraryIndexFile::readSeriesPosition(const ClixRecord& record, uint32_t& ou
     if (length > head.nameLen - at) return false;
     at += length;
   }
-  return at <= head.nameLen && sizeof(out) <= head.nameLen - at && readAt(head.nameStart + at, &out, sizeof(out));
+  return skip <= head.nameLen - at && len <= head.nameLen - at - skip && readAt(head.nameStart + at + skip, out, len);
+}
+
+bool LibraryIndexFile::readSeriesPosition(const ClixRecord& record, uint32_t& out) {
+  out = CLIX_UNKNOWN_SERIES_POSITION;
+  return head.formatVersion >= 6 && readTail(record, 0, &out, sizeof(out));
+}
+
+bool LibraryIndexFile::readContentKey(const ClixRecord& record, uint64_t& out) {
+  out = 0;
+  return head.formatVersion >= 7 && readTail(record, sizeof(uint32_t), &out, sizeof(out));
+}
+
+// ponytail: reads every record's path hash (one small read each); fine for an
+// upload, an index sorted by path hash if this ever runs per page.
+bool LibraryIndexFile::indexedContentKey(const std::string& path, uint64_t& out) {
+  out = 0;
+  LibraryIndexFile index;
+  if (!index.open(CLIX_INDEX_PATH)) return false;
+  const uint64_t pathHash = clixPathHash(path.data(), path.size());
+  for (uint16_t i = 0; i < index.bookCount(); i++) {
+    ClixRecord record;
+    uint64_t hash = 0;
+    if (!index.readRecord(i, record) || !index.readPathHash(record, hash)) break;
+    if (hash == pathHash) return index.readContentKey(record, out) && out != 0;
+  }
+  return false;
 }
 
 bool LibraryIndexFile::readPath(const ClixRecord& record, std::string& out) {

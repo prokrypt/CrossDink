@@ -63,8 +63,8 @@ void saveCachedEpubPercentToCachePath(const std::string& cachePath, const float 
   const float clamped = clampProgressPercent(progress);
   const uint16_t basisPoints = static_cast<uint16_t>((clamped * 100.0f) + 0.5f);
 
-  // Home and the sleep screen recompute this on every visit; a read is cheaper
-  // on the card than rewriting an identical value.
+  // The reader saves this on every exit; a read is cheaper on the card than
+  // rewriting an identical value.
   uint16_t existing = 0;
   if (readCachedEpubBasisPoints(cachePath, existing) && existing == basisPoints) {
     return;
@@ -115,12 +115,12 @@ float loadEpubSizeProgressPercentFromCachePath(const std::string& cachePath) {
         static_cast<float>(prevChapterSize) + (static_cast<float>(currentChapterSize) * chapterProgress);
     progressPercent = clampProgressPercent((totalProgress / static_cast<float>(bookSize)) * 100.0f);
   }
-  saveCachedEpubPercentToCachePath(cachePath, progressPercent);
+  // Computed in memory only: browsing never writes the card. The reader saves the cache on exit.
   return progressPercent;
 }
 
 float loadEpubProgressPercent(const RecentBook& book) {
-  Epub epub(book.path, "/.crosspoint");
+  Epub epub(book.path, "/.crossdink");
   if (!epub.load(false, true)) {
     return -1.0f;
   }
@@ -137,12 +137,11 @@ float loadEpubProgressPercent(const RecentBook& book) {
   const float chapterProgress = static_cast<float>(progress.pageNumber + 1) / static_cast<float>(progress.pageCount);
   const float progressPercent =
       clampProgressPercent(epub.calculateProgress(progress.spineIndex, chapterProgress) * 100.0f);
-  saveCachedEpubPercentToCachePath(epub.getCachePath(), progressPercent);
   return progressPercent;
 }
 
 float loadXtcProgressPercent(const RecentBook& book) {
-  Xtc xtc(book.path, "/.crosspoint");
+  Xtc xtc(book.path, "/.crossdink");
   if (!xtc.load()) {
     return -1.0f;
   }
@@ -165,7 +164,7 @@ float loadXtcProgressPercent(const RecentBook& book) {
 }
 
 float loadTxtProgressPercent(const RecentBook& book) {
-  Txt txt(book.path, "/.crosspoint");
+  Txt txt(book.path, "/.crossdink");
   if (!txt.load()) {
     return -1.0f;
   }
@@ -245,7 +244,10 @@ float RecentBookProgress::loadCachedEpubPercent(const RecentBook& book) {
   if (!FsHelpers::hasEpubExtension(book.path)) {
     return -1.0f;
   }
-  const std::string cachePath = Epub::resolveCachePathForFilePath(book.path, "/.crosspoint");
+  return loadCachedEpubPercentAt(Epub::resolveCachePathForFilePath(book.path, "/.crossdink"));
+}
+
+float RecentBookProgress::loadCachedEpubPercentAt(const std::string& cachePath) {
   const float cachedProgress = loadCachedEpubPercentFromCachePath(cachePath);
   if (cachedProgress >= 0.0f) {
     return cachedProgress;

@@ -88,6 +88,7 @@
 #include "components/themes/BaseTheme.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "network/WifiBackgroundJoin.h"
 #include "network/WifiUtils.h"
 #include "platform/InputTask.h"
 #include "platform/InputWake.h"
@@ -111,6 +112,7 @@
 #include "util/LocalClock.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SleepWakePolicy.h"
+#include "util/TouchNoiseMonitor.h"
 #include "util/TransferLightPulse.h"
 
 GfxRenderer renderer(display);
@@ -121,6 +123,7 @@ SdCardFontSystem sdFontSystem;
 DictionaryRegistry dictionaryRegistry;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 static unsigned long allowSleepAt = 0;
+constexpr unsigned long BOOT_SLEEP_GRACE_MS = 2000;  // power actions ignored this long after boot
 static ButtonShortcutController buttonShortcutController;
 static unsigned long lastX4ProHomeKeyTapAt = 0;
 static bool x4ProHomeKeyTapPending = false;
@@ -178,7 +181,7 @@ size_t getArduinoLoopTaskStackSize(void) { return CROSSDINK_LOOP_STACK_BYTES; }
 #endif
 
 static void logBootHeap(const char* stage) {
-  LOG_DBG("BOOTMEM", "%s: free=%u maxAlloc=%u", stage, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  LOG_DBG("BOOTMEM", "%s: free=%" PRIu32 " maxAlloc=%" PRIu32, stage, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
 // Fonts
@@ -256,52 +259,76 @@ const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
   }
 }
 
-void logMemoryStats(const char* phase, const bool onlyIfChanged = false) {
-  // Periodic lines skip small churn; a new low-water mark always prints.
+void logMemoryStats(const char* phase) {
+#if defined(BOARD_HAS_PSRAM)
+  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u psram free=%u total=%u min=%u maxAlloc=%u", phase,
+          ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), ESP.getFreePsram(),
+          ESP.getPsramSize(), ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
+#else
+  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u", phase, ESP.getFreeHeap(), ESP.getHeapSize(),
+          ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+#endif
+}
+
+// Memory part of the 2 s [SYS] line: empty unless heap or PSRAM moved or the
+// heap low-water mark dropped. The constant totals are in the [MEM] Boot line;
+// PSRAM min/maxAlloc rarely move and print only when they did.
+void formatPeriodicMemory(char* out, const size_t size) {
   constexpr uint32_t PERIODIC_HEAP_DELTA = 1024;
   constexpr uint32_t PERIODIC_PSRAM_DELTA = 8 * 1024;
-  static bool hasPreviousPeriodicStats = false;
+  static bool hasPrevious = false;
   static uint32_t previousFreeHeap = 0;
   static uint32_t previousMinFreeHeap = 0;
-#if defined(BOARD_HAS_PSRAM)
-  static uint32_t previousFreePsram = 0;
-#endif
   const auto movedBy = [](const uint32_t a, const uint32_t b, const uint32_t delta) {
     return (a > b ? a - b : b - a) >= delta;
   };
 
+  out[0] = '\0';
   const uint32_t freeHeap = ESP.getFreeHeap();
   const uint32_t minFreeHeap = ESP.getMinFreeHeap();
+  bool moved =
+      !hasPrevious || movedBy(freeHeap, previousFreeHeap, PERIODIC_HEAP_DELTA) || minFreeHeap != previousMinFreeHeap;
 #if defined(BOARD_HAS_PSRAM)
+  static uint32_t previousFreePsram = 0;
   const uint32_t freePsram = ESP.getFreePsram();
+  moved = moved || movedBy(freePsram, previousFreePsram, PERIODIC_PSRAM_DELTA);
 #endif
+  if (!moved) return;
 
-  if (onlyIfChanged && hasPreviousPeriodicStats && !movedBy(freeHeap, previousFreeHeap, PERIODIC_HEAP_DELTA) &&
-      minFreeHeap == previousMinFreeHeap
+  hasPrevious = true;
+  previousFreeHeap = freeHeap;
+  previousMinFreeHeap = minFreeHeap;
 #if defined(BOARD_HAS_PSRAM)
-      && !movedBy(freePsram, previousFreePsram, PERIODIC_PSRAM_DELTA)
-#endif
-  ) {
-    return;
+  static uint32_t previousMinPsram = 0;
+  static uint32_t previousMaxAllocPsram = 0;
+  previousFreePsram = freePsram;
+  const uint32_t minPsram = ESP.getMinFreePsram();
+  const uint32_t maxAllocPsram = ESP.getMaxAllocPsram();
+  const int written = snprintf(out, size, " heap free=%u min=%u maxAlloc=%u psram free=%u", freeHeap, minFreeHeap,
+                               ESP.getMaxAllocHeap(), freePsram);
+  if (written > 0 && static_cast<size_t>(written) < size &&
+      (minPsram != previousMinPsram || maxAllocPsram != previousMaxAllocPsram)) {
+    previousMinPsram = minPsram;
+    previousMaxAllocPsram = maxAllocPsram;
+    snprintf(out + written, size - written, " min=%u maxAlloc=%u", minPsram, maxAllocPsram);
   }
-
-  if (onlyIfChanged) {
-    hasPreviousPeriodicStats = true;
-    previousFreeHeap = freeHeap;
-    previousMinFreeHeap = minFreeHeap;
-#if defined(BOARD_HAS_PSRAM)
-    previousFreePsram = freePsram;
-#endif
-  }
-
-#if defined(BOARD_HAS_PSRAM)
-  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u psram free=%u total=%u min=%u maxAlloc=%u", phase,
-          freeHeap, ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), freePsram, ESP.getPsramSize(),
-          ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
 #else
-  LOG_INF("MEM", "%s: heap free=%u total=%u min=%u maxAlloc=%u", phase, freeHeap, ESP.getHeapSize(),
-          ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+  snprintf(out, size, " heap free=%u min=%u maxAlloc=%u", freeHeap, minFreeHeap, ESP.getMaxAllocHeap());
 #endif
+}
+
+// One [SYS] line every 2 s with whichever parts have news: memory, then SD and
+// image counters ([PERF] before), then core load with its task list last
+// ([CPU] before). Each part keeps its old field names. The parts append into
+// one 384 B stack buffer on loopTask (its [STK] headroom is logged).
+void logSystemLine() {
+  char line[384];
+  formatPeriodicMemory(line, sizeof(line));
+  size_t used = strlen(line);
+  PerfLog::logPeriodic(line + used, sizeof(line) - used);
+  used += strlen(line + used);
+  CoreLoadLog::formatSinceLast(line + used, sizeof(line) - used);
+  if (line[0] != '\0') LOG_INF("SYS", "%s", line + 1);
 }
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
@@ -638,6 +665,10 @@ bool keepWifiForRemote() {
 #endif
 }
 
+// Set while a Wi-Fi screen hands over to another through NetworkEntryActivity,
+// whose entry check guards the heap that screen runs on.
+static bool networkEntryPending = false;
+
 bool leaveNetworkInPlace(const bool goingHome) {
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
@@ -658,6 +689,13 @@ bool leaveNetworkInPlace(const bool goingHome) {
   if (!readerRenderStackReady) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: render task has the network-boot stack");
     return false;
+  }
+  // Remote kept the link and the next screen is another Wi-Fi screen: nothing
+  // was torn down, and NetworkEntryActivity re-checks the heap (falling back to
+  // a restart into that screen, not Home).
+  if (keepLink && networkEntryPending) {
+    LOG_INF("MAIN", "Leaving Wi-Fi in place: remote keeps the link for the next Wi-Fi screen");
+    return true;
   }
 #if CROSSDINK_PERF_LOG
   logInternalHeapPins();
@@ -744,6 +782,7 @@ class NetworkEntryActivity final : public Activity {
 
   void onEnter() override {
     Activity::onEnter();
+    networkEntryPending = false;
     if (enterNetworkInPlace() && launchNetworkTarget(target_, payload_, /*inPlace=*/true)) return;
     restartToNetworkTarget(target_, payload_);
   }
@@ -765,6 +804,7 @@ void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t paylo
     restartToNetworkTarget(target, payload);
     return;
   }
+  networkEntryPending = true;
   activityManager.replaceActivity(std::move(entry));
 }
 
@@ -830,7 +870,8 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
   auto syncActivity = makeUniqueNoThrow<KOReaderSyncActivity>(renderer, mappedInputManager, std::move(epubPath),
                                                               matchMethod, readerOrientation);
   if (!syncActivity) {
-    LOG_ERR("MAIN", "OOM: KOReader sync activity (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("MAIN", "OOM: KOReader sync activity (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     return false;
   }
   activityManager.replaceActivity(std::move(syncActivity));
@@ -852,8 +893,8 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         activityManager.replaceActivity(std::move(otaActivity));
         launched = true;
       } else {
-        LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                ESP.getMaxAllocHeap());
+        LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       }
       break;
     }
@@ -870,8 +911,8 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         activityManager.replaceActivity(std::move(authActivity));
         launched = true;
       } else {
-        LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                ESP.getMaxAllocHeap());
+        LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       }
       break;
     }
@@ -884,8 +925,8 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         activityManager.replaceActivity(std::move(fontsActivity));
         launched = true;
       } else {
-        LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-                ESP.getMaxAllocHeap());
+        LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       }
       break;
     }
@@ -1370,7 +1411,7 @@ bool handleX4ProHomeKeyShortcuts() {
   return true;
 }
 }  // namespace
-constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
+constexpr char SLEEP_FRAME_FILE[] = "/.crossdink/sleep_frame.bin";
 
 static void saveSleepFrameBuffer() {
   HalFile file;
@@ -1499,6 +1540,50 @@ static void armSleepGuard() {
 #endif
 }
 
+// setup() has no watchdog for blocked waits either (SD mount, I2C, a panel BUSY
+// wait), and the screen still shows the sleep image, so a hang there looks like
+// a wake that never happened. After 60 s, log the last boot phase and reset,
+// like the sleep guard above. Disarmed when setup() returns.
+static const char* bootStep = "init";
+#ifndef SIMULATOR
+static esp_timer_handle_t bootGuard = nullptr;
+#endif
+
+static void bootPhase(const char* name) {
+  bootStep = name;
+  PerfLog::noteBootPhase(name);
+}
+
+static void armBootGuard() {
+#ifndef SIMULATOR
+  const esp_timer_create_args_t args = {
+      .callback =
+          [](void*) {
+            static char why[64];
+            snprintf(why, sizeof(why), "boot stuck after '%s' for 60 s", bootStep);
+            LOG_ERR("BOOT", "%s", why);
+            esp_system_abort(why);
+          },
+      .arg = nullptr,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "bootGuard",
+      .skip_unhandled_events = true,
+  };
+  if (esp_timer_create(&args, &bootGuard) != ESP_OK || esp_timer_start_once(bootGuard, 60 * 1000 * 1000) != ESP_OK) {
+    LOG_ERR("BOOT", "boot guard not armed");
+  }
+#endif
+}
+
+static void disarmBootGuard() {
+#ifndef SIMULATOR
+  if (bootGuard == nullptr) return;
+  esp_timer_stop(bootGuard);
+  esp_timer_delete(bootGuard);
+  bootGuard = nullptr;
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   armSleepGuard();
@@ -1531,6 +1616,7 @@ void enterDeepSleep(bool fromTimeout) {
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
     activityManager.goToSleep(fromTimeout);
+    wifi_background_join::wait();  // the OPDS list's onExit() may have queued the radio off
     HalPowerManager::sleepStep = "sleep writes";
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     flushSettingsStores();
@@ -1588,7 +1674,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
     controllerResolved = true;
     freeink::applyXteinkDisplayController();  // DeviceIdentity::logPanel() below reports the outcome
   }
-  PerfLog::noteBootPhase("probe");
+  bootPhase("probe");
 #endif
 
 #ifdef SIMULATOR
@@ -1614,7 +1700,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
     panelLogged = true;
     DeviceIdentity::logPanel();  // debug builds: exact controller, detect method, VER/MTP
   }
-  PerfLog::noteBootPhase("panel");
+  bootPhase("panel");
 #endif
   renderer.begin();
   display.setInverted(SETTINGS.screenInverted != 0);
@@ -1659,6 +1745,7 @@ void installFlashDuckRenderWait();
 }  // namespace
 
 void setup() {
+  armBootGuard();
   installFlashDuckRenderWait();
 #ifdef SIMULATOR
   SimulatorLifecycle::restoreSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
@@ -1777,6 +1864,8 @@ void setup() {
 
   const auto wakeupReason = gpio.getWakeupReason();
 #ifndef SIMULATOR
+  // Marks for the gap between "Input wake armed" and the IMU/RTC lines.
+  LOG_INF("BOOT", "mark: power-button wake check");
   const bool shortPressWakes = readWakeShortPressFromNvs();
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton &&
       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
@@ -1801,7 +1890,9 @@ void setup() {
   const bool recoveryFirmwareMode = false;
 #endif
 
+  LOG_INF("BOOT", "mark: IMU probe");
   halTiltSensor.begin();
+  LOG_INF("BOOT", "mark: RTC read");
   halClock.begin();
 #ifndef SIMULATOR
   // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
@@ -1854,17 +1945,18 @@ void setup() {
       break;
   }
 
-  PerfLog::noteBootPhase("start");
+  bootPhase("start");
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts(isSilentReboot, !isNetworkResume, useReaderRenderStack);
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
+    disarmBootGuard();
     return;
   }
   logBootHeap("storage ready");
-  PerfLog::noteBootPhase("sd");
+  bootPhase("sd");
 
   HalSystem::checkPanic();
   // Before anything reads progress.bin: replay a position a crash or reset kept
@@ -1897,7 +1989,7 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
-  PerfLog::noteBootPhase("settings");
+  bootPhase("settings");
   // Silent restarts are invisible recovery steps, so they always retain the
   // current light state rather than applying wake or schedule policy. The
   // saved flag can be stale (e.g. schedule kept the light off this wake), so
@@ -1981,7 +2073,7 @@ void setup() {
       SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame) || retainedFrameBoot,
       resume != BootResume::Network, useReaderRenderStack);
   logBootHeap("display and font resolver ready");
-  PerfLog::noteBootPhase("display");
+  bootPhase("display");
 
   switch (resume) {
     case BootResume::Silent:
@@ -1989,7 +2081,7 @@ void setup() {
       // panel keeps showing the pre-reboot popup until that first paint lands.
       break;
     case BootResume::Network:
-      LOG_INF("BOOT", "Minimal network boot ready: target=%lu free=%u maxAlloc=%u",
+      LOG_INF("BOOT", "Minimal network boot ready: target=%lu free=%" PRIu32 " maxAlloc=%" PRIu32,
               static_cast<unsigned long>(snapshotTarget), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       break;
     case BootResume::SplashlessWake:
@@ -2076,7 +2168,8 @@ void setup() {
       activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
     }
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
-             mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
+             mappedInputManager.isPressed(MappedInputManager::Button::Back) ||
+             APP_STATE.readerActivityLoadCount() > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
     // On X4, use the first Home paint to clean the retained sleep image.
@@ -2086,15 +2179,12 @@ void setup() {
             : HalDisplay::FAST_REFRESH;
     activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
   } else {
-    // Clear app state to avoid getting into a boot loop if the epub doesn't load
-    const auto path = APP_STATE.openEpubPath;
-    APP_STATE.openEpubPath = "";
-    APP_STATE.readerActivityLoadCount++;
-    APP_STATE.saveToFile();
-    activityManager.goToReader(path, false, allowFastInitialReaderRefresh);
+    // Count the attempt in RTC so a book that crashes on load boots to Home next time.
+    APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
+    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
   }
 
-  PerfLog::noteBootPhase("route");
+  bootPhase("route");
   if (resume == BootResume::Silent || resume == BootResume::Network) {
     // Block until the first paint physically completes. refreshDisplay()
     // waits on the panel BUSY pin so when this returns the user can see the
@@ -2116,7 +2206,8 @@ void setup() {
   // during long loop work are queued instead of dropped.
   InputTask::begin();
 
-  allowSleepAt = millis() + KNOBS.bootSleepGraceMs;
+  allowSleepAt = millis() + BOOT_SLEEP_GRACE_MS;
+  disarmBootGuard();
 }
 
 namespace {
@@ -2206,10 +2297,15 @@ static void updateFlashDuck() {
   // Goodies offsets (later is positive). The refresh never waits on either: an
   // earlier dim than the driver can announce just cuts the light at DRF.
   const bool gray = kind == HalDisplay::FlashKind::Gray, full = kind == HalDisplay::FlashKind::Full;
-  const int32_t dimMs = gray ? KNOBS.flashGrayDimMs : full ? KNOBS.flashFullDimMs : KNOBS.flashPaintDimMs;
-  const int32_t restoreMs = gray   ? KNOBS.flashGrayRestoreMs
-                            : full ? KNOBS.flashFullRestoreMs
-                                   : KNOBS.flashPaintRestoreMs;
+  const bool grayDark = kind == HalDisplay::FlashKind::GrayDark;
+  const int32_t dimMs = gray       ? KNOBS.flashGrayDimMs
+                        : grayDark ? KNOBS.flashGrayDarkDimMs
+                        : full     ? KNOBS.flashFullDimMs
+                                   : KNOBS.flashPaintDimMs;
+  const int32_t restoreMs = gray       ? KNOBS.flashGrayRestoreMs
+                            : grayDark ? KNOBS.flashGrayDarkRestoreMs
+                            : full     ? KNOBS.flashFullRestoreMs
+                                       : KNOBS.flashPaintRestoreMs;
   // Up early: before the expected end (negative restore). Up late: hold dark
   // after the refresh ended (positive restore).
   const bool restoreEarly =
@@ -2225,7 +2321,7 @@ static void updateFlashDuck() {
   // L46-50; RAM only, so every boot starts from it); Paint (POF 82 + PON 127 +
   // SPI 54 + reset) inferred.
   constexpr uint32_t kMaxLeadMs = 600;
-  static uint16_t leadMs[3] = {75, 180, 330};
+  static uint16_t leadMs[4] = {75, 180, 330, 75};  // by FlashKind (GrayDark plans like Gray)
   static uint8_t leadKind = 0;
   static bool learned = false;      // this flash's lead is stored
   static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
@@ -2235,12 +2331,14 @@ static void updateFlashDuck() {
   // The user (brightness, toggle, Quick Lock) or the light timeout took over.
   if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
   const bool fresh = !flashDuckActive || flashDuckUpStartMs != 0;  // a new flash (back-to-back: from here)
+  // Never duck below 2% of full: lower duty shifts the frontlight color. Every duck level below derives from this.
+  const unsigned long minPct = std::max<unsigned long>(KNOBS.flashDuckMinPct, 2);
   if (!flashDuckActive) {
     if (!ducking || holdLate || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
         Frontlight.idleDimPercent() != 100) {
       return;
     }
-    if (Frontlight.brightness() <= KNOBS.flashDuckMinPct) {
+    if (Frontlight.brightness() <= minPct) {
       static uint32_t skippedMs = 0;  // logged once per flash
       const uint32_t flashMs = markMs != 0 ? markMs : swingMs;
       if (flashMs != skippedMs) {
@@ -2255,12 +2353,10 @@ static void updateFlashDuck() {
   }
   // Each ramp moves only one way from where the light is, between 100% and
   // the Flash Dim Level (a % of the user's brightness; 0 = dark), but never
-  // below flashDuckMinPct of full (rounded up; at 100 the duck is over).
+  // below minPct (>= 2) of full (rounded up; at 100 the duck is over).
   const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
-  const unsigned long floor =
-      std::min<unsigned long>(std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90),
-                                                      (KNOBS.flashDuckMinPct * 100 + b - 1) / b),
-                              100);
+  const unsigned long floor = std::min<unsigned long>(
+      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b), 100);
   static bool darkLogged = false;
   unsigned long level;
   if (ducking) {
@@ -2501,6 +2597,25 @@ static const char* logInputEvents(uint32_t& seq) {
   }
   return kind;
 }
+
+#if CROSSDINK_APP_CAP_TOUCH
+// [IN] touch noise: touch INT wakes that formed no gesture (TouchNoiseMonitor).
+// Every pass, since noise that forms no contact never wakes the loop. Log only.
+static void logTouchNoise(const char* inputKind) {
+  static TouchNoiseMonitor monitor;
+  HalGPIO::CompletedMultiTouchSwipe swipe{};
+  HalGPIO::CompletedMultiTouchRotation rotation{};
+  const bool gesture = (inputKind != nullptr && strcmp(inputKind, "touch") != 0 && strcmp(inputKind, "btn") != 0 &&
+                        strcmp(inputKind, "tilt") != 0) ||
+                       gpio.wasCompletedMultiTouchSwipe(swipe) || gpio.wasCompletedMultiTouchRotation(rotation);
+  float nx = 0, ny = 0;
+  const bool contact = inputKind != nullptr && gpio.wasTouchDown(nx, ny);
+  if (monitor.update(millis(), InputWake::touchWakeTotal(), gesture, contact)) {
+    LOG_INF("IN", "touch noise: %lu wakes, 0 gestures, %lu contacts in %lus", static_cast<unsigned long>(monitor.wakes),
+            static_cast<unsigned long>(monitor.contacts), static_cast<unsigned long>(monitor.spanMs / 1000));
+  }
+}
+#endif
 #endif
 
 // Set by every wait at the end of a pass; early returns skip those waits.
@@ -2508,9 +2623,10 @@ static bool loopPassBlocked = false;
 
 static void loopPass() {
   static unsigned long maxLoopDuration = 0;
+  static unsigned long lastSlowLoopLog = 0;
   const unsigned long loopStartTime = millis();
   PerfLog::noteLoopPass();
-  static unsigned long lastMemPrint = 0;
+  static unsigned long lastSysLog = 0;
 
   // Keep release suppression in the mapped-input layer in sync with every
   // hardware input frame. A shortcut may open an activity that never queries
@@ -2551,17 +2667,11 @@ static void loopPass() {
 
   // Not gated on Serial: without a USB host these lines still reach the
   // PSRAM log ring (debug builds), which is how they get read off the device.
-  if (millis() - lastMemPrint >= 2000) {
-    logMemoryStats("Periodic", true);
-    lastMemPrint = millis();
+  if (millis() - lastSysLog >= 2000) {
+    logSystemLine();
+    lastSysLog = millis();
   }
   Frontlight.flushLog();
-  static unsigned long lastCoreLoadLog = 0;
-  if (millis() - lastCoreLoadLog >= 2000) {
-    CoreLoadLog::logSinceLast();
-    PerfLog::logPeriodic();
-    lastCoreLoadLog = millis();
-  }
 
   if (!buttonShortcutController.isQuickLocked() && UsbSerialFileTransfer::process(activityManager.isHomeActivity()) ==
                                                        UsbSerialFileTransfer::ProcessResult::ScreenshotRequested) {
@@ -2569,7 +2679,7 @@ static void loopPass() {
     // never a half-drawn frame.
     RenderLock lock;
     const uint32_t bufferSize = display.getBufferSize();
-    logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
+    logSerial.printf("SCREENSHOT_START:%" PRIu32 "\n", bufferSize);
     uint8_t* buf = display.getFrameBuffer();
     logSerial.write(buf, bufferSize);
     logSerial.printf("SCREENSHOT_END\n");
@@ -2583,11 +2693,15 @@ static void loopPass() {
 #endif
                                  || halTiltSensor.hadActivity();
 #if CROSSDINK_PERF_LOG
+  const char* inputKind = nullptr;
   if (userInputReceived) {
     uint32_t inputSeq = 0;
-    const char* inputKind = logInputEvents(inputSeq);
+    inputKind = logInputEvents(inputSeq);
     PerfLog::noteInput(/*release=*/!gpio.wasAnyPressed() && gpio.wasAnyReleased(), inputKind, inputSeq);
   }
+#if CROSSDINK_APP_CAP_TOUCH
+  logTouchNoise(inputKind);
+#endif
 #endif
 
   // User input paces power saving. Background work that only has to keep the
@@ -2805,7 +2919,7 @@ static void loopPass() {
       lastHeaderStatusPoll = millis();
       const int shownWifi = BaseTheme::wifiStatusShown();
       const int shownPercent = BaseTheme::batteryPercentShown();
-      const int connected = hasActiveStationWifiConnection() ? 1 : 0;
+      const int connected = wifiHeaderBars();
       // Every 10 s: ADC boards smooth the percent on each read, so a faster
       // poll would move it (gauge reads are cached for BATTERY_POLL_MS).
       static int percent = -1;
@@ -2817,8 +2931,10 @@ static void loopPass() {
         percent = powerManager.getBatteryPercentage();
       }
       const bool inputPaused = millis() - lastActivityTime >= 2000;
-      const bool stale = shownWifi != connected || (inputPaused && shownPercent != percent);
-      const int want = connected << 8 | percent;
+      // Only the link coming or going repaints; bar-count changes wait for a repaint that happens anyway.
+      const bool linkChanged = (shownWifi == 0) != (connected == 0);
+      const bool stale = linkChanged || (inputPaused && shownPercent != percent);
+      const int want = (connected > 0) << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
       } else if (requestedFor != want) {
@@ -2876,6 +2992,11 @@ static void loopPass() {
               activityManager.currentActivityName(), activityDuration, loopDuration - activityDuration);
       (void)activityDuration;
     }
+  } else if (loopDuration >= 200 && millis() - lastSlowLoopLog >= 5000) {
+    // Stalls below the boot's maximum, at most one line per 5 s.
+    lastSlowLoopLog = millis();
+    LOG_DBG("LOOP", "Slow loop: %lu ms (activity %s: %lu ms, rest of loop: %lu ms)", loopDuration,
+            activityManager.currentActivityName(), activityDuration, loopDuration - activityDuration);
   }
 
   // Add delay at the end of the loop to prevent tight spinning

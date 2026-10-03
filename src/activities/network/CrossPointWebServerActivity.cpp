@@ -18,11 +18,11 @@
 #include "activities/ActivityManager.h"
 #include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
-#include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/NetworkName.h"
+#include "network/WifiUtils.h"
 #include "util/BatteryLog.h"
 #include "util/QrUtils.h"
 
@@ -57,15 +57,6 @@ void restartMdns(const char* hostname, const char* tag) {
   }
 }
 
-// 0..4 bars from RSSI (dBm), with 3 dBm hysteresis on currentBars to suppress flicker.
-int barsForRssi(int rssi, int currentBars) {
-  static constexpr int RISE_DBM[] = {-85, -75, -65, -55};
-  static constexpr int FALL_DBM[] = {-88, -78, -68, -58};
-  int bars = std::clamp(currentBars, 0, 4);
-  while (bars < 4 && rssi >= RISE_DBM[bars]) bars++;
-  while (bars > 0 && rssi < FALL_DBM[bars - 1]) bars--;
-  return bars;
-}
 }  // namespace
 
 void CrossPointWebServerActivity::onEnter() {
@@ -84,7 +75,7 @@ void CrossPointWebServerActivity::onEnter() {
   }
   sdFontSystem.releaseForNetwork(renderer);
 
-  LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap at onEnter: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Reset state
   state = WebServerActivityState::MODE_SELECTION;
@@ -149,7 +140,7 @@ void CrossPointWebServerActivity::onExit() {
     }
   }
 
-  LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap at onExit end: %" PRId32 " bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
@@ -214,7 +205,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     // The child activity must survive this callback; allocate only its small control object on the heap.
     auto calibreActivity = makeUniqueNoThrow<CalibreConnectActivity>(renderer, mappedInput, !returnBookPath.empty());
     if (!calibreActivity) {
-      LOG_ERR("WEBACT", "OOM: Calibre activity (size=%u free=%u maxAlloc=%u)",
+      LOG_ERR("WEBACT", "OOM: Calibre activity (size=%u free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
               static_cast<unsigned>(sizeof(CalibreConnectActivity)), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       exitToOrigin();
       return;
@@ -288,7 +279,7 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
 }
 
 void CrossPointWebServerActivity::startAccessPoint() {
-  LOG_DBG("WEBACT", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap before AP start: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Configure and start the AP
   WiFi.mode(WIFI_AP);
@@ -328,7 +319,7 @@ void CrossPointWebServerActivity::startAccessPoint() {
   dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer->start(DNS_PORT, "*", apIP);
 
-  LOG_DBG("WEBACT", "Free heap after AP start: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap after AP start: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Start the web server
   startWebServer();
@@ -471,7 +462,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
 
 void CrossPointWebServerActivity::renderHeader() const {
   const char* title = isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER);
-  TouchHeaderBackButton::drawCompact(renderer, title);
+  TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), title, false);
 }
 
 bool CrossPointWebServerActivity::exitRequested() const {
@@ -480,78 +471,64 @@ bool CrossPointWebServerActivity::exitRequested() const {
          (webServer && webServer->consumeExitRequest());
 }
 
+namespace {
+// Draws a QR code centred at y with its caption (and optional small caption)
+// directly below it; returns the y just below the last caption.
+int drawCenteredQr(const GfxRenderer& renderer, int y, const std::string& payload, const char* caption,
+                   const char* smallCaption = nullptr) {
+  const Rect bounds((renderer.getScreenWidth() - QR_CODE_WIDTH) / 2, y, QR_CODE_WIDTH, QR_CODE_HEIGHT);
+  QrUtils::drawQrCode(renderer, bounds, payload);
+  y += QR_CODE_HEIGHT + UITheme::getInstance().getMetrics().verticalSpacing;
+  renderer.drawCenteredText(UI_10_FONT_ID, y, caption);
+  y += renderer.getLineHeight(UI_10_FONT_ID);
+  if (smallCaption) {
+    renderer.drawCenteredText(SMALL_FONT_ID, y, smallCaption);
+    y += renderer.getLineHeight(SMALL_FONT_ID);
+  }
+  return y;
+}
+}  // namespace
+
 void CrossPointWebServerActivity::renderServerRunning() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
 
   renderHeader();
-  const int subHeaderTop = CompactHeader::contentTop(metrics);
+  const int subHeaderTop = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
   GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
   if (!isApMode) {
     renderWifiIndicator(subHeaderTop);
   }
 
-  int startY = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing * 2;
-  int height10 = renderer.getLineHeight(UI_10_FONT_ID);
+  int startY = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing;
+  const int height10 = renderer.getLineHeight(UI_10_FONT_ID);
   if (isApMode) {
-    // AP mode display
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_CONNECT_WIFI_HINT), true,
-                      EpdFontFamily::BOLD);
-    startY += height10 + metrics.verticalSpacing * 2;
+    renderer.drawCenteredText(UI_10_FONT_ID, startY, tr(STR_CONNECT_WIFI_HINT), true, EpdFontFamily::BOLD);
+    startY += height10 + metrics.verticalSpacing;
 
-    // Show QR code for Wifi
-    // follows spec at https://github.com/zxing/zxing/wiki/Barcode-Contents#wi-fi-network-config-android-ios-11
+    // Wi-Fi QR follows spec at
+    // https://github.com/zxing/zxing/wiki/Barcode-Contents#wi-fi-network-config-android-ios-11
     const std::string wifiConfig = std::string("WIFI:T:nopass;S:") + connectedSSID + ";;";
-    const Rect qrBoundsWifi(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
-    QrUtils::drawQrCode(renderer, qrBoundsWifi, wifiConfig);
+    startY = drawCenteredQr(renderer, startY, wifiConfig, connectedSSID.c_str()) + metrics.verticalSpacing;
 
-    // Show network name
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      connectedSSID.c_str());
+    renderer.drawCenteredText(UI_10_FONT_ID, startY, tr(STR_OPEN_URL_HINT), true, EpdFontFamily::BOLD);
+    startY += height10 + metrics.verticalSpacing;
 
-    startY += QR_CODE_HEIGHT + 2 * metrics.verticalSpacing;
-
-    // Show primary URL (hostname)
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_OPEN_URL_HINT), true,
-                      EpdFontFamily::BOLD);
-    startY += height10 + metrics.verticalSpacing * 2;
-
-    std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
-    std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
-
-    // Show QR code for URL
-    const Rect qrBoundsUrl(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
-    QrUtils::drawQrCode(renderer, qrBoundsUrl, hostnameUrl);
-
-    // Show IP address as fallback
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      hostnameUrl.c_str());
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 100,
-                      ipUrl.c_str());
+    // Hostname URL first, IP address as fallback.
+    const std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
+    const std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
+    drawCenteredQr(renderer, startY, hostnameUrl, hostnameUrl.c_str(), ipUrl.c_str());
   } else {
-    startY += metrics.verticalSpacing * 2;
-
-    // STA mode display (original behavior)
-    // std::string ipInfo = "IP Address: " + connectedIP;
     renderer.drawCenteredText(UI_10_FONT_ID, startY, tr(STR_OPEN_URL_HINT), true, EpdFontFamily::BOLD);
     startY += height10;
     renderer.drawCenteredText(UI_10_FONT_ID, startY, tr(STR_SCAN_QR_HINT), true, EpdFontFamily::BOLD);
-    startY += height10 + metrics.verticalSpacing * 2;
+    startY += height10 + metrics.verticalSpacing;
 
-    // Show QR code for URL
-    std::string webInfo = "http://" + connectedIP + "/";
-    const Rect qrBounds((pageWidth - QR_CODE_WIDTH) / 2, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
-    QrUtils::drawQrCode(renderer, qrBounds, webInfo);
-    startY += QR_CODE_HEIGHT + metrics.verticalSpacing * 2;
-
-    // Show web server URL prominently
-    renderer.drawCenteredText(UI_10_FONT_ID, startY, webInfo.c_str(), true);
-    startY += height10 + 5;
-
-    // Also show hostname URL
-    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
-    renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
+    // IP URL first, hostname as fallback.
+    const std::string webInfo = "http://" + connectedIP + "/";
+    const std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
+    drawCenteredQr(renderer, startY, webInfo, webInfo.c_str(), hostnameUrl.c_str());
   }
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_EXIT)), "", "", "");

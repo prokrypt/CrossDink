@@ -8,9 +8,9 @@
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#include "activities/home/BookActions.h"
 #include "activities/network/WifiSelectionActivity.h"
-#include "components/CompactHeader.h"
-#include "components/TouchActionButtons.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -24,15 +24,6 @@ StrId failureMessageFor(const OtaUpdater::OtaUpdaterError error) {
   if (error == OtaUpdater::WRONG_DEVICE_ERROR) return StrId::STR_FIRMWARE_WRONG_DEVICE;
   if (error == OtaUpdater::SD_CARD_FULL_ERROR) return StrId::STR_SD_CARD_FULL;
   return StrId::STR_UPDATE_FAILED;
-}
-
-TouchActionButtons::Layout getOtaActionLayout(const GfxRenderer& renderer) {
-  constexpr int sideMargin = 24;
-  constexpr int bottomMargin = 12;
-  constexpr int totalHeight = TouchActionButtons::kDefaultHeight * 2 + TouchActionButtons::kDefaultGap;
-  return TouchActionButtons::vertical(Rect{sideMargin, renderer.getScreenHeight() - bottomMargin - totalHeight,
-                                           std::max(1, renderer.getScreenWidth() - sideMargin * 2), totalHeight},
-                                      2);
 }
 }  // namespace
 
@@ -82,7 +73,18 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
     RenderLock lock(*this);
     state = WAITING_CONFIRMATION;
   }
-  requestUpdate(true);
+  // Draw the version page first so the popup opens over it.
+  requestUpdateAndWait();
+  auto confirm = std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                        BookActions::confirmationHeading(StrId::STR_UPDATE), "");
+  confirm->setConfirmOption(tr(STR_UPDATE), false);
+  startActivityForResult(std::move(confirm), [this](const ActivityResult& result) {
+    if (result.isCancelled) {
+      finish();
+      return;
+    }
+    runUpdateInstall();
+  });
 }
 
 void OtaUpdateActivity::onEnter() {
@@ -125,17 +127,10 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  // One header style in every state; the back icon only shows where Back works.
   const bool canGoBack = state == WAITING_CONFIRMATION || state == FAILED || state == NO_UPDATE;
-  if (mappedInput.hasTouchHardware()) {
-    if (canGoBack) {
-      TouchHeaderBackButton::draw(renderer, header, tr(STR_UPDATE), false);
-    } else {
-      CompactHeader::drawTitle(renderer, tr(STR_UPDATE));
-    }
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_UPDATE));
-  }
+  TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), tr(STR_UPDATE), false,
+                              0, nullptr, TouchHeaderBackButton::TITLE_VERTICAL_OFFSET, true, canGoBack);
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - height) / 2;
 
@@ -152,20 +147,12 @@ void OtaUpdateActivity::render(RenderLock&&) {
   if (state == CHECKING_FOR_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
   } else if (state == WAITING_CONFIRMATION) {
+    // The confirmation popup opened by onWifiSelectionComplete() sits over this page.
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height + metrics.verticalSpacing,
-                      (std::string(tr(STR_CURRENT_VERSION)) + AppVersion::version()).c_str());
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height * 2 + metrics.verticalSpacing * 2,
-                      (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
-
-    if (mappedInput.hasTouch()) {
-      const auto actions = getOtaActionLayout(renderer);
-      const char* labels[] = {tr(STR_UPDATE), tr(STR_CANCEL)};
-      TouchActionButtons::draw(renderer, actions, labels, 0, -1, UI_10_FONT_ID);
-    }
-
-    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_UPDATE), "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.drawCenteredText(UI_10_FONT_ID, top + height + metrics.verticalSpacing,
+                              (std::string(tr(STR_CURRENT_VERSION)) + " " + AppVersion::version()).c_str());
+    renderer.drawCenteredText(UI_10_FONT_ID, top + height * 2 + metrics.verticalSpacing * 2,
+                              (std::string(tr(STR_NEW_VERSION)) + " " + updater.getLatestVersion()).c_str());
   } else if (state == UPDATE_IN_PROGRESS) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING));
 
@@ -257,34 +244,6 @@ void OtaUpdateActivity::loop() {
   if ((state == WAITING_CONFIRMATION || state == FAILED || state == NO_UPDATE) &&
       TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
     finish();
-    return;
-  }
-
-  if (state == WAITING_CONFIRMATION) {
-    int x = 0;
-    int y = 0;
-    if (mappedInput.wasScreenTapped(x, y)) {
-      const auto actions = getOtaActionLayout(renderer);
-      const int action = TouchActionButtons::indexAt(actions, x, y);
-      if (action == 0) {
-        runUpdateInstall();
-        return;
-      }
-      if (action == 1) {
-        finish();
-        return;
-      }
-    }
-
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      runUpdateInstall();
-      return;
-    }
-
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      finish();
-    }
-
     return;
   }
 

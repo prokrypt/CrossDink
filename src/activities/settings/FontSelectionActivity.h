@@ -16,7 +16,7 @@
 class FontSelectionActivity final : public Activity {
  public:
   explicit FontSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                 const SdCardFontRegistry* registry);
+                                 const SdCardFontRegistry* registry, bool readerMode = false);
 
   void onEnter() override;
   void onExit() override;
@@ -53,6 +53,7 @@ class FontSelectionActivity final : public Activity {
   freeink::ui::GfxRendererTarget uiTarget_;
   UiApp app_;
   std::atomic<bool> uiReady_{false};
+  bool readerMode_ = false;
   int visibleRows_ = 1;
   int topIndex_ = 0;
   bool initialViewportPending_ = true;

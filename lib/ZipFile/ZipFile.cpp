@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 
 struct ZipInflateCtx {
   HalFile* file = nullptr;
@@ -107,15 +108,15 @@ bool ZipFileStreamReader::begin(const std::string& zipPathIn, const char* filena
 
   readBuffer = static_cast<uint8_t*>(malloc(chunkSize));
   if (!readBuffer) {
-    LOG_ERR("ZIP", "Failed to allocate cooperative read buffer (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap(), chunkSize);
+    LOG_ERR("ZIP", "Failed to allocate cooperative read buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
     abort();
     return false;
   }
   outputBuffer = static_cast<uint8_t*>(malloc(chunkSize));
   if (!outputBuffer) {
-    LOG_ERR("ZIP", "Failed to allocate cooperative output buffer (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap(), chunkSize);
+    LOG_ERR("ZIP", "Failed to allocate cooperative output buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
     abort();
     return false;
   }
@@ -125,8 +126,8 @@ bool ZipFileStreamReader::begin(const std::string& zipPathIn, const char* filena
     inflateCtx.readBuf = readBuffer;
     inflateCtx.readBufSize = chunkSize;
     if (!inflateCtx.reader.init(true)) {
-      LOG_ERR("ZIP", "Failed to init cooperative inflate reader (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap(), chunkSize);
+      LOG_ERR("ZIP", "Failed to init cooperative inflate reader (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       abort();
       return false;
     }
@@ -343,6 +344,9 @@ bool ZipFile::loadFileStatSlim(const char* filename, FileStatSlim* fileStat) {
 
   if (!loadZipDetails()) return false;
 
+  bool tableFound = false;
+  if (lookupDirectoryTable(filename, fileStat, tableFound)) return tableFound;
+
   // Phase 1: Try scanning from cursor position first
   uint32_t startPos = lastCentralDirPosValid ? lastCentralDirPos : zipDetails.centralDirOffset;
   bool wrapped = false;
@@ -406,6 +410,101 @@ bool ZipFile::loadFileStatSlim(const char* filename, FileStatSlim* fileStat) {
   }
 
   return found;
+}
+
+namespace {
+// Every Epub call builds a temporary ZipFile, so the open book's central
+// directory lives here: (name hash, length) -> stat, sorted for binary search.
+// Keyed by path, size and EOCD so a replaced file rebuilds it. 28 B per entry
+// (a 2000-entry book is 56 KB), in PSRAM on device; never internal RAM.
+// ponytail: one zip at a time; opening another evicts it. 64-bit name hash, no name check.
+struct DirectoryEntry {
+  uint32_t hashLo, hashHi;  // 4-byte alignment: heap_caps_malloc guarantees no more
+  uint16_t len;
+  ZipFile::FileStatSlim stat;
+  uint64_t hash() const { return (uint64_t{hashHi} << 32) | hashLo; }
+};
+bool operator<(const DirectoryEntry& a, const DirectoryEntry& b) {
+  return a.hash() < b.hash() || (a.hash() == b.hash() && a.len < b.len);
+}
+DirectoryEntry directoryKey(const char* name, const uint16_t len) {
+  const uint64_t hash = ZipFile::fnvHash64(name, len);
+  return {static_cast<uint32_t>(hash), static_cast<uint32_t>(hash >> 32), len, {}};
+}
+struct DirectoryTable {
+  std::mutex mutex;
+  std::string path;
+  size_t fileSize = 0;
+  uint32_t offset = 0;
+  uint16_t total = 0;
+  size_t count = 0;
+  HeapByteBuffer entries;  // empty after a failed build: that zip scans instead
+} directoryTable;
+// Larger directories fall back to scanning rather than hold a big buffer.
+constexpr uint32_t kMaxDirectoryBytes = 1024 * 1024;
+
+HeapByteBuffer makeTableBuffer(const size_t bytes) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  return makePsramByteBufferNoThrow(bytes);
+#else
+  return makeHeapByteBufferNoThrow(bytes);
+#endif
+}
+}  // namespace
+
+bool ZipFile::lookupDirectoryTable(const char* filename, FileStatSlim* fileStat, bool& found) {
+  std::lock_guard<std::mutex> lock(directoryTable.mutex);
+  auto& table = directoryTable;
+  const size_t fileSize = file.size();
+  if (table.path != filePath || table.fileSize != fileSize || table.offset != zipDetails.centralDirOffset ||
+      table.total != zipDetails.totalEntries) {
+    table.entries.reset();
+    table.count = 0;
+    table.path = filePath;
+    table.fileSize = fileSize;
+    table.offset = zipDetails.centralDirOffset;
+    table.total = zipDetails.totalEntries;
+    const uint32_t cdSize = zipDetails.centralDirSize;
+    HeapByteBuffer raw;
+    HeapByteBuffer entries;
+    if (cdSize > 0 && cdSize <= kMaxDirectoryBytes && table.offset + uint64_t{cdSize} <= fileSize) {
+      raw = makeTableBuffer(cdSize);
+      entries = makeTableBuffer(size_t{table.total} * sizeof(DirectoryEntry));
+    }
+    if (!raw || !entries || !file.seek(table.offset) || file.read(raw.get(), cdSize) != static_cast<int>(cdSize)) {
+      LOG_ERR("ZIP", "No central directory table for %s (%u B); scanning", filePath.c_str(),
+              static_cast<unsigned>(cdSize));
+      return false;
+    }
+    auto* out = reinterpret_cast<DirectoryEntry*>(entries.get());
+    for (size_t pos = 0; table.count < table.total && pos + 46 <= cdSize;) {
+      const uint8_t* header = raw.get() + pos;
+      uint32_t sig;
+      uint16_t nameLen, extraLen, commentLen;
+      memcpy(&sig, header, 4);
+      memcpy(&nameLen, header + 28, 2);
+      memcpy(&extraLen, header + 30, 2);
+      memcpy(&commentLen, header + 32, 2);
+      if (sig != 0x02014b50 || pos + 46 + nameLen > cdSize) break;
+      DirectoryEntry& entry = out[table.count++];
+      entry = directoryKey(reinterpret_cast<const char*>(header + 46), nameLen);
+      memcpy(&entry.stat.method, header + 10, 2);
+      memcpy(&entry.stat.compressedSize, header + 20, 4);
+      memcpy(&entry.stat.uncompressedSize, header + 24, 4);
+      memcpy(&entry.stat.localHeaderOffset, header + 42, 4);
+      pos += 46 + nameLen + extraLen + commentLen;
+    }
+    std::sort(out, out + table.count);
+    table.entries = std::move(entries);
+  }
+  if (!table.entries) return false;
+  const DirectoryEntry key = directoryKey(filename, static_cast<uint16_t>(strlen(filename)));
+  const auto* begin = reinterpret_cast<const DirectoryEntry*>(table.entries.get());
+  const auto* end = begin + table.count;
+  const auto* it = std::lower_bound(begin, end, key);
+  found = it != end && it->hashLo == key.hashLo && it->hashHi == key.hashHi && it->len == key.len;
+  if (found) *fileStat = it->stat;
+  return true;
 }
 
 long ZipFile::getDataOffset(const FileStatSlim& fileStat) {
@@ -485,6 +584,7 @@ bool ZipFile::loadZipDetails() {
   // Offset 10: Total number of entries (2 bytes)
   // Offset 16: Offset of start of central directory with respect to the starting disk number (4 bytes)
   memcpy(&zipDetails.totalEntries, buffer + foundOffset + 10, sizeof(zipDetails.totalEntries));
+  memcpy(&zipDetails.centralDirSize, buffer + foundOffset + 12, sizeof(zipDetails.centralDirSize));
   memcpy(&zipDetails.centralDirOffset, buffer + foundOffset + 16, sizeof(zipDetails.centralDirOffset));
   zipDetails.isSet = true;
 
@@ -674,7 +774,7 @@ uint8_t* ZipFile::readFileToMemory(const char* filename, size_t* size, const boo
   const auto dataSize = trailingNullByte ? inflatedDataSize + 1 : inflatedDataSize;
   const auto data = static_cast<uint8_t*>(malloc(dataSize));
   if (data == nullptr) {
-    LOG_ERR("ZIP", "Failed to allocate memory for output buffer (%zu bytes)", dataSize);
+    LOG_ERR("ZIP", "Failed to allocate memory for output buffer (%lu bytes)", dataSize);
     return nullptr;
   }
 
@@ -859,15 +959,16 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     auto* fileReadBuffer = static_cast<uint8_t*>(malloc(chunkSize));
     if (!fileReadBuffer) {
-      LOG_ERR("ZIP", "Failed to allocate memory for zip file read buffer (free=%u, maxAlloc=%u, chunk=%zu)",
+      LOG_ERR("ZIP",
+              "Failed to allocate memory for zip file read buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
               ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       return false;
     }
 
     auto* outputBuffer = static_cast<uint8_t*>(malloc(chunkSize));
     if (!outputBuffer) {
-      LOG_ERR("ZIP", "Failed to allocate memory for output buffer (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap(), chunkSize);
+      LOG_ERR("ZIP", "Failed to allocate memory for output buffer (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       free(fileReadBuffer);
       return false;
     }
@@ -877,8 +978,8 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     InflateStream inflate;
     if (!inflate.init(true)) {
-      LOG_ERR("ZIP", "Failed to init inflate stream for %s (free=%u, maxAlloc=%u, chunk=%zu)", filename,
-              ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
+      LOG_ERR("ZIP", "Failed to init inflate stream for %s (free=%" PRIu32 ", maxAlloc=%" PRIu32 ", chunk=%zu)",
+              filename, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       free(outputBuffer);
       free(fileReadBuffer);
       return false;
