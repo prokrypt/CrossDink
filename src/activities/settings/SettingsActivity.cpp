@@ -1308,8 +1308,10 @@ void SettingsActivity::openSleepTimeoutPicker() {
           /*showTouchHeaderBackButton=*/true,
           /*valueFormatter=*/
           [](const int step, char* buf, const size_t len) {
-            snprintf(buf, len, "%s", I18N.get(SLEEP_TIMEOUT_STEP_LABELS[std::clamp<int>(
-                                         step, 0, CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP)]));
+            snprintf(
+                buf, len, "%s",
+                I18N.get(
+                    SLEEP_TIMEOUT_STEP_LABELS[std::clamp<int>(step, 0, CrossPointSettings::SLEEP_TIMEOUT_NEVER_STEP)]));
           },
           /*tapStep=*/0,
           /*useReaderSlider=*/true),
@@ -1433,7 +1435,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       row.labelText = screen.theme().bodyText;
       row.valueText = screen.theme().bodyText;
       row.state = showSettingSelection && selectedSettingIndex == i + 1 && ListSelection::shown() ? fui::StateSelected
-                                                                                                 : fui::StateNormal;
+                                                                                                  : fui::StateNormal;
       if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
         fui::ToggleRowProps toggle;
         toggle.row = row;
@@ -1615,8 +1617,9 @@ void SettingsActivity::render(RenderLock&&) {
   }
 
   const auto confirmLabel =
-      selectedSettingIndex == 0 ? ""
-                                : (selectedSettingIndex > 0 &&
+      selectedSettingIndex == 0
+          ? ""
+          : (selectedSettingIndex > 0 &&
                      (currentSettingUsesOptionMenu((*currentSettings)[selectedSettingIndex - 1]) ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::SUBMENU ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::ACTION ||

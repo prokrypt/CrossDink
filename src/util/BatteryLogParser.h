@@ -29,8 +29,9 @@ struct BatteryLogParser {
     uint16_t chargeFromC, chargeToC;  // 0.01 %
     bool chargeFromFine, chargeToFine, charging;
     // On battery, over the whole log; [0] awake, [1] asleep. In 0.01 %: drop,
-    // the part of it from whole-percent rows, and its ± (each unbroken run of
-    // steps adds its rows' precision, 1 or 100: inside a run the roundings cancel).
+    // the part of it from whole-percent rows, and its ± squared (each unbroken
+    // run of steps adds its rows' precision squared, 1 or 10000: inside a run the
+    // roundings cancel; runs round independently, so their ± add in quadrature).
     uint32_t battS[2], dropC[2], coarseC[2], errC[2];
     int8_t run;  // category of the run the last step extended, -1 = none
     bool runFine;
@@ -53,11 +54,11 @@ struct BatteryLogParser {
   Point points[MAX_POINTS];
   int pointCount;
   LogStats st;
-  Point prev;             // last row read, carried across the files
-  uint16_t prevC;         // drop reference % in 0.01 % (the previous row, or the last fractional one)
-  bool prevFine;          // that % had a fraction
+  Point prev;      // last row read, carried across the files
+  uint16_t prevC;  // drop reference % in 0.01 % (the previous row, or the last fractional one)
+  bool prevFine;   // that % had a fraction
   bool prevUsb;
-  uint16_t prevRowC;      // the previous row's % in 0.01 %, its precision, Wi-Fi and light
+  uint16_t prevRowC;  // the previous row's % in 0.01 %, its precision, Wi-Fi and light
   bool prevRowFine;
   bool prevWifi;
   uint8_t prevLight;
@@ -139,8 +140,7 @@ struct BatteryLogParser {
       if (!prevUsb && !usb && fine && prevFine) {
         st.battS[cat] += dt;
         st.netC[cat] += drop;
-        if (!fine) st.netCoarseC[cat] += drop;
-        if (st.run != cat || st.runFine != fine) st.errC[cat] += fine ? 1 : 100;
+        if (st.run != cat || st.runFine != fine) st.errC[cat] += 1;  // ± squared (fine rows only)
         st.run = static_cast<int8_t>(cat);
         st.runFine = fine;
       } else if (!prevUsb && !usb && prevFine) {
