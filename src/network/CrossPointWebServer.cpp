@@ -1252,7 +1252,7 @@ void CrossPointWebServer::handleOtaDone() const {
                                  2000);
 }
 
-// Debug builds: the current framebuffer as a PBM, captured on the main task
+// Debug builds: the screen as a PGM (gray pass shown) or PBM, captured on the main task
 // under the render lock (so never half-drawn) and sent from its static copy.
 void CrossPointWebServer::handleScreenshot() const {
   static char out[64];
@@ -1265,7 +1265,7 @@ void CrossPointWebServer::handleScreenshot() const {
   size_t len = 0;
   const uint8_t* pbm = SerialRemote::screenshot(len);
   server->setContentLength(len);
-  server->send(200, "image/x-portable-bitmap", "");
+  server->send(200, pbm[1] == '5' ? "image/x-portable-graymap" : "image/x-portable-bitmap", "");
   server->sendContent(reinterpret_cast<const char*>(pbm), len);
 }
 #endif
