@@ -13,13 +13,13 @@
 #include <ZipFile.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <iterator>
-#include <atomic>
 #include <mutex>
 #include <string_view>
 #include <utility>
@@ -360,11 +360,12 @@ bool copyTopLevelFiles(const std::string& from, const std::string& to) {
   return ok;
 }
 
-// ponytail: path->key memo (256 entries in PSRAM, else 16), not checked against the file. Every
-// replace route (upload, OPDS, delete, WebDAV) goes through the
-// clearBookCache*() helpers, which call Epub::forgetCacheKeys() (the Library
-// builder skips it for a key it has just read); so does USB Drive exit. It also keeps a second open of a book the reader holds open off
-// the card, which SdFat refuses on hardware.
+// ponytail: path->key memo (256 entries in PSRAM, else 16), not checked
+// against the file. Every replace route (upload, OPDS, delete, WebDAV) goes
+// through the clearBookCache*() helpers, which call Epub::forgetCacheKeys()
+// (the Library builder skips it for a key it has just read); so does USB Drive
+// exit. It also keeps a second open of a book the reader holds open off the
+// card, which SdFat refuses on hardware.
 struct CacheKeyMemo {
   uint64_t pathHash;
   uint64_t key;

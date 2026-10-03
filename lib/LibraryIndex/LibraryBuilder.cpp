@@ -446,7 +446,6 @@ class Stage {
     return ok;
   }
 
-
   std::string path;
   HeapByteBuffer mem;
   size_t cap = 0;
@@ -1697,8 +1696,7 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
       previous.header().foldVersion == CLIX_FOLD_VERSION &&
       previous.header().metadataEnabled == static_cast<uint8_t>(readMetadata) && st.books == priorCount &&
       st.reused == priorCount && stats.metadataReused == priorCount && st.creationTimesUnchanged &&
-      st.contentKeysUnchanged &&
-      st.unreadableSkipped == 0 &&
+      st.contentKeysUnchanged && st.unreadableSkipped == 0 &&
       (previous.header().flags & (CLIX_FLAG_RANKS_DEGRADED | CLIX_FLAG_ARRIVAL_DEGRADED)) == 0 &&
       // The dedup cap degrades the same card the same way every time; with
       // every book reused, rewriting would produce the same index.
@@ -1873,8 +1871,7 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
   }
 
   [[maybe_unused]] const uint32_t emitStartMs = millis();
-  const bool ok =
-      emitIndex(records, folders, st, order.get(), resolvedFirstSeen.get(), coreSortsAvailable, stats);
+  const bool ok = emitIndex(records, folders, st, order.get(), resolvedFirstSeen.get(), coreSortsAvailable, stats);
   LOG_DBG("LIBIDX", "phase author/orders/emit: %ums", static_cast<unsigned>(millis() - emitStartMs));
   records.discard();
   folders.discard();
