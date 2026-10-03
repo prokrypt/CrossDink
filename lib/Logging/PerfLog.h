@@ -14,7 +14,7 @@ struct LightSleepStats {
 // Debug-only timing and I/O counters behind compact, greppable log lines
 // (recipes in the device LOG-GUIDE):
 //   [LAT]  input -> render -> ink per user action
-//   [PERF] SD opens/bytes/ms and image cache hits/misses/decode ms per 2 s
+//   [SYS]  (part) SD opens/bytes/ms and image cache hits/misses/decode ms per 2 s
 //   [BOOT] first ink after reset, and silent restart request -> first ink
 //   [PM]   light-sleep residency, wake counts and PM lock hold times per
 //          activity (CONFIG_PM_PROFILING); a window ends every 30 s and on
@@ -71,9 +71,10 @@ void noteSdOpen(bool opened);
 void noteSdRead(uint32_t bytes, uint32_t us);
 void noteSdWrite(uint32_t bytes, uint32_t us);
 void noteImage(bool cacheHit, uint32_t ms);
-// One [PERF] line if anything changed since the last call; [PM] every 30 s
-// and when the rendered activity changed.
-void logPeriodic();
+// Writes the SD/image part of the [SYS] line to out (" sd open=.. img hit=..",
+// "" if nothing happened since the last call); logs [PM] every 30 s and when
+// the rendered activity changed.
+void logPeriodic(char* out, uint32_t size);
 // Name of the activity rendered last (render task), for per-activity lines.
 void currentActivity(char* out, uint32_t size);
 // Source of input wake counts for [PM]: returns and clears the button and
@@ -121,7 +122,9 @@ inline void noteSdOpen(bool) {}
 inline void noteSdRead(uint32_t, uint32_t) {}
 inline void noteSdWrite(uint32_t, uint32_t) {}
 inline void noteImage(bool, uint32_t) {}
-inline void logPeriodic() {}
+inline void logPeriodic(char* out, uint32_t size) {
+  if (size > 0) out[0] = '\0';
+}
 inline void currentActivity(char* out, uint32_t size) {
   if (size > 0) out[0] = '\0';
 }

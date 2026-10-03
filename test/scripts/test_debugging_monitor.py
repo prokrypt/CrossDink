@@ -17,6 +17,20 @@ class MemoryLogsTest(unittest.TestCase):
             ("psram", (7000000, 8388608, 6500000)),
         ])
 
+    def test_sys_line_without_totals(self):
+        line = ("[SYS] heap free=85000 min=30000 maxAlloc=49000 psram free=7000000 min=6000000 maxAlloc=6500000"
+                " sd open=1 miss=0 rd=4KB/2ms wr=0KB/0ms img hit=0 dec=0/0ms core0 9% core1 3% over 2001 ms act=Home |")
+        self.assertEqual(monitor.parse_memory_samples(line), [
+            ("heap", (85000, None, 49000)),
+            ("psram", (7000000, None, 6500000)),
+        ])
+
+    def test_sys_reuses_last_totals_and_psram_max_alloc(self):
+        seen = {}
+        monitor.fill_from_last("psram", (7000000, 8388608, 6500000), seen)
+        self.assertEqual(monitor.fill_from_last("psram", (6900000, None, None), seen), (6900000, 8388608, 6500000))
+        self.assertEqual(monitor.fill_from_last("heap", (None, None, None), seen), (None, None, None))
+
     def test_c3_heap_only(self):
         self.assertEqual(monitor.parse_memory_samples("[MEM] Boot: heap free=1 total=2 min=0 maxAlloc=1"),
                          [("heap", (1, 2, 1))])
