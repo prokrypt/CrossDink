@@ -203,6 +203,7 @@
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
 ### Fixed
+- Touch Home (Lyra and Classic list menus): swipe up shows the last menu page (Goodies when the menu has more rows than fit); swipe down goes back to the first. Before, those rows were only reachable with the Down button.
 - Library: an EPUB whose content key could not be read no longer re-reads its last 16 KB on every scan; Refresh retries it.
 - Upside-down button hints in inverted portrait on Lookup History, Did you mean, Dictionary definition, XTC menu, Clip selection, End-of-book options, and on Font Family / Dictionary pickers opened from the reader (TTF Rendering opened from Settings no longer uses reader hints). Calibre showed "Receiving: : name" and no Back hint on its error screen. Wi-Fi network names cut mid-character; they are now trimmed to the screen width with "…". Bookmarks & Clippings said "No bookmarks yet". The interval picker's value touched the Lyra header. Library Settings, Button Remap and Goodies values sat flush to the row edge. XTC error messages and the Edit Dates title used fixed positions.
 - Battery & stats: whole-percent log rows no longer count toward the drain rates, so "Asleep drain" and "Est to empty" ± no longer swell to ±1% on a drop of a few hundredths.
