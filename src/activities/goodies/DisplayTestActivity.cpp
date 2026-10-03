@@ -17,6 +17,7 @@
 
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
+#include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -398,16 +399,18 @@ void DisplayTestActivity::drawResult() {
   } else {
     GUI.drawHeader(renderer, header, title.c_str());
   }
-  const int x = metrics.contentSidePadding;
+  // Goodies text pages: the list rows' font and label margin.
+  const int font = uiScaleSpec().bodyFontId;
+  const int x = metrics.listInset + metrics.listSidePadding;
   const int maxWidth = renderer.getScreenWidth() - 2 * x;
   const int bottom = renderer.getScreenHeight() - metrics.buttonHintsHeight;
-  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID) + 6;
+  const int lineHeight = renderer.getLineHeight(font) + 6;
   int y = header.y + header.height + metrics.verticalSpacing;
   // Word-wrapped to the width, a hanging indent on continuation lines.
   auto drawWrapped = [&](const char* text, const EpdFontFamily::Style style) {
-    const auto lines = renderer.wrappedText(UI_10_FONT_ID, text, maxWidth, 3, style);
+    const auto lines = renderer.wrappedText(font, text, maxWidth, 3, style);
     for (size_t i = 0; i < lines.size() && y + lineHeight <= bottom; ++i) {
-      renderer.drawText(UI_10_FONT_ID, i == 0 ? x : x + 16, y, lines[i].c_str(), true, style);
+      renderer.drawText(font, i == 0 ? x : x + 16, y, lines[i].c_str(), true, style);
       y += lineHeight;
     }
   };

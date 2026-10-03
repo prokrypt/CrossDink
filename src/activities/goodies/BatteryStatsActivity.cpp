@@ -24,6 +24,7 @@
 #include "MappedInputManager.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
+#include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BatteryEstimate.h"
@@ -440,9 +441,11 @@ void BatteryStatsActivity::render(RenderLock&&) {
   } else {
     GUI.drawHeader(renderer, header, tr(STR_BATTERY_STATS));
   }
-  const int x = metrics.contentSidePadding;
+  // Goodies text pages: the list rows' font and label margin.
+  const int font = uiScaleSpec().bodyFontId;
+  const int x = metrics.listInset + metrics.listSidePadding;
   const int w = renderer.getScreenWidth() - 2 * x;
-  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID) + 6;
+  const int lineHeight = renderer.getLineHeight(font) + 6;
   int y = header.y + header.height + metrics.verticalSpacing;
 
   // Graph: % over time, 25% gridlines; a bar under it marks awake spans.
@@ -467,9 +470,9 @@ void BatteryStatsActivity::render(RenderLock&&) {
     char spanText[40], ago[24];
     formatDur(spanS, ago, sizeof(ago));
     snprintf(spanText, sizeof(spanText), "%s  (bar = awake)", ago);
-    renderer.drawText(UI_10_FONT_ID, x, y + gh + 8, spanText);
+    renderer.drawText(font, x, y + gh + 8, spanText);
   } else {
-    renderer.drawText(UI_10_FONT_ID, x + 8, y + gh / 2 - lineHeight / 2,
+    renderer.drawText(font, x + 8, y + gh / 2 - lineHeight / 2,
                       loading ? "Reading battery log..." : "No battery log yet");
   }
   y += gh + 8 + lineHeight + metrics.verticalSpacing;
@@ -478,14 +481,14 @@ void BatteryStatsActivity::render(RenderLock&&) {
   // Lines that don't fit scroll with Up/Down or a swipe; "..." marks more below.
   more = false;
   for (int i = scroll; i < lineCount && !more; ++i) {
-    const auto wrapped = renderer.wrappedText(UI_10_FONT_ID, lines[i], w, 2);
+    const auto wrapped = renderer.wrappedText(font, lines[i], w, 2);
     if (y + static_cast<int>(wrapped.size()) * lineHeight > bottom) {
       more = true;
-      renderer.drawText(UI_10_FONT_ID, x, y, "...");
+      renderer.drawText(font, x, y, "...");
       break;
     }
     for (size_t j = 0; j < wrapped.size(); ++j) {
-      renderer.drawText(UI_10_FONT_ID, j == 0 ? x : x + 16, y, wrapped[j].c_str());
+      renderer.drawText(font, j == 0 ? x : x + 16, y, wrapped[j].c_str());
       y += lineHeight;
     }
   }
