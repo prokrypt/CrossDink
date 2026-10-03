@@ -162,11 +162,25 @@ class CrossPointWebServer {
   void updateTransferIdle();
   void endTransferHold();
   void releasePollHold();
+  // Idle STA modem sleep: MAX_MODEM for the log-only remote (Knobs wifiMaxModem,
+  // wifiListenInterval), else MIN_MODEM.
+  void setIdleModemSleep();
+  // Idle STA: blocks until one of this server's sockets is readable or
+  // IDLE_POLL_MS passes (to notice stop requests). False on a timeout.
+  bool waitForTraffic();
+  // Serving task, logged once a minute while idle-capable ([WEB] idle 60s).
+  struct IdleStats {
+    uint32_t traffic, spurious, timeouts, holds, logWaits, logWoken;
+  };
+  mutable IdleStats idleStats{};
+  unsigned long idleStatsMs = 0;
+  void logIdleStats();
 
   // Serving task. It owns server and wsServer between begin() and stop().
   // Same stack as Arduino's loopTask, which used to run these handlers.
   static constexpr uint32_t SERVER_TASK_STACK_BYTES = 8192;
-  // Idle STA poll: a new request waits at most this long (plus a DTIM beacon).
+  // Idle STA: the select() timeout that notices stop requests (traffic wakes
+  // the task at once), and the poll when no socket can be watched.
   static KNOB_ALIAS(IDLE_POLL_MS, serverIdlePollMs);  // Goodies > Knobs, as the next
   static KNOB_ALIAS(ACTIVE_PASSES_PER_TICK, serverActivePasses);
   TaskHandle_t serverTask = nullptr;
@@ -178,7 +192,7 @@ class CrossPointWebServer {
   std::atomic<bool> stopRequested{false};
   static void serverTaskMain(void* param);
   void serveUntilStopped();
-  void handleClient();
+  bool handleClient();  // true when it served a request
 
   // Guards exitFlashPath and wsStatus, which the activity reads.
   SemaphoreHandle_t stateMutex = nullptr;
@@ -203,6 +217,7 @@ class CrossPointWebServer {
   void handleLogo() const;
   void handleNotFound() const;
   void handleStatus() const;
+  void handleLiteStatus() const;  // log-only server: no I2C or SD reads
 #if CROSSDINK_PSRAM_LOG
   void handlePsramLog() const;
   void handleRemoteCmd() const;

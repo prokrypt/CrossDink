@@ -67,6 +67,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "platform/InputTask.h"
 #include "platform/PinMon.h"
 #include "util/UrlUtils.h"
 
@@ -1016,6 +1017,7 @@ int runFromOtherTask(const char* token, const char* cmd, const uint32_t clientIp
   snprintf(httpLine, sizeof(httpLine), "CMD:%s", cmd);
   httpIp = clientIp;
   httpState.store(1, std::memory_order_release);
+  InputTask::wakeLoop();  // the loop may be in a long idle wait
   if (xSemaphoreTake(httpDone, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) {
     uint8_t queued = 1;
     // Still queued: withdraw it. Otherwise the main task owns it and frees it.
