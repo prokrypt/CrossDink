@@ -333,7 +333,7 @@ bool removeRecursive(const char* path, size_t depth = 0) {
 
 void handleStatus() {
   char response[160];
-  snprintf(response, sizeof(response), "STATUS:protocol=1,device=%s,firmware=%s,free=%u,largest=%u\n",
+  snprintf(response, sizeof(response), "STATUS:protocol=1,device=%s,firmware=%s,free=%" PRIu32 ",largest=%" PRIu32 "\n",
            CROSSDINK_FIRMWARE_DEVICE_TYPE, AppVersion::version(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   writeLine(response);
 }

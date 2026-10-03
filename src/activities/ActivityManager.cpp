@@ -1138,7 +1138,7 @@ bool ActivityManager::resumeFileTransferFromNetworkBoot(const uint32_t payload) 
   auto activity = makeUniqueNoThrow<CrossPointWebServerActivity>(
       renderer, mappedInput, static_cast<NetworkMode>(rawMode), std::move(returnBookPath), true);
   if (!activity) {
-    LOG_ERR("ACT", "OOM: file transfer after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+    LOG_ERR("ACT", "OOM: file transfer after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     return false;
   }
@@ -1211,7 +1211,7 @@ bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool netw
   OPDS_STORE.release();
   auto browser = makeUniqueNoThrow<OpdsBookBrowserActivity>(renderer, mappedInput, std::move(server));
   if (!browser) {
-    LOG_ERR("ACT", "OOM: OPDS browser after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+    LOG_ERR("ACT", "OOM: OPDS browser after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     return false;
   }

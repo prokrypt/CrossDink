@@ -885,7 +885,7 @@ CssStyle CssParser::resolveStyle(std::string_view tagName, std::string_view clas
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_CSS) {
     if (!lowHeapWarningLogged) {
       lowHeapWarningLogged = true;
-      LOG_DBG("CSS", "Warning: low heap (%u bytes) below MIN_FREE_HEAP_FOR_CSS (%u), returning empty style",
+      LOG_DBG("CSS", "Warning: low heap (%" PRIu32 " bytes) below MIN_FREE_HEAP_FOR_CSS (%u), returning empty style",
               ESP.getFreeHeap(), static_cast<unsigned>(MIN_FREE_HEAP_FOR_CSS));
     }
     return CssStyle{};

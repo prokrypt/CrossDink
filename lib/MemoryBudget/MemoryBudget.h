@@ -76,7 +76,7 @@ inline PsramSnapshot psramSnapshot() {
 inline void logEpubHeapPools(const char* stage) {
   const auto internal = snapshot();
   const auto psram = psramSnapshot();
-  LOG_INF("EPS", "%s: internal free=%u max=%u; psram free=%u max=%u total=%u", stage, internal.freeHeap,
+  LOG_INF("EPS", "%s: internal free=%lu max=%lu; psram free=%lu max=%lu total=%lu", stage, internal.freeHeap,
           internal.maxAllocHeap, psram.freeHeap, psram.maxAllocHeap, psram.totalHeap);
 }
 
@@ -96,7 +96,7 @@ inline void logHeapShape(const char* stage) {
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const auto heap = shapeSnapshot();
   const uint32_t largestPct = heap.freeHeap == 0 ? 0 : heap.maxAllocHeap * 100U / heap.freeHeap;
-  LOG_DBG("HEAP", "stage=%s free=%u max=%u freeBlocks=%u allocBlocks=%u largestPct=%u", stage, heap.freeHeap,
+  LOG_DBG("HEAP", "stage=%s free=%lu max=%lu freeBlocks=%lu allocBlocks=%lu largestPct=%lu", stage, heap.freeHeap,
           heap.maxAllocHeap, heap.freeBlocks, heap.allocatedBlocks, largestPct);
 #else
   (void)stage;
@@ -173,7 +173,7 @@ inline bool hasHeapForJpegDecoder(const char* tag, const size_t decoderBytes, co
   if (jpegDecoderPoolForHeap(decoderBytes, internal, psram) != MemoryPool::None) return true;
 
   LOG_ERR(tag,
-          "Low heap for JPEG decoder (internal free=%u max=%u, psram free=%u max=%u, need internal %u or psram "
+          "Low heap for JPEG decoder (internal free=%u max=%u, psram free=%u max=%u, need internal %lu or psram "
           "%u + reserve %u); suppressing %s",
           static_cast<unsigned>(internal.free), static_cast<unsigned>(internal.largest),
           static_cast<unsigned>(psram.free), static_cast<unsigned>(psram.largest), EPUB_INLINE_JPEG_MIN_FREE,
@@ -202,7 +202,7 @@ inline bool hasHeapForEpubInlineImage(const char* tag, const char* source) {
     return true;
   }
 
-  LOG_ERR(tag, "Low heap for inline image (%u free, %u max alloc, need %u/%u); suppressing %s", heap.freeHeap,
+  LOG_ERR(tag, "Low heap for inline image (%lu free, %lu max alloc, need %lu/%lu); suppressing %s", heap.freeHeap,
           heap.maxAllocHeap, requirement.minFree, requirement.minMaxAlloc, source ? source : "");
   return false;
 }
@@ -213,8 +213,9 @@ inline bool hasHeapForOptimizerPxcImage(const char* tag, const char* source) {
     return true;
   }
 
-  LOG_ERR(tag, "Low heap for optimizer image cache (%u free, %u max alloc, need %u/%u); suppressing %s", heap.freeHeap,
-          heap.maxAllocHeap, EPUB_OPTIMIZER_PXC_MIN_FREE, EPUB_OPTIMIZER_PXC_MIN_MAX_ALLOC, source ? source : "");
+  LOG_ERR(tag, "Low heap for optimizer image cache (%lu free, %lu max alloc, need %lu/%lu); suppressing %s",
+          heap.freeHeap, heap.maxAllocHeap, EPUB_OPTIMIZER_PXC_MIN_FREE, EPUB_OPTIMIZER_PXC_MIN_MAX_ALLOC,
+          source ? source : "");
   return false;
 }
 
@@ -226,7 +227,7 @@ inline bool hasHeapForOptionalEpubRebuild(const char* tag, const char* action, c
     return true;
   }
 
-  LOG_DBG(tag, "Skipping %s for spine %d: low heap (free=%u, maxAlloc=%u, need free>=%u maxAlloc>=%u)", action,
+  LOG_DBG(tag, "Skipping %s for spine %d: low heap (free=%lu, maxAlloc=%lu, need free>=%lu maxAlloc>=%lu)", action,
           spineIndex, heap.freeHeap, heap.maxAllocHeap, minFree, minMaxAlloc);
   return false;
 }
@@ -239,7 +240,7 @@ inline bool hasHeapForImageDecoder(const char* tag, const char* decoderName, con
     return true;
   }
 
-  LOG_ERR(tag, "Not enough heap for %s decoder (%u free, %u max alloc, need %u/%u)", decoderName, heap.freeHeap,
+  LOG_ERR(tag, "Not enough heap for %s decoder (%lu free, %lu max alloc, need %lu/%lu)", decoderName, heap.freeHeap,
           heap.maxAllocHeap, minFree, decoderApproxBytes);
   return false;
 }

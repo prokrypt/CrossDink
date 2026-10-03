@@ -241,7 +241,8 @@ std::unique_ptr<BookMetadataCache> makeBookMetadataCacheNoThrow(const std::strin
                                                                 const bool cacheCumulativeSpineSizes) {
   auto cache = makeUniqueNoThrow<BookMetadataCache>(cachePath, cacheCumulativeSpineSizes);
   if (!cache) {
-    LOG_ERR("EBP", "OOM: BookMetadataCache (%u free, %u max alloc)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("EBP", "OOM: BookMetadataCache (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
   }
   return cache;
 }
@@ -249,7 +250,8 @@ std::unique_ptr<BookMetadataCache> makeBookMetadataCacheNoThrow(const std::strin
 std::unique_ptr<CssParser> makeCssParserNoThrow(const std::string& cachePath) {
   auto parser = makeUniqueNoThrow<CssParser>(cachePath);
   if (!parser) {
-    LOG_ERR("EBP", "OOM: CssParser (%u free, %u max alloc)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("EBP", "OOM: CssParser (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
   }
   return parser;
 }
@@ -277,8 +279,8 @@ bool cachedBmpMatchesDimensions(const std::string& path, const int width, const 
                               absHeight <= height && (bmpWidth == width || absHeight == height);
   const bool matches = exactMatch || containedMatch;
   if (!matches) {
-    LOG_DBG("EBP", "Removing stale thumbnail dimensions: %s (%dx%d expected %dx%d)", path.c_str(), bmpWidth, absHeight,
-            width, height);
+    LOG_DBG("EBP", "Removing stale thumbnail dimensions: %s (%ldx%ld expected %dx%d)", path.c_str(), bmpWidth,
+            absHeight, width, height);
     Storage.remove(path.c_str());
   }
   return matches;
@@ -296,7 +298,7 @@ void releaseReaderSdFontCachesBeforeCoverDecode(const GfxRenderer* renderer, con
   if (!renderer->releaseSdCardFontForLowMemory(readerFontId)) return;
 
   const auto after = MemoryBudget::snapshot();
-  LOG_DBG("EBP", "Released SD font caches before %s: free=%u->%u maxAlloc=%u->%u", reason, before.freeHeap,
+  LOG_DBG("EBP", "Released SD font caches before %s: free=%lu->%lu maxAlloc=%lu->%lu", reason, before.freeHeap,
           after.freeHeap, before.maxAllocHeap, after.maxAllocHeap);
 }
 
@@ -1009,7 +1011,7 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
     // Check heap before parsing - CSS parsing allocates heavily
     const uint32_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < MIN_HEAP_FOR_CSS_PARSING) {
-      LOG_ERR("EBP", "Insufficient heap for CSS parsing (%u bytes free, need %zu), skipping: %s", freeHeap,
+      LOG_ERR("EBP", "Insufficient heap for CSS parsing (%lu bytes free, need %zu), skipping: %s", freeHeap,
               MIN_HEAP_FOR_CSS_PARSING, cssPath.c_str());
       parsedAllCss = false;
       failedCssFileIndex = cssFileIndex + 1;
@@ -1931,8 +1933,8 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
     if (!optimizerWorkspace) {
       optimizerWorkspace = makeUniqueNoThrow<PxcV2Workspace>();
       if (optimizerWorkspace)
-        LOG_DBG("EBP", "PXC2 workspace: %u bytes (free=%u maxAlloc=%u)", unsigned(sizeof(PxcV2Workspace)),
-                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        LOG_DBG("EBP", "PXC2 workspace: %u bytes (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                unsigned(sizeof(PxcV2Workspace)), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     }
     if (!optimizerWorkspace) {
       LOG_ERR("EBP", "OOM: PXC2 workspace (%u bytes)", unsigned(sizeof(PxcV2Workspace)));

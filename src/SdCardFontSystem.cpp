@@ -323,7 +323,8 @@ void SdCardFontSystem::ensureRegistry() {
   fontFilesChanged_.store(false, std::memory_order_release);
   registry_.loadNames();
   if (registry_.lastDiscoveryFailed()) {
-    LOG_ERR("SDFS", "SD font registry scan failed (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_ERR("SDFS", "SD font registry scan failed (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     registryDirty_.store(true, std::memory_order_release);
     registryRefreshMs_ = 0;
     return;
@@ -508,7 +509,7 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
   const auto beforeCacheRelease = MemoryBudget::snapshot();
   if (renderer.releaseSdCardFontForLowMemory(activeReaderFontId)) {
     const auto afterCacheRelease = MemoryBudget::snapshot();
-    LOG_DBG("SDFS", "Released reader SD-font caches before dictionary swap: free=%u->%u maxAlloc=%u->%u",
+    LOG_DBG("SDFS", "Released reader SD-font caches before dictionary swap: free=%lu->%lu maxAlloc=%lu->%lu",
             beforeCacheRelease.freeHeap, afterCacheRelease.freeHeap, beforeCacheRelease.maxAllocHeap,
             afterCacheRelease.maxAllocHeap);
   }
@@ -522,11 +523,13 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
     if (!manager_.currentFamilyName().empty()) manager_.unloadAll(renderer);
     loadedFontPointSize_ = 0;
     heap = MemoryBudget::snapshot();
-    LOG_DBG("SDFS", "Released reader font before dictionary swap retry: free=%u->%u maxAlloc=%u->%u",
+    LOG_DBG("SDFS", "Released reader font before dictionary swap retry: free=%lu->%" PRIu32 " maxAlloc=%lu->%" PRIu32,
             beforeReaderUnload.freeHeap, heap.freeHeap, beforeReaderUnload.maxAllocHeap, heap.maxAllocHeap);
   }
   if (!MemoryBudget::hasHeapForDictionarySdFont(heap)) {
-    LOG_ERR("SDFS", "Low heap for dictionary font swap (%u free, %u max alloc, need %u/%u); using reader font",
+    LOG_ERR("SDFS",
+            "Low heap for dictionary font swap (%" PRIu32 " free, %" PRIu32
+            " max alloc, need %lu/%lu); using reader font",
             heap.freeHeap, heap.maxAllocHeap, MemoryBudget::DICTIONARY_SD_FONT_MIN_FREE,
             MemoryBudget::DICTIONARY_SD_FONT_MIN_MAX_ALLOC);
     const int readerFontId = restoreReaderFont(renderer);

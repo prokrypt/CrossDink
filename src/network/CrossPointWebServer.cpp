@@ -485,7 +485,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   apMode = isInApMode;
   logOnly_ = logOnly;
 
-  LOG_DBG("WEB", "[MEM] Free heap before begin: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap before begin: %" PRId32 " bytes", ESP.getFreeHeap());
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
 
   LOG_DBG("WEB", "Creating web server on port %d...", port);
@@ -575,7 +575,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
 
   // Show the correct IP based on network mode
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
-  LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %" PRId32 " bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServer::abortWsUpload(const char* tag) {
@@ -802,7 +802,7 @@ void CrossPointWebServer::stop() {
   powerManager.setRadioIdleSleepAllowed(false);
   WiFi.setSleep(false);
 
-  LOG_DBG("WEB", "[MEM] Free heap before stop: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap before stop: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Close any in-progress WebSocket upload and remove partial file
   if (wsUploadInProgress && wsUploadFile) {
@@ -830,7 +830,7 @@ void CrossPointWebServer::stop() {
 
   // Note: Static upload variables (uploadFileName, uploadPath, uploadError) are declared
   // later in the file and will be cleared when they go out of scope or on next upload
-  LOG_DBG("WEB", "[MEM] Free heap final: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEB", "[MEM] Free heap final: %" PRId32 " bytes", ESP.getFreeHeap());
 }
 
 template <typename Fn>
@@ -1985,7 +1985,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     }
 
     LOG_DBG("WEB", "[UPLOAD] START: %s to path: %s", state.fileName.c_str(), state.path.c_str());
-    LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes", ESP.getFreeHeap());
+    LOG_DBG("WEB", "[UPLOAD] Free heap: %" PRId32 " bytes", ESP.getFreeHeap());
 
     String filePath = state.path;
     if (!filePath.endsWith("/")) filePath += "/";

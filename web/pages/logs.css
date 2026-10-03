@@ -57,6 +57,7 @@ tr:hover td { background: var(--accent-color-10); }
 #out { --tl: 38%; }
 @media (prefers-color-scheme: dark) { #out { --tl: 68%; } }
 #out .e { color: #ef4444; }
+#out .w { color: #d97706; }
 #out .d { opacity: 0.6; }
 #out .jk { color: hsl(210 65% var(--tl)); }
 #out .js { color: hsl(140 50% var(--tl)); }

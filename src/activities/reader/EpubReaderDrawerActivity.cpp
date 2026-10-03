@@ -490,7 +490,7 @@ void EpubReaderDrawerActivity::onExit() {
   ownedPreviewModel.reset();
   if (!mappedInput.hasTouchHardware()) {
     [[maybe_unused]] const auto heap = MemoryBudget::snapshot();
-    LOG_DBG("ERDM", "Button preview released: free=%u maxAlloc=%u", heap.freeHeap, heap.maxAllocHeap);
+    LOG_DBG("ERDM", "Button preview released: free=%lu maxAlloc=%lu", heap.freeHeap, heap.maxAllocHeap);
   }
   dictionaryRegistry.clear();
   // The reader remains active beneath this drawer. Keep the small catalog for
@@ -2547,7 +2547,7 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
     if (MemoryBudget::hasHeap(heap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE,
                               MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC))
       return false;
-    LOG_ERR("ERDM", "Button preview exhausted EPUB layout reserve: free=%u maxAlloc=%u", heap.freeHeap,
+    LOG_ERR("ERDM", "Button preview exhausted EPUB layout reserve: free=%lu maxAlloc=%lu", heap.freeHeap,
             heap.maxAllocHeap);
     restoreReaderDraftFont(draft, lastGoodPreviewSettings);
     previewUnavailable = true;

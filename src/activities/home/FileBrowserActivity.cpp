@@ -256,8 +256,8 @@ bool FileBrowserActivity::loadFilesIntoVector(size_t cap, bool& overflow) {
 
     if (!hasHeapForFileEntryAppend(files, entryLen)) {
       fileListMemoryLimited = true;
-      LOG_ERR("FileBrowser", "Low heap while loading %s (entries=%u free=%u maxAlloc=%u)", basepath.c_str(),
-              static_cast<unsigned>(files.size()), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      LOG_ERR("FileBrowser", "Low heap while loading %s (entries=%u free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+              basepath.c_str(), static_cast<unsigned>(files.size()), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       file.close();
       root.close();
       files.clear();

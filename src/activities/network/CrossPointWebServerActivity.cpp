@@ -75,7 +75,7 @@ void CrossPointWebServerActivity::onEnter() {
   }
   sdFontSystem.releaseForNetwork(renderer);
 
-  LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap at onEnter: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Reset state
   state = WebServerActivityState::MODE_SELECTION;
@@ -140,7 +140,7 @@ void CrossPointWebServerActivity::onExit() {
     }
   }
 
-  LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap at onExit end: %" PRId32 " bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
@@ -205,7 +205,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     // The child activity must survive this callback; allocate only its small control object on the heap.
     auto calibreActivity = makeUniqueNoThrow<CalibreConnectActivity>(renderer, mappedInput, !returnBookPath.empty());
     if (!calibreActivity) {
-      LOG_ERR("WEBACT", "OOM: Calibre activity (size=%u free=%u maxAlloc=%u)",
+      LOG_ERR("WEBACT", "OOM: Calibre activity (size=%u free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
               static_cast<unsigned>(sizeof(CalibreConnectActivity)), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       exitToOrigin();
       return;
@@ -279,7 +279,7 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
 }
 
 void CrossPointWebServerActivity::startAccessPoint() {
-  LOG_DBG("WEBACT", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap before AP start: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Configure and start the AP
   WiFi.mode(WIFI_AP);
@@ -319,7 +319,7 @@ void CrossPointWebServerActivity::startAccessPoint() {
   dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer->start(DNS_PORT, "*", apIP);
 
-  LOG_DBG("WEBACT", "Free heap after AP start: %d bytes", ESP.getFreeHeap());
+  LOG_DBG("WEBACT", "Free heap after AP start: %" PRId32 " bytes", ESP.getFreeHeap());
 
   // Start the web server
   startWebServer();

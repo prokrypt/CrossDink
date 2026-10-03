@@ -1208,13 +1208,13 @@ void SleepActivity::renderOverlaySleepScreen() const {
     const uint32_t freeBeforeRelease = ESP.getFreeHeap();
     const uint32_t maxAllocBeforeRelease = ESP.getMaxAllocHeap();
     if (renderer.releaseSdCardFontForLowMemory(SETTINGS.getReaderFontId())) {
-      LOG_DBG("SLP", "Released reader font cache for PNG overlay: free=%u->%u maxAlloc=%u->%u", freeBeforeRelease,
-              ESP.getFreeHeap(), maxAllocBeforeRelease, ESP.getMaxAllocHeap());
+      LOG_DBG("SLP", "Released reader font cache for PNG overlay: free=%lu->%" PRIu32 " maxAlloc=%lu->%" PRIu32,
+              freeBeforeRelease, ESP.getFreeHeap(), maxAllocBeforeRelease, ESP.getMaxAllocHeap());
     }
 
     constexpr size_t MIN_FREE_HEAP = 60 * 1024;  // PNG decoder ~42 KB + overhead
     if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
-      LOG_ERR("SLP", "Not enough heap for PNG overlay decoder: %u free, need %u for %s", ESP.getFreeHeap(),
+      LOG_ERR("SLP", "Not enough heap for PNG overlay decoder: %" PRIu32 " free, need %u for %s", ESP.getFreeHeap(),
               static_cast<unsigned>(MIN_FREE_HEAP), filename.c_str());
       return OverlayDrawResult::Failed;
     }

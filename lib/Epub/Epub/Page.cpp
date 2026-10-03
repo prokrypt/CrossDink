@@ -161,7 +161,7 @@ std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(FsFile& file
 
 bool TableFragmentCell::serialize(FsFile& file) const {
   if (colSpan == 0 || colSpan > MAX_TABLE_CELLS_PER_ROW || lines.size() > MAX_TABLE_LINES_PER_CELL) {
-    LOG_ERR("PTB", "Serialization failed: invalid cell span/line count (span=%u lines=%u)", colSpan,
+    LOG_ERR("PTB", "Serialization failed: invalid cell span/line count (span=%u lines=%" PRIu32 ")", colSpan,
             static_cast<uint32_t>(lines.size()));
     return false;
   }
@@ -208,7 +208,8 @@ bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
 
 bool TableFragmentRow::serialize(FsFile& file) const {
   if (cells.size() > MAX_TABLE_CELLS_PER_ROW) {
-    LOG_ERR("PTB", "Serialization failed: row cell count %u exceeds maximum", static_cast<uint32_t>(cells.size()));
+    LOG_ERR("PTB", "Serialization failed: row cell count %" PRIu32 " exceeds maximum",
+            static_cast<uint32_t>(cells.size()));
     return false;
   }
   uint8_t logicalColumns = 0;
@@ -406,7 +407,8 @@ bool Page::forEachTextLine(const PageTextLineVisitor visitor, void* context) con
 
 bool PageTableFragment::serialize(FsFile& file) {
   if (rows.size() > MAX_TABLE_ROWS_PER_FRAGMENT) {
-    LOG_ERR("PTB", "Serialization failed: fragment row count %u exceeds maximum", static_cast<uint32_t>(rows.size()));
+    LOG_ERR("PTB", "Serialization failed: fragment row count %" PRIu32 " exceeds maximum",
+            static_cast<uint32_t>(rows.size()));
     return false;
   }
 
@@ -540,7 +542,8 @@ uint16_t Page::imageEstimateUnits(const uint16_t viewportHeight) const {
 bool Page::serialize(FsFile& file) const {
   const uint16_t count = elements.size();
   if (elements.size() > MAX_PAGE_ELEMENTS) {
-    LOG_ERR("PGE", "Serialization failed: element count %u exceeds maximum", static_cast<uint32_t>(elements.size()));
+    LOG_ERR("PGE", "Serialization failed: element count %" PRIu32 " exceeds maximum",
+            static_cast<uint32_t>(elements.size()));
     return false;
   }
   if (!serialization::tryWritePod(file, count)) {
