@@ -22,6 +22,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/NetworkName.h"
+#include "network/WifiUtils.h"
 #include "util/BatteryLog.h"
 #include "util/QrUtils.h"
 
@@ -56,15 +57,6 @@ void restartMdns(const char* hostname, const char* tag) {
   }
 }
 
-// 0..4 bars from RSSI (dBm), with 3 dBm hysteresis on currentBars to suppress flicker.
-int barsForRssi(int rssi, int currentBars) {
-  static constexpr int RISE_DBM[] = {-85, -75, -65, -55};
-  static constexpr int FALL_DBM[] = {-88, -78, -68, -58};
-  int bars = std::clamp(currentBars, 0, 4);
-  while (bars < 4 && rssi >= RISE_DBM[bars]) bars++;
-  while (bars > 0 && rssi < FALL_DBM[bars - 1]) bars--;
-  return bars;
-}
 }  // namespace
 
 void CrossPointWebServerActivity::onEnter() {
