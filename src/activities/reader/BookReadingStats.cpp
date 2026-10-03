@@ -82,6 +82,7 @@ bool openMigrationSource(const std::string& cachePath, FsFile& f) {
   // When bumping STATS_FILE_VERSION, this automatically tries the previous
   // versioned filename (e.g. v6 falls back to stats_v5.bin) before the original
   // unversioned stats.bin migration source.
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const std::string currentName = statsFileNameForVersion(STATS_FILE_VERSION);
   const std::string previousName = statsFileNameForVersion(PREVIOUS_VERSIONED_STATS_FILE_VERSION);
   const std::string previousPath = cachePath + "/" + previousName;
