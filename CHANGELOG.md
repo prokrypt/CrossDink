@@ -218,6 +218,9 @@
 - Long status titles shorten faster when they do not fit the screen.
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
+### Removed
+- Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
+
 ### Fixed
 - WebDAV: replies to requests that carry a body the server does not read (a PROPFIND's XML, as GNOME Files/gvfs sends with every listing) no longer end with a TCP reset. The server now closes those connections gracefully (waits up to 0.5 s for the client to close), so on a weak Wi-Fi link a reply that needs resending is no longer dropped, which could leave a gvfs mount (and an `rsync` onto it) waiting forever.
 - Saving recents, knobs or the Library index no longer lists them in `/.crossdink/.deleted` (each save parked the live file as a backup for a moment, which counted as a removal); entries for files that exist again are dropped from the list at boot. The Library index backup is now `library.idx.bak`.

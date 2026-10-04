@@ -153,10 +153,6 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                             StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_GUIDE_READING, &CrossPointSettings::guideReadingEnabled, "guideReadingEnabled",
                             StrId::STR_CAT_READER));
-    add(SettingInfo::Enum(
-        StrId::STR_INDEXING_METHOD, &CrossPointSettings::indexingMethod,
-        {StrId::STR_INDEXING_INCREMENTAL, StrId::STR_INDEXING_FULL_SECTION, StrId::STR_INDEXING_INCREMENTAL_MENTAL},
-        "indexingMethod", StrId::STR_CAT_READER));
 
     // --- Controls ---
     add(SettingInfo::Toggle(StrId::STR_PINCH_FONT_RESIZE, &CrossPointSettings::pinchFontResizeEnabled,

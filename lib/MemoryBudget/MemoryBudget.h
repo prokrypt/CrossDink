@@ -46,7 +46,6 @@ constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_FREE = 120U * 1024U;
 constexpr uint32_t EPUB_INLINE_IMAGE_SD_FONT_RELEASE_MIN_MAX_ALLOC = 80U * 1024U;
 KNOB_ALIAS(OPTIONAL_EPUB_REBUILD_MIN_FREE, rebuildMinFree);  // Goodies > Knobs
 KNOB_ALIAS(OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC, rebuildMinBlock);
-constexpr uint32_t OPTIONAL_EPUB_PREFETCH_AFTER_SD_FONT_RELEASE_MIN_FREE = 88U * 1024U;
 // Initial C3 guard for switching to a different dictionary .cpfont. Both total
 // free heap and contiguous maxAlloc matter because font metadata and prewarm
 // arenas are separate allocations. Hardware stress logs should tune these.

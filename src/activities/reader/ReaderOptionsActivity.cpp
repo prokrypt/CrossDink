@@ -88,14 +88,7 @@ void ReaderOptionsActivity::rebuildSettingsList() {
   if (needsFonts) sdFontSystem.refreshIfDirty();
   const auto allSettings = getSettingsList(needsFonts ? &sdFontSystem.registry() : nullptr);
   settings = buildBookReaderSettingsParentList(allSettings);
-  const auto indexingMethod = std::find_if(settings.begin(), settings.end(), [](const SettingInfo& setting) {
-    return setting.nameId == StrId::STR_INDEXING_METHOD;
-  });
-  if (indexingMethod == settings.end()) {
-    settings.push_back(buildReaderRenderModeSetting());
-  } else {
-    settings.insert(indexingMethod, buildReaderRenderModeSetting());
-  }
+  settings.push_back(buildReaderRenderModeSetting());
   fontSettings = buildReaderFontSettingsList(allSettings);
   pageLayoutSettings = buildReaderPageLayoutSettingsList(allSettings);
   screenMarginSettings = buildReaderScreenMarginSettingsList(allSettings);
