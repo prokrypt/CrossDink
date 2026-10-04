@@ -33,6 +33,9 @@ enum class OpCode : uint8_t {
   Confirm,   // as Ask; the first answer stops the test
   Swing,     // a0: frames; balanced DU swing of every pixel to the framebuffer (UC8179 Half-as-scrub)
   Null,      // a0: frames per phase; sources at GND, VCOM at VCOM_DC (UC8179 null discharge)
+  Gray,      // the reader's overlay AA pass over the B/W page on the panel
+  Night,     // a0: 1 = Night Mode on for the test (restored when it ends)
+  Tap,       // wait for a tap or Confirm (draws nothing)
 };
 
 enum class Mode : uint8_t { Full, Half, Fast, Du };
