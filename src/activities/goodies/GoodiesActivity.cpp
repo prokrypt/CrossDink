@@ -21,6 +21,7 @@
 #include "CrossPointSettings.h"
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
+#include "GlobalActions.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
@@ -37,6 +38,7 @@
 #include "network/SerialRemote.h"
 #include "network/WifiUtils.h"
 #include "platform/PinMon.h"
+#include "util/SleepLog.h"
 #include "util/TransferLightPulse.h"
 #include "util/WorkerTask.h"
 
@@ -478,6 +480,9 @@ void GoodiesActivity::showLevel(const Level next) {
     remoteRowShown = remoteRowState();
 #ifndef SIMULATOR
     entries.push_back({tr(STR_BATTERY_STATS), -1, {}, ">"});
+#if CROSSDINK_PSRAM_LOG
+    entries.push_back({"Sleep-reboot-log", -1, {}});
+#endif
 #endif
   } else if (level == Level::PinMon) {
     // Read when opened: the toggle, then per pin level, changes and wakes since boot.
@@ -575,6 +580,12 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::KeyboardTest);
     } else if (index == PINMON_ROW) {
       showLevel(Level::PinMon);
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+    } else if (index == SLEEP_REBOOT_ROW) {
+      // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
+      SleepLog::armSleepReboot();
+      enterDeepSleep();
+#endif
     } else {
 #ifndef SIMULATOR
       startActivityForResult(std::make_unique<BatteryStatsActivity>(renderer, mappedInput),
