@@ -597,16 +597,17 @@ bool readerRenderStackReady = false;
 
 #ifndef SIMULATOR
 #if CROSSDINK_PERF_LOG
-// Debug: small used blocks that sit between two large free runs of internal
-// RAM, i.e. what splits the block the Wi-Fi exit gate needs. The walker runs
-// under the heap lock, so it only records; the log comes after.
+// Debug: the runs of used blocks that sit between two large free runs of
+// internal RAM, i.e. what splits the block the Wi-Fi exit gate needs. Any size:
+// a task stack splits it as well as a small node. The walker runs under the
+// heap lock, so it only records; the log comes after.
 struct HeapPinScan {
-  static constexpr size_t MAX_PINS = 6;
-  static constexpr size_t MAX_PIN_BYTES = 2048;
+  static constexpr size_t MAX_PINS = 8;
   static constexpr size_t MIN_FREE_RUN = 4096;
   struct Pin {
     uintptr_t addr;
-    uint32_t size;
+    uint32_t size;    // the whole used run
+    uint32_t blocks;  // allocations in it
     uint32_t freeBefore;
     uint32_t freeAfter;
   };
@@ -614,7 +615,8 @@ struct HeapPinScan {
   size_t count = 0;
   intptr_t heapStart = 0;
   uint32_t freeRun = 0;
-  bool pending = false;
+  bool inUsed = false;
+  bool pending = false;  // candidate is a closed used run after a large free run
   Pin candidate{};
 };
 
@@ -623,26 +625,35 @@ static bool heapPinWalker(walker_heap_into_t heap, walker_block_info_t block, vo
   if (heap.start != scan.heapStart) {
     scan.heapStart = heap.start;
     scan.freeRun = 0;
+    scan.inUsed = false;
     scan.pending = false;
   }
   if (!block.used) {
+    if (scan.inUsed) {
+      scan.inUsed = false;
+      scan.pending = scan.candidate.freeBefore >= HeapPinScan::MIN_FREE_RUN;
+      scan.freeRun = 0;
+    }
     scan.freeRun += block.size;
     return true;
   }
-  if (scan.pending && scan.freeRun >= HeapPinScan::MIN_FREE_RUN && scan.count < HeapPinScan::MAX_PINS) {
-    scan.candidate.freeAfter = scan.freeRun;
-    scan.pins[scan.count++] = scan.candidate;
+  if (!scan.inUsed) {
+    if (scan.pending && scan.freeRun >= HeapPinScan::MIN_FREE_RUN && scan.count < HeapPinScan::MAX_PINS) {
+      scan.candidate.freeAfter = scan.freeRun;
+      scan.pins[scan.count++] = scan.candidate;
+    }
+    scan.pending = false;
+    scan.inUsed = true;
+    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), 0, 0, scan.freeRun, 0};
+    scan.freeRun = 0;
   }
-  scan.pending = block.size <= HeapPinScan::MAX_PIN_BYTES && scan.freeRun >= HeapPinScan::MIN_FREE_RUN;
-  if (scan.pending) {
-    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), static_cast<uint32_t>(block.size), scan.freeRun, 0};
-  }
-  scan.freeRun = 0;
+  scan.candidate.size += block.size;
+  scan.candidate.blocks++;
   return true;
 }
 
-// A pin that holds a task's TCB names the task; otherwise its first two words
-// hint at the owner (a vtable, a pcb, a string).
+// A pin that holds a task's TCB or stack names the task; otherwise its first
+// two words hint at the owner (a vtable, a pcb, a string).
 void logInternalHeapPins(const char* why) {
   static HeapPinScan scan;  // the walker runs under the heap lock: no allocation
   static TaskStatus_t tasks[40];
@@ -654,17 +665,20 @@ void logInternalHeapPins(const char* why) {
           static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
   for (size_t i = 0; i < scan.count; ++i) {
     const auto& pin = scan.pins[i];
+    const auto in = [&pin](const void* p) {
+      const auto a = reinterpret_cast<uintptr_t>(p);
+      return a >= pin.addr && a < pin.addr + pin.size;
+    };
     const char* owner = "?";
     for (UBaseType_t t = 0; t < taskCount; ++t) {
-      const auto tcb = reinterpret_cast<uintptr_t>(tasks[t].xHandle);
-      if (tcb >= pin.addr && tcb < pin.addr + pin.size) owner = tasks[t].pcTaskName;
+      if (in(tasks[t].xHandle) || in(tasks[t].pxStackBase)) owner = tasks[t].pcTaskName;
     }
     uint32_t words[2];
     memcpy(words, reinterpret_cast<const void*>(pin.addr), sizeof(words));
-    LOG_INF("HEAP", "pin 0x%08x %u B between free %u + %u, task %s, words %08x %08x", static_cast<unsigned>(pin.addr),
-            static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.freeBefore),
-            static_cast<unsigned>(pin.freeAfter), owner, static_cast<unsigned>(words[0]),
-            static_cast<unsigned>(words[1]));
+    LOG_INF("HEAP", "pin 0x%08x %u B in %u blocks between free %u + %u, task %s, words %08x %08x",
+            static_cast<unsigned>(pin.addr), static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.blocks),
+            static_cast<unsigned>(pin.freeBefore), static_cast<unsigned>(pin.freeAfter), owner,
+            static_cast<unsigned>(words[0]), static_cast<unsigned>(words[1]));
   }
   if (scan.count == 0) {
     LOG_INF("HEAP", "no pins between free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
