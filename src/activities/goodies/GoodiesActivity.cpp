@@ -22,6 +22,7 @@
 #include "DisplayTestActivity.h"
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -127,6 +128,7 @@ void closeServerAndRadio(CrossPointWebServer* server) {
   // Arduino would carry into the next Wi-Fi session.
   WiFi.setSleep(true);
   WiFi.mode(WIFI_OFF);
+  logInternalHeapPins("wifi remote off");
 }
 
 // Clears the main-task state and hands back the server to close.
@@ -220,6 +222,7 @@ void beginRejoin() {
     LOG_ERR("GDY", "wifi remote: rejoin skipped, internal free %u largest block %u",
             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+    logInternalHeapPins("rejoin skipped");
     return;
   }
   // Priority 1, under the main loop: it runs only while the loop waits. The

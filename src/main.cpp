@@ -641,21 +641,39 @@ static bool heapPinWalker(walker_heap_into_t heap, walker_block_info_t block, vo
   return true;
 }
 
-static void logInternalHeapPins() {
+// A pin that holds a task's TCB names the task; otherwise its first two words
+// hint at the owner (a vtable, a pcb, a string).
+void logInternalHeapPins(const char* why) {
   static HeapPinScan scan;  // the walker runs under the heap lock: no allocation
+  static TaskStatus_t tasks[40];
   scan = HeapPinScan{};
   heap_caps_walk(MALLOC_CAP_INTERNAL, heapPinWalker, &scan);
+  const UBaseType_t taskCount = uxTaskGetSystemState(tasks, 40, nullptr);
+  LOG_INF("HEAP", "%s: internal free %u largest %u", why,
+          static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
   for (size_t i = 0; i < scan.count; ++i) {
     const auto& pin = scan.pins[i];
-    LOG_INF("HEAP", "pin 0x%08x %u B between free %u + %u", static_cast<unsigned>(pin.addr),
+    const char* owner = "?";
+    for (UBaseType_t t = 0; t < taskCount; ++t) {
+      const auto tcb = reinterpret_cast<uintptr_t>(tasks[t].xHandle);
+      if (tcb >= pin.addr && tcb < pin.addr + pin.size) owner = tasks[t].pcTaskName;
+    }
+    uint32_t words[2];
+    memcpy(words, reinterpret_cast<const void*>(pin.addr), sizeof(words));
+    LOG_INF("HEAP", "pin 0x%08x %u B between free %u + %u, task %s, words %08x %08x", static_cast<unsigned>(pin.addr),
             static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.freeBefore),
-            static_cast<unsigned>(pin.freeAfter));
+            static_cast<unsigned>(pin.freeAfter), owner, static_cast<unsigned>(words[0]),
+            static_cast<unsigned>(words[1]));
   }
   if (scan.count == 0) {
     LOG_INF("HEAP", "no pins between free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
   }
 }
 #endif
+#endif
+#if !CROSSDINK_PERF_LOG || defined(SIMULATOR)
+void logInternalHeapPins(const char*) {}
 #endif
 
 bool keepWifiForRemote() {
@@ -698,9 +716,7 @@ bool leaveNetworkInPlace(const bool goingHome) {
     LOG_INF("MAIN", "Leaving Wi-Fi in place: remote keeps the link for the next Wi-Fi screen");
     return true;
   }
-#if CROSSDINK_PERF_LOG
-  logInternalHeapPins();
-#endif
+  logInternalHeapPins("Wi-Fi exit");
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   // The Goodies remote rejoins with a 16 KB block (wifiRemoteMinBlock), under Home's bar.
   const uint32_t need = goingHome && psramHeapAvailable() ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK

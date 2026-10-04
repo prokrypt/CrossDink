@@ -56,6 +56,9 @@ void silentRestartToManageFonts();
 // work (a lower bar when goingHome); the caller then falls back to its silent
 // restart. True during deep sleep, so callers go on with their normal cleanup.
 bool leaveNetworkInPlace(bool goingHome = false);
+// Debug builds (CROSSDINK_PERF_LOG): logs the small used blocks that split
+// internal RAM's free runs, with the owning task when one holds a TCB there.
+void logInternalHeapPins(const char* why);
 // True when a leaving Wi-Fi screen should keep the station link for the Goodies
 // Wi-Fi remote (same network, remote on). Always false without Goodies.
 bool keepWifiForRemote();
