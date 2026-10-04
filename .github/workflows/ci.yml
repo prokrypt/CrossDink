@@ -107,7 +107,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [sticky, x4-pro, x4-classic]
+        # x4-pro-debug compiles the debug-only code (PSRAM log, Goodies, knobs,
+        # debug web routes) that the release envs leave out.
+        environment: [sticky, x4-pro, x4-classic, x4-pro-debug]
     steps:
       - uses: actions/checkout@v6
         with:
