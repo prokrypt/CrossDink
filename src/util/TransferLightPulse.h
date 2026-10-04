@@ -7,7 +7,7 @@
 // Pulses the frontlight while a Wi-Fi or USB Drive file transfer is moving
 // data (1 s cycle) and holds the user's level when idle (off counts as 0%).
 // The band follows that level: a lit light dips to a quarter of it and back,
-// never above the user's level; off pulses 0 to the floor knob. Every pulse runs to the
+// never above the user's level; off pulses 0 to the off-top knob. Every pulse runs to the
 // end of its cycle, so even a short request gives one full blink and the light
 // always ramps back to the user's level instead of cutting off. Drives the
 // light through the HAL overlay only, so the user's brightness/on state (the
@@ -16,7 +16,7 @@
 // the pulse until end(). Main loop only. Inert on boards without a frontlight.
 // Pulse band for an idle level (percent). Pure, so one test covers all levels.
 inline constexpr uint8_t pulseLow(const uint8_t base) { return base / 4; }
-inline constexpr uint8_t pulseHigh(const uint8_t base, const uint8_t floor) { return base == 0 ? floor : base; }
+inline constexpr uint8_t pulseHigh(const uint8_t base, const uint8_t offTop) { return base == 0 ? offTop : base; }
 
 class TransferLightPulse {
  public:
@@ -43,7 +43,7 @@ class TransferLightPulse {
 
  private:
   void write(uint8_t percent);
-  // Pulse band from basePercent and the floor knob, read at each use (live).
+  // Pulse band from basePercent and the off-top knob, read at each use (live).
   uint8_t lowPercent() const;
   uint8_t highPercent() const;
 
