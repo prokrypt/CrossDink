@@ -86,6 +86,7 @@ class OpdsBookBrowserActivity final : public Activity {
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> onSd;        // book rows already in the download folder
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> pageCached;  // feed rows whose page is in pageCache
   uint32_t pageCachedAt = 0;                          // pageCache->changes() when pageCached was set
+  uint32_t marksPendingMs = 0;                        // millis() | 1 when pageCached first changed unshown
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
@@ -185,7 +186,7 @@ class OpdsBookBrowserActivity final : public Activity {
   // server cannot), Cancel removes the partial file and returns to the listing.
   void offerRetry(const std::string& path);
   void markBooksOnSd();
-  void markCachedFeeds();
+  bool markCachedFeeds();  // true when a row's mark changed
   bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
   void launchSearch();
   void performSearch(const std::string& query);

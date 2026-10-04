@@ -651,7 +651,6 @@ ReaderSettingsDraft EpubReaderDrawerActivity::captureSettings() {
   value.embeddedStyle = SETTINGS.embeddedStyle;
   value.imageRendering = SETTINGS.imageRendering;
   value.epubRenderMode = SETTINGS.epubRenderMode;
-  value.indexingMethod = SETTINGS.indexingMethod;
   return value;
 }
 
@@ -676,7 +675,6 @@ void EpubReaderDrawerActivity::applySettings(const ReaderSettingsDraft& value) {
   SETTINGS.embeddedStyle = value.embeddedStyle;
   SETTINGS.imageRendering = value.imageRendering;
   SETTINGS.epubRenderMode = value.epubRenderMode;
-  SETTINGS.indexingMethod = value.indexingMethod;
 }
 
 void EpubReaderDrawerActivity::markSettingChanged(const ReaderSettingsChangeMask mask) {
@@ -1680,12 +1678,6 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::RenderMode:
     case RowId::TextAa:
       showEnumOptions(row);
-      return;
-    case RowId::IndexingMethod:
-      draft.indexingMethod =
-          static_cast<uint8_t>((draft.indexingMethod + 1) % CrossPointSettings::INDEXING_METHOD_COUNT);
-      markSettingChanged(ReaderSettingsChangeMask::Relayout);
-      requestUpdate();
       return;
     case RowId::Spacing:
       openPane(ReaderDrawerPane::Spacing);
@@ -3000,8 +2992,6 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_BOOK_DICTIONARY);
     case RowId::RenderMode:
       return tr(STR_EPUB_RENDER_MODE);
-    case RowId::IndexingMethod:
-      return tr(STR_INDEXING_METHOD);
     case RowId::ToggleCompleted:
       return isBookCompleted ? tr(STR_MARK_UNFINISHED) : tr(STR_MARK_FINISHED);
     case RowId::TrackBookStats:
@@ -3108,18 +3098,6 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
       static const std::array<StrId, 3> labels = {StrId::STR_STATE_OFF, StrId::STR_AA_SHARP, StrId::STR_AA_SMOOTH};
       return I18N.get(labels[std::min<size_t>(draft.textAntiAliasing, labels.size() - 1)]);
     }
-    case RowId::IndexingMethod:
-      switch (draft.indexingMethod) {
-        case CrossPointSettings::INDEXING_INCREMENTAL:
-          return tr(STR_INDEXING_INCREMENTAL);
-        case CrossPointSettings::INDEXING_FULL_SECTION:
-          return tr(STR_INDEXING_FULL_SECTION);
-        case CrossPointSettings::INDEXING_INCREMENTAL_MENTAL:
-          return tr(STR_INDEXING_INCREMENTAL_MENTAL);
-        case CrossPointSettings::INDEXING_METHOD_COUNT:
-          break;
-      }
-      return tr(STR_INDEXING_FULL_SECTION);
     case RowId::BookDictionary:
       if (bookDictionaryPath.empty()) return tr(STR_DICT_USE_GLOBAL);
       {

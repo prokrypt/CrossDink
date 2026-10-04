@@ -15,7 +15,6 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "Epub/converters/DecodePipeline.h"
 #include "Epub/converters/DirectPixelWriter.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
@@ -24,6 +23,7 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BmpLevelDecode.h"
 
 namespace {
 
@@ -103,82 +103,6 @@ void fitBitmap(const Bitmap& bitmap, const int pageWidth, const int pageHeight, 
     x = (pageWidth - bitmap.getWidth()) / 2;
     y = (pageHeight - bitmap.getHeight()) / 2;
   }
-}
-
-// Decode-once BMP: the worker core reads (and dithers) rows into pipeline slots; the render task
-// writes their levels through DirectPixelWriter's level planes.
-struct BmpLevelJob {
-  Bitmap* bitmap;
-  HalFile* file;
-  uint8_t* pixels;   // PSRAM copy of the pixel data, or nullptr to read rows from the SD card
-  uint8_t* fileRow;  // raw row scratch for Bitmap::readNextRow
-  DecodePipeline* pipeline;
-};
-
-struct BmpLevelSink {
-  DirectPixelWriter pw;
-  const Bitmap* bitmap;
-  int x, y, screenWidth, screenHeight;
-  float scale;
-  const std::atomic<bool>* cancel;
-};
-
-// One big read instead of a row at a time; on a short read the rows come from the card as before.
-void loadBmpPixels(BmpLevelJob& job) {
-  if (!job.pixels) return;
-  const size_t total = job.bitmap->pixelDataBytes();
-  size_t got = 0;
-  while (got < total) {
-    const int n = job.file->read(job.pixels + got, std::min<size_t>(total - got, 64 * 1024));
-    if (n <= 0) break;
-    got += static_cast<size_t>(n);
-  }
-  if (got == total) {
-    job.bitmap->setPixelData(job.pixels);
-  } else {
-    LOG_ERR("BMP", "Pixel preload short (%u of %u B); reading rows", static_cast<unsigned>(got),
-            static_cast<unsigned>(total));
-    job.bitmap->rewindToData();
-  }
-}
-
-// Same placement as GfxRenderer::drawBitmap (no crop).
-void writeBmpLevelRow(BmpLevelSink& sink, const uint8_t* row, const int bmpY) {
-  const Bitmap& bitmap = *sink.bitmap;
-  int screenY = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
-  if (sink.scale < 1.0f) screenY = static_cast<int>(std::floor(screenY * sink.scale));
-  screenY += sink.y;
-  if (screenY < 0 || screenY >= sink.screenHeight) return;
-  sink.pw.beginRow(screenY);
-  for (int bmpX = 0; bmpX < bitmap.getWidth(); bmpX++) {
-    int screenX = sink.scale < 1.0f ? static_cast<int>(std::floor(bmpX * sink.scale)) : bmpX;
-    screenX += sink.x;
-    if (screenX >= sink.screenWidth) break;
-    if (screenX < 0) continue;
-    sink.pw.writePixel(screenX, (row[bmpX / 4] >> (6 - (bmpX % 4) * 2)) & 0x3);
-  }
-}
-
-int readBmpLevelRows(void* context) {  // worker core
-  auto& job = *static_cast<BmpLevelJob*>(context);
-  loadBmpPixels(job);
-  for (int bmpY = 0; bmpY < job.bitmap->getHeight(); bmpY++) {
-    uint8_t* slot = job.pipeline->acquire();
-    if (!slot) return 0;  // stopped by the render task
-    if (job.bitmap->readNextRow(slot, job.fileRow) != BmpReaderError::Ok) return -1;
-    DecodePipeline::Block block;
-    block.y = bmpY;
-    block.width = job.bitmap->getWidth();
-    block.height = 1;
-    job.pipeline->commit(block);
-  }
-  return 0;
-}
-
-bool drawBmpLevelRow(void* context, const DecodePipeline::Block& block) {  // render task
-  auto& sink = *static_cast<BmpLevelSink*>(context);
-  writeBmpLevelRow(sink, block.pixels, block.y);
-  return !sink.cancel->load(std::memory_order_acquire);
 }
 
 bool isMacOSSidecarFile(const std::string& filename) { return filename.rfind("._", 0) == 0; }
@@ -485,46 +409,17 @@ bool BmpViewerActivity::decodeBmpLevels(DecodedImage& image) {
   if (look) bitmap.setBwOutput(look == DirectPixelWriter::BW_IMAGES_DARK ? 192 : 128);
   bool ok = bitmap.parseHeaders() == BmpReaderError::Ok;
   if (ok) {
-    BmpLevelSink sink;
-    sink.pw.init(renderer);
-    sink.bitmap = &bitmap;
-    sink.screenWidth = renderer.getScreenWidth();
-    sink.screenHeight = renderer.getScreenHeight();
-    sink.cancel = &drawCancelled;
-    fitBitmap(bitmap, sink.screenWidth, sink.screenHeight, sink.x, sink.y, sink.scale);
+    int x, y;
+    float scale;
+    fitBitmap(bitmap, renderer.getScreenWidth(), renderer.getScreenHeight(), x, y, scale);
     image.gray = !look && bitmap.hasGreyscale();
-    image.x = sink.x;
-    image.y = sink.y;
-    image.width =
-        sink.scale < 1.0f ? static_cast<int>(std::floor((bitmap.getWidth() - 1) * sink.scale)) + 1 : bitmap.getWidth();
-    image.height = sink.scale < 1.0f ? static_cast<int>(std::floor((bitmap.getHeight() - 1) * sink.scale)) + 1
-                                     : bitmap.getHeight();
-
-    // ponytail: files over 4 MB of pixels stream from the card rather than take that much PSRAM.
-    HeapByteBuffer pixels;
-    if (bitmap.pixelDataBytes() <= 4u * 1024 * 1024) pixels = makePsramByteBufferNoThrow(bitmap.pixelDataBytes());
-    HeapByteBuffer fileRow = makePsramByteBufferNoThrow(bitmap.getRowBytes());
-    const size_t levelRowBytes = (bitmap.getWidth() + 3) / 4;
-    BmpLevelJob job{&bitmap, &file, pixels.get(), fileRow.get(), nullptr};
-    DecodePipeline pipeline;
-    // cppcheck-suppress variableScope ; written through the out-param below
-    int rc = 0;
-    bool split = false;
-    ok = fileRow != nullptr;
-    if (ok && DecodePipeline::worthSplitting() && pipeline.begin(levelRowBytes)) {
-      job.pipeline = &pipeline;
-      split = pipeline.run(readBmpLevelRows, &job, drawBmpLevelRow, &sink, rc);
-      ok = !split || rc == 0;
-    }
-    if (ok && !split) {
-      HeapByteBuffer levelRow = makePsramByteBufferNoThrow(levelRowBytes);
-      ok = levelRow != nullptr;
-      if (ok) loadBmpPixels(job);
-      for (int bmpY = 0; ok && bmpY < bitmap.getHeight() && !drawCancelled.load(std::memory_order_acquire); bmpY++) {
-        ok = bitmap.readNextRow(levelRow.get(), fileRow.get()) == BmpReaderError::Ok;
-        if (ok) writeBmpLevelRow(sink, levelRow.get(), bmpY);
-      }
-    }
+    image.x = x;
+    image.y = y;
+    image.width = scale < 1.0f ? static_cast<int>(std::floor((bitmap.getWidth() - 1) * scale)) + 1 : bitmap.getWidth();
+    image.height =
+        scale < 1.0f ? static_cast<int>(std::floor((bitmap.getHeight() - 1) * scale)) + 1 : bitmap.getHeight();
+    ok = decodeBmpLevelPlanes(renderer, bitmap, file, x, y, renderer.getScreenWidth(), renderer.getScreenHeight(), 0, 0,
+                              &drawCancelled);
   }
   file.close();
   return ok;
@@ -662,6 +557,7 @@ void BmpViewerActivity::unpinBootFavorite() {
 
 void BmpViewerActivity::promptDeleteImage() {
   const std::string path = filePath;
+  drawCancelled.store(false, std::memory_order_release);
   needsImageRedraw.store(true, std::memory_order_release);  // the prompt draws over the image
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE),
@@ -700,6 +596,8 @@ void BmpViewerActivity::showContextMenu() {
                      isBootPinned ? StrId::STR_CLEAR_BOOT_SCREEN : StrId::STR_SET_AS_BOOT_SCREEN});
   }
 
+  // The long-press cancelled any draw; clear that or the redraw on return stops at the Loading popup.
+  drawCancelled.store(false, std::memory_order_release);
   needsImageRedraw.store(true, std::memory_order_release);  // the menu draws over the image
   startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath),
                                                                      std::move(items), false, false),

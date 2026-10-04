@@ -63,6 +63,12 @@ bool OpdsPreloadPool::backingOff() const { return failedAtMs != 0 && millis() - 
 // A queue held by the failure backoff does not count: the radio may idle.
 bool OpdsPreloadPool::busy() const { return (!queue.empty() && !backingOff()) || runningCount() > 0; }
 
+bool OpdsPreloadPool::marksDue(uint32_t& pendingSinceMs) const {
+  if (pendingSinceMs == 0 || (busy() && millis() - pendingSinceMs < MARKS_BATCH_MS)) return false;
+  pendingSinceMs = 0;
+  return true;
+}
+
 void OpdsPreloadPool::enqueue(const std::string& url, const bool front) { enqueue(url, front, "", "", ""); }
 
 void OpdsPreloadPool::enqueue(const std::string& url, const bool front, std::string username, std::string password,
@@ -180,30 +186,29 @@ void OpdsPreloadPool::pump() {
   }
 }
 
-bool OpdsPreloadPool::pause(const std::string& keepUrl) {
-  bool waited = false;
-  std::vector<QueuedPage> cancelled;
-  for (auto& worker : workers) {
-    if (!worker.prefetcher.running()) continue;
-    if (worker.prefetcher.url() == keepUrl) {
-      waited = true;
-    } else {
-      cancelled.push_back(worker.job);
-      cancelled.back().revalidate = false;
-      worker.prefetcher.cancel();
-    }
+// Cancelled jobs go back to the front of the queue in slot order (rechecks are
+// dropped); one that finishes anyway is skipped there once it is cached.
+void OpdsPreloadPool::cancelOthers(const std::string& keepUrl) {
+  size_t cancelled = 0;
+  for (size_t i = MAX_WORKERS; i-- > 0;) {
+    Worker& worker = workers[i];
+    if (!worker.prefetcher.running() || worker.prefetcher.cancelling() || worker.prefetcher.url() == keepUrl) continue;
+    worker.prefetcher.cancel();
+    ++cancelled;
+    if (!worker.job.revalidate && !queued(worker.job.url)) queue.insert(queue.begin(), worker.job);
   }
+  if (cancelled) LOG_INF("OPDS", "Preload paused: %zu cancelled", cancelled);
+}
+
+bool OpdsPreloadPool::pause(const std::string& keepUrl) {
+  const bool waited = running(keepUrl);
+  cancelOthers(keepUrl);
   for (auto& worker : workers) {
     worker.prefetcher.join();
     harvest(worker);
   }
   queue.erase(std::remove_if(queue.begin(), queue.end(), [](const QueuedPage& page) { return page.revalidate; }),
               queue.end());
-  if (!cancelled.empty()) LOG_INF("OPDS", "Preload paused: %zu cancelled", cancelled.size());
-  // Resume them first once the foreground request is done.
-  for (auto it = cancelled.rbegin(); it != cancelled.rend(); ++it) {
-    if (!cache.contains(it->url) && !queued(it->url)) queue.insert(queue.begin(), std::move(*it));
-  }
   return waited;
 }
 

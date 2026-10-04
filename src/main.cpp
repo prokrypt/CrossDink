@@ -72,7 +72,7 @@
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
-#include "activities/reader/KOSyncOnExit.h"
+#include "activities/reader/KOSyncAuto.h"
 #include "activities/reader/ReaderExitSave.h"
 #include "activities/reader/ReaderProgressShadow.h"
 #include "activities/reader/ReaderUtils.h"
@@ -597,16 +597,17 @@ bool readerRenderStackReady = false;
 
 #ifndef SIMULATOR
 #if CROSSDINK_PERF_LOG
-// Debug: small used blocks that sit between two large free runs of internal
-// RAM, i.e. what splits the block the Wi-Fi exit gate needs. The walker runs
-// under the heap lock, so it only records; the log comes after.
+// Debug: the runs of used blocks that sit between two large free runs of
+// internal RAM, i.e. what splits the block the Wi-Fi exit gate needs. Any size:
+// a task stack splits it as well as a small node. The walker runs under the
+// heap lock, so it only records; the log comes after.
 struct HeapPinScan {
-  static constexpr size_t MAX_PINS = 6;
-  static constexpr size_t MAX_PIN_BYTES = 2048;
+  static constexpr size_t MAX_PINS = 8;
   static constexpr size_t MIN_FREE_RUN = 4096;
   struct Pin {
     uintptr_t addr;
-    uint32_t size;
+    uint32_t size;    // the whole used run
+    uint32_t blocks;  // allocations in it
     uint32_t freeBefore;
     uint32_t freeAfter;
   };
@@ -614,7 +615,8 @@ struct HeapPinScan {
   size_t count = 0;
   intptr_t heapStart = 0;
   uint32_t freeRun = 0;
-  bool pending = false;
+  bool inUsed = false;
+  bool pending = false;  // candidate is a closed used run after a large free run
   Pin candidate{};
 };
 
@@ -623,39 +625,69 @@ static bool heapPinWalker(walker_heap_into_t heap, walker_block_info_t block, vo
   if (heap.start != scan.heapStart) {
     scan.heapStart = heap.start;
     scan.freeRun = 0;
+    scan.inUsed = false;
     scan.pending = false;
   }
   if (!block.used) {
+    if (scan.inUsed) {
+      scan.inUsed = false;
+      scan.pending = scan.candidate.freeBefore >= HeapPinScan::MIN_FREE_RUN;
+      scan.freeRun = 0;
+    }
     scan.freeRun += block.size;
     return true;
   }
-  if (scan.pending && scan.freeRun >= HeapPinScan::MIN_FREE_RUN && scan.count < HeapPinScan::MAX_PINS) {
-    scan.candidate.freeAfter = scan.freeRun;
-    scan.pins[scan.count++] = scan.candidate;
+  if (!scan.inUsed) {
+    if (scan.pending && scan.freeRun >= HeapPinScan::MIN_FREE_RUN && scan.count < HeapPinScan::MAX_PINS) {
+      scan.candidate.freeAfter = scan.freeRun;
+      scan.pins[scan.count++] = scan.candidate;
+    }
+    scan.pending = false;
+    scan.inUsed = true;
+    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), 0, 0, scan.freeRun, 0};
+    scan.freeRun = 0;
   }
-  scan.pending = block.size <= HeapPinScan::MAX_PIN_BYTES && scan.freeRun >= HeapPinScan::MIN_FREE_RUN;
-  if (scan.pending) {
-    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), static_cast<uint32_t>(block.size), scan.freeRun, 0};
-  }
-  scan.freeRun = 0;
+  scan.candidate.size += block.size;
+  scan.candidate.blocks++;
   return true;
 }
 
-static void logInternalHeapPins() {
+// A pin that holds a task's TCB or stack names the task; otherwise its first
+// two words hint at the owner (a vtable, a pcb, a string).
+void logInternalHeapPins(const char* why) {
   static HeapPinScan scan;  // the walker runs under the heap lock: no allocation
+  static TaskStatus_t tasks[40];
   scan = HeapPinScan{};
   heap_caps_walk(MALLOC_CAP_INTERNAL, heapPinWalker, &scan);
+  const UBaseType_t taskCount = uxTaskGetSystemState(tasks, 40, nullptr);
+  LOG_INF("HEAP", "%s: internal free %u largest %u", why,
+          static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
   for (size_t i = 0; i < scan.count; ++i) {
     const auto& pin = scan.pins[i];
-    LOG_INF("HEAP", "pin 0x%08x %u B between free %u + %u", static_cast<unsigned>(pin.addr),
-            static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.freeBefore),
-            static_cast<unsigned>(pin.freeAfter));
+    const auto in = [&pin](const void* p) {
+      const auto a = reinterpret_cast<uintptr_t>(p);
+      return a >= pin.addr && a < pin.addr + pin.size;
+    };
+    const char* owner = "?";
+    for (UBaseType_t t = 0; t < taskCount; ++t) {
+      if (in(tasks[t].xHandle) || in(tasks[t].pxStackBase)) owner = tasks[t].pcTaskName;
+    }
+    uint32_t words[2];
+    memcpy(words, reinterpret_cast<const void*>(pin.addr), sizeof(words));
+    LOG_INF("HEAP", "pin 0x%08x %u B in %u blocks between free %u + %u, task %s, words %08x %08x",
+            static_cast<unsigned>(pin.addr), static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.blocks),
+            static_cast<unsigned>(pin.freeBefore), static_cast<unsigned>(pin.freeAfter), owner,
+            static_cast<unsigned>(words[0]), static_cast<unsigned>(words[1]));
   }
   if (scan.count == 0) {
     LOG_INF("HEAP", "no pins between free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
   }
 }
 #endif
+#endif
+#if !CROSSDINK_PERF_LOG || defined(SIMULATOR)
+void logInternalHeapPins(const char*) {}
 #endif
 
 bool keepWifiForRemote() {
@@ -698,15 +730,11 @@ bool leaveNetworkInPlace(const bool goingHome) {
     LOG_INF("MAIN", "Leaving Wi-Fi in place: remote keeps the link for the next Wi-Fi screen");
     return true;
   }
-#if CROSSDINK_PERF_LOG
-  logInternalHeapPins();
-#endif
+  logInternalHeapPins("Wi-Fi exit");
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  // The Goodies remote rejoins only with a 48 KB block: while it is on and
-  // must rejoin, a restart (it rejoins at boot) beats staying up without it.
-  const uint32_t need = goingHome && psramHeapAvailable() && !(SETTINGS.goodiesWifiRemote && !keepLink)
-                            ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
-                            : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
+  // The Goodies remote rejoins with a 16 KB block (wifiRemoteMinBlock), under Home's bar.
+  const uint32_t need = goingHome && psramHeapAvailable() ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
+                                                          : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
   if (largest < need) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),
             static_cast<unsigned>(need));
@@ -1585,6 +1613,39 @@ static void disarmBootGuard() {
 #endif
 }
 
+// KOReader Sync > Sync on Wake & Sleep: before the sleep screen, save the open
+// book's position and push it under a progress toast, then show the result for a
+// moment. pushNow() bounds the whole wait, so sleep always goes on.
+void syncBookBeforeSleep() {
+  if (!kosync_auto::wantsSleepPush()) return;
+  const std::string path = activityManager.flushEpubProgressForSync();
+  if (path.empty()) return;
+  HalPowerManager::sleepStep = "kosync push";
+  activityManager.cancelOptionalRenderWork("kosync sleep push");
+  // Held throughout so the reader cannot repaint over the toasts; bounded so a
+  // busy render task only costs the toasts, never the push or the sleep.
+  RenderLock lock(3000UL);
+  // The sleep screen may snapshot this page, so the toasts' band is put back after.
+  const int bandH = renderer.getLineHeight(UI_10_FONT_ID) + 24;  // drawToast()'s height
+  const int bandY = (renderer.getScreenHeight() - bandH) / 2;
+  const int bandW = renderer.getScreenWidth();
+  const size_t bandBytes = renderer.getRegionByteSize(0, bandY, bandW, bandH);
+  std::unique_ptr<uint8_t[]> band;
+  if (lock.ownsLock()) band = makeUniqueNoThrow<uint8_t[]>(bandBytes);
+  const bool saved = band && renderer.copyRegionToBuffer(0, bandY, bandW, bandH, band.get(), bandBytes);
+  if (saved) BookActions::drawToast(renderer, tr(STR_SYNCING_PROGRESS));
+  const kosync_auto::PushOutcome outcome = kosync_auto::pushNow(path);
+  LOG_INF("KOSync", "sleep push outcome %d", static_cast<int>(outcome));
+  if (!saved) return;
+  const char* msg = outcome == kosync_auto::PushOutcome::Pushed        ? tr(STR_UPLOAD_SUCCESS)
+                    : outcome == kosync_auto::PushOutcome::Same        ? tr(STR_ALREADY_SYNCED)
+                    : outcome == kosync_auto::PushOutcome::ServerAhead ? tr(STR_SYNC_SERVER_AHEAD)
+                                                                       : tr(STR_SYNC_FAILED_MSG);
+  BookActions::drawToast(renderer, msg);
+  delay(1500);
+  renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   armSleepGuard();
@@ -1592,7 +1653,9 @@ void enterDeepSleep(bool fromTimeout) {
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
 #endif
-  kosync_on_exit::yieldRadio();  // likewise the exit push's Wi-Fi start/stop; deep sleep drops the rest
+  syncBookBeforeSleep();
+  HalPowerManager::sleepStep = "activity exit";
+  kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system
@@ -2184,6 +2247,7 @@ void setup() {
   } else {
     // Count the attempt in RTC so a book that crashes on load boots to Home next time.
     APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
+    if (isSleepWake) kosync_auto::noteWake();
     activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
   }
 
@@ -2275,7 +2339,7 @@ static uint32_t liveFlashStartMs() {
                                                                                                              : 0;
 }
 
-static void updateFlashDuck() {
+static void updateFlashDuckLocked() {
   const unsigned long now = millis();
   const unsigned long inputMs = flashDuckInputMs;
   const uint32_t swingMs = liveFlashStartMs();
@@ -2396,8 +2460,12 @@ static void updateFlashDuck() {
     darkMs = target;
     const int32_t left = static_cast<int32_t>(target - now);
     const unsigned long from = std::max<unsigned long>(fromLevel, floor);
-    level = std::max(floor, std::min<unsigned long>(
-                                flashDuckLevel, left <= 0 ? floor : floor + (from - floor) * left / (target - fromMs)));
+    // Hold until the last FLASH_DUCK_DOWN_MS before the swing, then fade to the floor (the plan is
+    // 340-590 ms ahead of the swing, so a ramp from the plan dimmed far too early).
+    const unsigned long window = std::min<unsigned long>(target - fromMs, FLASH_DUCK_DOWN_MS);
+    const bool holding = left >= static_cast<int32_t>(window);
+    const unsigned long ramp = left <= 0 ? floor : holding ? from : floor + (from - floor) * left / window;
+    level = std::max(floor, std::min<unsigned long>(flashDuckLevel, ramp));
     if (level == floor && !darkLogged) {
       darkLogged = true;
       if (swingMs != 0) {
@@ -2426,6 +2494,41 @@ static void updateFlashDuck() {
     Frontlight.setIdleDim(flashDuckLevel);
   }
   if (!ducking && flashDuckLevel == 100) flashDuckActive = false;
+}
+
+// The fade is stepped from the main loop and its render waits, but a long main-loop job (a 930 ms BMP
+// decode right after a refresh) starves both and the light came back ~760 ms late. While a duck is
+// pending or running an esp_timer steps it too; the mutex keeps the statics above to one caller.
+static bool flashDuckPending() {
+  return flashDuckActive || (SETTINGS.frontlightFlashDuck && (liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 ||
+                                                              display.flashPlannedMs() != 0));
+}
+static void updateFlashDuck() {
+#ifndef SIMULATOR
+  static SemaphoreHandle_t lock = xSemaphoreCreateMutex();
+  static esp_timer_handle_t tick = nullptr;
+  static bool ticking = false;
+  if (lock == nullptr || xSemaphoreTake(lock, 0) != pdTRUE) return;  // another caller is stepping it
+  updateFlashDuckLocked();
+  const bool want = flashDuckPending();
+  if (want && !ticking) {
+    if (tick == nullptr) {
+      const esp_timer_create_args_t args = {.callback = [](void*) { updateFlashDuck(); },
+                                            .arg = nullptr,
+                                            .dispatch_method = ESP_TIMER_TASK,
+                                            .name = "flashDuck",
+                                            .skip_unhandled_events = true};
+      if (esp_timer_create(&args, &tick) != ESP_OK) LOG_ERR("LIGHT", "Flash duck timer not created");
+    }
+    ticking = tick != nullptr && esp_timer_start_periodic(tick, FLASH_DUCK_TICK_MS * 1000ULL) == ESP_OK;
+  } else if (!want && ticking) {
+    esp_timer_stop(tick);
+    ticking = false;
+  }
+  xSemaphoreGive(lock);
+#else
+  updateFlashDuckLocked();
+#endif
 }
 
 // The main loop can block in a render wait through a whole refresh (a reader
@@ -2974,7 +3077,17 @@ static void loopPass() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
-  kosync_on_exit::loop();
+  kosync_auto::loop();
+  // Auto sync push toast: drawn over the current screen, cleared by its next render.
+  static unsigned long koSyncToastAt = 0;
+  if (kosync_auto::takePushed()) {
+    RenderLock lock;
+    BookActions::drawToast(renderer, tr(STR_UPLOAD_SUCCESS));
+    koSyncToastAt = millis() | 1;
+  } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
+    koSyncToastAt = 0;
+    activityManager.requestUpdate();
+  }
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
   knobs::loop();
@@ -3056,7 +3169,6 @@ static void loopPass() {
 void loop() {
   loopPassBlocked = false;
   loopPass();
-  SleepLog::loop();
   // loopTask runs on core 0 at priority 2, above IDLE0 and the priority-1
   // workers. Early returns (held chords, Home-key taps, shortcut dispatch)
   // skip the pass-end wait; one tick keeps them from starving IDLE0 into a

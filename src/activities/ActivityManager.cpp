@@ -49,7 +49,7 @@
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
 #include "reader/GlobalReadingStats.h"
-#include "reader/KOSyncOnExit.h"
+#include "reader/KOSyncAuto.h"
 #include "reader/ReaderActivity.h"
 #include "reader/ReaderExitSave.h"
 #include "settings/OpdsServerListActivity.h"
@@ -160,10 +160,8 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   return context;
 }
 
-bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput,
-                         const FrontlightDrawerState* restoredState = nullptr) {
+bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput) {
   FrontlightPanelContext context = buildFrontlightPanelContext(activity, renderer, mappedInput);
-  if (restoredState) context.drawerState = *restoredState;
   auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput, std::move(context));
   if (!panel) {
     LOG_ERR("ACT", "OOM opening frontlight panel");
@@ -577,7 +575,7 @@ void ActivityManager::renderTaskLoop() {
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       batchInput = currentActivity->batchesInputDuringRefresh();
       renderer.setDeferFastRefresh(deferredRender);
-      PerfLog::noteRenderStart(currentActivity->name.c_str());
+      PerfLog::noteRenderStart(currentActivity->name.c_str(), renderer.isRefreshPending());
       // Interactive screens keep the booster on so input never waits on PON.
       idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       idlePanelOffMs = PANEL_OFF_POLL_MS;
@@ -878,7 +876,7 @@ void ActivityManager::loop() {
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
 #endif
       if (currentActivity->usesWifi()) {
-        kosync_on_exit::yieldRadio();
+        kosync_auto::yieldRadio();
         wifi_background_join::wait();  // likewise the OPDS list's join or teardown task
       }
       currentActivity->onEnter();
@@ -910,15 +908,11 @@ void ActivityManager::loop() {
           if (resume.overlay == PendingOverlayType::ReaderDrawer && currentActivity->restorePendingOverlay(resume)) {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
-          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&
-                     supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                              hasStickyReaderDetailsPanel())) {
-            FrontlightDrawerState restoredState;
-            restoredState.selectedAction = static_cast<int8_t>(resume.selectedIndex);
-            if (openFrontlightPanel(*currentActivity, renderer, mappedInput, &restoredState)) {
-              PendingOverlayResume consumed;
-              APP_STATE.consumePendingOverlayResume(consumed);
-            }
+          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer) {
+            // The top drawer stays closed after a Sync & Transfer flow; the resume only
+            // carries reader orientation / return-home state, so just consume it.
+            PendingOverlayResume consumed;
+            APP_STATE.consumePendingOverlayResume(consumed);
           }
         }
       }
@@ -987,17 +981,22 @@ bool ActivityManager::handleGlobalHomeGesture() {
     return false;
   }
 
-  const bool homeGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
-                               ? mappedInput.wasReaderHomeGesture()
-                               : (currentActivity->allowGlobalHomeSwipeGesture() || mappedInput.hasHomeKey()) &&
-                                     mappedInput.wasHomeGesture();
+  const bool readerSwipes = currentActivity->usesFullScreenReaderVerticalSwipes();
+  const bool allowSwipe = currentActivity->allowGlobalHomeSwipeGesture();
+  // Home-key boards: a bottom-edge up-swipe goes straight Home on non-reader
+  // screens. The reader keeps the old flow: the swipe opens the drawer first.
+  const bool edgeSwipeHome = mappedInput.hasHomeKey() && !mappedInput.isHomeButtonLockedInReader() && !readerSwipes &&
+                             allowSwipe && mappedInput.wasBottomEdgeUpSwipe();
+  const bool homeGesture =
+      edgeSwipeHome || (readerSwipes ? mappedInput.wasReaderHomeGesture()
+                                     : (allowSwipe || mappedInput.hasHomeKey()) && mappedInput.wasHomeGesture());
   if (!homeGesture) {
     return false;
   }
 
   // Touch-only devices use an edge swipe as a Home shortcut. Keep that
   // shortcut separate from the X4 Pro's physical Back/Home key.
-  if (!mappedInput.hasHomeKey()) {
+  if (!mappedInput.hasHomeKey() || edgeSwipeHome) {
     if (!currentActivity->handleHomeGesture()) goHome();
     return true;
   }
@@ -1470,6 +1469,14 @@ bool ActivityManager::skipLoopDelay() const { return currentActivity && currentA
 
 bool ActivityManager::allowsRadioIdleSleep() const {
   return currentActivity && currentActivity->allowsRadioIdleSleep();
+}
+
+std::string ActivityManager::flushEpubProgressForSync() {
+  if (currentActivity && currentActivity->flushProgressForSync()) return currentActivity->getCurrentBookPath();
+  for (auto it = stackActivities.rbegin(); it != stackActivities.rend(); ++it) {
+    if (*it && (*it)->flushProgressForSync()) return (*it)->getCurrentBookPath();
+  }
+  return {};
 }
 
 std::string ActivityManager::getCurrentBookPath() const {

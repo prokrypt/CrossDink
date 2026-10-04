@@ -23,8 +23,8 @@ X("Panel", kbdFrames, uint8_t, 6, 2, 16, 1, "fr")                    // Turbo ke
 // flash to their end, so the up fade ends with the refresh.
 X("Light", flashGrayDimMs, int32_t, 0, -800, 800, 10, "ms")            // AA page turn: dark as the background goes black
 X("Light", flashGrayRestoreMs, int32_t, -300, -800, 800, 10, "ms")     // up as the white drive starts (frame 38/50; black drive 24-36)
-X("Light", flashGrayDarkDimMs, int32_t, 0, -800, 800, 10, "ms")        // Night Mode AA page turn: the black background goes white from DRF (stock set, frames 0-21)
-X("Light", flashGrayDarkRestoreMs, int32_t, -300, -800, 800, 10, "ms") // up after its black drives (frames 24-36, 38-45 of 50)
+X("Light", flashGrayDarkDimMs, int32_t, -800, -800, 800, 10, "ms")        // Night Mode AA page turn: the black background goes white from DRF (stock set, frames 0-21)
+X("Light", flashGrayDarkRestoreMs, int32_t, -600, -800, 800, 10, "ms") // up after its black drives (frames 24-36, 38-45 of 50)
 X("Light", flashFullDimMs, int32_t, 400, -800, 800, 10, "ms")          // Half/Full: dark 0.4 s in (user-tuned 10/2)
 X("Light", flashFullRestoreMs, int32_t, -800, -800, 800, 10, "ms")     // OTP GC settles before BUSY: up 0.8 s before the end (user-tuned 10/2)
 X("Light", flashPaintDimMs, int32_t, 0, -800, 800, 10, "ms")           // menu / drawer over gray
@@ -36,8 +36,7 @@ X("Light", flashMaxMs, unsigned long, 3000, 500, 10000, 500, "ms")     // a flas
 X("Light", flashTickMs, uint32_t, 10, 5, 50, 5, "ms")                  // main loop tick while ducking
 X("Light", lightFadeMs, unsigned long, 1000, 0, 5000, 100, "ms")       // Light Timeout fade
 X("Light", pulseCycleMs, uint32_t, 1000, 200, 5000, 100, "ms")         // transfer pulse period
-X("Light", pulsePeakPct, uint8_t, 25, 20, 100, 1, "%")                 // transfer pulse top for levels up to it
-X("Light", pulseFloorPct, uint8_t, 10, 0, 20, 1, "%")                  // pulse bottom above it, top up to it
+X("Light", pulseOffTopPct, uint8_t, 25, 0, 100, 1, "%")                // transfer pulse top when the light is off
 X("Light", pulseTailMs, unsigned long, 250, 0, 2000, 50, "ms")         // transfer counts as active this long after
 X("Light", pulseWriteMs, uint32_t, 20, 10, 100, 5, "ms")               // min gap between pulse writes (loop tick)
 X("Light", pulseHoldMs, uint32_t, 10000, 0, 60000, 1000, "ms")         // a lit light keeps its level this long first
@@ -58,8 +57,8 @@ X("Touch", menuEdgePermille, int, 140, 20, 300, 10, "/1000")        // menu swip
 X("Touch", heldOverrideMs, unsigned long, 250, 50, 1000, 50, "ms")  // a gesture's held-time override lasts
 X("Touch", selectPressDelayMs, unsigned long, 200, 50, 1000, 10, "ms")  // still hold before the row highlight
 X("Touch", selectPressSlopPx, int, 20, 4, 60, 2, "px")              // movement that cancels it
-X("Touch", tapSlopPx, int, 28, 4, 56, 2, "px")                      // SDK: tap / long-press slop (< swipe min)
-X("Touch", swipeMinPx, int, 60, 20, 200, 5, "px")                   // SDK: min swipe (tap-on-release slop - 1)
+X("Touch", tapSlopPx, int, 20, 4, 56, 2, "px")                      // SDK: tap / long-press slop (< swipe min)
+X("Touch", swipeMinPx, int, 40, 20, 200, 5, "px")                   // SDK: min swipe (tap-on-release slop - 1)
 X("Touch", swipeMaxMs, unsigned long, 700, 200, 3000, 50, "ms")     // SDK: longest one-finger swipe
 X("Touch", multiSwipeMaxMs, unsigned long, 2000, 500, 5000, 100, "ms")  // SDK: two-finger gesture window
 X("Touch", multiSeparationSlopPx, int, 45, 10, 150, 5, "px")        // SDK: two-finger spacing tolerance
@@ -96,6 +95,7 @@ X("Power", idleBackoffAfterMs, unsigned long, 2000, 2000, 10000, 500, "ms")  // 
 X("Power", panelIdleOffMs, uint32_t, 10000, 2000, 60000, 1000, "ms")   // booster off after an early wake
 X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // battery gauge cache
 X("Power", batteryStateSkipS, uint16_t, 120, 0, 900, 10, "s")      // Battery & stats: per-state drain skips this after a light/Wi-Fi/wake change
+X("Power", batteryHalfLifeH, uint16_t, 24, 0, 720, 6, "h")       // Battery & stats: Est to empty weighs an awake step half per this age, 0 = all equal
 X("Power", ledMaxDrain, uint16_t, 200, 10, 1000, 10, "0.1%/h")     // Battery & stats: LED drain at full light, caps its share (placeholder until measured)
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache
 X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
@@ -106,8 +106,12 @@ X("Power", tiltCooldownMs, unsigned long, 600, 100, 3000, 50, "ms")      // min 
 X("Heap", netExitMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")    // leave Wi-Fi in place (else restart)
 X("Heap", netEntryMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")    // enter Wi-Fi in place
 X("Heap", netEntryMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", wifiRemoteMinFree, uint32_t, 65536, 65536, 196608, 1024, "B")  // Wi-Fi remote join/start
+X("Heap", wifiRemoteMinBlock, uint32_t, 16384, 16384, 131072, 1024, "B")
 X("Heap", rebuildMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")     // optional EPUB rebuild / prefetch
 X("Heap", rebuildMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", koSyncMinFree, uint32_t, 65536, 65536, 196608, 1024, "B")     // Auto Sync task start: TLS 35K + 14K stack + Wi-Fi start
+X("Heap", koSyncMinBlock, uint32_t, 20480, 20480, 131072, 1024, "B")    // TLS client's own block gate
 X("Heap", layoutMinFree, uint32_t, 45056, 45056, 131072, 1024, "B")      // chapter layout start
 X("Heap", dictFontMinFree, uint32_t, 65536, 65536, 131072, 1024, "B")    // dictionary SD font
 X("Heap", dictFontMinBlock, uint32_t, 32768, 32768, 131072, 1024, "B")
@@ -122,8 +126,6 @@ X("Heap", opdsPreloadPerWorker, size_t, 16384, 16384, 65536, 1024, "B")       //
 X("Heap", opdsPreloadMinBlock, size_t, 16384, 16384, 65536, 1024, "B")
 
 // Reader
-X("Book", buildAheadPages, int, 5, 1, 20, 1, "pg")                  // incremental build runs this far ahead
-X("Book", partialRebuildMargin, int, 15, 2, 50, 1, "pg")            // extend a partial section this near its end
 X("Book", buildChunkPages, int, 8, 1, 32, 1, "pg")                  // non-interactive build batch
 X("Book", popupPages, int, 20, 1, 200, 1, "pg")                     // indexing popup: target deeper than this
 X("Book", popupBytes, size_t, 98304, 8192, 524288, 8192, "B")       // indexing popup: spine items this large

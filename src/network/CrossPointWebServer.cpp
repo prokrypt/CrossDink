@@ -52,6 +52,7 @@
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/util/RemoteImageActivity.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -559,6 +560,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
   server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
   server->on("/api/ota", HTTP_POST, [this] { handleOtaDone(); }, [this] { handleOtaData(); });
+  server->on("/api/image", HTTP_POST, [this] { handleImageDone(); }, [this] { handleImageData(); });
   // Token-gated SD file transfer, in log-only mode too: the web UI handlers
   // behind a remote-token check (docs/serial-remote.md).
   server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
@@ -704,6 +706,14 @@ void CrossPointWebServer::registerFullRoutes() {
       ss.add(s.stateS[k]);
       su.add(static_cast<double>(s.stateDuty[k]));  // ArduinoJson 64-bit ints may be off; a double holds it exactly
     }
+    JsonArray rd = doc["recentDropC"].to<JsonArray>(), rs = doc["recentS"].to<JsonArray>(),
+              ru = doc["recentDuty"].to<JsonArray>(), re = doc["recentEpoch"].to<JsonArray>();
+    for (int k = 0; k < 4; ++k) {
+      rd.add(s.recentDropC[k]);
+      rs.add(s.recentS[k]);
+      ru.add(s.recentDuty[k]);
+      re.add(s.recentEpoch[k]);
+    }
     doc["prevEpoch"] = p->prev.epoch;
     doc["prevAwake"] = p->prev.awake;
     doc["prevC"] = p->prevC;
@@ -716,6 +726,7 @@ void CrossPointWebServer::registerFullRoutes() {
     doc["stateChangeEpoch"] = p->stateChangeEpoch;
     doc["fullHoldC"] = p->fullHoldC;
     doc["stateSkipS"] = p->stateSkipS;
+    doc["halfLifeH"] = p->halfLifeH;
     doc["ledMaxDrain"] = KNOBS.ledMaxDrain;  // the page's Est to empty caps the LED share with the device's knob
     String json;
     serializeJson(doc, json);
@@ -768,9 +779,10 @@ void CrossPointWebServer::registerFullRoutes() {
   server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth",   "Destination",   "Overwrite", "If",    "Lock-Token",
-                              "Timeout", "If-None-Match", "X-Token",   "Range", "Content-Range"};
-  server->collectHeaders(davHeaders, 10);
+  const char* davHeaders[] = {"Depth",      "Destination",   "Overwrite",     "If",
+                              "Lock-Token", "Timeout",       "If-None-Match", "X-Token",
+                              "Range",      "Content-Range", "Content-Length"};
+  server->collectHeaders(davHeaders, 11);
   // Note: WebDAVHandler will be deleted by WebServer when server is stopped
   server->addHandler(new WebDAVHandler(&stopRequested));
 }
@@ -936,22 +948,28 @@ bool CrossPointWebServer::waitForServeTask() {
 }
 
 void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
-  // fd:localPort<peer for each of this server's sockets; "-" = listener or UDP.
-  char socks[200] = "";
+  // fd:localPort<peer+unread for each of this server's sockets; "-" = listener or UDP.
+  char socks[300] = "";
   size_t used = 0;
   forEachSocket([&](const int fd, const uint16_t local) {
     char ip[16] = "-";
     unsigned peerPort = 0;
+    int unread = 0;
 #ifndef SIMULATOR
-    sockaddr_in peer{};
+    sockaddr_storage peer{};
     socklen_t len = sizeof(peer);
-    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0 && peer.sin_family == AF_INET) {
-      inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
-      peerPort = ntohs(peer.sin_port);
+    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0) {
+      // The HTTP listener is dual-stack: IPv4 clients come back v4-mapped.
+      const auto* v4 = reinterpret_cast<const sockaddr_in*>(&peer);
+      const auto* v6 = reinterpret_cast<const sockaddr_in6*>(&peer);
+      if (peer.ss_family == AF_INET) inet_ntop(AF_INET, &v4->sin_addr, ip, sizeof(ip));
+      if (peer.ss_family == AF_INET6) inet_ntop(AF_INET, &v6->sin6_addr.s6_addr[12], ip, sizeof(ip));
+      peerPort = ntohs(v4->sin_port);
     }
+    lwip_ioctl(fd, FIONREAD, &unread);
 #endif
     if (used < sizeof(socks)) {
-      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u", fd, local, ip, peerPort);
+      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u+%d", fd, local, ip, peerPort, unread);
     }
   });
   const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
@@ -1052,6 +1070,15 @@ bool CrossPointWebServer::handleClient() {
   }
   servePhase.store("http", std::memory_order_relaxed);
   server->handleClient();
+#ifndef SIMULATOR
+  // A connection kept open without a complete request (handlers log the rest).
+  static int waitingFd = -1;
+  const int clientFd = server->client().fd();
+  if (clientFd >= 0 && clientFd != waitingFd) {
+    LOG_DBG("WEB", "Connection fd %d waiting for its request, %d bytes in", clientFd, server->client().available());
+  }
+  waitingFd = clientFd;
+#endif
   if (pending) {
     if (!pollRequest) lastTransferMs = millis();
     requestStartMs.store(0, std::memory_order_relaxed);
@@ -1496,6 +1523,65 @@ void CrossPointWebServer::handleOtaDone() const {
   static char out[32];
   SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "REBOOT", clientIp(*server), out, sizeof(out),
                                  2000);
+}
+
+namespace {
+// /api/image state, server task only.
+bool imageAuthorized = false;
+size_t imageReceived = 0;
+}  // namespace
+
+// Debug builds: a host-converted 4-level frame (docs/serial-remote.md), raw body of
+// both physical gray planes (LSB then MSB). Token checked before the PSRAM buffer is
+// taken; CMD:IMAGE hands it to the main task.
+void CrossPointWebServer::handleImageData() const {
+  const HTTPRaw& raw = server->raw();
+  const size_t expected = 2 * display.getBufferSize();
+  static char out[32];
+  switch (raw.status) {
+    case RAW_START:
+      imageReceived = 0;
+      imageAuthorized = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", clientIp(*server),
+                                                       out, sizeof(out), 12000) == 200;
+      RemoteImageActivity::upload.reset();
+      if (imageAuthorized && server->clientContentLength() == expected) {
+        RemoteImageActivity::upload = makePsramByteBufferNoThrow(expected);
+        if (!RemoteImageActivity::upload)
+          LOG_ERR("WEB", "/api/image: no PSRAM for %u B", static_cast<unsigned>(expected));
+      }
+      break;
+    case RAW_WRITE:
+      if (RemoteImageActivity::upload && imageReceived + raw.currentSize <= expected) {
+        memcpy(RemoteImageActivity::upload.get() + imageReceived, raw.buf, raw.currentSize);
+      }
+      imageReceived += raw.currentSize;
+      break;
+    case RAW_END:
+      break;
+    case RAW_ABORTED:
+      RemoteImageActivity::upload.reset();
+      break;
+  }
+}
+
+void CrossPointWebServer::handleImageDone() const {
+  if (!imageAuthorized) {
+    LOG_ERR("WEB", "/api/image refused: bad token");
+    server->send(403, "text/plain; charset=utf-8", "ERR:token");
+    return;
+  }
+  imageAuthorized = false;
+  if (!RemoteImageActivity::upload || imageReceived != 2 * display.getBufferSize()) {
+    RemoteImageActivity::upload.reset();
+    char msg[48];
+    snprintf(msg, sizeof(msg), "ERR:IMAGE:size (want %u)", static_cast<unsigned>(2 * display.getBufferSize()));
+    server->send(400, "text/plain; charset=utf-8", msg);
+    return;
+  }
+  static char out[64];
+  const int status = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "IMAGE", clientIp(*server), out,
+                                                    sizeof(out), 12000);
+  server->send(status, "text/plain; charset=utf-8", out);
 }
 
 // Debug builds: the screen as a PGM (gray pass shown) or PBM, captured on the main task

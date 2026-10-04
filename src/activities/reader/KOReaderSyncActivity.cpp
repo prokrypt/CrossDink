@@ -437,28 +437,8 @@ void KOReaderSyncActivity::finishSync() {
 
   hasRemoteProgress = true;
 
-  const PositionCoordinateSpace remoteCoordinateSpace = remoteMatchMethod == DocumentMatchMethod::FILENAME
-                                                            ? PositionCoordinateSpace::SourceDocument
-                                                            : PositionCoordinateSpace::CurrentDocument;
-  // The reader keeps portrait and landscape section caches apart, and this
-  // screen's orientation need not be the book's.
-  const bool landscapeLayout = EpubReaderActivity::bookUsesLandscapeLayout(*epub);
-  bool usedRichPosition = false;
-  // The client only accepts rich positions from the official CrossPoint Sync server.
-  // Filename matching still needs source-document mapping because optimized books can diverge.
-  if (remoteCoordinateSpace == PositionCoordinateSpace::CurrentDocument && remoteProgress.position.has_value()) {
-    const auto richMapped = ProgressMapper::fromRichPosition(epub, *remoteProgress.position, renderer, landscapeLayout);
-    if (richMapped.has_value()) {
-      remotePosition = *richMapped;
-      usedRichPosition = true;
-    }
-  }
-  if (!usedRichPosition) {
-    const KOReaderPosition koPos = {remoteProgress.progress, remoteProgress.percentage};
-    remotePosition =
-        ProgressMapper::toCrossPoint(epub, koPos, currentSpineIndex, totalPagesInSpine, remoteCoordinateSpace);
-  }
-  if (!remotePosition.valid) {
+  if (!mapRemoteProgress(epub, renderer, remoteProgress, remoteMatchMethod, currentSpineIndex, totalPagesInSpine,
+                         remotePosition)) {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
@@ -467,6 +447,68 @@ void KOReaderSyncActivity::finishSync() {
     requestUpdate(true);
     return;
   }
+
+  if (smartSyncEnabled()) {
+    static constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // 0.1 percentage points
+    const float delta = localProgress.percentage - remoteProgress.percentage;
+    LOG_DBG("KOSync", "Smart decision: doc=%s local=%.6f remote=%.6f delta=%.6f remoteXpath=%s mapped=%d/%d",
+            documentHash.c_str(), localProgress.percentage, remoteProgress.percentage, delta,
+            remoteProgress.progress.c_str(), remotePosition.spineIndex, remotePosition.pageNumber);
+    if (std::fabs(delta) <= SAME_PROGRESS_EPSILON) {
+      completeAlreadySynced();
+      return;
+    }
+
+    if (delta > 0) {
+      // Alternate hashes are only probes for newer remote state. Keep uploads
+      // on the user's configured matching method so its primary record heals.
+      documentHash = primaryHash;
+      performUpload();
+      return;
+    }
+
+    saveProgressAndReturn(remotePosition);
+    return;
+  }
+  {
+    RenderLock lock(*this);
+    state = SHOWING_RESULT;
+
+    // Default to the option that corresponds to the furthest progress
+    if (localProgress.percentage > remoteProgress.percentage) {
+      selectedOption = 1;  // Upload local progress
+    } else {
+      selectedOption = 0;  // Apply remote progress
+    }
+  }
+  requestUpdate(true);
+}
+
+bool KOReaderSyncActivity::mapRemoteProgress(const std::shared_ptr<Epub>& epub, GfxRenderer& renderer,
+                                             const KOReaderProgress& remote, const DocumentMatchMethod method,
+                                             const int currentSpine, const int totalPages,
+                                             CrossPointPosition& remotePosition) {
+  const PositionCoordinateSpace remoteCoordinateSpace = method == DocumentMatchMethod::FILENAME
+                                                            ? PositionCoordinateSpace::SourceDocument
+                                                            : PositionCoordinateSpace::CurrentDocument;
+  // The reader keeps portrait and landscape section caches apart, and this
+  // screen's orientation need not be the book's.
+  const bool landscapeLayout = EpubReaderActivity::bookUsesLandscapeLayout(*epub);
+  bool usedRichPosition = false;
+  // The client only accepts rich positions from the official CrossPoint Sync server.
+  // Filename matching still needs source-document mapping because optimized books can diverge.
+  if (remoteCoordinateSpace == PositionCoordinateSpace::CurrentDocument && remote.position.has_value()) {
+    const auto richMapped = ProgressMapper::fromRichPosition(epub, *remote.position, renderer, landscapeLayout);
+    if (richMapped.has_value()) {
+      remotePosition = *richMapped;
+      usedRichPosition = true;
+    }
+  }
+  if (!usedRichPosition) {
+    const KOReaderPosition koPos = {remote.progress, remote.percentage};
+    remotePosition = ProgressMapper::toCrossPoint(epub, koPos, currentSpine, totalPages, remoteCoordinateSpace);
+  }
+  if (!remotePosition.valid) return false;
 
   // Refine page using the content-offset LUT first, then structural anchors.
   // A partial cache deliberately returns no page for an offset outside its
@@ -535,41 +577,7 @@ void KOReaderSyncActivity::finishSync() {
       }
     }
   }
-
-  if (smartSyncEnabled()) {
-    static constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // 0.1 percentage points
-    const float delta = localProgress.percentage - remoteProgress.percentage;
-    LOG_DBG("KOSync", "Smart decision: doc=%s local=%.6f remote=%.6f delta=%.6f remoteXpath=%s mapped=%d/%d",
-            documentHash.c_str(), localProgress.percentage, remoteProgress.percentage, delta,
-            remoteProgress.progress.c_str(), remotePosition.spineIndex, remotePosition.pageNumber);
-    if (std::fabs(delta) <= SAME_PROGRESS_EPSILON) {
-      completeAlreadySynced();
-      return;
-    }
-
-    if (delta > 0) {
-      // Alternate hashes are only probes for newer remote state. Keep uploads
-      // on the user's configured matching method so its primary record heals.
-      documentHash = primaryHash;
-      performUpload();
-      return;
-    }
-
-    saveProgressAndReturn(remotePosition);
-    return;
-  }
-  {
-    RenderLock lock(*this);
-    state = SHOWING_RESULT;
-
-    // Default to the option that corresponds to the furthest progress
-    if (localProgress.percentage > remoteProgress.percentage) {
-      selectedOption = 1;  // Upload local progress
-    } else {
-      selectedOption = 0;  // Apply remote progress
-    }
-  }
-  requestUpdate(true);
+  return true;
 }
 
 void KOReaderSyncActivity::performUpload() {

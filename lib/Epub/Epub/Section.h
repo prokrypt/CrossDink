@@ -63,6 +63,7 @@ class Section {
     float smoothedEstimate = 0;
     uint32_t smoothedAtConsumed = 0;
     uint32_t startedMs = 0;  // wall clock, including pauses between chunks
+    uint32_t busyUs = 0;     // time inside buildSomeMore(), for the build log
   };
   std::unique_ptr<BuildContext> build_;
   bool buildComplete_ = false;
@@ -124,7 +125,6 @@ class Section {
   bool lastBuildLayoutAbortedForLowMemory() const { return lastLayoutAbortedForLowMemory_; }
   bool isBuilding() const { return static_cast<bool>(build_); }
   bool isBuildComplete() const { return buildComplete_; }
-  bool activeBuildHasCaughtReadablePages() const { return !build_ || builtPageCount_ >= pageCount; }
   // Best-known total page count: the exact pageCount once finalized, or a smoothed byte-based
   // estimate (pages so far scaled by totalBytes/bytesConsumed, damped by an EMA) while a giant spine
   // is still building, so "page X of Y" / progress don't read off the small build watermark.

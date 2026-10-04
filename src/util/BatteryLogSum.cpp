@@ -15,7 +15,7 @@ namespace BatteryLogSum {
 namespace {
 constexpr char SUM_PATH[] = "/debug/logs/battery.sum";
 constexpr char SUM_TMP_PATH[] = "/debug/logs/battery.sum.tmp";
-constexpr uint32_t SUM_MAGIC = 0x42535536;  // "BSU6": bump on any parse rule change
+constexpr uint32_t SUM_MAGIC = 0x42535537;  // "BSU7": bump on any parse rule change
 struct Header {
   uint32_t magic;
   uint32_t size;     // sizeof(BatteryLogParser): a layout change drops the file
@@ -43,7 +43,7 @@ bool load(BatteryLogParser& p, int& fileIndex, uint32_t& offset) {
   Header h{};
   const bool ok = f.read(&h, sizeof(h)) == static_cast<int>(sizeof(h)) && h.magic == SUM_MAGIC && h.size == sizeof(p) &&
                   f.read(&p, sizeof(p)) == static_cast<int>(sizeof(p)) && parserCrc(p) == h.crc &&
-                  p.stateSkipS == KNOBS.batteryStateSkipS;
+                  p.stateSkipS == KNOBS.batteryStateSkipS && p.halfLifeH == KNOBS.batteryHalfLifeH;
   f.close();
   if (!ok) {
     LOG_INF("BAT", "battery.sum unusable");

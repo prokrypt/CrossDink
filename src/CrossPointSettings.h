@@ -396,13 +396,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     PAGE_TURN_GESTURE_COUNT
   };
 
-  enum INDEXING_METHOD {
-    INDEXING_INCREMENTAL = 0,
-    INDEXING_FULL_SECTION = 1,
-    INDEXING_INCREMENTAL_MENTAL = 2,
-    INDEXING_METHOD_COUNT
-  };
-
   enum TILT_PAGE_TURN { TILT_OFF = 0, TILT_ON = 1, TILT_PAGE_TURN_COUNT };
   enum TILT_PAGE_TURN_DIRECTION {
     TILT_LEFT_RIGHT = 0,
@@ -639,8 +632,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
-  // EPUB section indexing policy. The current chapter keeps its active build.
-  uint8_t indexingMethod = INDEXING_INCREMENTAL_MENTAL;
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
   // Guide Dots - places a middle dot between words to guide the eye
@@ -731,8 +722,16 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Idle Wi-Fi remote: MAX_MODEM power save (wakes every listen interval)
   // instead of MIN_MODEM. Applies the next time the remote goes idle.
   uint8_t maxWifiPowersave = 1;
-  // KOReader Sync > Sync on Book Exit: push progress in the background when a book closes.
-  uint8_t koSyncOnExit = 0;
+  // KOReader Sync > Auto Sync, in the background: bit 0 fetches on book open, bit 1 pushes on close.
+  enum KO_AUTO_SYNC : uint8_t {
+    KO_AUTO_SYNC_OFF = 0,
+    KO_AUTO_SYNC_OPEN = 1,
+    KO_AUTO_SYNC_CLOSE = 2,
+    KO_AUTO_SYNC_BOTH = 3
+  };
+  uint8_t koAutoSync = KO_AUTO_SYNC_OFF;
+  // KOReader Sync > Sync on Wake & Sleep: push before deep sleep from a book, fetch when wake reopens it.
+  uint8_t koSyncSleepWake = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.

@@ -52,6 +52,8 @@ std::atomic<uint32_t> imgDecodeMs{0};
 volatile uint32_t inputMs = 0;
 volatile uint32_t renderStartMs = 0;
 volatile uint32_t renderEndMs = 0;
+// The sample's render began while an earlier frame was still refreshing.
+volatile bool staleRefresh = false;
 volatile bool inputPending = false;
 // Copied: the activity can be destroyed before its refresh ends.
 char renderActivity[24] = "-";
@@ -519,7 +521,7 @@ void noteInput(const bool release, const char* kind, const uint32_t seq) {
   inputPending = true;
 }
 
-void noteRenderStart(const char* activity) {
+void noteRenderStart(const char* activity, const bool refreshPending) {
   snprintf(currentAct, sizeof(currentAct), "%s", activity ? activity : "-");
   const uint32_t noRenderMs = strcmp(inputKind, "touch") == 0 ? TOUCH_NO_RENDER_MS : NO_RENDER_MS;
   if (inputPending && renderStartMs == 0 && millis() - inputMs > noRenderMs) {
@@ -531,6 +533,7 @@ void noteRenderStart(const char* activity) {
   }
   if (inputPending && renderStartMs == 0) {
     renderStartMs = millis();
+    staleRefresh = refreshPending;
     snprintf(renderActivity, sizeof(renderActivity), "%s", activity ? activity : "-");
   }
 }
@@ -539,6 +542,7 @@ void noteRenderEnd() {
   if (inputPending && renderStartMs != 0 && renderEndMs == 0) {
     renderEndMs = millis();
   }
+  staleRefresh = false;  // the earlier refresh ended inside the render, logged or not
 }
 
 void notePagePath(const char* path) {
@@ -552,7 +556,7 @@ void noteBootPhase(const char* name) {
   bootPhaseCount++;
 }
 
-void noteInk() {
+void noteInk(const bool finishedEarlier) {
   const uint32_t now = millis();
   if (!firstInkLogged) {
     firstInkLogged = true;
@@ -584,6 +588,12 @@ void noteInk() {
   // No render since the input: this ink is a frame drawn before it (a deferred
   // refresh ending, or finished by the next display call). Keep waiting.
   if (renderStartMs == 0) return;
+  // The render's display call finished the frame that was on the panel when
+  // it began: that ink predates the input's own frame.
+  if (staleRefresh && finishedEarlier && renderEndMs == 0) {
+    staleRefresh = false;
+    return;
+  }
   inputPending = false;
   // The keyboard logs its own per-keystroke key-to-ink ([KBD] prev_key_to_ink);
   // [LAT] drops samples there when strokes overlap.

@@ -242,6 +242,8 @@ class ActivityManager {
   bool skipLoopDelay() const;
   bool allowsRadioIdleSleep() const;
   std::string getCurrentBookPath() const;
+  // Saves the open EPUB reader's position and returns its book, else empty.
+  std::string flushEpubProgressForSync();
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.
