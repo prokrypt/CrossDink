@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <memory>
 
 #include "CrossPointSettings.h"
@@ -32,6 +33,12 @@ constexpr uint32_t START_DELAY_MS = 1500;
 constexpr uint32_t JOIN_TIMEOUT_MS = 15000;
 // As the KOSync screen's request task: wolfSSL handshake plus HTTPClient.
 constexpr uint32_t TASK_STACK_BYTES = 14 * 1024;
+// Sized for this job, not an EPUB rebuild (whose 96K/48K gate skipped every sync
+// beside a book): the client's TLS gate (35K free, 20K block) plus the task
+// stack, and headroom for starting Wi-Fi, whose buffers can sit in PSRAM.
+// The end-of-job line logs internal heap at start, after the join and at the end.
+KNOB_ALIAS(MIN_FREE, koSyncMinFree);  // Goodies > Knobs
+KNOB_ALIAS(MIN_BLOCK, koSyncMinBlock);
 
 std::string queuedPath;  // main task only
 uint32_t queuedAt = 0;
@@ -154,6 +161,7 @@ KOReaderSyncClient::Error fetch(const std::string& hash, const std::string& altH
 
 void run(void*) {
   const uint32_t start = millis();
+  const MemoryBudget::HeapSnapshot heapStart = MemoryBudget::snapshot();
   const char* what = jobIsPull ? "open pull" : "exit push";
   KOReaderProgress progress;
   std::string hash, altHash;
@@ -197,6 +205,7 @@ void run(void*) {
     }
   }
 
+  const MemoryBudget::HeapSnapshot heapJoined = MemoryBudget::snapshot();
   KOReaderSyncClient::Error result = KOReaderSyncClient::NETWORK_ERROR;
   if (WiFi.status() == WL_CONNECTED && !radioClaimed.load()) {
     result = jobIsPull ? fetch(hash, altHash, method)
@@ -209,14 +218,25 @@ void run(void*) {
     radioCall.store(false);
   }
   pullReady = jobIsPull && result == KOReaderSyncClient::OK;
-  LOG_INF("KOSync", "%s %s: result=%d http=%d pct=%.4f claimed=%d %lu ms", what,
-          result == KOReaderSyncClient::OK ? "ok" : "failed", result, KOReaderSyncClient::lastHttpCode,
+  const MemoryBudget::HeapSnapshot heapEnd = MemoryBudget::snapshot();
+  LOG_INF("KOSync",
+          "%s %s: result=%d http=%d pct=%.4f claimed=%d %lu ms heap free/block start %" PRIu32 "/%" PRIu32
+          " joined %" PRIu32 "/%" PRIu32 " end %" PRIu32 "/%" PRIu32 " stack free %u",
+          what, result == KOReaderSyncClient::OK ? "ok" : "failed", result, KOReaderSyncClient::lastHttpCode,
           jobIsPull ? pulled.percentage : progress.percentage, radioClaimed.load() ? 1 : 0,
-          static_cast<unsigned long>(millis() - start));
+          static_cast<unsigned long>(millis() - start), heapStart.freeHeap, heapStart.maxAllocHeap, heapJoined.freeHeap,
+          heapJoined.maxAllocHeap, heapEnd.freeHeap, heapEnd.maxAllocHeap,
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
 bool startJob(std::string path, const bool pull) {
-  if (!MemoryBudget::hasHeapForOptionalEpubRebuild("KOSync", pull ? "open pull" : "exit push", -1)) return false;
+  const MemoryBudget::HeapSnapshot heap = MemoryBudget::snapshot();
+  if (!MemoryBudget::hasHeap(heap, MIN_FREE, MIN_BLOCK)) {
+    LOG_INF("KOSync", "%s skipped: low heap (free=%" PRIu32 " block=%" PRIu32 ", need %" PRIu32 "/%" PRIu32 ")",
+            pull ? "open pull" : "exit push", heap.freeHeap, heap.maxAllocHeap, static_cast<uint32_t>(MIN_FREE),
+            static_cast<uint32_t>(MIN_BLOCK));
+    return false;
+  }
   jobPath = std::move(path);
   jobIsPull = pull;
   pullReady = false;
@@ -229,6 +249,7 @@ bool startJob(std::string path, const bool pull) {
 
 namespace kosync_auto {
 void queuePull(const std::string& epubPath) {
+  queuedAt = millis();  // a pending push also waits out the book's open
   if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN) || !KOREADER_STORE.hasCredentials()) return;
   pullPath = epubPath;
   pullAt = millis();
@@ -252,13 +273,10 @@ const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMetho
 void loop() {
   if (task.running()) return;  // a push or fetch waits for the one before it
   if (!queuedPath.empty() && millis() - queuedAt >= START_DELAY_MS) {
+    // A screen with its own network (the KOSync screen included) keeps it queued.
+    if (activityManager.anyActivityUsesWifi()) return;
     std::string path = std::move(queuedPath);
     queuedPath.clear();
-    // Another book, or a screen with its own network (the KOSync screen included).
-    if (activityManager.isReaderActivity() || activityManager.anyActivityUsesWifi()) {
-      LOG_INF("KOSync", "exit push dropped: reader or Wi-Fi screen is up");
-      return;
-    }
     startJob(std::move(path), false);
     return;
   }
