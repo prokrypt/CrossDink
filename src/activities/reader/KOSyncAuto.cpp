@@ -50,7 +50,6 @@ std::string queuedPath;  // main task only
 uint32_t queuedAt = 0;
 std::string pullPath;  // main task only
 uint32_t pullAt = 0;
-bool wakePull = false;  // main task only
 bool wakePush = false;  // main task only
 // A failed sleep push leaves this for the next wake, which then pushes as well as
 // pulls. RTC memory; power loss leaves garbage that fails the magic check.
@@ -298,6 +297,11 @@ bool startJob(std::string path, const bool pull) {
   return false;
 }
 
+// Sync on Wake & Sleep follows Auto Sync: the sleep push (and its wake retry) needs At close.
+bool sleepPushEnabled() {
+  return SETTINGS.koSyncSleepWake && (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE);
+}
+
 kosync_auto::PushOutcome sleepPush(std::string epubPath) {
   if (queuedPath == epubPath) queuedPath.clear();  // this push replaces a pending At close one
   const uint32_t start = millis();
@@ -325,22 +329,20 @@ kosync_auto::PushOutcome sleepPush(std::string epubPath) {
 
 namespace kosync_auto {
 void noteWake() {
-  wakePull = SETTINGS.koSyncSleepWake != 0;
-  wakePush = wakePull && retryPushMagic == RETRY_PUSH_MAGIC;
+  // The wake's own book open already fetches when Auto Sync has At open.
+  wakePush = sleepPushEnabled() && retryPushMagic == RETRY_PUSH_MAGIC;
   retryPushMagic = 0;
 }
 
 void queuePull(const std::string& epubPath) {
   queuedAt = millis();  // a pending push also waits out the book's open
-  // ponytail: a wake whose reader never reaches here leaves the flag for the next open (one extra prompted pull).
-  const bool wake = std::exchange(wakePull, false);
+  // ponytail: a wake whose reader never reaches here leaves the retry for the next open (one extra checked push).
   // The push's own server check makes its order against the pull irrelevant.
   if (std::exchange(wakePush, false) && KOREADER_STORE.hasCredentials()) {
     LOG_INF("KOSync", "wake: retrying the failed sleep push");
     queuedPath = epubPath;
   }
-  if (!(wake || (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN)) || !KOREADER_STORE.hasCredentials())
-    return;
+  if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN) || !KOREADER_STORE.hasCredentials()) return;
   pullPath = epubPath;
   pullAt = millis();
 }
@@ -385,7 +387,7 @@ void loop() {
 }
 
 bool wantsSleepPush() {
-  return SETTINGS.koSyncSleepWake && KOREADER_STORE.hasCredentials() && !activityManager.anyActivityUsesWifi();
+  return sleepPushEnabled() && KOREADER_STORE.hasCredentials() && !activityManager.anyActivityUsesWifi();
 }
 
 PushOutcome pushNow(std::string epubPath) {
