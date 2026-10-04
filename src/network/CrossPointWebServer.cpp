@@ -704,6 +704,14 @@ void CrossPointWebServer::registerFullRoutes() {
       ss.add(s.stateS[k]);
       su.add(static_cast<double>(s.stateDuty[k]));  // ArduinoJson 64-bit ints may be off; a double holds it exactly
     }
+    JsonArray rd = doc["recentDropC"].to<JsonArray>(), rs = doc["recentS"].to<JsonArray>(),
+              ru = doc["recentDuty"].to<JsonArray>(), re = doc["recentEpoch"].to<JsonArray>();
+    for (int k = 0; k < 4; ++k) {
+      rd.add(s.recentDropC[k]);
+      rs.add(s.recentS[k]);
+      ru.add(s.recentDuty[k]);
+      re.add(s.recentEpoch[k]);
+    }
     doc["prevEpoch"] = p->prev.epoch;
     doc["prevAwake"] = p->prev.awake;
     doc["prevC"] = p->prevC;
@@ -716,6 +724,7 @@ void CrossPointWebServer::registerFullRoutes() {
     doc["stateChangeEpoch"] = p->stateChangeEpoch;
     doc["fullHoldC"] = p->fullHoldC;
     doc["stateSkipS"] = p->stateSkipS;
+    doc["halfLifeH"] = p->halfLifeH;
     doc["ledMaxDrain"] = KNOBS.ledMaxDrain;  // the page's Est to empty caps the LED share with the device's knob
     String json;
     serializeJson(doc, json);

@@ -95,6 +95,7 @@ X("Power", idleBackoffAfterMs, unsigned long, 2000, 2000, 10000, 500, "ms")  // 
 X("Power", panelIdleOffMs, uint32_t, 10000, 2000, 60000, 1000, "ms")   // booster off after an early wake
 X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // battery gauge cache
 X("Power", batteryStateSkipS, uint16_t, 120, 0, 900, 10, "s")      // Battery & stats: per-state drain skips this after a light/Wi-Fi/wake change
+X("Power", batteryHalfLifeH, uint16_t, 24, 0, 720, 6, "h")       // Battery & stats: Est to empty weighs an awake step half per this age, 0 = all equal
 X("Power", ledMaxDrain, uint16_t, 200, 10, 1000, 10, "0.1%/h")     // Battery & stats: LED drain at full light, caps its share (placeholder until measured)
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache
 X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
