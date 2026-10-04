@@ -1471,6 +1471,14 @@ bool ActivityManager::allowsRadioIdleSleep() const {
   return currentActivity && currentActivity->allowsRadioIdleSleep();
 }
 
+std::string ActivityManager::flushEpubProgressForSync() {
+  if (currentActivity && currentActivity->flushProgressForSync()) return currentActivity->getCurrentBookPath();
+  for (auto it = stackActivities.rbegin(); it != stackActivities.rend(); ++it) {
+    if (*it && (*it)->flushProgressForSync()) return (*it)->getCurrentBookPath();
+  }
+  return {};
+}
+
 std::string ActivityManager::getCurrentBookPath() const {
   if (currentActivity) {
     const std::string path = currentActivity->getCurrentBookPath();
