@@ -2,16 +2,13 @@
 
 #include "TransferLightPulse.h"
 
-TEST(TransferLightPulse, EveryLevelHasAVisibleSwing) {
+TEST(TransferLightPulse, LitLightDipsAndNeverExceedsTheUserLevel) {
   for (int base = 1; base <= 100; base++) {
-    const uint8_t lo = pulseLow(base), hi = pulseHigh(base, 25, 10);
-    EXPECT_LE(lo, base) << base;
-    EXPECT_GE(hi, base) << base;
-    EXPECT_GE(hi, 25) << base;
-    EXPECT_LE(hi, 100) << base;
-    EXPECT_GE(hi - lo, 18) << base;
-    EXPECT_GE(hi, 3 * lo) << base;  // at least 3x light ratio (above ~1.7x by eye)
+    const uint8_t lo = pulseLow(base), hi = pulseHigh(base, 10);
+    EXPECT_EQ(hi, base) << base;
+    EXPECT_LT(lo, base) << base;
+    EXPECT_LE(4 * lo, base) << base;
   }
   EXPECT_EQ(pulseLow(0), 0);
-  EXPECT_EQ(pulseHigh(0, 25, 10), 10);
+  EXPECT_EQ(pulseHigh(0, 10), 10);
 }
