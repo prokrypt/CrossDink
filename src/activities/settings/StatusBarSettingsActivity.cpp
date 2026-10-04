@@ -29,6 +29,7 @@ enum BarItem {
   PERCENTAGE_FORMAT,
   PROGRESS_BAR,
   PROGRESS_BAR_THICKNESS,
+  HIDE_BAR,
   CENTER_ITEMS,
   SEPARATOR,
 };
@@ -175,7 +176,7 @@ void StatusBarSettingsActivity::refreshItemCount() {
 }
 
 int StatusBarSettingsActivity::previewHeight() const {
-  if (view == View::Root) return 0;
+  if (view == View::Root || (!displayContext && SETTINGS.readerStatusBar(selectedPosition()).hidden)) return 0;
   const auto& metrics = UITheme::getInstance().getMetrics();
   return renderer.getLineHeight(UI_10_FONT_ID) + 18 +
          (displayContext ? UITheme::getDisplayStatusBarTextHeight(renderer) + ReaderStatusBarConfig::TOP_TEXT_INSET
@@ -250,7 +251,7 @@ void StatusBarSettingsActivity::loop() {
 }
 
 void StatusBarSettingsActivity::handleSelection() {
-  if (view == View::Root && selectedIndex < 2) {
+  if (!displayContext && view == View::Root && selectedIndex < 2) {
     view = selectedIndex == 0 ? View::Top : View::Bottom;
     selectedIndex = 0;
     topIndex = 0;
@@ -293,10 +294,13 @@ void StatusBarSettingsActivity::openOptionPicker() {
   const auto position = selectedPosition();
   const int item = selectedIndex;
   const auto config = SETTINGS.readerStatusBar(position);
-  if (!displayContext && item == CENTER_ITEMS) {
+  if (!displayContext && (item == CENTER_ITEMS || item == HIDE_BAR)) {
     // Toggle rows flip in place, like the main Settings toggles.
     auto updated = config;
-    updated.centered = !updated.centered;
+    if (item == HIDE_BAR)
+      updated.hidden = !updated.hidden;
+    else
+      updated.centered = !updated.centered;
     SETTINGS.setReaderStatusBar(position, updated);
     SETTINGS.saveToFile();
     refreshItemCount();  // The Separator row only exists while centered.
@@ -460,6 +464,10 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       } else if (item == SEPARATOR) {
         row.label = tr(STR_SEPARATOR);
         row.value = readerStatusBarSeparatorGlyph(config.separator);
+      } else if (item == HIDE_BAR) {
+        row.label = tr(STR_HIDE);
+        row.toggle = true;
+        row.toggleChecked = config.hidden;
       } else {
         row.label = tr(STR_PROGRESS_BAR_THICKNESS);
         row.value = thicknessLabel(config.progressBarThickness);
@@ -529,7 +537,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   renderUiApp(app, uiTarget);
   uiReady = true;
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-  if (view != View::Root) {
+  if (view != View::Root && (displayContext || !SETTINGS.readerStatusBar(selectedPosition()).hidden)) {
     const auto position = selectedPosition();
     const int barHeight = displayContext
                               ? UITheme::getDisplayStatusBarTextHeight(renderer) + ReaderStatusBarConfig::TOP_TEXT_INSET

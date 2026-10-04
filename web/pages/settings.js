@@ -343,11 +343,12 @@ let allSettings = [];
     for (const field of [
       ['percentageFormat', labels.percentageFormat, statusBars.percentageFormats],
       ['progressBar', labels.progressBar, statusBars.progressModes],
-      ['thickness', labels.thickness, statusBars.thicknesses]
+      ['thickness', labels.thickness, statusBars.thicknesses],
+      ['hidden', labels.hidden, statusBars.centerOptions]
     ]) {
       html += statusBarRow(field[1], statusBarSelect('bar-' + position + '-' + field[0],
         field[2].map(function(label, index) { return { value: index, label: label }; }),
-        bar[field[0]], 'statusBarChanged()'));
+        Number(bar[field[0]]), 'statusBarChanged()'));
     }
     html += statusBarRow(labels.centered, statusBarSelect('bar-' + position + '-centered',
       statusBars.centerOptions.map(function(label, index) { return { value: index, label: label }; }),
@@ -385,7 +386,8 @@ let allSettings = [];
       progressBar: Number(document.getElementById('bar-' + position + '-progressBar').value),
       thickness: Number(document.getElementById('bar-' + position + '-thickness').value),
       centered: document.getElementById('bar-' + position + '-centered').value === '1',
-      separator: Number(document.getElementById('bar-' + position + '-separator').value)
+      separator: Number(document.getElementById('bar-' + position + '-separator').value),
+      hidden: document.getElementById('bar-' + position + '-hidden').value === '1'
     };
   }
 
@@ -393,6 +395,10 @@ let allSettings = [];
     const bar = readStatusBarForm(position);
     // The separator only applies to a centered bar.
     document.getElementById('bar-' + position + '-separator-row').style.display = bar.centered ? '' : 'none';
+    if (bar.hidden) {
+      document.getElementById('bar-' + position + '-preview').innerHTML = '';
+      return;
+    }
     const examples = ['', '10:30', '85%', '2h 15m', '12m', '4/12', '27',
       (64.12).toFixed(bar.percentageFormat) + '%', 'Book title', 'Chapter title',
       (35.25).toFixed(bar.percentageFormat) + '%', statusBars.datePreview];

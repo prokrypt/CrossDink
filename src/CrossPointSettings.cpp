@@ -899,6 +899,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   }
   const JsonVariantConst bars = doc["readerStatusBars"];
   if (bars["version"] != 1) {
+    topReaderStatusBar = ReaderStatusBarConfig{};
     bottomReaderStatusBar = migrateBottomStatusBar(
         {statusBarChapterPageCount != 0, stablePageNumbers != 0, statusBarBookProgressPercentage != 0, statusBarTitle,
          statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,
@@ -1362,8 +1363,14 @@ void CrossPointSettings::setReaderStatusBar(const ReaderStatusBarPosition positi
                                             const ReaderStatusBarConfig& config) {
   std::lock_guard<std::mutex> lock(_mutex);
   if (position == ReaderStatusBarPosition::Top) {
+    if (topReaderStatusBar.slots != config.slots || topReaderStatusBar.percentageFormat != config.percentageFormat ||
+        topReaderStatusBar.progressBar != config.progressBar ||
+        topReaderStatusBar.progressBarThickness != config.progressBarThickness ||
+        topReaderStatusBar.centered != config.centered || topReaderStatusBar.separator != config.separator) {
+      // Hiding the top bar keeps a legacy XTC top strip that mirrors the bottom bar.
+      legacyXtcTopUsesBottom = 0;
+    }
     topReaderStatusBar = config;
-    legacyXtcTopUsesBottom = 0;
   } else {
     bottomReaderStatusBar = config;
   }

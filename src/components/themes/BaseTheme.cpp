@@ -873,6 +873,7 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
                                     const ReaderStatusBarContent& content,
                                     const ReaderStatusBarConfig* overrideConfig) const {
   const ReaderStatusBarConfig config = overrideConfig ? *overrideConfig : SETTINGS.readerStatusBar(position);
+  if (config.hidden) return;
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   const int fontId = content.outsideReader ? UITheme::getDisplayStatusBarFontId() : UITheme::getReaderStatusBarFontId();
   const int textLaneHeight = content.outsideReader ? UITheme::getDisplayStatusBarTextHeight(renderer)

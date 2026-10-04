@@ -23,6 +23,7 @@ inline void writeReaderStatusBarJson(JsonObject target, const ReaderStatusBarCon
   target["percentageFormat"] = config.percentageFormat;
   target["progressBar"] = config.progressBar;
   target["thickness"] = config.progressBarThickness;
+  target["hidden"] = config.hidden;
   target["centered"] = config.centered;
   target["separator"] = static_cast<uint8_t>(config.separator);
 }
@@ -60,6 +61,8 @@ inline bool readReaderStatusBarJson(const JsonVariantConst source, ReaderStatusB
   if (!source["centered"].isUnbound() && !source["centered"].is<bool>()) return false;
   if (!readReaderStatusBarSeparator(source["separator"], parsed.separator)) return false;
   parsed.centered = source["centered"] | false;
+  if (!source["hidden"].isUnbound() && !source["hidden"].is<bool>()) return false;
+  parsed.hidden = source["hidden"].is<bool>() && source["hidden"].as<bool>();
   parsed.percentageFormat = percentageFormat;
   parsed.progressBar = progressMode;
   parsed.progressBarThickness = thickness;
@@ -116,6 +119,7 @@ inline bool repairReaderStatusBarJson(const JsonVariantConst source, ReaderStatu
   if (!readReaderStatusBarSeparator(source["separator"], repaired.separator)) {
     repaired.separator = ReaderStatusBarSeparator::Bullet;
   }
+  repaired.hidden = source["hidden"].is<bool>() && source["hidden"].as<bool>();
   config = repaired;
   return true;
 }

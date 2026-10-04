@@ -76,6 +76,7 @@ struct ReaderStatusBarConfig {
   uint8_t progressBarThickness = 1;
   bool centered = false;
   ReaderStatusBarSeparator separator = ReaderStatusBarSeparator::Bullet;
+  bool hidden = false;
 
   constexpr bool contains(ReaderStatusBarItem item) const {
     // cppcheck-suppress useStlAlgorithm ; plain constexpr loop over three slots per side
@@ -95,6 +96,16 @@ struct ReaderStatusBarConfig {
     return false;
   }
 };
+
+inline ReaderStatusBarConfig xtcStatusBarConfigForDisplay(const ReaderStatusBarPosition displayed,
+                                                          const bool legacyTopUsesBottom,
+                                                          const ReaderStatusBarConfig& top,
+                                                          const ReaderStatusBarConfig& bottom) {
+  auto config =
+      xtcStatusBarConfigPosition(displayed, legacyTopUsesBottom) == ReaderStatusBarPosition::Top ? top : bottom;
+  config.hidden = displayed == ReaderStatusBarPosition::Top ? top.hidden : bottom.hidden;
+  return config;
+}
 
 constexpr bool validDisplayStatusBarItemValue(const int value, const bool clockAvailable) {
   return value == static_cast<int>(ReaderStatusBarItem::Empty) ||

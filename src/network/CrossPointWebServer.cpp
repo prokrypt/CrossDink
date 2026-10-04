@@ -3180,6 +3180,7 @@ void CrossPointWebServer::handleGetStatusBars() const {
   labels["thickness"] = tr(STR_PROGRESS_BAR_THICKNESS);
   labels["centered"] = tr(STR_CENTER_STATUS_BAR);
   labels["separator"] = tr(STR_SEPARATOR);
+  labels["hidden"] = tr(STR_HIDE);
   labels["textSize"] = tr(STR_STATUS_BAR_TEXT_SIZE);
   labels["xtcMode"] = tr(STR_XTC_STATUS_BAR);
   labels["preview"] = tr(STR_PREVIEW);
@@ -3266,6 +3267,9 @@ void CrossPointWebServer::handlePostStatusBars() {
     if (doc["bottom"]["centered"].isUnbound()) bars.bottom.centered = SETTINGS.bottomReaderStatusBar.centered;
     if (doc["top"]["separator"].isUnbound()) bars.top.separator = previousTop.separator;
     if (doc["bottom"]["separator"].isUnbound()) bars.bottom.separator = SETTINGS.bottomReaderStatusBar.separator;
+    // Older clients have no Hide field; editing slots must retain visibility.
+    if (doc["top"]["hidden"].isUnbound()) bars.top.hidden = previousTop.hidden;
+    if (doc["bottom"]["hidden"].isUnbound()) bars.bottom.hidden = SETTINGS.bottomReaderStatusBar.hidden;
     SETTINGS.topReaderStatusBar = bars.top;
     SETTINGS.bottomReaderStatusBar = bars.bottom;
     SETTINGS.xtcStatusBarMode = bars.xtcMode;

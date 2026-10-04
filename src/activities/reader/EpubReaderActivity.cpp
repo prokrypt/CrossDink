@@ -3738,7 +3738,8 @@ void EpubReaderActivity::loop() {
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput,
                                                       epub && ReaderUtils::isRtlBookLanguage(epub->getLanguage()));
   const int bottomTapHeight =
-      automaticPageTurnActive
+      SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).hidden ? 0
+      : automaticPageTurnActive
           ? std::max(UITheme::getStatusBarHeight(renderer),
                      UITheme::getProgressBarHeight() + UITheme::getReaderStatusBarTextHeight(renderer))
           : UITheme::getStatusBarHeight(renderer);
