@@ -559,7 +559,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
 void FrontlightPanelActivity::drawHeader() {
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
 
-  char date[16] = {};
+  char date[32] = {};
   const char* title = context.showReaderDetails ? "" : tr(STR_FRONTLIGHT);
   int titleFontId = UI_12_FONT_ID;
   if (context.showReaderDetails) {
