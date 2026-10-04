@@ -72,7 +72,7 @@
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
-#include "activities/reader/KOSyncOnExit.h"
+#include "activities/reader/KOSyncAuto.h"
 #include "activities/reader/ReaderExitSave.h"
 #include "activities/reader/ReaderProgressShadow.h"
 #include "activities/reader/ReaderUtils.h"
@@ -1592,7 +1592,7 @@ void enterDeepSleep(bool fromTimeout) {
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
 #endif
-  kosync_on_exit::yieldRadio();  // likewise the exit push's Wi-Fi start/stop; deep sleep drops the rest
+  kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system
@@ -3013,7 +3013,7 @@ static void loopPass() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
-  kosync_on_exit::loop();
+  kosync_auto::loop();
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
   knobs::loop();
