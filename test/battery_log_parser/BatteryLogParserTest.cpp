@@ -52,8 +52,9 @@ std::string dump(const BatteryLogParser& p) {
     o += b;
   }
   for (int k = 0; k < 4; ++k) {
-    snprintf(b, sizeof(b), "%d %u %llu|", s.stateDropC[k], s.stateS[k],
-             static_cast<unsigned long long>(s.stateDuty[k]));
+    snprintf(b, sizeof(b), "%d %u %llu %g %g %g %u|", s.stateDropC[k], s.stateS[k],
+             static_cast<unsigned long long>(s.stateDuty[k]), s.recentDropC[k], s.recentS[k], s.recentDuty[k],
+             s.recentEpoch[k]);
     o += b;
   }
   snprintf(b, sizeof(b), "%d %u %d %d %u %u %d %d %d %d %d %u %u %u|", p.pointCount, p.prevC, p.prevFine, p.prevUsb,
@@ -216,4 +217,19 @@ TEST(BatteryLogParser, BlankPercentIsNoReading) {
   EXPECT_EQ(p.st.restarts, 1u);
   EXPECT_EQ(p.st.dropC[0], 20u);
   EXPECT_EQ(p.st.battS[0], 1200u);
+}
+
+// A step one half-life older than its state's newest weighs half: 10 then 40 (0.01 %)
+// over 600 s each, a day apart, give (5 + 40) / (300 + 600), not 50 / 1200.
+TEST(BatteryLogParser, RecentSumsHalveEachHalfLife) {
+  static BatteryLogParser p{};
+  p.addRecent(0, 1790896000, 10, 600, 0);
+  p.addRecent(0, 1790896000 + 24 * 3600, 40, 600, 0);
+  EXPECT_FLOAT_EQ(p.st.recentDropC[0], 45);
+  EXPECT_FLOAT_EQ(p.st.recentS[0], 900);
+  p = {};
+  p.halfLifeH = 0;  // all equal
+  p.addRecent(0, 1790896000, 10, 600, 0);
+  p.addRecent(0, 1790896000 + 24 * 3600, 40, 600, 0);
+  EXPECT_FLOAT_EQ(p.st.recentDropC[0] / p.st.recentS[0], 50.0f / 1200);
 }
