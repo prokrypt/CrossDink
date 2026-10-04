@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -48,6 +49,11 @@ struct BatteryLogParser {
     int32_t stateDropC[4];
     uint32_t stateS[4];
     uint64_t stateDuty[4];
+    // The same three sums weighted by recency (addRecent), and each state's
+    // newest step's end epoch: Est to empty takes its rates and duty from these,
+    // while stateS and stateDropC still decide whether there is enough data.
+    float recentDropC[4], recentS[4], recentDuty[4];
+    uint32_t recentEpoch[4];
   };
   static constexpr uint32_t CHARGE_MERGE_S = 60;
   static constexpr uint32_t UNPLUG_SKIP_S = 1800;
@@ -74,6 +80,26 @@ struct BatteryLogParser {
   uint16_t fullHoldC;
   // Set before the first row (BatteryLogSum::load drops a battery.sum made with another value).
   uint16_t stateSkipS = 120;
+  // Recency half-life in hours (Knobs batteryHalfLifeH, same rule), 0 = every step weighs the same.
+  uint16_t halfLifeH = 24;
+
+  // Adds an awake step ending at epoch to state k's recent sums. A step's weight
+  // halves every halfLifeH hours before that state's newest step, so the rate
+  // follows current use; with only old data it is still the newest of that.
+  // Decaying the sums by the time since the state's last step keeps them at or
+  // above the newest step, so they never underflow into a 0/0 rate.
+  void addRecent(const int k, const uint32_t epoch, const float dropC, const float s, const float duty) {
+    if (halfLifeH != 0 && st.recentEpoch[k] != 0 && epoch > st.recentEpoch[k]) {
+      const float f = exp2f(-static_cast<float>(epoch - st.recentEpoch[k]) / (halfLifeH * 3600.0f));
+      st.recentDropC[k] *= f;
+      st.recentS[k] *= f;
+      st.recentDuty[k] *= f;
+    }
+    st.recentEpoch[k] = std::max(st.recentEpoch[k], epoch);
+    st.recentDropC[k] += dropC;
+    st.recentS[k] += s;
+    st.recentDuty[k] += duty;
+  }
 
   static void endStretch(LogStats& s) {
     for (int k = 0; k < 2; ++k) {
@@ -151,9 +177,12 @@ struct BatteryLogParser {
           (st.chargedEpoch == 0 || prev.epoch >= st.chargedEpoch + UNPLUG_SKIP_S) &&
           prev.epoch >= stateChangeEpoch + stateSkipS) {
         const int k = (prevWifi ? 2 : 0) + (prevLight ? 1 : 0);
-        st.stateDropC[k] += static_cast<int32_t>(prevRowC) - pctC;
+        const int32_t stepC = static_cast<int32_t>(prevRowC) - pctC;
+        const uint64_t duty = static_cast<uint64_t>(BatteryEstimate::lightDuty(prevLight)) * dt;
+        st.stateDropC[k] += stepC;
         st.stateS[k] += dt;
-        st.stateDuty[k] += static_cast<uint64_t>(BatteryEstimate::lightDuty(prevLight)) * dt;
+        st.stateDuty[k] += duty;
+        addRecent(k, epoch, static_cast<float>(stepC), static_cast<float>(dt), static_cast<float>(duty));
       }
       // Whole-percent steps (older rows, charger events logged asleep) are left out: each
       // adds +-1% to a drop of ~0.01%, which swamps the rate (the "0.03 +- 1.54%" asleep drain).
