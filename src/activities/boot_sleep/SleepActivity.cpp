@@ -11,8 +11,10 @@
 #include <HalClock.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <PNGdec.h>
 // PNGdec's bundled zlib internals leak this macro into later FreeInkUI headers.
 #undef local
@@ -36,6 +38,7 @@
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "Epub/converters/DirectPixelWriter.h"
 #include "ImageFolderIndex.h"
 #include "RecentBooksStore.h"
 #include "SleepCoverAssets.h"
@@ -46,6 +49,8 @@
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
+#include "util/BmpLevelDecode.h"
+#include "util/WorkerTask.h"
 
 namespace {
 
@@ -475,8 +480,7 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
                                indexedSelection)) {
     selection.path = std::move(indexedSelection.path);
     selection.isPng = indexedSelection.isPng;
-    APP_STATE.pushRecentSleep(indexedSelection.index);
-    APP_STATE.saveToFile();
+    APP_STATE.pushRecentSleep(indexedSelection.index);  // main.cpp saves it once the sleep screen is up
     return true;
   }
 
@@ -569,12 +573,26 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
   // recent. Fall back to the all-candidates reservoir so a custom sleep screen
   // still renders.
   APP_STATE.pushRecentSleep(selectedIndex);
-  APP_STATE.saveToFile();
   selection.isPng = FsHelpers::hasPngExtension(selection.path);
   return true;
 }
 
 }  // namespace
+
+// Start every generated sleep screen from the same panel state, however long
+// the outgoing screen sat idle: cut the booster (after the idle temperature
+// read), so the next refresh powers on fresh and a Direct gray cover takes the
+// reset + OEM power cycle instead of loading its power registers into pumps
+// that may have idled on since the last draw (auto-sleep only).
+void SleepActivity::idlePanel() const {
+  panelIdlePending = false;
+#ifndef SIMULATOR
+  // cppcheck-suppress unreadVariable ; read by LOG_DBG, which release builds compile out
+  const bool panelWasOn = display.powerOffIdle();
+  LOG_DBG("SLP", "Sleep draw: timeout=%d panelWasOn=%d lastDrfAgoMs=%lu", fromTimeout ? 1 : 0, panelWasOn ? 1 : 0,
+          static_cast<unsigned long>(millis() - freeink::uc8179KbdTiming().doneMs));
+#endif
+}
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
@@ -593,19 +611,21 @@ void SleepActivity::onEnter() {
   }
 
 #ifndef SIMULATOR
-  // Start every generated sleep screen from the same panel state, however long
-  // the outgoing screen sat idle. Drop any keyboard/DU waveform tweak and cut
-  // the booster, so the next refresh powers on fresh and a Direct gray cover
-  // takes the reset + OEM power cycle instead of loading its power registers
-  // into pumps that may have idled on since the last draw (auto-sleep only).
   freeink::setUc8179KbdExperiment(nullptr);
-  // cppcheck-suppress unreadVariable ; read by LOG_DBG, which release builds compile out
-  const bool panelWasOn = display.powerOffIdle();
-  LOG_DBG("SLP", "Sleep draw: timeout=%d panelWasOn=%d lastDrfAgoMs=%lu", fromTimeout ? 1 : 0, panelWasOn ? 1 : 0,
-          static_cast<unsigned long>(millis() - freeink::uc8179KbdTiming().doneMs));
 #endif
-
   const auto sleepScreen = SETTINGS.sleepScreen;
+  // X4 Pro and X4 Classic share a panel that can retain this high-contrast
+  // transient update beneath the final OEM-style sleep refresh. Render only
+  // the final sleep frame on that panel family.
+  const bool showSleepPopup = !BoardConfig::isX4Pro() && !CROSSDINK_APP_DEVICE_X4CLASSIC;
+  // Image screens on Direct gray panels idle the panel on a helper task while
+  // the image decodes (renderBitmapSleepScreen); every other path idles it here.
+  panelIdlePending = !showSleepPopup && renderer.supportsDirectGrayscale() &&
+                     (sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM ||
+                      sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER ||
+                      sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM);
+  if (!panelIdlePending) idlePanel();
+
   const bool sleepScreenUsesRecentBooks = sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP ||
                                           sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP ||
                                           sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_STATS_SLEEP ||
@@ -618,10 +638,6 @@ void SleepActivity::onEnter() {
   overlayBackgroundBufferStored =
       sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY && renderer.storeBwBuffer();
 
-  // X4 Pro and X4 Classic share a panel that can retain this high-contrast
-  // transient update beneath the final OEM-style sleep refresh. Render only
-  // the final sleep frame on that panel family.
-  const bool showSleepPopup = !BoardConfig::isX4Pro() && !CROSSDINK_APP_DEVICE_X4CLASSIC;
   // Show the popup in the orientation that was visible before reader exit restores
   // global settings. Reset to portrait afterwards so sleep screen layout stays unchanged.
   if (APP_STATE.lastSleepFromReader) {
@@ -726,7 +742,7 @@ void SleepActivity::renderCustomSleepScreen() const {
       return false;
     }
 
-    const bool success = renderBitmapSleepScreen(bitmap);
+    const bool success = renderBitmapSleepScreen(bitmap, file);
     file.close();
     return success;
   };
@@ -756,7 +772,7 @@ void SleepActivity::renderCustomSleepScreen() const {
                   renderer.supportsAbsoluteGrayscale() &&
                       SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      const bool success = renderBitmapSleepScreen(bitmap);
+      const bool success = renderBitmapSleepScreen(bitmap, file);
       file.close();
       if (success) return;
     }
@@ -792,10 +808,11 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 118, visibleBuildInfo.c_str(), lightSleepScreen);
 #endif
 
+  if (panelIdlePending) idlePanel();  // custom and cover fallbacks
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
-bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
+bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -867,6 +884,68 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
   // is only ever an upgrade on top of it, never a substitute.
   const bool absolute = renderer.supportsAbsoluteGrayscale();
   const bool direct = absolute && renderer.supportsDirectGrayscale();
+  // Direct gray with PSRAM: decode the image once into both planes, as the image
+  // viewer does, while a helper task idles the panel (temperature read + POF) and
+  // loads the Direct gray setup. SD is SDMMC on these boards, off the panel's SPI.
+  // The PON stays after the decode, in displayGrayBuffer().
+  const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
+  HeapByteBuffer lsb;
+  HeapByteBuffer msb;
+  if (hasGreyscale && direct && psramHeapAvailable()) {
+    lsb = makePsramByteBufferNoThrow(planeBytes);
+    if (lsb) msb = makePsramByteBufferNoThrow(planeBytes);
+    if (!msb)
+      LOG_ERR("SLP", "No PSRAM for sleep image planes (%u B); decoding per plane",
+              static_cast<unsigned>(2 * planeBytes));
+  }
+  if (msb) {
+    [[maybe_unused]] const unsigned long startMs = millis();
+    memset(lsb.get(), 0xFF, planeBytes);  // absolute white margins
+    memset(msb.get(), 0xFF, planeBytes);
+    struct PanelPrep {
+      const SleepActivity* activity;
+      bool baseShown;
+    } prep{this, false};
+    const auto preparePanel = [](void* ctx) {
+      auto& p = *static_cast<PanelPrep*>(ctx);
+      if (p.activity->panelIdlePending) p.activity->idlePanel();
+      p.baseShown = display.displayGrayscaleBase(HalDisplay::GrayscaleMode::Direct, HalDisplay::HALF_REFRESH, false);
+    };
+    // Keeps the CPU at full speed for the decode while the panel task waits on BUSY.
+    powerManager.beginBackgroundWork();
+    WorkerTask panelTask;
+    if (!panelTask.start(preparePanel, &prep, 4096, "SleepPanel", /*uiCore=*/true)) preparePanel(&prep);
+    DirectPixelWriter::levelPlanes[0] = lsb.get();
+    DirectPixelWriter::levelPlanes[1] = msb.get();
+    const bool decoded = bitmap.rewindToData() == BmpReaderError::Ok &&
+                         decodeBmpLevelPlanes(renderer, bitmap, file, x, y, pageWidth, pageHeight, cropX, cropY);
+    DirectPixelWriter::levelPlanes[0] = DirectPixelWriter::levelPlanes[1] = nullptr;
+    [[maybe_unused]] const unsigned long decodedMs = millis();
+    panelTask.join();
+    powerManager.endBackgroundWork();
+    LOG_DBG("SLP", "Sleep image decoded once in %lu ms, panel ready %lu ms later", decodedMs - startMs,
+            millis() - decodedMs);
+    if (!decoded) {
+      LOG_ERR("SLP", "Failed to decode sleep image");
+      return false;
+    }
+    if (!prep.baseShown) return false;
+    if (extendEdges || mirrorEdges) {
+      for (uint8_t* plane : {lsb.get(), msb.get()}) {
+        renderer.beginStripTarget(plane, 0, renderer.getDisplayHeight());
+        if (extendEdges) {
+          extendBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
+        } else {
+          mirrorBitmapEdges(renderer, x, y, drawnWidth, drawnHeight, pageWidth, pageHeight);
+        }
+        renderer.endStripTarget();
+      }
+    }
+    renderer.copyGrayscalePlanes(lsb.get(), msb.get());
+    renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+    return true;
+  }
+  if (panelIdlePending) idlePanel();
   // Direct starts from the two complete gray planes and never reads the B/W
   // frame buffer, so a B/W render ahead of it would be a whole image decode
   // that the LSB pass immediately clears. Absolute and Overlay bases still
@@ -960,7 +1039,7 @@ void SleepActivity::renderCoverSleepScreen() const {
     Bitmap bitmap(file, absolute, absolute);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
-      const bool success = renderBitmapSleepScreen(bitmap);
+      const bool success = renderBitmapSleepScreen(bitmap, file);
       file.close();
       if (success) return;
     }
