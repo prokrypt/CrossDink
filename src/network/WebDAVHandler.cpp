@@ -6,6 +6,9 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <SdCardFontSystem.h>
+#ifndef SIMULATOR
+#include <lwip/sockets.h>
+#endif
 
 #include <algorithm>
 #include <cstring>
@@ -35,6 +38,36 @@ bool replaceFile(const String& srcPath, const String& dstPath, const bool dstExi
   }
   if (dstExists) Storage.rename(oldPath.c_str(), dstPath.c_str());
   return false;
+}
+
+// The Arduino parser reads a request body only for POST, PUT, PATCH and
+// DELETE. Closed with the body (e.g. a PROPFIND's XML) still unread, lwIP
+// answers with RST and drops any reply bytes not yet acked, so on a weak link
+// the client can lose the reply; gvfs then waits forever (no request timeout).
+// Lingering close: send FIN, read until the client closes, then let
+// WebServer close the socket.
+constexpr unsigned long LINGER_MS = 500;
+
+void lingerClose(WebServer& s) {
+#ifndef SIMULATOR
+  if (s.header("Content-Length").toInt() <= 0) return;
+  const int fd = s.client().fd();
+  if (fd < 0 || lwip_shutdown(fd, SHUT_WR) != 0) return;
+  const unsigned long startMs = millis();
+  uint8_t sink[64];
+  for (unsigned long waited = 0; waited < LINGER_MS; waited = millis() - startMs) {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(fd, &fds);
+    const unsigned long left = LINGER_MS - waited;
+    timeval timeout = {0, static_cast<suseconds_t>(left * 1000)};
+    if (lwip_select(fd + 1, &fds, nullptr, nullptr, &timeout) <= 0) break;
+    if (lwip_recv(fd, sink, sizeof(sink), MSG_DONTWAIT) <= 0) return;  // client closed (or reset)
+  }
+  LOG_DBG("DAV", "Linger: client still open after %lu ms", millis() - startMs);
+#else
+  (void)s;
+#endif
 }
 
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -184,40 +217,42 @@ bool WebDAVHandler::handle(WebServer& server, HTTPMethod method, const String& u
   switch (method) {
     case HTTP_OPTIONS:
       handleOptions(server);
-      return true;
+      break;
     case HTTP_PROPFIND:
       handlePropfind(server);
-      return true;
+      break;
     case HTTP_GET:
       handleGet(server);
-      return true;
+      break;
     case HTTP_HEAD:
       handleHead(server);
-      return true;
+      break;
     case HTTP_PUT:
       handlePut(server);
-      return true;
+      break;
     case HTTP_DELETE:
       handleDelete(server);
-      return true;
+      break;
     case HTTP_MKCOL:
       handleMkcol(server);
-      return true;
+      break;
     case HTTP_MOVE:
       handleMove(server);
-      return true;
+      break;
     case HTTP_COPY:
       handleCopy(server);
-      return true;
+      break;
     case HTTP_LOCK:
       handleLock(server);
-      return true;
+      break;
     case HTTP_UNLOCK:
       handleUnlock(server);
-      return true;
+      break;
     default:
       return false;
   }
+  if (method != HTTP_PUT && method != HTTP_DELETE) lingerClose(server);
+  return true;
 }
 
 // ── OPTIONS ──────────────────────────────────────────────────────────────────
