@@ -65,7 +65,6 @@ class EpubReaderActivity final : public Activity {
     uint8_t focusReadingEnabled = 0;
     uint8_t guideReadingEnabled = 0;
     uint8_t epubRenderMode = 0;
-    uint8_t indexingMethod = CrossPointSettings::INDEXING_INCREMENTAL_MENTAL;
     char sdFontFamilyName[64] = "";
   };
 
@@ -335,10 +334,6 @@ class EpubReaderActivity final : public Activity {
   // Input should win the next RenderLock race. Keep the incremental parser alive,
   // but do not start another background chunk until the requested render begins.
   std::atomic<bool> backgroundBuildYieldForInput{false};
-  // Full-section next-chapter prefetch is speculative. A forward page turn may
-  // stop it, but the visible build at the chapter boundary remains full-section.
-  std::atomic<bool> silentPrefetchBuildActive{false};
-  std::atomic<bool> silentPrefetchCancelRequested{false};
   std::atomic<bool> sectionBuildCancelRequested{false};
   std::atomic<bool> goHomeAfterBuildCancel{false};
 
@@ -356,47 +351,10 @@ class EpubReaderActivity final : public Activity {
   HeapByteBuffer grayscaleStripScratch;
   size_t grayscaleStripScratchSize = 0;
   bool grayscaleStripScratchInPsram = false;
-  // Trigger/memoization concept adapted from Sichroteph/YACP commit
-  // 3f3c5fc42e794c021edb9832856ef98c2d2065b9 (MIT).
-  int preparedNextSpineIndex = -1;
-  uint16_t preparedNextViewportWidth = 0;
-  uint16_t preparedNextViewportHeight = 0;
 
-  // Silent next-chapter indexing on the worker core, used when the reader
-  // font measures from memory only. The render task keeps showing and turning
-  // pages of the current chapter meanwhile; anything else waits for it first.
-  struct SilentIndexWorker {
-    TaskHandle_t task = nullptr;
-    SemaphoreHandle_t done = nullptr;  // given by the task after its build
-    std::atomic<bool> finished{false};
-    std::atomic<bool> cancel{false};
-    int spineIndex = -1;
-    uint16_t viewportWidth = 0;
-    uint16_t viewportHeight = 0;
-    EpubRenderMode renderMode = EpubRenderMode::CrossDinkDefault;
-    ReaderRenderSpec spec{};
-    bool succeeded = false;
-    bool needsRenderLane = false;
-    bool laneMissed = false;  // a streamed TTF face: the worker lane cannot serve it
-  };
-  SilentIndexWorker silentWorker;
-  // Start and join happen on the render task and on the loop (font changes).
-  SemaphoreHandle_t silentWorkerMutex = nullptr;
-  bool silentWorkerOutcomePending = false;  // silentWorkerMutex
-  // A chapter the worker could not build (low memory, a streamed TTF face);
-  // the render task builds it the old way, with its fallbacks.
-  int silentIndexRenderLaneSpine = -1;
-  // Reader font the worker lane missed on (a streamed TTF face); both workers
+  // Reader font the worker lane missed on (a streamed TTF face); workers
   // skip it until the reader fonts reload. Render task or RenderLock.
   int workerLaneMissFontId = 0;
-  static void silentIndexWorkerMain(void* param);
-  void runSilentIndexWorker();
-  bool canSilentIndexOnWorker(int readerFontId) const;
-  bool startSilentIndexWorker(int spineIndex, uint16_t viewportWidth, uint16_t viewportHeight, int readerFontId,
-                              EpubRenderMode renderMode);
-  void waitSilentIndexWorker(bool cancel);
-  bool silentIndexWorkerBusy();
-  void applySilentIndexWorkerOutcome();
 
   // Home's cover thumbs for this book, made once per open on the worker core
   // at idle priority after the page has been still for a moment, so returning
@@ -494,20 +452,14 @@ class EpubReaderActivity final : public Activity {
   bool shouldUseFootnotePreview(int targetSpineIndex, const std::string& anchor) const;
   std::string footnotePreviewCacheSuffix(EpubRenderMode renderMode, const std::string& anchor) const;
   void clearFootnotePreviewState();
-  void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
-  void cancelSilentPrefetchForInput();
-  bool restoreCurrentPageBufferAfterSilentIndex();
   // Larger batches are reserved for non-interactive work such as sleep-page preparation.
   static KNOB_ALIAS(BUILD_PAGES_PER_CHUNK, buildChunkPages);  // Goodies > Knobs
   // Interactive builds stop as soon as the requested page is ready and give the
   // main loop a chance to observe input between pages.
   static constexpr int INTERACTIVE_BUILD_PAGES_PER_CHUNK = 1;
   // Ticking one page at a time (checked against RenderLock::peek() and the input-yield flag
-  // before every tick) keeps the background build responsive. Incremental limits the build to
-  // a small lookahead window, while IncreMENTAL keeps working to completion.
+  // before every tick) keeps the background build responsive while it works to completion.
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
-  static KNOB_ALIAS(BUILD_WINDOW_AHEAD, buildAheadPages);  // Goodies > Knobs, as the next
-  static KNOB_ALIAS(PARTIAL_REBUILD_START_MARGIN, partialRebuildMargin);
   // Show the indexing popup when an initial build must lay out more than this many pages up front
   // (a deep resume/jump into a not-yet-built section), so it isn't a silent wait. Kept independent
   // of the background build so ordinary landings stay popup-free.
@@ -620,7 +572,6 @@ class EpubReaderActivity final : public Activity {
   // turn or a cancel event since the render began). Flags a recovery redraw.
   bool grayscalePassCancelled(const char* checkpoint);
   void finishManualPageTurnBrakeIfReady();
-  void cancelSilentNextChapterPrefetchForForwardTurn();
   bool isAtBookStart() const;
   void pageTurn(bool isForwardTurn, const char* source = "unknown");
   float getCurrentBookProgressPercent() const;
@@ -660,7 +611,6 @@ class EpubReaderActivity final : public Activity {
     smoothFullSwingPending = true;
     // Menus over a Noflash page get the longer repaint (driver keys it on smooth gray).
     renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH);
-    waitSilentIndexWorker(/*cancel=*/true);
     waitDrawAhead(/*publish=*/false);
   }
   void loop() override;
@@ -673,21 +623,9 @@ class EpubReaderActivity final : public Activity {
     return true;
   }
   bool preventAutoSleep() override { return automaticPageTurnActive; }
-  // Hold the loop hot only while the build has work this loop would do: a kept-alive
-  // build sitting outside the lookahead window is dormant, and reporting it here would
-  // pin the CPU at full clock (no power saving, yield-only loop) for the whole read.
-  // Mirrors the tick condition in loop(): catch-up phase, or watermark inside the window.
+  // Hold the loop hot while a section build is running; it ticks to completion.
   // Caller must own RenderLock: render() can replace or finalize section.
-  bool sectionBuildWantsTick() const {
-    if (!section || !section->isBuilding()) {
-      return false;
-    }
-    if (SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL) {
-      return true;
-    }
-    return !section->activeBuildHasCaughtReadablePages() ||
-           static_cast<int>(section->pageCount) < section->currentPage + BUILD_WINDOW_AHEAD;
-  }
+  bool sectionBuildWantsTick() const { return section && section->isBuilding(); }
   bool backgroundSectionBuildHasHeap();
   void idlePrewarmNextPage();
   void prerenderNextPage();
@@ -702,7 +640,6 @@ class EpubReaderActivity final : public Activity {
   bool isEpubReaderActivity() const override { return true; }
   void onInputLockChanged(bool locked) override;
   void cancelOptionalRenderWork(const char* reason) override { cancelGrayscalePass(reason); }
-  void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }

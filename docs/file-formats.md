@@ -298,7 +298,8 @@ Version 1 stored only:
 
 Version 2 stores flags before the full reader-settings snapshot. Version 3 adds
 the EPUB word-spacing level to that snapshot. Version 4 adds the EPUB indexing
-method (`0` = incremental, `1` = full section). Version 5 appends a per-book
+method byte; it is now always written as `2` (IncreMENTAL, the only method) and
+ignored on read, and override-mask bit 17 (its old per-book override) is ignored. Version 5 appends a per-book
 dictionary SD-font family name. Version 6 stores reader font sizes as physical
 point sizes, version 7 appends the dictionary font's selected point size, and
 version 8 splits the screen margin into vertical and horizontal values. Version
@@ -340,7 +341,7 @@ struct ReaderSettingsBin {
     u8 focusReadingEnabled;
     u8 guideReadingEnabled;
     u8 snapshotRenderMode;
-    u8 indexingMethod; // 0 = incremental, 1 = full section, 2 = incremental (mental)
+    u8 reservedIndexingMethod; // written as 2, ignored on read (was the indexing method)
     char sdFontFamilyName[64];
     char dictionarySdFontFamilyName[64]; // meaningful only when flag bit 3 is set
     u8 dictionaryFontPointSize; // 0 = follow reader size
@@ -559,8 +560,8 @@ current reader settings, the section is discarded and rebuilt.
 
 Version 59 adds a compact page-start visible-text-offset lookup table. The
 offset is a Unicode codepoint coordinate in the spine XHTML, so reader progress
-and KOReader sync can return to the same content after a font, orientation, or
-indexing-method change instead of relying on a page percentage. Suspended
+and KOReader sync can return to the same content after a font or orientation
+change instead of relying on a page percentage. Suspended
 incremental caches store the same table for their readable prefix; a target
 beyond that prefix must continue indexing before it can be resolved.
 

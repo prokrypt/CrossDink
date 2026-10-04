@@ -962,8 +962,6 @@ bool CrossPointSettings::loadFromFile() {
       if (result) {
         std::lock_guard<std::mutex> settingsLock(_mutex);
         if (restoreLegacyRtcDateSyncState(*this)) resave = true;
-        // Imports start on IncreMENTAL; the user's later choice sticks.
-        if (migrateToCurrentPath) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
       }
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile() && flush()) {

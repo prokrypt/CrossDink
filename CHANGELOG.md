@@ -216,6 +216,9 @@
 - Long status titles shorten faster when they do not fit the screen.
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
 
+### Removed
+- Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
+
 ### Fixed
 - Saving recents, knobs or the Library index no longer lists them in `/.crossdink/.deleted` (each save parked the live file as a backup for a moment, which counted as a removal); entries for files that exist again are dropped from the list at boot. The Library index backup is now `library.idx.bak`.
 - Web UI (File Transfer): the web Settings page shows every setting again; Font Family and the button and chord actions were left out because their option lists were too long. The Logs page reads the PSRAM log size from a headers-only reply instead of downloading the whole log (about 0.6 s per open). The Fonts page lists fonts from one pass over the font folders instead of opening every font file (1.3 s for 33 families before).

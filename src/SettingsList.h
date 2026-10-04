@@ -786,7 +786,6 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
   addSettingByName(readerSettings, allSettings, StrId::STR_FOCUS_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_GUIDE_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_DICTIONARY);
-  addSettingByName(readerSettings, allSettings, StrId::STR_INDEXING_METHOD);
   return readerSettings;
 }
 

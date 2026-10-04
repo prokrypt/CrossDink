@@ -122,8 +122,6 @@ X("Heap", opdsPreloadPerWorker, size_t, 16384, 16384, 65536, 1024, "B")       //
 X("Heap", opdsPreloadMinBlock, size_t, 16384, 16384, 65536, 1024, "B")
 
 // Reader
-X("Book", buildAheadPages, int, 5, 1, 20, 1, "pg")                  // incremental build runs this far ahead
-X("Book", partialRebuildMargin, int, 15, 2, 50, 1, "pg")            // extend a partial section this near its end
 X("Book", buildChunkPages, int, 8, 1, 32, 1, "pg")                  // non-interactive build batch
 X("Book", popupPages, int, 20, 1, 200, 1, "pg")                     // indexing popup: target deeper than this
 X("Book", popupBytes, size_t, 98304, 8192, 524288, 8192, "B")       // indexing popup: spine items this large
