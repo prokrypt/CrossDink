@@ -119,6 +119,7 @@ void BatteryStatsActivity::startLoad() {
   if (buf && !resumeFromSum()) {
     parser = {};
     parser.stateSkipS = KNOBS.batteryStateSkipS;
+    parser.halfLifeH = KNOBS.batteryHalfLifeH;
     fileIndex = BatteryLog::LOG_FILES - 1;  // the oldest; missing files read as empty
     fileOff = 0;
     file = Storage.open(BatteryLog::LOG_PATHS[fileIndex], O_RDONLY);
@@ -238,13 +239,13 @@ void BatteryStatsActivity::buildLines() {
     const bool wifiNow = builtState >> 8;
     const uint8_t lightNow = builtState & 0xFF;
     // 0.01 % per s, 0 = under 0.5% or 30 min: one short stretch is mostly the gauge's wander.
+    // Rate and duty are recency-weighted (BatteryLogParser::addRecent).
     auto rateOf = [&st](const int i) {
-      return st.stateS[i] >= 1800 && st.stateDropC[i] >= 50 ? static_cast<float>(st.stateDropC[i]) / st.stateS[i]
-                                                            : 0.0f;
+      return st.stateS[i] >= 1800 && st.stateDropC[i] >= 50 && st.recentS[i] > 0
+                 ? std::max(st.recentDropC[i] / st.recentS[i], 0.0f)
+                 : 0.0f;
     };
-    auto dutyOf = [&st](const int i) {
-      return st.stateS[i] ? static_cast<float>(st.stateDuty[i]) / st.stateS[i] : 0.0f;
-    };
+    auto dutyOf = [&st](const int i) { return st.recentS[i] > 0 ? st.recentDuty[i] / st.recentS[i] : 0.0f; };
     // The LED's full-duty drain (0.1 %/h) per duty unit, in 0.01 % per s.
     const float maxSlope = KNOBS.ledMaxDrain / 360.0f / 1023;
     auto rateFor = [&](const int k, const int o) {  // k: this Wi-Fi state, o: the other

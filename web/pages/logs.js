@@ -412,7 +412,7 @@ const RUN_ERR_C = 625; // (0.25 %)^2
 const FULL_C = 9500; // a charge ending at or above this may still be on a charger ...
 const FULL_DROP_C = 5; // ... until the % drops this far below the charge end
 function logStats() {
-  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], e: [0, 0], run: -1, n: [0, 0], ne: [0, 0], sd: [0, 0, 0, 0], ss: [0, 0, 0, 0], su: [0, 0, 0, 0] });
+  const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], e: [0, 0], run: -1, n: [0, 0], ne: [0, 0], sd: [0, 0, 0, 0], ss: [0, 0, 0, 0], su: [0, 0, 0, 0], rd: [0, 0, 0, 0], rs: [0, 0, 0, 0], ru: [0, 0, 0, 0], re: [0, 0, 0, 0] });
   // The open stretch of on-battery steps keeps a signed net drop per category (n),
   // so the gauge's rise after an unplug cancels drops; it is added to d (a
   // negative net as 0) when the stretch ends.
@@ -431,6 +431,17 @@ function logStats() {
   let changed = 0; // last light, Wi-Fi, wake or boot change
   let hold = 0; // charge-end % while it may still be on a charger
   let skip = 120; // the device's stateSkipS
+  let half = 24; // the device's halfLifeH
+  // BatteryLogParser::addRecent: a step's weight halves every `half` hours before
+  // its state's newest step, 0 = all equal. The per-state rates come from these.
+  const addRecent = (k, t, d, dt, du) => {
+    if (half && s.re[k] && t > s.re[k]) {
+      const f = Math.pow(2, -(t - s.re[k]) / (half * 3600));
+      (s.rd[k] *= f), (s.rs[k] *= f), (s.ru[k] *= f);
+    }
+    s.re[k] = Math.max(s.re[k], t);
+    (s.rd[k] += d), (s.rs[k] += dt), (s.ru[k] += du);
+  };
   let rows = batAll;
   if (sumRows) {
     // Start from the device's saved counts (battery.sum, which keep rows of rotated-out
@@ -439,7 +450,7 @@ function logStats() {
     s = {
       reset: sum.reset, first: sum.first, last: sum.last, cold: sum.coldBoots, rst: sum.restarts, wakes: sum.wakes, falseWakes: sum.falseWakes,
       awake: sum.awakeS, asleep: sum.asleepS, charged: sum.chargedEpoch, from: pc(sum.chargeFromC, sum.chargeFromFine), to: pc(sum.chargeToC, sum.chargeToFine),
-      charging: sum.charging, b: sum.battS, d: sum.dropC, e: sum.errC, run: sum.run, n: sum.netC, ne: sum.netErrC, sd: sum.stateDropC, ss: sum.stateS, su: sum.stateDuty,
+      charging: sum.charging, b: sum.battS, d: sum.dropC, e: sum.errC, run: sum.run, n: sum.netC, ne: sum.netErrC, sd: sum.stateDropC, ss: sum.stateS, su: sum.stateDuty, rd: sum.recentDropC, rs: sum.recentS, ru: sum.recentDuty, re: sum.recentEpoch,
     };
     prev = { t: sum.prevEpoch, ev: sum.prevAwake ? '' : 'sleep', det: '', plug: sum.prevUsb, c: sum.prevRowC, fine: sum.prevRowFine, pct: sum.prevRowC / 100, q: sum.prevRowFine ? 0.01 : 1 };
     if (!sum.prevEpoch) prev = null;
@@ -449,6 +460,7 @@ function logStats() {
     changed = sum.stateChangeEpoch;
     hold = sum.fullHoldC;
     skip = sum.stateSkipS;
+    half = sum.halfLifeH;
     rows = sumRows;
   }
   for (const r0 of rows) {
@@ -471,6 +483,7 @@ function logStats() {
         s.sd[i] += prev.c - r.c;
         s.ss[i] += dt;
         s.su[i] += lightDuty(light) * dt;
+        addRecent(i, r.t, prev.c - r.c, dt, lightDuty(light) * dt);
       }
       // Drops come from fractional rows only: a whole row inside fractional data
       // counts its time, and the drop is taken across it from ref; whole-% steps
@@ -518,8 +531,9 @@ function logStats() {
 // has no rate. The web page is served over Wi-Fi, so Wi-Fi is on; the light is
 // the last logged one.
 function estToEmpty(s, pct, lightNow) {
-  const rateOf = (i) => (s.ss[i] >= 1800 && s.sd[i] >= 50 ? s.sd[i] / s.ss[i] : 0); // 0.01 % per s, 0 = under 0.5% or 30 min
-  const dutyOf = (i) => (s.ss[i] ? s.su[i] / s.ss[i] : 0);
+  // 0.01 % per s, 0 = under 0.5% or 30 min; rate and duty are recency-weighted (addRecent)
+  const rateOf = (i) => (s.ss[i] >= 1800 && s.sd[i] >= 50 && s.rs[i] > 0 ? Math.max(s.rd[i] / s.rs[i], 0) : 0);
+  const dutyOf = (i) => (s.rs[i] > 0 ? s.ru[i] / s.rs[i] : 0);
   const maxSlope = (sum ? sum.ledMaxDrain : 200) / 360 / 1023; // the LED's full-duty drain (0.1 %/h) per duty unit, in 0.01 % per s
   const rateFor = (k, o) => lightScaledRate(rateOf(k), rateOf(k + 1), dutyOf(k + 1), lightNow, ledSlope(rateOf(o), rateOf(o + 1), dutyOf(o + 1)), maxSlope);
   const rate = Math.max(rateFor(2, 0), rateFor(0, 2)); // Wi-Fi only adds drain: never better than Wi-Fi off
