@@ -937,22 +937,28 @@ bool CrossPointWebServer::waitForServeTask() {
 }
 
 void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
-  // fd:localPort<peer for each of this server's sockets; "-" = listener or UDP.
-  char socks[200] = "";
+  // fd:localPort<peer+unread for each of this server's sockets; "-" = listener or UDP.
+  char socks[300] = "";
   size_t used = 0;
   forEachSocket([&](const int fd, const uint16_t local) {
     char ip[16] = "-";
     unsigned peerPort = 0;
+    int unread = 0;
 #ifndef SIMULATOR
-    sockaddr_in peer{};
+    sockaddr_storage peer{};
     socklen_t len = sizeof(peer);
-    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0 && peer.sin_family == AF_INET) {
-      inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
-      peerPort = ntohs(peer.sin_port);
+    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0) {
+      // The HTTP listener is dual-stack: IPv4 clients come back v4-mapped.
+      const auto* v4 = reinterpret_cast<const sockaddr_in*>(&peer);
+      const auto* v6 = reinterpret_cast<const sockaddr_in6*>(&peer);
+      if (peer.ss_family == AF_INET) inet_ntop(AF_INET, &v4->sin_addr, ip, sizeof(ip));
+      if (peer.ss_family == AF_INET6) inet_ntop(AF_INET, &v6->sin6_addr.s6_addr[12], ip, sizeof(ip));
+      peerPort = ntohs(v4->sin_port);
     }
+    lwip_ioctl(fd, FIONREAD, &unread);
 #endif
     if (used < sizeof(socks)) {
-      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u", fd, local, ip, peerPort);
+      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u+%d", fd, local, ip, peerPort, unread);
     }
   });
   const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
@@ -1053,6 +1059,15 @@ bool CrossPointWebServer::handleClient() {
   }
   servePhase.store("http", std::memory_order_relaxed);
   server->handleClient();
+#ifndef SIMULATOR
+  // A connection kept open without a complete request (handlers log the rest).
+  static int waitingFd = -1;
+  const int clientFd = server->client().fd();
+  if (clientFd >= 0 && clientFd != waitingFd) {
+    LOG_DBG("WEB", "Connection fd %d waiting for its request, %d bytes in", clientFd, server->client().available());
+  }
+  waitingFd = clientFd;
+#endif
   if (pending) {
     if (!pollRequest) lastTransferMs = millis();
     requestStartMs.store(0, std::memory_order_relaxed);
