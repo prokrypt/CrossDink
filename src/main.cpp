@@ -1613,6 +1613,39 @@ static void disarmBootGuard() {
 #endif
 }
 
+// KOReader Sync > Sync on Wake & Sleep: before the sleep screen, save the open
+// book's position and push it under a progress toast, then show the result for a
+// moment. pushNow() bounds the whole wait, so sleep always goes on.
+void syncBookBeforeSleep() {
+  if (!kosync_auto::wantsSleepPush()) return;
+  const std::string path = activityManager.flushEpubProgressForSync();
+  if (path.empty()) return;
+  HalPowerManager::sleepStep = "kosync push";
+  activityManager.cancelOptionalRenderWork("kosync sleep push");
+  // Held throughout so the reader cannot repaint over the toasts; bounded so a
+  // busy render task only costs the toasts, never the push or the sleep.
+  RenderLock lock(3000UL);
+  // The sleep screen may snapshot this page, so the toasts' band is put back after.
+  const int bandH = renderer.getLineHeight(UI_10_FONT_ID) + 24;  // drawToast()'s height
+  const int bandY = (renderer.getScreenHeight() - bandH) / 2;
+  const int bandW = renderer.getScreenWidth();
+  const size_t bandBytes = renderer.getRegionByteSize(0, bandY, bandW, bandH);
+  std::unique_ptr<uint8_t[]> band;
+  if (lock.ownsLock()) band = makeUniqueNoThrow<uint8_t[]>(bandBytes);
+  const bool saved = band && renderer.copyRegionToBuffer(0, bandY, bandW, bandH, band.get(), bandBytes);
+  if (saved) BookActions::drawToast(renderer, tr(STR_SYNCING_PROGRESS));
+  const kosync_auto::PushOutcome outcome = kosync_auto::pushNow(path);
+  LOG_INF("KOSync", "sleep push outcome %d", static_cast<int>(outcome));
+  if (!saved) return;
+  const char* msg = outcome == kosync_auto::PushOutcome::Pushed        ? tr(STR_UPLOAD_SUCCESS)
+                    : outcome == kosync_auto::PushOutcome::Same        ? tr(STR_ALREADY_SYNCED)
+                    : outcome == kosync_auto::PushOutcome::ServerAhead ? tr(STR_SYNC_SERVER_AHEAD)
+                                                                       : tr(STR_SYNC_FAILED_MSG);
+  BookActions::drawToast(renderer, msg);
+  delay(1500);
+  renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   armSleepGuard();
@@ -1620,6 +1653,8 @@ void enterDeepSleep(bool fromTimeout) {
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
 #endif
+  syncBookBeforeSleep();
+  HalPowerManager::sleepStep = "activity exit";
   kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
@@ -2212,6 +2247,7 @@ void setup() {
   } else {
     // Count the attempt in RTC so a book that crashes on load boots to Home next time.
     APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
+    if (isSleepWake) kosync_auto::noteWake();
     activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
   }
 
@@ -3042,6 +3078,16 @@ static void loopPass() {
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();
+  // Auto sync push toast: drawn over the current screen, cleared by its next render.
+  static unsigned long koSyncToastAt = 0;
+  if (kosync_auto::takePushed()) {
+    RenderLock lock;
+    BookActions::drawToast(renderer, tr(STR_UPLOAD_SUCCESS));
+    koSyncToastAt = millis() | 1;
+  } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
+    koSyncToastAt = 0;
+    activityManager.requestUpdate();
+  }
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
   knobs::loop();

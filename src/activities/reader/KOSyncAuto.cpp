@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <MemoryBudget.h>
 #include <WiFi.h>
+#include <esp_attr.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <cinttypes>
 #include <memory>
+#include <utility>
 
 #include "CrossPointSettings.h"
 #include "EpubReaderUtils.h"
@@ -31,6 +33,9 @@ namespace {
 // Home (or the book's first page) paints and the reader's exit writes land before the task reads the SD card.
 constexpr uint32_t START_DELAY_MS = 1500;
 constexpr uint32_t JOIN_TIMEOUT_MS = 15000;
+constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // as Smart Sync
+// Deep sleep's whole wait for a running job and its own push; the sleep guard resets at 60 s.
+constexpr uint32_t SLEEP_WAIT_MS = 30000;
 // As the KOSync screen's request task: wolfSSL handshake plus HTTPClient.
 constexpr uint32_t TASK_STACK_BYTES = 14 * 1024;
 // Sized for this job, not an EPUB rebuild (whose 96K/48K gate skipped every sync
@@ -44,10 +49,19 @@ std::string queuedPath;  // main task only
 uint32_t queuedAt = 0;
 std::string pullPath;  // main task only
 uint32_t pullAt = 0;
+bool wakePull = false;  // main task only
+bool wakePush = false;  // main task only
+// A failed sleep push leaves this for the next wake, which then pushes as well as
+// pulls. RTC memory; power loss leaves garbage that fails the magic check.
+constexpr uint32_t RETRY_PUSH_MAGIC = 0x4B535250;  // "KSRP"
+RTC_NOINIT_ATTR uint32_t retryPushMagic;
 // Written before the task starts, then the task's until running() reads false.
 std::string jobPath;
 bool jobIsPull = false;
 bool pullReady = false;
+bool pushOk = false;  // the task's last push landed; main task reads it once running() is false
+// The last push's outcome, written by the task before running() reads false.
+kosync_auto::PushOutcome pushOutcome = kosync_auto::PushOutcome::Failed;
 KOReaderProgress pulled;
 DocumentMatchMethod pulledMethod = DocumentMatchMethod::FILENAME;
 WorkerTask task;
@@ -164,6 +178,7 @@ void run(void*) {
   const MemoryBudget::HeapSnapshot heapStart = MemoryBudget::snapshot();
   const char* what = jobIsPull ? "open pull" : "exit push";
   KOReaderProgress progress;
+  bool skipped = false;
   std::string hash, altHash;
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
   if (jobIsPull) {
@@ -175,6 +190,8 @@ void run(void*) {
     }
   } else if (!buildProgress(jobPath, progress)) {
     return;  // the Epub is freed here, before TLS
+  } else {
+    altHash = documentId(jobPath, otherMethod(method));  // SD reads before the radio comes up
   }
 
   bool ownRadio = false;
@@ -208,8 +225,26 @@ void run(void*) {
   const MemoryBudget::HeapSnapshot heapJoined = MemoryBudget::snapshot();
   KOReaderSyncClient::Error result = KOReaderSyncClient::NETWORK_ERROR;
   if (WiFi.status() == WL_CONNECTED && !radioClaimed.load()) {
-    result = jobIsPull ? fetch(hash, altHash, method)
-                       : retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });
+    if (jobIsPull) {
+      result = fetch(hash, altHash, method);
+    } else {
+      // Never move the server back: fetch first (both hashes, as Smart Sync) and
+      // push only when nothing is there or the device is further on.
+      result = fetch(progress.document, altHash, method);
+      if (result == KOReaderSyncClient::OK && pulled.percentage + SAME_PROGRESS_EPSILON >= progress.percentage) {
+        LOG_INF("KOSync", "%s skipped: server at %.4f (%s), device at %.4f", what, pulled.percentage,
+                pulled.device.c_str(), progress.percentage);
+        skipped = true;
+        pushOutcome = pulled.percentage - progress.percentage > SAME_PROGRESS_EPSILON
+                          ? kosync_auto::PushOutcome::ServerAhead
+                          : kosync_auto::PushOutcome::Same;
+      } else if ((result == KOReaderSyncClient::OK || result == KOReaderSyncClient::NOT_FOUND) &&
+                 !radioClaimed.load()) {
+        result = retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });
+        pushOk = result == KOReaderSyncClient::OK;
+        if (pushOk) pushOutcome = kosync_auto::PushOutcome::Pushed;
+      }
+    }
   }
 
   if (ownRadio && beginRadioCall()) {
@@ -222,10 +257,13 @@ void run(void*) {
   LOG_INF("KOSync",
           "%s %s: result=%d http=%d pct=%.4f claimed=%d %lu ms heap free/block start %" PRIu32 "/%" PRIu32
           " joined %" PRIu32 "/%" PRIu32 " end %" PRIu32 "/%" PRIu32 " stack free %u",
-          what, result == KOReaderSyncClient::OK ? "ok" : "failed", result, KOReaderSyncClient::lastHttpCode,
-          jobIsPull ? pulled.percentage : progress.percentage, radioClaimed.load() ? 1 : 0,
-          static_cast<unsigned long>(millis() - start), heapStart.freeHeap, heapStart.maxAllocHeap, heapJoined.freeHeap,
-          heapJoined.maxAllocHeap, heapEnd.freeHeap, heapEnd.maxAllocHeap,
+          what,
+          skipped                            ? "skipped"
+          : result == KOReaderSyncClient::OK ? "ok"
+                                             : "failed",
+          result, KOReaderSyncClient::lastHttpCode, jobIsPull ? pulled.percentage : progress.percentage,
+          radioClaimed.load() ? 1 : 0, static_cast<unsigned long>(millis() - start), heapStart.freeHeap,
+          heapStart.maxAllocHeap, heapJoined.freeHeap, heapJoined.maxAllocHeap, heapEnd.freeHeap, heapEnd.maxAllocHeap,
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
@@ -240,17 +278,56 @@ bool startJob(std::string path, const bool pull) {
   jobPath = std::move(path);
   jobIsPull = pull;
   pullReady = false;
+  pushOk = false;
+  pushOutcome = kosync_auto::PushOutcome::Failed;
   radioClaimed.store(false);
   if (task.start(run, nullptr, TASK_STACK_BYTES, "KOSyncAuto")) return true;
   LOG_ERR("KOSync", "auto sync: task did not start");
   return false;
 }
+
+kosync_auto::PushOutcome sleepPush(std::string epubPath) {
+  if (queuedPath == epubPath) queuedPath.clear();  // this push replaces a pending At close one
+  const uint32_t start = millis();
+  // Every wait is bounded: the job's own Wi-Fi join and HTTP calls time out, and
+  // past SLEEP_WAIT_MS the caller moves on with the job cut off from the radio.
+  if (!task.join(SLEEP_WAIT_MS)) {
+    LOG_ERR("KOSync", "sleep push: earlier job still running after %lu ms", static_cast<unsigned long>(SLEEP_WAIT_MS));
+    kosync_auto::yieldRadio();
+    return kosync_auto::PushOutcome::Failed;
+  }
+  if (!startJob(std::move(epubPath), false)) return kosync_auto::PushOutcome::Failed;
+  const uint32_t used = millis() - start;
+  if (!task.join(used < SLEEP_WAIT_MS ? SLEEP_WAIT_MS - used : 0)) {
+    LOG_ERR("KOSync", "sleep push: still running after %lu ms, sleeping anyway",
+            static_cast<unsigned long>(SLEEP_WAIT_MS));
+    kosync_auto::yieldRadio();
+    return kosync_auto::PushOutcome::Failed;
+  }
+  pushOk = false;  // the sleep toast reports it; no main-loop toast after wake
+  return pushOutcome;
+}
+
 }  // namespace
 
 namespace kosync_auto {
+void noteWake() {
+  wakePull = SETTINGS.koSyncSleepWake != 0;
+  wakePush = wakePull && retryPushMagic == RETRY_PUSH_MAGIC;
+  retryPushMagic = 0;
+}
+
 void queuePull(const std::string& epubPath) {
   queuedAt = millis();  // a pending push also waits out the book's open
-  if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN) || !KOREADER_STORE.hasCredentials()) return;
+  // ponytail: a wake whose reader never reaches here leaves the flag for the next open (one extra prompted pull).
+  const bool wake = std::exchange(wakePull, false);
+  // The push's own server check makes its order against the pull irrelevant.
+  if (std::exchange(wakePush, false) && KOREADER_STORE.hasCredentials()) {
+    LOG_INF("KOSync", "wake: retrying the failed sleep push");
+    queuedPath = epubPath;
+  }
+  if (!(wake || (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN)) || !KOREADER_STORE.hasCredentials())
+    return;
   pullPath = epubPath;
   pullAt = millis();
 }
@@ -270,6 +347,12 @@ const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMetho
   return &pulled;
 }
 
+bool takePushed() {
+  if (!pushOk || task.running()) return false;
+  pushOk = false;
+  return true;
+}
+
 void loop() {
   if (task.running()) return;  // a push or fetch waits for the one before it
   if (!queuedPath.empty() && millis() - queuedAt >= START_DELAY_MS) {
@@ -286,6 +369,16 @@ void loop() {
     pullPath.clear();
     startJob(std::move(path), true);
   }
+}
+
+bool wantsSleepPush() {
+  return SETTINGS.koSyncSleepWake && KOREADER_STORE.hasCredentials() && !activityManager.anyActivityUsesWifi();
+}
+
+PushOutcome pushNow(std::string epubPath) {
+  const PushOutcome outcome = sleepPush(std::move(epubPath));
+  retryPushMagic = outcome == PushOutcome::Failed ? RETRY_PUSH_MAGIC : 0;
+  return outcome;
 }
 
 void yieldRadio() {
