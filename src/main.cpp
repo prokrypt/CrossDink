@@ -2436,9 +2436,8 @@ static void updateFlashDuckLocked() {
 // decode right after a refresh) starves both and the light came back ~760 ms late. While a duck is
 // pending or running an esp_timer steps it too; the mutex keeps the statics above to one caller.
 static bool flashDuckPending() {
-  return flashDuckActive ||
-         (SETTINGS.frontlightFlashDuck &&
-          (liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0));
+  return flashDuckActive || (SETTINGS.frontlightFlashDuck && (liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 ||
+                                                              display.flashPlannedMs() != 0));
 }
 static void updateFlashDuck() {
 #ifndef SIMULATOR
