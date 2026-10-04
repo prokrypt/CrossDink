@@ -702,11 +702,9 @@ bool leaveNetworkInPlace(const bool goingHome) {
   logInternalHeapPins();
 #endif
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  // The Goodies remote rejoins only with a 48 KB block: while it is on and
-  // must rejoin, a restart (it rejoins at boot) beats staying up without it.
-  const uint32_t need = goingHome && psramHeapAvailable() && !(SETTINGS.goodiesWifiRemote && !keepLink)
-                            ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
-                            : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
+  // The Goodies remote rejoins with a 16 KB block (wifiRemoteMinBlock), under Home's bar.
+  const uint32_t need = goingHome && psramHeapAvailable() ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
+                                                          : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
   if (largest < need) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),
             static_cast<unsigned>(need));

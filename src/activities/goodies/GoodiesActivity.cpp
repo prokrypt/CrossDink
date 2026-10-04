@@ -9,7 +9,6 @@
 #include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
-#include <MemoryBudget.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 
@@ -84,6 +83,17 @@ uint32_t rejoinRetryMs = 0;                      // 0 until an attempt fails; do
 KNOB_ALIAS(REJOIN_TIMEOUT_MS, rejoinTimeoutMs);  // Goodies > Knobs, as the rejoin times below
 KNOB_ALIAS(REJOIN_RETRY_MIN_MS, rejoinRetryMinMs);
 KNOB_ALIAS(REJOIN_RETRY_MAX_MS, rejoinRetryMaxMs);
+// Internal RAM a remote join or server start needs. Allocations over 1 KB and the Wi-Fi/lwIP
+// buffers go to PSRAM (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL, CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP),
+// so the largest internal need is a task stack (join task 6 KB, Wi-Fi and lwIP tasks).
+KNOB_ALIAS(WIFI_REMOTE_MIN_INTERNAL_FREE, wifiRemoteMinFree);  // Goodies > Knobs
+KNOB_ALIAS(WIFI_REMOTE_MIN_INTERNAL_BLOCK, wifiRemoteMinBlock);
+bool rejoinSkippedForMemory = false;  // the last rejoin was skipped for internal RAM
+
+bool hasInternalHeapForRemote() {
+  return heap_caps_get_free_size(MALLOC_CAP_INTERNAL) >= WIFI_REMOTE_MIN_INTERNAL_FREE &&
+         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) >= WIFI_REMOTE_MIN_INTERNAL_BLOCK;
+}
 // The join task still shares the SD card and core 0 with the main loop, so a
 // background join waits for the wake screen to paint and for a pause in input.
 KNOB_ALIAS(REJOIN_BOOT_DELAY_MS, rejoinBootDelayMs);
@@ -204,9 +214,12 @@ void joinTaskMain(void*) {
 void beginRejoin() {
   rejoinAt = millis();
   rejoinRetryMs = rejoinRetryMs == 0 ? REJOIN_RETRY_MIN_MS : std::min(rejoinRetryMs * 2, REJOIN_RETRY_MAX_MS);
-  const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  if (largest < MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC) {
-    LOG_ERR("GDY", "wifi remote: rejoin skipped, internal largest block %u", static_cast<unsigned>(largest));
+  rejoinSkippedForMemory = !hasInternalHeapForRemote();
+  if (rejoinSkippedForMemory) {
+    // Goodies shows it on the remote row; the retry backoff tries again.
+    LOG_ERR("GDY", "wifi remote: rejoin skipped, internal free %u largest block %u",
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
     return;
   }
   // Priority 1, under the main loop: it runs only while the loop waits. The
@@ -223,6 +236,8 @@ namespace goodies_remote {
 bool running() { return remoteServer && remoteServer->isRunning() && WiFi.status() == WL_CONNECTED; }
 
 bool wanted() { return remoteWanted(); }
+
+bool waitingForMemory() { return rejoinSkippedForMemory && remoteWanted() && !remoteServer; }
 
 bool allowsRadioIdleSleep() {
   return remoteServer && remoteServer->allowsIdleSleep() && !remoteServer->isTransferActive() &&
@@ -270,6 +285,7 @@ std::unique_ptr<CrossPointWebServer> takeServer() {
 void stop() {
   setRemoteWanted(false);
   rejoinNow = false;
+  rejoinSkippedForMemory = false;
   if (!remoteServer && !rejoining && !joinPending) return;
   stopServerAndRadioInBackground();
   LOG_INF("GDY", "wifi remote off");
@@ -367,9 +383,7 @@ void loop(const uint32_t idleMs) {
     // Never joins or powers the radio here: the screen does. One start per
     // shared stretch, once there is a link and the heap Wi-Fi entry wants.
     rejoining = false;
-    if (!remoteServer && !sharedStartTried && hasActiveStationWifiConnection() &&
-        heap_caps_get_free_size(MALLOC_CAP_INTERNAL) >= MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE &&
-        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) >= MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC) {
+    if (!remoteServer && !sharedStartTried && hasActiveStationWifiConnection() && hasInternalHeapForRemote()) {
       sharedStartTried = true;
       startRemote(/*ownsRadio=*/false);
     }
@@ -642,6 +656,7 @@ void GoodiesActivity::activate(const int index) {
 
 int GoodiesActivity::remoteRowState() {
   if (goodies_remote::running()) return 2;
+  if (goodies_remote::waitingForMemory()) return 3;
   return goodies_remote::wanted() ? 1 : 0;
 }
 
@@ -719,6 +734,8 @@ std::string GoodiesActivity::remoteRowValue() {
       return std::string(tr(STR_STATE_ON)) + " " + remoteIp;
     case 1:
       return tr(STR_CONNECTING);
+    case 3:
+      return tr(STR_MEMORY_ERROR);
     default:
       return tr(STR_STATE_OFF);
   }
