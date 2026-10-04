@@ -934,6 +934,12 @@ void SettingsActivity::loop() {
     finishToParent();
     return;
   }
+  // Home-key boards: an up-swipe from the bottom-edge band leaves Settings;
+  // swipes starting higher keep scrolling the list.
+  if (mappedInput.hasHomeKey() && swipe == MappedInputManager::SwipeDir::Up && mappedInput.wasBottomEdgeUpSwipe()) {
+    closeRootSettings();
+    return;
+  }
   if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
     const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
     const int next = scrollListBy(topIndex, delta, visibleRows, settingsCount);
