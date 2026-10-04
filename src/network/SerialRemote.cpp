@@ -67,6 +67,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "activities/util/RemoteImageActivity.h"
 #include "platform/InputTask.h"
 #include "platform/PinMon.h"
 #include "util/UrlUtils.h"
@@ -657,6 +658,17 @@ void cmdRefresh(const char* mode) {
   reply("OK:REFRESH");
 }
 
+// Main task: shows the frame POST /api/image just received (the server task waits
+// meanwhile); a picture already up takes it in place.
+void cmdImage() {
+  if (!RemoteImageActivity::upload) return reply("ERR:IMAGE:no_data");
+  RemoteImageActivity::incoming = std::move(RemoteImageActivity::upload);
+  if (strcmp(activityManager.currentActivityName(), "RemoteImage") != 0) {
+    activityManager.pushActivity(std::make_unique<RemoteImageActivity>(renderer, mappedInputManager));
+  }
+  reply("OK:IMAGE");
+}
+
 // Main task: copies the screen under the render lock into `snap` as a PGM
 // (last gray pass still shown) or a PBM.
 void takeSnapshot() {
@@ -932,6 +944,8 @@ bool handleLine(const char* line) {
     cmdWaitIdle(args);
   } else if (strcmp(verb, "GOTO") == 0) {
     cmdGoto(args);
+  } else if (strcmp(verb, "IMAGE") == 0) {
+    cmdImage();
   } else {
     return false;  // SCREENSHOT, PSRAMLOG and future commands stay with the caller
   }
