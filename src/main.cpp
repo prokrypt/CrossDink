@@ -111,6 +111,7 @@
 #include "util/FrontlightSchedule.h"
 #include "util/LocalClock.h"
 #include "util/ScreenshotUtil.h"
+#include "util/SleepLog.h"
 #include "util/SleepWakePolicy.h"
 #include "util/TouchNoiseMonitor.h"
 #include "util/TransferLightPulse.h"
@@ -1646,6 +1647,7 @@ void enterDeepSleep(bool fromTimeout) {
     // can be written again until the next wake.
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
     BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
+    SleepLog::onSleep();
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
     HalPowerManager::sleepStep = "storage shutdown";
@@ -1661,6 +1663,7 @@ void enterDeepSleep(bool fromTimeout) {
 
   }  // Release powerLock before deep sleep entry
 
+  SleepLog::restartIfArmed();  // Goodies > Sleep-reboot-log: debug the sleep path without losing the log
   powerManager.startDeepSleep(gpio);
 }
 
@@ -3053,6 +3056,7 @@ static void loopPass() {
 void loop() {
   loopPassBlocked = false;
   loopPass();
+  SleepLog::loop();
   // loopTask runs on core 0 at priority 2, above IDLE0 and the priority-1
   // workers. Early returns (held chords, Home-key taps, shortcut dispatch)
   // skip the pass-end wait; one tick keeps them from starving IDLE0 into a
