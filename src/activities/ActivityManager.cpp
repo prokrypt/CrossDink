@@ -622,8 +622,8 @@ void ActivityManager::renderTaskLoop() {
       while (true) {
         // Wake/doze bits alone are no frame: the booster is on mid-refresh,
         // and a doze is picked up from panelDozing below.
-        if ((ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) &
-             ~(PANEL_WAKE_BIT | PANEL_DOZE_BIT)) != 0) {
+        const uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS));
+        if ((notified & ~(PANEL_WAKE_BIT | PANEL_DOZE_BIT)) != 0) {
           renderQueued = true;
           if (!batchInput) break;
         }
