@@ -95,6 +95,26 @@ slot; OTA rollback still applies on the next boot.
 
 Needs `Content-Length` (curl sends it). Each 64 KiB flash erase pauses the screen briefly during the upload.
 
+## Wi-Fi: POST /api/image
+
+Shows a picture until the next touch or button, which closes it and is eaten (Power keeps its own action). The
+host converts it: the body is the two physical gray planes, LSB plane then MSB plane, each `FBINFO` buffer size
+bytes (96000 total on the X4 Pro), panel-native orientation (portrait rotated 90 degrees counter-clockwise),
+MSB-first bits, level 0 black to 3 white, bit 0 of the level in the LSB plane. One direct-gray refresh, then the
+booster is switched off and the CPU light-sleeps between ticks; auto-sleep waits. A second POST replaces the
+picture in place. `xink-image` (project tools) converts any image and posts it.
+
+```sh
+curl -s --data-binary @planes.bin -H "Content-Type: application/octet-stream" \
+  -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/image
+```
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| 200 | `OK:IMAGE` | Shown (the screen opens on the next main-loop pass). |
+| 403 | `ERR:token` | Missing or wrong `X-Token`. |
+| 400 | `ERR:IMAGE:size (want N)` | Body is not exactly N bytes, or no PSRAM for it. |
+
 ## Wi-Fi: SD file download and upload
 
 `GET /api/download?path=<file>` and `POST /api/upload?path=<dir>` (multipart field `file`) are File Transfer's
