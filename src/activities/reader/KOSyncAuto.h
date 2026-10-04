@@ -23,11 +23,12 @@ const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMetho
 void loop();
 // Main loop: true once after a push landed (the toast).
 bool takePushed();
-// Boot, before a deep-sleep wake reopens the book: with Sync on Wake & Sleep on,
-// that open fetches as At open does, and also pushes when the sleep push failed.
+// Boot, before a deep-sleep wake reopens the book: when the sleep push failed,
+// that open pushes too (its fetch comes from At open, as on any open).
 void noteWake();
 enum class PushOutcome : uint8_t { Pushed, Same, ServerAhead, Failed };
-// Sync on Wake & Sleep is on, credentials exist and no Wi-Fi screen is up.
+// Sync on Wake & Sleep is on, Auto Sync has At close, credentials exist and no
+// Wi-Fi screen is up.
 bool wantsSleepPush();
 // Deep sleep, after the reader saved its progress: pushes the book (never moving
 // the server back) and blocks until done, at most 30 s in all. A failure arms

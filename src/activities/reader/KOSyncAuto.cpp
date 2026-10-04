@@ -33,6 +33,7 @@ namespace {
 // Home (or the book's first page) paints and the reader's exit writes land before the task reads the SD card.
 constexpr uint32_t START_DELAY_MS = 1500;
 constexpr uint32_t JOIN_TIMEOUT_MS = 15000;
+constexpr uint32_t REMOTE_WAIT_MS = 20000;       // the Wi-Fi remote's own join after boot or wake
 constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // as Smart Sync
 // Deep sleep's whole wait for a running job and its own push; the sleep guard resets at 60 s.
 constexpr uint32_t SLEEP_WAIT_MS = 30000;
@@ -49,7 +50,6 @@ std::string queuedPath;  // main task only
 uint32_t queuedAt = 0;
 std::string pullPath;  // main task only
 uint32_t pullAt = 0;
-bool wakePull = false;  // main task only
 bool wakePush = false;  // main task only
 // A failed sleep push leaves this for the next wake, which then pushes as well as
 // pulls. RTC memory; power loss leaves garbage that fails the magic check.
@@ -194,14 +194,25 @@ void run(void*) {
     altHash = documentId(jobPath, otherMethod(method));  // SD reads before the radio comes up
   }
 
-  bool ownRadio = false;
-  if (!hasActiveStationWifiConnection()) {
 #if CROSSDINK_GOODIES
-    if (goodies_remote::wanted()) {
-      LOG_INF("KOSync", "%s skipped: Wi-Fi remote owns the radio and is not connected", what);
+  // The Wi-Fi remote owns the radio and may still be joining (boot, wake): wait
+  // for its link instead of skipping. Bounded, and on this task, never the UI's.
+  if (goodies_remote::wanted() && !hasActiveStationWifiConnection()) {
+    const uint32_t waitStart = millis();
+    while (goodies_remote::wanted() && !hasActiveStationWifiConnection() && !radioClaimed.load() &&
+           millis() - waitStart < REMOTE_WAIT_MS) {
+      vTaskDelay(pdMS_TO_TICKS(200));
+    }
+    if (!hasActiveStationWifiConnection()) {
+      LOG_INF("KOSync", "%s skipped: Wi-Fi remote not connected after %lu ms", what,
+              static_cast<unsigned long>(millis() - waitStart));
       return;
     }
+    LOG_INF("KOSync", "%s: waited %lu ms for the Wi-Fi remote", what, static_cast<unsigned long>(millis() - waitStart));
+  }
 #endif
+  bool ownRadio = false;
+  if (!hasActiveStationWifiConnection()) {
     auto cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
     if (!cred) {
       LOG_INF("KOSync", "%s skipped: no saved Wi-Fi network", what);
@@ -286,9 +297,15 @@ bool startJob(std::string path, const bool pull) {
   return false;
 }
 
+// Sync on Wake & Sleep follows Auto Sync: the sleep push (and its wake retry) needs At close.
+bool sleepPushEnabled() {
+  return SETTINGS.koSyncSleepWake && (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE);
+}
+
 kosync_auto::PushOutcome sleepPush(std::string epubPath) {
   if (queuedPath == epubPath) queuedPath.clear();  // this push replaces a pending At close one
   const uint32_t start = millis();
+  kosync_auto::yieldRadio();  // an open pull still waiting on Wi-Fi gives up now
   // Every wait is bounded: the job's own Wi-Fi join and HTTP calls time out, and
   // past SLEEP_WAIT_MS the caller moves on with the job cut off from the radio.
   if (!task.join(SLEEP_WAIT_MS)) {
@@ -312,22 +329,20 @@ kosync_auto::PushOutcome sleepPush(std::string epubPath) {
 
 namespace kosync_auto {
 void noteWake() {
-  wakePull = SETTINGS.koSyncSleepWake != 0;
-  wakePush = wakePull && retryPushMagic == RETRY_PUSH_MAGIC;
+  // The wake's own book open already fetches when Auto Sync has At open.
+  wakePush = sleepPushEnabled() && retryPushMagic == RETRY_PUSH_MAGIC;
   retryPushMagic = 0;
 }
 
 void queuePull(const std::string& epubPath) {
   queuedAt = millis();  // a pending push also waits out the book's open
-  // ponytail: a wake whose reader never reaches here leaves the flag for the next open (one extra prompted pull).
-  const bool wake = std::exchange(wakePull, false);
+  // ponytail: a wake whose reader never reaches here leaves the retry for the next open (one extra checked push).
   // The push's own server check makes its order against the pull irrelevant.
   if (std::exchange(wakePush, false) && KOREADER_STORE.hasCredentials()) {
     LOG_INF("KOSync", "wake: retrying the failed sleep push");
     queuedPath = epubPath;
   }
-  if (!(wake || (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN)) || !KOREADER_STORE.hasCredentials())
-    return;
+  if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN) || !KOREADER_STORE.hasCredentials()) return;
   pullPath = epubPath;
   pullAt = millis();
 }
@@ -372,7 +387,7 @@ void loop() {
 }
 
 bool wantsSleepPush() {
-  return SETTINGS.koSyncSleepWake && KOREADER_STORE.hasCredentials() && !activityManager.anyActivityUsesWifi();
+  return sleepPushEnabled() && KOREADER_STORE.hasCredentials() && !activityManager.anyActivityUsesWifi();
 }
 
 PushOutcome pushNow(std::string epubPath) {
