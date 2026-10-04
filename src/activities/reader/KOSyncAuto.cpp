@@ -59,6 +59,16 @@ RTC_NOINIT_ATTR uint32_t retryPushMagic;
 std::string jobPath;
 bool jobIsPull = false;
 bool pullReady = false;
+// The task's memory of the last book it synced this boot (RAM only, task only):
+// the hash method its record sits under and the server position last seen or pushed.
+std::string knownPath;
+DocumentMatchMethod knownMethod = DocumentMatchMethod::FILENAME;
+float knownRemote = 0.0f;
+void remember(const std::string& path, const DocumentMatchMethod method, const float remotePct) {
+  knownPath = path;
+  knownMethod = method;
+  knownRemote = remotePct;
+}
 bool pushOk = false;  // the task's last push landed; main task reads it once running() is false
 // The last push's outcome, written by the task before running() reads false.
 kosync_auto::PushOutcome pushOutcome = kosync_auto::PushOutcome::Failed;
@@ -190,6 +200,14 @@ void run(void*) {
     }
   } else if (!buildProgress(jobPath, progress)) {
     return;  // the Epub is freed here, before TLS
+  } else if (knownPath == jobPath && progress.percentage <= knownRemote + SAME_PROGRESS_EPSILON) {
+    // Not past the server's position as last seen this boot (at open, or our own
+    // push): the server check would skip this push, so leave the radio off.
+    LOG_INF("KOSync", "%s skipped: device at %.4f, server last seen at %.4f (no radio)", what, progress.percentage,
+            knownRemote);
+    pushOutcome = knownRemote - progress.percentage > SAME_PROGRESS_EPSILON ? kosync_auto::PushOutcome::ServerAhead
+                                                                            : kosync_auto::PushOutcome::Same;
+    return;
   } else {
     altHash = documentId(jobPath, otherMethod(method));  // SD reads before the radio comes up
   }
@@ -236,12 +254,21 @@ void run(void*) {
   const MemoryBudget::HeapSnapshot heapJoined = MemoryBudget::snapshot();
   KOReaderSyncClient::Error result = KOReaderSyncClient::NETWORK_ERROR;
   if (WiFi.status() == WL_CONNECTED && !radioClaimed.load()) {
-    if (jobIsPull) {
-      result = fetch(hash, altHash, method);
+    KOReaderSyncClient::beginSession();  // the GETs and the PUT share one TLS connection
+    // A book whose record was found this boot is fetched under that hash only.
+    const bool known = knownPath == jobPath;
+    const std::string& primary = jobIsPull ? hash : progress.document;
+    if (!known) {
+      result = fetch(primary, altHash, method);
+    } else if (knownMethod == method) {
+      result = fetch(primary, std::string(), method);
     } else {
-      // Never move the server back: fetch first (both hashes, as Smart Sync) and
-      // push only when nothing is there or the device is further on.
-      result = fetch(progress.document, altHash, method);
+      result = fetch(altHash, std::string(), otherMethod(method));
+    }
+    if (known && result == KOReaderSyncClient::NOT_FOUND) result = fetch(primary, altHash, method);  // record moved
+    if (result == KOReaderSyncClient::OK) remember(jobPath, pulledMethod, pulled.percentage);
+    if (!jobIsPull) {
+      // Never move the server back: push only when nothing is there or the device is further on.
       if (result == KOReaderSyncClient::OK && pulled.percentage + SAME_PROGRESS_EPSILON >= progress.percentage) {
         LOG_INF("KOSync", "%s skipped: server at %.4f (%s), device at %.4f", what, pulled.percentage,
                 pulled.device.c_str(), progress.percentage);
@@ -253,9 +280,13 @@ void run(void*) {
                  !radioClaimed.load()) {
         result = retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });
         pushOk = result == KOReaderSyncClient::OK;
-        if (pushOk) pushOutcome = kosync_auto::PushOutcome::Pushed;
+        if (pushOk) {
+          pushOutcome = kosync_auto::PushOutcome::Pushed;
+          remember(jobPath, method, progress.percentage);
+        }
       }
     }
+    KOReaderSyncClient::endSession();  // before the radio goes down
   }
 
   if (ownRadio && beginRadioCall()) {
