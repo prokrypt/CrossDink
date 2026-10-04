@@ -5,9 +5,9 @@
 #include <Logging.h>
 
 namespace {
-KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs; the peak's range stays above the floor's
+KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs
 uint32_t lastAnyWriteMs = 0;
-KNOB_ALIAS(kLitFloorPercent, pulseFloorPct);  // pulse top when the light is off
+KNOB_ALIAS(kOffTopPercent, pulseOffTopPct);  // pulse top when the light is off
 TransferLightPulse* active = nullptr;         // the armed pulse; one at a time
 }  // namespace
 
@@ -41,7 +41,7 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
 
 uint8_t TransferLightPulse::lowPercent() const { return pulseLow(basePercent); }
 
-uint8_t TransferLightPulse::highPercent() const { return pulseHigh(basePercent, kLitFloorPercent); }
+uint8_t TransferLightPulse::highPercent() const { return pulseHigh(basePercent, kOffTopPercent); }
 
 void TransferLightPulse::write(const uint8_t percent) {
   Frontlight.setOverlay(percent);
