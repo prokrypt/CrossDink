@@ -245,6 +245,8 @@ class CrossPointWebServer {
   void handleApiUploadPost();
   void handleOtaData() const;
   void handleOtaDone() const;
+  void handleImageData() const;
+  void handleImageDone() const;
 #endif
   void handleExit();
   void handleFileList() const;
