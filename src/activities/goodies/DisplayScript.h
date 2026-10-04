@@ -36,6 +36,8 @@ enum class OpCode : uint8_t {
   Gray,      // the reader's overlay AA pass over the B/W page on the panel
   Night,     // a0: 1 = Night Mode on for the test (restored when it ends)
   Tap,       // wait for a tap or Confirm (draws nothing)
+  Ducks,     // a0: flash kind 0 Full, 1 Gray, 2 Paint, 3 GrayDark; its pages get timing -/+ and Again
+  Rerun,     // where Again replays from (the start of the step)
 };
 
 enum class Mode : uint8_t { Full, Half, Fast, Du };
