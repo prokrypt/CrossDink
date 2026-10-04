@@ -79,7 +79,9 @@ void HalPowerManager::begin() {
 // Caller holds modeMutex.
 void HalPowerManager::syncCpuFreqLock() {
   if (cpuFreqLock == nullptr) return;
-  const bool wanted = !isLowPower && !displayBusyWaitActive;
+  // Background work keeps full speed through panel BUSY waits too: it runs on
+  // its own while another task waits.
+  const bool wanted = !isLowPower && (!displayBusyWaitActive || backgroundWorkCount > 0);
   if (wanted == cpuFreqLockHeld) return;
   if (wanted) {
     esp_pm_lock_acquire(cpuFreqLock);
@@ -131,6 +133,9 @@ void HalPowerManager::beginBackgroundWork() {
   if (modeMutex == nullptr) return;
   xSemaphoreTake(modeMutex, portMAX_DELAY);
   ++backgroundWorkCount;
+#if CONFIG_PM_ENABLE
+  syncCpuFreqLock();
+#endif
   xSemaphoreGive(modeMutex);
   setPowerSaving(false);
 }
@@ -139,6 +144,9 @@ void HalPowerManager::endBackgroundWork() {
   if (modeMutex == nullptr) return;
   xSemaphoreTake(modeMutex, portMAX_DELAY);
   if (backgroundWorkCount > 0) --backgroundWorkCount;
+#if CONFIG_PM_ENABLE
+  syncCpuFreqLock();
+#endif
   xSemaphoreGive(modeMutex);
   // The main loop re-enters power saving on its next idle tick.
 }
