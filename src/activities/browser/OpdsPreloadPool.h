@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,6 +27,7 @@ class SecureHttpClient;
 class OpdsPreloadPool {
  public:
   static constexpr size_t MAX_WORKERS = 3;
+  static constexpr uint32_t MARKS_BATCH_MS = 1000;
 
   OpdsPreloadPool(OpdsPageCache& cache, size_t pageMaxBytes, std::string username, std::string password,
                   std::string authorizationOrigin);
@@ -61,6 +63,10 @@ class OpdsPreloadPool {
   // Drops the workers' kept-alive connections (all workers must be idle).
   void closeConnections();
   bool busy() const;
+  // Row marks for pages landed since pendingSinceMs (millis() | 1, 0: none)
+  // are due once the pool is idle or MARKS_BATCH_MS has passed, so pages
+  // landing close together share one e-ink refresh. Clears it when due.
+  bool marksDue(uint32_t& pendingSinceMs) const;
 
  private:
   struct QueuedPage {

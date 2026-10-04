@@ -313,15 +313,14 @@ void OpdsBookBrowserActivity::loop() {
     // fetch or a book download pauses them.
     if (preload) {
       preload->pump();
-      // A preload stored or evicted a page: recheck the row marks, and redraw
-      // once the pool is idle (as the server list): a redraw per landed page
-      // cost extra e-ink refreshes and queued taps behind them. A repaint the
-      // user causes meanwhile shows the marks landed so far.
-      if (pageCache && pageCache->changes() != pageCachedAt && markCachedFeeds()) marksPending = true;
-      if (marksPending && !preload->busy()) {
-        marksPending = false;
-        requestUpdate();
+      // A preload stored or evicted a page: recheck the row marks and redraw
+      // them in batches (as the server list): a redraw per landed page cost
+      // extra e-ink refreshes and queued taps behind them. A repaint the user
+      // causes meanwhile shows the marks landed so far.
+      if (pageCache && pageCache->changes() != pageCachedAt && markCachedFeeds() && marksPendingMs == 0) {
+        marksPendingMs = millis() | 1;
       }
+      if (preload->marksDue(marksPendingMs)) requestUpdate();
       // A recheck found the shown page changed: re-parse it in place.
       std::string changed;
       if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
@@ -766,7 +765,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
   markBooksOnSd();
   markCachedFeeds();
-  marksPending = false;  // the redraw below shows them
+  marksPendingMs = 0;  // the redraw below shows them
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
