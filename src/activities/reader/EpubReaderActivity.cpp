@@ -56,7 +56,7 @@
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
-#include "KOSyncOnExit.h"
+#include "KOSyncAuto.h"
 #include "LookedUpWordsActivity.h"
 #include "MappedInputManager.h"
 #include "NearbyBookPositionSyncActivity.h"
@@ -2552,6 +2552,8 @@ void EpubReaderActivity::onEnter() {
                                  coverState);
   }
 
+  kosync_auto::queuePull(epub->getPath());
+
   // Trigger first update
   requestUpdate();
 }
@@ -2690,7 +2692,7 @@ void EpubReaderActivity::onExit() {
   } else {
     epub.reset();
   }
-  if (!syncPath.empty()) kosync_on_exit::queue(syncPath);
+  if (!syncPath.empty()) kosync_auto::queue(syncPath);
 
   restoreGlobalReaderSettings();
 }
@@ -3395,6 +3397,70 @@ void EpubReaderActivity::loop() {
           (void)repositioned;
           requestUpdate();
         }
+      }
+    }
+  }
+
+  // Auto Sync > At open: a remote position further on is applied only once confirmed.
+  DocumentMatchMethod autoMethod = DocumentMatchMethod::FILENAME;
+  const KOReaderProgress* autoRemote = section && !activeFootnotePreview && !onEndOfBookScreen
+                                           ? kosync_auto::takePull(epub->getPath(), autoMethod)
+                                           : nullptr;
+  if (autoRemote) {
+    static constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // as Smart Sync
+    float localPercent = 0.0f;
+    {
+      RenderLock lock(*this);  // calculateProgress() seeks the shared metadata cache file
+      const int pages = section->estimatedTotalPages();
+      const float intra = pages > 1 ? static_cast<float>(section->currentPage) / static_cast<float>(pages - 1) : 0.0f;
+      localPercent = epub->calculateProgress(currentSpineIndex, intra);
+    }
+    LOG_INF("KOSync", "open pull: local=%.4f remote=%.4f device=%s", localPercent, autoRemote->percentage,
+            autoRemote->device.c_str());
+    if (autoRemote->percentage - localPercent > SAME_PROGRESS_EPSILON) {
+      auto prompt =
+          makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_KOREADER_SYNC), tr(STR_APPLY_REMOTE));
+      if (prompt) {
+        char note[24];
+        snprintf(note, sizeof(note), "%.1f%% %s", autoRemote->percentage * 100.0f, autoRemote->device.c_str());
+        prompt->setNote(tr(STR_REMOTE_LABEL), note);
+        pauseReadingPaceTimer("kosync_prompt");
+        startActivityForResult(std::move(prompt),
+                               [this, remote = *autoRemote, autoMethod](const ActivityResult& result) {
+                                 resumeReadingPaceTimer("kosync_prompt_return");
+                                 if (!result.isCancelled) {
+                                   clearPendingManualPageTurns(true, "kosync");
+                                   RenderLock lock(*this);
+                                   int totalPages = std::max(1, cachedChapterTotalPageCount);
+                                   if (section) {
+                                     totalPages = section->estimatedTotalPages();
+                                     cacheCurrentSectionPosition();  // the fallback if the remote does not map
+                                   }
+                                   section.reset();  // mapping reads this chapter's section cache
+                                   CrossPointPosition pos;
+                                   if (KOReaderSyncActivity::mapRemoteProgress(epub, renderer, remote, autoMethod,
+                                                                               currentSpineIndex, totalPages, pos)) {
+                                     // As onEnter() restores saved progress.
+                                     clearFootnotePreviewState();
+                                     footnoteDepth = 0;
+                                     pendingAnchor.clear();
+                                     currentSpineIndex = pos.spineIndex;
+                                     nextPageNumber = pos.pageNumber;
+                                     cachedSpineIndex = currentSpineIndex;
+                                     cachedChapterPageNumber = pos.pageNumber;
+                                     cachedChapterTotalPageCount = std::max(pos.totalPages, pos.pageNumber + 1);
+                                     cachedPageParagraphIndex = UINT16_MAX;
+                                     cachedVisibleTextOffset.reset();
+                                     pendingRelayoutReposition = pos.hasVisibleTextOffset;
+                                     if (pos.hasVisibleTextOffset) cachedVisibleTextOffset = pos.visibleTextOffset;
+                                     armReadingPaceWarmup("kosync_jump");
+                                   } else {
+                                     LOG_ERR("KOSync", "open pull: remote position does not map; re-optimize the EPUB");
+                                   }
+                                 }
+                                 requestUpdate();
+                               });
+        return;
       }
     }
   }

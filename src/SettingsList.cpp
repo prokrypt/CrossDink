@@ -352,8 +352,9 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
           KOREADER_STORE.saveToFile();
         },
         "koSyncBehavior", StrId::STR_KOREADER_SYNC));
-    add(SettingInfo::Toggle(StrId::STR_SYNC_ON_EXIT, &CrossPointSettings::koSyncOnExit, "koSyncOnExit",
-                            StrId::STR_KOREADER_SYNC));
+    add(SettingInfo::Enum(StrId::STR_AUTO_SYNC, &CrossPointSettings::koAutoSync,
+                          {StrId::STR_DISABLED, StrId::STR_AT_OPEN, StrId::STR_AT_CLOSE, StrId::STR_BOTH}, "koAutoSync",
+                          StrId::STR_KOREADER_SYNC));
 
     // Legacy fields stay in JSON for one-time status bar migration; the web
     // editor uses /api/status-bars instead of exposing these controls.

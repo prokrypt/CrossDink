@@ -54,6 +54,13 @@ class KOReaderSyncActivity final : public Activity {
         localProgressDeferred(true),
         readerOrientation(readerOrientation) {}
 
+  // Remote progress to a position in this book, as Apply does: rich position or
+  // XPath, refined from the section cache (reads it; close the reader's section first).
+  // False: no position map (re-optimize the EPUB).
+  static bool mapRemoteProgress(const std::shared_ptr<Epub>& epub, GfxRenderer& renderer,
+                                const KOReaderProgress& remote, DocumentMatchMethod method, int currentSpine,
+                                int totalPages, CrossPointPosition& remotePosition);
+
   void onEnter() override;
   void onExit() override;
   bool usesWifi() const override { return true; }

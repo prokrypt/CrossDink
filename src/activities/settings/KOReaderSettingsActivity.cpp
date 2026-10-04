@@ -23,7 +23,7 @@ namespace {
 constexpr int MENU_ITEMS = 9;
 const StrId menuNames[MENU_ITEMS] = {StrId::STR_USERNAME,          StrId::STR_PASSWORD,      StrId::STR_SYNC_SERVER_URL,
                                      StrId::STR_DOCUMENT_MATCHING, StrId::STR_SEND_METADATA, StrId::STR_SYNC_BEHAVIOR,
-                                     StrId::STR_SYNC_ON_EXIT,      StrId::STR_SIGN_UP,       StrId::STR_AUTHENTICATE};
+                                     StrId::STR_AUTO_SYNC,         StrId::STR_SIGN_UP,       StrId::STR_AUTHENTICATE};
 constexpr fui::ActionId ACTION_ROW = 1;
 }  // namespace
 
@@ -158,7 +158,7 @@ void KOReaderSettingsActivity::handleSelection() {
     KOREADER_STORE.saveToFile();
     requestUpdate();
   } else if (selectedIndex == 5) {
-    // Sync behavior - toggle between Ask and Smart
+    // Manual sync behavior - toggle between Ask and Smart (Auto Sync is always Smart)
     const auto current = KOREADER_STORE.getSyncBehavior();
     const auto newBehavior = (current == KOReaderSyncBehavior::ASK_EVERY_TIME) ? KOReaderSyncBehavior::SMART
                                                                                : KOReaderSyncBehavior::ASK_EVERY_TIME;
@@ -166,8 +166,8 @@ void KOReaderSettingsActivity::handleSelection() {
     KOREADER_STORE.saveToFile();
     requestUpdate();
   } else if (selectedIndex == 6) {
-    // Sync on book exit - toggle on/off (crossdink settings, not koreader.json)
-    SETTINGS.koSyncOnExit = SETTINGS.koSyncOnExit ? 0 : 1;
+    // Auto Sync - cycle Disabled / At open / At close / Both (crossdink settings, not koreader.json)
+    SETTINGS.koAutoSync = (SETTINGS.koAutoSync + 1) % (CrossPointSettings::KO_AUTO_SYNC_BOTH + 1);
     SETTINGS.saveToFile();
     requestUpdate();
   } else if (selectedIndex == 7) {
@@ -222,6 +222,10 @@ void KOReaderSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
     } else if (i == 5) {
       values[i] =
           KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART ? tr(STR_SMART_SYNC) : tr(STR_ASK_EVERY_TIME);
+    } else if (i == 6) {
+      static constexpr StrId autoSyncNames[] = {StrId::STR_DISABLED, StrId::STR_AT_OPEN, StrId::STR_AT_CLOSE,
+                                                StrId::STR_BOTH};
+      values[i] = I18N.get(autoSyncNames[SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_BOTH]);
     } else {
       values[i] = "";  // Authenticate: no value; the row is dimmed below until credentials exist
     }
@@ -233,8 +237,8 @@ void KOReaderSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = I18N.get(menuNames[i]);
     if (!values[i].empty()) item.value = values[i].c_str();
-    item.toggle = i == 4 || i == 6;
-    item.toggleChecked = i == 4 ? KOREADER_STORE.getSendMetadata() : SETTINGS.koSyncOnExit != 0;
+    item.toggle = i == 4;
+    item.toggleChecked = i == 4 && KOREADER_STORE.getSendMetadata();
     item.actionValue = static_cast<int16_t>(i);
     // Visual-only dimming (dithered gray); the row stays tappable. Skipped
     // while selected so the button cursor stays visible on it.
