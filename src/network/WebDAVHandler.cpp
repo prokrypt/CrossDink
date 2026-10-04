@@ -13,6 +13,7 @@
 #include <new>
 
 #include "CrossPointSettings.h"
+#include "HttpRange.h"
 #include "SerialRemote.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
@@ -109,7 +110,9 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   (void)uri;
   if (raw.status == RAW_START) {
     _putPath = getRequestPath(server);
-    if (isProtectedPath(_putPath)) {
+    // Partial PUT is not supported; writing the range as the whole file would
+    // truncate it (RFC 9110 14.5: reply 400).
+    if (isProtectedPath(_putPath) || !server.header("Content-Range").isEmpty()) {
       _putOk = false;
       return;
     }
@@ -390,12 +393,7 @@ void WebDAVHandler::handleGet(WebServer& s) {
     return;
   }
 
-  String contentType = getMimeType(path);
-  s.setContentLength(file.size());
-  s.send(200, contentType.c_str(), "");
-
-  NetworkClient client = s.client();
-  client.write(file);
+  sendFileWithRange(s, file, getMimeType(path).c_str());
   file.close();
 }
 
@@ -428,6 +426,7 @@ void WebDAVHandler::handleHead(WebServer& s) {
   }
 
   String contentType = getMimeType(path);
+  s.sendHeader("Accept-Ranges", "bytes");
   s.setContentLength(file.size());
   s.send(200, contentType.c_str(), "");
   file.close();
@@ -442,6 +441,11 @@ void WebDAVHandler::handlePut(WebServer& s) {
 
   if (isProtectedPath(path)) {
     s.send(403, "text/plain", "Forbidden");
+    return;
+  }
+
+  if (!s.header("Content-Range").isEmpty()) {
+    s.send(400, "text/plain", "Partial PUT not supported");
     return;
   }
 

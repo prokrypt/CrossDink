@@ -102,11 +102,18 @@ Needs `Content-Length` (curl sends it). Each 64 KiB flash erase pauses the scree
 the `token` query argument or an `X-Token` header; bad tokens count toward the lockout. Paths are SD-rooted
 (`..` stops at `/`); hidden items and `/debug/remote-token` are refused (`403`) unless Show Hidden Files is on (the
 token file always). Upload refuses an existing name (`400 File already exists: <name>`); delete first.
-Both stream through a 4 KB buffer.
+Both stream through a 4 KB buffer. Download honors `Range` (`206`/`416`) and upload resumes with `offset=<bytes>`
+(see `webserver-endpoints.md`, `/download` and `/upload`).
 
 ```sh
 curl -s -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
 curl -s -H "X-Token: $(cat remote-token)" -F "file=@book.epub" "http://10.0.1.67/api/upload?path=/Books"
+# resume a dropped download
+curl -s -C - -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
+# resumable upload: start with offset=0; after a drop, send the rest from the size the 409 reply names
+curl -s -H "X-Token: $(cat remote-token)" -F "file=@book.epub" "http://10.0.1.67/api/upload?path=/Books&offset=0"
+tail -c +$((N + 1)) book.epub > rest && curl -s -H "X-Token: $(cat remote-token)" -F "file=@rest;filename=book.epub" \
+  "http://10.0.1.67/api/upload?path=/Books&offset=$N"
 ```
 
 ## Wi-Fi: live log tail
