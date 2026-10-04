@@ -70,6 +70,9 @@ class CrossPointWebServer {
     size_t size = 0;
     bool success = false;
     String error = "";
+    int errorStatus = 400;
+    // ?offset=N uploads land in <file>.part, renamed on success; empty otherwise.
+    String partPath;
 
     // Upload write buffer - batches small writes into larger SD card operations
     // 4KB is a good balance: large enough to reduce syscall overhead, small enough
