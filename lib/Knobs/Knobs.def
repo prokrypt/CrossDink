@@ -111,6 +111,8 @@ X("Heap", wifiRemoteMinFree, uint32_t, 65536, 65536, 196608, 1024, "B")  // Wi-F
 X("Heap", wifiRemoteMinBlock, uint32_t, 16384, 16384, 131072, 1024, "B")
 X("Heap", rebuildMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")     // optional EPUB rebuild / prefetch
 X("Heap", rebuildMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", koSyncMinFree, uint32_t, 65536, 65536, 196608, 1024, "B")     // Auto Sync task start: TLS 35K + 14K stack + Wi-Fi start
+X("Heap", koSyncMinBlock, uint32_t, 20480, 20480, 131072, 1024, "B")    // TLS client's own block gate
 X("Heap", layoutMinFree, uint32_t, 45056, 45056, 131072, 1024, "B")      // chapter layout start
 X("Heap", dictFontMinFree, uint32_t, 65536, 65536, 131072, 1024, "B")    // dictionary SD font
 X("Heap", dictFontMinBlock, uint32_t, 32768, 32768, 131072, 1024, "B")
