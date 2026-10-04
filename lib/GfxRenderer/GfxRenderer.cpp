@@ -338,6 +338,7 @@ void GfxRenderer::releaseFrameBufferForBuild() {
   uint32_t size = 0;
   uint8_t* scratch = display.lendFrameBufferStorage(&size);
   frameBuffer = nullptr;
+  ++frameBufferLoans;
   if (scratch) {
     buildscratch::lend(scratch, size);
   }
@@ -350,10 +351,17 @@ bool GfxRenderer::restoreFrameBufferAfterBuild() {
   return frameBuffer != nullptr;
 }
 
+namespace {
+thread_local uint8_t frameBufferLoanBlockDepth = 0;
+}  // namespace
+
+GfxRenderer::FrameBufferLoanBlock::FrameBufferLoanBlock() { ++frameBufferLoanBlockDepth; }
+GfxRenderer::FrameBufferLoanBlock::~FrameBufferLoanBlock() { --frameBufferLoanBlockDepth; }
+
 GfxRenderer::FrameBufferLoan::FrameBufferLoan(GfxRenderer& renderer) : renderer_(renderer) {
   // Nesting guard: if the framebuffer is already lent out (an outer loan),
   // stay inert so this end() cannot return storage the outer loan still owns.
-  if (!renderer_.hasFrameBuffer()) return;
+  if (!renderer_.hasFrameBuffer() || frameBufferLoanBlockDepth > 0) return;
   renderer_.releaseFrameBufferForBuild();
   active_ = true;
 }
