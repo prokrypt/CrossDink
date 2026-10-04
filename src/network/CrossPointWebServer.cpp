@@ -52,6 +52,7 @@
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/util/RemoteImageActivity.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -559,6 +560,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
   server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
   server->on("/api/ota", HTTP_POST, [this] { handleOtaDone(); }, [this] { handleOtaData(); });
+  server->on("/api/image", HTTP_POST, [this] { handleImageDone(); }, [this] { handleImageData(); });
   // Token-gated SD file transfer, in log-only mode too: the web UI handlers
   // behind a remote-token check (docs/serial-remote.md).
   server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
@@ -1512,6 +1514,65 @@ void CrossPointWebServer::handleOtaDone() const {
   static char out[32];
   SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "REBOOT", clientIp(*server), out, sizeof(out),
                                  2000);
+}
+
+namespace {
+// /api/image state, server task only.
+bool imageAuthorized = false;
+size_t imageReceived = 0;
+}  // namespace
+
+// Debug builds: a host-converted 4-level frame (docs/serial-remote.md), raw body of
+// both physical gray planes (LSB then MSB). Token checked before the PSRAM buffer is
+// taken; CMD:IMAGE hands it to the main task.
+void CrossPointWebServer::handleImageData() const {
+  const HTTPRaw& raw = server->raw();
+  const size_t expected = 2 * display.getBufferSize();
+  static char out[32];
+  switch (raw.status) {
+    case RAW_START:
+      imageReceived = 0;
+      imageAuthorized = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", clientIp(*server),
+                                                       out, sizeof(out), 12000) == 200;
+      RemoteImageActivity::upload.reset();
+      if (imageAuthorized && server->clientContentLength() == expected) {
+        RemoteImageActivity::upload = makePsramByteBufferNoThrow(expected);
+        if (!RemoteImageActivity::upload)
+          LOG_ERR("WEB", "/api/image: no PSRAM for %u B", static_cast<unsigned>(expected));
+      }
+      break;
+    case RAW_WRITE:
+      if (RemoteImageActivity::upload && imageReceived + raw.currentSize <= expected) {
+        memcpy(RemoteImageActivity::upload.get() + imageReceived, raw.buf, raw.currentSize);
+      }
+      imageReceived += raw.currentSize;
+      break;
+    case RAW_END:
+      break;
+    case RAW_ABORTED:
+      RemoteImageActivity::upload.reset();
+      break;
+  }
+}
+
+void CrossPointWebServer::handleImageDone() const {
+  if (!imageAuthorized) {
+    LOG_ERR("WEB", "/api/image refused: bad token");
+    server->send(403, "text/plain; charset=utf-8", "ERR:token");
+    return;
+  }
+  imageAuthorized = false;
+  if (!RemoteImageActivity::upload || imageReceived != 2 * display.getBufferSize()) {
+    RemoteImageActivity::upload.reset();
+    char msg[48];
+    snprintf(msg, sizeof(msg), "ERR:IMAGE:size (want %u)", static_cast<unsigned>(2 * display.getBufferSize()));
+    server->send(400, "text/plain; charset=utf-8", msg);
+    return;
+  }
+  static char out[64];
+  const int status = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "IMAGE", clientIp(*server), out,
+                                                    sizeof(out), 12000);
+  server->send(status, "text/plain; charset=utf-8", out);
 }
 
 // Debug builds: the screen as a PGM (gray pass shown) or PBM, captured on the main task
