@@ -29,6 +29,16 @@ using display_script::OpCode;
 namespace {
 constexpr size_t MAX_SCRIPT_BYTES = 8 * 1024;
 constexpr char SAMPLE_TEXT[] = "The quick brown fox jumps over the lazy dog 0123456789";
+// Flash kinds by Ducks a0, with their knob ids (Knobs.def).
+struct DuckKind {
+  const char* name;
+  const char* dimId;
+  const char* restoreId;
+};
+constexpr DuckKind DUCK_KINDS[] = {{"Full", "flashFullDimMs", "flashFullRestoreMs"},
+                                   {"Gray", "flashGrayDimMs", "flashGrayRestoreMs"},
+                                   {"Paint", "flashPaintDimMs", "flashPaintRestoreMs"},
+                                   {"GrayDark", "flashGrayDarkDimMs", "flashGrayDarkRestoreMs"}};
 }  // namespace
 
 DisplayTestActivity::DisplayTestActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,
@@ -94,13 +104,21 @@ void DisplayTestActivity::loop() {
     return;
   }
   int tapX = 0, tapY = 0;
-  if (current == Phase::Waiting &&
-      (tapWait ? mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tapX, tapY)
-               : static_cast<long>(millis() - resumeAtMs) >= 0)) {
-    tapWait = false;
-    phase = Phase::Running;
-    requestUpdate();
-    return;
+  if (current == Phase::Waiting) {
+    bool go;
+    if (tapWait) {
+      const bool tapped = mappedInput.wasScreenTapped(tapX, tapY);
+      if (tapped && duckKind >= 0 && duckTap(tapX, tapY)) return;
+      go = tapped || mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+    } else {
+      go = static_cast<long>(millis() - resumeAtMs) >= 0;
+    }
+    if (go) {
+      tapWait = false;
+      phase = Phase::Running;
+      requestUpdate();
+      return;
+    }
   }
   if (current == Phase::Asking && askDrawn && script.ops[pc].code == OpCode::Pick) {
     const Op& op = script.ops[pc];
@@ -152,6 +170,13 @@ void DisplayTestActivity::answer(const int option) {
 void DisplayTestActivity::render(RenderLock&&) {
   if (phase.load() == Phase::Running) runOps();
   const Phase current = phase.load();
+  if (redrawLabel && current == Phase::Waiting) {
+    // A -/+ changed a value: the band again, with the new numbers.
+    redrawLabel = false;
+    drawOp(script.ops[labelPc]);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    renderer.waitRefreshComplete();
+  }
   if (current == Phase::Asking && !askDrawn) {
     drawAsk();
   } else if (current == Phase::Finished) {
@@ -193,10 +218,19 @@ void DisplayTestActivity::runOps() {
         phase = Phase::Waiting;
         return;
       case OpCode::Tap:
+        if (pc < skipTapsUntil) break;
+        skipTapsUntil = -1;
         tapWait = true;
         ++pc;
         phase = Phase::Waiting;
         return;
+      case OpCode::Rerun:
+        rerunPc = pc;
+        break;
+      case OpCode::Ducks:
+        duckKind = static_cast<int>(op.a[0]);
+        duckPc = pc;
+        break;
       case OpCode::Gray:
         grayPass();
         break;
@@ -302,7 +336,13 @@ void DisplayTestActivity::drawOp(const Op& op) {
       }
       std::vector<BandLine> wrapped;
       wrapBand(lines, count, wrapped);
-      drawBand(wrapped, 0);
+      labelPc = static_cast<int>(&op - script.ops.data());
+      if (duckKind >= 0) {
+        const int rowH = renderer.getLineHeight(UI_12_FONT_ID) + 12;
+        drawDuckControls(drawBand(wrapped, 3 * rowH) + 4);
+      } else {
+        drawBand(wrapped, 0);
+      }
       break;
     }
     default:
@@ -423,6 +463,59 @@ int DisplayTestActivity::drawBand(const std::vector<BandLine>& lines, const int 
     y += lineHeight;
   }
   return textBottom;
+}
+
+// Under the label: the kind's dim and restore offsets with -/+, then Again.
+// Hit boxes are kept in logical coordinates for duckTap.
+void DisplayTestActivity::drawDuckControls(int y) {
+  const int w = renderer.getScreenWidth();
+  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int rowH = lineHeight + 12;
+  const int sq = rowH - 4;
+  const DuckKind& k = DUCK_KINDS[duckKind];
+  const char* const ids[2] = {k.dimId, k.restoreId};
+  const char* const names[2] = {"dim", "restore"};
+  auto button = [&](const Hit& r, const char* text) {
+    renderer.drawRect(r.x, r.y, r.w, r.h);
+    renderer.drawText(UI_12_FONT_ID, r.x + (r.w - renderer.getTextWidth(UI_12_FONT_ID, text)) / 2,
+                      r.y + (r.h - lineHeight) / 2, text);
+  };
+  for (int i = 0; i < 2; ++i) {
+    const int idx = knobs::find(ids[i]);
+    char line[48];
+    snprintf(line, sizeof(line), "%s %s %ld ms", k.name, names[i], idx >= 0 ? static_cast<long>(knobs::get(idx)) : 0L);
+    renderer.drawText(UI_12_FONT_ID, 16, y + (sq - lineHeight) / 2, line);
+    duckHit[i * 2] = {w - 16 - 2 * sq - 8, y, sq, sq};
+    duckHit[i * 2 + 1] = {w - 16 - sq, y, sq, sq};
+    button(duckHit[i * 2], "-");
+    button(duckHit[i * 2 + 1], "+");
+    y += rowH;
+  }
+  duckHit[4] = {16, y, w - 32, sq};
+  button(duckHit[4], "Again");
+}
+
+// A tap on a control: -/+ change the knob (RAM now, knobs.json when the screen
+// closes) and redraw the numbers; Again replays the step from its start.
+bool DisplayTestActivity::duckTap(const int x, const int y) {
+  for (int i = 0; i < 5; ++i) {
+    const Hit& r = duckHit[i];
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) continue;
+    if (i == 4) {
+      skipTapsUntil = duckPc;  // earlier steps of a replay run on without a tap
+      pc = rerunPc;
+      tapWait = false;
+      phase = Phase::Running;
+    } else {
+      const DuckKind& k = DUCK_KINDS[duckKind];
+      const int idx = knobs::find(i < 2 ? k.dimId : k.restoreId);
+      if (idx >= 0) knobs::set(idx, knobs::get(idx) + (i & 1 ? 1 : -1) * knobs::INFO[idx].step);
+      redrawLabel = true;
+    }
+    requestUpdate();
+    return true;
+  }
+  return false;
 }
 
 void DisplayTestActivity::drawAsk() {
