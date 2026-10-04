@@ -20,10 +20,11 @@
 namespace fui = freeink::ui;
 
 namespace {
-constexpr int MENU_ITEMS = 9;
-const StrId menuNames[MENU_ITEMS] = {StrId::STR_USERNAME,          StrId::STR_PASSWORD,      StrId::STR_SYNC_SERVER_URL,
-                                     StrId::STR_DOCUMENT_MATCHING, StrId::STR_SEND_METADATA, StrId::STR_SYNC_BEHAVIOR,
-                                     StrId::STR_AUTO_SYNC,         StrId::STR_SIGN_UP,       StrId::STR_AUTHENTICATE};
+constexpr int MENU_ITEMS = 10;
+const StrId menuNames[MENU_ITEMS] = {
+    StrId::STR_USERNAME,      StrId::STR_PASSWORD,      StrId::STR_SYNC_SERVER_URL, StrId::STR_DOCUMENT_MATCHING,
+    StrId::STR_SEND_METADATA, StrId::STR_SYNC_BEHAVIOR, StrId::STR_AUTO_SYNC,       StrId::STR_SYNC_SLEEP_WAKE,
+    StrId::STR_SIGN_UP,       StrId::STR_AUTHENTICATE};
 constexpr fui::ActionId ACTION_ROW = 1;
 }  // namespace
 
@@ -171,12 +172,16 @@ void KOReaderSettingsActivity::handleSelection() {
     SETTINGS.saveToFile();
     requestUpdate();
   } else if (selectedIndex == 7) {
+    SETTINGS.koSyncSleepWake = SETTINGS.koSyncSleepWake ? 0 : 1;
+    SETTINGS.saveToFile();
+    requestUpdate();
+  } else if (selectedIndex == 8) {
     // Sign Up - create a new account on the sync server with the entered credentials
     if (!KOREADER_STORE.hasCredentials()) {
       return;
     }
     silentRestartToNetwork(NetworkBootTarget::KOREADER_AUTH, 1);
-  } else if (selectedIndex == 8) {
+  } else if (selectedIndex == 9) {
     // Authenticate
     if (!KOREADER_STORE.hasCredentials()) {
       // Can't authenticate without credentials - just show message briefly
@@ -237,12 +242,12 @@ void KOReaderSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = I18N.get(menuNames[i]);
     if (!values[i].empty()) item.value = values[i].c_str();
-    item.toggle = i == 4;
-    item.toggleChecked = i == 4 && KOREADER_STORE.getSendMetadata();
+    item.toggle = i == 4 || i == 7;
+    item.toggleChecked = i == 4 ? KOREADER_STORE.getSendMetadata() : i == 7 && SETTINGS.koSyncSleepWake;
     item.actionValue = static_cast<int16_t>(i);
     // Visual-only dimming (dithered gray); the row stays tappable. Skipped
     // while selected so the button cursor stays visible on it.
-    if (i == 8 && !KOREADER_STORE.hasCredentials() && static_cast<size_t>(i) != selectedIndex) {
+    if (i == 9 && !KOREADER_STORE.hasCredentials() && static_cast<size_t>(i) != selectedIndex) {
       item.state = fui::StateDisabled;
     }
     items.push_back(item);

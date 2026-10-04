@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cinttypes>
 #include <memory>
+#include <utility>
 
 #include "CrossPointSettings.h"
 #include "EpubReaderUtils.h"
@@ -31,6 +32,9 @@ namespace {
 // Home (or the book's first page) paints and the reader's exit writes land before the task reads the SD card.
 constexpr uint32_t START_DELAY_MS = 1500;
 constexpr uint32_t JOIN_TIMEOUT_MS = 15000;
+constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // as Smart Sync
+// Deep sleep's whole wait for a running job and its own push; the sleep guard resets at 60 s.
+constexpr uint32_t SLEEP_WAIT_MS = 30000;
 // As the KOSync screen's request task: wolfSSL handshake plus HTTPClient.
 constexpr uint32_t TASK_STACK_BYTES = 14 * 1024;
 // Sized for this job, not an EPUB rebuild (whose 96K/48K gate skipped every sync
@@ -44,10 +48,15 @@ std::string queuedPath;  // main task only
 uint32_t queuedAt = 0;
 std::string pullPath;  // main task only
 uint32_t pullAt = 0;
+// The book a reader exit just closed; loop() clears it, so only an exit inside
+// enterDeepSleep() is still here for syncBeforeSleep().
+std::string sleepPath;
+bool wakePull = false;  // main task only
 // Written before the task starts, then the task's until running() reads false.
 std::string jobPath;
 bool jobIsPull = false;
 bool pullReady = false;
+bool pushOk = false;  // the task's last push landed; main task reads it once running() is false
 KOReaderProgress pulled;
 DocumentMatchMethod pulledMethod = DocumentMatchMethod::FILENAME;
 WorkerTask task;
@@ -164,6 +173,7 @@ void run(void*) {
   const MemoryBudget::HeapSnapshot heapStart = MemoryBudget::snapshot();
   const char* what = jobIsPull ? "open pull" : "exit push";
   KOReaderProgress progress;
+  bool skipped = false;
   std::string hash, altHash;
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
   if (jobIsPull) {
@@ -175,6 +185,8 @@ void run(void*) {
     }
   } else if (!buildProgress(jobPath, progress)) {
     return;  // the Epub is freed here, before TLS
+  } else {
+    altHash = documentId(jobPath, otherMethod(method));  // SD reads before the radio comes up
   }
 
   bool ownRadio = false;
@@ -208,8 +220,22 @@ void run(void*) {
   const MemoryBudget::HeapSnapshot heapJoined = MemoryBudget::snapshot();
   KOReaderSyncClient::Error result = KOReaderSyncClient::NETWORK_ERROR;
   if (WiFi.status() == WL_CONNECTED && !radioClaimed.load()) {
-    result = jobIsPull ? fetch(hash, altHash, method)
-                       : retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });
+    if (jobIsPull) {
+      result = fetch(hash, altHash, method);
+    } else {
+      // Never move the server back: fetch first (both hashes, as Smart Sync) and
+      // push only when nothing is there or the device is further on.
+      result = fetch(progress.document, altHash, method);
+      if (result == KOReaderSyncClient::OK && pulled.percentage + SAME_PROGRESS_EPSILON >= progress.percentage) {
+        LOG_INF("KOSync", "%s skipped: server at %.4f (%s), device at %.4f", what, pulled.percentage,
+                pulled.device.c_str(), progress.percentage);
+        skipped = true;
+      } else if ((result == KOReaderSyncClient::OK || result == KOReaderSyncClient::NOT_FOUND) &&
+                 !radioClaimed.load()) {
+        result = retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });
+        pushOk = result == KOReaderSyncClient::OK;
+      }
+    }
   }
 
   if (ownRadio && beginRadioCall()) {
@@ -222,10 +248,13 @@ void run(void*) {
   LOG_INF("KOSync",
           "%s %s: result=%d http=%d pct=%.4f claimed=%d %lu ms heap free/block start %" PRIu32 "/%" PRIu32
           " joined %" PRIu32 "/%" PRIu32 " end %" PRIu32 "/%" PRIu32 " stack free %u",
-          what, result == KOReaderSyncClient::OK ? "ok" : "failed", result, KOReaderSyncClient::lastHttpCode,
-          jobIsPull ? pulled.percentage : progress.percentage, radioClaimed.load() ? 1 : 0,
-          static_cast<unsigned long>(millis() - start), heapStart.freeHeap, heapStart.maxAllocHeap, heapJoined.freeHeap,
-          heapJoined.maxAllocHeap, heapEnd.freeHeap, heapEnd.maxAllocHeap,
+          what,
+          skipped                            ? "skipped"
+          : result == KOReaderSyncClient::OK ? "ok"
+                                             : "failed",
+          result, KOReaderSyncClient::lastHttpCode, jobIsPull ? pulled.percentage : progress.percentage,
+          radioClaimed.load() ? 1 : 0, static_cast<unsigned long>(millis() - start), heapStart.freeHeap,
+          heapStart.maxAllocHeap, heapJoined.freeHeap, heapJoined.maxAllocHeap, heapEnd.freeHeap, heapEnd.maxAllocHeap,
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
@@ -240,6 +269,7 @@ bool startJob(std::string path, const bool pull) {
   jobPath = std::move(path);
   jobIsPull = pull;
   pullReady = false;
+  pushOk = false;
   radioClaimed.store(false);
   if (task.start(run, nullptr, TASK_STACK_BYTES, "KOSyncAuto")) return true;
   LOG_ERR("KOSync", "auto sync: task did not start");
@@ -248,15 +278,21 @@ bool startJob(std::string path, const bool pull) {
 }  // namespace
 
 namespace kosync_auto {
+void noteWake() { wakePull = SETTINGS.koSyncSleepWake != 0; }
+
 void queuePull(const std::string& epubPath) {
   queuedAt = millis();  // a pending push also waits out the book's open
-  if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN) || !KOREADER_STORE.hasCredentials()) return;
+  // ponytail: a wake whose reader never reaches here leaves the flag for the next open (one extra prompted pull).
+  const bool wake = std::exchange(wakePull, false);
+  if (!(wake || (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN)) || !KOREADER_STORE.hasCredentials())
+    return;
   pullPath = epubPath;
   pullAt = millis();
 }
 
 void queue(const std::string& epubPath) {
   pullPath.clear();
+  sleepPath = epubPath;
   if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE) || !KOREADER_STORE.hasCredentials()) return;
   queuedPath = epubPath;
   queuedAt = millis();
@@ -270,7 +306,14 @@ const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMetho
   return &pulled;
 }
 
+bool takePushed() {
+  if (!pushOk || task.running()) return false;
+  pushOk = false;
+  return true;
+}
+
 void loop() {
+  sleepPath.clear();
   if (task.running()) return;  // a push or fetch waits for the one before it
   if (!queuedPath.empty() && millis() - queuedAt >= START_DELAY_MS) {
     // A screen with its own network (the KOSync screen included) keeps it queued.
@@ -285,6 +328,22 @@ void loop() {
     std::string path = std::move(pullPath);
     pullPath.clear();
     startJob(std::move(path), true);
+  }
+}
+
+void syncBeforeSleep() {
+  if (sleepPath.empty() || !SETTINGS.koSyncSleepWake || !KOREADER_STORE.hasCredentials()) return;
+  std::string path = std::move(sleepPath);
+  sleepPath.clear();
+  if (queuedPath == path) queuedPath.clear();  // this push replaces the At close one
+  const uint32_t start = millis();
+  // enterDeepSleep()'s yieldRadio() kept a running job off the radio; it ends on its own.
+  if (!task.join(SLEEP_WAIT_MS) || !startJob(std::move(path), false)) return;
+  const uint32_t used = millis() - start;
+  if (!task.join(used < SLEEP_WAIT_MS ? SLEEP_WAIT_MS - used : 0)) {
+    LOG_INF("KOSync", "sleep push: still running after %lu ms, sleeping anyway",
+            static_cast<unsigned long>(SLEEP_WAIT_MS));
+    yieldRadio();
   }
 }
 
