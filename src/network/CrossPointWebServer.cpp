@@ -41,6 +41,7 @@
 #include "CrossPointSettings.h"
 #include "FirmwareFlasher.h"
 #include "FontInstaller.h"
+#include "HttpRange.h"
 #include "OpdsServerStore.h"
 #include "QuickActions.h"
 #include "SdCardFontSystem.h"
@@ -338,6 +339,19 @@ unsigned long wsLastCompleteAt = 0;
 // save otherwise adds beacon-interval latency to every small write round trip
 std::unique_ptr<WifiPowerSaveGuard> wsUploadPowerSaveGuard;
 
+// A resumable (?offset=N) upload that fails or drops keeps its <file>.part
+// this long so a retry can continue at the part's size.
+constexpr unsigned long HTTP_RESUME_GRACE_MS = 10 * 60 * 1000;
+// ponytail: one parked part at a time; parking another drops it.
+String parkedUploadPart;
+unsigned long parkedUploadAt = 0;
+
+void parkUploadPart(const String& part) {
+  if (!parkedUploadPart.isEmpty() && parkedUploadPart != part) Storage.remove(parkedUploadPart.c_str());
+  parkedUploadPart = part;
+  parkedUploadAt = millis();
+}
+
 String normalizeWebPath(const String& inputPath) {
   if (inputPath.isEmpty() || inputPath == "/") {
     return "/";
@@ -566,8 +580,8 @@ void CrossPointWebServer::begin(const bool logOnly) {
     // Nothing else: no SD access behind other screens beyond the token-gated
     // /api/download, /api/upload and /api/files, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
-    const char* remoteHeaders[] = {"X-Token"};
-    server->collectHeaders(remoteHeaders, 1);
+    const char* remoteHeaders[] = {"X-Token", "Range"};
+    server->collectHeaders(remoteHeaders, 2);
     server->begin();
   } else {
     registerFullRoutes();
@@ -754,9 +768,9 @@ void CrossPointWebServer::registerFullRoutes() {
   server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
-                              "Lock-Token", "Timeout",     "If-None-Match", "X-Token"};
-  server->collectHeaders(davHeaders, 8);
+  const char* davHeaders[] = {"Depth",   "Destination",   "Overwrite", "If",    "Lock-Token",
+                              "Timeout", "If-None-Match", "X-Token",   "Range", "Content-Range"};
+  server->collectHeaders(davHeaders, 10);
   // Note: WebDAVHandler will be deleted by WebServer when server is stopped
   server->addHandler(new WebDAVHandler(&stopRequested));
 }
@@ -1030,6 +1044,11 @@ bool CrossPointWebServer::handleClient() {
     lastTransferMs = lastDataMs;  // stamped below unless it turns out to be a poll
     pollRequest = false;
     requestStartMs.store(millis() | 1, std::memory_order_relaxed);
+  }
+  if (!parkedUploadPart.isEmpty() && millis() - parkedUploadAt > HTTP_RESUME_GRACE_MS) {
+    LOG_DBG("WEB", "Resume grace expired, removing %s", parkedUploadPart.c_str());
+    Storage.remove(parkedUploadPart.c_str());
+    parkedUploadPart = "";
   }
   servePhase.store("http", std::memory_order_relaxed);
   server->handleClient();
@@ -1959,32 +1978,8 @@ void CrossPointWebServer::handleDownload() const {
     filename = nameBuf;
   }
 
-  server->setContentLength(file.size());
   server->sendHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
-  server->send(200, contentType.c_str(), "");
-
-  NetworkClient client = server->client();
-  const size_t chunkSize = 4096;
-  uint8_t buffer[chunkSize];
-
-  bool downloadOk = true;
-  while (downloadOk && file.available()) {
-    int result = file.read(buffer, chunkSize);
-    if (result <= 0) break;
-    size_t bytesRead = static_cast<size_t>(result);
-    size_t totalWritten = 0;
-    while (totalWritten < bytesRead) {
-      size_t wrote = client.write(buffer + totalWritten, bytesRead - totalWritten);
-      if (wrote == 0) {
-        downloadOk = false;
-        break;
-      }
-      totalWritten += wrote;
-    }
-  }
-#ifndef SIMULATOR
-  client.clear();
-#endif
+  sendFileWithRange(*server, file, contentType.c_str());
   file.close();
   LOG_DBG("WEB", "download done: server task stack min free %u",
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
@@ -1994,8 +1989,14 @@ void CrossPointWebServer::handleDownload() const {
 static unsigned long uploadStartTime = 0;
 
 // A half-written upload would be indexed as a book and block the retry with
-// "File already exists", so a failed or aborted upload leaves nothing behind.
-static void removePartialUpload(const CrossPointWebServer::UploadState& state) {
+// "File already exists", so a failed or aborted upload leaves nothing behind
+// under its name. A resumable upload's part is parked instead.
+static void removePartialUpload(CrossPointWebServer::UploadState& state) {
+  if (!state.partPath.isEmpty()) {
+    parkUploadPart(state.partPath);
+    state.partPath = "";
+    return;
+  }
   String filePath = state.path;
   if (!filePath.endsWith("/")) filePath += "/";
   filePath += state.fileName;
@@ -2030,6 +2031,8 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     state.size = 0;
     state.success = false;
     state.error = "";
+    state.errorStatus = 400;
+    state.partPath = "";
     uploadStartTime = millis();
     state.bufferPos = 0;
 
@@ -2059,6 +2062,34 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     if (Storage.exists(filePath.c_str())) {
       state.error = "File already exists: " + state.fileName;
       LOG_DBG("WEB", "[UPLOAD] Collision: %s", filePath.c_str());
+      return;
+    }
+
+    if (server->hasArg("offset")) {
+      const String part = filePath + ".part";
+      const size_t offset = strtoul(server->arg("offset").c_str(), nullptr, 10);
+      if (parkedUploadPart == part) parkedUploadPart = "";  // in use again
+      if (offset == 0) {
+        if (!Storage.openFileForWrite("WEB", part, state.file)) {
+          state.error = "Failed to create file on SD card";
+          LOG_ERR("WEB", "[UPLOAD] FAILED to create file: %s", part.c_str());
+          return;
+        }
+      } else {
+        state.file = Storage.open(part.c_str(), O_WRONLY | O_APPEND);
+        const size_t have = state.file ? state.file.size() : 0;
+        if (have != offset) {
+          state.file.close();
+          if (have > 0) parkUploadPart(part);
+          state.errorStatus = 409;
+          state.error = "Offset mismatch: have " + String(have);
+          LOG_INF("WEB", "[UPLOAD] Resume %s at %u refused: have %u", part.c_str(), static_cast<unsigned>(offset),
+                  static_cast<unsigned>(have));
+          return;
+        }
+      }
+      state.partPath = part;
+      state.powerSaveGuard = makeUniqueNoThrow<WifiPowerSaveGuard>();
       return;
     }
 
@@ -2109,6 +2140,18 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         state.error = "Failed to write final data to SD card";
       }
       state.file.close();
+      if (state.error.isEmpty() && !state.partPath.isEmpty()) {
+        String filePath = state.path;
+        if (!filePath.endsWith("/")) filePath += "/";
+        filePath += state.fileName;
+        sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
+        if (Storage.rename(state.partPath.c_str(), filePath.c_str())) {
+          state.partPath = "";
+        } else {
+          state.error = "Failed to rename finished upload";
+          LOG_ERR("WEB", "[UPLOAD] rename %s failed", state.partPath.c_str());
+        }
+      }
       if (!state.error.isEmpty()) removePartialUpload(state);
 
       if (state.error.isEmpty()) {
@@ -2144,7 +2187,7 @@ void CrossPointWebServer::handleUploadPost(UploadState& state) const {
     server->send(200, "text/plain", "File uploaded successfully: " + state.fileName);
   } else {
     const String error = state.error.isEmpty() ? "Unknown error during upload" : state.error;
-    server->send(400, "text/plain", error);
+    server->send(state.errorStatus, "text/plain", error);
   }
 }
 

@@ -125,6 +125,12 @@ Protected dotfiles, `System Volume Information`, and `XTCache` cannot be
 downloaded. EPUB files are served as `application/epub+zip`; other files use
 `application/octet-stream`.
 
+A single `Range: bytes=` span (`a-b`, `a-`, `-n`) is answered with `206` and
+`Content-Range`, so `curl -C -` and download managers can resume. An
+unsatisfiable range gets `416` with `Content-Range: bytes */<size>`; a
+malformed or multi-span `Range` gets the whole file with `200`. Replies carry
+`Accept-Ranges: bytes`.
+
 ### `POST /upload`
 
 Uploads a file with HTTP multipart form data.
@@ -138,6 +144,7 @@ Query parameters:
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `path` | No | `/` | Destination directory |
+| `offset` | No | - | Resumable upload: bytes already on the device (`0` starts one) |
 
 Successful response:
 
@@ -147,7 +154,12 @@ File uploaded successfully: mybook.epub
 
 Notes:
 
-- Existing files with the same name are overwritten.
+- An existing file with the same name is refused (`400 File already exists: <name>`).
+- With `offset`, data goes to `<name>.part` and is renamed to `<name>` when the
+  upload completes. A dropped or failed upload keeps the part for 10 minutes
+  (one part at a time; parking another removes it). Resume by sending the rest
+  of the file with `offset` set to the part's size; a wrong offset gets
+  `409 Offset mismatch: have <bytes>`. `offset=0` discards an old part.
 - EPUB cache data for the uploaded path is cleared after a successful upload.
 - HTTP upload uses a 4 KB write buffer before flushing to the SD card.
 
@@ -496,6 +508,8 @@ OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, MKCOL, MOVE, COPY, LOCK, UNLOCK
 Notes:
 
 - `PUT` writes to a temporary `.davtmp` file first, then renames it into place.
+- `GET` honors a single `Range` span like `/download`; `PUT` with
+  `Content-Range` (partial PUT) is refused with `400`.
 - Protected paths are rejected.
 - `LOCK` and `UNLOCK` are accepted for client compatibility only. The server
   does not implement full WebDAV Class 2 locking semantics such as persistent
