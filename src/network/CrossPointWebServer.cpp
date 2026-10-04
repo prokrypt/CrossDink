@@ -768,9 +768,10 @@ void CrossPointWebServer::registerFullRoutes() {
   server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth",   "Destination",   "Overwrite", "If",    "Lock-Token",
-                              "Timeout", "If-None-Match", "X-Token",   "Range", "Content-Range"};
-  server->collectHeaders(davHeaders, 10);
+  const char* davHeaders[] = {"Depth",      "Destination",   "Overwrite",     "If",
+                              "Lock-Token", "Timeout",       "If-None-Match", "X-Token",
+                              "Range",      "Content-Range", "Content-Length"};
+  server->collectHeaders(davHeaders, 11);
   // Note: WebDAVHandler will be deleted by WebServer when server is stopped
   server->addHandler(new WebDAVHandler(&stopRequested));
 }
