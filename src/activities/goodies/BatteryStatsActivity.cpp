@@ -214,7 +214,7 @@ void BatteryStatsActivity::buildLines() {
   const auto& st = parser.st;
   if (loading) {
     // Read from loop() in slices (step()); these fill in when it is done.
-    for (const char* name : {"Chg", "Awake drain", "Asleep drain", "Est to empty"}) add("%s: calculating...", name);
+    for (const char* name : {"Chg", "Awake drain", "Asleep", "To empty"}) add("%s: calculating...", name);
   } else {
     const uint32_t now = BatteryLog::nowEpoch();
     char from[8], to[8];
@@ -232,7 +232,7 @@ void BatteryStatsActivity::buildLines() {
     formatRate(a, sizeof(a), st.dropC[0], BatteryLogParser::errSq(st, 0), st.battS[0]);
     add("Awake drain: %s", a);
     formatRate(a, sizeof(a), st.dropC[1], BatteryLogParser::errSq(st, 1), st.battS[1], true);
-    add("Asleep drain: %s", a);
+    add("Asleep: %s", a);
     // Awake drain for the live Wi-Fi and light state; the light's share scales
     // with the LED duty against the state's logged average duty.
     builtState = estimateState();
@@ -263,7 +263,7 @@ void BatteryStatsActivity::buildLines() {
     snprintf(b, sizeof(b), "Wi-Fi %s, light %s", wifiNow ? "on" : "off", lightNow ? light : "off");
     if (rate > 0) {
       formatDur(static_cast<uint32_t>(pctNowC / rate), a, sizeof(a));
-      add("Est to empty: %s awake (%s)", a, b);
+      add("To empty: %s awake (%s)", a, b);
     } else if (drop >= MIN_DROP_C && span >= 60) {
       // No awake rate: drop over the whole on-battery span, sleep included.
       // The drop's ± moves the estimate by about left * ± / drop.
@@ -273,9 +273,9 @@ void BatteryStatsActivity::buildLines() {
       formatDur(
           static_cast<uint32_t>(left * sqrtf(BatteryLogParser::errSq(st, 0) + BatteryLogParser::errSq(st, 1)) / drop),
           err, sizeof(err));
-      add("Est to empty: %s \xC2\xB1%s calendar (%s)", a, err, b);
+      add("To empty: %s \xC2\xB1%s calendar (%s)", a, err, b);
     } else {
-      add("Est to empty: %s", NOT_ENOUGH);
+      add("To empty: %s", NOT_ENOUGH);
     }
 
     if (st.first != 0 && now > st.first) {
@@ -391,8 +391,7 @@ void BatteryStatsActivity::loop() {
   }
   if (loading) step(LOAD_STEP_MS);
   // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
-  // for 1 s. No repaint of its own (a full page refresh after every light
-  // slide); the next frame (scroll, Refresh) shows it.
+  // for 1 s, then repaint once (not per step of a light slide).
   const uint16_t state = estimateState();
   if (state != seenState) {
     seenState = state;
@@ -400,6 +399,7 @@ void BatteryStatsActivity::loop() {
   } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
     RenderLock lock(*this);  // render() reads lines
     buildLines();
+    requestUpdate();
   }
   const auto swipe = mappedInput.wasSwipe();
   const bool down =
@@ -439,7 +439,7 @@ void BatteryStatsActivity::render(RenderLock&&) {
   const int lineHeight = renderer.getLineHeight(font) + 6;
   int y = header.y + header.height + metrics.verticalSpacing;
 
-  // Graph: % over time, 25% gridlines; a bar under it marks awake spans.
+  // Graph: % over time, 25% gridlines; two bars under it mark Wi-Fi and awake spans.
   const int gh = renderer.getScreenHeight() / 5;
   renderer.drawRect(x, y, w, gh);
   for (int q = 1; q < 4; ++q) {
@@ -458,17 +458,19 @@ void BatteryStatsActivity::render(RenderLock&&) {
       const Point& p1 = points[i];
       if (p1.epoch < p0.epoch) continue;  // clock set backwards
       renderer.drawLine(px(p0.epoch), py(p0.pct), px(p1.epoch), py(p1.pct), 2, true);
-      if (p0.awake) renderer.fillRect(px(p0.epoch), y + gh + 2, std::max(1, px(p1.epoch) - px(p0.epoch)), 4);
+      const int bw = std::max(1, px(p1.epoch) - px(p0.epoch));
+      if (p0.wifi) renderer.fillRect(px(p0.epoch), y + gh + 2, bw, 4);
+      if (p0.awake) renderer.fillRect(px(p0.epoch), y + gh + 8, bw, 4);
     }
     char spanText[40], ago[24];
     formatDur(spanS, ago, sizeof(ago));
-    snprintf(spanText, sizeof(spanText), "%s  (bar = awake)", ago);
-    renderer.drawText(font, x, y + gh + 8, spanText);
+    snprintf(spanText, sizeof(spanText), "%s  (bars: Wi-Fi, awake)", ago);
+    renderer.drawText(font, x, y + gh + 14, spanText);
   } else {
     renderer.drawText(font, x + 8, y + gh / 2 - lineHeight / 2,
                       loading ? "Reading battery log..." : "No battery log yet");
   }
-  y += gh + 8 + lineHeight + metrics.verticalSpacing;
+  y += gh + 14 + lineHeight + metrics.verticalSpacing;
 
   const int bottom = renderer.getScreenHeight() - metrics.buttonHintsHeight;
   // Lines that don't fit scroll with Up/Down or a swipe; "..." marks more below.

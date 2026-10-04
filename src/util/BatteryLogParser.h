@@ -24,6 +24,7 @@ struct BatteryLogParser {
     uint32_t epoch;
     uint8_t pct;
     bool awake;  // awake until the next row (not a sleep row or a charger row logged "asleep")
+    bool wifi;   // Wi-Fi on until the next row
   };
   // Counted from the log since its first row or the last stats_reset row.
   struct LogStats {
@@ -266,10 +267,12 @@ struct BatteryLogParser {
     }
 
     if (pointCount == MAX_POINTS) {
-      std::move(points + MAX_POINTS / 2, points + MAX_POINTS, points);
+      // Keep every other point so the graph still spans the whole log.
+      // ponytail: a dropped row's awake/wifi state is absorbed by its kept neighbour; coarse after many halvings.
+      for (int i = 0; i < MAX_POINTS / 2; ++i) points[i] = points[2 * i];
       pointCount = MAX_POINTS / 2;
     }
-    prev = {epoch, pct, !asleep};
+    prev = {epoch, pct, !asleep, false};
     // A whole row after fractional ones is not a drop reference, unless a USB
     // step, power-off gap or reset breaks the chain there.
     if (fine || !prevFine || usb || prevUsb || ev == STATS_RESET || cold) {
@@ -281,6 +284,7 @@ struct BatteryLogParser {
     prevRowFine = fine;
     if (ev == BOOT || ev == WAKE || ev == SLEEP || ev == WIFI_OFF) prevWifi = false;
     if (ev == WIFI_ON) prevWifi = true;
+    prev.wifi = prevWifi;
     const auto light = static_cast<uint8_t>(atoi(f[8]));
     if (ev == BOOT || ev == WAKE || ev == WIFI_ON || ev == WIFI_OFF || light != prevLight) stateChangeEpoch = epoch;
     prevLight = light;
