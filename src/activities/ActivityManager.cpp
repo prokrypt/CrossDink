@@ -160,10 +160,8 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   return context;
 }
 
-bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput,
-                         const FrontlightDrawerState* restoredState = nullptr) {
+bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput) {
   FrontlightPanelContext context = buildFrontlightPanelContext(activity, renderer, mappedInput);
-  if (restoredState) context.drawerState = *restoredState;
   auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput, std::move(context));
   if (!panel) {
     LOG_ERR("ACT", "OOM opening frontlight panel");
@@ -910,15 +908,11 @@ void ActivityManager::loop() {
           if (resume.overlay == PendingOverlayType::ReaderDrawer && currentActivity->restorePendingOverlay(resume)) {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
-          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&
-                     supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                              hasStickyReaderDetailsPanel())) {
-            FrontlightDrawerState restoredState;
-            restoredState.selectedAction = static_cast<int8_t>(resume.selectedIndex);
-            if (openFrontlightPanel(*currentActivity, renderer, mappedInput, &restoredState)) {
-              PendingOverlayResume consumed;
-              APP_STATE.consumePendingOverlayResume(consumed);
-            }
+          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer) {
+            // The top drawer stays closed after a Sync & Transfer flow; the resume only
+            // carries reader orientation / return-home state, so just consume it.
+            PendingOverlayResume consumed;
+            APP_STATE.consumePendingOverlayResume(consumed);
           }
         }
       }
