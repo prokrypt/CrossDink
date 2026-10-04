@@ -313,8 +313,14 @@ void OpdsBookBrowserActivity::loop() {
     // fetch or a book download pauses them.
     if (preload) {
       preload->pump();
-      // A preload stored or evicted a page: recheck the row marks.
-      if (pageCache && pageCache->changes() != pageCachedAt) markCachedFeeds();
+      // A preload stored or evicted a page: recheck the row marks and redraw
+      // them in batches (as the server list): a redraw per landed page cost
+      // extra e-ink refreshes and queued taps behind them. A repaint the user
+      // causes meanwhile shows the marks landed so far.
+      if (pageCache && pageCache->changes() != pageCachedAt && markCachedFeeds() && marksPendingMs == 0) {
+        marksPendingMs = millis() | 1;
+      }
+      if (preload->marksDue(marksPendingMs)) requestUpdate();
       // A recheck found the shown page changed: re-parse it in place.
       std::string changed;
       if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
@@ -639,6 +645,9 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
       LOG_INF("OPDS", "Cache hit, no Loading frame: %s", UrlUtils::maskUserInfo(url).c_str());
       return;
     }
+    // The tapped page goes first: other downloads stop sharing Wi-Fi with it
+    // while the Loading frame draws, not after.
+    if (preload) preload->cancelOthers(url);
   }
   state = BrowserState::LOADING;
   statusMessage = tr(STR_LOADING);
@@ -756,6 +765,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
   markBooksOnSd();
   markCachedFeeds();
+  marksPendingMs = 0;  // the redraw below shows them
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // An empty feed may fill in later (new shelf, server still indexing); make
@@ -883,7 +893,7 @@ void OpdsBookBrowserActivity::stopPrefetch() {
 
 // Feed rows (Prev/Next included) resolved to cache keys as navigateToEntry()
 // and the preloads do. Main loop only: the cache has no lock.
-void OpdsBookBrowserActivity::markCachedFeeds() {
+bool OpdsBookBrowserActivity::markCachedFeeds() {
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> cached;
   if (pageCache) {
     pageCachedAt = pageCache->changes();
@@ -894,13 +904,10 @@ void OpdsBookBrowserActivity::markCachedFeeds() {
       if (pageCache->contains(UrlUtils::buildUrl(server.url, path))) cached.set(i);
     }
   }
-  if (cached == pageCached) return;
-  {
-    RenderLock lock(*this);
-    pageCached = cached;
-  }
-  // A preload landing flips a ✓ on: redraw the list through the normal refresh.
-  if (state == BrowserState::BROWSING) requestUpdate();
+  if (cached == pageCached) return false;
+  RenderLock lock(*this);
+  pageCached = cached;
+  return true;
 }
 
 // One pass over the download folder, not an exists() per book: each lookup

@@ -123,16 +123,13 @@ void OpdsServerListActivity::pumpPrefetch() {
     if (cached != rootCached) {
       RenderLock lock(*this);
       rootCached = cached;
-      marksPending = true;
+      if (marksPendingMs == 0) marksPendingMs = millis() | 1;
     }
   }
-  // One redraw per batch, once every fetch is done (a repaint the user causes
-  // meanwhile shows the marks landed so far): each page redrawing on its own
-  // cost two or three e-ink refreshes and queued taps behind them.
-  if (marksPending && !preload->busy()) {
-    marksPending = false;
-    requestUpdate();
-  }
+  // One redraw per batch (a repaint the user causes meanwhile shows the marks
+  // landed so far): each page redrawing on its own cost two or three e-ink
+  // refreshes and queued taps behind them.
+  if (preload->marksDue(marksPendingMs)) requestUpdate();
 #endif
 }
 
