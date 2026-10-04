@@ -105,6 +105,8 @@ X("Power", tiltCooldownMs, unsigned long, 600, 100, 3000, 50, "ms")      // min 
 X("Heap", netExitMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")    // leave Wi-Fi in place (else restart)
 X("Heap", netEntryMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")    // enter Wi-Fi in place
 X("Heap", netEntryMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
+X("Heap", wifiRemoteMinFree, uint32_t, 65536, 65536, 196608, 1024, "B")  // Wi-Fi remote join/start
+X("Heap", wifiRemoteMinBlock, uint32_t, 16384, 16384, 131072, 1024, "B")
 X("Heap", rebuildMinFree, uint32_t, 98304, 98304, 196608, 1024, "B")     // optional EPUB rebuild / prefetch
 X("Heap", rebuildMinBlock, uint32_t, 49152, 49152, 131072, 1024, "B")
 X("Heap", layoutMinFree, uint32_t, 45056, 45056, 131072, 1024, "B")      // chapter layout start
