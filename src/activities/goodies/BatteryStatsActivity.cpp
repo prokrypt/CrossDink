@@ -78,7 +78,7 @@ void formatRate(char* out, const size_t size, const uint32_t dropC, const float 
   const float unit = perDay ? 24.0f : 1.0f;
   const char* per = perDay ? "day" : "h";
   const float rate = dropC * 36.0f / seconds * unit, err = sqrtf(errC) * 36.0f / seconds * unit;
-  snprintf(out, size, "%.2f \xC2\xB1%.2f%%/%s over %s", rate, err, per, span);
+  snprintf(out, size, "%.2f \xC2\xB1%.2f%%/%s / %s", rate, err, per, span);
 }
 
 constexpr uint32_t SUM_MIN_READ = 32 * 1024;  // a load that read less leaves battery.sum as it is
@@ -225,7 +225,7 @@ void BatteryStatsActivity::buildLines() {
     } else if (st.chargedEpoch != 0 && now > st.chargedEpoch) {
       formatDur(st.chargedEpoch - st.chargeStartEpoch, a, sizeof(a));
       formatDur(now - st.chargedEpoch, b, sizeof(b));
-      add("Chg: %s%% to %s%% over %s, %s ago", from, to, a, b);
+      add("Chg: %s%% to %s%% / %s, %s ago", from, to, a, b);
     } else {
       add("Chg: not in the log");
     }
