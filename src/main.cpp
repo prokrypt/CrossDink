@@ -1678,6 +1678,9 @@ void enterDeepSleep(bool fromTimeout) {
     HalPowerManager::sleepStep = "sleep writes";
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     flushSettingsStores();
+    HalPowerManager::sleepStep = "kosync push";
+    kosync_auto::syncBeforeSleep();  // reads the progress just written; behind the sleep screen
+    HalPowerManager::sleepStep = "sleep writes";
     // Persist after the sleep screen is up so the write does not delay it. The
     // reader's onExit() usually saves the same state already, so this write is
     // then skipped as unchanged.
@@ -2241,6 +2244,7 @@ void setup() {
   } else {
     // Count the attempt in RTC so a book that crashes on load boots to Home next time.
     APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
+    if (isSleepWake) kosync_auto::noteWake();
     activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
   }
 
@@ -3029,6 +3033,16 @@ static void loopPass() {
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();
+  // Auto sync push toast: drawn over the current screen, cleared by its next render.
+  static unsigned long koSyncToastAt = 0;
+  if (kosync_auto::takePushed()) {
+    RenderLock lock;
+    BookActions::drawToast(renderer, tr(STR_UPLOAD_SUCCESS));
+    koSyncToastAt = millis() | 1;
+  } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
+    koSyncToastAt = 0;
+    activityManager.requestUpdate();
+  }
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
   knobs::loop();

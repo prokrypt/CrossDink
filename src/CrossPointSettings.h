@@ -739,6 +739,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     KO_AUTO_SYNC_BOTH = 3
   };
   uint8_t koAutoSync = KO_AUTO_SYNC_OFF;
+  // KOReader Sync > Sync on Wake & Sleep: push before deep sleep from a book, fetch when wake reopens it.
+  uint8_t koSyncSleepWake = 0;
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
