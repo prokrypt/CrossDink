@@ -370,4 +370,14 @@ class ChapterHtmlSlimParser {
   // between beginParse() and finishParse()/abortParse().
   size_t parseBytesConsumed() { return parseFile_ && !streamInput_ ? parseFile_.position() : parseFileOffset_; }
   size_t parseTotalBytes() { return parseFileSize_; }
+
+  // Busy time split for the build log: line layout (minus nested page writes) and page output.
+  uint32_t layoutMicros() const { return layoutUs_; }
+  uint32_t pageWriteMicros() const { return pageWriteUs_; }
+
+ private:
+  friend struct LayoutTimer;
+  uint32_t layoutUs_ = 0;
+  uint32_t pageWriteUs_ = 0;
+  uint8_t layoutDepth_ = 0;
 };

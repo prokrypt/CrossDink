@@ -63,6 +63,7 @@ class Section {
     float smoothedEstimate = 0;
     uint32_t smoothedAtConsumed = 0;
     uint32_t startedMs = 0;  // wall clock, including pauses between chunks
+    uint32_t busyUs = 0;     // time inside buildSomeMore(), for the build log
   };
   std::unique_ptr<BuildContext> build_;
   bool buildComplete_ = false;
