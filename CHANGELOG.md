@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Changed
+- KOReader Auto Sync is quicker and uses the radio less: a sync's requests share one secure connection instead of a full handshake each (about 1 s saved per sync); once a book's record is found under one document hash, later syncs of that book until the next restart or sleep ask for that hash only; and a close push is skipped without turning Wi-Fi on when the book is not past the server position last seen (at open, or by its own last push), logged as `exit push skipped: ... (no radio)`.
 - KOReader Auto Sync never moves the server back: before a push it fetches the server's position (both document hashes, as Smart Sync) and pushes only when the server has none or the device is further on. When the server is at or past the device (for example after you kept your page at the open popup), the push is skipped and logged (`exit push skipped: server at ...`).
 - OPDS catalog: a feed with more entries than the catalog shows stops downloading once the shown entries are in, instead of fetching the whole feed (a 1.9 MB branch feed took about 18 s with the screen frozen), and that cut-off copy is cached, so opening the feed again needs no download. Debug logs: `Stopped feed at entry limit after N bytes`.
 - Frontlight flash duck: the light now holds its level until the last Flash Dim fade time (Goodies > Knobs flashDownMs) before the panel swings, then fades to the dim level, instead of starting to dim at the flash plan 340-590 ms early (seen going from a Gray page to a Paint page). Recovery after the refresh is unchanged.
