@@ -101,7 +101,9 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
   size_t remaining = length;
   constexpr size_t chunkSize = 1024;
 
-  while (remaining > 0) {
+  // Past the entry limit nothing more is kept, so the rest is ignored and the
+  // caller can stop the download.
+  while (remaining > 0 && !truncated) {
     const size_t toRead = remaining < chunkSize ? remaining : chunkSize;
     void* const buf = XML_GetBuffer(parser, toRead);
     if (!buf) {
@@ -131,7 +133,8 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
 }
 
 void OpdsParser::flush() {
-  if (!parser) return;
+  // A feed cut off at the entry limit is never a complete document.
+  if (!parser || truncated) return;
   if (XML_Parse(parser, nullptr, 0, XML_TRUE) != XML_STATUS_OK) {
     errorOccured = true;
     errorReason = OpdsParserError::XML_PARSE;

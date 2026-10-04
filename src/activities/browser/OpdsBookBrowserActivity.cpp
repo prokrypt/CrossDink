@@ -819,12 +819,17 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     downloadOptions.shouldCancel = [this]() { return pollFetchCancel(); };
     const auto result = HttpDownloader::streamUrl(
         url,
-        [&stream, &page, cachePage](const uint8_t* data, const size_t len) {
+        [&stream, &page, &parser, cachePage](const uint8_t* data, const size_t len) {
           if (cachePage) page.append(data, len);  // overflow only skips caching
-          return stream.write(data, len) == len;
+          // Stop at the entry limit: the rest of a huge feed is never shown.
+          return stream.write(data, len) == len && !parser.wasTruncated();
         },
         nullptr, server.username, server.password, std::move(downloadOptions));
-    if (result != HttpDownloader::OK) return false;
+    if (parser.wasTruncated() && !fetchCancelled) {
+      LOG_INF("OPDS", "Stopped feed at entry limit after %zu bytes", page.size());
+    } else if (result != HttpDownloader::OK) {
+      return false;
+    }
   }
 
   if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page), true, millis());
