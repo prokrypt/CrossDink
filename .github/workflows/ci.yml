@@ -2,7 +2,8 @@ name: CI (build)
 
 on:
   push:
-    branches: [main]
+    # Combine branches build so their firmware can be downloaded from the run.
+    branches: [main, "test/combined-dink-*"]
   pull_request:
 
 # A newer commit supersedes older PR validation; keep main pushes independent.
@@ -213,8 +214,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload ${{ matrix.environment }} firmware
-        if: github.event_name == 'pull_request'
-        # Flashable app image for testing PR builds; the release workflows publish
+        if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/test/combined-dink-')
+        # Flashable app image for testing PR and combine builds; the release workflows publish
         # the same renamed firmware-<device>.bin.
         uses: actions/upload-artifact@v7
         with:
