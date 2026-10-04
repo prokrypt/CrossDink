@@ -981,17 +981,22 @@ bool ActivityManager::handleGlobalHomeGesture() {
     return false;
   }
 
-  const bool homeGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
-                               ? mappedInput.wasReaderHomeGesture()
-                               : (currentActivity->allowGlobalHomeSwipeGesture() || mappedInput.hasHomeKey()) &&
-                                     mappedInput.wasHomeGesture();
+  const bool readerSwipes = currentActivity->usesFullScreenReaderVerticalSwipes();
+  const bool allowSwipe = currentActivity->allowGlobalHomeSwipeGesture();
+  // Home-key boards: a bottom-edge up-swipe goes straight Home on non-reader
+  // screens. The reader keeps the old flow: the swipe opens the drawer first.
+  const bool edgeSwipeHome = mappedInput.hasHomeKey() && !mappedInput.isHomeButtonLockedInReader() && !readerSwipes &&
+                             allowSwipe && mappedInput.wasBottomEdgeUpSwipe();
+  const bool homeGesture =
+      edgeSwipeHome || (readerSwipes ? mappedInput.wasReaderHomeGesture()
+                                     : (allowSwipe || mappedInput.hasHomeKey()) && mappedInput.wasHomeGesture());
   if (!homeGesture) {
     return false;
   }
 
   // Touch-only devices use an edge swipe as a Home shortcut. Keep that
   // shortcut separate from the X4 Pro's physical Back/Home key.
-  if (!mappedInput.hasHomeKey()) {
+  if (!mappedInput.hasHomeKey() || edgeSwipeHome) {
     if (!currentActivity->handleHomeGesture()) goHome();
     return true;
   }

@@ -57,8 +57,8 @@ X("Touch", menuEdgePermille, int, 140, 20, 300, 10, "/1000")        // menu swip
 X("Touch", heldOverrideMs, unsigned long, 250, 50, 1000, 50, "ms")  // a gesture's held-time override lasts
 X("Touch", selectPressDelayMs, unsigned long, 200, 50, 1000, 10, "ms")  // still hold before the row highlight
 X("Touch", selectPressSlopPx, int, 20, 4, 60, 2, "px")              // movement that cancels it
-X("Touch", tapSlopPx, int, 28, 4, 56, 2, "px")                      // SDK: tap / long-press slop (< swipe min)
-X("Touch", swipeMinPx, int, 60, 20, 200, 5, "px")                   // SDK: min swipe (tap-on-release slop - 1)
+X("Touch", tapSlopPx, int, 20, 4, 56, 2, "px")                      // SDK: tap / long-press slop (< swipe min)
+X("Touch", swipeMinPx, int, 40, 20, 200, 5, "px")                   // SDK: min swipe (tap-on-release slop - 1)
 X("Touch", swipeMaxMs, unsigned long, 700, 200, 3000, 50, "ms")     // SDK: longest one-finger swipe
 X("Touch", multiSwipeMaxMs, unsigned long, 2000, 500, 5000, 100, "ms")  // SDK: two-finger gesture window
 X("Touch", multiSeparationSlopPx, int, 45, 10, 150, 5, "px")        // SDK: two-finger spacing tolerance
