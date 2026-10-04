@@ -5,11 +5,9 @@
 // are already in the normal log). An existing file means this build already
 // logged a sleep, so nothing is written.
 //
-// Goodies > Sleep-reboot-log runs the same sleep path but restarts at the end
-// instead of powering down. A restart keeps the ring, so the whole log (sleep
-// path and the boot after it) is written once the boot has settled, to
-// /debug/sleep-reboot-<sha8>.log (replaced each run); the sleep itself writes
-// nothing extra.
+// Goodies > Sleep-reboot-log (after a confirm) runs the same sleep path but
+// restarts at the end instead of powering down. A restart keeps the ring, so
+// the log is read afterwards from /api/psram-log; nothing is written to SD.
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
 namespace SleepLog {
 // Just before Storage.shutdown() in enterDeepSleep(): one SD stat, plus one
@@ -21,14 +19,11 @@ void armSleepReboot();
 // Last step of enterDeepSleep(), in place of the power-down: restarts when a
 // sleep-reboot is armed (does not return), else returns.
 void restartIfArmed();
-// Every main-loop pass: writes the ring after a sleep-reboot once boot settles.
-void loop();
 }  // namespace SleepLog
 #else
 namespace SleepLog {
 inline void onSleep() {}
 inline void armSleepReboot() {}
 inline void restartIfArmed() {}
-inline void loop() {}
 }  // namespace SleepLog
 #endif

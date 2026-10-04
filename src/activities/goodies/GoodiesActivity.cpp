@@ -582,9 +582,18 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::PinMon);
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
     } else if (index == SLEEP_REBOOT_ROW) {
-      // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
-      SleepLog::armSleepReboot();
-      enterDeepSleep();
+      // The sleep path, then a restart instead of power-down: the PSRAM log survives it (/api/psram-log).
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Sleep-reboot-log?",
+                                                                    "Runs the sleep path, then reboots."),
+                             [this](const ActivityResult& result) {
+                               mappedInput.suppressNextConfirmRelease();
+                               if (result.isCancelled) {
+                                 requestUpdate();
+                                 return;
+                               }
+                               SleepLog::armSleepReboot();
+                               enterDeepSleep();  // restarts, does not return
+                             });
 #endif
     } else {
 #ifndef SIMULATOR
