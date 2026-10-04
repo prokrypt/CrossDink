@@ -557,6 +557,7 @@ void BmpViewerActivity::unpinBootFavorite() {
 
 void BmpViewerActivity::promptDeleteImage() {
   const std::string path = filePath;
+  drawCancelled.store(false, std::memory_order_release);
   needsImageRedraw.store(true, std::memory_order_release);  // the prompt draws over the image
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE),
@@ -595,6 +596,8 @@ void BmpViewerActivity::showContextMenu() {
                      isBootPinned ? StrId::STR_CLEAR_BOOT_SCREEN : StrId::STR_SET_AS_BOOT_SCREEN});
   }
 
+  // The long-press cancelled any draw; clear that or the redraw on return stops at the Loading popup.
+  drawCancelled.store(false, std::memory_order_release);
   needsImageRedraw.store(true, std::memory_order_release);  // the menu draws over the image
   startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath),
                                                                      std::move(items), false, false),

@@ -230,6 +230,7 @@
 
 ### Fixed
 - X4 Pro: the reader's background chapter indexing no longer stops for good when internal RAM is fragmented (largest free block under 32 KB, common with the Wi-Fi remote on); its large allocations go to PSRAM, so it keeps indexing to the end of the chapter.
+- Image viewer: after opening the long-press (or tap) menu and backing out of it, the image redraws instead of leaving the "Loading" popup on screen. The menu opening cancelled the draw in progress and the cancel stayed set when the image was redrawn on return; the Delete confirmation had the same problem.
 - WebDAV: replies to requests that carry a body the server does not read (a PROPFIND's XML, as GNOME Files/gvfs sends with every listing) no longer end with a TCP reset. The server now closes those connections gracefully (waits up to 0.5 s for the client to close), so on a weak Wi-Fi link a reply that needs resending is no longer dropped, which could leave a gvfs mount (and an `rsync` onto it) waiting forever.
 - The top pull-down drawer now stays closed after you use a Sync & Transfer entry (Sync Progress, Nearby Position Sync, Send Book): returning from the sync or transfer screen lands on the Home or reader screen instead of reopening the drawer.
 - Saving recents, knobs or the Library index no longer lists them in `/.crossdink/.deleted` (each save parked the live file as a backup for a moment, which counted as a removal); entries for files that exist again are dropped from the list at boot. The Library index backup is now `library.idx.bak`.
