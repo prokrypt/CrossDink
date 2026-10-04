@@ -8,7 +8,7 @@ namespace {
 KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs
 uint32_t lastAnyWriteMs = 0;
 KNOB_ALIAS(kOffTopPercent, pulseOffTopPct);  // pulse top when the light is off
-TransferLightPulse* active = nullptr;         // the armed pulse; one at a time
+TransferLightPulse* active = nullptr;        // the armed pulse; one at a time
 }  // namespace
 
 void TransferLightPulse::begin(const uint32_t holdForMs) {
