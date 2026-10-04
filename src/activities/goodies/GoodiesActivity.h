@@ -73,6 +73,7 @@ class GoodiesActivity final : public Activity {
   static constexpr int KNOBS_ROW = 3;
   static constexpr int KBD_TEST_ROW = 4;
   static constexpr int PINMON_ROW = 5;
+  static constexpr int SLEEP_REBOOT_ROW = 7;  // after Battery Stats (6), debug builds with the PSRAM log
   struct Entry {
     std::string label;
     int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
