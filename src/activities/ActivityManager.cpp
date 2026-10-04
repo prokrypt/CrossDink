@@ -986,7 +986,8 @@ bool ActivityManager::handleGlobalHomeGesture() {
   // Home-key boards: a bottom-edge up-swipe goes straight Home (in the reader it
   // would otherwise only open the drawer, needing a second swipe).
   const bool edgeSwipeHome =
-      mappedInput.hasHomeKey() && (readerSwipes || allowSwipe) && mappedInput.wasBottomEdgeUpSwipe();
+      mappedInput.hasHomeKey() && !mappedInput.isHomeButtonLockedInReader() && (readerSwipes || allowSwipe) &&
+      mappedInput.wasBottomEdgeUpSwipe();
   const bool homeGesture =
       edgeSwipeHome || (readerSwipes ? mappedInput.wasReaderHomeGesture()
                                      : (allowSwipe || mappedInput.hasHomeKey()) && mappedInput.wasHomeGesture());
