@@ -246,6 +246,9 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - File Transfer and Calibre on a Wi-Fi network now idle in modem sleep and light sleep between transfers, and switch to full power from the first byte of a request or upload until 0.5 s after the last one. Log tail and status polls (`/api/psram-log`, `/api/status`) drop back as soon as they are answered, so a log watcher no longer keeps the device awake. Hotspot mode keeps the radio fully on.
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal, and every remaining CrossInk name in code, build flags, scripts and docs is now CrossDink.
 
+### Removed
+- Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. The next chapter is still built in the background on the current chapter's last two pages. Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
+
 ### Fixed
 - KOReader Auto Sync with Wi-Fi already on (such as the Wi-Fi remote) now runs on a PSRAM stack instead of taking 14 KB of internal memory, so a sync at book open no longer starves the chapter being laid out beside it, which could cut the chapter short and silently restart the reader to retry it. With Wi-Fi off, the sync still brings the radio up itself as before.
 - Flash duck: the frontlight stays at full until the last fade window before a flashing refresh instead of dimming from the moment the refresh is planned, and it comes back up on time after a long main-loop job (a sleep-image decode used to hold it down ~760 ms longer). Restored from earlier test builds; it never reached main.
