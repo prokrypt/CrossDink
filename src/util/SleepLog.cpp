@@ -64,7 +64,9 @@ void onSleep() {
   const uint32_t end = PsramLog::end();
   char header[64];
   snprintf(header, sizeof(header), "=== sleep half, %s ===\n", BuildInfo::gitSha());
-  if (appendRing(path, header, end > SLEEP_TAIL_BYTES ? end - SLEEP_TAIL_BYTES : 0)) wakeHalfPending = WAKE_PENDING_MAGIC;
+  if (appendRing(path, header, end > SLEEP_TAIL_BYTES ? end - SLEEP_TAIL_BYTES : 0)) {
+    wakeHalfPending = WAKE_PENDING_MAGIC;
+  }
 }
 
 void loop() {
