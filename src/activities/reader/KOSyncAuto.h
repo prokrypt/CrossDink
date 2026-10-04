@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "KOReaderCredentialStore.h"
@@ -23,11 +24,15 @@ void loop();
 // Main loop: true once after a push landed (the toast).
 bool takePushed();
 // Boot, before a deep-sleep wake reopens the book: with Sync on Wake & Sleep on,
-// that open fetches as At open does.
+// that open fetches as At open does, and also pushes when the sleep push failed.
 void noteWake();
-// Deep sleep, after the reader's exit writes: with Sync on Wake & Sleep on, pushes
-// the book the reader just closed and waits for it (bounded).
-void syncBeforeSleep();
+enum class PushOutcome : uint8_t { Pushed, Same, ServerAhead, Failed };
+// Sync on Wake & Sleep is on, credentials exist and no Wi-Fi screen is up.
+bool wantsSleepPush();
+// Deep sleep, after the reader saved its progress: pushes the book (never moving
+// the server back) and blocks until done, at most 30 s in all. A failure arms
+// the push on the next wake.
+PushOutcome pushNow(std::string epubPath);
 // Before a Wi-Fi screen or deep sleep takes the radio: waits out the task's
 // Wi-Fi start/stop calls; the task then leaves the radio alone.
 void yieldRadio();
