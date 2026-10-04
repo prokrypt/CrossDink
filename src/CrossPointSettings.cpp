@@ -907,6 +907,11 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   }
   clockDateHasBeenSynced = clamp(doc["clockDateHasBeenSynced"] | static_cast<uint8_t>(0), 2, 0);
   goodiesWifiRemote = clamp(doc["goodiesWifiRemote"] | static_cast<uint8_t>(0), 2, 0);
+  // Sync on Book Exit became Auto Sync > At close.
+  if (doc["koAutoSync"].isNull() && (doc["koSyncOnExit"] | static_cast<uint8_t>(0)) != 0) {
+    koAutoSync = KO_AUTO_SYNC_CLOSE;
+    needsResave = true;
+  }
 
   if (needsResave) requestResave();
   LOG_DBG("CPS", "Settings loaded from file");
