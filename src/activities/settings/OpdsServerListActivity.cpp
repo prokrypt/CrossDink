@@ -99,8 +99,8 @@ void OpdsServerListActivity::onEnter() {
 }
 
 // Queues every server's root page once Wi-Fi is up and pumps the pool (up to
-// three fetches at once, as the browser preloads a catalog's pages). A page
-// that lands marks its row; a server that fails just stays unmarked.
+// three fetches at once, as the browser preloads a catalog's pages). Pages that
+// land mark their rows; a server that fails just stays unmarked.
 void OpdsServerListActivity::pumpPrefetch() {
 #ifndef SIMULATOR
   if (!preload || !hasActiveStationWifiConnection()) return;
@@ -114,18 +114,25 @@ void OpdsServerListActivity::pumpPrefetch() {
     }
   }
   preload->pump();
-  if (pageCache->changes() == pageCachedAt) return;
-  pageCachedAt = pageCache->changes();
-  std::bitset<OpdsServerStore::MAX_SERVERS> cached;
-  for (size_t i = 0; i < servers.size() && i < cached.size(); ++i) {
-    if (pageCache->contains(UrlUtils::buildUrl(servers[i].url, ""))) cached.set(i);
+  if (pageCache->changes() != pageCachedAt) {
+    pageCachedAt = pageCache->changes();
+    std::bitset<OpdsServerStore::MAX_SERVERS> cached;
+    for (size_t i = 0; i < servers.size() && i < cached.size(); ++i) {
+      if (pageCache->contains(UrlUtils::buildUrl(servers[i].url, ""))) cached.set(i);
+    }
+    if (cached != rootCached) {
+      RenderLock lock(*this);
+      rootCached = cached;
+      marksPending = true;
+    }
   }
-  if (cached == rootCached) return;
-  {
-    RenderLock lock(*this);
-    rootCached = cached;
+  // One redraw per batch, once every fetch is done (a repaint the user causes
+  // meanwhile shows the marks landed so far): each page redrawing on its own
+  // cost two or three e-ink refreshes and queued taps behind them.
+  if (marksPending && !preload->busy()) {
+    marksPending = false;
+    requestUpdate();
   }
-  requestUpdate();  // a page landed: redraw the list with its check mark
 #endif
 }
 
@@ -318,6 +325,7 @@ void OpdsServerListActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.selectedIndex = static_cast<int16_t>(selectedIndex);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+  props.iconsInMargin = true;         // the check sits left of the title, as in the catalog: nothing moves
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, itemCount);  // clamp to range
