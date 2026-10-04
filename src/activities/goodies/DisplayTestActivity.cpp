@@ -108,8 +108,9 @@ void DisplayTestActivity::loop() {
     bool go;
     if (tapWait) {
       const bool tapped = mappedInput.wasScreenTapped(tapX, tapY);
-      if (tapped && duckKind >= 0 && duckTap(tapX, tapY)) return;
-      go = tapped || mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+      // Flash ducks pages: only the Next button (or OK) advances; other taps do nothing.
+      go = (tapped && (duckKind < 0 || duckTap(tapX, tapY))) ||
+           mappedInput.wasReleased(MappedInputManager::Button::Confirm);
     } else {
       go = static_cast<long>(millis() - resumeAtMs) >= 0;
     }
@@ -228,6 +229,7 @@ void DisplayTestActivity::runOps() {
         rerunPc = pc;
         break;
       case OpCode::Ducks:
+        if (pc < skipTapsUntil) break;  // an Again replay keeps the page's own kind
         duckKind = static_cast<int>(op.a[0]);
         duckPc = pc;
         break;
@@ -323,20 +325,22 @@ void DisplayTestActivity::drawOp(const Op& op) {
       renderer.drawText(UI_12_FONT_ID, op.a[0], op.a[1], op.text.c_str(), true, EpdFontFamily::BOLD);
       break;
     case OpCode::Label: {
+      // An Again replay of an earlier step shows this page's label, not that step's.
+      const Op& shown = duckKind >= 0 && pc < skipTapsUntil ? script.ops[labelPc] : op;
+      if (&shown == &op) labelPc = static_cast<int>(&op - script.ops.data());
       // Up to 3 lines split on '|': what this is (bold), what to look for, what is next.
       std::string lines[3];
       int count = 0;
-      for (size_t start = 0; count < 3 && start <= op.text.size(); ++count) {
-        const size_t bar = op.text.find('|', start);
-        const size_t stop = bar == std::string::npos ? op.text.size() : bar;
-        lines[count] = op.text.substr(start, stop - start);
+      for (size_t start = 0; count < 3 && start <= shown.text.size(); ++count) {
+        const size_t bar = shown.text.find('|', start);
+        const size_t stop = bar == std::string::npos ? shown.text.size() : bar;
+        lines[count] = shown.text.substr(start, stop - start);
         lines[count].erase(0, lines[count].find_first_not_of(' '));
         lines[count].erase(lines[count].find_last_not_of(' ') + 1);
         start = stop + 1;
       }
       std::vector<BandLine> wrapped;
       wrapBand(lines, count, wrapped);
-      labelPc = static_cast<int>(&op - script.ops.data());
       if (duckKind >= 0) {
         const int rowH = renderer.getLineHeight(UI_12_FONT_ID) + 12;
         drawDuckControls(drawBand(wrapped, 3 * rowH) + 4);
@@ -491,16 +495,21 @@ void DisplayTestActivity::drawDuckControls(int y) {
     button(duckHit[i * 2 + 1], "+");
     y += rowH;
   }
-  duckHit[4] = {16, y, w - 32, sq};
+  const int half = (w - 32 - 8) / 2;
+  duckHit[4] = {16, y, half, sq};
+  duckHit[5] = {16 + half + 8, y, half, sq};
   button(duckHit[4], "Again");
+  button(duckHit[5], "Next");
 }
 
 // A tap on a control: -/+ change the knob (RAM now, knobs.json when the screen
-// closes) and redraw the numbers; Again replays the step from its start.
+// closes) and redraw the numbers; Again replays the step from its start; Next
+// returns true (advance). Any other tap does nothing.
 bool DisplayTestActivity::duckTap(const int x, const int y) {
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 6; ++i) {
     const Hit& r = duckHit[i];
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) continue;
+    if (i == 5) return true;  // Next
     if (i == 4) {
       skipTapsUntil = duckPc;  // earlier steps of a replay run on without a tap
       pc = rerunPc;
@@ -513,7 +522,7 @@ bool DisplayTestActivity::duckTap(const int x, const int y) {
       redrawLabel = true;
     }
     requestUpdate();
-    return true;
+    return false;
   }
   return false;
 }
