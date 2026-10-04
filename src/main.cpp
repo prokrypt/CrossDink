@@ -2396,8 +2396,12 @@ static void updateFlashDuck() {
     darkMs = target;
     const int32_t left = static_cast<int32_t>(target - now);
     const unsigned long from = std::max<unsigned long>(fromLevel, floor);
-    level = std::max(floor, std::min<unsigned long>(
-                                flashDuckLevel, left <= 0 ? floor : floor + (from - floor) * left / (target - fromMs)));
+    // Hold until the last FLASH_DUCK_DOWN_MS before the swing, then fade to the floor (the plan is
+    // 340-590 ms ahead of the swing, so a ramp from the plan dimmed far too early).
+    const unsigned long window = std::min<unsigned long>(target - fromMs, FLASH_DUCK_DOWN_MS);
+    const bool holding = left >= static_cast<int32_t>(window);
+    const unsigned long ramp = left <= 0 ? floor : holding ? from : floor + (from - floor) * left / window;
+    level = std::max(floor, std::min<unsigned long>(flashDuckLevel, ramp));
     if (level == floor && !darkLogged) {
       darkLogged = true;
       if (swingMs != 0) {
