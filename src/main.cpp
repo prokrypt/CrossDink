@@ -2275,7 +2275,7 @@ static uint32_t liveFlashStartMs() {
                                                                                                              : 0;
 }
 
-static void updateFlashDuck() {
+static void updateFlashDuckLocked() {
   const unsigned long now = millis();
   const unsigned long inputMs = flashDuckInputMs;
   const uint32_t swingMs = liveFlashStartMs();
@@ -2430,6 +2430,41 @@ static void updateFlashDuck() {
     Frontlight.setIdleDim(flashDuckLevel);
   }
   if (!ducking && flashDuckLevel == 100) flashDuckActive = false;
+}
+
+// The fade is stepped from the main loop and its render waits, but a long main-loop job (a 930 ms BMP
+// decode right after a refresh) starves both and the light came back ~760 ms late. While a duck is
+// pending or running an esp_timer steps it too; the mutex keeps the statics above to one caller.
+static bool flashDuckPending() {
+  return flashDuckActive || (SETTINGS.frontlightFlashDuck && (liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 ||
+                                                              display.flashPlannedMs() != 0));
+}
+static void updateFlashDuck() {
+#ifndef SIMULATOR
+  static SemaphoreHandle_t lock = xSemaphoreCreateMutex();
+  static esp_timer_handle_t tick = nullptr;
+  static bool ticking = false;
+  if (lock == nullptr || xSemaphoreTake(lock, 0) != pdTRUE) return;  // another caller is stepping it
+  updateFlashDuckLocked();
+  const bool want = flashDuckPending();
+  if (want && !ticking) {
+    if (tick == nullptr) {
+      const esp_timer_create_args_t args = {.callback = [](void*) { updateFlashDuck(); },
+                                            .arg = nullptr,
+                                            .dispatch_method = ESP_TIMER_TASK,
+                                            .name = "flashDuck",
+                                            .skip_unhandled_events = true};
+      if (esp_timer_create(&args, &tick) != ESP_OK) LOG_ERR("LIGHT", "Flash duck timer not created");
+    }
+    ticking = tick != nullptr && esp_timer_start_periodic(tick, FLASH_DUCK_TICK_MS * 1000ULL) == ESP_OK;
+  } else if (!want && ticking) {
+    esp_timer_stop(tick);
+    ticking = false;
+  }
+  xSemaphoreGive(lock);
+#else
+  updateFlashDuckLocked();
+#endif
 }
 
 // The main loop can block in a render wait through a whole refresh (a reader
