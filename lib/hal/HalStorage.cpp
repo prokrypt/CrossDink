@@ -364,7 +364,8 @@ class HalStorage::StorageLock {
 // /.crosspoint twin, and folder listings show both. Writes always land in
 // /.crossdink; an in-place update (read-write or append open) of a file that
 // only has a twin copies that one file first. A removed path whose twin
-// exists is listed in /.crossdink/.deleted so the twin stops showing through.
+// exists is listed in /.crossdink/.deleted so the twin stops showing through;
+// an existing <path>.bak (an atomic save in progress) hides it too.
 // /.crosspoint is never written, so CrossInk and older builds keep their data.
 // EPUB caches are keyed by content, so lib/Epub copies each book's on its
 // first open instead.
@@ -437,22 +438,49 @@ const char* legacyTwinLocked(const char* path) {
     if (!SDCard.ready()) return nullptr;
     legacyRoot = SDCard.exists(kLegacyRoot) ? LegacyRoot::Present : LegacyRoot::Absent;
     FsFile list = legacyRoot == LegacyRoot::Present ? SDCard.open(kDeletedList, O_RDONLY) : FsFile();
+    // A file entry whose /.crossdink file exists again hides nothing: drop it.
+    // Folder entries stay, since they hide the rest of the twin folder.
+    std::string kept;
+    bool pruned = false;
     size_t n = 0;
     for (int c; list && (c = list.read()) >= 0;) {
       if (c != '\n') {
-        if (n < sizeof(twinPath)) twinPath[n++] = static_cast<char>(c);
+        if (n < sizeof(twinPath) - 1) twinPath[n++] = static_cast<char>(c);
         continue;
       }
-      deletedPaths.push_back(hashPath(twinPath, n));
+      twinPath[n] = '\0';
+      FsFile live = SDCard.open(twinPath, O_RDONLY);
+      if (live && !live.isDirectory()) {
+        pruned = true;
+      } else {
+        kept.append(twinPath, n).push_back('\n');
+        deletedPaths.push_back(hashPath(twinPath, n));
+      }
+      live.close();
       n = 0;
     }
     list.close();
+    // ponytail: rewritten in place, once; power loss mid-write shows dropped twins again.
+    if (pruned) {
+      list = SDCard.open(kDeletedList, O_WRONLY | O_TRUNC);
+      if (!list || list.write(kept.data(), kept.size()) != kept.size()) {
+        LOG_ERR("SD", "Cannot prune %s", kDeletedList);
+      }
+      list.close();
+    }
   }
   if (legacyRoot == LegacyRoot::Absent || isDeletedLocked(path)) return nullptr;
   if (snprintf(twinPath, sizeof(twinPath), "%s%s", kLegacyRoot, path + kDataRootLen) >=
-      static_cast<int>(sizeof(twinPath)))
+          static_cast<int>(sizeof(twinPath)) ||
+      !SDCard.exists(twinPath))
     return nullptr;
-  return SDCard.exists(twinPath) ? twinPath : nullptr;
+  // An atomic save parks the live file as <path>.bak while it writes the new
+  // one; the twin stays hidden meanwhile, so saves never touch .deleted.
+  if (snprintf(twinPath, sizeof(twinPath), "%s.bak", path) < static_cast<int>(sizeof(twinPath)) &&
+      SDCard.exists(twinPath))
+    return nullptr;
+  snprintf(twinPath, sizeof(twinPath), "%s%s", kLegacyRoot, path + kDataRootLen);
+  return twinPath;
 }
 
 // Caller holds the storage lock. Writes create missing /.crossdink folders,
@@ -817,7 +845,8 @@ bool HalStorage::rename(const char* oldPath, const char* newPath) {
     if (const char* twin = legacyTwinLocked(oldPath)) {
       const std::string from(twin);
       if (copyTwinLocked(from, newPath)) {
-        markDeletedLocked(oldPath);
+        // Not when the copy is oldPath's .bak, which hides the twin itself.
+        if (legacyTwinLocked(oldPath)) markDeletedLocked(oldPath);
         ok = true;
       } else {
         ok = false;

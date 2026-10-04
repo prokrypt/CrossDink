@@ -29,7 +29,7 @@ namespace {
 
 constexpr const char* INDEX_PATH = CLIX_INDEX_PATH;
 constexpr char NEW_PATH[] = "/.crossdink/library.new";
-constexpr char BACKUP_PATH[] = "/.crossdink/library.bak";
+constexpr char BACKUP_PATH[] = "/.crossdink/library.idx.bak";
 constexpr char STAGE_PATH[] = "/.crossdink/library.stage";
 constexpr char CACHE_DIR[] = "/.crossdink";
 constexpr size_t LIBRARY_IO_BUFFER_SIZE = 4096;
