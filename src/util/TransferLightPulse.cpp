@@ -8,7 +8,7 @@ namespace {
 KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs; the peak's range stays above the floor's
 uint32_t lastAnyWriteMs = 0;
 KNOB_ALIAS(kPeakPercent, pulsePeakPct);
-KNOB_ALIAS(kLitFloorPercent, pulseFloorPct);  // pulse floor when the light was already on
+KNOB_ALIAS(kLitFloorPercent, pulseFloorPct);  // pulse top when the light is off
 TransferLightPulse* active = nullptr;         // the armed pulse; one at a time
 }  // namespace
 
@@ -25,8 +25,7 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   armed = true;
   active = this;
   // Idle at the user's level (0 if off or faded out by Light Timeout). Pulse band
-  // by level: up to 10% -> 0-10, 11-25% -> 10-25, above 25% -> 10 to the level
-  // (knobs: floor 10, peak 25).
+  // from the level: see pulseLow()/pulseHigh().
   basePercent = Frontlight.isOn() && Frontlight.idleDimPercent() > 0 ? Frontlight.brightness() : 0;
   // An overlay at the level already shown: no PWM write, and the user's
   // brightness/on state (pulldown, SETTINGS) never sees the pulse.
@@ -41,11 +40,9 @@ void TransferLightPulse::begin(const uint32_t holdForMs) {
   }
 }
 
-uint8_t TransferLightPulse::lowPercent() const { return basePercent > kLitFloorPercent ? kLitFloorPercent : 0; }
+uint8_t TransferLightPulse::lowPercent() const { return pulseLow(basePercent); }
 
-uint8_t TransferLightPulse::highPercent() const {
-  return basePercent > kPeakPercent ? basePercent : basePercent > kLitFloorPercent ? kPeakPercent : kLitFloorPercent;
-}
+uint8_t TransferLightPulse::highPercent() const { return pulseHigh(basePercent, kPeakPercent, kLitFloorPercent); }
 
 void TransferLightPulse::write(const uint8_t percent) {
   Frontlight.setOverlay(percent);
