@@ -606,8 +606,10 @@ struct HeapPinScan {
   static constexpr size_t MIN_FREE_RUN = 4096;
   struct Pin {
     uintptr_t addr;
-    uint32_t size;    // the whole used run
-    uint32_t blocks;  // allocations in it
+    uint32_t size;      // the whole used run
+    uint32_t blocks;    // allocations in it
+    uintptr_t bigAddr;  // its largest allocation
+    uint32_t bigSize;
     uint32_t freeBefore;
     uint32_t freeAfter;
   };
@@ -644,16 +646,36 @@ static bool heapPinWalker(walker_heap_into_t heap, walker_block_info_t block, vo
     }
     scan.pending = false;
     scan.inUsed = true;
-    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), 0, 0, scan.freeRun, 0};
+    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), 0, 0, 0, 0, scan.freeRun, 0};
     scan.freeRun = 0;
   }
   scan.candidate.size += block.size;
   scan.candidate.blocks++;
+  if (block.size > scan.candidate.bigSize) {
+    scan.candidate.bigAddr = reinterpret_cast<uintptr_t>(block.ptr);
+    scan.candidate.bigSize = static_cast<uint32_t>(block.size);
+  }
   return true;
 }
 
-// A pin that holds a task's TCB or stack names the task; otherwise its first
-// two words hint at the owner (a vtable, a pcb, a string).
+// Heap poisoning (light) puts a canary and the requested size before the data.
+struct BlockPeek {
+  uint32_t size;  // requested bytes, 0 when there is no poisoning header
+  uint32_t words[2];
+};
+static BlockPeek peekBlock(const uintptr_t addr) {
+  constexpr uint32_t HEAD_CANARY = 0xABBA1234;
+  BlockPeek peek{};
+  uint32_t head[2];
+  memcpy(head, reinterpret_cast<const void*>(addr), sizeof(head));
+  const bool poisoned = head[0] == HEAD_CANARY;
+  if (poisoned) peek.size = head[1];
+  memcpy(peek.words, reinterpret_cast<const void*>(addr + (poisoned ? sizeof(head) : 0)), sizeof(peek.words));
+  return peek;
+}
+
+// A pin that holds a task's TCB or stack names the task. The first data words
+// of its first and largest blocks hint at the owner (a vtable, a pcb, a string).
 void logInternalHeapPins(const char* why) {
   static HeapPinScan scan;  // the walker runs under the heap lock: no allocation
   static TaskStatus_t tasks[40];
@@ -673,12 +695,16 @@ void logInternalHeapPins(const char* why) {
     for (UBaseType_t t = 0; t < taskCount; ++t) {
       if (in(tasks[t].xHandle) || in(tasks[t].pxStackBase)) owner = tasks[t].pcTaskName;
     }
-    uint32_t words[2];
-    memcpy(words, reinterpret_cast<const void*>(pin.addr), sizeof(words));
-    LOG_INF("HEAP", "pin 0x%08x %u B in %u blocks between free %u + %u, task %s, words %08x %08x",
+    const BlockPeek first = peekBlock(pin.addr);
+    const BlockPeek big = peekBlock(pin.bigAddr);
+    LOG_INF("HEAP",
+            "pin 0x%08x %u B in %u blocks between free %u + %u, task %s; first %u B %08x %08x; largest 0x%08x %u B "
+            "%08x %08x",
             static_cast<unsigned>(pin.addr), static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.blocks),
             static_cast<unsigned>(pin.freeBefore), static_cast<unsigned>(pin.freeAfter), owner,
-            static_cast<unsigned>(words[0]), static_cast<unsigned>(words[1]));
+            static_cast<unsigned>(first.size), static_cast<unsigned>(first.words[0]),
+            static_cast<unsigned>(first.words[1]), static_cast<unsigned>(pin.bigAddr), static_cast<unsigned>(big.size),
+            static_cast<unsigned>(big.words[0]), static_cast<unsigned>(big.words[1]));
   }
   if (scan.count == 0) {
     LOG_INF("HEAP", "no pins between free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
