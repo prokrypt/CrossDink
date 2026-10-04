@@ -2881,15 +2881,20 @@ void EpubReaderActivity::showBuildPopup() {
 
 bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
   const auto heap = MemoryBudget::snapshot();
-  if (MemoryBudget::hasHeap(heap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE,
-                            MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC)) {
+  // Allocations over 1 KB go to PSRAM where it exists (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so a
+  // fragmented internal heap must not stall the build there; it still needs the internal total.
+  const uint32_t minMaxAlloc =
+      MemoryBudget::psramSnapshot().maxAllocHeap >= MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC
+          ? 0
+          : MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC;
+  if (MemoryBudget::hasHeap(heap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE, minMaxAlloc)) {
     backgroundBuildPausedForLowMemory = false;
     return true;
   }
 
   if (!backgroundBuildPausedForLowMemory) {
     LOG_DBG("ERS", "Pausing background section build: low heap (free=%lu, maxAlloc=%lu, need %lu/%lu)", heap.freeHeap,
-            heap.maxAllocHeap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC);
+            heap.maxAllocHeap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE, minMaxAlloc);
   }
   backgroundBuildPausedForLowMemory = true;
   return false;
