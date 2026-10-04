@@ -86,7 +86,7 @@ class OpdsBookBrowserActivity final : public Activity {
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> onSd;        // book rows already in the download folder
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> pageCached;  // feed rows whose page is in pageCache
   uint32_t pageCachedAt = 0;                          // pageCache->changes() when pageCached was set
-  bool marksPending = false;                          // pageCached changed since the last redraw it caused
+  uint32_t marksPendingMs = 0;                        // millis() | 1 when pageCached first changed unshown
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;

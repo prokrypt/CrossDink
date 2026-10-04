@@ -63,6 +63,12 @@ bool OpdsPreloadPool::backingOff() const { return failedAtMs != 0 && millis() - 
 // A queue held by the failure backoff does not count: the radio may idle.
 bool OpdsPreloadPool::busy() const { return (!queue.empty() && !backingOff()) || runningCount() > 0; }
 
+bool OpdsPreloadPool::marksDue(uint32_t& pendingSinceMs) const {
+  if (pendingSinceMs == 0 || (busy() && millis() - pendingSinceMs < MARKS_BATCH_MS)) return false;
+  pendingSinceMs = 0;
+  return true;
+}
+
 void OpdsPreloadPool::enqueue(const std::string& url, const bool front) { enqueue(url, front, "", "", ""); }
 
 void OpdsPreloadPool::enqueue(const std::string& url, const bool front, std::string username, std::string password,

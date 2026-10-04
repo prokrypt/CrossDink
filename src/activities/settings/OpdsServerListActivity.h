@@ -54,7 +54,7 @@ class OpdsServerListActivity final : public Activity {
   std::unique_ptr<OpdsPageCache> pageCache;
   std::unique_ptr<OpdsPreloadPool> preload;  // destroyed before pageCache
   bool rootsQueued = false;                  // every server's root page is in the pool
-  bool marksPending = false;                 // rootCached changed since the last redraw it caused
+  uint32_t marksPendingMs = 0;               // millis() | 1 when rootCached first changed unshown
   uint32_t pageCachedAt = 0;                 // pageCache->changes() when rootCached was set
   // Servers whose root page is cached, set on the main loop under the render
   // lock (the cache has no lock) and read by the screen builder.
