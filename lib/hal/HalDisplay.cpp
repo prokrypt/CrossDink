@@ -99,7 +99,8 @@ void onDisplayBusyWaitEnd() {
 #endif
   powerManager.endDisplayBusyWait();
 #if CROSSDINK_PERF_LOG
-  if (millis() - busyWaitBeganMs >= REFRESH_WAIT_MIN_MS) PerfLog::noteInk();
+  // Still pending here: this wait finished an async refresh an earlier call started.
+  if (millis() - busyWaitBeganMs >= REFRESH_WAIT_MIN_MS) PerfLog::noteInk(display.isRefreshPending());
 #endif
 }
 #ifndef SIMULATOR

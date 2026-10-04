@@ -55,6 +55,9 @@ class OpdsPreloadPool {
   // joins every worker and caches what finished. Returns true when it waited
   // for keepUrl.
   bool pause(const std::string& keepUrl);
+  // pause()'s cancel without the wait: a tap on an uncached page stops the
+  // other downloads at once so they don't share Wi-Fi with it. Main loop only.
+  void cancelOthers(const std::string& keepUrl);
   // Drops the workers' kept-alive connections (all workers must be idle).
   void closeConnections();
   bool busy() const;
