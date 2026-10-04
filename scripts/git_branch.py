@@ -85,7 +85,7 @@ def sanitize_version_component(value):
 
 def get_git_short_sha(project_dir):
     return run_git_value(
-        project_dir, ['rev-parse', '--short', 'HEAD'], 'short SHA'
+        project_dir, ['rev-parse', '--short=8', 'HEAD'], 'short SHA'
     )
 
 
