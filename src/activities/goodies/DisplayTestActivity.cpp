@@ -15,6 +15,7 @@
 #include <cstring>
 #include <utility>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UIScale.h"
@@ -67,6 +68,7 @@ void DisplayTestActivity::onEnter() {
 }
 
 void DisplayTestActivity::onExit() {
+  setNight(false);
 #ifndef SIMULATOR
   freeink::setUc8179KbdExperiment(nullptr);
 #endif
@@ -91,7 +93,11 @@ void DisplayTestActivity::loop() {
     }
     return;
   }
-  if (current == Phase::Waiting && static_cast<long>(millis() - resumeAtMs) >= 0) {
+  int tapX = 0, tapY = 0;
+  if (current == Phase::Waiting &&
+      (tapWait ? mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tapX, tapY)
+               : static_cast<long>(millis() - resumeAtMs) >= 0)) {
+    tapWait = false;
     phase = Phase::Running;
     requestUpdate();
     return;
@@ -186,6 +192,17 @@ void DisplayTestActivity::runOps() {
         ++pc;
         phase = Phase::Waiting;
         return;
+      case OpCode::Tap:
+        tapWait = true;
+        ++pc;
+        phase = Phase::Waiting;
+        return;
+      case OpCode::Gray:
+        grayPass();
+        break;
+      case OpCode::Night:
+        setNight(op.a[0] != 0);
+        break;
       case OpCode::Repeat:
         loops.push_back({pc, op.a[0]});
         break;
@@ -227,6 +244,7 @@ void DisplayTestActivity::runOps() {
     ++pc;
   }
   if (!stopped) LOG_INF("GDY", "test=\"%s\" done refreshes=%d", title.c_str(), refreshCount);
+  setNight(false);
   phase = Phase::Finished;
 }
 
@@ -333,6 +351,49 @@ void DisplayTestActivity::refresh(const Mode mode) {
   LOG_INF("GDY", "test=\"%s\" n=%d mode=%s total=%u", title.c_str(), refreshCount, display_script::modeName(mode),
           static_cast<unsigned>(totalMs));
 #endif
+}
+
+// The reader's overlay AA pass (ReaderUtils::renderAntiAliased) over the B/W
+// page on the panel: dark gray on the left half, light gray on the right, under
+// the label band. Masks are only meaningful over black pixels.
+void DisplayTestActivity::grayPass() {
+  const int w = renderer.getScreenWidth();
+  const int h = renderer.getScreenHeight() - bandH;
+  if (!renderer.storeBwBuffer()) {
+    LOG_ERR("GDY", "test=\"%s\" gray: no memory for the B/W copy", title.c_str());
+    return;
+  }
+  const unsigned long startMs = millis();
+  renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+  renderer.fillRect(0, bandH, w / 2, h, false);  // dark: both masks
+  renderer.copyGrayscaleLsbBuffers();
+  renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+  renderer.fillRect(0, bandH, w, h, false);  // light: MSB only
+  renderer.copyGrayscaleMsbBuffers();
+  renderer.displayGrayBuffer();
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.restoreBwBuffer();
+  ++refreshCount;
+  LOG_INF("GDY", "test=\"%s\" n=%d mode=gray total=%u", title.c_str(), refreshCount,
+          static_cast<unsigned>(millis() - startMs));
+}
+
+// ActivityManager re-applies SETTINGS.screenInverted before every render, so
+// Night Mode for the test goes through the setting (in RAM, never saved) and
+// the user's value comes back when the test ends or exits.
+void DisplayTestActivity::setNight(const bool on) {
+  if (on == (savedNight >= 0)) return;
+  if (on) {
+    savedNight = static_cast<int8_t>(SETTINGS.screenInverted);
+    SETTINGS.screenInverted = 1;
+  } else {
+    SETTINGS.screenInverted = static_cast<uint8_t>(savedNight);
+    savedNight = -1;
+  }
+  renderer.setInvertedTextGray(on);  // overlay gray in panel polarity (as TxtReader's night mode)
+  display.setInverted(SETTINGS.screenInverted != 0);
 }
 
 // Word-wraps band parts (the first bold) to the screen width in UI_12, up to 3

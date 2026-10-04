@@ -45,6 +45,8 @@ class DisplayTestActivity final : public Activity {
   bool askDrawn = false;
   int pickIndex = 0;  // button selection while a pick waits
   unsigned long resumeAtMs = 0;
+  bool tapWait = false;    // Waiting for a tap or Confirm, not resumeAtMs
+  int8_t savedNight = -1;  // the user's Night Mode while `night on` holds (-1: not held)
   int pc = 0;
   std::vector<Loop> loops;
   std::vector<std::string> answers;
@@ -65,6 +67,8 @@ class DisplayTestActivity final : public Activity {
   void runOps();
   void drawOp(const display_script::Op& op);
   void refresh(display_script::Mode mode);
+  void grayPass();
+  void setNight(bool on);
   void wrapBand(const std::string* parts, int count, std::vector<BandLine>& out) const;
   int drawBand(const std::vector<BandLine>& lines, int extraH);
   void drawAsk();
