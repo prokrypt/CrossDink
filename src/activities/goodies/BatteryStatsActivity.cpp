@@ -466,7 +466,9 @@ void BatteryStatsActivity::render(RenderLock&&) {
       if (p1.mark & BatteryLogParser::MARK_CHARGE) {
         renderer.drawLine(px(p1.epoch), y + gh - 14, px(p1.epoch), y + gh - 2, 2, true);
       }
-      if (p1.mark & BatteryLogParser::MARK_CHARGED) renderer.drawLine(px(p1.epoch), y + 2, px(p1.epoch), y + 14, 2, true);
+      if (p1.mark & BatteryLogParser::MARK_CHARGED) {
+        renderer.drawLine(px(p1.epoch), y + 2, px(p1.epoch), y + 14, 2, true);
+      }
       if (p0.wifi) renderer.fillRect(px(p0.epoch), y + gh + 2, bw, 4);
       if (p0.awake) renderer.fillRect(px(p0.epoch), y + gh + 8, bw, 4);
     }
