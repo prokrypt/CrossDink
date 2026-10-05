@@ -1125,7 +1125,20 @@ bool CrossPointWebServer::handleClient() {
 bool PendingAwareWebServer::requestPending() {
   // A new connection waiting in accept(), or bytes on the kept-alive one. An
   // idle keep-alive connection does not count, so it cannot pin full power.
-  return _server.hasClient() || _currentClient.available() > 0;
+  const bool waiting = _server.hasClient();
+  const bool hasBytes = _currentClient.available() > 0;
+#ifndef SIMULATOR
+  // The server serves one connection at a time and waits up to
+  // HTTP_MAX_DATA_WAIT (5 s) for a silent one (a client's spare pooled
+  // connection) to send its request. Once another connection is waiting,
+  // close the silent one (a FIN, nothing was sent) and serve the next.
+  constexpr unsigned long SILENT_GRACE_MS = 1000;
+  if (waiting && !hasBytes && _currentStatus == HC_WAIT_READ && millis() - _statusChange >= SILENT_GRACE_MS) {
+    LOG_DBG("WEB", "Closing silent connection fd %d, another is waiting", _currentClient.fd());
+    _currentClient.stop();
+  }
+#endif
+  return waiting || hasBytes;
 }
 
 void CrossPointWebServer::noteTransferActivity() {
