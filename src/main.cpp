@@ -70,7 +70,6 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
-#include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/KOSyncAuto.h"
 #include "activities/reader/ReaderExitSave.h"
@@ -83,6 +82,7 @@
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
@@ -1151,10 +1151,10 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       LOG_INF("TOUCH", "Reader touchscreen %s by shortcut", SETTINGS.disableReaderTouchscreen ? "disabled" : "enabled");
       {
         RenderLock lock;
-        BookActions::drawToast(
-            renderer, SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
+        Toast::show(renderer,
+                    SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
       }
-      delay(1000);
+      delay(Toast::DURATION_MS);
       activityManager.requestUpdate();
       return true;
     default:
@@ -1655,14 +1655,15 @@ void syncBookBeforeSleep() {
   // busy render task only costs the toasts, never the push or the sleep.
   RenderLock lock(3000UL);
   // The sleep screen may snapshot this page, so the toasts' band is put back after.
-  const int bandH = renderer.getLineHeight(UI_10_FONT_ID) + 24;  // drawToast()'s height
-  const int bandY = (renderer.getScreenHeight() - bandH) / 2;
+  const Rect toast = Toast::bounds(renderer, "");
+  const int bandH = toast.height;
+  const int bandY = toast.y;
   const int bandW = renderer.getScreenWidth();
   const size_t bandBytes = renderer.getRegionByteSize(0, bandY, bandW, bandH);
   std::unique_ptr<uint8_t[]> band;
   if (lock.ownsLock()) band = makeUniqueNoThrow<uint8_t[]>(bandBytes);
   const bool saved = band && renderer.copyRegionToBuffer(0, bandY, bandW, bandH, band.get(), bandBytes);
-  if (saved) BookActions::drawToast(renderer, tr(STR_SYNCING_PROGRESS));
+  if (saved) Toast::show(renderer, tr(STR_SYNCING_PROGRESS));
   const kosync_auto::PushOutcome outcome = kosync_auto::pushNow(path);
   LOG_INF("KOSync", "sleep push outcome %d", static_cast<int>(outcome));
   if (!saved) return;
@@ -1670,8 +1671,8 @@ void syncBookBeforeSleep() {
                     : outcome == kosync_auto::PushOutcome::Same        ? tr(STR_ALREADY_SYNCED)
                     : outcome == kosync_auto::PushOutcome::ServerAhead ? tr(STR_SYNC_SERVER_AHEAD)
                                                                        : tr(STR_SYNC_FAILED_MSG);
-  BookActions::drawToast(renderer, msg);
-  delay(1500);
+  Toast::show(renderer, msg);
+  delay(Toast::DURATION_MS);
   renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
 }
 
@@ -3111,9 +3112,9 @@ static void loopPass() {
   static unsigned long koSyncToastAt = 0;
   if (kosync_auto::takePushed()) {
     RenderLock lock;
-    BookActions::drawToast(renderer, tr(STR_UPLOAD_SUCCESS));
+    Toast::show(renderer, tr(STR_UPLOAD_SUCCESS));
     koSyncToastAt = millis() | 1;
-  } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
+  } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= Toast::DURATION_MS) {
     koSyncToastAt = 0;
     activityManager.requestUpdate();
   }

@@ -31,16 +31,10 @@
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
+#include "components/Toast.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "activities/reader/ReaderPinchGesture.h"
 #endif
-
-struct ToastRect {
-  int x = 0;
-  int y = 0;
-  int w = 0;
-  int h = 0;
-};
 
 class EpubReaderActivity final : public Activity {
  public:
@@ -280,7 +274,7 @@ class EpubReaderActivity final : public Activity {
   unsigned long renderModeToastShowTime = 0UL;
   std::unique_ptr<uint8_t[]> renderModeToastRegionBuffer;
   size_t renderModeToastRegionBufferSize = 0;
-  ToastRect renderModeToastRegion;
+  Rect renderModeToastRegion;
   bool renderModeToastRegionSaved = false;
   int completionTriggerSpineIndex = -1;
   float completionTriggerSpineProgress = 1.0f;
