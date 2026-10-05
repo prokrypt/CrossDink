@@ -9,7 +9,7 @@ permissions:
 jobs:
   build-release-candidate:
     if: startsWith(github.ref_name, 'release/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +39,7 @@ jobs:
           enable-cache: true
 
       - name: Cache PlatformIO packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           # Do not cache PlatformIO's Python virtual environment. It is tied to
           # the runner's Python and can become invalid when restored elsewhere.
@@ -105,7 +105,7 @@ jobs:
   publish-release-candidate:
     if: startsWith(github.ref_name, 'release/')
     needs: build-release-candidate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       RC_BRANCH: ${{ github.ref_name }}
       RC_HASH: ${{ github.sha }}

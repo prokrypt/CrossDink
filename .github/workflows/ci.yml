@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   clang-format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,7 +40,7 @@ jobs:
           git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
 
   cppcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -64,7 +64,7 @@ jobs:
 
       - name: Restore PlatformIO packages
         id: pio-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           # Do not cache PlatformIO's Python virtual environment. It is tied to
           # the runner's Python and can become invalid when restored elsewhere.
@@ -82,7 +82,7 @@ jobs:
 
       - name: Install cppcheck runtime dependency
         # Platform 55.03.39 ships tool-cppcheck 2.20.1, linked against libpcre.so.3,
-        # which ubuntu-latest does not install; without it the check exits 127.
+        # which ubuntu-24.04 does not install; without it the check exits 127.
         run: sudo apt-get update -q && sudo apt-get install -y -q libpcre3
 
       - name: Run cppcheck
@@ -92,7 +92,7 @@ jobs:
       # that PR alone and would just push main's out of the 10 GB limit.
       - name: Save PlatformIO packages
         if: github.ref == 'refs/heads/main' && steps.pio-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.platformio/packages
@@ -104,7 +104,7 @@ jobs:
     # in the dedicated release workflow. Pushes build too, only to save the
     # caches: PR runs can restore caches from the base branch, not from other PRs,
     # and never save their own (see "Save PlatformIO packages" in cppcheck).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -128,7 +128,7 @@ jobs:
 
       - name: Restore PlatformIO packages
         id: pio-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           # Do not cache PlatformIO's Python virtual environment. It is tied to
           # the runner's Python and can become invalid when restored elsewhere.
@@ -162,7 +162,7 @@ jobs:
 
       - name: Save PlatformIO packages
         if: github.ref == 'refs/heads/main' && steps.pio-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.platformio/packages
@@ -175,7 +175,7 @@ jobs:
           echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
 
       - name: Restore ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ matrix.environment }}-${{ github.sha }}
@@ -200,7 +200,7 @@ jobs:
 
       - name: Save ccache
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ matrix.environment }}-${{ github.sha }}
@@ -225,7 +225,7 @@ jobs:
           retention-days: 14
 
   unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -255,7 +255,7 @@ jobs:
       - cppcheck
       - unit-tests
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Fail because needed jobs failed
         # Fail if any job failed or was cancelled (skipped jobs are ok)
