@@ -5,6 +5,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@ enum BarItem {
   SLOT_RIGHT_1,
   SLOT_RIGHT_2,
   SLOT_RIGHT_3,
+  BATTERY_STYLE,
   PERCENTAGE_FORMAT,
   PROGRESS_BAR,
   PROGRESS_BAR_THICKNESS,
@@ -33,6 +35,11 @@ enum BarItem {
   CENTER_ITEMS,
   SEPARATOR,
 };
+
+// Root: Top, Bottom, XTC, text size. Display context: Left, Center, Right, Battery, text size.
+constexpr int DISPLAY_BATTERY_ROW = 3;
+constexpr int DISPLAY_TEXT_SIZE_ROW = 4;
+constexpr int ROOT_TEXT_SIZE_ROW = 3;
 
 constexpr ReaderStatusBarItem pickerItems[] = {
     ReaderStatusBarItem::Clock,
@@ -113,12 +120,17 @@ const char* thicknessLabel(const uint8_t thickness) {
   }
 }
 
-// Root: Top, Bottom, XTC, text size. Display context: Left, Center, Right, text size.
-constexpr int ROOT_TEXT_SIZE_ROW = 3;
-constexpr int DISPLAY_TEXT_SIZE_ROW = 3;
 constexpr StrId textSizeNames[] = {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE};
 
 const char* textSizeLabel(const uint8_t size) { return I18N.get(textSizeNames[std::min<uint8_t>(size, 2)]); }
+
+constexpr StrId batteryStyleNames[] = {StrId::STR_BATTERY_ICON_AND_PERCENT, StrId::STR_BATTERY_ICON_ONLY,
+                                       StrId::STR_BATTERY_PERCENT_ONLY};
+
+const char* batteryStyleLabel(const ReaderStatusBarBatteryStyle style) {
+  const auto index = static_cast<size_t>(style);
+  return I18N.get(batteryStyleNames[index < std::size(batteryStyleNames) ? index : 0]);
+}
 
 const StrId percentageFormatNames[] = {StrId::STR_PERCENTAGE_FORMAT_WHOLE, StrId::STR_PERCENTAGE_FORMAT_ONE_DECIMAL,
                                        StrId::STR_PERCENTAGE_FORMAT_TWO_DECIMALS};
@@ -294,6 +306,25 @@ void StatusBarSettingsActivity::openOptionPicker() {
   const auto position = selectedPosition();
   const int item = selectedIndex;
   const auto config = SETTINGS.readerStatusBar(position);
+  if (displayContext ? item == DISPLAY_BATTERY_ROW : item == BATTERY_STYLE) {
+    const auto current = displayContext ? SETTINGS.displayStatusBar.batteryStyle : config.batteryStyle;
+    optionPopup.show(StrId::STR_BATTERY, batteryStyleNames, static_cast<int>(std::size(batteryStyleNames)),
+                     static_cast<int>(current), [this, position](const int selected) {
+                       if (selected < 0 || selected >= static_cast<int>(ReaderStatusBarBatteryStyle::Count)) return;
+                       const auto style = static_cast<ReaderStatusBarBatteryStyle>(selected);
+                       if (displayContext) {
+                         SETTINGS.displayStatusBar.batteryStyle = style;
+                       } else {
+                         auto updated = SETTINGS.readerStatusBar(position);
+                         updated.batteryStyle = style;
+                         SETTINGS.setReaderStatusBar(position, updated);
+                       }
+                       SETTINGS.saveToFile();
+                       requestUpdate();
+                     });
+    requestUpdate();
+    return;
+  }
   if (!displayContext && (item == CENTER_ITEMS || item == HIDE_BAR)) {
     // Toggle rows flip in place, like the main Settings toggles.
     auto updated = config;
@@ -424,6 +455,9 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     if (displayContext && i == DISPLAY_TEXT_SIZE_ROW) {
       row.label = tr(STR_STATUS_BAR_TEXT_SIZE);
       row.value = textSizeLabel(SETTINGS.displayStatusBarTextSize);
+    } else if (displayContext && i == DISPLAY_BATTERY_ROW) {
+      row.label = tr(STR_BATTERY);
+      row.value = batteryStyleLabel(SETTINGS.displayStatusBar.batteryStyle);
     } else if (displayContext) {
       row.label = i == 0 ? tr(STR_STATUS_BAR_LEFT) : i == 1 ? tr(STR_CENTER) : tr(STR_STATUS_BAR_RIGHT);
       values[i] = itemLabel(SETTINGS.displayStatusBar.slots[i]);
@@ -450,10 +484,13 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
         if (item == SLOT_LEFT_1) row.sectionHeading = tr(STR_STATUS_BAR_LEFT);
         if (item == SLOT_CENTER) row.sectionHeading = tr(STR_CENTER);
         if (item == SLOT_RIGHT_1) row.sectionHeading = tr(STR_STATUS_BAR_RIGHT);
+      } else if (item == BATTERY_STYLE) {
+        row.label = tr(STR_BATTERY);
+        row.value = batteryStyleLabel(config.batteryStyle);
+        row.sectionHeading = tr(STR_OPTIONS);
       } else if (item == PERCENTAGE_FORMAT) {
         row.label = tr(STR_PERCENTAGE_FORMAT);
         row.value = I18N.get(percentageFormatNames[config.percentageFormat]);
-        row.sectionHeading = tr(STR_OPTIONS);
       } else if (item == PROGRESS_BAR) {
         row.label = tr(STR_PROGRESS_BAR);
         row.value = progressModeLabel(config.progressBar);

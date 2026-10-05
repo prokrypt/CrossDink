@@ -8,7 +8,7 @@ inline bool readDisplayStatusBarJson(const JsonVariantConst source, DisplayStatu
                                      const bool clockAvailable) {
   const auto slots = source.as<JsonArrayConst>();
   if (slots.size() != config.slots.size()) return false;
-  DisplayStatusBarConfig parsed;
+  DisplayStatusBarConfig parsed = config;  // Slots only; keep the separately stored battery style.
   for (unsigned i = 0; i < parsed.slots.size(); ++i) {
     if (!slots[i].is<int>() || !validDisplayStatusBarItemValue(slots[i].as<int>(), clockAvailable)) return false;
     parsed.slots[i] = static_cast<ReaderStatusBarItem>(slots[i].as<int>());
@@ -24,6 +24,7 @@ inline void writeReaderStatusBarJson(JsonObject target, const ReaderStatusBarCon
   target["progressBar"] = config.progressBar;
   target["thickness"] = config.progressBarThickness;
   target["hidden"] = config.hidden;
+  target["battery"] = static_cast<uint8_t>(config.batteryStyle);
   target["centered"] = config.centered;
   target["separator"] = static_cast<uint8_t>(config.separator);
 }
@@ -36,6 +37,17 @@ inline bool readReaderStatusBarSeparator(const JsonVariantConst value, ReaderSta
     return false;
   }
   separator = static_cast<ReaderStatusBarSeparator>(raw);
+  return true;
+}
+
+// Missing means the document predates battery styles; callers decide the fallback.
+inline bool readReaderStatusBarBatteryStyle(const JsonVariantConst value, ReaderStatusBarBatteryStyle& style) {
+  if (value.isUnbound()) return true;
+  const int raw = value.as<int>();
+  if (!value.is<int>() || !validReaderStatusBarChoice(raw, static_cast<int>(ReaderStatusBarBatteryStyle::Count))) {
+    return false;
+  }
+  style = static_cast<ReaderStatusBarBatteryStyle>(raw);
   return true;
 }
 
@@ -62,6 +74,7 @@ inline bool readReaderStatusBarJson(const JsonVariantConst source, ReaderStatusB
   if (!readReaderStatusBarSeparator(source["separator"], parsed.separator)) return false;
   parsed.centered = source["centered"] | false;
   if (!source["hidden"].isUnbound() && !source["hidden"].is<bool>()) return false;
+  if (!readReaderStatusBarBatteryStyle(source["battery"], parsed.batteryStyle)) return false;
   parsed.hidden = source["hidden"].is<bool>() && source["hidden"].as<bool>();
   parsed.percentageFormat = percentageFormat;
   parsed.progressBar = progressMode;
@@ -120,6 +133,9 @@ inline bool repairReaderStatusBarJson(const JsonVariantConst source, ReaderStatu
     repaired.separator = ReaderStatusBarSeparator::Bullet;
   }
   repaired.hidden = source["hidden"].is<bool>() && source["hidden"].as<bool>();
+  if (!readReaderStatusBarBatteryStyle(source["battery"], repaired.batteryStyle)) {
+    repaired.batteryStyle = ReaderStatusBarBatteryStyle::IconAndPercent;
+  }
   config = repaired;
   return true;
 }

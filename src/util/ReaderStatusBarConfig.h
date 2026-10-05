@@ -52,6 +52,8 @@ inline const char* readerStatusBarSeparatorGlyph(const ReaderStatusBarSeparator 
   const auto index = static_cast<unsigned>(separator);
   return index < sizeof(GLYPHS) / sizeof(GLYPHS[0]) ? GLYPHS[index] : GLYPHS[0];
 }
+// How a Battery slot renders. Values are persisted; keep them stable.
+enum class ReaderStatusBarBatteryStyle : uint8_t { IconAndPercent = 0, IconOnly, PercentOnly, Count };
 
 constexpr bool validReaderStatusBarChoice(const int value, const int optionCount) {
   return value >= 0 && value < optionCount;
@@ -76,6 +78,7 @@ struct ReaderStatusBarConfig {
   uint8_t progressBarThickness = 1;
   bool centered = false;
   ReaderStatusBarSeparator separator = ReaderStatusBarSeparator::Bullet;
+  ReaderStatusBarBatteryStyle batteryStyle = ReaderStatusBarBatteryStyle::IconAndPercent;
   bool hidden = false;
 
   constexpr bool contains(ReaderStatusBarItem item) const {
@@ -117,10 +120,12 @@ constexpr bool validDisplayStatusBarItemValue(const int value, const bool clockA
 struct DisplayStatusBarConfig {
   std::array<ReaderStatusBarItem, 3> slots{ReaderStatusBarItem::Empty, ReaderStatusBarItem::Empty,
                                            ReaderStatusBarItem::Battery};
+  ReaderStatusBarBatteryStyle batteryStyle = ReaderStatusBarBatteryStyle::IconAndPercent;
 
   ReaderStatusBarConfig asReaderConfig() const {
     ReaderStatusBarConfig config;
     config.progressBar = 2;
+    config.batteryStyle = batteryStyle;
     config.slots[ReaderStatusBarConfig::LEFT_FIRST] = slots[0];
     config.slots[ReaderStatusBarConfig::CENTER] = slots[1];
     config.slots[ReaderStatusBarConfig::RIGHT_FIRST] = slots[2];

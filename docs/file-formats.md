@@ -30,6 +30,13 @@ bar keeps all of its slots and options, removes its text and progress lane from 
 around the current text position. XTC keeps its fixed page and clears the displayed status strip. Both fields
 round-trip through settings export/import and the web status-bar editor.
 
+`readerStatusBars.top.battery`, `readerStatusBars.bottom.battery` and the root `displayBatteryStyle` select how a
+Battery slot renders in that bar: Icon + % (`0`), Icon Only (`1`) or % Only (`2`); invalid values fall back to Icon + %.
+A missing key is migrated once from the legacy `hideBatteryPercentage` (Never, In Reader, Always): Never keeps Icon + %
+everywhere, In Reader uses Icon Only for the reader bars only, and Always uses Icon Only everywhere.
+`hideBatteryPercentage` is no longer written. Outside the reader the Wi-Fi glyph stays beside the battery in every
+style.
+
 ## TXT `index.bin`
 
 Version 5 adds signed `characterSpacing` (-5..5) after the source file size in
