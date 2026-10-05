@@ -18,13 +18,28 @@ class GfxRenderer {
     if (maxLines <= 0 || text == nullptr || text[0] == '\0') return {};
     return {text};
   }
-  void displayBuffer() const {}
+  void setBeforeDisplay(void (*fn)(const void*), const void* ctx) {
+    beforeDisplay = fn;
+    beforeDisplayCtx = ctx;
+  }
+  void displayBuffer() const {
+    if (beforeDisplay) {
+      const auto fn = beforeDisplay;
+      beforeDisplay = nullptr;
+      fn(beforeDisplayCtx);
+    }
+    ++displays;
+  }
+  int displayCount() const { return displays; }
   void drawLine(int, int, int, int) const { ++drawnLines; }
   void fillPolygon(const int*, const int*, int, bool) const { ++drawnTriangles; }
   int lineCount() const { return drawnLines; }
   int triangleCount() const { return drawnTriangles; }
 
  private:
+  mutable void (*beforeDisplay)(const void*) = nullptr;
+  mutable const void* beforeDisplayCtx = nullptr;
+  mutable int displays = 0;
   mutable int drawnLines = 0;
   mutable int drawnTriangles = 0;
 };

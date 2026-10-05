@@ -592,6 +592,7 @@ void ActivityManager::renderTaskLoop() {
       ListSelection::hidOnScreen = ListSelection::hidThisFrame;
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
+      renderer.setBeforeDisplay(nullptr, nullptr);  // never outlives the render that set it
       restoredActivityNeedsRender = false;
     }
     TouchRegistry::getInstance().publish();

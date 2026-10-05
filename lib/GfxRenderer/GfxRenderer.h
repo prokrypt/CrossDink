@@ -52,6 +52,9 @@ class GfxRenderer {
   HalDisplay& display;
   RenderMode renderMode;
   mutable bool absoluteGrayPlanes = false;
+  mutable void (*beforeDisplay)(const void*) = nullptr;
+  mutable const void* beforeDisplayCtx = nullptr;
+  void runBeforeDisplay() const;
   Orientation orientation;
   bool fadingFix;
   bool deferFastRefresh = false;
@@ -239,6 +242,13 @@ class GfxRenderer {
   bool isRefreshPending() const;
   // That refresh's waveform is still running on the panel.
   bool isRefreshBusy() const;
+  // One-shot: runs just before the next displayBuffer()/displayBufferAsync()
+  // pushes the framebuffer, so an overlay can share that refresh. The render
+  // task clears it after every activity render.
+  void setBeforeDisplay(void (*fn)(const void*), const void* ctx) {
+    beforeDisplay = fn;
+    beforeDisplayCtx = ctx;
+  }
 
   // Screen ops
   int getScreenWidth() const;
