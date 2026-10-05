@@ -153,10 +153,7 @@ constexpr uint8_t READER_SETTINGS_FLAG_SAFE_MODE = 1 << 4;
 constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
 constexpr char BALANCED_SECTION_CACHE_SUFFIX[] = "_balanced";
 constexpr char LIGHT_SECTION_CACHE_SUFFIX[] = "_light";
-constexpr unsigned long RENDER_MODE_TOAST_MS = 1500UL;
-KNOB_ALIAS(MIN_MANUAL_PAGE_TURN_GAP_MS, pageTurnGapMs);  // Goodies > Knobs
-// Shared dwell time for the transient bookmark/completed/tilt confirmations.
-constexpr unsigned long TRANSIENT_FEEDBACK_MS = 1000UL;
+KNOB_ALIAS(MIN_MANUAL_PAGE_TURN_GAP_MS, pageTurnGapMs);         // Goodies > Knobs
 KNOB_ALIAS(IDLE_SD_FONT_PREWARM_DELAY_MS, fontPrewarmDelayMs);  // Goodies > Knobs, as the two below
 KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_FREE, idlePrewarmMinFree);
 KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC, idlePrewarmMinBlock);
@@ -916,33 +913,6 @@ bool allocateDeferredGrayscalePlanes(const GfxRenderer& renderer, HeapByteBuffer
     return false;
   }
   return true;
-}
-
-ToastRect computeToastRect(const GfxRenderer& renderer, const char* msg) {
-  constexpr int toastPadX = 20;
-  constexpr int toastPadY = 12;
-  const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);
-  const int msgH = renderer.getLineHeight(UI_10_FONT_ID);
-  const int toastW = msgW + toastPadX * 2;
-  const int toastH = msgH + toastPadY * 2;
-  const int toastX = (renderer.getScreenWidth() - toastW) / 2;
-  const int toastY = (renderer.getScreenHeight() - toastH) / 2;
-  return {toastX, toastY, toastW, toastH};
-}
-
-void drawToastBuffer(const GfxRenderer& renderer, const char* msg) {
-  constexpr int toastPadX = 20;
-  constexpr int toastPadY = 12;
-  const bool toastBackgroundBlack = ReaderUtils::readerForegroundBlack();
-  const ToastRect toast = computeToastRect(renderer, msg);
-  renderer.fillRect(toast.x, toast.y, toast.w, toast.h, toastBackgroundBlack);
-  renderer.drawRect(toast.x, toast.y, toast.w, toast.h, !toastBackgroundBlack);
-  renderer.drawText(UI_10_FONT_ID, toast.x + toastPadX, toast.y + toastPadY, msg, !toastBackgroundBlack);
-}
-
-void drawToast(const GfxRenderer& renderer, const char* msg) {
-  drawToastBuffer(renderer, msg);
-  renderer.displayBuffer();
 }
 
 void drawPublisherPageMarkers(const GfxRenderer& renderer, const Page& page, const int contentTop,
@@ -3211,7 +3181,7 @@ void EpubReaderActivity::prewarmNextPageFonts(const char* when) {
 // One dismissal rule for every transient reader confirmation: it clears when its
 // dwell time elapses or the reader presses a navigation button.
 bool EpubReaderActivity::transientFeedbackDismissed(const unsigned long showTimeMs) const {
-  if ((millis() - showTimeMs) >= TRANSIENT_FEEDBACK_MS) {
+  if ((millis() - showTimeMs) >= Toast::DURATION_MS) {
     return true;
   }
   return mappedInput.wasReleased(MappedInputManager::Button::Left) ||
@@ -3464,8 +3434,7 @@ void EpubReaderActivity::loop() {
     requestUpdate();
     return;
   }
-  if ((pendingRenderModeToast || pendingSafeModeToast) &&
-      (millis() - renderModeToastShowTime) >= RENDER_MODE_TOAST_MS) {
+  if ((pendingRenderModeToast || pendingSafeModeToast) && (millis() - renderModeToastShowTime) >= Toast::DURATION_MS) {
     bool toastRegionRestored = false;
     if (renderModeToastRegionSaved) {
       if (RenderLock::peek()) {
@@ -4250,8 +4219,7 @@ void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initia
     LOG_ERR("DICT", "OOM allocating DictionaryWordSelectActivity (%u bytes)",
             static_cast<unsigned>(sizeof(DictionaryWordSelectActivity)));
     resumeReadingPaceTimer("dictionary_lookup_alloc_failed");
-    drawToast(renderer, tr(STR_MEMORY_ERROR));
-    delay(1000);
+    Toast::show(renderer, tr(STR_MEMORY_ERROR));
     requestUpdate();
     return;
   }
@@ -4301,8 +4269,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       const int pageCount = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
       if (!saveProgress(currentSpineIndex, page, pageCount)) {
         LOG_ERR("NBOOK", "Could not save EPUB progress before transfer");
-        drawToast(renderer, tr(STR_NEARBY_TRANSFER_PROGRESS_SAVE_FAILED));
-        delay(1200);
+        Toast::show(renderer, tr(STR_NEARBY_TRANSFER_PROGRESS_SAVE_FAILED));
         requestUpdate();
         break;
       }
@@ -4488,8 +4455,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                                    }
                                  }
                                  if (statsDeleted) {
-                                   drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
-                                   delay(1000);
+                                   Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
                                  } else {
                                    LOG_ERR("ERS", "Failed to delete book stats");
                                  }
@@ -4532,13 +4498,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                 cacheDeleted = clearBookCachePreservingUserState(epub->getPath());
                 epub->setupCacheDir();
                 if (cacheDeleted) {
-                  drawToast(renderer, tr(STR_BOOK_CACHE_DELETED));
+                  Toast::show(renderer, tr(STR_BOOK_CACHE_DELETED));
                 }
               }
             }
-            if (cacheDeleted) {
-              delay(1000);
-            } else {
+            if (!cacheDeleted) {
               LOG_ERR("ERS", "Failed to delete book cache");
             }
             onGoHome();
@@ -4547,8 +4511,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
     }
     case EpubReaderMenuAction::RESET_READING_PACE: {
       resetReadingPaceData();
-      drawToast(renderer, tr(STR_READING_PACE_RESET));
-      delay(1000);
+      Toast::show(renderer, tr(STR_READING_PACE_RESET));
       requestUpdate();
       break;
     }
@@ -4597,13 +4560,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
               section.reset();
               ensureReaderSdFontLoaded(renderer);
               workerLaneMissFontId = 0;
-              drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
+              Toast::show(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
             }
           }
 
-          if (settingsReset) {
-            delay(1000);
-          } else {
+          if (!settingsReset) {
             LOG_ERR("ERS", "Failed to reset reader settings for current book");
           }
         } else {
@@ -4667,7 +4628,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       const bool enabled = !bookStatsEnabled;
       if (!BookStatsTracking::setBookEnabled(epub->getCachePath(), enabled)) {
         const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
-        drawToast(renderer, error.c_str());
+        Toast::show(renderer, error.c_str());
       }
       bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
       syncStatsTrackingState();
@@ -4715,8 +4676,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
         if (!restartActivity) {
           LOG_ERR("KOSync", "OOM: restart handoff (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
-          drawToast(renderer, tr(STR_KOREADER_SYNC_LOW_MEMORY));
-          delay(1200);
+          Toast::show(renderer, tr(STR_KOREADER_SYNC_LOW_MEMORY));
           requestUpdate();
           break;
         }
@@ -4758,8 +4718,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       KOReaderPosition localKoPos = ProgressMapper::toKOReader(epub, localPos, coordinateSpace);
       if (!localKoPos.valid) {
         LOG_ERR("NBPS", "Exact filename sync needs a source map; re-optimize this split EPUB");
-        drawToast(renderer, tr(STR_SYNC_REOPTIMIZE_REQUIRED));
-        delay(1200);
+        Toast::show(renderer, tr(STR_SYNC_REOPTIMIZE_REQUIRED));
         requestUpdate();
         break;
       }
@@ -5175,7 +5134,7 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
         LOG_ERR("CLIP", "OOM: clipping advance collector (%u bytes)",
                 static_cast<unsigned>(sizeof(ClipAdvanceCollector)));
         section->currentPage = startPage;
-        drawToast(renderer, tr(STR_MEMORY_ERROR));
+        Toast::show(renderer, tr(STR_MEMORY_ERROR));
         requestUpdate();
         return;
       }
@@ -5408,7 +5367,7 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
               static_cast<unsigned>(dictionaryRequest->firstPageWordOrdinal),
               static_cast<unsigned>(dictionaryRequest->lastPageOffset),
               static_cast<unsigned>(dictionaryRequest->lastPageWordOrdinal));
-      drawToast(renderer, tr(STR_CLIPPING_FAILED));
+      Toast::show(renderer, tr(STR_CLIPPING_FAILED));
       requestUpdate();
       return;
     }
@@ -5465,9 +5424,8 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
 #endif
       {
         RenderLock lock(*this);
-        drawToast(renderer, clippingFeedback);
+        Toast::show(renderer, clippingFeedback);
       }
-      delay(1000);
     }
     requestUpdate();
   });
@@ -5606,8 +5564,7 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       if (epub && Dictionary::exists(epub->getCachePath().c_str())) {
         openWordSelect(dictionaryLookupFramebufferContainsPage);
       } else {
-        drawToast(renderer, tr(STR_DICT_NO_DICT_SET));
-        delay(1000);
+        Toast::show(renderer, tr(STR_DICT_NO_DICT_SET));
         requestUpdate();
       }
       break;
@@ -6208,8 +6165,8 @@ void EpubReaderActivity::showSafeModeToast() {
 
 bool EpubReaderActivity::storeRenderModeToastRegion(const char* msg) {
   renderModeToastRegionSaved = false;
-  const ToastRect toast = computeToastRect(renderer, msg);
-  const size_t needed = renderer.getRegionByteSize(toast.x, toast.y, toast.w, toast.h);
+  const Rect toast = Toast::bounds(renderer, msg);
+  const size_t needed = renderer.getRegionByteSize(toast.x, toast.y, toast.width, toast.height);
   if (needed == 0) {
     return false;
   }
@@ -6222,7 +6179,7 @@ bool EpubReaderActivity::storeRenderModeToastRegion(const char* msg) {
     }
     renderModeToastRegionBufferSize = needed;
   }
-  if (!renderer.copyRegionToBuffer(toast.x, toast.y, toast.w, toast.h, renderModeToastRegionBuffer.get(),
+  if (!renderer.copyRegionToBuffer(toast.x, toast.y, toast.width, toast.height, renderModeToastRegionBuffer.get(),
                                    renderModeToastRegionBufferSize)) {
     return false;
   }
@@ -6233,7 +6190,7 @@ bool EpubReaderActivity::storeRenderModeToastRegion(const char* msg) {
 
 void EpubReaderActivity::drawRenderModeToastBuffer(const char* msg) {
   storeRenderModeToastRegion(msg);
-  drawToastBuffer(renderer, msg);
+  Toast::draw(renderer, msg);
 }
 
 bool EpubReaderActivity::restoreRenderModeToastRegion() {
@@ -6241,7 +6198,7 @@ bool EpubReaderActivity::restoreRenderModeToastRegion() {
     return false;
   }
   const bool restored = renderer.copyBufferToRegion(renderModeToastRegion.x, renderModeToastRegion.y,
-                                                    renderModeToastRegion.w, renderModeToastRegion.h,
+                                                    renderModeToastRegion.width, renderModeToastRegion.height,
                                                     renderModeToastRegionBuffer.get(), renderModeToastRegionBufferSize);
   renderModeToastRegionSaved = false;
   renderModeToastRegionBuffer.reset();
@@ -8007,17 +7964,17 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
         msg = tr(STR_BOOKMARK_LIMIT_REACHED);
         break;
     }
-    drawToastBuffer(renderer, msg);
+    Toast::draw(renderer, msg);
   }
   if (pendingCompletedFeedback) {
     const char* msg = completedFeedbackIsFinished ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED);
-    drawToastBuffer(renderer, msg);
+    Toast::draw(renderer, msg);
   }
   if (pendingTiltPageTurnFeedback) {
     const char* msg = homeButtonInReaderFeedback
                           ? (tiltPageTurnFeedbackEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED))
                           : (tiltPageTurnFeedbackEnabled ? tr(STR_TILT_TO_TURN_ON) : tr(STR_TILT_TO_TURN_OFF));
-    drawToastBuffer(renderer, msg);
+    Toast::draw(renderer, msg);
   }
   if (pendingSafeModeToast) {
     drawRenderModeToastBuffer(tr(STR_SAFE_MODE));

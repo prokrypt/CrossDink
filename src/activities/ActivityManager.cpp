@@ -31,6 +31,7 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/ListSelection.h"
+#include "components/Toast.h"
 #include "components/TouchRegistry.h"
 #include "components/themes/BaseTheme.h"
 #include "home/AlertActivity.h"
@@ -939,7 +940,8 @@ void ActivityManager::loop() {
     pushActivity(std::make_unique<AlertActivity>(renderer, mappedInput));
   }
 
-  if (requestedUpdate.exchange(false)) {
+  // A toast holds the next frame until it times out or input releases it.
+  if (!Toast::holding() && requestedUpdate.exchange(false)) {
     // Using direct notification to signal the render task to update
     // Increment counter so multiple rapid calls won't be lost
     if (renderTaskHandle) {

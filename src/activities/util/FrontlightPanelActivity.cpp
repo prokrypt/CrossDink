@@ -13,10 +13,10 @@
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
-#include "activities/home/BookActions.h"
 #include "activities/settings/SettingsActivity.h"
 #include "components/DrawerHandle.h"
 #include "components/HeaderDate.h"
+#include "components/Toast.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -197,10 +197,8 @@ void FrontlightPanelActivity::toggleReaderTouchscreen() {
   pendingTouchscreenDisabled = !pendingTouchscreenDisabled;
   {
     RenderLock lock;
-    BookActions::drawToast(renderer,
-                           pendingTouchscreenDisabled ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
+    Toast::show(renderer, pendingTouchscreenDisabled ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
   }
-  delay(1000);
   requestUpdate();
 }
 
