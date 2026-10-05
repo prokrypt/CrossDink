@@ -77,9 +77,9 @@ class GoodiesActivity final : public Activity {
   static constexpr int PINMON_ROW = 5;
   static constexpr int SLEEP_REBOOT_ROW = 7;  // after Battery Stats (6), debug builds with the PSRAM log
 #if CROSSDINK_PSRAM_LOG
-  static constexpr int BOOT_PREV_ROW = 8;  // last row, after Sleep-reboot-log
+  static constexpr int BOOT_ALT_ROW = 8;  // last row, after Sleep-reboot-log
 #else
-  static constexpr int BOOT_PREV_ROW = 7;
+  static constexpr int BOOT_ALT_ROW = 7;
 #endif
   struct Entry {
     std::string label;
@@ -118,7 +118,7 @@ class GoodiesActivity final : public Activity {
   void setRowValue(int row, std::string value);
   std::string tokenRowValue();
   void confirmNewPin();
-  void confirmBootPrevious();
+  void confirmBootAlternate();
   void showMessage(const char* text);
   void openRemotePicker();
   static int remoteRowState();
