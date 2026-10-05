@@ -583,13 +583,13 @@ function summary() {
     // Drops are in 0.01 % like the device; a drain needs 0.2% over a minute.
     const drain = (k) => {
       if (!(s.d[k] >= 20 && s.b[k] >= 60)) return NOT_ENOUGH;
-      return rate(s.d[k] / 100, s.b[k], Math.sqrt(errSq(s.r[k])) / 100, 0.2, k === 1) + ' over ' + hrs(s.b[k]);
+      return rate(s.d[k] / 100, s.b[k], Math.sqrt(errSq(s.r[k])) / 100, 0.2, k === 1) + ' / ' + hrs(s.b[k]);
     };
     rows.push(
       ['Last charged', s.charging ? `charging from ${p(s.from)} (now ${p(s.to)})` : s.charged && now > s.charged ? `${hrs(now - s.charged)} ago from ${p(s.from)} to ${p(s.to)}` : 'not in the log'],
       ['Awake drain', drain(0)],
-      ['Asleep drain', drain(1)],
-      ['Est to empty', estToEmpty(s, pct, bat[bat.length - 1].light)],
+      ['Asleep', drain(1)],
+      ['To empty', estToEmpty(s, pct, bat[bat.length - 1].light)],
       ['Wakes / false wakes', `${s.wakes} / ${s.falseWakes}`],
       ['Cold boots / restarts', `${s.cold} / ${s.rst}`],
       ['Awake / asleep', hrs(s.awake) + ' / ' + hrs(s.asleep)],
