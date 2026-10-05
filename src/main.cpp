@@ -70,7 +70,6 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
-#include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/KOSyncAuto.h"
 #include "activities/reader/ReaderExitSave.h"
@@ -83,6 +82,7 @@
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
@@ -1151,10 +1151,9 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       LOG_INF("TOUCH", "Reader touchscreen %s by shortcut", SETTINGS.disableReaderTouchscreen ? "disabled" : "enabled");
       {
         RenderLock lock;
-        BookActions::drawToast(
-            renderer, SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
+        Toast::show(renderer,
+                    SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
       }
-      delay(1000);
       activityManager.requestUpdate();
       return true;
     default:
@@ -1655,14 +1654,15 @@ void syncBookBeforeSleep() {
   // busy render task only costs the toasts, never the push or the sleep.
   RenderLock lock(3000UL);
   // The sleep screen may snapshot this page, so the toasts' band is put back after.
-  const int bandH = renderer.getLineHeight(UI_10_FONT_ID) + 24;  // drawToast()'s height
-  const int bandY = (renderer.getScreenHeight() - bandH) / 2;
+  const Rect toast = Toast::bounds(renderer, "");
+  const int bandH = toast.height;
+  const int bandY = toast.y;
   const int bandW = renderer.getScreenWidth();
   const size_t bandBytes = renderer.getRegionByteSize(0, bandY, bandW, bandH);
   std::unique_ptr<uint8_t[]> band;
   if (lock.ownsLock()) band = makeUniqueNoThrow<uint8_t[]>(bandBytes);
   const bool saved = band && renderer.copyRegionToBuffer(0, bandY, bandW, bandH, band.get(), bandBytes);
-  if (saved) BookActions::drawToast(renderer, tr(STR_SYNCING_PROGRESS));
+  if (saved) Toast::show(renderer, tr(STR_SYNCING_PROGRESS));
   const kosync_auto::PushOutcome outcome = kosync_auto::pushNow(path);
   LOG_INF("KOSync", "sleep push outcome %d", static_cast<int>(outcome));
   if (!saved) return;
@@ -1670,8 +1670,8 @@ void syncBookBeforeSleep() {
                     : outcome == kosync_auto::PushOutcome::Same        ? tr(STR_ALREADY_SYNCED)
                     : outcome == kosync_auto::PushOutcome::ServerAhead ? tr(STR_SYNC_SERVER_AHEAD)
                                                                        : tr(STR_SYNC_FAILED_MSG);
-  BookActions::drawToast(renderer, msg);
-  delay(1500);
+  Toast::show(renderer, msg);
+  delay(Toast::DURATION_MS);
   renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
 }
 
@@ -2583,6 +2583,7 @@ static unsigned long lightIdleMs(const unsigned long idleMs) {
 
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
+  if (Toast::holding()) return IDLE_WAIT_MS;  // repaint on time when the toast ends
   if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) &&
                           SETTINGS.frontlightFlashDuck)) {
     return FLASH_DUCK_TICK_MS;
@@ -2822,11 +2823,12 @@ static void loopPass() {
 
   // Notify the active activity before global shortcut and gesture routes consume
   // the input and skip its loop() for this frame.
+  const bool tiltActivity = halTiltSensor.hadActivity();  // consumes the flag
   const bool userInputReceived = gpio.wasAnyPressed() || gpio.wasAnyReleased()
 #if CROSSDINK_APP_CAP_TOUCH
                                  || gpio.wasTouchActivity()
 #endif
-                                 || halTiltSensor.hadActivity();
+                                 || tiltActivity;
 #if CROSSDINK_PERF_LOG
   const char* inputKind = nullptr;
   if (userInputReceived) {
@@ -2839,6 +2841,17 @@ static void loopPass() {
 #endif
 #endif
 
+  // A new press, touch or tilt ends a toast's hold, so input never waits it
+  // out; the release of the press that raised the toast does not.
+  {
+#if CROSSDINK_APP_CAP_TOUCH
+    float touchX = 0, touchY = 0;
+    const bool touchDown = gpio.wasTouchDown(touchX, touchY);
+#else
+    constexpr bool touchDown = false;
+#endif
+    if (gpio.wasAnyPressed() || touchDown || tiltActivity) Toast::release();
+  }
   // User input paces power saving. Background work that only has to keep the
   // device out of deep sleep (automatic page turn, sync screens) holds off the
   // sleep timeout separately, so it no longer pins the CPU at full clock.
@@ -3107,14 +3120,12 @@ static void loopPass() {
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();
-  // Auto sync push toast: drawn over the current screen, cleared by its next render.
-  static unsigned long koSyncToastAt = 0;
+  // Auto sync push toast: drawn over the current screen, cleared by the held repaint.
   if (kosync_auto::takePushed()) {
-    RenderLock lock;
-    BookActions::drawToast(renderer, tr(STR_UPLOAD_SUCCESS));
-    koSyncToastAt = millis() | 1;
-  } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
-    koSyncToastAt = 0;
+    {
+      RenderLock lock;
+      Toast::show(renderer, tr(STR_UPLOAD_SUCCESS));
+    }
     activityManager.requestUpdate();
   }
 #if CROSSDINK_GOODIES

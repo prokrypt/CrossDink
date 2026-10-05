@@ -31,6 +31,7 @@
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/HomeCoverThumbs.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -44,22 +45,6 @@ KNOB_ALIAS(LONG_PRESS_MENU_MS, menuHoldMs);  // Goodies > Knobs
 
 std::string confirmationHeading(const StrId actionLabelId) {
   return std::string(tr(STR_CONFIRM)) + ": " + std::string(I18N.get(actionLabelId));
-}
-
-void drawToast(const GfxRenderer& renderer, const char* msg) {
-  constexpr int toastPadX = 20;
-  constexpr int toastPadY = 12;
-  const bool toastBackgroundBlack = ReaderUtils::readerForegroundBlack();
-  const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);
-  const int msgH = renderer.getLineHeight(UI_10_FONT_ID);
-  const int toastW = msgW + toastPadX * 2;
-  const int toastH = msgH + toastPadY * 2;
-  const int toastX = (renderer.getScreenWidth() - toastW) / 2;
-  const int toastY = (renderer.getScreenHeight() - toastH) / 2;
-  renderer.fillRect(toastX, toastY, toastW, toastH, toastBackgroundBlack);
-  renderer.drawRect(toastX, toastY, toastW, toastH, !toastBackgroundBlack);
-  renderer.drawText(UI_10_FONT_ID, toastX + toastPadX, toastY + toastPadY, msg, !toastBackgroundBlack);
-  renderer.displayBuffer();
 }
 
 enum class XtchRenderPass { Base, Lsb, Msb };
@@ -645,8 +630,8 @@ void XtcReaderActivity::toggleHomeButtonInReader() {
     LOG_ERR("XTR", "Failed to save Home button reader setting");
   }
   mappedInput.clearDeferredHomeGesture();
-  drawToast(renderer, SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
-  delay(1000);
+  Toast::show(renderer,
+              SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
   requestUpdate();
 }
 
@@ -980,8 +965,7 @@ void XtcReaderActivity::deleteBookStats() {
             }
           }
           if (statsDeleted) {
-            drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
-            delay(1000);
+            Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
           } else {
             LOG_ERR("XTR", "Failed to delete book stats");
           }
@@ -1006,8 +990,7 @@ void XtcReaderActivity::deleteBookCache() {
             stats.save(xtc->getCachePath());
           }
           if (cacheDeleted) {
-            drawToast(renderer, tr(STR_BOOK_CACHE_DELETED));
-            delay(1000);
+            Toast::show(renderer, tr(STR_BOOK_CACHE_DELETED));
           } else {
             LOG_ERR("XTR", "Failed to delete book cache");
           }
@@ -1029,8 +1012,7 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
       if (xtc && SETTINGS.shouldTrackReadingStats()) {
         const bool enabled = !bookStatsEnabled;
         if (!BookStatsTracking::setBookEnabled(xtc->getCachePath(), enabled)) {
-          drawToast(renderer, (std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER)).c_str());
-          delay(1000);
+          Toast::show(renderer, (std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER)).c_str());
         }
         bookStatsEnabled = BookStatsTracking::isBookEnabled(xtc->getCachePath());
         syncStatsTrackingState();
