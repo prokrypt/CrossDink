@@ -632,7 +632,6 @@ void XtcReaderActivity::toggleHomeButtonInReader() {
   mappedInput.clearDeferredHomeGesture();
   Toast::show(renderer,
               SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
-  delay(Toast::DURATION_MS);
   requestUpdate();
 }
 
@@ -967,7 +966,6 @@ void XtcReaderActivity::deleteBookStats() {
           }
           if (statsDeleted) {
             Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
-            delay(Toast::DURATION_MS);
           } else {
             LOG_ERR("XTR", "Failed to delete book stats");
           }
@@ -993,7 +991,6 @@ void XtcReaderActivity::deleteBookCache() {
           }
           if (cacheDeleted) {
             Toast::show(renderer, tr(STR_BOOK_CACHE_DELETED));
-            delay(Toast::DURATION_MS);
           } else {
             LOG_ERR("XTR", "Failed to delete book cache");
           }
@@ -1016,7 +1013,6 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
         const bool enabled = !bookStatsEnabled;
         if (!BookStatsTracking::setBookEnabled(xtc->getCachePath(), enabled)) {
           Toast::show(renderer, (std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER)).c_str());
-          delay(Toast::DURATION_MS);
         }
         bookStatsEnabled = BookStatsTracking::isBookEnabled(xtc->getCachePath());
         syncStatsTrackingState();

@@ -1477,7 +1477,6 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
                    if (!BookActions::toggleBookStatsTracking(book.path, enabled)) {
                      const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
                      Toast::show(renderer, error.c_str());
-                     delay(Toast::DURATION_MS);
                    }
                    reloadAfterBookAction();
                    return;
@@ -1515,7 +1514,6 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
                                     LOG_ERR("LIB", "Failed to delete book stats for: %s", book.path.c_str());
                                   } else {
                                     Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
-                                    delay(Toast::DURATION_MS);
                                   }
                                 }
                                 reloadAfterBookAction();
@@ -1531,7 +1529,6 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
                                     LOG_ERR("LIB", "Failed to reset reader settings for: %s", book.path.c_str());
                                   } else {
                                     Toast::show(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
-                                    delay(Toast::DURATION_MS);
                                   }
                                 }
                                 reloadAfterBookAction();
@@ -1541,7 +1538,6 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
                    bool completed = false;
                    if (BookActions::toggleBookCompleted(book.path, book.title, completed)) {
                      Toast::show(renderer, completed ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
-                     delay(Toast::DURATION_MS);
                    }
                    reloadAfterBookAction();
                    return;

@@ -719,7 +719,6 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
             if (!BookActions::toggleBookStatsTracking(fullPath, enabled)) {
               const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
               Toast::show(renderer, error.c_str());
-              delay(Toast::DURATION_MS);
             }
             requestUpdate();
             return;
@@ -751,7 +750,6 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                                          LOG_ERR("FileBrowser", "Failed to clear book cache for: %s", fullPath.c_str());
                                        } else {
                                          Toast::show(renderer, tr(STR_BOOK_CACHE_DELETED));
-                                         delay(Toast::DURATION_MS);
                                        }
                                      }
                                      requestUpdate();
@@ -768,7 +766,6 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                       LOG_ERR("FileBrowser", "Failed to delete book stats for: %s", fullPath.c_str());
                     } else {
                       Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
-                      delay(Toast::DURATION_MS);
                     }
                   }
                   requestUpdate();
@@ -785,7 +782,6 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                       LOG_ERR("FileBrowser", "Failed to reset reader settings for: %s", fullPath.c_str());
                     } else {
                       Toast::show(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
-                      delay(Toast::DURATION_MS);
                     }
                   }
                   requestUpdate();

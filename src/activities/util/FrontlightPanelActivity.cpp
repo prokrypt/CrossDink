@@ -199,7 +199,6 @@ void FrontlightPanelActivity::toggleReaderTouchscreen() {
     RenderLock lock;
     Toast::show(renderer, pendingTouchscreenDisabled ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
   }
-  delay(Toast::DURATION_MS);
   requestUpdate();
 }
 

@@ -1,5 +1,6 @@
 #include "Toast.h"
 
+#include <Arduino.h>
 #include <GfxRenderer.h>
 
 #include "fontIds.h"
@@ -7,6 +8,7 @@
 namespace {
 constexpr int PAD_X = 20;
 constexpr int PAD_Y = 12;
+unsigned long heldAt = 0;  // 0 = no hold
 }  // namespace
 
 namespace Toast {
@@ -27,6 +29,14 @@ void draw(const GfxRenderer& renderer, const char* msg) {
 void show(const GfxRenderer& renderer, const char* msg) {
   draw(renderer, msg);
   renderer.displayBuffer();
+  heldAt = millis() | 1;
 }
+
+bool holding() {
+  if (heldAt != 0 && millis() - heldAt >= DURATION_MS) heldAt = 0;
+  return heldAt != 0;
+}
+
+void release() { heldAt = 0; }
 
 }  // namespace Toast
