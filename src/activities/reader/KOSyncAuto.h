@@ -30,10 +30,14 @@ enum class PushOutcome : uint8_t { Pushed, Same, ServerAhead, Failed };
 // Sync on Wake & Sleep is on, Auto Sync has At close, credentials exist and no
 // Wi-Fi screen is up.
 bool wantsSleepPush();
-// Deep sleep, after the reader saved its progress: pushes the book (never moving
+// Deep sleep, before the sleep screen: pushes the book (never moving
 // the server back) and blocks until done, at most 30 s in all. A failure arms
 // the push on the next wake.
-PushOutcome pushNow(std::string epubPath);
+// readerFlushed: the position was just saved by an open reader (else the book is
+// pendingPushPath()'s, and a push of it already running is finished, not redone).
+PushOutcome pushNow(std::string epubPath, bool readerFlushed);
+// A close push queued or running (not yet landed), when no Wi-Fi screen is up.
+std::string pendingPushPath();
 // Before a Wi-Fi screen or deep sleep takes the radio: waits out the task's
 // Wi-Fi start/stop calls; the task then leaves the radio alone.
 void yieldRadio();

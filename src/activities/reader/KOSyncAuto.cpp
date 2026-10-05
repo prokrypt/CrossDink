@@ -333,16 +333,25 @@ bool sleepPushEnabled() {
   return SETTINGS.koSyncSleepWake && (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE);
 }
 
-kosync_auto::PushOutcome sleepPush(std::string epubPath) {
+// readerFlushed: a reader just saved a newer position, so a running push of the
+// same book (from an earlier close) is stale and is cut off and redone.
+kosync_auto::PushOutcome sleepPush(std::string epubPath, const bool readerFlushed) {
   if (queuedPath == epubPath) queuedPath.clear();  // this push replaces a pending At close one
   const uint32_t start = millis();
-  kosync_auto::yieldRadio();  // an open pull still waiting on Wi-Fi gives up now
+  // A close push of this same book already running is finished, not redone; any
+  // other job (an open pull still waiting on Wi-Fi) gives up now.
+  const bool finishRunning = task.running() && !jobIsPull && jobPath == epubPath && !readerFlushed;
+  if (!finishRunning) kosync_auto::yieldRadio();
   // Every wait is bounded: the job's own Wi-Fi join and HTTP calls time out, and
   // past SLEEP_WAIT_MS the caller moves on with the job cut off from the radio.
   if (!task.join(SLEEP_WAIT_MS)) {
     LOG_ERR("KOSync", "sleep push: earlier job still running after %lu ms", static_cast<unsigned long>(SLEEP_WAIT_MS));
     kosync_auto::yieldRadio();
     return kosync_auto::PushOutcome::Failed;
+  }
+  if (finishRunning) {
+    pushOk = false;
+    return pushOutcome;
   }
   if (!startJob(std::move(epubPath), false)) return kosync_auto::PushOutcome::Failed;
   const uint32_t used = millis() - start;
@@ -417,12 +426,19 @@ void loop() {
   }
 }
 
+std::string pendingPushPath() {
+  if (activityManager.anyActivityUsesWifi() || !KOREADER_STORE.hasCredentials()) return {};
+  if (!queuedPath.empty()) return queuedPath;
+  if (task.running() && !jobIsPull) return jobPath;
+  return {};
+}
+
 bool wantsSleepPush() {
   return sleepPushEnabled() && KOREADER_STORE.hasCredentials() && !activityManager.anyActivityUsesWifi();
 }
 
-PushOutcome pushNow(std::string epubPath) {
-  const PushOutcome outcome = sleepPush(std::move(epubPath));
+PushOutcome pushNow(std::string epubPath, const bool readerFlushed) {
+  const PushOutcome outcome = sleepPush(std::move(epubPath), readerFlushed);
   retryPushMagic = outcome == PushOutcome::Failed ? RETRY_PUSH_MAGIC : 0;
   return outcome;
 }
