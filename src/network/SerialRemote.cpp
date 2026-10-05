@@ -59,6 +59,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "GlobalActions.h"
 #include "OpdsServerStore.h"
 #include "SettingsList.h"
 #include "SilentRestart.h"
@@ -70,6 +71,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "activities/util/RemoteImageActivity.h"
 #include "platform/InputTask.h"
 #include "platform/PinMon.h"
+#include "util/SleepLog.h"
 #include "util/UrlUtils.h"
 
 extern GfxRenderer renderer;
@@ -140,6 +142,7 @@ size_t snapLen = 0;
 constexpr uint32_t GOTO_DELAY_MS = 500;
 int gotoPending = -1;  // index into kGoto
 uint32_t gotoAt = 0;
+uint32_t sleepRebootAt = 0;  // SLEEPREBOOT: same reply-first delay as GOTO; 0 = none
 
 void finishHttp(const int status) {
   httpStatus = status;
@@ -934,6 +937,12 @@ bool handleLine(const char* line) {
   } else if (strcmp(verb, "SLEEP") == 0) {
     reply("OK:SLEEP");
     activityManager.goToSleep();
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+  } else if (strcmp(verb, "SLEEPREBOOT") == 0) {
+    // Goodies > Sleep-reboot-log without the tap: the real sleep path, then a restart.
+    sleepRebootAt = (millis() + GOTO_DELAY_MS) | 1;
+    reply("OK:SLEEPREBOOT");
+#endif
   } else if (strcmp(verb, "REBOOT") == 0) {
     reply("OK:REBOOT");
     logSerial.flush();
@@ -961,6 +970,12 @@ void poll() {
     gotoPending = -1;
     LOG_INF("SER", "GOTO %s", kGoto[i].name);
     kGoto[i].launch();
+  }
+
+  if (sleepRebootAt != 0 && static_cast<int32_t>(now - sleepRebootAt) >= 0) {
+    sleepRebootAt = 0;
+    SleepLog::armSleepReboot();
+    enterDeepSleep();  // restarts, does not return
   }
 
   if (keyReleaseAt != 0 && static_cast<int32_t>(now - keyReleaseAt) >= 0) {

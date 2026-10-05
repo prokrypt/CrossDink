@@ -36,6 +36,7 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:GOTO <screen>` | `OK:GOTO <activity>` | Opens a top-level screen 0.5 s after the reply (so a Wi-Fi reply is sent before the screen can stop the server). `<activity>` is what `ACTIVITY` reports once it is up; confirm with `WAITIDLE` + `ACTIVITY`. `ERR:GOTO:unknown_screen`, `ERR:GOTO:unavailable` (no book to resume, no OPDS server, stats off), `ERR:GOTO:busy`. |
 | `CMD:GOTO list` | `OK:GOTO list <screen> ...` | Screen names in this build. |
 | `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
+| `CMD:SLEEPREBOOT` | `OK:SLEEPREBOOT` | Goodies > Sleep-reboot-log without the confirm (PSRAM-log builds): 0.5 s after the reply, the real deep-sleep path, then a restart instead of power-down. The PSRAM log keeps the sleep; read it from `/api/psram-log` once the remote rejoins. |
 | `CMD:REBOOT` | `OK:REBOOT` | Software restart. |
 | `CMD:WAITIDLE [ms]` | `OK:WAITIDLE <elapsed_ms>` or `ERR:WAITIDLE:timeout` | Replies once injected input and typing are done, no render is queued or running, no refresh is pending, and that has held for 150 ms. Default timeout 10 s. |
 
