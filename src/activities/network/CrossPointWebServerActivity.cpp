@@ -16,6 +16,7 @@
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
 #include "activities/goodies/GoodiesActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/TouchHeaderBackButton.h"
@@ -59,12 +60,7 @@ void restartMdns(const char* hostname, const char* tag) {
 
 }  // namespace
 
-void CrossPointWebServerActivity::onEnter() {
-  Activity::onEnter();
-  BatteryLog::event("xfer_start", "file-transfer");
-  radioTaken = false;
-  enteredUiTheme = SETTINGS.uiTheme;
-  enteredUiScale = SETTINGS.uiScale;
+void CrossPointWebServerActivity::releaseFontsForNetwork() {
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
   // C3 has substantially more contiguous heap here than while serving HTTP.
   // The in-place relaunch after the mode picker follows a scan made moments
@@ -74,6 +70,17 @@ void CrossPointWebServerActivity::onEnter() {
     sdFontSystem.ensureRegistry();
   }
   sdFontSystem.releaseForNetwork(renderer);
+}
+
+void CrossPointWebServerActivity::onEnter() {
+  Activity::onEnter();
+  BatteryLog::event("xfer_start", "file-transfer");
+  radioTaken = false;
+  enteredUiTheme = SETTINGS.uiTheme;
+  enteredUiScale = SETTINGS.uiScale;
+  // With the mode picker up, the font work waits for the pick so the picker
+  // paints at once (it cost ~145 ms before the first frame).
+  if (hasInitialNetworkMode) releaseFontsForNetwork();
 
   LOG_DBG("WEBACT", "Free heap at onEnter: %" PRId32 " bytes", ESP.getFreeHeap());
 
@@ -144,6 +151,10 @@ void CrossPointWebServerActivity::onExit() {
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
+  if (!hasInitialNetworkMode) {
+    RenderLock lock;  // the picker may still be drawing with the SD font being released
+    releaseFontsForNetwork();
+  }
 #if CROSSDINK_GOODIES
   // Port 80 and the radio pass to this screen's own server. A rejoin may have
   // started while the picker was up; it must end before the radio goes off.
