@@ -834,6 +834,7 @@ Result verifyPartition(const esp_partition_t* part) {
     }
     verifier.feed(buf.get(), n);
     done += n;
+    vTaskDelay(1);  // lets IDLE0 feed the watchdog during a multi-MB hash
   }
   return verifier.finish();
 }
