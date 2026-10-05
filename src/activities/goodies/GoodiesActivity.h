@@ -119,6 +119,7 @@ class GoodiesActivity final : public Activity {
   std::string tokenRowValue();
   void confirmNewPin();
   void confirmBootPrevious();
+  void showMessage(const char* text);
   void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();
