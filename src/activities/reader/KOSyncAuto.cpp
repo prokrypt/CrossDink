@@ -33,8 +33,10 @@ namespace {
 // Home (or the book's first page) paints and the reader's exit writes land before the task reads the SD card.
 constexpr uint32_t START_DELAY_MS = 1500;
 constexpr uint32_t JOIN_TIMEOUT_MS = 15000;
-constexpr uint32_t REMOTE_WAIT_MS = 20000;       // the Wi-Fi remote's own join after boot or wake
-constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // as Smart Sync
+constexpr uint32_t REMOTE_WAIT_MS = 20000;  // the Wi-Fi remote's own join after boot or wake
+// Float round-trip slack only: one page of a long book is ~0.0005, so a coarser
+// epsilon (Smart Sync uses 0.001) would skip real progress as "same".
+constexpr float SAME_PROGRESS_EPSILON = 0.00001f;
 // Deep sleep's whole wait for a running job and its own push; the sleep guard resets at 60 s.
 constexpr uint32_t SLEEP_WAIT_MS = 30000;
 // As the KOSync screen's request task: wolfSSL handshake plus HTTPClient.
@@ -203,7 +205,7 @@ void run(void*) {
   } else if (knownPath == jobPath && progress.percentage <= knownRemote + SAME_PROGRESS_EPSILON) {
     // Not past the server's position as last seen this boot (at open, or our own
     // push): the server check would skip this push, so leave the radio off.
-    LOG_INF("KOSync", "%s skipped: device at %.4f, server last seen at %.4f (no radio)", what, progress.percentage,
+    LOG_INF("KOSync", "%s skipped: device at %.4f, server last seen at %.4f (radio skipped)", what, progress.percentage,
             knownRemote);
     pushOutcome = knownRemote - progress.percentage > SAME_PROGRESS_EPSILON ? kosync_auto::PushOutcome::ServerAhead
                                                                             : kosync_auto::PushOutcome::Same;
