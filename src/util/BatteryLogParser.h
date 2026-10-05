@@ -23,8 +23,8 @@ struct BatteryLogParser {
   struct Point {
     uint32_t epoch;
     uint8_t pct;
-    bool awake;  // awake until the next row (not a sleep row or a charger row logged "asleep")
-    bool wifi;   // Wi-Fi on until the next row
+    bool awake;    // awake until the next row (not a sleep row or a charger row logged "asleep")
+    bool wifi;     // Wi-Fi on until the next row
     uint8_t mark;  // graph tick bits: MARK_CHARGE (USB plugged in here), MARK_CHARGED (a `charged` row)
   };
   // Counted from the log since its first row or the last stats_reset row.
@@ -285,8 +285,8 @@ struct BatteryLogParser {
         pointCount /= 2;
       }
     }
-    prev = {epoch, pct, !asleep, false,
-            static_cast<uint8_t>(ev == CHARGED ? MARK_CHARGED : usb && !prevUsb ? MARK_CHARGE : 0)};
+    const uint8_t mark = ev == CHARGED ? MARK_CHARGED : usb && !prevUsb ? MARK_CHARGE : 0;
+    prev = {epoch, pct, !asleep, false, mark};
     // A whole row after fractional ones is not a drop reference, unless a USB
     // step, power-off gap or reset breaks the chain there.
     if (fine || !prevFine || usb || prevUsb || ev == STATS_RESET || cold) {
