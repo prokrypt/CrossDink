@@ -9,6 +9,7 @@
 
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
+#include "activities/RenderLock.h"
 #include "components/ListSelection.h"
 #include "components/TouchActionButtons.h"
 #include "components/UIScale.h"
@@ -117,9 +118,9 @@ class OptionPopup {
   // activity revealed beneath a popup cannot receive the same tap.
   void setDismissOnOutsideTouchDown(bool enabled) { dismissOnOutsideTouchDown = enabled; }
 
-  // A popup opened by tapping a list row first lets the activity repaint with
-  // that row selected, then draws over it (see processRender). Popups opened
-  // over a page rather than a list (quick actions) skip that extra frame.
+  // A popup opened by tapping a list row lets the activity repaint with that
+  // row selected and draws itself into the same frame (see processRender).
+  // Popups opened over a page rather than a list (quick actions) skip that.
   void setShowTappedRowFirst(bool enabled) { showTappedRowFirst = enabled; }
 
   // Actions that repaint synchronously can suppress the redundant update queued
@@ -128,8 +129,9 @@ class OptionPopup {
 
   bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (!active) return false;
-    if (popupFramePending) {
-      // The tapped row's frame is out; now draw the popup over it.
+    if (popupFramePending && !RenderLock::peek()) {
+      // The base frame ended without a displayBuffer() to draw the popup into
+      // (popup-only screens); draw it over that frame now.
       popupFramePending = false;
       requestUpdate();
     }
@@ -285,19 +287,33 @@ class OptionPopup {
   bool processRender(GfxRenderer& renderer, const MappedInputManager& input) const {
     if (!active) return false;
     if (baseFramePending) {
-      // Let the caller render its own screen (the tapped row selected) this
-      // frame; handleInput() queues the popup frame right after.
+      // Let the caller render its own screen (the tapped row selected) and draw
+      // the popup into that frame just before its displayBuffer(), so the row
+      // and the popup share one refresh.
       baseFramePending = false;
-      popupFramePending = true;
+      popupFramePending = true;  // cleared by the hook; else handleInput() redraws
+      baseRenderer = &renderer;
+      baseInput = &input;
+      renderer.setBeforeDisplay(drawOverBaseFrame, this);
       return false;
     }
+    drawWithHints(renderer, input);
+    renderer.displayBuffer();
+    return true;
+  }
+
+  void drawWithHints(GfxRenderer& renderer, const MappedInputManager& input) const {
     const auto popupLabels = input.mapLabels(
         confirmationMode ? MappedInputManager::Label(tr(STR_CANCEL)) : input.withBackArrow(tr(STR_BACK)),
         confirmationMode && footerFocused ? tr(STR_SAVE) : tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
     GUI.drawButtonHints(renderer, popupLabels.btn1, popupLabels.btn2, popupLabels.btn3, popupLabels.btn4, true);
     render(renderer);
-    renderer.displayBuffer();
-    return true;
+  }
+
+  static void drawOverBaseFrame(const void* ctx) {
+    const auto* self = static_cast<const OptionPopup*>(ctx);
+    self->popupFramePending = false;
+    if (self->active) self->drawWithHints(*self->baseRenderer, *self->baseInput);
   }
 
   void render(const GfxRenderer& renderer) const {
@@ -468,6 +484,8 @@ class OptionPopup {
   // the main loop; single-byte flags, and a missed read just waits a loop.
   mutable bool baseFramePending = false;
   mutable bool popupFramePending = false;
+  mutable GfxRenderer* baseRenderer = nullptr;
+  mutable const MappedInputManager* baseInput = nullptr;
   bool showsTapRow = false;  // this popup set ListSelection::tapRowShown
   bool dismissOnOutsideTouchDown = false;
   bool confirmationMode = false;

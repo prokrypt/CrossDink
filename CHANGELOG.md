@@ -4,6 +4,7 @@
 - X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar.
 
 ### Changed
+- Tapping a list row that opens a choice popup (Settings, Image Viewer, Home, OPDS servers, bookmarks and the like) now draws the highlighted row and the popup in one e-ink refresh instead of two, so the popup shows about 0.6 s sooner.
 - X4 Pro (debug builds): Goodies > Battery & stats shows "To empty" and "Asleep" instead of "Est to empty" and "Asleep drain" (the web Battery tab too), and "over" between a rate or charge and its time span is now "/", and repaints once after the frontlight (or Wi-Fi) setting changes so the estimate shows. `battery.sum` is rebuilt once.
 - KOReader Auto Sync is quicker and uses the radio less: a sync's requests share one secure connection instead of a full handshake each (about 1 s saved per sync); once a book's record is found under one document hash, later syncs of that book until the next restart or sleep ask for that hash only; and a close push is skipped without turning Wi-Fi on when the book is not past the server position last seen (at open, or by its own last push), logged as `exit push skipped: ... (no radio)`.
 - KOReader Auto Sync never moves the server back: before a push it fetches the server's position (both document hashes, as Smart Sync) and pushes only when the server has none or the device is further on. When the server is at or past the device (for example after you kept your page at the open popup), the push is skipped and logged (`exit push skipped: server at ...`).
