@@ -786,6 +786,59 @@ Result writeImage(HalFile& file, const esp_partition_t* dest, ProgressCb onProgr
 }
 }  // namespace
 
+Result verifyPartition(const esp_partition_t* part) {
+  if (!part) return Result::NO_PARTITION;
+  // Image length: header + segments + pad (+ SHA trailer), as checkImageHeader() walks it.
+  uint8_t hdr[HEADER_SIZE];
+  if (esp_partition_read(part, 0, hdr, HEADER_SIZE) != ESP_OK) {
+    LOG_ERR("FLASH", "verifyPartition: header read failed");
+    return Result::READ_FAIL;
+  }
+  if (hdr[0] != ESP_IMAGE_MAGIC) {
+    LOG_ERR("FLASH", "verifyPartition: bad magic 0x%02X", hdr[0]);
+    return Result::BAD_MAGIC;
+  }
+  size_t pos = HEADER_SIZE;
+  for (uint8_t i = 0; i < hdr[1]; i++) {
+    uint8_t seg[SEG_HEADER_SIZE];
+    if (pos + SEG_HEADER_SIZE > part->size || esp_partition_read(part, pos, seg, SEG_HEADER_SIZE) != ESP_OK) {
+      LOG_ERR("FLASH", "verifyPartition: seg %u header unreadable", i);
+      return Result::BAD_SEGMENTS;
+    }
+    uint32_t dataLen;
+    std::memcpy(&dataLen, seg + 4, sizeof(dataLen));
+    pos += SEG_HEADER_SIZE;
+    if (dataLen > part->size - pos) {
+      LOG_ERR("FLASH", "verifyPartition: seg %u overruns partition", i);
+      return Result::BAD_SEGMENTS;
+    }
+    pos += dataLen;
+  }
+  const size_t total = ((pos + 16) & ~static_cast<size_t>(15)) + (hdr[23] != 0 ? SHA_TRAILER : 0);
+  if (total > part->size) {
+    LOG_ERR("FLASH", "verifyPartition: image %u > partition %u", static_cast<unsigned>(total),
+            static_cast<unsigned>(part->size));
+    return Result::TOO_LARGE;
+  }
+  IoBuffer buf;
+  if (!buf) {
+    LOG_ERR("FLASH", "verifyPartition: no I/O buffer");
+    return Result::OOM;
+  }
+  ImageVerifier verifier(total);
+  for (size_t done = 0; done < total && verifier.status() == Result::OK;) {
+    const size_t n = std::min(buf.size(), total - done);
+    if (esp_partition_read(part, done, buf.get(), n) != ESP_OK) {
+      LOG_ERR("FLASH", "verifyPartition: read failed at %u", static_cast<unsigned>(done));
+      return Result::READ_FAIL;
+    }
+    verifier.feed(buf.get(), n);
+    done += n;
+    vTaskDelay(1);  // lets IDLE0 feed the watchdog during a multi-MB hash
+  }
+  return verifier.finish();
+}
+
 namespace {
 Result flashValidatedFileImpl(HalFile& file, ProgressCb onProgress, void* ctx) {
   const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
