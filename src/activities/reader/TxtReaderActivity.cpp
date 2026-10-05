@@ -575,7 +575,6 @@ void TxtReaderActivity::toggleHomeButtonInReader() {
   mappedInput.clearDeferredHomeGesture();
   Toast::show(renderer,
               SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
-  delay(Toast::DURATION_MS);
   requestUpdate();
 }
 

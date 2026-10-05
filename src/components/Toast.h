@@ -12,6 +12,10 @@ constexpr unsigned long DURATION_MS = 1000UL;
 Rect bounds(const GfxRenderer& renderer, const char* msg);
 // Into the framebuffer only; the caller's next refresh shows it.
 void draw(const GfxRenderer& renderer, const char* msg);
-// draw() plus a refresh. Callers that keep it up delay(DURATION_MS) after.
+// draw() plus a refresh, then holds the next requested frame (which would
+// erase the toast) for DURATION_MS. Never blocks: input releases the hold at
+// once and is handled as usual. Main loop only, like holding() and release().
 void show(const GfxRenderer& renderer, const char* msg);
+bool holding();
+void release();
 }  // namespace Toast

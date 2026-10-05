@@ -4413,7 +4413,6 @@ void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initia
             static_cast<unsigned>(sizeof(DictionaryWordSelectActivity)));
     resumeReadingPaceTimer("dictionary_lookup_alloc_failed");
     Toast::show(renderer, tr(STR_MEMORY_ERROR));
-    delay(Toast::DURATION_MS);
     requestUpdate();
     return;
   }
@@ -4464,7 +4463,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       if (!saveProgress(currentSpineIndex, page, pageCount)) {
         LOG_ERR("NBOOK", "Could not save EPUB progress before transfer");
         Toast::show(renderer, tr(STR_NEARBY_TRANSFER_PROGRESS_SAVE_FAILED));
-        delay(Toast::DURATION_MS);
         requestUpdate();
         break;
       }
@@ -4651,7 +4649,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                                  }
                                  if (statsDeleted) {
                                    Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
-                                   delay(Toast::DURATION_MS);
                                  } else {
                                    LOG_ERR("ERS", "Failed to delete book stats");
                                  }
@@ -4698,9 +4695,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                 }
               }
             }
-            if (cacheDeleted) {
-              delay(Toast::DURATION_MS);
-            } else {
+            if (!cacheDeleted) {
               LOG_ERR("ERS", "Failed to delete book cache");
             }
             onGoHome();
@@ -4710,7 +4705,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
     case EpubReaderMenuAction::RESET_READING_PACE: {
       resetReadingPaceData();
       Toast::show(renderer, tr(STR_READING_PACE_RESET));
-      delay(Toast::DURATION_MS);
       requestUpdate();
       break;
     }
@@ -4764,9 +4758,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
             }
           }
 
-          if (settingsReset) {
-            delay(Toast::DURATION_MS);
-          } else {
+          if (!settingsReset) {
             LOG_ERR("ERS", "Failed to reset reader settings for current book");
           }
         } else {
@@ -4831,7 +4823,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       if (!BookStatsTracking::setBookEnabled(epub->getCachePath(), enabled)) {
         const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
         Toast::show(renderer, error.c_str());
-        delay(Toast::DURATION_MS);
       }
       bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
       syncStatsTrackingState();
@@ -4880,7 +4871,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
           LOG_ERR("KOSync", "OOM: restart handoff (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
           Toast::show(renderer, tr(STR_KOREADER_SYNC_LOW_MEMORY));
-          delay(Toast::DURATION_MS);
           requestUpdate();
           break;
         }
@@ -4923,7 +4913,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       if (!localKoPos.valid) {
         LOG_ERR("NBPS", "Exact filename sync needs a source map; re-optimize this split EPUB");
         Toast::show(renderer, tr(STR_SYNC_REOPTIMIZE_REQUIRED));
-        delay(Toast::DURATION_MS);
         requestUpdate();
         break;
       }
@@ -5342,7 +5331,6 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
                 static_cast<unsigned>(sizeof(ClipAdvanceCollector)));
         section->currentPage = startPage;
         Toast::show(renderer, tr(STR_MEMORY_ERROR));
-        delay(Toast::DURATION_MS);
         requestUpdate();
         return;
       }
@@ -5576,7 +5564,6 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
               static_cast<unsigned>(dictionaryRequest->lastPageOffset),
               static_cast<unsigned>(dictionaryRequest->lastPageWordOrdinal));
       Toast::show(renderer, tr(STR_CLIPPING_FAILED));
-      delay(Toast::DURATION_MS);
       requestUpdate();
       return;
     }
@@ -5635,7 +5622,6 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
         RenderLock lock(*this);
         Toast::show(renderer, clippingFeedback);
       }
-      delay(Toast::DURATION_MS);
     }
     requestUpdate();
   });
@@ -5775,7 +5761,6 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
         openWordSelect(dictionaryLookupFramebufferContainsPage);
       } else {
         Toast::show(renderer, tr(STR_DICT_NO_DICT_SET));
-        delay(Toast::DURATION_MS);
         requestUpdate();
       }
       break;
