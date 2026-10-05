@@ -597,65 +597,126 @@ bool readerRenderStackReady = false;
 
 #ifndef SIMULATOR
 #if CROSSDINK_PERF_LOG
-// Debug: small used blocks that sit between two large free runs of internal
-// RAM, i.e. what splits the block the Wi-Fi exit gate needs. The walker runs
-// under the heap lock, so it only records; the log comes after.
+// Debug: a map of internal RAM's large free runs and the used blocks on each
+// side of them, i.e. what bounds the block the Wi-Fi exit gate needs (a block
+// between two runs, or one that grew into a region's free tail). The walker
+// runs under the heap lock, so it only records; the log comes after.
 struct HeapPinScan {
-  static constexpr size_t MAX_PINS = 6;
-  static constexpr size_t MAX_PIN_BYTES = 2048;
+  static constexpr size_t MAX_RUNS = 8;
   static constexpr size_t MIN_FREE_RUN = 4096;
-  struct Pin {
+  struct Block {
     uintptr_t addr;
     uint32_t size;
-    uint32_t freeBefore;
-    uint32_t freeAfter;
   };
-  Pin pins[MAX_PINS];
+  struct Run {
+    intptr_t regionStart;
+    intptr_t regionEnd;
+    uintptr_t addr;
+    uint32_t size;
+    Block before;  // {0, 0}: region start
+    Block after;   // {0, 0}: region end
+  };
+  Run runs[MAX_RUNS];
   size_t count = 0;
-  intptr_t heapStart = 0;
-  uint32_t freeRun = 0;
-  bool pending = false;
-  Pin candidate{};
+  Run current{};
+  bool inFree = false;
+  Block lastUsed{};
+
+  void closeRun(const Block after) {
+    if (inFree && current.size >= MIN_FREE_RUN && count < MAX_RUNS) {
+      current.after = after;
+      runs[count++] = current;
+    }
+    inFree = false;
+  }
 };
 
 static bool heapPinWalker(walker_heap_into_t heap, walker_block_info_t block, void* user) {
   auto& scan = *static_cast<HeapPinScan*>(user);
-  if (heap.start != scan.heapStart) {
-    scan.heapStart = heap.start;
-    scan.freeRun = 0;
-    scan.pending = false;
+  if (heap.start != scan.current.regionStart) {
+    scan.closeRun({});
+    scan.current.regionStart = heap.start;
+    scan.current.regionEnd = heap.end;
+    scan.lastUsed = {};
   }
-  if (!block.used) {
-    scan.freeRun += block.size;
-    return true;
+  const HeapPinScan::Block here{reinterpret_cast<uintptr_t>(block.ptr), static_cast<uint32_t>(block.size)};
+  if (block.used) {
+    scan.closeRun(here);
+    scan.lastUsed = here;
+  } else {
+    if (!scan.inFree) {
+      scan.inFree = true;
+      scan.current.addr = here.addr;
+      scan.current.size = 0;
+      scan.current.before = scan.lastUsed;
+    }
+    scan.current.size += here.size;
   }
-  if (scan.pending && scan.freeRun >= HeapPinScan::MIN_FREE_RUN && scan.count < HeapPinScan::MAX_PINS) {
-    scan.candidate.freeAfter = scan.freeRun;
-    scan.pins[scan.count++] = scan.candidate;
-  }
-  scan.pending = block.size <= HeapPinScan::MAX_PIN_BYTES && scan.freeRun >= HeapPinScan::MIN_FREE_RUN;
-  if (scan.pending) {
-    scan.candidate = {reinterpret_cast<uintptr_t>(block.ptr), static_cast<uint32_t>(block.size), scan.freeRun, 0};
-  }
-  scan.freeRun = 0;
   return true;
 }
 
-static void logInternalHeapPins() {
+// Heap poisoning (light) puts a canary and the requested size before the data.
+struct BlockPeek {
+  uint32_t size;  // requested bytes, 0 when there is no poisoning header
+  uint32_t words[2];
+};
+static BlockPeek peekBlock(const uintptr_t addr) {
+  constexpr uint32_t HEAD_CANARY = 0xABBA1234;
+  BlockPeek peek{};
+  if (addr == 0) return peek;
+  uint32_t head[2];
+  memcpy(head, reinterpret_cast<const void*>(addr), sizeof(head));
+  const bool poisoned = head[0] == HEAD_CANARY;
+  if (poisoned) peek.size = head[1];
+  memcpy(peek.words, reinterpret_cast<const void*>(addr + (poisoned ? sizeof(head) : 0)), sizeof(peek.words));
+  return peek;
+}
+
+// Each neighbour names the task whose TCB or stack it is; otherwise its first
+// data words hint at the owner (a vtable, a pcb, a string).
+void logInternalHeapPins(const char* why) {
   static HeapPinScan scan;  // the walker runs under the heap lock: no allocation
+  static TaskStatus_t tasks[40];
   scan = HeapPinScan{};
   heap_caps_walk(MALLOC_CAP_INTERNAL, heapPinWalker, &scan);
+  scan.closeRun({});
+  const UBaseType_t taskCount = uxTaskGetSystemState(tasks, 40, nullptr);
+  LOG_INF("HEAP", "%s: internal free %u largest %u", why,
+          static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+  const auto taskIn = [&](const HeapPinScan::Block& b) -> const char* {
+    for (UBaseType_t t = 0; t < taskCount; ++t) {
+      const auto tcb = reinterpret_cast<uintptr_t>(tasks[t].xHandle);
+      const auto stack = reinterpret_cast<uintptr_t>(tasks[t].pxStackBase);
+      if ((tcb >= b.addr && tcb < b.addr + b.size) || (stack >= b.addr && stack < b.addr + b.size)) {
+        return tasks[t].pcTaskName;
+      }
+    }
+    return "-";
+  };
   for (size_t i = 0; i < scan.count; ++i) {
-    const auto& pin = scan.pins[i];
-    LOG_INF("HEAP", "pin 0x%08x %u B between free %u + %u", static_cast<unsigned>(pin.addr),
-            static_cast<unsigned>(pin.size), static_cast<unsigned>(pin.freeBefore),
-            static_cast<unsigned>(pin.freeAfter));
+    const auto& run = scan.runs[i];
+    const BlockPeek before = peekBlock(run.before.addr);
+    const BlockPeek after = peekBlock(run.after.addr);
+    LOG_INF("HEAP",
+            "free 0x%08x %u B in 0x%08x-0x%08x | before 0x%08x %u B (%u) %s %08x %08x | after 0x%08x %u B (%u) %s "
+            "%08x %08x",
+            static_cast<unsigned>(run.addr), static_cast<unsigned>(run.size), static_cast<unsigned>(run.regionStart),
+            static_cast<unsigned>(run.regionEnd), static_cast<unsigned>(run.before.addr),
+            static_cast<unsigned>(run.before.size), static_cast<unsigned>(before.size), taskIn(run.before),
+            static_cast<unsigned>(before.words[0]), static_cast<unsigned>(before.words[1]),
+            static_cast<unsigned>(run.after.addr), static_cast<unsigned>(run.after.size),
+            static_cast<unsigned>(after.size), taskIn(run.after), static_cast<unsigned>(after.words[0]),
+            static_cast<unsigned>(after.words[1]));
   }
   if (scan.count == 0) {
-    LOG_INF("HEAP", "no pins between free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
+    LOG_INF("HEAP", "no free runs >= %u B", static_cast<unsigned>(HeapPinScan::MIN_FREE_RUN));
   }
 }
 #endif
+#endif
+#if !CROSSDINK_PERF_LOG || defined(SIMULATOR)
+void logInternalHeapPins(const char*) {}
 #endif
 
 bool keepWifiForRemote() {
@@ -698,15 +759,11 @@ bool leaveNetworkInPlace(const bool goingHome) {
     LOG_INF("MAIN", "Leaving Wi-Fi in place: remote keeps the link for the next Wi-Fi screen");
     return true;
   }
-#if CROSSDINK_PERF_LOG
-  logInternalHeapPins();
-#endif
+  logInternalHeapPins("Wi-Fi exit");
   const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  // The Goodies remote rejoins only with a 48 KB block: while it is on and
-  // must rejoin, a restart (it rejoins at boot) beats staying up without it.
-  const uint32_t need = goingHome && psramHeapAvailable() && !(SETTINGS.goodiesWifiRemote && !keepLink)
-                            ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
-                            : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
+  // The Goodies remote rejoins with a 16 KB block (wifiRemoteMinBlock), under Home's bar.
+  const uint32_t need = goingHome && psramHeapAvailable() ? NETWORK_EXIT_HOME_MIN_INTERNAL_BLOCK
+                                                          : NETWORK_EXIT_IN_PLACE_MIN_INTERNAL_BLOCK;
   if (largest < need) {
     LOG_INF("MAIN", "Leaving Wi-Fi by restart: internal largest block %u < %u", static_cast<unsigned>(largest),
             static_cast<unsigned>(need));

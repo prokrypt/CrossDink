@@ -20,6 +20,8 @@ namespace goodies_remote {
 bool running();
 // The toggle (SETTINGS.goodiesWifiRemote): on, whether or not connected yet.
 bool wanted();
+// Wanted, but the last rejoin was skipped for internal RAM; it retries on the backoff.
+bool waitingForMemory();
 // Toggle on without a Wi-Fi screen: joins the saved network in the background.
 // With no saved network the toggle turns back off and takePickerRequest() is
 // set once, so Goodies can open the Wi-Fi picker.
