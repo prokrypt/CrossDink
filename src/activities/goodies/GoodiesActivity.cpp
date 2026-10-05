@@ -818,32 +818,33 @@ void GoodiesActivity::confirmBootPrevious() {
   snprintf(body, sizeof(body), "Reboots into %s: %.31s %.31s, built %.15s %.15s, elf %02x%02x%02x%02x.", part->label,
            desc.project_name, desc.version, desc.date, desc.time, desc.app_elf_sha256[0], desc.app_elf_sha256[1],
            desc.app_elf_sha256[2], desc.app_elf_sha256[3]);
-  startActivityForResult(
-      std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot previous firmware?", body),
-      [this, part](const ActivityResult& result) {
-        mappedInput.suppressNextConfirmRelease();
-        if (result.isCancelled) {
-          requestUpdate();
-          return;
-        }
-        // The header check above passes a half-flashed slot; the full checksum and SHA-256 pass runs only now.
-        {
-          RenderLock lock(*this);
-          GUI.drawPopup(renderer, "Checking...");
-        }
-        const firmware_flash::Result verified = firmware_flash::verifyPartition(part);
-        if (verified != firmware_flash::Result::OK) {
-          LOG_ERR("BOOT", "boot-previous: %s image failed: %s", part->label, firmware_flash::resultName(verified));
-          showMessage("Other slot failed the image check");
-          return;
-        }
-        if (!ota_boot::switchTo(part)) {
-          LOG_ERR("BOOT", "boot-previous switch to %s failed", part->label);
-          showMessage("Switch failed");
-          return;
-        }
-        restartKeepingPanelFrame();  // does not return
-      });
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot previous firmware?", body),
+                         [this, part](const ActivityResult& result) {
+                           mappedInput.suppressNextConfirmRelease();
+                           if (result.isCancelled) {
+                             requestUpdate();
+                             return;
+                           }
+                           // The header check above passes a half-flashed slot; the full checksum and SHA-256 pass runs
+                           // only now.
+                           {
+                             RenderLock lock(*this);
+                             GUI.drawPopup(renderer, "Checking...");
+                           }
+                           const firmware_flash::Result verified = firmware_flash::verifyPartition(part);
+                           if (verified != firmware_flash::Result::OK) {
+                             LOG_ERR("BOOT", "boot-previous: %s image failed: %s", part->label,
+                                     firmware_flash::resultName(verified));
+                             showMessage("Other slot failed the image check");
+                             return;
+                           }
+                           if (!ota_boot::switchTo(part)) {
+                             LOG_ERR("BOOT", "boot-previous switch to %s failed", part->label);
+                             showMessage("Switch failed");
+                             return;
+                           }
+                           restartKeepingPanelFrame();  // does not return
+                         });
 }
 
 // A message popup that stays up briefly, then the list repaints.
