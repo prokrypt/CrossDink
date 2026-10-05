@@ -1,7 +1,7 @@
 ## [Unreleased]
 
 ### Added
-- X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar.
+- X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar. Short vertical ticks mark a plug-in (bottom edge) and a `charged` row (top edge).
 
 ### Changed
 - X4 Pro (debug builds): Goodies > Battery & stats shows "To empty" and "Asleep" instead of "Est to empty" and "Asleep drain" (the web Battery tab too), and "over" between a rate or charge and its time span is now "/", and repaints at once when the frontlight (or Wi-Fi) setting changes so the estimate shows. `battery.sum` is rebuilt once.

@@ -462,6 +462,11 @@ void BatteryStatsActivity::render(RenderLock&&) {
       if (p1.epoch < p0.epoch) continue;  // clock set backwards
       renderer.drawLine(px(p0.epoch), py(p0.pct), px(p1.epoch), py(p1.pct), 2, true);
       const int bw = std::max(1, px(p1.epoch) - px(p0.epoch));
+      // Ticks at a plug-in (bottom) and a `charged` row (top).
+      if (p1.mark & BatteryLogParser::MARK_CHARGE) {
+        renderer.drawLine(px(p1.epoch), y + gh - 14, px(p1.epoch), y + gh - 2, 2, true);
+      }
+      if (p1.mark & BatteryLogParser::MARK_CHARGED) renderer.drawLine(px(p1.epoch), y + 2, px(p1.epoch), y + 14, 2, true);
       if (p0.wifi) renderer.fillRect(px(p0.epoch), y + gh + 2, bw, 4);
       if (p0.awake) renderer.fillRect(px(p0.epoch), y + gh + 8, bw, 4);
     }

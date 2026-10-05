@@ -25,6 +25,7 @@ struct BatteryLogParser {
     uint8_t pct;
     bool awake;  // awake until the next row (not a sleep row or a charger row logged "asleep")
     bool wifi;   // Wi-Fi on until the next row
+    uint8_t mark;  // graph tick bits: MARK_CHARGE (USB plugged in here), MARK_CHARGED (a `charged` row)
   };
   // Counted from the log since its first row or the last stats_reset row.
   struct LogStats {
@@ -66,6 +67,7 @@ struct BatteryLogParser {
   };
   static constexpr uint32_t CHARGE_MERGE_S = 60;
   static constexpr uint32_t UNPLUG_SKIP_S = 1800;
+  static constexpr uint8_t MARK_CHARGE = 1, MARK_CHARGED = 2;
   static constexpr int MAX_POINTS = 400;
   static constexpr uint32_t GRAPH_S = 86400;  // the graph shows at most this much
   static constexpr uint32_t RUN_ERR_C = 625;  // (0.25 %)² per run while there are too few runs to fit
@@ -276,11 +278,15 @@ struct BatteryLogParser {
       pointCount -= old;
       if (pointCount > MAX_POINTS / 2) {
         // ponytail: a dropped row's awake/wifi state is absorbed by its kept neighbour; coarse after many halvings.
-        for (int i = 0; i < pointCount / 2; ++i) points[i] = points[2 * i];
+        for (int i = 0; i < pointCount / 2; ++i) {
+          points[i] = points[2 * i];
+          points[i].mark |= points[2 * i + 1].mark;  // a tick survives its row being dropped
+        }
         pointCount /= 2;
       }
     }
-    prev = {epoch, pct, !asleep, false};
+    prev = {epoch, pct, !asleep, false,
+            static_cast<uint8_t>(ev == CHARGED ? MARK_CHARGED : usb && !prevUsb ? MARK_CHARGE : 0)};
     // A whole row after fractional ones is not a drop reference, unless a USB
     // step, power-off gap or reset breaks the chain there.
     if (fine || !prevFine || usb || prevUsb || ev == STATS_RESET || cold) {
