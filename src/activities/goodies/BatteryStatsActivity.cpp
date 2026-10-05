@@ -447,7 +447,15 @@ void BatteryStatsActivity::render(RenderLock&&) {
     for (int gx = x; gx < x + w; gx += 8) renderer.drawLine(gx, gy, gx + 2, gy);
   }
   const Point* points = parser.points;
-  const int pointCount = parser.pointCount;
+  int pointCount = parser.pointCount;
+  if (pointCount > 0) {  // only the newest GRAPH_S
+    const uint32_t last = points[pointCount - 1].epoch;
+    const uint32_t cut = last > BatteryLogParser::GRAPH_S ? last - BatteryLogParser::GRAPH_S : 0;
+    int skip = 0;
+    while (skip < pointCount && points[skip].epoch < cut) ++skip;
+    points += skip;
+    pointCount -= skip;
+  }
   if (pointCount >= 2 && points[pointCount - 1].epoch > points[0].epoch) {
     const uint32_t t0 = points[0].epoch;
     const uint32_t spanS = points[pointCount - 1].epoch - t0;

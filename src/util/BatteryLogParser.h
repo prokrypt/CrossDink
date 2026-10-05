@@ -67,6 +67,7 @@ struct BatteryLogParser {
   static constexpr uint32_t CHARGE_MERGE_S = 60;
   static constexpr uint32_t UNPLUG_SKIP_S = 1800;
   static constexpr int MAX_POINTS = 400;
+  static constexpr uint32_t GRAPH_S = 86400;  // the graph shows at most this much
   static constexpr uint32_t RUN_ERR_C = 625;  // (0.25 %)² per run while there are too few runs to fit
   static constexpr uint16_t FULL_C = 9500;    // a charge ending at or above this may still be on a charger
   static constexpr uint16_t FULL_DROP_C = 5;  // ... until the % drops this far below the charge end
@@ -267,10 +268,17 @@ struct BatteryLogParser {
     }
 
     if (pointCount == MAX_POINTS) {
-      // Keep every other point so the graph still spans the whole log.
-      // ponytail: a dropped row's awake/wifi state is absorbed by its kept neighbour; coarse after many halvings.
-      for (int i = 0; i < MAX_POINTS / 2; ++i) points[i] = points[2 * i];
-      pointCount = MAX_POINTS / 2;
+      // Drop points older than GRAPH_S, then if still over half full keep every other one.
+      const uint32_t cut = epoch > GRAPH_S ? epoch - GRAPH_S : 0;
+      int old = 0;
+      while (old < pointCount && points[old].epoch < cut) ++old;
+      std::move(points + old, points + pointCount, points);
+      pointCount -= old;
+      if (pointCount > MAX_POINTS / 2) {
+        // ponytail: a dropped row's awake/wifi state is absorbed by its kept neighbour; coarse after many halvings.
+        for (int i = 0; i < pointCount / 2; ++i) points[i] = points[2 * i];
+        pointCount /= 2;
+      }
     }
     prev = {epoch, pct, !asleep, false};
     // A whole row after fractional ones is not a drop reference, unless a USB
