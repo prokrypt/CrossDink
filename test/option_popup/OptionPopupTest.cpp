@@ -56,7 +56,7 @@ TEST(OptionPopup, ConsecutiveTouchSelectionsDoNotLoseSecondRelease) {
   EXPECT_FALSE(popup.isActive());
 }
 
-TEST(OptionPopup, TapOpenedPopupLetsTheTappedRowRenderFirst) {
+TEST(OptionPopup, TapOpenedPopupSharesTheTappedRowFrame) {
   GfxRenderer renderer;
   HalGPIO gpio;
   MappedInputManager input(gpio, renderer);
@@ -69,10 +69,25 @@ TEST(OptionPopup, TapOpenedPopupLetsTheTappedRowRenderFirst) {
   popup.show("Tapped", options, 2, 0, [](const int) {});
   mappedInputManager.tapOrHeld = false;
   EXPECT_TRUE(ListSelection::tapRowShown);
-  EXPECT_FALSE(popup.processRender(renderer, input));  // the list's frame, row selected
+  EXPECT_FALSE(popup.processRender(renderer, input));  // the list draws, row selected
+  renderer.displayBuffer();                            // popup drawn into the same refresh
+  EXPECT_EQ(renderer.displayCount(), 1);
+  EXPECT_TRUE(popup.handleInput(input, requestUpdate));
+  EXPECT_EQ(updates, 0);  // no second popup frame
+
+  // A popup-only screen never calls displayBuffer() in that frame: draw it next.
+  mappedInputManager.tapOrHeld = true;
+  popup.show("Tapped", options, 2, 0, [](const int) {});
+  mappedInputManager.tapOrHeld = false;
+  EXPECT_FALSE(popup.processRender(renderer, input));
+  renderer.setBeforeDisplay(nullptr, nullptr);  // the render task clears it after each render
+  RenderLock::held = true;
+  EXPECT_TRUE(popup.handleInput(input, requestUpdate));
+  EXPECT_EQ(updates, 0);  // still rendering
+  RenderLock::held = false;
   EXPECT_TRUE(popup.handleInput(input, requestUpdate));
   EXPECT_EQ(updates, 1);
-  EXPECT_TRUE(popup.processRender(renderer, input));  // then the popup over it
+  EXPECT_TRUE(popup.processRender(renderer, input));
   popup.dismiss(input, requestUpdate);
   EXPECT_FALSE(ListSelection::tapRowShown);
 
