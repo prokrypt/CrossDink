@@ -390,13 +390,8 @@ void BatteryStatsActivity::loop() {
     }
   }
   if (loading) step(LOAD_STEP_MS);
-  // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
-  // for 1 s, then repaint once (not per step of a light slide).
-  const uint16_t state = estimateState();
-  if (state != seenState) {
-    seenState = state;
-    seenMs = millis();
-  } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
+  // Brightness or Wi-Fi changed on this page: redo the estimate and repaint at once.
+  if (!loading && estimateState() != builtState) {
     RenderLock lock(*this);  // render() reads lines
     buildLines();
     requestUpdate();
@@ -447,7 +442,15 @@ void BatteryStatsActivity::render(RenderLock&&) {
     for (int gx = x; gx < x + w; gx += 8) renderer.drawLine(gx, gy, gx + 2, gy);
   }
   const Point* points = parser.points;
-  const int pointCount = parser.pointCount;
+  int pointCount = parser.pointCount;
+  if (pointCount > 0) {  // only the newest GRAPH_S
+    const uint32_t last = points[pointCount - 1].epoch;
+    const uint32_t cut = last > BatteryLogParser::GRAPH_S ? last - BatteryLogParser::GRAPH_S : 0;
+    int skip = 0;
+    while (skip < pointCount && points[skip].epoch < cut) ++skip;
+    points += skip;
+    pointCount -= skip;
+  }
   if (pointCount >= 2 && points[pointCount - 1].epoch > points[0].epoch) {
     const uint32_t t0 = points[0].epoch;
     const uint32_t spanS = points[pointCount - 1].epoch - t0;
@@ -459,6 +462,13 @@ void BatteryStatsActivity::render(RenderLock&&) {
       if (p1.epoch < p0.epoch) continue;  // clock set backwards
       renderer.drawLine(px(p0.epoch), py(p0.pct), px(p1.epoch), py(p1.pct), 2, true);
       const int bw = std::max(1, px(p1.epoch) - px(p0.epoch));
+      // Ticks at a plug-in (bottom) and a `charged` row (top).
+      if (p1.mark & BatteryLogParser::MARK_CHARGE) {
+        renderer.drawLine(px(p1.epoch), y + gh - 14, px(p1.epoch), y + gh - 2, 2, true);
+      }
+      if (p1.mark & BatteryLogParser::MARK_CHARGED) {
+        renderer.drawLine(px(p1.epoch), y + 2, px(p1.epoch), y + 14, 2, true);
+      }
       if (p0.wifi) renderer.fillRect(px(p0.epoch), y + gh + 2, bw, 4);
       if (p0.awake) renderer.fillRect(px(p0.epoch), y + gh + 8, bw, 4);
     }
