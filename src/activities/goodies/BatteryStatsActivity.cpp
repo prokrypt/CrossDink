@@ -390,13 +390,8 @@ void BatteryStatsActivity::loop() {
     }
   }
   if (loading) step(LOAD_STEP_MS);
-  // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
-  // for 1 s, then repaint once (not per step of a light slide).
-  const uint16_t state = estimateState();
-  if (state != seenState) {
-    seenState = state;
-    seenMs = millis();
-  } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
+  // Brightness or Wi-Fi changed on this page: redo the estimate and repaint at once.
+  if (!loading && estimateState() != builtState) {
     RenderLock lock(*this);  // render() reads lines
     buildLines();
     requestUpdate();
