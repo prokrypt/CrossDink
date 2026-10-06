@@ -237,6 +237,22 @@ class CrossPointWebServer {
   void handleLiteStatus() const;  // log-only server: no I2C or SD reads
 #if CROSSDINK_PSRAM_LOG
   void handlePsramLog() const;
+  void handlePsramLogStream();
+  // GET /api/psram-log/stream clients. The serving task owns them: it pushes
+  // new log text to each without blocking (pumpLogStreams) and closes them in
+  // stop(). A client that stops reading falls behind and gets a gap line.
+  struct LogStream {
+    NetworkClient client;  // fd() < 0: free slot
+    uint32_t cursor = 0;   // next PsramLog offset to send
+  };
+  static constexpr int LOG_STREAMS = 2;  // xink-dt plus psram-log-watcher
+  // While a stream is open the idle wait wakes this often to send new text.
+  static constexpr uint32_t LOG_STREAM_FLUSH_MS = 100;
+  LogStream logStreams[LOG_STREAMS];
+  int logStreamsOpen = 0;
+  int logStreamNext = 0;  // slot a third client replaces
+  void pumpLogStreams();
+  void closeLogStream(LogStream& stream, const char* why);
   void handleRemoteCmd() const;
   void handleScreenshot() const;
   void handleApiDownload() const;
