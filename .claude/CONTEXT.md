@@ -1,4 +1,4 @@
-# CrossPoint Reader — Durable Context
+# CrossDink — Durable Context
 
 Keep this file focused on repo-specific gotchas that are worth reusing in future sessions.
 For a directory/file navigation index (targets, subsystems, tasks, SD layout), read `.claude/PROJECT_MAP.md`.
@@ -15,11 +15,10 @@ Refer to https://freeink.org/llms.txt for guidance.
 ## Simulator
 
 - Simulator patches belong in the adjacent `crossink-simulator` repo.
-- The valid local simulator env in this repo is `simulator`, and `pio run -e simulator` currently builds cleanly.
+- The valid local simulator env in this repo is `simulator`.
 - Known simulator limits:
   - Images: `[simulator-base]` now builds the real `PNGdec` and `JPEGDEC` with `-DCROSSPOINT_SIM_USE_NATIVE_DECODERS`
-    and ignores only `hal` and `WebSockets`. Older notes said the decoders were stubs that always fail
-    (`JPEGDEC fallback: open failed (err=-1)`); check in a simulator run before relying on either behavior.
+    and ignores only `hal` and `WebSockets` (`platformio.ini` `[simulator-base]`).
   - `esp_deep_sleep_start()` is a no-op in simulator.
   - `HalStorage` uses POSIX file access under `./fs_` and allows multiple readers, unlike real hardware.
 
@@ -39,10 +38,9 @@ Refer to https://freeink.org/llms.txt for guidance.
 - Use FreeInkUI SDK components and input routing for list-style screens where possible. Row rendering, touch targets,
   hit testing, and pagination should share the same FreeInkUI list configuration instead of custom touch scaling.
 
-## Heap Baselines (X4 hardware, SD card font)
+## Heap Baselines (SD card font)
 
-"X4 hardware" most likely means the ESP32-C3 X4, which CrossDink no longer supports. Treat these numbers as rough
-guides on S3 devices.
+The device these numbers were measured on is not recorded; re-measure on the target device before relying on them.
 
 - A normal resume-into-partial reading session runs at ~85-90KB free / ~49KB maxAlloc by
   the first watermark crossing (Epub metadata + x-locations + resident glyph caches).
