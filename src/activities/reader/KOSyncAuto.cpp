@@ -20,6 +20,7 @@
 #include "KOReaderDocumentId.h"
 #include "KOReaderSyncClient.h"
 #include "ProgressMapper.h"
+#include "SilentRestart.h"
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
@@ -291,7 +292,7 @@ void run(void*) {
     KOReaderSyncClient::endSession();  // before the radio goes down
   }
 
-  if (ownRadio && beginRadioCall()) {
+  if (ownRadio && !keepWifiForRemote() && beginRadioCall()) {  // the Goodies remote may own the link
     WiFi.disconnect(false);
     WiFi.mode(WIFI_OFF);
     radioCall.store(false);
