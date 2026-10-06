@@ -72,6 +72,12 @@ void remember(const std::string& path, const DocumentMatchMethod method, const f
   knownMethod = method;
   knownRemote = remotePct;
 }
+// Where the reader opened the book this boot (main task writes at open; the task reads it later).
+// RAM only: a silent restart or a deep-sleep wake reopens and takes the position again.
+// ponytail: spine/page pair, so a layout change mid-session can misjudge; compare percentages if it matters.
+std::string openPath;
+int openSpine = 0;
+int openPage = 0;
 bool pushOk = false;  // the task's last push landed; main task reads it once running() is false
 // The last push's outcome, written by the task before running() reads false.
 kosync_auto::PushOutcome pushOutcome = kosync_auto::PushOutcome::Failed;
@@ -92,7 +98,8 @@ bool beginRadioCall() {
 }
 
 // Same mapping as the KOSync screen's upload of saved progress.
-bool buildProgress(const std::string& path, KOReaderProgress& out) {
+// behind: the saved position is before the one the book opened at (paged back to look something up).
+bool buildProgress(const std::string& path, KOReaderProgress& out, bool& behind) {
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
   auto epub = std::make_shared<Epub>(path, "/.crossdink");
   epub->setupCacheDir();
@@ -105,6 +112,8 @@ bool buildProgress(const std::string& path, KOReaderProgress& out) {
     LOG_ERR("KOSync", "exit push: no saved progress for %s", path.c_str());
     return false;
   }
+  behind = path == openPath &&
+           (saved.spineIndex < openSpine || (saved.spineIndex == openSpine && saved.pageNumber < openPage));
   const int spine = saved.spineIndex >= 0 && saved.spineIndex < epub->getSpineItemsCount() ? saved.spineIndex : 0;
   const int pages = saved.hasPageCount ? std::max(1, saved.pageCount) : 1;
   CrossPointPosition pos = {spine, saved.pageNumber, pages};
@@ -201,8 +210,12 @@ void run(void*) {
       LOG_ERR("KOSync", "open pull: document hash failed");
       return;
     }
-  } else if (!buildProgress(jobPath, progress)) {
+  } else if (bool behind = false; !buildProgress(jobPath, progress, behind)) {
     return;  // the Epub is freed here, before TLS
+  } else if (behind) {
+    LOG_INF("KOSync", "%s skipped: closed before the page it opened at (radio skipped)", what);
+    pushOutcome = kosync_auto::PushOutcome::Same;
+    return;
   } else if (knownPath == jobPath && progress.percentage <= knownRemote + SAME_PROGRESS_EPSILON) {
     // Not past the server's position as last seen this boot (at open, or our own
     // push): the server check would skip this push, so leave the radio off.
@@ -377,7 +390,10 @@ void noteWake() {
   retryPushMagic = 0;
 }
 
-void queuePull(const std::string& epubPath) {
+void queuePull(const std::string& epubPath, const int spineIndex, const int pageNumber) {
+  openPath = epubPath;
+  openSpine = spineIndex;
+  openPage = pageNumber;
   queuedAt = millis();  // a pending push also waits out the book's open
   // ponytail: a wake whose reader never reaches here leaves the retry for the next open (one extra checked push).
   // The push's own server check makes its order against the pull irrelevant.
