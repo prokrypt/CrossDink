@@ -158,7 +158,8 @@ written (from `since`, default the current end). `X-Log-Start` is the offset of 
 that counts bytes can resume with `since` or the poll above (a `[psram-log gap N bytes]` line marks text the ring
 overwrote before a slow client read it; it is not counted). The server keeps answering other requests while
 streams are open (at most 2; a third replaces the oldest). Sends never block: a stalled client only falls behind.
-With no stream open nothing changes; with one open, the idle server wakes every 100 ms to send new text. A 404
+Streams add no wakes: while the server is idle, new text goes out at its next select timeout (Goodies > Knobs
+serverIdlePollMs, 250 ms), at once while it is busy. A 404
 means older firmware: poll instead.
 
 ```sh

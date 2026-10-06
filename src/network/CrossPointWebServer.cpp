@@ -1218,12 +1218,6 @@ void CrossPointWebServer::setIdleModemSleep() {
 }
 
 bool CrossPointWebServer::waitForTraffic() {
-#if CROSSDINK_PSRAM_LOG
-  // An open log stream: wake often enough to send new text (append can't wake select).
-  const uint32_t waitMs = logStreamsOpen > 0 ? std::min<uint32_t>(IDLE_POLL_MS, LOG_STREAM_FLUSH_MS) : IDLE_POLL_MS;
-#else
-  const uint32_t waitMs = IDLE_POLL_MS;
-#endif
 #ifndef SIMULATOR
   fd_set fds;
   FD_ZERO(&fds);
@@ -1233,7 +1227,7 @@ bool CrossPointWebServer::waitForTraffic() {
     maxFd = std::max(maxFd, fd);
   });
   if (maxFd >= 0) {
-    timeval timeout = {static_cast<time_t>(waitMs / 1000), static_cast<suseconds_t>(waitMs % 1000 * 1000)};
+    timeval timeout = {static_cast<time_t>(IDLE_POLL_MS / 1000), static_cast<suseconds_t>(IDLE_POLL_MS % 1000 * 1000)};
     const int ready = lwip_select(maxFd + 1, &fds, nullptr, nullptr, &timeout);
     if (ready > 0) {
       ++idleStats.traffic;
@@ -1244,7 +1238,7 @@ bool CrossPointWebServer::waitForTraffic() {
   }
 #endif
   // No socket to watch (or select failed): poll.
-  vTaskDelay(pdMS_TO_TICKS(waitMs));
+  vTaskDelay(pdMS_TO_TICKS(IDLE_POLL_MS));
   return false;
 }
 

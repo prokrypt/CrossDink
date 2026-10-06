@@ -239,15 +239,14 @@ class CrossPointWebServer {
   void handlePsramLog() const;
   void handlePsramLogStream();
   // GET /api/psram-log/stream clients. The serving task owns them: it pushes
-  // new log text to each without blocking (pumpLogStreams) and closes them in
-  // stop(). A client that stops reading falls behind and gets a gap line.
+  // new log text to each without blocking (pumpLogStreams) after every pass,
+  // so idle text goes out on the next select timeout (serverIdlePollMs) and no
+  // extra wakes are added. stop() closes them; a slow reader gets a gap line.
   struct LogStream {
     NetworkClient client;  // fd() < 0: free slot
     uint32_t cursor = 0;   // next PsramLog offset to send
   };
   static constexpr int LOG_STREAMS = 2;  // xink-dt plus psram-log-watcher
-  // While a stream is open the idle wait wakes this often to send new text.
-  static constexpr uint32_t LOG_STREAM_FLUSH_MS = 100;
   LogStream logStreams[LOG_STREAMS];
   int logStreamsOpen = 0;
   int logStreamNext = 0;  // slot a third client replaces
