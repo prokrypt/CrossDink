@@ -187,3 +187,4 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - KOReader authentication now rejects unexpectedly large server responses to avoid crashes.
 - KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.
 - File Transfer (Wi-Fi mode): the Wi-Fi signal bars no longer show twice; only the header status bar draws them.
+- File Transfer and WebDAV: a connection that opens but sends nothing (a spare one GNOME Files/gvfs or Finder keeps ready) no longer holds up every other request for 5 s. Once another connection is waiting, the silent one is closed after 1 s. Debug logs: `Closing silent connection fd N, another is waiting`.
