@@ -14,22 +14,28 @@ and merge upstream CrossInk often.
 
 ## Build targets (`platformio.ini`)
 
-| Env | Device | Touch | USB Drive | Notes |
-| --- | --- | --- | --- | --- |
-| `sticky` / `sticky-debug` | Seeed Sticky | 1 | 0 | PSRAM framebuffer |
-| `x4-pro` / `x4-pro-debug` | Xteink X4 Pro | 1 | 1 | light-sleep PM, loopTask on core 0, frontlight, Home key |
-| `x4-classic` / `-debug` | Xteink X4 Classic | 0 | 1 | buttons only, no frontlight |
-| `simulator` | X3/X4-style buttons | 0 | 0 | native SDL, `-DSIMULATOR` |
-| `sticky-simulator`, `x4-pro-simulator`, `x4-classic-simulator` | native profiles | match the device | | |
+| Env | Device | Touch | USB Drive | SD | Light sleep | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sticky` / `sticky-debug` | Seeed Sticky | 1 | 0 | SPI | yes | |
+| `x4-pro` / `x4-pro-debug` | Xteink X4 Pro | 1 | 1 | SDMMC | yes | frontlight, Home key, `[x4_pro_net_tuning]` |
+| `x4-classic` / `x4-classic-debug` | Xteink X4 Classic | 0 | 1 | SDMMC | no | buttons only, no frontlight |
+| `simulator` | X3/X4-style buttons | 0 | 0 | host `./fs_` | n/a | native SDL, `-DSIMULATOR` |
+| `sticky-simulator`, `x4-pro-simulator`, `x4-classic-simulator` | native profiles | match the device | | | | |
 
 - `default_envs = sticky, x4-pro, x4-classic`. Version is `[crossdink] version`.
-- Shared sections: `[base]`, `[firmware_tuned]`, `[sdk_tuning]`, `[pm_autosleep]`,
-  `[dualpoint_cores]`, `[x4_pro_net_tuning]`, `[x4_pro_loop_core0]`, `[x4_pro_tinyusb_prebuilt]`.
+- Every firmware env uses the `esp32-s3-devkitc1-n16r8` board with `FREEINK_FB_PSRAM=1` and the `[dualpoint_cores]`
+  SDK rebuild. Every firmware env also takes `[x4_pro_loop_core0]`, despite its name, so Arduino's `loopTask` runs on core 0.
+- Light sleep comes from `[pm_autosleep]` (`CONFIG_PM_ENABLE` with tickless idle), which `[firmware_tuned]` pulls in.
+  The X4 Classic envs replace that with `[sdk_tuning]` alone, so they never light-sleep.
+- `x4-pro-debug` is the only env with `CROSSDINK_GOODIES` (Home > Goodies, and Knobs through `FREEINK_TUNING`)
+  and `CROSSDINK_SERIAL_REMOTE` (the serial remote and PinMon). It also adds the perf, core-load and PSRAM ring logs
+  and PM profiling.
 - Pre-build scripts: `gen_i18n.py`, `build_web.py`, `build_scalable_font_assets.py`, `git_branch.py`.
 - The capability macros `CROSSDINK_APP_CAP_TOUCH` and `CROSSDINK_APP_CAP_USB_DRIVE` are required, and
   `include/AppCapabilities.h` checks them against the SDK's `FREEINK_CAP_*`.
-  `CROSSDINK_SCALABLE_FONTS=1` on S3 devices.
-- Core pinning lives in `include/TaskCores.h`: `kUi=1` runs the render task, `kWorker=0` runs radio and background workers.
+  The firmware envs set `CROSSDINK_SCALABLE_FONTS=1`, as do the sticky and x4-pro simulators.
+- Core pinning lives in `include/TaskCores.h`: `kUi=1` and `kWorker=0` (see Concurrency). Its comment says
+  `loopTask` moves to core 0 only in the X4 Pro envs. That is out of date: every firmware env moves it.
 
 ## Submodules
 
@@ -46,16 +52,19 @@ and merge upstream CrossInk often.
   and `[SYS]` heap/CPU logging.
 - `CrossPointSettings.{h,cpp}` (`SETTINGS`, `settings.json`) and `SettingsList.{h,cpp}` (setting
   definitions, 1.1k-line header). `CrossPointState` (`APP_STATE`, `state.json`).
-- `MappedInputManager` (logical buttons, gestures), `QuickActions`, `GlobalActions.h`, `Knobs.cpp`
-  (tuning knobs from `lib/Knobs/Knobs.def`).
+- `MappedInputManager` (logical buttons, gestures), `QuickActions`, `GlobalActions.h`, and `Knobs.cpp`
+  (tuning knobs from `lib/Knobs/Knobs.def`, editable in Goodies > Knobs on `x4-pro-debug`).
 - Stores: `BookmarkStore`, `ClippingStore`, `RecentBooksStore`, `WifiCredentialStore`,
   `OpdsServerStore`, `TtfRenderProfileStore`. Fonts: `SdCardFontSystem`, `FontInstaller`, `fontIds.h`.
-- `SilentRestart.h` and `PendingOverlayResume.h` hold the reboot-into-target handoff.
+- `SilentRestart.h`: `ESP.restart()` with an RTC flag, so `setup()` skips the splash and goes straight to a target
+  such as OTA, OPDS or KOReader sync. It is used to clear heap fragmentation after Wi-Fi.
+  `PendingOverlayResume.h` reopens the reader or frontlight drawer the user came from after that restart.
 
 ### `activities/` — screens (see `docs/activity-manager.md`)
 - `Activity.h`, `ActivityManager.{h,cpp}` (1.6k): the stack, the render task (`ActivityManagerRender`), `RenderLock.h`, `ActivityResult.h`.
 - `reader/` is the largest area:
-  - `EpubReaderActivity.cpp` is **9.5k lines** and owns the background workers (inflate, image cache, home thumbs).
+  - `EpubReaderActivity.cpp` is **9.5k lines**. It starts the core-0 workers that draw the next page ahead
+    (`DrawAhead`), index the next chapter (`SilentIndex`), fill the image cache and make Home thumbnails.
   - `EpubReaderDrawerActivity` (3.2k) is the touch drawer/menu, and `EpubReaderMenuModel.h` holds the menu model.
   - `TxtReaderActivity` and `XtcReaderActivity` are the other formats. `ReaderActivity` dispatches by format.
   - Dictionary: `DictionaryWordSelect`, `DictionaryDefinition`, `DictionarySuggestions`, `LookedUpWords`.
@@ -71,7 +80,8 @@ and merge upstream CrossInk often.
   `NearbyStatsSync`, `UsbDriveActivity`, `NetworkModeSelection`.
 - `browser/`: OPDS catalog (`OpdsBookBrowserActivity`, page cache/prefetch/preload pool, downloader).
 - `boot_sleep/`: `BootActivity` and `SleepActivity` (1.4k; sleep covers and the image-folder index).
-- `goodies/`: `GoodiesActivity`, `BatteryStatsActivity`, `DisplayTestActivity` and `DisplayScript`.
+- `goodies/` (built only with `CROSSDINK_GOODIES`, so only in `x4-pro-debug`): `GoodiesActivity`,
+  `BatteryStatsActivity`, `DisplayTestActivity` and `DisplayScript`.
 - `util/`: generic screens such as keyboard entry, confirmation, option and interval selection, the frontlight panel, the BMP viewer.
 
 ### Other `src/` folders
@@ -79,9 +89,10 @@ and merge upstream CrossInk often.
   Dashboard), `OptionPopup.h`, touch helpers (`TouchRegistry`, `TouchHeaderBackButton`), home cover caches,
   and `icons/` (generated from `*.manifest`).
 - `network/`: `CrossPointWebServer.cpp` (3.7k; HTTP, WebSocket, Range), `WebDAVHandler`, `HttpDownloader`,
-  OTA (`OtaUpdater`, `FirmwareFlasher`, `OtaBootSwitch`, `FirmwareBoardTag`), `SerialRemote`,
+  OTA (`OtaUpdater`, `FirmwareFlasher`, `OtaBootSwitch`, `FirmwareBoardTag`), `SerialRemote` (`x4-pro-debug` only),
   `UsbSerialFileTransfer`, `SdWriteBehind`, `WifiBackgroundJoin`, and `html/*.generated.h` (generated, do not edit).
-- `platform/`: `InputTask` (buttons and touch on their own task, core 0), `InputWake`, `PinMon`, USB/JTAG handoff.
+- `platform/`: `InputTask` (buttons and touch on their own task, core 0), `InputWake`, `PinMon` (`x4-pro-debug` only),
+  USB/JTAG handoff.
 - `util/`: dictionary engine (`Dictionary`, `DictionaryLookupController`/`Worker`, `DictLayout`), battery
   logs and estimates, `BookCacheUtils`, `WorkerTask` (pinned-task helper), `WordSelectNavigator`,
   `TransferLightPulse`, `FrontlightSchedule`, `DaylightSaving`, `ScreenshotUtil`, `SleepLog`, `BootReason`.
@@ -109,9 +120,10 @@ and merge upstream CrossInk often.
 
 | Core | Tasks |
 | --- | --- |
-| Core 1 (UI) | `ActivityManagerRender`, `FwRead` |
-| Core 0 (worker) | `Input`, `HtmlInflate`, `ImgDecode`, `ImageCache`, `HomeThumbs`, `HomeCovers`, `LibPrewarm`, `DictLookup`, `WebServer` (PSRAM stack when possible), `SdWriteBehind`, `OtaFlash` |
-| Unpinned | `pinmon`, `gaugeint` (debug tools) |
+| Core 1 (`kUi`) | `ActivityManagerRender`, `WebServer` (PSRAM stack when possible), `FwRead`, `usbReadAhead` |
+| Core 0 (`kWorker`) | Arduino `loopTask` (setup, input polling, activity loop), `Input`, the Wi-Fi driver and lwIP, `DrawAhead` and `SilentIndex` (PSRAM stacks), `HtmlInflate`, `ImgDecode`, `ImageCache`, `HomeThumbs`, `HomeCovers`, `LibPrewarm`, `DictLookup`, `WsWriter` and `HttpWriter` (`SdWriteBehind`) |
+| Caller's core | `OtaFlash` |
+| Unpinned, `x4-pro-debug` only | `pinmon`, `gaugeint` (serial remote) |
 
 ## On-SD data (`docs/data-cache.md`, `docs/file-formats.md`)
 
@@ -131,8 +143,10 @@ and merge upstream CrossInk often.
   `cmake -S test -B build/test -G Ninja && cmake --build build/test && ctest --test-dir build/test`.
   The CI job installs `cmake ninja-build libexpat1-dev zlib1g-dev`. Smoke test: `scripts/run_simulator_smoke_test.py`.
 - CI (`.github/workflows/`): `ci.yml`, `release.yml`, `release_candidate.yml`, `release-fonts.yml`,
-  `pages.yml` (deploys `docs/` and `site/`), `upstream-ref-check.yml`, `issue-triage.yml`.
-- Size guard: `scripts/check_firmware_size.py`. Touch gating check: `scripts/check_app_touch_gate.py`.
+  `pages.yml` (builds the `site/` website and deploys `site/dist`; runs when `docs/` or `site/` change),
+  `upstream-ref-check.yml`, `issue-triage.yml`.
+- Size guard: `scripts/check_firmware_size.py`. `scripts/check_app_touch_gate.py` fails a button-only build
+  that still links touch symbols.
 - Docs to read before deeper work:
   - `docs/development/architecture.md`
   - `docs/activity-manager.md`
