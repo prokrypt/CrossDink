@@ -30,7 +30,10 @@ and merge upstream CrossInk often.
 - `x4-pro-debug` is the only env with `CROSSDINK_GOODIES` (Home > Goodies, and Knobs through `FREEINK_TUNING`)
   and `CROSSDINK_SERIAL_REMOTE` (the serial remote and PinMon). It also adds the perf, core-load and PSRAM ring logs
   and PM profiling.
-- Pre-build scripts: `gen_i18n.py`, `build_web.py`, `build_scalable_font_assets.py`, `git_branch.py`.
+- Firmware builds run `patch_wolfssl.py`, `patch_jpegdec.py`, `patch_websockets.py`, `build_web.py`,
+  `build_scalable_font_assets.py`, `gen_i18n.py` and `git_branch.py` before compiling, and `check_firmware_size.py`,
+  `check_app_touch_gate.py` and `rename_firmware.py` after. The simulators run only `build_scalable_font_assets.py`,
+  `gen_i18n.py`, `git_branch.py` and `build_web.py`.
 - The capability macros `CROSSDINK_APP_CAP_TOUCH` and `CROSSDINK_APP_CAP_USB_DRIVE` are required, and
   `include/AppCapabilities.h` checks them against the SDK's `FREEINK_CAP_*`.
   The firmware envs set `CROSSDINK_SCALABLE_FONTS=1`, as do the sticky and x4-pro simulators.
@@ -110,7 +113,7 @@ and merge upstream CrossInk often.
 | `KOReaderSync/` | Sync client, document ID, XPath-to-chapter mapping, credentials |
 | `LibraryIndex/` | `library.idx` builder and format |
 | `OpdsParser/`, `JsonParser/` | Streaming OPDS XML and JSON parsing (release JSON) |
-| `Serialization/` | `PersistableStore` (atomic `.bak` writes), `BufferedFile`, obfuscation |
+| `Serialization/` | `PersistableStore` (writes `path.tmp`, keeps `path.bak` until the rename lands), `BufferedFile`, obfuscation |
 | `Memory/`, `MemoryBudget/` | `makeUniqueNoThrow`, `Arena`, `BuildScratch`, budgets |
 | `Logging/` | `LOG_*` including `[WRN]`, `PerfLog`, PSRAM ring log |
 | `I18n/` | `translations/*.yaml` (28 languages) produce generated keys and strings |
@@ -145,8 +148,8 @@ and merge upstream CrossInk often.
 - CI (`.github/workflows/`): `ci.yml`, `release.yml`, `release_candidate.yml`, `release-fonts.yml`,
   `pages.yml` (builds the `site/` website and deploys `site/dist`; runs when `docs/` or `site/` change),
   `upstream-ref-check.yml`, `issue-triage.yml`.
-- Size guard: `scripts/check_firmware_size.py`. `scripts/check_app_touch_gate.py` fails a button-only build
-  that still links touch symbols.
+- Post-build checks on every firmware build: `scripts/check_firmware_size.py` (size guard) and
+  `scripts/check_app_touch_gate.py`, which fails a button-only build that still links touch symbols.
 - Docs to read before deeper work:
   - `docs/development/architecture.md`
   - `docs/activity-manager.md`
