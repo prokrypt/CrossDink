@@ -1,6 +1,5 @@
 #pragma once
 
-#include <esp_ota_ops.h>
 #include <esp_partition.h>
 
 #include <cstddef>
@@ -40,10 +39,5 @@ uint32_t computeSeqCrc(uint32_t seq);
 //
 // Returns true on success.
 bool switchTo(const esp_partition_t* dest);
-
-// The OTA slot we are not running from, with its image header in `desc`, or
-// nullptr when it holds no usable image. Header only: run
-// firmware_flash::verifyPartition before switchTo.
-const esp_partition_t* otherSlot(esp_app_desc_t& desc);
 
 }  // namespace ota_boot

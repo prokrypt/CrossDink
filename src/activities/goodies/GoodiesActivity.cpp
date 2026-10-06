@@ -506,7 +506,7 @@ void GoodiesActivity::showLevel(const Level next) {
 #endif
     {
       esp_app_desc_t desc;
-      const esp_partition_t* part = ota_boot::otherSlot(desc);
+      const esp_partition_t* part = firmware_flash::otherSlot(desc);
       entries.push_back({"Boot alternate slot", -1, {}, part ? std::string(part->label) + " >" : "none"});
     }
 #endif
@@ -793,7 +793,7 @@ void GoodiesActivity::setRowValue(const int row, std::string value) {
 #ifndef SIMULATOR
 void GoodiesActivity::confirmBootAlternate() {
   esp_app_desc_t desc;
-  const esp_partition_t* part = ota_boot::otherSlot(desc);
+  const esp_partition_t* part = firmware_flash::otherSlot(desc);
   if (!part) {
     showMessage("No valid firmware in the other slot");
     return;

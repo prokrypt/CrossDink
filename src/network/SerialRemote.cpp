@@ -860,7 +860,7 @@ void cmdWaitIdle(const char* arg) {
 // The label must name the other slot, so a stale script cannot switch blind.
 void cmdBootSlot(const char* args) {
   esp_app_desc_t desc;
-  const esp_partition_t* part = ota_boot::otherSlot(desc);
+  const esp_partition_t* part = firmware_flash::otherSlot(desc);
   const esp_partition_t* running = esp_ota_get_running_partition();
   if (*args == '\0') {
     if (!part) return reply("OK:BOOTSLOT running=%s other=none", running ? running->label : "?");
