@@ -1532,8 +1532,10 @@ void CrossPointWebServer::handlePsramLogStream() {
     closeLogStream(*stream, "replaced");
   }
   const uint32_t end = PsramLog::end();
-  stream->cursor =
-      server->hasArg("since") ? std::min<uint32_t>(strtoul(server->arg("since").c_str(), nullptr, 10), end) : end;
+  const uint32_t since = server->hasArg("since") ? strtoul(server->arg("since").c_str(), nullptr, 10) : end;
+  // since > end: the ring restarted (power loss, deep sleep) after that offset; send the new ring, as the poll does.
+  const bool restarted = since > end;
+  stream->cursor = restarted ? PsramLog::oldest() : since;
   stream->client = server->client();  // WebServer drops its copy after this handler; ours keeps the socket
   char head[200];
   const int n = snprintf(head, sizeof(head),
@@ -1541,6 +1543,7 @@ void CrossPointWebServer::handlePsramLogStream() {
                          "Access-Control-Allow-Origin: *\r\nX-Log-Start: %lu\r\nConnection: close\r\n\r\n",
                          static_cast<unsigned long>(stream->cursor));
   stream->client.write(head, n);
+  if (restarted) stream->client.write("[psram-log restarted]\n", 22);
   ++logStreamsOpen;
   LOG_INF("WEB", "log stream fd %d open from %lu", stream->client.fd(), static_cast<unsigned long>(stream->cursor));
 }

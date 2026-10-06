@@ -156,7 +156,8 @@ o=0; while :; do n=$(curl -s --connect-timeout 3 --max-time 10 -D - -o /dev/stde
 log pushed live: one response that stays open until the client closes it, carrying new log text as it is
 written (from `since`, default the current end). `X-Log-Start` is the offset of the first byte sent, so a client
 that counts bytes can resume with `since` or the poll above (a `[psram-log gap N bytes]` line marks text the ring
-overwrote before a slow client read it; it is not counted). The server keeps answering other requests while
+overwrote before a slow client read it; it is not counted; a `since` past the end gets `[psram-log restarted]` and
+the whole new ring, as the poll does). The server keeps answering other requests while
 streams are open (at most 2; a third replaces the oldest). Sends never block: a stalled client only falls behind.
 Streams add no wakes: while the server is idle, new text goes out at its next select timeout (Goodies > Knobs
 serverIdlePollMs, 250 ms), at once while it is busy. A 404
