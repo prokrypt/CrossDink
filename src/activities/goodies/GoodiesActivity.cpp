@@ -485,22 +485,6 @@ void GoodiesActivity::onEnter() {
   showLevel(Level::Root);
 }
 
-#ifndef SIMULATOR
-namespace {
-// The OTA slot we are not running from, and its image header when that holds a usable image.
-const esp_partition_t* otherSlot(esp_app_desc_t& desc) {
-  const esp_partition_t* part = esp_ota_get_next_update_partition(nullptr);
-  if (!part || esp_ota_get_partition_description(part, &desc) != ESP_OK) return nullptr;
-  esp_ota_img_states_t state;
-  if (esp_ota_get_state_partition(part, &state) == ESP_OK &&
-      (state == ESP_OTA_IMG_INVALID || state == ESP_OTA_IMG_ABORTED)) {
-    return nullptr;
-  }
-  return part;
-}
-}  // namespace
-#endif
-
 void GoodiesActivity::showLevel(const Level next) {
   RenderLock lock(*this);
   level = next;
@@ -522,7 +506,7 @@ void GoodiesActivity::showLevel(const Level next) {
 #endif
     {
       esp_app_desc_t desc;
-      const esp_partition_t* part = otherSlot(desc);
+      const esp_partition_t* part = ota_boot::otherSlot(desc);
       entries.push_back({"Boot alternate slot", -1, {}, part ? std::string(part->label) + " >" : "none"});
     }
 #endif
@@ -809,7 +793,7 @@ void GoodiesActivity::setRowValue(const int row, std::string value) {
 #ifndef SIMULATOR
 void GoodiesActivity::confirmBootAlternate() {
   esp_app_desc_t desc;
-  const esp_partition_t* part = otherSlot(desc);
+  const esp_partition_t* part = ota_boot::otherSlot(desc);
   if (!part) {
     showMessage("No valid firmware in the other slot");
     return;
