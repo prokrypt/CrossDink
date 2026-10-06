@@ -63,13 +63,10 @@ class CrossPointWebServerActivity final : public Activity {
   unsigned long firstDisconnectAt = 0;
   static KNOB_ALIAS(WIFI_ABANDON_MS, wifiAbandonMs);  // Goodies > Knobs
 
-  // Cached signal-strength bracket (0..4) for the WiFi indicator.
-  int lastWifiBars = 0;
   ScreenTransitionRefresh screenTransitionRefresh;
 
   void renderServerRunning() const;
   void renderHeader() const;
-  void renderWifiIndicator(int subHeaderTop) const;
   bool exitRequested() const;
 
   void onNetworkModeSelected(NetworkMode mode);
