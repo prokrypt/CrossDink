@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Goodies Wi-Fi remote: a key, touch, swipe or type command over Wi-Fi briefly dips a lit frontlight (to a quarter of your level) and restores your exact level, so you can see the input landed. Goodies > Knobs `remoteBlinkMs` sets the length (15 ms; 0 = off). An off or dimmed light does not blink, and input is never delayed.
 - X4 Pro (debug builds): Goodies > Boot alternate slot switches the boot slot to the other OTA slot and reboots. Its confirmation names the slot and that image's project, version, build date and time, and ELF hash prefix; with no valid image there, the row shows "none" and a tap says so.
 - X4 Pro (debug builds): remote command `SLEEPREBOOT` (USB serial `CMD:SLEEPREBOOT`, Wi-Fi `POST /api/cmd`, token required) runs Goodies > Sleep-reboot-log without a tap: 0.5 s after the reply, the real sleep path, then a restart instead of power-down, so the PSRAM log keeps the sleep and the Wi-Fi remote rejoins on its own.
 - X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar. Short vertical ticks mark a plug-in (bottom edge) and a `charged` row (top edge).

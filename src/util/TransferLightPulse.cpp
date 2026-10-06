@@ -9,7 +9,26 @@ KNOB_ALIAS(kCycleMs, pulseCycleMs);  // Goodies > Knobs
 uint32_t lastAnyWriteMs = 0;
 KNOB_ALIAS(kOffTopPercent, pulseOffTopPct);  // pulse top when the light is off
 TransferLightPulse* active = nullptr;        // the armed pulse; one at a time
+uint32_t blinkEndMs = 0;                     // 0 = no blink in flight
 }  // namespace
+
+void TransferLightPulse::blink() {
+  const uint32_t ms = KNOBS.remoteBlinkMs;
+  // A lit, undimmed light only: off costs no battery, and an overlay or
+  // another blink in flight already owns the LEDs.
+  if (ms == 0 || blinkEndMs != 0 || !Frontlight.present() || !Frontlight.isOn() || Frontlight.idleDimPercent() < 100 ||
+      Frontlight.overlayActive()) {
+    return;
+  }
+  Frontlight.setOverlay(pulseLow(Frontlight.brightness()));
+  blinkEndMs = (millis() + ms) | 1;
+}
+
+void TransferLightPulse::updateBlink() {
+  if (blinkEndMs == 0 || static_cast<int32_t>(millis() - blinkEndMs) < 0) return;
+  blinkEndMs = 0;
+  Frontlight.setOverlay(HalFrontlight::NO_OVERLAY);  // a user change already ended it; this is then a no-op
+}
 
 void TransferLightPulse::begin(const uint32_t holdForMs) {
   armed = false;
@@ -58,7 +77,7 @@ void TransferLightPulse::yieldToUser() {
           Frontlight.isOn() ? "on" : "off");
 }
 
-bool TransferLightPulse::animating() { return millis() - lastAnyWriteMs < 5 * WRITE_INTERVAL_MS; }
+bool TransferLightPulse::animating() { return blinkEndMs != 0 || millis() - lastAnyWriteMs < 5 * WRITE_INTERVAL_MS; }
 
 void TransferLightPulse::update(const bool transferActive) {
   if (!armed || userOverride || held) {
