@@ -429,8 +429,14 @@ void CrossPointWebServerActivity::loop() {
           if (rssi < -75) {
             LOG_DBG("WEBACT", "Warning: Weak WiFi signal: %d dBm", rssi);
           }
-          // Signal changes never repaint; the glyph updates whenever something else repaints.
-          lastWifiBars = barsForRssi(rssi, lastWifiBars);
+          // Bar changes repaint this screen's own indicator, at most once per 5 s.
+          static unsigned long lastBarsRepaint = 0;
+          const int bars = barsForRssi(rssi, lastWifiBars);
+          if (bars != lastWifiBars && millis() - lastBarsRepaint >= 5000) {
+            lastBarsRepaint = millis();
+            lastWifiBars = bars;
+            repaint = true;
+          }
         }
         if (repaint) requestUpdate();
       }
