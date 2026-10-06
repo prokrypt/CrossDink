@@ -2568,7 +2568,9 @@ static void updateFlashDuck() {
 // ms), so RenderLock's waits step the duck too, on this task only.
 static TaskHandle_t mainLoopTask = nullptr;
 static void flashDuckRenderWait() {
-  if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
+  if (xTaskGetCurrentTaskHandle() != mainLoopTask) return;
+  TransferLightPulse::updateBlink();  // a remote blink ends on time, not after the refresh
+  updateFlashDuck();
 }
 void installFlashDuckRenderWait() {
   mainLoopTask = xTaskGetCurrentTaskHandle();  // setup() and loop() share the Arduino loop task
