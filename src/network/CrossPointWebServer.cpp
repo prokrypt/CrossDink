@@ -12,6 +12,7 @@
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#include <InflateStream.h>
 #include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -35,6 +36,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 
@@ -1586,12 +1588,38 @@ namespace {
 // /api/ota state, server task only.
 bool otaAuthorized = false;
 firmware_flash::Result otaResult = firmware_flash::Result::OK;
+
+// /api/ota?size=N: the body is the zlib-compressed image, N its inflated size.
+struct OtaInflate {
+  InflateStream z;
+  uint8_t out[4096];
+  bool done = false;
+};
+std::unique_ptr<OtaInflate> otaInflate;
+
+firmware_flash::Result otaInflateWrite(const uint8_t* data, const size_t len) {
+  otaInflate->z.feed(data, len);
+  for (;;) {
+    size_t got = 0;
+    const InflateStream::Status status = otaInflate->z.readAtMost(otaInflate->out, sizeof(otaInflate->out), &got);
+    if (status == InflateStream::Status::Error) {
+      LOG_ERR("WEB", "/api/ota: bad zlib stream");
+      return firmware_flash::Result::READ_FAIL;
+    }
+    if (got > 0) {
+      const firmware_flash::Result r = firmware_flash::streamWrite(otaInflate->out, got);
+      if (r != firmware_flash::Result::OK) return r;
+    }
+    if (status == InflateStream::Status::Done) otaInflate->done = true;
+    if (status == InflateStream::Status::Done || got < sizeof(otaInflate->out)) return firmware_flash::Result::OK;
+  }
+}
 }  // namespace
 
 // Debug builds: raw firmware upload (docs/serial-remote.md). The token is
 // checked on the main task (as /api/cmd) before anything is erased; the image
-// streams into the next OTA slot, verified in the same pass, and only a
-// verified image switches otadata. No SD access.
+// streams into the next OTA slot (inflated first with ?size=), verified in the
+// same pass, and only a verified image switches otadata. No SD access.
 void CrossPointWebServer::handleOtaData() const {
   const HTTPRaw& raw = server->raw();
   static char out[32];
@@ -1599,19 +1627,44 @@ void CrossPointWebServer::handleOtaData() const {
     case RAW_START:
       otaAuthorized = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", clientIp(*server), out,
                                                      sizeof(out), 12000) == 200;
-      otaResult =
-          otaAuthorized ? firmware_flash::streamBegin(server->clientContentLength()) : firmware_flash::Result::OK;
+      otaResult = firmware_flash::Result::OK;
+      otaInflate.reset();
+      if (!otaAuthorized) break;
+      if (server->hasArg("size")) {
+        otaInflate = makeUniqueNoThrow<OtaInflate>();
+        if (!otaInflate || !otaInflate->z.init(true)) {
+          LOG_ERR("WEB", "/api/ota: no memory for inflate");
+          otaInflate.reset();
+          otaResult = firmware_flash::Result::OOM;
+          break;
+        }
+        otaInflate->z.setZlibWrapped();
+        LOG_INF("WEB", "/api/ota: zlib body, %u bytes", static_cast<unsigned>(server->clientContentLength()));
+      }
+      // streamBegin() bounds the size by the slot; the verifier checks the bytes.
+      otaResult = firmware_flash::streamBegin(otaInflate ? strtoul(server->arg("size").c_str(), nullptr, 10)
+                                                         : server->clientContentLength());
       break;
     case RAW_WRITE:
       if (otaAuthorized && otaResult == firmware_flash::Result::OK) {
-        otaResult = firmware_flash::streamWrite(raw.buf, raw.currentSize);
+        otaResult = otaInflate ? otaInflateWrite(raw.buf, raw.currentSize)
+                               : firmware_flash::streamWrite(raw.buf, raw.currentSize);
       }
       break;
     case RAW_END:
-      if (otaAuthorized && otaResult == firmware_flash::Result::OK) otaResult = firmware_flash::streamFinish();
+      if (otaAuthorized && otaResult == firmware_flash::Result::OK) {
+        if (otaInflate && !otaInflate->done) {
+          LOG_ERR("WEB", "/api/ota: zlib stream ended early");
+          otaResult = firmware_flash::Result::BAD_SIZE;
+        } else {
+          otaResult = firmware_flash::streamFinish();
+        }
+      }
+      otaInflate.reset();
       break;
     case RAW_ABORTED:
       firmware_flash::streamAbort();
+      otaInflate.reset();
       otaResult = firmware_flash::Result::READ_FAIL;
       break;
   }

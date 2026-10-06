@@ -87,7 +87,17 @@ curl -s --data-binary @firmware.bin -H "Content-Type: application/octet-stream" 
   -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/ota
 ```
 
-The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
+With `?size=<image bytes>` the body is the zlib-compressed image (about 37% smaller), inflated on the device as it
+arrives:
+
+```sh
+python3 -c 'import sys,zlib; sys.stdout.buffer.write(zlib.compress(open("firmware.bin","rb").read(), 9))' > fw.z
+curl -s --data-binary @fw.z -H "Content-Type: application/octet-stream" -H "X-Token: $(cat remote-token)" \
+  "http://10.0.1.67/api/ota?size=$(stat -c%s firmware.bin)"
+```
+
+Firmware without this ignores `size` and answers `ERR:OTA:BAD_MAGIC` without switching slots; send the raw image
+then. The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
 table, checksum, SHA-256 and board tag, as SD Card Firmware Update does. Only a verified image switches the boot
 slot; OTA rollback still applies on the next boot.
 
