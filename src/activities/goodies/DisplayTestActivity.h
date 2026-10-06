@@ -72,7 +72,7 @@ class DisplayTestActivity final : public Activity {
   int skipTapsUntil = -1;  // an Again replay runs its earlier steps without waiting for taps
   int labelPc = 0;         // the page's Label op, redrawn when a value changes
   bool redrawLabel = false;
-  Hit duckHit[5] = {};  // dim -, dim +, restore -, restore +, Again
+  Hit duckHit[6] = {};  // dim -, dim +, restore -, restore +, Again, Next
   int bandH = 0;        // height of the label/ask band in the framebuffer (0 after a fill)
 
   void runOps();
