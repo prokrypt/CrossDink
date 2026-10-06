@@ -548,6 +548,20 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // and PWAs on other origins can use the HTTP API. Preflight OPTIONS requests
   // are answered in handleNotFound().
   server->enableCORS(true);
+#ifndef SIMULATOR
+  // The server serves one request at a time, so a slow one stalls every
+  // other client (a WebDAV mount waits with no timeout). Name the slow ones.
+  server->addMiddleware([](WebServer& s, Middleware::Callback next) {
+    const unsigned long startMs = millis();
+    const bool handled = next();
+    const unsigned long tookMs = millis() - startMs;
+    if (tookMs >= 1000) {
+      LOG_DBG("WEB", "Slow request: method %d %s from %s:%u took %lu ms", static_cast<int>(s.method()), s.uri().c_str(),
+              s.client().remoteIP().toString().c_str(), s.client().remotePort(), tookMs);
+    }
+    return handled;
+  });
+#endif
 
   // Setup routes
 #if CROSSDINK_PSRAM_LOG
