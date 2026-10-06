@@ -989,9 +989,12 @@ void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
   const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
   // eRunning, eReady, eBlocked, eSuspended, eDeleted, eInvalid
   const char state = serverTask ? "RrBSDI"[std::min<int>(eTaskGetState(serverTask), 5)] : '-';
-  LOG_INF("WEB", "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, ws upload %d, sockets%s",
+  LOG_INF("WEB",
+          "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, client status %d method %d for %lu "
+          "ms, ws upload %d, sockets%s",
           waitedMs, state, servePhase.load(std::memory_order_relaxed), reqStart ? millis() - reqStart : 0UL,
-          wsUploadInProgress ? 1 : 0, used ? socks : " none");
+          server ? server->clientStatus() : -1, server ? server->clientMethod() : -1,
+          server ? server->clientStatusMs() : 0UL, wsUploadInProgress ? 1 : 0, used ? socks : " none");
 }
 
 void CrossPointWebServer::serverTaskMain(void* param) {

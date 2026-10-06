@@ -48,6 +48,16 @@ class PendingAwareWebServer final : public WebServer {
  public:
   using WebServer::WebServer;
   bool requestPending();
+  // Debug: WebServer's client state (HTTPClientStatus, HTTPMethod, ms in that state).
+#ifndef SIMULATOR
+  int clientStatus() const { return _currentStatus; }
+  int clientMethod() const { return _currentMethod; }
+  unsigned long clientStatusMs() const { return millis() - _statusChange; }
+#else
+  int clientStatus() const { return -1; }
+  int clientMethod() const { return -1; }
+  unsigned long clientStatusMs() const { return 0; }
+#endif
 };
 
 class CrossPointWebServer {
