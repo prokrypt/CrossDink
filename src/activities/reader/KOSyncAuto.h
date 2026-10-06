@@ -12,9 +12,9 @@
 // before it moves. Main task only.
 namespace kosync_auto {
 // Reader open: fetch the book's remote progress when At open is on and credentials exist.
-// spineIndex/pageNumber: where the book opened; a close or sleep push never goes
-// out from an earlier position.
-void queuePull(const std::string& epubPath, int spineIndex, int pageNumber);
+// spineIndex/pageNumber/pageCount (0 if unknown): where the book opened; a close
+// or sleep push never goes out from an earlier position.
+void queuePull(const std::string& epubPath, int spineIndex, int pageNumber, int pageCount);
 // Reader exit: drops a pending fetch; remembers the book for a push when At close is on.
 void queue(const std::string& epubPath);
 // Reader loop: a finished fetch for this book, once, else null; valid until the

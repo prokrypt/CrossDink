@@ -2512,7 +2512,7 @@ void EpubReaderActivity::onEnter() {
                                  coverState);
   }
 
-  kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber);
+  kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount);
 
   // Trigger first update
   requestUpdate();

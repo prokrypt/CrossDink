@@ -72,12 +72,17 @@ void remember(const std::string& path, const DocumentMatchMethod method, const f
   knownMethod = method;
   knownRemote = remotePct;
 }
-// Where the reader opened the book this boot (main task writes at open; the task reads it later).
-// RAM only: a silent restart or a deep-sleep wake reopens and takes the position again.
-// ponytail: spine/page pair, so a layout change mid-session can misjudge; compare percentages if it matters.
-std::string openPath;
-int openSpine = 0;
-int openPage = 0;
+// Where the reader opened the book this boot. RAM only: a silent restart or a
+// deep-sleep wake reopens and takes the position again.
+struct OpenAt {
+  int spine = 0;
+  int page = 0;
+  int pages = 0;  // 0: page count unknown
+};
+std::string openPath;  // main task only; startJob() hands the task a copy
+OpenAt openAt;
+bool jobOpened = false;  // jobPath is the book opened last; jobOpenAt is where
+OpenAt jobOpenAt;
 bool pushOk = false;  // the task's last push landed; main task reads it once running() is false
 // The last push's outcome, written by the task before running() reads false.
 kosync_auto::PushOutcome pushOutcome = kosync_auto::PushOutcome::Failed;
@@ -97,6 +102,15 @@ bool beginRadioCall() {
   return false;
 }
 
+// Before where the book opened. Within a chapter it compares the fraction read,
+// which survives a font or margin change re-paging the chapter.
+bool beforeOpen(const EpubReaderUtils::Progress& saved) {
+  const OpenAt& o = jobOpenAt;
+  if (!jobOpened || saved.spineIndex != o.spine) return jobOpened && saved.spineIndex < o.spine;
+  if (!saved.hasPageCount || saved.pageCount <= 0 || o.pages <= 0) return saved.pageNumber < o.page;
+  return static_cast<float>(saved.pageNumber) / saved.pageCount < static_cast<float>(o.page) / o.pages;
+}
+
 // Same mapping as the KOSync screen's upload of saved progress.
 // behind: the saved position is before the one the book opened at (paged back to look something up).
 bool buildProgress(const std::string& path, KOReaderProgress& out, bool& behind) {
@@ -112,8 +126,7 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, bool& behind)
     LOG_ERR("KOSync", "exit push: no saved progress for %s", path.c_str());
     return false;
   }
-  behind = path == openPath &&
-           (saved.spineIndex < openSpine || (saved.spineIndex == openSpine && saved.pageNumber < openPage));
+  behind = beforeOpen(saved);
   const int spine = saved.spineIndex >= 0 && saved.spineIndex < epub->getSpineItemsCount() ? saved.spineIndex : 0;
   const int pages = saved.hasPageCount ? std::max(1, saved.pageCount) : 1;
   CrossPointPosition pos = {spine, saved.pageNumber, pages};
@@ -334,6 +347,8 @@ bool startJob(std::string path, const bool pull) {
     return false;
   }
   jobPath = std::move(path);
+  jobOpened = jobPath == openPath;
+  jobOpenAt = openAt;
   jobIsPull = pull;
   pullReady = false;
   pushOk = false;
@@ -390,10 +405,9 @@ void noteWake() {
   retryPushMagic = 0;
 }
 
-void queuePull(const std::string& epubPath, const int spineIndex, const int pageNumber) {
+void queuePull(const std::string& epubPath, const int spineIndex, const int pageNumber, const int pageCount) {
   openPath = epubPath;
-  openSpine = spineIndex;
-  openPage = pageNumber;
+  openAt = {spineIndex, pageNumber, pageCount};
   queuedAt = millis();  // a pending push also waits out the book's open
   // ponytail: a wake whose reader never reaches here leaves the retry for the next open (one extra checked push).
   // The push's own server check makes its order against the pull irrelevant.
