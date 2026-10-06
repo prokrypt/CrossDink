@@ -352,7 +352,10 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
           KOREADER_STORE.saveToFile();
         },
         "koSyncBehavior", StrId::STR_KOREADER_SYNC));
-    add(SettingInfo::Toggle(StrId::STR_SYNC_ON_EXIT, &CrossPointSettings::koSyncOnExit, "koSyncOnExit",
+    add(SettingInfo::Enum(StrId::STR_AUTO_SYNC, &CrossPointSettings::koAutoSync,
+                          {StrId::STR_DISABLED, StrId::STR_AT_OPEN, StrId::STR_AT_CLOSE, StrId::STR_BOTH}, "koAutoSync",
+                          StrId::STR_KOREADER_SYNC));
+    add(SettingInfo::Toggle(StrId::STR_SYNC_SLEEP_WAKE, &CrossPointSettings::koSyncSleepWake, "koSyncSleepWake",
                             StrId::STR_KOREADER_SYNC));
 
     // Legacy fields stay in JSON for one-time status bar migration; the web

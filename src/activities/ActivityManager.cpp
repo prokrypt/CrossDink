@@ -49,7 +49,7 @@
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
 #include "reader/GlobalReadingStats.h"
-#include "reader/KOSyncOnExit.h"
+#include "reader/KOSyncAuto.h"
 #include "reader/ReaderActivity.h"
 #include "reader/ReaderExitSave.h"
 #include "settings/OpdsServerListActivity.h"
@@ -867,7 +867,7 @@ void ActivityManager::loop() {
       if (currentActivity->usesWifi()) goodies_remote::waitForJoin();
 #endif
       if (currentActivity->usesWifi()) {
-        kosync_on_exit::yieldRadio();
+        kosync_auto::yieldRadio();
         wifi_background_join::wait();  // likewise the OPDS list's join or teardown task
       }
       currentActivity->onEnter();
@@ -1459,6 +1459,14 @@ bool ActivityManager::skipLoopDelay() const { return currentActivity && currentA
 
 bool ActivityManager::allowsRadioIdleSleep() const {
   return currentActivity && currentActivity->allowsRadioIdleSleep();
+}
+
+std::string ActivityManager::flushEpubProgressForSync() {
+  if (currentActivity && currentActivity->flushProgressForSync()) return currentActivity->getCurrentBookPath();
+  for (auto it = stackActivities.rbegin(); it != stackActivities.rend(); ++it) {
+    if (*it && (*it)->flushProgressForSync()) return (*it)->getCurrentBookPath();
+  }
+  return {};
 }
 
 std::string ActivityManager::getCurrentBookPath() const {
