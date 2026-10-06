@@ -1173,6 +1173,7 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
 }
 
 void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
+  ListSelection::listThisFrame = true;  // a tapped cover is a row too (ActivityManager's tapped-row frame)
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int count = rowCount();
   const int pageCount = (count + GRID_PAGE_SIZE - 1) / GRID_PAGE_SIZE;
