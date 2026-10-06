@@ -73,6 +73,10 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "platform/PinMon.h"
 #include "util/SleepLog.h"
 #include "util/UrlUtils.h"
+#ifndef SIMULATOR
+#include "network/FirmwareFlasher.h"
+#include "network/OtaBootSwitch.h"
+#endif
 
 extern GfxRenderer renderer;
 extern MappedInputManager mappedInputManager;
@@ -143,6 +147,9 @@ constexpr uint32_t GOTO_DELAY_MS = 500;
 int gotoPending = -1;  // index into kGoto
 uint32_t gotoAt = 0;
 uint32_t sleepRebootAt = 0;  // SLEEPREBOOT: same reply-first delay as GOTO; 0 = none
+#ifndef SIMULATOR
+uint32_t slotRebootAt = 0;  // BOOTSLOT: otadata already switched; restart after the reply
+#endif
 
 void finishHttp(const int status) {
   httpStatus = status;
@@ -847,6 +854,38 @@ void cmdWaitIdle(const char* arg) {
   idleSince = 0;
 }
 
+#ifndef SIMULATOR
+// BOOTSLOT: the other OTA slot's image header. BOOTSLOT <label>: full image check
+// of that slot (as Goodies > Boot alternate slot), then switch and restart into it.
+// The label must name the other slot, so a stale script cannot switch blind.
+void cmdBootSlot(const char* args) {
+  esp_app_desc_t desc;
+  const esp_partition_t* part = firmware_flash::otherSlot(desc);
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (*args == '\0') {
+    if (!part) return reply("OK:BOOTSLOT running=%s other=none", running ? running->label : "?");
+    return reply("OK:BOOTSLOT running=%s other=%s %.31s %.31s %.15s %.15s elf=%02x%02x%02x%02x",
+                 running ? running->label : "?", part->label, desc.project_name, desc.version, desc.date, desc.time,
+                 desc.app_elf_sha256[0], desc.app_elf_sha256[1], desc.app_elf_sha256[2], desc.app_elf_sha256[3]);
+  }
+  if (!part) return reply("ERR:BOOTSLOT:none");
+  if (firmware_flash::streamActive()) return reply("ERR:BOOTSLOT:busy");  // an OTA is writing that slot
+  if (strcmp(args, part->label) != 0) return reply("ERR:BOOTSLOT:not_other %s", part->label);
+  const firmware_flash::Result verified = firmware_flash::verifyPartition(part);
+  if (verified != firmware_flash::Result::OK) {
+    LOG_ERR("BOOT", "BOOTSLOT: %s image failed: %s", part->label, firmware_flash::resultName(verified));
+    return reply("ERR:BOOTSLOT:verify %s", firmware_flash::resultName(verified));
+  }
+  if (!ota_boot::switchTo(part)) {
+    LOG_ERR("BOOT", "BOOTSLOT: switch to %s failed", part->label);
+    return reply("ERR:BOOTSLOT:switch");
+  }
+  LOG_INF("BOOT", "BOOTSLOT: restarting into %s", part->label);
+  slotRebootAt = (millis() + GOTO_DELAY_MS) | 1;
+  reply("OK:BOOTSLOT %s", part->label);
+}
+#endif
+
 }  // namespace
 
 size_t readToken(char (&out)[TOKEN_BUF]) {
@@ -943,6 +982,10 @@ bool handleLine(const char* line) {
     sleepRebootAt = (millis() + GOTO_DELAY_MS) | 1;
     reply("OK:SLEEPREBOOT");
 #endif
+#ifndef SIMULATOR
+  } else if (strcmp(verb, "BOOTSLOT") == 0) {
+    cmdBootSlot(args);
+#endif
   } else if (strcmp(verb, "REBOOT") == 0) {
     reply("OK:REBOOT");
     logSerial.flush();
@@ -977,6 +1020,14 @@ void poll() {
     SleepLog::armSleepReboot();
     enterDeepSleep();  // restarts, does not return
   }
+
+#ifndef SIMULATOR
+  if (slotRebootAt != 0 && static_cast<int32_t>(now - slotRebootAt) >= 0) {
+    slotRebootAt = 0;
+    activityManager.exitAllActivities();  // save what the open screens save on exit, as REBOOT
+    restartKeepingPanelFrame();           // does not return
+  }
+#endif
 
   if (keyReleaseAt != 0 && static_cast<int32_t>(now - keyReleaseAt) >= 0) {
     buttonMask.fetch_and(static_cast<uint8_t>(~keyReleaseBit));

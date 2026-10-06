@@ -38,6 +38,8 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
 | `CMD:SLEEPREBOOT` | `OK:SLEEPREBOOT` | Goodies > Sleep-reboot-log without the confirm (PSRAM-log builds): 0.5 s after the reply, the real deep-sleep path, then a restart instead of power-down. The PSRAM log keeps the sleep; read it from `/api/psram-log` once the remote rejoins. |
 | `CMD:REBOOT` | `OK:REBOOT` | Software restart. |
+| `CMD:BOOTSLOT` | `OK:BOOTSLOT running=<label> other=<label> <project> <version> <date> <time> elf=<8 hex>` or `other=none` | Read-only: the other OTA slot's image header, as Goodies > Boot alternate slot shows it. |
+| `CMD:BOOTSLOT <label>` | `OK:BOOTSLOT <label>` | Boots the other slot without USB. `<label>` must name the other slot (`ERR:BOOTSLOT:not_other <label>`, `ERR:BOOTSLOT:none`; `ERR:BOOTSLOT:busy` while an OTA upload runs). Runs the full image check first (checksum, SHA-256, board tag; a few seconds) and switches nothing on `ERR:BOOTSLOT:verify <reason>`; `ERR:BOOTSLOT:switch` if the otadata write fails. On OK, 0.5 s after the reply, saves the open screens and restarts into that slot. The way back needs the same command (or Goodies) in that build. |
 | `CMD:WAITIDLE [ms]` | `OK:WAITIDLE <elapsed_ms>` or `ERR:WAITIDLE:timeout` | Replies once injected input and typing are done, no render is queued or running, no refresh is pending, and that has held for 150 ms. Default timeout 10 s. |
 
 ## Wi-Fi: POST /api/cmd
