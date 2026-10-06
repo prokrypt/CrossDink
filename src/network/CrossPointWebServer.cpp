@@ -548,6 +548,20 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // and PWAs on other origins can use the HTTP API. Preflight OPTIONS requests
   // are answered in handleNotFound().
   server->enableCORS(true);
+#ifndef SIMULATOR
+  // The server serves one request at a time, so a slow one stalls every
+  // other client (a WebDAV mount waits with no timeout). Name the slow ones.
+  server->addMiddleware([](WebServer& s, Middleware::Callback next) {
+    const unsigned long startMs = millis();
+    const bool handled = next();
+    const unsigned long tookMs = millis() - startMs;
+    if (tookMs >= 1000) {
+      LOG_DBG("WEB", "Slow request: method %d %s from %s:%u took %lu ms", static_cast<int>(s.method()), s.uri().c_str(),
+              s.client().remoteIP().toString().c_str(), s.client().remotePort(), tookMs);
+    }
+    return handled;
+  });
+#endif
 
   // Setup routes
 #if CROSSDINK_PSRAM_LOG
@@ -975,9 +989,12 @@ void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
   const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
   // eRunning, eReady, eBlocked, eSuspended, eDeleted, eInvalid
   const char state = serverTask ? "RrBSDI"[std::min<int>(eTaskGetState(serverTask), 5)] : '-';
-  LOG_INF("WEB", "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, ws upload %d, sockets%s",
+  LOG_INF("WEB",
+          "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, client status %d method %d for %lu "
+          "ms, ws upload %d, sockets%s",
           waitedMs, state, servePhase.load(std::memory_order_relaxed), reqStart ? millis() - reqStart : 0UL,
-          wsUploadInProgress ? 1 : 0, used ? socks : " none");
+          server ? server->clientStatus() : -1, server ? server->clientMethod() : -1,
+          server ? server->clientStatusMs() : 0UL, wsUploadInProgress ? 1 : 0, used ? socks : " none");
 }
 
 void CrossPointWebServer::serverTaskMain(void* param) {
@@ -1125,7 +1142,20 @@ bool CrossPointWebServer::handleClient() {
 bool PendingAwareWebServer::requestPending() {
   // A new connection waiting in accept(), or bytes on the kept-alive one. An
   // idle keep-alive connection does not count, so it cannot pin full power.
-  return _server.hasClient() || _currentClient.available() > 0;
+  const bool waiting = _server.hasClient();
+  const bool hasBytes = _currentClient.available() > 0;
+#ifndef SIMULATOR
+  // The server serves one connection at a time and waits up to
+  // HTTP_MAX_DATA_WAIT (5 s) for a silent one (a client's spare pooled
+  // connection) to send its request. Once another connection is waiting,
+  // close the silent one (a FIN, nothing was sent) and serve the next.
+  constexpr unsigned long SILENT_GRACE_MS = 1000;
+  if (waiting && !hasBytes && _currentStatus == HC_WAIT_READ && millis() - _statusChange >= SILENT_GRACE_MS) {
+    LOG_DBG("WEB", "Closing silent connection fd %d, another is waiting", _currentClient.fd());
+    _currentClient.stop();
+  }
+#endif
+  return waiting || hasBytes;
 }
 
 void CrossPointWebServer::noteTransferActivity() {
