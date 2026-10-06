@@ -879,7 +879,10 @@ namespace {
 struct Stream {
   const esp_partition_t* dest = nullptr;
   std::unique_ptr<ImageVerifier> verifier;
-  std::unique_ptr<uint8_t[]> buf;  // one sector: keeps writes aligned for encrypted slots
+  // One sector: keeps writes aligned for encrypted slots. Internal RAM: from
+  // PSRAM esp_flash_write copies through a 32-byte stack buffer, one program
+  // command per 32 bytes instead of per 256-byte page.
+  HeapByteBuffer buf;
   size_t total = 0;
   size_t written = 0;
   size_t fill = 0;
@@ -993,7 +996,7 @@ Result beginHere(const size_t totalSize) {
   if (totalSize < MIN_FIRMWARE_SIZE) return failStream(Result::TOO_SMALL);
   if (totalSize > stream.dest->size) return failStream(Result::TOO_LARGE);
   stream.verifier = makeUniqueNoThrow<ImageVerifier>(totalSize);
-  stream.buf = makeUniqueNoThrow<uint8_t[]>(SEC);
+  stream.buf = makeInternalByteBufferNoThrow(SEC);
   if (!stream.verifier || !stream.buf) return failStream(Result::OOM);
   stream.total = totalSize;
   streamOpen.store(true, std::memory_order_relaxed);
