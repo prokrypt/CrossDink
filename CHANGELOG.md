@@ -119,6 +119,8 @@
 - In-reader menu for X3/X4/X4 Classic have been updated to a modified version of the in-reader menu for touch devices
 - Chapter pages and book progress information is displayed in the frontlight drawer when in the reader for X4 Pro
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
+- Sort the web file manager by name, size or modified date by clicking the column header: the first click sorts largest, newest or Z first, and a second click flips it. Folders always stay at the top, and the chosen order is kept while you browse other folders in the same tab.
+- X4 Pro (debug builds): remote command `SLEEPREBOOT` (USB serial `CMD:SLEEPREBOOT`, Wi-Fi `POST /api/cmd`, token required) runs Goodies > Sleep-reboot-log without a tap: 0.5 s after the reply, the real sleep path, then a restart instead of power-down, so the PSRAM log keeps the sleep and the Wi-Fi remote rejoins on its own.
 
 ### Changed
 - Tapping a list row that opens a confirmation or book-actions popup (Goodies, Library, File Browser, Saved items, Settings and the like) now also inks the highlighted row and the popup in one refresh, so it shows about 0.6 s sooner. A tap that opens one of these over a page with no list (reader, image viewer) no longer redraws the page first.
