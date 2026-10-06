@@ -340,7 +340,6 @@ void CrossPointWebServerActivity::startWebServer() {
     // The pulse (and its 0% idle level) starts only once the server is up, so
     // the mode menu and Wi-Fi picker keep the user's brightness.
     transferLight.begin();
-    lastWifiBars = isApMode ? 0 : barsForRssi(WiFi.RSSI(), 0);
 
     // Force an immediate render since we're transitioning from a subactivity
     // that had its own rendering task. We need to make sure our display is shown.
@@ -429,13 +428,11 @@ void CrossPointWebServerActivity::loop() {
           if (rssi < -75) {
             LOG_DBG("WEBACT", "Warning: Weak WiFi signal: %d dBm", rssi);
           }
-          // Bar changes repaint this screen's own indicator, at most once per 5 s
+          // Header bar changes repaint this screen at most once per 5 s
           // (a repaint already due, e.g. reconnect, carries the new bars).
           static unsigned long lastBarsRepaint = 0;
-          const int bars = barsForRssi(rssi, lastWifiBars);
-          if (bars != lastWifiBars && (repaint || millis() - lastBarsRepaint >= 5000)) {
+          if (wifiHeaderBars() != BaseTheme::wifiStatusShown() && (repaint || millis() - lastBarsRepaint >= 5000)) {
             lastBarsRepaint = millis();
-            lastWifiBars = bars;
             repaint = true;
           }
         }
