@@ -72,6 +72,10 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "platform/InputTask.h"
 #include "platform/PinMon.h"
 #include "util/SleepLog.h"
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+#include <PsramLog.h>
+#include <esp_rom_crc.h>
+#endif
 #include "util/UrlUtils.h"
 #ifndef SIMULATOR
 #include "network/FirmwareFlasher.h"
@@ -151,6 +155,14 @@ uint32_t sleepRebootAt = 0;  // SLEEPREBOOT: same reply-first delay as GOTO; 0 =
 uint32_t slotRebootAt = 0;  // BOOTSLOT: otadata already switched; restart after the reply
 #endif
 
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+// A MACRO step's command: reply() hands its line here instead of to serial.
+// ponytail: a serial command answered while a step waits (WAITIDLE) lands here too.
+bool macroCapture = false;
+bool macroReplied = false;
+char macroReply[160];
+#endif
+
 void finishHttp(const int status) {
   httpStatus = status;
   httpState.store(0, std::memory_order_release);
@@ -186,6 +198,14 @@ void reply(const char* fmt, ...) {
     httpReply[len] = '\0';
     return finishHttp(strncmp(buf, "OK:", 3) == 0 ? 200 : 400);
   }
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+  if (macroCapture) {
+    snprintf(macroReply, sizeof(macroReply), "%.*s", static_cast<int>(len), buf);
+    macroCapture = false;
+    macroReplied = true;
+    return;
+  }
+#endif
   buf[len] = '\n';
   // The host waits on this line; a plain print drops it while logs from other
   // tasks hold the 1 ms-timeout TX path.
@@ -886,6 +906,305 @@ void cmdBootSlot(const char* args) {
 }
 #endif
 
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+// MACRO <path>: runs a script of remote commands on the main task with the
+// Goodies Wi-Fi remote off (radio free, no server work skewing timings), then
+// writes the results to the SD card and turns the remote back on. The script
+// and results live in PSRAM that survives software restarts (CRC-checked), so
+// a SLEEPREBOOT or REBOOT step carries on after the boot. docs/serial-remote.md.
+namespace macro {
+constexpr uint32_t MAGIC = 0x4D414331;  // "MAC1"
+constexpr size_t SCRIPT_MAX = 16384;
+constexpr size_t RESULT_MAX = 8192;
+constexpr size_t NEEDLE_MAX = 120;
+constexpr uint32_t REPLY_TIMEOUT_MS = 15000;  // WAITIDLE carries its own, shorter by default
+
+struct Saved {
+  uint32_t magic;
+  uint32_t scriptLen, pos, lineNo;  // pos: the next line to run
+  uint32_t logStart;                // PsramLog offset at MACRO
+  uint32_t logCursor;               // WAITLOG searches from here; MARK moves it to the log end
+  uint32_t resultLen;
+  char base[96];  // the script path without .txt
+  char script[SCRIPT_MAX];
+  char result[RESULT_MAX];
+  uint32_t crc;  // over everything above
+};
+EXT_RAM_NOINIT_ATTR Saved saved;
+
+enum class Step : uint8_t { Idle, Start, Next, Reply, Wait, WaitLog, Finish };
+Step step = Step::Idle;
+uint32_t stepStart = 0, deadline = 0;
+char line[256];
+char needle[NEEDLE_MAX + 1];
+char lastResult[140];     // MACRO status after a run
+uint32_t scanCursor = 0;  // WAITLOG's search position; saved.logCursor takes it on a hit
+EXT_RAM_NOINIT_ATTR char chunk[4096];
+
+uint32_t crc() { return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&saved), offsetof(Saved, crc)); }
+void seal() { saved.crc = crc(); }
+
+void record(const char* fmt, ...) {
+  const size_t room = RESULT_MAX - saved.resultLen;
+  if (room <= 1) return;
+  va_list args;
+  va_start(args, fmt);
+  const int n = vsnprintf(saved.result + saved.resultLen, room, fmt, args);
+  va_end(args);
+  saved.resultLen += n < 0 ? 0 : std::min<size_t>(n, room - 1);
+  seal();
+}
+
+// One result line for the line just run: number, step time, log offset, line, reply.
+void finishStep(const char* replyText) {
+  record("%lu +%lums @%lu %s => %s\n", static_cast<unsigned long>(saved.lineNo),
+         static_cast<unsigned long>(millis() - stepStart), static_cast<unsigned long>(PsramLog::end()), line,
+         replyText);
+  step = Step::Next;
+}
+
+// Copies the next non-empty, non-comment line into `line`; false at the end.
+bool nextLine() {
+  while (saved.pos < saved.scriptLen) {
+    const char* s = saved.script + saved.pos;
+    const char* nl = static_cast<const char*>(memchr(s, '\n', saved.scriptLen - saved.pos));
+    const size_t len = nl ? nl - s : saved.scriptLen - saved.pos;
+    saved.pos += len + (nl ? 1 : 0);
+    saved.lineNo++;
+    size_t n = std::min(len, sizeof(line) - 1);
+    while (n > 0 && isspace(static_cast<unsigned char>(s[n - 1]))) n--;
+    size_t skip = 0;
+    while (skip < n && isspace(static_cast<unsigned char>(s[skip]))) skip++;
+    if (skip == n || s[skip] == '#') continue;
+    memcpy(line, s + skip, n - skip);
+    line[n - skip] = '\0';
+    seal();  // a restart during this step resumes after it
+    return true;
+  }
+  seal();
+  return false;
+}
+
+// WAITLOG: looks for `needle` in the log from scanCursor (MARK, or past the last
+// hit); a hit moves the saved cursor past it.
+bool scanLog() {
+  const size_t nlen = strlen(needle);
+  const uint32_t end = PsramLog::end();
+  while (scanCursor + nlen <= end) {
+    uint32_t cursor = scanCursor;
+    const size_t n = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - scanCursor));
+    if (n < nlen) break;
+    const char* hit = std::search(chunk, chunk + n, needle, needle + nlen);
+    if (hit != chunk + n) {
+      saved.logCursor = cursor - n + (hit - chunk) + nlen;
+      return true;  // finishStep() seals it
+    }
+    scanCursor = cursor - (nlen - 1);  // a match may straddle the next read
+    if (cursor >= end) break;
+  }
+  return false;
+}
+
+// Shot names become part of a file name: letters, digits, - and _ only.
+void shotPath(const char* name, char* out, const size_t outLen) {
+  char clean[33];
+  size_t n = 0;
+  for (const char* p = name; *p && n < sizeof(clean) - 1; p++) {
+    if (isalnum(static_cast<unsigned char>(*p)) || *p == '-' || *p == '_') clean[n++] = *p;
+  }
+  clean[n] = '\0';
+  if (n == 0) snprintf(clean, sizeof(clean), "L%lu", static_cast<unsigned long>(saved.lineNo));
+  snprintf(out, outLen, "%s.%s.pnm", saved.base, clean);
+}
+
+// SHOT: the same capture as SCREENSHOT, written straight to the card.
+void shot(const char* name) {
+  macroCapture = true;
+  macroReplied = false;
+  takeSnapshot();
+  macroCapture = false;
+  if (strncmp(macroReply, "OK:", 3) != 0 || snapLen == 0) return finishStep(macroReply);
+  char path[140];
+  shotPath(name, path, sizeof(path));
+  HalFile file;
+  const bool ok = Storage.openFileForWrite("MAC", path, file) && file.write(snap, snapLen) == snapLen;
+  file.close();
+  char out[160];
+  snprintf(out, sizeof(out), ok ? "OK:SHOT %s" : "ERR:SHOT:write %s", path);
+  finishStep(out);
+}
+
+// Results and the PSRAM log since MACRO, written once at the end (a deliberate
+// write the tester asked for, not a deferred store).
+void writeResults() {
+  char path[120];
+  snprintf(path, sizeof(path), "%s.result.txt", saved.base);
+  HalFile file;
+  bool ok = Storage.openFileForWrite("MAC", path, file) && file.write(saved.result, saved.resultLen) == saved.resultLen;
+  file.close();
+  snprintf(lastResult, sizeof(lastResult), "%s %s", ok ? "done" : "write_failed", path);
+  snprintf(path, sizeof(path), "%s.log", saved.base);
+  if (!Storage.openFileForWrite("MAC", path, file)) return;
+  uint32_t cursor = std::max(saved.logStart, PsramLog::oldest());
+  if (cursor != saved.logStart) {
+    const int n = snprintf(chunk, sizeof(chunk), "[psram-log gap %lu bytes]\n",
+                           static_cast<unsigned long>(cursor - saved.logStart));
+    file.write(chunk, n);
+  }
+  const uint32_t end = PsramLog::end();
+  while (cursor < end) {
+    const size_t n = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+    if (n == 0 || file.write(chunk, n) != n) break;
+  }
+  file.close();
+}
+
+void holdRemote(const bool on) {
+#if CROSSDINK_GOODIES
+  goodies_remote::hold(on);
+#else
+  (void)on;
+#endif
+}
+
+void runLine() {
+  stepStart = millis();
+  char buf[sizeof(line)];
+  strcpy(buf, line);
+  char* args = strchr(buf, ' ');
+  if (args) {
+    *args++ = '\0';
+  } else {
+    args = buf + strlen(buf);
+  }
+  if (strcasecmp(buf, "WAIT") == 0) {
+    deadline = stepStart + strtoul(args, nullptr, 10);
+    step = Step::Wait;
+  } else if (strcasecmp(buf, "MARK") == 0) {
+    LOG_INF("MAC", "mark %s", args);
+    saved.logCursor = PsramLog::end();
+    finishStep("OK:MARK");
+  } else if (strcasecmp(buf, "WAITLOG") == 0) {
+    char* text = nullptr;
+    deadline = stepStart + strtoul(args, &text, 10);
+    while (text && *text == ' ') text++;
+    if (!text || !*text || strlen(text) > NEEDLE_MAX) return finishStep("ERR:WAITLOG:usage WAITLOG <ms> <text>");
+    strcpy(needle, text);
+    scanCursor = saved.logCursor;
+    step = Step::WaitLog;
+  } else if (strcasecmp(buf, "SHOT") == 0 || strcasecmp(buf, "SCREENSHOT") == 0) {
+    shot(args);
+  } else if (strcasecmp(buf, "SLEEP") == 0 || strcasecmp(buf, "MACRO") == 0) {
+    finishStep("ERR:MACRO:not_in_macro (use SLEEPREBOOT)");  // deep sleep wipes PSRAM: the macro would be lost
+  } else {
+    char cmd[sizeof(line) + 4];
+    snprintf(cmd, sizeof(cmd), "CMD:%s", line);
+    macroCapture = true;
+    macroReplied = false;
+    if (!handleLine(cmd)) {
+      macroCapture = false;
+      return finishStep("ERR:unknown_cmd");
+    }
+    deadline = stepStart + REPLY_TIMEOUT_MS;
+    step = Step::Reply;
+  }
+}
+
+// Main task, every loop pass.
+void poll() {
+  static bool checkedBoot = false;
+  if (!checkedBoot) {
+    checkedBoot = true;
+    if (saved.magic == MAGIC && saved.crc == crc() && saved.scriptLen <= SCRIPT_MAX && saved.resultLen < RESULT_MAX) {
+      LOG_INF("MAC", "resuming %s at line %lu after restart", saved.base, static_cast<unsigned long>(saved.lineNo));
+      record("# restarted\n");
+      holdRemote(true);
+      step = Step::Next;
+    } else {
+      saved.magic = 0;
+    }
+  }
+  const uint32_t now = millis();
+  switch (step) {
+    case Step::Idle:
+      return;
+    case Step::Start:
+      if (static_cast<int32_t>(now - deadline) < 0) return;
+      holdRemote(true);
+      step = Step::Next;
+      return;
+    case Step::Next:
+      if (nextLine()) return runLine();
+      step = Step::Finish;
+      return;
+    case Step::Reply:
+      if (macroReplied) return finishStep(macroReply);
+      if (static_cast<int32_t>(now - deadline) >= 0) {
+        macroCapture = false;
+        finishStep("ERR:MACRO:no_reply");
+      }
+      return;
+    case Step::Wait:
+      if (static_cast<int32_t>(now - deadline) >= 0) finishStep("OK:WAIT");
+      return;
+    case Step::WaitLog:
+      if (scanLog()) return finishStep("OK:WAITLOG");
+      if (static_cast<int32_t>(now - deadline) >= 0) finishStep("ERR:WAITLOG:timeout");
+      return;
+    case Step::Finish:
+      LOG_INF("MAC", "%s done, %lu result bytes", saved.base, static_cast<unsigned long>(saved.resultLen));
+      writeResults();
+      saved.magic = 0;
+      step = Step::Idle;
+      holdRemote(false);
+      return;
+  }
+}
+
+// MACRO <path.txt> | status | stop
+void command(const char* args) {
+  if (strcasecmp(args, "status") == 0) {
+    if (step != Step::Idle) return reply("OK:MACRO running line %lu", static_cast<unsigned long>(saved.lineNo));
+    return reply("OK:MACRO %s", lastResult[0] ? lastResult : "idle");
+  }
+  if (strcasecmp(args, "stop") == 0) {
+    if (step == Step::Idle) return reply("ERR:MACRO:not_running");
+    macroCapture = false;
+    record("# stopped\n");
+    step = Step::Finish;
+    return reply("OK:MACRO stopping");
+  }
+  if (step != Step::Idle) return reply("ERR:MACRO:busy");
+  const size_t pathLen = strlen(args);
+  if (pathLen < 5 || pathLen - 4 >= sizeof(saved.base) || strcasecmp(args + pathLen - 4, ".txt") != 0 ||
+      isTokenPath(args, true)) {
+    return reply("ERR:MACRO:usage MACRO <path.txt>");
+  }
+  char base[sizeof(saved.base)];
+  memcpy(base, args, pathLen - 4);
+  base[pathLen - 4] = '\0';
+  if (isTokenPath(base)) {  // its result files would land on the token's name
+    return reply("ERR:MACRO:usage MACRO <path.txt>");
+  }
+  const size_t len = Storage.readFileToBuffer(args, saved.script, SCRIPT_MAX);
+  if (len == 0) return reply("ERR:MACRO:not_found");
+  if (len >= SCRIPT_MAX - 1) return reply("ERR:MACRO:too_big");
+  saved.magic = MAGIC;
+  saved.scriptLen = len;
+  saved.pos = saved.lineNo = saved.resultLen = 0;
+  strcpy(saved.base, base);
+  saved.logStart = saved.logCursor = PsramLog::end();
+  record("# macro %s\n", args);
+  lastResult[0] = '\0';
+  // Reply first: the remote that carried MACRO goes off once this is sent.
+  deadline = millis() + GOTO_DELAY_MS;
+  step = Step::Start;
+  LOG_INF("MAC", "start %s (%u bytes)", args, static_cast<unsigned>(len));
+  reply("OK:MACRO started");
+}
+}  // namespace macro
+#endif
+
 }  // namespace
 
 size_t readToken(char (&out)[TOKEN_BUF]) {
@@ -981,6 +1300,8 @@ bool handleLine(const char* line) {
     // Goodies > Sleep-reboot-log without the tap: the real sleep path, then a restart.
     sleepRebootAt = (millis() + GOTO_DELAY_MS) | 1;
     reply("OK:SLEEPREBOOT");
+  } else if (strcmp(verb, "MACRO") == 0) {
+    macro::command(args);
 #endif
 #ifndef SIMULATOR
   } else if (strcmp(verb, "BOOTSLOT") == 0) {
@@ -1006,6 +1327,9 @@ bool handleLine(const char* line) {
 
 void poll() {
   pollHttp();
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+  macro::poll();
+#endif
   const uint32_t now = millis();
 
   if (gotoPending >= 0 && static_cast<int32_t>(now - gotoAt) >= 0) {
@@ -1126,6 +1450,14 @@ int runFromOtherTask(const char* token, const char* cmd, const uint32_t clientIp
   }
   snprintf(out, outLen, "%s", httpReply);
   return httpStatus;
+}
+
+bool macroRunning() {
+#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+  return macro::step != macro::Step::Idle;
+#else
+  return false;
+#endif
 }
 
 const uint8_t* screenshot(size_t& len) {
