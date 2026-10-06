@@ -62,6 +62,8 @@ X("Touch", swipeMinPx, int, 60, 20, 200, 5, "px")                   // SDK: min 
 X("Touch", swipeMaxMs, unsigned long, 700, 200, 3000, 50, "ms")     // SDK: longest one-finger swipe
 X("Touch", multiSwipeMaxMs, unsigned long, 2000, 500, 5000, 100, "ms")  // SDK: two-finger gesture window
 X("Touch", multiSeparationSlopPx, int, 45, 10, 150, 5, "px")        // SDK: two-finger spacing tolerance
+X("Touch", rotationMinDeg, int, 20, 10, 90, 1, "deg")               // SDK: two-finger twist that rotates
+X("Touch", rotationGapTolPct, int, 35, 5, 90, 5, "%")               // SDK: finger-gap drift a twist allows
 X("Touch", touchLongPressMs, unsigned long, 500, 200, 2000, 50, "ms")  // SDK: screen long press
 X("Touch", contactJumpPx, int, 120, 40, 400, 10, "px")             // SDK: still touch jumping this far = new finger
 X("Touch", touchIrqPulseMs, unsigned long, 120, 20, 500, 10, "ms")  // SDK: release hold-over after last read

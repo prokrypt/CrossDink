@@ -74,6 +74,31 @@ TEST(ReaderPinchGesture, RotationWithScaleWobbleNeverResizesFont) {
   EXPECT_EQ(gesture.update(-15, -50, 115, 50), ReaderPinchGesture::Action::None);
 }
 
+// A twist whose gap spreads at its start passes the resize threshold on every
+// frame, but the finger line keeps turning, so the resize waits until the
+// rotation lock takes the sequence.
+TEST(ReaderPinchGesture, TwistWithEarlyGapWobbleNeverResizesFont) {
+  ReaderPinchGesture gesture;
+  gesture.update(0, 0, 100, 0);
+
+  EXPECT_EQ(gesture.update(0, 0, 122, 6), ReaderPinchGesture::Action::None);   // 3 deg, pending
+  EXPECT_EQ(gesture.update(0, 0, 123, 11), ReaderPinchGesture::Action::None);  // 5 deg: still turning
+  EXPECT_EQ(gesture.update(0, 0, 122, 15), ReaderPinchGesture::Action::None);  // 7 deg
+  EXPECT_EQ(gesture.update(0, 0, 121, 21), ReaderPinchGesture::Action::None);  // 10 deg
+  EXPECT_EQ(gesture.update(0, 0, 119, 27), ReaderPinchGesture::Action::None);  // 13 deg: rotation lock
+  EXPECT_EQ(gesture.update(0, 0, 119, 27), ReaderPinchGesture::Action::None);
+  EXPECT_EQ(gesture.update(0, 0, 130, 27), ReaderPinchGesture::Action::None);
+}
+
+TEST(ReaderPinchGesture, PinchResizesOnceTheLineStopsTurning) {
+  ReaderPinchGesture gesture;
+  gesture.update(0, 0, 100, 0);
+
+  EXPECT_EQ(gesture.update(0, 0, 121, 6), ReaderPinchGesture::Action::None);   // pending
+  EXPECT_EQ(gesture.update(0, 0, 122, 10), ReaderPinchGesture::Action::None);  // turned ~2 deg: wait
+  EXPECT_EQ(gesture.update(0, 0, 124, 10), ReaderPinchGesture::Action::Increase);
+}
+
 TEST(ReaderPinchGesture, SmallDirectionDriftStillAllowsPinch) {
   ReaderPinchGesture gesture;
   gesture.update(0, 0, 100, 0);

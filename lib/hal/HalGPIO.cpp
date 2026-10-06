@@ -173,6 +173,11 @@ void HalGPIO::begin() {
   }
 #endif
   inputMgr.begin();
+#if CROSSDINK_APP_CAP_TOUCH
+  // Rotate the reader as soon as a twist passes the threshold instead of on
+  // release, so the page turns while the fingers are still turning.
+  InputManager::setRotationCommitsAtThreshold(true);
+#endif
 }
 
 void HalGPIO::trackTouchDragOn(const InputManager& input, bool& draggedPastTapSlop) {

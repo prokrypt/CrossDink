@@ -60,6 +60,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Changed
 - Tapping a list row that opens a choice popup (Settings, Image Viewer, Home, OPDS servers, bookmarks and the like) now draws the highlighted row and the popup in one e-ink refresh instead of two, so the popup shows about 0.6 s sooner.
+- Two-finger Screen Rotation turns the page as soon as the twist passes 20 degrees, while your fingers are still down, instead of when you lift them. It is still one quarter turn per twist (the direction is unchanged), and the rest of that touch does nothing else. Debug builds: Goodies > Knobs rotationMinDeg (twist needed, default 20) and rotationGapTolPct (how much the gap between the fingers may change, default 35%).
 - Tapping a list row that opens a confirmation or book-actions popup (Goodies, Library, File Browser, Saved items, Settings and the like) now also inks the highlighted row and the popup in one refresh, so it shows about 0.6 s sooner. A tap that opens one of these over a page with no list (reader, image viewer) no longer redraws the page first.
 
 - Debug builds (X4 Pro): the 2 s `[MEM] Periodic`, `[CPU]` and `[PERF]` log lines are now one `[SYS]` line (`heap ... psram ... sd ... img ... core0 X% core1 Y% over N ms act=<Activity> | <tasks>`). Each part prints only when it has news and leaves out what carries none: the constant heap/PSRAM totals (still in `[MEM] Boot`), PSRAM min/maxAlloc unless they changed, zero SD/image counters and tasks under 10% of a core. On a recent 43-minute log these lines took 45% less of the PSRAM log ring, so a dump reaches further back. A cached book section rebuilt after a reader setting change now logs `[INF] [SCT] Section cache params changed, rebuilding` instead of an `[ERR]`, and any main-loop pass of 200 ms or more logs `[LOOP] Slow loop: ...` (at most one line per 5 s), not only a new maximum.
@@ -141,6 +142,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Fixed
 
+- Two-finger Screen Rotation is more reliable: the twist is followed frame by frame instead of compared start to end, so a twist where the fingers drift apart or together for a moment still rotates (before, any moment outside 80-120% of the starting gap cancelled it), a twist past half a turn rotates the way the fingers turned, the jumpy first and last touch reports no longer decide the angle, and a twist no longer changes the font size when the gap between the fingers wobbles at its start (pinch resizing waits while the fingers are still turning).
 - File Transfer: an upload that fails part-way (card full or write error) no longer leaves a truncated copy on the card, so the retry is not refused with "File already exists".
 - WebDAV: overwriting a file (PUT, or MOVE with Overwrite) keeps the old file until the new one is in place and puts it back if the replace fails, instead of deleting it first.
 - Settings web page: saving holds the settings lock while applying the changes and reports an error when the settings file could not be written, instead of "Applied N setting(s)".

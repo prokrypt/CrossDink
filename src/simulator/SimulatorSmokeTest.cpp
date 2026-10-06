@@ -742,6 +742,44 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Loading popup preserves backdrop in all orientations");
   }
 
+  // The SDK measures a twist in the panel's touch frame and the reader turns by
+  // its sign. Every board maps its digitizer into that frame (the swap/flip
+  // that makes taps land), so the sign is right on all of them as long as each
+  // reading orientation keeps a clockwise turn clockwise; a mirroring step in
+  // tapToLogical would make a twist turn the page the wrong way.
+  void verifyTwoFingerRotationHandedness() {
+#if CROSSDINK_APP_CAP_TOUCH
+    RenderLock lock;
+    const auto originalOrientation = renderer.getOrientation();
+    // Normalized panel coordinates, Y down: the second line is the first one
+    // turned 30 degrees clockwise about the panel center.
+    const float lines[2][4] = {{0.40f, 0.50f, 0.60f, 0.50f}, {0.4134f, 0.45f, 0.5866f, 0.55f}};
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise,
+                                   GfxRenderer::PortraitInverted, GfxRenderer::LandscapeCounterClockwise}) {
+      renderer.setOrientation(orientation);
+      int logical[2][4] = {};
+      for (int line = 0; line < 2; ++line) {
+        renderer.tapToLogical(lines[line][0], lines[line][1], logical[line][0], logical[line][1]);
+        renderer.tapToLogical(lines[line][2], lines[line][3], logical[line][2], logical[line][3]);
+      }
+      const int64_t fromDx = logical[0][2] - logical[0][0];
+      const int64_t fromDy = logical[0][3] - logical[0][1];
+      const int64_t toDx = logical[1][2] - logical[1][0];
+      const int64_t toDy = logical[1][3] - logical[1][1];
+      if (fromDx * toDy - fromDy * toDx <= 0) {
+        fail("Clockwise panel twist reads counterclockwise in orientation %d", static_cast<int>(orientation));
+      }
+    }
+    renderer.setOrientation(originalOrientation);
+    for (uint8_t orientation = 0; orientation < CrossPointSettings::ORIENTATION_COUNT; ++orientation) {
+      if (ReaderUtils::rotatedOrientation(ReaderUtils::rotatedOrientation(orientation, true), false) != orientation) {
+        fail("Opposite two-finger rotations do not return to orientation %u", orientation);
+      }
+    }
+    LOG_INF("SMOKE", "Two-finger rotation keeps its direction in all orientations");
+#endif
+  }
+
   static void verifyCachedHomeProgressMigration() {
     const RecentBook book{"/books/legacy-home-smoke.epub", "Legacy Home smoke", {}, {}};
     const std::string legacy = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
@@ -779,6 +817,7 @@ class SimulatorSmokeTest {
       case SmokeStep::Start:
         LOG_INF("SMOKE", "Starting simulator smoke test");
         verifyLoadingPopupBackdrop();
+        verifyTwoFingerRotationHandedness();
         verifyCachedHomeProgressMigration();
         if (!CrossPointSettings::verifySleepTimeoutMigrationContract()) {
           fail("Sleep timeout migration contract failed");
