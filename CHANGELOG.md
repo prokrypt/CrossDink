@@ -115,6 +115,7 @@
 - Add a Cover Grid Home theme on devices with PSRAM, showing the current book and six library covers.
 
 ### Changed
+- Tapping a list row that opens a confirmation or book-actions popup (Goodies, Library, File Browser, Saved items, Settings and the like) now also inks the highlighted row and the popup in one refresh, so it shows about 0.6 s sooner. A tap that opens one of these over a page with no list (reader, image viewer) no longer redraws the page first.
 - X4 Pro: a book image shown for the first time is decoded from a copy in PSRAM instead of a raw copy written to the SD card first (up to a few MB per image), which also takes the SD write out of its first view (about 0.8 s for a 1 MB image). The small decoded cache is still saved. With PSRAM short, it falls back to the SD copy. The log line `Background decode ... src=psram` shows which was used.
 - Lyra Carousel theme: coming back to Home from a book rewrites its saved Home picture (48 KB per recent book) only when something it shows changed (progress %, reading time to the minute, whether stats exist), not after every reading session.
 - The automatic reading-stats backup (on by default) is written once a day, at the first sleep of the day, instead of being refreshed at every sleep after reading. It lags the live stats by up to a day; a manual backup still writes a fresh copy at once.

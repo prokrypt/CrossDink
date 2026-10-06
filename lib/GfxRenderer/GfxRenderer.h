@@ -58,6 +58,7 @@ class GfxRenderer {
   Orientation orientation;
   bool fadingFix;
   bool deferFastRefresh = false;
+  bool drawOnly = false;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
   uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
@@ -238,6 +239,9 @@ class GfxRenderer {
   // instead of waiting out the waveform (see HalDisplay::displayBufferDeferred).
   // The render task sets it around menu renders only.
   void setDeferFastRefresh(const bool defer) { deferFastRefresh = defer; }
+  // displayBuffer()/displayBufferAsync() leave the frame in the framebuffer
+  // without driving the panel, so the next frame can draw over it and ink both.
+  void setDrawOnly(const bool on) { drawOnly = on; }
   // A refresh started by a deferred displayBuffer() that nothing has finished yet.
   bool isRefreshPending() const;
   // That refresh's waveform is still running on the panel.
