@@ -1,7 +1,7 @@
 # CrossDink — Project Map
 
 Navigation index for agents: where things live and which file to open first.
-Snapshot of 2026-10 (v1.6.0, `0b98add`). Line counts are rough, to show which files are huge.
+Snapshot of 2026-10 (v1.6.0). Line counts are rough, to show which files are huge.
 Rules and conventions live in `CLAUDE.md`/`AGENTS.md`; repo gotchas live in `CONTEXT.md`.
 
 ## What it is
@@ -130,7 +130,8 @@ and merge upstream CrossInk often.
 ## On-SD data (`docs/data-cache.md`, `docs/file-formats.md`)
 
 `/.crossdink/` holds:
-- Settings and session JSON: `settings.json`, `state.json`, `recent.json`, `wifi.json`, `opds.json`, `koreader.json`.
+- Settings and session JSON: `settings.json`, `state.json`, `recent.json`, `wifi.json`, `opds.json`, `koreader.json`, `knobs.json` (only when a knob is off its default).
+- Global reading stats: `global_stats_dink.bin` and `.bak` (two slots; legacy `global_stats.bin` is read until the first save).
 - `library.idx`, plus the `bookmarks/` and `clippings/` folders.
 - One cache folder per book:
   - EPUB: `epub_<fnv64>/`, with `book.bin`, `sections/*.bin`, `progress.bin` (A/B slots), `stats_v5.bin`, `reader_settings.bin`, covers and thumbnails, and `path.txt`.
@@ -141,7 +142,7 @@ and merge upstream CrossInk often.
 - Web: `web/templates/base.html` with `web/pages/{home,files,fonts,settings,logs}.{html,css,js}` and
   `web/assets/` are compiled by `scripts/build_web.py`. `scripts/preview_web.py` previews them.
   Endpoints are listed in `docs/webserver-endpoints.md`.
-- Tests: about 75 native CMake/CTest targets in `test/<name>/`. Run them with
+- Tests: 79 native CMake/CTest targets in `test/<name>/`. Run them with
   `cmake -S test -B build/test -G Ninja && cmake --build build/test && ctest --test-dir build/test`.
   The CI job installs `cmake ninja-build libexpat1-dev zlib1g-dev`. Smoke test: `scripts/run_simulator_smoke_test.py`.
 - CI (`.github/workflows/`): `ci.yml`, `release.yml`, `release_candidate.yml`, `release-fonts.yml`,
