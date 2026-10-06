@@ -972,14 +972,15 @@ Hardware acceptance: clear only the test book's cache, open legacy/PXC2 variants
 with SD font and AA, visit/revisit image pages and sleep, compare portrait and
 landscape output, and record internal free/largest heap blocks and low-water
 marks. Repeat corrupt sidecars, full/read-only SD, interrupted writes and book
-replacement at the same path on X3/X4, Sticky (SPI SD) and X4 Pro (SDMMC).
+replacement at the same path on Sticky (SPI SD), X4 Pro and X4 Classic (SDMMC).
 
 ### CSS rules cache revision 18
 
 Revision 18 adds the serialized `list-style-type` property used to number
 ordered lists and suppress list markers. It also includes the PSRAM streamed
 stylesheet path introduced in revision 16, which admits sources up to 512 KiB
-on PSRAM readers while C3 retains its 128 KiB limit. Existing rule-count and
+on PSRAM readers (every CrossDink device); builds without a PSRAM heap,
+including the simulator, keep the 128 KiB limit. Existing rule-count and
 internal-memory guards still apply. Rebuilding an invalid CSS cache also
 invalidates section caches through the existing EPUB-load path, so books that
 previously cached zero rules can restore hidden content and layout rules.

@@ -7,8 +7,7 @@ nav_order: 4
 
 CrossDink supports loading additional fonts from the SD card, including fonts
 with extended Unicode coverage (CJK, Cyrillic, Greek, etc.). All devices can
-use `.cpfont` font packs. ESP32-S3 devices can also use static TrueType (`.ttf`)
-fonts directly; ESP32-C3 devices need `.cpfont` files.
+use `.cpfont` font packs, and static TrueType (`.ttf`) fonts directly.
 
 ## Available Pre-Built Fonts
 

@@ -5,7 +5,7 @@ nav_order: 8
 
 # Nearby Position Sync
 
-CrossDink can share the current EPUB reading position between two nearby X3/X4 readers running CrossDink. The sync is direct reader-to-reader over ESP-NOW; it does not use WiFi, a server, an account, or KOReader's online sync service.
+CrossDink can share the current EPUB reading position between two nearby readers running CrossDink. The sync is direct reader-to-reader over ESP-NOW; it does not use WiFi, a server, an account, or KOReader's online sync service.
 
 Nearby Position Sync is separate from [Reading Stats Sync](./reading-stats-sync.md). Stats Sync shares all-time reading totals. Nearby Position Sync shares one in-book location for the currently open EPUB.
 
@@ -67,4 +67,4 @@ The readers did not find each other within the sync window. Keep both readers cl
 
 **Nearby position sync is not available in simulator**
 
-This feature depends on ESP-NOW hardware support, so it only works on a real X3/X4 reader.
+This feature depends on ESP-NOW hardware support, so it only works on a reader, not in the simulator.

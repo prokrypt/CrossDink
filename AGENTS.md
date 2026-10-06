@@ -3,7 +3,7 @@
 This is the canonical repo instruction file.
 `CLAUDE.md` should point here so Codex and Claude read the same guidance.
 
-Project: Open-source e-reader firmware for ESP32-C3 and ESP32-S3 devices.
+Project: Open-source e-reader firmware for ESP32-S3 devices (Xteink X4 Pro, Xteink X4 Classic, Seeed reTerminal Sticky). The ESP32-C3 Xteink X3/X4 are not supported; they belong to upstream CrossInk.
 
 ## Architecture And Fast Navigation
 
@@ -45,16 +45,17 @@ SDK.
 
 ### Target Selection
 
-- `default`: Xteink X3/X4, ESP32-C3, buttons, SPI SD, no touch/PSRAM/USB Drive.
-- `sticky`: reTerminal Sticky, ESP32-S3, touch, SPI SD, PSRAM framebuffer.
-- `x4-pro`: Xteink X4 Pro, ESP32-S3, touch, SDMMC, PSRAM framebuffer, and USB Drive capability.
-- `simulator`, `simulator-X3`, `sticky-simulator`, and `x4-pro-simulator`: native profiles. Match the simulator profile to the capability/device branch being changed.
+- `default_envs` is `sticky, x4-pro, x4-classic`. There is no C3 env; each firmware env has a `-debug` variant.
+- `sticky`: reTerminal Sticky, ESP32-S3, touch, SPI SD, PSRAM framebuffer, automatic light sleep, no USB Drive.
+- `x4-pro`: Xteink X4 Pro, ESP32-S3, touch, SDMMC, PSRAM framebuffer, automatic light sleep, and USB Drive capability. `x4-pro-debug` adds the debug-only code (PSRAM log, Goodies, knobs, PM profiling).
+- `x4-classic`: Xteink X4 Classic, ESP32-S3, buttons only, SDMMC, PSRAM framebuffer, and USB Drive capability; no automatic light sleep.
+- `simulator` (buttons, no touch/USB Drive), `sticky-simulator`, `x4-pro-simulator`, and `x4-classic-simulator`: native profiles. Match the simulator profile to the capability/device branch being changed.
 - `platformio.ini` is the capability-source build matrix. Read the matching environment's flags before adding `#if` branches; use `AppCapabilities`/device capability helpers rather than duplicating macro checks in activities.
 
 ## Core Rules
 
 - Role: Senior Embedded Systems Engineer for ESP-IDF / Arduino-ESP32 work.
-- Support both constrained ESP32-C3 devices and PSRAM-equipped ESP32-S3 devices. Keep shared code safe for the C3 unless it is explicitly capability-gated; stability beats features.
+- Support the PSRAM-equipped ESP32-S3 readers (Sticky, X4 Pro, X4 Classic). Keep shared code working on all three and the simulator, gating touch, USB Drive, and device-specific paths behind capability macros; stability beats features.
 - Cite file paths and line numbers before proposing non-trivial changes.
 - Do not assume ESP-IDF or SDK API availability. Verify in `freeink-sdk/` or the live code.
 - Do not claim performance or memory wins without explaining the mechanism, such as reduced heap churn, flash vs DRAM placement, or smaller stack use.
@@ -82,11 +83,12 @@ SDK.
 
 ## Hardware Constraints
 
-- ESP32-C3 targets (Xteink X3/X4): single-core RISC-V at 160 MHz, no PSRAM, and about 380 KB usable internal RAM.
-- ESP32-S3R8 targets (Seeed reTerminal Sticky/Xteink X4 Pro): dual-core Xtensa at up to 240 MHz with 8 MB PSRAM. PSRAM is slower than internal DRAM and is not suitable for every DMA, ISR, or latency-sensitive buffer.
+- Every firmware target is ESP32-S3R8 (Seeed reTerminal Sticky/Xteink X4 Pro/Xteink X4 Classic): dual-core Xtensa at up to 240 MHz with 8 MB PSRAM. C3 and no-PSRAM branches inherited from upstream remain in shared code: the C3 ones compile out of every firmware env, and the no-PSRAM ones still serve the simulator and failed PSRAM allocations.
+- Internal RAM is still the scarce resource. Plain allocations above 1 KB try PSRAM first (`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024` in `[dualpoint_cores]`), but task stacks, DMA buffers (EPD SPI, SDMMC), and ISR data must ask for internal RAM explicitly. PSRAM is slower than internal DRAM and is not suitable for every DMA, ISR, or latency-sensitive buffer.
+- Both cores run app work. Core 1 runs the render task (`TaskCores::kUi` in `include/TaskCores.h`); core 0 runs Arduino's `loopTask` in every firmware env (`[x4_pro_loop_core0]` in `platformio.ini`), Wi-Fi/lwIP, the input task, and background workers (`TaskCores::kWorker`).
 - Current displays use an 800x480 1-bit e-ink framebuffer: `800 * 480 / 8 = 48000` bytes. Use runtime renderer dimensions because orientation and future device profiles may differ.
-- Use one framebuffer only. C3 targets keep it in internal RAM; current S3 targets place it in PSRAM via `FREEINK_FB_PSRAM`.
-- Storage is exposed through SdFat, but the transport is device-specific (SPI SD on X3/X4/Sticky and SDMMC on X4 Pro). On real hardware, only one reader can hold a file open at a time.
+- Use one framebuffer only. Every firmware env places it in PSRAM via `FREEINK_FB_PSRAM=1`.
+- Storage is exposed through SdFat, but the transport is device-specific (SPI SD on Sticky and SDMMC on X4 Pro/X4 Classic). On real hardware, only one reader can hold a file open at a time.
 
 ## Resource Rules
 
@@ -101,7 +103,7 @@ SDK.
 9. `new` is not nothrow on ESP32. With exceptions disabled, bare `new` calls `abort()` on allocation failure instead of returning `nullptr`. Use `new (std::nothrow)` or `makeUniqueNoThrow<T>()` from `lib/Memory/Memory.h` for fallible allocations.
 10. Prefer `makeUniqueNoThrow<T>()` / `makeUniqueNoThrow<T[]>()` for owned heap allocations so cleanup is automatic on early returns.
 11. Use raw `malloc` or `new (std::nothrow)` only when a C or SDK API takes ownership; add a short comment explaining that ownership transfer.
-12. Treat PSRAM as a device capability, not a universal assumption. Keep shared paths within C3 limits or gate S3-only allocations behind the relevant board/capability macro, and handle PSRAM allocation failure.
+12. Every firmware env has PSRAM, but it is finite and the simulator has none (`psramHeapAvailable()` in `lib/Memory/Memory.h` returns false there). Keep stack, DMA, and ISR memory internal, and handle PSRAM allocation failure with a logged fallback.
 
 ## HAL And Platform Rules
 
@@ -152,14 +154,15 @@ SDK.
 - PlatformIO is the source of truth. Personal overrides belong in `platformio.local.ini`.
 - Host environment may be macOS, Linux, WSL, or Windows Git Bash. Check `uname -s` before recommending platform-specific shell commands.
 - Logging uses `LOG_INF`, `LOG_DBG`, and `LOG_ERR`.
-- The simulator env in this repo is `simulator`.
+- The simulator envs in this repo are `simulator`, `sticky-simulator`, `x4-pro-simulator`, and `x4-classic-simulator`.
 - For simulator work, build from this firmware repo unless the change belongs in `crossink-simulator` itself.
 - Common validation commands:
   - `pio run -e simulator` for simulator-facing UI/reader work.
-  - `pio run -e default` for the ESP32-C3 X3/X4 firmware.
   - `pio run -e sticky` for the ESP32-S3 Sticky firmware.
   - `pio run -e x4-pro` for the ESP32-S3 X4 Pro firmware.
-  - `pio check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high` for static analysis.
+  - `pio run -e x4-classic` for the ESP32-S3 X4 Classic firmware.
+  - `pio run -e x4-pro-debug` for the debug-only code the release envs leave out.
+  - `pio check -e <env> --fail-on-defect low --fail-on-defect medium --fail-on-defect high` for static analysis, with `<env>` each of `sticky`, `x4-pro`, and `x4-classic` (CI checks all three and builds those plus `x4-pro-debug`).
   - `find src lib include test -name "*.cpp" -o -name "*.h" | xargs clang-format -i` for formatting touched C++ files.
 - For crash debugging, check serial logs, internal heap with `ESP.getFreeHeap()` and `ESP.getMaxAllocHeap()`, task stack high-water marks, and whether cache files need clearing. On S3 targets, also inspect PSRAM free space and largest allocatable block; abundant PSRAM does not prove that internal-RAM or DMA-capable allocations can succeed.
 - Hardware verification should mention the concrete device path to test, expected UI/log behavior, and any cache reset needed.

@@ -6,7 +6,7 @@ nav_order: 4
 # Icon Libraries
 
 CrossDink rasterizes only the icons it uses into 1-bit C++ headers. This keeps
-the firmware small enough for ESP32-C3 devices; adding an icon does not embed a
+the firmware small; adding an icon does not embed a
 whole icon library.
 
 The local manifests in `src/components/icons/` can use either source:

@@ -39,7 +39,7 @@ Response:
   "rssi": -45,
   "freeHeap": 123456,
   "uptime": 3600,
-  "device": "X4",
+  "device": "xteink_x4_pro",
   "serial": "Not found"
 }
 ```
@@ -52,7 +52,7 @@ Response:
 | `rssi` | number | Wi-Fi RSSI in dBm; `0` in AP mode |
 | `freeHeap` | number | Free heap in bytes |
 | `uptime` | number | Seconds since boot |
-| `device` | string | `"X3"` or `"X4"` hardware detection |
+| `device` | string | Board profile name: `"xteink_x4_pro"`, `"xteink_x4_classic"`, or `"sticky"` |
 | `serial` | string | Device serial number from eFuse, or `"Not found"` when unavailable |
 | `security` | object | Read-only eFuse state (not in the simulator): `flashEnc` (`"off"`, `"dev"`, `"release"`), `secureBoot`, `usbSerialJtagDisabled`, `jtagDisabled`, `download` (`"on"`, `"secure"`, `"off"`), and `locked` (true when flash encryption is in release mode, secure boot is on, download mode is off, or USB-Serial-JTAG is disabled) |
 

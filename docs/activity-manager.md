@@ -249,15 +249,15 @@ This removes `std::function` overhead (~2-4KB per unique signature) and eliminat
 
 ### FreeRTOS Task Model
 
-The firmware runs on an ESP32-C3, a single-core RISC-V microcontroller. FreeRTOS provides cooperative and preemptive multitasking on this single core — only one task executes at any moment, and the scheduler switches between tasks at yield points (blocking calls, `vTaskDelay`, `taskYIELD`) or when a tick interrupt promotes a higher-priority task.
+The firmware runs on an ESP32-S3, a dual-core Xtensa microcontroller. FreeRTOS schedules each core separately, so two tasks can execute at the same moment. On each core, the highest-priority ready task runs, and the scheduler switches tasks at yield points (blocking calls, `vTaskDelay`, `taskYIELD`) or when a tick interrupt promotes a higher-priority task.
 
 There are two tasks relevant to the activity system:
 
 ```text
 ┌──────────────────────┐     ┌──────────────────────────┐
 │ Main Task            │     │ Render Task              │
-│ (Arduino loop)       │     │ (ActivityManager-owned)   │
-│ Priority: 1          │     │ Priority: 1              │
+│ (Arduino loopTask)   │     │ (ActivityManager-owned)  │
+│ Core 0, Priority: 2  │     │ Core 1, Priority: 1      │
 │                      │     │                          │
 │ Runs:                │     │ Runs:                    │
 │ - gpio.update()      │     │ - ulTaskNotifyTake()     │
@@ -269,7 +269,9 @@ There are two tasks relevant to the activity system:
 └──────────────────────┘     └──────────────────────────┘
 ```
 
-Both tasks run at priority 1. Since the ESP32-C3 is single-core, they alternate execution: the main task runs `loop()`, then at the end of the loop iteration, notifies the render task if an update was requested. The render task wakes, acquires the mutex, calls `render()`, releases the mutex, and blocks again.
+The render task is pinned to core 1 (`TaskCores::kUi`) by `ActivityManager::begin()`. Arduino's `loopTask` runs on core 0 in every firmware env (`[x4_pro_loop_core0]` in `platformio.ini`), and `setup()` raises it to priority 2 so input handling stays ahead of the priority-1 background workers that share core 0. The main task runs `loop()`, then at the end of the loop iteration, notifies the render task if an update was requested. The render task wakes, acquires the mutex, calls `render()`, releases the mutex, and blocks again.
+
+Because the two tasks sit on different cores, they do not take turns: the main task can keep running `loop()` while the render task draws, so `loop()` and `render()` can execute at the same moment. That is why state shared between them must be guarded by `RenderLock`.
 
 Do not use `xTaskCreate` inside activities. If you have a use case that seems to require a background task, open a discussion to propose a lifecycle-aware `Worker` abstraction first.
 

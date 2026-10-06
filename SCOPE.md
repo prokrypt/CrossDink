@@ -6,7 +6,7 @@ The content below is taken directly from Crosspoint and aligns with CrossDink's 
 
 ## 1. Core Mission
 
-To provide a lightweight, high-performance firmware that maximizes the potential of the X4, prioritizing legibility and usability over "swiss-army-knife" functionality.
+To provide a lightweight, high-performance firmware that maximizes the potential of the X4 Pro, X4 Classic and Sticky, prioritizing legibility and usability over "swiss-army-knife" functionality.
 
 ## 2. Scope
 
@@ -31,15 +31,14 @@ To provide a lightweight, high-performance firmware that maximizes the potential
 
 | Device | Scope |
 | -- | -- |
-| X3 | The X3 uses a dedicated DS3231 RTC, which maintains accurate time across sleep cycles and can be treated as a reliable wall clock. |
-| X4 | The X4 relies on the ESP32-C3's internal RTC, which drifts significantly during deep sleep. NTP sync could correct this, with an appropriate user experience around connecting to the internet on wake or on demand. This causes some tension with the **Active Connectivity** section below, so please open a discussion about this UX if it's a feature you would find useful. |
+| X4 Pro, X4 Classic, Sticky | Each uses a dedicated RTC chip (a BM8563 on the X4 Pro and X4 Classic, a PCF8563 on the Sticky) rather than the ESP32's internal RTC, so it keeps time across sleep cycles and can be treated as a wall clock. The Wi-Fi screen sets it over NTP when it was never set or has lost its time (e.g. a fully drained battery), and Settings can re-sync it on demand. |
 
 ### Out-of-Scope
 
 *These items are rejected because they compromise the device's stability or mission.*
 
 * **Interactive Apps:** No Notepads, Calculators, or Games. This is a reader, not a PDA.
-* **Active Connectivity:** No RSS readers, News aggregators, or Web browsers. Background Wi-Fi tasks drain the battery and complicate the single-core CPU's execution.
+* **Active Connectivity:** No RSS readers, News aggregators, or Web browsers. Background Wi-Fi tasks drain the battery and compete for CPU time with the main loop, which runs on the same core.
 * **Media Playback:** No Audio players or Audiobooks.
 * **Complex Annotation:** No typed out notes. These features are better suited for devices with better input capabilities and more powerful chips.
 

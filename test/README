@@ -23,7 +23,7 @@ Expected coverage:
 - It also covers a narrow scripted reader path: page forward, open the reader menu, enter Reader Options, navigate/toggle one option, and back out to the reader.
 
 Limits:
-- It does not replace hardware testing. The desktop simulator has different memory, filesystem, timing, display, sleep, button, battery, USB, Wi-Fi, and OTA behavior than the ESP32-C3 device.
+- It does not replace hardware testing. The desktop simulator has different memory, filesystem, timing, display, sleep, button, battery, USB, Wi-Fi, and OTA behavior than the ESP32-S3 readers.
 - It should not be expected to catch exact hardware heap pressure, SD-card locking/timing issues, e-ink ghosting or refresh quality, real deep-sleep wake behavior, electrical button behavior, subtle visual layout problems, or EPUB cases that are not present in the selected test book.
 - After a simulator pass, still verify important changes on hardware with the same EPUB and theme by turning pages, opening the reader menu, entering Reader Options, toggling a setting, backing out, and watching for crashes or memory-related logs.
 

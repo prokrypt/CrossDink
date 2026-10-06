@@ -41,7 +41,7 @@ This guide covers day-to-day device use. For focused reference material, see [Re
     - [Page Turning](#page-turning)
     - [Chapter Navigation](#chapter-navigation)
     - [Auto Page Turn](#auto-page-turn)
-    - [Tilt Page Turn (X3 and Sticky)](#tilt-page-turn-x3-and-sticky)
+    - [Tilt Page Turn (X4 Classic and Sticky)](#tilt-page-turn-x4-classic-and-sticky)
     - [Touch Reader Controls](#touch-reader-controls)
     - [Footnote Navigation](#footnote-navigation)
     - [System Navigation](#system-navigation)
@@ -54,7 +54,7 @@ This guide covers day-to-day device use. For focused reference material, see [Re
 
 ## 1. Hardware Overview
 
-CrossDink supports many devices with various button layouts. For the X3/X4 devices with front buttons, by default they will use the following layout from left to right, and this guide will refer to them by those names.
+CrossDink supports many devices with various button layouts. On the X4 Classic, the front buttons will by default use the following layout from left to right, and this guide will refer to them by those names.
 
 <table>
   <thead>
@@ -150,7 +150,7 @@ book or image directly from another nearby CrossDink reader without joining a
 Wi-Fi network. See [Nearby File Transfer](./nearby-file-transfer.md) for the
 complete sender and receiver workflow.
 
-On X4 Pro, the screen also includes **USB Drive**. This exposes the reader's SD
+On X4 Pro and X4 Classic, the screen also includes **USB Drive**. This exposes the reader's SD
 card to a computer over USB for direct file management. See the
 [USB Drive instructions](./installation.md#usb-drive) for the safe-eject and
 disconnect behavior.
@@ -633,8 +633,7 @@ In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the cu
 > For best results:
 >
 > - Use uncompressed BMP files with 24-bit color depth
-> - X4: Use a resolution of 480x800 pixels to match the device's screen resolution.
-> - X3: Use a resolution of 528x792 pixels to match the device's screen resolution.
+> - X4 Pro, X4 Classic and Sticky: Use a resolution of 480x800 pixels to match the device's screen resolution.
 
 > [!TIP]
 > You can set an image as the sleep screen cover directly from the BMP image viewer in the **[Browse Files](#33-browse-files-screen)** screen.
@@ -688,7 +687,7 @@ sleep screen visible. With no selected image or boot-screen folder, a
 power-button wake is also splashless.
 
 > [!TIP]
-> Use an uncompressed BMP at your device's screen resolution for the best result: 480x800 pixels on X4 or 528x792 pixels on X3. Images with other dimensions are centered and scaled down as needed.
+> Use an uncompressed BMP at your device's screen resolution for the best result: 480x800 pixels on the X4 Pro, X4 Classic and Sticky. Images with other dimensions are centered and scaled down as needed.
 
 ---
 
@@ -734,9 +733,9 @@ This feature can be disabled in **Settings > Controls > Front Buttons** to help 
 
 Auto Page Turn automatically advances pages at a set interval, useful for hands-free reading. This feature can be enabled and configured from the **[Reader Menu](#5-reader-menu)** while reading an EPUB.
 
-### Tilt Page Turn (X3 and Sticky)
+### Tilt Page Turn (X4 Classic and Sticky)
 
-On the **Xteink X3** and **Sticky**, the gyroscope can be used to turn pages by tilting the device. This feature and its left-right or forward-back direction are available in **Settings -> Controls**.
+On the **Xteink X4 Classic** and **Sticky**, the gyroscope can be used to turn pages by tilting the device. This feature and its left-right or forward-back direction are available in **Settings -> Controls**.
 
 ### Touch Reader Controls
 

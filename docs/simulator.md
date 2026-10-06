@@ -44,6 +44,8 @@ Use the X4 Pro environment to enable its touch, frontlight, and Home-key behavio
 pio run -e x4-pro-simulator -t run_simulator
 ```
 
+`sticky-simulator` and `x4-classic-simulator` run the Sticky and X4 Classic profiles the same way.
+
 ## Keyboard Controls
 
 | Key | Action |

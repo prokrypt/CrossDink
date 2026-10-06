@@ -5,7 +5,7 @@ nav_order: 16
 
 # Data Cache
 
-CrossDink caches data aggressively on the SD card to minimize RAM use. The ESP32-C3 has about 380 KB of usable RAM, so rebuilding every book structure in memory on every open would be too expensive.
+CrossDink caches data aggressively on the SD card to minimize RAM use. Its ESP32-S3 readers add PSRAM, but their fast internal RAM is still limited, so rebuilding every book structure in memory on every open would be too expensive.
 
 The main data directory is `.crossdink` on the SD card. It stores render caches and persistent user/device data.
 
@@ -65,7 +65,7 @@ To clear EPUB/XTC render caches from the device UI without deleting settings or 
 
 ## Book Moves And Cache Identity
 
-Cache folders are path-based. Moving a book file can create a new cache directory, so the moved copy may start with fresh reading progress unless the firmware migrates the cache for that move. CrossDink migrates cache and bookmark data for the built-in move-to-Read flow and related file-browser move actions.
+EPUB cache folders are named by the book's content, not its path, so moving or renaming an EPUB, even on a computer, keeps its cache folder, including reading progress, per-book reader settings, and stats. Replacing an EPUB with different content starts a new cache folder. XTC, TXT, and Markdown cache folders are still named by the file path: moving one of those books outside CrossDink can create a new cache directory, so the moved copy may start with fresh reading progress. Bookmarks and clippings are also stored by book path. CrossDink migrates them when the built-in move-to-Read flow moves an EPUB, and migrates them along with XTC/TXT caches when you rename a book in File Browser.
 
 EPUB reader font, page layout, styling, and reading-aid settings normally come from the global Reader settings. Changes made inside an EPUB override only the fields whose values differ from the global defaults; the other fields continue to inherit later global changes. EPUB render mode is stored separately per book so a problematic title can be switched to Balanced or Light rendering from the File Browser or Recent Books long-press menus before opening it. Older full-snapshot book overrides retain their original behavior until reset or edited again.
 

@@ -25,7 +25,7 @@ The ESP32-C3 Xteink X3 and X4 are not supported. For those, use [CrossInk](https
 
 - **Use both cores.** The screen, the reader's background work, networking and input each get their own task, so page turns and taps don't wait on indexing, image decoding or transfers.
 - **Assume PSRAM.** With the ESP32-C3 limits gone, large buffers, caches and Wi-Fi buffers live in PSRAM, which keeps internal RAM free for the things that need it.
-- **Spend less power while idle.** The device drops into automatic light sleep between loop ticks, and the Wi-Fi screens idle in modem sleep between transfers.
+- **Spend less power while idle.** The Sticky and X4 Pro drop into automatic light sleep between loop ticks, and the Wi-Fi screens idle in modem sleep between transfers.
 - **Write to the SD card less.** Progress, stats and session state are written only when something changed, and in small in-place slots.
 - **Stay in sync with CrossInk.** Upstream CrossInk and CrossPoint changes are merged in regularly, so their reader features keep arriving here.
 
@@ -45,7 +45,7 @@ The ESP32-C3 Xteink X3 and X4 are not supported. For those, use [CrossInk](https
   - USB Drive reads ahead while it sends data.
 - **Frontlight gestures:** brightness and warmth follow your finger while you drag, in 1% steps.
 - **Smaller firmware:** leaner built-in TTF fonts, minified web pages and no wolfSSL debug strings save several hundred KB of flash.
-- **New name and logo:** CrossDink has a two-drop logo on the boot screen and web portal. On-device data paths and file formats are unchanged, so settings, stats backups and caches carry over from CrossInk.
+- **New name and logo:** CrossDink has a two-drop logo on the boot screen and web portal. It keeps its data in `/.crossdink` and reads CrossInk's `/.crosspoint` without changing it, so settings, reading progress, stats and stats backups carry over from CrossInk; caches, covers and thumbnails are rebuilt.
 
 See [CHANGELOG.md](./CHANGELOG.md) for the full list.
 
