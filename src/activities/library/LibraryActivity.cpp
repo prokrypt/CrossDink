@@ -95,7 +95,9 @@ void LibraryActivity::onEnter() {
   // The activity can be constructed while a landscape reader is still active.
   // Refresh FreeInkUI's captured screen size and safe area after rotating.
   app.setDevice(uiTarget.deviceContext());
-  if (RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
+  // An unchanged card cannot have lost a recent book (the scan generation counts
+  // every card change), so skip the per-book exists() probes.
+  if (!Storage.libraryScanCurrent() && RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
   applySharedUiTheme(app, uiTarget);
   seriesScratch.reserve(128);
   genreScratch.reserve(128);
@@ -169,6 +171,9 @@ bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force, co
   if (!force && Storage.libraryScanCurrent() && index.open(library::libraryIndexPath()) &&
       (index.header().metadataEnabled != 0) == useMetadata) {
     LOG_DBG("LIB", "Card unchanged since last scan; reusing index");
+    // Row lookups read from PSRAM instead of the card; on failure they fall back
+    // to card reads. index.close() frees the copy on exit.
+    index.loadIntoMemory();
     scanFailed = false;
     resolveRecents();
     applyFilter();
@@ -1375,7 +1380,8 @@ bool LibraryActivity::applyGridThumb() {
 
 void LibraryActivity::render(RenderLock&&) {
   uiReady = false;
-  for (int pass = 0; pass < 8; ++pass) {
+  int pass = 0;
+  for (; pass < 8; ++pass) {
     renderer.clearScreen();
     const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
     TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LIBRARY), false,
@@ -1384,6 +1390,7 @@ void LibraryActivity::render(RenderLock&&) {
     topIndex = listNav.top;
     if (!listNav.consumeRebuildNeeded()) break;
   }
+  LOG_INF("LIB", "List drawn in %d pass(es)", pass < 8 ? pass + 1 : 8);
   uiReady = true;
   if (actionPopup.processRender(renderer, mappedInput)) return;
   const char* confirmLabel = !mappedInput.hasTouchHardware() && rowCount() == 0 ? ""
