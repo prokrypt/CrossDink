@@ -923,3 +923,4 @@
 - Power-button shortcut conflicts outside the reader so reader-only actions fall back to `Confirm` while Sleep, Refresh, Screenshot, Sync Progress, and File Transfer remain real power actions.
 - Potential crash when using `Go to %` in EPUBs.
 - Potential crash when entering sleep with Page Overlay enabled if the cached EPUB page data is invalid.
+- KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.
