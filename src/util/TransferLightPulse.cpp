@@ -28,6 +28,7 @@ void TransferLightPulse::updateBlink() {
 }
 
 void TransferLightPulse::begin(const uint32_t holdForMs) {
+  blinkEndMs = 0;  // the pulse's overlay takes over; the blink's end must not drop it
   armed = false;
   entryHold = false;
   if (!Frontlight.present()) {
