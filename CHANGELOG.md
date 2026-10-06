@@ -924,3 +924,4 @@
 - Potential crash when using `Go to %` in EPUBs.
 - Potential crash when entering sleep with Page Overlay enabled if the cached EPUB page data is invalid.
 - KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.
+- File Transfer (Wi-Fi mode): the Wi-Fi signal bars no longer show twice; only the header status bar draws them.
