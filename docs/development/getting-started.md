@@ -14,7 +14,7 @@ This guide helps you build and run CrossDink locally.
 - Python 3.8+
 - `clang-format` 21+ in your `PATH` (CI uses clang-format 21)
 - USB-C cable
-- Xteink X4 or X3 device for hardware testing
+- Xteink X4 Pro, Xteink X4 Classic, or Seeed Studio Sticky for hardware testing
 
 If `./bin/clang-format-fix` fails with either of these errors, install clang-format 21:
 
@@ -63,15 +63,17 @@ git submodule update --init --recursive
 
 ```sh
 pio run -e simulator
-pio run -e default
+pio run -e x4-pro
 ```
 
-`pio run` without an environment builds the X3/X4 and Sticky firmware targets listed in `platformio.ini`.
+Use the environment for your device: `x4-pro`, `x4-classic`, or `sticky`. Each has a `-debug` variant with extra logging.
+
+`pio run` without an environment builds the `sticky`, `x4-pro`, and `x4-classic` firmware targets (`default_envs` in `platformio.ini`).
 
 ## Flash
 
 ```sh
-pio run -e default --target upload
+pio run -e x4-pro --target upload
 ```
 
 ## Validation

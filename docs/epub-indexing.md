@@ -31,7 +31,7 @@ are ready.
 CrossDink also tries to build the next chapter while you are reading the
 penultimate page of the current one. When this succeeds, moving to the next
 chapter does not require a visible indexing wait. It is deliberately
-best-effort: on the X3/X4's limited memory, CrossDink skips that background work
+best-effort: CrossDink skips that background work
 when there is not enough free or contiguous memory, and indexes the next
 chapter when you enter it instead.
 

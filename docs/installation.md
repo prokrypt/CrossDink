@@ -7,9 +7,11 @@ nav_order: 2
 
 ## Supported Devices
 
-- Xteink X3, X4
-- Xteink X4 Classic and X4 Pro
+- Xteink X4 Pro
+- Xteink X4 Classic
 - Seeed Studio Sticky
+
+The ESP32-C3 Xteink X3 and X4 are not supported. For those, use [CrossInk](https://github.com/uxjulia/CrossInk).
 
 Don't have a device yet? Get one directly from [Xteink](https://go.sjv.io/X4RGBb) or [Seeed Studio](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html?sensecap_affiliate=1Nxo3Gw&referring_service=link).
 
@@ -29,7 +31,7 @@ download-mode and flashing steps shown by Inky.
 
 ## USB Drive
 
-On X4 Pro, choose `Home > File Transfer > USB Drive` to expose the SD card to
+On X4 Pro and X4 Classic, choose `Home > File Transfer > USB Drive` to expose the SD card to
 your computer. Eject the drive from the computer before disconnecting it; the
 reader restarts to Home when the drive is safely ejected or the cable is
 removed.
@@ -61,7 +63,7 @@ Install `esptool`:
 pip3 install esptool
 ```
 
-Download the `firmware-*.bin` file from the [releases page](https://github.com/uxjulia/CrossInk/releases), then connect your device with USB-C.
+Download the `firmware-*.bin` file for your device from the [releases page](https://github.com/prokrypt/CrossDink/releases), then connect your device with USB-C.
 
 Find the device port:
 
@@ -77,10 +79,10 @@ Flash the firmware:
 
 ```sh
 # Linux
-esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
+esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
 
 # macOS
-esptool.py --chip esp32c3 --port /dev/cu.usbmodem2101 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodem2101 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
 ```
 
 Replace the port and firmware path with your actual values.

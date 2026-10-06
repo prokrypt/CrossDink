@@ -12,8 +12,9 @@ This is when and how to route through them, and where to draw a new boundary.
 
 - **SD card I/O:** `Storage` (HalStorage) and `HalFile`. Never `SdFat`,
   `FsFile`, `SdSpiCard`, `FsBaseFile`, or `SDCardManager` directly. The HAL
-  serializes every SD access through one mutex; bypassing it races the SPI state
-  machine and panics FreeRTOS (CLAUDE.md has the failure mode). This is a
+  serializes every SD access through one mutex; bypassing it races the card
+  driver (SPI shared with the display on Sticky, SDMMC on X4 Pro / X4 Classic)
+  and panics FreeRTOS (CLAUDE.md has the failure mode). This is a
   correctness boundary, not a style preference.
 - **Display:** `HalDisplay` over `EInkDisplay`. **Input:** `HalGPIO` over
   `InputManager`.

@@ -1,6 +1,6 @@
 # Architecture Overview
 
-CrossDink is firmware for the Xteink X4 and X3, built with PlatformIO targeting the ESP32-C3 microcontroller.
+CrossDink is firmware for the Xteink X4 Pro, Xteink X4 Classic, and Seeed Studio Sticky, built with PlatformIO targeting the ESP32-S3 microcontroller.
 
 At a high level, it is firmware that uses an activity-driven application architecture loop with persistent settings/state, SD-card-first caching, and a rendering pipeline optimized for e-ink constraints.
 
@@ -8,7 +8,7 @@ At a high level, it is firmware that uses an activity-driven application archite
 
 ```mermaid
 graph TD
-    A[Hardware: ESP32-C3 + SD + E-ink + Buttons] --> B[freeink-sdk]
+    A[Hardware: ESP32-S3 + SD + E-ink + Buttons/Touch] --> B[freeink-sdk]
     B --> C[lib/hal wrappers]
     C --> D[src/main.cpp runtime loop]
     D --> E[Activities layer]
@@ -44,6 +44,8 @@ flowchart TD
 ```
 
 In each loop iteration, the firmware updates input, runs the active activity, handles auto-sleep/power behavior, and applies a short delay policy to balance responsiveness and power.
+
+The loop runs in Arduino's `loopTask` on core 0. Drawing happens on a separate render task on core 1, so `loop()` and `render()` can run at the same time (see [Activity Manager](../activity-manager.md#freertos-task-model)).
 
 ## Activity model
 
@@ -92,7 +94,7 @@ writes `css_rules.cache`, and the section layout step writes `sections/*.bin`.
 
 Why caching matters:
 
-- RAM is limited on ESP32-C3, so expensive parsed/layout data is persisted to SD
+- RAM is limited even on the ESP32-S3 (internal RAM is scarce and PSRAM is finite), so expensive parsed/layout data is persisted to SD
 - repeat opens/page navigation can reuse cached data instead of full reparsing
 
 ## Reader internals call graph

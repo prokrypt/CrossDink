@@ -1,8 +1,8 @@
 # Scalable TTF fonts on ESP32-S3 devices
 
-On ESP32-S3 readers, CrossDink includes Bitter and Lexend Deca as scalable
-TrueType fonts. You can also add your own static `.ttf` fonts. ESP32-C3 readers
-continue to use the existing bitmap fonts and `.cpfont` font packs.
+CrossDink includes Bitter and Lexend Deca as scalable TrueType fonts on every
+supported reader. You can also add your own static `.ttf` fonts, and `.cpfont`
+font packs still work alongside them.
 
 ## Add your own TTF fonts
 

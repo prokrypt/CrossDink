@@ -161,7 +161,7 @@ Available actions include:
 - Calibre Wireless
 - Join a Network
 - Create Hotspot
-- Tilt Page Turn (X3 only)
+- Tilt Page Turn (X4 Classic and Sticky)
 - Footnotes
 - Dark Mode
 - Browse Files

@@ -8,8 +8,7 @@ Rules and conventions live in `CLAUDE.md`/`AGENTS.md`; repo gotchas live in `CON
 
 E-reader firmware (Arduino on ESP-IDF via pioarduino) forked from CrossInk/CrossPoint.
 **ESP32-S3 only** (README): Xteink X4 Pro, Xteink X4 Classic, Seeed Sticky. The C3 X3/X4
-are not supported. That makes the `default` env and the C3 notes in `CLAUDE.md`/`AGENTS.md`
-out of date. Design goals: use both cores, assume PSRAM, idle in light sleep, write to SD less,
+are not supported; C3 branches inherited from upstream compile out of every firmware env. Design goals: use both cores, assume PSRAM, idle in light sleep, write to SD less,
 and merge upstream CrossInk often.
 
 ## Build targets (`platformio.ini`)
@@ -37,8 +36,8 @@ and merge upstream CrossInk often.
 - The capability macros `CROSSDINK_APP_CAP_TOUCH` and `CROSSDINK_APP_CAP_USB_DRIVE` are required, and
   `include/AppCapabilities.h` checks them against the SDK's `FREEINK_CAP_*`.
   The firmware envs set `CROSSDINK_SCALABLE_FONTS=1`, as do the sticky and x4-pro simulators.
-- Core pinning lives in `include/TaskCores.h`: `kUi=1` and `kWorker=0` (see Concurrency). Its comment says
-  `loopTask` moves to core 0 only in the X4 Pro envs. That is out of date: every firmware env moves it.
+- Core pinning lives in `include/TaskCores.h`: `kUi=1` and `kWorker=0` (see Concurrency). Every firmware env
+  moves `loopTask` to core 0 through `[x4_pro_loop_core0]`.
 
 ## Submodules
 

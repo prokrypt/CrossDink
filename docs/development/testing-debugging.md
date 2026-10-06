@@ -17,17 +17,17 @@ If needed, see [Getting Started](./getting-started.md).
 ./bin/clang-format-fix
 pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 pio run -e simulator
-pio run -e default
+pio run -e x4-pro
 ```
 
-`pio run` without `-e` builds the X3/X4 and Sticky firmware targets from `platformio.ini`. Use it for a comprehensive build check, but prefer explicit environments while iterating.
+Replace `x4-pro` with `x4-classic` or `sticky` for those devices. `pio run` without `-e` builds all three firmware targets (`default_envs` in `platformio.ini`). Use it for a comprehensive build check, but prefer explicit environments while iterating.
 
 ## Flash and monitor
 
 Flash firmware:
 
 ```sh
-pio run -e default --target upload
+pio run -e x4-pro --target upload
 ```
 
 Open serial monitor:

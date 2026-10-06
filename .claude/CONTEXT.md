@@ -5,7 +5,7 @@ For a directory/file navigation index (targets, subsystems, tasks, SD layout), r
 
 ## Targets
 
-- CrossDink is ESP32-S3 only (Sticky, X4 Pro, X4 Classic). There is no `default`/C3 env; `CLAUDE.md`/`AGENTS.md` C3 notes are stale. Firmware envs: `sticky`, `x4-pro`, `x4-classic` (+ `-debug`).
+- CrossDink is ESP32-S3 only (Sticky, X4 Pro, X4 Classic). There is no `default`/C3 env. Firmware envs: `sticky`, `x4-pro`, `x4-classic` (+ `-debug`).
 - `freeink-sdk` is not checked out in a fresh clone; run `git submodule update --init freeink-sdk` before building or reading SDK code.
 
 ## FreeInk SDK
