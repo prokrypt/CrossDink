@@ -16,6 +16,11 @@ class ReaderPinchGesture {
   // tan(12 degrees) is about 21%, so this keeps the hot touch path on integer
   // math while locking out rotation well before the SDK's 20-degree action.
   static constexpr uint8_t MAX_DIRECTION_CHANGE_TANGENT_PERCENT = 21;
+  // A pending resize waits while the finger line is still turning: if it
+  // turned more than this (tangent per mille, about 0.9 degrees) between the
+  // frame the resize became pending and the frame that would confirm it, the
+  // fingers are twisting, so the decision is delayed instead of taken.
+  static constexpr uint32_t PENDING_TURN_TANGENT_PERMILLE = 15;
 
   bool isActive() const { return active_; }
 
@@ -25,6 +30,7 @@ class ReaderPinchGesture {
     translationLocked_ = false;
     rotationLocked_ = false;
     pendingAction_ = Action::None;
+    pendingTurnPermille_ = 0;
     startDistanceSq_ = 0;
     startCenterXTwice_ = 0;
     startCenterYTwice_ = 0;
@@ -106,8 +112,17 @@ class ReaderPinchGesture {
     // Require the same result on two consecutive controller frames. Real
     // pinches remain beyond the threshold, while a single noisy span sample
     // during rotation no longer changes the font.
+    const uint32_t turnPermille = turnTangentPermille(startDx_, startDy_, currentDx, currentDy);
     if (pendingAction_ != candidate) {
       pendingAction_ = candidate;
+      pendingTurnPermille_ = turnPermille;
+      return Action::None;
+    }
+    // A twist with a separation wobble also stays past the threshold, but its
+    // line keeps turning. Hold the decision until the turning stops; a twist
+    // reaches the rotation lock above before it ever does.
+    if (turnPermille > pendingTurnPermille_ + PENDING_TURN_TANGENT_PERMILLE) {
+      pendingTurnPermille_ = turnPermille;
       return Action::None;
     }
     stepApplied_ = true;
@@ -124,6 +139,18 @@ class ReaderPinchGesture {
 
   static uint32_t distanceFromSq(const uint32_t distanceSq) {
     return static_cast<uint32_t>(std::sqrt(static_cast<double>(distanceSq)));
+  }
+
+  // How far the finger line has turned from its start, as |tan| in per mille.
+  // Only called below the rotation lock, where the dot product dominates.
+  static uint32_t turnTangentPermille(const int64_t startDx, const int64_t startDy, const int64_t currentDx,
+                                      const int64_t currentDy) {
+    const int64_t cross = startDx * currentDy - startDy * currentDx;
+    const int64_t dot = startDx * currentDx + startDy * currentDy;
+    const uint64_t absoluteCross = static_cast<uint64_t>(cross < 0 ? -cross : cross);
+    const uint64_t absoluteDot = static_cast<uint64_t>(dot < 0 ? -dot : dot);
+    if (absoluteDot == 0) return UINT32_MAX / 2;
+    return static_cast<uint32_t>(absoluteCross * 1000 / absoluteDot);
   }
 
   static bool directionChangedTooFar(const int64_t startDx, const int64_t startDy, const int64_t currentDx,
@@ -143,6 +170,7 @@ class ReaderPinchGesture {
   bool translationLocked_ = false;
   bool rotationLocked_ = false;
   Action pendingAction_ = Action::None;
+  uint32_t pendingTurnPermille_ = 0;  // line turn when pendingAction_ was set
   uint32_t startDistanceSq_ = 0;
   int64_t startCenterXTwice_ = 0;
   int64_t startCenterYTwice_ = 0;
