@@ -26,8 +26,8 @@ class TransferLightPulse {
   // A pulse wrote within the last few steps: the main loop ticks at
   // WRITE_INTERVAL_MS meanwhile, else a 50-250 ms idle tick makes it step.
   static bool animating();
-  // A Wi-Fi remote input: dips a lit light to its pulse low for KNOBS.remoteBlinkMs,
-  // then restores the user's exact level. No-op when off, dimmed or pulsing.
+  // A Wi-Fi remote input: shows the light at KNOBS.remoteBlinkPct for KNOBS.remoteBlinkMs
+  // (lit or not), then restores the user's exact state. No-op while a pulse runs.
   static void blink();
   static void updateBlink();  // main loop, once per tick
   // A user slide or a silent restart: drop the overlay (the user's level shows)

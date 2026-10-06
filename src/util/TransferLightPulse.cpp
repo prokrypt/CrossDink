@@ -14,13 +14,10 @@ uint32_t blinkEndMs = 0;                     // 0 = no blink in flight
 
 void TransferLightPulse::blink() {
   const uint32_t ms = KNOBS.remoteBlinkMs;
-  // A lit, undimmed light only: off costs no battery, and an overlay or
-  // another blink in flight already owns the LEDs.
-  if (ms == 0 || blinkEndMs != 0 || !Frontlight.present() || !Frontlight.isOn() || Frontlight.idleDimPercent() < 100 ||
-      Frontlight.overlayActive()) {
-    return;
-  }
-  Frontlight.setOverlay(pulseLow(Frontlight.brightness()));
+  // Lit or not: the overlay shows the blink level, then drops to the user's
+  // exact state. An overlay or blink already in flight owns the LEDs.
+  if (ms == 0 || blinkEndMs != 0 || !Frontlight.present() || Frontlight.overlayActive()) return;
+  Frontlight.setOverlay(KNOBS.remoteBlinkPct);
   blinkEndMs = (millis() + ms) | 1;
 }
 
