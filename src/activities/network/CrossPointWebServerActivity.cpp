@@ -501,10 +501,6 @@ void CrossPointWebServerActivity::renderServerRunning() const {
   const int subHeaderTop = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
   GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
-  if (!isApMode) {
-    renderWifiIndicator(subHeaderTop);
-  }
-
   int startY = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing;
   const int height10 = renderer.getLineHeight(UI_10_FONT_ID);
   if (isApMode) {
@@ -537,36 +533,4 @@ void CrossPointWebServerActivity::renderServerRunning() const {
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_EXIT)), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-}
-
-void CrossPointWebServerActivity::renderWifiIndicator(int subHeaderTop) const {
-  constexpr int BAR_COUNT = 4;
-  constexpr int BAR_WIDTH = 4;
-  constexpr int BAR_GAP = 2;
-  constexpr int ICON_HEIGHT = 14;
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int iconWidth = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP;
-  const int iconRight = renderer.getScreenWidth() - metrics.contentSidePadding;
-  const int iconLeft = iconRight - iconWidth;
-  const int iconBottom = subHeaderTop + metrics.tabBarHeight - metrics.verticalSpacing;
-
-  const bool wifiUp = (WiFi.status() == WL_CONNECTED) && (consecutiveDisconnects == 0);
-  if (wifiUp) {
-    for (int i = 0; i < BAR_COUNT; i++) {
-      const int barHeight = (i + 1) * ICON_HEIGHT / BAR_COUNT;
-      const int x = iconLeft + i * (BAR_WIDTH + BAR_GAP);
-      const int y = iconBottom - barHeight;
-      if (i < lastWifiBars) {
-        renderer.fillRect(x, y, BAR_WIDTH, barHeight, true);
-      } else {
-        renderer.drawRect(x, y, BAR_WIDTH, barHeight, true);
-      }
-    }
-  } else {
-    const int xSize = ICON_HEIGHT;
-    const int x0 = iconRight - xSize;
-    const int y0 = iconBottom - xSize;
-    renderer.drawLine(x0, y0, x0 + xSize, y0 + xSize, 2, true);
-    renderer.drawLine(x0, y0 + xSize, x0 + xSize, y0, 2, true);
-  }
 }

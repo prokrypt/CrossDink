@@ -244,6 +244,7 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
+- File Transfer (Wi-Fi mode): the Wi-Fi signal bars no longer show twice; only the header status bar draws them.
 - X4 Pro (debug builds): the Goodies > Battery & stats graph shows the newest day (at most 24 h) of the battery log again; when its 400 points fill it drops points older than a day and, if still over half full, keeps every other one (it had shrunk to the newest 2-3 hours). `battery.sum` is rebuilt once.
 - KOReader Auto Sync: a close push still waiting or running when you put the device to sleep (for example, sleeping from Home a moment after closing a book) is no longer lost to deep sleep. Sleep first finishes it under the "Syncing progress..." toast and shows the result, capped at 30 s like the Sync on Wake & Sleep push.
 - KOReader Auto Sync: a sync that starts while the Wi-Fi remote is on but still joining (right after boot or wake) now waits up to 20 s for the remote's connection instead of being skipped, so opening a book soon after waking still asks to apply a newer remote position.
