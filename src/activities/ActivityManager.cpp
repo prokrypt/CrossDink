@@ -582,9 +582,11 @@ void ActivityManager::renderTaskLoop() {
       }
       ListSelection::revealed = currentActivity->listSelectionRevealed;
       ListSelection::hidThisFrame = false;
+      ListSelection::listThisFrame = false;
       currentActivity->render(std::move(lock));
       currentActivityPainted.store(true, std::memory_order_release);
       ListSelection::hidOnScreen = ListSelection::hidThisFrame;
+      ListSelection::listOnScreen = ListSelection::listThisFrame;
       PerfLog::noteRenderEnd();
       renderer.setDeferFastRefresh(false);
       renderer.setBeforeDisplay(nullptr, nullptr);  // never outlives the render that set it
@@ -825,13 +827,22 @@ void ActivityManager::loop() {
         if (currentActivity) currentActivity->onBackdropRenderedForOverlay();
       } else if (pendingAction == PendingAction::Push && pendingActivity->drawsOverSourceFrame() &&
                  mappedInput.wasTapOrHeld()) {
-        // The tapped row is selected but not yet on screen: show it before the
-        // popup covers the frame, not after the popup closes.
-        ListSelection::tapRowShown = true;
-        if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
-          LOG_ERR("ACT", "Could not show tapped row before opening %s", pendingActivity->name.c_str());
+        // The tapped row is selected but not yet on screen: draw it into the
+        // framebuffer only, and the popup's refresh inks row and popup at once.
+        // Only list frames have a row, and they only use displayBuffer(); other
+        // sources (readers, the image viewer's gray planes) keep their frame.
+        if (ListSelection::listOnScreen) {
+          ListSelection::tapRowShown = true;
+          {
+            RenderLock drawLock;  // never flip it under a render already running
+            renderer.setDrawOnly(true);
+          }
+          if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+            LOG_ERR("ACT", "Could not draw tapped row before opening %s", pendingActivity->name.c_str());
+          }
+          renderer.setDrawOnly(false);
+          ListSelection::tapRowShown = false;
         }
-        ListSelection::tapRowShown = false;
       }
       // Current activity has requested a new activity to be launched
       RenderLock lock;

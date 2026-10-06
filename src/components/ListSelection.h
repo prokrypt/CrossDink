@@ -15,10 +15,14 @@ inline bool tapRowShown = false;
 // writes, main loop reads).
 inline bool hidOnScreen = false;
 inline bool hidThisFrame = false;
+// Last rendered frame drew a list (render task writes, main loop reads).
+inline bool listOnScreen = false;
+inline bool listThisFrame = false;
 
 // True when a list should draw its selected row. Records a hidden list for
 // the button reveal.
 inline bool shown() {
+  listThisFrame = true;
 #if CROSSDINK_APP_CAP_TOUCH
   if (revealed || tapRowShown) return true;
   hidThisFrame = true;

@@ -2417,6 +2417,7 @@ void GfxRenderer::runBeforeDisplay() const {
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode, const bool turnOffScreen) const {
   runBeforeDisplay();
+  if (drawOnly) return;
 #ifndef SIMULATOR
   if (deferFastRefresh && refreshMode == HalDisplay::FAST_REFRESH && !fadingFix && !turnOffScreen) {
     display.displayBufferDeferred(refreshMode);
@@ -2487,6 +2488,7 @@ void GfxRenderer::writeFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uin
 
 void GfxRenderer::displayBufferAsync(const HalDisplay::RefreshMode refreshMode) const {
   runBeforeDisplay();
+  if (drawOnly) return;
   // The async path has no turn-off-screen hook, which the sunlight fading fix
   // relies on; keep those users on the blocking path.
   if (fadingFix) {

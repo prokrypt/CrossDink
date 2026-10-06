@@ -36,6 +36,7 @@ void FileBrowserActionActivity::onEnter() {
     }
     return label;
   });
+  optionPopup.setShowTappedRowFirst(false);  // ActivityManager drew the tapped row under us
   optionPopup.show(title.c_str(), optionLabels, 0, [this](const int index) {
     if (index < 0 || index >= static_cast<int>(items.size())) return;
     selectionMade = true;
