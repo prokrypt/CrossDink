@@ -38,7 +38,10 @@
 
 class EpubReaderActivity final : public Activity {
  public:
-  bool usesFullScreenReaderVerticalSwipes() const override { return true; }
+  // The End of book menu is a plain list: Home button / bottom-edge swipe go Home as elsewhere.
+  bool usesFullScreenReaderVerticalSwipes() const override {
+    return !(endOfBookOptions && endOfBookOptions->menuActive());
+  }
 
   struct ReaderSettingsSnapshot {
     uint8_t fontFamily = 0;
@@ -294,6 +297,7 @@ class EpubReaderActivity final : public Activity {
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
   // First menu press made while the end-of-book menu was still loading (main loop only).
   EndOfBookOptions::MenuKey queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
+  bool endOfBookHomeUnlocked = false;  // Home key lock lifted while the menu is open
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
