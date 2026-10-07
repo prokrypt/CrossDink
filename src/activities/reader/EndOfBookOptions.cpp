@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <numeric>
 
 #include "CrossPointSettings.h"
 #include "ReaderUtils.h"
@@ -190,11 +191,10 @@ void EndOfBookOptions::buildListScreen(UiApp::ScreenType& screen) {
   wrapped.labelText.maxLines = 2;
   int16_t rowWidth = screen.body().width;
   if (wrapped.rowInset > 0) rowWidth = static_cast<int16_t>(rowWidth - wrapped.rowInset * 2);
-  int wrappedHeight = -wrapped.rowGap;
-  for (uint16_t i = 0; i < rowCount; ++i) {
-    wrappedHeight +=
-        fui::measureListRow(screen.target(), nullptr, rowWidth, wrapped, rowItems[i]).height + wrapped.rowGap;
-  }
+  const int wrappedHeight = std::accumulate(
+      rowItems.begin(), rowItems.begin() + rowCount, -wrapped.rowGap, [&](const int sum, const fui::ListItem& item) {
+        return sum + fui::measureListRow(screen.target(), nullptr, rowWidth, wrapped, item).height + wrapped.rowGap;
+      });
   if (wrappedHeight <= screen.body().height) props.labelText.maxLines = 2;
   // Keep the selection on screen if the band can't fit every row (small font scale, landscape).
   props.topIndex = static_cast<uint16_t>(followListSelection(props.selectedIndex, 0, rows, rowCount));
