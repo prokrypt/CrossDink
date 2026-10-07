@@ -66,8 +66,10 @@ int main(int argc, char** argv) {
   const FtFont::MemoryCallbacks callbacks{&arena, FixedArenaAllocator::allocate, FixedArenaAllocator::deallocate,
                                           FixedArenaAllocator::reallocate};
   assert(FtFont::configureMemory(&callbacks));
-  const char* names[] = {"bitter_regular",     "bitter_bold",     "bitter_italic",     "bitter_bolditalic",
-                         "lexenddeca_regular", "lexenddeca_bold", "lexenddeca_italic", "lexenddeca_bolditalic"};
+  // The six embedded files; Lexend Deca's italics are the upright faces with a
+  // 0.2 shear (checked after this loop), as ScalableBuiltins opens them.
+  const char* names[] = {"bitter_regular",    "bitter_bold",        "bitter_italic",
+                         "bitter_bolditalic", "lexenddeca_regular", "lexenddeca_bold"};
   constexpr unsigned panelPpis[] = {219, 235, 259};
 
   for (const char* name : names) {
@@ -135,6 +137,28 @@ int main(int argc, char** argv) {
     assert(streamedMetrics.advance26_6 > 0);
     assert(streamed.rasterize26_6('A', pointSize26_6(12, 235)));
     std::printf("%s: metadata, 219/235/259 PPI metrics, glyph IDs, GSUB, and tuning passed\n", name);
+  }
+
+  // Synthetic Lexend Deca italic: same advances as the upright, slanted ink.
+  {
+    const auto data = readFile(std::string(argv[1]) + "/lexenddeca_regular.ttf");
+    FtFont upright;
+    FtFont oblique;
+    assert(upright.init(data.data(), static_cast<uint32_t>(data.size()), 1));
+    assert(oblique.init(data.data(), static_cast<uint32_t>(data.size()), 1));
+    FtFont::RenderOptions options;
+    options.hinting = FtFont::HintingMode::Auto;
+    assert(upright.setRenderOptions(options));
+    options.slant16_16 = 13107;  // ScalableBuiltins' LexendObliqueShear16_16
+    assert(oblique.setRenderOptions(options));
+    const uint32_t size26_6 = pointSize26_6(12, 235);
+    FtFont::GlyphMetrics a;
+    FtFont::GlyphMetrics b;
+    assert(upright.metrics26_6('l', size26_6, a));
+    assert(oblique.metrics26_6('l', size26_6, b));
+    assert(a.advance26_6 == b.advance26_6);
+    assert(b.width > a.width);
+    std::printf("lexenddeca oblique: advances match, glyphs slanted\n");
   }
 
   std::array<std::vector<uint8_t>, 4> familyData;
