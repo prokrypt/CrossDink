@@ -101,7 +101,7 @@ X("Power", batteryHalfLifeH, uint16_t, 24, 0, 720, 1, "h")       // Battery & st
 X("Power", ledMaxDrain, uint16_t, 200, 10, 1000, 10, "0.1%/h")     // Battery & stats: LED drain at full light, caps its share (placeholder until measured)
 X("Power", chargeWake, uint8_t, 1, 0, 1, 1, "")                    // battery log: wake on charger STAT changes asleep; 0 to A/B ext0's sleep drain in power.csv
 X("Power", powerTickMin, uint16_t, 10, 1, 120, 1, "min")           // power.csv: a counters row this often while awake
-X("Power", powerTestMin, uint16_t, 30, 5, 480, 5, "min")           // Goodies > Power test: run length
+X("Power", powerTestMin, uint16_t, 5, 5, 480, 5, "min")           // Goodies > Power test: run length
 X("Power", powerTestRefreshS, uint16_t, 10, 2, 120, 1, "s")        // Power test refresh loops: one refresh per this
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache
 X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
