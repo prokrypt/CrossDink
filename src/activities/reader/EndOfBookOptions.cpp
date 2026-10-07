@@ -184,8 +184,18 @@ void EndOfBookOptions::buildListScreen(UiApp::ScreenType& screen) {
   const int rows = std::max<int>(1, configureUiList(props, screen.theme(), screen.body()));
   // Long titles wrap to a second line. Set after configureUiList (which forces one line on
   // button-only boards) so rows stay single-line height and only wrapped rows grow, with
-  // their touch hit rects following the drawn row.
-  props.labelText.maxLines = 2;
+  // their touch hit rects following the drawn row. Only while every row still fits the band:
+  // list() drops a trailing row that doesn't fit, which would leave Home with no tap target.
+  fui::ListProps wrapped = screen.resolveListProps(props);
+  wrapped.labelText.maxLines = 2;
+  int16_t rowWidth = screen.body().width;
+  if (wrapped.rowInset > 0) rowWidth = static_cast<int16_t>(rowWidth - wrapped.rowInset * 2);
+  int wrappedHeight = -wrapped.rowGap;
+  for (uint16_t i = 0; i < rowCount; ++i) {
+    wrappedHeight +=
+        fui::measureListRow(screen.target(), nullptr, rowWidth, wrapped, rowItems[i]).height + wrapped.rowGap;
+  }
+  if (wrappedHeight <= screen.body().height) props.labelText.maxLines = 2;
   // Keep the selection on screen if the band can't fit every row (small font scale, landscape).
   props.topIndex = static_cast<uint16_t>(followListSelection(props.selectedIndex, 0, rows, rowCount));
   screen.list(props);
