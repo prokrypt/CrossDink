@@ -21,6 +21,11 @@ extern MappedInputManager mappedInputManager;
 
 class OptionPopup {
  public:
+#ifdef SIMULATOR
+  Rect simulatorOptionRect(const int index) const { return layout.options.at(index); }
+  bool simulatorOptionDisabled(const int index) const { return isDisabled(index); }
+#endif
+
   struct Note {
     constexpr Note(const char* label = nullptr, const char* body = nullptr) : boldLabel(label), body(body) {}
 

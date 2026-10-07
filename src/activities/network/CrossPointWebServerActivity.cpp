@@ -3,6 +3,7 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <I18n.h>
 #include <LibraryBuilder.h>
 #include <Memory.h>
@@ -10,6 +11,7 @@
 
 #include <cstddef>
 
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SdCardFontSystem.h"
@@ -378,6 +380,12 @@ void CrossPointWebServerActivity::exitToOrigin() {
     return;
   }
 
+  // A portal rename updates the persisted resume path while this activity's
+  // original return path still contains the old filename.
+  if (!Storage.exists(returnBookPath.c_str()) && !APP_STATE.openEpubPath.empty() &&
+      Storage.exists(APP_STATE.openEpubPath.c_str())) {
+    returnBookPath = APP_STATE.openEpubPath;
+  }
   activityManager.goToReader(returnBookPath, true);
 }
 

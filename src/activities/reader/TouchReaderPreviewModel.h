@@ -145,6 +145,21 @@ class ReaderPreviewModel {
                   const uint8_t paragraphAlignment, const bool focusReadingEnabled, const bool guideReadingEnabled,
                   const bool foregroundBlack, const int bottom = std::numeric_limits<int>::max()) const {
     if (!valid()) return;
+    if constexpr (!KeepSourceBlocks) {
+      if (renderer.isFontCacheScanning()) {
+        // A newly selected SD font has no glyph metrics yet. Scan the whole
+        // bounded sample so changed line breaks cannot expose unprepared glyphs.
+        for (uint16_t index = 0; index < wordCount; ++index) {
+          drawWord(renderer, fontId, xOffset, yOffset, words[index], focusReadingEnabled, foregroundBlack);
+        }
+        // Spaces are measured between words even though they are not drawn.
+        renderer.drawText(fontId, xOffset, yOffset, " ", foregroundBlack, EpdFontFamily::REGULAR);
+        if (guideReadingEnabled) {
+          renderer.drawText(fontId, xOffset, yOffset, GUIDE_DOT_UTF8, foregroundBlack, EpdFontFamily::REGULAR);
+        }
+        return;
+      }
+    }
     const int currentLineHeight = std::max(1, (renderer.getLineHeight(fontId) * lineHeightPercent + 50) / 100);
     int y = firstLineY + yOffset;
     for (size_t paragraphStart = 0; paragraphStart < lineCount;) {
@@ -574,10 +589,13 @@ class ReaderPreviewModel {
 
 // Deliberately fixed Latin sample: font/layout test content, not a UI label.
 inline constexpr char READER_PREVIEW_PARAGRAPH[] =
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore "
-    "magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo "
-    "consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. "
-    "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. In malesuada congue tortor, vel egestas libero dignissim "
+    "mollis. "
+    "Duis ac massa id elit molestie cursus et vitae justo. Curabitur vel quam gravida, dapibus purus non, vulputate "
+    "nisi. "
+    "In sodales nisi vitae eleifend egestas. Nam pretium, ex eu iaculis porta, lorem lectus fermentum neque, id "
+    "sagittis risus enim in est. "
+    "Proin maximus fermentum ipsum nec feugiat. Cras pulvinar gravida leo fermentum rutrum.";
 using SampleReaderPreviewModel = ReaderPreviewModel<sizeof(READER_PREVIEW_PARAGRAPH), 80, 1, false>;
 static_assert(sizeof(SampleReaderPreviewModel) <= 3U * 1024U, "Sample preview exceeds its C3 budget");
 

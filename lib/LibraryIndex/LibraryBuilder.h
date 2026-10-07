@@ -35,7 +35,17 @@ inline constexpr int LIBRARY_MAX_DEPTH = 5;
 // grow into abort() when a damaged or unusually flat directory is scanned.
 inline constexpr uint16_t LIBRARY_MAX_DEDUP_KEYS = 1024;
 
+// Why a build did not install a new index. Error covers I/O, allocation, and
+// card faults; the other values let the UI say something more useful.
+enum class BuildFailure : uint8_t {
+  None,
+  Error,
+  Cancelled,
+  TooManyBooks,
+};
+
 struct BuildStats {
+  BuildFailure failure = BuildFailure::None;
   uint16_t books = 0;
   uint16_t folders = 0;
   uint16_t duplicatesDropped = 0;
@@ -57,12 +67,33 @@ struct BuildStats {
   bool cancelled = false;  // the owner stopped the build; the previous index is untouched
 };
 
-// Lets a background owner pause or stop a build. `service` runs on the building
-// task between directory entries and during the later phases; it may block while
-// the owner wants the card and CPU back, and returns false to stop the build.
+enum class BuildPhase : uint8_t {
+  Scanning,    // walking folders and reading book metadata; `books` counts what was found
+  Organizing,  // sorting and writing the finished index
+};
+
+struct BuildProgress {
+  BuildPhase phase = BuildPhase::Scanning;
+  uint16_t books = 0;
+};
+
+inline constexpr uint32_t LIBRARY_CANCEL_POLL_MS = 50;
+inline constexpr uint32_t LIBRARY_PROGRESS_INTERVAL_MS = 3000;
+
+// Lets the owner pause, stop or watch a build. Every hook is optional and runs
+// on the building task; `context` is borrowed and passed back as-is.
 struct BuildControl {
+  // Background owner: runs between directory entries and during the later
+  // phases; it may block while the owner wants the card and CPU back, and
+  // returns false to stop the build.
   bool (*service)(void* context) = nullptr;
   void* context = nullptr;
+  // Foreground owner: polled at most every LIBRARY_CANCEL_POLL_MS. Returning
+  // true stops the build and leaves the previous index installed.
+  bool (*cancelRequested)(void* context) = nullptr;
+  // Throttled to one call per LIBRARY_PROGRESS_INTERVAL_MS, plus one when
+  // sorting starts, because every call usually repaints an e-ink panel.
+  void (*progress)(void* context, const BuildProgress& progress) = nullptr;
 };
 
 // Walk `rootPath`, write `/.crossdink/library.idx`, and report what happened.

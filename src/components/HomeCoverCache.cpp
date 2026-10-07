@@ -47,8 +47,7 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
   auto& cached = cachedCovers[index];
   if (coverCache && cached.valid && cached.rect.x == rect.x && cached.rect.y == rect.y &&
       cached.rect.width == rect.width && cached.rect.height == rect.height &&
-      renderer.copyBufferToRegion(rect.x, rect.y, rect.width, rect.height, coverCache.get() + cached.offset,
-                                  cached.bytes)) {
+      renderer.copyBufferToRegion(rect.x, rect.y, rect.width, rect.height, &coverCache[cached.offset], cached.bytes)) {
     return true;
   }
   cached.valid = false;
@@ -80,8 +79,8 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
     }
     if (needed > 0 && needed <= cached.bytes) {
       cached.rect = rect;
-      cached.valid = renderer.copyRegionToBuffer(rect.x, rect.y, rect.width, rect.height,
-                                                 coverCache.get() + cached.offset, cached.bytes);
+      cached.valid = renderer.copyRegionToBuffer(rect.x, rect.y, rect.width, rect.height, &coverCache[cached.offset],
+                                                 cached.bytes);
     }
   }
   return true;  // The cover slot is painted, including fallback art.

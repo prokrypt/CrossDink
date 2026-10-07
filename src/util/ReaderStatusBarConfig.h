@@ -23,12 +23,15 @@ enum class ReaderStatusBarItem : uint8_t {
   BookProgressPercentage,
   TitleBook,
   TitleChapter,
+  Date,
   Count,
 };
 
 constexpr bool validReaderStatusBarItemValue(const int value, const bool clockAvailable) {
   return value >= 0 && value < static_cast<int>(ReaderStatusBarItem::Count) &&
-         (value != static_cast<int>(ReaderStatusBarItem::Clock) || clockAvailable);
+         ((value != static_cast<int>(ReaderStatusBarItem::Clock) &&
+           value != static_cast<int>(ReaderStatusBarItem::Date)) ||
+          clockAvailable);
 }
 
 constexpr bool validReaderStatusBarChoice(const int value, const int optionCount) {
@@ -54,19 +57,35 @@ struct ReaderStatusBarConfig {
   uint8_t progressBarThickness = 1;
 
   constexpr bool contains(ReaderStatusBarItem item) const {
-    // cppcheck-suppress useStlAlgorithm ; plain constexpr loop over three slots per side
-    for (const auto slot : slots) {
-      if (slot == item) return true;
-    }
-    return false;
+    return std::any_of(slots.begin(), slots.end(), [item](const auto slot) { return slot == item; });
   }
 
   constexpr bool hasTextItems(bool clockAvailable) const {
-    // cppcheck-suppress useStlAlgorithm ; plain constexpr loop over three slots per side
-    for (const auto slot : slots) {
-      if (slot != ReaderStatusBarItem::Empty && (slot != ReaderStatusBarItem::Clock || clockAvailable)) return true;
-    }
-    return false;
+    return std::any_of(slots.begin(), slots.end(), [clockAvailable](const auto slot) {
+      return slot != ReaderStatusBarItem::Empty &&
+             ((slot != ReaderStatusBarItem::Clock && slot != ReaderStatusBarItem::Date) || clockAvailable);
+    });
+  }
+};
+
+constexpr bool validDisplayStatusBarItemValue(const int value, const bool clockAvailable) {
+  return value == static_cast<int>(ReaderStatusBarItem::Empty) ||
+         (clockAvailable && (value == static_cast<int>(ReaderStatusBarItem::Clock) ||
+                             value == static_cast<int>(ReaderStatusBarItem::Date))) ||
+         value == static_cast<int>(ReaderStatusBarItem::Battery);
+}
+
+struct DisplayStatusBarConfig {
+  std::array<ReaderStatusBarItem, 3> slots{ReaderStatusBarItem::Empty, ReaderStatusBarItem::Empty,
+                                           ReaderStatusBarItem::Battery};
+
+  ReaderStatusBarConfig asReaderConfig() const {
+    ReaderStatusBarConfig config;
+    config.progressBar = 2;
+    config.slots[ReaderStatusBarConfig::LEFT_FIRST] = slots[0];
+    config.slots[ReaderStatusBarConfig::CENTER] = slots[1];
+    config.slots[ReaderStatusBarConfig::RIGHT_FIRST] = slots[2];
+    return config;
   }
 };
 

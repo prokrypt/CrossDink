@@ -303,6 +303,12 @@ struct ReaderDrawerState {
   int16_t pendingFontIndex = -1;
 };
 
+inline ReaderDrawerState initialReaderDrawerState(const bool hasTouchHardware) {
+  ReaderDrawerState state;
+  state.tab = hasTouchHardware ? ReaderDrawerTab::Font : ReaderDrawerTab::More;
+  return state;
+}
+
 inline void restoreReaderDrawerScroll(ReaderDrawerState& state, const int16_t scrollPosition) {
   if (state.pane == ReaderDrawerPane::Root) {
     state.rootTopIndex[static_cast<size_t>(state.tab)] = scrollPosition;

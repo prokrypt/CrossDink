@@ -30,7 +30,7 @@ CrossInk's `/.crosspoint` is read in place: a `/.crossdink` file or folder that 
 ├── koreader.json           # KOReader sync credentials
 ├── bookmarks/              # Bookmark files, one per book
 ├── clippings/              # EPUB clipping/highlight files, one per book
-├── home_carousel_cache.bin # Lyra Carousel home-screen snapshot cache
+├── home_carousel_cache_<index>.bin # Lyra Carousel artwork cache for each book position
 ├── sleep_frame.bin         # Temporary sleep overlay framebuffer, when used
 ├── epub_12471232/          # Each EPUB is cached to epub_<hash>
 │   ├── progress.bin        # Reading position slot A (chapter, page, etc.)
@@ -67,7 +67,7 @@ To clear EPUB/XTC render caches from the device UI without deleting settings or 
 
 EPUB cache folders are named by the book's content, not its path, so moving or renaming an EPUB, even on a computer, keeps its cache folder, including reading progress, per-book reader settings, and stats. Replacing an EPUB with different content starts a new cache folder. XTC, TXT, and Markdown cache folders are still named by the file path: moving one of those books outside CrossDink can create a new cache directory, so the moved copy may start with fresh reading progress. Bookmarks and clippings are also stored by book path. CrossDink migrates them when the built-in move-to-Read flow moves an EPUB, and migrates them along with XTC/TXT caches when you rename a book in File Browser.
 
-EPUB reader font, page layout, styling, and reading-aid settings normally come from the global Reader settings. Changes made inside an EPUB override only the fields whose values differ from the global defaults; the other fields continue to inherit later global changes. EPUB render mode is stored separately per book so a problematic title can be switched to Balanced or Light rendering from the File Browser or Recent Books long-press menus before opening it. Older full-snapshot book overrides retain their original behavior until reset or edited again.
+EPUB reader font, page layout, styling, and reading-aid settings normally come from the global Reader settings. Changes made inside an EPUB override only the fields whose values differ from the global defaults; the other fields continue to inherit later global changes. EPUB render mode is stored separately per book so a problematic title can be switched to Balanced or Light rendering from the File Browser or Library long-press menus before opening it. Older full-snapshot book overrides retain their original behavior until reset or edited again.
 
 EPUB clippings and highlights live outside the EPUB render-cache folder in
 `/.crossdink/clippings/`. Each book gets a binary clipping file named from the
@@ -98,7 +98,7 @@ screen. Ordinary return visits reuse the index. Failed or memory-limited scans a
 retried on the next visit. The Library's refresh action always scans again; use it
 if files were changed externally while the firmware stayed running.
 Unchanged books reuse their cached metadata.
-**Settings > Display > Use Book Metadata** selects embedded EPUB titles and
+**Library > Settings > Use Book Metadata** selects embedded EPUB titles and
 authors; disabling it uses filenames. TXT, Markdown and XTC files use filename
 fallbacks. CLX1 version 2 adds a first-name author permutation; older Library
 indexes rebuild automatically when Library opens.

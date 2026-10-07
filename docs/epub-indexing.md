@@ -90,7 +90,7 @@ To change the default for future EPUBs, open **Settings → Reader → Indexing
 Method** and choose **Incremental**, **Full Section**, or **IncreMENTAL**.
 
 To change it only for the EPUB you are reading, open the reader menu, choose
-**Reader Options**, then choose **Indexing Method**. The per-book choice is
+the **Settings** tab, then choose **Indexing Method**. The per-book choice is
 saved with that book and overrides the global default without changing your
 other books.
 

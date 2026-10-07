@@ -38,6 +38,7 @@
 #include "components/icons/listIcons.h"
 #include "components/icons/markIcons.h"
 #include "fontIds.h"
+#include "network/DownloadFileSwap.h"
 #include "network/HttpDownloader.h"
 #include "network/WifiBackgroundJoin.h"
 #include "util/BookCacheUtils.h"
@@ -1000,6 +1001,13 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   // question with the copy's size and date when the book is already on SD.
   // Read-only open: one directory lookup, no SD write until Confirm.
   std::string path = bookDownloadPath(book, server.filenameFormat);
+  // A power loss mid-swap can leave the previous copy only as <name>.old.
+  if (!DownloadFileSwap::recover(path)) {
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+    return;
+  }
   std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
   // cppcheck-suppress stlcstrAssignment ; title is a PsramString, not std::string
   std::string details = book.title.c_str();

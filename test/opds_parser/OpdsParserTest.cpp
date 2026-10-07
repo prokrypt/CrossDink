@@ -143,3 +143,26 @@ TEST(OpdsParserTest, OpenSearchDescriptionGivesSearchTemplate) {
   ASSERT_TRUE(parser.parse(kDescription, sizeof(kDescription) - 1));
   EXPECT_EQ(parser.getSearchTemplate(), "/opds/search?q={searchTerms}");
 }
+
+TEST(OpdsParserTest, CountBoundsAndUnrelatedSummaries) {
+  const char* values[] = {"0", "2147483647", "2147483648", "-1", "12x", ""};
+  const int32_t expected[] = {0, INT32_MAX, -1, -1, -1, -1};
+  for (size_t i = 0; i < 6; ++i) {
+    const std::string feed =
+        "<feed xmlns:t='http://purl.org/syndication/thread/1.0'><entry><title>Category</title>"
+        "<link href='/a' type='application/atom+xml' t:count='" +
+        std::string(values[i]) + "'/><summary>1984 classics</summary></entry></feed>";
+    OpdsEntry entries[1];
+    OpdsParser parser(entries, 1);
+    // Exercise text split at arbitrary network boundaries as well as parser reuse.
+    for (const unsigned char ch : feed) parser.write(ch);
+    parser.flush();
+    ASSERT_FALSE(parser.error());
+    ASSERT_EQ(parser.getEntryCount(), 1u);
+    EXPECT_EQ(entries[0].count, expected[i]);
+    constexpr char emptyFeed[] =
+        "<feed><entry><title>Empty</title><link href='/b' type='application/atom+xml'/></entry></feed>";
+    ASSERT_TRUE(parser.parse(emptyFeed, sizeof(emptyFeed) - 1));
+    EXPECT_EQ(entries[0].count, -1);
+  }
+}

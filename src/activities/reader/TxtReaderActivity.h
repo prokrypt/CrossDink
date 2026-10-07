@@ -65,6 +65,7 @@ class TxtReaderActivity final : public Activity {
   bool saveProgress(int page);
   bool queueProgressSave();
   bool flushQueuedProgress();
+  void saveProgressBeforeRestart();
   void loadProgress();
   void toggleDarkMode();
   void toggleHomeButtonInReader();
@@ -107,6 +108,7 @@ class TxtReaderActivity final : public Activity {
     return true;
   }
   bool isReaderActivity() const override { return true; }
+  bool isBookReaderActivity() const override { return true; }
   // cppcheck-suppress uselessOverride ; differs from the base only on some device builds
   bool usesFullScreenReaderVerticalSwipes() const override {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
@@ -123,8 +125,10 @@ class TxtReaderActivity final : public Activity {
   std::string getCurrentBookPath() const override { return txt ? txt->getPath() : std::string{}; }
   std::string getCurrentBookTitle() const override { return txt ? txt->getTitle() : std::string{}; }
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
-  // The panel leads to Settings, whose update and font downloads restart the device.
-  void onFrontlightPanelOpened() override { flushQueuedProgress(); }
+  void onFrontlightPanelOpened() override {
+    // The panel leads to Settings, whose update and font downloads restart the device.
+    saveProgressBeforeRestart();
+  }
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.

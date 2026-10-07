@@ -156,6 +156,10 @@ class CrossPointWebServer {
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
+  // True while stop() waits on a request: a multipart upload drops its client.
+  bool dropUploadIfCancelled() const;
+  void abortUpload(UploadState& state) const;
+  void abortFontUpload();
 
   static KNOB_ALIAS(TRANSFER_LINGER_MS, transferLingerMs);  // Goodies > Knobs
   std::atomic<bool> transferActive{false};

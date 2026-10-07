@@ -329,6 +329,12 @@ class GfxRenderer {
   void writeFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* src);
 
   // Text
+  struct TextVerticalBounds {
+    int top = 0;
+    int bottom = 0;
+  };
+  // Visible regular-text glyph bounds relative to the y coordinate passed to drawText().
+  TextVerticalBounds getTextVerticalBounds(int fontId, const char* text) const;
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                    BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true,
@@ -355,6 +361,9 @@ class GfxRenderer {
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style, uint32_t followingCp = 0) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  // Zero means bitmap font: EPUB content sizing stays disabled.
+  uint8_t getFontPointSize(int fontId) const;
+  int getFontIdForSize(int fontId, uint8_t points) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than

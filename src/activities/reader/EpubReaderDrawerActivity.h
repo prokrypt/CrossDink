@@ -42,9 +42,17 @@ class EpubReaderDrawerActivity final : public Activity {
       void* endGlobalSettingsEditContext = nullptr, const char* dictionaryFontFamilyName = nullptr,
       uint8_t dictionaryFontPointSize = 0, bool hasDictionaryFontOverride = false,
       ReaderOptionsActivity::DictionaryFontChangedCallback dictionaryFontChangedCallback = nullptr,
-      void* dictionaryFontChangedContext = nullptr, const ReaderDrawerState& initialState = {},
+      void* dictionaryFontChangedContext = nullptr,
+      const ReaderDrawerState& initialState = initialReaderDrawerState(CROSSDINK_APP_CAP_TOUCH),
       std::unique_ptr<EpubReaderPreviewModel> ownedPreviewModel = nullptr);
 
+#ifdef SIMULATOR
+  const ReaderDrawerState& simulatorState() const { return state; }
+  bool simulatorFocusedRowVisible() const {
+    return buttonFocusActive && state.selectedIndex >= activeTopIndex() &&
+           state.selectedIndex < activeTopIndex() + visibleRows;
+  }
+#endif
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -215,6 +223,7 @@ class EpubReaderDrawerActivity final : public Activity {
   void buildAutoPageTurnPane(UiApp::ScreenType& screen);
   void buildConfirmButton(UiApp::ScreenType& screen);
   void buildDictionaryPane(UiApp::ScreenType& screen);
+  int currentFontSelectionIndex() const;
   void buildFontFamilyPane(UiApp::ScreenType& screen);
   void buildEnumOptionsPane(UiApp::ScreenType& screen);
   void buildTtfRenderingPane(UiApp::ScreenType& screen);

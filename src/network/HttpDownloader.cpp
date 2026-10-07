@@ -23,6 +23,7 @@
 
 #include "AppVersion.h"
 #include "TaskCores.h"
+#include "network/DownloadFileSwap.h"
 #include "network/HttpRedirectPolicy.h"
 #include "network/SdWriteBehind.h"
 #include "network/WifiPowerSaveGuard.h"
@@ -619,6 +620,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   (void)wifiPowerSaveGuard;
 
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
+  if (options.stageAsPart && !DownloadFileSwap::recover(destPath)) return FILE_ERROR;
   const std::string writePath = options.stageAsPart ? destPath + ".part" : destPath;
   size_t resumeOffset = 0;
   if (options.resumePartial && Storage.exists(writePath.c_str())) {
@@ -766,8 +768,12 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       LOG_ERR("HTTP", "Final buffered write failed after %zu bytes", sink.downloaded);
       result = FILE_ERROR;
     }
-    file.flush();
-    file.close();
+    const bool synced = file.sync();
+    const bool closed = file.close();
+    if ((!synced || !closed) && result == OK) {
+      LOG_ERR("HTTP", "Failed to finish downloaded file");
+      result = FILE_ERROR;
+    }
   }
   if (insufficientSpace) result = INSUFFICIENT_SPACE;
 
@@ -807,32 +813,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     return HTTP_ERROR;
   }
 
-  if (options.stageAsPart) {
-    // FAT rename will not replace an existing file, so move the old copy aside
-    // first and only delete it once the new one is in place. A failed swap puts
-    // the old copy back, so a failed download never costs the user their book.
-    const std::string backupPath = destPath + ".old";
-    const bool hadOld = Storage.exists(destPath.c_str());
-    if (hadOld) {
-      if (Storage.exists(backupPath.c_str())) Storage.remove(backupPath.c_str());
-      if (!Storage.rename(destPath.c_str(), backupPath.c_str())) {
-        LOG_ERR("HTTP", "Could not move aside %s", destPath.c_str());
-        Storage.remove(writePath.c_str());
-        return FILE_ERROR;
-      }
-    }
-    if (!Storage.rename(writePath.c_str(), destPath.c_str())) {
-      LOG_ERR("HTTP", "Could not rename %s to %s", writePath.c_str(), destPath.c_str());
-      Storage.remove(writePath.c_str());
-      if (hadOld && !Storage.rename(backupPath.c_str(), destPath.c_str())) {
-        LOG_ERR("HTTP", "Could not restore %s", destPath.c_str());
-      }
-      return FILE_ERROR;
-    }
-    if (hadOld && !Storage.remove(backupPath.c_str())) {
-      LOG_ERR("HTTP", "Could not remove %s", backupPath.c_str());
-    }
-  }
+  if (options.stageAsPart && !DownloadFileSwap::publish(destPath)) return FILE_ERROR;
 
   return OK;
 }

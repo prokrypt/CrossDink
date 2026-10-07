@@ -137,9 +137,12 @@ async function hydrate() {
       if (!e.repeat) stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
       return;
     }
-    if (e.key !== "Escape") return;
+    if (e.key !== "Escape" || e.repeat || e.isComposing) return;
     const closeFn = MODAL_CANCEL_FNS[openOverlay.id];
-    if (closeFn) closeFn();
+    if (closeFn) {
+      e.preventDefault();
+      closeFn();
+    }
   });
 
   // Enter confirms the rename/move text inputs. Ignore the Enter that commits
@@ -147,10 +150,16 @@ async function hydrate() {
   // duplicate request.
   const isConfirmEnter = (e) => e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && !e.repeat;
   document.getElementById("renameNewName").addEventListener("keydown", (e) => {
-    if (isConfirmEnter(e)) confirmRename();
+    if (isConfirmEnter(e)) {
+      e.preventDefault();
+      confirmRename();
+    }
   });
   document.getElementById("moveDestPath").addEventListener("keydown", (e) => {
-    if (isConfirmEnter(e)) confirmMove();
+    if (isConfirmEnter(e)) {
+      e.preventDefault();
+      confirmMove();
+    }
   });
 
   const breadcrumbs = document.getElementById("directory-breadcrumbs");
@@ -209,7 +218,8 @@ async function hydrate() {
 let listedFiles = [];
 let fileSort = { key: null, dir: 1 };
 try {
-  fileSort = JSON.parse(sessionStorage.getItem("fileSort")) || fileSort;
+  const saved = JSON.parse(sessionStorage.getItem("fileSort"));
+  if (saved && ["name", "size", "mtime"].includes(saved.key) && [1, -1].includes(saved.dir)) fileSort = saved;
 } catch (e) {}
 
 function compareFiles(a, b) {
@@ -233,11 +243,21 @@ function sortHeader(key, label, cls) {
 // First click on a column: largest, newest or Z first (the default order is
 // already name A-Z); the next click flips it.
 function setFileSort(key) {
+  if (!["name", "size", "mtime"].includes(key)) return;
+  const selected = new Set([...document.querySelectorAll(".select-item:checked")].map((cb) => cb.dataset.path));
   fileSort = { key, dir: fileSort.key === key ? -fileSort.dir : -1 };
   try {
     sessionStorage.setItem("fileSort", JSON.stringify(fileSort));
   } catch (e) {}
   renderFileTable();
+  const checkboxes = [...document.querySelectorAll(".select-item")];
+  checkboxes.forEach((cb) => (cb.checked = selected.has(cb.dataset.path)));
+  const master = document.getElementById("selectAllCheckbox");
+  if (master) {
+    master.checked = checkboxes.length > 0 && checkboxes.every((cb) => cb.checked);
+    master.indeterminate = !master.checked && checkboxes.some((cb) => cb.checked);
+  }
+  document.querySelector(`[data-sort="${key}"]`)?.focus();
 }
 
 function renderFileTable() {
@@ -252,7 +272,7 @@ function renderFileTable() {
     fileTableContent +=
       `<tr><th style="width:40px"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)"></th>${sortHeader("name", "Name", "")}<th>Type</th>${sortHeader("size", "Size", "")}${sortHeader("mtime", "Modified", "modified-col")}<th class="actions-col">Actions</th></tr>`;
 
-    const sortedFiles = files.sort(compareFiles);
+    const sortedFiles = files.slice().sort(compareFiles);
 
     sortedFiles.forEach((file) => {
       if (file.isDirectory) {
@@ -360,7 +380,9 @@ function stepImagePreview(dir) {
 
 function closeImagePreview() {
   document.getElementById("imagePreviewModal").classList.remove("open");
-  document.getElementById("imagePreviewImg").src = "";
+  const img = document.getElementById("imagePreviewImg");
+  img.onload = img.onerror = null;
+  img.removeAttribute("src");
 }
 
 function handleFileActionClick(event) {

@@ -110,6 +110,9 @@ class HalFile {
   std::string path;
   size_t pos = 0;
   bool iterationFailed_ = false;
+  // Listed once per open handle; scanning every file per entry made large
+  // libraries quadratic.
+  std::shared_ptr<std::vector<std::string>> children;
 
   explicit operator bool() const { return bool(node); }
   bool isOpen() const { return bool(node); }
@@ -123,21 +126,26 @@ class HalFile {
     return !failed;
   }
   bool isDirectory() const { return node && node->directory; }
-  void rewindDirectory() { pos = 0; }
+  void rewindDirectory() {
+    pos = 0;
+    children.reset();
+  }
   bool allocationFailed() const { return false; }
   bool iterationFailed() const { return iterationFailed_; }
   HalFile openNextFile() {
-    std::vector<std::string> children;
-    for (const auto& [name, value] : fake::files) {
-      std::string parent = name.substr(0, name.find_last_of('/'));
-      if (parent.empty()) parent = "/";
-      if (name != path && parent == path) children.push_back(name);
+    if (!children) {
+      children = std::make_shared<std::vector<std::string>>();
+      for (const auto& [name, value] : fake::files) {
+        std::string parent = name.substr(0, name.find_last_of('/'));
+        if (parent.empty()) parent = "/";
+        if (name != path && parent == path) children->push_back(name);
+      }
+      const auto extras = fake::extraDirectoryEntries.find(path);
+      if (extras != fake::extraDirectoryEntries.end()) {
+        children->insert(children->end(), extras->second.begin(), extras->second.end());
+      }
     }
-    const auto extras = fake::extraDirectoryEntries.find(path);
-    if (extras != fake::extraDirectoryEntries.end()) {
-      children.insert(children.end(), extras->second.begin(), extras->second.end());
-    }
-    if (pos >= children.size()) {
+    if (pos >= children->size()) {
       if (!fake::failDirectoryIterationPath.empty() && path == fake::failDirectoryIterationPath) {
         iterationFailed_ = true;
         fake::failDirectoryIterationPath.clear();
@@ -146,7 +154,7 @@ class HalFile {
       return {};
     }
     HalFile file;
-    file.path = children[pos++];
+    file.path = (*children)[pos++];
     file.node = fake::files[file.path];
     fake::directoryEntriesByPath[file.path]++;
     return file;

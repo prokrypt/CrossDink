@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "CrossPointSettings.h"
+#include "DeviceCapabilities.h"
 #include "GlobalActions.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "components/TouchRegistry.h"
@@ -148,6 +149,22 @@ void MappedInputManager::expireReleaseSuppressions() const {
   state.powerHeld = isPhysicalPressed(Button::Power);
   state.powerReleased = wasPhysicallyReleased(Button::Power);
   releaseSuppression.expireAfterReleaseFrame(state);
+}
+
+MappedInputManager::Button MappedInputManager::menuButton(const Button direction) const {
+  if (!deviceUsesHorizontalSideButtonsForMenus(gpio)) return direction;
+  switch (direction) {
+    case Button::Left:
+      return Button::Up;
+    case Button::Right:
+      return Button::Down;
+    case Button::Up:
+      return Button::Left;
+    case Button::Down:
+      return Button::Right;
+    default:
+      return direction;
+  }
 }
 
 bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const) const {
@@ -697,6 +714,7 @@ bool MappedInputManager::getEdgeSlideProgress(EdgeSlideProgress& progress) {
         (edgeSlideSide == EdgeSlide::RightUp && x < width - band)) {
       edgeSlideSide = EdgeSlide::None;
       progress.finished = true;
+      progress.leftEdgeBand = true;
       return true;
     } else {
       edgeSlideLastX = x;
@@ -730,6 +748,7 @@ bool MappedInputManager::getEdgeSlideProgress(EdgeSlideProgress& progress) {
   const EdgeSlide side = edgeSlideSide;
   if ((side == EdgeSlide::LeftUp && x >= band) || (side == EdgeSlide::RightUp && x < width - band)) {
     edgeSlideSide = EdgeSlide::None;
+    progress.leftEdgeBand = true;
     return true;
   }
   progress.deltaY = y - edgeSlideStartY;
@@ -904,6 +923,8 @@ bool MappedInputManager::wasPressed(const Button button) const {
       return true;
     }
 
+    if (releaseSuppression.isPowerReleaseSuppressed()) return false;
+
     if (powerAsConfirmInReaderMode && gpio.wasPressed(HalGPIO::BTN_POWER)) {
       // The active reader popup owns this Power press. Keep its configured
       // short/long action from firing after the popup confirms on press.
@@ -1021,6 +1042,10 @@ bool MappedInputManager::wasReleased(const Button button) const {
 }
 
 bool MappedInputManager::isPressed(const Button button) const {
+  if (button == Button::Power && releaseSuppression.isPowerReleaseSuppressed()) {
+    return false;
+  }
+
 #ifdef SIMULATOR
   if (simulatorHeld[buttonIndex(button)]) {
     return true;
@@ -1032,17 +1057,14 @@ bool MappedInputManager::isPressed(const Button button) const {
       return true;
     }
 
-    if (!shouldMirrorPowerAsConfirmHold() || !gpio.isPressed(HalGPIO::BTN_POWER)) {
+    if (releaseSuppression.isPowerReleaseSuppressed() || !shouldMirrorPowerAsConfirmHold() ||
+        !gpio.isPressed(HalGPIO::BTN_POWER)) {
       return false;
     }
 
     return !isPowerButtonActionAvailableOutsideReader(
                static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.shortPwrBtn)) ||
            gpio.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
-  }
-
-  if (button == Button::Power && releaseSuppression.isPowerReleaseSuppressed()) {
-    return false;
   }
 
   return mapButton(button, &HalGPIO::isPressed);
@@ -1102,6 +1124,10 @@ unsigned long MappedInputManager::getHeldTime() const {
   for (size_t i = 0; i < BUTTON_COUNT; i++) {
     if (simulatorHeld[i] && simulatorPressStart[i] > 0) {
       heldTime = std::max(heldTime, now - simulatorPressStart[i]);
+    } else if (simulatorReleased[i]) {
+      // Match InputManager: the release frame still reports how long the
+      // button was held, so long-press releases are not read as short taps.
+      heldTime = std::max(heldTime, simulatorReleasedHeldTime[i]);
     }
   }
 #endif
@@ -1251,6 +1277,8 @@ void MappedInputManager::simulatorInjectPress(Button button) {
 
 void MappedInputManager::simulatorInjectRelease(Button button) {
   const size_t idx = buttonIndex(button);
+  simulatorReleasedHeldTime[idx] =
+      simulatorHeld[idx] && simulatorPressStart[idx] > 0 ? millis() - simulatorPressStart[idx] : 0;
   simulatorPressed[idx] = false;
   simulatorReleased[idx] = true;
   simulatorHeld[idx] = false;

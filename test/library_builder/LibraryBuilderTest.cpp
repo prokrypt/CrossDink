@@ -259,6 +259,7 @@ TEST_F(LibraryBuilderTest, OwnerCancellationRetainsPreviousIndex) {
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, false, &control));
   EXPECT_TRUE(stats.cancelled);
+  EXPECT_EQ(stats.failure, BuildFailure::Cancelled);
   EXPECT_GE(calls, 2u);
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
 
@@ -1169,8 +1170,10 @@ TEST_F(LibraryBuilderTest, TruncatedPersistedPathHashAbortsAndRetainsTheLiveInde
   EXPECT_FALSE(Storage.exists("/.crossdink/library.stage.f"));
 }
 
-TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndAtFormatCeilingKeepAllOrders) {
-  for (const unsigned count : {513u, static_cast<unsigned>(CLIX_MAX_RECORDS)}) {
+TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndOldCeilingKeepAllOrders) {
+  // The old 4,096-book ceiling; four-digit names keep discovery order numeric.
+  constexpr unsigned OLD_CEILING = 4096;
+  for (const unsigned count : {513u, OLD_CEILING}) {
     fake::reset();
     bookMetadata.clear();
     std::vector<unsigned> authorOrder(count);
@@ -1186,12 +1189,12 @@ TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndAtFormatCeilingKeepAllOrders) 
     ASSERT_EQ(stats.books, count);
     EXPECT_FALSE(stats.ranksDegraded);
 
-    if (count == CLIX_MAX_RECORDS) {
+    if (count == OLD_CEILING) {
       fake::parses = 0;
       fake::resetIoCounters();
       ASSERT_TRUE(buildLibraryIndex("/", stats, true));
       EXPECT_EQ(fake::parses, 0u);
-      EXPECT_EQ(stats.metadataReused, CLIX_MAX_RECORDS);
+      EXPECT_EQ(stats.metadataReused, OLD_CEILING);
       // The fixed-size per-directory duplicate tracker is deliberately bounded
       // below the maximum library size, so this index remains degraded. An
       // unchanged card degrades the same way every walk, so the index is kept
@@ -1227,6 +1230,7 @@ TEST_F(LibraryBuilderTest, BookPastFormatCeilingKeepsPreviousIndex) {
   }
 
   EXPECT_FALSE(buildLibraryIndex("/", stats, false));
+  EXPECT_EQ(stats.failure, BuildFailure::TooManyBooks);
   EXPECT_EQ(fake::files[INDEX]->bytes, previous);
   EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
   EXPECT_FALSE(Storage.exists("/.crossdink/library.stage.f"));
@@ -1279,6 +1283,7 @@ TEST_F(LibraryBuilderTest, DirtyIndexClearsOnSuccessAndRetriesAfterFailure) {
   invalidateLibraryIndex();
   fake::failOpenPath = "/.crossdink/library.idx";
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(stats.failure, BuildFailure::Error);
   EXPECT_TRUE(libraryIndexNeedsRefresh());
   ASSERT_TRUE(buildLibraryIndex("/", stats, true));
   EXPECT_FALSE(libraryIndexNeedsRefresh());
@@ -1302,4 +1307,67 @@ TEST_F(LibraryBuilderTest, EmptyLibraryStillRecordsMetadataModeChanges) {
   LibraryIndexFile index;
   ASSERT_TRUE(index.open(INDEX));
   EXPECT_EQ(index.header().metadataEnabled, 1);
+}
+
+namespace {
+
+struct BuildProbe {
+  // Cancel once this many EPUBs have been parsed; UINT_MAX never cancels.
+  unsigned cancelAfterParses = ~0u;
+  unsigned progressCalls = 0;
+  bool sawOrganizing = false;
+  uint16_t booksWhenOrganizing = 0;
+
+  static bool cancel(void* context) { return fake::parses >= static_cast<BuildProbe*>(context)->cancelAfterParses; }
+  static void progress(void* context, const BuildProgress& progress) {
+    auto* probe = static_cast<BuildProbe*>(context);
+    probe->progressCalls++;
+    if (progress.phase == BuildPhase::Organizing && !probe->sawOrganizing) {
+      probe->sawOrganizing = true;
+      probe->booksWhenOrganizing = progress.books;
+    }
+  }
+  BuildControl control() {
+    BuildControl control;
+    control.context = this;
+    control.cancelRequested = &cancel;
+    control.progress = &progress;
+    return control;
+  }
+};
+
+}  // namespace
+
+TEST_F(LibraryBuilderTest, CancelledScanKeepsPreviousIndexAndSaysWhy) {
+  initial();
+  const auto previous = fake::files[INDEX]->bytes;
+  for (unsigned i = 0; i < 40; i++) fake::add("/book" + numbered("", i) + ".epub");
+
+  BuildProbe probe;
+  probe.cancelAfterParses = 0;
+  const BuildControl control = probe.control();
+  EXPECT_FALSE(buildLibraryIndex("/", stats, true, &control));
+  EXPECT_EQ(stats.failure, BuildFailure::Cancelled);
+  EXPECT_FALSE(stats.indexReplaced);
+  EXPECT_EQ(fake::files[INDEX]->bytes, previous);
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.stage.f"));
+  EXPECT_FALSE(Storage.exists("/.crossdink/library.new"));
+  EXPECT_TRUE(libraryIndexNeedsRefresh());
+
+  // Cancellation belongs to one build: the next one without hooks completes.
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(stats.failure, BuildFailure::None);
+  EXPECT_EQ(stats.books, 42);
+}
+
+TEST_F(LibraryBuilderTest, ProgressReportsBooksFoundAndTheOrganizingPhase) {
+  for (unsigned i = 0; i < 40; i++) fake::add("/book" + numbered("", i) + ".txt");
+  BuildProbe probe;
+  const BuildControl control = probe.control();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true, &control));
+  EXPECT_EQ(stats.failure, BuildFailure::None);
+  EXPECT_GT(probe.progressCalls, 0u);
+  EXPECT_TRUE(probe.sawOrganizing);
+  EXPECT_EQ(probe.booksWhenOrganizing, 42);
 }
