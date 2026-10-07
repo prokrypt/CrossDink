@@ -129,19 +129,21 @@ curl -s --data-binary @planes.bin -H "Content-Type: application/octet-stream" \
 | 403 | `ERR:token` | Missing or wrong `X-Token`. |
 | 400 | `ERR:IMAGE:size (want N)` | Body is not exactly N bytes, or no PSRAM for it. |
 
-## Wi-Fi: SD file download and upload
+## Wi-Fi: SD file download, upload and delete
 
-`GET /api/download?path=<file>` and `POST /api/upload?path=<dir>` (multipart field `file`) are File Transfer's
-`/download` and `/upload` behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
+`GET /api/download?path=<file>`, `POST /api/upload?path=<dir>` (multipart field `file`) and
+`POST /api/delete?path=<item>` (or `paths=<JSON array>`) are File Transfer's `/download`, `/upload` and `/delete`
+behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
 the `token` query argument or an `X-Token` header; bad tokens count toward the lockout. Paths are SD-rooted
 (`..` stops at `/`); hidden items and `/debug/remote-token` are refused (`403`) unless Show Hidden Files is on (the
-token file always). Upload refuses an existing name (`400 File already exists: <name>`); delete first.
+token file always) for download and upload; delete has no such check. Upload refuses an existing name (`400 File already exists: <name>`); delete first.
 Both stream through a 4 KB buffer. Download honors `Range` (`206`/`416`) and upload resumes with `offset=<bytes>`
 (see `webserver-endpoints.md`, `/download` and `/upload`).
 
 ```sh
 curl -s -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
 curl -s -H "X-Token: $(cat remote-token)" -F "file=@book.epub" "http://10.0.1.67/api/upload?path=/Books"
+curl -s -X POST -H "X-Token: $(cat remote-token)" "http://10.0.1.67/api/delete?path=/Books/book.epub"
 # resume a dropped download
 curl -s -C - -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
 # resumable upload: start with offset=0; after a drop, send the rest from the size the 409 reply names

@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- X4 Pro (debug builds): `POST /api/delete` (Wi-Fi remote token) deletes SD files or folders like File Transfer's delete, also on Goodies > Wi-Fi remote.
 - X4 Pro (debug builds): remote command `MACRO <script.txt>` runs a device test script from the SD card with the Goodies Wi-Fi remote off, then writes results (one line per step with its time and log offset), the PSRAM log and any screenshots next to the script and turns the remote back on. Scripts use the remote commands plus `WAIT`, `MARK`, `WAITLOG` (wait for a log line) and `SHOT`, and carry on across `SLEEPREBOOT`/`REBOOT` steps.
 - X4 Pro (debug builds): `GET /api/psram-log/stream` (Wi-Fi remote token) sends the PSRAM log live as it is written, on one open connection, instead of polling `/api/psram-log`. Other requests are served meanwhile, and it adds no wakes: idle, new text goes out within the server's 250 ms idle tick (Goodies > Knobs serverIdlePollMs). Up to 2 streams at once (a third replaces the oldest).
 - Goodies Wi-Fi remote: a key, touch, swipe or type command over Wi-Fi briefly drives the frontlight to 50%, whether it is lit or off, then restores your exact level (off stays off), so you can see the input landed. Goodies > Knobs `remoteBlinkMs` sets the length (15 ms; 0 = off) and `remoteBlinkPct` the brightness. Input is never delayed.
@@ -10,6 +11,7 @@
 - X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar. Short vertical ticks mark a plug-in (bottom edge) and a `charged` row (top edge).
 
 ### Changed
+- File Transfer's delete, rename and move now work on hidden items and the remote token file too, whatever Show Hidden Files says; nothing can be renamed or moved onto the token file.
 - Reader: a chapter that is still being laid out in the background after the first page shows now builds on the display core instead of the main core, so buttons, touch and Wi-Fi keep the main core while it runs. Input still stops the build at the next page, as before. Debug logs: `Section build worker: N page tick(s) in M ms` each time it stops.
 - X4 Pro (debug builds): Wi-Fi remote firmware upload (`POST /api/ota`) writes flash a page at a time instead of 32 bytes at a time (its buffer moved from PSRAM to internal RAM), and takes a zlib-compressed image with `?size=<image bytes>` (about 37% less to send). A 5.9 MB upload took about 51 s before.
 - Tapping a list row that opens a choice popup (Settings, Image Viewer, Home, OPDS servers, bookmarks and the like) now draws the highlighted row and the popup in one e-ink refresh instead of two, so the popup shows about 0.6 s sooner.
