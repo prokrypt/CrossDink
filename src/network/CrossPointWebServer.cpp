@@ -66,6 +66,7 @@
 #include "html/js/jszip_minJs.generated.h"
 #include "network/NetworkName.h"
 #include "network/SdWriteBehind.h"
+#include "network/WifiUtils.h"
 #include "util/BatteryLog.h"
 #include "util/BatteryLogSum.h"
 #include "util/BookCacheUtils.h"
@@ -1099,6 +1100,7 @@ bool CrossPointWebServer::handleClient() {
     lastTransferMs = lastDataMs;  // stamped below unless it turns out to be a poll
     pollRequest = false;
     requestStartMs.store(millis() | 1, std::memory_order_relaxed);
+    wifiRemoteRequestMs().store(millis() | 1, std::memory_order_relaxed);
   }
   if (!parkedUploadPart.isEmpty() && millis() - parkedUploadAt > HTTP_RESUME_GRACE_MS) {
     LOG_DBG("WEB", "Resume grace expired, removing %s", parkedUploadPart.c_str());

@@ -94,11 +94,17 @@ constexpr int WIFI_BAR_HEIGHT[] = {3, 6, 9, 11};
 
 std::atomic<int8_t> frameWifiStatus{-1};
 std::atomic<int16_t> frameBatteryPercent{-1};
+std::atomic<bool> frameRemoteActive{false};
+
+// Remote-activity icon left of the bars: an up and a down arrow, 5 px wide each, 1 px gap, 11 px tall.
+constexpr int REMOTE_GLYPH_WIDTH = 11;
+constexpr unsigned long REMOTE_ACTIVE_MS = 30000;
 }  // namespace
 
 void BaseTheme::beginFrameStatus() {
   frameWifiStatus.store(-1, std::memory_order_relaxed);
   frameBatteryPercent.store(-1, std::memory_order_relaxed);
+  frameRemoteActive.store(false, std::memory_order_relaxed);
 }
 
 int BaseTheme::wifiStatusShown() { return frameWifiStatus.load(std::memory_order_relaxed); }
@@ -110,15 +116,29 @@ int BaseTheme::wifiStatusReserve() {
   const bool connected = bars > 0;
   frameWifiStatus.store(static_cast<int8_t>(bars), std::memory_order_relaxed);
   frameBatteryPercent.store(static_cast<int16_t>(powerManager.getBatteryPercentage()), std::memory_order_relaxed);
-  return connected ? wifiGlyphWidth + batteryPercentSpacing : 0;
+  if (!connected) return 0;
+  // Shown or hidden only by repaints that happen anyway; it never asks for one.
+  const unsigned long lastRequest = wifiRemoteRequestMs().load(std::memory_order_relaxed);
+  const bool remote = lastRequest != 0 && millis() - lastRequest < REMOTE_ACTIVE_MS;
+  frameRemoteActive.store(remote, std::memory_order_relaxed);
+  return wifiGlyphWidth + batteryPercentSpacing + (remote ? REMOTE_GLYPH_WIDTH + batteryPercentSpacing : 0);
 }
 
-void BaseTheme::drawWifiStatus(const GfxRenderer& renderer, const int x, const int batteryY,
-                               const bool foregroundBlack) {
+void BaseTheme::drawWifiStatus(const GfxRenderer& renderer, int x, const int batteryY, const bool foregroundBlack) {
   // Bottom-aligned with the battery icon (drawn at batteryY + 5, 12 px tall). Bars above the
   // current signal level are drawn as a 1 px baseline only.
   const int bars = frameWifiStatus.load(std::memory_order_relaxed);
   const int bottom = batteryY + 6 + 11;
+  if (frameRemoteActive.load(std::memory_order_relaxed)) {
+    const int top = bottom - 11;
+    for (int r = 0; r < 3; ++r) {  // arrow heads: up at x..x+4, down at x+6..x+10
+      renderer.fillRect(x + 2 - r, top + r, 2 * r + 1, 1, foregroundBlack);
+      renderer.fillRect(x + 8 - r, bottom - 1 - r, 2 * r + 1, 1, foregroundBlack);
+    }
+    renderer.fillRect(x + 2, top + 3, 1, 8, foregroundBlack);
+    renderer.fillRect(x + 8, top, 1, 8, foregroundBlack);
+    x += REMOTE_GLYPH_WIDTH + batteryPercentSpacing;
+  }
   for (int b = 0; b < 4; ++b) {
     if (bars == WIFI_HEADER_CONNECTING) {  // joining: hollow bars
       renderer.drawRect(x + b * 4, bottom - WIFI_BAR_HEIGHT[b], 3, WIFI_BAR_HEIGHT[b], foregroundBlack);

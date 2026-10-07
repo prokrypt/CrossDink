@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Header status bar: a small up/down arrow icon left of the Wi-Fi bars while a Wi-Fi remote (or web) request came in during the last 30 s. It shows and hides only on header repaints that happen anyway, so it adds no refreshes or wakes.
 - X4 Pro (debug builds): remote command `MACRO <script.txt>` runs a device test script from the SD card with the Goodies Wi-Fi remote off, then writes results (one line per step with its time and log offset), the PSRAM log and any screenshots next to the script and turns the remote back on. Scripts use the remote commands plus `WAIT`, `MARK`, `WAITLOG` (wait for a log line) and `SHOT`, and carry on across `SLEEPREBOOT`/`REBOOT` steps.
 - X4 Pro (debug builds): `GET /api/psram-log/stream` (Wi-Fi remote token) sends the PSRAM log live as it is written, on one open connection, instead of polling `/api/psram-log`. Other requests are served meanwhile, and it adds no wakes: idle, new text goes out within the server's 250 ms idle tick (Goodies > Knobs serverIdlePollMs). Up to 2 streams at once (a third replaces the oldest).
 - Goodies Wi-Fi remote: a key, touch, swipe or type command over Wi-Fi briefly drives the frontlight to 50%, whether it is lit or off, then restores your exact level (off stays off), so you can see the input landed. Goodies > Knobs `remoteBlinkMs` sets the length (15 ms; 0 = off) and `remoteBlinkPct` the brightness. Input is never delayed.
