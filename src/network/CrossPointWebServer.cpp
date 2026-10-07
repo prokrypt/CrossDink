@@ -2593,6 +2593,11 @@ void CrossPointWebServer::handleRename() const {
   }
   newPath += newName;
 
+  if (SerialRemote::isTokenPath(newPath.c_str())) {
+    server->send(403, "text/plain", "Cannot rename onto a protected file");
+    return;
+  }
+
   const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
   if (newName == itemName) {
     server->send(200, "text/plain", "Name unchanged");
