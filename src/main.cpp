@@ -1855,6 +1855,7 @@ void setup() {
   vTaskPrioritySet(nullptr, 2);
 #endif
   BoardConfig::holdPowerRails();
+  registerWifiStaTracking();
 
   const esp_reset_reason_t rawResetReason = esp_reset_reason();
   const esp_sleep_wakeup_cause_t rawWakeupCause = esp_sleep_get_wakeup_cause();
@@ -3088,10 +3089,12 @@ static void loopPass() {
         percent = powerManager.getBatteryPercentage();
       }
       const bool inputPaused = millis() - lastActivityTime >= 2000;
-      // Only the link coming or going repaints; bar-count changes wait for a repaint that happens anyway.
-      const bool linkChanged = (shownWifi == 0) != (connected == 0);
+      // Only the link state (none / joining / up) changing repaints; bar-count changes wait for a repaint that
+      // happens anyway.
+      const auto linkState = [](int bars) { return bars == 0 ? 0 : bars == WIFI_HEADER_CONNECTING ? 1 : 2; };
+      const bool linkChanged = linkState(shownWifi) != linkState(connected);
       const bool stale = linkChanged || (inputPaused && shownPercent != percent);
-      const int want = (connected > 0) << 8 | percent;
+      const int want = linkState(connected) << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
       } else if (requestedFor != want) {

@@ -120,6 +120,10 @@ void BaseTheme::drawWifiStatus(const GfxRenderer& renderer, const int x, const i
   const int bars = frameWifiStatus.load(std::memory_order_relaxed);
   const int bottom = batteryY + 6 + 11;
   for (int b = 0; b < 4; ++b) {
+    if (bars == WIFI_HEADER_CONNECTING) {  // joining: hollow bars
+      renderer.drawRect(x + b * 4, bottom - WIFI_BAR_HEIGHT[b], 3, WIFI_BAR_HEIGHT[b], foregroundBlack);
+      continue;
+    }
     const int h = b < bars ? WIFI_BAR_HEIGHT[b] : 1;
     renderer.fillRect(x + b * 4, bottom - h, 3, h, foregroundBlack);
   }
