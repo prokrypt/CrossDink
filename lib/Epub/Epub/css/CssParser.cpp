@@ -8,9 +8,12 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cerrno>
 #include <charconv>
+#include <cstdlib>
 #include <cstring>
 #include <string_view>
+#include <type_traits>
 
 namespace {
 
@@ -128,13 +131,34 @@ constexpr size_t fnv1aMix(size_t hash, unsigned char byte) { return (hash ^ byte
 // '+' (which std::from_chars rejects by spec) so callers can pass CSS-style
 // signed numbers without manual trimming. Returns false on empty input, a
 // non-numeric suffix, or any from_chars error.
+//
+// Floats go through strtof instead of std::from_chars: the float overload of
+// from_chars is the only reference to libstdc++'s floating_from_chars.o
+// (~20 KB of flash), while strtof is already linked for the rest of the app.
 template <typename T>
 bool tryParseNumber(std::string_view s, T& out) {
   const char* begin = s.data();
   const char* end = s.data() + s.size();
   if (begin < end && *begin == '+') ++begin;
-  const auto r = std::from_chars(begin, end, out);
-  return r.ec == std::errc{} && r.ptr == end;
+  if constexpr (std::is_floating_point_v<T>) {
+    // Match from_chars: no second sign after the stripped '+', no leading
+    // whitespace, whole token consumed, out-of-range rejected.
+    if (begin == end || *begin == '+' || std::isspace(static_cast<unsigned char>(*begin))) return false;
+    char buf[48];
+    const size_t len = static_cast<size_t>(end - begin);
+    if (len >= sizeof(buf)) return false;
+    memcpy(buf, begin, len);
+    buf[len] = '\0';
+    char* parsedEnd = nullptr;
+    errno = 0;
+    const float value = std::strtof(buf, &parsedEnd);
+    if (parsedEnd != buf + len || errno == ERANGE) return false;
+    out = static_cast<T>(value);
+    return true;
+  } else {
+    const auto r = std::from_chars(begin, end, out);
+    return r.ec == std::errc{} && r.ptr == end;
+  }
 }
 
 // Collect up to 4 whitespace-separated tokens for a CSS edge-value shorthand
