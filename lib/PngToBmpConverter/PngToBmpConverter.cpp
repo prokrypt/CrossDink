@@ -12,8 +12,16 @@
 #include <cstring>
 
 #include "BitmapHelpers.h"
+#include "BmpConvertHelpers.h"
 #include "Memory.h"
 #include "PngRowDecoder.h"
+
+using bmpconvert::calculateOutputGeometry;
+using bmpconvert::OutputGeometry;
+using bmpconvert::shouldContainAdaptive;
+using bmpconvert::writeBmpHeader1bit;
+using bmpconvert::writeBmpHeader2bit;
+using bmpconvert::writeBmpHeader8bit;
 
 // ============================================================================
 // IMAGE PROCESSING OPTIONS - Same as JpegToBmpConverter for consistency
@@ -24,26 +32,6 @@ constexpr bool USE_FLOYD_STEINBERG = false;
 constexpr bool USE_PRESCALE = true;
 // ============================================================================
 
-// BMP writing helpers (same as JpegToBmpConverter)
-inline void write16(Print& out, const uint16_t value) {
-  out.write(value & 0xFF);
-  out.write((value >> 8) & 0xFF);
-}
-
-inline void write32(Print& out, const uint32_t value) {
-  out.write(value & 0xFF);
-  out.write((value >> 8) & 0xFF);
-  out.write((value >> 16) & 0xFF);
-  out.write((value >> 24) & 0xFF);
-}
-
-inline void write32Signed(Print& out, const int32_t value) {
-  out.write(value & 0xFF);
-  out.write((value >> 8) & 0xFF);
-  out.write((value >> 16) & 0xFF);
-  out.write((value >> 24) & 0xFF);
-}
-
 namespace {
 void yieldDuringDecode(uint8_t& rowsSinceYield) {
   if (++rowsSinceYield < 8) return;
@@ -51,182 +39,6 @@ void yieldDuringDecode(uint8_t& rowsSinceYield) {
   vTaskDelay(1);
 }
 
-void writeBmpHeader8bit(Print& bmpOut, const int width, const int height) {
-  const int bytesPerRow = (width + 3) / 4 * 4;
-  const int imageSize = bytesPerRow * height;
-  const uint32_t paletteSize = 256 * 4;
-  const uint32_t fileSize = 14 + 40 + paletteSize + imageSize;
-
-  bmpOut.write('B');
-  bmpOut.write('M');
-  write32(bmpOut, fileSize);
-  write32(bmpOut, 0);
-  write32(bmpOut, 14 + 40 + paletteSize);
-
-  write32(bmpOut, 40);
-  write32Signed(bmpOut, width);
-  write32Signed(bmpOut, -height);
-  write16(bmpOut, 1);
-  write16(bmpOut, 8);
-  write32(bmpOut, 0);
-  write32(bmpOut, imageSize);
-  write32(bmpOut, 2835);
-  write32(bmpOut, 2835);
-  write32(bmpOut, 256);
-  write32(bmpOut, 256);
-
-  for (int i = 0; i < 256; i++) {
-    bmpOut.write(static_cast<uint8_t>(i));
-    bmpOut.write(static_cast<uint8_t>(i));
-    bmpOut.write(static_cast<uint8_t>(i));
-    bmpOut.write(static_cast<uint8_t>(0));
-  }
-}
-
-void writeBmpHeader1bit(Print& bmpOut, const int width, const int height) {
-  const int bytesPerRow = (width + 31) / 32 * 4;
-  const int imageSize = bytesPerRow * height;
-  const uint32_t fileSize = 62 + imageSize;
-
-  bmpOut.write('B');
-  bmpOut.write('M');
-  write32(bmpOut, fileSize);
-  write32(bmpOut, 0);
-  write32(bmpOut, 62);
-
-  write32(bmpOut, 40);
-  write32Signed(bmpOut, width);
-  write32Signed(bmpOut, -height);
-  write16(bmpOut, 1);
-  write16(bmpOut, 1);
-  write32(bmpOut, 0);
-  write32(bmpOut, imageSize);
-  write32(bmpOut, 2835);
-  write32(bmpOut, 2835);
-  write32(bmpOut, 2);
-  write32(bmpOut, 2);
-
-  uint8_t palette[8] = {0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00};
-  for (const uint8_t i : palette) {
-    bmpOut.write(i);
-  }
-}
-
-void writeBmpHeader2bit(Print& bmpOut, const int width, const int height) {
-  const int bytesPerRow = (width * 2 + 31) / 32 * 4;
-  const int imageSize = bytesPerRow * height;
-  const uint32_t fileSize = 70 + imageSize;
-
-  bmpOut.write('B');
-  bmpOut.write('M');
-  write32(bmpOut, fileSize);
-  write32(bmpOut, 0);
-  write32(bmpOut, 70);
-
-  write32(bmpOut, 40);
-  write32Signed(bmpOut, width);
-  write32Signed(bmpOut, -height);
-  write16(bmpOut, 1);
-  write16(bmpOut, 2);
-  write32(bmpOut, 0);
-  write32(bmpOut, imageSize);
-  write32(bmpOut, 2835);
-  write32(bmpOut, 2835);
-  write32(bmpOut, 4);
-  write32(bmpOut, 4);
-
-  uint8_t palette[16] = {0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x55, 0x00,
-                         0xAA, 0xAA, 0xAA, 0x00, 0xFF, 0xFF, 0xFF, 0x00};
-  for (const uint8_t i : palette) {
-    bmpOut.write(i);
-  }
-}
-
-struct OutputGeometry {
-  int outWidth;
-  int outHeight;
-  uint32_t scaleX_fp;
-  uint32_t scaleY_fp;
-  uint32_t srcXOffset_fp;
-  uint32_t srcYOffset_fp;
-  bool needsScaling;
-};
-
-static uint32_t fpPerOutputPixel(const uint64_t srcSpan_fp, const int outPixels) {
-  if (outPixels <= 0) return 65536;
-  const uint64_t value = srcSpan_fp / static_cast<uint64_t>(outPixels);
-  if (value == 0) return 1;
-  if (value > UINT32_MAX) return UINT32_MAX;
-  return static_cast<uint32_t>(value);
-}
-
-static OutputGeometry calculateOutputGeometry(const int srcWidth, const int srcHeight, const int targetWidth,
-                                              const int targetHeight, const bool crop) {
-  OutputGeometry geometry{srcWidth, srcHeight, 65536, 65536, 0, 0, false};
-  if (targetWidth <= 0 || targetHeight <= 0 || srcWidth <= 0 || srcHeight <= 0) {
-    return geometry;
-  }
-
-  if (crop) {
-    geometry.outWidth = targetWidth;
-    geometry.outHeight = targetHeight;
-
-    const uint64_t srcWidth_fp = static_cast<uint64_t>(srcWidth) << 16;
-    const uint64_t srcHeight_fp = static_cast<uint64_t>(srcHeight) << 16;
-    uint64_t cropWidth_fp = srcWidth_fp;
-    uint64_t cropHeight_fp = srcHeight_fp;
-    const int64_t sourceVsTarget =
-        static_cast<int64_t>(srcWidth) * targetHeight - static_cast<int64_t>(targetWidth) * srcHeight;
-
-    if (sourceVsTarget > 0) {
-      cropWidth_fp = (static_cast<uint64_t>(targetWidth) * static_cast<uint64_t>(srcHeight) << 16) / targetHeight;
-      if (cropWidth_fp > srcWidth_fp) cropWidth_fp = srcWidth_fp;
-      geometry.srcXOffset_fp = static_cast<uint32_t>((srcWidth_fp - cropWidth_fp) / 2);
-    } else if (sourceVsTarget < 0) {
-      cropHeight_fp = (static_cast<uint64_t>(targetHeight) * static_cast<uint64_t>(srcWidth) << 16) / targetWidth;
-      if (cropHeight_fp > srcHeight_fp) cropHeight_fp = srcHeight_fp;
-      geometry.srcYOffset_fp = static_cast<uint32_t>((srcHeight_fp - cropHeight_fp) / 2);
-    }
-
-    geometry.scaleX_fp = fpPerOutputPixel(cropWidth_fp, targetWidth);
-    geometry.scaleY_fp = fpPerOutputPixel(cropHeight_fp, targetHeight);
-    geometry.needsScaling = srcWidth != targetWidth || srcHeight != targetHeight || geometry.srcXOffset_fp != 0 ||
-                            geometry.srcYOffset_fp != 0;
-    return geometry;
-  }
-
-  if (srcWidth != targetWidth || srcHeight != targetHeight) {
-    const float scaleToFitWidth = static_cast<float>(targetWidth) / srcWidth;
-    const float scaleToFitHeight = static_cast<float>(targetHeight) / srcHeight;
-    const float scale = (scaleToFitWidth < scaleToFitHeight) ? scaleToFitWidth : scaleToFitHeight;
-
-    geometry.outWidth = static_cast<int>(srcWidth * scale);
-    geometry.outHeight = static_cast<int>(srcHeight * scale);
-    if (geometry.outWidth < 1) geometry.outWidth = 1;
-    if (geometry.outHeight < 1) geometry.outHeight = 1;
-
-    geometry.scaleX_fp = fpPerOutputPixel(static_cast<uint64_t>(srcWidth) << 16, geometry.outWidth);
-    geometry.scaleY_fp = fpPerOutputPixel(static_cast<uint64_t>(srcHeight) << 16, geometry.outHeight);
-    geometry.needsScaling = true;
-  }
-
-  return geometry;
-}
-
-static bool shouldContainAdaptive(const int srcWidth, const int srcHeight, const int targetWidth,
-                                  const int targetHeight) {
-  if (srcWidth <= 0 || srcHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) {
-    return false;
-  }
-
-  constexpr int64_t kAspectTolerancePercent = 18;
-  const int64_t sourceScaledToTargetHeight = static_cast<int64_t>(srcWidth) * targetHeight;
-  const int64_t targetScaledToSourceHeight = static_cast<int64_t>(targetWidth) * srcHeight;
-  const int64_t diff = sourceScaledToTargetHeight > targetScaledToSourceHeight
-                           ? sourceScaledToTargetHeight - targetScaledToSourceHeight
-                           : targetScaledToSourceHeight - sourceScaledToTargetHeight;
-  return diff * 100 > targetScaledToSourceHeight * kAspectTolerancePercent;
-}
 }  // namespace
 
 // Batch-convert an entire scanline to grayscale.
