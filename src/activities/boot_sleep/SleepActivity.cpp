@@ -15,9 +15,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
-#include <PNGdec.h>
-// PNGdec's bundled zlib internals leak this macro into later FreeInkUI headers.
-#undef local
+#include <PngRowDecoder.h>
 #include <Xtc.h>
 
 #include <algorithm>
@@ -154,7 +152,7 @@ void hideOverlayBatteryStrip(const GfxRenderer& renderer) {
   renderer.fillRect(metrics.statusBarHorizontalMargin + orientedMarginLeft + 1, textY, clearWidth, clearHeight, false);
 }
 
-// Context passed through PNGdec's decode() user-pointer to the per-scanline draw callback.
+// Per-overlay state for the row handler.
 struct PngOverlayCtx {
   GfxRenderer* renderer;
   int screenW;
@@ -165,66 +163,25 @@ struct PngOverlayCtx {
   int dstY;
   float yScale;
   int lastDstY;
-  // Color-key transparency (tRNS chunk) for TRUECOLOR and GRAYSCALE images.
-  // Initialized lazily on the first draw callback because tRNS is processed during decode(),
-  // not during open() — so hasAlpha()/getTransparentColor() are only valid once decode() starts.
-  // -2 = not yet read; -1 = no color key; >=0 = 0x00RRGGBB (TRUECOLOR) or low-byte gray.
-  int32_t transparentColor;
-  PNG* pngObj;  // for lazy-init of transparentColor on first callback
 };
 
-// PNGdec file I/O callbacks — mirror the pattern in PngToFramebufferConverter.cpp.
-void* pngSleepOpen(const char* filename, int32_t* size) {
-  FsFile* f = new FsFile();
-  if (!Storage.openFileForRead("SLP", std::string(filename), *f)) {
-    delete f;
-    return nullptr;
-  }
-  *size = f->size();
-  return f;
-}
-void pngSleepClose(void* handle) {
-  FsFile* f = reinterpret_cast<FsFile*>(handle);
-  if (f) {
-    f->close();
-    delete f;
-  }
-}
-int32_t pngSleepRead(PNGFILE* pFile, uint8_t* pBuf, int32_t len) {
-  FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
-  return f ? f->read(pBuf, len) : 0;
-}
-int32_t pngSleepSeek(PNGFILE* pFile, int32_t pos) {
-  FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
-  if (!f) return -1;
-  return f->seek(pos);
-}
-
-// Per-scanline draw callback for PNG overlay compositing.
+// Draw one decoded PNG row for overlay compositing.
 // Transparent pixels (alpha < 128) are skipped so the reader page shows through.
 // Opaque pixels are drawn in their grayscale brightness (dark → black, light → white).
-int pngOverlayDraw(PNGDRAW* pDraw) {
-  PngOverlayCtx* ctx = reinterpret_cast<PngOverlayCtx*>(pDraw->pUser);
-
-  // Lazy-init: tRNS chunk is processed during decode() before any IDAT data, so by the time
-  // the first draw callback fires, hasAlpha() / getTransparentColor() are already valid.
-  if (ctx->transparentColor == -2) {
-    const int pt = pDraw->iPixelType;
-    ctx->transparentColor = (pDraw->iHasAlpha && (pt == PNG_PIXEL_TRUECOLOR || pt == PNG_PIXEL_GRAYSCALE))
-                                ? static_cast<int32_t>(ctx->pngObj->getTransparentColor())
-                                : -1;
-  }
-
-  const int destY = ctx->dstY + (int)(pDraw->y * ctx->yScale);
-  if (destY == ctx->lastDstY) return 1;  // skip duplicate rows from Y scaling
+void pngOverlayDrawRow(PngOverlayCtx* ctx, const PngRowDecoder& png, const int srcY, const uint8_t* pixels) {
+  const int destY = ctx->dstY + (int)(srcY * ctx->yScale);
+  if (destY == ctx->lastDstY) return;  // skip duplicate rows from Y scaling
   ctx->lastDstY = destY;
-  if (destY < 0 || destY >= ctx->screenH) return 1;
+  if (destY < 0 || destY >= ctx->screenH) return;
 
   const int srcWidth = ctx->srcWidth;
   const int dstWidth = ctx->dstWidth;
-  const uint8_t* pixels = pDraw->pPixels;
-  const int pixelType = pDraw->iPixelType;
-  const int hasAlpha = pDraw->iHasAlpha;
+  const auto pixelType = png.colorType();
+  const uint8_t bitDepth = png.bitDepth();
+  const uint8_t* palette = png.palette();
+  const bool hasAlpha = png.hasAlpha();
+  // tRNS color key for Rgb/Gray images (-1 when none).
+  const int32_t transparentColor = png.transparentColor();
 
   int srcX = 0, error = 0;
   for (int dstX = 0; dstX < dstWidth; dstX++) {
@@ -232,40 +189,41 @@ int pngOverlayDraw(PNGDRAW* pDraw) {
     if (outX >= 0 && outX < ctx->screenW) {
       uint8_t alpha = 255, gray = 0;
       switch (pixelType) {
-        case PNG_PIXEL_TRUECOLOR_ALPHA: {
+        case PngRowDecoder::Rgba: {
           const uint8_t* p = &pixels[srcX * 4];
           alpha = p[3];
           gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
           break;
         }
-        case PNG_PIXEL_GRAY_ALPHA:
+        case PngRowDecoder::GrayAlpha:
           gray = pixels[srcX * 2];
           alpha = pixels[srcX * 2 + 1];
           break;
-        case PNG_PIXEL_TRUECOLOR: {
+        case PngRowDecoder::Rgb: {
           const uint8_t* p = &pixels[srcX * 3];
           gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
           // tRNS color-key: if pixel matches the designated transparent color, skip it
-          if (ctx->transparentColor >= 0 && p[0] == (uint8_t)((ctx->transparentColor >> 16) & 0xFF) &&
-              p[1] == (uint8_t)((ctx->transparentColor >> 8) & 0xFF) &&
-              p[2] == (uint8_t)(ctx->transparentColor & 0xFF)) {
+          if (transparentColor >= 0 && p[0] == (uint8_t)((transparentColor >> 16) & 0xFF) &&
+              p[1] == (uint8_t)((transparentColor >> 8) & 0xFF) && p[2] == (uint8_t)(transparentColor & 0xFF)) {
             alpha = 0;
           }
           break;
         }
-        case PNG_PIXEL_GRAYSCALE:
-          gray = pixels[srcX];
+        case PngRowDecoder::Gray: {
+          const uint8_t value = PngRowDecoder::sample(pixels, srcX, bitDepth);
+          gray = PngRowDecoder::sampleToByte(value, bitDepth);
           // tRNS color-key: transparent gray value stored in low byte
-          if (ctx->transparentColor >= 0 && gray == (uint8_t)(ctx->transparentColor & 0xFF)) {
+          if (transparentColor >= 0 && value == (uint8_t)(transparentColor & 0xFF)) {
             alpha = 0;
           }
           break;
-        case PNG_PIXEL_INDEXED:
-          if (pDraw->pPalette) {
-            const uint8_t idx = pixels[srcX];
-            const uint8_t* p = &pDraw->pPalette[idx * 3];
+        }
+        case PngRowDecoder::Palette:
+          if (palette) {
+            const uint8_t idx = PngRowDecoder::sample(pixels, srcX, bitDepth);
+            const uint8_t* p = &palette[idx * 3];
             gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
-            if (hasAlpha) alpha = pDraw->pPalette[768 + idx];
+            if (hasAlpha) alpha = palette[768 + idx];
           }
           break;
         default:
@@ -293,7 +251,6 @@ int pngOverlayDraw(PNGDRAW* pDraw) {
       srcX++;
     }
   }
-  return 1;
 }
 
 std::string filenameFromPath(const std::string& path) {
@@ -1283,7 +1240,7 @@ void SleepActivity::renderOverlaySleepScreen() const {
     // The reader activity has already released its document/layout state, and
     // Page Overlay has captured the page framebuffer. Its active SD-font glyph
     // cache is therefore regenerable and not needed for the final sleep frame.
-    // Free it before PNGdec requests its contiguous decode buffer.
+    // Free it before the PNG decoder requests its inflate window.
     const uint32_t freeBeforeRelease = ESP.getFreeHeap();
     const uint32_t maxAllocBeforeRelease = ESP.getMaxAllocHeap();
     if (renderer.releaseSdCardFontForLowMemory(SETTINGS.getReaderFontId())) {
@@ -1291,55 +1248,66 @@ void SleepActivity::renderOverlaySleepScreen() const {
               freeBeforeRelease, ESP.getFreeHeap(), maxAllocBeforeRelease, ESP.getMaxAllocHeap());
     }
 
-    constexpr size_t MIN_FREE_HEAP = 60 * 1024;  // PNG decoder ~42 KB + overhead
+    constexpr size_t MIN_FREE_HEAP = 60 * 1024;  // PNG decoder ~44 KB + overhead
     if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
       LOG_ERR("SLP", "Not enough heap for PNG overlay decoder: %" PRIu32 " free, need %u for %s", ESP.getFreeHeap(),
               static_cast<unsigned>(MIN_FREE_HEAP), filename.c_str());
       return OverlayDrawResult::Failed;
     }
-    auto png = std::unique_ptr<PNG>(new (std::nothrow) PNG());
-    if (!png) {
-      LOG_ERR("SLP", "Failed to allocate PNG overlay decoder for %s", filename.c_str());
-      return OverlayDrawResult::Failed;
-    }
 
-    int rc = png->open(filename.c_str(), pngSleepOpen, pngSleepClose, pngSleepRead, pngSleepSeek, pngOverlayDraw);
-    if (rc != PNG_SUCCESS) {
-      LOG_ERR("SLP", "PNG overlay open failed for %s: %d", filename.c_str(), rc);
-      return OverlayDrawResult::Failed;
-    }
-
-    const int srcW = png->getWidth(), srcH = png->getHeight();
-    float yScale = 1.0f;
-    int dstW = srcW, dstH = srcH;
-    if (srcW > pageWidth || srcH > pageHeight) {
-      const float scaleX = (float)pageWidth / srcW, scaleY = (float)pageHeight / srcH;
-      const float scale = (scaleX < scaleY) ? scaleX : scaleY;
-      dstW = (int)(srcW * scale);
-      dstH = (int)(srcH * scale);
-      yScale = (float)dstH / srcH;
-    }
-
-    PngOverlayCtx ctx;
-    ctx.renderer = &renderer;
-    ctx.screenW = pageWidth;
-    ctx.screenH = pageHeight;
-    ctx.srcWidth = srcW;
-    ctx.dstWidth = dstW;
-    ctx.dstX = (pageWidth - dstW) / 2;
-    ctx.dstY = (pageHeight - dstH) / 2;
-    ctx.yScale = yScale;
-    ctx.lastDstY = -1;
-    ctx.transparentColor = -2;  // will be resolved on first draw callback (after tRNS is parsed)
-    ctx.pngObj = png.get();
+    // Decodes the whole file once in the current render mode.
+    PngOverlayCtx ctx{};
+    bool geometryReady = false;
+    const auto drawPass = [&](const char* label) -> bool {
+      FsFile file;
+      if (!Storage.openFileForRead("SLP", filename, file)) {
+        LOG_ERR("SLP", "PNG %s open failed for %s", label, filename.c_str());
+        return false;
+      }
+      PngRowDecoder png;
+      bool ok = png.openFile(file);
+      if (ok && png.bitDepth() > 8) {
+        LOG_ERR("SLP", "16-bit PNG overlays are not supported: %s", filename.c_str());
+        ok = false;
+      }
+      if (ok && !geometryReady) {
+        const int srcW = static_cast<int>(png.width()), srcH = static_cast<int>(png.height());
+        float yScale = 1.0f;
+        int dstW = srcW, dstH = srcH;
+        if (srcW > pageWidth || srcH > pageHeight) {
+          const float scaleX = (float)pageWidth / srcW, scaleY = (float)pageHeight / srcH;
+          const float scale = (scaleX < scaleY) ? scaleX : scaleY;
+          dstW = (int)(srcW * scale);
+          dstH = (int)(srcH * scale);
+          yScale = (float)dstH / srcH;
+        }
+        ctx.renderer = &renderer;
+        ctx.screenW = pageWidth;
+        ctx.screenH = pageHeight;
+        ctx.srcWidth = srcW;
+        ctx.dstWidth = dstW;
+        ctx.dstX = (pageWidth - dstW) / 2;
+        ctx.dstY = (pageHeight - dstH) / 2;
+        ctx.yScale = yScale;
+        geometryReady = true;
+      }
+      ok = ok && png.begin();
+      ctx.lastDstY = -1;
+      for (uint32_t y = 0; ok && y < png.height(); ++y) {
+        const uint8_t* row = png.nextRow();
+        if (!row) {
+          ok = false;
+          break;
+        }
+        pngOverlayDrawRow(&ctx, png, static_cast<int>(y), row);
+      }
+      file.close();
+      if (!ok) LOG_ERR("SLP", "PNG %s decode failed for %s", label, filename.c_str());
+      return ok;
+    };
 
     LOG_INF("SLP", "Drawing PNG overlay: %s", filename.c_str());
-    rc = png->decode(&ctx, 0);
-    png->close();
-    if (rc != PNG_SUCCESS) {
-      LOG_ERR("SLP", "PNG overlay decode failed for %s: %d", filename.c_str(), rc);
-      return OverlayDrawResult::Failed;
-    }
+    if (!drawPass("overlay")) return OverlayDrawResult::Failed;
 
     const bool absolute = renderer.supportsAbsoluteGrayscale();
     if (!absolute) return OverlayDrawResult::Drawn;
@@ -1360,28 +1328,8 @@ void SleepActivity::renderOverlaySleepScreen() const {
       return lsbCopied ? OverlayDrawResult::Failed : OverlayDrawResult::Drawn;
     };
     for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
-      png.reset();
-      png = std::unique_ptr<PNG>(new (std::nothrow) PNG());
-      if (!png) {
-        LOG_ERR("SLP", "Failed to allocate PNG grayscale decoder for %s", filename.c_str());
-        return grayscaleFallback();
-      }
-      rc = png->open(filename.c_str(), pngSleepOpen, pngSleepClose, pngSleepRead, pngSleepSeek, pngOverlayDraw);
-      if (rc != PNG_SUCCESS) {
-        LOG_ERR("SLP", "PNG grayscale open failed for %s: %d", filename.c_str(), rc);
-        return grayscaleFallback();
-      }
-
-      ctx.pngObj = png.get();
-      ctx.lastDstY = -1;
-      ctx.transparentColor = -2;
       renderer.setRenderMode(mode);
-      rc = png->decode(&ctx, 0);
-      png->close();
-      if (rc != PNG_SUCCESS) {
-        LOG_ERR("SLP", "PNG grayscale decode failed for %s: %d", filename.c_str(), rc);
-        return grayscaleFallback();
-      }
+      if (!drawPass("grayscale")) return grayscaleFallback();
       if (mode == GfxRenderer::GRAYSCALE_LSB) {
         renderer.copyGrayscaleLsbBuffers();
         lsbCopied = true;
