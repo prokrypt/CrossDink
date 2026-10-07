@@ -1172,6 +1172,8 @@ void command(const char* args) {
   reply("OK:MACRO started");
 }
 }  // namespace macro
+#endif
+
 #ifndef SIMULATOR
 // BOOTSLOT: the other OTA slot's image header. BOOTSLOT <label>: full image check
 // of that slot (as Goodies > Boot previous firmware), then switch and restart into it.
