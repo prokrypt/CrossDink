@@ -78,7 +78,7 @@ class Activity {
   // Input arriving mid-refresh waits for the waveform to end, then all of it
   // lands in one frame. Drawing at once instead queues that frame behind the
   // running waveform, so a second input meanwhile waits for two refreshes.
-  virtual bool batchesInputDuringRefresh() const { return true; }
+  virtual bool batchesInputDuringRefresh() const { return !isReaderActivity(); }
   // Serial remote control: insert text as if typed. False when the screen has
   // no text entry.
   virtual bool injectText(const char*) { return false; }
