@@ -180,7 +180,12 @@ void EndOfBookOptions::buildListScreen(UiApp::ScreenType& screen) {
   props.inputMask = fui::InputTouch;  // physical buttons stay in handleMenuInput()
   // Theme row height and gap like the other touch lists; without this the rows fall back
   // to the label-line height and sit crammed together.
+  props.labelText = screen.theme().bodyText;
   const int rows = std::max<int>(1, configureUiList(props, screen.theme(), screen.body()));
+  // Long titles wrap to a second line. Set after configureUiList (which forces one line on
+  // button-only boards) so rows stay single-line height and only wrapped rows grow, with
+  // their touch hit rects following the drawn row.
+  props.labelText.maxLines = 2;
   // Keep the selection on screen if the band can't fit every row (small font scale, landscape).
   props.topIndex = static_cast<uint16_t>(followListSelection(props.selectedIndex, 0, rows, rowCount));
   screen.list(props);

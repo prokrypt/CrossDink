@@ -57,6 +57,7 @@ class XtcReaderActivity final : public Activity {
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
   // First menu press made while the end-of-book menu was still loading (main loop only).
   EndOfBookOptions::MenuKey queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
+  bool endOfBookHomeUnlocked = false;  // Home key lock lifted while the menu is open
 
   enum class StatusBarOverlayPosition { Bottom, Top };
   struct StatusBarInfo {
@@ -114,6 +115,8 @@ class XtcReaderActivity final : public Activity {
   bool isReaderActivity() const override { return true; }
   // cppcheck-suppress uselessOverride ; differs from the base only on some device builds
   bool usesFullScreenReaderVerticalSwipes() const override {
+    // The End of book menu is a plain list: Home button / bottom-edge swipe go Home as elsewhere.
+    if (endOfBookOptions && endOfBookOptions->menuActive()) return false;
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
     return true;
 #else

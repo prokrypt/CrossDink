@@ -281,6 +281,10 @@ void XtcReaderActivity::loop() {
   const bool endOfBookMenuOpen = atEndOfBook && endOfBookOptions && endOfBookOptions->menuActive();
   const auto queuedKey = queuedEndOfBookKey;
   queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
+  if (endOfBookMenuOpen != endOfBookHomeUnlocked) {
+    endOfBookHomeUnlocked = endOfBookMenuOpen;
+    mappedInput.setReaderTouchscreenOverride(endOfBookMenuOpen);
+  }
   if (endOfBookMenuOpen) {
     endOfBookAction = queuedKey != EndOfBookOptions::MenuKey::None
                           ? endOfBookOptions->applyMenuKey(queuedKey, &openPath)
