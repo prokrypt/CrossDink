@@ -61,6 +61,7 @@ class LibraryActivity final : public Activity {
   int gridProgressRow = -1;
   float gridProgress = -1.0f;
   bool uiReady = false;
+  bool prunePending = false;
   bool longPressFired = false;
   bool ignoreConfirmRelease = false;
   bool scanFailed = false;

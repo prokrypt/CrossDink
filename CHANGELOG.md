@@ -10,6 +10,7 @@
 - X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar. Short vertical ticks mark a plug-in (bottom edge) and a `charged` row (top edge).
 
 ### Changed
+- Reader/Library: opening a book without an image-optimizer manifest scans the ZIP directory once instead of on every lookup, and Library drops missing Recent books after its first frame instead of before it.
 - Reader: a chapter that is still being laid out in the background after the first page shows now builds on the display core instead of the main core, so buttons, touch and Wi-Fi keep the main core while it runs. Input still stops the build at the next page, as before. Debug logs: `Section build worker: N page tick(s) in M ms` each time it stops.
 - X4 Pro (debug builds): Wi-Fi remote firmware upload (`POST /api/ota`) writes flash a page at a time instead of 32 bytes at a time (its buffer moved from PSRAM to internal RAM), and takes a zlib-compressed image with `?size=<image bytes>` (about 37% less to send). A 5.9 MB upload took about 51 s before.
 - Tapping a list row that opens a choice popup (Settings, Image Viewer, Home, OPDS servers, bookmarks and the like) now draws the highlighted row and the popup in one e-ink refresh instead of two, so the popup shows about 0.6 s sooner.
