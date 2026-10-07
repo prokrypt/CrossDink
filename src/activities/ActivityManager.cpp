@@ -1360,6 +1360,10 @@ void ActivityManager::popActivity() {
 
 bool ActivityManager::preventAutoSleep() const { return currentActivity && currentActivity->preventAutoSleep(); }
 
+uint32_t ActivityManager::msUntilTimedWork() const {
+  return currentActivity ? currentActivity->msUntilTimedWork() : UINT32_MAX;
+}
+
 bool ActivityManager::requiresExclusiveStorageLoop() const {
   return currentActivity && currentActivity->requiresExclusiveStorageLoop();
 }
