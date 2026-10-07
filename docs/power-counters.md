@@ -15,9 +15,12 @@ Written by `src/util/PowerLog.cpp` (driven by the battery log, `src/util/Battery
 - every Goodies > Knobs `powerTickMin` minutes awake (default 10);
 - for Power Test marks (`test_start`, `test_end`, `test_abort`, `sag`) and a stats reset (`reset`).
 
-Rows go to a 16 KB PSRAM ring first and reach the card before deep sleep, soon after a restart or crash, or when
-the ring is 3/4 full (with 2 s of no input). At 256 KB the file becomes `power.1.csv` (one old copy, about two
-weeks of rows).
+Rows go to a 16 KB PSRAM ring first and reach the card before deep sleep, whenever the battery log is written
+(Goodies > Battery & stats writes both when it opens or refreshes), soon after a restart or crash, when the ring
+is 3/4 full, or every 1 KB with the battery at 5% or less off USB, so the session the battery dies in is kept
+(with 2 s of no input). A restart writes no row of its own: it saves the counters, and the next boot row carries
+them. At 256 KB the file becomes `power.1.csv` (one old copy, roughly two weeks of rows). A file whose header
+is not this build's columns is moved to `power.1.csv` too, before the first new row is added.
 
 Every counter column is cumulative. Subtract two rows of the same `gen` to get the activity between them:
 
@@ -57,14 +60,15 @@ Every counter column is cumulative. Subtract two rows of the same `gen` to get t
 Each test holds one load for `powerTestMin` with everything else idle (Wi-Fi off and the frontlight off unless
 the test turns them on; the Wi-Fi remote pauses), keeps the device out of auto sleep, and writes `test_start` and
 `test_end` rows. Back stops it early (`test_abort`). The page shows the drop, the rate once the drop passes 0.3 %,
-the cell voltage and what the counters saw. Confirm updates the page; it otherwise only redraws at the start and
-end, so its own refreshes stay out of the run.
+the cell voltage and what the counters saw, and warns while USB or charging makes the run useless. Confirm
+updates the page; it otherwise only redraws at the start and end, so its own refreshes stay out of the run. Once a
+run ends the page keeps its end values.
 
 | Test | Load |
 | --- | --- |
 | Idle | nothing: the baseline the others are compared with |
 | Light 50%, Light 100% | frontlight at that brightness (two levels check that cost follows duty) |
-| Wi-Fi idle (modem sleep) | joined to the last saved network, modem sleep, CPU allowed to light-sleep (as idle File Transfer) |
+| Wi-Fi idle (modem sleep) | joined to the last saved network, minimum modem sleep (Arduino's `setSleep(true)`), CPU allowed to light-sleep (as idle File Transfer; the Wi-Fi remote uses the deeper maximum modem sleep) |
 | Wi-Fi awake | joined, power save off, full clock (as a Wi-Fi screen during a transfer) |
 | CPU busy (one core) | a task spinning 9 ms of every 10 on the worker core at full clock |
 | Fast refresh loop, Full refresh loop | half the screen black, swapping sides every `powerTestRefreshS` |
@@ -90,12 +94,13 @@ python3 scripts/power_fit.py power.csv power.1.csv --capacity-mah 2000
 ```
 
 Copy the files off the card (or use the web portal's Logs page), and pass the cell's rated capacity to get mA
-beside %/h (1 %/h = capacity / 100 mA). The script:
+beside %/h (1 %/h = capacity / 100 mA). Overlapping copies of the same file are read once. The script:
 
 1. lists the Power Test runs with their drop and rate, and each run's rate less the Idle run's (that load's own
    cost);
 2. cuts the log into back-to-back on-battery intervals of at least `--min-drop` % (default 1.0), never across a
-   charge, USB, a `gen` change or a counter that went backwards;
+   charge, USB, a `gen` change or a counter that went backwards, and none starting within `--settle-min` minutes
+   (default 30, awake or asleep) of a charge, while the gauge is still rising;
 3. fits the drop of every interval as a sum of activity x cost with all costs >= 0, and prints each cost with a
    90% range from resampling and its share of all the drain logged.
 

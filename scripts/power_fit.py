@@ -108,6 +108,7 @@ def read_rows(paths: list[str]) -> list[Row]:
         return (-n, p)
 
     rows: list[Row] = []
+    seen: set[tuple] = set()  # the same row from two overlapping copies is kept once
     for path in sorted(paths, key=age_key):
         with open(path, newline="", encoding="utf-8", errors="replace") as f:
             reader = csv.DictReader(f)
@@ -119,6 +120,10 @@ def read_rows(paths: list[str]) -> list[Row]:
                     counters = {k: float(rec[k] or 0) for k in COUNTERS}
                 except ValueError:
                     continue  # a torn row (power cut mid-write)
+                key = (rec["gen"], rec["event"], rec.get("epoch_utc"), rec.get("uptime_ms"), rec["awake_ms"])
+                if key in seen:
+                    continue
+                seen.add(key)
                 pct = float(rec["pct"]) if rec["pct"] else None
                 rows.append(Row(
                     line=i, file=path, gen=rec["gen"], event=rec["event"], detail=rec.get("detail", ""),
@@ -158,6 +163,11 @@ def features_of(a: Row, b: Row) -> dict[str, float]:
     }
 
 
+def clock_s(r: Row) -> float:
+    """Seconds of awake plus asleep time: a clock that runs within one generation."""
+    return r.c["awake_ms"] / 1000.0 + r.c["asleep_s"] + r.c["asleep_cw_s"]
+
+
 def counters_ok(a: Row, b: Row) -> bool:
     return all(b.c[k] >= a.c[k] for k in COUNTERS)
 
@@ -170,13 +180,30 @@ class Interval:
     x: dict
 
 
-def build_intervals(rows: list[Row], min_drop: float) -> tuple[list[Interval], dict[str, int]]:
-    """Back-to-back on-battery intervals of at least min_drop %."""
+def build_intervals(rows: list[Row], min_drop: float,
+                    settle_min: float = 30.0) -> tuple[list[Interval], dict[str, int]]:
+    """Back-to-back on-battery intervals of at least min_drop %.
+
+    No interval starts within settle_min minutes (awake or asleep) of a row that
+    saw a charger: the gauge keeps rising for about 25 min after unplugging, which
+    would make those intervals read too little drop.
+    """
     intervals: list[Interval] = []
     skipped = {"charger": 0, "gen": 0, "backwards": 0, "rise": 0}
     anchor: Row | None = None
     prev: Row | None = None
+    last_charger: Row | None = None
+
+    def settled(r: Row) -> bool:
+        if r.charger:
+            return False
+        if last_charger is None or last_charger.gen != r.gen:
+            return True
+        return clock_s(r) - clock_s(last_charger) >= settle_min * 60
+
     for r in rows:
+        if r.charger:
+            last_charger = r
         if r.pct is None:
             prev = r
             continue
@@ -192,11 +219,11 @@ def build_intervals(rows: list[Row], min_drop: float) -> tuple[list[Interval], d
                 reason = "rise"  # charged without a row saying so
             if reason:
                 skipped[reason] += 1
-                anchor = None if r.charger else r
+                anchor = r if settled(r) else None
                 prev = r
                 continue
         if anchor is None:
-            anchor = None if r.charger else r
+            anchor = r if settled(r) else None
             prev = r
             continue
         if anchor.pct - r.pct >= min_drop:
@@ -330,17 +357,22 @@ class TestRun:
     start: Row
     end: Row
     aborted: bool
+    charger: bool  # charging or USB seen at any row of the run
 
 
 def find_tests(rows: list[Row]) -> tuple[list[TestRun], list[Row]]:
     runs, sags = [], []
     open_run: Row | None = None
+    charged = False
     for r in rows:
         if r.event == "test_start":
             open_run = r
-        elif r.event in ("test_end", "test_abort") and open_run is not None:
+            charged = r.charger
+            continue
+        charged = charged or r.charger
+        if r.event in ("test_end", "test_abort") and open_run is not None:
             if r.gen == open_run.gen and r.detail == open_run.detail:
-                runs.append(TestRun(r.detail, open_run, r, r.event == "test_abort"))
+                runs.append(TestRun(r.detail, open_run, r, r.event == "test_abort", charged))
             open_run = None
         elif r.event == "sag":
             sags.append(r)
@@ -361,13 +393,16 @@ def print_tests(runs: list[TestRun], sags: list[Row], capacity: float | None, ou
         drop = t.start.pct - t.end.pct
         rate = drop / hours
         flag = ""
-        if t.start.charger or t.end.charger:
+        usable = False
+        if t.charger:
             flag = "  (charger seen: not a drain)"
         elif drop < 0.3:
             flag = "  (under 0.3 %: gauge wander dominates)"
-        elif t.aborted:
-            flag = "  (stopped early)"
-        if not flag or t.aborted:
+        else:
+            usable = True  # a run stopped early still measured its own load
+            if t.aborted:
+                flag = "  (stopped early)"
+        if usable:
             rates.setdefault(t.tag, []).append(rate)
         ma = f"  {rate * capacity / 100:7.1f} mA" if capacity else ""
         print(f"  {t.tag:<11} {hours * 60:6.1f} min  -{drop:5.2f} %  {rate:6.2f} %/h{ma}{flag}", file=out)
@@ -394,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("files", nargs="+", help="power.csv and its rotated copy power.1.csv")
     ap.add_argument("--capacity-mah", type=float, help="cell capacity, to show mA beside %%/h")
     ap.add_argument("--min-drop", type=float, default=1.0, help="smallest %% drop per interval (default 1.0)")
+    ap.add_argument("--settle-min", type=float, default=30.0,
+                    help="minutes after a charge before an interval may start (default 30)")
     ap.add_argument("--features", help="comma-separated fit columns (default: %s)" % ",".join(DEFAULT_FEATURES))
     ap.add_argument("--all-features", action="store_true", help="fit every column, busy/packets/booster/SD included")
     ap.add_argument("--folds", type=int, default=5)
@@ -417,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
     runs, sags = find_tests(rows)
     print_tests(runs, sags, args.capacity_mah, out)
 
-    intervals, skipped = build_intervals(rows, args.min_drop)
+    intervals, skipped = build_intervals(rows, args.min_drop, args.settle_min)
     hours = sum(iv.x["_hours"] for iv in intervals)
     print(f"{len(intervals)} intervals of >= {args.min_drop:g} % over {hours:.1f} h "
           f"(breaks: {skipped['charger']} charger, {skipped['gen']} generation, "

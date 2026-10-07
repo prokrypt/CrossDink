@@ -13,9 +13,11 @@
 // (power loss, crash, stats reset) starts over at zero.
 //
 // Rows go to a 16 KB PSRAM ring (survives restarts, not deep sleep or power
-// loss) and are appended to the file before deep sleep and from the main loop
-// after 2 s without input once a boot left rows or the ring is 3/4 full. At
-// 256 KB the file becomes power.1.csv (one old copy).
+// loss) and are appended to the file before deep sleep, from BatteryLog::flush(),
+// and from the main loop after 2 s without input once a boot left rows, the
+// ring is 3/4 full, or 1 KB is waiting with the battery at 5% or less off USB.
+// At 256 KB, or when the file's header is not this build's, it becomes
+// power.1.csv (one old copy).
 //
 // BatteryLog drives it: it owns the gauge readings each row carries.
 namespace PowerLog {
@@ -52,7 +54,7 @@ void noteCharger();
 // Sleep path, after the battery log's sleep row: row, counters to RTC memory,
 // flush. chargeWake: the charger STAT line is armed to wake the device.
 void onSleep(const char* why, bool chargeWake);
-// Restart shutdown handler: counters to RTC memory and a row to the ring.
+// Restart shutdown handler (any task): counters to RTC memory, no row.
 void onRestart();
 // Battery & stats reset: counters to zero in a new generation.
 void reset();

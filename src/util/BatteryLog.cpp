@@ -432,6 +432,7 @@ void lightChanged(const bool timedOut) {
 }
 
 bool flush() {
+  PowerLog::flush();  // its rows too, so a Battery & stats refresh leaves both files current
   if (!ensureRing() || !Storage.ready()) return false;
   portENTER_CRITICAL_SAFE(&ringMux);
   const uint32_t head = ring.head;

@@ -7,6 +7,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
+#include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <I18n.h>
 #include <Knobs.h>
@@ -209,6 +210,11 @@ void PowerTestActivity::end(const bool aborted) {
   const bool started = phase == Phase::Running;
   phase = Phase::Done;
   endedMs = millis();
+  if (started) {
+    endPct256 = powerManager.getBatteryPercent256();
+    endMv = readMv();
+    endSnap = snapshot();
+  }
   sleepBlockPulse = false;
   stopSpin();
   if (test == SAG_PROBE) {
@@ -426,13 +432,17 @@ void PowerTestActivity::buildLines() {
       add("Could not run: %s", failure ? failure : "?");
       break;
   }
+  if ((phase == Phase::Running || phase == Phase::Joining) && (gpio.isUsbConnectedCached() || monitor().isCharging())) {
+    add("On USB or charging: the battery is not draining, so this run measures nothing.");
+  }
   if (phase == Phase::Joining || (phase == Phase::Failed && startPct256 == 0)) {
     add("Back leaves.");
     return;
   }
   if (halClock.isAvailable() && halClock.formatTime(c, sizeof(c), LocalClock::currentOffsetQ())) add("Now %s", c);
 
-  const uint16_t nowPct256 = powerManager.getBatteryPercent256();
+  const bool done = phase != Phase::Running;  // Done or Failed after a start: the values end() kept
+  const uint16_t nowPct256 = done ? endPct256 : powerManager.getBatteryPercent256();
   const uint32_t elapsedMs = (phase == Phase::Running ? now : endedMs) - phaseMs;
   formatPct256(a, sizeof(a), startPct256);
   formatPct256(b, sizeof(b), nowPct256);
@@ -443,9 +453,9 @@ void PowerTestActivity::buildLines() {
   } else {
     add("Battery %s%% -> %s%% (under 0.3%%: no rate yet)", a, b);
   }
-  add("Cell %u mV -> %u mV", static_cast<unsigned>(startMv), static_cast<unsigned>(readMv()));
+  add("Cell %u mV -> %u mV", static_cast<unsigned>(startMv), static_cast<unsigned>(done ? endMv : readMv()));
 
-  const Snapshot s = snapshot();
+  const Snapshot s = done ? endSnap : snapshot();
   const uint64_t awake = s.awakeMs - start.awakeMs;
   if (awake > 0) {
     formatMin(a, sizeof(a), awake);

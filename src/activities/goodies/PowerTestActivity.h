@@ -57,7 +57,7 @@ class PowerTestActivity final : public Activity {
   enum class Sag : uint8_t { Settle, Base, Apply, Load, Next };
   enum Load : uint8_t { LOAD_LIGHT, LOAD_CPU, LOAD_WIFI, LOAD_REFRESH, LOADS };
   static constexpr int SAG_CYCLES = 3;
-  static constexpr int MAX_LINES = 14;
+  static constexpr int MAX_LINES = 16;
 
   void begin();  // the load is up: start the clock and log test_start
   void end(bool aborted);
@@ -89,6 +89,10 @@ class PowerTestActivity final : public Activity {
   struct Snapshot {
     uint64_t awakeMs, lsMs, maxMs, lightFullMs, wifiMs, refreshes;
   } start{};
+  // At end(): the result lines stay as the run left them while the page is open.
+  uint16_t endPct256 = 0;
+  uint16_t endMv = 0;
+  Snapshot endSnap{};
   Snapshot snapshot() const;
 
   // Sag probe: per load, the sum and sum of squares of the drop (mV) over cycles.
