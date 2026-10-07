@@ -70,7 +70,8 @@ class GoodiesActivity final : public Activity {
 
  private:
   enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon, PowerTests };
-  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats
+  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats, then
+  // Sleep-reboot-log (PSRAM log builds) and Power Test (powerTestRow)
   static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
   static constexpr int KBD_TEST_ROW = 4;

@@ -16,6 +16,7 @@
 #include <sdkconfig.h>
 
 #include <algorithm>
+#include <cstring>
 
 #if CONFIG_LWIP_STATS
 #include <lwip/stats.h>
@@ -26,12 +27,23 @@
 namespace PowerLog {
 namespace {
 constexpr uint32_t kRingBytes = 16 * 1024;
+constexpr uint32_t fnv1a(const char* s) {
+  uint32_t h = 2166136261u;
+  for (; *s; ++s) h = (h ^ static_cast<uint8_t>(*s)) * 16777619u;
+  return h;
+}
 constexpr uint32_t kRingMagicA = 0x50574C47;  // "PWLG"
-constexpr uint32_t kRingMagicB = 0xC0DE1006;
+// Keyed to the columns: rows a build with other columns left in the ring
+// (before an update's restart) are dropped, not written under this header.
+constexpr uint32_t kRingMagicB = fnv1a(PowerLogRow::kHeader);
 constexpr uint32_t kMaxFileBytes = 256 * 1024;
 constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kFlushIdleMs = 2000;
 constexpr uint32_t kPanelTempMaxAgeMs = 10 * 60 * 1000;
+// Battery nearly empty off USB: rows go out in 1 KB lots (about three rows) so
+// the session the battery dies in is on the card, as battery.csv does.
+constexpr uint16_t kLowPct = 5;
+constexpr uint32_t kLowFlushBytes = 1024;
 
 using Ring = PsramRing<kRingBytes>;  // aux: bytes already on SD
 EXT_RAM_NOINIT_ATTR Ring ring;
@@ -41,6 +53,7 @@ bool ringReady = false;
 SampleFn sampleFn = nullptr;
 bool begun = false;
 bool bootFlushPending = false;
+bool headerChecked = false;  // once per boot, before the first append
 bool chargerSeen = false;
 uint32_t lastPollMs = 0;
 uint32_t lastRowMs = 0;
@@ -54,9 +67,9 @@ IpCounter prevTx6 = 0, prevRx6 = 0;
 #endif
 #endif
 
-// Rows are formatted here; every caller is the main loop (or the restart
-// shutdown handler, which runs on it), so one static buffer serves all.
-char rowBuf[448];
+// Rows are formatted here, main loop only. PSRAM: snprintf and the ring copy
+// are CPU work, and the SD write goes through flush()'s DRAM chunk.
+EXT_RAM_NOINIT_ATTR char rowBuf[PowerLogRow::kMaxRow];
 
 bool ensureRing() {
   if (ringReady) return true;
@@ -185,7 +198,11 @@ void poll(const uint32_t idleMs) {
   }
   if (!ringReady || idleMs < kFlushIdleMs) return;
   const uint32_t pending = ring.head - ring.aux;
-  if (pending != 0 && (bootFlushPending || pending >= kRingBytes / 4 * 3) && flush()) bootFlushPending = false;
+  if (pending == 0) return;
+  Sample s;
+  if (sampleFn) sampleFn(s);
+  const bool low = !s.usb && s.pct != 0 && s.pct <= kLowPct && pending >= kLowFlushBytes;
+  if ((bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) bootFlushPending = false;
 }
 
 void event(const char* name, const char* detail) {
@@ -209,10 +226,12 @@ void onSleep(const char* why, const bool chargeWake) {
 
 void onRestart() {
   if (!begun) return;
-  // No gauge or SD access here (a restart may be mid-I2C): the ring keeps the
-  // row for the next boot's flush. Saved after the row, so the next boot's
-  // counters start at or past it.
-  writeRow("restart", nullptr, true);
+  // Runs on whichever task restarts (web server, OTA), so no row: rowBuf is
+  // the main loop's, and the next boot's row carries these totals anyway. The
+  // radio is not queried either, as the Wi-Fi shutdown handler may already
+  // have stopped it: the time since the last sample goes to the state seen then.
+  PowerCounters::wifiMs(wifiState, millis() - wifiSinceMs);
+  wifiSinceMs = millis();
   PowerCounters::save(true);
 }
 
@@ -220,6 +239,38 @@ void reset() {
   PowerCounters::reset();
   event("reset");
 }
+
+namespace {
+// The live file becomes power.1.csv (one old copy).
+bool rotate() {
+  Storage.remove(OLD_LOG_PATH);
+  if (!Storage.rename(LOG_PATH, OLD_LOG_PATH)) {
+    LOG_ERR("PWL", "Failed to rotate %s", LOG_PATH);
+    return false;
+  }
+  return true;
+}
+
+// False when the file starts with another firmware's columns: rows of this
+// build must not land under them. Compared in DRAM chunks (SD reads are not
+// handed PSRAM buffers). A missing or empty file matches.
+bool headerMatches() {
+  if (!Storage.exists(LOG_PATH)) return true;
+  HalFile file = Storage.open(LOG_PATH, O_RDONLY);
+  if (!file) return true;  // flush() reports the open failure
+  constexpr size_t kLen = sizeof(PowerLogRow::kHeader) - 1;
+  const bool empty = file.fileSize() == 0;
+  bool same = empty || file.fileSize() >= kLen;
+  char chunk[64];
+  for (size_t at = 0; same && !empty && at < kLen;) {
+    const size_t n = std::min(kLen - at, sizeof(chunk));
+    same = file.read(chunk, n) == static_cast<int>(n) && memcmp(chunk, PowerLogRow::kHeader + at, n) == 0;
+    at += n;
+  }
+  file.close();
+  return same;
+}
+}  // namespace
 
 bool flush() {
   if (!ensureRing() || !Storage.ready()) return false;
@@ -233,6 +284,13 @@ bool flush() {
     from = head - kRingBytes;
   }
   Storage.ensureDirectoryExists("/debug/logs");
+  if (!headerChecked) {
+    if (!headerMatches()) {
+      LOG_INF("PWL", "%s has other columns: moving it to %s", LOG_PATH, OLD_LOG_PATH);
+      if (!rotate()) return false;  // checked again on the next flush
+    }
+    headerChecked = true;
+  }
   HalFile file = Storage.open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND);
   if (!file) {
     LOG_ERR("PWL", "Failed to open %s", LOG_PATH);
@@ -240,11 +298,7 @@ bool flush() {
   }
   if (file.fileSize() >= kMaxFileBytes) {
     file.close();
-    Storage.remove(OLD_LOG_PATH);
-    if (!Storage.rename(LOG_PATH, OLD_LOG_PATH)) {
-      LOG_ERR("PWL", "Failed to rotate %s", LOG_PATH);
-      return false;
-    }
+    if (!rotate()) return false;
     file = Storage.open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND);
     if (!file) {
       LOG_ERR("PWL", "Failed to open %s", LOG_PATH);

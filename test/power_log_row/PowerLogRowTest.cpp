@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 
 #include "src/util/PowerLogRow.h"
@@ -73,6 +75,37 @@ TEST(PowerLogRow, DetailCommasCannotAddColumns) {
   ASSERT_GT(PowerLogRow::format(out, sizeof(out), r), 0u);
   EXPECT_EQ(columns(out), columns(PowerLogRow::kHeader));
   EXPECT_NE(std::string(out).find(",a;b;c,"), std::string::npos);
+}
+
+TEST(PowerLogRow, EveryFieldAtItsMaximumFitsKMaxRow) {
+  PowerLogRow::Row r;
+  r.epoch = std::numeric_limits<uint32_t>::max();
+  r.uptimeMs = std::numeric_limits<uint32_t>::max();
+  r.gen = std::numeric_limits<uint16_t>::max();
+  r.event = "test_abort";
+  r.detail = "refresh dmv=-1234.5 sd=1234.5 n=255 base=65535 and then some more";
+  r.pct256 = std::numeric_limits<uint16_t>::max();
+  r.mv = std::numeric_limits<uint16_t>::max();
+  r.tempDeciC = std::numeric_limits<int16_t>::min();
+  r.tempKnown = true;
+  r.panelC = std::numeric_limits<int8_t>::min();
+  r.panelKnown = true;
+  r.chg = r.usb = r.chargerSeen = true;
+  r.wifi = PowerCounters::RADIO_AWAKE;
+  constexpr uint64_t u64 = std::numeric_limits<uint64_t>::max();
+  constexpr uint32_t u32 = std::numeric_limits<uint32_t>::max();
+  PowerCounters::Totals& t = r.t;
+  t.awakeMs = t.lightSleepUs = t.maxClockUs = t.ipTxPackets = t.ipRxPackets = t.lightDutyMs = t.boosterMs = u64;
+  t.sdReadBytes = t.sdWriteBytes = t.sdUs = u64;
+  t.asleepS[0] = t.asleepS[1] = t.wifiScans = t.wifiConnects = u32;
+  for (auto& v : t.busyUs) v = u64;
+  for (auto& v : t.wifiMs) v = u64;
+  for (auto& v : t.panelBusyMs) v = u64;
+  for (auto& v : r.refresh) v = u32;
+  std::string out(PowerLogRow::kMaxRow, '\0');
+  const size_t n = PowerLogRow::format(out.data(), out.size(), r);
+  EXPECT_GT(n, 0u);
+  EXPECT_EQ(columns(out.c_str()), columns(PowerLogRow::kHeader));
 }
 
 TEST(PowerLogRow, TooSmallBufferWritesNothingUsable) {

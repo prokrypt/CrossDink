@@ -24,6 +24,10 @@ constexpr char kHeader[] =
     "light_full_ms,ref_full,ref_half,ref_fast,ref_gray,ref_flash,"
     "panel_full_ms,panel_half_ms,panel_fast_ms,panel_gray_ms,booster_ms,sd_rd_kb,sd_wr_kb,sd_ms\n";
 
+// Fits a row with every field at its type's maximum (PowerLogRow tests check
+// this), so format() never runs out of room in a buffer this size.
+constexpr size_t kMaxRow = 768;
+
 inline const char* wifiName(const PowerCounters::RadioState s) {
   static const char* const kNames[] = {"off", "up", "ps", "awake", "ap"};
   return s < PowerCounters::RADIO_STATES ? kNames[s] : "?";

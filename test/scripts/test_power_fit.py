@@ -186,6 +186,54 @@ class FitTest(unittest.TestCase):
         self.assertIn("mA", out.getvalue())
 
 
+class ChargeAndRunTest(unittest.TestCase):
+    def test_no_interval_starts_while_the_gauge_settles_after_a_charge(self):
+        d = Device(np.random.default_rng(5))
+        d.row("boot")
+        d.charge()
+        for _ in range(30):  # 5 min steps: the gauge's post-charge rise lands in the first 25 min
+            d.awake(5, ls=0.5, maxclk=0.2, wifi=None, light=0.5, fast=10, full=0)
+            d.row("tick")
+        charger_row = next(r for r in pf.read_rows([write(d.rows)]) if r.charger)
+        intervals, _ = pf.build_intervals(pf.read_rows([write(d.rows)]), 0.5, settle_min=30)
+        self.assertTrue(intervals)
+        for iv in intervals:
+            self.assertGreaterEqual(pf.clock_s(iv.a) - pf.clock_s(charger_row), 30 * 60)
+
+    def test_charger_in_the_middle_of_a_run_is_not_a_drain(self):
+        d = Device(np.random.default_rng(6))
+        d.row("test_start", "idle")
+        d.awake(20, ls=0.8, maxclk=0, wifi=None, light=0, fast=0, full=0)
+        d.row("pct", charger=True)  # plugged in and out between rows
+        d.awake(20, ls=0.8, maxclk=0, wifi=None, light=0, fast=0, full=0)
+        d.row("test_end", "idle")
+        runs, _ = pf.find_tests(pf.read_rows([write(d.rows)]))
+        self.assertEqual(len(runs), 1)
+        self.assertTrue(runs[0].charger)
+        out = io.StringIO()
+        pf.print_tests(runs, [], None, out)
+        self.assertIn("charger seen", out.getvalue())
+
+    def test_short_stopped_run_is_left_out_of_the_comparison(self):
+        d = Device(np.random.default_rng(7))
+        d.row("test_start", "idle")
+        d.awake(120, ls=0.8, maxclk=0, wifi=None, light=0, fast=0, full=0)
+        d.row("test_end", "idle")
+        d.row("test_start", "light100")
+        d.awake(1, ls=0.8, maxclk=0, wifi=None, light=1, fast=0, full=0)  # stopped after a minute
+        d.row("test_abort", "light100")
+        runs, _ = pf.find_tests(pf.read_rows([write(d.rows)]))
+        out = io.StringIO()
+        pf.print_tests(runs, [], None, out)
+        self.assertNotIn("less the idle run", out.getvalue())
+
+    def test_overlapping_copies_are_read_once(self):
+        rows = simulate(days=3)
+        once = pf.read_rows([write(rows)])
+        twice = pf.read_rows([write(rows), write(rows)])
+        self.assertEqual(len(once), len(twice))
+
+
 class NnlsTest(unittest.TestCase):
     def test_fallback_matches_unconstrained_when_positive(self):
         rng = np.random.default_rng(0)
