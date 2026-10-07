@@ -141,6 +141,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Fixed
 
+- Simulator: all four simulator environments (`simulator`, `x4-pro-simulator`, `x4-classic-simulator`, `sticky-simulator`) build and run again, on Linux too. They had stopped compiling because the simulator library, taken from the upstream CrossInk simulator at its latest commit, mocks CrossInk's HAL rather than CrossDink's. They now use CrossDink's fork of it (prokrypt/crossdink-simulator), pinned by commit, and CI builds the X4 Pro simulator and runs `scripts/run_simulator_smoke_test.py` on it. See docs/simulator.md.
 - File Transfer: an upload that fails part-way (card full or write error) no longer leaves a truncated copy on the card, so the retry is not refused with "File already exists".
 - WebDAV: overwriting a file (PUT, or MOVE with Overwrite) keeps the old file until the new one is in place and puts it back if the replace fails, instead of deleting it first.
 - Settings web page: saving holds the settings lock while applying the changes and reports an error when the settings file could not be written, instead of "Applied N setting(s)".
