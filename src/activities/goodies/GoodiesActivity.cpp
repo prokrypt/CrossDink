@@ -71,6 +71,7 @@ bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens t
 // A screen took the radio (pause): rejoin as soon as it leaves, no idle wait.
 bool rejoinAfterPause = false;
 bool pickerRequested = false;
+bool held = false;  // hold(): a macro keeps the radio off
 // The join itself (wifi.json read, WiFi.mode() bringing the driver up,
 // WiFi.begin()) and the toggle-off teardown run on short-lived tasks so the
 // main loop never waits on them. One at a time: radioTask runs both.
@@ -290,6 +291,11 @@ std::unique_ptr<CrossPointWebServer> takeServer() {
   return {};
 }
 
+void hold(const bool on) {
+  held = on;
+  if (on) pause();
+}
+
 void stop() {
   setRemoteWanted(false);
   rejoinNow = false;
@@ -335,7 +341,7 @@ void loop(const uint32_t idleMs) {
     shutdownQueued = false;
     stopServerAndRadioInBackground();
   }
-  if (!remoteWanted()) return;
+  if (!remoteWanted() || held) return;
   // A join or a toggle-off teardown still owns the radio (Off then On in quick succession).
   if (radioTask.running()) return;
   if (joinPending) {

@@ -87,6 +87,7 @@
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
 #include "fontIds.h"
+#include "network/SerialRemote.h"
 #include "network/UsbSerialFileTransfer.h"
 #include "network/WifiBackgroundJoin.h"
 #include "network/WifiUtils.h"
@@ -2548,6 +2549,7 @@ static unsigned long lightIdleMs(const unsigned long idleMs) {
 
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
+  if (SerialRemote::macroRunning()) return IDLE_WAIT_MS;  // macro WAIT/WAITLOG steps resolve on the loop tick
   if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) &&
                           SETTINGS.frontlightFlashDuck)) {
     return FLASH_DUCK_TICK_MS;
