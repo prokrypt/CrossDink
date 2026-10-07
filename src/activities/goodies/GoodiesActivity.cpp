@@ -22,6 +22,7 @@
 #include "DisplayTestActivity.h"
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
+#include "PowerTestActivity.h"
 #include "SilentRestart.h"
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
@@ -486,6 +487,7 @@ void GoodiesActivity::showLevel(const Level next) {
   level = next;
   tokenShownUntil = 0;
   entries.clear();
+  powerTestRow = -1;
   if (level == Level::Root) {
     // ">" (as in Settings) marks a row that opens another menu or page.
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}, ">"});
@@ -500,6 +502,17 @@ void GoodiesActivity::showLevel(const Level next) {
 #if CROSSDINK_PSRAM_LOG
     entries.push_back({"Sleep-reboot-log", -1, {}});
 #endif
+    powerTestRow = static_cast<int>(entries.size());
+    entries.push_back({"Power Test", -1, {}, ">"});
+#endif
+  } else if (level == Level::PowerTests) {
+#ifndef SIMULATOR
+    // Run length (Knobs powerTestMin) on each row; the sag probe takes about a minute.
+    char minutes[16];
+    snprintf(minutes, sizeof(minutes), "%u min >", static_cast<unsigned>(KNOBS.powerTestMin));
+    for (int i = 0; i < PowerTestActivity::TEST_COUNT; ++i) {
+      entries.push_back({PowerTestActivity::label(i), i, {}, i == PowerTestActivity::SAG_PROBE ? "~2 min >" : minutes});
+    }
 #endif
   } else if (level == Level::PinMon) {
     // Read when opened: the toggle, then per pin level, changes and wakes since boot.
@@ -597,6 +610,8 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::KeyboardTest);
     } else if (index == PINMON_ROW) {
       showLevel(Level::PinMon);
+    } else if (index == powerTestRow) {
+      showLevel(Level::PowerTests);
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
     } else if (index == SLEEP_REBOOT_ROW) {
       // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
@@ -614,6 +629,16 @@ void GoodiesActivity::activate(const int index) {
     }
     return;
   }
+#ifndef SIMULATOR
+  if (level == Level::PowerTests) {
+    startActivityForResult(std::make_unique<PowerTestActivity>(renderer, mappedInput, entries[index].builtIn),
+                           [this](const ActivityResult&) {
+                             mappedInput.suppressNextConfirmRelease();
+                             requestUpdate();
+                           });
+    return;
+  }
+#endif
   if (level == Level::PinMon) {
     // Monitor: switches now (PinMon arms or releases the pins), RAM only. Other rows: refresh.
     if (index == 0) PinMon::setEnabled(!PinMon::enabled());
@@ -1051,6 +1076,7 @@ void GoodiesActivity::render(RenderLock&&) {
                       : level == Level::Knobs        ? "Knobs"
                       : level == Level::KeyboardTest ? "Keyboard Test"
                       : level == Level::PinMon       ? "Pin Monitor"
+                      : level == Level::PowerTests   ? "Power Test"
                                                      : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);

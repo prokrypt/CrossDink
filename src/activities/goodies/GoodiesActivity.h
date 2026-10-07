@@ -69,7 +69,7 @@ class GoodiesActivity final : public Activity {
   bool holdsSettingsFlush() const override { return level == Level::KeyboardTest; }
 
  private:
-  enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon };
+  enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon, PowerTests };
   // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats
   static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
@@ -103,6 +103,7 @@ class GoodiesActivity final : public Activity {
   void showLevel(Level next);
   void activate(int index);
   int remoteRowShown = -1;
+  int powerTestRow = -1;              // Root: the Power Test row, last (debug builds on hardware only)
   unsigned long tokenShownUntil = 0;  // millis(); 0 = API token row shows only its last 4 characters
 
   void toggleRemote();
