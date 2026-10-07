@@ -1207,11 +1207,15 @@ bool ActivityManager::goToLibrary() {
   return true;
 }
 
-void ActivityManager::goToBrowser() {
+void ActivityManager::goToBrowser(const bool networkBootReady) {
   const auto& servers = OPDS_STORE.getServers();
   // Skip the server picker when there's only one server configured
   if (servers.size() == 1) {
-    goToOpdsServer(0);
+    goToOpdsServer(0, networkBootReady);
+  } else if (!networkBootReady && !wifi_background_join::heapAllows()) {
+    // Too fragmented for the list's background join: free fonts and caches
+    // (or reboot) first, so the list opens with Wi-Fi coming up.
+    silentRestartToNetwork(NetworkBootTarget::OPDS, OPDS_SERVER_LIST_PAYLOAD);
   } else {
     replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true));
   }
