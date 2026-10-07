@@ -14,8 +14,11 @@ Refer to https://freeink.org/llms.txt for guidance.
 
 ## Simulator
 
-- Simulator patches belong in the adjacent `crossink-simulator` repo.
-- The valid local simulator env in this repo is `simulator`.
+- Simulator patches belong in `prokrypt/crossdink-simulator` (the CrossDink fork of `uxjulia/crossink-simulator`);
+  `platformio.ini` pins it by commit, so move the pin after pushing there. Upstream mocks CrossInk's HAL, so any
+  new `lib/hal` method needs a matching stub in the fork or every simulator env stops compiling.
+- Simulator envs: `simulator`, `x4-pro-simulator`, `x4-classic-simulator`, `sticky-simulator`. On Linux they need
+  `libsdl2-dev libssl-dev`; `scripts/run_simulator_smoke_test.py --env <env>` is the end-to-end check.
 - Known simulator limits:
   - Images: `[simulator-base]` now builds the real `PNGdec` and `JPEGDEC` with `-DCROSSPOINT_SIM_USE_NATIVE_DECODERS`
     and ignores only `hal` and `WebSockets` (`platformio.ini` `[simulator-base]`).
