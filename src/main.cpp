@@ -2325,6 +2325,15 @@ void setup() {
     gpio.update();
   }
 
+  if (resume != BootResume::Silent && resume != BootResume::Network) {
+    // Fresh sample of keys held through boot, settled as above (no new edges).
+    gpio.update();
+    delay(10);
+    gpio.update();
+  }
+  buttonShortcutController.consumeHeldChords(gpio.isPressed(HalGPIO::BTN_POWER), gpio.isPressed(HalGPIO::BTN_UP),
+                                             gpio.isPressed(HalGPIO::BTN_DOWN));
+
   // From here keys and touch are sampled on their own task, so events made
   // during long loop work are queued instead of dropped.
   InputTask::begin();
