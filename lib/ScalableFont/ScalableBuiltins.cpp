@@ -12,13 +12,24 @@
 namespace {
 std::optional<HalScalableFont> faces[8];
 bool ready[2] = {};
-const uint8_t* const assets[] = {lexenddeca_regularOutline,    lexenddeca_boldOutline,  lexenddeca_italicOutline,
-                                 lexenddeca_bolditalicOutline, bitter_regularOutline,   bitter_boldOutline,
-                                 bitter_italicOutline,         bitter_bolditalicOutline};
+const uint8_t* const assets[] = {lexenddeca_regularOutline, lexenddeca_boldOutline, bitter_regularOutline,
+                                 bitter_boldOutline,        bitter_italicOutline,   bitter_bolditalicOutline};
 constexpr size_t lengths[] = {sizeof(lexenddeca_regularOutline), sizeof(lexenddeca_boldOutline),
-                              sizeof(lexenddeca_italicOutline),  sizeof(lexenddeca_bolditalicOutline),
                               sizeof(bitter_regularOutline),     sizeof(bitter_boldOutline),
                               sizeof(bitter_italicOutline),      sizeof(bitter_bolditalicOutline)};
+// Lexend Deca has no designed italic; the files the firmware used to embed
+// were the upright faces sheared by 0.2 (11.3 degrees). The same shear on the
+// upright bytes renders within ~1% of their pixels at reading sizes.
+constexpr int32_t LexendObliqueShear16_16 = 13107;  // 0.2 in 16.16
+struct BuiltinFace {
+  uint8_t asset;
+  int32_t slant16_16;
+};
+// [family][regular, bold, italic, bold-italic]
+constexpr BuiltinFace faceSources[2][4] = {
+    {{0, 0}, {1, 0}, {0, LexendObliqueShear16_16}, {1, LexendObliqueShear16_16}},
+    {{2, 0}, {3, 0}, {4, 0}, {5, 0}},
+};
 constexpr int ids[2][4] = {{LEXENDDECA_10_FONT_ID, LEXENDDECA_12_FONT_ID, LEXENDDECA_14_FONT_ID, LEXENDDECA_16_FONT_ID},
                            {BITTER_10_FONT_ID, BITTER_12_FONT_ID, BITTER_14_FONT_ID, BITTER_16_FONT_ID}};
 }  // namespace
@@ -40,13 +51,14 @@ void ensureScalableBuiltinFamily(GfxRenderer& renderer, unsigned family) {
   ScalableFontAccess access;
   if (family >= 2 || ready[family]) return;
   bool ok = true;
-  for (unsigned style = 0; style < 4; ++style) {
+  for (unsigned style = 0; style < 4 && ok; ++style) {
+    const BuiltinFace& source = faceSources[family][style];
+    freeink::font::FtFont::RenderOptions options;
+    options.hinting = freeink::font::FtFont::HintingMode::Auto;
+    options.slant16_16 = source.slant16_16;
     unsigned i = family * 4 + style;
     faces[i].emplace();
-    if (!faces[i]->openMemory(assets[i], lengths[i])) {
-      ok = false;
-      break;
-    }
+    ok = faces[i]->openMemory(assets[source.asset], lengths[source.asset], options);
   }
   if (!ok) {
     for (unsigned style = 0; style < 4; ++style) faces[family * 4 + style].reset();
