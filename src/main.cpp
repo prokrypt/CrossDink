@@ -1645,7 +1645,7 @@ static void disarmBootGuard() {
 // Before the sleep screen, push under a progress toast and show the result for a
 // moment: the open book's just-saved position (KOReader Sync > Sync on Wake &
 // Sleep), else a close push still queued or running, which deep sleep would drop.
-// pushNow() bounds the whole wait, so sleep always goes on.
+// pushFinish() bounds the whole wait, so sleep always goes on.
 void syncBookBeforeSleep() {
   std::string path = kosync_auto::wantsSleepPush() ? activityManager.flushEpubProgressForSync() : std::string();
   const bool readerFlushed = !path.empty();
@@ -1665,8 +1665,10 @@ void syncBookBeforeSleep() {
   std::unique_ptr<uint8_t[]> band;
   if (lock.ownsLock()) band = makeUniqueNoThrow<uint8_t[]>(bandBytes);
   const bool saved = band && renderer.copyRegionToBuffer(0, bandY, bandW, bandH, band.get(), bandBytes);
+  // Start the job first: its Wi-Fi join runs while the blocking toast refresh draws.
+  const bool started = kosync_auto::pushBegin(path, readerFlushed);
   if (saved) Toast::show(renderer, tr(STR_SYNCING_PROGRESS));
-  const kosync_auto::PushOutcome outcome = kosync_auto::pushNow(path, readerFlushed);
+  const kosync_auto::PushOutcome outcome = started ? kosync_auto::pushFinish() : kosync_auto::PushOutcome::Failed;
   LOG_INF("KOSync", "sleep push outcome %d", static_cast<int>(outcome));
   if (!saved) return;
   const char* msg = outcome == kosync_auto::PushOutcome::Pushed        ? tr(STR_UPLOAD_SUCCESS)
