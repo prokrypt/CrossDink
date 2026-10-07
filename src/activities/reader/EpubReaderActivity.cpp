@@ -6852,8 +6852,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
             showPopup = !anchorPageReady() && spineBytes > BUILD_POPUP_BYTE_THRESHOLD;
           } else {
             const bool targetAvailable = target < static_cast<int>(section->pageCount);
-            showPopup = !targetAvailable && ((spineBytes > BUILD_POPUP_BYTE_THRESHOLD && willInflate) ||
-                                             target > BUILD_POPUP_PAGE_THRESHOLD);
+            // Paging back lands on the "last page" sentinel; its depth is unknown until the
+            // build ends, so judge by chapter size and let popupDeadlineMs catch slow builds.
+            const bool lastPageJump = target == std::numeric_limits<uint16_t>::max();
+            showPopup = !targetAvailable && (lastPageJump ? spineBytes > BUILD_POPUP_BYTE_THRESHOLD
+                                                          : ((spineBytes > BUILD_POPUP_BYTE_THRESHOLD && willInflate) ||
+                                                             target > BUILD_POPUP_PAGE_THRESHOLD));
           }
           if (showPopup) {
             showIndexingPopup();
