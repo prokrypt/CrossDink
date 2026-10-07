@@ -1639,13 +1639,17 @@ void RenderLock::unlock() {
 }
 
 /**
- * Checks if renderingMutex is held by any task, including the calling task.
+ * Checks if renderingMutex is held by any task, including the calling task,
+ * other than RenderLock::backgroundHolder.
  *
- * @return true if renderingMutex has an owner (any task), false otherwise.
+ * @return true if renderingMutex has such an owner, false otherwise.
  *
  * @note Must not be called from ISR context — xSemaphoreGetMutexHolder is not ISR-safe.
  */
-bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
+bool RenderLock::peek() {
+  void* const holder = xSemaphoreGetMutexHolder(activityManager.renderingMutex);
+  return holder != nullptr && holder != backgroundHolder.load(std::memory_order_relaxed);
+}
 
 bool RenderLock::heldByCaller() {
   return xSemaphoreGetMutexHolder(activityManager.renderingMutex) == xTaskGetCurrentTaskHandle();
