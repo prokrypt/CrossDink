@@ -52,7 +52,7 @@ Every counter column is cumulative. Subtract two rows of the same `gen` to get t
   sleep current. Set it to 0 for a few nights: sleep time then lands in `asleep_s` instead of `asleep_cw_s`, and
   the fit gives both costs. With 0, charging while asleep is no longer logged.
 - `powerTickMin` (Power, default 10): minutes between periodic rows while awake.
-- `powerTestMin` (Power, default 30): Power Test run length.
+- `powerTestMin` (Power, default 5): Power Test run length. Short runs of the same load add up in the script.
 - `powerTestRefreshS` (Power, default 10): seconds between refreshes in the refresh loop tests.
 
 ## Goodies > Power Test
@@ -74,9 +74,11 @@ run ends the page keeps its end values.
 | Fast refresh loop, Full refresh loop | half the screen black, swapping sides every `powerTestRefreshS` |
 | Voltage sag probe | about 2 min: see below |
 
-Run them with a charged battery off USB, at room temperature, and at least 30 min each: the gauge needs a drop of
-a few tenths of a percent before a rate means much. Charging or USB during a run makes it useless (the script says
-so).
+Run them with a charged battery off USB and at room temperature. One 5 min run is mostly gauge noise (the drop
+is often under 0.3 %), so repeat each load whenever convenient: `scripts/power_fit.py` lists every run, then pools
+the on-battery runs of each load (drop and time summed, stopped-early runs included) into one rate with a worst-case
+gauge error of one step (1/256 %) per run, so plan on about 6 runs per load. Charging or USB during a run makes it
+useless and the script leaves it out of the pool.
 
 ### Voltage sag probe
 
@@ -124,7 +126,7 @@ whether the split explains anything.
 
 1. Flash `x4-pro-debug`, use the device for a day, then look for `/debug/logs/power.csv` (it is written at the
    first sleep). Serial and the PSRAM log show each row as a `[PWL]` line, and a `Power counters gen N` line at boot.
-2. Run Goodies > Power Test > Light 100% for 30 min off USB: the page should show `At full light 30m`, and
-   `power.csv` a `test_start` / `test_end` pair 30 min apart with `light_full_ms` up by about 1,800,000.
+2. Run Goodies > Power Test > Light 100% for 5 min off USB: the page should show `At full light 5m`, and
+   `power.csv` a `test_start` / `test_end` pair 5 min apart with `light_full_ms` up by about 300,000.
 3. Run the voltage sag probe: four `sag` rows; the light and Wi-Fi drops should be clearly larger than the noise.
 4. `python3 scripts/power_fit.py power.csv` lists the runs; the fit appears once there are enough intervals.
