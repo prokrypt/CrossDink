@@ -2582,12 +2582,7 @@ void CrossPointWebServer::handleRename() const {
     server->send(400, "text/plain", "New name cannot be empty");
     return;
   }
-  if (isProtectedPath(itemPath)) {
-    server->send(403, "text/plain", "Cannot rename protected item");
-    return;
-  }
-
-  // Calculate new path to check if it's protected
+  // New path: same folder, new name
   String parentPath = itemPath.substring(0, itemPath.lastIndexOf('/'));
   if (parentPath.isEmpty()) {
     parentPath = "/";
@@ -2597,12 +2592,6 @@ void CrossPointWebServer::handleRename() const {
     newPath += "/";
   }
   newPath += newName;
-
-  if (isProtectedPath(newPath) || SerialRemote::isTokenPath(itemPath.c_str(), true) ||
-      SerialRemote::isTokenPath(newPath.c_str(), true)) {
-    server->send(403, "text/plain", "Cannot rename to protected path");
-    return;
-  }
 
   const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
   if (newName == itemName) {
@@ -2664,15 +2653,6 @@ void CrossPointWebServer::handleMove() const {
   }
   if (destPath.isEmpty()) {
     server->send(400, "text/plain", "Invalid destination");
-    return;
-  }
-
-  if (isProtectedPath(itemPath)) {
-    server->send(403, "text/plain", "Cannot move protected item");
-    return;
-  }
-  if (isProtectedPath(destPath)) {
-    server->send(403, "text/plain", "Cannot move into protected folder");
     return;
   }
 
@@ -2796,11 +2776,6 @@ void CrossPointWebServer::handleDelete() const {
     // Validate path
     if (itemPath.isEmpty() || itemPath == "/") {
       failedItems += itemPath + " (cannot delete root); ";
-      allSuccess = false;
-      continue;
-    }
-    if (isProtectedPath(itemPath)) {
-      failedItems += itemPath + " (protected); ";
       allSuccess = false;
       continue;
     }

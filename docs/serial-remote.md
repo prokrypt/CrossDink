@@ -136,7 +136,7 @@ curl -s --data-binary @planes.bin -H "Content-Type: application/octet-stream" \
 behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
 the `token` query argument or an `X-Token` header; bad tokens count toward the lockout. Paths are SD-rooted
 (`..` stops at `/`); hidden items and `/debug/remote-token` are refused (`403`) unless Show Hidden Files is on (the
-token file always). Upload refuses an existing name (`400 File already exists: <name>`); delete first.
+token file always) for download and upload; delete has no such check. Upload refuses an existing name (`400 File already exists: <name>`); delete first.
 Both stream through a 4 KB buffer. Download honors `Range` (`206`/`416`) and upload resumes with `offset=<bytes>`
 (see `webserver-endpoints.md`, `/download` and `/upload`).
 

@@ -11,6 +11,7 @@
 - X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar. Short vertical ticks mark a plug-in (bottom edge) and a `charged` row (top edge).
 
 ### Changed
+- File Transfer's delete, rename and move now work on hidden items and the remote token file too, whatever Show Hidden Files says.
 - Reader: a chapter that is still being laid out in the background after the first page shows now builds on the display core instead of the main core, so buttons, touch and Wi-Fi keep the main core while it runs. Input still stops the build at the next page, as before. Debug logs: `Section build worker: N page tick(s) in M ms` each time it stops.
 - X4 Pro (debug builds): Wi-Fi remote firmware upload (`POST /api/ota`) writes flash a page at a time instead of 32 bytes at a time (its buffer moved from PSRAM to internal RAM), and takes a zlib-compressed image with `?size=<image bytes>` (about 37% less to send). A 5.9 MB upload took about 51 s before.
 - Tapping a list row that opens a choice popup (Settings, Image Viewer, Home, OPDS servers, bookmarks and the like) now draws the highlighted row and the popup in one e-ink refresh instead of two, so the popup shows about 0.6 s sooner.
@@ -256,7 +257,6 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
-- File Transfer's delete refuses hidden items and the remote token file unless Show Hidden Files is on, like rename and move.
 - Touch: the End of book menu rows use the same row height and spacing as the other touch lists instead of sitting crammed together.
 - KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.
 - File Transfer and WebDAV: a connection that opens but sends nothing (a spare one GNOME Files/gvfs or Finder keeps ready) no longer holds up every other request for 5 s. Once another connection is waiting, the silent one is closed after 1 s. Debug logs: `Closing silent connection fd N, another is waiting`.
