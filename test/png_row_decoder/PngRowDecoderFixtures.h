@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
+// clang-format off
 struct PngFixture {
   const char* name;
   const uint8_t* png;
@@ -71,3 +72,4 @@ static const PngFixture kPngFixtures[] = {
     {"rgb_trns", rgb_trns_png, sizeof(rgb_trns_png), rgb_trns_rows, 9, 5, 2, 8},
     {"wide_rgba", wide_rgba_png, sizeof(wide_rgba_png), wide_rgba_rows, 300, 4, 6, 8},
 };
+// clang-format on
