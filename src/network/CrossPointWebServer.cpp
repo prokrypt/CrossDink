@@ -589,6 +589,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // behind a remote-token check (docs/serial-remote.md).
   server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
   server->on("/api/upload", HTTP_POST, [this] { handleApiUploadPost(); }, [this] { handleApiUpload(); });
+  server->on("/api/delete", HTTP_POST, [this] { handleApiDelete(); });
   // Registered here for both modes (first match wins over registerFullRoutes()); token-gated only while log-only.
   server->on("/api/files", HTTP_GET, [this] { handleApiFiles(); });
 #endif
@@ -604,7 +605,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   });
   if (logOnly) {
     // Nothing else: no SD access behind other screens beyond the token-gated
-    // /api/download, /api/upload and /api/files, and /api/status's
+    // /api/download, /api/upload, /api/delete and /api/files, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
     const char* remoteHeaders[] = {"X-Token", "Range"};
     server->collectHeaders(remoteHeaders, 2);
@@ -1532,6 +1533,13 @@ void CrossPointWebServer::handleApiDownload() const {
   const int status = checkRemoteToken(*server, out, sizeof(out));
   if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
   handleDownload();
+}
+
+void CrossPointWebServer::handleApiDelete() const {
+  static char out[32];
+  const int status = checkRemoteToken(*server, out, sizeof(out));
+  if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
+  handleDelete();
 }
 
 #if CROSSDINK_PSRAM_LOG
@@ -2576,12 +2584,7 @@ void CrossPointWebServer::handleRename() const {
     server->send(400, "text/plain", "New name cannot be empty");
     return;
   }
-  if (isProtectedPath(itemPath)) {
-    server->send(403, "text/plain", "Cannot rename protected item");
-    return;
-  }
-
-  // Calculate new path to check if it's protected
+  // New path: same folder, new name
   String parentPath = itemPath.substring(0, itemPath.lastIndexOf('/'));
   if (parentPath.isEmpty()) {
     parentPath = "/";
@@ -2591,12 +2594,6 @@ void CrossPointWebServer::handleRename() const {
     newPath += "/";
   }
   newPath += newName;
-
-  if (isProtectedPath(newPath) || SerialRemote::isTokenPath(itemPath.c_str(), true) ||
-      SerialRemote::isTokenPath(newPath.c_str(), true)) {
-    server->send(403, "text/plain", "Cannot rename to protected path");
-    return;
-  }
 
   const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
   if (newName == itemName) {
@@ -2658,15 +2655,6 @@ void CrossPointWebServer::handleMove() const {
   }
   if (destPath.isEmpty()) {
     server->send(400, "text/plain", "Invalid destination");
-    return;
-  }
-
-  if (isProtectedPath(itemPath)) {
-    server->send(403, "text/plain", "Cannot move protected item");
-    return;
-  }
-  if (isProtectedPath(destPath)) {
-    server->send(403, "text/plain", "Cannot move into protected folder");
     return;
   }
 

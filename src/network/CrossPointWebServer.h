@@ -265,6 +265,7 @@ class CrossPointWebServer {
   void handleRemoteCmd() const;
   void handleScreenshot() const;
   void handleApiDownload() const;
+  void handleApiDelete() const;
   void handleApiFiles() const;
   void handleApiUpload();
   void handleApiUploadPost();
