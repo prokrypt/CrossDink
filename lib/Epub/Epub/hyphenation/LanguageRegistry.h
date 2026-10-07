@@ -8,7 +8,7 @@
 struct LanguageEntry {
   const char* cliName;
   const char* primaryTag;
-  const LanguageHyphenator* hyphenator;
+  LanguageHyphenator* hyphenator;  // owned by the registry; loaded on lookup
 };
 
 struct LanguageEntryView {
@@ -22,5 +22,6 @@ struct LanguageEntryView {
 // Returns the Liang-backed hyphenator for a given primary language tag (e.g., "en", "fr").
 const LanguageHyphenator* getLanguageHyphenatorForPrimaryTag(const std::string& primaryTag);
 
-// Exposes the list of supported languages primarily for tooling/tests.
+// Exposes the list of supported languages primarily for tooling/tests. Entries
+// are not loaded until looked up through getLanguageHyphenatorForPrimaryTag().
 LanguageEntryView getLanguageEntries();

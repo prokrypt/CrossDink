@@ -20,6 +20,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PackedFontBitmaps.h>
 #include <PerfLog.h>
 #include <SPI.h>
 #include <WiFi.h>
@@ -245,6 +246,31 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, 
 EpdFont ui12RegularFont(&inter_12_regular);
 EpdFont ui12BoldFont(&inter_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &uiSymbols10Font);
+
+// The Inter UI faces ship with packed bitmaps (fontconvert.py --pack-bitmaps):
+// 75 KB in flash, inflated once per boot into ~167 KB of PSRAM before the
+// fonts are registered.
+HeapByteBuffer uiFontBitmapStorage[5];
+
+void attachUiFontBitmaps() {
+  struct UiFontBitmaps {
+    EpdFont& font;
+    PackedAsset bitmaps;
+  };
+  const UiFontBitmaps fonts[] = {
+      {smallFont, {inter_8_regularBitmapsPacked, sizeof(inter_8_regularBitmapsPacked), inter_8_regularBitmapsSize}},
+      {ui10RegularFont,
+       {inter_10_regularBitmapsPacked, sizeof(inter_10_regularBitmapsPacked), inter_10_regularBitmapsSize}},
+      {ui10BoldFont, {inter_10_boldBitmapsPacked, sizeof(inter_10_boldBitmapsPacked), inter_10_boldBitmapsSize}},
+      {ui12RegularFont,
+       {inter_12_regularBitmapsPacked, sizeof(inter_12_regularBitmapsPacked), inter_12_regularBitmapsSize}},
+      {ui12BoldFont, {inter_12_boldBitmapsPacked, sizeof(inter_12_boldBitmapsPacked), inter_12_boldBitmapsSize}},
+  };
+  static_assert(sizeof(fonts) / sizeof(fonts[0]) == sizeof(uiFontBitmapStorage) / sizeof(uiFontBitmapStorage[0]));
+  for (size_t i = 0; i < sizeof(fonts) / sizeof(fonts[0]); ++i) {
+    attachPackedBitmaps(fonts[i].font, fonts[i].bitmaps, uiFontBitmapStorage[i]);
+  }
+}
 
 const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
   switch (reason) {
@@ -1826,6 +1852,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
   renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
 #endif
+  attachUiFontBitmaps();
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
