@@ -133,9 +133,11 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
     return RenameMigrationResult::RolledBack;
 
   // A deleted book may leave saved data at this filename. Reject it before
-  // staging anything, even if the source book has never created a cache.
+  // staging anything, even if the source book has never created a cache. An
+  // EPUB keeps its own content-keyed cache, so only path-keyed caches collide.
   const auto& recentBooks = RECENT_BOOKS.getBooks();
-  if (Storage.exists(newCachePath.c_str()) || BookmarkStore::hasStoredStateForFilePath(newPath, bookType) ||
+  if ((strcmp(bookType, "epub") != 0 && Storage.exists(newCachePath.c_str())) ||
+      BookmarkStore::hasStoredStateForFilePath(newPath, bookType) ||
       (strcmp(bookType, "epub") == 0 && ClippingStore::hasStoredStateForFilePath(newPath, bookType)) ||
       std::any_of(recentBooks.begin(), recentBooks.end(),
                   [&newPath](const RecentBook& book) { return book.path == newPath; })) {
