@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   clang-format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,7 +40,7 @@ jobs:
           git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
 
   cppcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -62,32 +62,81 @@ jobs:
           version: "latest"
           enable-cache: true
 
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
+      - name: Restore PlatformIO packages
+        id: pio-cache
+        uses: actions/cache/restore@v5
         with:
           # Do not cache PlatformIO's Python virtual environment. It is tied to
           # the runner's Python and can become invalid when restored elsewhere.
           path: |
             ~/.platformio/packages
             ~/.platformio/platforms
-          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          # Same key as the build job, so cppcheck and build share one ~1 GB
+          # entry per env. restore-keys lets a platformio.ini edit start from
+          # the previous packages instead of a cold download.
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          restore-keys: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Install cppcheck runtime dependency
         # Platform 55.03.39 ships tool-cppcheck 2.20.1, linked against libpcre.so.3,
-        # which ubuntu-latest does not install; without it the check exits 127.
+        # which ubuntu-24.04 does not install; without it the check exits 127.
         run: sudo apt-get update -q && sudo apt-get install -y -q libpcre3
 
       - name: Run cppcheck
         run: pio check -e ${{ matrix.environment }} --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
+      # Only main writes caches: a PR can read main's, but its own are visible to
+      # that PR alone and would just push main's out of the 10 GB limit.
+      - name: Save PlatformIO packages
+        if: github.ref == 'refs/heads/main' && steps.pio-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ steps.pio-cache.outputs.cache-primary-key }}
+
+  simulator:
+    # The simulator mocks every HAL class, so a HAL change without a matching
+    # stub in prokrypt/crossdink-simulator breaks it. Build the X4 Pro profile
+    # and walk the app flows headless so that shows up here.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install SDL2 and OpenSSL headers
+        run: sudo apt-get update -q && sudo apt-get install -y -q libsdl2-dev libssl-dev
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Build x4-pro-simulator
+        run: pio run -j4 -e x4-pro-simulator
+
+      - name: Run simulator smoke test
+        run: python3 scripts/run_simulator_smoke_test.py --env x4-pro-simulator --no-build --timeout 180
+
   build:
     # Firmware artifacts are validated on pull requests; release builds stay
     # in the dedicated release workflow. Pushes build too, only to save the
-    # ccache: PR runs can restore caches from the base branch, not from other PRs.
-    runs-on: ubuntu-latest
+    # caches: PR runs can restore caches from the base branch, not from other PRs,
+    # and never save their own (see "Save PlatformIO packages" in cppcheck).
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -109,15 +158,20 @@ jobs:
           version: "latest"
           enable-cache: true
 
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
+      - name: Restore PlatformIO packages
+        id: pio-cache
+        uses: actions/cache/restore@v5
         with:
           # Do not cache PlatformIO's Python virtual environment. It is tied to
           # the runner's Python and can become invalid when restored elsewhere.
           path: |
             ~/.platformio/packages
             ~/.platformio/platforms
+          # Same key as the cppcheck job, so both share one ~1 GB entry per
+          # env. restore-keys lets a platformio.ini edit start from the
+          # previous packages instead of a cold download.
           key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          restore-keys: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
@@ -138,13 +192,22 @@ jobs:
           uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
           ~/.platformio/penv/bin/pio --version
 
+      - name: Save PlatformIO packages
+        if: github.ref == 'refs/heads/main' && steps.pio-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ steps.pio-cache.outputs.cache-primary-key }}
+
       - name: Install ccache
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q ccache
           echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Restore ccache
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ matrix.environment }}-${{ github.sha }}
@@ -167,6 +230,13 @@ jobs:
           pio run -j4 -e ${{ matrix.environment }} | tee pio-${{ matrix.environment }}.log
           ccache -s
 
+      - name: Save ccache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.environment }}-${{ github.sha }}
+
       - name: Extract firmware stats
         run: |
           set -euo pipefail
@@ -187,7 +257,7 @@ jobs:
           retention-days: 14
 
   unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -217,7 +287,7 @@ jobs:
       - cppcheck
       - unit-tests
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Fail because needed jobs failed
         # Fail if any job failed or was cancelled (skipped jobs are ok)
