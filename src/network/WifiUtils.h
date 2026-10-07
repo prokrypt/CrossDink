@@ -25,6 +25,12 @@ inline std::atomic<bool>& wifiStaActive() {
   return active;
 }
 
+// millis() when a web server last began serving a request (0 = never); the header's remote-activity icon.
+inline std::atomic<unsigned long>& wifiRemoteRequestMs() {
+  static std::atomic<unsigned long> ms{0};
+  return ms;
+}
+
 #ifndef SIMULATOR
 inline void onWifiStaStart(WiFiEvent_t, WiFiEventInfo_t) { wifiStaActive().store(true, std::memory_order_relaxed); }
 inline void onWifiStaStop(WiFiEvent_t, WiFiEventInfo_t) { wifiStaActive().store(false, std::memory_order_relaxed); }
