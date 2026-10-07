@@ -3258,6 +3258,12 @@ bool EpubReaderActivity::transientFeedbackDismissed(const unsigned long showTime
          mappedInput.wasReleased(MappedInputManager::Button::Down);
 }
 
+uint32_t EpubReaderActivity::msUntilTimedWork() const {
+  if (!automaticPageTurnActive) return UINT32_MAX;
+  const unsigned long elapsed = millis() - lastPageTurnTime;
+  return elapsed >= pageTurnDuration ? 0 : pageTurnDuration - elapsed;
+}
+
 void EpubReaderActivity::loop() {
   syncStatsTrackingState();
   if (aaRedrawPending.load(std::memory_order_acquire) && !RenderLock::peek() && !pendingManualPageTurns.hasPending()) {

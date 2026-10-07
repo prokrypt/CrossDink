@@ -633,6 +633,7 @@ class EpubReaderActivity final : public Activity {
     return true;
   }
   bool preventAutoSleep() override { return automaticPageTurnActive; }
+  uint32_t msUntilTimedWork() const override;
   // Hold the loop hot while a section build is running; it ticks to completion.
   // Caller must own RenderLock: render() can replace or finalize section.
   bool sectionBuildWantsTick() const { return section && section->isBuilding(); }
