@@ -147,6 +147,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal, and every remaining CrossInk name in code, build flags, scripts and docs is now CrossDink.
 
 ### Fixed
+- Touch: the End of book menu rows use the same row height and spacing as the other touch lists instead of sitting crammed together.
 
 - Simulator: all four simulator environments (`simulator`, `x4-pro-simulator`, `x4-classic-simulator`, `sticky-simulator`) build and run again, on Linux too. They had stopped compiling because the simulator library, taken from the upstream CrossInk simulator at its latest commit, mocks CrossInk's HAL rather than CrossDink's. They now use CrossDink's fork of it (prokrypt/crossdink-simulator), pinned by commit, and CI builds the X4 Pro simulator and runs `scripts/run_simulator_smoke_test.py` on it. See docs/simulator.md.
 - The settings list reserves room for all of its entries again. It had grown up to 8 entries past its reservation, so at boot it was reallocated at twice the size it needs (about 100 spare entries held for the life of the device).
