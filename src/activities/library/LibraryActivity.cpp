@@ -97,7 +97,7 @@ void LibraryActivity::onEnter() {
   app.setDevice(uiTarget.deviceContext());
   // An unchanged card cannot have lost a recent book (the scan generation counts
   // every card change), so skip the per-book exists() probes.
-  if (!Storage.libraryScanCurrent() && RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
+  prunePending = !Storage.libraryScanCurrent();
   applySharedUiTheme(app, uiTarget);
   seriesScratch.reserve(128);
   genreScratch.reserve(128);
@@ -750,6 +750,13 @@ void LibraryActivity::loop() {
     // competes with row reads or drawing.
     LibraryPrewarm::tick(millis() - lastInputMs >= 500);
     if (!LibraryPrewarm::active()) finishBackgroundRefresh();
+  }
+  if (prunePending && uiReady) {
+    // After the first frame so the per-book exists() probes never delay it.
+    // No redraw: Recent rows come from the index, which rebuildIndex() and the
+    // background refresh resolve without the missing books.
+    prunePending = false;
+    if (RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
   }
   const PendingInput input = pending;
   pending = {};

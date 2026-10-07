@@ -79,6 +79,7 @@ class Epub {
   mutable std::unique_ptr<PxcV2Workspace> optimizerWorkspace;
   uint16_t optimizerIndexCount = 0;
   bool optimizerIndexReady = false;
+  bool optimizerManifestAbsent = false;  // ZIP directory already scanned; no optimizer manifest
   bool findOptimizerImage(const std::string& itemHref, OptimizerFormat::Record& out) const;
   std::unique_ptr<LocationChapterGroupEntry[]> locationChapterGroups;
   size_t locationChapterGroupCount = 0;
