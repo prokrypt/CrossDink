@@ -11,6 +11,9 @@
 #include <Memory.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#ifndef SIMULATOR
+#include <esp_ota_ops.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -35,6 +38,7 @@
 #include "network/CrossPointWebServer.h"
 #include "network/FirmwareFlasher.h"
 #include "network/NetworkName.h"
+#include "network/OtaBootSwitch.h"
 #include "network/SerialRemote.h"
 #include "network/WifiUtils.h"
 #include "platform/PinMon.h"
@@ -481,6 +485,22 @@ void GoodiesActivity::onEnter() {
   showLevel(Level::Root);
 }
 
+#ifndef SIMULATOR
+namespace {
+// The OTA slot we are not running from, and its image header when that holds a usable image.
+const esp_partition_t* otherSlot(esp_app_desc_t& desc) {
+  const esp_partition_t* part = esp_ota_get_next_update_partition(nullptr);
+  if (!part || esp_ota_get_partition_description(part, &desc) != ESP_OK) return nullptr;
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(part, &state) == ESP_OK &&
+      (state == ESP_OTA_IMG_INVALID || state == ESP_OTA_IMG_ABORTED)) {
+    return nullptr;
+  }
+  return part;
+}
+}  // namespace
+#endif
+
 void GoodiesActivity::showLevel(const Level next) {
   RenderLock lock(*this);
   level = next;
@@ -500,6 +520,11 @@ void GoodiesActivity::showLevel(const Level next) {
 #if CROSSDINK_PSRAM_LOG
     entries.push_back({"Sleep-reboot-log", -1, {}});
 #endif
+    {
+      esp_app_desc_t desc;
+      const esp_partition_t* part = otherSlot(desc);
+      entries.push_back({"Boot previous firmware", -1, {}, part ? std::string(part->label) + " >" : "none"});
+    }
 #endif
   } else if (level == Level::PinMon) {
     // Read when opened: the toggle, then per pin level, changes and wakes since boot.
@@ -602,6 +627,10 @@ void GoodiesActivity::activate(const int index) {
       // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
       SleepLog::armSleepReboot();
       enterDeepSleep();
+#endif
+#ifndef SIMULATOR
+    } else if (index == BOOT_PREV_ROW) {
+      confirmBootPrevious();
 #endif
     } else {
 #ifndef SIMULATOR
@@ -767,6 +796,58 @@ void GoodiesActivity::setRowValue(const int row, std::string value) {
   lock.unlock();
   requestUpdate();
 }
+
+#ifndef SIMULATOR
+void GoodiesActivity::confirmBootPrevious() {
+  esp_app_desc_t desc;
+  const esp_partition_t* part = otherSlot(desc);
+  if (!part) {
+    showMessage("No valid firmware in the other slot");
+    return;
+  }
+  char body[160];
+  snprintf(body, sizeof(body), "Reboots into %s: %.31s %.31s, built %.15s %.15s, elf %02x%02x%02x%02x.", part->label,
+           desc.project_name, desc.version, desc.date, desc.time, desc.app_elf_sha256[0], desc.app_elf_sha256[1],
+           desc.app_elf_sha256[2], desc.app_elf_sha256[3]);
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot previous firmware?", body),
+                         [this, part](const ActivityResult& result) {
+                           mappedInput.suppressNextConfirmRelease();
+                           if (result.isCancelled) {
+                             requestUpdate();
+                             return;
+                           }
+                           // The header check above passes a half-flashed slot; the full checksum and SHA-256 pass runs
+                           // only now.
+                           {
+                             RenderLock lock(*this);
+                             GUI.drawPopup(renderer, "Checking...");
+                           }
+                           const firmware_flash::Result verified = firmware_flash::verifyPartition(part);
+                           if (verified != firmware_flash::Result::OK) {
+                             LOG_ERR("BOOT", "boot-previous: %s image failed: %s", part->label,
+                                     firmware_flash::resultName(verified));
+                             showMessage("Other slot failed the image check");
+                             return;
+                           }
+                           if (!ota_boot::switchTo(part)) {
+                             LOG_ERR("BOOT", "boot-previous switch to %s failed", part->label);
+                             showMessage("Switch failed");
+                             return;
+                           }
+                           restartKeepingPanelFrame();  // does not return
+                         });
+}
+
+// A message popup that stays up briefly, then the list repaints.
+void GoodiesActivity::showMessage(const char* text) {
+  {
+    RenderLock lock(*this);
+    GUI.drawPopup(renderer, text);
+  }
+  delay(1500);
+  requestUpdate();
+}
+#endif
 
 void GoodiesActivity::confirmNewPin() {
   startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "New API PIN?",

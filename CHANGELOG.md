@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- X4 Pro (debug builds): Goodies > Boot previous firmware switches the boot slot to the other OTA slot and reboots. Its confirmation names the slot and that image's project, version, build date and time, and ELF hash prefix; with no valid image there, the row shows "none" and a tap says so.
 
 - Wi-Fi remote (debug builds): `POST /api/image` shows a picture sent from a computer until the next touch or button, which closes it without acting on the screen below. The computer does the conversion (the `xink-image` tool takes any image, fits it to the screen in 4 grays, optional dithering), so the device only draws it: one gray refresh, then the panel is powered off and the device idles in light sleep. See docs/serial-remote.md.
 - File Transfer and the Wi-Fi remote: interrupted transfers can resume. Downloads (`/download`, `/api/download`, WebDAV `GET`) honor a single `Range` span with `206 Partial Content` (`416` when it is past the end), so `curl -C -` and download managers pick up where they stopped. `/upload` and `/api/upload` take `offset=<bytes>`: the data goes to `<name>.part`, renamed to `<name>` when done; a dropped upload keeps the part for 10 minutes so the rest can be sent with `offset` set to its size (a wrong offset gets `409 Offset mismatch: have <bytes>`). Uploads without `offset` work as before. WebDAV `PUT` with `Content-Range` is refused (`400`) instead of saving the partial body as the whole file. See docs/webserver-endpoints.md.

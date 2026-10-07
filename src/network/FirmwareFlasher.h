@@ -3,6 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#ifndef SIMULATOR
+#include <esp_partition.h>
+#endif
+
 class HalFile;
 
 // Flash a firmware image from an SD-card path into the next OTA app
@@ -87,6 +91,13 @@ Result streamFinish();
 void streamAbort();
 // A stream is open (begun, not yet finished or aborted). Any task.
 bool streamActive();
+
+// Full integrity check (checksum, SHA-256, board tag) of the image already in
+// an OTA app partition, for switching back to it. The length comes from walking
+// the segment table; esp_image_verify is not used (it rejects patched images).
+#ifndef SIMULATOR
+Result verifyPartition(const esp_partition_t* part);
+#endif
 
 const char* resultName(Result r);
 
