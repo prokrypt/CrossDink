@@ -753,11 +753,10 @@ void LibraryActivity::loop() {
   }
   if (prunePending && uiReady) {
     // After the first frame so the per-book exists() probes never delay it.
+    // No redraw: Recent rows come from the index, which rebuildIndex() and the
+    // background refresh resolve without the missing books.
     prunePending = false;
-    if (RECENT_BOOKS.pruneMissing()) {
-      RECENT_BOOKS.saveToFile();
-      requestUpdate();
-    }
+    if (RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
   }
   const PendingInput input = pending;
   pending = {};
