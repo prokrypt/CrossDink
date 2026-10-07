@@ -72,6 +72,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "platform/InputTask.h"
 #include "platform/PinMon.h"
 #include "util/SleepLog.h"
+#include "util/TransferLightPulse.h"
 #include "util/UrlUtils.h"
 
 extern GfxRenderer renderer;
@@ -890,6 +891,11 @@ bool handleLine(const char* line) {
   const char* verb = buf;
   LOG_DBG("SER", "cmd %s", verb);  // PSRAM log shows which commands arrived
   installHooks();
+  // Wi-Fi input only (reply() marks it by httpState 2); the USB serial host needs no light cue.
+  if (httpState.load(std::memory_order_acquire) == 2 && (strcmp(verb, "KEY") == 0 || strcmp(verb, "TOUCH") == 0 ||
+                                                         strcmp(verb, "SWIPE") == 0 || strcmp(verb, "TYPE") == 0)) {
+    TransferLightPulse::blink();
+  }
 
   if (strcmp(verb, "PING") == 0) {
     reply("OK:PING");
@@ -962,6 +968,7 @@ bool handleLine(const char* line) {
 }
 
 void poll() {
+  TransferLightPulse::updateBlink();
   pollHttp();
   const uint32_t now = millis();
 
