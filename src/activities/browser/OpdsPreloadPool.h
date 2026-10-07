@@ -27,7 +27,7 @@ class SecureHttpClient;
 class OpdsPreloadPool {
  public:
   static constexpr size_t MAX_WORKERS = 3;
-  static constexpr uint32_t MARKS_BATCH_MS = 100;
+  static constexpr uint32_t MARKS_BATCH_MS = 250;
 
   OpdsPreloadPool(OpdsPageCache& cache, size_t pageMaxBytes, std::string username, std::string password,
                   std::string authorizationOrigin);

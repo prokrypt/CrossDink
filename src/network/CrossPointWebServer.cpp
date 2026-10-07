@@ -881,6 +881,16 @@ void CrossPointWebServer::stop() {
   // Hand the server back to this task: the serving task finishes its current
   // request, then exits.
   stopRequested.store(true, std::memory_order_release);
+#ifndef SIMULATOR
+  // An idle serving task sees the request only when its select() times out
+  // (IDLE_POLL_MS). Shutting the listeners wakes it now; connections keep the
+  // grace period below.
+  forEachSocket([](const int fd, uint16_t) {
+    sockaddr_storage peer;
+    socklen_t len = sizeof(peer);
+    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) != 0) lwip_shutdown(fd, SHUT_RDWR);
+  });
+#endif
   if (serverTask && !waitForServeTask()) {
     LOG_ERR("WEB", "stop: serving task stuck in %s for %lu ms, restarting", servePhase.load(std::memory_order_relaxed),
             static_cast<unsigned long>(STOP_GIVE_UP_MS));
