@@ -393,13 +393,17 @@ int FrontlightPanelActivity::computePanelBottom() {
   panelSpaceSm = tokens.spaceSm;
   panelSpaceLg = tokens.spaceLg;
   const bool hasWarmth = Frontlight.hasColorTemperature();
+  // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on boards without warm light
   const int rowCount = hasWarmth ? 3 : 2;
+  // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on boards without warm light
   const int largeGapCount = hasWarmth ? 4 : 3;
+  // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on boards without warm light
   const int smallGapCount = hasWarmth ? 2 : 1;
   const auto sheet = frontlightSheetProps();
   const auto safe = uiTarget.deviceContext().safeArea;
   const int maxBottom = renderer.getScreenHeight() - safe.bottom;
   const auto bottom = [&] {
+    // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on boards without warm light
     return y + rowCount * panelRowHeight + (hasWarmth ? lh : 0) + largeGapCount * panelSpaceLg +
            smallGapCount * panelSpaceSm + ACTION_BAR_HEIGHT + DrawerHandle::bandHeight(sheet);
   };

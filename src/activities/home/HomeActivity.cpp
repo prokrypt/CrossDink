@@ -152,7 +152,7 @@ std::string getRecentBookCachePath(const RecentBook& book) {
   return "";
 }
 
-BookReadingStats visibleRecentBookStats(const RecentBook& book, BookReadingStats stats) {
+BookReadingStats visibleRecentBookStats(const RecentBook& book, const BookReadingStats& stats) {
   const std::string cachePath = getRecentBookCachePath(book);
   if (!BookStatsTracking::isEnabled(cachePath)) {
     BookReadingStats paceOnly;
@@ -749,6 +749,7 @@ void HomeActivity::coverWorkerMain(void* param) {
 
 // Worker task (or the render task as a fallback). Touches only coverWorker.jobs.
 void HomeActivity::runCoverJobs() {
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long start = millis();
   for (auto& job : coverWorker.jobs) {
     if (coverWorker.cancel.load(std::memory_order_relaxed)) break;
@@ -872,6 +873,7 @@ void HomeActivity::onEnter() {
       return false;
     }
 
+    // cppcheck-suppress useStlAlgorithm ; the match also rotates and sets the selection
     for (int i = 0; i < static_cast<int>(recentBooks.size()); ++i) {
       if (recentBooks[i].path == path) {
         if (metrics.homeRecentBooksCount == 1 && i > 0 && !coverGridUi) {
@@ -1220,14 +1222,15 @@ bool HomeActivity::allocateCarouselFrameSlots(int targetFrameCount) {
 
 void HomeActivity::renderCarouselFrameToCurrentBuffer(int bookIdx) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  bool coverRendered = false, coverBufferStored = false, bufferRestored = false;
+  bool frameCoverRendered = false, frameCoverStored = false, bufferRestored = false;
   LyraCarouselTheme::setPreRenderIndex(bookIdx);
   renderer.clearScreen();
   // Snapshot the expensive artwork only. Fresh progress/stats and controls are
   // added after restoring it, without rereading or repainting the covers.
-  GUI.drawRecentBookCover(
-      renderer, Rect{0, metrics.homeTopPadding, renderer.getScreenWidth(), metrics.homeCoverTileHeight}, recentBooks,
-      static_cast<int>(recentBooks.size()), coverRendered, coverBufferStored, bufferRestored, []() { return true; });
+  GUI.drawRecentBookCover(renderer,
+                          Rect{0, metrics.homeTopPadding, renderer.getScreenWidth(), metrics.homeCoverTileHeight},
+                          recentBooks, static_cast<int>(recentBooks.size()), frameCoverRendered, frameCoverStored,
+                          bufferRestored, []() { return true; });
 }
 
 bool HomeActivity::saveCarouselFrameToDisk(uint64_t cacheKeyHash, int bookCount, int bookIdx, int slotIdx) {
@@ -1333,6 +1336,7 @@ bool HomeActivity::loadCarouselFrameFromDisk(uint64_t cacheKeyHash, int bookCoun
   return true;
 }
 
+// cppcheck-suppress functionStatic ; reads the file-scope carousel cache that belongs to this activity
 int HomeActivity::chooseCarouselEvictionSlot(int centerIdx, int bookCount, std::optional<int> protectedBookIdx) const {
   for (int i = 0; i < kCarouselFrameCount; ++i) {
     if (gCarouselCache.frames[i] && gCarouselCache.frameBookIdx[i] < 0) {
@@ -2367,7 +2371,7 @@ void HomeActivity::renderCarouselFrame(int bookIdx, int slotIdx) {
     LOG_ERR("HOME", "carousel: invalid frame slot %d", slotIdx);
     return;
   }
-  uint8_t* frameBuffer = renderer.getFrameBuffer();
+  const uint8_t* frameBuffer = renderer.getFrameBuffer();
   if (!frameBuffer || !gCarouselCache.frames[slotIdx]) return;
   renderCarouselFrameToCurrentBuffer(bookIdx);
 
@@ -2399,6 +2403,7 @@ void HomeActivity::onMinimalBrowseOpen() {
   }
 }
 
+// cppcheck-suppress functionStatic ; per-instance navigation API, delegates to the ActivityManager singleton
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 
 void HomeActivity::onContinueReading() {
@@ -2419,8 +2424,10 @@ void HomeActivity::onLibraryOpen() {
   if (!activityManager.goToLibrary()) libraryPrewarmHandOff = false;
 }
 
+// cppcheck-suppress functionStatic ; per-instance navigation API, delegates to the ActivityManager singleton
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 
+// cppcheck-suppress functionStatic ; per-instance navigation API, delegates to the ActivityManager singleton
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onGoodiesOpen() {
@@ -2433,6 +2440,7 @@ void HomeActivity::onGoodiesOpen() {
 #endif
 }
 
+// cppcheck-suppress functionStatic ; per-instance navigation API, delegates to the ActivityManager singleton
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onReadingStatsOpen() {

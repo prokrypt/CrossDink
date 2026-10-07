@@ -533,7 +533,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
                            lastCenterCoverRect.height, outlineW, kCornerRadius, true);
 }
 
-void LyraCarouselTheme::drawReadingProgress(GfxRenderer& renderer, Rect rect,
+void LyraCarouselTheme::drawReadingProgress(const GfxRenderer& renderer, Rect rect,
                                             const std::vector<RecentBook>& recentBooks, const BookReadingStats* stats,
                                             float progressPercent) const {
   if (recentBooks.empty()) return;

@@ -51,7 +51,7 @@ class LyraCarouselTheme : public LyraTheme {
                            float progressPercent = -1.0f, const GlobalReadingStats* globalStats = nullptr,
                            const char* currentChapterTitle = nullptr) const override;
   // Live footer, shared by direct drawing and cached-artwork restoration.
-  void drawReadingProgress(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
+  void drawReadingProgress(const GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            const BookReadingStats* stats, float progressPercent) const;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<const char*(int index)>& buttonLabel,
