@@ -73,9 +73,9 @@ class Activity {
   // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }
   // Input arriving mid-refresh waits for the waveform to end, then all of it
-  // lands in one frame (typing). Default: the next frame draws at once and
-  // overlaps the waveform's tail.
-  virtual bool batchesInputDuringRefresh() const { return false; }
+  // lands in one frame. Drawing at once instead queues that frame behind the
+  // running waveform, so a second input meanwhile waits for two refreshes.
+  virtual bool batchesInputDuringRefresh() const { return true; }
   // Serial remote control: insert text as if typed. False when the screen has
   // no text entry.
   virtual bool injectText(const char*) { return false; }
