@@ -2,6 +2,7 @@
 
 #include <BoardConfig.h>
 #include <Logging.h>
+#include <PowerCounters.h>
 #include <PowerManager.h>
 #include <WiFi.h>
 #include <driver/rtc_io.h>
@@ -50,6 +51,7 @@ void HalPowerManager::begin() {
     // Matches the initial isLowPower == false: the device boots active.
     esp_pm_lock_acquire(cpuFreqLock);
     cpuFreqLockHeld = true;
+    PowerCounters::maxClock(true);
   }
   if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "epd-refresh", &displayPmLock) != ESP_OK) {
     LOG_ERR("PWR", "Failed to create display no-light-sleep lock; refresh may light-sleep");
@@ -89,6 +91,7 @@ void HalPowerManager::syncCpuFreqLock() {
     esp_pm_lock_release(cpuFreqLock);
   }
   cpuFreqLockHeld = wanted;
+  PowerCounters::maxClock(wanted);
 }
 #endif
 

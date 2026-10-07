@@ -3,6 +3,7 @@
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <PerfLog.h>
+#include <PowerCounters.h>
 
 #include "HalSpiBus.h"
 
@@ -20,7 +21,20 @@ HalDisplay::RefreshCounts& HalDisplay::refreshCounts() {
   return rtcRefreshCounts;
 }
 
-void HalDisplay::count(const int kind) { refreshCounts().n[kind]++; }
+void HalDisplay::count(const int kind) {
+  refreshCounts().n[kind]++;
+  if (kind == FLASHING) return;  // a mark on a refresh counted on its own
+  // RefreshMode and GRAY_PASSES share PowerCounters::PanelKind's numbering.
+  PowerCounters::panelKind(static_cast<PowerCounters::PanelKind>(kind));
+  // UC8179 keeps its booster up after a refresh until powerOffIdle(); the other
+  // controllers power down inside each refresh, so only it gets booster time.
+  if (BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179) PowerCounters::booster(true);
+}
+static_assert(static_cast<int>(HalDisplay::FULL_REFRESH) == PowerCounters::PANEL_FULL &&
+                  static_cast<int>(HalDisplay::HALF_REFRESH) == PowerCounters::PANEL_HALF &&
+                  static_cast<int>(HalDisplay::FAST_REFRESH) == PowerCounters::PANEL_FAST &&
+                  static_cast<int>(HalDisplay::GRAY_PASSES) == PowerCounters::PANEL_GRAY,
+              "PowerCounters::PanelKind follows HalDisplay's refresh kinds");
 #else
 HalDisplay::RefreshCounts& HalDisplay::refreshCounts() {
   static RefreshCounts none{};
@@ -84,6 +98,7 @@ void onDisplayBusyWaitBegin() {
 #if CROSSDINK_PERF_LOG
   busyWaitBeganMs = millis();
 #endif
+  PowerCounters::panelBusy(true);
   powerManager.beginDisplayBusyWait();
 #if !FREEINK_SD_SDMMC
   spiLentDuringBusyWait = HalSpiBus::getInstance().releaseForIdle();
@@ -98,6 +113,7 @@ void onDisplayBusyWaitEnd() {
   }
 #endif
   powerManager.endDisplayBusyWait();
+  PowerCounters::panelBusy(false);
 #if CROSSDINK_PERF_LOG
   // Still pending here: this wait finished an async refresh an earlier call started.
   if (millis() - busyWaitBeganMs >= REFRESH_WAIT_MIN_MS) PerfLog::noteInk(display.isRefreshPending());
@@ -187,6 +203,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
   FlashScope flash(*this, mode);
   count(mode);
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
+  if (turnOffScreen) PowerCounters::booster(false);
 }
 
 void HalDisplay::setInverted(bool inverted) {
@@ -237,7 +254,9 @@ bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback, 
                    mode == GrayscaleMode::Direct ? FlashKind::Gray : FlashKind::Full);
   shotRefresh(mode != GrayscaleMode::Overlay);
   count(fallback);
-  return einkDisplay.displayGrayscaleBase(mode, convertRefreshMode(fallback), turnOffScreen);
+  const bool shown = einkDisplay.displayGrayscaleBase(mode, convertRefreshMode(fallback), turnOffScreen);
+  if (turnOffScreen) PowerCounters::booster(false);
+  return shown;
 }
 
 void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen) {
@@ -251,19 +270,24 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
   FlashScope flash(*this, mode);
   count(mode);
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
+  if (turnOffScreen) PowerCounters::booster(false);
 }
 
 bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
 
 bool HalDisplay::powerOffIdle() {
   HalSpiBus::Lock spiLock;
-  return einkDisplay.powerOffIdle();
+  const bool off = einkDisplay.powerOffIdle();
+  if (off) PowerCounters::booster(false);
+  return off;
 }
 
 bool HalDisplay::powerOnIdle() {
 #ifndef SIMULATOR  // the simulator panel has no booster
   HalSpiBus::Lock spiLock;
-  return einkDisplay.powerOnIdle();
+  const bool on = einkDisplay.powerOnIdle();
+  if (on) PowerCounters::booster(true);
+  return on;
 #else
   return false;
 #endif
@@ -283,6 +307,7 @@ void HalDisplay::setRefreshLightSleep(const bool allowed) {
 void HalDisplay::deepSleep() {
   HalSpiBus::Lock spiLock;
   einkDisplay.deepSleep();
+  PowerCounters::booster(false);
 }
 
 uint8_t* HalDisplay::getFrameBuffer() const { return einkDisplay.getFrameBuffer(); }
@@ -313,6 +338,7 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
   FlashScope flash(*this, fallback != RefreshMode::FAST_REFRESH);
   count(fallback);
   einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
+  if (turnOffScreen) PowerCounters::booster(false);
 }
 
 void HalDisplay::preconditionGrayscale() { einkDisplay.preconditionGrayscale(); }
@@ -403,6 +429,7 @@ void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
   FlashScope flash(*this, false);  // clears the mark its planes set
   count(GRAY_PASSES);
   einkDisplay.displayGrayBuffer(turnOffScreen);
+  if (turnOffScreen) PowerCounters::booster(false);
   shotGrayShown();
 }
 

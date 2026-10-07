@@ -1,6 +1,8 @@
 #include "HalFrontlight.h"
 
+#include <FrontlightGamma.h>
 #include <Logging.h>
+#include <PowerCounters.h>
 
 HalFrontlight HalFrontlight::instance;
 
@@ -60,6 +62,9 @@ void HalFrontlight::drive(const uint8_t percent) {
   if (percent == driven) return;
   driven = percent;
   manager.setBrightness(percent);
+  // LED draw follows the PWM duty (FrontlightManager's curve), not the %.
+  if (manager.present())
+    PowerCounters::lightDuty(static_cast<uint16_t>(FrontlightGamma::perceptualDuty(percent, 1023)));
 }
 
 void HalFrontlight::prepareForDeepSleep() {
