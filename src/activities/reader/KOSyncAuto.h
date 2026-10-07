@@ -33,10 +33,11 @@ enum class PushOutcome : uint8_t { Pushed, Same, ServerAhead, Failed };
 // Wi-Fi screen is up.
 bool wantsSleepPush();
 // Deep sleep, before the sleep screen: pushBegin() starts the push (never moving
-// the server back) without waiting for it, so the caller can draw its toast while
-// Wi-Fi joins; pushFinish() then blocks until done, at most 30 s in all from
-// pushBegin(). A failure arms the push on the next wake. pushBegin() false means
-// nothing started (already armed for the wake): skip pushFinish().
+// the server back) without blocking, so the caller can draw its toast while Wi-Fi
+// joins (a job already running is waited out in pushFinish(), under the toast).
+// pushFinish() then blocks until done, at most 30 s in all from pushBegin().
+// A failure arms the push on the next wake. pushBegin() false means nothing
+// started (already armed for the wake): skip pushFinish().
 // readerFlushed: the position was just saved by an open reader (else the book is
 // pendingPushPath()'s, and a push of it already running is finished, not redone).
 bool pushBegin(std::string epubPath, bool readerFlushed);
