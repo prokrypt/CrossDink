@@ -873,21 +873,21 @@ void HomeActivity::onEnter() {
       return false;
     }
 
-    // cppcheck-suppress useStlAlgorithm ; the match also rotates and sets the selection
-    for (int i = 0; i < static_cast<int>(recentBooks.size()); ++i) {
-      if (recentBooks[i].path == path) {
-        if (metrics.homeRecentBooksCount == 1 && i > 0 && !coverGridUi) {
-          std::rotate(recentBooks.begin(), recentBooks.begin() + i, recentBooks.end());
-          selectorIndex = 0;
-          lastCarouselBookIndex = 0;
-        } else {
-          selectorIndex = i;
-          lastCarouselBookIndex = i;
-        }
-        return true;
-      }
+    const auto it = std::find_if(recentBooks.begin(), recentBooks.end(),
+                                 [&path](const RecentBook& book) { return book.path == path; });
+    if (it == recentBooks.end()) {
+      return false;
     }
-    return false;
+    const int i = static_cast<int>(it - recentBooks.begin());
+    if (metrics.homeRecentBooksCount == 1 && i > 0 && !coverGridUi) {
+      std::rotate(recentBooks.begin(), it, recentBooks.end());
+      selectorIndex = 0;
+      lastCarouselBookIndex = 0;
+    } else {
+      selectorIndex = i;
+      lastCarouselBookIndex = i;
+    }
+    return true;
   };
 
   if (!selectInitialBook(initialBookPath)) {
