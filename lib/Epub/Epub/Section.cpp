@@ -19,6 +19,11 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
+// Uncompressed spine item size, the figure the reader's popupBytes knob is compared against.
+[[maybe_unused]] size_t spineItemBytes(const Epub& epub, const int spineIndex) {
+  return epub.getCumulativeSpineItemSize(spineIndex) -
+         (spineIndex > 0 ? epub.getCumulativeSpineItemSize(spineIndex - 1) : 0);
+}
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v62: Text blocks persist source whitespace semantics for font-preview reflow.
 // This changes their serialized payload, so full and suspended section caches
@@ -824,8 +829,9 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   partial_ = false;
   partialPageCount_ = 0;
   partialProtectedImageUnits_ = 0;
-  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu ms=%lu", spineIndex, pageCount,
-          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(millis() - buildStartedMs));
+  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu html=%lu ms=%lu", spineIndex, pageCount,
+          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(spineItemBytes(*epub, spineIndex)),
+          static_cast<unsigned long>(millis() - buildStartedMs));
   return true;
 }
 
@@ -1257,8 +1263,10 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
   [[maybe_unused]] const uint32_t writeMs = build_->parser->pageWriteMicros() / 1000;
   [[maybe_unused]] const uint32_t busyMs = build_->busyUs / 1000;
   LOG_DBG("SCT",
-          "Section %s: spine=%d pages=%u bytes=%lu wall_ms=%lu busy_ms=%lu layout_ms=%lu write_ms=%lu parse_ms=%lu",
+          "Section %s: spine=%d pages=%u bytes=%lu html=%lu wall_ms=%lu busy_ms=%lu layout_ms=%lu write_ms=%lu "
+          "parse_ms=%lu",
           asPartial ? "partial" : "built", spineIndex, builtPageCount_, static_cast<unsigned long>(sectionBytes),
+          static_cast<unsigned long>(spineItemBytes(*epub, spineIndex)),
           static_cast<unsigned long>(millis() - build_->startedMs), static_cast<unsigned long>(busyMs),
           static_cast<unsigned long>(layoutMs), static_cast<unsigned long>(writeMs),
           static_cast<unsigned long>(busyMs > layoutMs + writeMs ? busyMs - layoutMs - writeMs : 0));
