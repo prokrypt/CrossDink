@@ -2,6 +2,7 @@
 #if CROSSDINK_SCALABLE_FONTS
 #include <GfxRenderer.h>
 #include <Logging.h>
+#include <PackedAsset.h>
 
 #include <optional>
 
@@ -12,11 +13,20 @@
 namespace {
 std::optional<HalScalableFont> faces[8];
 bool ready[2] = {};
-const uint8_t* const assets[] = {lexenddeca_regularOutline, lexenddeca_boldOutline, bitter_regularOutline,
-                                 bitter_boldOutline,        bitter_italicOutline,   bitter_bolditalicOutline};
-constexpr size_t lengths[] = {sizeof(lexenddeca_regularOutline), sizeof(lexenddeca_boldOutline),
-                              sizeof(bitter_regularOutline),     sizeof(bitter_boldOutline),
-                              sizeof(bitter_italicOutline),      sizeof(bitter_bolditalicOutline)};
+// Packed TTFs in flash, inflated into PSRAM when their family is first used.
+const PackedAsset assets[] = {
+    {lexenddeca_regularPacked, sizeof(lexenddeca_regularPacked), lexenddeca_regularRawSize},
+    {lexenddeca_boldPacked, sizeof(lexenddeca_boldPacked), lexenddeca_boldRawSize},
+    {bitter_regularPacked, sizeof(bitter_regularPacked), bitter_regularRawSize},
+    {bitter_boldPacked, sizeof(bitter_boldPacked), bitter_boldRawSize},
+    {bitter_italicPacked, sizeof(bitter_italicPacked), bitter_italicRawSize},
+    {bitter_bolditalicPacked, sizeof(bitter_bolditalicPacked), bitter_bolditalicRawSize},
+};
+constexpr size_t AssetCount = sizeof(assets) / sizeof(assets[0]);
+// Inflated TTF bytes; FreeType borrows them for as long as the faces live.
+// 123 KB (Lexend Deca) / 421 KB (Bitter) of PSRAM per family in use: too big
+// and too long-lived for anything but the heap.
+HeapByteBuffer assetBytes[AssetCount];
 // Lexend Deca has no designed italic; the files the firmware used to embed
 // were the upright faces sheared by 0.2 (11.3 degrees). The same shear on the
 // upright bytes renders within ~1% of their pixels at reading sizes.
@@ -53,15 +63,24 @@ void ensureScalableBuiltinFamily(GfxRenderer& renderer, unsigned family) {
   bool ok = true;
   for (unsigned style = 0; style < 4 && ok; ++style) {
     const BuiltinFace& source = faceSources[family][style];
+    HeapByteBuffer& bytes = assetBytes[source.asset];
+    if (!bytes) bytes = inflatePackedAsset(assets[source.asset], "TTF");
+    if (!bytes) {
+      ok = false;
+      break;
+    }
     freeink::font::FtFont::RenderOptions options;
     options.hinting = freeink::font::FtFont::HintingMode::Auto;
     options.slant16_16 = source.slant16_16;
     unsigned i = family * 4 + style;
     faces[i].emplace();
-    ok = faces[i]->openMemory(assets[source.asset], lengths[source.asset], options);
+    ok = faces[i]->openMemory(bytes.get(), assets[source.asset].rawSize, options);
   }
   if (!ok) {
+    // Faces borrow the bytes (Lexend's italics share the upright files), so
+    // close every face before freeing any of them.
     for (unsigned style = 0; style < 4; ++style) faces[family * 4 + style].reset();
+    for (unsigned style = 0; style < 4; ++style) assetBytes[faceSources[family][style].asset].reset();
     LOG_ERR("TTF", "Built-in family unavailable; using UI recovery font");
   }
   ready[family] = ok;
