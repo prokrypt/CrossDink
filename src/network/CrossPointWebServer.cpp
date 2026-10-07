@@ -588,6 +588,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // behind a remote-token check (docs/serial-remote.md).
   server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
   server->on("/api/upload", HTTP_POST, [this] { handleApiUploadPost(); }, [this] { handleApiUpload(); });
+  server->on("/api/delete", HTTP_POST, [this] { handleApiDelete(); });
   // Registered here for both modes (first match wins over registerFullRoutes()); token-gated only while log-only.
   server->on("/api/files", HTTP_GET, [this] { handleApiFiles(); });
 #endif
@@ -603,7 +604,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   });
   if (logOnly) {
     // Nothing else: no SD access behind other screens beyond the token-gated
-    // /api/download, /api/upload and /api/files, and /api/status's
+    // /api/download, /api/upload, /api/delete and /api/files, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
     const char* remoteHeaders[] = {"X-Token", "Range"};
     server->collectHeaders(remoteHeaders, 2);
@@ -1530,6 +1531,13 @@ void CrossPointWebServer::handleApiDownload() const {
   const int status = checkRemoteToken(*server, out, sizeof(out));
   if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
   handleDownload();
+}
+
+void CrossPointWebServer::handleApiDelete() const {
+  static char out[32];
+  const int status = checkRemoteToken(*server, out, sizeof(out));
+  if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
+  handleDelete();
 }
 
 #if CROSSDINK_PSRAM_LOG
@@ -2788,6 +2796,11 @@ void CrossPointWebServer::handleDelete() const {
     // Validate path
     if (itemPath.isEmpty() || itemPath == "/") {
       failedItems += itemPath + " (cannot delete root); ";
+      allSuccess = false;
+      continue;
+    }
+    if (isProtectedPath(itemPath)) {
+      failedItems += itemPath + " (protected); ";
       allSuccess = false;
       continue;
     }

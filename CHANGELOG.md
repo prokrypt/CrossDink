@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- X4 Pro (debug builds): `POST /api/delete` (Wi-Fi remote token) deletes SD files or folders like File Transfer's delete, also on Goodies > Wi-Fi remote.
 - X4 Pro (debug builds): remote command `MACRO <script.txt>` runs a device test script from the SD card with the Goodies Wi-Fi remote off, then writes results (one line per step with its time and log offset), the PSRAM log and any screenshots next to the script and turns the remote back on. Scripts use the remote commands plus `WAIT`, `MARK`, `WAITLOG` (wait for a log line) and `SHOT`, and carry on across `SLEEPREBOOT`/`REBOOT` steps.
 - X4 Pro (debug builds): `GET /api/psram-log/stream` (Wi-Fi remote token) sends the PSRAM log live as it is written, on one open connection, instead of polling `/api/psram-log`. Other requests are served meanwhile, and it adds no wakes: idle, new text goes out within the server's 250 ms idle tick (Goodies > Knobs serverIdlePollMs). Up to 2 streams at once (a third replaces the oldest).
 - Goodies Wi-Fi remote: a key, touch, swipe or type command over Wi-Fi briefly drives the frontlight to 50%, whether it is lit or off, then restores your exact level (off stays off), so you can see the input landed. Goodies > Knobs `remoteBlinkMs` sets the length (15 ms; 0 = off) and `remoteBlinkPct` the brightness. Input is never delayed.
@@ -255,6 +256,7 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
+- File Transfer's delete refuses hidden items and the remote token file unless Show Hidden Files is on, like rename and move.
 - Touch: the End of book menu rows use the same row height and spacing as the other touch lists instead of sitting crammed together.
 - KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.
 - File Transfer and WebDAV: a connection that opens but sends nothing (a spare one GNOME Files/gvfs or Finder keeps ready) no longer holds up every other request for 5 s. Once another connection is waiting, the silent one is closed after 1 s. Debug logs: `Closing silent connection fd N, another is waiting`.
