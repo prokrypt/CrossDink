@@ -1030,11 +1030,16 @@ class SimulatorSmokeTest {
         if (libraryRefreshPass == 0) {
           libraryBaselineBooks = books;
           // Deliberately bypass invalidation to prove that a normal return visit
-          // reuses the index instead of walking the card again.
+          // reuses the index instead of walking the card again. HalStorage
+          // counts the write as a Library change, so record it as scanned.
           if (!Storage.writeFile(REFRESH_FIXTURE, "Library refresh smoke fixture"))
             fail("Cannot create Library fixture");
+          Storage.noteLibraryScanned(Storage.libraryContentGeneration());
         } else if (libraryRefreshPass == 1) {
           if (books != libraryBaselineBooks) fail("Library rescanned an unchanged session");
+          // Library reuse is keyed on the storage generation, not the index's
+          // dirty flag; this is how a flow that bypassed HalStorage reports it.
+          Storage.markLibraryContentChanged("smoke");
           library::invalidateLibraryIndex();
         } else if (libraryRefreshPass == 2) {
           if (books != libraryBaselineBooks + 1) fail("Library missed an invalidated addition");
