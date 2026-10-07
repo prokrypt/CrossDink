@@ -1981,6 +1981,7 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
 
 bool Epub::ensureOptimizerImageIndex() {
   if (optimizerIndexReady) return true;
+  if (optimizerManifestAbsent) return false;
   taskENTER_CRITICAL(&optimizerHitMux);
   optimizerLastHit = {};
   taskEXIT_CRITICAL(&optimizerHitMux);
@@ -1988,9 +1989,12 @@ bool Epub::ensureOptimizerImageIndex() {
   ZipFile::EntryTarget target{ZipFile::fnvHash64(kOptimizerManifestPath, length), static_cast<uint16_t>(length), 0,
                               kOptimizerManifestPath};
   ZipFile::EntryIdentity identity;
-  if (ZipFile(filepath).fillEntryIdentities(&target, 1, &identity, 1) < 0 || !identity.found ||
-      !identity.uncompressedSize || identity.uncompressedSize > kOptimizerManifestMaxBytes)
+  if (ZipFile(filepath).fillEntryIdentities(&target, 1, &identity, 1) < 0) return false;
+  if (!identity.found) {
+    optimizerManifestAbsent = true;
     return false;
+  }
+  if (!identity.uncompressedSize || identity.uncompressedSize > kOptimizerManifestMaxBytes) return false;
   const std::string path = cachePath + "/optimizer-images.idx";
   const std::string temp = path + ".tmp";
   const std::string manifest = path + ".manifest.tmp";
