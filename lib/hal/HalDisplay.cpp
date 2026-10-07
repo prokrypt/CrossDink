@@ -89,14 +89,18 @@ bool spiLentDuringBusyWait = false;
 
 #if CROSSDINK_PERF_LOG
 // The begin hook fires once a wait passes the SDK's 20 ms threshold. Waits this
-// long are refreshes (PON ~130 ms and POF ~80 ms stay below it).
+// long are refreshes (PON ~130 ms and POF ~80 ms stay below it). A wait that
+// begins with a deferred refresh pending is that refresh ending, however short:
+// PON runs before the refresh is marked pending, POF only once none is.
 constexpr uint32_t REFRESH_WAIT_MIN_MS = 250;
 uint32_t busyWaitBeganMs = 0;
+bool busyWaitEndsRefresh = false;
 #endif
 
 void onDisplayBusyWaitBegin() {
 #if CROSSDINK_PERF_LOG
   busyWaitBeganMs = millis();
+  busyWaitEndsRefresh = display.isRefreshPending();
 #endif
   PowerCounters::panelBusy(true);
   powerManager.beginDisplayBusyWait();
@@ -116,7 +120,9 @@ void onDisplayBusyWaitEnd() {
   PowerCounters::panelBusy(false);
 #if CROSSDINK_PERF_LOG
   // Still pending here: this wait finished an async refresh an earlier call started.
-  if (millis() - busyWaitBeganMs >= REFRESH_WAIT_MIN_MS) PerfLog::noteInk(display.isRefreshPending());
+  if (busyWaitEndsRefresh || millis() - busyWaitBeganMs >= REFRESH_WAIT_MIN_MS) {
+    PerfLog::noteInk(display.isRefreshPending());
+  }
 #endif
 }
 #ifndef SIMULATOR
