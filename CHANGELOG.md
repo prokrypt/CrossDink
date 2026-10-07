@@ -2,6 +2,7 @@
 
 ### Added
 - Header status bar: a small up/down arrow icon left of the Wi-Fi bars while a Wi-Fi remote (or web) request came in during the last 30 s. It shows and hides only on header repaints that happen anyway, so it adds no refreshes or wakes.
+- X4 Pro: hold Up and Down together while the device sleeps to show the next custom sleep image (Sleep Screen set to Custom, or Cover + Custom after leaving from Home). It draws the new image and goes back to sleep without opening the book or Home. A press of Up or Down alone wakes the chip for a moment and goes back to sleep with nothing drawn, and a page key still held 2 s after sleep starts is left out of the wake keys for that sleep.
 - X4 Pro (debug builds): remote command `MACRO <script.txt>` runs a device test script from the SD card with the Goodies Wi-Fi remote off, then writes results (one line per step with its time and log offset), the PSRAM log and any screenshots next to the script and turns the remote back on. Scripts use the remote commands plus `WAIT`, `MARK`, `WAITLOG` (wait for a log line) and `SHOT`, and carry on across `SLEEPREBOOT`/`REBOOT` steps.
 - X4 Pro (debug builds): `GET /api/psram-log/stream` (Wi-Fi remote token) sends the PSRAM log live as it is written, on one open connection, instead of polling `/api/psram-log`. Other requests are served meanwhile, and it adds no wakes: idle, new text goes out within the server's 250 ms idle tick (Goodies > Knobs serverIdlePollMs). Up to 2 streams at once (a third replaces the oldest).
 - Goodies Wi-Fi remote: a key, touch, swipe or type command over Wi-Fi briefly drives the frontlight to 50%, whether it is lit or off, then restores your exact level (off stays off), so you can see the input landed. Goodies > Knobs `remoteBlinkMs` sets the length (15 ms; 0 = off) and `remoteBlinkPct` the brightness. Input is never delayed.
@@ -261,6 +262,7 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
+- Keys still held when the device finishes waking (e.g. Power + Down held to wake) no longer fire a chord such as a screenshot; release them first.
 - Touch: the End of book menu rows use the same row height and spacing as the other touch lists instead of sitting crammed together.
 - KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.
 - File Transfer and WebDAV: a connection that opens but sends nothing (a spare one GNOME Files/gvfs or Finder keeps ready) no longer holds up every other request for 5 s. Once another connection is waiting, the silent one is closed after 1 s. Debug logs: `Closing silent connection fd N, another is waiting`.

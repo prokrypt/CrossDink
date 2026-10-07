@@ -297,6 +297,26 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // should wake the device, so clear every source before arming it.
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   freeink::PowerManager::armPowerButtonWakeup();
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  // X4 Pro: Up and Down wake too, so holding both while asleep can change the
+  // wallpaper (HalGPIO::checkPageKeyWake). Same active-low pull-up as Power, so
+  // no extra sleep current until a key is pressed. A page key still down after
+  // 2 s (pressed under something) is left out, or it would wake again at once.
+  const auto& in = BoardConfig::ACTIVE.input;
+  if (BoardConfig::isX4Pro() && in.power >= 0 && !in.powerActiveHigh && in.up >= 0 && in.down >= 0) {
+    const unsigned long releaseStart = millis();
+    while ((digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) && millis() - releaseStart < 2000) {
+      delay(10);
+    }
+    uint64_t mask = 1ULL << in.power;
+    for (const int8_t pin : {in.up, in.down}) {
+      if (digitalRead(pin) == LOW) continue;
+      pinMode(pin, INPUT_PULLUP);
+      mask |= 1ULL << pin;
+    }
+    esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
+  }
+#endif
 #if SOC_PM_SUPPORT_EXT0_WAKEUP
   // The opposite of STAT's level now, so a charge start or stop wakes the device.
   // An unpowered charger (cable out) leaves STAT floating: pull it toward "not

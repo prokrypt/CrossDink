@@ -370,6 +370,10 @@ constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = FREEINK_MCU_S3 ? 24576 : 163
 // plain boot shows the splash. See setup() for the resolution.
 using BootResume = SleepWakePolicy::Resume;
 
+// X4 Pro: this boot is an Up+Down wake to change the sleep wallpaper. It goes
+// straight back to sleep, so the reader-or-Home resume flag must stay as it was.
+bool wallpaperChordWake = false;
+
 // Latched true once enterDeepSleep() commits to sleeping, before it tears down
 // the current activity. WiFi activities call silentRestart() in onExit() to
 // clear heap fragmentation on the way out, but deep sleep is a full chip reset
@@ -1702,7 +1706,7 @@ void enterDeepSleep(bool fromTimeout) {
   // will abort with the lock still held.
   {
     HalPowerManager::Lock powerLock;
-    APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+    if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
     // "request" = power button or a Sleep menu/quick action.
     PerfLog::noteDeepSleep(
         fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
@@ -1974,8 +1978,11 @@ void setup() {
   // Marks for the gap between "Input wake armed" and the IMU/RTC lines.
   LOG_INF("BOOT", "mark: power-button wake check");
   const bool shortPressWakes = readWakeShortPressFromNvs();
-  if (wakeupReason == HalGPIO::WakeupReason::PowerButton &&
-      !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
+  const HalGPIO::PageKeyWake pageKeyWake = HalGPIO::checkPageKeyWake();
+  wallpaperChordWake = pageKeyWake == HalGPIO::PageKeyWake::Chord;
+  if (pageKeyWake == HalGPIO::PageKeyWake::Stray ||
+      (pageKeyWake == HalGPIO::PageKeyWake::None && wakeupReason == HalGPIO::WakeupReason::PowerButton &&
+       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS))) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     PerfLog::noteDeepSleep("wake-not-held", "boot");
     armSleepGuard();
@@ -1992,7 +1999,7 @@ void setup() {
                                   ? MappedInputManager::Button::Down
                                   : MappedInputManager::Button::Up;
   const bool recoveryFirmwareMode = wakeupReason == HalGPIO::WakeupReason::PowerButton && !BoardConfig::isPaperMono() &&
-                                    mappedInputManager.isPressed(recoveryButton);
+                                    !wallpaperChordWake && mappedInputManager.isPressed(recoveryButton);
 #else
   const bool recoveryFirmwareMode = false;
 #endif
@@ -2077,6 +2084,16 @@ void setup() {
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
+  if (wallpaperChordWake && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM &&
+      !(SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM &&
+        !APP_STATE.lastSleepFromReader)) {
+    // The sleep screen is not a custom wallpaper, so there is nothing to change.
+    LOG_INF("MAIN", "Up+Down wake: sleep screen is not a custom image, sleeping");
+    PerfLog::noteDeepSleep("wallpaper-chord-skip", "boot");
+    armSleepGuard();
+    Storage.shutdown();
+    powerManager.startDeepSleep(gpio);
+  }
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,
                                wakeupRouteName(wakeupReason));
@@ -2156,7 +2173,8 @@ void setup() {
                           FsHelpers::hasBmpExtension(APP_STATE.favoriteBootImagePath) &&
                           Storage.exists(APP_STATE.favoriteBootImagePath.c_str());
   }
-  const bool skipSplashOnWake = isSleepWake && splashlessWakeArmed && !hasBootScreenDirectory && !hasPinnedBootScreen;
+  const bool skipSplashOnWake =
+      isSleepWake && splashlessWakeArmed && (wallpaperChordWake || (!hasBootScreenDirectory && !hasPinnedBootScreen));
   const BootResume resume = isNetworkResume    ? BootResume::Network
                             : isSilentReboot   ? BootResume::Silent
                             : skipSplashOnWake ? BootResume::SplashlessWake
@@ -2223,6 +2241,11 @@ void setup() {
       break;
   }
 
+  if (wallpaperChordWake) {
+    // Up+Down held while asleep: draw the next custom sleep image and sleep again.
+    LOG_INF("MAIN", "Up+Down wake: changing the sleep image");
+    enterDeepSleep();
+  }
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
@@ -2309,6 +2332,15 @@ void setup() {
     delay(10);
     gpio.update();
   }
+
+  if (resume != BootResume::Silent && resume != BootResume::Network) {
+    // Fresh sample of keys held through boot, settled as above (no new edges).
+    gpio.update();
+    delay(10);
+    gpio.update();
+  }
+  buttonShortcutController.consumeHeldChords(gpio.isPressed(HalGPIO::BTN_POWER), gpio.isPressed(HalGPIO::BTN_UP),
+                                             gpio.isPressed(HalGPIO::BTN_DOWN));
 
   // From here keys and touch are sampled on their own task, so events made
   // during long loop work are queued instead of dropped.

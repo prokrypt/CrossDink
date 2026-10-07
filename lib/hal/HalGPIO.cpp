@@ -7,6 +7,7 @@
 #include <SPI.h>
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
+#include <soc/soc_caps.h>
 
 #include <algorithm>
 #include <type_traits>
@@ -508,6 +509,46 @@ bool HalGPIO::verifyPowerButtonWakeup(const bool shortPressWakes, const uint16_t
     if (!inputMgr.isPowerButtonPhysicallyPressed()) return false;
   }
   return true;
+}
+
+HalGPIO::PageKeyWake HalGPIO::checkPageKeyWake() {
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  const auto& in = BoardConfig::ACTIVE.input;
+  if (!BoardConfig::isX4Pro() || in.up < 0 || in.down < 0 || esp_reset_reason() != ESP_RST_DEEPSLEEP ||
+      esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_EXT1) {
+    return PageKeyWake::None;
+  }
+  const uint64_t woke = esp_sleep_get_ext1_wakeup_status();
+  if (in.power >= 0 && (woke & (1ULL << in.power))) return PageKeyWake::None;
+  if (!(woke & ((1ULL << in.up) | (1ULL << in.down)))) return PageKeyWake::None;
+
+  // The first key down wakes the chip; give the second one time to join, then
+  // require both held together briefly so a sloppy single press doesn't count.
+  constexpr unsigned long CHORD_WINDOW_MS = 800;
+  constexpr unsigned long CHORD_HOLD_MS = 150;
+  const unsigned long start = millis();
+  unsigned long bothSince = 0;
+  bool both = false;
+  while (millis() - start < CHORD_WINDOW_MS) {
+    const bool up = digitalRead(in.up) == LOW;
+    const bool down = digitalRead(in.down) == LOW;
+    if (!up && !down) return PageKeyWake::Stray;
+    if (up && down) {
+      if (!both) {
+        both = true;
+        bothSince = millis();
+      } else if (millis() - bothSince >= CHORD_HOLD_MS) {
+        return PageKeyWake::Chord;
+      }
+    } else {
+      both = false;
+    }
+    delay(5);
+  }
+  return PageKeyWake::Stray;
+#else
+  return PageKeyWake::None;
+#endif
 }
 
 #if FREEINK_MCU_S3

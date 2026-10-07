@@ -112,6 +112,13 @@ class ButtonShortcutController {
     return dispatchChord(nowMs, action, QuickLockTrigger::UpDown);
   }
 
+  // Keys still held from the wake press must be released before they can fire a
+  // chord, or holding Power+Down to wake takes a screenshot once the app is up.
+  void consumeHeldChords(const bool powerPressed, const bool upPressed, const bool downPressed) {
+    powerDownChordActive_ = powerPressed && downPressed;
+    upDownChordActive_ = upPressed && downPressed;
+  }
+
   bool isQuickLocked() const { return quickLockState_.isLocked(); }
   QuickLockTrigger quickLockTrigger() const { return quickLockTrigger_; }
   bool isChordActive() const { return chordActive_; }
