@@ -551,6 +551,20 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // and PWAs on other origins can use the HTTP API. Preflight OPTIONS requests
   // are answered in handleNotFound().
   server->enableCORS(true);
+#ifndef SIMULATOR
+  // The server serves one request at a time, so a slow one stalls every
+  // other client (a WebDAV mount waits with no timeout). Name the slow ones.
+  server->addMiddleware([](WebServer& s, Middleware::Callback next) {
+    const unsigned long startMs = millis();
+    const bool handled = next();
+    const unsigned long tookMs = millis() - startMs;
+    if (tookMs >= 1000) {
+      LOG_DBG("WEB", "Slow request: method %d %s from %s:%u took %lu ms", static_cast<int>(s.method()), s.uri().c_str(),
+              s.client().remoteIP().toString().c_str(), s.client().remotePort(), tookMs);
+    }
+    return handled;
+  });
+#endif
 
   // Setup routes
 #if CROSSDINK_PSRAM_LOG
@@ -989,9 +1003,12 @@ void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
   const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
   // eRunning, eReady, eBlocked, eSuspended, eDeleted, eInvalid
   const char state = serverTask ? "RrBSDI"[std::min<int>(eTaskGetState(serverTask), 5)] : '-';
-  LOG_INF("WEB", "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, ws upload %d, sockets%s",
+  LOG_INF("WEB",
+          "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, client status %d method %d for %lu "
+          "ms, ws upload %d, sockets%s",
           waitedMs, state, servePhase.load(std::memory_order_relaxed), reqStart ? millis() - reqStart : 0UL,
-          wsUploadInProgress ? 1 : 0, used ? socks : " none");
+          server ? server->clientStatus() : -1, server ? server->clientMethod() : -1,
+          server ? server->clientStatusMs() : 0UL, wsUploadInProgress ? 1 : 0, used ? socks : " none");
 }
 
 void CrossPointWebServer::serverTaskMain(void* param) {
