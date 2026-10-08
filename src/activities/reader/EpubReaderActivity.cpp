@@ -1210,7 +1210,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   SETTINGS.embeddedStyle = in.embeddedStyle ? 1 : 0;
   SETTINGS.hyphenationEnabled = in.hyphenationEnabled ? 1 : 0;
   SETTINGS.textAntiAliasing =
-      in.textAntiAliasing < CrossPointSettings::TEXT_AA_COUNT ? in.textAntiAliasing : CrossPointSettings::TEXT_AA_OFF;
+      in.textAntiAliasing < CrossPointSettings::TEXT_AA_COUNT ? in.textAntiAliasing : CrossPointSettings::TEXT_AA_SHARP;
   SETTINGS.imageRendering =
       in.imageRendering < CrossPointSettings::IMAGE_RENDERING_COUNT ? in.imageRendering : SETTINGS.imageRendering;
   SETTINGS.extraParagraphSpacing = in.extraParagraphSpacing ? 1 : 0;
@@ -1244,11 +1244,8 @@ constexpr std::array<uint8_t ReaderSettingsSnapshot::*, 17> READER_SETTING_FIELD
 constexpr uint32_t SD_FONT_FAMILY_OVERRIDE = 1U << (READER_SETTING_FIELDS.size() + 1);
 constexpr uint32_t ALL_READER_SETTING_OVERRIDES = (SD_FONT_FAMILY_OVERRIDE << 1) - 1;
 constexpr uint32_t READER_FONT_OVERRIDES = (1U << 0) | (1U << 1) | SD_FONT_FAMILY_OVERRIDE;
-constexpr uint32_t TEXT_AA_OVERRIDE = 1U << 11;
 // Anti-aliasing changes the page drawing, but not its saved line/page layout.
-constexpr uint32_t READER_LAYOUT_SETTING_OVERRIDES = ALL_READER_SETTING_OVERRIDES & ~TEXT_AA_OVERRIDE;
-// Written by Epub::resolveCachePathForFilePath after it copies a CrossInk book cache.
-constexpr char AA_RESET_MARKER_NAME[] = "/aa_reset";
+constexpr uint32_t READER_LAYOUT_SETTING_OVERRIDES = ALL_READER_SETTING_OVERRIDES & ~(1U << 11);
 constexpr uint32_t SAFE_MODE_SETTING_OVERRIDES = (1U << 9) | (1U << 15) | (1U << 16);
 
 uint32_t changedReaderSettingsMask(const ReaderSettingsSnapshot& current, const ReaderSettingsSnapshot& global) {
@@ -1339,7 +1336,6 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   data.dictionaryFontPointSize = SETTINGS.dictionaryFontPointSize;
 
   const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
-  const bool aaReset = Storage.exists((cachePath + AA_RESET_MARKER_NAME).c_str());
   FsFile file;
   if (!PersistableStoreBase::recoverBackup(path.c_str()) || !Storage.openFileForRead("ERS", path, file)) {
     return data;
@@ -1414,8 +1410,6 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
     // the reader actually changed, so unrelated global defaults still apply.
     data.readerSettingsOverrideMask =
         version < READER_SETTINGS_FILE_VERSION ? ALL_READER_SETTING_OVERRIDES : overrideMask;
-    // A file migrated from CrossInk leaves AA to the global default (Off); the next save drops the marker.
-    if (aaReset) data.readerSettingsOverrideMask &= ~TEXT_AA_OVERRIDE;
     data.hasCustomReaderSettings = data.readerSettingsOverrideMask != 0;
     applyReaderSettingsOverrides(data.readerSettings, snapshot, data.readerSettingsOverrideMask);
   }
@@ -1469,9 +1463,7 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
     Storage.remove((path + ".tmp").c_str());
     return false;
   }
-  if (!PersistableStoreBase::replaceWithTemp(path.c_str())) return false;
-  Storage.remove((cachePath + AA_RESET_MARKER_NAME).c_str());
-  return true;
+  return PersistableStoreBase::replaceWithTemp(path.c_str());
 }
 
 bool saveBookRenderModeForCache(const std::string& cachePath, const uint8_t renderMode) {
