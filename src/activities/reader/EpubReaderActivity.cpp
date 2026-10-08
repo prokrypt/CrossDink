@@ -1339,8 +1339,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   data.dictionaryFontPointSize = SETTINGS.dictionaryFontPointSize;
 
   const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
-  const bool aaReset =
-      Storage.exists((cachePath + AA_RESET_MARKER_NAME).c_str()) || Storage.onlyInLegacyTwin(path.c_str());
+  const bool aaReset = Storage.exists((cachePath + AA_RESET_MARKER_NAME).c_str());
   FsFile file;
   if (!PersistableStoreBase::recoverBackup(path.c_str()) || !Storage.openFileForRead("ERS", path, file)) {
     return data;
