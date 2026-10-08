@@ -104,6 +104,7 @@ class OpdsBookBrowserActivity final : public Activity {
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
   // Picked from the server list: Back at the root returns there, not Home.
   const bool fromServerList;
+  bool leavingToList = false;  // Back to the server list: onExit hands the page cache over
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;

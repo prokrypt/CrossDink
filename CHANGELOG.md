@@ -271,6 +271,7 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
+- OPDS: Back from a catalog to the server list keeps the pages fetched so far (the servers' root pages and check marks included) instead of fetching every server again. After a restart on a fragmented heap the list still starts empty.
 - OPDS: Back on a server's root catalog returns to the server list when you opened the server from that list, instead of going Home. It also holds after the quiet restart used on a fragmented heap.
 - Keys still held when the device finishes waking (e.g. Power + Down held to wake) no longer fire a chord such as a screenshot; release them first.
 - Touch: the End of book menu rows use the same row height and spacing as the other touch lists instead of sitting crammed together.

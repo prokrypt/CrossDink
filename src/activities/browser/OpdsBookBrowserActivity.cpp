@@ -202,7 +202,13 @@ void OpdsBookBrowserActivity::onExit() {
   // Joins the background download before Wi-Fi goes down and before the
   // cache it would hand its page to is freed.
   preload.reset();
-  pageCache.reset();
+  // Back to the server list: it reuses the pages fetched so far (its roots
+  // included) instead of fetching every server again.
+  if (leavingToList) {
+    opds_page_cache_handoff::give(std::move(pageCache));
+  } else {
+    pageCache.reset();
+  }
 #if defined(FREEINK_NET_WOLFSSL)
   feedConnection.reset();  // closes the kept-alive socket before Wi-Fi goes down
 #endif
@@ -995,6 +1001,7 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool
 
 void OpdsBookBrowserActivity::leaveBrowser() {
   if (fromServerList) {
+    leavingToList = true;
     activityManager.goToBrowser();
   } else {
     onGoHome();
