@@ -31,6 +31,12 @@ inline std::atomic<unsigned long>& wifiRemoteRequestMs() {
   return ms;
 }
 
+// A request in the last 30 s: the header shows the remote-activity icon.
+inline bool wifiRemoteActive() {
+  const unsigned long last = wifiRemoteRequestMs().load(std::memory_order_relaxed);
+  return last != 0 && millis() - last < 30000;
+}
+
 #ifndef SIMULATOR
 inline void onWifiStaStart(WiFiEvent_t, WiFiEventInfo_t) { wifiStaActive().store(true, std::memory_order_relaxed); }
 inline void onWifiStaStop(WiFiEvent_t, WiFiEventInfo_t) { wifiStaActive().store(false, std::memory_order_relaxed); }
