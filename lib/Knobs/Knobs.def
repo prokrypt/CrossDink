@@ -41,6 +41,8 @@ X("Light", pulseTailMs, unsigned long, 250, 0, 2000, 50, "ms")         // transf
 X("Light", pulseWriteMs, uint32_t, 20, 10, 100, 5, "ms")               // min gap between pulse writes (loop tick)
 X("Light", pulseHoldMs, uint32_t, 10000, 0, 60000, 1000, "ms")         // a lit light keeps its level this long first
 X("Light", otaPulseGraceMs, uint32_t, 1500, 0, 10000, 250, "ms")       // OTA pulse ends this long after the stream
+X("Light", remoteBlinkMs, uint32_t, 15, 0, 200, 5, "ms")              // Wi-Fi remote input blinks the light this long (0 = off)
+X("Light", remoteBlinkPct, uint8_t, 50, 0, 100, 5, "%")               // ...to this brightness, lit or not
 X("Light", panelStep, int, 5, 1, 20, 1, "%")                           // Frontlight panel button step
 X("Light", panelFineStep, int, 1, 1, 10, 1, "%")                       // Frontlight panel touch step
 
