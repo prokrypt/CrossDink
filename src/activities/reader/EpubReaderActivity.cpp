@@ -83,6 +83,7 @@
 #include "clippings/ClippingsManager.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/UITheme.h"
+#include "platform/InputTask.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "components/TouchHeaderBackButton.h"
 #endif
@@ -102,11 +103,12 @@ namespace {
 // never needs a large internal block for them. Only jobs that never write
 // flash may use one (these touch the SD card only). The worker parks after
 // giving its done semaphore; the joiner deletes it, which frees the stack.
-bool startPsramWorker(TaskFunction_t fn, const char* name, const uint32_t stackBytes, void* arg, TaskHandle_t* task) {
+bool startPsramWorker(TaskFunction_t fn, const char* name, const uint32_t stackBytes, void* arg, TaskHandle_t* task,
+                      const BaseType_t core = TaskCores::kWorker) {
 #ifdef SIMULATOR
-  return xTaskCreatePinnedToCore(fn, name, stackBytes, arg, 1, task, TaskCores::kWorker) == pdPASS;
+  return xTaskCreatePinnedToCore(fn, name, stackBytes, arg, 1, task, core) == pdPASS;
 #else
-  return xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, 1, task, TaskCores::kWorker,
+  return xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, 1, task, core,
                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
 #endif
 }
@@ -2425,6 +2427,7 @@ void EpubReaderActivity::onEnter() {
   if (!homeThumbWorker.done) homeThumbWorker.done = xSemaphoreCreateBinary();
   homeThumbWorker.attempted = false;
   if (!imageCacheWorker.done) imageCacheWorker.done = xSemaphoreCreateBinary();
+  if (!buildWorker.done) buildWorker.done = xSemaphoreCreateBinary();
   ImageBlock::clearSessionRenderFailures();
   ImageBlock::setExtractor(
       epub.get(),
@@ -2562,6 +2565,9 @@ void EpubReaderActivity::onExit() {
   renderer.setSmoothGray(false);
   renderer.setInvertedTextGray(false);
   waitSilentIndexWorker(/*cancel=*/true);
+  joinBuildWorker(/*stop=*/true);
+  if (buildWorker.done) vSemaphoreDelete(buildWorker.done);
+  buildWorker.done = nullptr;
   waitDrawAhead(/*publish=*/false);
   // Not cancelled: at most two thumbs remain, and Home would make them anyway.
   waitHomeThumbWorker();
@@ -2897,6 +2903,71 @@ void EpubReaderActivity::showBuildPopup() {
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
+}
+
+void EpubReaderActivity::buildWorkerMain(void* param) {
+  auto* self = static_cast<EpubReaderActivity*>(param);
+  auto& job = self->buildWorker;
+  RenderLock::backgroundHolder.store(xTaskGetCurrentTaskHandle(), std::memory_order_relaxed);
+  int pages = 0;
+  const unsigned long start = millis();
+  while (!job.stop.load() && !self->backgroundBuildYieldForInput.load(std::memory_order_relaxed)) {
+    // Bounded, so stop is seen while onExit's caller holds the lock.
+    RenderLock lock(RenderLock::WAIT_TICK_MS);
+    if (!lock.ownsLock()) continue;
+    if (job.stop.load() || self->backgroundBuildYieldForInput.load(std::memory_order_relaxed) ||
+        !self->sectionBuildWantsTick() ||
+        // As loop(): an incremental build waits until it has caught the readable pages.
+        (SETTINGS.indexingMethod == CrossPointSettings::INDEXING_INCREMENTAL && !self->section->isPartial() &&
+         !self->section->activeBuildHasCaughtReadablePages())) {
+      break;
+    }
+    const bool more = self->backgroundBuildTick();
+    ++pages;
+    if (!more) break;
+    lock.unlock();
+    // The render task and loop() get the lock between pages.
+    vTaskDelay(1);
+  }
+  RenderLock::backgroundHolder.store(nullptr, std::memory_order_relaxed);
+  LOG_DBG("ERS", "Section build worker: %d page tick(s) in %lums, stack left %u", pages, millis() - start,
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+  powerManager.endBackgroundWork();
+  InputTask::wakeLoop();  // loop() joins and, if the build still wants ticks, restarts it
+  // The activity may be destroyed as soon as this is given.
+  xSemaphoreGive(job.done);
+  parkPsramWorker();
+}
+
+void EpubReaderActivity::joinBuildWorker(const bool stop) {
+  if (!buildWorker.task) return;
+  if (stop) buildWorker.stop.store(true);
+  if (xSemaphoreTake(buildWorker.done, stop ? portMAX_DELAY : 0) != pdTRUE) return;
+  deletePsramWorker(buildWorker.task);
+  buildWorker.task = nullptr;
+}
+
+bool EpubReaderActivity::backgroundBuildTick() {
+  releaseGrayscaleStripScratch();
+  if (!backgroundSectionBuildHasHeap()) return false;
+  if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
+    LOG_ERR("ERS", "Background section build failed");
+    if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
+      partialRebuildAbortedForLowMemory = true;
+      LOG_ERR("ERS", "Background section build suspended for low heap; not retrying for this section");
+      return false;
+    }
+    section.reset();
+    requestUpdate();
+    return false;
+  }
+  if (section->isBuildComplete()) {
+    const bool repositioned = applyDeferredReposition();
+    (void)repositioned;
+    requestUpdate();
+    return false;
+  }
+  return true;
 }
 
 bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
@@ -3374,28 +3445,24 @@ void EpubReaderActivity::loop() {
   // rebuilt its whole chapter in one hot-loop burst instead of following the reader.
   // sectionBuildWantsTick() holds the catch-up/window logic and is shared with
   // skipLoopDelay(), so the loop only runs hot while a tick can actually happen.
+  // The ticks run on buildWorker (UI core); one inline tick stands in if it cannot start.
+  joinBuildWorker(/*stop=*/false);
   {
     RenderLock lock(*this, RenderLock::Mode::Try);
-    if (lock.ownsLock() && !backgroundBuildYieldForInput.load(std::memory_order_relaxed) && sectionBuildWantsTick() &&
+    if (lock.ownsLock() && !buildWorker.task && !backgroundBuildYieldForInput.load(std::memory_order_relaxed) &&
+        sectionBuildWantsTick() &&
         (SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL || section->isPartial() ||
          section->activeBuildHasCaughtReadablePages())) {
       releaseGrayscaleStripScratch();
       if (backgroundSectionBuildHasHeap()) {
-        if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
-          LOG_ERR("ERS", "Background section build failed");
-          if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
-            partialRebuildAbortedForLowMemory = true;
-            LOG_ERR("ERS", "Background section build suspended for low heap; not retrying for this section");
-            return;
-          }
-          section.reset();
-          requestUpdate();
-          return;
-        }
-        if (section->isBuildComplete()) {
-          const bool repositioned = applyDeferredReposition();
-          (void)repositioned;
-          requestUpdate();
+        constexpr uint32_t STACK_BYTES = 16384;
+        buildWorker.stop.store(false);
+        powerManager.beginBackgroundWork();
+        if (!startPsramWorker(buildWorkerMain, "SectionBuild", STACK_BYTES, this, &buildWorker.task, TaskCores::kUi)) {
+          buildWorker.task = nullptr;
+          powerManager.endBackgroundWork();
+          LOG_ERR("ERS", "Cannot start section build worker; building inline");
+          if (!backgroundBuildTick()) return;
         }
       }
     }
