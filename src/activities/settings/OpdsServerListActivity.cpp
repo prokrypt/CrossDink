@@ -84,6 +84,8 @@ void OpdsServerListActivity::onEnter() {
   if (pickerMode) {
     wifi_background_join::start();
     rootsQueued = false;
+    // Back from a catalog: its page cache comes back with the roots already in it.
+    if (!pageCache) pageCache = opds_page_cache_handoff::take();
     if (!pageCache && psramHeapAvailable()) {
       const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
       pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
