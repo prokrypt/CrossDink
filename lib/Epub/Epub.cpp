@@ -698,6 +698,9 @@ std::string Epub::resolveCachePathForFilePath(const std::string& filepath, const
     const uint32_t copyMs = millis() - startMs;
     PerfLog::bookOpenStage("legacy", copyMs);
     if (copied) {
+      // Tells the reader to leave text AA to the global default for this book (see AA_RESET_MARKER_NAME).
+      HalFile marker;
+      if (Storage.openFileForWrite("EBP", cachePath + "/aa_reset", marker)) marker.close();
       LOG_INF("EBP", "Copied legacy EPUB cache: %s -> %s (%lu files, %lu B, %lu ms)", legacyPath.c_str(),
               cachePath.c_str(), static_cast<unsigned long>(files), static_cast<unsigned long>(bytes),
               static_cast<unsigned long>(copyMs));
