@@ -4,7 +4,10 @@ on:
   push:
     # Combine branches build so their firmware can be downloaded from the run.
     branches: [main, "test/combined-dink-*"]
+    paths-ignore: ["**.md", "docs/**", "site/**"]
   pull_request:
+    # A docs-only change skips the whole run; any other file in the diff runs it.
+    paths-ignore: ["**.md", "docs/**", "site/**"]
 
 # A newer commit supersedes older PR validation; keep main pushes independent.
 concurrency:
