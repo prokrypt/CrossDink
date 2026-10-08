@@ -269,6 +269,9 @@ void GfxRenderer::syncOffscreenFrom(const GfxRenderer& source, uint8_t* buffer) 
   absoluteGrayPlanes = source.absoluteGrayPlanes;
   orientation = source.orientation;
   fadingFix = source.fadingFix;
+  ditherPhaseX = source.ditherPhaseX;
+  ditherPhaseY = source.ditherPhaseY;
+  ditherAlternate = source.ditherAlternate;
 }
 
 bool GfxRenderer::copyFontFrom(const GfxRenderer& source, const int fontId) {
@@ -2325,6 +2328,9 @@ void GfxRenderer::clearScreen(const uint8_t color) const {
   // Our own target, not the panel's: an offscreen renderer (makeOffscreen)
   // must not wipe the live frame, and a lent framebuffer is null here.
   if (frameBuffer) memset(frameBuffer, color, frameBufferSize);
+  // A full BW repaint starts here: swap the gray dither pixels (burn-in guard).
+  // Strips and gray passes keep the frame's phase so planes stay aligned.
+  if (ditherAlternate && renderMode == BW) ditherPhaseX ^= 1;
 }
 
 void GfxRenderer::beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const {

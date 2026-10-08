@@ -1,7 +1,7 @@
 ## [Unreleased]
 
 ### Added
-- Screen burn-in guard: each boot (a wake from sleep counts) picks a random dither phase and a small offset. Dotted gray fills (scrollbar tracks, highlights, gray bars) shift by 0 or 1 pixel, the thick header rule is now a 50% dotted pattern so that shift moves every pixel of it, and header text, the header battery/Wi-Fi/clock and the reader's top status bar text move by up to 2 pixels (Goodies > Knobs `burnInShiftPx`, 0 = off). Nothing extra is refreshed: only what refreshes already draw changes.
+- Screen burn-in guard: each boot (a wake from sleep counts) picks a random dither phase and a small offset. Dotted gray fills (scrollbar tracks, highlights, gray bars) shift by 0 or 1 pixel, the thick header rule is now a 50% dotted pattern so that shift moves every pixel of it, and header text, the header battery/Wi-Fi/clock and the reader's top status bar text move by up to 2 pixels (Goodies > Knobs `burnInShiftPx`, 0 = off). Gray fills also swap pixels on every full-screen repaint, except on the keyboard, where every keystroke repaints. Nothing extra is refreshed: only what refreshes already draw changes.
 - Header status bar: a small up/down arrow icon left of the Wi-Fi bars while a Wi-Fi remote (or web) request came in during the last 30 s. It shows and hides only on header repaints that happen anyway, so it adds no refreshes or wakes.
 - Header status bar: a small up/down arrow icon left of the Wi-Fi bars while a Wi-Fi remote (or web) request came in during the last 30 s. When the icon turns on, and again when it times out, the screen gets one ordinary header repaint (the same partial refresh a Wi-Fi link change uses, and only on screens with a header, never the reader).
 - X4 Pro: hold Up and Down together while the device sleeps to show the next custom sleep image (Sleep Screen set to Custom, or Cover + Custom after leaving from Home). It draws the new image and goes back to sleep without opening the book or Home. A press of Up or Down alone wakes the chip for a moment and goes back to sleep with nothing drawn, and a page key still held 2 s after sleep starts is left out of the wake keys for that sleep.
@@ -273,6 +273,7 @@
 ### Fixed
 - OPDS: Back from a catalog to the server list keeps the pages fetched so far (the servers' root pages and check marks included) instead of fetching every server again. After a restart on a fragmented heap the list still starts empty.
 - OPDS: Back on a server's root catalog returns to the server list when you opened the server from that list, instead of going Home. It also holds after the quiet restart used on a fragmented heap.
+- KOReader Sync Auto Sync: opening a book and closing it (or sleeping) without turning a page no longer turns Wi-Fi on for a push. A push that failed earlier this boot still goes out, and so does the retry after a failed sleep push.
 - Keys still held when the device finishes waking (e.g. Power + Down held to wake) no longer fire a chord such as a screenshot; release them first.
 - Touch: the End of book menu rows use the same row height and spacing as the other touch lists instead of sitting crammed together.
 - KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.

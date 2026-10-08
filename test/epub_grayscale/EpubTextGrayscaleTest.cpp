@@ -205,8 +205,8 @@ TEST(DitherPhase, GrayFillsFollowThePhaseInEveryOrientation) {
     for (int phase = 0; phase < 4; ++phase) {
       const int px = phase & 1;
       const int py = phase >> 1;
-      renderer.setDitherPhase(px, py);
       renderer.clearScreen();
+      renderer.setDitherPhase(px, py);
       renderer.fillRectDither(3, 5, 21, 7, Color::LightGray);
       renderer.fillRectDither(3, 20, 21, 7, Color::DarkGray);
       for (int y = 5; y < 12; ++y) {
@@ -223,6 +223,31 @@ TEST(DitherPhase, GrayFillsFollowThePhaseInEveryOrientation) {
       }
     }
   }
+}
+
+// A full BW clear swaps the gray pixels; gray passes and a held phase do not.
+TEST(DitherPhase, FullClearAlternatesGrays) {
+  fakeheap::reset(true);
+  Storage.reset();
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.setDitherPhase(0, 0);
+  const auto darkAt00 = [&] {
+    renderer.fillRectDither(0, 0, 8, 8, Color::DarkGray);
+    return renderer.isPixelBlack(0, 0);
+  };
+  renderer.clearScreen();
+  const bool first = darkAt00();
+  renderer.clearScreen();
+  EXPECT_NE(darkAt00(), first);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+  renderer.clearScreen();
+  renderer.setRenderMode(GfxRenderer::BW);
+  EXPECT_NE(darkAt00(), first);
+  renderer.setDitherAlternate(false);
+  renderer.clearScreen();
+  EXPECT_NE(darkAt00(), first);
 }
 
 TEST(AbsoluteImageRaster, TextMatchesBlackWhiteInBothPlanesAndCancellationResetsMode) {
