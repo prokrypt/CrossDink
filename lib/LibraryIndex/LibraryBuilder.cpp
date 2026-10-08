@@ -135,22 +135,58 @@ void logScanCounters([[maybe_unused]] const uint16_t books) {
 // statics avoid threading the control through every phase helper.
 const BuildControl* gBuildControl = nullptr;
 bool gBuildCancelled = false;
+BuildProgress gProgress;
+BuildProgress gReported;
+uint32_t gLastCancelPollMs = 0;
+uint32_t gLastProgressMs = 0;
 
-// Gives a background owner the chance to pause (the hook blocks) or stop the
-// build. Returns false once the build has been told to stop.
+void reportProgress() {
+  if (gBuildControl == nullptr || gBuildControl->progress == nullptr) return;
+  gBuildControl->progress(gBuildControl->context, gProgress);
+  gReported = gProgress;
+  // Measured after the callback, so a slow e-ink refresh does not eat the interval.
+  gLastProgressMs = millis();
+}
+
+// Gives the owner the chance to pause (the service hook blocks), stop or
+// repaint the build. Returns false once the build has been told to stop.
 bool continueBuild() {
   if (gBuildCancelled) return false;
-  if (gBuildControl != nullptr && gBuildControl->service != nullptr &&
-      !gBuildControl->service(gBuildControl->context)) {
+  if (gBuildControl == nullptr) return true;
+  if (gBuildControl->service != nullptr && !gBuildControl->service(gBuildControl->context)) {
     gBuildCancelled = true;
+    return false;
   }
-  return !gBuildCancelled;
+  const uint32_t now = millis();
+  if (gBuildControl->cancelRequested != nullptr && now - gLastCancelPollMs >= LIBRARY_CANCEL_POLL_MS) {
+    gLastCancelPollMs = now;
+    if (gBuildControl->cancelRequested(gBuildControl->context)) {
+      gBuildCancelled = true;
+      return false;
+    }
+  }
+  // Each report repaints the panel, so skip it when nothing visible changed.
+  const bool changed = gProgress.phase != gReported.phase || gProgress.books != gReported.books;
+  if (changed && now - gLastProgressMs >= LIBRARY_PROGRESS_INTERVAL_MS) reportProgress();
+  return true;
+}
+
+// Phase changes report at once, outside the progress throttle.
+void reportBuildPhase(const BuildPhase phase) {
+  if (gProgress.phase == phase) return;
+  gProgress.phase = phase;
+  reportProgress();
 }
 
 struct BuildControlScope {
   explicit BuildControlScope(const BuildControl* control) {
     gBuildControl = control;
     gBuildCancelled = false;
+    gProgress = BuildProgress{};
+    gReported = BuildProgress{};
+    gLastProgressMs = millis();
+    // The first poll runs at the first opportunity.
+    gLastCancelPollMs = gLastProgressMs - LIBRARY_CANCEL_POLL_MS;
   }
   ~BuildControlScope() { gBuildControl = nullptr; }
   BuildControlScope(const BuildControlScope&) = delete;
@@ -465,6 +501,7 @@ struct WalkState {
   char* nameBuf = nullptr;
   StagedEntry* stagedEntry = nullptr;
   uint16_t books = 0;
+  bool tooManyBooks = false;
   uint16_t folderId = 0;
   uint32_t folderBytes = 0;
   uint16_t nextFirstSeen = 0;
@@ -787,6 +824,7 @@ void walk(WalkState& st, const std::string& path, const int depth) {
 
   for (HalFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
     serviceBuilder(st.serviceUnits);
+    gProgress.books = st.books;
     // Checked per entry, not per 32 units: an EPUB metadata read can take a
     // noticeable fraction of a second, and a paused owner wants the card now.
     if (!continueBuild()) st.failed = true;
@@ -860,6 +898,7 @@ void walk(WalkState& st, const std::string& path, const int depth) {
     if (st.books >= CLIX_MAX_RECORDS) {
       LOG_ERR("LIBIDX", "library exceeds the %u-book index limit; keeping the previous index",
               static_cast<unsigned>(CLIX_MAX_RECORDS));
+      st.tooManyBooks = true;
       st.failed = true;
       break;
     }
@@ -1011,8 +1050,8 @@ bool emitIndex(Stage& records, Stage& folders, WalkState& st, const uint16_t* or
 
   // Author order has to be known BEFORE the records are written because its
   // permutation section is emitted first.
-  // The title key array is already gone before this phase. At the 4096-record
-  // ceiling this checked, phase-local allocation is 57,344 bytes.
+  // The title key array is already gone before this phase. At the 32,767-record
+  // ceiling this checked, phase-local allocation is about 448 KiB (PSRAM).
   const bool rankable = coreSortsAvailable;
   if (rankable && n > 1) {
     LOG_DBG("LIBIDX", "author sort alloc: %u bytes, heap %u, max block %u", static_cast<unsigned>(n * sizeof(SortKey)),
@@ -1681,8 +1720,11 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
   }
   if (st.failed || !stageFlushed || !foldersClosed) {
     LOG_ERR("LIBIDX", "staging failed; keeping the previous index");
+    if (st.tooManyBooks) stats.failure = BuildFailure::TooManyBooks;
     return false;
   }
+  gProgress.books = st.books;
+  reportBuildPhase(BuildPhase::Organizing);
 
   stats.books = st.books;
   stats.folders = st.folderId;
@@ -1800,7 +1842,7 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
   dedupKeys.reset();
 
   // Read the staged fold prefixes back and sort ordinals. The checked 14-byte
-  // key allocation reaches 57,344 bytes at the 4,096-record format ceiling.
+  // key allocation reaches about 448 KiB (PSRAM) at the 32,767-record ceiling.
   auto order = makeUniqueNoThrow<uint16_t[]>(st.books == 0 ? 1 : st.books);
   if (!order) {
     LOG_ERR("LIBIDX", "order array alloc failed (%u books)", static_cast<unsigned>(st.books));
@@ -1907,7 +1949,11 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
   // visit, which is keyed by Storage.libraryScanCurrent(), not by this flag.
   indexDirty.exchange(false, std::memory_order_relaxed);
   const bool ok = rebuildLibraryIndex(rootPath, stats, readMetadata, control, retryFailedMetadata);
-  if (!ok) invalidateLibraryIndex();
+  if (!ok) {
+    if (stats.cancelled) stats.failure = BuildFailure::Cancelled;
+    if (stats.failure == BuildFailure::None) stats.failure = BuildFailure::Error;
+    invalidateLibraryIndex();
+  }
   return ok;
 }
 

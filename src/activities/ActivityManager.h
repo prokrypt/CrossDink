@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -88,6 +89,9 @@ class ActivityManager {
   // Set when an overlay is closed specifically to hand control back to the
   // reader's menu. It must wait until the reader is current again.
   int16_t pendingReaderMenuAction = -1;
+  // Target reader retained underneath nested screens while Home/Reader cancels
+  // each child through the ordinary activity-result path.
+  Activity* pendingHomeReaderTarget = nullptr;
 
   // A one-shot Home selection to restore after Settings replaces Home. This
   // is intentionally not persisted as recent-book order.
@@ -139,6 +143,8 @@ class ActivityManager {
   const Activity* listSelectionOwner = nullptr;
 
   Activity* findEpubReader() const;
+  bool handleHomeReaderShortcut();
+  bool continueHomeReaderUnwind();
   bool handleGlobalHomeGesture();
   bool restoreBackdropBehindCurrentOverlay();
 
@@ -218,6 +224,7 @@ class ActivityManager {
   bool wifiActivitiesShareRemote() const;
 #ifdef SIMULATOR
   bool isCurrentActivityNamed(const char* activityName) const;
+  Activity* simulatorCurrentActivity() const { return currentActivity.get(); }
 #endif
   bool canSnapshotForSleepOverlay() const;
   bool requestManualReaderRefresh();

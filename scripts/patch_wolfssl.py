@@ -32,7 +32,7 @@ def patch_user_settings(path: Path) -> None:
     text = original_text
     if MARKER in text:
         text = text.split(MARKER, 1)[0].rstrip()
-    patched_text = text + OVERRIDES + "\n"
+    patched_text = text.rstrip() + OVERRIDES + "\n"
     if original_text == patched_text:
         return
     path.write_text(patched_text)

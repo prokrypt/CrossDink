@@ -1099,6 +1099,26 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   return w;
 }
 
+GfxRenderer::TextVerticalBounds GfxRenderer::getTextVerticalBounds(const int fontId, const char* text) const {
+#if CROSSDINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
+  if (!text || !*text) return {};
+  const int resolvedFontId = resolveTextFontId(fontId, text, EpdFontFamily::REGULAR);
+  const auto fontIt = fontMap.find(resolvedFontId);
+  if (fontIt == fontMap.end()) {
+    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
+    return {};
+  }
+
+  std::string visualBuffer;
+  const char* textCursor = resolveVisualText(text, visualBuffer, BidiUtils::BidiBaseDir::AUTO);
+  int width = 0, height = 0, minY = 0, maxY = 0;
+  fontIt->second.getTextDimensions(textCursor, &width, &height, EpdFontFamily::REGULAR, &minY, &maxY);
+  const int ascender = fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
+  return {ascender - maxY, ascender - minY};
+}
+
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
                                    const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir) const {
   const int x = (getScreenWidth() - getTextWidth(fontId, text, style, baseDir)) / 2;
@@ -3389,4 +3409,36 @@ void GfxRenderer::setRenderMode(RenderMode mode) {
     absoluteGrayPlanes = false;
   }
   renderMode = mode;
+}
+
+uint8_t GfxRenderer::getFontPointSize(const int fontId) const {
+#if CROSSDINK_SCALABLE_FONTS
+  const auto it = fontMap.find(fontId);
+  if (it != fontMap.end()) {
+    const auto* data = it->second.getData();
+    if (data && data->sizeFamily) return data->pointSize;
+  }
+#else
+  (void)fontId;
+#endif
+  return 0;
+}
+
+int GfxRenderer::getFontIdForSize(const int fontId, const uint8_t points) const {
+#if CROSSDINK_SCALABLE_FONTS
+  if (!points) return fontId;
+  const auto it = fontMap.find(fontId);
+  if (it == fontMap.end()) return fontId;
+  const auto* base = it->second.getData();
+  if (!base || !base->sizeFamily || base->pointSize == points) return fontId;
+  // Families register their bounded size range before layout/rendering. This
+  // lookup never opens files, mutates the map, or allocates in the render path.
+  for (const auto& font : fontMap) {
+    const auto* data = font.second.getData();
+    if (data && data->sizeFamily == base->sizeFamily && data->pointSize == points) return font.first;
+  }
+#else
+  (void)points;
+#endif
+  return fontId;
 }

@@ -189,7 +189,7 @@ void XtcReaderMenuActivity::refreshListItems() {
     listItems[index].actionValue = static_cast<int16_t>(index);
     if (items[index].action == MenuAction::DISABLE_TOUCHSCREEN) {
       listItems[index].toggle = true;
-      listItems[index].toggleChecked = SETTINGS.disableReaderTouchscreen;
+      listItems[index].toggleChecked = SETTINGS.disableReaderTouchscreen != 0;
     } else if (items[index].action == MenuAction::TOGGLE_BOOK_STATS_TRACKING) {
       listItems[index].toggle = true;
       listItems[index].toggleChecked = bookStatsEnabled;

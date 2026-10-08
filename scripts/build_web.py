@@ -65,7 +65,12 @@ def esbuild_commands():
         yield [npx, "--yes", f"esbuild@{ESBUILD_VERSION}"]
     exe = shutil.which("esbuild")
     if exe:
-        yield [exe]
+        try:
+            version = subprocess.check_output([exe, "--version"], text=True, timeout=10).strip()
+        except (OSError, subprocess.SubprocessError):
+            return
+        if version == ESBUILD_VERSION:
+            yield [exe]
 
 def minify_page_assets(paths):
     """Minify page JS/CSS in one esbuild run. Returns {path: text}, or {} when

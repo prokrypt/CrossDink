@@ -43,8 +43,9 @@ inline constexpr size_t CLIX_FOLD_BYTES = 96;
 inline constexpr size_t CLIX_AUTHOR_KEY_BYTES = 12;
 
 // A 2000-book card already produces a 429 KiB index. This hard bound keeps every
-// record count and permutation ordinal representable by uint16_t.
-inline constexpr uint16_t CLIX_MAX_RECORDS = 4096;
+// record count and permutation ordinal representable by uint16_t, below both the
+// 0xFFFF "no such row" sentinel and the builder's PRIOR_MATCHED (0x8000) flag.
+inline constexpr uint16_t CLIX_MAX_RECORDS = 32767;
 
 // Complete-path fingerprint stored in front of every record's name blob.
 // Shared by the builder's reconciliation and the browser's recent-book lookup,

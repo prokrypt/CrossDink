@@ -3,6 +3,7 @@
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
 #include <Epub/converters/ImageDecoderFactory.h>
+#include <Epub/converters/ImageDimsProbe.h>
 #include <Epub/hyphenation/Hyphenator.h>
 #include <Epub/parsers/PreviewBlockLocator.h>
 #include <Epub/tables/CompactTableLayout.h>

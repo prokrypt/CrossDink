@@ -71,6 +71,7 @@ class XtcReaderActivity final : public Activity {
   bool saveProgress(uint32_t page);
   bool queueProgressSave(uint32_t pageToRender);
   bool flushQueuedProgress();
+  void saveProgressBeforeRestart();
   void loadProgress();
   void pauseReadingStatsTimer(const char* source = "unknown");
   void syncStatsTrackingState();
@@ -112,6 +113,7 @@ class XtcReaderActivity final : public Activity {
     return true;
   }
   bool isReaderActivity() const override { return true; }
+  bool isBookReaderActivity() const override { return true; }
   // cppcheck-suppress uselessOverride ; differs from the base only on some device builds
   bool usesFullScreenReaderVerticalSwipes() const override {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
@@ -140,7 +142,7 @@ class XtcReaderActivity final : public Activity {
   void onFrontlightPanelOpened() override {
     pauseReadingStatsTimer("frontlight_panel");
     // The panel leads to Settings, whose update and font downloads restart the device.
-    flushQueuedProgress();
+    saveProgressBeforeRestart();
   }
   void onFrontlightPanelClosed() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;

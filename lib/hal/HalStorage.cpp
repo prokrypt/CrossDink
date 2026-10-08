@@ -414,6 +414,7 @@ bool twinAllowed(const char* path) {
     const size_t n = strlen(cache);
     if (strncmp(first, cache, n) == 0 && (first[n] == '\0' || first[n] == '/')) return false;
   }
+  if (strncmp(first, "home_carousel_cache_", 20) == 0) return false;  // per-position carousel cache
   if (strncmp(first, "xtc_", 4) != 0 && strncmp(first, "txt_", 4) != 0) return true;
   const char* slash = strchr(first, '/');
   return slash && !strchr(slash + 1, '/') && HalStorage::isBookUserData(slash + 1);

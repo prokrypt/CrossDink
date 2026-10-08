@@ -507,6 +507,7 @@ bool TxtReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRB
     case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
+    case CrossPointSettings::SHORT_PWRBTN::HOME_READER:
       return true;
     default:
       return false;
@@ -528,15 +529,15 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CALIBRE_WIRELESS:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::JOIN_NETWORK:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CREATE_HOTSPOT:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_DARK_MODE:
@@ -608,15 +609,15 @@ bool TxtReaderActivity::executeLongPressBackAction() {
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CALIBRE_WIRELESS:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_JOIN_NETWORK:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_HOTSPOT:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_TOGGLE_DARK_MODE:
@@ -640,6 +641,7 @@ bool TxtReaderActivity::handleShortcutAction(const uint8_t action) {
 }
 
 bool TxtReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PWRBTN action) {
+  if (action == CrossPointSettings::SHORT_PWRBTN::HOME_READER) return dispatchShortcutAction(action);
   if (action == CrossPointSettings::SHORT_PWRBTN::QUICK_ACTIONS) {
     QuickActions::showConfiguredPopup(
         quickActionsPopup, [this] { requestUpdate(); },
@@ -1328,4 +1330,12 @@ ScreenshotInfo TxtReaderActivity::getScreenshotInfo() const {
   info.progressPercent = totalPages > 0 ? static_cast<int>((currentPage + 1) * 100.0f / totalPages + 0.5f) : 0;
   if (info.progressPercent > 100) info.progressPercent = 100;
   return info;
+}
+
+void TxtReaderActivity::saveProgressBeforeRestart() {
+  // Silent network-mode restarts skip onExit(); coordinate with the render task.
+  RenderLock lock(*this);
+  if (!(flushQueuedProgress())) {
+    LOG_ERR("READER", "Failed to save progress before restart");
+  }
 }

@@ -1222,6 +1222,8 @@ CrossPointSettings::SHORT_PWRBTN chordPowerAction(const ButtonShortcutController
       return Power::NEARBY_POSITION_SYNC;
     case Chord::Library:
       return Power::LIBRARY;
+    case Chord::HomeReader:
+      return Power::HOME_READER;
     case Chord::FileTransfer:
       return Power::FILE_TRANSFER;
     case Chord::CalibreWireless:
@@ -2026,6 +2028,10 @@ void setup() {
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       wakePowerReleasePending = true;
+      // Readers also handle held Power shortcuts. Hide the wake hold from
+      // mapped input until its release, while allowing the activity to load.
+      mappedInputManager.suppressNextPowerRelease();
+      mappedInputManager.suppressNextPowerConfirmRelease();
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // TEMP: continue booting while diagnosing post-flash/reset behavior.
@@ -2112,6 +2118,7 @@ void setup() {
     }
   }
   Frontlight.releaseAfterWake();
+  LOG_DBG("LIGHT", "Frontlight boot state: %s (silent=%d)", restoreLightOn ? "on" : "off", isSilentReboot ? 1 : 0);
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
   BatteryLog::lightChanged();  // onBoot ran before the light was set up
 
@@ -2159,7 +2166,7 @@ void setup() {
   const bool shouldRestoreSleepFrame =
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
-  bool x4WakeFrameAlreadyCleaned = false;
+  bool x4WakeCanFastPaint = false;
 
   // A plain software restart that left its frame behind (restartKeepingPanelFrame,
   // e.g. after an SD firmware update) also starts seamlessly: the splash is
@@ -2189,6 +2196,15 @@ void setup() {
           renderer.cleanupGrayscaleWithFrameBuffer();
           allowFastInitialReaderRefresh = true;
         }
+#ifndef SIMULATOR
+        else if (display.restoreVisibleFrame()) {
+          // Quick Resume left this exact frame on the glass. Rebuild the panel's
+          // old-image plane so the first Home/reader paint only drives changed
+          // pixels, including removal of the sleep moon.
+          allowFastInitialReaderRefresh = true;
+          x4WakeCanFastPaint = true;
+        }
+#endif
       } else if (isUc8279X3 && hasValidSleepFrame) {
         // The frame passed the size preflight but could not be read after display
         // setup. Do one clean, device-specific recovery rather than painting
@@ -2205,7 +2221,7 @@ void setup() {
         // baseline, so the reader's first page can use its fast initial cycle
         // instead of repeating the cleanup waveform.
         allowFastInitialReaderRefresh = true;
-        x4WakeFrameAlreadyCleaned = true;
+        x4WakeCanFastPaint = true;
       }
       break;
     case BootResume::Splash:
@@ -2271,7 +2287,7 @@ void setup() {
     // crashed (indicated by readerActivityLoadCount > 0)
     // On X4, use the first Home paint to clean the retained sleep image.
     const auto homeRefreshMode =
-        resume == BootResume::SplashlessWake && shouldClearX4WakeGhosting() && !x4WakeFrameAlreadyCleaned
+        resume == BootResume::SplashlessWake && shouldClearX4WakeGhosting() && !x4WakeCanFastPaint
             ? HalDisplay::HALF_REFRESH
             : HalDisplay::FAST_REFRESH;
     activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);

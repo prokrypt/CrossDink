@@ -620,6 +620,7 @@ void EpubReaderDrawerActivity::commitSettings() {
     // Save only an SD font whose preview already loaded and prewarmed.
     LOG_ERR("ERDM", "Selected SD font was not previewed; retaining previous reader font");
     restoreReaderDraftFont(draft, lastGoodPreviewSettings);
+    state.pendingFontIndex = -1;
   }
   applySettings(draft);
   if (saveReaderSettingsCallback) {
@@ -1382,24 +1383,7 @@ void EpubReaderDrawerActivity::buildDictionaryPane(UiApp::ScreenType& screen) {
                                screen.theme().listScrollInset);
 }
 
-void EpubReaderDrawerActivity::buildFontFamilyPane(UiApp::ScreenType& screen) {
-  buildPaneHeader(screen);
-  const int total = static_cast<int>(fontLabels.size());
-  const fui::Rect listBounds = screen.body();
-  fui::ListProps props;
-  // This picker has no subtitles, so it does not need the default
-  // label-plus-subtitle row height that left a conspicuous blank band above
-  // the tab row when scrolling.
-  props.rowHeight =
-      !mappedInput.hasTouchHardware()
-          ? uiListRowHeight(screen.theme(), UiListRowType::SingleLine)
-          : std::max<int16_t>(screen.theme().minTouchSize,
-                              static_cast<int16_t>(screen.theme().rowHeight - FONT_FAMILY_ROW_HEIGHT_REDUCTION));
-  visibleRows = configureDrawerList(props, screen.theme(), listBounds);
-  const int top = std::clamp<int>(state.paneTopIndex, 0, std::max(0, total - visibleRows));
-  state.paneTopIndex = static_cast<int16_t>(top);
-  const int drawCount = std::min<int>({visibleRows, WINDOW_SIZE, total - top});
-  if (!CROSSDINK_APP_READER_SAMPLE_PREVIEW) evenlySpaceDrawerListRows(props, listBounds, drawCount);
+int EpubReaderDrawerActivity::currentFontSelectionIndex() const {
   int selectedFontIndex = state.pendingFontIndex;
   if (selectedFontIndex < 0) {
     if (draft.sdFontFamilyName[0] != '\0') {
@@ -1418,6 +1402,28 @@ void EpubReaderDrawerActivity::buildFontFamilyPane(UiApp::ScreenType& screen) {
       }
     }
   }
+  return selectedFontIndex;
+}
+
+void EpubReaderDrawerActivity::buildFontFamilyPane(UiApp::ScreenType& screen) {
+  buildPaneHeader(screen);
+  const int total = static_cast<int>(fontLabels.size());
+  const fui::Rect listBounds = screen.body();
+  fui::ListProps props;
+  // This picker has no subtitles, so it does not need the default
+  // label-plus-subtitle row height that left a conspicuous blank band above
+  // the tab row when scrolling.
+  props.rowHeight =
+      !mappedInput.hasTouchHardware()
+          ? uiListRowHeight(screen.theme(), UiListRowType::SingleLine)
+          : std::max<int16_t>(screen.theme().minTouchSize,
+                              static_cast<int16_t>(screen.theme().rowHeight - FONT_FAMILY_ROW_HEIGHT_REDUCTION));
+  visibleRows = configureDrawerList(props, screen.theme(), listBounds);
+  const int top = std::clamp<int>(state.paneTopIndex, 0, std::max(0, total - visibleRows));
+  state.paneTopIndex = static_cast<int16_t>(top);
+  const int drawCount = std::min<int>({visibleRows, WINDOW_SIZE, total - top});
+  if (!CROSSDINK_APP_READER_SAMPLE_PREVIEW) evenlySpaceDrawerListRows(props, listBounds, drawCount);
+  const int selectedFontIndex = currentFontSelectionIndex();
   for (int i = 0; i < drawCount; ++i) {
     itemWindow[static_cast<size_t>(i)] = fui::ListItem{};
     itemWindow[static_cast<size_t>(i)].label = fontLabels[static_cast<size_t>(top + i)].c_str();
@@ -1509,6 +1515,12 @@ void EpubReaderDrawerActivity::openPane(const ReaderDrawerPane pane) {
   state.paneTopIndex = 0;
   state.selectedIndex = 0;
   buttonSliderState = {};
+  if (pane == ReaderDrawerPane::FontFamily) {
+    const int currentIndex = currentFontSelectionIndex();
+    state.selectedIndex = static_cast<int16_t>(std::max(0, currentIndex));
+    state.paneTopIndex = state.selectedIndex;
+    buttonFocusActive = currentIndex >= 0;
+  }
   if (pane == ReaderDrawerPane::Percent || pane == ReaderDrawerPane::StablePage) {
     percentKeypadActive = false;
     percentConfirmLongPressFired = false;
@@ -1993,8 +2005,9 @@ void EpubReaderDrawerActivity::openEnumOptions(const RowId row, const StrId titl
   previewedEnumOptionIndex = -1;
   enumOptionReturnPane = state.pane;
   state.pane = ReaderDrawerPane::EnumOptions;
-  state.paneTopIndex = 0;
-  state.selectedIndex = 0;
+  state.selectedIndex = enumOptionSelectedIndex;
+  state.paneTopIndex = state.selectedIndex;
+  buttonFocusActive = true;
   requestUpdate();
 }
 
@@ -2373,7 +2386,8 @@ void EpubReaderDrawerActivity::moveSelection(const bool forward, const bool page
     count = static_cast<int>(activeRows().size());
   }
   if (count <= 0) return;
-  if (!mappedInput.hasTouchHardware() && state.pane == ReaderDrawerPane::Root && !buttonFocusActive) {
+  if (!mappedInput.hasTouchHardware() && !buttonFocusActive &&
+      (state.pane == ReaderDrawerPane::Root || state.pane == ReaderDrawerPane::FontFamily)) {
     state.selectedIndex = forward ? 0 : static_cast<int16_t>(count - 1);
   } else {
     state.selectedIndex = page ? (forward ? ButtonNavigator::nextPageIndex(state.selectedIndex, count, visibleRows)
@@ -2550,6 +2564,7 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
     LOG_ERR("ERDM", "Button preview exhausted EPUB layout reserve: free=%lu maxAlloc=%lu", heap.freeHeap,
             heap.maxAllocHeap);
     restoreReaderDraftFont(draft, lastGoodPreviewSettings);
+    state.pendingFontIndex = -1;
     previewUnavailable = true;
     previewFontId = -1;
     renderPreviewUnavailable();
@@ -2582,6 +2597,7 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
   if (!fontLoaded && ownedPreviewModel) {
     LOG_ERR("ERDM", "Could not load selected SD font for button preview");
     restoreReaderDraftFont(draft, lastGoodPreviewSettings);
+    state.pendingFontIndex = -1;
     previewUnavailable = true;
     previewFontId = -1;
     renderPreviewUnavailable();
@@ -2594,6 +2610,7 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
     if (!prewarmScope->endScanAndPrewarm() && ownedPreviewModel) {
       LOG_ERR("ERDM", "Could not prewarm selected font for button preview");
       restoreReaderDraftFont(draft, lastGoodPreviewSettings);
+      state.pendingFontIndex = -1;
       previewUnavailable = true;
       previewFontId = -1;
       renderPreviewUnavailable();
@@ -2790,10 +2807,20 @@ void EpubReaderDrawerActivity::loop() {
     }
     return;
   }
-  buttonNavigator.onNextRelease([this] { moveSelection(true, false); });
-  buttonNavigator.onPreviousRelease([this] { moveSelection(false, false); });
-  buttonNavigator.onNextContinuous([this] { moveSelection(true, true); });
-  buttonNavigator.onPreviousContinuous([this] { moveSelection(false, true); });
+  const auto left = mappedInput.menuButton(MappedInputManager::Button::Left);
+  const auto right = mappedInput.menuButton(MappedInputManager::Button::Right);
+  const auto up = mappedInput.menuButton(MappedInputManager::Button::Up);
+  const auto down = mappedInput.menuButton(MappedInputManager::Button::Down);
+  buttonNavigator.onRelease({down, down}, [this] { moveSelection(true, false); });
+  buttonNavigator.onRelease({up, up}, [this] { moveSelection(false, false); });
+  buttonNavigator.onContinuous({down, down}, [this] { moveSelection(true, true); });
+  buttonNavigator.onContinuous({up, up}, [this] { moveSelection(false, true); });
+  if (state.pane == ReaderDrawerPane::Root) {
+    buttonNavigator.onRelease({right, right}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, true)); });
+    buttonNavigator.onRelease({left, left}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, false)); });
+    buttonNavigator.onContinuous({right, right}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, true)); });
+    buttonNavigator.onContinuous({left, left}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, false)); });
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (!mappedInput.hasTouchHardware() && state.pane == ReaderDrawerPane::Root && !buttonFocusActive) {
       changeTab(adjacentReaderDrawerTab(state.tab, true));
@@ -2871,8 +2898,12 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
     const bool fineAdjustment = (state.pane == ReaderDrawerPane::Percent && !percentKeypadActive) ||
                                 state.pane == ReaderDrawerPane::AutoPageTurn ||
                                 (readerDrawerStepChangesSettings(state.pane) && buttonSliderState.editing);
-    const char* previousLabel = tr(STR_DIR_UP);
-    const char* nextLabel = tr(STR_DIR_DOWN);
+    const bool menuNavigation = state.pane != ReaderDrawerPane::Percent &&
+                                state.pane != ReaderDrawerPane::AutoPageTurn &&
+                                !readerDrawerStepChangesSettings(state.pane);
+    const bool horizontalFront = menuNavigation && !deviceUsesHorizontalSideButtonsForMenus(gpio);
+    const char* previousLabel = horizontalFront ? tr(STR_DIR_LEFT) : tr(STR_DIR_UP);
+    const char* nextLabel = horizontalFront ? tr(STR_DIR_RIGHT) : tr(STR_DIR_DOWN);
     if (state.pane == ReaderDrawerPane::Percent && percentKeypadActive) {
       previousLabel = tr(STR_DIR_LEFT);
       nextLabel = tr(STR_DIR_RIGHT);

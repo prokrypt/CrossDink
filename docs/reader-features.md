@@ -13,7 +13,8 @@ The sections here focus on larger CrossDink-specific reader features. Small fixe
 
 Reader settings are available directly from the in-book menu without leaving the book.
 
-Open the reader menu and select **Book Options** to adjust settings such as:
+EPUB books use five icon tabs on every device. Use **Font** and **Layout**
+to adjust settings such as:
 
 - Font family
 - Font size
@@ -23,11 +24,12 @@ Open the reader menu and select **Book Options** to adjust settings such as:
 - Alignment
 - Image rendering
 - [Publisher Page Numbers](#publisher-page-numbers)
-- [Stable Page Numbers](#stable-page-numbers), when the book includes CrossDink reference metadata
 - [Focus Reading](#focus-reading) / Guide Dots
-- Dark Reader Mode
 
-Changes take effect immediately.
+Changes take effect immediately, with live previews for font, spacing, and
+margin choices. The **More**, **Bookmarks**, and **Settings** tabs contain
+navigation, reading tools, and book settings. See the [Reader Menu](./user-guide.md#5-reader-menu)
+for the tab map and button controls.
 
 EPUB layout choices such as font size and margins can be saved for that book
 and take precedence over matching global defaults. Status bar settings are global. See [Global settings and individual
@@ -100,11 +102,20 @@ styles will fall back to another face. Variable fonts are not supported.
 
 See [Scalable Fonts](./scalable-fonts.md) for installation details and limits.
 
+## Reader Status Bars
+
+Customize top and bottom status bars separately from **Settings > Reader >
+Status Bars**, or from the EPUB Reader Menu's **Settings > Status Bars**.
+Each bar has three left slots, one center slot, and three right slots. Choose
+items such as titles, page counts, progress, battery, or Time Left, and configure
+a book/chapter progress bar. The editor previews each bar where it appears
+while reading. These settings are global and apply across EPUB, TXT, and XTC
+books; the available information varies by format.
+
 ## Dark Reader Mode
 
-Dark Reader Mode reverses the reader colors so text is shown light-on-dark.
-
-Toggle it from **Reader settings**.
+Dark Mode reverses the display colors so text is shown light-on-dark in the
+reader and menus. Toggle it from **Settings > Display > Dark Mode**.
 
 Dark Reader Mode can also be assigned to shortcut actions, so it can be switched without opening the full settings menu.
 
@@ -120,9 +131,8 @@ EPUB readers can choose from five word-spacing levels: **Normal** and levels
 **1** through **4**. Higher levels add more space between words, which can make
 text easier to scan without changing the font size or line height.
 
-Open the reader menu, then select **Reader Options > Font Options > Word
-Spacing**. The current EPUB is laid out again when you change this setting, so
-the number and positions of pages may change. Word Spacing is not available for
+Open the reader menu, then select **Font > Line/Word Spacing > Word Spacing**. The current EPUB is laid out again when you change this
+setting, so the number and positions of pages may change. Word Spacing is not available for
 TXT books.
 
 ## Publisher Page Numbers
@@ -132,8 +142,8 @@ printed page numbers from a physical edition. When the book includes labeled
 page-break markers, CrossDink displays those labels in the reader margin beside
 the matching content.
 
-To enable them, open the reader menu and select **Reader Options > Publisher
-Page Numbers**. If an EPUB does not contain labeled page-break markers, there
+To enable them, open the reader menu and select **Layout > Publisher Page
+Numbers**. If an EPUB does not contain labeled page-break markers, there
 are no publisher page numbers for CrossDink to display.
 
 Publisher page markers are preserved by **CrossDink Default** and **Balanced**
@@ -149,12 +159,13 @@ consistent when you change fonts, spacing, orientation, or indexing mode.
 
 To enable them:
 
-1. Open the reader menu and select **Reader Options**.
+1. Open the reader menu and select the **Settings** tab.
 2. Select **Status Bars**.
-3. Toggle **Stable Page Numbers** on.
+3. Select **Top Status Bar** or **Bottom Status Bar**.
+4. Choose a left, center, or right slot, then select **Stable Page Numbers**.
 
-The option appears only when the current EPUB contains valid CrossDink reference
-metadata. To create that metadata, optimize the EPUB in the CrossDink web
+The item shows a page number only when the current EPUB contains valid CrossDink
+reference metadata. To create that metadata, optimize the EPUB in the CrossDink web
 interface or with [Inky](https://inky.crossink.dev) before uploading it to the reader.
 In the optimizer's settings, the **Characters per Page** controls the reference-page size; the default
 is 1,500 characters. Lower values create more reference pages, while higher
@@ -190,7 +201,7 @@ Auto Page Turn can advance pages on a timer while reading.
 
 CrossDink adds a custom interval picker, so the interval is not limited to the built-in presets. The reader can also remember a different Auto Page Turn interval per book.
 
-Open the reader menu and select **Auto Page Turn** to configure it.
+Open the reader menu's **More** tab and select **Auto Page Turn** to configure it.
 
 ## Time Left
 
@@ -198,7 +209,7 @@ CrossDink can show estimated time left in the current chapter or book.
 
 The estimate is based on your recent forward-page reading pace. Non-linear jumps such as chapter skips, bookmark jumps, and footnote navigation are handled separately so they do not immediately distort the normal reading estimate.
 
-Use **Reset Reading Pace** if the estimate was trained by unusual reading behavior and you want it to learn again from fresh page turns.
+Use **Reset Reading Pace** in the EPUB Reader Menu's **Settings** tab if the estimate was trained by unusual reading behavior and you want it to learn again from fresh page turns.
 
 ## Bookmarks
 
@@ -246,7 +257,10 @@ clipping and its highlight, not an entry already exported to
 
 ## Reading Stats
 
-CrossDink tracks per-book reading stats automatically and aggregates them into global stats for EPUB and XTC files.
+CrossDink tracks per-book reading stats automatically and aggregates them into
+global stats for EPUB and XTC files. With tracking enabled for the device and
+book, you can view that book's **Reading Stats** directly from its **Library**
+or **Browse Files** action menu without opening it first.
 
 ### Turn tracking on or off
 

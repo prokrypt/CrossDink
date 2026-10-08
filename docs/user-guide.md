@@ -18,7 +18,7 @@ This guide covers day-to-day device use. For focused reference material, see [Re
     - [3.1 Home Screen](#31-home-screen)
     - [3.2 Reading Mode](#32-reading-mode)
     - [3.3 Browse Files Screen](#33-browse-files-screen)
-    - [3.4 Recent Books Screen](#34-recent-books-screen)
+    - [3.4 Library Screen](#34-library-screen)
     - [3.5 File Transfer Screen](#35-file-transfer-screen)
     - [3.5.1 Calibre Wireless Transfers](#351-calibre-wireless-transfers)
     - [3.6 Settings](#36-settings)
@@ -110,7 +110,7 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 ### 3.1 Home Screen
 
-The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, the **[Browse Files](#33-browse-files-screen)** screen, the **[Recent Books](#34-recent-books-screen)** screen, the **[File Transfer](#35-file-transfer-screen)** screen, or **[Settings](#36-settings)**.
+The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, the **[Browse Files](#33-browse-files-screen)** screen, the **[Library](#34-library-screen)** screen, the **[File Transfer](#35-file-transfer-screen)** screen, or **[Settings](#36-settings)**.
 
 ### 3.2 Reading Mode
 
@@ -125,9 +125,36 @@ The Browse Files screen acts as a file and folder browser. The full path to the 
 - **Delete Files or Folders:** Hold and release **Confirm** to open the selected file or folder action menu, then choose **Delete**. You will be given an option to either confirm or cancel. Folder deletion is limited to empty folders.
 - **Book Actions:** EPUB and XTC files can also show options such as **Delete Cache**, **Mark Finished**, and **Track Reading Stats** from the same action menu. Turning tracking off for a book keeps its saved stats; it only stops new tracking for that book.
 
-### 3.4 Recent Books Screen
+### 3.4 Library Screen
 
-The Recent Books screen lists the most recently opened books in a chronological view, displaying title and author.
+**Library** replaces Recent Books and lists supported books across the SD card.
+The first visit reads the card to build the list; later visits reuse it and
+refresh after file changes or transfers.
+
+- **Find a book:** Use **Search** to filter by title or author. With **Use Book
+  Metadata** off, books are shown and searched by filename instead.
+- **Sort:** Choose **Date Added**, **Title**, **Author (Last Name)**, **Author
+  (First Name)**, **Recently Opened**, **Series**, or **Genre**. You can reverse
+  the sort order. **Recently Opened** shows only your saved reading history,
+  rather than every book on the card.
+- **Buttons:** Use **Up/Down** to select a book and **Confirm** to open it. Hold
+  **Confirm** for book actions. **Left** opens Sort; **Right** opens the menu
+  containing **Search**, **Settings**, and **Refresh Library**.
+- **Touch:** Tap a book to open it, hold it for book actions, and swipe to scroll.
+  Use the search, settings, refresh, and sort controls at the top.
+- **Library Settings:** Open Library's **Settings** to choose embedded EPUB
+  metadata or filenames, compact or expanded rows, and a list or cover grid
+  for **Recently Opened View**. You can also hide finished books, show series
+  and genre, and filter which book formats appear.
+- **Book actions:** EPUB and XTC books can offer **Reading Stats** without
+  opening the book, when tracking is enabled for the device and that book.
+  The action menu also includes book-specific controls such as **Mark Finished**
+  and **Track Reading Stats** where supported.
+
+If files were changed externally while the reader stayed on, use **Refresh
+Library** to scan the card again. **Date Added** uses the file's creation time
+when available, so a copy tool that preserves old timestamps may affect its
+order.
 
 ### 3.5 File Transfer Screen
 
@@ -225,10 +252,13 @@ device model and build.
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "Lyra Carousel" - A carousel-based Lyra home layout
   - "RoundedRaff" - A rounded theme with additional visual styling
+  - "Cover Grid" - Shows the current
+    book and up to six additional book covers; tap a cover to open that book
 
   Themes that show reading stats hide those stats while **Track Reading Stats** is off.
 
-- **Recent Books View**: Choose whether the Recent Books screen uses a list or grid layout.
+- Library display and filtering options are now in **Library > Settings**; see
+  [Library Screen](#34-library-screen).
 
 - **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
   - "OFF" (default) - Disable the fix
@@ -258,31 +288,36 @@ device model and build.
 
 **Global settings and individual books:** Choices under **Settings > Reader**
 are the defaults for your EPUB books. Layout choices such as font family, font
-size, and margins can be saved for one book from its **Reader Options** menu.
-A saved book choice takes precedence over the matching global setting; layout
-choices you have not changed for that book still follow the global defaults.
+size, and margins can be saved for one book from the in-book **Font** and
+**Layout** tabs. A saved book choice takes precedence over the matching global
+setting; choices you have not changed for that book still follow the global defaults.
 For example, a book with its own font size can still pick up a later change to
-your global margins. **Dark Reader Mode** and **Stable Page Numbers** remain
-global even when changed from inside a book.
+your global margins. If you open global settings through the pull-down panel
+on a touch reader, inherited font and layout changes also apply to the open
+book when you return. **Dark Mode** and **Stable Page Numbers** are global
+settings.
 
-If a global change does not affect one EPUB, find it in **Browse Files**, open
-its book actions, and choose **Reset Book Reader Settings**. This removes
-that book's saved reader choices so it follows the current global defaults
-again; it does not reset your other books or global settings. Older saved books
-may need this reset before they can inherit individual global changes. **Delete
-Book Cache** does not reset these choices.
+If a global change does not affect one EPUB, open its Reader Menu **Settings**
+tab and choose **Reset Book Reader Settings**, or use the book action menu in
+**Browse Files** or **Library**. This removes that book's saved reader choices
+so it follows the current global defaults again; it keeps reading progress,
+bookmarks, clippings, and stats, and does not reset your other books or global
+settings. Older saved books may need this reset before they can inherit
+individual global changes. **Delete Book Cache** does not reset these choices.
 
 - **Reader Font Family**: Choose the font used for reading:
   - "Lexend Deca" (default)
   - "Bitter"
 
-- **Reader Font Size**: Adjust the text size for reading, built-in font sizes include: 10, 12, 14, and 16 pt.
+- **Reader Font Size**: Choose from the sizes available for the selected font
+  and firmware build. ESP32-S3 readers use scalable TTF fonts with every whole
+  point size from **8–22 pt**; see [Scalable TTF Fonts](./scalable-fonts.md).
 
 - **Reader Line Spacing**: Adjust the line height as a percentage.
 
 - **Word Spacing**: In EPUB books, choose **Normal** or one of four wider
-  spacing levels between words. Open the reader menu, then select **Reader
-  Options > Font Options > Word Spacing**. Changing it reflows the current
+  spacing levels between words. Open the reader menu, then select **Font >
+  Line/Word Spacing > Word Spacing**. Changing it reflows the current
   book, so page positions may change; it is not available for TXT books.
 
 - **Reader Screen Margin**: Controls the screen margins in Reading Mode between 5 and 40 pixels in 5-pixel increments.
@@ -304,22 +339,25 @@ Book Cache** does not reset these choices.
 
 - **Extra Paragraph Spacing**: Set how to handle paragraph breaks:
   - "ON" - Vertical space will be added between paragraphs in Reading Mode
-  - "OFF" - Paragraphs will not have vertical space added, but will have first-line indentation
+  - "OFF" - Paragraphs will not have vertical space added; source-defined first-line indentation is shown when available
 
-- **Reader Dark Mode**, **Embedded Style**, **Images**, **Focus Reading**, and
+- **Embedded Style**, **Images**, **Focus Reading**, and
   **Guide Dots** are directly available from the Reader settings. See
   [Reader Features](./reader-features.md) for their behavior, including the
   [Focus Reading](./reader-features.md#focus-reading) guide.
 
-- **Touch Reader Controls**: Enable or disable touchscreen page turns and
-  reader-menu swipe gestures on supported devices. Device-specific full-screen
-  Home and frontlight gestures remain available as described in [Touch Reader
-  Controls](#touch-reader-controls). **Disable Touchscreen** blocks touch input
-  while a book is open, while leaving touch available in reader menus so you can
-  turn it back on.
+- **Disable Touchscreen**: Block screen-touch input while a book is open,
+  while leaving touch available in reader menus so you can turn it back on.
+  To disable only touch page turns, use **Next Page** and **Previous Page**
+  in **Settings > Controls > Taps & Gestures**.
 
-- **Status Bars**: Configure the status bars displayed while reading:
+- **Status Bars**: Configure top and bottom bars separately for EPUB, TXT, and
+  XTC reading. Open **Settings > Reader > Status Bars**, or the EPUB Reader
+  Menu's **Settings > Status Bars**. Select a bar to preview it at its reading
+  position and choose its items:
   - Top and bottom bars each have three left slots, one center slot, and three right slots.
+  - Stable Page Numbers - Add a reference-page count to a slot when an EPUB has
+    CrossDink reference metadata; see [Stable Page Numbers](./reader-features.md#stable-page-numbers)
   - Chapter Page Count - Show/Hide the current page in the chapter (ex: 5/25). Page count may change based on the font size and margins set.
   - Book Progress Percentage - Show/Hide the current percent progress in the book.
   - Percentage Format - Show book progress as `10%` (default), `10.1%`, or `10.12%`.
@@ -333,7 +371,7 @@ Book Cache** does not reset these choices.
 On touchscreen readers, when **Tap to Hide Status Bar** is enabled (the default
 in **Settings > Controls > Taps & Gestures**), tap the status-bar area while
 reading to show or hide the entire status bar for the current reading session.
-This tap is available while **Touch Reader Controls** is enabled. The quick
+This tap is available while reader touch input is enabled. The quick
 toggle does not change the page layout or page breaks; tap the same status-bar
 region again to restore a hidden bar. Use **Status Bars** to choose
 which status-bar items are shown.
@@ -345,22 +383,26 @@ which status-bar items are shown.
 - **Front Buttons**: Configure front-button remapping, orientation awareness,
   reader-only long-press behavior, Back action, and Menu action.
 
-- **Side Buttons**: Configure side-button layout, orientation awareness, and side-button long-press behavior.
-
-- **Side Button Layout (reader)**: Swap the order of the up and down buttons from "Prev/Next" (default) to "Next/Prev" or "Next/Next". You can also disable them entirely. This change is only in effect when reading.
+- **Side Buttons**: Assign a **Short-press Action** and **Long-press Action**
+  separately for **Left/Up** and **Right/Down** while reading. Choose page or
+  chapter turns, font-size changes, **Rotate Page CCW**, **Rotate Page CW**,
+  **Rotate Page 180°**, or other available shortcuts. Set an action to **Ignore**
+  to leave that press unassigned. Existing layouts migrate to equivalent
+  individual actions. **Orientation aware** and the side-button chord setting
+  remain available on supported devices. Rotation and font-size actions apply
+  to EPUB/TXT text; they cannot rotate or resize pre-rendered XTC pages.
 
 - **Long-press Behavior**: Set whether long-pressing front page-turn buttons does nothing, skips to the next/previous chapter, or changes reader orientation.
 
-- **Side Button Long-press Action**: Set whether long-pressing side buttons does nothing, skips chapters, changes font size, or changes orientation.
-
-- **Short-press Action / Long-press Action**: Choose what a short press or a hold of about 0.4 seconds does. Available actions include:
+- **Power Short-press Action / Long-press Action**: Choose what a short press or a hold of about 0.4 seconds does. Available actions include:
   - "Ignore" (default short-press action) - Do nothing for this press length
   - "Sleep/Wake" (default long-press action) - Put the awake device to sleep; when selected as **Short-press Action**, also allow a short press to wake it
   - "Sleep" - Put the awake device to sleep without enabling short-press wake
   - "Wake" - When selected as **Short-press Action**, allow a short press to wake the device; does nothing while the device is awake
-  - "Page Turn" - Turn to the next page while reading
-  - "Toggle Bookmark", "Reading Stats", "Mark Finished", "Refresh", "Change Font", "Guide Dots", "Focus Reading", "Auto Page Turn", "Sync Progress", "File Transfer", "Calibre Wireless", "Join a Network", "Create Hotspot", "Screenshot", "Dark Mode", "Browse Files", or "Save Clipping" - Run the matching action
-  - "Footnotes" - A short press in reading mode opens the footnotes submenu; if only one footnote is present on the page, the referenced page is opened directly. The short press on the power button can be used to select the footnote in the submenu, and to go back to the original page after finish reading the footnote (like the back button).
+  - "Next Page" - Turn to the next page while reading
+  - "Toggle Bookmark", "Reading Stats", "Mark Finished", "Refresh", "Change Font", "Guide Dots", "Focus Reading", "Auto Page Turn", "Sync Progress", "File Transfer", "Calibre Wireless", "Join a Network", "Create Hotspot", "Screenshot", "Dark Mode", "Browse Files", "Library", or "Save Clipping" - Run the matching action
+  - "Footnotes" - Select a footnote reference on the current page, with a list
+    fallback when needed; see [Footnote Navigation](#footnote-navigation).
 
 - **Quick-return from Footnotes**: This setting appears under **Settings > Controls > Power Button** after you assign **Footnotes** to the short- or long-press Power action, or to the long-press Back or Menu action. When enabled, a short Power press returns from a footnote page to the original reading page.
 
@@ -377,6 +419,8 @@ which status-bar items are shown.
     readers.
   - **Tap to Hide Status Bar**: Enable or disable tapping the visible status-bar
     area to show or hide it for the current reading session.
+  - **Edge Gestures**: Assign upward and downward slides on the left and right
+    screen edges; see [Edge Gestures](./controls.md#edge-gestures).
   - **Two-finger Swipe** (multi-touch devices): Assign an action to each
     two-finger swipe direction. The available actions depend on the device and
     reader format.
@@ -632,7 +676,7 @@ In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the cu
 > [!TIP]
 > For best results:
 >
-> - Use uncompressed BMP files with 24-bit color depth
+> - Use uncompressed BMP files, preferably with 4-bit or 8-bit indexed BMP.
 > - X4 Pro, X4 Classic and Sticky: Use a resolution of 480x800 pixels to match the device's screen resolution.
 
 > [!TIP]
@@ -718,16 +762,18 @@ Once you have opened a book, the button layout changes to facilitate reading.
 | **Previous Page** | Press **Left** _or_ **Up**    |
 | **Next Page**     | Press **Right** _or_ **Down** |
 
-The role of the side buttons can be swapped in **Settings > Controls > Side Buttons**.
+Change the individual side-button actions in **Settings > Controls > Side Buttons**.
 
-If the **Short-press Action** setting is set to "Page Turn", you can also turn to the next page by briefly pressing the Power button.
+If the **Short-press Action** setting is set to "Next Page", you can also turn to the next page by briefly pressing the Power button.
 
 ### Chapter Navigation
 
 - **Next Chapter:** Press and **hold** the **Right** (or **Down**) button briefly, then release.
 - **Previous Chapter:** Press and **hold** the **Left** (or **Up**) button briefly, then release.
 
-This feature can be disabled in **Settings > Controls > Front Buttons** to help avoid changing chapters by mistake.
+These are the default chapter-skip actions. Change front-button long presses in
+**Settings > Controls > Front Buttons**, or assign each side-button hold
+separately in **Settings > Controls > Side Buttons**.
 
 ### Auto Page Turn
 
@@ -739,9 +785,9 @@ On the **Xteink X4 Classic** and **Sticky**, the gyroscope can be used to turn p
 
 ### Touch Reader Controls
 
-On supported touchscreen devices, **Touch Reader Controls** is enabled by
-default. **Next Page** and **Previous Page**, in **Settings > Controls**, are
-configured independently and both default to **Tap & Swipe**:
+On supported touchscreen devices, touch page turns are enabled by default.
+**Next Page** and **Previous Page**, in **Settings > Controls > Taps & Gestures**,
+are configured independently and both default to **Tap & Swipe**:
 
 | Option           | Taps                             | Swipes   |
 | ---------------- | -------------------------------- | -------- |
@@ -752,7 +798,9 @@ configured independently and both default to **Tap & Swipe**:
 | **Disabled**     | Disabled                         | Disabled |
 
 Swipe left for the next page when **Next Page** allows swipes, or swipe right
-for the previous page when **Previous Page** allows swipes. When both directions
+for the previous page when **Previous Page** allows swipes. In right-to-left
+EPUBs, normal tap zones and horizontal swipe directions follow the book's
+reading direction instead. In left-to-right books, when both directions
 allow taps, the normal zones are the left third for the previous page and the
 right two-thirds for the next page. If either of those settings is **Inverted
 Tap**, the shared zones become the left two-thirds for the next page and the
@@ -765,7 +813,8 @@ For **EPUB readers**, vertical gestures depend on the device:
 - On **Sticky**, swipe up to open the reader menu. Swipe down to open the
   reader-details/frontlight panel; use that panel's header to return Home.
 - On **X4 Pro**, swipe up to open the reader menu and swipe down to open the
-  frontlight panel. The capacitive Home key returns Home on a short press and
+  frontlight panel, which also shows chapter pages and book progress while
+  reading. The capacitive Home key returns Home on a short press and
   opens the reader menu on a long press by default. Configure these actions, or
   disable the key while reading, in **Settings > Controls > Home Button**.
 - On other touchscreen devices, swipe down to open the reader menu and swipe up
@@ -780,9 +829,7 @@ settings above.
 
 Choose **Disabled** in **Next Page** or **Previous Page** to stop touch page
 turns in that direction without disabling the touchscreen's vertical reader-menu
-or frontlight gestures. Turn **Touch Reader Controls** off in **Reader Options**
-to disable one-finger page turns and reader-menu swipes; device-specific
-full-screen Home/frontlight gestures remain available. **Disable Touchscreen**
+or frontlight gestures. **Disable Touchscreen**, in **Settings > Reader**,
 prevents screen-touch input while a book is open but keeps it available in
 reader menus. For the different touch selection gestures used by [dictionary
 lookup](./dictionary.md#looking-up-a-word) and [clippings](./reader-features.md#clippings-and-highlights), see those feature guides.
@@ -806,7 +853,7 @@ On supported multi-touch devices, enable **Pinch to Resize Font** in the same
 menu, then move two fingers apart to increase the font or together to decrease
 it. Each completed pinch changes one available font-size step. Pinch resizing
 works in EPUB and TXT readers; XTC pages are pre-rendered and cannot be
-resized. Pinch input also requires **Touch Reader Controls** to remain enabled.
+resized. Pinch input also requires reader touch input to remain enabled.
 
 ### Slider Controls
 
@@ -815,9 +862,15 @@ the slider track rounds the selected value to the nearest multiple of five.
 
 ### Footnote Navigation
 
-When reading an EPUB that contains footnotes, you can navigate to the footnote text by selecting the footnote reference in the book. From the footnote, you can return to your original reading position.
+When reading an EPUB that contains footnotes, tap a reference or choose
+**Footnotes** from the Reader Menu's **More** tab (or an assigned shortcut).
+If there is one footnote, it opens directly. With several visible references,
+CrossDink highlights them on the reading page: use the direction buttons to
+choose one and **Confirm** to open it, or tap the reference. Links without a
+visible target use a list instead. Press **Back** to return to your original
+reading position.
 
-If the device goes to sleep or you close the book while viewing a footnote, the book reopens to your original reading position, not the footnote.
+After following an in-book link to a full chapter, sleeping or closing the book reopens on the last page read. Back retains the three most recent link origins across reopening and KOReader sync. If you close a transient footnote preview, the book resumes on the page that opened that preview, with any earlier link origins still available through Back.
 
 ### System Navigation
 
@@ -833,7 +886,7 @@ CrossDink renders text using the following Unicode character blocks, enabling su
 - **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
 - **Vietnamese:** Supported via extended Latin glyph coverage in the built-in reader fonts.
 
-What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi. However, **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card).
+What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi. However, **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#39-custom-fonts-sd-card).
 
 ---
 
@@ -841,34 +894,36 @@ What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Ara
 
 Press **Confirm** while reading to open the Reader Menu. From here you can access reading utilities and navigation options without leaving the book.
 
-Available options include:
+EPUB books use the same five icon tabs on touch and button devices:
 
-- **Select Chapter** – Open the table of contents to jump to a specific chapter (see [Chapter Selection](#51-chapter-selection) below).
-- **Footnotes** – Navigate to the footnotes for the current section _(only shown in books that contain footnotes)_.
-- **Reader Options** – Open reader-specific options without leaving the book.
-- **Controls** – Open reader control options without leaving the book.
-- **Reading Orientation** – Cycle through screen orientations without leaving the reader.
-- **Auto Turn Interval** – Configure automatic page turns for hands-free reading.
-- **Go to %** – Jump to a specific position in the book by percentage.
-- **Add Bookmark / Remove Bookmark** – Toggle a bookmark on the current page.
-- **View Bookmarks / Delete Bookmarks** – Manage existing bookmarks when the book has bookmarks.
-- **Take screenshot** – Save a screenshot of the current page to the `screenshots/` folder.
-- **Show page as QR** – Display a QR code encoding the current reading position.
-- **Delete Book Cache** – Clear the cached layout data for the current book, forcing a re-index on next open.
-- **Sync Progress** – Push or pull reading progress with a KOReader sync server (see [KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)).
-- **Reading Stats** – Open the current book's reading stats on supported devices
-  when tracking is enabled for both the device and this book. Use the Reader
-  Menu's **Settings** tab in EPUB, or the Reader Menu in XTC, to pause or resume
-  tracking for this book; saved stats are kept while paused.
-- **Mark Finished / Mark Unfinished** – Toggle whether the current book is marked as finished.
-- **Look Up Word / Lookup History** – Select words on the page and revisit recent per-book lookups when a dictionary is active.
-- **Book Dictionary** – Choose a per-book dictionary override from the reader menu's settings tab.
+| Tab (icon)               | Main options                                                                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Font** (letters)       | Reader Font, Dictionary Font, Line/Word Spacing, text anti-aliasing, Focus Reading, Guide Dots                                                                  |
+| **Layout** (text lines)  | Margins, Orientation, Alignment, Images, Hyphenation, Publisher Page Numbers, paragraph spacing and publisher styling                                           |
+| **More** (three dots)    | Word lookup, Select Chapter, Go to %, Go to Stable Page when available, Auto Page Turn, Footnotes; Reading Stats on button devices when tracking is enabled     |
+| **Bookmarks** (bookmark) | Add/remove and view bookmarks, create/view clippings, screenshot, position QR; Sync Progress, Nearby Position Sync, and Send Nearby Book on button devices      |
+| **Settings** (gear)      | Status Bars, Controls, Book Dictionary, EPUB Render Mode, Indexing Method, finished status, Track Reading Stats, cache/stats resets, Reset Book Reader Settings |
+
+Some actions appear only when the book or device supports them. On touch
+screens, tap a tab and then an option. On button devices, **Left/Right** switch
+tabs, **Up/Down** select rows, and **Confirm** opens the selected option. Font,
+spacing, and margin changes have a live preview. Global settings use the same
+Left/Right tab and Up/Down row navigation.
+
+**Reset Book Reader Settings** restores the current EPUB's inherited global
+reader defaults without deleting progress, bookmarks, clippings, or stats.
+**Delete Book Cache** rebuilds cached book data and keeps those reader choices.
+
+TXT and XTC books have their own menus and a smaller set of options; the
+five-tab layout above is for EPUBs. For stats tracking, use **Track Reading
+Stats** in the EPUB **Settings** tab or the XTC Reader Menu. For format-specific
+features, see [Reader Features](./reader-features.md).
 
 Press **Back** at any time to close the menu and return to your current page.
 
 ### 5.1 Chapter Selection
 
-Accessible by selecting **Chapters** from the Reader Menu.
+In EPUB books, open the Reader Menu's **More** tab and select **Select Chapter**.
 
 1. Use **Left** (or **Up**), or **Right** (or **Down**) to highlight the desired chapter.
 2. Press **Confirm** to jump to that chapter.

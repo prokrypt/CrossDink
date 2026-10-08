@@ -179,16 +179,39 @@ bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force, co
     return !scanFailed;
   }
   index.close();
-  if (showScanning) GUI.drawPopup(renderer, tr(STR_LIBRARY_SCANNING));
+  if (scanCancelledThisVisit && !force) {
+    // Respect the cancel until the user asks for a refresh; keep showing
+    // whatever index is already on the card.
+    if (!index.open(library::libraryIndexPath())) index.openForReconciliation(library::libraryIndexPath());
+    index.loadIntoMemory();
+    resolveRecents();
+    applyFilter();
+    return !scanFailed;
+  }
+  if (showScanning) drawScanScreen(tr(STR_LIBRARY_SCANNING));
   library::BuildStats stats;
+  library::BuildControl control;
+  control.context = this;
+  control.cancelRequested = &LibraryActivity::scanCancelRequested;
+  control.progress = &LibraryActivity::onScanProgress;
+  scanCancelledThisVisit = false;
+  scanBackHeldAtStart = mappedInput.isPressed(MappedInputManager::Button::Back);
   // A manual refresh also retries books whose metadata read failed before.
-  scanFailed = !library::buildLibraryIndex("/", stats, useMetadata, nullptr, /*retryFailedMetadata=*/force);
+  scanFailed = !library::buildLibraryIndex("/", stats, useMetadata, &control, /*retryFailedMetadata=*/force);
+  scanFailureText = stats.failure == library::BuildFailure::Cancelled      ? StrId::STR_LIBRARY_SCAN_CANCELLED
+                    : stats.failure == library::BuildFailure::TooManyBooks ? StrId::STR_LIBRARY_TOO_MANY_BOOKS
+                                                                           : StrId::STR_LIBRARY_SCAN_FAILED;
+  if (stats.failure == library::BuildFailure::Cancelled) {
+    scanCancelledThisVisit = true;
+    ignoreBackRelease = mappedInput.isPressed(MappedInputManager::Button::Back);
+  }
   if (scanFailed) LOG_ERR("LIB", "Library scan failed; retaining the previous index");
   if (!index.open(library::libraryIndexPath())) {
     // A failed one-time upgrade leaves the previous index on the card. Keep
     // its books readable while the next visit retries the rebuild.
     if (!scanFailed || !index.openForReconciliation(library::libraryIndexPath())) {
       LOG_ERR("LIB", "Cannot open library index");
+      if (!scanFailed) scanFailureText = StrId::STR_LIBRARY_SCAN_FAILED;
       scanFailed = true;
     } else {
       LOG_INF("LIB", "Using previous Library index until rebuild succeeds");
@@ -204,6 +227,61 @@ bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force, co
   resolveRecents();
   applyFilter();
   return !scanFailed;
+}
+
+bool LibraryActivity::scanTouchEnabled() const {
+  // hasTouch() also honours the Disable Touchscreen setting.
+  return mappedInput.hasTouch();
+}
+
+void LibraryActivity::drawScanScreen(const char* message) const {
+  renderer.clearScreen();
+  if (scanTouchEnabled()) {
+    int bounds[4]{};
+    renderer.getOrientedViewableTRBL(&bounds[0], &bounds[1], &bounds[2], &bounds[3]);
+    renderer.drawCenteredText(UI_10_FONT_ID,
+                              renderer.getScreenHeight() - bounds[2] - renderer.getLineHeight(UI_10_FONT_ID) * 2,
+                              tr(STR_TAP_TO_CANCEL));
+  } else {
+    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  }
+  // drawPopup() pushes the whole buffer, including the hint above.
+  GUI.drawPopup(renderer, message);
+}
+
+bool LibraryActivity::scanCancelRequested(void* context) {
+  auto* self = static_cast<LibraryActivity*>(context);
+  auto& input = self->mappedInput;
+  // The build blocks the main loop, so poll here as web uploads do.
+  input.update();
+  int x = 0;
+  int y = 0;
+  if (self->scanTouchEnabled() && input.wasScreenTouchDown(x, y)) {
+    // The release must not reach the list as a tap once the scan unwinds.
+    input.suppressCurrentTouchContact();
+    return true;
+  }
+  if (input.wasHomeGesture()) return true;
+  const bool backHeld = input.isPressed(MappedInputManager::Button::Back);
+  if (self->scanBackHeldAtStart) {
+    if (!backHeld) self->scanBackHeldAtStart = false;
+    return false;
+  }
+  // Polls stall during an EPUB parse, so a held button counts as well as a
+  // press edge.
+  return backHeld || input.wasPressed(MappedInputManager::Button::Back);
+}
+
+void LibraryActivity::onScanProgress(void* context, const library::BuildProgress& progress) {
+  const auto* self = static_cast<const LibraryActivity*>(context);
+  if (progress.phase == library::BuildPhase::Organizing) {
+    self->drawScanScreen(tr(STR_LIBRARY_ORGANIZING));
+    return;
+  }
+  char message[96];
+  snprintf(message, sizeof(message), tr(STR_LIBRARY_SCAN_COUNT), static_cast<unsigned>(progress.books));
+  self->drawScanScreen(message);
 }
 
 void LibraryActivity::finishBackgroundRefresh() {
@@ -392,7 +470,7 @@ void LibraryActivity::applyFilter() {
   std::string combined;
   std::string folded;
   // Blob fields are byte-length-prefixed. Reserve once for the entire scan,
-  // avoiding concat/fold allocations for each of up to 4,096 books.
+  // avoiding concat/fold allocations for every book in the index.
   title.reserve(UINT8_MAX);
   author.reserve(UINT8_MAX);
   name.reserve(UINT8_MAX);
@@ -415,6 +493,7 @@ void LibraryActivity::applyFilter() {
     return true;
   };
   for (uint16_t row = 0; row < sourceCount; ++row) {
+    if ((row & 31) == 31) delay(1);
     const uint16_t indexRow = sort == Sort::RecentlyRead ? library::recentHistoryRow(row, index.bookCount(), recentRows,
                                                                                      recentCount, descending)
                                                          : row;
@@ -427,6 +506,20 @@ void LibraryActivity::applyFilter() {
       break;
     }
     if ((library::fileTypeFor(name) & visibleTypes) == 0) continue;
+    if (!needle.empty() && !index.readDisplayText(record, title, author)) {
+      LOG_ERR("LIB", "Cannot read Library search text");
+      filterFailed = true;
+      filteredCount = 0;
+      break;
+    }
+    if (!needle.empty()) {
+      combined.assign(title);
+      combined.push_back(' ');
+      combined.append(author);
+      library::foldInto(combined, folded);
+    }
+    // Only matching books need their completion state read from the SD card.
+    if (!needle.empty() && !library::matchesQuery(folded, needle)) continue;
     if (SETTINGS.libraryHideFinishedBooks) {
       const uint8_t type = library::fileTypeFor(name);
       cachePath.clear();
@@ -460,22 +553,7 @@ void LibraryActivity::applyFilter() {
       }
       if (!cachePath.empty() && BookReadingStats::load(cachePath).isCompleted) continue;
     }
-    if (!needle.empty() && !index.readDisplayText(record, title, author)) {
-      LOG_ERR("LIB", "Cannot read Library search text");
-      filterFailed = true;
-      filteredCount = 0;
-      break;
-    }
-    if (!needle.empty()) {
-      combined.assign(title);
-      combined.push_back(' ');
-      combined.append(author);
-      library::foldInto(combined, folded);
-    }
-    if (needle.empty() || library::matchesQuery(folded, needle)) {
-      filtered[filteredCount++] = ordinal;
-    }
-    if ((row & 31) == 31) delay(1);
+    filtered[filteredCount++] = ordinal;
   }
 }
 
@@ -520,6 +598,7 @@ void LibraryActivity::openDialog(std::unique_ptr<Activity>&& child, ActivityResu
   }
   // Book actions (delete, clear cache) must not race a thumbnail being written.
   gridThumbTask.join();
+  touchTracking = false;
   app.clearTapFlash();
   startActivityForResult(std::move(child), [this, handler = std::move(handler)](const ActivityResult& result) {
     RenderLock lock;
@@ -709,7 +788,14 @@ void LibraryActivity::latchInput() {
     --pending.scrollPages;
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) pending.confirmReleased = true;
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) pending.backReleased = true;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (ignoreBackRelease)
+      ignoreBackRelease = false;
+    else
+      pending.backReleased = true;
+  } else if (ignoreBackRelease && !mappedInput.isPressed(MappedInputManager::Button::Back)) {
+    ignoreBackRelease = false;
+  }
   const auto step = [](int8_t& value, const int delta) {
     value = static_cast<int8_t>(std::max<int>(INT8_MIN, std::min<int>(INT8_MAX, value + delta)));
   };
@@ -937,7 +1023,8 @@ void LibraryActivity::fillRow(const int row, CachedRow& out) {
   out.ok = true;
   out.title = rowScratch.title;
   out.subtitle = rowScratch.author;
-  if (SETTINGS.libraryUseMetadata && (SETTINGS.libraryShowSeries || SETTINGS.libraryShowGenre)) {
+  if (sort != Sort::RecentlyRead && SETTINGS.libraryUseMetadata &&
+      (SETTINGS.libraryShowSeries || SETTINGS.libraryShowGenre)) {
     library::ClixRecord record{};
     const uint16_t ordinal = ordinalForRow(row);
     if (ordinal != UINT16_MAX && index.readRecord(ordinal, record) && index.readSeries(record, seriesScratch) &&
@@ -1126,16 +1213,21 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
                             static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
   }
   buildSortHeader(screen);
+  // Status lines share the sort row's side padding instead of touching the bezel.
+  const int16_t statusPadding = static_cast<int16_t>(metrics.contentSidePadding);
+  const fui::Insets statusInsets{0, statusPadding, 0, statusPadding};
   if (scanFailed || index.ranksDegraded() || filterFailed) {
-    const auto warning = screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8);
+    const auto warning =
+        screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8).inset(statusInsets);
     uiTarget.text(warning,
                   filterFailed ? tr(STR_LIBRARY_SEARCH_FAILED)
-                  : scanFailed ? tr(STR_LIBRARY_SCAN_FAILED)
+                  : scanFailed ? I18n::getInstance().get(scanFailureText)
                                : tr(STR_LIBRARY_UNSORTED),
                   screen.theme().smallText);
   }
   if (!query.empty()) {
-    const auto search = screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8);
+    const auto search =
+        screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8).inset(statusInsets);
     uiTarget.text(search, query.c_str(), screen.theme().smallText);
   }
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
@@ -1429,6 +1521,8 @@ void LibraryActivity::promptDeleteBook(const RecentBook& book) {
     }
 
     library::invalidateLibraryIndex();
+    // The card changed, so a cancelled scan must not keep showing this book.
+    scanCancelledThisVisit = false;
     RECENT_BOOKS.removeByPath(path);
     reloadAfterBookAction();
   };

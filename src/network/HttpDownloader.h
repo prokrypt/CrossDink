@@ -68,7 +68,7 @@ class HttpDownloader {
     // Checks the finished file before it is accepted (and, with stageAsPart,
     // before it replaces destPath). Returning false fails the download and
     // removes the file. Catches bodies cut short without a Content-Length.
-    std::function<bool(const std::string& path)> validate;
+    bool (*validate)(const std::string& path) = nullptr;
     // Once the response length is known, fail with INSUFFICIENT_SPACE before
     // writing anything if the SD card cannot hold the file. The first check
     // can scan the whole FAT, so leave it off for small files.

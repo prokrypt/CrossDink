@@ -2,6 +2,8 @@
 
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
+#include <I18n.h>
+#include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
 
 #include <memory>
@@ -23,6 +25,20 @@ class LibraryActivity final : public Activity {
   bool blocksGlobalInput() const override { return actionPopup.isActive(); }
   void onUserInput() override;
   bool preventAutoSleep() override;
+
+#ifdef SIMULATOR
+  int simulatorSelection() const { return selection; }
+  int simulatorRowCount() const { return rowCount(); }
+  bool simulatorReadBook(int row, RecentBook& book) { return readBook(row, book); }
+  void simulatorSetView(uint8_t method, bool reverse, const std::string& search = "") {
+    sort = static_cast<Sort>(method);
+    descending = reverse;
+    query = search;
+    rebuildIndex(false);
+    resetViewport();
+  }
+  void simulatorRefresh() { refreshLibrary(); }
+#endif
 
  private:
   enum class Sort : uint8_t { DateAdded, Title, AuthorLast, AuthorFirst, RecentlyRead, Series, Genre };
@@ -64,6 +80,15 @@ class LibraryActivity final : public Activity {
   bool longPressFired = false;
   bool ignoreConfirmRelease = false;
   bool scanFailed = false;
+  StrId scanFailureText = StrId::STR_LIBRARY_SCAN_FAILED;
+  // Set when the Back press that cancelled a scan is still held.
+  bool ignoreBackRelease = false;
+  // Back held when a scan starts belongs to whatever opened Library (a reader
+  // long-press shortcut, say); only a fresh press after its release cancels.
+  bool scanBackHeldAtStart = false;
+  // A cancelled scan stays cancelled for this visit: sort changes and book
+  // actions show the previous index instead of starting the scan again.
+  bool scanCancelledThisVisit = false;
   // Showing the previous index (held in PSRAM) while the background build
   // reconciles the card.
   bool backgroundRefresh = false;
@@ -169,6 +194,10 @@ class LibraryActivity final : public Activity {
   CachedRow& rowFor(int row);
   void fillRow(int row, CachedRow& out);
   void invalidateRowCache();
+  void drawScanScreen(const char* message) const;
+  bool scanTouchEnabled() const;
+  static bool scanCancelRequested(void* context);
+  static void onScanProgress(void* context, const library::BuildProgress& progress);
   void resolveRecents();
   void applyFilter();
   void resetViewport();

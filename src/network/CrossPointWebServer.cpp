@@ -53,6 +53,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/util/RemoteImageActivity.h"
+#include "components/HeaderDate.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -66,6 +67,7 @@
 #include "util/BatteryLog.h"
 #include "util/BatteryLogSum.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookMoveUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
 #include "util/DeviceIdentity.h"
@@ -207,7 +209,6 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
   if (!halClock.isAvailable()) {
     switch (setting.nameId) {
       case StrId::STR_HIDE_CLOCK:
-      case StrId::STR_CLOCK_OUTSIDE_READER:
       case StrId::STR_AUTO_BACKUP_STATS:
       case StrId::STR_CLOCK_UTC_OFFSET:
       case StrId::STR_CLOCK_DST:
@@ -2057,6 +2058,34 @@ static void removePartialUpload(CrossPointWebServer::UploadState& state) {
   Storage.remove(filePath.c_str());
 }
 
+bool CrossPointWebServer::dropUploadIfCancelled() const {
+  // stop() clears running before it sets stopRequested. upgradeToFull() sets
+  // stopRequested with running still true; that must not drop an upload.
+  if (running.load(std::memory_order_acquire) || !stopRequested.load(std::memory_order_acquire)) return false;
+  server->client().stop();
+  return true;
+}
+
+void CrossPointWebServer::abortUpload(UploadState& state) const {
+  state.powerSaveGuard.reset();
+  state.success = false;
+  state.bufferPos = 0;  // Discard buffered data
+  if (state.file) {
+    state.file.close();
+    removePartialUpload(state);
+  }
+  state.error = "Upload aborted";
+  LOG_DBG("WEB", "Upload aborted");
+}
+
+void CrossPointWebServer::abortFontUpload() {
+  fontUpload.bufferPos = 0;
+  if (fontUpload.file) fontUpload.file.close();
+  if (!fontUpload.filePath.empty()) Storage.remove(fontUpload.filePath.c_str());
+  fontUpload.valid = false;
+  LOG_DBG("WEB", "Font upload aborted");
+}
+
 static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
   if (state.bufferPos > 0 && state.file) {
     const size_t written = state.file.write(state.buffer.data(), state.bufferPos);
@@ -2072,6 +2101,13 @@ static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
 }
 
 void CrossPointWebServer::handleUpload(UploadState& state) const {
+  // stop() mid-upload (a multipart body holds the serving task until it ends):
+  // drop the client so stop() need not wait it out, and park the .part.
+  if (server && dropUploadIfCancelled()) {
+    abortUpload(state);
+    return;
+  }
+
   // Safety check: ensure server is still valid
   if (!running || !server) {
     LOG_DBG("WEB", "[UPLOAD] ERROR: handleUpload called but server not running!");
@@ -2225,14 +2261,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
-    state.powerSaveGuard.reset();
-    state.bufferPos = 0;  // Discard buffered data
-    if (state.file) {
-      state.file.close();
-      removePartialUpload(state);
-    }
-    state.error = "Upload aborted";
-    LOG_DBG("WEB", "Upload aborted");
+    abortUpload(state);
   }
 }
 
@@ -2406,21 +2435,36 @@ void CrossPointWebServer::handleRename() const {
     return;
   }
 
-  clearBookCache(itemPath.c_str());
-  const bool success = file.rename(newPath.c_str());
+  // Release the validation handle before migrating metadata and renaming the
+  // book; real SD cards cannot open the same path through multiple readers.
   file.close();
-
-  if (success) {
-    LOG_DBG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
-    ImageFolderIndex::invalidateForPath(itemPath.c_str());
-    sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
-    ImageFolderIndex::invalidateForPath(newPath.c_str());
-    sdFontSystem.markRegistryDirtyForPath(newPath.c_str());
-    server->send(200, "text/plain", "Renamed successfully");
-  } else {
-    LOG_ERR("WEB", "Failed to rename file: %s -> %s", itemPath.c_str(), newPath.c_str());
-    server->send(500, "text/plain", "Failed to rename file");
+  const auto migration = BookMoveUtils::renameFilePreservingBookState(itemPath.c_str(), newPath.c_str());
+  if (migration == BookMoveUtils::RenameMigrationResult::InvalidBookType) {
+    server->send(400, "text/plain", "Renaming a book cannot change its file type");
+    return;
   }
+  if (migration == BookMoveUtils::RenameMigrationResult::DestinationStateExists) {
+    server->send(409, "text/plain", "Target filename has saved reading data. Choose another filename.");
+    return;
+  }
+  if (migration == BookMoveUtils::RenameMigrationResult::RolledBack) {
+    LOG_ERR("WEB", "Failed to rename file while preserving reader state: %s -> %s", itemPath.c_str(), newPath.c_str());
+    server->send(500, "text/plain", "Could not rename file while preserving saved reading data");
+    return;
+  }
+
+  LOG_DBG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
+  ImageFolderIndex::invalidateForPath(itemPath.c_str());
+  sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
+  ImageFolderIndex::invalidateForPath(newPath.c_str());
+  sdFontSystem.markRegistryDirtyForPath(newPath.c_str());
+  if (migration == BookMoveUtils::RenameMigrationResult::KeepRenamed) {
+    LOG_ERR("WEB", "Rename kept new path after incomplete state rollback: %s", newPath.c_str());
+    server->send(500, "text/plain",
+                 "File was renamed, but some saved references could not be updated. Refresh the file list.");
+    return;
+  }
+  server->send(200, "text/plain", "Renamed successfully");
 }
 
 void CrossPointWebServer::handleMove() const {
@@ -2622,8 +2666,11 @@ void CrossPointWebServer::handleGetStatusBars() const {
   writeReaderStatusBarJson(doc["bottom"].to<JsonObject>(), SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom));
   doc["xtcMode"] = SETTINGS.xtcStatusBarMode;
   doc["clockAvailable"] = halClock.isAvailable();
+  JsonArray displaySlots = doc["display"].to<JsonArray>();
+  for (const auto item : SETTINGS.displayStatusBar.slots) displaySlots.add(static_cast<uint8_t>(item));
 
   JsonObject labels = doc["labels"].to<JsonObject>();
+  labels["display"] = tr(STR_STATUS_BAR);
   labels["top"] = tr(STR_TOP_STATUS_BAR);
   labels["bottom"] = tr(STR_BOTTOM_STATUS_BAR);
   labels["left"] = tr(STR_STATUS_BAR_LEFT);
@@ -2642,6 +2689,9 @@ void CrossPointWebServer::handleGetStatusBars() const {
     option["label"] = label;
   };
   addOption(ReaderStatusBarItem::Clock, tr(STR_STATUS_BAR_CLOCK));
+  addOption(ReaderStatusBarItem::Date, tr(STR_DATE));
+  char dateText[32];
+  doc["datePreview"] = formatHeaderDateText(dateText, sizeof(dateText)) ? dateText : "";
   addOption(ReaderStatusBarItem::Battery, tr(STR_BATTERY));
   const auto combined = [](const char* first, const char* second) { return std::string(first) + " (" + second + ")"; };
   addOption(ReaderStatusBarItem::TimeLeftBook, combined(tr(STR_TIME_LEFT), tr(STR_BOOK)).c_str());
@@ -2680,7 +2730,9 @@ void CrossPointWebServer::handlePostStatusBars() {
     return;
   }
   ReaderStatusBarsPayload bars;
-  if (!CrossPointSettings::parseReaderStatusBars(doc.as<JsonVariantConst>(), bars)) {
+  DisplayStatusBarConfig display;
+  if ((!doc["display"].isNull() && !readDisplayStatusBarJson(doc["display"], display, halClock.isAvailable())) ||
+      !CrossPointSettings::parseReaderStatusBars(doc.as<JsonVariantConst>(), bars)) {
     server->send(400, "text/plain", "Invalid status bar configuration");
     return;
   }
@@ -2696,6 +2748,7 @@ void CrossPointWebServer::handlePostStatusBars() {
     SETTINGS.topReaderStatusBar = bars.top;
     SETTINGS.bottomReaderStatusBar = bars.bottom;
     SETTINGS.xtcStatusBarMode = bars.xtcMode;
+    if (!doc["display"].isNull()) SETTINGS.displayStatusBar = display;
   }
   if (!SETTINGS.saveToFile()) {
     LOG_ERR("WEB", "Failed to save status bar configuration");
@@ -3572,6 +3625,10 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_WRITE: {
+      if (dropUploadIfCancelled()) {
+        abortFontUpload();
+        break;
+      }
       if (!fontUpload.valid) break;
 
       // Validate the complete file after closing it; multipart chunks may
@@ -3607,6 +3664,10 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_END: {
+      if (dropUploadIfCancelled()) {
+        abortFontUpload();
+        break;
+      }
       // Flush remaining buffer
       if (fontUpload.valid && fontUpload.bufferPos > 0) {
         fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos);
@@ -3627,14 +3688,7 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_ABORTED: {
-      if (fontUpload.file) {
-        fontUpload.file.close();
-      }
-      if (!fontUpload.filePath.empty()) {
-        Storage.remove(fontUpload.filePath.c_str());
-      }
-      fontUpload.valid = false;
-      LOG_DBG("WEB", "Font upload aborted");
+      abortFontUpload();
       break;
     }
   }

@@ -25,7 +25,7 @@ bool consumeCount(const char*& p, int32_t& out) {
   if (!isDigit(*p)) return false;
   int32_t value = 0;
   for (; isDigit(*p); ++p) {
-    if (value > (INT32_MAX - 9) / 10) return false;
+    if (value > (INT32_MAX - (*p - '0')) / 10) return false;
     value = value * 10 + (*p - '0');
   }
   out = value;
@@ -39,7 +39,7 @@ int32_t parseAttributeCount(const char* text) {
   return value;
 }
 
-// "<N> <word>" summaries such as Mayberry's "12713 books"; a descriptive
+// "<N> book(s)" summaries such as Mayberry's "12713 books"; a descriptive
 // sentence that happens to start with a number yields -1.
 int32_t parseSummaryCount(const PsramString& summary) {
   if (summary.size() > MAX_SUMMARY_COUNT_CHARS) return -1;
@@ -48,13 +48,14 @@ int32_t parseSummaryCount(const PsramString& summary) {
   int32_t value = -1;
   if (!consumeCount(p, value) || (*p != ' ' && *p != '\t')) return -1;
   while (isSpace(*p)) ++p;
-  // One word: ASCII letters or UTF-8 multibyte (localized nouns).
-  const char* wordStart = p;
-  for (; *p && !isSpace(*p); ++p) {
-    const auto c = static_cast<unsigned char>(*p);
-    if (c < 0x80 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return -1;
+  // Only the known catalog summary form; arbitrary "N words" may be a description.
+  if (strncmp(p, "books", 5) == 0) {
+    p += 5;
+  } else if (strncmp(p, "book", 4) == 0) {
+    p += 4;
+  } else {
+    return -1;
   }
-  if (p == wordStart) return -1;
   while (isSpace(*p)) ++p;
   return *p == '\0' ? value : -1;
 }

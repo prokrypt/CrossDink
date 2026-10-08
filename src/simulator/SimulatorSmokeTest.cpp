@@ -9,16 +9,21 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
+
+#include "CrossPointState.h"
 #if CROSSDINK_SCALABLE_FONTS
+#include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalScalableFont.h>
 
-#include <filesystem>
 #include <fstream>
 
 #include "FontInstaller.h"
 #include "TtfRenderProfileStore.h"
+#include "util/WordSelectNavigator.h"
 #endif
 #include <memory>
 #include <vector>
@@ -29,14 +34,22 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
+#include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/home/HomeActivity.h"
 #include "activities/home/RecentBookProgress.h"
+#include "activities/library/LibraryActivity.h"
+#include "activities/reader/BookReadingStats.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderOptionsActivity.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/SideButtonShortcuts.h"
 #include "activities/settings/QuickActionsActivity.h"
+#include "activities/settings/SettingsActivity.h"
+#include "activities/settings/StatusBarSettingsActivity.h"
+#include "activities/util/FrontlightPanelActivity.h"
+#include "components/HeaderDate.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "simulator/SimulatorHomeKeyInput.h"
@@ -50,6 +63,19 @@ namespace {
 
 enum class SmokeStep : uint8_t {
   Start,
+  HomeReaderReader,
+  HomeReaderNested,
+  HomeReaderConfirmation,
+  HomeReaderTrigger,
+  HomeReaderUnwound,
+  HomeReaderReturnedHome,
+  HomeReaderNonReaderParent,
+  HomeReaderNonReaderNested,
+  HomeReaderNonReaderHome,
+  BackHomeReader,
+  BackHomeNested,
+  BackHomeReturnedReader,
+  BackHomeReturnedHome,
   Home,
   FileBrowser,
   FileBrowserSettings,
@@ -61,7 +87,30 @@ enum class SmokeStep : uint8_t {
   Sleep,
   Reader,
   ReaderInput,
+  CarouselHome,
+  FrontlightLayout,
+  FrontlightLayoutRendered,
+  ThemeHome,
+  ThemeSettings,
+  ThemeReturned,
+  ThemeFresh,
+  StatusBarEditor,
+  StatusBarPicker,
   Done,
+};
+
+class HomeReaderSmokeActivity final : public Activity {
+ public:
+  HomeReaderSmokeActivity(const char* activityName, const bool reader, GfxRenderer& renderer,
+                          MappedInputManager& mappedInput, const bool bookReader = false)
+      : Activity(activityName, renderer, mappedInput), reader(reader), bookReader(bookReader) {}
+
+  bool isReaderActivity() const override { return reader; }
+  bool isBookReaderActivity() const override { return bookReader; }
+
+ private:
+  bool reader;
+  bool bookReader;
 };
 
 class SimulatorSmokeTest {
@@ -92,11 +141,20 @@ class SimulatorSmokeTest {
     AssertTouchscreenEnabled,
     AssertTtfProfileNative,
     OpenSmokeBook,
+    OpenFrontlightSettings,
+    ClearFrontlightSyncBook,
+    PrepareFrontlightSync,
+    OpenFrontlightSync,
+    CheckFrontlightSync,
+    DisableReadingStats,
+    EnableReadingStats,
     DisableReaderTouch,
     EnableReaderTouch,
     TouchDown,
     TouchMove,
     TouchRelease,
+    AssertReaderMenu,
+    AssertSettingsNavigation,
     AssertActivity,
     Render
   };
@@ -118,6 +176,32 @@ class SimulatorSmokeTest {
   unsigned libraryRefreshPass = 0;
   uint16_t libraryBaselineBooks = 0;
   SmokeStep inputCompletionStep = SmokeStep::Done;
+  unsigned carouselCachePass = 0;
+  std::filesystem::file_time_type carouselCacheWrittenAt;
+  std::filesystem::file_time_type carouselSecondWrittenAt;
+  uint64_t carouselCacheHash = 0;
+  uint64_t carouselScreenHash = 0;
+  unsigned frontlightLayoutPass = 0;
+  unsigned homeThemePass = 0;
+  uint64_t homeThemeScreenHash = 0;
+  std::string homeThemeBookPath;
+
+  uint8_t homeReaderReaderKind = 0;
+  uint8_t homeReaderCancelledMask = 0;
+  Activity* homeReaderSmokeReader = nullptr;
+  bool homeReaderConfirmationAccepted = false;
+  bool backHomeChildCancelled = false;
+
+  static const char* homeReaderSmokeReaderName(const uint8_t kind) {
+    switch (kind) {
+      case 0:
+        return "EpubReader";
+      case 1:
+        return "TxtReader";
+      default:
+        return "XtcReader";
+    }
+  }
 
   static bool enabled() { return std::getenv("CROSSDINK_SIMULATOR_SMOKE_TEST") != nullptr; }
 
@@ -202,6 +286,54 @@ class SimulatorSmokeTest {
     mappedInputManager.setReaderMode(false);
     LOG_INF("SMOKE", "All 25 mixed page gesture combinations passed");
 #endif
+  }
+
+  static void verifyStatusBarSettings() {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    for (const int clock : {0, 1}) {
+      JsonDocument legacy;
+      legacy.set(original);
+      legacy.remove("displayStatusBar");
+      legacy["showClockOutsideReader"] = clock;
+      SETTINGS.fromJson(legacy.as<JsonVariantConst>());
+      if (SETTINGS.displayStatusBar.slots[1] != (clock ? ReaderStatusBarItem::Clock : ReaderStatusBarItem::Empty) ||
+          SETTINGS.displayStatusBar.slots[2] != ReaderStatusBarItem::Battery)
+        fail("Display clock migration failed");
+    }
+    SETTINGS.displayStatusBar.slots = {ReaderStatusBarItem::Date, ReaderStatusBarItem::Clock,
+                                       ReaderStatusBarItem::Empty};
+    JsonDocument saved;
+    SETTINGS.toJson(saved);
+    if (!saved["showClockOutsideReader"].isNull()) fail("Obsolete clock setting was saved");
+    SETTINGS.displayStatusBar = DisplayStatusBarConfig{};
+    SETTINGS.fromJson(saved.as<JsonVariantConst>());
+    if (SETTINGS.displayStatusBar.slots[0] != ReaderStatusBarItem::Date ||
+        SETTINGS.displayStatusBar.slots[1] != ReaderStatusBarItem::Clock ||
+        SETTINGS.displayStatusBar.slots[2] != ReaderStatusBarItem::Empty)
+      fail("Display slots did not survive reload");
+    const auto display = buildGroupedDisplaySettingsList(getSettingsList());
+    if (std::none_of(display.begin(), display.end(),
+                     [](const auto& item) { return item.action == SettingAction::DisplayStatusBar; }))
+      fail("Display status bar setting is missing");
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    LOG_INF("SMOKE", "Display status bar migration and persistence passed");
+  }
+
+  static void captureStatusBarScreen(const char* name) {
+    const char* output = std::getenv("CROSSDINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES");
+    if (!output) return;
+    std::filesystem::create_directories(output);
+    const auto path = std::filesystem::path(output) / (std::string(name) + ".pgm");
+    FILE* image = std::fopen(path.c_str(), "wb");
+    if (!image) fail("Cannot create status bar capture");
+    const int width = renderer.getScreenWidth();
+    const int height = renderer.getScreenHeight();
+    std::fprintf(image, "P5\n%d %d\n255\n", width, height);
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) std::fputc(renderer.isPixelBlack(x, y) ? 0 : 255, image);
+    }
+    std::fclose(image);
   }
 
   static void verifyReaderControlsSettings() {
@@ -445,6 +577,60 @@ class SimulatorSmokeTest {
                   CrossPointSettings::CHORD_QUICK_ACTIONS) == chordSetting->enumRawValues.end()) {
       fail("Quick Actions is missing from the Power + Up chord setting");
     }
+    if (CrossPointSettings::HOME_READER != 36 || CrossPointSettings::SHORT_PWRBTN_COUNT != 37 ||
+        CrossPointSettings::CHORD_HOME_READER != 32 || CrossPointSettings::POWER_CHORD_ACTION_COUNT != 33) {
+      fail("Home/Reader changed persisted shortcut IDs or counts");
+    }
+    if (QuickActions::actionLabel(CrossPointSettings::HOME_READER) != StrId::STR_HOME_READER ||
+        std::string(I18N.get(StrId::STR_HOME_READER)) != "Home/Reader") {
+      fail("Home/Reader shortcut label mismatch");
+    }
+    if (QuickActions::isActionAvailable(CrossPointSettings::HOME_READER) != !gpio.hasTouch()) {
+      fail("Home/Reader capability gating does not match button-only devices");
+    }
+    const auto containsShortcut = [](const std::vector<SettingInfo>& settings, const char* key,
+                                     const ShortcutOptionCatalog catalog) {
+      const auto setting = std::find_if(settings.begin(), settings.end(),
+                                        [key](const SettingInfo& candidate) { return settingKeyIs(candidate, key); });
+      if (setting == settings.end()) return false;
+      const uint8_t raw = shortcutRawValue(catalog, CrossPointSettings::HOME_READER);
+      const auto choice = std::find(setting->enumRawValues.begin(), setting->enumRawValues.end(), raw);
+      return choice != setting->enumRawValues.end() &&
+             setting->enumValues[static_cast<size_t>(choice - setting->enumRawValues.begin())] ==
+                 StrId::STR_HOME_READER;
+    };
+    const bool shouldExposeHomeReader = !gpio.hasTouch();
+    if (containsShortcut(allSettings, "shortPwrBtn", ShortcutOptionCatalog::PowerButton) != shouldExposeHomeReader ||
+        containsShortcut(sideButtonSettings, "sideButtonUpShort", ShortcutOptionCatalog::SideButton) !=
+            shouldExposeHomeReader ||
+        containsShortcut(allSettings, "powerChordAction", ShortcutOptionCatalog::ButtonChord) !=
+            shouldExposeHomeReader) {
+      fail("Home/Reader shortcut availability or settings mapping mismatch");
+    }
+    if (shortcutRawValue(ShortcutOptionCatalog::HomeButton, CrossPointSettings::HOME_READER) !=
+            SHORTCUT_OPTION_UNAVAILABLE ||
+        shortcutRawValue(ShortcutOptionCatalog::LongPress, CrossPointSettings::HOME_READER) !=
+            SHORTCUT_OPTION_UNAVAILABLE) {
+      fail("Home/Reader was exposed on Home-key or long-press controls");
+    }
+    const uint8_t savedPowerAction = SETTINGS.shortPwrBtn;
+    const uint8_t savedChordAction = SETTINGS.powerChordAction;
+    SETTINGS.shortPwrBtn = CrossPointSettings::HOME_READER;
+    SETTINGS.powerChordAction = CrossPointSettings::CHORD_HOME_READER;
+    JsonDocument shortcutRoundTrip;
+    SETTINGS.toJson(shortcutRoundTrip);
+    SETTINGS.shortPwrBtn = CrossPointSettings::IGNORE;
+    SETTINGS.powerChordAction = CrossPointSettings::CHORD_DISABLED;
+    SETTINGS.fromJson(shortcutRoundTrip.as<JsonVariantConst>());
+    const uint8_t expectedPowerAction =
+        shouldExposeHomeReader ? CrossPointSettings::HOME_READER : CrossPointSettings::IGNORE;
+    const uint8_t expectedChordAction =
+        shouldExposeHomeReader ? CrossPointSettings::CHORD_HOME_READER : CrossPointSettings::CHORD_DISABLED;
+    if (SETTINGS.shortPwrBtn != expectedPowerAction || SETTINGS.powerChordAction != expectedChordAction) {
+      fail("Home/Reader settings round-trip did not match device availability");
+    }
+    SETTINGS.shortPwrBtn = savedPowerAction;
+    SETTINGS.powerChordAction = savedChordAction;
     if (!gpio.hasHomeKey() &&
         std::find(chordSetting->enumRawValues.begin(), chordSetting->enumRawValues.end(),
                   CrossPointSettings::CHORD_TOGGLE_HOME_BUTTON) != chordSetting->enumRawValues.end()) {
@@ -742,6 +928,54 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Loading popup preserves backdrop in all orientations");
   }
 
+  static void verifyWakePowerReaderShortcut() {
+    if (!activityManager.isCurrentActivityNamed("EpubReader")) return;
+    auto* reader = activityManager.simulatorCurrentActivity();
+    const uint8_t savedShort = SETTINGS.shortPwrBtn;
+    const uint8_t savedLong = SETTINGS.longPwrBtn;
+    const uint8_t savedSlot = SETTINGS.quickActionSlots[0];
+    SETTINGS.shortPwrBtn = CrossPointSettings::SHORT_PWRBTN::QUICK_LOCK;
+    SETTINGS.longPwrBtn = CrossPointSettings::SHORT_PWRBTN::QUICK_ACTIONS;
+    SETTINGS.quickActionSlots[0] = CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH;
+
+    // Apply the same mapped-input guards as a Power-button wake, then exercise
+    // the reader's independent long-press route across the hold and release.
+    mappedInputManager.suppressNextPowerRelease();
+    mappedInputManager.suppressNextPowerConfirmRelease();
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    delay(SETTINGS.getPowerButtonLongPressDuration() + 10);
+    if (!mappedInputManager.isPhysicalPressed(MappedInputManager::Button::Power)) fail("Wake test lost Power hold");
+    reader->loop();
+    if (reader->blocksGlobalInput()) fail("Wake Power hold opened Quick Actions");
+
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    reader->loop();
+    if (reader->blocksGlobalInput()) fail("Wake Power release opened Quick Actions");
+    mappedInputManager.simulatorClearInputFrame();
+    mappedInputManager.update();
+
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    delay(SETTINGS.getPowerButtonLongPressDuration() + 10);
+    reader->loop();
+    if (!reader->blocksGlobalInput()) fail("Fresh long Power press did not open Quick Actions");
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    reader->loop();
+    mappedInputManager.simulatorClearInputFrame();
+    mappedInputManager.update();
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Back);
+    reader->loop();
+    mappedInputManager.simulatorClearInputFrame();
+    if (reader->blocksGlobalInput()) fail("Wake test could not close Quick Actions");
+    SETTINGS.shortPwrBtn = savedShort;
+    SETTINGS.longPwrBtn = savedLong;
+    SETTINGS.quickActionSlots[0] = savedSlot;
+    LOG_INF("SMOKE", "Wake Power hold/release ignored; fresh long press opens Quick Actions");
+  }
+
   static void verifyCachedHomeProgressMigration() {
     const RecentBook book{"/books/legacy-home-smoke.epub", "Legacy Home smoke", {}, {}};
     const std::string legacy = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
@@ -755,6 +989,24 @@ class SimulatorSmokeTest {
     if (RecentBookProgress::loadCachedEpubPercent(book) != 42.5f || !Storage.exists(legacy.c_str()) ||
         !Storage.exists(current.c_str()) || BookMetadataCache::exists(current))
       fail("Home did not recover legacy cached progress without opening the EPUB");
+    const std::string percentFile = current + "/progress_percent.bin";
+    const std::string hostPercentFile = "fs_" + percentFile;
+    // Force an old timestamp so this check does not depend on filesystem clock resolution.
+    const auto oldTime = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+    std::filesystem::last_write_time(hostPercentFile, oldTime);
+    const auto savedTime = std::filesystem::last_write_time(hostPercentFile);
+    RecentBookProgress::saveCachedEpubPercent(current, 42.5001f);
+    if (std::filesystem::last_write_time(hostPercentFile) != savedTime)
+      fail("Saving the same rounded Home percentage rewrote the cache");
+    RecentBookProgress::saveCachedEpubPercent(current, 43.5f);
+    if (RecentBookProgress::loadCachedEpubPercent(book) != 43.5f) fail("Changed Home percentage was not saved");
+    std::filesystem::resize_file(hostPercentFile, 2);
+    RecentBookProgress::saveCachedEpubPercent(current, 43.5f);
+    if (RecentBookProgress::loadCachedEpubPercent(book) != 43.5f || std::filesystem::file_size(hostPercentFile) != 7)
+      fail("Saving Home percentage did not repair a truncated cache");
+    if (!Storage.remove(percentFile.c_str())) fail("Cannot remove Home percent fixture");
+    RecentBookProgress::saveCachedEpubPercent(current, 42.5f);
+    LOG_INF("SMOKE", "Home percentage skips unchanged writes and repairs missing/truncated caches");
     if (!Storage.mkdir(legacy.c_str())) fail("Cannot recreate stale legacy Home cache");
     RecentBookProgress::saveCachedEpubPercent(legacy, 90.0f);
     if (RecentBookProgress::loadCachedEpubPercent(book) != 42.5f || !Storage.exists(legacy.c_str()))
@@ -762,6 +1014,195 @@ class SimulatorSmokeTest {
     if (!Storage.removeDir(legacy.c_str()) || !Storage.removeDir(current.c_str())) fail("Cannot remove Home fixtures");
     LOG_INF("SMOKE", "Legacy Home progress migration without EPUB loading passed");
   }
+
+  static uint64_t hashBytes(const uint8_t* bytes, size_t size, uint64_t hash = 14695981039346656037ull) {
+    for (size_t i = 0; i < size; ++i) {
+      hash ^= bytes[i];
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+
+  static uint64_t hashCarouselCache() {
+    FsFile file;
+    if (!Storage.openFileForRead("SMOKE", "/.crossdink/home_carousel_cache_0.bin", file)) {
+      fail("Carousel did not publish an artwork cache");
+    }
+    if (file.size() < renderer.getBufferSize() || file.size() >= 2 * renderer.getBufferSize()) {
+      file.close();
+      fail("Carousel snapshot must contain only one viewed artwork frame");
+    }
+    uint64_t hash = 14695981039346656037ull;
+    uint8_t bytes[128];
+    int count;
+    while ((count = file.read(bytes, sizeof(bytes))) > 0) hash = hashBytes(bytes, count, hash);
+    file.close();
+    return hash;
+  }
+
+  void queueCarouselSwipe(bool next) {
+    ++carouselCachePass;
+    inputScript.clear();
+    scriptIndex = 0;
+    inputCompletionStep = SmokeStep::CarouselHome;
+#if CROSSDINK_APP_CAP_TOUCH
+    if (mappedInputManager.hasTouchHardware()) {
+      const int startX = renderer.getScreenWidth() * (next ? 3 : 1) / 4;
+      const int endX = renderer.getScreenWidth() * (next ? 1 : 3) / 4;
+      const int y = renderer.getScreenHeight() / 2;
+      inputScript.push_back(touchDown(startX, y));
+      inputScript.push_back(touchMove(endX, y));
+      inputScript.push_back(touchRelease(endX, y));
+    } else
+#endif
+    {
+      addTap(next ? MappedInputManager::Button::Right : MappedInputManager::Button::Left);
+    }
+    inputScript.push_back(render("Carousel viewed position", 8));
+    step = SmokeStep::ReaderInput;
+  }
+
+  void verifyCarouselCacheReturn() {
+    const auto writtenAt = std::filesystem::last_write_time("fs_/.crossdink/home_carousel_cache_0.bin");
+    const uint64_t cacheHash = hashCarouselCache();
+    uint64_t screenHash;
+    {
+      RenderLock lock;
+      screenHash = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+    }
+    if (carouselCachePass == 0) {
+      if (Storage.exists("/.crossdink/home_carousel_cache_1.bin") ||
+          Storage.exists("/.crossdink/home_carousel_cache_2.bin")) {
+        fail("Carousel eagerly prepared unviewed positions");
+      }
+      carouselCacheWrittenAt = writtenAt;
+      carouselCacheHash = cacheHash;
+      const RecentBook& book = RECENT_BOOKS.getBooks().front();
+      const std::string cachePath = Epub::resolveCachePathForFilePath(book.path, "/.crossdink");
+      const float oldProgress = RecentBookProgress::loadCachedEpubPercent(book);
+      RecentBookProgress::saveCachedEpubPercent(cachePath, oldProgress < 50.0f ? 75.0f : 25.0f);
+      BookReadingStats stats = BookReadingStats::load(cachePath);
+      stats.sessionCount = 1;
+      stats.totalReadingSeconds += 7200;
+      if (!stats.save(cachePath)) fail("Cannot save carousel stats fixture");
+    } else if (carouselCachePass <= 2) {
+      if (writtenAt != carouselCacheWrittenAt || cacheHash != carouselCacheHash) {
+        fail("Reading progress/stats or tracking settings rebuilt the carousel artwork");
+      }
+      if (screenHash == carouselScreenHash) fail("Carousel restored stale progress/stats or menu pixels");
+      if (carouselCachePass == 1) {
+        SETTINGS.trackReadingStats = 0;
+      } else {
+        SETTINGS.screenInverted = !SETTINGS.screenInverted;
+      }
+    } else if (carouselCachePass == 3) {
+      if (cacheHash == carouselCacheHash) fail("Dark Mode did not invalidate carousel artwork");
+      carouselCacheHash = cacheHash;
+      const RecentBook book = RECENT_BOOKS.getBooks().front();
+      if (!RECENT_BOOKS.updateBook(book.path, "Changed carousel title", book.author, book.coverBmpPath,
+                                   book.coverState))
+        fail("Cannot update carousel title fixture");
+    } else if (carouselCachePass == 4) {
+      if (cacheHash == carouselCacheHash) fail("Title changes did not invalidate carousel artwork");
+      carouselCacheHash = cacheHash;
+      carouselCacheWrittenAt = writtenAt;
+      queueCarouselSwipe(true);
+      return;
+    } else {
+      if (cacheHash != carouselCacheHash || writtenAt != carouselCacheWrittenAt) {
+        fail("Navigating the carousel rewrote an already cached position");
+      }
+      const bool secondExists = Storage.exists("/.crossdink/home_carousel_cache_1.bin");
+      if (!secondExists || Storage.exists("/.crossdink/home_carousel_cache_2.bin")) {
+        fail("Carousel navigation did not cache only the viewed position");
+      }
+      const auto secondWrittenAt = std::filesystem::last_write_time("fs_/.crossdink/home_carousel_cache_1.bin");
+      const int selected = carouselCachePass == 5 ? 1 : 0;
+      if (activityManager.getCurrentBookPath() != RECENT_BOOKS.getBooks()[selected].path) {
+        fail("Carousel swipe did not select the expected book");
+      }
+      if (carouselCachePass == 5) {
+        carouselSecondWrittenAt = secondWrittenAt;
+        queueCarouselSwipe(false);
+        return;
+      }
+      if (secondWrittenAt != carouselSecondWrittenAt) fail("Carousel rewrote the previous position while leaving it");
+      LOG_INF("SMOKE", "Carousel lazy cache, live progress/stats/menu, Dark Mode and title invalidation passed");
+      step = SmokeStep::Done;
+      return;
+    }
+    carouselScreenHash = screenHash;
+    ++carouselCachePass;
+    activityManager.goHome();
+    queueStep("Carousel return cache", SmokeStep::CarouselHome, 8);
+  }
+
+#if CROSSDINK_SCALABLE_FONTS
+  void verifyBlockFontSizes(const int readerFontId) {
+    RenderLock lock;
+    const int baseFont = renderer.getFontIdForSize(readerFontId, 12);
+    if (renderer.getFontPointSize(baseFont) != 12) fail("Missing scalable body size");
+    for (const uint8_t points : {8, 12, 24, 32, 44}) {
+      if (renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, points)) != points)
+        fail("Missing scalable content size %u", unsigned(points));
+    }
+    const std::string path = "/block-font-smoke.xhtml";
+    if (!Storage.writeFile(path.c_str(),
+                           "<html><body><h1>Heading Heading Heading Heading Heading</h1>"
+                           "<p style=\"font-size:150%\">Large Large Large</p><p>Body Body Body</p></body></html>"))
+      fail("Cannot write block font fixture");
+    Epub book("/block-font-smoke.epub", "/.crossdink");
+    CssParser css("/.crossdink/block-font-smoke");
+    unsigned checked = 0;
+    ChapterHtmlSlimParser parser(
+        book, path, renderer, baseFont, 1.0f, false, false, 1, 320, 600, false, false, false, 0,
+        [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+          FsFile file;
+          if (!Storage.openFileForWrite("SMOKE", "/block-font-page", file) || !page->serialize(file))
+            fail("Cannot save sized page");
+          file.close();
+          if (!Storage.openFileForRead("SMOKE", "/block-font-page", file)) fail("Cannot reload sized page");
+          auto restored = Page::deserialize(file);
+          file.close();
+          if (!restored) fail("Sized page cache did not round trip");
+          int bottom = 0;
+          for (const auto& element : restored->elements) {
+            if (element->getTag() != TAG_PageLine) continue;
+            const auto& line = static_cast<const PageLine&>(*element);
+            const auto& block = *line.getBlock();
+            if (!block.wordCount()) continue;
+            const char* word = block.wordText(0);
+            const int expected = std::strcmp(word, "Heading") == 0 ? 24 : std::strcmp(word, "Large") == 0 ? 18 : 12;
+            const int actualFont = block.resolvedFontId(renderer, baseFont);
+            if (block.getBlockStyle().fontSize != expected || renderer.getFontPointSize(actualFont) != expected ||
+                block.getBlockStyle().lineHeight != renderer.getLineHeight(actualFont))
+              fail("Sized page metrics mismatch: %s", word);
+            if (line.yPos < bottom || line.yPos + block.getBlockStyle().lineHeight > 600)
+              fail("Sized page lines overlap or overflow");
+            bottom = line.yPos + block.getBlockStyle().lineHeight;
+            ++checked;
+          }
+          restored->renderText(renderer, baseFont, 0, 0);
+        },
+        true, "", "", 0, {}, nullptr, &css);
+    if (!parser.parseAndBuildPages() || checked < 3) fail("Block font parser smoke failed");
+    WordSelectNavigator navigator;
+    WordSelectNavigator::WordInfo word;
+    word.textLen = word.lookupLen = 7;
+    word.screenX = 20;
+    word.screenY = 20;
+    word.width = 100;
+    word.setLineHeight(60);
+    word.fontId = renderer.getFontIdForSize(baseFont, 24);
+    navigator.load({word}, {{20, 0, 1}}, "Heading", false);
+    bool hit = false;
+    navigator.selectWordAtPoint(50, 75, 20, &hit);
+    if (!hit) fail("Heading word selection used body height");
+    Storage.remove(path.c_str());
+    Storage.remove("/block-font-page");
+    LOG_INF("SMOKE", "Block font sizes: layout, cache, rendering and selection passed");
+  }
+#endif
 
   void tickImpl() {
     mappedInputManager.simulatorClearInputFrame();
@@ -778,6 +1219,42 @@ class SimulatorSmokeTest {
     switch (step) {
       case SmokeStep::Start:
         LOG_INF("SMOKE", "Starting simulator smoke test");
+        if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_STATUS_BARS")) {
+          verifyStatusBarSettings();
+          SETTINGS.clockDateHasBeenSynced = true;
+          SETTINGS.dateFormat = CrossPointSettings::DATE_FORMAT_YEAR_MONTH_DAY_NUMERIC;
+          SETTINGS.dateSeparator = CrossPointSettings::DATE_SEPARATOR_HYPHEN;
+          SETTINGS.displayStatusBar.slots = {ReaderStatusBarItem::Clock, ReaderStatusBarItem::Date,
+                                             ReaderStatusBarItem::Battery};
+          activityManager.replaceActivity(
+              std::make_unique<StatusBarSettingsActivity>(renderer, mappedInputManager, false, false, true));
+          queueStep("Display status bar editor", SmokeStep::StatusBarEditor, 4);
+          break;
+        }
+
+        if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_HOME_THEMES")) {
+          if (!mappedInputManager.hasHomeKey() || !mappedInputManager.hasTouchHardware())
+            fail("Home theme regression requires the X4 Pro simulator");
+          for (const char* path : {"/books/theme-first.txt", "/books/theme-second.txt"}) {
+            if (!Storage.writeFile(path, "Home theme fixture")) fail("Cannot create Home theme fixture");
+            RECENT_BOOKS.addOrUpdateBook(path, path, {}, {}, RecentBook::CoverState::Missing);
+          }
+          SETTINGS.uiTheme = CrossPointSettings::LYRA_CAROUSEL;
+          SETTINGS.uiScale = CrossPointSettings::UI_SCALE_SMALL;
+          UITheme::getInstance().reload();
+          homeThemeBookPath = "/books/theme-first.txt";
+          activityManager.replaceActivity(std::make_unique<HomeActivity>(
+              renderer, mappedInputManager, HomeMenuItem::NONE, HalDisplay::FAST_REFRESH, homeThemeBookPath));
+          queueStep("Initial carousel Home", SmokeStep::ThemeHome, 8);
+          break;
+        }
+        if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_FRONTLIGHT_LAYOUT")) {
+          if (!mappedInputManager.hasHomeKey() || !mappedInputManager.hasTouchHardware())
+            fail("Frontlight layout regression requires the X4 Pro simulator");
+          activityManager.replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInputManager));
+          queueStep("Frontlight layout Home", SmokeStep::FrontlightLayout, 4);
+          break;
+        }
         verifyLoadingPopupBackdrop();
         verifyCachedHomeProgressMigration();
         if (!CrossPointSettings::verifySleepTimeoutMigrationContract()) {
@@ -792,8 +1269,10 @@ class SimulatorSmokeTest {
         verifyUpDownShortcutAvailability();
         verifySideButtonMigrationAndInput();
         verifyReaderControlsSettings();
+        verifyStatusBarSettings();
         verifyMixedPageGestures();
 #if CROSSDINK_SCALABLE_FONTS
+        verifyBlockFontSizes(sdFontSystem.ensureBuiltInReaderFont(renderer));
         if (const char* family = std::getenv("CROSSDINK_SIMULATOR_SMOKE_FONT_FAMILY")) {
           // Exercise the production registry, adapter, size cache, and dictionary
           // handoff before the normal reader navigation smoke sequence.
@@ -814,6 +1293,7 @@ class SimulatorSmokeTest {
           SETTINGS.readerFontPointSize = 12;
           sdFontSystem.ensureLoaded(renderer);
           const int original = SETTINGS.getReaderFontId();
+          verifyBlockFontSizes(original);
           const TtfRenderProfile initialProfile = TTF_RENDER_PROFILES.profileFor(family);
           TtfRenderProfile nativeProfile = initialProfile;
           nativeProfile.hinting = 1;  // TtfRenderProfile: Native
@@ -989,7 +1469,133 @@ class SimulatorSmokeTest {
         }
 #endif
         applyRequestedTheme();
-        activityManager.goHome();
+        homeReaderReaderKind = 0;
+        homeReaderCancelledMask = 0;
+        homeReaderConfirmationAccepted = false;
+        activityManager.replaceActivity(std::make_unique<HomeReaderSmokeActivity>(
+            homeReaderSmokeReaderName(homeReaderReaderKind), true, renderer, mappedInputManager, true));
+        queueStep("Home/Reader reader owner", SmokeStep::HomeReaderReader);
+        break;
+
+      case SmokeStep::HomeReaderReader:
+        homeReaderSmokeReader = activityManager.simulatorCurrentActivity();
+        if (!homeReaderSmokeReader || !homeReaderSmokeReader->isBookReaderActivity()) {
+          fail("Home/Reader smoke reader did not become current");
+        }
+        homeReaderCancelledMask = 0;
+        homeReaderSmokeReader->startActivityForResult(
+            std::make_unique<HomeReaderSmokeActivity>("ReaderMenu", true, renderer, mappedInputManager),
+            [this](const ActivityResult& result) {
+              if (!result.isCancelled) fail("Home/Reader confirmed the first nested menu");
+              homeReaderCancelledMask |= 1;
+            });
+        queueStep("Home/Reader nested menu", SmokeStep::HomeReaderNested);
+        break;
+
+      case SmokeStep::HomeReaderNested:
+        activityManager.simulatorCurrentActivity()->startActivityForResult(
+            std::make_unique<HomeReaderSmokeActivity>("NestedSettings", false, renderer, mappedInputManager),
+            [this](const ActivityResult& result) {
+              if (!result.isCancelled) fail("Home/Reader confirmed nested settings");
+              homeReaderCancelledMask |= 2;
+            });
+        queueStep("Home/Reader destructive confirmation", SmokeStep::HomeReaderConfirmation);
+        break;
+
+      case SmokeStep::HomeReaderConfirmation:
+        activityManager.simulatorCurrentActivity()->startActivityForResult(
+            std::make_unique<HomeReaderSmokeActivity>("Confirmation", false, renderer, mappedInputManager),
+            [this](const ActivityResult& result) {
+              homeReaderConfirmationAccepted = !result.isCancelled;
+              homeReaderCancelledMask |= 4;
+            });
+        queueStep("Home/Reader trigger", SmokeStep::HomeReaderTrigger);
+        break;
+
+      case SmokeStep::HomeReaderTrigger:
+        if (!activityManager.handleShortcutAction(CrossPointSettings::HOME_READER) ||
+            !activityManager.handleShortcutAction(CrossPointSettings::HOME_READER)) {
+          fail("Repeated Home/Reader press was not consumed");
+        }
+        queueStep("Home/Reader unwound to reader", SmokeStep::HomeReaderUnwound);
+        break;
+
+      case SmokeStep::HomeReaderUnwound:
+        if (activityManager.simulatorCurrentActivity() != homeReaderSmokeReader || homeReaderCancelledMask != 7 ||
+            homeReaderConfirmationAccepted) {
+          fail("Home/Reader did not cancel every nested screen back to the existing reader");
+        }
+        if (!activityManager.handleShortcutAction(CrossPointSettings::HOME_READER)) {
+          fail("Home/Reader from the reader was not consumed");
+        }
+        queueStep("Home/Reader reader to Home", SmokeStep::HomeReaderReturnedHome);
+        break;
+
+      case SmokeStep::HomeReaderReturnedHome: {
+        if (!activityManager.isHomeActivity()) fail("Home/Reader from the reader did not return Home");
+        Activity* const homeBeforeNoOp = activityManager.simulatorCurrentActivity();
+        if (!activityManager.handleShortcutAction(CrossPointSettings::HOME_READER) ||
+            activityManager.simulatorCurrentActivity() != homeBeforeNoOp) {
+          fail("Home/Reader was not a no-op on Home");
+        }
+        if (++homeReaderReaderKind < 3) {
+          activityManager.replaceActivity(std::make_unique<HomeReaderSmokeActivity>(
+              homeReaderSmokeReaderName(homeReaderReaderKind), true, renderer, mappedInputManager, true));
+          queueStep("Home/Reader next reader type", SmokeStep::HomeReaderReader);
+        } else {
+          activityManager.simulatorCurrentActivity()->startActivityForResult(
+              std::make_unique<HomeReaderSmokeActivity>("Settings", false, renderer, mappedInputManager),
+              [](const ActivityResult&) {});
+          queueStep("Home/Reader non-reader parent", SmokeStep::HomeReaderNonReaderParent);
+        }
+        break;
+      }
+
+      case SmokeStep::HomeReaderNonReaderParent:
+        activityManager.simulatorCurrentActivity()->startActivityForResult(
+            std::make_unique<HomeReaderSmokeActivity>("Browser", false, renderer, mappedInputManager),
+            [](const ActivityResult&) {});
+        queueStep("Home/Reader non-reader nested", SmokeStep::HomeReaderNonReaderNested);
+        break;
+
+      case SmokeStep::HomeReaderNonReaderNested:
+        if (!activityManager.handleShortcutAction(CrossPointSettings::HOME_READER) ||
+            !activityManager.handleShortcutAction(CrossPointSettings::HOME_READER)) {
+          fail("Home/Reader outside a reader was not consumed");
+        }
+        queueStep("Home/Reader non-reader to Home", SmokeStep::HomeReaderNonReaderHome);
+        break;
+
+      case SmokeStep::HomeReaderNonReaderHome:
+        if (!activityManager.isHomeActivity()) fail("Home/Reader from non-reader menus did not return Home");
+        activityManager.replaceActivity(
+            std::make_unique<HomeReaderSmokeActivity>("EpubReader", true, renderer, mappedInputManager, true));
+        queueStep("Back/Home regression reader", SmokeStep::BackHomeReader);
+        break;
+
+      case SmokeStep::BackHomeReader:
+        backHomeChildCancelled = false;
+        activityManager.simulatorCurrentActivity()->startActivityForResult(
+            std::make_unique<HomeReaderSmokeActivity>("ReaderMenu", false, renderer, mappedInputManager),
+            [this](const ActivityResult& result) { backHomeChildCancelled = result.isCancelled; });
+        queueStep("Back/Home nested menu", SmokeStep::BackHomeNested);
+        break;
+
+      case SmokeStep::BackHomeNested:
+        if (!activityManager.handleHomeButtonBackOrHome()) fail("Back/Home did not handle nested reader menu");
+        queueStep("Back/Home returned one level", SmokeStep::BackHomeReturnedReader);
+        break;
+
+      case SmokeStep::BackHomeReturnedReader:
+        if (!activityManager.simulatorCurrentActivity()->isReaderActivity() || !backHomeChildCancelled) {
+          fail("Back/Home no longer pops exactly one canceled nested activity");
+        }
+        if (!activityManager.handleHomeButtonBackOrHome()) fail("Back/Home did not return from the reader");
+        queueStep("Back/Home returned Home", SmokeStep::BackHomeReturnedHome);
+        break;
+
+      case SmokeStep::BackHomeReturnedHome:
+        if (!activityManager.isHomeActivity()) fail("Back/Home from the reader did not return Home");
         queueStep("Home", SmokeStep::Home);
         break;
 
@@ -1011,6 +1617,12 @@ class SimulatorSmokeTest {
         break;
 
       case SmokeStep::FileBrowserSettings:
+        if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_FRONTLIGHT_SYNC")) {
+          if (!mappedInputManager.hasHomeKey()) fail("Frontlight sync regression requires X4 Pro simulator");
+          LOG_INF("SMOKE", "Frontlight sync: stats on/off menu and dispatch checks passed");
+          step = SmokeStep::Done;
+          break;
+        }
         activityManager.goToLibrary();
         queueStep("Library", SmokeStep::Library);
         break;
@@ -1062,17 +1674,66 @@ class SimulatorSmokeTest {
         break;
       }
 
+      case SmokeStep::StatusBarEditor: {
+        {
+          RenderLock lock;
+          captureStatusBarScreen("display-editor");
+        }
+        inputScript = {press(MappedInputManager::Button::Confirm), release(MappedInputManager::Button::Confirm),
+                       render("Display status bar picker", 4)};
+        scriptIndex = 0;
+        inputCompletionStep = SmokeStep::StatusBarPicker;
+        step = SmokeStep::ReaderInput;
+        break;
+      }
+      case SmokeStep::StatusBarPicker: {
+        RenderLock lock;
+        captureStatusBarScreen("display-picker");
+        for (const uint8_t theme : {CrossPointSettings::CLASSIC, CrossPointSettings::MINIMAL, CrossPointSettings::LYRA,
+                                    CrossPointSettings::ROUNDEDRAFF, CrossPointSettings::DASHBOARD}) {
+          SETTINGS.uiTheme = theme;
+          UITheme::getInstance().reload();
+          const auto& metrics = UITheme::getInstance().getMetrics();
+          for (unsigned format = 0; format < CrossPointSettings::DATE_FORMAT_COUNT; ++format) {
+            SETTINGS.dateFormat = format;
+            renderer.clearScreen();
+            GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
+                           tr(STR_SETTINGS_TITLE));
+            const auto name = "header-" + std::to_string(theme) + "-date-" + std::to_string(format);
+            captureStatusBarScreen(name.c_str());
+          }
+        }
+        LOG_INF("SMOKE", "Simulator smoke test passed: status bar editor, picker and themed date headers");
+        std::_Exit(0);
+      }
+
       case SmokeStep::Settings:
         renderer.setOrientation(GfxRenderer::Orientation::Portrait);
         if (!mappedInputManager.hasTouchHardware()) {
           inputScript.clear();
           scriptIndex = 0;
           inputCompletionStep = SmokeStep::SideButtons;
-          addTap(MappedInputManager::Button::Confirm);  // Reader tab
-          addTap(MappedInputManager::Button::Confirm);  // Controls tab
-          addTap(MappedInputManager::Button::Down);     // Power Button
-          addTap(MappedInputManager::Button::Down);     // Front Buttons
-          addTap(MappedInputManager::Button::Down);     // Side Buttons
+          const auto down = mappedInputManager.menuButton(MappedInputManager::Button::Down);
+          const auto up = mappedInputManager.menuButton(MappedInputManager::Button::Up);
+          const auto left = mappedInputManager.menuButton(MappedInputManager::Button::Left);
+          const auto right = mappedInputManager.menuButton(MappedInputManager::Button::Right);
+          addTap(right);
+          inputScript.push_back(render("Settings Right selects Reader tab", 3));
+          inputScript.push_back(assertSettingsNavigation(1, 0));
+          addTap(down);
+          inputScript.push_back(render("Settings Down selects first row", 3));
+          inputScript.push_back(assertSettingsNavigation(1, 1));
+          addTap(left);
+          inputScript.push_back(render("Settings Left switches tabs while a row is focused", 3));
+          inputScript.push_back(assertSettingsNavigation(0, 1));
+          addTap(up);
+          inputScript.push_back(render("Settings Up returns to tab band", 3));
+          inputScript.push_back(assertSettingsNavigation(0, 0));
+          addTap(right);  // Reader tab
+          addTap(right);  // Controls tab
+          addTap(down);   // Power Button
+          addTap(down);   // Front Buttons
+          addTap(down);   // Side Buttons
           addTap(MappedInputManager::Button::Confirm);
           inputScript.push_back(render("Side Button Settings", 250));
           step = SmokeStep::ReaderInput;
@@ -1116,6 +1777,7 @@ class SimulatorSmokeTest {
       }
 
       case SmokeStep::Reader:
+        verifyWakePowerReaderShortcut();
         buildReaderInputScript();
         step = SmokeStep::ReaderInput;
         break;
@@ -1124,10 +1786,181 @@ class SimulatorSmokeTest {
         runReaderInputScript();
         break;
 
+      case SmokeStep::CarouselHome:
+        verifyCarouselCacheReturn();
+        break;
+
+      case SmokeStep::FrontlightLayout: {
+        // Both scales, all four orientations, and all eight themes, with and
+        // without the additional reader progress row.
+        if (frontlightLayoutPass == 128) {
+          LOG_INF("SMOKE", "Frontlight layout: 128 scale/orientation/theme/context combinations passed");
+          step = SmokeStep::Done;
+          break;
+        }
+        {
+          RenderLock lock;
+          SETTINGS.uiScale =
+              (frontlightLayoutPass / 64) ? CrossPointSettings::UI_SCALE_LARGE : CrossPointSettings::UI_SCALE_SMALL;
+          SETTINGS.uiTheme = (frontlightLayoutPass / 8) % 8;
+          renderer.setOrientation(static_cast<GfxRenderer::Orientation>((frontlightLayoutPass / 2) % 4));
+          UITheme::getInstance().reload();
+        }
+        FrontlightPanelContext context;
+        context.activeReaderBook = frontlightLayoutPass % 2;
+        if (context.activeReaderBook) {
+          context.bookTitle = "Layout fixture";
+          context.bookDetails.title = context.bookTitle;
+          context.bookDetails.chapterPage = 1;
+          context.bookDetails.chapterPageCount = 10;
+        }
+        activityManager.pushActivity(
+            std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager, std::move(context)));
+        queueStep("Frontlight layout matrix", SmokeStep::FrontlightLayoutRendered, 4);
+        break;
+      }
+
+      case SmokeStep::FrontlightLayoutRendered: {
+        auto* panel = dynamic_cast<FrontlightPanelActivity*>(activityManager.simulatorCurrentActivity());
+        if (!panel) fail("Layout matrix expected frontlight drawer");
+        const auto handle = panel->simulatorHandleRect();
+        int top, right, bottom, left;
+        renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+        if (handle.y < top || handle.bottom() > renderer.getScreenHeight() - bottom || handle.x < left ||
+            handle.right() > renderer.getScreenWidth() - right || handle.height <= 0 ||
+            panel->simulatorContentBottom > panel->simulatorActionBarTop) {
+          fail("Frontlight controls overflow in layout matrix case %u", frontlightLayoutPass);
+        }
+        if (const char* outputDir = std::getenv("CROSSDINK_SIMULATOR_SMOKE_FRONTLIGHT_CAPTURES")) {
+          const auto path = std::filesystem::path(outputDir) / (std::to_string(frontlightLayoutPass) + ".pgm");
+          FILE* image = std::fopen(path.c_str(), "wb");
+          if (!image) fail("Cannot create frontlight layout capture");
+          RenderLock lock;
+          const int width = renderer.getScreenWidth();
+          const int height = renderer.getScreenHeight();
+          std::fprintf(image, "P5\n%d %d\n255\n", width, height);
+          for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) std::fputc(renderer.isPixelBlack(x, y) ? 0 : 255, image);
+          }
+          std::fclose(image);
+        }
+#if CROSSDINK_APP_CAP_TOUCH
+        const int x = handle.x + handle.width / 2;
+        const int y = handle.y + handle.height / 2;
+        inputScript = {touchDown(x, y), touchRelease(x, y), render("Frontlight closed by visible handle", 4),
+                       assertActivity("Home")};
+        scriptIndex = 0;
+        ++frontlightLayoutPass;
+        inputCompletionStep = SmokeStep::FrontlightLayout;
+        step = SmokeStep::ReaderInput;
+#else
+        fail("Frontlight layout regression requires the X4 Pro simulator");
+#endif
+        break;
+      }
+
+      case SmokeStep::ThemeHome: {
+#if CROSSDINK_APP_CAP_TOUCH
+        if (activityManager.getCurrentBookPath() != homeThemeBookPath) fail("Theme switch lost the selected book");
+        const int width = renderer.getScreenWidth();
+        const int height = renderer.getScreenHeight();
+        inputScript = {touchDown(width / 2, 8),
+                       touchMove(width / 2, height / 4),
+                       touchRelease(width / 2, height / 4),
+                       render("Home frontlight drawer", 4),
+                       assertActivity("FrontlightPanel"),
+                       {ScriptActionType::OpenFrontlightSettings, MappedInputManager::Button::Back, nullptr, 0, 0, 0},
+                       render("Home drawer Settings", 4),
+                       assertActivity("Settings")};
+        scriptIndex = 0;
+        inputCompletionStep = SmokeStep::ThemeSettings;
+        step = SmokeStep::ReaderInput;
+#else
+        fail("Home theme regression requires the X4 Pro simulator");
+#endif
+        break;
+      }
+
+      case SmokeStep::ThemeSettings: {
+        static constexpr uint8_t themes[] = {CrossPointSettings::LYRA_3_COVERS, CrossPointSettings::DASHBOARD,
+                                             CrossPointSettings::MINIMAL,       CrossPointSettings::COVER_GRID,
+                                             CrossPointSettings::LYRA,          CrossPointSettings::CLASSIC,
+                                             CrossPointSettings::ROUNDEDRAFF,   CrossPointSettings::LYRA_CAROUSEL,
+                                             CrossPointSettings::LYRA_CAROUSEL, CrossPointSettings::LYRA_CAROUSEL};
+        // Change the global values while the real Settings child is open, then
+        // return through its real drawer callback. Compare with a fresh Home.
+        {
+          RenderLock lock;
+          SETTINGS.uiTheme = themes[homeThemePass];
+          if (homeThemePass == 8) SETTINGS.uiScale = CrossPointSettings::UI_SCALE_LARGE;
+          UITheme::getInstance().reload();
+        }
+        inputScript = {press(MappedInputManager::Button::Back), release(MappedInputManager::Button::Back),
+                       render("Home after drawer Settings", 8), assertActivity("Home")};
+        scriptIndex = 0;
+        inputCompletionStep = SmokeStep::ThemeReturned;
+        step = SmokeStep::ReaderInput;
+        break;
+      }
+
+      case SmokeStep::ThemeReturned: {
+        if (activityManager.getCurrentBookPath() != homeThemeBookPath) fail("Theme switch lost the selected book");
+        {
+          RenderLock lock;
+          homeThemeScreenHash = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+        }
+        activityManager.replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInputManager, HomeMenuItem::NONE,
+                                                                       HalDisplay::FAST_REFRESH, homeThemeBookPath));
+        queueStep("Fresh Home reference", SmokeStep::ThemeFresh, 8);
+        break;
+      }
+
+      case SmokeStep::ThemeFresh: {
+        {
+          RenderLock lock;
+          if (hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize()) != homeThemeScreenHash)
+            fail("Home after drawer theme change differs from fresh Home (pass %u)", homeThemePass);
+        }
+        LOG_INF("SMOKE", "Home theme/scale return matches fresh render (pass %u)", homeThemePass);
+        if (++homeThemePass == 10) {
+          LOG_INF("SMOKE", "Simulator smoke test passed");
+          std::_Exit(0);
+        }
+        step = SmokeStep::ThemeHome;
+        break;
+      }
+
       case SmokeStep::Done:
+        if (SETTINGS.uiTheme == CrossPointSettings::LYRA_CAROUSEL && carouselCachePass == 0 &&
+            std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK")) {
+          const RecentBook book = RECENT_BOOKS.getBooks().front();
+          for (const char* path : {"/books/carousel-second.txt", "/books/carousel-third.txt"}) {
+            if (!Storage.writeFile(path, "Carousel side cover fixture")) fail("Cannot create carousel fixture");
+            RECENT_BOOKS.addOrUpdateBook(path, path, {}, {}, RecentBook::CoverState::Missing);
+          }
+          RECENT_BOOKS.addOrUpdateBook(book.path, book.title, book.author, book.coverBmpPath, book.coverState);
+          SETTINGS.trackReadingStats = 1;
+          activityManager.goHome();
+          queueStep("Carousel return cache", SmokeStep::CarouselHome, 8);
+          break;
+        }
         LOG_INF("SMOKE", "Simulator smoke test passed");
         std::_Exit(0);
     }
+  }
+
+  static ScriptAction assertReaderMenu(const ReaderDrawerTab tab, const ReaderDrawerPane pane, const int selected) {
+    return {ScriptActionType::AssertReaderMenu,
+            MappedInputManager::Button::Back,
+            nullptr,
+            selected,
+            static_cast<int>(tab),
+            static_cast<int>(pane)};
+  }
+
+  static ScriptAction assertSettingsNavigation(const int category, const int selected) {
+    return {
+        ScriptActionType::AssertSettingsNavigation, MappedInputManager::Button::Back, nullptr, 0, category, selected};
   }
 
   static ScriptAction press(MappedInputManager::Button button) {
@@ -1190,6 +2023,10 @@ class SimulatorSmokeTest {
     return {ScriptActionType::Render, MappedInputManager::Button::Back, label, framesToSettle, 0, 0};
   }
 
+  static ScriptAction assertActivity(const char* name) {
+    return {ScriptActionType::AssertActivity, MappedInputManager::Button::Back, name, 0, 0, 0};
+  }
+
 #if CROSSDINK_APP_CAP_TOUCH
   static ScriptAction touchDown(const int x, const int y) {
     return {ScriptActionType::TouchDown, MappedInputManager::Button::Back, nullptr, 0, x, y};
@@ -1200,9 +2037,7 @@ class SimulatorSmokeTest {
   static ScriptAction touchRelease(const int x, const int y) {
     return {ScriptActionType::TouchRelease, MappedInputManager::Button::Back, nullptr, 0, x, y};
   }
-  static ScriptAction assertActivity(const char* name) {
-    return {ScriptActionType::AssertActivity, MappedInputManager::Button::Back, name, 0, 0, 0};
-  }
+
 #endif
 
   void addTap(MappedInputManager::Button button) {
@@ -1214,6 +2049,21 @@ class SimulatorSmokeTest {
     inputScript.clear();
     scriptIndex = 0;
     inputCompletionStep = SmokeStep::Done;
+
+    int currentFontIndex = SETTINGS.fontFamily;
+    std::vector<uint8_t> currentFontSizes(std::begin(BUILTIN_READER_FONT_SIZES), std::end(BUILTIN_READER_FONT_SIZES));
+    if (SETTINGS.sdFontFamilyName[0] != '\0') {
+      sdFontSystem.ensureRegistry();
+      const auto& families = sdFontSystem.registry().getFamilies();
+      for (size_t i = 0; i < families.size(); ++i) {
+        if (families[i].name != SETTINGS.sdFontFamilyName) continue;
+        currentFontIndex = CrossPointSettings::BUILTIN_FONT_COUNT + static_cast<int>(i);
+        currentFontSizes = families[i].availableSizes();
+        break;
+      }
+    }
+    const auto sizeIt = std::find(currentFontSizes.begin(), currentFontSizes.end(), SETTINGS.readerFontPointSize);
+    const int currentSizeIndex = sizeIt == currentFontSizes.end() ? 0 : std::distance(currentFontSizes.begin(), sizeIt);
 
     const int turns = pageTurnCount();
 #if CROSSDINK_APP_CAP_TOUCH
@@ -1241,14 +2091,18 @@ class SimulatorSmokeTest {
         inputScript.push_back(touchDown(width / (static_cast<int>(READER_DRAWER_TAB_COUNT) * 2), tabY));
         inputScript.push_back(touchRelease(width / (static_cast<int>(READER_DRAWER_TAB_COUNT) * 2), tabY));
         addTap(MappedInputManager::Button::Confirm);
-        addTap(MappedInputManager::Button::Down);
-        addTap(MappedInputManager::Button::Down);
+        addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
         addTap(MappedInputManager::Button::Confirm);
         inputScript.push_back(render("TTF Rendering opened in reader drawer", 4));
         inputScript.push_back(assertActivity("EpubReaderDrawer"));
         addTap(MappedInputManager::Button::Confirm);
         inputScript.push_back(render("TTF Hinting choices opened in reader drawer", 3));
-        addTap(MappedInputManager::Button::Down);
+        const int currentHinting = TTF_RENDER_PROFILES.profileFor(SETTINGS.sdFontFamilyName).hinting;
+        inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::EnumOptions, currentHinting));
+        const auto hintingDirection = mappedInputManager.menuButton(
+            currentHinting > 1 ? MappedInputManager::Button::Up : MappedInputManager::Button::Down);
+        for (int i = 0; i < std::abs(currentHinting - 1); ++i) addTap(hintingDirection);
         addTap(MappedInputManager::Button::Confirm);
         inputScript.push_back(render("TTF Native hinting selected", 4));
         inputScript.push_back(assertTtfProfileNative());
@@ -1414,6 +2268,22 @@ class SimulatorSmokeTest {
       inputScript.push_back(render("Reader Menu opened from touch gesture", 4));
       inputScript.push_back(assertActivity("EpubReaderDrawer"));
 
+      const int fontTabX = width / (static_cast<int>(READER_DRAWER_TAB_COUNT) * 2);
+      inputScript.push_back(touchDown(fontTabX, tabY));
+      inputScript.push_back(touchRelease(fontTabX, tabY));
+      addTap(MappedInputManager::Button::Confirm);
+      inputScript.push_back(render("Touch Reader Font choices", 3));
+      addTap(MappedInputManager::Button::Confirm);
+      inputScript.push_back(render("Touch Font Family opens on current choice", 4));
+      inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::FontFamily, currentFontIndex));
+      addTap(MappedInputManager::Button::Back);
+      addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+      addTap(MappedInputManager::Button::Confirm);
+      inputScript.push_back(render("Touch Font Size opens on current choice", 4));
+      inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::EnumOptions, currentSizeIndex));
+      addTap(MappedInputManager::Button::Back);
+      addTap(MappedInputManager::Button::Back);
+
       // Touch every bottom-drawer tab slot, then dismiss from its handle.
       for (int tab = 0; tab < static_cast<int>(READER_DRAWER_TAB_COUNT); ++tab) {
         const int tabX = width * (tab * 2 + 1) / (static_cast<int>(READER_DRAWER_TAB_COUNT) * 2);
@@ -1472,6 +2342,9 @@ class SimulatorSmokeTest {
       return;
     }
 #endif
+    const auto menuDown = mappedInputManager.menuButton(MappedInputManager::Button::Down);
+    const auto menuLeft = mappedInputManager.menuButton(MappedInputManager::Button::Left);
+    const auto menuRight = mappedInputManager.menuButton(MappedInputManager::Button::Right);
     for (int i = 0; i < turns; i++) {
       addTap(MappedInputManager::Button::PageForward);
       inputScript.push_back(render("Reader after page forward", 4));
@@ -1479,21 +2352,57 @@ class SimulatorSmokeTest {
 
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("Reader Menu opened from EPUB", 4));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::More, ReaderDrawerPane::Root, 0));
+    // Select retains its original tab-band behavior, including wraparound.
+    for (const auto tab : {ReaderDrawerTab::Location, ReaderDrawerTab::Settings, ReaderDrawerTab::Font,
+                           ReaderDrawerTab::Layout, ReaderDrawerTab::More}) {
+      addTap(MappedInputManager::Button::Confirm);
+      inputScript.push_back(render("Reader Menu Select advances tab", 3));
+      inputScript.push_back(assertReaderMenu(tab, ReaderDrawerPane::Root, 0));
+    }
+    addTap(menuLeft);
+    addTap(menuLeft);
+    inputScript.push_back(render("Reader Menu Font tab reached with Left", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::Root, 0));
+    addTap(menuLeft);
+    inputScript.push_back(render("Reader Menu wraps left to Settings", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Settings, ReaderDrawerPane::Root, 0));
+    addTap(menuRight);
+    inputScript.push_back(render("Reader Menu wraps right to Font", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::Root, 0));
 
-    addTap(MappedInputManager::Button::Down);
+    addTap(menuDown);
     inputScript.push_back(render("Reader Menu first row focused", 3));
+    addTap(menuDown);
+    inputScript.push_back(render("Reader Menu Down moves row focus", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::Root, 1));
+    addTap(menuRight);
+    inputScript.push_back(render("Reader Menu Right switches tab while a row is focused", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Layout, ReaderDrawerPane::Root, 0));
+    addTap(menuLeft);
+    addTap(menuDown);
+    inputScript.push_back(render("Reader Menu first Font row focused again", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::Root, 0));
 
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("Reader Font opened from Reader Menu", 4));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::ReaderFont, 0));
 
-    addTap(MappedInputManager::Button::Down);
+    addTap(MappedInputManager::Button::Confirm);
+    inputScript.push_back(render("Font Family opens on current choice", 4));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::FontFamily, currentFontIndex));
+    addTap(MappedInputManager::Button::Back);
+    inputScript.push_back(render("Reader Font after closing Font Family", 3));
+
+    addTap(menuDown);
     inputScript.push_back(render("Font Size selected", 3));
 
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("Font Size choices opened", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::EnumOptions, currentSizeIndex));
 
 #if CROSSDINK_APP_READER_SAMPLE_PREVIEW
-    addTap(MappedInputManager::Button::Down);
+    addTap(menuDown);
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("C3 font size paragraph preview", 4));
 #endif
@@ -1504,7 +2413,7 @@ class SimulatorSmokeTest {
 #if CROSSDINK_APP_READER_SAMPLE_PREVIEW
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("C3 font family picker", 4));
-    addTap(MappedInputManager::Button::Down);
+    addTap(menuDown);
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("C3 font family paragraph preview", 4));
     addTap(MappedInputManager::Button::Back);
@@ -1515,16 +2424,16 @@ class SimulatorSmokeTest {
     inputScript.push_back(render("Reader Menu tab focus restored", 4));
 
 #if CROSSDINK_APP_READER_SAMPLE_PREVIEW
-    addTap(MappedInputManager::Button::Down);
-    addTap(MappedInputManager::Button::Down);
-    addTap(MappedInputManager::Button::Down);
+    addTap(menuDown);
+    addTap(menuDown);
+    addTap(menuDown);
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("C3 spacing paragraph preview", 4));
     addTap(MappedInputManager::Button::Confirm);
     addTap(MappedInputManager::Button::Down);
     inputScript.push_back(render("C3 line spacing adjusted", 4));
     addTap(MappedInputManager::Button::Back);
-    addTap(MappedInputManager::Button::Down);
+    addTap(menuDown);
     addTap(MappedInputManager::Button::Confirm);
     addTap(MappedInputManager::Button::Down);
     inputScript.push_back(render("C3 word spacing adjusted", 4));
@@ -1533,18 +2442,19 @@ class SimulatorSmokeTest {
     inputScript.push_back(render("C3 font tab restored", 3));
 #endif
 
-    addTap(MappedInputManager::Button::Confirm);
+    addTap(menuRight);
     inputScript.push_back(render("Reader Menu advanced to next tab", 4));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Layout, ReaderDrawerPane::Root, 0));
 
 #if CROSSDINK_APP_READER_SAMPLE_PREVIEW
-    addTap(MappedInputManager::Button::Down);
+    addTap(menuDown);
     addTap(MappedInputManager::Button::Confirm);
     inputScript.push_back(render("C3 margin paragraph preview", 4));
     addTap(MappedInputManager::Button::Confirm);
     addTap(MappedInputManager::Button::Down);
     inputScript.push_back(render("C3 vertical margin adjusted", 4));
     addTap(MappedInputManager::Button::Back);
-    addTap(MappedInputManager::Button::Down);
+    addTap(menuDown);
     addTap(MappedInputManager::Button::Confirm);
     addTap(MappedInputManager::Button::Down);
     inputScript.push_back(render("C3 horizontal margin adjusted", 4));
@@ -1555,6 +2465,12 @@ class SimulatorSmokeTest {
 
     addTap(MappedInputManager::Button::Back);
     inputScript.push_back(render("Reader after closing Reader Menu", 4));
+    inputScript.push_back(assertActivity("EpubReader"));
+    addTap(MappedInputManager::Button::Confirm);
+    inputScript.push_back(render("Reader Menu reopened on More", 4));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::More, ReaderDrawerPane::Root, 0));
+    addTap(MappedInputManager::Button::Back);
+    inputScript.push_back(render("Reader restored after checking default tab", 4));
 
     LOG_INF("SMOKE", "Running reader input script with %d page turn(s)", turns);
   }
@@ -1596,6 +2512,49 @@ class SimulatorSmokeTest {
       inputScript.push_back(render("File Browser restored after enabling reader touchscreen", 4));
       inputScript.push_back(assertActivity("FileBrowser"));
       inputScript.push_back(assertTouchscreenEnabled());
+      inputScript.push_back(
+          {ScriptActionType::ClearFrontlightSyncBook, MappedInputManager::Button::Back, nullptr, 0, 0, 0});
+      inputScript.push_back(touchDown(width / 2, 8));
+      inputScript.push_back(touchMove(width / 2, height / 4));
+      inputScript.push_back(touchRelease(width / 2, height / 4));
+      inputScript.push_back(render("Frontlight without last-read book", 4));
+      inputScript.push_back({ScriptActionType::OpenFrontlightSync, MappedInputManager::Button::Back, nullptr, 0, 0, 0});
+      inputScript.push_back(render("Unavailable transfer actions rendered", 4));
+      inputScript.push_back(
+          {ScriptActionType::CheckFrontlightSync, MappedInputManager::Button::Back, nullptr, 0, 1, 0});
+      inputScript.push_back(press(MappedInputManager::Button::Confirm));
+      inputScript.push_back(release(MappedInputManager::Button::Confirm));
+      inputScript.push_back(render("Unavailable transfer action cannot activate", 4));
+      inputScript.push_back(assertActivity("FrontlightPanel"));
+      inputScript.push_back(press(MappedInputManager::Button::Back));
+      inputScript.push_back(release(MappedInputManager::Button::Back));
+      inputScript.push_back(render("File Browser restored after unavailable transfer", 4));
+      inputScript.push_back(assertActivity("FileBrowser"));
+      inputScript.push_back(
+          {ScriptActionType::PrepareFrontlightSync, MappedInputManager::Button::Back, nullptr, 0, 0, 0});
+      for (const bool statsEnabled : {true, false}) {
+        inputScript.push_back(
+            {statsEnabled ? ScriptActionType::EnableReadingStats : ScriptActionType::DisableReadingStats,
+             MappedInputManager::Button::Back, nullptr, 0, 0, 0});
+        inputScript.push_back(touchDown(width / 2, 8));
+        inputScript.push_back(touchMove(width / 2, height / 4));
+        inputScript.push_back(touchRelease(width / 2, height / 4));
+        inputScript.push_back(render("Frontlight sync from File Browser", 4));
+        inputScript.push_back(
+            {ScriptActionType::OpenFrontlightSync, MappedInputManager::Button::Back, nullptr, 0, 0, 0});
+        inputScript.push_back(render("Frontlight sync menu rendered", 4));
+        inputScript.push_back(
+            {ScriptActionType::CheckFrontlightSync, MappedInputManager::Button::Back, nullptr, 0, 0, 0});
+        inputScript.push_back(press(MappedInputManager::Button::Confirm));
+        inputScript.push_back(release(MappedInputManager::Button::Confirm));
+        inputScript.push_back(render("Frontlight sync opens account settings", 4));
+        inputScript.push_back(assertActivity("KOReaderSettings"));
+        inputScript.push_back(press(MappedInputManager::Button::Back));
+        inputScript.push_back(release(MappedInputManager::Button::Back));
+        inputScript.push_back(render("File Browser restored after sync settings", 4));
+        inputScript.push_back(assertActivity("FileBrowser"));
+      }
+      inputScript.push_back({ScriptActionType::EnableReadingStats, MappedInputManager::Button::Back, nullptr, 0, 0, 0});
     }
 
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInputManager);
@@ -1622,6 +2581,64 @@ class SimulatorSmokeTest {
 
     const auto& action = inputScript[scriptIndex++];
     switch (action.type) {
+      case ScriptActionType::ClearFrontlightSyncBook:
+        APP_STATE.openEpubPath.clear();
+        break;
+      case ScriptActionType::PrepareFrontlightSync: {
+        const char* bookPath = std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK");
+        if (!bookPath || !Storage.exists(bookPath)) fail("Frontlight sync fixture is missing");
+        APP_STATE.openEpubPath = bookPath;
+        break;
+      }
+      case ScriptActionType::DisableReadingStats:
+        SETTINGS.trackReadingStats = 0;
+        break;
+      case ScriptActionType::EnableReadingStats:
+        SETTINGS.trackReadingStats = 1;
+        break;
+      case ScriptActionType::OpenFrontlightSync: {
+        auto* panel = dynamic_cast<FrontlightPanelActivity*>(activityManager.simulatorCurrentActivity());
+        if (!panel) fail("Expected frontlight drawer before opening sync menu");
+        panel->simulatorActivateQuickAction(1);
+        break;
+      }
+      case ScriptActionType::CheckFrontlightSync: {
+        auto* panel = dynamic_cast<FrontlightPanelActivity*>(activityManager.simulatorCurrentActivity());
+        if (!panel) fail("Expected frontlight sync menu");
+        const bool unavailable = action.x != 0;
+        for (int index = 0; index < 3; ++index) {
+          if (panel->simulatorSyncOptionDisabled(index) != unavailable)
+            fail("Unexpected transfer availability outside reader");
+          const auto row = panel->simulatorSyncOptionRect(index);
+          // Sample inside the row background, away from its centered label and rounded corners.
+          if (unavailable || index > 0) {
+            for (int offset = 0; offset < 8; ++offset)
+              if (renderer.isPixelBlack(row.x + row.width / 2 + offset, row.y + 4))
+                fail("Unselected sync option is highlighted");
+          }
+        }
+        if (const char* outputDir = std::getenv("CROSSDINK_SIMULATOR_SMOKE_FRONTLIGHT_CAPTURES")) {
+          const auto path = std::filesystem::path(outputDir) / (unavailable                  ? "sync-no-book.pgm"
+                                                                : SETTINGS.trackReadingStats ? "sync-stats-on.pgm"
+                                                                                             : "sync-stats-off.pgm");
+          FILE* image = std::fopen(path.c_str(), "wb");
+          if (!image) fail("Cannot create sync menu capture");
+          RenderLock lock;
+          const int width = renderer.getScreenWidth();
+          const int height = renderer.getScreenHeight();
+          std::fprintf(image, "P5\n%d %d\n255\n", width, height);
+          for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x) std::fputc(renderer.isPixelBlack(x, y) ? 0 : 255, image);
+          std::fclose(image);
+        }
+        break;
+      }
+      case ScriptActionType::OpenFrontlightSettings: {
+        auto* panel = dynamic_cast<FrontlightPanelActivity*>(activityManager.simulatorCurrentActivity());
+        if (!panel) fail("Expected frontlight drawer before opening Settings");
+        panel->simulatorActivateQuickAction(3);
+        break;
+      }
       case ScriptActionType::Press:
         mappedInputManager.simulatorInjectPress(action.button);
         break;
@@ -1690,6 +2707,28 @@ class SimulatorSmokeTest {
         mappedInputManager.simulatorInjectTouchRelease(action.x, action.y);
 #endif
         break;
+      case ScriptActionType::AssertReaderMenu: {
+        if (!activityManager.isCurrentActivityNamed("EpubReaderDrawer"))
+          fail("Expected reader menu for navigation assertion");
+        const auto* drawer = static_cast<EpubReaderDrawerActivity*>(activityManager.simulatorCurrentActivity());
+        const auto& state = drawer->simulatorState();
+        if ((state.pane == ReaderDrawerPane::FontFamily || state.pane == ReaderDrawerPane::EnumOptions) &&
+            !drawer->simulatorFocusedRowVisible())
+          fail("Reader picker current choice is not highlighted and visible");
+        if (static_cast<int>(state.tab) != action.x || static_cast<int>(state.pane) != action.y ||
+            state.selectedIndex != action.settleFrames)
+          fail("Reader menu navigation mismatch: tab=%d pane=%d row=%d, expected %d/%d/%d", static_cast<int>(state.tab),
+               static_cast<int>(state.pane), state.selectedIndex, action.x, action.y, action.settleFrames);
+        break;
+      }
+      case ScriptActionType::AssertSettingsNavigation: {
+        if (!activityManager.isCurrentActivityNamed("Settings")) fail("Expected settings for navigation assertion");
+        const auto* settings = static_cast<SettingsActivity*>(activityManager.simulatorCurrentActivity());
+        if (settings->simulatorCategoryIndex() != action.x || settings->simulatorSelectedIndex() != action.y)
+          fail("Settings navigation mismatch: category=%d row=%d, expected %d/%d", settings->simulatorCategoryIndex(),
+               settings->simulatorSelectedIndex(), action.x, action.y);
+        break;
+      }
       case ScriptActionType::AssertActivity:
         if (!activityManager.isCurrentActivityNamed(action.label)) fail("Expected current activity: %s", action.label);
         break;

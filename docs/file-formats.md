@@ -5,6 +5,43 @@ All POD fields are written in the ESP32 little-endian representation used by
 `Serialization.h`; strings are length-prefixed UTF-8 unless a format notes a
 fixed-size char buffer.
 
+## `epub_<hash>/links.bin`
+
+The EPUB reader writes followed-link Back history on clean exit (Home, sleep,
+or reader replacement for sync). The record has a one-byte depth (1–3), followed
+by that many pairs of little-endian `u16` spine index and `u16` page number,
+oldest first: 5, 9, or 13 bytes. Empty history removes the file. A transient
+footnote preview resumes at its immediate origin and omits that final entry;
+earlier full-section links remain in the record.
+
+On open, the reader checks the exact length and each spine index, closes the
+file, and deletes it before adopting the history. Malformed records are also
+consumed. A later clean exit rewrites the current stack; an unclean shutdown
+cannot revive history from a previous session. This new sidecar does not change
+EPUB layout cache formats. As with in-memory Back history, changing font or
+layout may shift the destination page.
+
+## `/.crossdink/home_carousel_cache_<index>.bin`
+
+### Version 6
+
+The v1.6.1 release normalizes development version 8 to version 6, one step
+after v1.6.0. The new per-position filenames and artwork cache keys prevent
+reuse of older combined snapshots.
+
+Each Carousel position has a disposable snapshot containing only cover artwork,
+titles and position dots. Progress, reading time, header, menu icons and button
+hints are drawn live after restoration. Each file contains a `CarouselCacheHeader`
+followed by one full framebuffer. The header's `frameCount` records the number of
+recent books used to compose the artwork, rather than the number of stored frames.
+The key tracks ordered book paths, titles, cover paths, thumbnail availability and
+image polarity, rather than reading progress or statistics.
+
+Frames are rendered and saved only when viewed; returning Home does not prepare
+other positions in advance. The development version 7 combined
+`home_carousel_cache.bin` is removed after the first successful write. Cache
+regeneration is automatic; EPUB layout caches and reading history are unaffected.
+
 ## `/.crossdink/ttf-rendering.json`
 
 This user-owned JSON file stores only custom TTF families whose raster settings
@@ -119,7 +156,7 @@ do not contain series or genre.
 
 `LibraryIndexFile` (`lib/LibraryIndex/LibraryIndexFile.{h,cpp}`) reads the
 `CLX1` on-disk index for the Library screen: one sorted, searchable
-snapshot of up to 4,096 books on the card, built by `LibraryBuilder` so paging,
+snapshot of up to 32,767 books on the card, built by `LibraryBuilder` so paging,
 sorting, and searching the shelf cost a handful of seeks instead of a
 directory walk per screen. The format itself (`lib/LibraryIndex/LibraryFormat.h`)
 is free of `HalStorage` and Arduino so its layout and validation rules are
@@ -203,6 +240,8 @@ eight-byte EPUB content key.
 
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
+Version 10 rebuilds metadata with namespace-aware OPF parsing so optimizer-generated
+XML prefixes do not leave an empty chapter list. The binary layout is unchanged.
 Version 9 stores book and TOC title strings NFC-composed so decomposed
 diacritics render correctly with device fonts. It also rebuilds metadata after
 the EPUB guide start-reference handling changed.
@@ -214,7 +253,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 9
+#define EXPECTED_VERSION 10
 #define MAX_STRING_LENGTH 65535
 
 struct String {
@@ -286,7 +325,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 9
+### Version 10
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -491,6 +530,57 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 83
+
+Nested paragraphs and other blocks retain inherited CSS bold and italic styles,
+including explicit child overrides. The payload is unchanged from version 82,
+but glyph styles and wrapping can differ. Complete files use byte `83`;
+suspended partials use `0xC4`. Older full and partial caches rebuild automatically
+so previously cached regular text does not hide the corrected styling. The CSS
+rule cache format is unchanged.
+
+### Version 82
+
+Scalable-font EPUB headings and whole text blocks carry a resolved point size
+and line height. Each serialized `TextBlock` appends `u8 fontSize` (0 = reader
+font, otherwise 8-44 pt) and `u16 lineHeight` after `directionDefined` in its
+`BlockStyle` payload. The inherited Q8 font scale is layout-only and is not
+serialized. Complete section files use byte `82`; suspended partials use `0xC3`.
+Older full and partial caches rebuild automatically.
+
+CSS cache revision `20` adds a five-byte font-size length (float value plus unit)
+after `imageWidth` and uses defined-property bit 23. The fixed style payload is
+76 bytes. Older CSS caches rebuild automatically.
+
+On scalable fonts, headings default to 2, 1.5, 1.17, 1, 0.83, and 0.67 times the
+inherited size, rounded to whole points and bounded to 8-44 pt. Enabled book
+styles can override block sizes using em, rem, %, px, pt, and size keywords.
+CSS 16px/12pt maps to the user's selected body size; em/% use the parent and
+rem uses the HTML root. Inline span size changes and table-cell sizing remain
+uniform in this phase. Light mode and bitmap fonts retain their existing sizes.
+
+### Version 81
+
+Version 81 carries `text-indent` from the HTML and body root styles into
+descendant paragraph blocks. Existing full section caches (byte `80`) and
+suspended partial caches (`0xC1`) rebuild so inherited paragraph indentation is
+reflected in saved page positions. Complete files use byte `81`; suspended
+partials use marker `0xC2`. The CSS rule cache format is unchanged.
+
+### Version 80
+
+Version 80 places small inline images within text lines while keeping larger
+images as centered blocks. Page-image records add a one-byte inline flag after
+their coordinates; full section caches (byte `80`) and suspended partial caches (`0xC1`) rebuild so
+existing books receive the new layout. The CSS rule cache moves to version `19`
+so `display: inline` rules retain their meaning.
+
+CrossDink goes straight from version `79` (partial marker `0xF1`) to version
+`83` (partial marker `0xC4`); versions `80` to `82` and their partial markers
+`0xC1` to `0xC3` describe CrossInk's intermediate layouts, which CrossDink never
+wrote. Retired partial markers `0xF1` to `0xFE` are never reused. All older full
+and partial caches rebuild automatically.
+
 ### Version 79
 
 Version 79 keeps the version 78 serialized layout. Korean words now wrap at
@@ -533,8 +623,10 @@ version byte `66`, and suspended partials use sentinel byte `0xF6`.
 The stable v1.5.1 release retains these identifiers from RC6. Do not normalize
 published RC versions to the previous stable version plus one: v1.5.0 used
 `60` / `0xF9`, and RC4 already shipped `61` / `0xF8` with older layout output.
-Reusing those identifiers could accept stale RC caches as current. Per-book
-reader settings likewise retain version `9` and their version 7/8 migrations.
+Reusing those identifiers could accept stale RC caches as current. Version 9
+per-book reader settings and their version 7/8 migrations remain
+readable. Version 10 adds a field-override mask so a book can inherit unrelated
+global reader settings.
 
 ### Version 62
 
@@ -687,6 +779,8 @@ struct BlockStyle {
     bool textIndentDefined;
     bool isRtl;
     bool directionDefined;
+    u8 fontSize;
+    u16 lineHeight;
 };
 
 struct TextBlock {
