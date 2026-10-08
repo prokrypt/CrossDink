@@ -130,10 +130,11 @@ void replaceFolderEmoji(PsramString& title) {
 }  // namespace
 
 OpdsBookBrowserActivity::OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                                 OpdsServer server)
+                                                 OpdsServer server, const bool fromServerList)
     : Activity("OpdsBookBrowser", renderer, mappedInput),
       buttonNavigator(),
       server(std::move(server)),
+      fromServerList(fromServerList),
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {}
 
@@ -281,7 +282,7 @@ void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::CHECK_WIFI || state == BrowserState::LOADING) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
         TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
-      state == BrowserState::CHECK_WIFI ? onGoHome() : navigateBack();
+      state == BrowserState::CHECK_WIFI ? leaveBrowser() : navigateBack();
       return;
     }
     if (awaitingBackgroundJoin && !wifi_background_join::joining()) {
@@ -992,9 +993,17 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool
   fetchFeed(currentPath);
 }
 
+void OpdsBookBrowserActivity::leaveBrowser() {
+  if (fromServerList) {
+    activityManager.goToBrowser();
+  } else {
+    onGoHome();
+  }
+}
+
 void OpdsBookBrowserActivity::navigateBack() {
   if (navigationHistory.empty()) {
-    onGoHome();
+    leaveBrowser();
   } else {
     const HistoryEntry previous = std::move(navigationHistory.back());
     navigationHistory.pop_back();
