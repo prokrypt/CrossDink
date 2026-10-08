@@ -350,4 +350,5 @@ class BaseTheme {
   static void beginFrameStatus();
   static int wifiStatusShown();
   static int batteryPercentShown();
+  static bool remoteActivityShown();  // the last frame drew the remote-activity icon
 };

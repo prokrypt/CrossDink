@@ -3141,8 +3141,8 @@ static void loopPass() {
     activityManager.requestUpdate();
   }
 
-  // The header's Wi-Fi glyph and battery percent: one ordinary repaint of the
-  // current screen when the link comes or goes or the percent changes. Only
+  // The header's Wi-Fi glyph, remote-activity icon and battery percent: one ordinary repaint of the
+  // current screen when the link comes or goes, the icon is due on or off, or the percent changes. Only
   // screens whose last frame drew a header status bar (never the reader), and
   // the percent only once input has paused; requestedFor stops a repeat if that
   // repaint shows no header.
@@ -3169,8 +3169,10 @@ static void loopPass() {
       // happens anyway.
       const auto linkState = [](int bars) { return bars == 0 ? 0 : bars == WIFI_HEADER_CONNECTING ? 1 : 2; };
       const bool linkChanged = linkState(shownWifi) != linkState(connected);
-      const bool stale = linkChanged || (inputPaused && shownPercent != percent);
-      const int want = linkState(connected) << 8 | percent;
+      const bool remote = linkState(connected) == 2 && wifiRemoteActive();
+      const bool stale =
+          linkChanged || remote != BaseTheme::remoteActivityShown() || (inputPaused && shownPercent != percent);
+      const int want = remote << 10 | linkState(connected) << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
       } else if (requestedFor != want) {
