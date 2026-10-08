@@ -8,8 +8,8 @@
 
 // KOReader Sync > Auto Sync, always Smart Sync and on a background task (no
 // screen). At close: push the book's saved progress unless the server is already
-// at or past it, or the book closed at the page it opened at (no radio). At open: fetch the remote progress (never push); the reader asks
-// before it moves. Main task only.
+// at or past it, or the book closed at the page it opened at (no radio). At open: fetch the remote progress (never
+// push); the reader asks before it moves. Main task only.
 namespace kosync_auto {
 // Reader open: fetch the book's remote progress when At open is on and credentials exist.
 // spineIndex/pageNumber/pageCount (0 if unknown): where the book opened; a close
