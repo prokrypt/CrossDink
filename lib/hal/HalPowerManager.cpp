@@ -309,8 +309,14 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
     while ((digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) && millis() - releaseStart < 2000) {
       delay(10);
     }
+    // RTC_DATA_ATTR survives deep sleep and resets on a full boot, so Power wake/sleep keeps the lockout.
+    static RTC_DATA_ATTR bool pageKeysLockedOut = false;
     uint64_t mask = 1ULL << in.power;
-    if (digitalRead(in.up) == HIGH && digitalRead(in.down) == HIGH) {
+    if (digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) {
+      pageKeysLockedOut = true;
+      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until full boot");
+    }
+    if (!pageKeysLockedOut) {
       pinMode(in.up, INPUT_PULLUP);
       pinMode(in.down, INPUT_PULLUP);
       mask |= (1ULL << in.up) | (1ULL << in.down);
