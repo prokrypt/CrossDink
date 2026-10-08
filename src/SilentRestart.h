@@ -62,6 +62,10 @@ void silentRestartToManageFonts();
 // work (a lower bar when goingHome); the caller then falls back to its silent
 // restart. True during deep sleep, so callers go on with their normal cleanup.
 bool leaveNetworkInPlace(bool goingHome = false);
+// For a Wi-Fi screen going back to another one (OPDS catalog to the server
+// list): the next leaveNetworkInPlace() keeps the station link up and returns
+// true, so the list finds Wi-Fi connected instead of rejoining.
+void keepWifiForNextScreen();
 // Debug builds (CROSSDINK_PERF_LOG): logs the small used blocks that split
 // internal RAM's free runs, with the owning task when one holds a TCB there.
 void logInternalHeapPins(const char* why);

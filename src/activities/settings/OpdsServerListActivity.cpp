@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "OpdsSettingsActivity.h"
+#include "SilentRestart.h"
 #include "activities/ActivityManager.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/TouchHeaderBackButton.h"
@@ -85,7 +86,10 @@ void OpdsServerListActivity::onEnter() {
     wifi_background_join::start();
     rootsQueued = false;
     // Back from a catalog: its page cache comes back with the roots already in it.
-    if (!pageCache) pageCache = opds_page_cache_handoff::take();
+    if (!pageCache) {
+      pageCache = opds_page_cache_handoff::take();
+      fromBrowser = pageCache != nullptr;
+    }
     if (!pageCache && psramHeapAvailable()) {
       const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
       pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
@@ -105,9 +109,10 @@ void OpdsServerListActivity::onEnter() {
 // land mark their rows; a server that fails just stays unmarked.
 void OpdsServerListActivity::pumpPrefetch() {
 #ifndef SIMULATOR
-  if (!preload || !hasActiveStationWifiConnection()) return;
+  if (!preload) return;
   const auto& servers = OPDS_STORE.getServers();
-  if (!rootsQueued) {
+  // Marks for cached roots show with or without Wi-Fi; only fetching needs it.
+  if (hasActiveStationWifiConnection() && !rootsQueued) {
     rootsQueued = true;
     for (const auto& server : servers) {
       if (server.url.empty()) continue;
@@ -115,7 +120,7 @@ void OpdsServerListActivity::pumpPrefetch() {
                        UrlUtils::ensureProtocol(server.url));
     }
   }
-  preload->pump();
+  if (hasActiveStationWifiConnection()) preload->pump();
   if (pageCache->changes() != pageCachedAt) {
     pageCachedAt = pageCache->changes();
     std::bitset<OpdsServerStore::MAX_SERVERS> cached;
@@ -143,8 +148,19 @@ void OpdsServerListActivity::onExit() {
   } else {
     pageCache.reset();
   }
-  // Back to Home or into the server editor: the link is not needed any more.
-  if (pickerMode && !leavingToBrowser) wifi_background_join::stop();
+  // Back to Home: the link is not needed any more.
+  if (pickerMode && !leavingToBrowser) {
+#ifndef SIMULATOR
+    if (fromBrowser) {
+      // The browser kept the link past its own exit check: take it down the
+      // way that exit would have, with the heap check for Home.
+      wifi_background_join::wait();
+      leaveNetworkAfterExit({});
+      return;
+    }
+#endif
+    wifi_background_join::stop();
+  }
 }
 
 // Not while the join or a root-page fetch is running, as the browser's list.

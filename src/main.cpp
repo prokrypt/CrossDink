@@ -763,9 +763,23 @@ bool keepWifiForRemote() {
 // whose entry check guards the heap that screen runs on.
 static bool networkEntryPending = false;
 
+static bool keepLinkForNext = false;
+
+void keepWifiForNextScreen() { keepLinkForNext = true; }
+
 bool leaveNetworkInPlace(const bool goingHome) {
+  const bool keepForNext = keepLinkForNext;
+  keepLinkForNext = false;
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
+  if (keepForNext && readerResourcesReady) {
+    // The next screen is another Wi-Fi screen on the same stack and heap the
+    // leaving one ran on, and nothing is left to set up for Home: nothing
+    // torn down, nothing to rejoin. After a minimal network boot the normal
+    // exit below runs instead.
+    LOG_INF("MAIN", "Leaving Wi-Fi in place: link kept for the next Wi-Fi screen");
+    return true;
+  }
   const wifi_mode_t mode = WiFi.getMode();
   // The Goodies remote's own network: hand the link back, no teardown and rejoin.
   const bool keepLink = keepWifiForRemote();
