@@ -40,9 +40,12 @@ int runFromOtherTask(const char* token, const char* cmd, uint32_t clientIp, char
 // After runFromOtherTask(..., "SCREENSHOT", ...) returned 200: the PBM image the
 // main task captured. Server task only; valid until the next SCREENSHOT.
 const uint8_t* screenshot(size_t& len);
+// A MACRO script is running (the main loop keeps its fast idle tick meanwhile).
+bool macroRunning();
 #else
 inline bool handleLine(const char*) { return false; }
 inline void poll() {}
+inline bool macroRunning() { return false; }
 #endif
 
 }  // namespace SerialRemote

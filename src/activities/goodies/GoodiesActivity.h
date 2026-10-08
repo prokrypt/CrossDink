@@ -32,6 +32,9 @@ bool takePickerRequest();
 void waitForJoin();
 // Toggle off: server and Wi-Fi off, forgets the toggle.
 void stop();
+// Remote test macro (SerialRemote MACRO): true turns the server and Wi-Fi off
+// and keeps them off, the toggle stays; false lets loop() rejoin at once.
+void hold(bool on);
 // A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
 // keepStation: the screen joins as a station (not AP), so a link to the
 // remote's own network stays up for it to reuse, and so does the server,
