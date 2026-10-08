@@ -9,7 +9,9 @@
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#include <Knobs.h>
 #include <Logging.h>
+#include <PowerCounters.h>
 #include <PsramRing.h>
 #include <WiFi.h>
 #include <esp_attr.h>
@@ -29,6 +31,7 @@
 
 #include "BootReason.h"
 #include "LocalClock.h"
+#include "PowerLog.h"
 
 #if !CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY
 #error "BatteryLog needs CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y"
@@ -167,6 +170,22 @@ void setReading(const Reading& r) {
   portEXIT_CRITICAL_SAFE(&ringMux);
 }
 
+// PowerLog's rows carry the same readings as this log's.
+void fillSample(PowerLog::Sample& out) {
+  portENTER_CRITICAL_SAFE(&ringMux);
+  const Reading r = reading;
+  portEXIT_CRITICAL_SAFE(&ringMux);
+  out.epoch = epochNow();
+  out.localOffsetS = localOffsetS;
+  out.pct = r.pct;
+  out.pct256 = r.pct256;
+  out.mv = r.mv;
+  out.tempDeciC = r.tempDeciC;
+  out.tempKnown = r.tempKnown;
+  out.chg = r.chg;
+  out.usb = r.usb;
+}
+
 // A raw state that differs from the logged one becomes it after kDebounceMs.
 bool settle(const bool raw, bool& logged, uint32_t& sinceMs, const uint32_t nowMs) {
   if (raw == logged) {
@@ -270,7 +289,10 @@ void wifiEnded(const char* why) {
 }  // namespace
 
 // The row stays in the PSRAM ring; the next boot flushes it.
-void onRestart() { wifiEnded("restart"); }
+void onRestart() {
+  wifiEnded("restart");
+  PowerLog::onRestart();
+}
 
 void onBoot() {
   mainTask = xTaskGetCurrentTaskHandle();
@@ -302,6 +324,7 @@ void onBoot() {
     r.light = 0;
     writeRowAt(e.epoch, r, e.chg ? "chg_on" : e.pct >= kFullPct ? "charged" : "chg_off", "asleep");
   }
+  if (events != 0) PowerLog::noteCharger();  // charged while asleep: not a drain interval
   s.sleepEventCount = 0;
   char detail[96];
   int n =
@@ -314,7 +337,12 @@ void onBoot() {
   s.pendingFalseWakes = s.pendingFalseWakeMs = 0;
   seal();
   writeRow(wake ? "wake" : "boot", detail);
-  powerManager.wakeOnChargeChange = true;
+  PowerLog::begin(&fillSample, wake && esp_reset_reason() == ESP_RST_DEEPSLEEP, wake ? "wake" : "boot", detail);
+  // Goodies > Knobs chargeWake 0: no charger STAT wake, for the deep-sleep drain
+  // A/B (ext0 keeps the RTC peripherals powered). Mirrored to RTC memory for the
+  // wake paths that sleep again before the knobs load.
+  PowerCounters::setChargeWakeAllowed(KNOBS.chargeWake != 0);
+  powerManager.wakeOnChargeChange = KNOBS.chargeWake != 0;
   // After a restart or crash the ring still holds rows the card lacks: write
   // them soon. A clean deep-sleep wake wiped the ring, so this session's rows
   // wait for the sleep flush (or the low-battery / 3/4-full flush); a power
@@ -327,6 +355,7 @@ void onSleep(const char* why) {
   readSlow();
   wifiEnded("sleep");
   writeRow("sleep", why);
+  PowerLog::onSleep(why, powerManager.wakeOnChargeChange);
   flush();
 }
 
@@ -338,6 +367,7 @@ void poll(const uint32_t idleMs) {
 
   const Reading before = reading;
   readQuick(/*debounce=*/true);
+  if (reading.chg || reading.usb) PowerLog::noteCharger();
   if (reading.usb != before.usb) writeRow(reading.usb ? "usb_in" : "usb_out", nullptr);
   if (reading.chg != before.chg) {
     // "charged": charging stopped near full with the cable in. Without a USB
@@ -345,12 +375,16 @@ void poll(const uint32_t idleMs) {
     const bool full = (before.usb || reading.usb) && reading.pct >= kFullPct;
     writeRow(reading.chg ? "chg_on" : full ? "charged" : "chg_off", nullptr);
   }
-  if (reading.pct != before.pct) writeRow("pct", nullptr);
+  if (reading.pct != before.pct) {
+    writeRow("pct", nullptr);
+    PowerLog::event("pct");
+  }
   const bool wifi = WiFi.getMode() != WIFI_OFF;
   if (wifi != wifiOn) {
     wifiOn = wifi;
     writeRow(wifi ? "wifi_on" : "wifi_off", nullptr);
   }
+  PowerLog::poll(idleMs);  // its own Wi-Fi rows, periodic row and flush
   if (!ringReady || idleMs < kFlushIdleMs) return;
   const uint32_t pending = ring.head - ring.aux;
   // Low battery: out in 4 KB lots (not row by row) before a brownout can take the ring.
@@ -375,7 +409,7 @@ void onChargeWake() {
   }
   seal();
   // A flapping STAT line (charger fault blink) stops waking the device once the list is full.
-  powerManager.wakeOnChargeChange = s.sleepEventCount < kMaxSleepEvents;
+  powerManager.wakeOnChargeChange = s.sleepEventCount < kMaxSleepEvents && PowerCounters::chargeWakeAllowed();
   LOG_INF("BAT", "Charge wake: %s at %u%%", r.chg ? "charging" : "stopped", r.pct);
 }
 
@@ -384,7 +418,7 @@ void noteFalseWake() {
   s.pendingFalseWakes++;
   s.pendingFalseWakeMs += millis();
   seal();
-  powerManager.wakeOnChargeChange = s.sleepEventCount < kMaxSleepEvents;
+  powerManager.wakeOnChargeChange = s.sleepEventCount < kMaxSleepEvents && PowerCounters::chargeWakeAllowed();
 }
 
 void event(const char* name, const char* detail) { writeRow(name, detail); }
@@ -398,6 +432,7 @@ void lightChanged(const bool timedOut) {
 }
 
 bool flush() {
+  PowerLog::flush();  // its rows too, so a Battery & stats refresh leaves both files current
   if (!ensureRing() || !Storage.ready()) return false;
   portENTER_CRITICAL_SAFE(&ringMux);
   const uint32_t head = ring.head;
@@ -473,6 +508,7 @@ void reset() {
   seal();
   auto& counts = HalDisplay::refreshCounts();
   std::fill(std::begin(counts.n), std::end(counts.n), 0u);
+  PowerLog::reset();
   LOG_INF("BAT", "Stats reset");
 }
 

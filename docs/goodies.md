@@ -37,6 +37,10 @@
   only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
   PLL bytes are never knobs (PLL is not a knob; `CMD:KBDEXP` and test scripts pick panel default / 40 / 50 Hz only). To add one: an `X(...)` row
   whose default equals the constant, then read `KNOBS.<id>` where the constant was.
+- **Power Test** runs one load at a time (idle, frontlight 50% / 100%, Wi-Fi modem sleep / awake, one busy core,
+  Fast / Full refresh loops) for Knobs `powerTestMin`, or steps each load on and off while reading the cell voltage
+  (voltage sag probe), marking `/debug/logs/power.csv` for `scripts/power_fit.py`. See
+  [power-counters.md](power-counters.md).
 
 Back stops a running test; Back again leaves the result screen.
 
