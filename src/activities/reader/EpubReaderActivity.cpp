@@ -1210,7 +1210,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   SETTINGS.embeddedStyle = in.embeddedStyle ? 1 : 0;
   SETTINGS.hyphenationEnabled = in.hyphenationEnabled ? 1 : 0;
   SETTINGS.textAntiAliasing =
-      in.textAntiAliasing < CrossPointSettings::TEXT_AA_COUNT ? in.textAntiAliasing : CrossPointSettings::TEXT_AA_SHARP;
+      in.textAntiAliasing < CrossPointSettings::TEXT_AA_COUNT ? in.textAntiAliasing : CrossPointSettings::TEXT_AA_OFF;
   SETTINGS.imageRendering =
       in.imageRendering < CrossPointSettings::IMAGE_RENDERING_COUNT ? in.imageRendering : SETTINGS.imageRendering;
   SETTINGS.extraParagraphSpacing = in.extraParagraphSpacing ? 1 : 0;
@@ -1408,8 +1408,9 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   if (flags & READER_SETTINGS_FLAG_CUSTOM) {
     // Older records owned the entire snapshot. New records only own the fields
     // the reader actually changed, so unrelated global defaults still apply.
+    // Files older than v10 (incl. CrossInk's, read through from /.crosspoint) leave AA to the global default (Off).
     data.readerSettingsOverrideMask =
-        version < READER_SETTINGS_FILE_VERSION ? ALL_READER_SETTING_OVERRIDES : overrideMask;
+        version < READER_SETTINGS_FILE_VERSION ? ALL_READER_SETTING_OVERRIDES & ~(1U << 11) : overrideMask;
     data.hasCustomReaderSettings = data.readerSettingsOverrideMask != 0;
     applyReaderSettingsOverrides(data.readerSettings, snapshot, data.readerSettingsOverrideMask);
   }
