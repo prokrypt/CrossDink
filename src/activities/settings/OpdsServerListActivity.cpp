@@ -105,9 +105,10 @@ void OpdsServerListActivity::onEnter() {
 // land mark their rows; a server that fails just stays unmarked.
 void OpdsServerListActivity::pumpPrefetch() {
 #ifndef SIMULATOR
-  if (!preload || !hasActiveStationWifiConnection()) return;
+  if (!preload) return;
   const auto& servers = OPDS_STORE.getServers();
-  if (!rootsQueued) {
+  // Marks for cached roots show with or without Wi-Fi; only fetching needs it.
+  if (hasActiveStationWifiConnection() && !rootsQueued) {
     rootsQueued = true;
     for (const auto& server : servers) {
       if (server.url.empty()) continue;
@@ -115,7 +116,7 @@ void OpdsServerListActivity::pumpPrefetch() {
                        UrlUtils::ensureProtocol(server.url));
     }
   }
-  preload->pump();
+  if (hasActiveStationWifiConnection()) preload->pump();
   if (pageCache->changes() != pageCachedAt) {
     pageCachedAt = pageCache->changes();
     std::bitset<OpdsServerStore::MAX_SERVERS> cached;
