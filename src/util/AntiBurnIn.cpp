@@ -28,5 +28,6 @@ int pick(const uint32_t bits) {
 
 int shiftX() { return pick(seed() >> 2); }
 int shiftY() { return pick(seed() >> 12); }
+int ruleUp() { return KNOBS.burnInShiftPx > 0 ? 1 + static_cast<int>((seed() >> 22) % 5) : 0; }
 
 }  // namespace AntiBurnIn
