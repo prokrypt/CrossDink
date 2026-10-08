@@ -98,7 +98,6 @@ std::atomic<bool> frameRemoteActive{false};
 
 // Remote-activity icon left of the bars: an up and a down arrow, 5 px wide each, 1 px gap, 11 px tall.
 constexpr int REMOTE_GLYPH_WIDTH = 11;
-constexpr unsigned long REMOTE_ACTIVE_MS = 30000;
 }  // namespace
 
 void BaseTheme::beginFrameStatus() {
@@ -109,6 +108,8 @@ void BaseTheme::beginFrameStatus() {
 
 int BaseTheme::wifiStatusShown() { return frameWifiStatus.load(std::memory_order_relaxed); }
 
+bool BaseTheme::remoteActivityShown() { return frameRemoteActive.load(std::memory_order_relaxed); }
+
 int BaseTheme::batteryPercentShown() { return frameBatteryPercent.load(std::memory_order_relaxed); }
 
 int BaseTheme::wifiStatusReserve() {
@@ -117,9 +118,7 @@ int BaseTheme::wifiStatusReserve() {
   frameWifiStatus.store(static_cast<int8_t>(bars), std::memory_order_relaxed);
   frameBatteryPercent.store(static_cast<int16_t>(powerManager.getBatteryPercentage()), std::memory_order_relaxed);
   if (!connected) return 0;
-  // Shown or hidden only by repaints that happen anyway; it never asks for one.
-  const unsigned long lastRequest = wifiRemoteRequestMs().load(std::memory_order_relaxed);
-  const bool remote = lastRequest != 0 && millis() - lastRequest < REMOTE_ACTIVE_MS;
+  const bool remote = wifiRemoteActive();
   frameRemoteActive.store(remote, std::memory_order_relaxed);
   return wifiGlyphWidth + batteryPercentSpacing + (remote ? REMOTE_GLYPH_WIDTH + batteryPercentSpacing : 0);
 }
