@@ -549,7 +549,7 @@ void LibraryActivity::openSortPicker(const int selectedIndex) {
                                       StrId::STR_LIBRARY_AUTHOR_FIRST_NAME,
                                       StrId::STR_LIBRARY_SERIES,
                                       StrId::STR_LIBRARY_GENRE};
-  static constexpr Sort order[] = {Sort::RecentlyRead, Sort::DateAdded, Sort::Title,  Sort::AuthorLast,
+  static constexpr Sort order[] = {Sort::RecentlyRead, Sort::DateAdded, Sort::Title, Sort::AuthorLast,
                                    Sort::AuthorFirst,  Sort::Series,    Sort::Genre};
   const bool buttonOnly = !mappedInput.hasTouchHardware();
   auto onSelect = [this, buttonOnly](const int selected) {
