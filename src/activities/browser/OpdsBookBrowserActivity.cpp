@@ -1002,6 +1002,9 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool
 void OpdsBookBrowserActivity::leaveBrowser() {
   if (fromServerList) {
     leavingToList = true;
+#ifndef SIMULATOR
+    keepWifiForNextScreen();  // the list finds Wi-Fi up and shows its check marks at once
+#endif
     activityManager.goToBrowser();
   } else {
     onGoHome();

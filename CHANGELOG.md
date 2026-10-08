@@ -271,7 +271,7 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
-- OPDS: Back from a catalog to the server list keeps the pages fetched so far (the servers' root pages and check marks included) instead of fetching every server again. After a restart on a fragmented heap the list still starts empty.
+- OPDS: Back from a catalog to the server list keeps the pages fetched so far (the servers' root pages and check marks included) instead of fetching every server again. Wi-Fi stays connected for the trip back, and cached roots show their check marks even before Wi-Fi is up. After a restart on a fragmented heap the list still starts empty.
 - OPDS: Back on a server's root catalog returns to the server list when you opened the server from that list, instead of going Home. It also holds after the quiet restart used on a fragmented heap.
 - KOReader Sync Auto Sync: opening a book and closing it (or sleeping) without turning a page no longer turns Wi-Fi on for a push. A push that failed earlier this boot still goes out, and so does the retry after a failed sleep push.
 - Keys still held when the device finishes waking (e.g. Power + Down held to wake) no longer fire a chord such as a screenshot; release them first.
