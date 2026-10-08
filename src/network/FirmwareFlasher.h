@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #ifndef SIMULATOR
+#include <esp_ota_ops.h>
 #include <esp_partition.h>
 #endif
 
@@ -97,6 +98,11 @@ bool streamActive();
 // the segment table; esp_image_verify is not used (it rejects patched images).
 #ifndef SIMULATOR
 Result verifyPartition(const esp_partition_t* part);
+
+// The OTA slot we are not running from, with its image header in `desc`, or
+// nullptr when it holds no usable image. Header only: verifyPartition() it
+// before ota_boot::switchTo.
+const esp_partition_t* otherSlot(esp_app_desc_t& desc);
 #endif
 
 const char* resultName(Result r);

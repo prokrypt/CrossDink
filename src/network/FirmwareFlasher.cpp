@@ -786,6 +786,17 @@ Result writeImage(HalFile& file, const esp_partition_t* dest, ProgressCb onProgr
 }
 }  // namespace
 
+const esp_partition_t* otherSlot(esp_app_desc_t& desc) {
+  const esp_partition_t* part = esp_ota_get_next_update_partition(nullptr);
+  if (!part || esp_ota_get_partition_description(part, &desc) != ESP_OK) return nullptr;
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(part, &state) == ESP_OK &&
+      (state == ESP_OTA_IMG_INVALID || state == ESP_OTA_IMG_ABORTED)) {
+    return nullptr;
+  }
+  return part;
+}
+
 Result verifyPartition(const esp_partition_t* part) {
   if (!part) return Result::NO_PARTITION;
   // Image length: header + segments + pad (+ SHA trailer), as checkImageHeader() walks it.
