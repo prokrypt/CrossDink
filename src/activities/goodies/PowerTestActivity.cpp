@@ -340,6 +340,17 @@ void PowerTestActivity::sagStep() {
   lastSampleMs = 0;
 }
 
+uint32_t PowerTestActivity::msUntilTimedWork() const {
+  if (phase != Phase::Running) return UINT32_MAX;
+  const uint32_t now = millis();
+  const auto until = [now](const uint32_t since, const uint32_t ms) {
+    return now - since >= ms ? 0 : ms - (now - since);
+  };
+  uint32_t ms = until(phaseMs, runMs);
+  if (test == FAST_LOOP || test == FULL_LOOP) ms = std::min(ms, until(lastLoopMs, KNOBS.powerTestRefreshS * 1000u));
+  return ms;
+}
+
 void PowerTestActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {

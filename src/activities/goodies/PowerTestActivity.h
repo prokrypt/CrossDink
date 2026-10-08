@@ -51,6 +51,9 @@ class PowerTestActivity final : public Activity {
   // idle File Transfer does.
   bool allowsRadioIdleSleep() override { return test == WIFI_PS && phase == Phase::Running; }
   bool skipLoopDelay() override { return test == SAG_PROBE && phase == Phase::Running; }
+  // The next refresh-loop frame or the run's end, so the idle tick does not
+  // stretch powerTestRefreshS to the next long tick.
+  uint32_t msUntilTimedWork() const override;
 
  private:
   enum class Phase : uint8_t { Joining, Running, Done, Failed };
