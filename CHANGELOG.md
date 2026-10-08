@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Screen burn-in guard: each boot (a wake from sleep counts) picks a random dither phase and a small offset. Dotted gray fills (scrollbar tracks, highlights, gray bars) shift by 0 or 1 pixel, the thick header rule is now a 50% dotted pattern so that shift moves every pixel of it, and header text, the header battery/Wi-Fi/clock and the reader's top status bar text move by up to 2 pixels (Goodies > Knobs `burnInShiftPx`, 0 = off). Nothing extra is refreshed: only what refreshes already draw changes.
 - Header status bar: a small up/down arrow icon left of the Wi-Fi bars while a Wi-Fi remote (or web) request came in during the last 30 s. It shows and hides only on header repaints that happen anyway, so it adds no refreshes or wakes.
 - X4 Pro: hold Up and Down together while the device sleeps to show the next custom sleep image (Sleep Screen set to Custom, or Cover + Custom after leaving from Home). It draws the new image and goes back to sleep without opening the book or Home. A press of Up or Down alone wakes the chip for a moment and goes back to sleep with nothing drawn, and a page key still held 2 s after sleep starts is left out of the wake keys for that sleep.
 - X4 Pro (debug builds): `POST /api/delete` (Wi-Fi remote token) deletes SD files or folders like File Transfer's delete, also on Goodies > Wi-Fi remote.

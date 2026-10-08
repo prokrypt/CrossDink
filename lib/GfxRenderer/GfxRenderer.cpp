@@ -1479,12 +1479,12 @@ void GfxRenderer::drawPixelDither<Color::White>(const int x, const int y) const 
 
 template <>
 void GfxRenderer::drawPixelDither<Color::LightGray>(const int x, const int y) const {
-  drawPixel(x, y, x % 2 == 0 && y % 2 == 0);
+  drawPixel(x, y, (x + ditherPhaseX) % 2 == 0 && (y + ditherPhaseY) % 2 == 0);
 }
 
 template <>
 void GfxRenderer::drawPixelDither<Color::DarkGray>(const int x, const int y) const {
-  drawPixel(x, y, (x + y) % 2 == 0);  // TODO: maybe find a better pattern?
+  drawPixel(x, y, (x + y + ditherPhaseX + ditherPhaseY) % 2 == 0);  // TODO: maybe find a better pattern?
 }
 
 void GfxRenderer::fillRectDither(const int x, const int y, const int width, const int height, Color color) const {
@@ -1640,8 +1640,8 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
       }
       uint8_t mask = 0;
       for (int b = 0; b < 8; ++b) {
-        const int lx = lxBase + b * dlxPerPhyX;
-        const int ly = lyBase + b * dlyPerPhyX;
+        const int lx = lxBase + b * dlxPerPhyX + ditherPhaseX;
+        const int ly = lyBase + b * dlyPerPhyX + ditherPhaseY;
         bool isBlack;
         if constexpr (C == Color::LightGray) {
           isBlack = ((lx & 1) == 0) && ((ly & 1) == 0);

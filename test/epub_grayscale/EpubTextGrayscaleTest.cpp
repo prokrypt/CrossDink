@@ -192,6 +192,39 @@ TEST(EpubTextRaster, VariationSelectorsDoNotDrawOrAdvance) {
   }
 }
 
+// The per-boot dither phase moves the bulk fill path and the per-pixel
+// pattern the same way in every orientation.
+TEST(DitherPhase, GrayFillsFollowThePhaseInEveryOrientation) {
+  fakeheap::reset(true);
+  Storage.reset();
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  for (int orientation = 0; orientation < 4; ++orientation) {
+    renderer.setOrientation(GfxRenderer::Orientation(orientation));
+    for (int phase = 0; phase < 4; ++phase) {
+      const int px = phase & 1;
+      const int py = phase >> 1;
+      renderer.setDitherPhase(px, py);
+      renderer.clearScreen();
+      renderer.fillRectDither(3, 5, 21, 7, Color::LightGray);
+      renderer.fillRectDither(3, 20, 21, 7, Color::DarkGray);
+      for (int y = 5; y < 12; ++y) {
+        for (int x = 3; x < 24; ++x) {
+          EXPECT_EQ(renderer.isPixelBlack(x, y), (x + px) % 2 == 0 && (y + py) % 2 == 0)
+              << orientation << " " << phase << " " << x << "," << y;
+        }
+      }
+      for (int y = 20; y < 27; ++y) {
+        for (int x = 3; x < 24; ++x) {
+          EXPECT_EQ(renderer.isPixelBlack(x, y), (x + y + px + py) % 2 == 0)
+              << orientation << " " << phase << " " << x << "," << y;
+        }
+      }
+    }
+  }
+}
+
 TEST(AbsoluteImageRaster, TextMatchesBlackWhiteInBothPlanesAndCancellationResetsMode) {
   fakeheap::reset(true);
   Storage.reset();

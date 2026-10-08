@@ -14,6 +14,7 @@ X("Panel", tempPeriodMs, uint32_t, 60000, 10000, 600000, 10000, "ms")          /
 X("Panel", tempRefreshPeriodMs, uint32_t, 300000, 10000, 1800000, 10000, "ms")  // after-refresh sample
 X("Panel", tempMaxAgeMs, uint32_t, 600000, 60000, 3600000, 60000, "ms")        // older samples ignored
 X("Panel", kbdFrames, uint8_t, 6, 2, 16, 1, "fr")                    // Turbo keyboard DU frames per phase
+X("Panel", burnInShiftPx, int, 2, 0, 4, 1, "px")                     // burn-in guard: header/status bar shift, per boot
 
 // Frontlight
 // Flash duck, per waveform: dark this much after the swing the driver reports, back up this much after
