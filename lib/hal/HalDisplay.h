@@ -86,7 +86,8 @@ class HalDisplay {
   bool powerOffIdle();
   // Booster on ahead of the next refresh (touch-down); false when nothing changed.
   bool powerOnIdle();
-  // Trial: light-sleep through refresh busy-waits (HalPowerManager::setRefreshLightSleep).
+  // Light-sleep through refresh busy-waits, waking on BUSY (HalPowerManager::setRefreshLightSleep).
+  // begin() turns it on for UC8179 panels in PM builds.
   void setRefreshLightSleep(bool allowed);
 
   // Access to frame buffer
