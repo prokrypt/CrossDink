@@ -350,7 +350,13 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.guideReadingEnabled != fileGuideReadingEnabled || spec.wordSpacing != fileWordSpacing ||
         static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
       file.close();
-      LOG_INF("SCT", "Section cache params changed, rebuilding");
+      LOG_INF("SCT",
+              "Section cache params changed, rebuilding: font %d/%d lc %.2f/%.2f vp %ux%u/%ux%u hyph %d/%d style %d/%d "
+              "img %u/%u mode %u/%u",
+              fileFontId, spec.fontId, fileLineCompression, spec.lineCompression, fileViewportWidth, fileViewportHeight,
+              spec.viewportWidth, spec.viewportHeight, fileHyphenationEnabled, spec.hyphenationEnabled,
+              fileEmbeddedStyle, spec.embeddedStyle, fileImageRendering, spec.imageRendering, fileRenderMode,
+              static_cast<uint8_t>(spec.renderMode));
       clearCache();
       return false;
     }
