@@ -540,21 +540,24 @@ void LibraryActivity::openBook(const int row) {
 }
 
 void LibraryActivity::openSortPicker(const int selectedIndex) {
-  static constexpr StrId choices[] = {StrId::STR_LIBRARY_DATE_ADDED,
+  // Popup order; the Sort enum order is persisted in settings, so only the menu is reordered.
+  static constexpr StrId choices[] = {StrId::STR_LIBRARY_RECENTLY_OPENED,
+                                      StrId::STR_LIBRARY_DATE_ADDED,
                                       StrId::STR_LIBRARY_TITLE,
                                       StrId::STR_LIBRARY_AUTHOR_LAST_NAME,
                                       StrId::STR_LIBRARY_AUTHOR_FIRST_NAME,
-                                      StrId::STR_LIBRARY_RECENTLY_OPENED,
                                       StrId::STR_LIBRARY_SERIES,
                                       StrId::STR_LIBRARY_GENRE};
+  static constexpr Sort order[] = {Sort::RecentlyRead, Sort::DateAdded, Sort::Title, Sort::AuthorLast,
+                                   Sort::AuthorFirst,  Sort::Series,    Sort::Genre};
   const bool buttonOnly = !mappedInput.hasTouchHardware();
   auto onSelect = [this, buttonOnly](const int selected) {
     if (buttonOnly && selected == 0) {
       descending = !descending;
     } else {
       const int method = selected - (buttonOnly ? 1 : 0);
-      if (method < 0 || method > static_cast<int>(Sort::Genre)) return;
-      sort = static_cast<Sort>(method);
+      if (method < 0 || method >= 7) return;
+      sort = order[method];
       if (!buttonOnly) descending = sort == Sort::DateAdded || sort == Sort::RecentlyRead;
     }
     SETTINGS.librarySortMethod = static_cast<uint8_t>(sort);
@@ -572,7 +575,9 @@ void LibraryActivity::openSortPicker(const int selectedIndex) {
     actionPopup.show(tr(STR_LIBRARY_SORT_BY), options, 8, selectedIndex < 0 ? 0 : selectedIndex, std::move(onSelect));
     actionPopup.setDividerAfterOption(0);
   } else {
-    actionPopup.show(StrId::STR_LIBRARY_SORT_BY, choices, 7, static_cast<int>(sort), std::move(onSelect));
+    int current = 0;
+    while (order[current] != sort) current++;
+    actionPopup.show(StrId::STR_LIBRARY_SORT_BY, choices, 7, current, std::move(onSelect));
   }
   if (index.isOpen() && index.header().formatVersion < 4)
     actionPopup.setDisabledOptions(buttonOnly ? std::vector<bool>{false, false, false, false, false, false, true, true}
