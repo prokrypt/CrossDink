@@ -17,6 +17,9 @@ enum class NetworkBootTarget : uint32_t {
   MANAGE_FONTS = 7,
 };
 
+// NetworkBootTarget::OPDS payload for the server list instead of one server.
+constexpr uint32_t OPDS_SERVER_LIST_PAYLOAD = UINT32_MAX;
+
 constexpr bool isNetworkBootTargetValue(const uint32_t value) {
   switch (static_cast<NetworkBootTarget>(value)) {
     case NetworkBootTarget::OTA:
