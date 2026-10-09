@@ -517,14 +517,18 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     props.styles.normal.border = fui::Paint::dither(fui::Color::DarkGray);
     props.styles.normal.borderWidth = tokens.headerUnderline;
   }
-  // Burn-in guard: the band's fill and rule stay put; its text and status
+  // Burn-in guard: the band's fill stays put, its rule rises; its text and status
   // chrome are drawn at the per-boot offset.
   const int16_t shiftX = static_cast<int16_t>(AntiBurnIn::shiftX());
   const int16_t shiftY = static_cast<int16_t>(AntiBurnIn::shiftY());
   fui::HeaderProps chrome;
   chrome.styles = props.styles;
-  chrome.borderEdges = props.borderEdges;
+  chrome.borderEdges = 0;
   fui::header(ui.frame, band, chrome);
+  // The rule rises by the per-boot amount (fill stays put, so a filled band keeps its extent).
+  chrome.borderEdges = props.borderEdges;
+  const int16_t ruleHeight = static_cast<int16_t>(band.height - AntiBurnIn::ruleUp());
+  fui::header(ui.frame, fui::Rect{band.x, band.y, band.width, ruleHeight}, chrome);
   props.styles = fui::StyleSet{};
   props.styles.explicitlySet = true;
   fui::header(
