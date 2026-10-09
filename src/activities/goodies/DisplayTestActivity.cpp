@@ -15,6 +15,7 @@
 #include <cstring>
 #include <utility>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UIScale.h"
@@ -28,6 +29,16 @@ using display_script::OpCode;
 namespace {
 constexpr size_t MAX_SCRIPT_BYTES = 8 * 1024;
 constexpr char SAMPLE_TEXT[] = "The quick brown fox jumps over the lazy dog 0123456789";
+// Flash kinds by Ducks a0, with their knob ids (Knobs.def).
+struct DuckKind {
+  const char* name;
+  const char* dimId;
+  const char* restoreId;
+};
+constexpr DuckKind DUCK_KINDS[] = {{"Full", "flashFullDimMs", "flashFullRestoreMs"},
+                                   {"Gray", "flashGrayDimMs", "flashGrayRestoreMs"},
+                                   {"Paint", "flashPaintDimMs", "flashPaintRestoreMs"},
+                                   {"GrayDark", "flashGrayDarkDimMs", "flashGrayDarkRestoreMs"}};
 }  // namespace
 
 DisplayTestActivity::DisplayTestActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,
@@ -67,6 +78,7 @@ void DisplayTestActivity::onEnter() {
 }
 
 void DisplayTestActivity::onExit() {
+  setNight(false);
 #ifndef SIMULATOR
   freeink::setUc8179KbdExperiment(nullptr);
 #endif
@@ -91,10 +103,23 @@ void DisplayTestActivity::loop() {
     }
     return;
   }
-  if (current == Phase::Waiting && static_cast<long>(millis() - resumeAtMs) >= 0) {
-    phase = Phase::Running;
-    requestUpdate();
-    return;
+  int tapX = 0, tapY = 0;
+  if (current == Phase::Waiting) {
+    bool go;
+    if (tapWait) {
+      const bool tapped = mappedInput.wasScreenTapped(tapX, tapY);
+      // Flash ducks pages: only the Next button (or OK) advances; other taps do nothing.
+      go = (tapped && (duckKind < 0 || duckTap(tapX, tapY))) ||
+           mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+    } else {
+      go = static_cast<long>(millis() - resumeAtMs) >= 0;
+    }
+    if (go) {
+      tapWait = false;
+      phase = Phase::Running;
+      requestUpdate();
+      return;
+    }
   }
   if (current == Phase::Asking && askDrawn && script.ops[pc].code == OpCode::Pick) {
     const Op& op = script.ops[pc];
@@ -146,6 +171,13 @@ void DisplayTestActivity::answer(const int option) {
 void DisplayTestActivity::render(RenderLock&&) {
   if (phase.load() == Phase::Running) runOps();
   const Phase current = phase.load();
+  if (redrawLabel && current == Phase::Waiting) {
+    // A -/+ changed a value: the band again, with the new numbers.
+    redrawLabel = false;
+    drawOp(script.ops[labelPc]);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    renderer.waitRefreshComplete();
+  }
   if (current == Phase::Asking && !askDrawn) {
     drawAsk();
   } else if (current == Phase::Finished) {
@@ -186,6 +218,27 @@ void DisplayTestActivity::runOps() {
         ++pc;
         phase = Phase::Waiting;
         return;
+      case OpCode::Tap:
+        if (pc < skipTapsUntil) break;
+        skipTapsUntil = -1;
+        tapWait = true;
+        ++pc;
+        phase = Phase::Waiting;
+        return;
+      case OpCode::Rerun:
+        rerunPc = pc;
+        break;
+      case OpCode::Ducks:
+        if (pc < skipTapsUntil) break;  // an Again replay keeps the page's own kind
+        duckKind = static_cast<int>(op.a[0]);
+        duckPc = pc;
+        break;
+      case OpCode::Gray:
+        grayPass();
+        break;
+      case OpCode::Night:
+        setNight(op.a[0] != 0);
+        break;
       case OpCode::Repeat:
         loops.push_back({pc, op.a[0]});
         break;
@@ -227,6 +280,7 @@ void DisplayTestActivity::runOps() {
     ++pc;
   }
   if (!stopped) LOG_INF("GDY", "test=\"%s\" done refreshes=%d", title.c_str(), refreshCount);
+  setNight(false);
   phase = Phase::Finished;
 }
 
@@ -271,20 +325,28 @@ void DisplayTestActivity::drawOp(const Op& op) {
       renderer.drawText(UI_12_FONT_ID, op.a[0], op.a[1], op.text.c_str(), true, EpdFontFamily::BOLD);
       break;
     case OpCode::Label: {
+      // An Again replay of an earlier step shows this page's label, not that step's.
+      const Op& shown = duckKind >= 0 && pc < skipTapsUntil ? script.ops[labelPc] : op;
+      if (&shown == &op) labelPc = static_cast<int>(&op - script.ops.data());
       // Up to 3 lines split on '|': what this is (bold), what to look for, what is next.
       std::string lines[3];
       int count = 0;
-      for (size_t start = 0; count < 3 && start <= op.text.size(); ++count) {
-        const size_t bar = op.text.find('|', start);
-        const size_t stop = bar == std::string::npos ? op.text.size() : bar;
-        lines[count] = op.text.substr(start, stop - start);
+      for (size_t start = 0; count < 3 && start <= shown.text.size(); ++count) {
+        const size_t bar = shown.text.find('|', start);
+        const size_t stop = bar == std::string::npos ? shown.text.size() : bar;
+        lines[count] = shown.text.substr(start, stop - start);
         lines[count].erase(0, lines[count].find_first_not_of(' '));
         lines[count].erase(lines[count].find_last_not_of(' ') + 1);
         start = stop + 1;
       }
       std::vector<BandLine> wrapped;
       wrapBand(lines, count, wrapped);
-      drawBand(wrapped, 0);
+      if (duckKind >= 0) {
+        const int rowH = renderer.getLineHeight(UI_12_FONT_ID) + 12;
+        drawDuckControls(drawBand(wrapped, 3 * rowH) + 4);
+      } else {
+        drawBand(wrapped, 0);
+      }
       break;
     }
     default:
@@ -335,6 +397,49 @@ void DisplayTestActivity::refresh(const Mode mode) {
 #endif
 }
 
+// The reader's overlay AA pass (ReaderUtils::renderAntiAliased) over the B/W
+// page on the panel: dark gray on the left half, light gray on the right, under
+// the label band. Masks are only meaningful over black pixels.
+void DisplayTestActivity::grayPass() {
+  const int w = renderer.getScreenWidth();
+  const int h = renderer.getScreenHeight() - bandH;
+  if (!renderer.storeBwBuffer()) {
+    LOG_ERR("GDY", "test=\"%s\" gray: no memory for the B/W copy", title.c_str());
+    return;
+  }
+  const unsigned long startMs = millis();
+  renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+  renderer.fillRect(0, bandH, w / 2, h, false);  // dark: both masks
+  renderer.copyGrayscaleLsbBuffers();
+  renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+  renderer.fillRect(0, bandH, w, h, false);  // light: MSB only
+  renderer.copyGrayscaleMsbBuffers();
+  renderer.displayGrayBuffer();
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.restoreBwBuffer();
+  ++refreshCount;
+  LOG_INF("GDY", "test=\"%s\" n=%d mode=gray total=%u", title.c_str(), refreshCount,
+          static_cast<unsigned>(millis() - startMs));
+}
+
+// ActivityManager re-applies SETTINGS.screenInverted before every render, so
+// Night Mode for the test goes through the setting (in RAM, never saved) and
+// the user's value comes back when the test ends or exits.
+void DisplayTestActivity::setNight(const bool on) {
+  if (on == (savedNight >= 0)) return;
+  if (on) {
+    savedNight = static_cast<int8_t>(SETTINGS.screenInverted);
+    SETTINGS.screenInverted = 1;
+  } else {
+    SETTINGS.screenInverted = static_cast<uint8_t>(savedNight);
+    savedNight = -1;
+  }
+  renderer.setInvertedTextGray(on);  // overlay gray in panel polarity (as TxtReader's night mode)
+  display.setInverted(SETTINGS.screenInverted != 0);
+}
+
 // Word-wraps band parts (the first bold) to the screen width in UI_12, up to 3
 // lines per part.
 void DisplayTestActivity::wrapBand(const std::string* parts, const int count, std::vector<BandLine>& out) const {
@@ -362,6 +467,64 @@ int DisplayTestActivity::drawBand(const std::vector<BandLine>& lines, const int 
     y += lineHeight;
   }
   return textBottom;
+}
+
+// Under the label: the kind's dim and restore offsets with -/+, then Again.
+// Hit boxes are kept in logical coordinates for duckTap.
+void DisplayTestActivity::drawDuckControls(int y) {
+  const int w = renderer.getScreenWidth();
+  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int rowH = lineHeight + 12;
+  const int sq = rowH - 4;
+  const DuckKind& k = DUCK_KINDS[duckKind];
+  const char* const ids[2] = {k.dimId, k.restoreId};
+  const char* const names[2] = {"dim", "restore"};
+  auto button = [&](const Hit& r, const char* text) {
+    renderer.drawRect(r.x, r.y, r.w, r.h);
+    renderer.drawText(UI_12_FONT_ID, r.x + (r.w - renderer.getTextWidth(UI_12_FONT_ID, text)) / 2,
+                      r.y + (r.h - lineHeight) / 2, text);
+  };
+  for (int i = 0; i < 2; ++i) {
+    const int idx = knobs::find(ids[i]);
+    char line[48];
+    snprintf(line, sizeof(line), "%s %s %ld ms", k.name, names[i], idx >= 0 ? static_cast<long>(knobs::get(idx)) : 0L);
+    renderer.drawText(UI_12_FONT_ID, 16, y + (sq - lineHeight) / 2, line);
+    duckHit[i * 2] = {w - 16 - 2 * sq - 8, y, sq, sq};
+    duckHit[i * 2 + 1] = {w - 16 - sq, y, sq, sq};
+    button(duckHit[i * 2], "-");
+    button(duckHit[i * 2 + 1], "+");
+    y += rowH;
+  }
+  const int half = (w - 32 - 8) / 2;
+  duckHit[4] = {16, y, half, sq};
+  duckHit[5] = {16 + half + 8, y, half, sq};
+  button(duckHit[4], "Again");
+  button(duckHit[5], "Next");
+}
+
+// A tap on a control: -/+ change the knob (RAM now, knobs.json when the screen
+// closes) and redraw the numbers; Again replays the step from its start; Next
+// returns true (advance). Any other tap does nothing.
+bool DisplayTestActivity::duckTap(const int x, const int y) {
+  for (int i = 0; i < 6; ++i) {
+    const Hit& r = duckHit[i];
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) continue;
+    if (i == 5) return true;  // Next
+    if (i == 4) {
+      skipTapsUntil = duckPc;  // earlier steps of a replay run on without a tap
+      pc = rerunPc;
+      tapWait = false;
+      phase = Phase::Running;
+    } else {
+      const DuckKind& k = DUCK_KINDS[duckKind];
+      const int idx = knobs::find(i < 2 ? k.dimId : k.restoreId);
+      if (idx >= 0) knobs::set(idx, knobs::get(idx) + (i & 1 ? 1 : -1) * knobs::INFO[idx].step);
+      redrawLabel = true;
+    }
+    requestUpdate();
+    return false;
+  }
+  return false;
 }
 
 void DisplayTestActivity::drawAsk() {

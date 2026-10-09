@@ -154,6 +154,30 @@ const char* parseLine(const std::string& verb, const std::string& rest, Op& op) 
     op.a[4] = argc > 4 && args[4] == "white";
     return nullptr;
   }
+  if (verb == "gray" || verb == "tap") {
+    op.code = verb == "gray" ? OpCode::Gray : OpCode::Tap;
+    return nullptr;
+  }
+  if (verb == "rerun") {
+    op.code = OpCode::Rerun;
+    return nullptr;
+  }
+  if (verb == "ducks") {
+    op.code = OpCode::Ducks;
+    static const char* const KINDS[] = {"full", "gray", "paint", "graydark"};
+    for (int i = 0; i < 4; ++i) {
+      if (argc == 1 && args[0] == KINDS[i]) {
+        op.a[0] = i;
+        return nullptr;
+      }
+    }
+    return "ducks full|gray|paint|graydark";
+  }
+  if (verb == "night") {
+    op.code = OpCode::Night;
+    op.a[0] = argc == 1 && args[0] == "on";
+    return argc == 1 && (args[0] == "on" || args[0] == "off") ? nullptr : "night on|off";
+  }
   if (verb == "invert") {
     op.code = OpCode::Invert;
     return nullptr;
@@ -502,6 +526,135 @@ const BuiltIn BUILT_INS[] = {
      "refresh du\n"
      "wait 2000\n"
      "ask After the 20-frame scrub: old text under the squares? | Yes | No\n"},
+    // Every flashing refresh kind the flash duck learns (Gray, Full, Paint,
+    // GrayDark), one per tap so the [GDY] note lines up with the LIGHT duck
+    // lines. Existing paths only: OTP GC, the gated exit paint/DU scrub and the
+    // gated direct-gray pass.
+    {"Flash ducks",
+     "night off\n"
+     "rerun\n"
+     "fill white\n"
+     "ducks full\n"
+     "label 1/17 Full: Half to white | Next button or OK | Back stops\n"
+     "note step 1 kind=Full Half to white\n"
+     "refresh half\n"
+     "tap\n"
+     "rerun\n"
+     "fill black\n"
+     "ducks full\n"
+     "label 2/17 Full: Full white to black | Next button or OK | Back stops\n"
+     "note step 2 kind=Full Full white to black\n"
+     "refresh full\n"
+     "tap\n"
+     "rerun\n"
+     "fill white\n"
+     "ducks full\n"
+     "label 3/17 Full: Full black to white | Next button or OK | Back stops\n"
+     "note step 3 kind=Full Full black to white\n"
+     "refresh full\n"
+     "tap\n"
+     "rerun\n"
+     "fill black\n"
+     "ducks full\n"
+     "label 4/17 Full: Half white to black | Next button or OK | Back stops\n"
+     "note step 4 kind=Full Half white to black\n"
+     "refresh half\n"
+     "tap\n"
+     "rerun\n"
+     "fill white\n"
+     "ducks full\n"
+     "label 5/17 Full: Half black to white | Next button or OK | Back stops\n"
+     "note step 5 kind=Full Half black to white\n"
+     "refresh half\n"
+     "tap\n"
+     "rerun\n"
+     "fill black\n"
+     "ducks gray\n"
+     "label 6/17 Gray: gray over black (base: Fast, no flash) | Next button or OK | Back stops\n"
+     "note step 6 kind=Gray gray over black (base: Fast, no flash)\n"
+     "refresh fast\n"
+     "gray\n"
+     "tap\n"
+     "fill white\n"
+     "ducks paint\n"
+     "label 7/17 Paint: gray to white (exit paint) | Next button or OK | Back stops\n"
+     "note step 7 kind=Paint gray to white (exit paint)\n"
+     "refresh fast\n"
+     "tap\n"
+     "rerun\n"
+     "fill black\n"
+     "ducks gray\n"
+     "label 8/17 Gray: gray over black again | Next button or OK | Back stops\n"
+     "note step 8 kind=Gray gray over black again\n"
+     "refresh fast\n"
+     "gray\n"
+     "tap\n"
+     "fill black\n"
+     "ducks paint\n"
+     "label 9/17 Paint: gray to black (exit paint) | Next button or OK | Back stops\n"
+     "note step 9 kind=Paint gray to black (exit paint)\n"
+     "refresh fast\n"
+     "tap\n"
+     "rerun\n"
+     "fill black\n"
+     "ducks paint\n"
+     "label 10/17 Paint: DU scrub black to black | Next button or OK | Back stops\n"
+     "note step 10 kind=Paint DU scrub black to black\n"
+     "scrub du\n"
+     "refresh du\n"
+     "tap\n"
+     "rerun\n"
+     "fill white\n"
+     "ducks paint\n"
+     "label 11/17 Paint: DU scrub black to white | Next button or OK | Back stops\n"
+     "note step 11 kind=Paint DU scrub black to white\n"
+     "scrub du\n"
+     "refresh du\n"
+     "tap\n"
+     "night on\n"
+     "rerun\n"
+     "fill white\n"
+     "ducks full\n"
+     "label 12/17 Full: Night Mode on, Full to dark | Next button or OK | Back stops\n"
+     "note step 12 kind=Full Night Mode on, Full to dark\n"
+     "refresh full\n"
+     "tap\n"
+     "rerun\n"
+     "fill black\n"
+     "ducks graydark\n"
+     "label 13/17 GrayDark: gray, Night Mode (base: Fast) | Next button or OK | Back stops\n"
+     "note step 13 kind=GrayDark gray, Night Mode (base: Fast)\n"
+     "refresh fast\n"
+     "gray\n"
+     "tap\n"
+     "fill white\n"
+     "ducks paint\n"
+     "label 14/17 Paint: Night gray to dark (exit paint) | Next button or OK | Back stops\n"
+     "note step 14 kind=Paint Night gray to dark (exit paint)\n"
+     "refresh fast\n"
+     "tap\n"
+     "rerun\n"
+     "fill black\n"
+     "ducks graydark\n"
+     "label 15/17 GrayDark: gray, Night Mode again | Next button or OK | Back stops\n"
+     "note step 15 kind=GrayDark gray, Night Mode again\n"
+     "refresh fast\n"
+     "gray\n"
+     "tap\n"
+     "fill black\n"
+     "ducks paint\n"
+     "label 16/17 Paint: Night gray to light (exit paint) | Next button or OK | Back stops\n"
+     "note step 16 kind=Paint Night gray to light (exit paint)\n"
+     "refresh fast\n"
+     "tap\n"
+     "night off\n"
+     "rerun\n"
+     "fill white\n"
+     "ducks full\n"
+     "label 17/17 Full: Night Mode off, Full to white | Next button or OK: finish | Back stops\n"
+     "note step 17 kind=Full Night Mode off, Full to white\n"
+     "refresh full\n"
+     "tap\n"},
 };
 const int BUILT_IN_COUNT = sizeof(BUILT_INS) / sizeof(BUILT_INS[0]);
 
