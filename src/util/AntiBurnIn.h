@@ -11,4 +11,6 @@ uint32_t seed();
 // Chrome offset, each in [-KNOBS.burnInShiftPx, KNOBS.burnInShiftPx].
 int shiftX();
 int shiftY();
+// Header rule rises this many px: 1 permanent + 0-4 per boot (0 when the knob is 0).
+int ruleUp();
 }  // namespace AntiBurnIn

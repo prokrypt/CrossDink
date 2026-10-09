@@ -418,7 +418,7 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
-  // Burn-in guard: text and status chrome at the per-boot offset; the fill and rule stay put.
+  // Burn-in guard: text and status chrome at the per-boot offset; the fill stays put and the rule rises.
   const int shiftX = AntiBurnIn::shiftX();
   const int shiftY = AntiBurnIn::shiftY();
   const int batteryX = rect.x + shiftX + rect.width - StatusBarMetrics::sideInset - MinimalMetrics::values.batteryWidth;
@@ -448,7 +448,7 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
                       rect.y + shiftY + MinimalMetrics::values.batteryBarHeight + 3, truncatedTitle.c_str(), true,
                       EpdFontFamily::BOLD);
     // 50% dither, not solid: the per-boot dither phase then moves every pixel of the rule.
-    renderer.fillRectDither(rect.x, rect.y + rect.height - 3, rect.width, 3, Color::DarkGray);
+    renderer.fillRectDither(rect.x, rect.y + rect.height - 3 - AntiBurnIn::ruleUp(), rect.width, 3, Color::DarkGray);
   }
 
   if (showStatus) {
