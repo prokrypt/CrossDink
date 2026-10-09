@@ -69,6 +69,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - X4 Pro (debug builds): remote command `SLEEPREBOOT` (USB serial `CMD:SLEEPREBOOT`, Wi-Fi `POST /api/cmd`, token required) runs Goodies > Sleep-reboot-log without a tap: 0.5 s after the reply, the real sleep path, then a restart instead of power-down, so the PSRAM log keeps the sleep and the Wi-Fi remote rejoins on its own.
 
 ### Changed
+- Reader automatic page turn: the main loop now sleeps until the next turn (at most its usual 1 s idle tick) instead of waking every 50 ms while auto turn is on, so the device stays in light sleep between pages. Turns land on time as before; buttons and touch still wake it at once.
 - Settings: the box around the category tabs is gone. The selected tab keeps its underline, which is thicker (4 px instead of 2 px) while the tab strip has focus.
 - Text anti-aliasing now defaults to Off, and settings imported from CrossInk, CrossPoint or the old binary file start with it Off. Settings you already saved here are untouched, and you can turn it back on.
 - Library: the Sort by popup now lists Recently Opened first. Your saved sort choice is unchanged.
