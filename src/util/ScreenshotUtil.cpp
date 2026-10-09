@@ -156,7 +156,7 @@ class PngWriter {
  private:
   HalFile& file;
   bool ok = true;
-  uint8_t out[512];
+  uint8_t out[512] = {};
   size_t outLen = 0;
   uint32_t bitBuf = 0;
   int bitCnt = 0;
