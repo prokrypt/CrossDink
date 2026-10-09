@@ -958,7 +958,13 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
       break;
     }
     case NetworkBootTarget::OPDS:
-      launched = activityManager.goToOpdsServer(payload, true);
+      if (payload == OPDS_SERVER_LIST_PAYLOAD) {
+        OPDS_STORE.loadFromFile();
+        activityManager.goToBrowser(true);
+        launched = true;
+      } else {
+        launched = activityManager.goToOpdsServer(payload, true);
+      }
       break;
     case NetworkBootTarget::KOREADER_SYNC:
       launched = startGlobalSyncProgress(true, decodeKOReaderSyncOrientation(payload));
