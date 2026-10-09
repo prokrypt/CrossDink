@@ -942,22 +942,25 @@ void LibraryActivity::fillRow(const int row, CachedRow& out) {
   out.ok = true;
   out.title = rowScratch.title;
   out.subtitle = rowScratch.author;
-  if (SETTINGS.libraryUseMetadata && (SETTINGS.libraryShowSeries || SETTINGS.libraryShowGenre)) {
+  // Expanded lists already show the sorted field as a group heading.
+  const bool grouped = SETTINGS.libraryListExpanded;
+  const bool showSeries = SETTINGS.libraryShowSeries && !(grouped && sort == Sort::Series);
+  const bool showGenre = SETTINGS.libraryShowGenre && !(grouped && sort == Sort::Genre);
+  if (SETTINGS.libraryUseMetadata && (showSeries || showGenre)) {
     library::ClixRecord record{};
     const uint16_t ordinal = ordinalForRow(row);
     if (ordinal != UINT16_MAX && index.readRecord(ordinal, record) && index.readSeries(record, seriesScratch) &&
         index.readGenre(record, genreScratch) &&
-        ((SETTINGS.libraryShowSeries && !seriesScratch.empty()) ||
-         (SETTINGS.libraryShowGenre && !genreScratch.empty()))) {
+        ((showSeries && !seriesScratch.empty()) || (showGenre && !genreScratch.empty()))) {
       subtitleScratch = rowScratch.author;
       if (!subtitleScratch.empty()) subtitleScratch.append(" · ");
-      if (SETTINGS.libraryShowSeries && !seriesScratch.empty()) {
+      if (showSeries && !seriesScratch.empty()) {
         subtitleScratch.append(tr(STR_LIBRARY_SERIES));
         subtitleScratch.append(": ");
         subtitleScratch.append(seriesScratch);
       }
-      if (SETTINGS.libraryShowGenre && !genreScratch.empty()) {
-        if (SETTINGS.libraryShowSeries && !seriesScratch.empty()) subtitleScratch.append(" · ");
+      if (showGenre && !genreScratch.empty()) {
+        if (showSeries && !seriesScratch.empty()) subtitleScratch.append(" · ");
         subtitleScratch.append(tr(STR_LIBRARY_GENRE));
         subtitleScratch.append(": ");
         subtitleScratch.append(genreScratch);
