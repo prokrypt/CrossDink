@@ -1485,15 +1485,16 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   const int16_t preferredTabHeight =
       mappedInput.hasTouch() ? TOUCH_TAB_BAR_HEIGHT : static_cast<int16_t>(metrics.tabBarHeight);
   const int16_t tabBand = preferredTabHeight > tabLineHeight + 10 ? preferredTabHeight : tabLineHeight + 10;
-  // The 2 px band box marks tab focus; the active tab is a 3 px underline
-  // drawn from tab.selected. Every tab state resolves to plain black-on-white,
-  // so taps and flashes never highlight a tab and no inverted pill is drawn.
+  // The active tab is an underline drawn from tab.selected, 4 px while the tab
+  // strip has focus and 2 px otherwise. Every tab state resolves to plain
+  // black-on-white, so taps and flashes never highlight a tab and no inverted
+  // pill or focus box is drawn.
   const bool tabsFocused = selectedSettingIndex == 0;
   const bool borderedTabs = metrics.tabBarAppearance == ThemeTabBarAppearance::BorderedText;
   tabProps.divider = true;
   if (!borderedTabs) {
     tabProps.tabStyles = fui::plainStyles();
-    tabProps.selectedUnderline = 3;
+    tabProps.selectedUnderline = tabsFocused ? 4 : 2;
   }
 #if CROSSDINK_APP_CAP_TOUCH
   if (landscapeTouch) {
@@ -1509,9 +1510,6 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       fui::TabBarProps railProps = tabProps;
       railProps.tabs = &tabs[i];
       railProps.count = 1;
-      if (!borderedTabs && tabsFocused) {
-        screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
-      }
       drawUiTabBar(screen, railProps, tabRect, metrics.tabBarAppearance);
       tabY = static_cast<int16_t>(tabY + tabHeight);
     }
@@ -1522,9 +1520,6 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
 #endif
   {
     const fui::Rect tabRect = screen.takeTop(tabBand);
-    if (!borderedTabs && tabsFocused) {
-      screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
-    }
     drawUiTabBar(screen, tabProps, tabRect, metrics.tabBarAppearance);
     screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   }
