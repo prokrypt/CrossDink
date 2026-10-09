@@ -968,7 +968,8 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         activityManager.goToBrowser(true);
         launched = true;
       } else {
-        launched = activityManager.goToOpdsServer(payload, true);
+        launched =
+            activityManager.goToOpdsServer(payload & ~OPDS_FROM_LIST_FLAG, true, (payload & OPDS_FROM_LIST_FLAG) != 0);
       }
       break;
     case NetworkBootTarget::KOREADER_SYNC:

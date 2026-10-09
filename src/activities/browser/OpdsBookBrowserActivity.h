@@ -26,7 +26,8 @@ class OpdsBookBrowserActivity final : public Activity {
  public:
   enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
 
-  explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server);
+  explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server,
+                                   bool fromServerList = false);
   // Out of line: feedConnection's type is only forward-declared here.
   ~OpdsBookBrowserActivity() override;
 
@@ -100,6 +101,8 @@ class OpdsBookBrowserActivity final : public Activity {
   OpdsBookDownloader bookDownloader;
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
+  // Picked from the server list: Back at the root returns there, not Home.
+  const bool fromServerList;
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
@@ -165,6 +168,7 @@ class OpdsBookBrowserActivity final : public Activity {
   // pageLink: the synthetic Prev/Next page row, which replaces the current
   // listing instead of pushing it onto the Back history.
   void navigateToEntry(const OpdsEntry& entry, bool pageLink);
+  void leaveBrowser();  // server list when picked from it, else Home
   void navigateBack();
   // Asks before replacing a book already on SD (showing its size and date),
   // otherwise downloads straight away.
