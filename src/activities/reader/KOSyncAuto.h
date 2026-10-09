@@ -6,6 +6,10 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncClient.h"
 
+namespace EpubReaderUtils {
+struct Progress;
+}
+
 // KOReader Sync > Auto Sync, always Smart Sync and on a background task (no
 // screen). At close: push the book's saved progress unless the server is already
 // at or past it, or the book closed at the page it opened at (no radio). At open: fetch the remote progress (never
@@ -29,6 +33,10 @@ bool takePushed();
 // that open pushes too (its fetch comes from At open, as on any open).
 void noteWake();
 enum class PushOutcome : uint8_t { Pushed, Same, ServerAhead, Failed };
+// Deep sleep, open reader: false when the saved position is not past where the
+// book opened this boot and no earlier push of it is owed, so sleep skips the
+// push and its toasts.
+bool movedSinceOpen(const std::string& epubPath, const EpubReaderUtils::Progress& saved);
 // Sync on Wake & Sleep is on, Auto Sync has At close, credentials exist and no
 // Wi-Fi screen is up.
 bool wantsSleepPush();
