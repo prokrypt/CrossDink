@@ -69,6 +69,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - X4 Pro (debug builds): remote command `SLEEPREBOOT` (USB serial `CMD:SLEEPREBOOT`, Wi-Fi `POST /api/cmd`, token required) runs Goodies > Sleep-reboot-log without a tap: 0.5 s after the reply, the real sleep path, then a restart instead of power-down, so the PSRAM log keeps the sleep and the Wi-Fi remote rejoins on its own.
 
 ### Changed
+- Text anti-aliasing now defaults to Off, and settings imported from CrossInk, CrossPoint or the old binary file start with it Off. Settings you already saved here are untouched, and you can turn it back on.
 - Library: the Sort by popup now lists Recently Opened first. Your saved sort choice is unchanged.
 - Reader: a chapter that is still being laid out in the background after the first page shows now builds on the display core instead of the main core, so buttons, touch and Wi-Fi keep the main core while it runs. Input still stops the build at the next page, as before. Debug logs: `Section build worker: N page tick(s) in M ms` each time it stops.
 - Tapping a list row that opens a choice popup (Settings, Image Viewer, Home, OPDS servers, bookmarks and the like) now draws the highlighted row and the popup in one e-ink refresh instead of two, so the popup shows about 0.6 s sooner.
