@@ -351,11 +351,14 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
       file.close();
       LOG_INF("SCT",
-              "Section cache params changed, rebuilding: font %d/%d lc %.2f/%.2f vp %ux%u/%ux%u hyph %d/%d style %d/%d "
-              "img %u/%u mode %u/%u",
+              "Section cache params changed, rebuilding: font %d/%d lc %.3f/%.3f vp %ux%u/%ux%u para %d/%d ind %d/%d "
+              "align %u/%u hyph %d/%d style %d/%d img %u/%u focus %d/%d guide %d/%d ws %u/%u mode %u/%u",
               fileFontId, spec.fontId, fileLineCompression, spec.lineCompression, fileViewportWidth, fileViewportHeight,
-              spec.viewportWidth, spec.viewportHeight, fileHyphenationEnabled, spec.hyphenationEnabled,
-              fileEmbeddedStyle, spec.embeddedStyle, fileImageRendering, spec.imageRendering, fileRenderMode,
+              spec.viewportWidth, spec.viewportHeight, fileExtraParagraphSpacing, spec.extraParagraphSpacing,
+              fileForceParagraphIndents, spec.forceParagraphIndents, fileParagraphAlignment, spec.paragraphAlignment,
+              fileHyphenationEnabled, spec.hyphenationEnabled, fileEmbeddedStyle, spec.embeddedStyle,
+              fileImageRendering, spec.imageRendering, fileFocusReadingEnabled, spec.focusReadingEnabled,
+              fileGuideReadingEnabled, spec.guideReadingEnabled, fileWordSpacing, spec.wordSpacing, fileRenderMode,
               static_cast<uint8_t>(spec.renderMode));
       clearCache();
       return false;
