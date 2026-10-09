@@ -181,7 +181,6 @@ void KeyboardEntryActivity::onExit() {
 #ifndef SIMULATOR
   // ActivityManager holds RenderLock around onExit, so no refresh is running.
   freeink::setUc8179KbdExperiment(nullptr);
-  display.setRefreshLightSleep(false);
   if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) freeink::requestUc8179HalfNext();
 #endif
 }
@@ -228,9 +227,6 @@ void KeyboardEntryActivity::loadKbdExperiment() {
   kbdFrame = 0;
   prevFrameStrokeMs = 0;
   highlightPending = false;
-#ifndef SIMULATOR
-  display.setRefreshLightSleep((kbdExpFlags & KBD_EXP_LIGHT_SLEEP_DRF) != 0);
-#endif
 }
 
 void KeyboardEntryActivity::requestStrokeUpdate(const StrokeCause cause) {
