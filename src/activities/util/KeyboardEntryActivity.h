@@ -57,8 +57,7 @@ class KeyboardEntryActivity : public Activity {
   // Open with a plain OTP Fast first frame (no DU): the one-way DU drive adds
   // charge over the previous screen instead of clearing it, and 16 flashes.
   static constexpr uint8_t KBD_EXP_OTP_ON_OPEN = 64;
-  // Trial: light-sleep through the refresh busy-wait (HalDisplay::setRefreshLightSleep).
-  static constexpr uint8_t KBD_EXP_LIGHT_SLEEP_DRF = 128;
+  // 128 was the refresh light-sleep trial; retired, UC8179 waits always light-sleep.
   // Settings > Turbo keyboard: full-frame DU typing (4; the SDK's DU LUT is
   // charge-balanced, two phases) with no OLD re-stream (1), no tap highlight
   // (32), OTP Fast first frame (64); the screen below redraws with OTP Fast on
