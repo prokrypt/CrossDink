@@ -313,7 +313,7 @@ bool ScreenshotUtil::saveFramebufferAsPng(const char* filename, const uint8_t* f
   for (int outY = 0; good && outY < phyHeight; outY++) {
     uint8_t* r = cur;
     memset(r, 0, rowBytes);
-    const int srcX = width - 1 - outY;  // phyHeight == width
+    const int srcX = outY;  // PNG rows run top-down; phyHeight == width
     for (int outX = 0; outX < phyWidth; outX++) {
       const int srcY = phyWidth - 1 - outX;  // phyWidth == height
       if (gray) {
