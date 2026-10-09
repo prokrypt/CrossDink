@@ -108,9 +108,8 @@ bool beginRadioCall() {
 // <0 before, 0 at, >0 past where the book opened (>0 too when not opened this boot).
 // Within a chapter it compares the fraction read, which survives a font or margin
 // change re-paging the chapter.
-int vsOpen(const EpubReaderUtils::Progress& saved) {
-  const OpenAt& o = jobOpenAt;
-  if (!jobOpened) return 1;
+int vsOpen(const bool opened, const OpenAt& o, const EpubReaderUtils::Progress& saved) {
+  if (!opened) return 1;
   if (saved.spineIndex != o.spine) return saved.spineIndex < o.spine ? -1 : 1;
   if (!saved.hasPageCount || saved.pageCount <= 0 || o.pages <= 0)
     return (saved.pageNumber > o.page) - (saved.pageNumber < o.page);
@@ -134,7 +133,7 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved) {
     LOG_ERR("KOSync", "exit push: no saved progress for %s", path.c_str());
     return false;
   }
-  moved = vsOpen(saved);
+  moved = vsOpen(jobOpened, jobOpenAt, saved);
   const int spine = saved.spineIndex >= 0 && saved.spineIndex < epub->getSpineItemsCount() ? saved.spineIndex : 0;
   const int pages = saved.hasPageCount ? std::max(1, saved.pageCount) : 1;
   CrossPointPosition pos = {spine, saved.pageNumber, pages};
@@ -492,6 +491,13 @@ std::string pendingPushPath() {
   if (!queuedPath.empty()) return queuedPath;
   if (task.running() && !jobIsPull) return jobPath;
   return {};
+}
+
+bool movedSinceOpen(const std::string& epubPath, const EpubReaderUtils::Progress& saved) {
+  if (task.running()) return true;  // the job owns unpushedPath; its own check decides, as before
+  if (unpushedPath == epubPath || vsOpen(epubPath == openPath, openAt, saved) > 0) return true;
+  LOG_INF("KOSync", "sleep push skipped: not past the page it opened at (no toast, radio skipped)");
+  return false;
 }
 
 bool wantsSleepPush() {

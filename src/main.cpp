@@ -1681,8 +1681,8 @@ static void disarmBootGuard() {
 }
 
 // Before the sleep screen, push under a progress toast and show the result for a
-// moment: the open book's just-saved position (KOReader Sync > Sync on Wake &
-// Sleep), else a close push still queued or running, which deep sleep would drop.
+// moment: the open book's just-saved position once past where it opened (KOReader
+// Sync > Sync on Wake & Sleep), else a close push still queued or running, which deep sleep would drop.
 // pushFinish() bounds the whole wait, so sleep always goes on.
 void syncBookBeforeSleep() {
   std::string path = kosync_auto::wantsSleepPush() ? activityManager.flushEpubProgressForSync() : std::string();
