@@ -2,10 +2,19 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
+#include <Logging.h>
 #include <PerfLog.h>
 #include <PowerCounters.h>
 
 #include "HalSpiBus.h"
+
+#ifndef SIMULATOR
+#include <driver/gpio.h>
+#include <esp_sleep.h>
+#include <freertos/semphr.h>
+#include <hal/gpio_ll.h>
+#include <soc/gpio_struct.h>
+#endif
 
 // Global HalDisplay instance
 HalDisplay display;
@@ -126,12 +135,47 @@ void onDisplayBusyWaitEnd() {
 #endif
 }
 #ifndef SIMULATOR
-// Trial slice hook: replaces the 1-tick BUSY poll with a 10 ms task sleep, long
-// enough for tickless idle to light-sleep (no GPIO wake, so completion is seen
-// up to 10 ms late).
-bool onDisplayBusyWaitSlice(int8_t, uint8_t) {
-  if (!powerManager.refreshLightSleepAllowed()) return false;
-  vTaskDelay(pdMS_TO_TICKS(10));
+// Slice hook: instead of the 1-tick BUSY poll, arm BUSY's idle level as a level
+// interrupt (the only kind that also ends a light sleep) and block until it
+// fires, so tickless idle can light-sleep through the waveform and the wait
+// still ends on the pin itself. The cap only bounds a lost interrupt.
+constexpr uint32_t BUSY_SLICE_MAX_MS = 100;
+StaticSemaphore_t busyIdleSignalBuf;
+SemaphoreHandle_t busyIdleSignal = nullptr;
+int8_t busyIsrPin = -1;  // pin the handler is attached to
+
+// A level keeps firing while it holds, so the line disarms itself here.
+void IRAM_ATTR onBusyIdle(void* arg) {
+  gpio_ll_intr_disable(&GPIO, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg)));
+  BaseType_t higherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(busyIdleSignal, &higherPriorityTaskWoken);
+  if (higherPriorityTaskWoken == pdTRUE) portYIELD_FROM_ISR();
+}
+
+bool onDisplayBusyWaitSlice(const int8_t busyPin, const uint8_t busyLevel) {
+  if (!powerManager.refreshLightSleepAllowed() || busyPin < 0) return false;
+  const auto pin = static_cast<gpio_num_t>(busyPin);
+  if (busyIsrPin != busyPin) {
+    if (busyIdleSignal == nullptr) busyIdleSignal = xSemaphoreCreateBinaryStatic(&busyIdleSignalBuf);
+    gpio_intr_disable(pin);
+    // InputWake::begin() installed the GPIO ISR service.
+    if (gpio_isr_handler_add(pin, onBusyIdle, reinterpret_cast<void*>(static_cast<uintptr_t>(busyPin))) != ESP_OK) {
+      LOG_ERR("EPD", "No BUSY interrupt on GPIO%d; refreshes keep polling without light sleep", busyPin);
+      powerManager.setRefreshLightSleep(false);
+      return false;
+    }
+    busyIsrPin = busyPin;
+    esp_sleep_enable_gpio_wakeup();  // InputWake turns it on too, when the board has wake lines
+  }
+  xSemaphoreTake(busyIdleSignal, 0);  // a fire left over from the last slice
+  gpio_wakeup_enable(pin, busyLevel == LOW ? GPIO_INTR_HIGH_LEVEL : GPIO_INTR_LOW_LEVEL);
+  gpio_intr_enable(pin);
+  if (xSemaphoreTake(busyIdleSignal, pdMS_TO_TICKS(BUSY_SLICE_MAX_MS)) != pdTRUE && gpio_get_level(pin) != busyLevel) {
+    LOG_ERR("EPD", "BUSY wake missed: idle seen at the %lu ms cap", static_cast<unsigned long>(BUSY_SLICE_MAX_MS));
+  }
+  gpio_intr_disable(pin);
+  // Armed at the idle level BUSY now holds, an RTC IO wake would reject every light sleep.
+  gpio_wakeup_disable(pin);
   return true;
 }
 #endif
@@ -153,6 +197,12 @@ void HalDisplay::begin(bool seamless) {
   // Keep tickless idle from light-sleeping mid-refresh; safe even before
   // powerManager.begin() runs since the hooks no-op until the lock exists.
   einkDisplay.setBusyWaitHooks(&onDisplayBusyWaitBegin, &onDisplayBusyWaitEnd);
+#if CONFIG_PM_ENABLE
+  // Except UC8179 waits: they poll BUSY, so the slice hook light-sleeps them
+  // and wakes on the pin. Other panels keep the SDK's edge-interrupt wait,
+  // whose edge a light sleep would miss.
+  setRefreshLightSleep(BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179);
+#endif
 
   if (seamless) {
     // Defuse the SDK's X3 _x3InitialFullSyncsRemaining counter (no-op on X4)
@@ -302,7 +352,7 @@ bool HalDisplay::powerOnIdle() {
 void HalDisplay::setRefreshLightSleep(const bool allowed) {
 #ifndef SIMULATOR
   powerManager.setRefreshLightSleep(allowed);
-  // Installed only for the trial: with a slice hook the SDK polls BUSY instead
+  // Installed only when allowed: with a slice hook the SDK polls BUSY instead
   // of taking its edge-interrupt path on other controllers.
   einkDisplay.setBusyWaitSliceHook(allowed ? &onDisplayBusyWaitSlice : nullptr);
 #else
