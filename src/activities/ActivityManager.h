@@ -195,6 +195,7 @@ class ActivityManager {
   void popActivity();
 
   bool preventAutoSleep() const;
+  uint32_t msUntilTimedWork() const;
   bool requiresExclusiveStorageLoop() const;
   // The active activity has an open modal that owns all global shortcuts and
   // gestures until it is dismissed.

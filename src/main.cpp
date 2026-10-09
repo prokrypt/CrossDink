@@ -2609,23 +2609,29 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
 #else
   const bool usbConnected = gpio.isUsbConnectedCached();
 #endif
-  // Timed activity work (automatic page turn), USB serial transfer and radio
-  // exchanges are paced by the tick rather than by input.
+  // USB serial transfer, radio exchanges and screens that hold the device awake
+  // without a deadline are paced by the tick rather than by input. Timed work
+  // with a deadline (automatic page turn) wakes the loop for it instead.
+  const uint32_t timedWorkMs = activityManager.msUntilTimedWork();
   const bool radioIdle = radioMayIdle();
   if (tiltPolling || usbConnected || anyInputHeld() ||
-      (!radioIdle && (activityManager.preventAutoSleep() || WiFi.getMode() != WIFI_MODE_NULL))) {
+      (!radioIdle &&
+       ((activityManager.preventAutoSleep() && timedWorkMs == UINT32_MAX) || WiFi.getMode() != WIFI_MODE_NULL))) {
     return IDLE_WAIT_MS;
   }
+  // Never below the fast tick, so work held past its deadline (a turn skipped
+  // while a render runs) cannot spin the loop.
+  const uint32_t untilWorkMs = std::max(timedWorkMs, static_cast<uint32_t>(IDLE_WAIT_MS));
   // An idle server on its own task (File Transfer, Calibre) or a screen that opted
   // into radio idle (OPDS list, KOSync result) only needs the loop for input,
   // exit requests and link checks: 4 wakes/s instead of 20.
 #if CROSSDINK_GOODIES
   // Only the Wi-Fi remote holds the radio: its server wakes on traffic and
   // /api/cmd wakes the loop (InputTask::wakeLoop), so the long tick.
-  if (goodies_remote::allowsRadioIdleSleep()) return IDLE_WAIT_LONG_MS;
+  if (goodies_remote::allowsRadioIdleSleep()) return std::min(static_cast<uint32_t>(IDLE_WAIT_LONG_MS), untilWorkMs);
 #endif
-  if (radioIdle) return IDLE_WAIT_SETTLED_MS;
-  return IDLE_WAIT_LONG_MS;
+  if (radioIdle) return std::min(static_cast<uint32_t>(IDLE_WAIT_SETTLED_MS), untilWorkMs);
+  return std::min(static_cast<uint32_t>(IDLE_WAIT_LONG_MS), untilWorkMs);
 }
 
 #if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
