@@ -1209,10 +1209,11 @@ void ActivityManager::goToBrowser(const bool networkBootReady) {
   }
 }
 
-bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool networkBootReady) {
+bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool networkBootReady,
+                                     const bool fromServerList) {
 #ifndef SIMULATOR
   if (!networkBootReady) {
-    silentRestartToNetwork(NetworkBootTarget::OPDS, serverIndex);
+    silentRestartToNetwork(NetworkBootTarget::OPDS, serverIndex | (fromServerList ? OPDS_FROM_LIST_FLAG : 0));
     return true;
   }
 #else
@@ -1229,7 +1230,7 @@ bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool netw
 
   OpdsServer server = *storedServer;
   OPDS_STORE.release();
-  auto browser = makeUniqueNoThrow<OpdsBookBrowserActivity>(renderer, mappedInput, std::move(server));
+  auto browser = makeUniqueNoThrow<OpdsBookBrowserActivity>(renderer, mappedInput, std::move(server), fromServerList);
   if (!browser) {
     LOG_ERR("ACT", "OOM: OPDS browser after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());

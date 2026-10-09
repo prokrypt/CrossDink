@@ -154,6 +154,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal, and every remaining CrossInk name in code, build flags, scripts and docs is now CrossDink.
 
 ### Fixed
+- OPDS: Back on a server's root catalog returns to the server list when you opened the server from that list, instead of going Home. It also holds after the quiet restart used on a fragmented heap.
 - X4 Pro: when Up or Down is still held 2 s after sleep starts, both page keys stay out of the wake keys until the next full boot (power-on or restart). Before, a plain Power wake and sleep brought them back.
 - KOReader Sync Auto Sync: opening a book and closing it (or sleeping) without turning a page no longer turns Wi-Fi on for a push. A push that failed earlier this boot still goes out, and so does the retry after a failed sleep push.
 - Keys still held when the device finishes waking (e.g. Power + Down held to wake) no longer fire a chord such as a screenshot; release them first.

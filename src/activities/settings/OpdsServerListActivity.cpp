@@ -218,7 +218,7 @@ void OpdsServerListActivity::handleSelection() {
     // Picker mode: select a server or add the first one without leaving the flow.
     if (selectedIndex < serverCount) {
       leavingToBrowser = true;
-      activityManager.goToOpdsServer(static_cast<uint32_t>(selectedIndex));
+      activityManager.goToOpdsServer(static_cast<uint32_t>(selectedIndex), false, true);
     } else {
       auto editor = makeUniqueNoThrow<OpdsSettingsActivity>(renderer, mappedInput, -1);
       if (!editor) {
