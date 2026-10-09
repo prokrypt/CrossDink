@@ -86,6 +86,15 @@ void OpdsServerListActivity::onEnter() {
     rootsQueued = false;
     // Back from a catalog: its page cache comes back with the roots already in it.
     if (!pageCache) pageCache = opds_page_cache_handoff::take();
+    if (pageCache) {
+      // Marks for roots already cached show on the first frame, not after the pool.
+      pageCachedAt = pageCache->changes();
+      rootCached.reset();
+      const auto& servers = OPDS_STORE.getServers();
+      for (size_t i = 0; i < servers.size() && i < rootCached.size(); ++i) {
+        if (pageCache->contains(UrlUtils::buildUrl(servers[i].url, ""))) rootCached.set(i);
+      }
+    }
     if (!pageCache && psramHeapAvailable()) {
       const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
       pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
