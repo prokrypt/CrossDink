@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- X4 Pro: hold Up and Down together while the device sleeps to show the next custom sleep image (Sleep Screen set to Custom, or Cover + Custom after leaving from Home). It draws the new image and goes back to sleep without opening the book or Home. A press of Up or Down alone wakes the chip for a moment and goes back to sleep with nothing drawn, and if either page key is still held 2 s after sleep starts, both are left out of the wake keys for that sleep (Power still wakes).
 - Debug builds (X4 Pro): each Goodies > Display Test > Flash ducks page shows that flash kind's current dim and restore timings (Goodies > Knobs, e.g. flashFullDimMs) with - and + buttons that change them at once (written when you leave the screen), an Again button that runs the page's flash again (the exit-paint pages replay the gray page before them, still showing their own label), and a Next button; a tap anywhere else does nothing, so a mistap no longer skips the page. A - or + press redraws the numbers with a Fast refresh, so on a gray page that refresh is the normal exit paint.
 - Goodies > Display Test > Flash ducks: steps through every flashing refresh (Full, Half, gray, Night Mode gray, exit paint, DU scrub) one tap at a time, logging each step for tuning the flash duck.
 - X4 Pro (debug builds): remote command `BOOTSLOT` (USB serial `CMD:BOOTSLOT`, Wi-Fi `POST /api/cmd`, token required) shows the other OTA slot's build; `BOOTSLOT <label>` runs the same full image check as Goodies > Boot previous firmware, then switches and restarts into it, so a slot switch needs no USB.
@@ -149,6 +150,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal, and every remaining CrossInk name in code, build flags, scripts and docs is now CrossDink.
 
 ### Fixed
+- Keys still held when the device finishes waking (e.g. Power + Down held to wake) no longer fire a chord such as a screenshot; release them first.
 - Touch: the End of book menu rows use the same row height and spacing as the other touch lists instead of sitting crammed together.
 
 - Simulator: all four simulator environments (`simulator`, `x4-pro-simulator`, `x4-classic-simulator`, `sticky-simulator`) build and run again, on Linux too. They had stopped compiling because the simulator library, taken from the upstream CrossInk simulator at its latest commit, mocks CrossInk's HAL rather than CrossDink's. They now use CrossDink's fork of it (prokrypt/crossdink-simulator), pinned by commit, and CI builds the X4 Pro simulator and runs `scripts/run_simulator_smoke_test.py` on it. See docs/simulator.md.
