@@ -274,6 +274,8 @@ void OpdsBookBrowserActivity::loop() {
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
+        // Retry goes back to the server, not to a cached (e.g. empty) page.
+        if (pageCache) pageCache->erase(UrlUtils::buildUrl(server.url, currentPath));
         showLoadingBeforeFetch(currentPath);
         fetchFeed(currentPath);
       } else {
@@ -775,9 +777,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   marksPendingMs = 0;  // the redraw below shows them
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
-    // An empty feed may fill in later (new shelf, server still indexing); make
-    // Retry go back to the server instead of replaying the cached empty page.
-    if (pageCache) pageCache->erase(url);
+    // Kept cached (the server list marks it fetched); Retry refetches it.
     errorMessage = tr(STR_NO_ENTRIES);
   }
   requestUpdate();
