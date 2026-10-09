@@ -67,6 +67,9 @@ commands are rejected, and the result screen shows the failing line.
 | `swing N` | UC8179: refresh to the framebuffer with a balanced N-frame DU swing of every pixel (1..120). |
 | `null N` | UC8179: null discharge, sources at GND and VCOM at VCOM_DC for 2 x N frames; pixels do not move (1..120). |
 | `wait MS` | Pause (0..60000 ms). |
+| `tap` | Wait for a tap or Confirm; draws nothing. |
+| `gray` | The reader's overlay gray pass over the B/W page on the panel: dark gray on the left half, light on the right, under the label band (masks are only meaningful over black). |
+| `night on\|off` | Night Mode for the rest of the test (the user's setting comes back when it ends). |
 | `repeat N` ... `end` | Loop N times (1..1000, nesting up to 4). |
 | `text X Y <text>` | Draw bold text at X,Y. |
 | `pick X Y CW CH COLS ROWS \| question \| name1 \| ...` | Wait for a tap on one cell of a COLS x ROWS grid of CW x CH cells at X,Y (or Left/Right then Confirm); logs the square number and its name. |
