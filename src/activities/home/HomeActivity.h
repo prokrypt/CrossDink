@@ -44,6 +44,7 @@ class HomeActivity final : public Activity {
   // Touch menus use a momentary pressed state. Keep it separate from the
   // keyboard selection so a returned Home screen cannot retain an icon tint.
   int carouselMenuTouchDownIndex = -1;
+  bool carouselButtonNav = false;  // a button moved the carousel selection: show it, Confirm acts on it
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;

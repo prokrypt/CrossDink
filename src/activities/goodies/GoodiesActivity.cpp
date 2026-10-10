@@ -483,6 +483,8 @@ GoodiesActivity::GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mapp
 
 void GoodiesActivity::onEnter() {
   Activity::onEnter();
+  // Selection shows at once: the first Up/Down/Confirm acts (remote key scripts count on it).
+  listSelectionRevealed = true;
   applySharedUiTheme(app, uiTarget);
   goodies_remote::takePickerRequest();  // left over from a toggle made on an earlier visit
   app.on(ACTION_ROW, &GoodiesActivity::onRowEvent, this);
@@ -688,6 +690,8 @@ void GoodiesActivity::activate(const int index) {
           });
     } else if (entries[index].builtIn == KBD_TURBO) {
       stepKbdTest(index, 1);
+    } else if (entries[index].builtIn >= 0) {
+      openKnob(index);  // the button path to - / + (X4 Pro has no Left/Right)
     }
     return;
   }
@@ -895,9 +899,9 @@ std::string GoodiesActivity::tokenRowValue() {
   size_t n = SerialRemote::readToken(token);
   if (n == 0) n = SerialRemote::newPin(token);
   std::string value = n == 0                 ? "none (SD write failed)"
-                      : tokenShownUntil != 0 ? std::string(token) + "  (tap: new PIN)"
+                      : tokenShownUntil != 0 ? std::string(token) + "  (select: new PIN)"
                       : n > 8                ? std::string("set ...") + (token + n - 4)
-                                             : "tap to show";
+                                             : "select to show";
   memset(token, 0, sizeof(token));
   return value;
 }
@@ -993,7 +997,7 @@ void GoodiesActivity::loop() {
     return;
   }
 
-  // Keyboard test: Up/Down pick a row, Left/Right are - / +.
+  // Keyboard test: Up/Down pick a row, Left/Right are - / + (Confirm on a knob row opens its picker).
   if (level == Level::KeyboardTest) {
     using Button = MappedInputManager::Button;
     if (mappedInput.wasReleased(Button::Left) || mappedInput.wasReleased(Button::Right)) {
@@ -1163,8 +1167,11 @@ void GoodiesActivity::render(RenderLock&&) {
   uiReady = false;
   app.render();
   uiReady = true;
+  // Left/Right: - / + on Keyboard Test; held, they switch Knobs tabs.
+  const char* prevLabel = level == Level::KeyboardTest ? "-" : level == Level::Knobs ? "Hold: < Tab" : tr(STR_DIR_UP);
+  const char* nextLabel = level == Level::KeyboardTest ? "+" : level == Level::Knobs ? "Hold: Tab >" : tr(STR_DIR_DOWN);
   const auto labels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), prevLabel, nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

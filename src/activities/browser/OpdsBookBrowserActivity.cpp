@@ -344,7 +344,10 @@ void OpdsBookBrowserActivity::loop() {
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (hasSearch() && selectorIndex == 0) launchSearch();
+      if (hasSearch() && selectorIndex == 0) {
+        launchSearch();
+        return;  // the navigator below would also wrap the selection on this Left release
+      }
     }
 
     // Touch goes through the FreeInkApp: render() registered every tap target

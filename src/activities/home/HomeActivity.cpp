@@ -630,7 +630,7 @@ static_assert(HomeActivity::kMaxCachedBooks >= LyraCarouselMetrics::values.homeR
               "kMaxCachedBooks must cover all carousel slots");
 
 int HomeActivity::getMenuItemCount() const {
-  if (coverGridUi) return static_cast<int>(recentBooks.size()) + (hasOpdsServers ? 5 : 4);
+  if (coverGridUi) return static_cast<int>(recentBooks.size()) + coverGridUi->tabCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
   int count = 4;  // File Browser, Library, File transfer, Settings
 #if CROSSDINK_GOODIES
@@ -1037,28 +1037,47 @@ void HomeActivity::onEnter() {
   updateHighlightedBookContext(false);
 
   if (coverGridUi) {
-    const int base = static_cast<int>(recentBooks.size());
+    using Tab = CoverGridHomeUi::Tab;
+    std::array<Tab, CoverGridHomeUi::MAX_TABS> tabs{};
+    int tabCount = 0;
+    tabs[tabCount++] = Tab::Files;
+    tabs[tabCount++] = Tab::Library;
+    if (hasOpdsServers) tabs[tabCount++] = Tab::Opds;
+    if (hasBookmarks || hasClippings) tabs[tabCount++] = Tab::Bookmarks;
+    // The stats screen handles "no stats yet"; a tab that comes and goes with the highlighted book would jump.
+    if (SETTINGS.shouldTrackReadingStats()) tabs[tabCount++] = Tab::ReadingStats;
+    tabs[tabCount++] = Tab::Transfer;
+#if CROSSDINK_GOODIES
+    tabs[tabCount++] = Tab::Goodies;
+#endif
+    tabs[tabCount++] = Tab::Settings;
+    coverGridUi->begin(recentBooks, tabs.data(), tabCount, gridHasContinueReading,
+                       gridHasContinueReading ? loadRecentBookProgress(recentBooks.front()) : -1.0f);
+    Tab initialTab = Tab::Files;
+    bool hasInitialTab = true;
     switch (initialMenuItem) {
       case HomeMenuItem::FILE_BROWSER:
-        selectorIndex = base;
+        initialTab = Tab::Files;
         break;
       case HomeMenuItem::LIBRARY:
-        selectorIndex = base + 1;
+        initialTab = Tab::Library;
         break;
       case HomeMenuItem::OPDS_BROWSER:
-        selectorIndex = base + 2;
+        initialTab = Tab::Opds;
         break;
       case HomeMenuItem::FILE_TRANSFER:
-        selectorIndex = base + (hasOpdsServers ? 3 : 2);
+        initialTab = Tab::Transfer;
         break;
       case HomeMenuItem::SETTINGS_MENU:
-        selectorIndex = base + (hasOpdsServers ? 4 : 3);
+        initialTab = Tab::Settings;
         break;
       case HomeMenuItem::NONE:
+        hasInitialTab = false;
         break;
     }
-    coverGridUi->begin(recentBooks, hasOpdsServers, gridHasContinueReading,
-                       gridHasContinueReading ? loadRecentBookProgress(recentBooks.front()) : -1.0f);
+    for (int i = 0; hasInitialTab && i < tabCount; ++i) {
+      if (tabs[i] == initialTab) selectorIndex = static_cast<int>(recentBooks.size()) + i;
+    }
   } else if (initialMenuItem != HomeMenuItem::NONE) {
     const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
     const auto menuItems = buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
@@ -1719,7 +1738,7 @@ void HomeActivity::loop() {
     }
 
     const int bookCount = static_cast<int>(recentBooks.size());
-    const int tabCount = hasOpdsServers ? 5 : 4;
+    const int tabCount = coverGridUi->tabCount();
     const auto cycleBand = [this](const int base, const int count, const int dir) {
       if (count <= 0) return;
       const int current = selectorIndex - base;
@@ -1977,7 +1996,7 @@ void HomeActivity::loop() {
 
   const bool isCarousel =
       static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
-  const bool carouselTouchOnly = isCarousel && mappedInput.hasTouchHardware();
+  const bool carouselTouch = isCarousel && mappedInput.hasTouchHardware();
   const int previousHighlightedBookIdx = getHighlightedBookIndex();
   const int visibleBookCount = getVisibleRecentBookCount();
   const int carouselMenuItemCount =
@@ -1991,8 +2010,8 @@ void HomeActivity::loop() {
   int carouselSwipeEndX = 0;
   int carouselSwipeEndY = 0;
   const bool hasCarouselSwipe =
-      carouselTouchOnly && mappedInput.wasSwipeWithPoints(carouselSwipe, carouselSwipeStartX, carouselSwipeStartY,
-                                                          carouselSwipeEndX, carouselSwipeEndY);
+      carouselTouch && mappedInput.wasSwipeWithPoints(carouselSwipe, carouselSwipeStartX, carouselSwipeStartY,
+                                                      carouselSwipeEndX, carouselSwipeEndY);
   const bool carouselSwipeStartsInMenu =
       hasCarouselSwipe && containsPoint(LyraCarouselTheme::buttonMenuTouchRect(renderer, carouselMenuItemCount),
                                         carouselSwipeStartX, carouselSwipeStartY);
@@ -2011,7 +2030,7 @@ void HomeActivity::loop() {
   // interaction path above. On other themes, Back opens the most recent book.
   // Requiring a press observed on Home ignores the stale release that can
   // arrive after Back closed the previous activity.
-  if (!carouselTouchOnly && !hasCarouselSwipe && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
+  if (!carouselTouch && !hasCarouselSwipe && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
       backPressSeen && !recentBooks.empty()) {
     onContinueReading();
     return;
@@ -2097,6 +2116,7 @@ void HomeActivity::loop() {
       if (!activate && mappedInput.wasItemTouchedDown(touchedMenuIndex)) {
         if (touchedMenuIndex < 0 || touchedMenuIndex >= menuItemCount) return false;
         carouselMenuTouchDownIndex = touchedMenuIndex;
+        carouselButtonNav = false;
         requestUpdate();
         return true;
       }
@@ -2206,7 +2226,14 @@ void HomeActivity::loop() {
       }
     }
 
-    if (!carouselTouchOnly) {
+    // Buttons work alongside touch so a broken touchscreen is never a dead end.
+    {
+      if (mappedInput.wasPressed(MappedInputManager::Button::Right) ||
+          mappedInput.wasPressed(MappedInputManager::Button::Left) ||
+          mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+          mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+        carouselButtonNav = true;
+      }
       if (!handledHorizontalNav && mappedInput.wasPressed(MappedInputManager::Button::Right)) {
         moveRight();
       }
@@ -2305,7 +2332,8 @@ void HomeActivity::loop() {
     updateHighlightedBookContext();
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !(isCarousel && mappedInput.hasTouchHardware())) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) &&
+      !(isCarousel && mappedInput.hasTouchHardware() && !carouselButtonNav)) {
     activateSelectedHomeItem();
   }
 }
@@ -2317,29 +2345,31 @@ void HomeActivity::activateCoverGridSelection() {
     return;
   }
   const int tab = selectorIndex - static_cast<int>(recentBooks.size());
-  switch (tab) {
-    case 0:
+  if (tab >= coverGridUi->tabCount()) return;
+  switch (coverGridUi->tabAt(tab)) {
+    case CoverGridHomeUi::Tab::Files:
       onFileBrowserOpen();
       break;
-    case 1:
+    case CoverGridHomeUi::Tab::Library:
       onLibraryOpen();
       break;
-    case 2:
-      if (hasOpdsServers) {
-        onOpdsBrowserOpen();
-      } else {
-        onFileTransferOpen();
-      }
+    case CoverGridHomeUi::Tab::Opds:
+      onOpdsBrowserOpen();
       break;
-    case 3:
-      if (hasOpdsServers) {
-        onFileTransferOpen();
-      } else {
-        onSettingsOpen();
-      }
+    case CoverGridHomeUi::Tab::Bookmarks:
+      onSavedItemsOpen();
       break;
-    case 4:
-      if (hasOpdsServers) onSettingsOpen();
+    case CoverGridHomeUi::Tab::ReadingStats:
+      onReadingStatsOpen();
+      break;
+    case CoverGridHomeUi::Tab::Transfer:
+      onFileTransferOpen();
+      break;
+    case CoverGridHomeUi::Tab::Goodies:
+      onGoodiesOpen();
+      break;
+    case CoverGridHomeUi::Tab::Settings:
+      onSettingsOpen();
       break;
   }
 }
@@ -2527,7 +2557,7 @@ void HomeActivity::render(RenderLock&&) {
                                                                                   static_cast<int>(menuItems.size()));
       }
       if (static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL) {
-        const int menuHighlightIndex = mappedInput.hasTouchHardware()
+        const int menuHighlightIndex = mappedInput.hasTouchHardware() && !carouselButtonNav
                                            ? carouselMenuTouchDownIndex
                                            : (inCarouselRow ? -1 : selectorIndex - recentBooks.size());
         if (menuHighlightIndex >= 0) {
@@ -2591,7 +2621,7 @@ void HomeActivity::render(RenderLock&&) {
 
   const bool isCarouselTheme =
       static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
-  const int menuSelectedIndex = isCarouselTheme && mappedInput.hasTouchHardware()
+  const int menuSelectedIndex = isCarouselTheme && mappedInput.hasTouchHardware() && !carouselButtonNav
                                     ? carouselMenuTouchDownIndex
                                     : selectorIndex - getHomeMenuSelectionOffset(recentBooks);
   GUI.drawButtonMenu(

@@ -157,7 +157,8 @@ void EpubReaderFootnotesActivity::render(RenderLock&&) {
   app.render();
   uiReady = true;
   const auto labels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), footnotes.empty() ? "" : tr(STR_SELECT), "", "");
+      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), footnotes.empty() ? "" : tr(STR_SELECT),
+                            footnotes.empty() ? "" : tr(STR_DIR_UP), footnotes.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   renderer.displayBuffer();
 }

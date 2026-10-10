@@ -826,8 +826,11 @@ void ReaderOptionsActivity::render(RenderLock&&) {
                                 (*currentSettings)[selectedIndex].nameId == StrId::STR_DICTIONARY_FONT ||
                                 (*currentSettings)[selectedIndex].nameId == StrId::STR_DICTIONARY_FONT_SIZE ||
                                 currentSettingUsesOptionMenu((*currentSettings)[selectedIndex]));
-  const bool selectedLineHeight = selectedIndex >= 0 && selectedIndex < settingsCount &&
-                                  (*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::lineHeightPercent;
+  // Line height and word spacing open a picker rather than toggling.
+  const bool selectedLineHeight =
+      selectedIndex >= 0 && selectedIndex < settingsCount &&
+      ((*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::lineHeightPercent ||
+       (*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::wordSpacing);
   const bool selectedScreenMargin =
       selectedIndex >= 0 && selectedIndex < settingsCount &&
       ((*currentSettings)[selectedIndex].valuePtr == &CrossPointSettings::screenMarginVertical ||

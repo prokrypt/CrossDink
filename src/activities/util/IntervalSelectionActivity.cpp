@@ -115,7 +115,7 @@ int IntervalSelectionActivity::tappedValue(const int candidate) const {
 
 bool IntervalSelectionActivity::usesReaderSlider() const {
 #if CROSSDINK_APP_CAP_TOUCH
-  return useReaderSlider && mappedInput.hasTouchHardware();
+  return useReaderSlider && mappedInput.hasTouch();
 #else
   return false;
 #endif

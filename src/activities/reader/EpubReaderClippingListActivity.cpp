@@ -180,7 +180,7 @@ int EpubReaderClippingListActivity::getDetailLinesPerPage() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int lineStep = renderer.getLineHeight(UI_10_FONT_ID) + DETAIL_LINE_GAP;
 #if CROSSDINK_APP_CAP_TOUCH
-  if (mappedInput.hasTouchHardware()) {
+  if (mappedInput.hasTouch()) {
     const Rect header = clippingHeaderRect(safe, metrics, mappedInput);
     const Rect openButton = touchDetailOpenButtonRect(safe, metrics);
     const int textStart = header.y + header.height + metrics.verticalSpacing;
@@ -371,7 +371,7 @@ void EpubReaderClippingListActivity::loop() {
     int detailTouchTop = safe.y + DETAIL_START_Y;
     int detailTouchBottom = safe.y + safe.height - DETAIL_BOTTOM_RESERVE;
 #if CROSSDINK_APP_CAP_TOUCH
-    if (mappedInput.hasTouchHardware()) {
+    if (mappedInput.hasTouch()) {
       const Rect openButton = touchDetailOpenButtonRect(safe, metrics);
       if (mappedInput.wasTapInRect(openButton.x, openButton.y, openButton.width, openButton.height)) {
         jumpToSelectedClipping();
@@ -501,6 +501,10 @@ void EpubReaderClippingListActivity::buildListScreen(UiApp::ScreenType& screen) 
     screen.centeredText(tr(STR_NO_CLIPPINGS), screen.theme().bodyText);
     return;
   }
+  fui::TextStyle holdHint = screen.theme().smallText;
+  holdHint.align = fui::TextAlign::Center;
+  screen.target().text(screen.takeBottom(screen.target().lineHeight(holdHint.font), screen.theme().spaceSm),
+                       tr(STR_LOOKUP_HISTORY_DELETE_HINT), holdHint);
   fui::ListProps props;
   props.action = ACTION_ROW;
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
@@ -554,7 +558,7 @@ void EpubReaderClippingListActivity::renderDetail() {
 
   int textStartY = DETAIL_START_Y + contentY;
 #if CROSSDINK_APP_CAP_TOUCH
-  const bool showTouchControls = mappedInput.hasTouchHardware();
+  const bool showTouchControls = mappedInput.hasTouch();
   Rect openButton{};
   if (showTouchControls) {
     const Rect header = clippingHeaderRect(safe, metrics, mappedInput);

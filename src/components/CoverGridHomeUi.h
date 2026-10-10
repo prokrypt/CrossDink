@@ -11,16 +11,22 @@
 #include "components/media/book-card.h"
 #include "components/media/cover-grid.h"
 
-class CoverGridHomeUi final : public UiAppHost<16, 1> {
+class CoverGridHomeUi final : public UiAppHost<20, 1> {
  public:
-  using UiScreen = UiAppHost<16, 1>::Screen;
+  using UiScreen = UiAppHost<20, 1>::Screen;
   static constexpr int THUMB_HEIGHT = 400;
   static constexpr int GRID_COLUMNS = 3;
   static constexpr int GRID_ROWS = 2;
   static constexpr int MAX_BOOKS = 1 + GRID_COLUMNS * GRID_ROWS;
   static_assert(MAX_BOOKS <= HomeCoverCache::MAX_COVERS);
+  // Bottom tab bar entries, left to right as passed to begin().
+  enum class Tab : uint8_t { Files, Library, Opds, Bookmarks, ReadingStats, Transfer, Goodies, Settings };
+  static constexpr int MAX_TABS = 8;
   explicit CoverGridHomeUi(GfxRenderer& renderer);
-  void begin(const std::vector<RecentBook>& books, bool hasOpds, bool hasContinueReading, float featuredProgress);
+  void begin(const std::vector<RecentBook>& books, const Tab* tabs, int tabCount, bool hasContinueReading,
+             float featuredProgress);
+  int tabCount() const { return tabCount_; }
+  Tab tabAt(int index) const { return tabs_[index]; }
   void refreshCoverPaths();
   void setSelection(int selection) { selected = selection; }
   int selectedAction(const MappedInputManager& input);
@@ -54,12 +60,13 @@ class CoverGridHomeUi final : public UiAppHost<16, 1> {
   int selected = 0;
   int pending = -1;
   int progress = -1;
-  bool hasOpds = false;
+  std::array<Tab, MAX_TABS> tabs_{};
+  int tabCount_ = 0;
   char progressText[12]{};
   // Component styles and interaction tables stay off the render task's stack.
   freeink::ui::BookCardProps card;
   freeink::ui::CoverGridProps grid;
   freeink::ui::Rect gridBounds{};
   freeink::ui::TabBarProps tabs;
-  std::array<freeink::ui::TabItem, 5> tabItems;
+  std::array<freeink::ui::TabItem, MAX_TABS> tabItems;
 };

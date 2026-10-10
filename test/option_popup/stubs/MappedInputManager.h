@@ -57,6 +57,7 @@ class MappedInputManager {
   }
 
   bool wasTapOrHeld() const { return tapOrHeld; }
+  bool hasTouch() const { return false; }
 
   SwipeDir wasSwipe() const {
     const SwipeDir result = swipe;
