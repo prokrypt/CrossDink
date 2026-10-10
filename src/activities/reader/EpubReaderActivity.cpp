@@ -7717,6 +7717,14 @@ void EpubReaderActivity::saveProgressBeforeRestart() {
   }
 }
 
+bool EpubReaderActivity::flushProgressForSync() {
+  if (!epub) return false;
+  saveProgressBeforeRestart();
+  EpubReaderUtils::Progress saved;
+  // Unreadable here: push anyway and let the job's own check decide.
+  return !EpubReaderUtils::loadProgress(*epub, saved, "KOSync") || kosync_auto::movedSinceOpen(epub->getPath(), saved);
+}
+
 bool EpubReaderActivity::queueProgressSave(const int spineIndex, const int currentPage, const int pageCount,
                                            const bool forceSave) {
   if (activeFootnotePreview) {

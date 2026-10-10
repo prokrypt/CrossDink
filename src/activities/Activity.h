@@ -132,7 +132,8 @@ class Activity {
   // Let overlays consume the global Home gesture as a dismiss action.
   virtual bool handleHomeGesture() { return false; }
   virtual bool canSnapshotForSleepOverlay() const { return false; }
-  // An EPUB reader saves its position now (Sync on Wake & Sleep); false elsewhere.
+  // An EPUB reader saves its position now (Sync on Wake & Sleep) and says whether it
+  // moved past where it opened (else nothing to push); false elsewhere.
   virtual bool flushProgressForSync() { return false; }
   // Activity-specific swipe actions (chapter and font commands). Global
   // frontlight commands are handled by ActivityManager before this callback.
