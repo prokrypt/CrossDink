@@ -393,9 +393,17 @@ class EpubReaderActivity final : public Activity {
     std::atomic<bool> redraw{false};  // worker -> loop: caches ready, draw the page again
   };
   ImageCacheWorker imageCacheWorker;
-  // Render task: true when the page's missing image caches are (still) being
-  // built in the background and the page should draw placeholders for now.
-  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop);
+  // Render task (or loop under RenderLock): true when the missing image caches
+  // of `pageIndex` are (still) being built in the background and that page
+  // should draw placeholders for now.
+  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop, int pageIndex);
+  // Idle: starts the worker on the next page (previous after a back turn) so
+  // turning onto it draws its images at once. Same section only.
+  void prefetchImageCaches();
+  const Section* imagePrefetchAttemptSection = nullptr;
+  int imagePrefetchAttemptSpine = -1;
+  int imagePrefetchAttemptPage = -1;
+  bool lastTurnBackward = false;
   static void imageCacheWorkerMain(void* param);
   // Joins a finished job (all of it when cancel), applying its failures.
   // False while it still runs. Render task or onExit.

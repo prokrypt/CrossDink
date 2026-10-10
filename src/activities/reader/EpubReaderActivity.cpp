@@ -2951,6 +2951,28 @@ void EpubReaderActivity::idlePrewarmNextPage() {
   }
   prewarmNextPageFonts("Idle");
   prerenderNextPage();
+  prefetchImageCaches();
+}
+
+void EpubReaderActivity::prefetchImageCaches() {
+  // A running or unjoined job (maybe this page's own) is left alone.
+  if (imageCacheWorker.task) return;
+  // shortcut: stays inside the current section; the next/previous chapter's first page is not prefetched.
+  const int target = section->currentPage + (lastTurnBackward ? -1 : 1);
+  if (target < 0 || target >= static_cast<int>(section->pageCount)) return;
+  if (imagePrefetchAttemptSection == section.get() && imagePrefetchAttemptSpine == currentSpineIndex &&
+      imagePrefetchAttemptPage == target) {
+    return;
+  }
+  imagePrefetchAttemptSection = section.get();
+  imagePrefetchAttemptSpine = currentSpineIndex;
+  imagePrefetchAttemptPage = target;
+  auto page = section->loadPage(target);
+  if (!page || !page->hasImagesNeedingDecode()) return;
+  const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+  if (startImageCacheWorker(*page, layout.marginLeft, layout.marginTop, target)) {
+    LOG_DBG("ERS", "Prefetching image caches for page %d", target);
+  }
 }
 
 void EpubReaderActivity::clearPrerenderedPage() {
@@ -6454,6 +6476,7 @@ bool EpubReaderActivity::isAtBookStart() const {
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
   pageLoadRetryCount = 0;
+  lastTurnBackward = !isForwardTurn;
   if (activeFootnotePreview) {
     if (isForwardTurn) {
       if (section && section->currentPage < section->pageCount - 1) {
@@ -7402,8 +7425,9 @@ void EpubReaderActivity::waitHomeThumbWorker() {
   homeThumbWorker.task = nullptr;
 }
 
-// Render task, RenderLock held.
-bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int marginLeft, const int marginTop) {
+// Render task or idle loop, RenderLock held.
+bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int marginLeft, const int marginTop,
+                                               const int pageIndex) {
 #if defined(portNUM_PROCESSORS) && portNUM_PROCESSORS > 1
   auto& job = imageCacheWorker;
   if (!job.done || !section || !psramHeapAvailable() || !renderer.hasFrameBuffer()) return false;
@@ -7422,7 +7446,7 @@ bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int margi
     if (!joinImageCacheWorker(/*cancel=*/false) && job.count > 0 &&
         job.items[0].block->getImagePath() == first->getImagePath()) {
       job.spine = currentSpineIndex;
-      job.pageIndex = section->currentPage;
+      job.pageIndex = pageIndex;
       return true;
     }
     joinImageCacheWorker(/*cancel=*/true);
@@ -7478,7 +7502,7 @@ bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int margi
   for (uint8_t i = 0; i < count; ++i) job.items[i].block->beginBackgroundCache();
   job.count = count;
   job.spine = currentSpineIndex;
-  job.pageIndex = section->currentPage;
+  job.pageIndex = pageIndex;
   job.cancel.store(false);
   job.redraw.store(false);
   powerManager.beginBackgroundWork();
@@ -7956,7 +7980,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // redraw. Input and overlays stay live meanwhile.
   bool imagesLoadingInBackground = false;
   if (updatePanel && pageHasImagesNeedingDecode &&
-      startImageCacheWorker(*page, orientedMarginLeft, orientedMarginTop)) {
+      startImageCacheWorker(*page, orientedMarginLeft, orientedMarginTop, section->currentPage)) {
     imagesLoadingInBackground = true;
     pageHasImagesNeedingDecode = false;
     deferImageLoading = true;
