@@ -582,6 +582,7 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       BaseTheme::beginFrameStatus();
+      Toast::beginFrame();
       if (currentActivity.get() != listSelectionOwner) {
         listSelectionOwner = currentActivity.get();
         ListSelection::tapRowShown = false;  // a popup of the previous screen
