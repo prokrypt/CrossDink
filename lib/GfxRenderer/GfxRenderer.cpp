@@ -1356,7 +1356,7 @@ void GfxRenderer::drawRect(const int x, const int y, const int width, const int 
 }
 
 void GfxRenderer::drawArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir,
-                          const int lineWidth, const bool state) const {
+                          const int lineWidth, const Color color) const {
   const int stroke = std::min(lineWidth, maxRadius);
   const int innerRadius = std::max(maxRadius - stroke, 0);
   const int outerRadius = maxRadius;
@@ -1392,7 +1392,7 @@ void GfxRenderer::drawArc(const int maxRadius, const int cx, const int cy, const
     const int py = cy + yDir * dy;
 
     if (width > 0) {
-      fillRect(left, py, width, 1, state);
+      fillRectDither(left, py, width, 1, color);
     }
   }
 };
@@ -1407,13 +1407,34 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
 void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
                                   const int cornerRadius, bool roundTopLeft, bool roundTopRight, bool roundBottomLeft,
                                   bool roundBottomRight, bool state) const {
+  drawRoundedRect(x, y, width, height, lineWidth, cornerRadius, roundTopLeft, roundTopRight, roundBottomLeft,
+                  roundBottomRight, state ? Color::Black : Color::White);
+}
+
+void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
+                                  const int cornerRadius, const Color color) const {
+  drawRoundedRect(x, y, width, height, lineWidth, cornerRadius, true, true, true, true, color);
+}
+
+void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
+                                  const int cornerRadius, bool roundTopLeft, bool roundTopRight, bool roundBottomLeft,
+                                  bool roundBottomRight, const Color color) const {
   if (lineWidth <= 0 || width <= 0 || height <= 0) {
     return;
   }
 
   const int maxRadius = std::min({cornerRadius, width / 2, height / 2});
   if (maxRadius <= 0) {
-    drawRect(x, y, width, height, lineWidth, state);
+    if (color == Color::Black || color == Color::White) {
+      drawRect(x, y, width, height, lineWidth, color == Color::Black);
+      return;
+    }
+    // drawRect() is 1-bit only: gray square border as four edge bands.
+    const int inner = std::max(height - 2 * lineWidth, 0);
+    fillRectDither(x, y, width, lineWidth, color);
+    fillRectDither(x, y + height - lineWidth, width, lineWidth, color);
+    fillRectDither(x, y + lineWidth, lineWidth, inner, color);
+    fillRectDither(x + width - lineWidth, y + lineWidth, lineWidth, inner, color);
     return;
   }
 
@@ -1424,34 +1445,34 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
   const int horizontalWidth = width - 2 * maxRadius;
   if (horizontalWidth > 0) {
     if (roundTopLeft || roundTopRight) {
-      fillRect(x + maxRadius, y, horizontalWidth, stroke, state);
+      fillRectDither(x + maxRadius, y, horizontalWidth, stroke, color);
     }
     if (roundBottomLeft || roundBottomRight) {
-      fillRect(x + maxRadius, bottom - stroke + 1, horizontalWidth, stroke, state);
+      fillRectDither(x + maxRadius, bottom - stroke + 1, horizontalWidth, stroke, color);
     }
   }
 
   const int verticalHeight = height - 2 * maxRadius;
   if (verticalHeight > 0) {
     if (roundTopLeft || roundBottomLeft) {
-      fillRect(x, y + maxRadius, stroke, verticalHeight, state);
+      fillRectDither(x, y + maxRadius, stroke, verticalHeight, color);
     }
     if (roundTopRight || roundBottomRight) {
-      fillRect(right - stroke + 1, y + maxRadius, stroke, verticalHeight, state);
+      fillRectDither(right - stroke + 1, y + maxRadius, stroke, verticalHeight, color);
     }
   }
 
   if (roundTopLeft) {
-    drawArc(maxRadius, x + maxRadius, y + maxRadius, -1, -1, lineWidth, state);
+    drawArc(maxRadius, x + maxRadius, y + maxRadius, -1, -1, lineWidth, color);
   }
   if (roundTopRight) {
-    drawArc(maxRadius, right - maxRadius, y + maxRadius, 1, -1, lineWidth, state);
+    drawArc(maxRadius, right - maxRadius, y + maxRadius, 1, -1, lineWidth, color);
   }
   if (roundBottomRight) {
-    drawArc(maxRadius, right - maxRadius, bottom - maxRadius, 1, 1, lineWidth, state);
+    drawArc(maxRadius, right - maxRadius, bottom - maxRadius, 1, 1, lineWidth, color);
   }
   if (roundBottomLeft) {
-    drawArc(maxRadius, x + maxRadius, bottom - maxRadius, -1, 1, lineWidth, state);
+    drawArc(maxRadius, x + maxRadius, bottom - maxRadius, -1, 1, lineWidth, color);
   }
 }
 
