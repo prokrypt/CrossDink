@@ -18,4 +18,6 @@ void draw(const GfxRenderer& renderer, const char* msg);
 void show(const GfxRenderer& renderer, const char* msg);
 bool holding();
 void release();
+// A full frame render repaints the toast spot; the render task calls this first.
+void beginFrame();
 }  // namespace Toast
