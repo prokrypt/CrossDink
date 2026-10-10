@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- X4 Pro (debug builds): power stats now cover the touchscreen and the e-ink panel. `power.csv` gets a `touch_ms` column (time the GT911 touch controller is awake), `scripts/power_fit.py` fits touch-controller and e-ink booster time by default next to the refresh counts, and Goodies > Battery & stats shows e-ink busy, booster and touch-on time. The counters start a new generation once after updating.
 - Header status bar: a small up/down arrow icon left of the Wi-Fi bars while a Wi-Fi remote (or web) request came in during the last 30 s. It shows and hides only on header repaints that happen anyway, so it adds no refreshes or wakes.
 - Header status bar: hollow Wi-Fi bars show while Wi-Fi is joining (associating or waiting for an address), then solid bars once linked. The existing header poll repaints only when the state (none / joining / up) changes, so nothing extra is refreshed.
 - Frontlight: turning the light on or off (Power/Home key toggle, Frontlight panel, Settings, Quick Lock) fades it over 0.3 s instead of snapping, and the light fades out as the device goes to sleep and fades back in on wake. The fade runs on a timer, so input and drawing never wait for it; going to sleep cuts a fade still running. Brightness slides and swipes still follow the finger with no fade.
