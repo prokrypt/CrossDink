@@ -70,6 +70,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - X4 Pro (debug builds): remote command `SLEEPREBOOT` (USB serial `CMD:SLEEPREBOOT`, Wi-Fi `POST /api/cmd`, token required) runs Goodies > Sleep-reboot-log without a tap: 0.5 s after the reply, the real sleep path, then a restart instead of power-down, so the PSRAM log keeps the sleep and the Wi-Fi remote rejoins on its own.
 
 ### Changed
+- Reader (EPUB, black and white pages): the next page starts drawing in the background while the current page's refresh runs, instead of after it, so a quick next turn more often finds it ready. The panel and its refresh are unchanged; the send starts a few ms later (one page read from the book cache).
 - Web server: file downloads (WebDAV GET, File Transfer download, `/api/download`) are now sent a piece at a time between other requests, so a large download no longer makes every other page, WebDAV listing or remote command wait until it ends. Up to two downloads stream at once. Uploads (WebDAV PUT) still hold the server while they are received.
 - Debug builds, web Logs tab and `/api/psram-log`: the PSRAM log downloads in 4 KB writes instead of 1 KB, so a full log takes about a quarter of the socket sends.
 - Frontlight: the sleep fade-out is now the very last step of going to sleep. The light stays on while the sleep screen draws and the saves are written, then fades out over 0.3 s once the screen has settled; sleep entry waits out that fade. Wake still fades the light in.

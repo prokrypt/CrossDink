@@ -3115,6 +3115,7 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
   prerenderAttemptSection = section.get();
   prerenderAttemptSpine = currentSpineIndex;
   prerenderAttemptPage = nextPage;
+  const unsigned long kickStartedAt = millis();
   // The page is read here: the section file belongs to the render task.
   auto page = section->loadPage(nextPage);
   if (!prerenderFrameBuffer) prerenderFrameBuffer = makePsramByteBufferNoThrow(renderer.getBufferSize());
@@ -3163,6 +3164,8 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
       drawAhead.page.reset();
       powerManager.endBackgroundWork();
       LOG_ERR("ERS", "Cannot start draw-ahead worker");
+    } else {
+      LOG_DBG("ERS", "Draw-ahead kicked page=%d in %lums", nextPage, millis() - kickStartedAt);
     }
   }
   xSemaphoreGive(drawAheadMutex);
@@ -3173,6 +3176,14 @@ void EpubReaderActivity::startDrawAhead(const int fontId, const int marginTop, c
   (void)contentBottom;
   (void)layoutKey;
 #endif
+}
+
+void EpubReaderActivity::kickDrawAhead() {
+  const int drawFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+  const ReaderViewportLayout drawLayout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+  startDrawAhead(drawFontId, drawLayout.marginTop, drawLayout.marginLeft,
+                 renderer.getScreenHeight() - drawLayout.marginBottom,
+                 prerenderLayoutKey(renderer, drawLayout, drawFontId));
 }
 
 void EpubReaderActivity::drawAheadWorkerMain(void* param) {
@@ -7464,13 +7475,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
     }
     silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
-    {
-      const int drawFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
-      const ReaderViewportLayout drawLayout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
-      startDrawAhead(drawFontId, drawLayout.marginTop, drawLayout.marginLeft,
-                     renderer.getScreenHeight() - drawLayout.marginBottom,
-                     prerenderLayoutKey(renderer, drawLayout, drawFontId));
-    }
+    // No-op when the B/W send already kicked it for this page.
+    kickDrawAhead();
     queueCompletionPromptIfNeeded();
   }
 
@@ -8720,6 +8726,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       pagesUntilFullRefresh--;
     }
   } else {
+    // The worker draws the next page into PSRAM on the other core while this
+    // send and its waveform block the render task.
+    if (!activeFootnotePreview) kickDrawAhead();
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
   if (deferredGrayscaleBase) {
