@@ -306,7 +306,7 @@ void LyraCarouselTheme::drawCarouselBorder(GfxRenderer& renderer, Rect coverRect
   if (!inCarouselRow) return;
   Rect borderRect = shrinkCenterCoverRect(computeCenterCoverSlotRect(renderer, coverRect, recentBooks));
   renderer.drawRoundedRect(borderRect.x, borderRect.y, borderRect.width, borderRect.height, kSelectionLineW,
-                           kCornerRadius, true);
+                           kCornerRadius, Color::DarkGray);
 }
 
 // ---------------------------------------------------------------------------
