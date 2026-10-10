@@ -541,12 +541,12 @@ void DisplayTestActivity::drawAsk() {
     // Only the band changes; the squares are left as the test drew them.
     char line[64];
     snprintf(line, sizeof(line), "Tap a square, or %s then OK: %d",
-             mappedInput.hasLeftRightButtonsHardware() ? "< >" : "Up/Down", pickIndex + 1);
+             mappedInput.hasLeftRightButtons() ? "< >" : "Up/Down", pickIndex + 1);
     renderer.drawCenteredText(UI_12_FONT_ID, y, line);
   } else {
     char left[48];
     char right[48];
-    const bool leftRight = mappedInput.hasLeftRightButtonsHardware();
+    const bool leftRight = mappedInput.hasLeftRightButtons();
     snprintf(left, sizeof(left), leftRight ? "< %s" : "Up: %s", op.options[0].c_str());
     snprintf(right, sizeof(right), leftRight ? "%s >" : "Down: %s", op.options[1].c_str());
     renderer.drawText(UI_12_FONT_ID, 16, y, left, true, EpdFontFamily::BOLD);
