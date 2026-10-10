@@ -14,6 +14,7 @@
 - X4 Pro (debug builds): remote command `BOOTSLOT` (USB serial `CMD:BOOTSLOT`, Wi-Fi `POST /api/cmd`, token required) shows the other OTA slot's build; `BOOTSLOT <label>` runs the same full image check as Goodies > Boot alternate slot, then switches and restarts into it, so a slot switch needs no USB.
 - X4 Pro (debug builds): remote command `SLEEPREBOOT` (USB serial `CMD:SLEEPREBOOT`, Wi-Fi `POST /api/cmd`, token required) runs Goodies > Sleep-reboot-log without a tap: 0.5 s after the reply, the real sleep path, then a restart instead of power-down, so the PSRAM log keeps the sleep and the Wi-Fi remote rejoins on its own.
 - X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar. Short vertical ticks mark a plug-in (bottom edge) and a `charged` row (top edge).
+- X4 Pro (debug builds): power stats now cover the touchscreen and the e-ink panel. `power.csv` gets a `touch_ms` column (time the GT911 touch controller is awake), `scripts/power_fit.py` fits touch-controller and e-ink booster time by default next to the refresh counts, and Goodies > Battery & stats shows e-ink busy, booster and touch-on time. The counters start a new generation once after updating.
 
 ### Changed
 - KOReader Sync on Wake & Sleep: the push's Wi-Fi join now starts before the "Syncing" toast is drawn instead of after it, so going to sleep with a sync push is about 0.6 to 0.8 s sooner (less time with Wi-Fi on). No change to the toasts or the 30 s limit.

@@ -96,7 +96,7 @@ TEST(PowerLogRow, EveryFieldAtItsMaximumFitsKMaxRow) {
   constexpr uint32_t u32 = std::numeric_limits<uint32_t>::max();
   PowerCounters::Totals& t = r.t;
   t.awakeMs = t.lightSleepUs = t.maxClockUs = t.ipTxPackets = t.ipRxPackets = t.lightDutyMs = t.boosterMs = u64;
-  t.sdReadBytes = t.sdWriteBytes = t.sdUs = u64;
+  t.sdReadBytes = t.sdWriteBytes = t.sdUs = t.touchMs = u64;
   t.asleepS[0] = t.asleepS[1] = t.wifiScans = t.wifiConnects = u32;
   for (auto& v : t.busyUs) v = u64;
   for (auto& v : t.wifiMs) v = u64;

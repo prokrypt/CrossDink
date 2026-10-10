@@ -2,6 +2,7 @@
 #include <BoardConfig.h>
 #include <HalGPIO.h>
 #include <Logging.h>
+#include <PowerCounters.h>
 #include <PowerManager.h>
 #include <Preferences.h>
 #include <SPI.h>
@@ -174,6 +175,9 @@ void HalGPIO::begin() {
   }
 #endif
   inputMgr.begin();
+#if CROSSDINK_APP_CAP_TOUCH
+  PowerCounters::touch(hasTouch() && !isTouchAsleep());
+#endif
 }
 
 void HalGPIO::trackTouchDragOn(const InputManager& input, bool& draggedPastTapSlop) {
@@ -443,11 +447,16 @@ bool HalGPIO::wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float& nyEn
 bool HalGPIO::wasTouchActivity() const { return inputMgr.wasTouchActivity(); }
 
 bool HalGPIO::setTouchSleep(const bool asleep) {
-  if (!latched_) return inputMgr.setTouchSleep(asleep);
-  // The sampler owns the controller; the view follows on the next update().
-  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
-  const bool ok = sampler_.setTouchSleep(asleep);
-  xSemaphoreGive(sampleMutex_);
+  bool ok;
+  if (!latched_) {
+    ok = inputMgr.setTouchSleep(asleep);
+  } else {
+    // The sampler owns the controller; the view follows on the next update().
+    xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+    ok = sampler_.setTouchSleep(asleep);
+    xSemaphoreGive(sampleMutex_);
+  }
+  if (ok) PowerCounters::touch(!asleep);
   return ok;
 }
 

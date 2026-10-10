@@ -44,6 +44,7 @@ Every counter column is cumulative. Subtract two rows of the same `gen` to get t
 | `panel_*_ms` | Time spent waiting on the panel's BUSY line, by the kind of the last refresh started. An async refresh that finishes before anyone waits is not in it, so prefer the counts. |
 | `booster_ms` | UC8179 booster on between refreshes (until `powerOffIdle()`); 0 on other panels. |
 | `sd_rd_kb`, `sd_wr_kb`, `sd_ms` | Bytes and time through `HalFile::read/write` (not USB Drive). |
+| `touch_ms` | Touch controller awake (GT911 out of its sleep mode; it sleeps under Quick Lock and on reader pages with the touchscreen disabled). 0 on builds without touch; empty in logs from before this column. |
 
 ## Knobs
 
@@ -108,8 +109,8 @@ beside %/h (1 %/h = capacity / 100 mA). Overlapping copies of the same file are 
 
 The costs add up: `floor_h` is the awake base at the clock floor, `maxclk_h` is the cost of an hour at full clock
 instead (not on top of the floor), `ls_h` an hour light-sleeping, and `wifi_*_h`, `light_full_h` and the refresh
-costs come on top of whichever clock state the CPU was in. `--all-features` adds core busy time, IP packets,
-booster time and SD traffic; `--features a,b,c` picks columns. A cost of 0 with a wide range means the log never
+costs come on top of whichever clock state the CPU was in, as do `booster_h` (e-ink booster on between
+refreshes) and `touch_h` (touch controller awake). `--all-features` adds core busy time, IP packets and SD traffic; `--features a,b,c` picks columns. A cost of 0 with a wide range means the log never
 varied it on its own: run its Power Test. The cross-validated error against "one average rate per hour" shows
 whether the split explains anything.
 
