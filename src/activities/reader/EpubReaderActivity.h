@@ -448,6 +448,8 @@ class EpubReaderActivity final : public Activity {
   static void drawAheadWorkerMain(void* param);
   void runDrawAhead();
   void startDrawAhead(int fontId, int marginTop, int marginLeft, int contentBottom, uint32_t layoutKey);
+  // startDrawAhead() for the page after the current one, with the current layout.
+  void kickDrawAhead();
   // publish: render task only (RenderLock), moves a finished draw into the
   // prerendered* fields; otherwise the draw is discarded.
   void waitDrawAhead(bool publish);
