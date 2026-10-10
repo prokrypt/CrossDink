@@ -9,6 +9,7 @@
 #include "util/InputReleaseGuard.h"
 
 namespace {
+constexpr unsigned long DATE_EDIT_DISCARD_HOLD_MS = 1000;
 
 void drawPageIndicators(const GfxRenderer& renderer, const int currentPage, const int totalPages) {
   if (totalPages <= 1) {
@@ -407,7 +408,8 @@ void BookStatsActivity::loop() {
       }
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      finishDateEditing(true);
+      // Hold Back to discard: the button path to the touch-only Cancel.
+      finishDateEditing(mappedInput.getHeldTime() < DATE_EDIT_DISCARD_HOLD_MS);
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -415,14 +417,15 @@ void BookStatsActivity::loop() {
       requestUpdate();
       return;
     }
+    // Up (and Left, hinted "Up") increments, as the touch up chevron (DateAdjustUp) does.
     if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
         mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-      adjustSelectedDateField(-1);
+      adjustSelectedDateField(1);
       return;
     }
     if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
         mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-      adjustSelectedDateField(1);
+      adjustSelectedDateField(-1);
       return;
     }
     return;

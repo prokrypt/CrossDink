@@ -349,8 +349,10 @@ void FrontlightTimePickerActivity::render(RenderLock&&) {
     keyboardInteractionsReady.store(true, std::memory_order_release);
   }
 
-  const auto labels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_LEFT),
+                                            tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  // Left/Right pick the field; the side buttons step its value (Up = previous = -1).
+  GUI.drawSideButtonHints(renderer, "-", "+");
   renderer.displayBuffer();
 }

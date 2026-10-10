@@ -580,7 +580,7 @@ void BmpViewerActivity::promptDeleteImage() {
       });
 }
 
-void BmpViewerActivity::showContextMenu() {
+void BmpViewerActivity::showContextMenu(const bool confirmHeld) {
   std::vector<FileBrowserActionActivity::MenuItem> items = BookActions::buildBookActionItems(filePath, false);
   if (BookActions::canSendNearby(filePath)) {
     items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
@@ -600,7 +600,7 @@ void BmpViewerActivity::showContextMenu() {
   drawCancelled.store(false, std::memory_order_release);
   needsImageRedraw.store(true, std::memory_order_release);  // the menu draws over the image
   startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath),
-                                                                     std::move(items), false, false),
+                                                                     std::move(items), confirmHeld, false),
                          [this](const ActivityResult& result) {
                            if (result.isCancelled) return;
 
@@ -690,8 +690,15 @@ void BmpViewerActivity::loop() {
     return;
   }
 
+  constexpr unsigned long CONTEXT_MENU_HOLD_MS = 1000;
+  // Hold Confirm: the button path to the tap-only context menu. The menu eats the release.
+  if (mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= CONTEXT_MENU_HOLD_MS) {
+    cancelDraw();
+    showContextMenu(true);
+    return;
+  }
+
   if (mappedInput.hasTouchHardware()) {
-    constexpr unsigned long CONTEXT_MENU_HOLD_MS = 1000;
     int touchX = 0;
     int touchY = 0;
     if (mappedInput.isScreenTouchLongPress(touchX, touchY, CONTEXT_MENU_HOLD_MS)) {

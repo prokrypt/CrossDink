@@ -357,6 +357,11 @@ void FrontlightPanelActivity::loop() {
                                        [this] { adjustBrightness(-BRIGHTNESS_STEP); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right},
                                        [this] { adjustBrightness(BRIGHTNESS_STEP); });
+  if (Frontlight.hasColorTemperature()) {
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] { adjustWarmth(BRIGHTNESS_STEP); });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
+                                         [this] { adjustWarmth(-BRIGHTNESS_STEP); });
+  }
 }
 
 Rect FrontlightPanelActivity::homeButtonRect() const {

@@ -43,7 +43,7 @@ class BmpViewerActivity final : public Activity {
   bool showDecoded(const DecodedImage& image);
   void drawHints() const;
   void doSetSleepCover();
-  void showContextMenu();
+  void showContextMenu(bool confirmHeld = false);
   void promptDeleteImage();
   void pinSleepFavorite();
   void unpinSleepFavorite();

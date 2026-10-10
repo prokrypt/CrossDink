@@ -404,6 +404,8 @@ void BatteryStatsActivity::loop() {
   if ((down && more) || (up && scroll > 0)) {
     scroll += down && more ? 1 : -1;
     requestUpdate();
+  } else if (mappedInput.wasReleased(MappedInputManager::Button::Up) && !mappedInput.hasLeftRightButtons()) {
+    refresh();  // X4 Pro has no Right: Up at the top refreshes
   }
 }
 

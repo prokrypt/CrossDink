@@ -875,8 +875,15 @@ void SettingsActivity::loop() {
 
   // Handle actions with early return
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    // Index 0 = nothing selected; tabs switch only by long-press Up/Down.
-    if (selectedSettingIndex == 0) return;
+    // Index 0 = the tab band: Confirm steps to the next tab, as long-press Down does.
+    if (selectedSettingIndex == 0) {
+      if (!isFileBrowserView()) {
+        enterCategory(ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount));
+        topIndex = 0;
+        requestUpdate();
+      }
+      return;
+    }
     showSettingSelection = true;
     toggleCurrentSetting();
     requestUpdate();
@@ -1626,7 +1633,7 @@ void SettingsActivity::render(RenderLock&&) {
 
   const auto confirmLabel =
       selectedSettingIndex == 0
-          ? ""
+          ? (isFileBrowserView() ? "" : tr(STR_NEXT_FIELD))
           : (selectedSettingIndex > 0 &&
                      (currentSettingUsesOptionMenu((*currentSettings)[selectedSettingIndex - 1]) ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::SUBMENU ||

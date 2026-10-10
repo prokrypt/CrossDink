@@ -373,7 +373,7 @@ class OptionPopup {
     const auto pageWidth = renderer.getScreenWidth();
     const auto pageHeight = renderer.getScreenHeight();
     const int optionFontId = uiScaleSpec().bodyFontId;
-    const bool touch = gpio.hasTouch();
+    const bool touch = mappedInputManager.hasTouch();
     const EpdFontFamily::Style optionStyle =
         metrics.optionPopupOptionFontBold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
 
@@ -447,7 +447,7 @@ class OptionPopup {
     layout.footer = TouchActionButtons::Layout();
     if (confirmationMode) {
       const int footerY = dialogY + dialogH - footerSpace;
-      const bool showCancelButton = gpio.hasTouch();
+      const bool showCancelButton = mappedInputManager.hasTouch();
       layout.cancel = showCancelButton ? Rect{dialogX, footerY, dialogW / 2, footerHeight} : Rect();
       layout.save = showCancelButton ? Rect{dialogX + dialogW / 2, footerY, dialogW - dialogW / 2, footerHeight}
                                      : Rect{dialogX, footerY, dialogW, footerHeight};

@@ -161,7 +161,7 @@ void KeyboardEntryActivity::onEnter() {
   selCol = 0;
   // Touch users tap keys directly: no key is highlighted until a button moves
   // the selection.
-  selectionShown = !mappedInput.hasTouchHardware();
+  selectionShown = !mappedInput.hasTouch();
   delPressCount = 0;
   hintVisible = false;
   hintShowTime = 0;
@@ -615,7 +615,7 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
   const int rows = currentLayout().rowCount;
-  const bool hasTouch = mappedInput.hasTouchHardware();
+  const bool hasTouch = mappedInput.hasTouch();
   const int height = keyboardKeysHeight(metrics, rows, hasTouch);
   const int hintGap = hasTouch ? metrics.verticalSpacing - metrics.keyboardVerticalOffset : BUTTON_KEYBOARD_HINT_GAP;
   int y = pageHeight - metrics.buttonHintsHeight - height - hintGap;
@@ -715,7 +715,7 @@ void KeyboardEntryActivity::loop() {
   }
 #endif
 
-  if (mappedInput.hasTouchHardware()) {
+  if (mappedInput.hasTouch()) {
     // Touch devices pick keys by tapping, so Up/Down move the text cursor
     // (repeating while held) instead of the key selection.
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] {
@@ -1051,7 +1051,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     }
   }
 
-  if (!mappedInput.hasTouchHardware() && hintVisible && !text.empty()) {
+  if (!mappedInput.hasTouch() && hintVisible && !text.empty()) {
     const int hintLh = renderer.getLineHeight(SMALL_FONT_ID);
     const int underlineY = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing;
     const int hintY = underlineY + 4;
@@ -1077,7 +1077,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   }
 
   const fui::Rect kbRect = keyboardRect();
-  const int keysHeight = std::min(keyboardKeysHeight(metrics, currentLayout().rowCount, mappedInput.hasTouchHardware()),
+  const int keysHeight = std::min(keyboardKeysHeight(metrics, currentLayout().rowCount, mappedInput.hasTouch()),
                                   static_cast<int>(kbRect.height));
   const auto orientation = renderer.getOrientation();
   const bool sideHintsOverlapKeys =
@@ -1103,7 +1103,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     tipCount = 1 + (inputType == InputType::Url ? 1 : 0) + (!text.empty() ? 1 : 0);
   }
 
-  if (!mappedInput.hasTouchHardware() && tipCount > 0) {
+  if (!mappedInput.hasTouch() && tipCount > 0) {
     int y = (underlineBottom + kbRect.y) / 2 - (tipCount + 1) * tipsLh / 2;
     drawTip(tr(STR_KB_TIPS), y);
     y += tipsLh;
@@ -1221,19 +1221,19 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
   props.gap = props.rowGap = static_cast<int16_t>(keyboardGap(metrics));
   if (urlPanel) props.uniformKeyWidth = false;
-  if (!mappedInput.hasTouchHardware()) {
+  if (!mappedInput.hasTouch()) {
     props.background = fui::Paint::none();
     props.altHintRightPadding = 5;
   }
   frame.target().fill(kbRect, props.background);
   // Fingers land low on the bottom row (occlusion) and there is no key below
   // to catch the miss — extend its hit band down to the button hints bar.
-  const int bottomEdge = mappedInput.hasTouchHardware() ? renderer.getScreenHeight()
-                                                        : renderer.getScreenHeight() - metrics.buttonHintsHeight;
+  const int bottomEdge =
+      mappedInput.hasTouch() ? renderer.getScreenHeight() : renderer.getScreenHeight() - metrics.buttonHintsHeight;
   props.bottomHitOverflow = static_cast<int16_t>(std::max(0, bottomEdge - keysRect.bottom()));
   // Every tap inside the keyboard lands on a key: gaps split between
   // neighbours, and edge keys reach the screen sides.
-  props.fillHitGaps = mappedInput.hasTouchHardware();
+  props.fillHitGaps = mappedInput.hasTouch();
   // The top row also reaches up through half the strip above the keys.
   if (props.fillHitGaps) props.topHitOverflow = static_cast<int16_t>((keysRect.y - kbRect.y) / 2);
   fui::keyboard(frame, keysRect, props);

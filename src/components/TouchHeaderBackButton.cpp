@@ -1,7 +1,6 @@
 #include "TouchHeaderBackButton.h"
 
 #include <FreeInkUIIcon.h>
-#include <HalGPIO.h>
 
 #include <algorithm>
 
@@ -14,6 +13,8 @@
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
+
+extern MappedInputManager mappedInputManager;
 
 namespace TouchHeaderBackButton {
 
@@ -89,7 +90,7 @@ void draw(const GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rec
           const bool readerContext, const int rightReserve, const char* subtitle, const int verticalOffset,
           const bool showStatus, const bool showBack) {
   // cppcheck-suppress knownConditionTrueFalse ; constant on buttons-only boards
-  if (!gpio.hasTouch()) {
+  if (!mappedInputManager.hasTouch()) {
     GUI.drawHeader(renderer, header, title, subtitle, readerContext, showStatus);
     return;
   }
@@ -119,7 +120,7 @@ void draw(const GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rec
 void drawCompact(GfxRenderer& renderer, const char* title, const bool readerContext, const bool showDate,
                  const int verticalOffset) {
   // cppcheck-suppress knownConditionTrueFalse ; constant on buttons-only boards
-  if (!gpio.hasTouch()) {
+  if (!mappedInputManager.hasTouch()) {
     CompactHeader::drawTitle(renderer, title, showDate);
     return;
   }

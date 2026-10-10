@@ -121,15 +121,18 @@ void DisplayTestActivity::loop() {
       return;
     }
   }
+  // Up/Down double Left/Right: X4 Pro has no Left/Right buttons.
+  using Button = MappedInputManager::Button;
+  const bool prev = mappedInput.wasReleased(Button::Left) || mappedInput.wasReleased(Button::Up);
+  const bool next = mappedInput.wasReleased(Button::Right) || mappedInput.wasReleased(Button::Down);
   if (current == Phase::Asking && askDrawn && script.ops[pc].code == OpCode::Pick) {
     const Op& op = script.ops[pc];
     const int cells = static_cast<int>(op.options.size());
     int x = 0, y = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       answer(pickIndex);
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-               mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-      const int step = mappedInput.wasReleased(MappedInputManager::Button::Left) ? cells - 1 : 1;
+    } else if (prev || next) {
+      const int step = prev ? cells - 1 : 1;
       pickIndex = (pickIndex + step) % cells;
       askDrawn = false;  // redraw the band with the new selection
       requestUpdate();
@@ -140,9 +143,9 @@ void DisplayTestActivity::loop() {
     }
   } else if (current == Phase::Asking && askDrawn) {
     int x = 0, y = 0;
-    if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+    if (prev) {
       answer(0);
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+    } else if (next) {
       answer(1);
     } else if (mappedInput.wasScreenTapped(x, y)) {
       answer(x < renderer.getScreenWidth() / 2 ? 0 : 1);
@@ -537,13 +540,15 @@ void DisplayTestActivity::drawAsk() {
   if (op.code == OpCode::Pick) {
     // Only the band changes; the squares are left as the test drew them.
     char line[64];
-    snprintf(line, sizeof(line), "Tap a square, or < > then OK: %d", pickIndex + 1);
+    snprintf(line, sizeof(line), "Tap a square, or %s then OK: %d",
+             mappedInput.hasLeftRightButtons() ? "< >" : "Up/Down", pickIndex + 1);
     renderer.drawCenteredText(UI_12_FONT_ID, y, line);
   } else {
     char left[48];
     char right[48];
-    snprintf(left, sizeof(left), "< %s", op.options[0].c_str());
-    snprintf(right, sizeof(right), "%s >", op.options[1].c_str());
+    const bool leftRight = mappedInput.hasLeftRightButtons();
+    snprintf(left, sizeof(left), leftRight ? "< %s" : "Up: %s", op.options[0].c_str());
+    snprintf(right, sizeof(right), leftRight ? "%s >" : "Down: %s", op.options[1].c_str());
     renderer.drawText(UI_12_FONT_ID, 16, y, left, true, EpdFontFamily::BOLD);
     renderer.drawText(UI_12_FONT_ID, w - 16 - renderer.getTextWidth(UI_12_FONT_ID, right, EpdFontFamily::BOLD), y,
                       right, true, EpdFontFamily::BOLD);

@@ -108,6 +108,10 @@ void LookedUpWordsActivity::buildHistoryScreen(UiApp::ScreenType& screen) {
     screen.centeredText(tr(STR_LOOKUP_HISTORY_EMPTY), screen.theme().bodyText);
     return;
   }
+  fui::TextStyle holdHint = screen.theme().smallText;
+  holdHint.align = fui::TextAlign::Center;
+  screen.target().text(screen.takeBottom(screen.target().lineHeight(holdHint.font), screen.theme().spaceSm),
+                       tr(STR_LOOKUP_HISTORY_DELETE_HINT), holdHint);
 
   fui::ListProps props;
   props.items = uiItems.data();

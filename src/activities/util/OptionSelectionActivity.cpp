@@ -175,7 +175,7 @@ void OptionSelectionActivity::render(RenderLock&&) {
   const int contentX = orientation == GfxRenderer::Orientation::LandscapeClockwise ? gutter : 0;
   const Rect header{contentX, metrics.topPadding, renderer.getScreenWidth() - gutter,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  if (showTouchHeaderBackButton_ && mappedInput.hasTouchHardware()) {
+  if (showTouchHeaderBackButton_ && mappedInput.hasTouch()) {
     TouchHeaderBackButton::draw(renderer, uiTarget_, header, I18N.get(titleId_), readerMode_);
   } else {
     GUI.drawHeader(renderer, header, I18N.get(titleId_), nullptr, readerMode_);
