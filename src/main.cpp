@@ -1744,7 +1744,9 @@ void enterDeepSleep(bool fromTimeout) {
     if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
     // Up+Down only swaps a custom sleep image; on a cover or other screen it would
     // just wake the chip for nothing, so leave the page keys out of the wake mask.
+#ifndef SIMULATOR
     HalPowerManager::setPageKeyWake(sleepChordHasImage());
+#endif
     // "request" = power button or a Sleep menu/quick action.
     PerfLog::noteDeepSleep(
         fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
