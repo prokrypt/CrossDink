@@ -42,9 +42,11 @@ COUNTERS = [
     "wifi_up_ms", "wifi_ps_ms", "wifi_awake_ms", "wifi_ap_ms", "scans", "connects", "ip_tx", "ip_rx",
     "light_full_ms", "ref_full", "ref_half", "ref_fast", "ref_gray", "ref_flash",
     "panel_full_ms", "panel_half_ms", "panel_fast_ms", "panel_gray_ms", "booster_ms",
-    "sd_rd_kb", "sd_wr_kb", "sd_ms",
+    "sd_rd_kb", "sd_wr_kb", "sd_ms", "touch_ms",
 ]
-REQUIRED = ["gen", "event", "pct", "chg", "usb", "chg_seen"] + COUNTERS
+# Columns added later read as 0 in older files (a counter version change starts a new gen).
+OPTIONAL = {"touch_ms"}
+REQUIRED = ["gen", "event", "pct", "chg", "usb", "chg_seen"] + [c for c in COUNTERS if c not in OPTIONAL]
 
 MS_PER_H = 3_600_000.0
 
@@ -76,11 +78,12 @@ FEATURES = {
     "ref_fast": Feature("ref_fast", "refresh", "Fast refreshes", 100.0),
     "ref_gray": Feature("ref_gray", "refresh", "gray passes", 100.0),
     "booster_h": Feature("booster_h", "h", "panel booster on between refreshes (UC8179)"),
+    "touch_h": Feature("touch_h", "h", "touch controller awake (GT911 not in sleep mode)"),
     "sd_mb": Feature("sd_mb", "MB", "SD card read + written", 1.0),
 }
 DEFAULT_FEATURES = [
     "sleep_h", "sleep_cw_h", "floor_h", "ls_h", "maxclk_h", "wifi_up_h", "wifi_ps_h", "wifi_awake_h",
-    "wifi_ap_h", "light_full_h", "ref_full", "ref_half", "ref_fast", "ref_gray",
+    "wifi_ap_h", "light_full_h", "ref_full", "ref_half", "ref_fast", "ref_gray", "booster_h", "touch_h",
 ]
 
 
@@ -117,7 +120,7 @@ def read_rows(paths: list[str]) -> list[Row]:
                 raise SystemExit(f"{path}: not a power.csv (missing {', '.join(missing)})")
             for i, rec in enumerate(reader, start=2):
                 try:
-                    counters = {k: float(rec[k] or 0) for k in COUNTERS}
+                    counters = {k: float(rec.get(k) or 0) for k in COUNTERS}
                 except ValueError:
                     continue  # a torn row (power cut mid-write)
                 key = (rec["gen"], rec["event"], rec.get("epoch_utc"), rec.get("uptime_ms"), rec["awake_ms"])
@@ -158,6 +161,7 @@ def features_of(a: Row, b: Row) -> dict[str, float]:
         "ref_fast": d["ref_fast"],
         "ref_gray": d["ref_gray"],
         "booster_h": d["booster_ms"] / MS_PER_H,
+        "touch_h": d["touch_ms"] / MS_PER_H,
         "sd_mb": (d["sd_rd_kb"] + d["sd_wr_kb"]) / 1024.0,
         "_hours": (awake / 1000.0 + d["asleep_s"] + d["asleep_cw_s"]) / 3600.0,
     }
@@ -454,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--settle-min", type=float, default=30.0,
                     help="minutes after a charge before an interval may start (default 30)")
     ap.add_argument("--features", help="comma-separated fit columns (default: %s)" % ",".join(DEFAULT_FEATURES))
-    ap.add_argument("--all-features", action="store_true", help="fit every column, busy/packets/booster/SD included")
+    ap.add_argument("--all-features", action="store_true", help="fit every column, busy/packets/SD included")
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--bootstrap", type=int, default=200, help="resamples for the 90%% ranges (0 = none)")
     ap.add_argument("--seed", type=int, default=1)

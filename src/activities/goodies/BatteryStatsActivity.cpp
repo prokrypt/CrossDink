@@ -14,6 +14,7 @@
 #include <Knobs.h>
 #include <Memory.h>
 #include <PerfLog.h>
+#include <PowerCounters.h>
 #include <WiFi.h>
 #include <esp_sleep.h>
 
@@ -302,6 +303,15 @@ void BatteryStatsActivity::buildLines() {
   add("Ref: Fa %lu  Ha %lu  Fu %lu  Gr %lu  Fl %lu", static_cast<unsigned long>(c[HalDisplay::FAST_REFRESH]),
       static_cast<unsigned long>(c[HalDisplay::HALF_REFRESH]), static_cast<unsigned long>(c[HalDisplay::FULL_REFRESH]),
       static_cast<unsigned long>(c[HalDisplay::GRAY_PASSES]), static_cast<unsigned long>(c[HalDisplay::FLASHING]));
+  // E-ink and touch controller on-time from the power counters (power.csv's gen).
+  const PowerCounters::Totals pc = PowerCounters::totals();
+  uint64_t panelMs = 0;
+  for (const uint64_t ms : pc.panelBusyMs) panelMs += ms;
+  char touch[24];
+  formatDur(static_cast<uint32_t>(panelMs / 1000), a, sizeof(a));
+  formatDur(static_cast<uint32_t>(pc.boosterMs / 1000), b, sizeof(b));
+  formatDur(static_cast<uint32_t>(pc.touchMs / 1000), touch, sizeof(touch));
+  add("E-ink busy %s  boost %s  Touch on %s", a, b, touch);
 
   int8_t panelC = 0;
   uint32_t panelAgeMs = 0;
