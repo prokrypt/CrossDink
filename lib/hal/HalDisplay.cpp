@@ -176,6 +176,8 @@ bool onDisplayBusyWaitSlice(const int8_t busyPin, const uint8_t busyLevel) {
   gpio_intr_disable(pin);
   // Armed at the idle level BUSY now holds, an RTC IO wake would reject every light sleep.
   gpio_wakeup_disable(pin);
+  // gpio_wakeup_enable() left a level type, which a later pinMode() (or one after a restart) re-enables.
+  gpio_set_intr_type(pin, GPIO_INTR_DISABLE);
   return true;
 }
 #endif
