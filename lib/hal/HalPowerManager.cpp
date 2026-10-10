@@ -233,6 +233,11 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+// RTC_DATA_ATTR survives deep sleep and resets to true on a full boot.
+static RTC_DATA_ATTR bool pageKeyWakeWanted = true;
+#endif
+
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   sleepStep = "wifi off";
   disableWiFiBeforeDeepSleep();
@@ -305,7 +310,8 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // 2 s (pressed under something) leaves both out: alone it would wake again at
   // once, and with the other key it would still complete the chord.
   const auto& in = BoardConfig::ACTIVE.input;
-  if (BoardConfig::isX4Pro() && in.power >= 0 && !in.powerActiveHigh && in.up >= 0 && in.down >= 0) {
+  if (pageKeyWakeWanted && BoardConfig::isX4Pro() && in.power >= 0 && !in.powerActiveHigh && in.up >= 0 &&
+      in.down >= 0) {
     const unsigned long releaseStart = millis();
     while ((digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) && millis() - releaseStart < 2000) {
       delay(10);
@@ -344,6 +350,14 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   esp_deep_sleep_disable_rom_logging();
   sleepStep = "deep sleep start";
   esp_deep_sleep_start();
+}
+
+void HalPowerManager::setPageKeyWake(bool on) {
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  pageKeyWakeWanted = on;
+#else
+  (void)on;
+#endif
 }
 
 uint16_t HalPowerManager::getBatteryPercentage() const {

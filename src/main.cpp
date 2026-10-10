@@ -1732,6 +1732,13 @@ void syncBookBeforeSleep() {
   renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
 }
 
+// The sleep screen is a custom image the Up+Down chord can swap (X4 Pro).
+static bool sleepChordHasImage() {
+  return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM ||
+         (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM &&
+          !APP_STATE.lastSleepFromReader);
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   armSleepGuard();
@@ -1749,6 +1756,11 @@ void enterDeepSleep(bool fromTimeout) {
   {
     HalPowerManager::Lock powerLock;
     if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+    // Up+Down only swaps a custom sleep image; on a cover or other screen it would
+    // just wake the chip for nothing, so leave the page keys out of the wake mask.
+#ifndef SIMULATOR
+    HalPowerManager::setPageKeyWake(sleepChordHasImage());
+#endif
     // "request" = power button or a Sleep menu/quick action.
     PerfLog::noteDeepSleep(
         fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
@@ -2128,11 +2140,11 @@ void setup() {
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
-  if (wallpaperChordWake && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM &&
-      !(SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM &&
-        !APP_STATE.lastSleepFromReader)) {
+  if (wallpaperChordWake && !sleepChordHasImage()) {
     // The sleep screen is not a custom wallpaper, so there is nothing to change.
     LOG_INF("MAIN", "Up+Down wake: sleep screen is not a custom image, sleeping");
+    // The panel still shows the sleep frame: keep the next wake splashless.
+    if (splashlessWakeArmed) splashlessWakeMagic = SPLASHLESS_WAKE_MAGIC;
     PerfLog::noteDeepSleep("wallpaper-chord-skip", "boot");
     armSleepGuard();
     Storage.shutdown();
