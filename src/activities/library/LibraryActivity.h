@@ -184,5 +184,5 @@ class LibraryActivity final : public Activity {
   void openDialog(std::unique_ptr<Activity>&& activity, ActivityResultHandler handler);
   void promptDeleteBook(const RecentBook& book);
   void promptRemoveBook(const std::string& path, const std::string& title);
-  void showBookActionMenu(size_t bookIndex, bool ignoreInitialConfirmRelease = false);
+  void showBookActionMenu(size_t bookIndex);
 };

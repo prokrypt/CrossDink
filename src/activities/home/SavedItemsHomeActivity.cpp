@@ -116,7 +116,7 @@ void SavedItemsHomeActivity::loop() {
   if (!books.empty() && !longPressOpenHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() >= SAVED_ITEM_DELETE_HOLD_MS) {
     longPressOpenHandled = true;
-    showSavedBookActionMenu(selectedIndex, true);
+    showSavedBookActionMenu(selectedIndex);
     return;
   }
 
@@ -177,7 +177,7 @@ void SavedItemsHomeActivity::onRowEvent(const fui::ActionEvent& event, void* use
   self->selectedIndex = event.value;
   if (event.longPress) {
     self->app.clearTapFlash();
-    self->showSavedBookActionMenu(self->selectedIndex, false);
+    self->showSavedBookActionMenu(self->selectedIndex);
     return;
   }
   self->app.clearTapFlash();
@@ -283,7 +283,7 @@ void SavedItemsHomeActivity::showSavedKindMenu(const int bookIndex) {
       });
 }
 
-void SavedItemsHomeActivity::showSavedBookActionMenu(const int bookIndex, const bool ignoreInitialConfirmRelease) {
+void SavedItemsHomeActivity::showSavedBookActionMenu(const int bookIndex) {
   if (bookIndex < 0 || bookIndex >= static_cast<int>(books.size())) return;
   const SavedBookEntry entry = books[bookIndex];
 
@@ -297,8 +297,7 @@ void SavedItemsHomeActivity::showSavedBookActionMenu(const int bookIndex, const 
   }
 
   startActivityForResult(
-      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, entry.bookTitle, std::move(items),
-                                                  ignoreInitialConfirmRelease),
+      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, entry.bookTitle, std::move(items)),
       [this, entry](const ActivityResult& result) {
         longPressOpenHandled = false;
         const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);

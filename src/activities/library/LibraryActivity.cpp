@@ -778,7 +778,7 @@ void LibraryActivity::loop() {
   if (mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= LONG_PRESS_MS) {
     longPressFired = true;
     if (selection >= CONTROL_COUNT && rowCount() > 0)
-      showBookActionMenu(selection - CONTROL_COUNT, true);
+      showBookActionMenu(selection - CONTROL_COUNT);
     else
       activateControl(selection);
     return;
@@ -1455,12 +1455,11 @@ void LibraryActivity::promptRemoveBook(const std::string& path, const std::strin
     }
   };
 
-  openDialog(makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title,
-                                                     /*ignoreInitialConfirmRelease=*/false),
+  openDialog(makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title),
              std::move(handler));
 }
 
-void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool ignoreInitialConfirmRelease) {
+void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
   RecentBook book;
   if (!readBook(static_cast<int>(bookIndex), book)) return;
   const auto& recents = RECENT_BOOKS.getBooks();
@@ -1472,8 +1471,7 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
     items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
   }
 
-  openDialog(makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items),
-                                                          ignoreInitialConfirmRelease),
+  openDialog(makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items)),
              [this, book](const ActivityResult& result) {
                longPressFired = false;
                if (result.isCancelled) {
