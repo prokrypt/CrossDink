@@ -8,12 +8,14 @@
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <JpegToBmpConverter.h>
 #include <Knobs.h>
 #include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PerfLog.h>
+#include <PngToBmpConverter.h>
 #include <Serialization.h>
 #include <Utf8.h>
 #include <Xtc.h>
@@ -855,6 +857,9 @@ void HomeActivity::coverWorkerMain(void* param) {
 // Worker task (or the render task as a fallback). Touches only coverWorker.jobs.
 void HomeActivity::runCoverJobs() {
   const unsigned long start = millis();
+  // Lets joinCoverWorker(true) stop a thumbnail mid-decode; the .tmp file is removed and redone next visit.
+  JpegToBmpConverter::setCancelFlag(&coverWorker.cancel);
+  PngToBmpConverter::setCancelFlag(&coverWorker.cancel);
   for (auto& job : coverWorker.jobs) {
     if (coverWorker.cancel.load(std::memory_order_relaxed)) break;
     bool generated = true;
@@ -881,6 +886,8 @@ void HomeActivity::runCoverJobs() {
     }
     job.generated = generated;
   }
+  JpegToBmpConverter::setCancelFlag(nullptr);
+  PngToBmpConverter::setCancelFlag(nullptr);
   LOG_DBG("HOME", "cover worker: %u book(s) in %lums on core %d, stack left %u",
           static_cast<unsigned>(coverWorker.jobs.size()), millis() - start, xPortGetCoreID(),
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
@@ -890,7 +897,7 @@ void HomeActivity::runCoverJobs() {
 void HomeActivity::joinCoverWorker(const bool cancel) {
   if (!coverWorker.task) return;
   if (cancel) coverWorker.cancel.store(true, std::memory_order_relaxed);
-  // Bounded by one thumbnail once cancelled; the worker never takes RenderLock.
+  // Bounded by one decoded row (or the current cover copy/load) once cancelled; the worker never takes RenderLock.
   xSemaphoreTake(coverWorker.done, portMAX_DELAY);
   coverWorker.task = nullptr;
   coverWorker.finished.store(false, std::memory_order_relaxed);
@@ -1028,9 +1035,7 @@ void HomeActivity::onEnter() {
     selectInitialBook(APP_STATE.openEpubPath);
   }
 
-  globalStats = GlobalReadingStats::load();
-  showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
-  allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+  reloadGlobalStats();
   if (isCarouselTheme) {
     loadAllBookStats();
   }
@@ -1157,10 +1162,23 @@ std::unique_ptr<Activity> HomeActivity::createFrontlightReadingStatsActivity() {
                                               bookStats, progress, false, 0, deviceStats);
 }
 
-void HomeActivity::onFrontlightPanelClosed() {
+void HomeActivity::reloadGlobalStats() {
   globalStats = GlobalReadingStats::load();
   showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
-  allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+  allDevicesStatsLoaded = false;
+  // The menu reads the synced totals only when this device has none; otherwise Stats loads them when opened.
+  if (showAllDevicesStats && !hasAnyGlobalStats(globalStats)) ensureAllDevicesStats();
+}
+
+const GlobalReadingStats& HomeActivity::ensureAllDevicesStats() {
+  if (!std::exchange(allDevicesStatsLoaded, true)) {
+    allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+  }
+  return allDevicesGlobalStats;
+}
+
+void HomeActivity::onFrontlightPanelClosed() {
+  reloadGlobalStats();
   bookStatsCached = false;
   updateHighlightedBookContext();
   requestUpdate();
@@ -2719,14 +2737,12 @@ void HomeActivity::onReadingStatsOpen() {
   if (showAllDevicesStats) {
     startActivityForResult(
         std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, cachePath, displayBookStats, progress,
-                                            false, 0, globalStats, allDevicesGlobalStats, true),
+                                            false, 0, globalStats, ensureAllDevicesStats(), true),
         [this](const ActivityResult& result) {
           mappedInput.suppressNextConfirmRelease();
           const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
           if (statsResult && statsResult->changed) {
-            globalStats = GlobalReadingStats::load();
-            showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
-            allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+            reloadGlobalStats();
             bookStatsCached = false;
             updateHighlightedBookContext();
           }
@@ -2739,10 +2755,7 @@ void HomeActivity::onReadingStatsOpen() {
                              mappedInput.suppressNextConfirmRelease();
                              const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
                              if (statsResult && statsResult->changed) {
-                               globalStats = GlobalReadingStats::load();
-                               showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
-                               allDevicesGlobalStats =
-                                   showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+                               reloadGlobalStats();
                                bookStatsCached = false;
                                updateHighlightedBookContext();
                              }
