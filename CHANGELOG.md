@@ -17,6 +17,7 @@
 
 ### Changed
 - Lyra themes: the rounded selection box (lists, menus, Home book tile, carousel cover, tabs) is now the same 50% dotted gray as the header rule instead of solid black, and its dots swap on every full-screen repaint like other gray fills (burn-in guard).
+- Lyra themes: the 50% dotted gray selection box now covers the remaining screens too: Settings (list rows and the focused tab band), Library settings, Library cover grid, the reader drawer (rows and tabs), Cover Grid Home cards, the 3-covers Home tile and the carousel's centre cover when its row is active. Other themes keep the black outline.
 - KOReader Sync on Wake & Sleep: the push's Wi-Fi join now starts before the "Syncing" toast is drawn instead of after it, so going to sleep with a sync push is about 0.6 to 0.8 s sooner (less time with Wi-Fi on). No change to the toasts or the 30 s limit.
 - Reader/Library: opening a book without an image-optimizer manifest scans the ZIP directory once instead of on every lookup, and Library drops missing Recent books after its first frame instead of before it.
 - End of book menu: a book title too long for one line now wraps to a second line (the row grows and its touch area with it) instead of being cut off, and the Home button and the bottom-edge swipe-up go Home from this menu, as on other screens (they did nothing there).

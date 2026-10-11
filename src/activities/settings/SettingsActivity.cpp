@@ -1510,7 +1510,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       railProps.tabs = &tabs[i];
       railProps.count = 1;
       if (!borderedTabs && tabsFocused) {
-        screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
+        screen.target().stroke(tabRect, uiSelectionBorder(), 2);
       }
       drawUiTabBar(screen, railProps, tabRect, metrics.tabBarAppearance);
       tabY = static_cast<int16_t>(tabY + tabHeight);
@@ -1523,7 +1523,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   {
     const fui::Rect tabRect = screen.takeTop(tabBand);
     if (!borderedTabs && tabsFocused) {
-      screen.target().stroke(tabRect, fui::Paint::solid(fui::Color::Black), 2);
+      screen.target().stroke(tabRect, uiSelectionBorder(), 2);
     }
     drawUiTabBar(screen, tabProps, tabRect, metrics.tabBarAppearance);
     screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));

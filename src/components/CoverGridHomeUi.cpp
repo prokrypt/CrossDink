@@ -10,6 +10,7 @@
 
 #include "MappedInputManager.h"
 #include "UITheme.h"
+#include "UIThemeTokens.h"
 #include "components/icons/listIcons.h"
 
 namespace fui = freeink::ui;
@@ -162,7 +163,7 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
   card.styles = theme.listRow;
   // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
   card.styles.selected.background = fui::Paint::solid(fui::Color::White);
-  card.styles.selected.border = fui::Paint::solid(fui::Color::Black);
+  card.styles.selected.border = uiSelectionBorder();
   card.styles.selected.borderWidth = 2;
   card.styles.selected.foreground = fui::Paint::solid(fui::Color::Black);
   card.styles.selected.radius = theme.listRowRadius;

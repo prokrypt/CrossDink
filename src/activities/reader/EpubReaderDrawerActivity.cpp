@@ -316,7 +316,7 @@ void setDrawerSelectionStyle(fui::StyleSet& styles) {
   // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
   styles.selected.background = fui::Paint::solid(fui::Color::White);
   styles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-  styles.selected.border = fui::Paint::solid(fui::Color::Black);
+  styles.selected.border = uiSelectionBorder();
   styles.selected.borderWidth = 2;
   styles.selected.radius = 4;
 }
@@ -987,7 +987,7 @@ void EpubReaderDrawerActivity::buildTabBar(UiApp::ScreenType& screen, const fui:
   if (!mappedInput.hasTouchHardware() && (state.pane != ReaderDrawerPane::Root || buttonFocusActive)) {
     props.tabStyles.selected.background = fui::Paint::solid(fui::Color::White);
     props.tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-    props.tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+    props.tabStyles.selected.border = uiSelectionBorder();
     props.tabStyles.selected.borderWidth = 1;
   }
   props.tabInset = fui::Insets{static_cast<int16_t>(4 + TAB_BAR_VERTICAL_PADDING), 4,
