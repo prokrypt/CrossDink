@@ -18,6 +18,7 @@
 ### Changed
 - Lyra themes: the rounded selection box (lists, menus, Home book tile, carousel cover, tabs) is now the same 50% dotted gray as the header rule instead of solid black, and its dots swap on every full-screen repaint like other gray fills (burn-in guard).
 - Lyra themes: the 50% dotted gray selection box now covers the remaining screens too: Settings (list rows and the focused tab band), Library settings, Library cover grid, the reader drawer (rows and tabs), Cover Grid Home cards, the 3-covers Home tile and the carousel's centre cover when its row is active. Other themes keep the black outline.
+- Lyra themes: choice popups (for example File Browser's My Clippings actions), their focused Save footer, the two-button touch action popups, KOReader Sync's Apply/Upload buttons, the reader drawer's slider focus box, the keyboard's password toggle and the Lyra Carousel's legacy lists now use the 50% dotted gray selection too instead of solid black.
 - KOReader Sync on Wake & Sleep: the push's Wi-Fi join now starts before the "Syncing" toast is drawn instead of after it, so going to sleep with a sync push is about 0.6 to 0.8 s sooner (less time with Wi-Fi on). No change to the toasts or the 30 s limit.
 - Reader/Library: opening a book without an image-optimizer manifest scans the ZIP directory once instead of on every lookup, and Library drops missing Recent books after its first frame instead of before it.
 - End of book menu: a book title too long for one line now wraps to a second line (the row grows and its touch area with it) instead of being cut off, and the Home button and the bottom-edge swipe-up go Home from this menu, as on other screens (they did nothing there).
@@ -273,6 +274,7 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
+- Reader drawer: a swipe or tap that began while the drawer was still drawing is now ignored until the finger lifts. An up-swipe to Home started too early used to close the drawer and reopen it instead.
 - OPDS: Back from a catalog to the server list keeps the pages fetched so far (the servers' root pages and check marks included) instead of fetching every server again. After a restart on a fragmented heap the list still starts empty.
 - OPDS: Back on a server's root catalog returns to the server list when you opened the server from that list, instead of going Home. It also holds after the quiet restart used on a fragmented heap.
 - KOReader Sync Auto Sync: opening a book and closing it (or sleeping) without turning a page no longer turns Wi-Fi on for a push. A push that failed earlier this boot still goes out, and so does the retry after a failed sleep push.
