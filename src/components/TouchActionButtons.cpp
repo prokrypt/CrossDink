@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "UIThemeTokens.h"
 #include "fontIds.h"
 
 namespace TouchActionButtons {
@@ -39,17 +40,23 @@ void draw(const GfxRenderer& renderer, const Layout& layout, const char* const* 
   if (labels == nullptr) return;
   if (fontId == 0) fontId = UI_10_FONT_ID;
 
+  const bool grayFocus = uiGraySelection();
   for (uint8_t i = 0; i < layout.count; ++i) {
     const Rect& button = layout.buttons[i];
     const bool selected = static_cast<int>(i) == selectedIndex;
-    if (selected) renderer.fillRect(button.x, button.y, button.width, button.height, true);
+    const bool filled = selected && !grayFocus;
+    if (filled) renderer.fillRect(button.x, button.y, button.width, button.height, true);
     renderer.drawRect(button.x, button.y, button.width, button.height, true);
+    // Lyra: dotted outline inside the border instead of a black fill.
+    if (selected && grayFocus) {
+      renderer.drawRoundedRect(button.x + 2, button.y + 2, button.width - 4, button.height - 4, 2, 0, Color::DarkGray);
+    }
     const char* label = labels[i] != nullptr ? labels[i] : "";
     const EpdFontFamily::Style style =
         static_cast<int>(i) == primaryIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
     const int textWidth = renderer.getTextWidth(fontId, label, style);
     const int textY = button.y + (button.height - renderer.getLineHeight(fontId)) / 2;
-    renderer.drawText(fontId, button.x + (button.width - textWidth) / 2, textY, label, !selected, style);
+    renderer.drawText(fontId, button.x + (button.width - textWidth) / 2, textY, label, !filled, style);
   }
 }
 

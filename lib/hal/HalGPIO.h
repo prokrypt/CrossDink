@@ -126,6 +126,9 @@ class HalGPIO {
 
   // Button input methods
   void update();
+  // How old the sample update() last took is: nonzero while the loop replays
+  // samples queued during a stall (latched input only).
+  unsigned long sampleAgeMs() const;
 
   // Hands input sampling to a task that calls sampleInput(): from then on
   // update() takes the next queued sample with an event, or the latest state,

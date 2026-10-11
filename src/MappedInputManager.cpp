@@ -472,6 +472,22 @@ bool MappedInputManager::isScreenTouchHeld(int& x, int& y) const {
   return true;
 }
 
+bool MappedInputManager::touchContactBeganBefore(const unsigned long sinceMs) const {
+#ifdef SIMULATOR
+  // The simulator samples live: the contact is as old as this loop pass.
+  const bool contact = simulatorTouch.pressed || simulatorTouch.releasedThisFrame;
+  return contact && static_cast<long>(millis() - sinceMs) < 0;
+#else
+  float nx = 0.0f;
+  float ny = 0.0f;
+  const bool released = gpio.wasTouchReleased();
+  if (!released && !gpio.isTouchHeldAt(nx, ny)) return false;
+  // A held contact is at least as old as its sample; a released one, by its held time.
+  const unsigned long startedBy = millis() - gpio.sampleAgeMs() - (released ? gpio.lastTouchHeldMs() : 0);
+  return static_cast<long>(startedBy - sinceMs) < 0;
+#endif
+}
+
 bool MappedInputManager::wasRegistryTargetTapped(const uint8_t kind, int& id) const {
   int tx = 0;
   int ty = 0;

@@ -1,5 +1,6 @@
 #include "EpubReaderDrawerActivity.h"
 
+#include <Arduino.h>
 #include <Epub/Page.h>
 #include <FontCacheManager.h>
 #include <FreeInkUIIcon.h>
@@ -162,7 +163,7 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
                               static_cast<int16_t>(rect.width + BUTTON_SLIDER_FOCUS_PADDING_X * 2),
                               static_cast<int16_t>(rect.height + BUTTON_SLIDER_FOCUS_PADDING_Y * 2)};
     // Editing = 2 px outline, focus = 1 px; outlines ghost less than a dither fill.
-    screen.target().stroke(focusRect, fui::Paint::solid(fui::Color::Black), row.editing ? 2 : 1, 4);
+    screen.target().stroke(focusRect, uiSelectionBorder(), row.editing ? 2 : 1, 4);
   }
 
   const int16_t lineHeight = screen.target().lineHeight(labelStyle.font);
@@ -2611,6 +2612,12 @@ void EpubReaderDrawerActivity::renderPreviewWithAntiAliasing(const int previewFo
 }
 
 void EpubReaderDrawerActivity::loop() {
+  // A swipe begun while the drawer was still drawing must not close it (the reader would then
+  // take the release and reopen it): ignore every contact that began before the first frame.
+  const unsigned long drawnAt = firstDrawDoneMs.load();
+  if (mappedInput.touchContactBeganBefore(drawnAt != 0 ? drawnAt : millis() + 1)) {
+    mappedInput.suppressCurrentTouchContact();
+  }
   if (mappedInput.wasBottomEdgeUpSwipe()) {
     closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
     return;
@@ -2888,6 +2895,7 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
       !sdFontSystem.fontUsesMonochromeRaster(renderer, previewFontId, draft.sdFontFamilyName.data())) {
     renderPreviewWithAntiAliasing(previewFontId);
   }
+  if (firstDrawDoneMs.load() == 0) firstDrawDoneMs.store(millis());
 }
 
 const char* EpubReaderDrawerActivity::paneTitle() const {
