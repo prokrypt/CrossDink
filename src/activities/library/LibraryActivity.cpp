@@ -7,6 +7,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <KOReaderCredentialStore.h>
 #include <LibraryBuilder.h>
 #include <LibraryFileTypes.h>
 #include <LibraryRecentOrder.h>
@@ -31,6 +32,7 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "activities/util/OptionSelectionActivity.h"
+#include "components/KOSyncBadge.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -920,6 +922,16 @@ void LibraryActivity::provideRow(void* user, const uint16_t row, fui::ListItem& 
   item.label = cached.title.c_str();
   if (!cached.subtitle.empty()) item.subtitle = cached.subtitle.c_str();
   item.icon = listIconFor(static_cast<UIIcon>(cached.icon), 32);
+#ifdef FREEINK_UI_LIST_MARGIN_ICON
+  // Badge from the row's saved mark or a newer one held since: a sync landing
+  // while the list is up shows on its next draw without refilling the row.
+  if (!cached.syncCachePath.empty()) {
+    if (const freeink::Icon* badge = KOSyncBadge::icon(
+            RecentBookProgress::syncBadge(cached.syncCachePath, cached.syncProgress, cached.syncMark))) {
+      item.marginIcon = fui::bitmapFromIcon(*badge);
+    }
+  }
+#endif
   item.actionValue = static_cast<int16_t>(row);
   if (cached.hasHeading) item.sectionHeading = cached.heading.c_str();
 }
@@ -938,8 +950,20 @@ void LibraryActivity::fillRow(const int row, CachedRow& out) {
   out.ok = false;
   out.hasHeading = false;
   out.subtitle.clear();
+  out.syncCachePath.clear();
   if (!readBook(row, rowScratch, false)) return;
   out.ok = true;
+#ifdef FREEINK_UI_LIST_MARGIN_ICON
+  // One small read per EPUB row, and only with KOSync credentials set.
+  library::ClixRecord syncRecord{};
+  uint64_t syncKey = 0;
+  const uint16_t syncOrdinal = ordinalForRow(row);
+  if (FsHelpers::hasEpubExtension(rowScratch.path) && KOREADER_STORE.hasCredentials() && syncOrdinal != UINT16_MAX &&
+      index.readRecord(syncOrdinal, syncRecord) && index.readContentKey(syncRecord, syncKey) && syncKey != 0) {
+    out.syncCachePath = "/.crossdink/epub_" + std::to_string(syncKey);
+    out.syncProgress = RecentBookProgress::loadSavedEpubPercent(out.syncCachePath, out.syncMark);
+  }
+#endif
   out.title = rowScratch.title;
   out.subtitle = rowScratch.author;
   // Expanded lists already show the sorted field as a group heading.

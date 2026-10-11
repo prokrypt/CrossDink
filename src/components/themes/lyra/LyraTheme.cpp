@@ -16,6 +16,7 @@
 #include "DeviceCapabilities.h"
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
+#include "components/KOSyncBadge.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -603,6 +604,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       char progressLabel[16];
       snprintf(progressLabel, sizeof(progressLabel), "%.0f%%", progressPercent);
       renderer.drawText(UI_10_FONT_ID, textX, titleY, progressLabel, true, EpdFontFamily::BOLD);
+      KOSyncBadge::drawAt(
+          renderer, textX + renderer.getTextWidth(UI_10_FONT_ID, progressLabel, EpdFontFamily::BOLD) + KOSyncBadge::GAP,
+          titleY, progressLineHeight);
       renderer.drawRect(textX, progressBarY, progressBarWidth, progressBarHeight, true);
       if (filledWidth > 0) {
         renderer.fillRect(textX + 1, progressBarY + 1, std::max(0, filledWidth - 2),
