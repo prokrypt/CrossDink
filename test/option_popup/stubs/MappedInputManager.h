@@ -58,6 +58,13 @@ class MappedInputManager {
 
   bool wasTapOrHeld() const { return tapOrHeld; }
 
+  bool isScreenTouchHeld(int& x, int& y) const {
+    if (!touchHeld) return false;
+    x = touchX;
+    y = touchY;
+    return true;
+  }
+
   SwipeDir wasSwipe() const {
     const SwipeDir result = swipe;
     swipe = SwipeDir::None;
@@ -99,6 +106,7 @@ class MappedInputManager {
     touchX = x;
     touchY = y;
     touchRelease = true;
+    touchHeld = false;
   }
 
   void injectSwipe(const SwipeDir direction) { swipe = direction; }
@@ -121,6 +129,7 @@ class MappedInputManager {
   bool isPowerReleaseSuppressed() const { return powerReleaseSuppressed; }
 
   bool tapOrHeld = false;  // what wasTapOrHeld() reports
+  bool touchHeld = false;  // what isScreenTouchHeld() reports
 
  private:
   const GfxRenderer& renderer;
