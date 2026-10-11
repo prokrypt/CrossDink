@@ -3413,14 +3413,21 @@ void EpubReaderActivity::loop() {
   if (autoRemote) {
     static constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // as Smart Sync
     float localPercent = 0.0f;
+    uint16_t localBp = 0;
     {
       RenderLock lock(*this);  // calculateProgress() seeks the shared metadata cache file
       const int pages = section->estimatedTotalPages();
       const float intra = pages > 1 ? static_cast<float>(section->currentPage) / static_cast<float>(pages - 1) : 0.0f;
       localPercent = epub->calculateProgress(currentSpineIndex, intra);
+      localBp = RecentBookProgress::basisPoints(*epub, currentSpineIndex, section->currentPage, pages);
     }
     LOG_INF("KOSync", "open pull: local=%.4f remote=%.4f device=%s", localPercent, autoRemote->percentage,
             autoRemote->device.c_str());
+    // The KOSync badge: server at this page, or further on (behind: the close push decides).
+    if (autoRemote->percentage - localPercent >= -SAME_PROGRESS_EPSILON) {
+      RecentBookProgress::noteSynced(epub->getCachePath(), localBp,
+                                     autoRemote->percentage - localPercent > SAME_PROGRESS_EPSILON);
+    }
     if (autoRemote->percentage - localPercent > SAME_PROGRESS_EPSILON) {
       auto prompt =
           makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_KOREADER_SYNC), tr(STR_APPLY_REMOTE));

@@ -459,6 +459,29 @@ bytes, still finds a position in `progress.bin` (at most one save stale).
 offset), written by older firmware through a temp file and a
 `progress.bin` -> `progress.bin.bak` rotation. Still read; replaced on the next save.
 
+## EPUB `progress_percent.bin`
+
+The book's % for Home and Library, so they draw without opening the book.
+Little-endian.
+
+### Version 2
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | Magic `0x45505250` ("EPRP") |
+| 4 | 1 | Version `2` |
+| 5 | 2 | % in basis points (0-10000) |
+| 7 | 2 | KOSync mark: the % in basis points when a KOSync check last found the server holding it, `0xFFFF` = never checked |
+| 9 | 1 | Flags: bit 0 = the server was further on at that check |
+
+The mark is held in RAM after a check and written at deep sleep, restart, OTA,
+USB Drive and File Transfer, so a power cut loses it (the book then shows as not
+synced until its next check). Home and Library draw the KOSync badge from it.
+
+### Version 1
+
+Bytes 0-6 of version 2 (CrossInk writes this one). Read as never checked.
+
 ## `stats_v5.bin`
 
 ### Version 5

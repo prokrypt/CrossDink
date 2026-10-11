@@ -71,6 +71,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/home/RecentBookProgress.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/KOSyncAuto.h"
 #include "activities/reader/ReaderExitSave.h"
@@ -1755,6 +1756,7 @@ void enterDeepSleep(bool fromTimeout) {
     wifi_background_join::wait();  // the OPDS list's onExit() may have queued the radio off
     HalPowerManager::sleepStep = "sleep writes";
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
+    RecentBookProgress::flushSyncMarks();
     flushSettingsStores();
     // Persist after the sleep screen is up so the write does not delay it. The
     // reader's onExit() usually saves the same state already, so this write is
@@ -1825,6 +1827,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   // One handler: IDF has 5 slots and Wi-Fi takes one.
   esp_register_shutdown_handler([] {
     ReaderExitSave::flush();
+    RecentBookProgress::flushSyncMarks();
     flushSettingsStores();
     BatteryLog::onRestart();
   });
@@ -3211,6 +3214,7 @@ static void loopPass() {
   if (kosync_auto::takePushed()) {
     {
       RenderLock lock;
+      activityManager.repaintSyncBadge();  // the new KOSync badge rides the toast's refresh
       Toast::show(renderer, tr(STR_UPLOAD_SUCCESS));
     }
     activityManager.requestUpdate();

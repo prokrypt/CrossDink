@@ -24,6 +24,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/home/RecentBookProgress.h"
 #include "network/WifiUtils.h"
 #include "util/WorkerTask.h"
 #if CROSSDINK_GOODIES
@@ -121,7 +122,8 @@ int vsOpen(const EpubReaderUtils::Progress& saved) {
 
 // Same mapping as the KOSync screen's upload of saved progress.
 // moved: vsOpen() of the saved position (<0: paged back to look something up, 0: never moved).
-bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved) {
+// cachePath, bp: the book's cache and its % there, for the KOSync mark.
+bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, std::string& cachePath, uint16_t& bp) {
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
   auto epub = std::make_shared<Epub>(path, "/.crossdink");
   epub->setupCacheDir();
@@ -137,6 +139,8 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved) {
   moved = vsOpen(saved);
   const int spine = saved.spineIndex >= 0 && saved.spineIndex < epub->getSpineItemsCount() ? saved.spineIndex : 0;
   const int pages = saved.hasPageCount ? std::max(1, saved.pageCount) : 1;
+  cachePath = epub->getCachePath();
+  bp = RecentBookProgress::basisPoints(*epub, spine, saved.pageNumber, pages);
   CrossPointPosition pos = {spine, saved.pageNumber, pages};
   if (saved.hasVisibleTextOffset) {
     pos.visibleTextOffset = saved.visibleTextOffset;
@@ -223,6 +227,8 @@ void run(void*) {
   KOReaderProgress progress;
   bool skipped = false;
   std::string hash, altHash;
+  std::string cachePath;
+  uint16_t bp = 0;
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
   if (jobIsPull) {
     hash = documentId(jobPath, method);
@@ -231,7 +237,7 @@ void run(void*) {
       LOG_ERR("KOSync", "open pull: document hash failed");
       return;
     }
-  } else if (int moved = 0; !buildProgress(jobPath, progress, moved)) {
+  } else if (int moved = 0; !buildProgress(jobPath, progress, moved, cachePath, bp)) {
     return;  // the Epub is freed here, before TLS
   } else if (moved < 0) {
     LOG_INF("KOSync", "%s skipped: closed before the page it opened at (radio skipped)", what);
@@ -249,6 +255,7 @@ void run(void*) {
             knownRemote);
     pushOutcome = knownRemote - progress.percentage > SAME_PROGRESS_EPSILON ? kosync_auto::PushOutcome::ServerAhead
                                                                             : kosync_auto::PushOutcome::Same;
+    RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead);
     return;
   } else {
     altHash = documentId(jobPath, otherMethod(method));  // SD reads before the radio comes up
@@ -320,12 +327,14 @@ void run(void*) {
         pushOutcome = pulled.percentage - progress.percentage > SAME_PROGRESS_EPSILON
                           ? kosync_auto::PushOutcome::ServerAhead
                           : kosync_auto::PushOutcome::Same;
+        RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead);
       } else if ((result == KOReaderSyncClient::OK || result == KOReaderSyncClient::NOT_FOUND) &&
                  !radioClaimed.load()) {
         result = retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });
         pushOk = result == KOReaderSyncClient::OK;
         if (pushOk) {
           pushOutcome = kosync_auto::PushOutcome::Pushed;
+          RecentBookProgress::noteSynced(cachePath, bp, false);
           unpushedPath.clear();
           remember(jobPath, method, progress.percentage);
         }

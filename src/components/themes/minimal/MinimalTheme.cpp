@@ -22,6 +22,7 @@
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingStatsUtils.h"
+#include "components/KOSyncBadge.h"
 #include "components/TouchRegistry.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
@@ -317,6 +318,8 @@ void drawProgressBlock(const GfxRenderer& renderer, const Rect& coverRect, const
   const int labelW = renderer.getTextWidth(UI_10_FONT_ID, progressLabel);
   renderer.drawText(UI_10_FONT_ID, barX + barW - labelW, barY + kProgressBarHeight + kProgressLabelGap, progressLabel,
                     textBlack);
+  KOSyncBadge::drawAt(renderer, barX + barW - labelW - KOSyncBadge::GAP - KOSyncBadge::SIZE,
+                      barY + kProgressBarHeight + kProgressLabelGap, renderer.getLineHeight(UI_10_FONT_ID), textBlack);
 }
 
 void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book) {

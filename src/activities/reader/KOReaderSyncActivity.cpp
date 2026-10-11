@@ -170,6 +170,8 @@ bool KOReaderSyncActivity::ensureLocalProgressLoaded() {
                                                       ? PositionCoordinateSpace::SourceDocument
                                                       : PositionCoordinateSpace::CurrentDocument;
   localProgress = ProgressMapper::toKOReader(epub, localPos, coordinateSpace);
+  localCachePath = epub->getCachePath();
+  localBp = RecentBookProgress::basisPoints(*epub, currentSpineIndex, currentPage, totalPagesInSpine);
   const int tocIdx = epub->getTocIndexForSpineIndex(currentSpineIndex);
   localChapterName = tocIdx >= 0 ? epub->getTocItem(tocIdx).title : "";
   localProgressDeferred = false;
@@ -197,6 +199,9 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
     return;
   }
   RecentBookProgress::saveCachedEpubPercent(*epub, position.spineIndex, position.pageNumber, pageCount);
+  RecentBookProgress::noteSynced(
+      epub->getCachePath(), RecentBookProgress::basisPoints(*epub, position.spineIndex, position.pageNumber, pageCount),
+      false);
   returnToReader();
 }
 
@@ -315,6 +320,7 @@ void KOReaderSyncActivity::logSyncTiming() {
 void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
 
 void KOReaderSyncActivity::completeAlreadySynced() {
+  RecentBookProgress::noteSynced(localCachePath, localBp, false);
   {
     RenderLock lock(*this);
     state = SYNC_COMPLETE;
@@ -664,6 +670,7 @@ void KOReaderSyncActivity::finishUpload() {
     return;
   }
 
+  RecentBookProgress::noteSynced(localCachePath, localBp, false);
   {
     RenderLock lock(*this);
     state = UPLOAD_COMPLETE;
