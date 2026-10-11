@@ -108,6 +108,7 @@ void OpdsServerStore::ensureLoaded() const {
 }
 
 void OpdsServerStore::release() {
+  if (loaded_) hasServersHint_ = servers.empty() ? 0 : 1;
   std::vector<OpdsServer>().swap(servers);
   loaded_ = false;
 }
