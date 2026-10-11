@@ -1333,6 +1333,17 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
     }
     renderOverlays(true);
 
+    // A failed plane stream drops the gray pass; the BW page stays shown.
+    if (ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, [&]() {
+          const auto pass =
+              renderer.getRenderMode() == GfxRenderer::GRAYSCALE_LSB ? XtchRenderPass::Lsb : XtchRenderPass::Msb;
+          if (!streamXtchRenderPass(*xtc, pageToRender, pageWidth, pageHeight, renderer, pass)) return false;
+          renderOverlays(false);
+          return true;
+        })) {
+      return;
+    }
+
     if (pagesUntilFullRefresh <= 1) {
       renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
       renderer.preconditionGrayscale();
