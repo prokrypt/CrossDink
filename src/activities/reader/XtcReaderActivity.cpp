@@ -982,7 +982,7 @@ void XtcReaderActivity::deleteBookStats() {
 void XtcReaderActivity::deleteBookCache() {
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, confirmationHeading(StrId::STR_DELETE_CACHE),
-                                             xtc ? xtc->getTitle() : std::string{}, false, true),
+                                             xtc ? xtc->getTitle() : std::string{}, true),
       [this](const ActivityResult& result) {
         if (!result.isCancelled && xtc) {
           bool cacheDeleted = false;

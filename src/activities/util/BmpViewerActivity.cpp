@@ -599,59 +599,59 @@ void BmpViewerActivity::showContextMenu() {
   // The long-press cancelled any draw; clear that or the redraw on return stops at the Loading popup.
   drawCancelled.store(false, std::memory_order_release);
   needsImageRedraw.store(true, std::memory_order_release);  // the menu draws over the image
-  startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath),
-                                                                     std::move(items), false, false),
-                         [this](const ActivityResult& result) {
-                           if (result.isCancelled) return;
+  startActivityForResult(
+      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath), std::move(items)),
+      [this](const ActivityResult& result) {
+        if (result.isCancelled) return;
 
-                           const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
-                           if (actionResult == nullptr) return;
+        const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
+        if (actionResult == nullptr) return;
 
-                           switch (static_cast<FileBrowserAction>(actionResult->action)) {
-                             case FileBrowserAction::Delete:
-                               promptDeleteImage();
-                               return;
-                             case FileBrowserAction::SendNearby:
-                               activityManager.goToNearbyBookSend(filePath, false);
-                               return;
-                             case FileBrowserAction::PinFavorite:
-                               if (FsHelpers::hasPngExtension(filePath)) {
-                                 startActivityForResult(std::make_unique<ConfirmationActivity>(
-                                                            renderer, mappedInput, "", tr(STR_PIN_PNG_WARNING)),
-                                                        [this](const ActivityResult& confirmation) {
-                                                          if (!confirmation.isCancelled) pinSleepFavorite();
-                                                        });
-                               } else {
-                                 pinSleepFavorite();
-                               }
-                               return;
-                             case FileBrowserAction::UnpinFavorite:
-                               unpinSleepFavorite();
-                               return;
-                             case FileBrowserAction::PinBootFavorite:
-                               pinBootFavorite();
-                               return;
-                             case FileBrowserAction::UnpinBootFavorite:
-                               unpinBootFavorite();
-                               return;
-                             case FileBrowserAction::DeleteCache:
-                             case FileBrowserAction::ReadingStats:
-                             case FileBrowserAction::ToggleBookStatsTracking:
-                             case FileBrowserAction::SetSleepFolder:
-                             case FileBrowserAction::ClearSleepFolder:
-                             case FileBrowserAction::ToggleCompleted:
-                             case FileBrowserAction::RemoveFromRecents:
-                             case FileBrowserAction::DeleteStats:
-                             case FileBrowserAction::ViewBookmarks:
-                             case FileBrowserAction::ViewClippings:
-                             case FileBrowserAction::DeleteBookmarks:
-                             case FileBrowserAction::DeleteClippings:
-                             case FileBrowserAction::EpubRenderMode:
-                             case FileBrowserAction::ResetReaderSettings:
-                             case FileBrowserAction::Rename:
-                               return;
-                           }
-                         });
+        switch (static_cast<FileBrowserAction>(actionResult->action)) {
+          case FileBrowserAction::Delete:
+            promptDeleteImage();
+            return;
+          case FileBrowserAction::SendNearby:
+            activityManager.goToNearbyBookSend(filePath, false);
+            return;
+          case FileBrowserAction::PinFavorite:
+            if (FsHelpers::hasPngExtension(filePath)) {
+              startActivityForResult(
+                  std::make_unique<ConfirmationActivity>(renderer, mappedInput, "", tr(STR_PIN_PNG_WARNING)),
+                  [this](const ActivityResult& confirmation) {
+                    if (!confirmation.isCancelled) pinSleepFavorite();
+                  });
+            } else {
+              pinSleepFavorite();
+            }
+            return;
+          case FileBrowserAction::UnpinFavorite:
+            unpinSleepFavorite();
+            return;
+          case FileBrowserAction::PinBootFavorite:
+            pinBootFavorite();
+            return;
+          case FileBrowserAction::UnpinBootFavorite:
+            unpinBootFavorite();
+            return;
+          case FileBrowserAction::DeleteCache:
+          case FileBrowserAction::ReadingStats:
+          case FileBrowserAction::ToggleBookStatsTracking:
+          case FileBrowserAction::SetSleepFolder:
+          case FileBrowserAction::ClearSleepFolder:
+          case FileBrowserAction::ToggleCompleted:
+          case FileBrowserAction::RemoveFromRecents:
+          case FileBrowserAction::DeleteStats:
+          case FileBrowserAction::ViewBookmarks:
+          case FileBrowserAction::ViewClippings:
+          case FileBrowserAction::DeleteBookmarks:
+          case FileBrowserAction::DeleteClippings:
+          case FileBrowserAction::EpubRenderMode:
+          case FileBrowserAction::ResetReaderSettings:
+          case FileBrowserAction::Rename:
+            return;
+        }
+      });
 }
 
 void BmpViewerActivity::loop() {

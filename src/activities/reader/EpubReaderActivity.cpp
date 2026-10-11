@@ -4546,7 +4546,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       pauseReadingPaceTimer("delete_cache_confirm");
       startActivityForResult(
           std::make_unique<ConfirmationActivity>(renderer, mappedInput, confirmationHeading(StrId::STR_DELETE_CACHE),
-                                                 epub ? epub->getTitle() : std::string{}, false, true),
+                                                 epub ? epub->getTitle() : std::string{}, true),
           [this, returnToReaderMenu](const ActivityResult& result) {
             if (result.isCancelled) {
               resumeReadingPaceTimer("delete_cache_cancel");
@@ -4593,7 +4593,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       pauseReadingPaceTimer("reset_reader_settings_confirm");
       auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
           renderer, mappedInput, confirmationHeading(StrId::STR_RESET_BOOK_READER_SETTINGS),
-          epub ? epub->getTitle() : std::string{}, false, true);
+          epub ? epub->getTitle() : std::string{}, true);
       if (!confirmation) {
         LOG_ERR("ERS", "Could not allocate reader settings reset confirmation");
         resumeReadingPaceTimer("reset_reader_settings_alloc_failed");

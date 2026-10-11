@@ -16,6 +16,7 @@
 - X4 Pro (debug builds): the Goodies > Battery & stats graph has a Wi-Fi bar right above the awake bar. Short vertical ticks mark a plug-in (bottom edge) and a `charged` row (top edge).
 
 ### Changed
+- Popups: every option popup now ignores the finger or Confirm press that opened it until it lifts, so lifting after a long-press never picks a row. This was handled separately by book action menus and confirmations; other popups opened under a held finger now get it too.
 - KOReader Sync on Wake & Sleep: the push's Wi-Fi join now starts before the "Syncing" toast is drawn instead of after it, so going to sleep with a sync push is about 0.6 to 0.8 s sooner (less time with Wi-Fi on). No change to the toasts or the 30 s limit.
 - Reader/Library: opening a book without an image-optimizer manifest scans the ZIP directory once instead of on every lookup, and Library drops missing Recent books after its first frame instead of before it.
 - End of book menu: a book title too long for one line now wraps to a second line (the row grows and its touch area with it) instead of being cut off, and the Home button and the bottom-edge swipe-up go Home from this menu, as on other screens (they did nothing there).
