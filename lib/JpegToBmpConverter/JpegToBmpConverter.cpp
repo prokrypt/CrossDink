@@ -172,6 +172,12 @@ constexpr uint32_t FP_ONE = 1UL << 16;
 // Static file pointer for JPEGDEC open callback.
 // Safe in single-threaded embedded context; never accessed concurrently.
 static FsFile* s_jpegFile = nullptr;
+static std::atomic<const std::atomic<bool>*> s_cancelFlag{nullptr};
+
+static bool cancelRequested() {
+  const std::atomic<bool>* flag = s_cancelFlag.load(std::memory_order_acquire);
+  return flag && flag->load(std::memory_order_relaxed);
+}
 
 void* bmpJpegOpen(const char* /*filename*/, int32_t* size) {
   if (!s_jpegFile || !*s_jpegFile) return nullptr;
@@ -239,6 +245,7 @@ struct BmpConvertCtx {
   std::unique_ptr<Atkinson1BitDitherer> atkinson1BitDitherer;
 
   bool error;
+  bool cancelled;
 };
 
 struct OutputGeometry {
@@ -482,6 +489,10 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
 int bmpDrawCallback(JPEGDRAW* pDraw) {
   auto* ctx = reinterpret_cast<BmpConvertCtx*>(pDraw->pUser);
   if (!ctx || ctx->error) return 0;
+  if (cancelRequested()) {
+    ctx->cancelled = true;
+    return 0;
+  }
 
   const uint8_t* pixels = reinterpret_cast<uint8_t*>(pDraw->pPixels);
   const int stride = pDraw->iWidth;
@@ -680,6 +691,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   ctx.smoothNextOutY = 0;
   ctx.smoothPrevY = -1;
   ctx.error = false;
+  ctx.cancelled = false;
 
   const size_t mcuBufBytes = static_cast<size_t>(MAX_MCU_HEIGHT) * effectiveSrcW;
   size_t scratchBytes = mcuBufBytes + static_cast<size_t>(bytesPerRow);
@@ -765,6 +777,11 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
     finishSmoothUpscale(&ctx);
   }
 
+  if (ctx.cancelled) {
+    LOG_DBG("JPG", "JPEG decode cancelled at output row %d", ctx.currentOutY);
+    return false;
+  }
+
   if (rc != 1 || ctx.error) {
     // Include the image shape so a one-off decode failure can be triaged from
     // serial without pulling the file: progressive vs baseline distinguishes a
@@ -781,6 +798,10 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   }
 
   return true;
+}
+
+void JpegToBmpConverter::setCancelFlag(const std::atomic<bool>* flag) {
+  s_cancelFlag.store(flag, std::memory_order_release);
 }
 
 // Core function: Convert JPEG file to 2-bit BMP (uses default target size)
