@@ -7,9 +7,8 @@
 
 ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                            const std::string& heading, const std::string& body,
-                                           bool ignoreInitialConfirmRelease, bool overrideDisabledReaderTouchscreen)
+                                           bool overrideDisabledReaderTouchscreen)
     : Activity("Confirmation", renderer, mappedInput),
-      ignoreConfirmRelease(ignoreInitialConfirmRelease),
       overrideDisabledReaderTouchscreen(overrideDisabledReaderTouchscreen) {
   popupTitle.reserve(heading.size() + body.size() + 1);
   popupTitle = heading;
@@ -53,14 +52,6 @@ void ConfirmationActivity::render(RenderLock&&) {
 }
 
 void ConfirmationActivity::loop() {
-  if (ignoreConfirmRelease) {
-    const bool confirmReleased = mappedInput.wasReleased(MappedInputManager::Button::Confirm);
-    if (confirmReleased || !mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
-      ignoreConfirmRelease = false;
-      return;
-    }
-  }
-
   if (notePoll) {
     std::string body = noteBody;
     if (notePoll(notePollCtx, body)) {
