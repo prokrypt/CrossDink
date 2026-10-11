@@ -1271,12 +1271,14 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
     renderer.maskRoundedRectOutsideCorners(x, y, coverWidth, coverHeight, GRID_COVER_CORNER_RADIUS, Color::White);
     renderer.drawRoundedRect(x, y, coverWidth, coverHeight, 2, GRID_COVER_CORNER_RADIUS, true);
     if (row == selectedRow) {
+      const Color selectionColor = uiGraySelection() ? Color::DarkGray : Color::Black;
       renderer.drawRoundedRect(x - GRID_SELECTION_PADDING, y - GRID_SELECTION_PADDING,
                                coverWidth + 2 * GRID_SELECTION_PADDING, coverHeight + 2 * GRID_SELECTION_PADDING, 3,
-                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_PADDING, true);
-      renderer.drawRoundedRect(
-          x - GRID_SELECTION_OUTER_INSET, y - GRID_SELECTION_OUTER_INSET, coverWidth + 2 * GRID_SELECTION_OUTER_INSET,
-          coverHeight + 2 * GRID_SELECTION_OUTER_INSET, 1, GRID_COVER_CORNER_RADIUS + GRID_SELECTION_OUTER_INSET, true);
+                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_PADDING, selectionColor);
+      renderer.drawRoundedRect(x - GRID_SELECTION_OUTER_INSET, y - GRID_SELECTION_OUTER_INSET,
+                               coverWidth + 2 * GRID_SELECTION_OUTER_INSET,
+                               coverHeight + 2 * GRID_SELECTION_OUTER_INSET, 1,
+                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_OUTER_INSET, selectionColor);
     }
     if (available)
       screen.frame().hit(cell, ACTION_ROW, static_cast<int16_t>(row), fui::InputTouch | fui::InputLongPress);
