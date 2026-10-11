@@ -15,15 +15,16 @@
 #include "./FileBrowserActivity.h"
 #include "QuickActions.h"
 #include "activities/Activity.h"
+#include "activities/home/RecentBookProgress.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "components/CoverGridHomeUi.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 struct RecentBook;
-struct Rect;
 
 class HomeActivity final : public Activity {
  public:
@@ -79,6 +80,11 @@ class HomeActivity final : public Activity {
   int coverRectW = 0;
   int coverRectH = 0;
   float currentBookProgressPercent = -1.0f;
+  RecentBookProgress::SyncMark currentBookSyncMark;
+  // Where the last frame put the highlighted book's KOSync badge, and which one
+  // (width 0: none, or a carousel frame from the cache).
+  Rect syncBadgeBox;
+  RecentBookProgress::SyncBadge syncBadgeShown = RecentBookProgress::SyncBadge::None;
   std::string currentBookChapterTitle;
   BookReadingStats currentBookStats;
   GlobalReadingStats globalStats;
@@ -89,6 +95,7 @@ class HomeActivity final : public Activity {
   // Per-book stats and progress cached at onEnter() to avoid SD reads during navigation.
   std::array<BookReadingStats, kMaxCachedBooks> cachedBookStats{};
   std::array<float, kMaxCachedBooks> cachedBookProgress{};
+  std::array<RecentBookProgress::SyncMark, kMaxCachedBooks> cachedBookSyncMarks{};
   bool bookStatsCached = false;
 
   uint8_t* carouselFrames[kCarouselFrameCount] = {};
@@ -125,6 +132,9 @@ class HomeActivity final : public Activity {
   bool loadCarouselFrameFromDisk(uint64_t cacheKeyHash, int bookCount, int bookIdx, int slotIdx);
   int chooseCarouselEvictionSlot(int centerIdx, int bookCount,
                                  std::optional<int> protectedBookIdx = std::nullopt) const;
+  // Around a theme's book draw: the highlighted book's KOSync badge, and where it went.
+  void beginSyncBadge();
+  void endSyncBadge();
   void renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingStats* outStats, float* outProgressPercent,
                                           bool* outUsedCachedStats);
   void renderCarouselFrame(int bookIdx, int slotIdx);
@@ -197,6 +207,7 @@ class HomeActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool isHomeActivity() const override { return true; }
+  void repaintSyncBadge() override;
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }
   bool blocksGlobalInput() const override { return quickActionsPopup.isActive(); }
   bool handleShortcutAction(CrossPointSettings::SHORT_PWRBTN action) override;

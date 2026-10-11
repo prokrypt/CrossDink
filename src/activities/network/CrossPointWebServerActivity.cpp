@@ -18,6 +18,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/goodies/GoodiesActivity.h"
+#include "activities/home/RecentBookProgress.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -75,6 +76,7 @@ void CrossPointWebServerActivity::releaseFontsForNetwork() {
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::event("xfer_start", "file-transfer");
+  RecentBookProgress::flushSyncMarks();  // the computer sees the books' KOSync marks
   radioTaken = false;
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;

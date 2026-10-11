@@ -16,6 +16,7 @@
 
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
+#include "components/KOSyncBadge.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -548,6 +549,8 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
       const int progressLabelY = progressBarY + kFooterProgressBarHeight + kFooterPercentTopGap;
       renderer.drawText(footerLabelFontId, footerX + footerWidth - progressLabelW, progressLabelY, progressLabel, true,
                         EpdFontFamily::REGULAR);
+      KOSyncBadge::drawAt(renderer, footerX + footerWidth - progressLabelW - KOSyncBadge::GAP - KOSyncBadge::SIZE,
+                          progressLabelY, footerLabelLineHeight);
     }
 
     coverBufferStored = storeCoverBuffer();

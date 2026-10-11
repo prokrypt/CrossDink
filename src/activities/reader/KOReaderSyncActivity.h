@@ -112,6 +112,9 @@ class KOReaderSyncActivity final : public Activity {
   // Loaded from saved reader progress after the remote TLS probe completes.
   KOReaderPosition localProgress;
   bool localProgressDeferred = false;
+  // The local position's cache folder and % there, for the KOSync badge.
+  std::string localCachePath;
+  uint16_t localBp = 0;
   bool restartBeforeNetwork = false;
   // The reader can use a book-specific orientation that its teardown restores
   // before this activity gets control. Keep that one value through the

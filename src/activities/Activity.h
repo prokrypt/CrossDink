@@ -107,6 +107,9 @@ class Activity {
   virtual bool handleQuickLockUnlock(QuickLockTrigger) { return false; }
   virtual bool isReaderActivity() const { return false; }
   virtual bool isHomeActivity() const { return false; }
+  // Main loop, render lock held, just before a toast refresh: redraw the shown
+  // book's KOSync badge into the framebuffer so the toast's refresh carries it.
+  virtual void repaintSyncBadge() {}
   // The open book uses its vertical swipe actions across the entire page;
   // dialogs and lists retain their normal edge or scroll gestures.
   virtual bool usesFullScreenReaderVerticalSwipes() const { return false; }
