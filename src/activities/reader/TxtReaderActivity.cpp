@@ -981,6 +981,12 @@ bool TxtReaderActivity::queueProgressSave() {
   return saveProgress(currentPage);
 }
 
+bool TxtReaderActivity::flushHeldProgress() {
+  const bool pending = progressSaveDebouncer.hasPending();
+  if (!flushQueuedProgress()) LOG_ERR("TRS", "Failed to flush held progress");
+  return pending;
+}
+
 bool TxtReaderActivity::flushQueuedProgress() {
   return !progressSaveDebouncer.hasPending() ||
          saveProgress(static_cast<int>(progressSaveDebouncer.lastObservedPosition()));

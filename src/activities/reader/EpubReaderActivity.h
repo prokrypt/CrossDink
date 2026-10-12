@@ -683,6 +683,12 @@ class EpubReaderActivity final : public Activity {
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }
   bool flushProgressForSync() override;
+  bool flushHeldProgress() override {
+    if (!epub) return false;
+    const bool pending = progressSaveDebouncer.hasPending() || footnoteDepth > 0;
+    saveProgressBeforeRestart();
+    return pending;
+  }
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }
   bool blocksGlobalInput() const override { return quickActionsPopup.isActive(); }
   bool handleShortcutAction(CrossPointSettings::SHORT_PWRBTN action) override;

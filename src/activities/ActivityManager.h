@@ -136,7 +136,6 @@ class ActivityManager {
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
   std::atomic<bool> restoredActivityNeedsRender{false};
-  bool settingsFlushPending = false;  // a screen exited; main loop flushes deferred settings
   // Set by the render task once the current activity has drawn a frame. Home
   // holds the reader's exit writes (ReaderExitSave) until then.
   std::atomic<bool> currentActivityPainted{false};
@@ -247,6 +246,8 @@ class ActivityManager {
   std::string flushEpubProgressForSync();
   // Main loop, render lock held: the current screen redraws its KOSync badge for the next refresh.
   void repaintSyncBadge();
+  // Every open reader (current or below it) writes its unsaved position; true when one was pending.
+  bool flushHeldProgress();
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.

@@ -10,6 +10,7 @@
 
 #include <cstddef>
 
+#include "HeldWrites.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SdCardFontSystem.h"
@@ -118,7 +119,10 @@ void CrossPointWebServerActivity::onExit() {
 
   state = WebServerActivityState::SHUTTING_DOWN;
   // Picker left without a mode: the remote kept the radio and port 80.
-  if (!radioTaken && !networkBootReady) return;
+  if (!radioTaken && !networkBootReady) {
+    HeldWrites::setWriteThrough(HeldWrites::ServesFiles, false);
+    return;
+  }
 
   const bool wifiWasActive = WiFi.getMode() != WIFI_MODE_NULL;
 
@@ -127,6 +131,7 @@ void CrossPointWebServerActivity::onExit() {
 
   // Stop local services before disconnecting/restarting WiFi.
   stopWebServer();
+  HeldWrites::setWriteThrough(HeldWrites::ServesFiles, false);  // no computer reaches the card now
   MDNS.end();
   if (dnsServer) {
     dnsServer->stop();

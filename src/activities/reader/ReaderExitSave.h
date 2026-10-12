@@ -12,7 +12,7 @@ struct GlobalReadingStats;
 // re-reading them from SD.
 namespace ReaderExitSave {
 void queue(const std::string& cachePath, const BookReadingStats* book, const GlobalReadingStats* global);
-void flush();  // no-op when nothing is queued
+bool flush();  // no-op when nothing is queued; true when it wrote
 const BookReadingStats* book(const std::string& cachePath);
 const GlobalReadingStats* global();
 }  // namespace ReaderExitSave

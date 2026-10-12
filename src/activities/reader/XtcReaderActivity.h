@@ -146,6 +146,7 @@ class XtcReaderActivity final : public Activity {
     flushQueuedProgress();
   }
   void onFrontlightPanelClosed() override;
+  bool flushHeldProgress() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.
