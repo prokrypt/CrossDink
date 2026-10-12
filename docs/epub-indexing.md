@@ -18,6 +18,13 @@ CrossDink saves the pages it has already built, so leaving the book does not
 discard that readable progress, and reopening a partly built chapter resumes
 the background build right away.
 
+When the current chapter is complete and you reach its last two pages, the
+next chapter is built the same way in the background (after the page has been
+on screen for 1.5 s), so turning into it does not wait for indexing (chapters big enough to
+show the Indexing popup are built when opened instead). If you
+leave or jump elsewhere first, its pages built so far are kept and resume when
+you get there.
+
 Expect a visible **Indexing** popup if you jump far ahead, follow a link to an
 unbuilt part of the chapter, or turn pages faster than the background work can
 stay ahead. That is normal: CrossDink is building just enough additional pages
