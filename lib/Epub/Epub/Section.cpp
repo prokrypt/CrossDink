@@ -64,6 +64,14 @@ constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
 // (PSRAM on S3: plain allocations over 1 KB try PSRAM first).
 constexpr size_t SECTION_WRITE_BUFFER_BYTES = 8192;
 
+void enableBuildFileBuffer(FsFile& file) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
+#else
+  (void)file;  // the simulator and test HALs write straight through
+#endif
+}
+
 void prepareSectionZipInflate(GfxRenderer& renderer, const int fontId) {
   if (ESP.getMaxAllocHeap() < InflateStream::requiredInternalStorageSize(true) && renderer.isSdCardFont(fontId)) {
     renderer.releaseSdCardFontForLowMemory(fontId);
@@ -208,7 +216,7 @@ bool Section::ensureBuildFileOpen() {
     LOG_ERR("SCT", "Failed to reopen section temp file");
     return false;
   }
-  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
+  enableBuildFileBuffer(file);
   if (!file.seek(file.size())) {
     LOG_ERR("SCT", "Failed to seek section temp file");
     file.close();
@@ -614,7 +622,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     cleanupTempHtml();
     return false;
   }
-  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
+  enableBuildFileBuffer(file);
   ReaderRenderSpec effectiveSpec = spec;
   effectiveSpec.focusReadingEnabled = effectiveFocusReadingEnabled;
   effectiveSpec.guideReadingEnabled = effectiveGuideReadingEnabled;
@@ -948,7 +956,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
     cleanupTempHtml();
     return false;
   }
-  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
+  enableBuildFileBuffer(file);
   if (!writeSectionFileHeader(spec)) {
     LOG_ERR("SCT", "Failed to write section header");
     file.close();
