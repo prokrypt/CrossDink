@@ -12,17 +12,15 @@ class ReaderProgressSaveDebouncer {
  public:
   // Leaving the reader and going to sleep always flush, so these only bound
   // what a crash, reset or dead battery can lose: at most this many page turns
-  // or this much time since the last save.
+  // or this much time since the last save. With ReaderProgressShadow holding
+  // the position in RTC memory, crashes and resets lose nothing, so a shadowed
+  // reader never saves mid-session; low battery and the remote FLUSH command
+  // write it (Activity::flushHeldProgress) before power loss could take it.
   static constexpr uint8_t PAGE_CHANGE_INTERVAL = 30;
   static constexpr unsigned long MAX_SAVE_INTERVAL_MS = 15UL * 60UL * 1000UL;
-  // With ReaderProgressShadow holding the position in RTC memory, crashes and
-  // resets no longer lose pages; these bound only what power loss can lose.
-  static constexpr uint8_t SHADOWED_PAGE_CHANGE_INTERVAL = 200;
-  static constexpr unsigned long SHADOWED_MAX_SAVE_INTERVAL_MS = 60UL * 60UL * 1000UL;
 
  private:
-  uint8_t pageChangeInterval_ = PAGE_CHANGE_INTERVAL;
-  unsigned long maxSaveIntervalMs_ = MAX_SAVE_INTERVAL_MS;
+  bool shadowed_ = false;
   uint32_t lastPositionKey_ = 0;
   uint32_t lastMetadataKey_ = 0;
   unsigned long lastPersistedAtMs_ = 0;
@@ -57,13 +55,11 @@ class ReaderProgressSaveDebouncer {
       pending_ = true;
     }
 
-    return pending_ && (pendingPageChanges_ >= pageChangeInterval_ || now - lastPersistedAtMs_ >= maxSaveIntervalMs_);
+    return !shadowed_ && pending_ &&
+           (pendingPageChanges_ >= PAGE_CHANGE_INTERVAL || now - lastPersistedAtMs_ >= MAX_SAVE_INTERVAL_MS);
   }
 
-  void setShadowed(const bool shadowed) {
-    pageChangeInterval_ = shadowed ? SHADOWED_PAGE_CHANGE_INTERVAL : PAGE_CHANGE_INTERVAL;
-    maxSaveIntervalMs_ = shadowed ? SHADOWED_MAX_SAVE_INTERVAL_MS : MAX_SAVE_INTERVAL_MS;
-  }
+  void setShadowed(const bool shadowed) { shadowed_ = shadowed; }
 
   bool hasPending() const { return pending_; }
   uint32_t lastObservedPosition() const { return lastPositionKey_; }

@@ -19,6 +19,7 @@
 
 #include "FirmwareBoardTag.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "OtaBootSwitch.h"
 #include "util/BatteryLog.h"
 
@@ -879,7 +880,10 @@ Result flashValidatedFileImpl(HalFile& file, ProgressCb onProgress, void* ctx) {
 }  // namespace
 
 Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
-  flushSettingsStores();  // deferred settings land before a flash that may end in a power cut
+  // Held stores land before a flash that may end in a power cut, and later saves
+  // write at once: the new firmware may not read what PSRAM would carry.
+  HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, true);
+  flushSettingsStores();  // knobs.json
   BatteryLog::event("fw_start", "sd");
   const Result r = flashValidatedFileImpl(file, onProgress, ctx);
   BatteryLog::event(r == Result::OK ? "fw_ok" : "fw_fail", resultName(r));
@@ -1057,6 +1061,7 @@ Result finishHere() {
 }  // namespace
 
 Result streamBegin(size_t totalSize) {
+  HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, true);  // as flashValidatedFile()
   flushSettingsStores();
   return endStep(onInternalStack([](void* size) { return beginHere(*static_cast<size_t*>(size)); }, &totalSize));
 }
