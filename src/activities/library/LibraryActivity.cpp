@@ -31,7 +31,7 @@
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
-#include "activities/util/OptionSelectionActivity.h"
+#include "activities/util/OptionPopupActivity.h"
 #include "components/KOSyncBadge.h"
 #include "components/Toast.h"
 #include "components/TouchHeaderBackButton.h"
@@ -1592,9 +1592,8 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
                  case FileBrowserAction::EpubRenderMode: {
                    const uint8_t currentIndex =
                        BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(book.path));
-                   openDialog(makeUniqueNoThrow<OptionSelectionActivity>(
-                                  renderer, mappedInput, "LibraryEpubRenderModeSelect", StrId::STR_EPUB_RENDER_MODE,
-                                  BookActions::epubRenderModeOptions(), currentIndex),
+                   openDialog(makeUniqueNoThrow<OptionPopupActivity>(renderer, mappedInput, StrId::STR_EPUB_RENDER_MODE,
+                                                                     BookActions::epubRenderModeOptions(), currentIndex),
                               [this, book](const ActivityResult& selectionResult) {
                                 if (!selectionResult.isCancelled) {
                                   const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);

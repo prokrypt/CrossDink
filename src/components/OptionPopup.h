@@ -123,10 +123,6 @@ class OptionPopup {
   // Popups opened over a page rather than a list (quick actions) skip that.
   void setShowTappedRowFirst(bool enabled) { showTappedRowFirst = enabled; }
 
-  // Actions that repaint synchronously can suppress the redundant update queued
-  // after their selection callback returns.
-  void skipPostSelectionUpdate() { skipPostSelectionUpdate_ = true; }
-
   bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (!active) return false;
     if (popupFramePending && !RenderLock::peek()) {
@@ -519,7 +515,6 @@ class OptionPopup {
   std::function<void()> onSaveCallback;
   std::function<void()> onCancelCallback;
   Note popupNote;
-  bool skipPostSelectionUpdate_ = false;
   int primaryOptionIndex = -1;
   int dividerAfterOption = -1;
   bool selectionArrow = false;
@@ -534,7 +529,6 @@ class OptionPopup {
     touchDownTarget = TouchTarget::None;
     disabledOptions.assign(ownedStrings.size(), false);
     footerFocused = false;
-    skipPostSelectionUpdate_ = false;
     if (ownedStrings.empty()) {
       close();
       onSelectCallback = nullptr;
@@ -597,9 +591,7 @@ class OptionPopup {
     close();
     suppressSelectionRelease(input, suppressRelease);
     if (onSelectCallback) onSelectCallback(selectedIndex);
-    const bool skipUpdate = skipPostSelectionUpdate_;
-    skipPostSelectionUpdate_ = false;
-    if (!skipUpdate) requestUpdate();
+    requestUpdate();
   }
 
   void selectTouchOption(MappedInputManager& input, const std::function<void()>& requestUpdate) {
