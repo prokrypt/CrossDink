@@ -1733,11 +1733,44 @@ void syncBookBeforeSleep() {
   renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
 }
 
-// The sleep screen is a custom image the Up+Down chord can swap (X4 Pro).
-static bool sleepChordHasImage() {
-  return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM ||
-         (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM &&
-          !APP_STATE.lastSleepFromReader);
+// Up+Down wake (X4 Pro): draw the date and time large. The text is drawn small at the
+// top-left, then magnified pixel by pixel into place, because no larger font is bundled.
+static void drawChordMagnified(const int fontId, const char* text, const int centerY, const int maxScale) {
+  const int w = renderer.getTextWidth(fontId, text, EpdFontFamily::BOLD);
+  const int h = renderer.getLineHeight(fontId);
+  if (w <= 0 || h <= 0) return;
+  const int scale = std::max(1, std::min(maxScale, renderer.getScreenWidth() * 9 / 10 / w));
+  const int dx = (renderer.getScreenWidth() - w * scale) / 2;
+  const int dy = std::max(h, centerY - h * scale / 2);  // below the source strip so the two never overlap
+  renderer.drawText(fontId, 0, 0, text, true, EpdFontFamily::BOLD);
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      if (renderer.isPixelBlack(x, y)) renderer.fillRect(dx + x * scale, dy + y * scale, scale, scale);
+    }
+  }
+  renderer.fillRect(0, 0, w, h, false);
+}
+
+static void showChordClock() {
+  char timeBuf[12] = "--:--";
+  char dateBuf[40] = "";
+  if (halClock.hasTrustedDateTime()) {
+    const uint8_t offsetQ = LocalClock::currentOffsetQ();
+    halClock.formatTime(timeBuf, sizeof(timeBuf), offsetQ, SETTINGS.clockFormat == 1);
+    halClock.formatDate(dateBuf, sizeof(dateBuf), offsetQ);
+  }
+  renderer.clearScreen();
+  const int pageHeight = renderer.getScreenHeight();
+  drawChordMagnified(UI_12_FONT_ID, timeBuf, pageHeight * 2 / 5, 8);
+  if (dateBuf[0]) drawChordMagnified(UI_12_FONT_ID, dateBuf, pageHeight * 3 / 5, 3);
+  renderer.displayBuffer(retainedPanelFrameSeeded ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
+  // Stay up while both keys are down; the cap keeps a stuck key from draining the battery.
+  constexpr unsigned long CLOCK_MAX_MS = 30000;
+  const unsigned long start = millis();
+  do {
+    delay(20);
+    gpio.update();
+  } while (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN) && millis() - start < CLOCK_MAX_MS);
 }
 
 // Enter deep sleep mode
@@ -1757,10 +1790,9 @@ void enterDeepSleep(bool fromTimeout) {
   {
     HalPowerManager::Lock powerLock;
     if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
-    // Up+Down only swaps a custom sleep image; on a cover or other screen it would
-    // just wake the chip for nothing, so leave the page keys out of the wake mask.
+    // Up+Down shows the clock on every sleep screen, so the page keys always wake.
 #ifndef SIMULATOR
-    HalPowerManager::setPageKeyWake(sleepChordHasImage());
+    HalPowerManager::setPageKeyWake(true);
 #endif
     // "request" = power button or a Sleep menu/quick action.
     PerfLog::noteDeepSleep(
@@ -2143,16 +2175,6 @@ void setup() {
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
-  if (wallpaperChordWake && !sleepChordHasImage()) {
-    // The sleep screen is not a custom wallpaper, so there is nothing to change.
-    LOG_INF("MAIN", "Up+Down wake: sleep screen is not a custom image, sleeping");
-    // The panel still shows the sleep frame: keep the next wake splashless.
-    if (splashlessWakeArmed) splashlessWakeMagic = SPLASHLESS_WAKE_MAGIC;
-    PerfLog::noteDeepSleep("wallpaper-chord-skip", "boot");
-    armSleepGuard();
-    Storage.shutdown();
-    powerManager.startDeepSleep(gpio);
-  }
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,
                                wakeupRouteName(wakeupReason));
@@ -2301,8 +2323,10 @@ void setup() {
   }
 
   if (wallpaperChordWake) {
-    // Up+Down held while asleep: draw the next custom sleep image and sleep again.
-    LOG_INF("MAIN", "Up+Down wake: changing the sleep image");
+    // Up+Down held while asleep: show the clock until a key is released, then draw
+    // the next sleep screen (a custom image advances) and sleep again.
+    LOG_INF("MAIN", "Up+Down wake: showing the clock");
+    showChordClock();
     enterDeepSleep();
   }
   if (recoveryFirmwareMode) {
