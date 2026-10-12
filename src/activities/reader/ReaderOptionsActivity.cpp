@@ -18,7 +18,6 @@
 #include "activities/settings/TtfRenderOptionsActivity.h"
 #endif
 #include "activities/util/IntervalSelectionActivity.h"
-#include "activities/util/OptionSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "util/DictionaryRegistry.h"
