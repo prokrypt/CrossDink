@@ -19,6 +19,7 @@
 - X4 Pro (debug builds): power stats now cover the touchscreen and the e-ink panel. `power.csv` gets a `touch_ms` column (time the GT911 touch controller is awake), `scripts/power_fit.py` fits touch-controller and e-ink booster time by default next to the refresh counts, and Goodies > Battery & stats shows e-ink busy, booster and touch-on time. The counters start a new generation once after updating.
 
 ### Changed
+- XTC/XTCH reader: the Confirm menu (Select Chapter, reading stats, Mark Finished, Delete Cache, Send Nearby, Disable Touchscreen) is now a popup over the page like the TXT reader's, instead of a full-screen list. Same rows and order; Disable Touchscreen now closes the popup after toggling and shows its state.
 - Library: the Sort by popup now lists Recently Opened first. Your saved sort choice is unchanged.
 - Text anti-aliasing now defaults to Off, and settings imported from CrossInk, CrossPoint or the old binary file start with it Off. Settings you already saved here are untouched, and you can turn it back on.
 - Debug log: when a book section is rebuilt because its cached layout no longer matches, the log line now lists the saved and current font, line spacing, viewport, paragraph spacing, indent, alignment, hyphenation, style, image, focus/guide reading, word spacing and render mode values.
