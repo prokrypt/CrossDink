@@ -8000,6 +8000,13 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (deferImageLoading) {
     needsImageGrayscale = false;
   }
+  // A prefetch this page no longer neighbours (a jump, or a turn away from it)
+  // stops at its next chunk; nothing waits for it here.
+  if (imageCacheWorker.task &&
+      (imageCacheWorker.spine != currentSpineIndex || imageCacheWorker.pageIndex < section->currentPage - 1 ||
+       imageCacheWorker.pageIndex > section->currentPage + 1)) {
+    imageCacheWorker.cancel.store(true);
+  }
   // A finished background job's caches (or failures) apply to this render.
   joinImageCacheWorker(/*cancel=*/false);
   bool pageHasImagesNeedingDecode = !deferImageLoading && pageHasImages && page->hasImagesNeedingDecode();
