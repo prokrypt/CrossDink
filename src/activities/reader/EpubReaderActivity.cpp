@@ -2899,6 +2899,8 @@ void EpubReaderActivity::joinBuildWorker(const bool stop) {
 bool EpubReaderActivity::backgroundBuildTick() {
   releaseGrayscaleStripScratch();
   if (!backgroundSectionBuildHasHeap()) return false;
+  // Finish the font prewarm skipped for a faster first page before laying out more.
+  if (section->prewarmSomeMore()) return true;
   if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
     LOG_ERR("ERS", "Background section build failed");
     if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {

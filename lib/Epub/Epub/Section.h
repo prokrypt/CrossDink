@@ -120,6 +120,8 @@ class Section {
   bool startBuild(const ReaderRenderSpec& spec, SectionBuildOptions buildOptions = {},
                   const std::function<void()>& popupFn = nullptr);
   bool buildSomeMore(int maxPages);
+  // One slice of the build's deferred font advance prewarm; false when none is left.
+  bool prewarmSomeMore();
   void releaseBuildFile();
   bool lastBuildImagesWereSuppressed() const { return lastImagesWereSuppressed_; }
   bool lastBuildLayoutAbortedForLowMemory() const { return lastLayoutAbortedForLowMemory_; }

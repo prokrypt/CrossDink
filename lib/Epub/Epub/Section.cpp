@@ -1062,6 +1062,8 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   ctx->startedMs = buildStartedMs;
   build_ = std::move(ctx);
+  // The reader's background ticks run the prewarm in slices (prewarmSomeMore).
+  build_->parser->setDeferAdvancePrewarm(true);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
@@ -1075,6 +1077,8 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   build_->totalBytes = build_->parser->parseTotalBytes();
   return true;
 }
+
+bool Section::prewarmSomeMore() { return build_ && build_->parser && build_->parser->prewarmSectionAdvanceStep(); }
 
 bool Section::buildSomeMore(const int maxPages) {
   if (!build_ || !build_->parser) {
