@@ -1201,7 +1201,6 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.selectedIndex = showSelection ? static_cast<int16_t>(selection - CONTROL_COUNT) : -1;
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch | fui::InputLongPress;
-  props.iconSize = 28;
   props.labelText = screen.theme().bodyText;
   props.labelText.bold = true;
   props.labelText.maxLines = 1;
