@@ -66,6 +66,7 @@ void HalFrontlight::setIdleDim(const uint8_t percent) {
 
 void HalFrontlight::setOverlay(const uint8_t percent) {
   std::lock_guard<std::recursive_mutex> guard(lock);
+  if (percent == overlay) return;  // a blink's end with no overlay must not cut a fade
   overlay = percent;
   stopFade();  // the pulse owns the light
   apply();
@@ -73,10 +74,14 @@ void HalFrontlight::setOverlay(const uint8_t percent) {
 
 void HalFrontlight::fadeOutForSleep() {
   std::lock_guard<std::recursive_mutex> guard(lock);
-  if (sleepDark || driven == 0 || driven == 0xFF) return;
-  sleepDark = true;
+  if (sleepDark || driven == 0xFF) return;
+  sleepDark = true;  // also when dark now: a fade-in may still be at 0
   overlay = NO_OVERLAY;
-  startFade();
+  if (driven != 0) {
+    startFade();
+  } else {
+    stopFade();
+  }
   apply();
 }
 
