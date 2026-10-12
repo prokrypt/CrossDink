@@ -59,6 +59,10 @@ constexpr uint32_t HEADER_SIZE =
     sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
+// Pages are many small writes; collecting them lets whole sectors reach the card as
+// multi-block transfers. 8 KB = two of the SDMMC driver's 8-sector bounce transfers
+// (PSRAM on S3: plain allocations over 1 KB try PSRAM first).
+constexpr size_t SECTION_WRITE_BUFFER_BYTES = 8192;
 
 void prepareSectionZipInflate(GfxRenderer& renderer, const int fontId) {
   if (ESP.getMaxAllocHeap() < InflateStream::requiredInternalStorageSize(true) && renderer.isSdCardFont(fontId)) {
@@ -204,6 +208,7 @@ bool Section::ensureBuildFileOpen() {
     LOG_ERR("SCT", "Failed to reopen section temp file");
     return false;
   }
+  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
   if (!file.seek(file.size())) {
     LOG_ERR("SCT", "Failed to seek section temp file");
     file.close();
@@ -609,6 +614,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     cleanupTempHtml();
     return false;
   }
+  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
   ReaderRenderSpec effectiveSpec = spec;
   effectiveSpec.focusReadingEnabled = effectiveFocusReadingEnabled;
   effectiveSpec.guideReadingEnabled = effectiveGuideReadingEnabled;
@@ -942,6 +948,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
     cleanupTempHtml();
     return false;
   }
+  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
   if (!writeSectionFileHeader(spec)) {
     LOG_ERR("SCT", "Failed to write section header");
     file.close();
