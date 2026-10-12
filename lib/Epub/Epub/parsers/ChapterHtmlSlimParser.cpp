@@ -47,10 +47,13 @@ constexpr size_t COMBINED_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT = 175;
 constexpr uint16_t COMBINED_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT = 1024;
 constexpr size_t SECTION_ADVANCE_PREWARM_READ_BUFFER_SIZE = 512;
 constexpr uint32_t SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS = 4096;
-// Deferred prewarm slices: scan HTML for up to this long, or load this many codepoints'
-// advances, per background build tick, so a tick never blocks input for long.
+// Deferred prewarm slices: scan HTML, or load advances in small batches, for up to
+// this long per background build tick, so a tick never blocks input for long.
 constexpr uint32_t SECTION_ADVANCE_PREWARM_STEP_MS = 8;
-constexpr uint32_t SECTION_ADVANCE_PREWARM_CODEPOINTS_PER_STEP = 64;
+constexpr uint32_t SECTION_ADVANCE_PREWARM_FEED_BATCH = 8;
+// SdCardFont::ADVANCE_CACHE_LIMIT: the per-style table holds this many, and a miss on a
+// full table clears it, so feeding more in batches would only churn it.
+constexpr uint32_t SECTION_ADVANCE_PREWARM_FEED_LIMIT = 256;
 // The whole-section advance prewarm is a batch-I/O optimization, not a requirement:
 // layout falls back to per-paragraph advance loads (ParsedText loads glyph metrics per
 // block, masked to the styles that block uses). Running it costs a 16KB contiguous
@@ -3735,8 +3738,15 @@ bool ChapterHtmlSlimParser::prewarmSectionAdvanceStep() {
       parseFile_.close();
       parseFileOffset_ = resume;
     }
+    if (state.scanned) {
+      // Lowest codepoints first, as the one-shot prewarm leaves them in a full table.
+      std::sort(state.codepoints.get(), state.codepoints.get() + state.cpCount);
+      state.cpCount = std::min(state.cpCount, SECTION_ADVANCE_PREWARM_FEED_LIMIT);
+    }
   } else {
-    feedAdvancePrewarm(state, SECTION_ADVANCE_PREWARM_CODEPOINTS_PER_STEP);
+    do {
+      feedAdvancePrewarm(state, SECTION_ADVANCE_PREWARM_FEED_BATCH);
+    } while (state.fedCount < state.cpCount && millis() - startMs < SECTION_ADVANCE_PREWARM_STEP_MS);
   }
   state.busyMs += millis() - startMs;
 

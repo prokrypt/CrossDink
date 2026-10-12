@@ -2951,8 +2951,12 @@ bool EpubReaderActivity::backgroundBuildTick() {
   releaseGrayscaleStripScratch();
   if (!backgroundSectionBuildHasHeap()) return false;
   if (!section || !section->isBuilding()) return nextSectionBuildTick();
-  // Finish the font prewarm skipped for a faster first page before laying out more.
-  if (section->prewarmSomeMore()) return true;
+  // Finish the font prewarm skipped for a faster first page, once the next pages are
+  // ready so a quick page turn never waits on it.
+  if (static_cast<int>(section->pageCount) > section->currentPage + BACKGROUND_PREWARM_PAGES_AHEAD &&
+      section->prewarmSomeMore()) {
+    return true;
+  }
   if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
     LOG_ERR("ERS", "Background section build failed");
     if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
@@ -7014,6 +7018,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
             showIndexingPopup();
           }
           buildPopupPending = !showPopup;
+          // Opening at a page: show it before the font prewarm (backgroundBuildTick runs it).
+          // Anchor and last-page jumps build most of the chapter up front, so keep it there.
+          buildOptions.deferAdvancePrewarm =
+              !anchorJump && target != std::numeric_limits<uint16_t>::max() && !buildOptions.isPreview();
           const unsigned long buildStartMs = millis();
           bool started;
           {
