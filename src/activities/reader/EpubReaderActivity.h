@@ -474,6 +474,8 @@ class EpubReaderActivity final : public Activity {
   // Ticking one page at a time (checked against RenderLock::peek() and the input-yield flag
   // before every tick) keeps the background build responsive while it works to completion.
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
+  // Pages past the current one built before the deferred font prewarm runs.
+  static constexpr int BACKGROUND_PREWARM_PAGES_AHEAD = 2;
   // Show the indexing popup when an initial build must lay out more than this many pages up front
   // (a deep resume/jump into a not-yet-built section), so it isn't a silent wait. Kept independent
   // of the background build so ordinary landings stay popup-free.
