@@ -1449,6 +1449,12 @@ bool XtcReaderActivity::queueProgressSave(const uint32_t pageToRender) {
   return saveProgress(pageToRender);
 }
 
+bool XtcReaderActivity::flushHeldProgress() {
+  const bool pending = progressSaveDebouncer.hasPending();
+  if (!flushQueuedProgress()) LOG_ERR("XTR", "Failed to flush held progress");
+  return pending;
+}
+
 bool XtcReaderActivity::flushQueuedProgress() {
   return !progressSaveDebouncer.hasPending() || saveProgress(progressSaveDebouncer.lastObservedPosition());
 }

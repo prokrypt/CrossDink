@@ -125,6 +125,7 @@ class TxtReaderActivity final : public Activity {
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
   // The panel leads to Settings, whose update and font downloads restart the device.
   void onFrontlightPanelOpened() override { flushQueuedProgress(); }
+  bool flushHeldProgress() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.

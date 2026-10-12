@@ -37,7 +37,8 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:GOTO list` | `OK:GOTO list <screen> ...` | Screen names in this build. |
 | `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
 | `CMD:SLEEPREBOOT` | `OK:SLEEPREBOOT` | Goodies > Sleep-reboot-log without the confirm (PSRAM-log builds): 0.5 s after the reply, the real deep-sleep path, then a restart instead of power-down. The PSRAM log keeps the sleep; read it from `/api/psram-log` once the remote rejoins. |
-| `CMD:REBOOT` | `OK:REBOOT` | Software restart. |
+| `CMD:FLUSH` | `OK:FLUSH <n>` | Writes everything held for sleep now: settings, state and recent books (held in PSRAM between flush points), the reader's exit writes and the open book's position. `n` = writes that landed. |
+| `CMD:REBOOT` | `OK:REBOOT` | Software restart. Held settings, state and recent books stay in PSRAM for the next boot instead of being written. |
 | `CMD:BOOTSLOT` | `OK:BOOTSLOT running=<label> other=<label> <project> <version> <date> <time> elf=<8 hex>` or `other=none` | Read-only: the other OTA slot's image header, as Goodies > Boot alternate slot shows it. |
 | `CMD:BOOTSLOT <label>` | `OK:BOOTSLOT <label>` | Boots the other slot without USB. `<label>` must name the other slot (`ERR:BOOTSLOT:not_other <label>`, `ERR:BOOTSLOT:none`; `ERR:BOOTSLOT:busy` while an OTA upload runs). Runs the full image check first (checksum, SHA-256, board tag; a few seconds) and switches nothing on `ERR:BOOTSLOT:verify <reason>`; `ERR:BOOTSLOT:switch` if the otadata write fails. On OK, 0.5 s after the reply, saves the open screens and restarts into that slot. The way back needs the same command (or Goodies) in that build. |
 | `CMD:MACRO <path.txt>` / `status` / `stop` | `OK:MACRO started`, `OK:MACRO running line N`, `OK:MACRO done <results>` | PSRAM-log builds: runs a test script from the SD card with the Wi-Fi remote off; see Test macros below. |
@@ -191,7 +192,7 @@ the script and the remote rejoins. Upload the script with `/api/upload` (names c
 name), start it, wait for the remote to come back (`PING`), check `MACRO status`, then download the results.
 
 One command per line; blank lines and `#` comments are skipped. Any remote command above runs as it would over
-`/api/cmd` (`TOUCH`, `KEY`, `SWIPE`, `TYPE`, `GOTO`, `WAITIDLE`, `SET`, `KNOB`, `SLEEPREBOOT`, `REBOOT`, ...), plus:
+`/api/cmd` (`TOUCH`, `KEY`, `SWIPE`, `TYPE`, `GOTO`, `WAITIDLE`, `SET`, `KNOB`, `SLEEPREBOOT`, `FLUSH`, `REBOOT`, ...), plus:
 
 | Line | Does |
 | --- | --- |

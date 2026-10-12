@@ -57,22 +57,22 @@ TEST(ReaderProgressSaveDebouncer, PositionOnlyCallersKeepExistingBehavior) {
   EXPECT_EQ(debouncer.lastObservedMetadata(), 0U);
 }
 
-TEST(ReaderProgressSaveDebouncer, ShadowedReaderUsesLongerPageInterval) {
+TEST(ReaderProgressSaveDebouncer, ShadowedReaderNeverSavesMidSession) {
   ReaderProgressSaveDebouncer debouncer;
   debouncer.setShadowed(true);
   debouncer.observe(0);
   debouncer.markPersisted(0);
 
-  constexpr uint32_t interval = ReaderProgressSaveDebouncer::SHADOWED_PAGE_CHANGE_INTERVAL;
-  for (uint32_t page = 1; page < interval; ++page) {
+  constexpr uint32_t interval = ReaderProgressSaveDebouncer::PAGE_CHANGE_INTERVAL;
+  for (uint32_t page = 1; page <= 300; ++page) {
     EXPECT_FALSE(debouncer.observe(page));
   }
-  EXPECT_TRUE(debouncer.observe(interval));
+  EXPECT_TRUE(debouncer.hasPending());
 
-  debouncer.markPersisted(interval);
+  debouncer.markPersisted(300);
   debouncer.setShadowed(false);
-  for (uint32_t page = interval + 1; page < interval + ReaderProgressSaveDebouncer::PAGE_CHANGE_INTERVAL; ++page) {
+  for (uint32_t page = 301; page < 300 + interval; ++page) {
     EXPECT_FALSE(debouncer.observe(page));
   }
-  EXPECT_TRUE(debouncer.observe(interval + ReaderProgressSaveDebouncer::PAGE_CHANGE_INTERVAL));
+  EXPECT_TRUE(debouncer.observe(300 + interval));
 }

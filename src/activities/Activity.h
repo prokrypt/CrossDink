@@ -85,13 +85,12 @@ class Activity {
   // A Wi-Fi screen that is idle between transfers: the main loop may power
   // save and light-sleep between ticks even though the radio is up.
   virtual bool allowsRadioIdleSleep() { return false; }
-  // While true, deferred settings stay unwritten when a screen above closes
-  // (Goodies > Keyboard test opening the keyboard); sleep, restart and
-  // firmware flashing still write them.
-  virtual bool holdsSettingsFlush() const { return false; }
   // While true, main-loop global controls and activity replacement are
   // suspended so an exclusive storage owner cannot race the filesystem.
   virtual bool requiresExclusiveStorageLoop() const { return false; }
+  // A computer reads and writes the card while this screen runs (USB Drive,
+  // File Transfer): held store writes land first and later ones write at once.
+  virtual bool servesFiles() const { return requiresExclusiveStorageLoop(); }
   // Called by the app-wide Quick Lock. Reader activities use it to exclude
   // locked time from reading statistics; other activities have no state to change.
   virtual void onInputLockChanged(bool) {}
@@ -134,6 +133,9 @@ class Activity {
   virtual bool canSnapshotForSleepOverlay() const { return false; }
   // An EPUB reader saves its position now (Sync on Wake & Sleep); false elsewhere.
   virtual bool flushProgressForSync() { return false; }
+  // A reader writes its unsaved position now (low battery, remote FLUSH) and
+  // says whether one was pending; readers no longer save mid-session.
+  virtual bool flushHeldProgress() { return false; }
   // Activity-specific swipe actions (chapter and font commands). Global
   // frontlight commands are handled by ActivityManager before this callback.
   virtual bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION) { return false; }

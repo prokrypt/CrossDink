@@ -21,6 +21,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
@@ -785,7 +786,6 @@ void ActivityManager::loop() {
 
       // Destroy the current activity
       exitActivity(lock);
-      settingsFlushPending = true;
       pendingAction = PendingAction::None;
 
       if (stackActivities.empty()) {
@@ -860,7 +860,6 @@ void ActivityManager::loop() {
       if (pendingAction == PendingAction::Replace) {
         // Destroy the current activity
         exitActivity(lock);
-        settingsFlushPending = true;
         // Clear the stack
         while (!stackActivities.empty()) {
           stackActivities.back()->onExit();
@@ -879,10 +878,11 @@ void ActivityManager::loop() {
       // Only Home waits for its first frame; anything else (USB Drive included)
       // must find the reader's exit writes on SD before it starts.
       if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
-      // USB Drive owns the card from onEnter() and skips the deferred flush below.
-      if (settingsFlushPending && currentActivity->requiresExclusiveStorageLoop()) {
-        settingsFlushPending = false;
-        flushSettingsStores();
+      // USB Drive and File Transfer share the card with a computer until the
+      // restart that ends them: write what is held now, and every later save at once.
+      if (currentActivity->servesFiles()) {
+        HeldWrites::setWriteThrough(HeldWrites::ServesFiles, true);
+        flushSettingsStores();  // knobs.json
       }
 #if CROSSDINK_GOODIES
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
@@ -936,15 +936,10 @@ void ActivityManager::loop() {
   }
 
   // The new screen's first frame is refreshing on the panel: the reader's exit
-  // writes (Home) and deferred settings run in that wait instead of before it drew.
+  // writes (Home) run in that wait instead of before it drew. Settings changes
+  // stay held until a flush point (HeldWrites).
   if (!currentActivity || currentActivityPainted.load(std::memory_order_acquire)) {
     ReaderExitSave::flush();
-    // Settings changed on a screen or panel are written once it has closed,
-    // while the screen below refreshes.
-    if (settingsFlushPending && !(currentActivity && currentActivity->holdsSettingsFlush())) {
-      settingsFlushPending = false;
-      flushSettingsStores();
-    }
   }
 
   if (APP_STATE.hasPendingAlert.load(std::memory_order_acquire) && pendingAction == PendingAction::None) {
@@ -1500,6 +1495,14 @@ std::string ActivityManager::flushEpubProgressForSync() {
     if (*it && (*it)->flushProgressForSync()) return (*it)->getCurrentBookPath();
   }
   return {};
+}
+
+bool ActivityManager::flushHeldProgress() {
+  bool any = currentActivity && currentActivity->flushHeldProgress();
+  for (auto& activity : stackActivities) {
+    if (activity && activity->flushHeldProgress()) any = true;
+  }
+  return any;
 }
 
 std::string ActivityManager::getCurrentBookPath() const {

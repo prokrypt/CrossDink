@@ -662,6 +662,12 @@ class EpubReaderActivity final : public Activity {
     saveProgressBeforeRestart();
     return true;
   }
+  bool flushHeldProgress() override {
+    if (!epub) return false;
+    const bool pending = progressSaveDebouncer.hasPending() || footnoteDepth > 0;
+    saveProgressBeforeRestart();
+    return pending;
+  }
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }
   bool blocksGlobalInput() const override { return quickActionsPopup.isActive(); }
   bool handleShortcutAction(CrossPointSettings::SHORT_PWRBTN action) override;
