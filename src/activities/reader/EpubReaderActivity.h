@@ -397,13 +397,17 @@ class EpubReaderActivity final : public Activity {
   // of `pageIndex` are (still) being built in the background and that page
   // should draw placeholders for now.
   bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop, int pageIndex);
-  // Idle: starts the worker on the next page (previous after a back turn) so
-  // turning onto it draws its images at once. Same section only.
+  // Idle: starts the worker on the next page (previous after a back turn;
+  // both after an open or a jump) so turning onto it draws its images at once.
+  // Same section only.
   void prefetchImageCaches();
-  const Section* imagePrefetchAttemptSection = nullptr;
-  int imagePrefetchAttemptSpine = -1;
-  int imagePrefetchAttemptPage = -1;
+  const Section* imagePrefetchAnchorSection = nullptr;  // the page the tried bits belong to
+  int imagePrefetchAnchorSpine = -1;
+  int imagePrefetchAnchorPage = -1;
+  uint8_t imagePrefetchTried = 0;  // 1: next page, 2: previous page
   bool lastTurnBackward = false;
+  int turnFromSpine = -1;  // where the last page turn started
+  int turnFromPage = -1;
   static void imageCacheWorkerMain(void* param);
   // Joins a finished job (all of it when cancel), applying its failures.
   // False while it still runs. Render task or onExit.
