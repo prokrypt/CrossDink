@@ -887,6 +887,7 @@ Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
   BatteryLog::event("fw_start", "sd");
   const Result r = flashValidatedFileImpl(file, onProgress, ctx);
   BatteryLog::event(r == Result::OK ? "fw_ok" : "fw_fail", resultName(r));
+  if (r != Result::OK) HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, false);  // staying on this firmware
   return r;
 }
 
@@ -1086,6 +1087,7 @@ Result streamFinish() {
 void streamAbort() {
   closeStream();
   stopFlashWorker();
+  HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, false);  // staying on this firmware
 }
 
 bool streamActive() { return streamOpen.load(std::memory_order_relaxed); }

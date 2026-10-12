@@ -63,6 +63,7 @@ static_assert(sizeof(kSlots) / sizeof(kSlots[0]) == kCount, "one SlotInfo per Sl
 
 struct Record {
   uint32_t magic;  // kMagic = held, not yet on the card
+  uint32_t size;   // sizeof(Record): rejects a record from a build with another layout
   uint32_t len;
   uint32_t crc;
   char data[kCap + 1];  // NUL-terminated
@@ -103,7 +104,8 @@ void clear(Record& r) {
 }
 
 bool valid(const Record& r) {
-  return r.magic == kMagic && r.len <= kCap && r.data[r.len] == '\0' && uzlib_crc32(r.data, r.len, 0) == r.crc;
+  return r.magic == kMagic && r.size == sizeof(Record) && r.len <= kCap && r.data[r.len] == '\0' &&
+         uzlib_crc32(r.data, r.len, 0) == r.crc;
 }
 
 // Caller holds heldMutex.
@@ -183,6 +185,7 @@ bool hold(const Slot slot, const char* data, const size_t len) {
   r.magic = 0;
   memcpy(r.data, data, len);
   r.data[len] = '\0';
+  r.size = sizeof(Record);
   r.len = static_cast<uint32_t>(len);
   r.crc = uzlib_crc32(r.data, r.len, 0);
   r.magic = kMagic;

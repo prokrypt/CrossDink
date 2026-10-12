@@ -32,7 +32,7 @@ int flushAll();
 // While any reason is on, every hold writes at once; turning one on flushes.
 enum Reason : uint8_t {
   LowBattery = 1,
-  ServesFiles = 2,     // USB Drive / File Transfer: the card is shared until the restart that ends them
+  ServesFiles = 2,     // USB Drive / File Transfer: a computer shares the card until the screen ends
   FirmwareUpdate = 4,  // the new firmware may not read what PSRAM carries
   Sleeping = 8,        // deep sleep powers PSRAM down
 };

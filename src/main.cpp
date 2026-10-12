@@ -1605,7 +1605,8 @@ static void pollLowBatteryWrites() {
   if (millis() - lastPollMs < POLL_MS) return;
   lastPollMs = millis();
   const uint16_t pct = powerManager.getBatteryPercentage();
-  if (gpio.isUsbConnectedCached() || pct > LOW_PCT) {
+  // Off only above LOW_PCT + 2, so a reading flapping between 5% and 6% does not re-flush.
+  if (gpio.isUsbConnectedCached() || pct > (flushedAtPct == UINT16_MAX ? LOW_PCT : LOW_PCT + 2)) {
     if (flushedAtPct != UINT16_MAX) {
       flushedAtPct = UINT16_MAX;
       HeldWrites::setWriteThrough(HeldWrites::LowBattery, false);
