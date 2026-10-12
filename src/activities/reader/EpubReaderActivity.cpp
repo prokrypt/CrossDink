@@ -3065,23 +3065,45 @@ void EpubReaderActivity::idlePrewarmNextPage() {
 }
 
 void EpubReaderActivity::prefetchImageCaches() {
-  // A running or unjoined job (maybe this page's own) is left alone.
-  if (imageCacheWorker.task) return;
-  // shortcut: stays inside the current section; the next/previous chapter's first page is not prefetched.
-  const int target = section->currentPage + (lastTurnBackward ? -1 : 1);
-  if (target < 0 || target >= static_cast<int>(section->pageCount)) return;
-  if (imagePrefetchAttemptSection == section.get() && imagePrefetchAttemptSpine == currentSpineIndex &&
-      imagePrefetchAttemptPage == target) {
+  auto& job = imageCacheWorker;
+  // The shown page's own job is left for its redraw; a finished prefetch is
+  // joined so the other side can start.
+  if (job.task && ((job.spine == currentSpineIndex && job.pageIndex == section->currentPage) ||
+                   !joinImageCacheWorker(/*cancel=*/false))) {
     return;
   }
-  imagePrefetchAttemptSection = section.get();
-  imagePrefetchAttemptSpine = currentSpineIndex;
-  imagePrefetchAttemptPage = target;
-  auto page = section->loadPage(target);
-  if (!page || !page->hasImagesNeedingDecode()) return;
-  const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
-  if (startImageCacheWorker(*page, layout.marginLeft, layout.marginTop, target)) {
-    LOG_DBG("ERS", "Prefetching image caches for page %d", target);
+  if (imagePrefetchAnchorSection != section.get() || imagePrefetchAnchorSpine != currentSpineIndex ||
+      imagePrefetchAnchorPage != section->currentPage) {
+    imagePrefetchAnchorSection = section.get();
+    imagePrefetchAnchorSpine = currentSpineIndex;
+    imagePrefetchAnchorPage = section->currentPage;
+    imagePrefetchTried = 0;
+  }
+  // A one-page turn gives the direction. After an open, a jump or a relayout
+  // there is none: the next page, then the previous one.
+  const bool turned =
+      turnFromSpine == currentSpineIndex && turnFromPage == section->currentPage + (lastTurnBackward ? 1 : -1);
+  int steps[2] = {lastTurnBackward ? -1 : 1, 0};
+  if (!turned) {
+    steps[0] = 1;
+    steps[1] = -1;
+  }
+  // shortcut: stays inside the current section; the next/previous chapter's first page is not prefetched.
+  for (const int step : steps) {
+    const uint8_t bit = step > 0 ? 1 : 2;
+    const int target = section->currentPage + step;
+    if (step == 0 || (imagePrefetchTried & bit) || target < 0 || target >= static_cast<int>(section->pageCount)) {
+      continue;
+    }
+    imagePrefetchTried |= bit;
+    // One page read per idle pass; the other side waits for the next one.
+    auto page = section->loadPage(target);
+    if (!page || !page->hasImagesNeedingDecode()) return;
+    const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+    if (startImageCacheWorker(*page, layout.marginLeft, layout.marginTop, target)) {
+      LOG_DBG("ERS", "Prefetching image caches for page %d", target);
+    }
+    return;
   }
 }
 
@@ -6653,6 +6675,8 @@ bool EpubReaderActivity::isAtBookStart() const {
 void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
   pageLoadRetryCount = 0;
   lastTurnBackward = !isForwardTurn;
+  turnFromSpine = currentSpineIndex;
+  turnFromPage = section ? section->currentPage : -1;
   if (activeFootnotePreview) {
     if (isForwardTurn) {
       if (section && section->currentPage < section->pageCount - 1) {
