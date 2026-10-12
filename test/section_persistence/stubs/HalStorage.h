@@ -27,6 +27,7 @@ class HalFile : public Print {
   explicit HalFile(std::shared_ptr<HostFileData> data) : data_(std::move(data)) {}
 
   void flush() {}
+  bool enableWriteBuffer(size_t) { return false; }
   size_t size() const { return data_ ? data_->bytes.size() : 0; }
   size_t fileSize() const { return size(); }
   int available() const { return data_ && cursor_ < data_->bytes.size(); }
