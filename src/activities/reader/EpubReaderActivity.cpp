@@ -2929,6 +2929,12 @@ void EpubReaderActivity::queueNextSectionBuild() {
     return;
   }
   nextSectionSpine = next;
+  // A big chapter's inflate would hold RenderLock long enough to delay a tap; it keeps its Indexing popup.
+  if (epub->getCumulativeSpineItemSize(next) - epub->getCumulativeSpineItemSize(currentSpineIndex) >
+      BUILD_POPUP_BYTE_THRESHOLD) {
+    LOG_DBG("ERS", "Next chapter too big to prebuild: spine=%d", next);
+    return;
+  }
   // Same font, mode and viewport the chapter open uses, so it finds this cache.
   const SectionBuildProfile profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
   nextSectionSpec =

@@ -20,7 +20,8 @@ the background build right away.
 
 When the current chapter is complete and you reach its last two pages, the
 next chapter is built the same way in the background (after the page has been
-on screen for 1.5 s), so turning into it does not wait for indexing. If you
+on screen for 1.5 s), so turning into it does not wait for indexing (chapters big enough to
+show the Indexing popup are built when opened instead). If you
 leave or jump elsewhere first, its pages built so far are kept and resume when
 you get there.
 
