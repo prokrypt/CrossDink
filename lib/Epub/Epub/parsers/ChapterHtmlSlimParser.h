@@ -301,6 +301,29 @@ class ChapterHtmlSlimParser {
   void fallbackCurrentTableBufferToParagraphs(const char* reason);
   void flushMalformedPartialContent();
   bool appendMalformedMarkupWarningPage();
+  // Whole-section advance prewarm: scan the HTML bytes for unique codepoints, then load
+  // their advances. beginParse() runs it in one go; a deferred one runs one bounded
+  // slice per background build tick (prewarmSectionAdvanceStep).
+  struct AdvancePrewarm {
+    std::unique_ptr<uint32_t[]> codepoints;
+    std::unique_ptr<uint8_t[]> buffer;
+    size_t offset = 0;  // next HTML byte to scan
+    uint32_t cpCount = 0;
+    uint32_t fedCount = 0;  // codepoints already handed to the font
+    uint32_t utf8Accumulator = 0;
+    uint8_t utf8Remaining = 0;
+    bool inTag = false;
+    bool inEntity = false;
+    bool hitCap = false;
+    bool scanned = false;
+    uint32_t busyMs = 0;
+  };
+  std::unique_ptr<AdvancePrewarm> advancePrewarm_;
+  bool deferAdvancePrewarm_ = false;
+  bool advancePrewarmPending_ = false;
+  std::unique_ptr<AdvancePrewarm> startAdvancePrewarm() const;
+  void scanAdvancePrewarmChunk(AdvancePrewarm& state, FsFile& file) const;
+  void feedAdvancePrewarm(AdvancePrewarm& state, uint32_t maxCount) const;
   void prewarmSectionAdvanceTable(FsFile& file) const;
   // XML callbacks
   static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);
@@ -354,6 +377,12 @@ class ChapterHtmlSlimParser {
   // Parse from an overlapped inflate instead of the file (non-preview builds
   // without SD card font prewarm). Set before beginParse().
   void setStreamInput(HtmlInflateStream* input) { streamInput_ = input; }
+  // Leave the whole-section advance prewarm out of beginParse() so the first page lays out
+  // sooner (layout loads advances per paragraph meanwhile); prewarmSectionAdvanceStep()
+  // then runs it in slices. Set before beginParse().
+  void setDeferAdvancePrewarm(bool defer) { deferAdvancePrewarm_ = defer; }
+  // One bounded slice of a deferred prewarm; false when none is pending.
+  bool prewarmSectionAdvanceStep();
   bool beginParse();
   ParseStatus parseStep();
   bool finishParse();  // flush the trailing page and tear down; returns true
