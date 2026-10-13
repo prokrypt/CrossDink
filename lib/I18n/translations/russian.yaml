@@ -891,3 +891,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Дважды нажмите «Домой»"
 STR_MENU_NAVIGATION: "Навигация по меню"
 STR_MENU_DIRECTIONAL: "По направлениям"
 STR_MENU_CLASSIC: "Прежняя"
+
+STR_PUBLISHER_FONTS: "Шрифты издателя"
+STR_PUBLISHER_FONTS_ACCENTS: "Игнорировать основной шрифт"
+STR_PUBLISHER_FONTS_ALL: "Весь текст"

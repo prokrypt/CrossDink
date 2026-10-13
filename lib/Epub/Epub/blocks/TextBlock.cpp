@@ -116,7 +116,8 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<uint16_t>& focusRunOffset, const std::vector<uint16_t>& guideDotXOffset,
                      const std::vector<uint8_t>& wordFlags, const std::vector<bool>& wordHasSpaceBefore,
                      const BlockStyle& blockStyle, std::vector<std::string> rubyTexts, const int8_t characterSpacing,
-                     const std::vector<uint8_t>& wordSizes, const char* initialLetter)
+                     const std::vector<uint8_t>& wordSizes, const char* initialLetter,
+                     const std::vector<uint32_t>& fontFamilies)
     : blockStyle(blockStyle), characterSpacing(characterSpacing), rubyTexts(std::move(rubyTexts)) {
   // A ruby-less line needs no per-word ruby vector. ParsedText passes one for
   // every extracted line once a book contains any ruby, so free all-empty
@@ -126,6 +127,16 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
   }
 
   initialLetterBytes = words.empty() ? 0 : static_cast<uint8_t>(std::min<size_t>(12, strlen(initialLetter)));
+  if (!fontFamilies.empty()) {
+    // Four bytes per token, only on lines that use a publisher font.
+    wordFamilies = makeUniqueNoThrow<uint32_t[]>(words.size());
+    if (!wordFamilies || fontFamilies.size() != words.size()) {
+      LOG_ERR("TXB", "Cannot allocate publisher font references");
+      isValid = false;
+      return;
+    }
+    std::copy(fontFamilies.begin(), fontFamilies.end(), wordFamilies.get());
+  }
   wordSizesPresent = !wordSizes.empty();
   if (wordSizesPresent && wordSizes.size() != words.size()) {
     LOG_ERR("TXB", "Invalid word font sizes");
@@ -253,18 +264,19 @@ bool TextBlock::hasRuby() const {
 }
 
 int TextBlock::wordFontId(const GfxRenderer& renderer, int fontId, uint16_t i) const {
-  return renderer.getFontIdForSize(resolvedFontId(renderer, fontId), wordFontSize(i));
+  return renderer.resolveBookFont(resolvedFontId(renderer, fontId), wordFamilies ? wordFamilies[i] : 0,
+                                  wordFontSize(i));
 }
 int TextBlock::maxAscender(const GfxRenderer& renderer, int fontId) const {
   int height = renderer.getFontAscenderSize(resolvedFontId(renderer, fontId));
-  if (wordSizesPresent)
+  if (wordSizesPresent || wordFamilies)
     for (uint16_t i = 0; i < numWords; ++i)
       height = std::max(height, renderer.getFontAscenderSize(wordFontId(renderer, fontId, i)));
   return height;
 }
 int TextBlock::maxLineHeight(const GfxRenderer& renderer, int fontId) const {
   int height = renderer.getLineHeight(resolvedFontId(renderer, fontId));
-  if (wordSizesPresent)
+  if (wordSizesPresent || wordFamilies)
     for (uint16_t i = 0; i < numWords; ++i)
       height = std::max(height, renderer.getLineHeight(wordFontId(renderer, fontId, i)));
   return height;
@@ -344,7 +356,8 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
       }
       int groupWidth = 0;
       for (uint16_t j = 0; j < groupWords; ++j) {
-        groupWidth += renderer.getTextAdvanceX(fontId, wordText(i + j), wordStyle(i + j), 0, characterSpacing);
+        groupWidth += renderer.getTextAdvanceX(wordFontId(renderer, baseFont, i + j), wordText(i + j), wordStyle(i + j),
+                                               0, characterSpacing);
       }
       const int rubyWidth =
           renderer.getTextAdvanceX(fontId, rubyTexts[i].c_str(), EpdFontFamily::SUP, 0, characterSpacing);
@@ -460,6 +473,12 @@ bool TextBlock::serialize(HalFile& file) const {
       return false;
     }
   }
+
+  const uint8_t hasFamilies = wordFamilies ? 1 : 0;
+  if (!serialization::tryWritePod(file, hasFamilies)) return false;
+  if (hasFamilies && file.write(reinterpret_cast<const uint8_t*>(wordFamilies.get()), numWords * sizeof(uint32_t)) !=
+                         numWords * sizeof(uint32_t))
+    return false;
 
   uint16_t rubyCount = 0;
   for (uint16_t i = 0; i < numWords && i < rubyTexts.size(); ++i) {
@@ -585,6 +604,15 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
     return nullptr;
   }
 
+  uint8_t hasFamilies = 0;
+  if (!serialization::tryReadPod(file, hasFamilies) || hasFamilies > 1) return nullptr;
+  if (hasFamilies) {
+    block->wordFamilies = makeUniqueNoThrow<uint32_t[]>(wc);
+    if (!block->wordFamilies || file.read(block->wordFamilies.get(), wc * sizeof(uint32_t)) != wc * sizeof(uint32_t)) {
+      LOG_ERR("TXB", "Cannot read publisher font references");
+      return nullptr;
+    }
+  }
   uint16_t rubyCount = 0;
   if (!serialization::tryReadPod(file, rubyCount) || rubyCount > wc) {
     LOG_ERR("TXB", "Deserialization failed: invalid ruby count %u", rubyCount);

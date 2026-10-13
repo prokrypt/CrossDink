@@ -900,3 +900,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Doppio tocco su Home"
 STR_MENU_NAVIGATION: "Navigazione menu"
 STR_MENU_DIRECTIONAL: "Direzionale"
 STR_MENU_CLASSIC: "Precedente"
+
+STR_PUBLISHER_FONTS: "Caratteri dell’editore"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignora font del corpo"
+STR_PUBLISHER_FONTS_ALL: "Tutto il testo"

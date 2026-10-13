@@ -925,3 +925,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Toca dos veces Inicio"
 STR_MENU_NAVIGATION: "Navegación por menús"
 STR_MENU_DIRECTIONAL: "Direccional"
 STR_MENU_CLASSIC: "Anterior"
+
+STR_PUBLISHER_FONTS: "Fuentes de la editorial"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorar fuente del cuerpo"
+STR_PUBLISHER_FONTS_ALL: "Todo el texto"

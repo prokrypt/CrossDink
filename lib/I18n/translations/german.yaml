@@ -921,3 +921,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Home doppeltippen"
 STR_MENU_NAVIGATION: "Menünavigation"
 STR_MENU_DIRECTIONAL: "Richtungsbasiert"
 STR_MENU_CLASSIC: "Alt"
+
+STR_PUBLISHER_FONTS: "Verlagsschriften"
+STR_PUBLISHER_FONTS_ACCENTS: "Fließtextschrift ignorieren"
+STR_PUBLISHER_FONTS_ALL: "Gesamter Text"

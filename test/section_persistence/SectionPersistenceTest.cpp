@@ -20,12 +20,12 @@
 #include <GfxRenderer.h>
 
 namespace {
-constexpr uint8_t kFullVersion = 99;
-constexpr uint8_t kPartialVersion = 0xED;
-constexpr uint8_t kPreviousFullVersion = 98;
-constexpr uint8_t kPreviousPartialVersion = 0xEE;
-constexpr uint8_t kOlderFullVersion = 97;
-constexpr uint8_t kOlderPartialVersion = 0xEF;
+constexpr uint8_t kFullVersion = 101;
+constexpr uint8_t kPartialVersion = 0xEB;
+constexpr uint8_t kPreviousFullVersion = 99;
+constexpr uint8_t kPreviousPartialVersion = 0xED;
+constexpr uint8_t kOlderFullVersion = 98;
+constexpr uint8_t kOlderPartialVersion = 0xEE;
 
 ReaderRenderSpec renderSpec() {
   ReaderRenderSpec spec;
@@ -291,6 +291,37 @@ TEST_F(SectionPersistenceTest, ParagraphPositionUsesLivePrefixAndRejectsInvalidD
   memcpy(bytes.data() + headerSize - 3 * sizeof(uint32_t), &invalid, sizeof(invalid));
   Storage.put(reopened.filePath, bytes);
   EXPECT_FALSE(reopened.getParagraphPositionForPage(1));
+}
+
+TEST_F(SectionPersistenceTest, PublisherFaceStateSurvivesCompleteAndPartialCommits) {
+  for (const uint8_t version : {kFullVersion, kPartialVersion}) {
+    Storage.reset();
+    SectionHarness harness;
+    harness.spec.publisherFonts = PublisherFonts::Accents;
+    harness.begin();
+    harness.renderer.publisherUsage = 1;
+    harness.renderer.publisherSignature = 1111;
+    harness.appendPages(1);
+    const auto firstPageSignature = harness.section.layoutSignature();
+    harness.renderer.publisherUsage = 3;
+    harness.renderer.publisherSignature = 1234;
+    harness.appendPages(1);
+    EXPECT_NE(harness.section.layoutSignature(), firstPageSignature);
+    // Closing the font provider before a suspended commit cannot erase page requirements.
+    harness.renderer.publisherUsage = 0;
+    harness.renderer.publisherSignature = 0;
+    ASSERT_TRUE(harness.commit(version, 10, 100));
+    harness.finishSuccessfulCommit();
+    harness.renderer.publisherSignature = 1234;
+    Section reopened(harness.epub, 0, harness.renderer);
+    ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+    EXPECT_EQ(harness.renderer.restoredPublisherUsage, 3u);
+    EXPECT_EQ(reopened.layoutSignature(), harness.section.layoutSignature());
+    EXPECT_NE(reopened.layoutSignature(), readerRenderSpecSignature(harness.spec));
+    EXPECT_EQ(reopened.isPartial(), version == kPartialVersion);
+    harness.renderer.publisherSignature = 5678;
+    EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
+  }
 }
 
 }  // namespace

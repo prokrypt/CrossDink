@@ -884,3 +884,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Appuyez deux fois sur Accueil"
 STR_MENU_NAVIGATION: "Navigation des menus"
 STR_MENU_DIRECTIONAL: "Directionnelle"
 STR_MENU_CLASSIC: "Ancienne"
+
+STR_PUBLISHER_FONTS: "Polices de l’éditeur"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorer la police du corps"
+STR_PUBLISHER_FONTS_ALL: "Tout le texte"

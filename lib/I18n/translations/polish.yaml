@@ -894,3 +894,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Kliknij dwukrotnie stronę główną"
 STR_MENU_NAVIGATION: "Nawigacja w menu"
 STR_MENU_DIRECTIONAL: "Kierunkowa"
 STR_MENU_CLASSIC: "Starsza"
+
+STR_PUBLISHER_FONTS: "Czcionki wydawcy"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignoruj czcionkę treści"
+STR_PUBLISHER_FONTS_ALL: "Cały tekst"

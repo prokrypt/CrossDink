@@ -890,3 +890,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Dubbeltryck på Hem"
 STR_MENU_NAVIGATION: "Menynavigering"
 STR_MENU_DIRECTIONAL: "Riktningsstyrd"
 STR_MENU_CLASSIC: "Äldre"
+
+STR_PUBLISHER_FONTS: "Förlagets typsnitt"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorera brödtextens typsnitt"
+STR_PUBLISHER_FONTS_ALL: "All text"

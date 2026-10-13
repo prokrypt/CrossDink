@@ -926,3 +926,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Poklepejte na Domů"
 STR_MENU_NAVIGATION: "Navigace v menu"
 STR_MENU_DIRECTIONAL: "Směrová"
 STR_MENU_CLASSIC: "Starší"
+
+STR_PUBLISHER_FONTS: "Písma vydavatele"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorovat písmo těla"
+STR_PUBLISHER_FONTS_ALL: "Veškerý text"

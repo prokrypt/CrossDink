@@ -14,6 +14,7 @@ class GfxRenderer {
  public:
   bool getCodepointMetrics(int, uint32_t, EpdFontFamily::Style, int32_t&, int&) const { return false; }
   int getFontIdForSize(int id, uint8_t) const { return id; }
+  int resolveBookFont(int id, uint32_t, uint8_t size = 0) const { return getFontIdForSize(id, size); }
   int getFontAscenderSize(int id) const { return 12 + id; }
   int getLineHeight(int id) const { return 16 + id; }
   static int characters(const char* text) {

@@ -884,3 +884,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Koppintson duplán a Kezdőlapra"
 STR_MENU_NAVIGATION: "Menünavigáció"
 STR_MENU_DIRECTIONAL: "Irányalapú"
 STR_MENU_CLASSIC: "Régi"
+
+STR_PUBLISHER_FONTS: "Kiadói betűtípusok"
+STR_PUBLISHER_FONTS_ACCENTS: "Törzsszöveg betűtípusának mellőzése"
+STR_PUBLISHER_FONTS_ALL: "Teljes szöveg"

@@ -925,3 +925,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "انقر نقرًا مزدوجًا على الص�
 STR_MENU_NAVIGATION: "التنقل في القوائم"
 STR_MENU_DIRECTIONAL: "اتجاهي"
 STR_MENU_CLASSIC: "قديم"
+
+STR_PUBLISHER_FONTS: "خطوط الناشر"
+STR_PUBLISHER_FONTS_ACCENTS: "تجاهل خط المتن"
+STR_PUBLISHER_FONTS_ALL: "كل النص"

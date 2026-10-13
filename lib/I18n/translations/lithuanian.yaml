@@ -884,3 +884,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Dukart palieskite Pradžia"
 STR_MENU_NAVIGATION: "Meniu naršymas"
 STR_MENU_DIRECTIONAL: "Kryptinis"
 STR_MENU_CLASSIC: "Senoji"
+
+STR_PUBLISHER_FONTS: "Leidėjo šriftai"
+STR_PUBLISHER_FONTS_ACCENTS: "Nepaisyti pagrindinio šrifto"
+STR_PUBLISHER_FONTS_ALL: "Visas tekstas"

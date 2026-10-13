@@ -884,3 +884,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Dvakrat se dotaknite Domov"
 STR_MENU_NAVIGATION: "Krmarjenje po menijih"
 STR_MENU_DIRECTIONAL: "Smerno"
 STR_MENU_CLASSIC: "Stara"
+
+STR_PUBLISHER_FONTS: "Pisave založnika"
+STR_PUBLISHER_FONTS_ACCENTS: "Prezri pisavo jedra"
+STR_PUBLISHER_FONTS_ALL: "Vse besedilo"

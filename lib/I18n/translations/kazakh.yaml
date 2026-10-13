@@ -884,3 +884,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Басты түймесін екі рет түр�
 STR_MENU_NAVIGATION: "Мәзірді шарлау"
 STR_MENU_DIRECTIONAL: "Бағыттық"
 STR_MENU_CLASSIC: "Бұрынғы"
+
+STR_PUBLISHER_FONTS: "Баспа қаріптері"
+STR_PUBLISHER_FONTS_ACCENTS: "Негізгі мәтін қарпін елемеу"
+STR_PUBLISHER_FONTS_ALL: "Барлық мәтін"

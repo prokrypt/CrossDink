@@ -872,3 +872,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "הקש פעמיים על דף הבית"
 STR_MENU_NAVIGATION: "ניווט בתפריטים"
 STR_MENU_DIRECTIONAL: "כיווני"
 STR_MENU_CLASSIC: "מדור קודם"
+
+STR_PUBLISHER_FONTS: "גופני המוציא לאור"
+STR_PUBLISHER_FONTS_ACCENTS: "התעלמות מגופן גוף הטקסט"
+STR_PUBLISHER_FONTS_ALL: "כל הטקסט"

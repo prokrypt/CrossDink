@@ -898,3 +898,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Nhấn đúp vào trang chủ"
 STR_MENU_NAVIGATION: "Điều hướng menu"
 STR_MENU_DIRECTIONAL: "Theo hướng"
 STR_MENU_CLASSIC: "Cũ"
+
+STR_PUBLISHER_FONTS: "Phông của nhà xuất bản"
+STR_PUBLISHER_FONTS_ACCENTS: "Bỏ qua phông chữ thân bài"
+STR_PUBLISHER_FONTS_ALL: "Toàn bộ văn bản"

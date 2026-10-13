@@ -882,3 +882,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Kaksoisnapauta Koti"
 STR_MENU_NAVIGATION: "Valikkonavigointi"
 STR_MENU_DIRECTIONAL: "Suuntapainikkeet"
 STR_MENU_CLASSIC: "Vanha"
+
+STR_PUBLISHER_FONTS: "Kustantajan fontit"
+STR_PUBLISHER_FONTS_ACCENTS: "Ohita leipätekstin fontti"
+STR_PUBLISHER_FONTS_ALL: "Kaikki teksti"

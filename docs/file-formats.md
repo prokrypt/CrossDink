@@ -315,7 +315,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 12
+### Version 13
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -342,6 +342,9 @@ image-grayscale byte follows the mask (CrossDink writes `1` and ignores it,
 along with mask bit 18), then `u8 characterSpacing` (0-10 encodes -5..+5,
 default 5) with override bit 20. Version 10 records keep their overrides and
 inherit global character spacing. CrossInk's version 11 is not read.
+Version 13 follows CrossInk's version 13: it appends `u8 publisherFonts` (0 Off,
+1 Ignore Body Font, 2 All Text) with override bit 21. Older records inherit the
+global publisher-font mode.
 The file can preserve an auto-page-turn interval without forcing custom
 font/layout settings for the book. It also stores a per-book EPUB render mode override,
 which can be changed from book action menus before opening the book so a
@@ -569,6 +572,36 @@ Binary layout:
 - `[69-72]` `estimatedTimeLeftSeconds` (`uint32_t` LE, `0` means unavailable)
 
 ## `section.bin`
+
+### Version 101
+
+Complete caches use `101`; suspended caches use `0xEB`, and `0xEC`/`0xED` join
+the retired sentinels (`100`/`0xEC` belong to the fieldset change). After the
+render-mode byte, the header adds `u8 publisherFonts`, `u32
+publisherFontSignature` (face manifest identity), `u32 publisherFontFaces`
+(requested face bitmask), `u32 publisherFaceSignature` (loaded face
+fingerprints and fallback results) and `u32 publisherLoadedFaces` (successfully
+admitted faces). The face state is captured after page layout and patched when
+the complete or partial cache is committed. Reopening restores only requested
+families, previously loaded faces first, and rejects the cached layout if their
+availability or fingerprints differ. A book without `@font-face` faces stores
+mode 0 and lays out as with the setting off.
+
+Text blocks add a boolean byte after their packed arena, followed by one `u32`
+CSS family hash per word when present, before the ruby count. A zero family
+keeps the reader font. Drop caps add a `u32` family hash before their text
+length.
+
+CSS cache version `27` adds a four-byte family hash to each style (96 bytes
+total); defined bit 29 marks an explicit family. After the descendant rules,
+the same CSS cache holds an 8-bit face count (maximum 32). Each face stores a
+32-bit family hash, style flags (bit 0 bold, bit 1 italic), an 8-bit path length
+and that many UTF-8 path bytes, relative to the EPUB root. A final `u32` points
+to the face count so the font loader reads it directly. Empty manifests still
+store the count and footer.
+
+Extracted face files are `publisher-font-<index>` in the book cache folder and
+are reused while their size matches the EPUB entry.
 
 ### Version 99
 

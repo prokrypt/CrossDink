@@ -74,6 +74,12 @@ class GfxRenderer {
   uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
+  void* bookFontContext_ = nullptr;
+  int (*bookFontResolver_)(void*, uint32_t, uint8_t) = nullptr;
+  uint32_t (*bookFontUsage_)(void*) = nullptr;
+  uint32_t (*bookFontLoaded_)(void*) = nullptr;
+  uint32_t (*bookFontSignature_)(void*, uint32_t) = nullptr;
+  bool (*bookFontRestore_)(void*, uint32_t, uint32_t, uint32_t) = nullptr;
   // Shared bitmap row buffers. Every read/write must be inside BitmapScratchLock;
   // ensureBitmapScratchBuffers() asserts that contract before exposing them.
   mutable SemaphoreHandle_t bitmapScratchMutex_ = nullptr;
@@ -366,6 +372,30 @@ class GfxRenderer {
   // Zero means bitmap font: EPUB content sizing stays disabled.
   uint8_t getFontPointSize(int fontId) const;
   int getFontIdForSize(int fontId, uint8_t points) const;
+  void setBookFontResolver(void* context, int (*resolve)(void*, uint32_t, uint8_t), uint32_t (*usage)(void*) = nullptr,
+                           uint32_t (*loaded)(void*) = nullptr, uint32_t (*signature)(void*, uint32_t) = nullptr,
+                           bool (*restore)(void*, uint32_t, uint32_t, uint32_t) = nullptr) {
+    bookFontContext_ = context;
+    bookFontResolver_ = resolve;
+    bookFontUsage_ = usage;
+    bookFontLoaded_ = loaded;
+    bookFontSignature_ = signature;
+    bookFontRestore_ = restore;
+  }
+  uint32_t bookFontUsage() const { return bookFontUsage_ ? bookFontUsage_(bookFontContext_) : 0; }
+  uint32_t bookFontLoaded() const { return bookFontLoaded_ ? bookFontLoaded_(bookFontContext_) : 0; }
+  uint32_t bookFontSignature(uint32_t mask) const {
+    return bookFontSignature_ ? bookFontSignature_(bookFontContext_, mask) : 0;
+  }
+  bool restoreBookFonts(uint32_t mask, uint32_t loaded, uint32_t signature) const {
+    return bookFontRestore_ ? bookFontRestore_(bookFontContext_, mask, loaded, signature)
+                            : mask == 0 && loaded == 0 && signature == 0;
+  }
+  int resolveBookFont(int readerFontId, uint32_t family, uint8_t points = 0) const {
+    if (!points) points = getFontPointSize(readerFontId);
+    const int id = family && bookFontResolver_ ? bookFontResolver_(bookFontContext_, family, points) : 0;
+    return id ? id : getFontIdForSize(readerFontId, points);
+  }
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than

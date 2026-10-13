@@ -893,3 +893,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Fes doble toc a Inici"
 STR_MENU_NAVIGATION: "Navegació pels menús"
 STR_MENU_DIRECTIONAL: "Direccional"
 STR_MENU_CLASSIC: "Anterior"
+
+STR_PUBLISHER_FONTS: "Tipus de lletra de l’editor"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignora la font del cos"
+STR_PUBLISHER_FONTS_ALL: "Tot el text"

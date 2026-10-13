@@ -883,3 +883,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Atingeți de două ori Acasă"
 STR_MENU_NAVIGATION: "Navigare în meniu"
 STR_MENU_DIRECTIONAL: "Direcțională"
 STR_MENU_CLASSIC: "Veche"
+
+STR_PUBLISHER_FONTS: "Fonturile editurii"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignoră fontul corpului"
+STR_PUBLISHER_FONTS_ALL: "Tot textul"

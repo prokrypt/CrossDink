@@ -883,3 +883,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Ana Sayfaya Çift Dokunun"
 STR_MENU_NAVIGATION: "Menü gezintisi"
 STR_MENU_DIRECTIONAL: "Yönlü"
 STR_MENU_CLASSIC: "Eski"
+
+STR_PUBLISHER_FONTS: "Yayınevi yazı tipleri"
+STR_PUBLISHER_FONTS_ACCENTS: "Gövde yazı tipini yok say"
+STR_PUBLISHER_FONTS_ALL: "Tüm metin"

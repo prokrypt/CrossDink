@@ -883,3 +883,7 @@ STR_DOUBLE_TAP_HOME_SHORTCUT: "Dubbeltik op Thuis"
 STR_MENU_NAVIGATION: "Menunavigatie"
 STR_MENU_DIRECTIONAL: "Richtingsgericht"
 STR_MENU_CLASSIC: "Oud"
+
+STR_PUBLISHER_FONTS: "Uitgeverslettertypen"
+STR_PUBLISHER_FONTS_ACCENTS: "Negeer hoofdtekstlettertype"
+STR_PUBLISHER_FONTS_ALL: "Alle tekst"

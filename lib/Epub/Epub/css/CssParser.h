@@ -31,7 +31,7 @@
  *   - Child/sibling combinators (>, +, ~)
  *   - Pseudo-classes and pseudo-elements
  *   - Media queries (content is skipped)
- *   - @import, @font-face, etc.
+ *   - @import and other at-rules (except @font-face)
  */
 
 /**
@@ -46,6 +46,13 @@ struct CssAncestorEntry {
   std::string idAttr;
 };
 
+struct CssFontFace {
+  uint32_t family = 0;
+  bool bold = false;
+  bool italic = false;
+  std::string href;
+};
+
 class CssParser {
  public:
   enum class CacheStatus : uint8_t {
@@ -57,7 +64,7 @@ class CssParser {
 
   // Bump when CSS cache format or rules change; section caches are invalidated when this changes
   static constexpr uint32_t CSS_CACHE_MAGIC = 0x435843FF;  // bytes: 0xFF, "CXC"
-  static constexpr uint8_t CSS_CACHE_VERSION = 26;
+  static constexpr uint8_t CSS_CACHE_VERSION = 27;
 
   // Source text is streamed, never loaded as one allocation. PSRAM readers
   // can admit larger publisher stylesheets; rule-count and internal-heap
@@ -80,7 +87,9 @@ class CssParser {
    * @param source Open file handle to read from
    * @return true if parsing completed (even if no rules found)
    */
-  bool loadFromStream(HalFile& source);
+  bool loadFromStream(HalFile& source, std::string_view baseDir = {});
+  static uint32_t hashFontFamily(std::string_view name);
+  static bool loadFontFaces(const std::string& cachePath, std::vector<CssFontFace>& out);
 
   /**
    * Look up the style for an HTML element, considering tag name, class attributes, and ancestors.
@@ -118,6 +127,7 @@ class CssParser {
    * Clear all loaded rules
    */
   void clear() {
+    decltype(fontFaces_){}.swap(fontFaces_);
     // These buffers can grow large during chapter indexing. Swap with empty
     // vectors so the capacity is released back to the heap, matching the old
     // post-index cleanup behavior callers relied on.
@@ -171,6 +181,8 @@ class CssParser {
   [[nodiscard]] bool isCachePartial() const { return cachePartial_; }
 
  private:
+  std::vector<CssFontFace> fontFaces_;
+  bool parseFontFace(std::string_view declarations, std::string_view baseDir);
   static constexpr uint8_t CSS_CACHE_FLAG_PARTIAL = 1 << 0;
 
   struct DescendantRule {
@@ -275,5 +287,7 @@ class CssParser {
   bool lookupArenaRule(std::string_view selector, CssStyle& outStyle) const;
   bool readRuleFromDiskAtOffset(uint32_t ruleOffset, std::string_view selector, CssStyle& outStyle) const;
   static bool readCssStylePayload(FsFile& file, CssStyle& style);
+  bool writeFontFaces(HalFile& file) const;
+  static bool readFontFaces(HalFile& file, std::vector<CssFontFace>* out = nullptr);
   static bool writeCssStylePayload(FsFile& file, const CssStyle& style);
 };
