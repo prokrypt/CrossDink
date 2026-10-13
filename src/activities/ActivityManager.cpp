@@ -56,6 +56,7 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/BatteryLog.h"
+#include "util/BugReport.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/SwipeAdjustment.h"
@@ -172,7 +173,9 @@ bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputM
   activity.onFrontlightPanelOpened();
   activity.startActivityForResult(std::move(panel), [&activity](const ActivityResult& result) {
     const auto* panelResult = std::get_if<FrontlightPanelResult>(&result.data);
-    if (panelResult) activity.handleFrontlightPanelResult(*panelResult);
+    if (!panelResult) return;
+    activity.handleFrontlightPanelResult(*panelResult);  // ignores BugReport; still applies font changes
+    if (panelResult->action == FrontlightPanelAction::BugReport) BugReport::begin(activity);
   });
   return true;
 }
