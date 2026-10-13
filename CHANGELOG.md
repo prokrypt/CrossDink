@@ -22,6 +22,7 @@
 - X4 Pro (debug builds): power stats now cover the touchscreen and the e-ink panel. `power.csv` gets a `touch_ms` column (time the GT911 touch controller is awake), `scripts/power_fit.py` fits touch-controller and e-ink booster time by default next to the refresh counts, and Goodies > Battery & stats shows e-ink busy, booster and touch-on time. The counters start a new generation once after updating.
 
 ### Changed
+- Library and File browser: book actions (Delete Cache, Delete Book Stats, Reset Reader Settings, Render mode, reading stats, Mark Finished, Send Nearby) now run through one shared handler. "Book cache deleted" in Library and "Marked finished/unfinished" in File browser now use the same 1 s toast as the other book actions.
 - XTC/XTCH reader: the Confirm menu (Select Chapter, reading stats, Mark Finished, Delete Cache, Send Nearby, Disable Touchscreen) is now a popup over the page like the TXT reader's, instead of a full-screen list. Same rows and order; Disable Touchscreen now closes the popup after toggling and shows its state.
 - Reader (EPUB): right after opening a book, or after a jump (table of contents, go to %, sync, link, relayout), the idle image prefetch prepares the image caches of both the next and the previous page, one after the other. After a page turn it keeps preparing only the page in the turn's direction. No extra panel refreshes.
 - Library: the Sort by popup now lists Recently Opened first. Your saved sort choice is unchanged.
