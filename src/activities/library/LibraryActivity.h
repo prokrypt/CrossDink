@@ -69,8 +69,6 @@ class LibraryActivity final : public Activity {
   bool backgroundRefresh = false;
   unsigned long lastInputMs = 0;
   bool filterFailed = false;
-  bool pendingCacheDeletedFeedback = false;
-  unsigned long cacheDeletedFeedbackShowTime = 0;
   std::string query;
   // Searches and file-type filters allocate one u16 per visible source book, fallibly.
   std::unique_ptr<uint16_t[]> filtered;
