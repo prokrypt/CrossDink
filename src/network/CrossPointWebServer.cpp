@@ -1227,14 +1227,34 @@ void CrossPointWebServer::endTransferHold() {
 
 #ifndef SIMULATOR
 namespace {
-// Wi-Fi RX task: when a frame for the mDNS group (224.0.0.251) last arrived; 0 = never.
+// Wi-Fi RX task: when an mDNS query naming our host last arrived; 0 = never.
 std::atomic<unsigned long> lastMdnsRxMs{0};
 std::atomic<netif_input_fn> wrappedStaInput{nullptr};
 constexpr uint8_t MDNS_MAC[6] = {0x01, 0x00, 0x5e, 0x00, 0x00, 0xfb};
 
+// True for an IPv4 mDNS query (QR=0) with a <NET_HOSTNAME> label. Other hosts'
+// traffic and responses (our own announcements echoed back included) must not
+// count: on a chatty LAN they re-armed MIN_MODEM every few seconds, so Max
+// Wi-Fi powersave never got back to MAX_MODEM.
+bool queriesOurHost(const pbuf* p) {
+  constexpr u16_t IP = 14;  // IPv4 header starts after the Ethernet header
+  if (pbuf_try_get_at(p, 12) != 0x08 || pbuf_try_get_at(p, 13) != 0x00) return false;
+  const int vihl = pbuf_try_get_at(p, IP);
+  if (vihl < 0 || pbuf_try_get_at(p, IP + 9) != 17) return false;  // not UDP
+  const u16_t udp = IP + (vihl & 0x0f) * 4;
+  if (pbuf_try_get_at(p, udp + 2) != 0x14 || pbuf_try_get_at(p, udp + 3) != 0xe9) return false;  // dst != 5353
+  const u16_t dns = udp + 8;
+  const int flags = pbuf_try_get_at(p, dns + 2);
+  if (flags < 0 || (flags & 0x80)) return false;  // QR set: a response
+  // shortcut: first match only, case-sensitive; "CrossDink.local" typed into a resolver that keeps case is missed.
+  const u16_t nameLen = strlen(NET_HOSTNAME);
+  const u16_t at = pbuf_memfind(p, NET_HOSTNAME, nameLen, dns + 12);
+  return at != 0xFFFF && pbuf_try_get_at(p, at - 1) == nameLen;
+}
+
 // Runs on the Wi-Fi RX path for every STA frame: one compare, then lwIP's own input.
 err_t mdnsWatchInput(pbuf* p, netif* inp) {
-  if (p->len >= sizeof(MDNS_MAC) && memcmp(p->payload, MDNS_MAC, sizeof(MDNS_MAC)) == 0) {
+  if (p->len >= sizeof(MDNS_MAC) && memcmp(p->payload, MDNS_MAC, sizeof(MDNS_MAC)) == 0 && queriesOurHost(p)) {
     lastMdnsRxMs.store(millis() | 1, std::memory_order_relaxed);
   }
   return wrappedStaInput.load(std::memory_order_acquire)(p, inp);
@@ -1267,8 +1287,8 @@ void CrossPointWebServer::watchMdns(const bool on) {
 
 // MAX_MODEM wakes only every listen_interval beacons and drops the multicast
 // sent after the DTIM beacons in between, so a crossdink.local query often
-// gets no answer. While mDNS traffic was seen in the last MDNS_AWAKE_MS, idle
-// at MIN_MODEM (every DTIM) instead; a quiet LAN keeps MAX_MODEM.
+// gets no answer. While a query for our name was seen in the last MDNS_AWAKE_MS,
+// idle at MIN_MODEM (every DTIM) so the client's retries get answered.
 void CrossPointWebServer::updateMdnsAwake() {
 #ifndef SIMULATOR
   const unsigned long rxMs = lastMdnsRxMs.load(std::memory_order_relaxed);
