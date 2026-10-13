@@ -1317,10 +1317,10 @@ class SimulatorSmokeTest {
         inputScript.push_back(touchRelease(width / 2, height / 4));
         inputScript.push_back(render("Frontlight Panel reopened from touch gesture", 4));
         inputScript.push_back(assertActivity("FrontlightPanel"));
-        // The fourth action-bar slot opens Global Settings through the real
+        // The fourth of six action-bar slots opens Global Settings through the real
         // FrontlightPanelActivity callback path.
-        inputScript.push_back(touchDown(width * 7 / 10, height * 21 / 40));
-        inputScript.push_back(touchRelease(width * 7 / 10, height * 21 / 40));
+        inputScript.push_back(touchDown(width * 7 / 12, height * 21 / 40));
+        inputScript.push_back(touchRelease(width * 7 / 12, height * 21 / 40));
         inputScript.push_back(render("Global Settings opened from Frontlight Panel", 4));
         inputScript.push_back(assertActivity("Settings"));
         inputScript.push_back(touchDown(width / 2, height * 3 / 4));
@@ -1338,8 +1338,8 @@ class SimulatorSmokeTest {
         inputScript.push_back(touchRelease(width / 2, height / 4));
         inputScript.push_back(render("Frontlight Panel reopened after Global Settings", 4));
         inputScript.push_back(assertActivity("FrontlightPanel"));
-        inputScript.push_back(touchDown(width * 3 / 10, height * 21 / 40));
-        inputScript.push_back(touchRelease(width * 3 / 10, height * 21 / 40));
+        inputScript.push_back(touchDown(width / 4, height * 21 / 40));
+        inputScript.push_back(touchRelease(width / 4, height * 21 / 40));
         inputScript.push_back(render("Sync dialog opened from Frontlight Panel", 4));
         inputScript.push_back(assertActivity("FrontlightPanel"));
         inputScript.push_back(touchDown(width / 2, height - 60));
