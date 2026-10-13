@@ -506,7 +506,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (keyboardLayouts != 0) doc["keyboardLayouts"] = keyboardLayouts;
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
-  doc["screenInverted"] = screenInverted;
+  doc["screenInverted"] = screenInvertedHeld >= 0 ? static_cast<uint8_t>(screenInvertedHeld) : screenInverted;
   doc["goodiesWifiRemote"] = goodiesWifiRemote;
 }
 
