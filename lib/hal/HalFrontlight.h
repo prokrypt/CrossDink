@@ -38,8 +38,8 @@ class HalFrontlight {
   static constexpr uint8_t NO_OVERLAY = 0xFF;
   void setOverlay(uint8_t percent);
   bool overlayActive() const { return overlay != NO_OVERLAY; }
-  // Sleep entry: fade the LEDs out without changing isOn() (the wake restores the
-  // light and fades it in). Non-blocking; prepareForDeepSleep() cuts it short.
+  // Sleep entry, last step: fade the LEDs out without changing isOn() (the wake
+  // restores the light and fades it in). Blocks until dark, at most ~FADE_MS.
   void fadeOutForSleep();
   void prepareForDeepSleep();
   void releaseAfterWake();
@@ -59,6 +59,7 @@ class HalFrontlight {
   void startFade();
   void stopFade();
   void stepFade();
+  bool fading();
 
   FrontlightManager manager;
   // The SDK manager folds "off" into brightness 0; keep the user's level and

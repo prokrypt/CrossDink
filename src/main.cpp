@@ -1816,7 +1816,6 @@ static void showChordClock() {
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   armSleepGuard();
-  frontlightFadeOutForSleep();  // runs on its timer while the sleep screen draws
   HalPowerManager::sleepStep = "activity exit";
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
@@ -1893,9 +1892,11 @@ void enterDeepSleep(bool fromTimeout) {
     putTiltSensorToSleepForDeepSleep();
     HalPowerManager::sleepStep = "display sleep";
     display.deepSleep();
-    HalPowerManager::sleepStep = "frontlight, nvs";
-    Frontlight.prepareForDeepSleep();
+    HalPowerManager::sleepStep = "nvs, frontlight";
     mirrorWakeShortPressToNvs();
+    // Last visible step: the sleep screen has settled and every write is done.
+    frontlightFadeOutForSleep();
+    Frontlight.prepareForDeepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
 
   }  // Release powerLock before deep sleep entry
