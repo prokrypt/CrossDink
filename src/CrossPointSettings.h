@@ -663,6 +663,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
+  // Publisher fonts embedded in EPUBs: 0 off, 1 all but the body font, 2 all text.
+  uint8_t publisherFonts = 1;
   // EPUB section indexing policy. The current chapter keeps its active build.
   uint8_t indexingMethod = INDEXING_INCREMENTAL_MENTAL;
   // Focus Reading - emphasizes the first part of words with bold
@@ -867,6 +869,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   void setReaderStatusBar(ReaderStatusBarPosition position, const ReaderStatusBarConfig& config);
   ReaderRenderSpec readerRenderSpec(uint16_t viewportWidth, uint16_t viewportHeight,
                                     EpubRenderMode renderMode = EpubRenderMode::CrossDinkDefault) const;
+  bool publisherFontsEnabled(const EpubRenderMode renderMode) const {
+    return embeddedStyle && renderMode != EpubRenderMode::Light && publisherFonts != 0 && publisherFonts <= 2;
+  }
 
   static void validateFrontButtonMapping(CrossPointSettings& settings);
   static void validateReaderFrontButtonMapping(CrossPointSettings& settings);

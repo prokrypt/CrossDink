@@ -110,6 +110,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   ExtraSpacing,
   ForceIndents,
   EmbeddedStyle,
+  PublisherFonts,
   Images,
   SelectChapter,
   GoToPercent,
@@ -343,6 +344,7 @@ struct ReaderSettingsDraft {
   uint8_t extraParagraphSpacing = 0;
   uint8_t forceParagraphIndents = 0;
   uint8_t embeddedStyle = 0;
+  uint8_t publisherFonts = 0;
   uint8_t imageRendering = 0;
   uint8_t epubRenderMode = 0;
   uint8_t indexingMethod = 0;

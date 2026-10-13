@@ -890,3 +890,7 @@ STR_CALIBRATION_RESET: "Rétablir les valeurs par défaut"
 STR_CALIBRATION_SAVE_FAILED: "Impossible d’enregistrer le calibrage. Réessayez."
 STR_CALIBRATION_EDIT_OR_APPLY: "Modifier ou appliquer"
 STR_CALIBRATION_ADJUST: "Ajuster"
+
+STR_PUBLISHER_FONTS: "Polices de l’éditeur"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorer la police du corps"
+STR_PUBLISHER_FONTS_ALL: "Tout le texte"

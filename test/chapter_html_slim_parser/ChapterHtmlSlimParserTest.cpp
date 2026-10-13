@@ -1687,3 +1687,148 @@ TEST_F(ChapterHtmlSlimParserTest, StandaloneInitialLetterPreservesWordBoundary) 
   EXPECT_EQ(parser.currentTextBlock->words[1], "am");
   EXPECT_EQ(parser.currentTextBlock->words[2], "here");
 }
+
+TEST(PublisherFontCss, FamiliesAreCaseInsensitiveAndGenericNamesKeepReaderFont) {
+  const auto body = CssParser::parseInlineStyle("font-family: 'Book Body', serif");
+  EXPECT_TRUE(body.defined.fontFamily);
+  EXPECT_EQ(body.fontFamily, CssParser::hashFontFamily("book body"));
+  EXPECT_EQ(CssParser::parseInlineStyle("font-family: serif").fontFamily, 0u);
+  EXPECT_FALSE(CssParser::parseInlineStyle("font-family: inherit").defined.fontFamily);
+  auto inherited = body;
+  inherited.applyOver(CssParser::parseInlineStyle("font-family: sans-serif"));
+  EXPECT_EQ(inherited.fontFamily, 0u);
+}
+
+TEST(PublisherFontCss, FindsSupportedSourceAndBoundsManifest) {
+  CssParser css{"/tmp"};
+  css.parseFontFace(
+      "font-family: 'Book Body'; src: url('body.woff2'), url('../Fonts/body.otf'); font-weight: 700; font-style: "
+      "italic",
+      "OEBPS/Styles/");
+  ASSERT_EQ(css.fontFaces_.size(), 1u);
+  EXPECT_EQ(css.fontFaces_[0].href, "OEBPS/Styles/../Fonts/body.otf");
+  EXPECT_TRUE(css.fontFaces_[0].bold);
+  EXPECT_TRUE(css.fontFaces_[0].italic);
+  css.parseFontFace("font-family: NoSource; src: url('body.woff2')", "");
+  EXPECT_EQ(css.fontFaces_.size(), 1u);
+  for (unsigned i = 0; i < 100; ++i) css.parseFontFace("font-family: Body; src: url(body.ttf)", "");
+  EXPECT_EQ(css.fontFaces_.size(), 32u);
+  css.clear();
+  EXPECT_TRUE(css.fontFaces_.empty());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PublisherModesPreserveReaderBodyAndAllowAccents) {
+  const uint32_t body = CssParser::hashFontFamily("Body");
+  const uint32_t accent = CssParser::hashFontFamily("Accent");
+  parser.bodyFontFamily = body;
+  parser.inlineStyleCount_ = 1;
+  inlineStyles[0].hasFontFamily = true;
+  inlineStyles[0].fontFamily = body;
+  parser.setPublisherFonts(PublisherFonts::Off);
+  parser.updateEffectiveInlineStyle();
+  EXPECT_EQ(parser.effectiveFontFamily, 0u);
+  parser.setPublisherFonts(PublisherFonts::All);
+  parser.updateEffectiveInlineStyle();
+  EXPECT_EQ(parser.effectiveFontFamily, body);
+  parser.setPublisherFonts(PublisherFonts::Accents);
+  parser.updateEffectiveInlineStyle();
+  EXPECT_EQ(parser.effectiveFontFamily, 0u);
+  inlineStyles[0].fontFamily = accent;
+  parser.updateEffectiveInlineStyle();
+  EXPECT_EQ(parser.effectiveFontFamily, accent);
+  parser.embeddedStyle = false;
+  parser.updateEffectiveInlineStyle();
+  EXPECT_EQ(parser.effectiveFontFamily, 0u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, InlinePublisherFamilyEndsWithItsSpan) {
+  parser.setPublisherFonts(PublisherFonts::All);
+  const XML_Char* attrs[] = {"style", "font-family: Accent", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Reader ", 7);
+  ChapterHtmlSlimParser::startElement(&parser, "span", attrs);
+  ChapterHtmlSlimParser::characterData(&parser, "Accent ", 7);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, "Reader ", 7);
+  parser.flushPartWordBuffer();
+  ASSERT_EQ(parser.currentTextBlock->wordFontFamilies.size(), 3u);
+  EXPECT_EQ(parser.currentTextBlock->wordFontFamilies[0], 0u);
+  EXPECT_EQ(parser.currentTextBlock->wordFontFamilies[1], CssParser::hashFontFamily("Accent"));
+  EXPECT_EQ(parser.currentTextBlock->wordFontFamilies[2], 0u);
+}
+
+TEST(PublisherFontCache, ModeAndAvailableFacesChangeLayoutIdentity) {
+  ReaderRenderSpec spec;
+  const auto off = readerRenderSpecSignature(spec);
+  spec.publisherFonts = PublisherFonts::Accents;
+  const auto accents = readerRenderSpecSignature(spec);
+  EXPECT_NE(off, accents);
+  spec.publisherFonts = PublisherFonts::All;
+  EXPECT_NE(accents, readerRenderSpecSignature(spec));
+  const auto full = readerRenderSpecSignature(spec);
+  spec.publisherFontSignature = 123;
+  EXPECT_NE(full, readerRenderSpecSignature(spec));
+}
+
+TEST_F(ChapterHtmlSlimParserTest, AccentsProbeFindsParagraphBodyFontBeforeHeadings) {
+  cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle("font-family: Body");
+  cssParser.rulesBySelector_["h1"] = CssParser::parseInlineStyle("font-family: Accent");
+  parser.parseFile_.setContents(
+      "<html><body><h1>A long decorative chapter heading</h1><p>Normal body text.</p></body></html>");
+  parser.activeParser = XML_ParserCreate(nullptr);
+  ASSERT_NE(parser.activeParser, nullptr);
+  ASSERT_TRUE(parser.detectBodyFont());
+  EXPECT_EQ(parser.bodyFontFamily, CssParser::hashFontFamily("Body"));
+  EXPECT_EQ(parser.parseFile_.position(), 0u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, AccentsProbeDoesNotTreatInlineAccentsAsBody) {
+  cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle("font-family: Body");
+  parser.parseFile_.setContents(
+      "<html><body><p><span style='font-family: Accent'>A very long accent.</span> Body.</p></body></html>");
+  parser.activeParser = XML_ParserCreate(nullptr);
+  ASSERT_TRUE(parser.detectBodyFont());
+  EXPECT_EQ(parser.bodyFontFamily, CssParser::hashFontFamily("Body"));
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BodyFontProbeSkipsInvisibleTitlesAndRubyFallback) {
+  const std::string hidden(512, 'x');
+  parser.parseFile_.setContents(
+      "<html><body><p style='font-family: Decoration'>A<svg><title>" + hidden + "</title></svg><ruby>B<rp>" + hidden +
+      "</rp></ruby></p><p style='font-family: Body'>Ordinary prose is the body font.</p></body></html>");
+  parser.activeParser = XML_ParserCreate(nullptr);
+  ASSERT_TRUE(parser.detectBodyFont());
+  EXPECT_EQ(parser.bodyFontFamily, CssParser::hashFontFamily("Body"));
+  EXPECT_EQ(parser.parseFile_.position(), 0u);
+}
+
+TEST(PublisherFontCss, StreamsFontFaceAndNormalRulesTogether) {
+  CssParser css{"/tmp"};
+  HalFile file;
+  file.setContents("@font-face { font-family: Body; src: url('../Fonts/body.ttf'); } p { font-family: Body; }");
+  ASSERT_TRUE(css.loadFromStream(file, "OEBPS/Styles/"));
+  ASSERT_EQ(css.fontFaces_.size(), 1u);
+  EXPECT_EQ(css.fontFaces_[0].family, CssParser::hashFontFamily("body"));
+}
+
+TEST(PublisherFonts, ImportantFamilyUsesTheSameIdentity) {
+  const auto style = CssParser::parseInlineStyle("font-family: 'Publisher Body' !important");
+  EXPECT_TRUE(style.defined.fontFamily);
+  EXPECT_EQ(style.fontFamily, CssParser::hashFontFamily("Publisher Body"));
+  EXPECT_FALSE(CssParser::parseInlineStyle("font-family: inherit !important").defined.fontFamily);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, DisabledFamilySpanPreservesFocusWordBoundary) {
+  parser.setPublisherFonts(PublisherFonts::Off);
+  parser.focusReadingEnabled = true;
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "ord", 3);
+  const XML_Char* attrs[] = {"style", "font-family: Accent", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", attrs);
+  ChapterHtmlSlimParser::characterData(&parser, "inary", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  parser.flushPartWordBuffer();
+  ASSERT_EQ(parser.currentTextBlock->words.size(), 1u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "ordinary");
+  EXPECT_TRUE(parser.currentTextBlock->wordFontFamilies.empty());
+}

@@ -890,3 +890,7 @@ STR_CALIBRATION_RESET: "Atkurti numatytąsias reikšmes"
 STR_CALIBRATION_SAVE_FAILED: "Nepavyko išsaugoti kalibravimo. Bandykite dar kartą."
 STR_CALIBRATION_EDIT_OR_APPLY: "Redaguoti arba taikyti"
 STR_CALIBRATION_ADJUST: "Reguliuoti"
+
+STR_PUBLISHER_FONTS: "Leidėjo šriftai"
+STR_PUBLISHER_FONTS_ACCENTS: "Nepaisyti pagrindinio šrifto"
+STR_PUBLISHER_FONTS_ALL: "Visas tekstas"

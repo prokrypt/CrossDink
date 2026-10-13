@@ -26,11 +26,16 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<EpdFontFamily::Style>&, const std::vector<uint8_t>&,
                      const std::vector<uint16_t>&, const std::vector<uint16_t>&, const std::vector<uint8_t>& wordFlags,
                      const std::vector<bool>&, const BlockStyle& blockStyle, std::vector<std::string> rubyTexts,
-                     int8_t characterSpacing, const std::vector<uint8_t>& wordSizes, const char*)
+                     int8_t characterSpacing, const std::vector<uint8_t>& wordSizes, const char*,
+                     const std::vector<uint32_t>& fontFamilies)
     : blockStyle(blockStyle),
       characterSpacing(characterSpacing),
       numWords(static_cast<uint16_t>(words.size())),
       rubyTexts(std::move(rubyTexts)) {
+  if (!fontFamilies.empty()) {
+    wordFamilies = std::make_unique<uint32_t[]>(fontFamilies.size());
+    std::copy(fontFamilies.begin(), fontFamilies.end(), wordFamilies.get());
+  }
   if (wordXpos.empty()) return;
   arena = std::make_unique<uint8_t[]>(wordXpos.size() * sizeof(int16_t) + wordFlags.size() + wordSizes.size());
   auto* positions = reinterpret_cast<int16_t*>(arena.get());
@@ -100,8 +105,8 @@ void PageTableFragment::render(GfxRenderer&, int, int, int, bool) {}
 bool PageTableFragment::serialize(FsFile&) { return false; }
 
 PageDropCap::PageDropCap(uint8_t size, uint16_t scale, EpdFontFamily::Style style, const char* source, int16_t x,
-                         int16_t y)
-    : PageElement(x, y), fontSize(size), scale256(scale), style(style) {
+                         int16_t y, uint32_t family)
+    : PageElement(x, y), fontSize(size), fontFamily(family), scale256(scale), style(style) {
   std::strncpy(text, source, MAX_TEXT_BYTES);
 }
 void PageDropCap::render(GfxRenderer&, int, int, int, bool) {}
@@ -113,7 +118,7 @@ int TextBlock::resolvedFontId(const GfxRenderer& r, int font) const {
   return r.getFontIdForSize(font, blockStyle.fontSize);
 }
 int TextBlock::wordFontId(const GfxRenderer& r, int font, uint16_t i) const {
-  return r.getFontIdForSize(resolvedFontId(r, font), wordFontSize(i));
+  return r.resolveBookFont(resolvedFontId(r, font), wordFamilies ? wordFamilies[i] : 0, wordFontSize(i));
 }
 int TextBlock::maxAscender(const GfxRenderer& r, int font) const {
   int result = r.getFontAscenderSize(resolvedFontId(r, font));

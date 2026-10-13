@@ -889,3 +889,7 @@ STR_CALIBRATION_RESET: "Varsayılanlara Sıfırla"
 STR_CALIBRATION_SAVE_FAILED: "Kalibrasyon kaydedilemedi. Tekrar deneyin."
 STR_CALIBRATION_EDIT_OR_APPLY: "Düzenle veya uygula"
 STR_CALIBRATION_ADJUST: "Ayarla"
+
+STR_PUBLISHER_FONTS: "Yayınevi yazı tipleri"
+STR_PUBLISHER_FONTS_ACCENTS: "Gövde yazı tipini yok say"
+STR_PUBLISHER_FONTS_ALL: "Tüm metin"

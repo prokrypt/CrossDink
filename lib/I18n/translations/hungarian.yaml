@@ -890,3 +890,7 @@ STR_CALIBRATION_RESET: "Alapértékek visszaállítása"
 STR_CALIBRATION_SAVE_FAILED: "Nem sikerült menteni a kalibrálást. Próbáld újra."
 STR_CALIBRATION_EDIT_OR_APPLY: "Szerkesztés vagy alkalmazás"
 STR_CALIBRATION_ADJUST: "Beállítás"
+
+STR_PUBLISHER_FONTS: "Kiadói betűtípusok"
+STR_PUBLISHER_FONTS_ACCENTS: "Törzsszöveg betűtípusának mellőzése"
+STR_PUBLISHER_FONTS_ALL: "Teljes szöveg"

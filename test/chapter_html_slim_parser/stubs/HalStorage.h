@@ -9,10 +9,17 @@
 #include <string>
 
 class HalFile : public Print {
+  std::string contents_;
+  size_t offset_ = 0;
+
  public:
   // In-memory contents for tests that read through a file; empty acts as a closed file.
   std::string data;
   size_t pos = 0;
+  void setContents(std::string contents) {
+    data = std::move(contents);
+    pos = 0;
+  }
   int available() const { return pos < data.size() ? static_cast<int>(data.size() - pos) : 0; }
   size_t position() const { return pos; }
   size_t size() const { return data.size(); }
@@ -30,7 +37,7 @@ class HalFile : public Print {
   bool seekSet(size_t p) { return seek(p); }
   bool close() { return true; }
   bool isOpen() const { return false; }
-  operator bool() const { return false; }
+  operator bool() const { return !contents_.empty(); }
   size_t write(uint8_t) override { return 0; }
   size_t write(const uint8_t*, size_t) { return 0; }
 };

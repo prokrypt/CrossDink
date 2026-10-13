@@ -943,3 +943,7 @@ STR_CALIBRATION_RESET: "Repor predefinições"
 STR_CALIBRATION_SAVE_FAILED: "Não foi possível guardar a calibração. Tente novamente."
 STR_CALIBRATION_EDIT_OR_APPLY: "Editar ou aplicar"
 STR_CALIBRATION_ADJUST: "Ajustar"
+
+STR_PUBLISHER_FONTS: "Tipos de letra da editora"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorar tipo de letra do corpo"
+STR_PUBLISHER_FONTS_ALL: "Todo o texto"

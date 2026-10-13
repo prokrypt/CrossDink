@@ -890,3 +890,7 @@ STR_CALIBRATION_RESET: "Ponastavi privzeto"
 STR_CALIBRATION_SAVE_FAILED: "Umerjanja ni bilo mogoče shraniti. Poskusite znova."
 STR_CALIBRATION_EDIT_OR_APPLY: "Uredi ali uporabi"
 STR_CALIBRATION_ADJUST: "Prilagodi"
+
+STR_PUBLISHER_FONTS: "Pisave založnika"
+STR_PUBLISHER_FONTS_ACCENTS: "Prezri pisavo jedra"
+STR_PUBLISHER_FONTS_ALL: "Vse besedilo"

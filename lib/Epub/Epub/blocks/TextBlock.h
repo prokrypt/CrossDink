@@ -24,6 +24,7 @@ class TextBlock final : public Block {
   bool wordFlagsPresent = false;
   bool wordSpacesPresent = false;
   uint8_t initialLetterBytes = 0;  // logical prefix drawn separately as a drop cap
+  std::unique_ptr<uint32_t[]> wordFamilies;
   bool wordSizesPresent = false;
   const uint8_t* wordSizesArr = nullptr;
   bool isValid = true;
@@ -60,7 +61,7 @@ class TextBlock final : public Block {
                      const std::vector<uint8_t>& wordFlags, const std::vector<bool>& wordHasSpaceBefore,
                      const BlockStyle& blockStyle = BlockStyle(), std::vector<std::string> rubyTexts = {},
                      int8_t characterSpacing = 0, const std::vector<uint8_t>& wordSizes = {},
-                     const char* initialLetter = "");
+                     const char* initialLetter = "", const std::vector<uint32_t>& fontFamilies = {});
   ~TextBlock() override = default;
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;

@@ -16,6 +16,7 @@
 #include "Epub/FootnoteEntry.h"
 #include "Epub/Page.h"
 #include "Epub/ParsedText.h"
+#include "Epub/ReaderRenderSpec.h"
 #include "Epub/WordSpacing.h"
 #include "Epub/blocks/ImageBlock.h"
 #include "Epub/blocks/TextBlock.h"
@@ -101,6 +102,10 @@ class ChapterHtmlSlimParser {
   int8_t characterSpacing;
   CssParser* cssParser;
   bool embeddedStyle;
+  PublisherFonts publisherFonts = PublisherFonts::Off;
+  uint32_t effectiveFontFamily = 0;
+  uint32_t bodyFontFamily = 0;
+  bool detectBodyFont();
   uint8_t imageRendering;
   std::string contentBase;
   std::string imageBasePath;
@@ -154,6 +159,8 @@ class ChapterHtmlSlimParser {
     bool hasSmallCaps = false, smallCaps = false;
     bool hasWhiteSpace = false, preserveWhitespace = false;
     uint8_t fontSize = 0;
+    bool hasFontFamily = false;
+    uint32_t fontFamily = 0;
   };
   // Arena-backed style stacks. Initialized in parseAndBuildPages(); pointers are
   // null before and after each parse. StyleStackEntry and BlockStyle are trivially
@@ -200,6 +207,7 @@ class ChapterHtmlSlimParser {
     bool bold = false, firstLetterPending = false;
     int spanDepth = -1;
     uint32_t visibleOffset = 0, referenceOffset = 0;
+    uint32_t fontFamily = 0;
   } dropCap;
   static uint8_t dropCapLines(const CssStyle& style);
   bool captureDropCapCodepoint(const char* bytes, int length);
@@ -296,6 +304,7 @@ class ChapterHtmlSlimParser {
   std::vector<PendingPublisherPageMarker> pendingPublisherPageMarkers;
 
   void updateEffectiveInlineStyle();
+  uint32_t publisherFamily(uint32_t family) const;
   void skipCurrentElement();
   void skipDescendantsOfCurrentElement();
   bool shouldAbortForLowMemory(const char* stage);
@@ -434,6 +443,7 @@ class ChapterHtmlSlimParser {
   void setDeferAdvancePrewarm(bool defer) { deferAdvancePrewarm_ = defer; }
   // One bounded slice of a deferred prewarm; false when none is pending.
   bool prewarmSectionAdvanceStep();
+  void setPublisherFonts(PublisherFonts mode) { publisherFonts = mode; }
   bool beginParse();
   ParseStatus parseStep();
   bool finishParse();  // flush the trailing page and tear down; returns true

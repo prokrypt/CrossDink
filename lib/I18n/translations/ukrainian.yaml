@@ -897,3 +897,7 @@ STR_CALIBRATION_RESET: "Відновити типові значення"
 STR_CALIBRATION_SAVE_FAILED: "Не вдалося зберегти калібрування. Спробуйте ще раз."
 STR_CALIBRATION_EDIT_OR_APPLY: "Змінити або застосувати"
 STR_CALIBRATION_ADJUST: "Налаштувати"
+
+STR_PUBLISHER_FONTS: "Шрифти видавця"
+STR_PUBLISHER_FONTS_ACCENTS: "Ігнорувати основний шрифт"
+STR_PUBLISHER_FONTS_ALL: "Увесь текст"

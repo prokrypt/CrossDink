@@ -931,3 +931,7 @@ STR_CALIBRATION_RESET: "استعادة الإعدادات الافتراضية"
 STR_CALIBRATION_SAVE_FAILED: "تعذّر حفظ المعايرة. حاول مرة أخرى."
 STR_CALIBRATION_EDIT_OR_APPLY: "تعديل أو تطبيق"
 STR_CALIBRATION_ADJUST: "ضبط"
+
+STR_PUBLISHER_FONTS: "خطوط الناشر"
+STR_PUBLISHER_FONTS_ACCENTS: "تجاهل خط المتن"
+STR_PUBLISHER_FONTS_ALL: "كل النص"
