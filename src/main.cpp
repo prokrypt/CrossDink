@@ -1628,6 +1628,7 @@ int flushSettingsStores() {
 int flushHeldWrites() {
   int written = activityManager.flushHeldProgress() ? 1 : 0;
   if (ReaderExitSave::flush()) written++;
+  RecentBookProgress::flushSyncMarks();
   APP_STATE.saveToFile();
   written += flushSettingsStores();
   LOG_INF("HLD", "Flushed %d held write(s)", written);

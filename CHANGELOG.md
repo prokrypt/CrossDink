@@ -299,6 +299,7 @@
 - Reader: the Indexing Method setting (Settings > Reader and the reader's pull-up panel) is gone; every EPUB now uses IncreMENTAL, which shows your page first and then keeps laying out the rest of the chapter in the background. Books or settings saved with Incremental or Full Section switch to IncreMENTAL. With Full Section gone, the reader no longer pre-indexes the next chapter on the second-to-last page, and Goodies > Knobs drops buildAheadPages and partialRebuildMargin.
 
 ### Fixed
+- Low battery and the Wi-Fi remote FLUSH command now also save the KOReader Sync marks held in memory, so a brownout at low battery no longer loses a book's sync icon.
 - X4 Pro (debug builds): with the Goodies Wi-Fi remote on, the header Wi-Fi icon now shows the hollow "joining" bars from the moment the remote starts its background join after boot, not only once the radio driver is up. It uses the repaint a link change already makes, so nothing extra is refreshed.
 - X4 Pro: when Up or Down is still held 2 s after sleep starts, both page keys stay out of the wake keys until the next full boot (power-on or restart). Before, a plain Power wake and sleep brought them back.
 - OPDS: Back from a catalog to the server list keeps the pages fetched so far (the servers' root pages and check marks included) instead of fetching every server again. Wi-Fi stays connected for the trip back, and cached roots show their check marks even before Wi-Fi is up. After a restart on a fragmented heap the list still starts empty.
