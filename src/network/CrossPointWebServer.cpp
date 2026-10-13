@@ -1418,7 +1418,10 @@ void CrossPointWebServer::handleExit() {
 // holds an empty reply until new text arrives; that parks only this server task.
 // ?size=1 sends only the headers.
 void CrossPointWebServer::handlePsramLog() const {
-  EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
+  // Static: debug-only, keeps it off the loop stack. One network write per 4 KB,
+  // since each chunked sendContent costs three socket sends.
+  EXT_RAM_NOINIT_ATTR static char chunk[4096];
+  constexpr uint32_t kReadSlice = 1024;  // ring reads copy inside a critical section: keep each short
   const bool tail = server->hasArg("since");
   const uint32_t since = tail ? strtoul(server->arg("since").c_str(), nullptr, 10) : 0;
   if (tail) {
@@ -1451,19 +1454,28 @@ void CrossPointWebServer::handlePsramLog() const {
   } else if (skipped > 0) {
     len = snprintf(chunk, sizeof(chunk), "[psram-log gap %lu bytes]\n", static_cast<unsigned long>(skipped));
   }
-  if (len > 0) server->sendContent(chunk, len);
+  size_t fill = len;
   while (cursor < end) {
     const uint32_t before = cursor;
-    len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+    len = PsramLog::read(cursor, chunk + fill,
+                         std::min<uint32_t>({kReadSlice, static_cast<uint32_t>(sizeof(chunk) - fill), end - cursor}));
     if (len == 0) break;
     if (cursor - len != before) {  // lapped while streaming: read() skipped ahead
+      if (fill > 0) server->sendContent(chunk, fill);
       char gap[48];
       const int n = snprintf(gap, sizeof(gap), "\n[psram-log gap %lu bytes]\n",
                              static_cast<unsigned long>(cursor - len - before));
       server->sendContent(gap, n);
+      memmove(chunk, chunk + fill, len);
+      fill = 0;
     }
-    server->sendContent(chunk, len);
+    fill += len;
+    if (fill == sizeof(chunk)) {
+      server->sendContent(chunk, fill);
+      fill = 0;
+    }
   }
+  if (fill > 0) server->sendContent(chunk, fill);
   server->sendContent("");
 }
 
