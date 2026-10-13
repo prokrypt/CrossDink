@@ -402,7 +402,7 @@ void sendAll(void*) {
     }
     const bool ok = postFile(base, id.c_str(), "report.txt", buf, sizeof(buf)) &&
                     postFile(base, id.c_str(), "log.txt", buf, sizeof(buf)) &&
-                    postFile(base, id.c_str(), "screen.bmp", buf, sizeof(buf));
+                    postFile(base, id.c_str(), "screen.png", buf, sizeof(buf));
     if (!ok) {
       allOk = false;
       break;
@@ -432,8 +432,8 @@ void begin(Activity& source) {
   snprintf(ctx.activity, sizeof(ctx.activity), "%s", activityManager.currentActivityName());
   ctx.book = activityManager.getScreenshotInfo();
   char shot[64];
-  path(shot, sizeof(shot), ctx.id, "screen.bmp");
-  ctx.hasScreenshot = ScreenshotUtil::saveFramebufferAsBmp(shot, renderer.getFrameBuffer(), renderer.getDisplayWidth(),
+  path(shot, sizeof(shot), ctx.id, "screen.png");
+  ctx.hasScreenshot = ScreenshotUtil::saveFramebufferAsPng(shot, renderer.getFrameBuffer(), renderer.getDisplayWidth(),
                                                            renderer.getDisplayHeight());
   if (!ctx.hasScreenshot) LOG_ERR("BUG", "screenshot failed");
 
@@ -468,7 +468,7 @@ bool save(const Context& ctx, const std::string& text, const bool includeScreens
   if (ok && includeLog) ok = writeLog(ctx, secrets);
   if (!includeScreenshot && ctx.hasScreenshot) {
     char shot[64];
-    path(shot, sizeof(shot), ctx.id, "screen.bmp");
+    path(shot, sizeof(shot), ctx.id, "screen.png");
     Storage.remove(shot);
   }
   LOG_INF("BUG", "report %s %s (screenshot %d, log %d)", ctx.id, ok ? "saved" : "failed",
