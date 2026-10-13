@@ -52,7 +52,7 @@ namespace BugReport {
 namespace {
 
 constexpr size_t LOG_BYTES = 64 * 1024;  // tail of the PSRAM ring (user pick)
-constexpr size_t LINE_MAX = 512;
+constexpr size_t MAX_LINE_BYTES = 512;
 constexpr const char* BATTERY_LOG = "/debug/logs/battery.csv";  // BatteryLog::LOG_PATH, Goodies builds only
 
 // Print::printf is not in every build's Print, so format here.
@@ -140,12 +140,12 @@ class LineSanitizer {
         flush();
         continue;
       }
-      if (used < LINE_MAX - 1) line[used++] = c;  // overlong lines are cut
+      if (used < MAX_LINE_BYTES - 1) line[used++] = c;  // overlong lines are cut
     }
   }
   void flush() {
     const size_t n =
-        BugReportSanitize::sanitizeLine(line, used, clean, LINE_MAX, secrets.list.data(), secrets.list.size());
+        BugReportSanitize::sanitizeLine(line, used, clean, MAX_LINE_BYTES, secrets.list.data(), secrets.list.size());
     out.write(clean, n);
     out.write("\n", 1);
     used = 0;
@@ -166,7 +166,7 @@ bool writeLog(const Context& ctx, const SecretTable& secrets) {
   char file[64];
   path(file, sizeof(file), ctx.id, "log.txt");
   // Chunk + raw line + sanitized line: heap, not the loop task's stack.
-  auto buf = makeUniqueNoThrow<char[]>(LINE_MAX * 3);
+  auto buf = makeUniqueNoThrow<char[]>(MAX_LINE_BYTES * 3);
   if (!buf) {
     LOG_ERR("BUG", "log: no memory for buffers");
     return false;
@@ -174,14 +174,14 @@ bool writeLog(const Context& ctx, const SecretTable& secrets) {
   HalFile out;
   if (!Storage.openFileForWrite("BUG", file, out)) return false;
   char* chunk = buf.get();
-  LineSanitizer lines(out, secrets, buf.get() + LINE_MAX, buf.get() + LINE_MAX * 2);
+  LineSanitizer lines(out, secrets, buf.get() + MAX_LINE_BYTES, buf.get() + MAX_LINE_BYTES * 2);
 
 #if CROSSDINK_HAS_PSRAM_LOG_RING
   const uint32_t end = PsramLog::end();
   uint32_t cursor = std::max<uint32_t>(PsramLog::oldest(), end > LOG_BYTES ? end - LOG_BYTES : 0);
   bool first = true;
   size_t n;
-  while (cursor < end && (n = PsramLog::read(cursor, chunk, std::min<size_t>(LINE_MAX, end - cursor))) > 0) {
+  while (cursor < end && (n = PsramLog::read(cursor, chunk, std::min<size_t>(MAX_LINE_BYTES, end - cursor))) > 0) {
     size_t skip = 0;
     if (first) {  // drop the partial first line
       while (skip < n && chunk[skip] != '\n') ++skip;
@@ -201,7 +201,7 @@ bool writeLog(const Context& ctx, const SecretTable& secrets) {
     static constexpr char header[] = "\n--- /debug/crash_report.txt ---\n";
     out.write(header, sizeof(header) - 1);
     int r;
-    while ((r = crash.read(chunk, LINE_MAX)) > 0) lines.feed(chunk, static_cast<size_t>(r));
+    while ((r = crash.read(chunk, MAX_LINE_BYTES)) > 0) lines.feed(chunk, static_cast<size_t>(r));
     lines.finish();
     crash.close();
   }
@@ -239,7 +239,7 @@ bool writeReport(const Context& ctx, const std::string& text, const SecretTable&
 
   put(f, "CrossDink bug report %s\n\n", ctx.id);
   // The user's own words go through the sanitizer too (a pasted password).
-  char clean[LINE_MAX + 64];
+  char clean[MAX_LINE_BYTES + 64];
   const size_t n = BugReportSanitize::sanitizeLine(text.data(), text.size(), clean, sizeof(clean), secrets.list.data(),
                                                    secrets.list.size());
   put(f, "Description:\n");

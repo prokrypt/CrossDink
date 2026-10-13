@@ -1,7 +1,9 @@
 #include "BugReportSanitize.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <iterator>
 
 namespace BugReportSanitize {
 namespace {
@@ -44,10 +46,8 @@ constexpr const char* SECRET_KEYS[] = {"token",  "key",      "apikey", "api_key"
 constexpr const char* SECRET_HEADERS[] = {"authorization:", "x-token:", "x-auth-key:", "x-auth-user:", "cookie:"};
 
 bool isSecretKey(const char* s, const size_t len) {
-  for (const char* k : SECRET_KEYS) {
-    if (equalsNoCase(s, len, k)) return true;
-  }
-  return false;
+  return std::any_of(std::begin(SECRET_KEYS), std::end(SECRET_KEYS),
+                     [&](const char* k) { return equalsNoCase(s, len, k); });
 }
 
 // MAC "aa:bb:cc:dd:ee:ff" at in[i]; length 17 when it matches.
@@ -134,17 +134,15 @@ size_t sanitizeLine(const char* in, const size_t len, char* out, const size_t ca
     const bool wordStart = i == 0 || !isWordChar(in[i - 1]);
     if (wordStart) {
       // 3. Secret header values, to the end of the line.
-      for (const char* h : SECRET_HEADERS) {
-        if (startsWithNoCase(in + i, len - i, h)) {
-          o.put(in + i, strlen(h));
-          o.put(" [x]");
-          i += strlen(h);
-          while (i < len && in[i] != '\r' && in[i] != '\n') ++i;
-          replaced = true;
-          break;
-        }
+      const char* const* header = std::find_if(std::begin(SECRET_HEADERS), std::end(SECRET_HEADERS),
+                                               [&](const char* h) { return startsWithNoCase(in + i, len - i, h); });
+      if (header != std::end(SECRET_HEADERS)) {
+        o.put(in + i, strlen(*header));
+        o.put(" [x]");
+        i += strlen(*header);
+        while (i < len && in[i] != '\r' && in[i] != '\n') ++i;
+        continue;
       }
-      if (replaced) continue;
 
       // 4. key=value and JSON "key":"value" with a secret key name.
       size_t j = i;
