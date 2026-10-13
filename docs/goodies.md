@@ -60,7 +60,7 @@ commands are rejected, and the result screen shows the failing line.
 | `box X Y W H [white]` | Filled rectangle (black unless `white`). |
 | `invert` | Invert the whole framebuffer. |
 | `label A \| B \| C` | White band across the top with up to 3 parts (A bold), word-wrapped to the width, shown by the next refresh. Convention: what this is \| what to look for \| what is next. |
-| `refresh full\|half\|fast\|du` | Show the framebuffer. `du` is a Fast refresh with the keyboard's balanced DU LUT (compile-time DC-balance checked); the others run the panel's OTP waveforms. |
+| `refresh full\|half\|fast\|du\|base` | Show the framebuffer. `du` is a Fast refresh with the keyboard's balanced DU LUT (compile-time DC-balance checked); `base` is the reader's base under a `gray` pass (Fast fallback; the driver skips it where the reader's would be skipped); the others run the panel's OTP waveforms. |
 | `frames N` | DU LUT frames (1..63, default 6). |
 | `pll N` | PLL during DU refreshes: 0 = panel default, 1 = 40 Hz, 2 = 50 Hz (`knobs::PLL_BYTES`; raw 0x30 bytes are refused). |
 | `scrub half\|du` | The next Fast/DU refresh runs as a Half scrub, or a DU scrub (DU needs `refresh du`). |
@@ -69,7 +69,7 @@ commands are rejected, and the result screen shows the failing line.
 | `wait MS` | Pause (0..60000 ms). |
 | `tap` | Wait for a tap or Confirm; draws nothing. |
 | `gray` | The reader's overlay gray pass over the B/W page on the panel: dark gray on the left half, light on the right, under the label band (masks are only meaningful over black). |
-| `night on\|off` | Night Mode for the rest of the test (the user's setting comes back when it ends). |
+| `night on\|off` | Night Mode on or off for the rest of the test, whatever the user's setting (it comes back when the test ends, and a settings save meanwhile writes it). |
 | `repeat N` ... `end` | Loop N times (1..1000, nesting up to 4). |
 | `text X Y <text>` | Draw bold text at X,Y. |
 | `pick X Y CW CH COLS ROWS \| question \| name1 \| ...` | Wait for a tap on one cell of a COLS x ROWS grid of CW x CH cells at X,Y (or Left/Right then Confirm); logs the square number and its name. |
