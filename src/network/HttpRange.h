@@ -53,6 +53,15 @@ inline ByteRange parseByteRange(const char* header, const uint64_t size, uint64_
 class WebServer;
 class HalFile;
 // Replies with `file` (200, or 206/416 per the request's Range) and streams
-// the body. Callers add their own headers (Content-Disposition) first.
+// the body. Callers add their own headers (Content-Disposition) first. On
+// device the body is usually handed to pumpFileStreams() and `file` is left
+// closed; callers still close() it, which is then a no-op.
 void sendFileWithRange(WebServer& server, HalFile& file, const char* contentType);
+#ifndef SIMULATOR
+// Serving task: sends each handed-off download what its socket takes now,
+// without blocking. True when any bytes went out.
+bool pumpFileStreams();
+// Serving task, on exit: drops the downloads still running.
+void closeFileStreams();
+#endif
 #endif
