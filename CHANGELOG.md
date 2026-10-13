@@ -20,6 +20,7 @@
 - X4 Pro (debug builds): power stats now cover the touchscreen and the e-ink panel. `power.csv` gets a `touch_ms` column (time the GT911 touch controller is awake), `scripts/power_fit.py` fits touch-controller and e-ink booster time by default next to the refresh counts, and Goodies > Battery & stats shows e-ink busy, booster and touch-on time. The counters start a new generation once after updating.
 
 ### Changed
+- X4 Pro: the Up/Down wake lockout (a page key still held 2 s after sleep starts) now clears on the next Power wake, so after waking with Power and sleeping again, holding Up and Down shows the clock again. A key still held at that sleep locks them out again; charger and stray page-key wakes keep the lockout.
 - Library: the Sort by popup now lists Recently Opened first. Your saved sort choice is unchanged.
 - Text anti-aliasing now defaults to Off, and settings imported from CrossInk, CrossPoint or the old binary file start with it Off. Settings you already saved here are untouched, and you can turn it back on.
 - Debug log: when a book section is rebuilt because its cached layout no longer matches, the log line now lists the saved and current font, line spacing, viewport, paragraph spacing, indent, alignment, hyphenation, style, image, focus/guide reading, word spacing and render mode values.
