@@ -6,6 +6,8 @@
 
 #ifndef SIMULATOR
 #include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #endif
 
 HalFrontlight HalFrontlight::instance;
@@ -73,16 +75,29 @@ void HalFrontlight::setOverlay(const uint8_t percent) {
 }
 
 void HalFrontlight::fadeOutForSleep() {
-  std::lock_guard<std::recursive_mutex> guard(lock);
-  if (sleepDark || driven == 0xFF) return;
-  sleepDark = true;  // also when dark now: a fade-in may still be at 0
-  overlay = NO_OVERLAY;
-  if (driven != 0) {
-    startFade();
-  } else {
-    stopFade();
+  {
+    std::lock_guard<std::recursive_mutex> guard(lock);
+    if (sleepDark || driven == 0xFF) return;
+    sleepDark = true;  // also when dark now: a fade-in may still be at 0
+    overlay = NO_OVERLAY;
+    if (driven != 0) {
+      startFade();
+    } else {
+      stopFade();
+    }
+    apply();
   }
-  apply();
+#ifndef SIMULATOR
+  // The timer steps the fade (it takes the lock, so wait unlocked); bounded in case it stalls.
+  for (uint32_t waited = 0; fading() && waited < FADE_MS + 4 * FADE_STEP_MS; waited += FADE_STEP_MS) {
+    vTaskDelay(pdMS_TO_TICKS(FADE_STEP_MS));
+  }
+#endif
+}
+
+bool HalFrontlight::fading() {
+  std::lock_guard<std::recursive_mutex> guard(lock);
+  return fadeStartUs != 0;
 }
 
 void HalFrontlight::apply() {
