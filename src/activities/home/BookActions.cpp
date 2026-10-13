@@ -18,12 +18,16 @@
 #include "CrossPointState.h"
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
+#include "activities/ActivityManager.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/BookStatsActivity.h"
 #include "activities/reader/BookStatsTracking.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReaderExitSave.h"
+#include "activities/util/ConfirmationActivity.h"
+#include "activities/util/OptionPopupActivity.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -34,6 +38,22 @@ namespace {
 
 bool hasReadingStats(const std::string& path) {
   return FsHelpers::hasEpubExtension(path) || FsHelpers::hasXtcExtension(path);
+}
+
+// Ask to confirm, run, toast on success, then refresh the host.
+void confirmThenRun(const Host& host, const StrId label, const std::string& fullPath, const std::string& title,
+                    bool (*run)(const std::string&), const StrId doneMessage) {
+  host.open(makeUniqueNoThrow<ConfirmationActivity>(host.renderer, host.mappedInput, confirmationHeading(label), title),
+            [host, fullPath, run, doneMessage](const ActivityResult& confirmation) {
+              if (!confirmation.isCancelled) {
+                if (run(fullPath)) {
+                  Toast::show(host.renderer, I18N.get(doneMessage));
+                } else {
+                  LOG_ERR("BookActions", "Book action failed for: %s", fullPath.c_str());
+                }
+              }
+              host.refresh();
+            });
 }
 
 std::string bookStatsCachePath(const std::string& path) {
@@ -280,6 +300,64 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
   }
 
   return true;
+}
+
+bool runSharedAction(const FileBrowserAction action, const std::string& fullPath, const std::string& title,
+                     const Host& host) {
+  switch (action) {
+    case FileBrowserAction::ToggleBookStatsTracking: {
+      bool enabled = false;
+      if (!toggleBookStatsTracking(fullPath, enabled)) {
+        const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
+        Toast::show(host.renderer, error.c_str());
+      }
+      host.refresh();
+      return true;
+    }
+    case FileBrowserAction::ToggleCompleted: {
+      bool completed = false;
+      if (toggleBookCompleted(fullPath, title, completed)) {
+        Toast::show(host.renderer, completed ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
+      }
+      host.refresh();
+      return true;
+    }
+    case FileBrowserAction::ReadingStats:
+      // The activity manager repaints the host when the stats screen closes.
+      host.open(createReadingStatsActivity(host.renderer, host.mappedInput, fullPath, title),
+                [](const ActivityResult&) {});
+      return true;
+    case FileBrowserAction::DeleteCache:
+      confirmThenRun(host, StrId::STR_DELETE_CACHE, fullPath, title, clearBookCache, StrId::STR_BOOK_CACHE_DELETED);
+      return true;
+    case FileBrowserAction::DeleteStats:
+      confirmThenRun(host, StrId::STR_DELETE_BOOK_STATS, fullPath, title, deleteBookStats,
+                     StrId::STR_BOOK_STATS_DELETED);
+      return true;
+    case FileBrowserAction::ResetReaderSettings:
+      confirmThenRun(host, StrId::STR_RESET_BOOK_READER_SETTINGS, fullPath, title, resetBookReaderSettings,
+                     StrId::STR_BOOK_READER_SETTINGS_RESET);
+      return true;
+    case FileBrowserAction::EpubRenderMode:
+      host.open(
+          makeUniqueNoThrow<OptionPopupActivity>(
+              host.renderer, host.mappedInput, StrId::STR_EPUB_RENDER_MODE, epubRenderModeOptions(),
+              epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(fullPath))),
+          [host, fullPath](const ActivityResult& selectionResult) {
+            const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);
+            if (!selectionResult.isCancelled && selection != nullptr &&
+                !EpubReaderActivity::saveBookRenderMode(fullPath, epubRenderModeForDisplayIndex(selection->index))) {
+              LOG_ERR("BookActions", "Failed to save render mode for: %s", fullPath.c_str());
+            }
+            host.refresh();
+          });
+      return true;
+    case FileBrowserAction::SendNearby:
+      activityManager.goToNearbyBookSend(fullPath, false);
+      return true;
+    default:
+      return false;
+  }
 }
 
 }  // namespace BookActions
