@@ -1,5 +1,6 @@
 #include "EpubReaderDrawerActivity.h"
 
+#include <Arduino.h>
 #include <Epub/Page.h>
 #include <FontCacheManager.h>
 #include <FreeInkUIIcon.h>
@@ -2619,6 +2620,12 @@ void EpubReaderDrawerActivity::renderPreviewWithAntiAliasing(const int previewFo
 }
 
 void EpubReaderDrawerActivity::loop() {
+  // A swipe begun while the drawer was still drawing must not close it (the reader would then
+  // take the release and reopen it): ignore every contact that began before the first frame.
+  const unsigned long drawnAt = firstDrawDoneMs.load();
+  if (mappedInput.touchContactBeganBefore(drawnAt != 0 ? drawnAt : millis() + 1)) {
+    mappedInput.suppressCurrentTouchContact();
+  }
   if (mappedInput.wasBottomEdgeUpSwipe()) {
     closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
     return;
@@ -2896,6 +2903,7 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
       !sdFontSystem.fontUsesMonochromeRaster(renderer, previewFontId, draft.sdFontFamilyName.data())) {
     renderPreviewWithAntiAliasing(previewFontId);
   }
+  if (firstDrawDoneMs.load() == 0) firstDrawDoneMs.store(millis());
 }
 
 const char* EpubReaderDrawerActivity::paneTitle() const {
