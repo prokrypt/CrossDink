@@ -3113,7 +3113,13 @@ static void loopPass() {
   {
     static unsigned long lastHeaderStatusPoll = 0;
     static int requestedFor = -1;
-    if (millis() - lastHeaderStatusPoll >= 1000) {
+#if defined(CROSSDINK_GOODIES) && CROSSDINK_GOODIES
+    // A join lasts about a second: poll fast enough to catch it and draw the joining icon.
+    const unsigned long pollMs = goodies_remote::joining() ? 100 : 1000;
+#else
+    const unsigned long pollMs = 1000;
+#endif
+    if (millis() - lastHeaderStatusPoll >= pollMs) {
       lastHeaderStatusPoll = millis();
       const int shownWifi = BaseTheme::wifiStatusShown();
       const int shownPercent = BaseTheme::batteryPercentShown();
