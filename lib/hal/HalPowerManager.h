@@ -125,6 +125,9 @@ class HalPowerManager {
   // Also wake from deep sleep when the charger STAT pin changes (charge start or
   // stop), so the battery log can record it. Off unless set.
   bool wakeOnChargeChange = false;
+  // X4 Pro: arm Up/Down as wake keys (the Up+Down sleep-image chord). Kept in RTC
+  // memory, so the boot-time re-sleeps reuse the last requested sleep's choice.
+  static void setPageKeyWake(bool on);
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;
