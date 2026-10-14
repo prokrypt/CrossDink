@@ -2555,7 +2555,11 @@ void EpubReaderActivity::onEnter() {
                                  coverState);
   }
 
-  kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount);
+  // The saved page's text offset, unless a jump or restart target replaced that page.
+  const bool openedAtSavedPage =
+      currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
+  kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
+                         openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt);
 
   // Trigger first update
   requestUpdate();
