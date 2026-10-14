@@ -294,6 +294,14 @@ void HalGPIO::update() {
   updateUsbState();
 }
 
+unsigned long HalGPIO::sampleAgeMs() const {
+#if CROSSPOINT_EMULATED == 0
+  return replayLagMs_;
+#else
+  return 0;
+#endif
+}
+
 void HalGPIO::updateUsbState() {
   usbStateChanged = false;
   const unsigned long now = millis();
