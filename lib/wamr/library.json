@@ -9,7 +9,7 @@
     "includeDir": "core/iwasm/include",
     "srcFilter": [
       "+<core/iwasm/common/*.c>",
-      "+<core/iwasm/common/arch/invokeNative_xtensa.s>",
+      "+<core/iwasm/common/arch/invokeNative_xtensa.S>",
       "+<core/iwasm/interpreter/*.c>",
       "+<core/shared/platform/esp-idf/*.c>",
       "+<core/shared/platform/common/libc-util/*.c>",
