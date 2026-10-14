@@ -469,8 +469,7 @@ void FileBrowserActivity::promptDeleteFile(const std::string& fullPath, const st
   startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry), handler);
 }
 
-void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, const std::string& entry,
-                                                const bool ignoreInitialConfirmRelease) {
+void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, const std::string& entry) {
   const std::string dirPath = normalizeDirectoryPath(fullPath);
   auto handler = [this, dirPath](const ActivityResult& res) {
     longPressConfirmHandled = false;
@@ -518,12 +517,10 @@ void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, con
   };
 
   const std::string heading = tr(STR_DELETE) + std::string("? ");
-  startActivityForResult(
-      std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry, ignoreInitialConfirmRelease),
-      handler);
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry), handler);
 }
 
-void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease) {
+void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
   const std::string fullPath = normalizeDirectoryPath(buildFullPath(basepath, entry));
   const bool useDefaultFolders = isDefaultSleepFolderPath(fullPath) || isPreferredSleepFolder(fullPath);
   std::vector<FileBrowserActionActivity::MenuItem> items;
@@ -531,47 +528,46 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool
                    useDefaultFolders ? StrId::STR_USE_DEFAULT_SLEEP_FOLDERS : StrId::STR_SET_AS_SLEEP_FOLDER});
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
 
-  startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, getFileName(entry),
-                                                                     std::move(items), ignoreInitialConfirmRelease),
-                         [this, fullPath, entry](const ActivityResult& result) {
-                           longPressConfirmHandled = false;
-                           if (result.isCancelled) {
-                             return;
-                           }
+  startActivityForResult(
+      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, getFileName(entry), std::move(items)),
+      [this, fullPath, entry](const ActivityResult& result) {
+        longPressConfirmHandled = false;
+        if (result.isCancelled) {
+          return;
+        }
 
-                           const auto action =
-                               static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
-                           switch (action) {
-                             case FileBrowserAction::Delete:
-                               promptDeleteDirectory(fullPath, entry);
-                               return;
-                             case FileBrowserAction::SetSleepFolder:
-                               setPreferredSleepFolder(fullPath);
-                               return;
-                             case FileBrowserAction::ClearSleepFolder:
-                               clearPreferredSleepFolder();
-                               return;
-                             case FileBrowserAction::DeleteCache:
-                             case FileBrowserAction::ToggleBookStatsTracking:
-                             case FileBrowserAction::ReadingStats:
-                             case FileBrowserAction::DeleteStats:
-                             case FileBrowserAction::ToggleCompleted:
-                             case FileBrowserAction::RemoveFromRecents:
-                             case FileBrowserAction::PinFavorite:
-                             case FileBrowserAction::UnpinFavorite:
-                             case FileBrowserAction::PinBootFavorite:
-                             case FileBrowserAction::UnpinBootFavorite:
-                             case FileBrowserAction::ViewBookmarks:
-                             case FileBrowserAction::ViewClippings:
-                             case FileBrowserAction::DeleteBookmarks:
-                             case FileBrowserAction::DeleteClippings:
-                             case FileBrowserAction::EpubRenderMode:
-                             case FileBrowserAction::ResetReaderSettings:
-                             case FileBrowserAction::SendNearby:
-                             case FileBrowserAction::Rename:
-                               return;
-                           }
-                         });
+        const auto action = static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
+        switch (action) {
+          case FileBrowserAction::Delete:
+            promptDeleteDirectory(fullPath, entry);
+            return;
+          case FileBrowserAction::SetSleepFolder:
+            setPreferredSleepFolder(fullPath);
+            return;
+          case FileBrowserAction::ClearSleepFolder:
+            clearPreferredSleepFolder();
+            return;
+          case FileBrowserAction::DeleteCache:
+          case FileBrowserAction::ToggleBookStatsTracking:
+          case FileBrowserAction::ReadingStats:
+          case FileBrowserAction::DeleteStats:
+          case FileBrowserAction::ToggleCompleted:
+          case FileBrowserAction::RemoveFromRecents:
+          case FileBrowserAction::PinFavorite:
+          case FileBrowserAction::UnpinFavorite:
+          case FileBrowserAction::PinBootFavorite:
+          case FileBrowserAction::UnpinBootFavorite:
+          case FileBrowserAction::ViewBookmarks:
+          case FileBrowserAction::ViewClippings:
+          case FileBrowserAction::DeleteBookmarks:
+          case FileBrowserAction::DeleteClippings:
+          case FileBrowserAction::EpubRenderMode:
+          case FileBrowserAction::ResetReaderSettings:
+          case FileBrowserAction::SendNearby:
+          case FileBrowserAction::Rename:
+            return;
+        }
+      });
 }
 
 void FileBrowserActivity::pinSleepFavorite(const std::string& fullPath) {
@@ -679,7 +675,7 @@ bool FileBrowserActivity::isPinnedBootFavorite(const std::string& fullPath) {
   return APP_STATE.favoriteBootImagePath == fullPath;
 }
 
-void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease) {
+void FileBrowserActivity::showFileActionMenu(const std::string& entry) {
   const std::string fullPath = buildFullPath(basepath, entry);
   std::vector<FileBrowserActionActivity::MenuItem> items = BookActions::buildBookActionItems(fullPath, false);
   items.insert(items.begin(), {FileBrowserAction::Rename, StrId::STR_RENAME});
@@ -703,8 +699,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
   }
 
   startActivityForResult(
-      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, getFileName(entry), std::move(items),
-                                                  ignoreInitialConfirmRelease),
+      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, getFileName(entry), std::move(items)),
       [this, fullPath, entry](const ActivityResult& result) {
         longPressConfirmHandled = false;
         if (result.isCancelled) {
@@ -1145,9 +1140,9 @@ void FileBrowserActivity::loop() {
         mappedInput.getHeldTime() >= GO_HOME_MS) {
       longPressConfirmHandled = true;
       if (isDirectory) {
-        showDirectoryActionMenu(entry, true);
+        showDirectoryActionMenu(entry);
       } else {
-        showFileActionMenu(entry, true);
+        showFileActionMenu(entry);
       }
       return;
     }

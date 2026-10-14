@@ -87,7 +87,7 @@ void LookedUpWordsActivity::onRowEvent(const fui::ActionEvent& event, void* user
   self->selectedIndex = event.value;
   if (event.longPress) {
     self->app.clearTapFlash();
-    self->showDeleteConfirmation(false);
+    self->showDeleteConfirmation();
     return;
   }
   self->app.clearTapFlash();
@@ -130,13 +130,12 @@ void LookedUpWordsActivity::onExit() {
   Activity::onExit();
 }
 
-void LookedUpWordsActivity::showDeleteConfirmation(const bool ignoreInitialConfirmRelease) {
+void LookedUpWordsActivity::showDeleteConfirmation() {
   if (entries.empty() || selectedIndex < 0 || selectedIndex >= static_cast<int>(entries.size())) return;
 
   const std::string word = entries[selectedIndex].word;
-  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput,
-                                                              BookActions::confirmationHeading(StrId::STR_DELETE), word,
-                                                              ignoreInitialConfirmRelease, true);
+  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
+      renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE), word, true);
   if (!confirmation) {
     LOG_ERR("LOOKUP", "OOM: ConfirmationActivity");
     return;
@@ -211,7 +210,7 @@ void LookedUpWordsActivity::loop() {
   // Long press Confirm: open the delete confirmation at the hold threshold.
   if (mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() >= Dictionary::LONG_PRESS_MS) {
-    showDeleteConfirmation(true);
+    showDeleteConfirmation();
     return;
   }
 

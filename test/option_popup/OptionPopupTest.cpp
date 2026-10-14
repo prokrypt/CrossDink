@@ -56,6 +56,25 @@ TEST(OptionPopup, ConsecutiveTouchSelectionsDoNotLoseSecondRelease) {
   EXPECT_FALSE(popup.isActive());
 }
 
+TEST(OptionPopup, OpeningHeldTouchReleaseDoesNotSelect) {
+  OptionPopup popup;
+  PopupTouchHarness touch(mappedInputManager);
+  int selections = 0;
+
+  const char* options[] = {"Delete"};
+  // A list long-press opens the popup while the finger is still down.
+  mappedInputManager.touchHeld = true;
+  popup.show("Book actions", options, 1, 0, [&](const int) { ++selections; });
+
+  mappedInputManager.injectTouchRelease(400, 250);
+  EXPECT_TRUE(popup.handleInput(mappedInputManager, [] {}));
+  EXPECT_EQ(selections, 0);
+  EXPECT_TRUE(popup.isActive());
+
+  touch.touchPopup(popup, 250, [] {});
+  EXPECT_EQ(selections, 1);
+}
+
 TEST(OptionPopup, TapOpenedPopupSharesTheTappedRowFrame) {
   GfxRenderer renderer;
   HalGPIO gpio;

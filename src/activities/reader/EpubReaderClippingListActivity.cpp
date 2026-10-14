@@ -266,7 +266,7 @@ void EpubReaderClippingListActivity::deleteSelectedClipping() {
   requestUpdate();
 }
 
-void EpubReaderClippingListActivity::showClippingActionMenu(const bool ignoreInitialConfirmRelease) {
+void EpubReaderClippingListActivity::showClippingActionMenu() {
   if (selectedIndex < 0 || selectedIndex >= static_cast<int>(CLIPPINGS.clippingCount())) return;
 
   const Clipping* selectedClipping = CLIPPINGS.clippingAt(static_cast<size_t>(selectedIndex));
@@ -281,8 +281,7 @@ void EpubReaderClippingListActivity::showClippingActionMenu(const bool ignoreIni
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
 
   startActivityForResult(
-      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, title, std::move(items),
-                                                  ignoreInitialConfirmRelease),
+      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, title, std::move(items)),
       [this, selectedSpineIndex, selectedStartPage, selectedStartWordIndex,
        selectedTimestamp](const ActivityResult& result) {
         longPressConfirmHandled = false;
@@ -342,7 +341,7 @@ void EpubReaderClippingListActivity::loop() {
       mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() >= ReaderUtils::DELETE_HOLD_MS) {
     longPressConfirmHandled = true;
-    showClippingActionMenu(true);
+    showClippingActionMenu();
     return;
   }
 
@@ -385,7 +384,7 @@ void EpubReaderClippingListActivity::loop() {
         touchY >= detailTouchTop && touchY < detailTouchBottom) {
       mappedInput.suppressNextTouchTap();
       longPressConfirmHandled = true;
-      showClippingActionMenu(false);
+      showClippingActionMenu();
       return;
     }
     rebuildDetailLayoutIfNeeded();
@@ -477,7 +476,7 @@ void EpubReaderClippingListActivity::onRowEvent(const fui::ActionEvent& event, v
   self->selectedIndex = event.value;
   if (event.longPress) {
     self->app.clearTapFlash();
-    self->showClippingActionMenu(false);
+    self->showClippingActionMenu();
     return;
   }
   self->app.clearTapFlash();
