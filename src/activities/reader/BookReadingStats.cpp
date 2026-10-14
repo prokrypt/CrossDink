@@ -367,10 +367,3 @@ bool BookReadingStats::finishDateFromDailyPace(const ReadingStatsDateTime& today
   outDate = estimatedFinish.date;
   return outDate.isValid();
 }
-
-float BookReadingStats::pagesPerMinute() const {
-  if (totalReadingSeconds <= 60) {
-    return 0.0f;
-  }
-  return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
-}

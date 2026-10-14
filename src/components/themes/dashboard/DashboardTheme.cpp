@@ -268,7 +268,8 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   }
 
   rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
-  snprintf(value, sizeof(value), "%.1f", bookStats.pagesPerMinute());
+  snprintf(value, sizeof(value), "%.1f",
+           readingPagesPerMinute(bookStats.totalPagesTurned, bookStats.totalReadingSeconds));
   drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_PAGES_PER_MIN), black);
 
   if (!showRtcStats) {

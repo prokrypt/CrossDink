@@ -331,6 +331,13 @@ void formatCompactReadingDuration(const uint32_t seconds, char* buf, const size_
   }
 }
 
+float readingPagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadingSeconds) {
+  if (totalReadingSeconds <= 60) {
+    return 0.0f;
+  }
+  return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
+}
+
 void recordReadingSpanIntoBuckets(std::array<uint32_t, READING_TIME_BUCKET_COUNT>& timeOfDaySeconds,
                                   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT>& dayOfWeekSeconds,
                                   const ReadingStatsDateTime& localStart, const uint32_t seconds) {

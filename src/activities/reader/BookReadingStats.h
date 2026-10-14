@@ -51,7 +51,4 @@ struct BookReadingStats {
   // Finish date from the book's reading seconds per calendar day since startDate.
   bool finishDateFromDailyPace(const ReadingStatsDateTime& today, uint32_t estimatedReadingSeconds,
                                ReadingStatsDate& outDate) const;
-
-  // 0 until more than a minute has been read.
-  float pagesPerMinute() const;
 };

@@ -287,7 +287,7 @@ void drawPerBookStatsCard(const GfxRenderer& renderer, const int x, const int y,
   }
   drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_TIME_LEFT));
 
-  snprintf(buf, sizeof(buf), "%.1f", stats.pagesPerMinute());
+  snprintf(buf, sizeof(buf), "%.1f", readingPagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
   drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
                tr(STR_STATS_PAGES_PER_MIN));
 
@@ -354,7 +354,7 @@ void drawGlobalStatsCard(const GfxRenderer& renderer, const int x, const int y, 
   BookReadingStats::formatDuration(stats.totalReadingSeconds, buf, sizeof(buf));
   drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_TIME_LBL));
 
-  snprintf(buf, sizeof(buf), "%.1f", stats.pagesPerMinute());
+  snprintf(buf, sizeof(buf), "%.1f", readingPagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
   drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_PAGES_PER_MIN));
 
   const uint32_t avgSecs = stats.totalSessions > 0 ? stats.totalReadingSeconds / stats.totalSessions : 0;
