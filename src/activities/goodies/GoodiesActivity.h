@@ -20,6 +20,9 @@ namespace goodies_remote {
 bool running();
 // The toggle (SETTINGS.goodiesWifiRemote): on, whether or not connected yet.
 bool wanted();
+// A background join is queued or associating: the header shows the joining icon for all of it, not only
+// from the driver's STA_START.
+bool joining();
 // Wanted, but the last rejoin was skipped for internal RAM; it retries on the backoff.
 bool waitingForMemory();
 // Toggle on without a Wi-Fi screen: joins the saved network in the background.
