@@ -116,6 +116,12 @@ class EpubReaderActivity final : public Activity {
   std::shared_ptr<Epub> epub;
   ActiveBookReaderSettingsData initialBookReaderSettings;
   std::unique_ptr<Section> section = nullptr;
+  // Next chapter, built on buildWorker while the last pages of this one are read.
+  // Dropping it mid-build suspends to a partial cache that resumes when the chapter opens.
+  std::unique_ptr<Section> nextSection = nullptr;
+  ReaderRenderSpec nextSectionSpec;
+  const char* nextSectionSuffix = "";
+  int nextSectionSpine = -1;  // one try per spine, so a cached or failed chapter is not retried
   int currentSpineIndex = 0;
   int nextPageNumber = 0;
   int activeSectionFontId = 0;
@@ -458,6 +464,8 @@ class EpubReaderActivity final : public Activity {
   static void buildWorkerMain(void* param);
   // One page of the background build; caller owns RenderLock. False once it should stop ticking.
   bool backgroundBuildTick();
+  void queueNextSectionBuild();
+  bool nextSectionBuildTick();
   // Joins a finished worker; with stop, asks it to stop and waits. loop() or onExit.
   void joinBuildWorker(bool stop);
 
@@ -526,6 +534,9 @@ class EpubReaderActivity final : public Activity {
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
   static KNOB_ALIAS(BUILD_WINDOW_AHEAD, buildAheadPages);  // Goodies > Knobs, as the next
   static KNOB_ALIAS(PARTIAL_REBUILD_START_MARGIN, partialRebuildMargin);
+  static constexpr int NEXT_SECTION_BUILD_PAGES_LEFT = 2;
+  // Its HTML inflate holds RenderLock in one piece, so start it only once the page has sat a while.
+  static constexpr unsigned long NEXT_SECTION_BUILD_IDLE_MS = 1500;
   // Show the indexing popup when an initial build must lay out more than this many pages up front
   // (a deep resume/jump into a not-yet-built section), so it isn't a silent wait. Kept independent
   // of the background build so ordinary landings stay popup-free.
@@ -698,6 +709,7 @@ class EpubReaderActivity final : public Activity {
   // Mirrors the tick condition in loop(): catch-up phase, or watermark inside the window.
   // Caller must own RenderLock: render() can replace or finalize section.
   bool sectionBuildWantsTick() const {
+    if (nextSection) return true;
     if (!section || !section->isBuilding()) {
       return false;
     }

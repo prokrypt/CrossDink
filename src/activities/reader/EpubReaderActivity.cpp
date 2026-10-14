@@ -2918,8 +2918,8 @@ void EpubReaderActivity::buildWorkerMain(void* param) {
     if (job.stop.load() || self->backgroundBuildYieldForInput.load(std::memory_order_relaxed) ||
         !self->sectionBuildWantsTick() ||
         // As loop(): an incremental build waits until it has caught the readable pages.
-        (SETTINGS.indexingMethod == CrossPointSettings::INDEXING_INCREMENTAL && !self->section->isPartial() &&
-         !self->section->activeBuildHasCaughtReadablePages())) {
+        (!self->nextSection && SETTINGS.indexingMethod == CrossPointSettings::INDEXING_INCREMENTAL &&
+         !self->section->isPartial() && !self->section->activeBuildHasCaughtReadablePages())) {
       break;
     }
     const bool more = self->backgroundBuildTick();
@@ -2950,6 +2950,7 @@ void EpubReaderActivity::joinBuildWorker(const bool stop) {
 bool EpubReaderActivity::backgroundBuildTick() {
   releaseGrayscaleStripScratch();
   if (!backgroundSectionBuildHasHeap()) return false;
+  if (!section || !section->isBuilding()) return nextSectionBuildTick();
   if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
     LOG_ERR("ERS", "Background section build failed");
     if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
@@ -2965,6 +2966,69 @@ bool EpubReaderActivity::backgroundBuildTick() {
     const bool repositioned = applyDeferredReposition();
     (void)repositioned;
     requestUpdate();
+    return false;
+  }
+  return true;
+}
+
+void EpubReaderActivity::queueNextSectionBuild() {
+  const int next = currentSpineIndex + 1;
+  // Full Section has its own silent next-chapter index; Incremental keeps to its lookahead window.
+  if (SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL_MENTAL || nextSection ||
+      nextSectionSpine == next || !section || section->isBuilding() || section->isPartial() || activeFootnotePreview ||
+      buildViewportWidth == 0 || next >= epub->getSpineItemsCount() ||
+      section->currentPage + NEXT_SECTION_BUILD_PAGES_LEFT < static_cast<int>(section->pageCount) ||
+      millis() - lastRenderCompleteMs < NEXT_SECTION_BUILD_IDLE_MS) {
+    return;
+  }
+  nextSectionSpine = next;
+  // A big chapter's inflate would hold RenderLock long enough to delay a tap; it keeps its Indexing popup.
+  if (epub->getCumulativeSpineItemSize(next) - epub->getCumulativeSpineItemSize(currentSpineIndex) >
+      BUILD_POPUP_BYTE_THRESHOLD) {
+    LOG_DBG("ERS", "Next chapter too big to prebuild: spine=%d", next);
+    return;
+  }
+  // Same font, mode and viewport the chapter open uses, so it finds this cache.
+  const SectionBuildProfile profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
+  nextSectionSpec =
+      readerRenderSpecForProfile(SETTINGS.getReaderFontId(), buildViewportWidth, buildViewportHeight, profile);
+  nextSectionSuffix = sectionCacheSuffixForRenderMode(profile.renderMode);
+  nextSection = makeUniqueNoThrow<Section>(epub, next, renderer, nextSectionSuffix);
+  if (!nextSection) LOG_ERR("ERS", "Failed to allocate next-chapter section for spine %d", next);
+}
+
+bool EpubReaderActivity::nextSectionBuildTick() {
+  if (!nextSection) return false;
+  const int spine = nextSectionSpine;
+  if (!nextSection->isBuilding()) {
+    if (nextSection->loadSectionFile(nextSectionSpec) && !nextSection->isPartial()) {
+      LOG_DBG("ERS", "Next chapter already cached: spine=%d pages=%u", spine, nextSection->pageCount);
+      nextSection.reset();
+      return false;
+    }
+    if (!nextSection->isPartial()) {
+      nextSection = makeUniqueNoThrow<Section>(epub, spine, renderer, nextSectionSuffix);
+      if (!nextSection) {
+        LOG_ERR("ERS", "Failed to allocate next-chapter section builder for spine %d", spine);
+        return false;
+      }
+    }
+    if (!nextSection->startBuild(nextSectionSpec)) {
+      LOG_ERR("ERS", "Failed to start next-chapter build: spine=%d", spine);
+      nextSection.reset();
+      return false;
+    }
+    LOG_DBG("ERS", "Next chapter build started: spine=%d pages=%u", spine, nextSection->pageCount);
+    return true;
+  }
+  if (!nextSection->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
+    LOG_ERR("ERS", "Next-chapter build failed: spine=%d", spine);
+    nextSection.reset();
+    return false;
+  }
+  if (nextSection->isBuildComplete()) {
+    LOG_DBG("ERS", "Next chapter built: spine=%d pages=%u", spine, nextSection->pageCount);
+    nextSection.reset();
     return false;
   }
   return true;
@@ -3466,9 +3530,12 @@ void EpubReaderActivity::loop() {
   joinBuildWorker(/*stop=*/false);
   {
     RenderLock lock(*this, RenderLock::Mode::Try);
+    if (lock.ownsLock() && !buildWorker.task && !backgroundBuildYieldForInput.load(std::memory_order_relaxed)) {
+      queueNextSectionBuild();
+    }
     if (lock.ownsLock() && !buildWorker.task && !backgroundBuildYieldForInput.load(std::memory_order_relaxed) &&
         sectionBuildWantsTick() &&
-        (SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL || section->isPartial() ||
+        (nextSection || SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL || section->isPartial() ||
          section->activeBuildHasCaughtReadablePages())) {
       releaseGrayscaleStripScratch();
       if (backgroundSectionBuildHasHeap()) {
@@ -6776,6 +6843,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   if (!section) {
     preparedNextSpineIndex = -1;
+    // Suspends a half-built next chapter so the load below resumes its partial cache.
+    nextSection.reset();
     // A freshly loaded section can reuse the old one's address, and relayout-only
     // settings (spacing, alignment, hyphenation) are not in the prerender key, so
     // a frame drawn ahead for the previous section must never be taken.
