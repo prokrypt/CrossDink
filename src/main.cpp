@@ -1040,7 +1040,7 @@ void notifyQuickLockChanged() {
   LOG_DBG("MAIN", "Quick Lock %s", locked ? "enabled" : "disabled");
   if (locked) {
     APP_STATE.quickLockRestoreFrontlight = Frontlight.isOn();
-    Frontlight.setOn(false);
+    frontlightSetOnFaded(false);
     BatteryLog::lightChanged();
     activityManager.notifyInputLockChanged(true);
     int top = 0;
@@ -1072,7 +1072,7 @@ void notifyQuickLockChanged() {
       if (restoredBadgeBackdrop) renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     }
     if (APP_STATE.quickLockRestoreFrontlight) {
-      Frontlight.setOn(true);
+      frontlightSetOnFaded(true);
       BatteryLog::lightChanged();
       APP_STATE.quickLockRestoreFrontlight = false;
     }
@@ -1151,7 +1151,7 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT: {
       if (!Frontlight.present()) return false;
       const bool lightOn = !Frontlight.isOn();
-      Frontlight.setOn(lightOn);
+      frontlightSetOnFaded(lightOn);
       SETTINGS.frontlightOn = lightOn ? 1 : 0;
       activityManager.persistGlobalSettings();
       LOG_INF("LIGHT", "Frontlight toggled %s by shortcut", lightOn ? "on" : "off");
@@ -1317,7 +1317,7 @@ bool executeX4ProHomeButtonAction(const uint8_t action,
       return activityManager.handleHomeButtonBackOrHome();
     case CrossPointSettings::HOME_BUTTON_TOGGLE_FRONTLIGHT: {
       const bool lightOn = !Frontlight.isOn();
-      Frontlight.setOn(lightOn);
+      frontlightSetOnFaded(lightOn);
       SETTINGS.frontlightOn = lightOn ? 1 : 0;
       activityManager.persistGlobalSettings();
       LOG_INF("LIGHT", "Frontlight toggled %s by Home key", lightOn ? "on" : "off");
@@ -1763,9 +1763,11 @@ void enterDeepSleep(bool fromTimeout) {
     putTiltSensorToSleepForDeepSleep();
     HalPowerManager::sleepStep = "display sleep";
     display.deepSleep();
-    HalPowerManager::sleepStep = "frontlight, nvs";
-    Frontlight.prepareForDeepSleep();
+    HalPowerManager::sleepStep = "nvs, frontlight";
     mirrorWakeShortPressToNvs();
+    // Last visible step: the sleep screen has settled and every write is done.
+    frontlightFadeOutForSleep();
+    Frontlight.prepareForDeepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
 
   }  // Release powerLock before deep sleep entry

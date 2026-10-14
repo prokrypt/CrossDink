@@ -189,7 +189,7 @@ void FrontlightPanelActivity::adjustWarmth(const int delta) {
 
 void FrontlightPanelActivity::toggleLight() {
   lightOn = !lightOn;
-  Frontlight.setOn(lightOn);
+  frontlightSetOnFaded(lightOn);
   requestUpdate();
 }
 
