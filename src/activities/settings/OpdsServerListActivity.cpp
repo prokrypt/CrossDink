@@ -156,7 +156,8 @@ void OpdsServerListActivity::onExit() {
   Activity::onExit();
   preload.reset();  // joins a fetch in flight before the cache goes
   if (pickerMode && leavingToBrowser) {
-    opds_page_cache_handoff::give(std::move(pageCache));
+    const auto* server = OPDS_STORE.getServer(static_cast<uint32_t>(selectedIndex));
+    opds_page_cache_handoff::give(std::move(pageCache), server ? UrlUtils::buildUrl(server->url, "") : std::string());
   } else {
     pageCache.reset();
   }
@@ -245,6 +246,14 @@ void OpdsServerListActivity::handleSelection() {
     // Picker mode: select a server or add the first one without leaving the flow.
     if (selectedIndex < serverCount) {
       leavingToBrowser = true;
+      // onExit's reset cancels every fetch, so let this server's root page land
+      // in the handed-off cache instead of being fetched again by the browser.
+      if (preload) {
+        const unsigned long joinStart = millis();
+        const auto& server = OPDS_STORE.getServers()[selectedIndex];
+        if (preload->pause(UrlUtils::buildUrl(server.url, "")))
+          LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
+      }
       activityManager.goToOpdsServer(static_cast<uint32_t>(selectedIndex), false, true);
     } else {
       auto editor = makeUniqueNoThrow<OpdsSettingsActivity>(renderer, mappedInput, -1);

@@ -177,6 +177,7 @@ void OpdsBookBrowserActivity::onEnter() {
     const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
     if (!pageCache) pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
     if (pageCache) {
+      opds_page_cache_handoff::restoreAfterRestart(*pageCache);
       preload = makeUniqueNoThrow<OpdsPreloadPool>(*pageCache, OPDS_PAGE_MAX_BYTES, server.username, server.password,
                                                    UrlUtils::ensureProtocol(server.url));
     }
