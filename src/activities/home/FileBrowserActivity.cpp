@@ -32,6 +32,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "activities/util/OptionSelectionActivity.h"
 #include "components/CompactHeader.h"
+#include "components/Toast.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -717,7 +718,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
             bool enabled = false;
             if (!BookActions::toggleBookStatsTracking(fullPath, enabled)) {
               const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
-              BookActions::drawToast(renderer, error.c_str());
+              Toast::show(renderer, error.c_str());
             }
             requestUpdate();
             return;
@@ -748,8 +749,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                                        if (!BookActions::clearBookCache(fullPath)) {
                                          LOG_ERR("FileBrowser", "Failed to clear book cache for: %s", fullPath.c_str());
                                        } else {
-                                         BookActions::drawToast(renderer, tr(STR_BOOK_CACHE_DELETED));
-                                         delay(1000);
+                                         Toast::show(renderer, tr(STR_BOOK_CACHE_DELETED));
                                        }
                                      }
                                      requestUpdate();
@@ -765,8 +765,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                     if (!BookActions::deleteBookStats(fullPath)) {
                       LOG_ERR("FileBrowser", "Failed to delete book stats for: %s", fullPath.c_str());
                     } else {
-                      BookActions::drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
-                      delay(1000);
+                      Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
                     }
                   }
                   requestUpdate();
@@ -782,8 +781,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                     if (!BookActions::resetBookReaderSettings(fullPath)) {
                       LOG_ERR("FileBrowser", "Failed to reset reader settings for: %s", fullPath.c_str());
                     } else {
-                      BookActions::drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
-                      delay(1000);
+                      Toast::show(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
                     }
                   }
                   requestUpdate();
