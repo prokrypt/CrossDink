@@ -825,20 +825,25 @@ void ActivityManager::loop() {
         // restoredActivityNeedsRender. Preserve the overlay's paused timing
         // state either way before it becomes current.
         if (currentActivity) currentActivity->onBackdropRenderedForOverlay();
-      } else if (pendingAction == PendingAction::Push && pendingActivity->drawsOverSourceFrame() &&
-                 mappedInput.wasTapOrHeld()) {
+      } else if (pendingAction == PendingAction::Push && pendingActivity->drawsOverSourceFrame()) {
         // The tapped row is selected but not yet on screen: draw it into the
         // framebuffer only, and the popup's refresh inks row and popup at once.
-        // Only list frames have a row, and they only use displayBuffer(); other
-        // sources (readers, the image viewer's gray planes) keep their frame.
-        if (ListSelection::listOnScreen) {
-          ListSelection::tapRowShown = true;
+        // Likewise a list just uncovered by a closed popup (a book menu's Delete
+        // Cache opening its confirmation) still has that popup in the
+        // framebuffer. Only list frames have a row, and they only use
+        // displayBuffer(); other sources (readers, the image viewer's gray
+        // planes) keep their frame.
+        const bool tappedRow = mappedInput.wasTapOrHeld() && ListSelection::listOnScreen;
+        const bool restoredList =
+            restoredActivityNeedsRender.load() && currentActivity && currentActivity->coveredListFrame;
+        if (tappedRow || restoredList) {
+          ListSelection::tapRowShown = tappedRow;
           {
             RenderLock drawLock;  // never flip it under a render already running
             renderer.setDrawOnly(true);
           }
           if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
-            LOG_ERR("ACT", "Could not draw tapped row before opening %s", pendingActivity->name.c_str());
+            LOG_ERR("ACT", "Could not draw the source frame before opening %s", pendingActivity->name.c_str());
           }
           renderer.setDrawOnly(false);
           ListSelection::tapRowShown = false;
@@ -858,6 +863,7 @@ void ActivityManager::loop() {
         }
       } else if (pendingAction == PendingAction::Push) {
         // Move current activity to stack
+        currentActivity->coveredListFrame = ListSelection::listOnScreen;
         currentActivity->onCovered();
         stackActivities.push_back(std::move(currentActivity));
       }
