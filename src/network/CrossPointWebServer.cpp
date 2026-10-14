@@ -980,6 +980,9 @@ void CrossPointWebServer::serveUntilStopped() {
       // Idle STA: one pass per wake, blocked in between so tickless idle can
       // light-sleep. A request found here switches to transfer mode.
       const bool served = handleClient();
+#ifndef SIMULATOR
+      if (pumpFileStreams()) noteTransferActivity();  // a stalled download's resume
+#endif
 #if CROSSDINK_PSRAM_LOG
       pumpLogStreams();
 #endif
@@ -1000,6 +1003,9 @@ void CrossPointWebServer::serveUntilStopped() {
     for (int i = 0; i < ACTIVE_PASSES_PER_TICK && !stopRequested.load(std::memory_order_relaxed); i++) {
       handleClient();
     }
+#ifndef SIMULATOR
+    if (pumpFileStreams()) noteTransferActivity();  // a running download keeps the transfer hold
+#endif
 #if CROSSDINK_PSRAM_LOG
     pumpLogStreams();
 #endif
@@ -1007,6 +1013,9 @@ void CrossPointWebServer::serveUntilStopped() {
     servePhase.store("tick", std::memory_order_relaxed);
     vTaskDelay(1);
   }
+#ifndef SIMULATOR
+  closeFileStreams();
+#endif
   PerfLog::noteTaskExit("WebServer");
   xSemaphoreGive(serverStopped);
 }
