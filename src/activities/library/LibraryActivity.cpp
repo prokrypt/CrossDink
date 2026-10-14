@@ -30,7 +30,7 @@
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
-#include "activities/util/OptionSelectionActivity.h"
+#include "activities/util/OptionPopupActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -1472,131 +1472,131 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
     items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
   }
 
-  openDialog(makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items),
-                                                          ignoreInitialConfirmRelease),
-             [this, book](const ActivityResult& result) {
-               longPressFired = false;
-               if (result.isCancelled) {
-                 return;
-               }
+  openDialog(
+      makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items),
+                                                   ignoreInitialConfirmRelease),
+      [this, book](const ActivityResult& result) {
+        longPressFired = false;
+        if (result.isCancelled) {
+          return;
+        }
 
-               const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
-               if (!actionResult) {
-                 LOG_ERR("LIB", "Book action result missing");
-                 return;
-               }
+        const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
+        if (!actionResult) {
+          LOG_ERR("LIB", "Book action result missing");
+          return;
+        }
 
-               switch (static_cast<FileBrowserAction>(actionResult->action)) {
-                 case FileBrowserAction::ToggleBookStatsTracking: {
-                   bool enabled = false;
-                   if (!BookActions::toggleBookStatsTracking(book.path, enabled)) {
-                     const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
-                     BookActions::drawToast(renderer, error.c_str());
-                   }
-                   reloadAfterBookAction();
-                   return;
-                 }
-                 case FileBrowserAction::ReadingStats:
-                   openDialog(BookActions::createReadingStatsActivity(renderer, mappedInput, book.path, book.title),
-                              [this](const ActivityResult&) { requestUpdate(); });
-                   return;
-                 case FileBrowserAction::Delete:
-                   promptDeleteBook(book);
-                   return;
-                 case FileBrowserAction::DeleteCache:
-                   openDialog(makeUniqueNoThrow<ConfirmationActivity>(
-                                  renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE_CACHE),
-                                  book.title),
-                              [this, book](const ActivityResult& confirmation) {
-                                if (!confirmation.isCancelled) {
-                                  if (!BookActions::clearBookCache(book.path)) {
-                                    LOG_ERR("LIB", "Failed to clear book cache for: %s", book.path.c_str());
-                                  } else {
-                                    pendingCacheDeletedFeedback = true;
-                                    cacheDeletedFeedbackShowTime = millis();
-                                  }
-                                }
-                                reloadAfterBookAction();
-                              });
-                   return;
-                 case FileBrowserAction::DeleteStats:
-                   openDialog(makeUniqueNoThrow<ConfirmationActivity>(
-                                  renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE_BOOK_STATS),
-                                  book.title),
-                              [this, book](const ActivityResult& confirmation) {
-                                if (!confirmation.isCancelled) {
-                                  if (!BookActions::deleteBookStats(book.path)) {
-                                    LOG_ERR("LIB", "Failed to delete book stats for: %s", book.path.c_str());
-                                  } else {
-                                    BookActions::drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
-                                    delay(1000);
-                                  }
-                                }
-                                reloadAfterBookAction();
-                              });
-                   return;
-                 case FileBrowserAction::ResetReaderSettings:
-                   openDialog(makeUniqueNoThrow<ConfirmationActivity>(
-                                  renderer, mappedInput,
-                                  BookActions::confirmationHeading(StrId::STR_RESET_BOOK_READER_SETTINGS), book.title),
-                              [this, book](const ActivityResult& confirmation) {
-                                if (!confirmation.isCancelled) {
-                                  if (!BookActions::resetBookReaderSettings(book.path)) {
-                                    LOG_ERR("LIB", "Failed to reset reader settings for: %s", book.path.c_str());
-                                  } else {
-                                    BookActions::drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
-                                    delay(1000);
-                                  }
-                                }
-                                reloadAfterBookAction();
-                              });
-                   return;
-                 case FileBrowserAction::ToggleCompleted: {
-                   bool completed = false;
-                   if (BookActions::toggleBookCompleted(book.path, book.title, completed)) {
-                     BookActions::drawToast(renderer, completed ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
-                     delay(1000);
-                   }
-                   reloadAfterBookAction();
-                   return;
-                 }
-                 case FileBrowserAction::EpubRenderMode: {
-                   const uint8_t currentIndex =
-                       BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(book.path));
-                   openDialog(makeUniqueNoThrow<OptionSelectionActivity>(
-                                  renderer, mappedInput, "LibraryEpubRenderModeSelect", StrId::STR_EPUB_RENDER_MODE,
-                                  BookActions::epubRenderModeOptions(), currentIndex),
-                              [this, book](const ActivityResult& selectionResult) {
-                                if (!selectionResult.isCancelled) {
-                                  const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);
-                                  if (selection != nullptr &&
-                                      !EpubReaderActivity::saveBookRenderMode(
-                                          book.path, BookActions::epubRenderModeForDisplayIndex(selection->index))) {
-                                    LOG_ERR("LIB", "Failed to save render mode for: %s", book.path.c_str());
-                                  }
-                                }
-                                reloadAfterBookAction();
-                              });
-                   return;
-                 }
-                 case FileBrowserAction::RemoveFromRecents:
-                   promptRemoveBook(book.path, book.title);
-                   return;
-                 case FileBrowserAction::SendNearby:
-                   activityManager.goToNearbyBookSend(book.path, false);
-                   return;
-                 case FileBrowserAction::PinFavorite:
-                 case FileBrowserAction::UnpinFavorite:
-                 case FileBrowserAction::PinBootFavorite:
-                 case FileBrowserAction::UnpinBootFavorite:
-                 case FileBrowserAction::SetSleepFolder:
-                 case FileBrowserAction::ClearSleepFolder:
-                 case FileBrowserAction::ViewBookmarks:
-                 case FileBrowserAction::ViewClippings:
-                 case FileBrowserAction::DeleteBookmarks:
-                 case FileBrowserAction::DeleteClippings:
-                 case FileBrowserAction::Rename:
-                   return;
-               }
-             });
+        switch (static_cast<FileBrowserAction>(actionResult->action)) {
+          case FileBrowserAction::ToggleBookStatsTracking: {
+            bool enabled = false;
+            if (!BookActions::toggleBookStatsTracking(book.path, enabled)) {
+              const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
+              BookActions::drawToast(renderer, error.c_str());
+            }
+            reloadAfterBookAction();
+            return;
+          }
+          case FileBrowserAction::ReadingStats:
+            openDialog(BookActions::createReadingStatsActivity(renderer, mappedInput, book.path, book.title),
+                       [this](const ActivityResult&) { requestUpdate(); });
+            return;
+          case FileBrowserAction::Delete:
+            promptDeleteBook(book);
+            return;
+          case FileBrowserAction::DeleteCache:
+            openDialog(
+                makeUniqueNoThrow<ConfirmationActivity>(
+                    renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE_CACHE), book.title),
+                [this, book](const ActivityResult& confirmation) {
+                  if (!confirmation.isCancelled) {
+                    if (!BookActions::clearBookCache(book.path)) {
+                      LOG_ERR("LIB", "Failed to clear book cache for: %s", book.path.c_str());
+                    } else {
+                      pendingCacheDeletedFeedback = true;
+                      cacheDeletedFeedbackShowTime = millis();
+                    }
+                  }
+                  reloadAfterBookAction();
+                });
+            return;
+          case FileBrowserAction::DeleteStats:
+            openDialog(
+                makeUniqueNoThrow<ConfirmationActivity>(
+                    renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE_BOOK_STATS), book.title),
+                [this, book](const ActivityResult& confirmation) {
+                  if (!confirmation.isCancelled) {
+                    if (!BookActions::deleteBookStats(book.path)) {
+                      LOG_ERR("LIB", "Failed to delete book stats for: %s", book.path.c_str());
+                    } else {
+                      BookActions::drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
+                      delay(1000);
+                    }
+                  }
+                  reloadAfterBookAction();
+                });
+            return;
+          case FileBrowserAction::ResetReaderSettings:
+            openDialog(makeUniqueNoThrow<ConfirmationActivity>(
+                           renderer, mappedInput,
+                           BookActions::confirmationHeading(StrId::STR_RESET_BOOK_READER_SETTINGS), book.title),
+                       [this, book](const ActivityResult& confirmation) {
+                         if (!confirmation.isCancelled) {
+                           if (!BookActions::resetBookReaderSettings(book.path)) {
+                             LOG_ERR("LIB", "Failed to reset reader settings for: %s", book.path.c_str());
+                           } else {
+                             BookActions::drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
+                             delay(1000);
+                           }
+                         }
+                         reloadAfterBookAction();
+                       });
+            return;
+          case FileBrowserAction::ToggleCompleted: {
+            bool completed = false;
+            if (BookActions::toggleBookCompleted(book.path, book.title, completed)) {
+              BookActions::drawToast(renderer, completed ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
+              delay(1000);
+            }
+            reloadAfterBookAction();
+            return;
+          }
+          case FileBrowserAction::EpubRenderMode: {
+            const uint8_t currentIndex =
+                BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(book.path));
+            openDialog(makeUniqueNoThrow<OptionPopupActivity>(renderer, mappedInput, StrId::STR_EPUB_RENDER_MODE,
+                                                              BookActions::epubRenderModeOptions(), currentIndex),
+                       [this, book](const ActivityResult& selectionResult) {
+                         if (!selectionResult.isCancelled) {
+                           const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);
+                           if (selection != nullptr &&
+                               !EpubReaderActivity::saveBookRenderMode(
+                                   book.path, BookActions::epubRenderModeForDisplayIndex(selection->index))) {
+                             LOG_ERR("LIB", "Failed to save render mode for: %s", book.path.c_str());
+                           }
+                         }
+                         reloadAfterBookAction();
+                       });
+            return;
+          }
+          case FileBrowserAction::RemoveFromRecents:
+            promptRemoveBook(book.path, book.title);
+            return;
+          case FileBrowserAction::SendNearby:
+            activityManager.goToNearbyBookSend(book.path, false);
+            return;
+          case FileBrowserAction::PinFavorite:
+          case FileBrowserAction::UnpinFavorite:
+          case FileBrowserAction::PinBootFavorite:
+          case FileBrowserAction::UnpinBootFavorite:
+          case FileBrowserAction::SetSleepFolder:
+          case FileBrowserAction::ClearSleepFolder:
+          case FileBrowserAction::ViewBookmarks:
+          case FileBrowserAction::ViewClippings:
+          case FileBrowserAction::DeleteBookmarks:
+          case FileBrowserAction::DeleteClippings:
+          case FileBrowserAction::Rename:
+            return;
+        }
+      });
 }
