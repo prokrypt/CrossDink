@@ -3590,8 +3590,8 @@ std::unique_ptr<ChapterHtmlSlimParser::AdvancePrewarm> ChapterHtmlSlimParser::st
   }
 
   const auto heap = MemoryBudget::snapshot();
-  const bool slicedInPsram =
-      sliced && MemoryBudget::psramSnapshot().maxAllocHeap >= SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS * sizeof(uint32_t);
+  const bool slicedInPsram = sliced && byteHeapSnapshot(MemoryPool::Psram).largest >=
+                                           SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS * sizeof(uint32_t);
   const uint32_t needFree = slicedInPsram ? MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE + SLICED_PREWARM_HEADROOM
                                           : MIN_FREE_HEAP_FOR_SECTION_PREWARM;
   const uint32_t needBlock = slicedInPsram ? SLICED_PREWARM_MIN_MAX_ALLOC : MIN_MAX_ALLOC_FOR_SECTION_PREWARM;
