@@ -518,7 +518,7 @@ void GoodiesActivity::showLevel(const Level next) {
     {
       esp_app_desc_t desc;
       const esp_partition_t* part = firmware_flash::otherSlot(desc);
-      entries.push_back({"Boot previous firmware", -1, {}, part ? std::string(part->label) + " >" : "none"});
+      entries.push_back({"Boot alternate slot", -1, {}, part ? std::string(part->label) + " >" : "none"});
     }
     powerTestRow = static_cast<int>(entries.size());
     entries.push_back({"Power Test", -1, {}, ">"});
@@ -632,13 +632,22 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::PowerTests);
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
     } else if (index == SLEEP_REBOOT_ROW) {
-      // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
-      SleepLog::armSleepReboot();
-      enterDeepSleep();
+      // The sleep path, then a restart instead of power-down: the PSRAM log survives it (/api/psram-log).
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Sleep-reboot-log?",
+                                                                    "Runs the sleep path, then reboots."),
+                             [this](const ActivityResult& result) {
+                               mappedInput.suppressNextConfirmRelease();
+                               if (result.isCancelled) {
+                                 requestUpdate();
+                                 return;
+                               }
+                               SleepLog::armSleepReboot();
+                               enterDeepSleep();  // restarts, does not return
+                             });
 #endif
 #ifndef SIMULATOR
-    } else if (index == BOOT_PREV_ROW) {
-      confirmBootPrevious();
+    } else if (index == BOOT_ALT_ROW) {
+      confirmBootAlternate();
 #endif
     } else {
 #ifndef SIMULATOR
@@ -816,7 +825,7 @@ void GoodiesActivity::setRowValue(const int row, std::string value) {
 }
 
 #ifndef SIMULATOR
-void GoodiesActivity::confirmBootPrevious() {
+void GoodiesActivity::confirmBootAlternate() {
   esp_app_desc_t desc;
   const esp_partition_t* part = firmware_flash::otherSlot(desc);
   if (!part) {
@@ -827,7 +836,7 @@ void GoodiesActivity::confirmBootPrevious() {
   snprintf(body, sizeof(body), "Reboots into %s: %.31s %.31s, built %.15s %.15s, elf %02x%02x%02x%02x.", part->label,
            desc.project_name, desc.version, desc.date, desc.time, desc.app_elf_sha256[0], desc.app_elf_sha256[1],
            desc.app_elf_sha256[2], desc.app_elf_sha256[3]);
-  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot previous firmware?", body),
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot alternate slot?", body),
                          [this, part](const ActivityResult& result) {
                            mappedInput.suppressNextConfirmRelease();
                            if (result.isCancelled) {
@@ -842,13 +851,13 @@ void GoodiesActivity::confirmBootPrevious() {
                            }
                            const firmware_flash::Result verified = firmware_flash::verifyPartition(part);
                            if (verified != firmware_flash::Result::OK) {
-                             LOG_ERR("BOOT", "boot-previous: %s image failed: %s", part->label,
+                             LOG_ERR("BOOT", "boot-alternate: %s image failed: %s", part->label,
                                      firmware_flash::resultName(verified));
                              showMessage("Other slot failed the image check");
                              return;
                            }
                            if (!ota_boot::switchTo(part)) {
-                             LOG_ERR("BOOT", "boot-previous switch to %s failed", part->label);
+                             LOG_ERR("BOOT", "boot-alternate switch to %s failed", part->label);
                              showMessage("Switch failed");
                              return;
                            }

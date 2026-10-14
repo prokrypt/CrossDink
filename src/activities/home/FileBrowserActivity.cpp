@@ -30,8 +30,9 @@
 #include "activities/settings/SettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
-#include "activities/util/OptionSelectionActivity.h"
+#include "activities/util/OptionPopupActivity.h"
 #include "components/CompactHeader.h"
+#include "components/Toast.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -45,7 +46,6 @@ namespace fui = freeink::ui;
 
 namespace {
 KNOB_ALIAS(GO_HOME_MS, goHomeHoldMs);  // Goodies > Knobs
-constexpr unsigned long COMPLETED_FEEDBACK_MS = 1000;
 constexpr int ROOT_HINT_GAP = 20;
 constexpr size_t NAME_BUFFER_SIZE = 500;
 constexpr fui::ActionId ACTION_ROW = 1;
@@ -564,6 +564,8 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
           case FileBrowserAction::EpubRenderMode:
           case FileBrowserAction::ResetReaderSettings:
           case FileBrowserAction::SendNearby:
+          case FileBrowserAction::SelectChapter:
+          case FileBrowserAction::ToggleTouchscreen:
           case FileBrowserAction::Rename:
             return;
         }
@@ -707,115 +709,33 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry) {
         }
 
         const auto action = static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
+        const BookActions::Host host{renderer, mappedInput,
+                                     [this](std::unique_ptr<Activity>&& child, ActivityResultHandler handler) {
+                                       if (child) {
+                                         startActivityForResult(std::move(child), std::move(handler));
+                                       } else {
+                                         LOG_ERR("FileBrowser", "Cannot open book action dialog");
+                                       }
+                                     },
+                                     [this, action] {
+                                       if (action == FileBrowserAction::ToggleCompleted) {
+                                         RenderLock lock(*this);
+                                         loadFilesLocked();
+                                         selectorIndex =
+                                             entryCount() == 0 ? 0 : std::min(selectorIndex, entryCount() - 1);
+                                       }
+                                       requestUpdate(action == FileBrowserAction::ToggleCompleted);
+                                     }};
+        if (BookActions::runSharedAction(action, fullPath, getFileName(entry), host)) {
+          return;
+        }
         switch (action) {
-          case FileBrowserAction::ToggleBookStatsTracking: {
-            bool enabled = false;
-            if (!BookActions::toggleBookStatsTracking(fullPath, enabled)) {
-              const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
-              BookActions::drawToast(renderer, error.c_str());
-            }
-            requestUpdate();
-            return;
-          }
-          case FileBrowserAction::ReadingStats:
-            if (auto statsActivity =
-                    BookActions::createReadingStatsActivity(renderer, mappedInput, fullPath, getFileName(entry))) {
-              startActivityForResult(std::move(statsActivity), [this](const ActivityResult&) { requestUpdate(); });
-            } else {
-              LOG_ERR("FileBrowser", "Failed to open reading stats for: %s", fullPath.c_str());
-            }
-            return;
           case FileBrowserAction::Rename:
             startRenameFile(fullPath, entry);
-            return;
-          case FileBrowserAction::SendNearby:
-            activityManager.goToNearbyBookSend(fullPath, false);
             return;
           case FileBrowserAction::Delete:
             promptDeleteFile(fullPath, entry);
             return;
-          case FileBrowserAction::DeleteCache:
-            startActivityForResult(std::make_unique<ConfirmationActivity>(
-                                       renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE_CACHE),
-                                       getFileName(entry)),
-                                   [this, fullPath](const ActivityResult& confirmation) {
-                                     if (!confirmation.isCancelled) {
-                                       if (!BookActions::clearBookCache(fullPath)) {
-                                         LOG_ERR("FileBrowser", "Failed to clear book cache for: %s", fullPath.c_str());
-                                       } else {
-                                         BookActions::drawToast(renderer, tr(STR_BOOK_CACHE_DELETED));
-                                         delay(1000);
-                                       }
-                                     }
-                                     requestUpdate();
-                                   });
-            return;
-          case FileBrowserAction::DeleteStats:
-            startActivityForResult(
-                std::make_unique<ConfirmationActivity>(renderer, mappedInput,
-                                                       BookActions::confirmationHeading(StrId::STR_DELETE_BOOK_STATS),
-                                                       getFileName(entry)),
-                [this, fullPath](const ActivityResult& confirmation) {
-                  if (!confirmation.isCancelled) {
-                    if (!BookActions::deleteBookStats(fullPath)) {
-                      LOG_ERR("FileBrowser", "Failed to delete book stats for: %s", fullPath.c_str());
-                    } else {
-                      BookActions::drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
-                      delay(1000);
-                    }
-                  }
-                  requestUpdate();
-                });
-            return;
-          case FileBrowserAction::ResetReaderSettings:
-            startActivityForResult(
-                std::make_unique<ConfirmationActivity>(
-                    renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_RESET_BOOK_READER_SETTINGS),
-                    getFileName(entry)),
-                [this, fullPath](const ActivityResult& confirmation) {
-                  if (!confirmation.isCancelled) {
-                    if (!BookActions::resetBookReaderSettings(fullPath)) {
-                      LOG_ERR("FileBrowser", "Failed to reset reader settings for: %s", fullPath.c_str());
-                    } else {
-                      BookActions::drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
-                      delay(1000);
-                    }
-                  }
-                  requestUpdate();
-                });
-            return;
-          case FileBrowserAction::ToggleCompleted:
-            if (BookActions::toggleBookCompleted(fullPath, getFileName(entry), completedFeedbackIsFinished)) {
-              pendingCompletedFeedback = true;
-              completedFeedbackShowTime = millis();
-            }
-            {
-              RenderLock lock(*this);
-              loadFilesLocked();
-              selectorIndex = entryCount() == 0 ? 0 : std::min(selectorIndex, entryCount() - 1);
-            }
-            requestUpdate(true);
-            return;
-          case FileBrowserAction::EpubRenderMode: {
-            const uint8_t currentIndex =
-                BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(fullPath));
-            startActivityForResult(
-                std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "EpubRenderModeSelect",
-                                                          StrId::STR_EPUB_RENDER_MODE,
-                                                          BookActions::epubRenderModeOptions(), currentIndex),
-                [this, fullPath](const ActivityResult& selectionResult) {
-                  if (!selectionResult.isCancelled) {
-                    const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);
-                    if (selection != nullptr &&
-                        !EpubReaderActivity::saveBookRenderMode(
-                            fullPath, BookActions::epubRenderModeForDisplayIndex(selection->index))) {
-                      LOG_ERR("FileBrowser", "Failed to save render mode for: %s", fullPath.c_str());
-                    }
-                  }
-                  requestUpdate();
-                });
-            return;
-          }
           case FileBrowserAction::PinFavorite:
             if (FsHelpers::hasPngExtension(fullPath)) {
               startActivityForResult(
@@ -838,13 +758,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry) {
           case FileBrowserAction::UnpinBootFavorite:
             unpinBootFavorite();
             return;
-          case FileBrowserAction::SetSleepFolder:
-          case FileBrowserAction::ClearSleepFolder:
-          case FileBrowserAction::RemoveFromRecents:
-          case FileBrowserAction::ViewBookmarks:
-          case FileBrowserAction::ViewClippings:
-          case FileBrowserAction::DeleteBookmarks:
-          case FileBrowserAction::DeleteClippings:
+          default:
             return;
         }
       });
@@ -1095,19 +1009,6 @@ void FileBrowserActivity::loop() {
     navigateBack();
     return;
   }
-  if (pendingCompletedFeedback) {
-    const bool timedOut = (millis() - completedFeedbackShowTime) >= COMPLETED_FEEDBACK_MS;
-    const bool navPressed = mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-                            mappedInput.wasReleased(MappedInputManager::Button::Right) ||
-                            mappedInput.wasReleased(MappedInputManager::Button::Up) ||
-                            mappedInput.wasReleased(MappedInputManager::Button::Down);
-    if (timedOut || navPressed) {
-      pendingCompletedFeedback = false;
-      requestUpdate();
-      return;
-    }
-  }
-
   // In directory-picker mode the fourth front button selects the folder shown
   // in the path band; Confirm continues to descend into the highlighted child.
   if (mode == Mode::PickDirectory && mappedInput.wasReleased(MappedInputManager::Button::Right)) {
@@ -1533,10 +1434,6 @@ void FileBrowserActivity::render(RenderLock&&) {
     const auto hint = renderer.truncatedText(SMALL_FONT_ID, tr(STR_TOGGLE_HIDDEN_FILES_HINT), hintMaxWidth);
     const int hintWidth = renderer.getTextWidth(SMALL_FONT_ID, hint.c_str());
     renderer.drawText(SMALL_FONT_ID, pageWidth - metrics.contentSidePadding - hintWidth, pathY, hint.c_str());
-  }
-
-  if (pendingCompletedFeedback) {
-    GUI.drawPopup(renderer, completedFeedbackIsFinished ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
   }
 
   renderer.displayBuffer();

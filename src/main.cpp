@@ -73,7 +73,6 @@
 #include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/browser/OpdsPageCache.h"
-#include "activities/home/BookActions.h"
 #include "activities/home/RecentBookProgress.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/KOSyncAuto.h"
@@ -87,6 +86,7 @@
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
@@ -1210,10 +1210,9 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       LOG_INF("TOUCH", "Reader touchscreen %s by shortcut", SETTINGS.disableReaderTouchscreen ? "disabled" : "enabled");
       {
         RenderLock lock;
-        BookActions::drawToast(
-            renderer, SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
+        Toast::show(renderer,
+                    SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
       }
-      delay(1000);
       activityManager.requestUpdate();
       return true;
     default:
@@ -1743,7 +1742,7 @@ static void disarmBootGuard() {
 // Before the sleep screen, push under a progress toast and show the result for a
 // moment: the open book's just-saved position once past where it opened (KOReader
 // Sync > Sync on Wake & Sleep), else a close push still queued or running, which deep sleep would drop.
-// pushNow() bounds the whole wait, so sleep always goes on.
+// pushFinish() bounds the whole wait, so sleep always goes on.
 void syncBookBeforeSleep() {
   std::string path = kosync_auto::wantsSleepPush() ? activityManager.flushEpubProgressForSync() : std::string();
   const bool readerFlushed = !path.empty();
@@ -1755,23 +1754,26 @@ void syncBookBeforeSleep() {
   // busy render task only costs the toasts, never the push or the sleep.
   RenderLock lock(3000UL);
   // The sleep screen may snapshot this page, so the toasts' band is put back after.
-  const int bandH = renderer.getLineHeight(UI_10_FONT_ID) + 24;  // drawToast()'s height
-  const int bandY = (renderer.getScreenHeight() - bandH) / 2;
+  const Rect toast = Toast::bounds(renderer, "");
+  const int bandH = toast.height;
+  const int bandY = toast.y;
   const int bandW = renderer.getScreenWidth();
   const size_t bandBytes = renderer.getRegionByteSize(0, bandY, bandW, bandH);
   std::unique_ptr<uint8_t[]> band;
   if (lock.ownsLock()) band = makeUniqueNoThrow<uint8_t[]>(bandBytes);
   const bool saved = band && renderer.copyRegionToBuffer(0, bandY, bandW, bandH, band.get(), bandBytes);
-  if (saved) BookActions::drawToast(renderer, tr(STR_SYNCING_PROGRESS));
-  const kosync_auto::PushOutcome outcome = kosync_auto::pushNow(path, readerFlushed);
+  // Start the job first: its Wi-Fi join runs while the blocking toast refresh draws.
+  const bool started = kosync_auto::pushBegin(path, readerFlushed);
+  if (saved) Toast::show(renderer, tr(STR_SYNCING_PROGRESS));
+  const kosync_auto::PushOutcome outcome = started ? kosync_auto::pushFinish() : kosync_auto::PushOutcome::Failed;
   LOG_INF("KOSync", "sleep push outcome %d", static_cast<int>(outcome));
   if (!saved) return;
   const char* msg = outcome == kosync_auto::PushOutcome::Pushed        ? tr(STR_UPLOAD_SUCCESS)
                     : outcome == kosync_auto::PushOutcome::Same        ? tr(STR_ALREADY_SYNCED)
                     : outcome == kosync_auto::PushOutcome::ServerAhead ? tr(STR_SYNC_SERVER_AHEAD)
                                                                        : tr(STR_SYNC_FAILED_MSG);
-  BookActions::drawToast(renderer, msg);
-  delay(1500);
+  Toast::show(renderer, msg);
+  delay(Toast::DURATION_MS);
   renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
 }
 
@@ -2549,7 +2551,7 @@ static uint32_t liveFlashStartMs() {
                                                                                                              : 0;
 }
 
-static void updateFlashDuck() {
+static void updateFlashDuckLocked() {
   const unsigned long now = millis();
   const unsigned long inputMs = flashDuckInputMs;
   const uint32_t swingMs = liveFlashStartMs();
@@ -2670,8 +2672,12 @@ static void updateFlashDuck() {
     darkMs = target;
     const int32_t left = static_cast<int32_t>(target - now);
     const unsigned long from = std::max<unsigned long>(fromLevel, floor);
-    level = std::max(floor, std::min<unsigned long>(
-                                flashDuckLevel, left <= 0 ? floor : floor + (from - floor) * left / (target - fromMs)));
+    // Hold until the last FLASH_DUCK_DOWN_MS before the swing, then fade to the floor (the plan is
+    // 340-590 ms ahead of the swing, so a ramp from the plan dimmed far too early).
+    const unsigned long window = std::min<unsigned long>(target - fromMs, FLASH_DUCK_DOWN_MS);
+    const bool holding = left >= static_cast<int32_t>(window);
+    const unsigned long ramp = left <= 0 ? floor : holding ? from : floor + (from - floor) * left / window;
+    level = std::max(floor, std::min<unsigned long>(flashDuckLevel, ramp));
     if (level == floor && !darkLogged) {
       darkLogged = true;
       if (swingMs != 0) {
@@ -2702,6 +2708,41 @@ static void updateFlashDuck() {
   if (!ducking && flashDuckLevel == 100) flashDuckActive = false;
 }
 
+// The fade is stepped from the main loop and its render waits, but a long main-loop job (a 930 ms BMP
+// decode right after a refresh) starves both and the light came back ~760 ms late. While a duck is
+// pending or running an esp_timer steps it too; the mutex keeps the statics above to one caller.
+static bool flashDuckPending() {
+  return flashDuckActive || (SETTINGS.frontlightFlashDuck && (liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 ||
+                                                              display.flashPlannedMs() != 0));
+}
+static void updateFlashDuck() {
+#ifndef SIMULATOR
+  static SemaphoreHandle_t lock = xSemaphoreCreateMutex();
+  static esp_timer_handle_t tick = nullptr;
+  static bool ticking = false;
+  if (lock == nullptr || xSemaphoreTake(lock, 0) != pdTRUE) return;  // another caller is stepping it
+  updateFlashDuckLocked();
+  const bool want = flashDuckPending();
+  if (want && !ticking) {
+    if (tick == nullptr) {
+      const esp_timer_create_args_t args = {.callback = [](void*) { updateFlashDuck(); },
+                                            .arg = nullptr,
+                                            .dispatch_method = ESP_TIMER_TASK,
+                                            .name = "flashDuck",
+                                            .skip_unhandled_events = true};
+      if (esp_timer_create(&args, &tick) != ESP_OK) LOG_ERR("LIGHT", "Flash duck timer not created");
+    }
+    ticking = tick != nullptr && esp_timer_start_periodic(tick, FLASH_DUCK_TICK_MS * 1000ULL) == ESP_OK;
+  } else if (!want && ticking) {
+    esp_timer_stop(tick);
+    ticking = false;
+  }
+  xSemaphoreGive(lock);
+#else
+  updateFlashDuckLocked();
+#endif
+}
+
 // The main loop can block in a render wait through a whole refresh (a reader
 // redraw under the drawer: log 20261001T021833Z-2c6751af L3220-3227, loop 1377
 // ms), so RenderLock's waits step the duck too, on this task only.
@@ -2728,6 +2769,7 @@ static unsigned long lightIdleMs(const unsigned long idleMs) {
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
   if (SerialRemote::macroRunning()) return IDLE_WAIT_MS;  // macro WAIT/WAITLOG steps resolve on the loop tick
+  if (Toast::holding()) return IDLE_WAIT_MS;              // repaint on time when the toast ends
   if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) &&
                           SETTINGS.frontlightFlashDuck)) {
     return FLASH_DUCK_TICK_MS;
@@ -2973,11 +3015,12 @@ static void loopPass() {
 
   // Notify the active activity before global shortcut and gesture routes consume
   // the input and skip its loop() for this frame.
+  const bool tiltActivity = halTiltSensor.hadActivity();  // consumes the flag
   const bool userInputReceived = gpio.wasAnyPressed() || gpio.wasAnyReleased()
 #if CROSSDINK_APP_CAP_TOUCH
                                  || gpio.wasTouchActivity()
 #endif
-                                 || halTiltSensor.hadActivity();
+                                 || tiltActivity;
 #if CROSSDINK_PERF_LOG
   const char* inputKind = nullptr;
   if (userInputReceived) {
@@ -2990,6 +3033,17 @@ static void loopPass() {
 #endif
 #endif
 
+  // A new press, touch or tilt ends a toast's hold, so input never waits it
+  // out; the release of the press that raised the toast does not.
+  {
+#if CROSSDINK_APP_CAP_TOUCH
+    float touchX = 0, touchY = 0;
+    const bool touchDown = gpio.wasTouchDown(touchX, touchY);
+#else
+    constexpr bool touchDown = false;
+#endif
+    if (gpio.wasAnyPressed() || touchDown || tiltActivity) Toast::release();
+  }
   // User input paces power saving. Background work that only has to keep the
   // device out of deep sleep (automatic page turn, sync screens) holds off the
   // sleep timeout separately, so it no longer pins the CPU at full clock.
@@ -3020,8 +3074,11 @@ static void loopPass() {
   }
   const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
+  const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
+  // Panel booster off on the same timeout, light on or off; input powers it
+  // back on early (wakePanelEarly above).
+  if (lightTimeoutMs > 0 && idleMs >= lightTimeoutMs) activityManager.dozePanel();
   if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
-    const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
     if (idleMs >= lightTimeoutMs) {
       const unsigned long fadeMs = idleMs - lightTimeoutMs;
       const uint8_t level = fadeMs >= LIGHT_FADE_MS ? 0 : static_cast<uint8_t>(100 - fadeMs * 100 / LIGHT_FADE_MS);
@@ -3267,15 +3324,13 @@ static void loopPass() {
   activityManager.loop();
   kosync_auto::loop();
   BugReport::loop();
-  // Auto sync push toast: drawn over the current screen, cleared by its next render.
-  static unsigned long koSyncToastAt = 0;
+  // Auto sync push toast: drawn over the current screen, cleared by the held repaint.
   if (kosync_auto::takePushed()) {
-    RenderLock lock;
-    activityManager.repaintSyncBadge();  // the new KOSync badge rides the toast's refresh
-    BookActions::drawToast(renderer, tr(STR_UPLOAD_SUCCESS));
-    koSyncToastAt = millis() | 1;
-  } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
-    koSyncToastAt = 0;
+    {
+      RenderLock lock;
+      activityManager.repaintSyncBadge();  // the new KOSync badge rides the toast's refresh
+      Toast::show(renderer, tr(STR_UPLOAD_SUCCESS));
+    }
     activityManager.requestUpdate();
   }
 #if CROSSDINK_GOODIES
@@ -3359,7 +3414,6 @@ static void loopPass() {
 void loop() {
   loopPassBlocked = false;
   loopPass();
-  SleepLog::loop();
   // loopTask runs on core 0 at priority 2, above IDLE0 and the priority-1
   // workers. Early returns (held chords, Home-key taps, shortcut dispatch)
   // skip the pass-end wait; one tick keeps them from starving IDLE0 into a

@@ -8,7 +8,7 @@ class Activity;
 
 // On-device bug reports: the pull-down's bug button snaps the screen, asks for
 // a description, and saves /bugreports/<id>.zip holding report.txt, log.txt and
-// screen.bmp. The log goes through BugReportSanitize first. Reports are POSTed
+// screen.png. The log goes through BugReportSanitize first. Reports are POSTed
 // to the URL in /bugreports/url.txt whenever Wi-Fi is up for another reason; a
 // sent report is renamed <id>.sent.zip and stays on the card.
 namespace BugReport {

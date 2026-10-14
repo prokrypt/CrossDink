@@ -484,6 +484,20 @@ bool ChapterHtmlSlimParser::startNewPage(const char* reason) {
   return true;
 }
 
+// Times the outermost line layout, minus the page writes it triggers.
+struct LayoutTimer {
+  explicit LayoutTimer(ChapterHtmlSlimParser& parser)
+      : p(parser), startUs(micros()), writeAtStart(parser.pageWriteUs_) {
+    ++p.layoutDepth_;
+  }
+  ~LayoutTimer() {
+    if (--p.layoutDepth_ == 0) p.layoutUs_ += (micros() - startUs) - (p.pageWriteUs_ - writeAtStart);
+  }
+  ChapterHtmlSlimParser& p;
+  const uint32_t startUs;
+  const uint32_t writeAtStart;
+};
+
 void ChapterHtmlSlimParser::markCurrentPageFromCurrentTextBlock() {
   currentPageParagraphIndex = currentTextBlockParagraphIndex;
   currentPageListItemIndex = currentTextBlockListItemIndex;
@@ -495,8 +509,10 @@ void ChapterHtmlSlimParser::markCurrentPageFromCurrentElement() {
 }
 
 void ChapterHtmlSlimParser::completeCurrentPage() {
+  const uint32_t startUs = micros();
   completePageFn(std::move(currentPage), currentPageParagraphIndex, currentPageListItemIndex, currentPageVisibleOffset,
                  currentPageReferenceOffset);
+  pageWriteUs_ += micros() - startUs;
 }
 
 void ChapterHtmlSlimParser::setCurrentPageVisibleOffset(const uint32_t offset, const uint32_t referenceOffset) {
@@ -796,6 +812,7 @@ void ChapterHtmlSlimParser::flushLongTextRunIfNeeded(const bool force) {
   const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+  LayoutTimer layoutTimer(*this);
   if (!currentTextBlock->layoutAndExtractLines(
           renderer, fontId, effectiveWidth,
           [this](const std::shared_ptr<TextBlock>& textBlock, const uint32_t offset, const uint32_t referenceOffset) {
@@ -1177,6 +1194,7 @@ bool ChapterHtmlSlimParser::streamCurrentTableRow() {
     const auto& sourceCell = row.cells[cellIndex];
     auto& destCell = fragmentRow.cells[cellIndex];
     destCell.isHeader = sourceCell.isHeader;
+    LayoutTimer layoutTimer(*this);
     if (sourceCell.text &&
         !sourceCell.text->layoutAndExtractLinesPreservingSource(
             renderer, fontId,
@@ -1433,6 +1451,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
       destCell.isHeader = sourceCell.isHeader;
 
       if (sourceCell.text) {
+        LayoutTimer layoutTimer(*this);
         if (!sourceCell.text->layoutAndExtractLinesPreservingSource(
                 renderer, fontId,
                 TableColumnLayout::innerWidth(tableWidth, columnCount, static_cast<uint8_t>(colIndex), 1,
@@ -4168,6 +4187,7 @@ void ChapterHtmlSlimParser::makePages() {
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
 
+  LayoutTimer layoutTimer(*this);
   if (!currentTextBlock->layoutAndExtractLines(
           renderer, fontId, effectiveWidth,
           [this](const std::shared_ptr<TextBlock>& textBlock, const uint32_t offset, const uint32_t referenceOffset) {

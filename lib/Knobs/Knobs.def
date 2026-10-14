@@ -24,8 +24,8 @@ X("Panel", burnInShiftPx, int, 2, 0, 4, 1, "px")                     // burn-in 
 // flash to their end, so the up fade ends with the refresh.
 X("Light", flashGrayDimMs, int32_t, 0, -800, 800, 10, "ms")            // AA page turn: dark as the background goes black
 X("Light", flashGrayRestoreMs, int32_t, -300, -800, 800, 10, "ms")     // up as the white drive starts (frame 38/50; black drive 24-36)
-X("Light", flashGrayDarkDimMs, int32_t, 0, -800, 800, 10, "ms")        // Night Mode AA page turn: the black background goes white from DRF (stock set, frames 0-21)
-X("Light", flashGrayDarkRestoreMs, int32_t, -300, -800, 800, 10, "ms") // up after its black drives (frames 24-36, 38-45 of 50)
+X("Light", flashGrayDarkDimMs, int32_t, -800, -800, 800, 10, "ms")        // Night Mode AA page turn: the black background goes white from DRF (stock set, frames 0-21)
+X("Light", flashGrayDarkRestoreMs, int32_t, -600, -800, 800, 10, "ms") // up after its black drives (frames 24-36, 38-45 of 50)
 X("Light", flashFullDimMs, int32_t, 400, -800, 800, 10, "ms")          // Half/Full: dark 0.4 s in (user-tuned 10/2)
 X("Light", flashFullRestoreMs, int32_t, -800, -800, 800, 10, "ms")     // OTP GC settles before BUSY: up 0.8 s before the end (user-tuned 10/2)
 X("Light", flashPaintDimMs, int32_t, 0, -800, 800, 10, "ms")           // menu / drawer over gray
@@ -60,8 +60,8 @@ X("Touch", menuEdgePermille, int, 140, 20, 300, 10, "/1000")        // menu swip
 X("Touch", heldOverrideMs, unsigned long, 250, 50, 1000, 50, "ms")  // a gesture's held-time override lasts
 X("Touch", selectPressDelayMs, unsigned long, 200, 50, 1000, 10, "ms")  // still hold before the row highlight
 X("Touch", selectPressSlopPx, int, 20, 4, 60, 2, "px")              // movement that cancels it
-X("Touch", tapSlopPx, int, 28, 4, 56, 2, "px")                      // SDK: tap / long-press slop (< swipe min)
-X("Touch", swipeMinPx, int, 60, 20, 200, 5, "px")                   // SDK: min swipe (tap-on-release slop - 1)
+X("Touch", tapSlopPx, int, 20, 4, 56, 2, "px")                      // SDK: tap / long-press slop (< swipe min)
+X("Touch", swipeMinPx, int, 40, 20, 200, 5, "px")                   // SDK: min swipe (tap-on-release slop - 1)
 X("Touch", swipeMaxMs, unsigned long, 700, 200, 3000, 50, "ms")     // SDK: longest one-finger swipe
 X("Touch", multiSwipeMaxMs, unsigned long, 2000, 500, 5000, 100, "ms")  // SDK: two-finger gesture window
 X("Touch", multiSeparationSlopPx, int, 45, 10, 150, 5, "px")        // SDK: two-finger spacing tolerance
@@ -102,7 +102,7 @@ X("Power", batteryHalfLifeH, uint16_t, 24, 0, 720, 1, "h")       // Battery & st
 X("Power", ledMaxDrain, uint16_t, 200, 10, 1000, 10, "0.1%/h")     // Battery & stats: LED drain at full light, caps its share (placeholder until measured)
 X("Power", chargeWake, uint8_t, 1, 0, 1, 1, "")                    // battery log: wake on charger STAT changes asleep; 0 to A/B ext0's sleep drain in power.csv
 X("Power", powerTickMin, uint16_t, 10, 1, 120, 1, "min")           // power.csv: a counters row this often while awake
-X("Power", powerTestMin, uint16_t, 30, 5, 480, 5, "min")           // Goodies > Power test: run length
+X("Power", powerTestMin, uint16_t, 5, 5, 480, 5, "min")           // Goodies > Power test: run length
 X("Power", powerTestRefreshS, uint16_t, 10, 2, 120, 1, "s")        // Power test refresh loops: one refresh per this
 X("Power", clockPollMs, unsigned long, 10000, 1000, 60000, 1000, "ms")   // RTC cache
 X("Power", tiltPollMs, unsigned long, 50, 20, 500, 10, "ms")             // tilt sensor poll
@@ -133,8 +133,6 @@ X("Heap", opdsPreloadPerWorker, size_t, 16384, 16384, 65536, 1024, "B")       //
 X("Heap", opdsPreloadMinBlock, size_t, 16384, 16384, 65536, 1024, "B")
 
 // Reader
-X("Book", buildAheadPages, int, 5, 1, 20, 1, "pg")                  // incremental build runs this far ahead
-X("Book", partialRebuildMargin, int, 15, 2, 50, 1, "pg")            // extend a partial section this near its end
 X("Book", buildChunkPages, int, 8, 1, 32, 1, "pg")                  // non-interactive build batch
 X("Book", popupPages, int, 20, 1, 200, 1, "pg")                     // indexing popup: target deeper than this
 X("Book", popupBytes, size_t, 98304, 8192, 524288, 8192, "B")       // indexing popup: spine items this large
