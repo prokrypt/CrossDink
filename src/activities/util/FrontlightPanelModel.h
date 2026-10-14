@@ -11,6 +11,7 @@ enum class FrontlightPanelAction : uint8_t {
   SyncProgress,
   NearbyPositionSync,
   SendNearbyBook,
+  BugReport,  // handled by ActivityManager, not the screen below
 };
 
 enum class FrontlightBookSource : uint8_t { CurrentBook = 0, LastBook, DeviceOnly };

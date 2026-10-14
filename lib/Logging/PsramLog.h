@@ -9,11 +9,14 @@
 // (CMD:PSRAMLOG). Power-on reset, the reset button and deep sleep power PSRAM
 // down and start a fresh ring.
 //
-// Enabled with -DCROSSDINK_PSRAM_LOG=1. Needs
+// -DCROSSDINK_PSRAM_LOG=1 (debug envs): 512 KB ring plus the endpoints above.
+// -DCROSSDINK_PSRAM_LOG_RING=1 (release envs): a 64 KB ring only, read by bug
+// reports (src/util/BugReport.h). Needs
 // CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y ([dualpoint_cores] in
 // platformio.ini); the boot PSRAM test skips that segment. Otherwise every
 // function is an empty inline.
-#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+#if (CROSSDINK_PSRAM_LOG || CROSSDINK_PSRAM_LOG_RING) && !defined(SIMULATOR)
+#define CROSSDINK_HAS_PSRAM_LOG_RING 1
 namespace PsramLog {
 // Appends text; safe from any task on either core.
 void append(const char* text, size_t len);
