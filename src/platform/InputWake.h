@@ -10,7 +10,8 @@ namespace InputWake {
 void begin();
 
 // Waits up to timeoutMs, returning as soon as a wake line changes level.
-void wait(uint32_t timeoutMs);
+// True when a wake line or wake() ended it, false on timeout.
+bool wait(uint32_t timeoutMs);
 
 // Ends a running wait() early (another task has work for the loop).
 void wake();

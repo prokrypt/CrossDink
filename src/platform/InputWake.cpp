@@ -216,10 +216,10 @@ void InputWake::begin() {
   LOG_INF("WAKE", "Input wake armed on %u line(s)", static_cast<unsigned>(wakePinCount));
 }
 
-void InputWake::wait(const uint32_t timeoutMs) {
+bool InputWake::wait(const uint32_t timeoutMs) {
   if (wakeSignal == nullptr || wakePinCount == 0) {
     delay(timeoutMs);
-    return;
+    return false;
   }
   for (size_t i = 0; i < wakePinCount; ++i) {
     const gpio_num_t pin = wakePins[i];
@@ -241,7 +241,7 @@ void InputWake::wait(const uint32_t timeoutMs) {
     logStatPad("5s", chargePin, readStatPad(chargePin));
   }
 #endif
-  xSemaphoreTake(wakeSignal, pdMS_TO_TICKS(timeoutMs));
+  return xSemaphoreTake(wakeSignal, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
 }
 
 void InputWake::wake() {
@@ -303,7 +303,10 @@ uint32_t InputWake::touchWakeTotal() {
 
 void InputWake::begin() {}
 
-void InputWake::wait(const uint32_t timeoutMs) { delay(timeoutMs); }
+bool InputWake::wait(const uint32_t timeoutMs) {
+  delay(timeoutMs);
+  return false;
+}
 
 void InputWake::wake() {}
 
