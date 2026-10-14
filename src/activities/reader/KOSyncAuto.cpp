@@ -81,7 +81,9 @@ void remember(const std::string& path, const DocumentMatchMethod method, const f
 struct OpenAt {
   int spine = 0;
   int page = 0;
-  int pages = 0;  // 0: page count unknown
+  int pages = 0;            // 0: page count unknown
+  uint32_t textOffset = 0;  // the page's first text byte, when hasTextOffset
+  bool hasTextOffset = false;
 };
 std::string openPath;  // main task only; startJob() hands the task a copy
 OpenAt openAt;
@@ -107,12 +109,17 @@ bool beginRadioCall() {
 }
 
 // <0 before, 0 at, >0 past where the book opened (>0 too when not opened this boot).
-// Within a chapter it compares the fraction read, which survives a font or margin
-// change re-paging the chapter.
+// Within a chapter it compares the page's text offset, which is the same on the
+// same page whatever the chapter's page count; else the fraction read, which
+// survives a font or margin change re-paging the chapter. The fraction alone made
+// the same page read as "moved on" whenever the saved count was a partial build's
+// estimate that shrank between sessions, so every open/close pushed a page further.
 int vsOpen(const EpubReaderUtils::Progress& saved) {
   const OpenAt& o = jobOpenAt;
   if (!jobOpened) return 1;
   if (saved.spineIndex != o.spine) return saved.spineIndex < o.spine ? -1 : 1;
+  if (o.hasTextOffset && saved.hasVisibleTextOffset)
+    return (saved.visibleTextOffset > o.textOffset) - (saved.visibleTextOffset < o.textOffset);
   if (!saved.hasPageCount || saved.pageCount <= 0 || o.pages <= 0)
     return (saved.pageNumber > o.page) - (saved.pageNumber < o.page);
   const float s = static_cast<float>(saved.pageNumber) / saved.pageCount;
@@ -430,9 +437,10 @@ void noteWake() {
   retryPushMagic = 0;
 }
 
-void queuePull(const std::string& epubPath, const int spineIndex, const int pageNumber, const int pageCount) {
+void queuePull(const std::string& epubPath, const int spineIndex, const int pageNumber, const int pageCount,
+               const std::optional<uint32_t> textOffset) {
   openPath = epubPath;
-  openAt = {spineIndex, pageNumber, pageCount};
+  openAt = {spineIndex, pageNumber, pageCount, textOffset.value_or(0), textOffset.has_value()};
   queuedAt = millis();  // a pending push also waits out the book's open
   // ponytail: a wake whose reader never reaches here leaves the retry for the next open (one extra checked push).
   // The push's own server check makes its order against the pull irrelevant.
