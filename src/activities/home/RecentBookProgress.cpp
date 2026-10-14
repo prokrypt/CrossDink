@@ -35,16 +35,19 @@ bool readCachedEpubBasisPoints(const std::string& cachePath, uint16_t& basisPoin
   }
 
   // Same bytes tryReadPod() read: magic, version, basis points.
-  uint8_t record[sizeof(EPUB_PERCENT_CACHE_MAGIC) + sizeof(EPUB_PERCENT_CACHE_VERSION) + sizeof(basisPoints)];
+  constexpr size_t kVersionAt = sizeof(uint32_t);
+  constexpr size_t kBasisAt = kVersionAt + sizeof(uint8_t);
+  uint8_t record[kBasisAt + sizeof(uint16_t)];
   if (HeldWrites::readFile("RBPR", epubPercentCachePath(cachePath), record, sizeof(record)) !=
       static_cast<int>(sizeof(record))) {
     return false;
   }
   uint32_t magic = 0;
+  uint16_t bp = 0;
   memcpy(&magic, record, sizeof(magic));
-  const uint8_t version = record[sizeof(magic)];
-  memcpy(&basisPoints, record + sizeof(magic) + sizeof(version), sizeof(basisPoints));
-  return magic == EPUB_PERCENT_CACHE_MAGIC && version == EPUB_PERCENT_CACHE_VERSION && basisPoints <= 10000;
+  memcpy(&bp, record + kBasisAt, sizeof(bp));
+  basisPoints = bp;
+  return magic == EPUB_PERCENT_CACHE_MAGIC && record[kVersionAt] == EPUB_PERCENT_CACHE_VERSION && bp <= 10000;
 }
 
 float loadCachedEpubPercentFromCachePath(const std::string& cachePath) {
