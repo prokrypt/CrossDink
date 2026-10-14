@@ -1,7 +1,11 @@
 #include "LanguageRegistry.h"
 
+#include <Logging.h>
+#include <PackedAsset.h>
+
 #include <algorithm>
 #include <array>
+#include <mutex>
 
 #include "HyphenationCommon.h"
 #include "generated/hyph-de.trie.h"
@@ -31,6 +35,12 @@ LanguageHyphenator portugueseHyphenator(pt_patterns, isLatinLetter, toLowerLatin
 
 using EntryArray = std::array<LanguageEntry, 10>;
 
+// Section builds and previews may look a language up from different tasks.
+std::mutex& loadMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 const EntryArray& entries() {
   static const EntryArray kEntries = {{{"english", "en", &englishHyphenator},
                                        {"french", "fr", &frenchHyphenator},
@@ -47,11 +57,28 @@ const EntryArray& entries() {
 
 }  // namespace
 
+bool LanguageHyphenator::load() {
+  if (patterns_.data) return true;
+  // Plain CPU data read by the Liang walk; PSRAM only, since a missing trie
+  // just means no hyphenation for this language.
+  trie_ = inflatePackedAsset(
+      {packed_.packed, static_cast<uint32_t>(packed_.packedSize), static_cast<uint32_t>(packed_.size)}, "HYPH");
+  if (!trie_) return false;
+  patterns_ = {packed_.rootOffset, trie_.get(), packed_.size};
+  return true;
+}
+
 const LanguageHyphenator* getLanguageHyphenatorForPrimaryTag(const std::string& primaryTag) {
   const auto& allEntries = entries();
   const auto it = std::find_if(allEntries.begin(), allEntries.end(),
                                [&primaryTag](const LanguageEntry& entry) { return primaryTag == entry.primaryTag; });
-  return (it != allEntries.end()) ? it->hyphenator : nullptr;
+  if (it == allEntries.end()) return nullptr;
+  std::lock_guard<std::mutex> lock(loadMutex());
+  if (!it->hyphenator->load()) {
+    LOG_ERR("HYPH", "Hyphenation patterns for '%s' unavailable", it->primaryTag);
+    return nullptr;
+  }
+  return it->hyphenator;
 }
 
 LanguageEntryView getLanguageEntries() {
