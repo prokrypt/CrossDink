@@ -228,6 +228,9 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
 // RTC_DATA_ATTR survives deep sleep and resets to true on a full boot.
 static RTC_DATA_ATTR bool pageKeyWakeWanted = true;
+// Set when Up/Down are held at sleep entry. Survives charger and stray-key wakes
+// (they sleep again straight from setup()); a full app wake clears it in setPageKeyWake().
+static RTC_DATA_ATTR bool pageKeysLockedOut = false;
 #endif
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
@@ -308,12 +311,10 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
     while ((digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) && millis() - releaseStart < 2000) {
       delay(10);
     }
-    // RTC_DATA_ATTR survives deep sleep and resets on a full boot, so Power wake/sleep keeps the lockout.
-    static RTC_DATA_ATTR bool pageKeysLockedOut = false;
     uint64_t mask = 1ULL << in.power;
     if (digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) {
       pageKeysLockedOut = true;
-      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until full boot");
+      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until the next app wake");
     }
     if (!pageKeysLockedOut) {
       pinMode(in.up, INPUT_PULLUP);
@@ -347,6 +348,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 void HalPowerManager::setPageKeyWake(bool on) {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
   pageKeyWakeWanted = on;
+  if (on) pageKeysLockedOut = false;
 #else
   (void)on;
 #endif
