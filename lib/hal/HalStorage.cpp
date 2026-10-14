@@ -659,8 +659,40 @@ struct OpenTiming {
 class HalFile::Impl {
  public:
   Impl(FsFile&& fsFile) : file(std::move(fsFile)) {}
+  ~Impl() { std::free(writeBuf); }
   FsFile file;
   std::unique_ptr<LegacyMerge> merge;
+  // Optional write-behind buffer (enableWriteBuffer): small writes collect here and
+  // reach SdFat in large runs, so whole sectors go out as multi-block transfers
+  // instead of one card write per 512 B. Callers hold the storage lock.
+  uint8_t* writeBuf = nullptr;
+  size_t writeCap = 0;
+  size_t writeLen = 0;
+  bool writeFailed = false;  // sticky: a lost drain fails later writes, sync() and close()
+  size_t writeThrough(const void* buf, const size_t count) {
+#if CROSSDINK_PERF_LOG
+    const uint32_t startUs = micros();
+    const size_t n = file.write(buf, count);
+    const uint32_t us = micros() - startUs;
+    PerfLog::noteSdWrite(static_cast<uint32_t>(n), us);
+    PowerCounters::sdWrite(static_cast<uint32_t>(n), us);
+    writeBytes += n;
+    writeUs += us;
+    return n;
+#else
+    return file.write(buf, count);
+#endif
+  }
+  bool drain() {
+    if (writeLen == 0) return !writeFailed;
+    const size_t len = writeLen;
+    writeLen = 0;
+    if (writeThrough(writeBuf, len) != len) {
+      writeFailed = true;
+      LOG_ERR("SD", "Buffered write of %u bytes failed", static_cast<unsigned>(len));
+    }
+    return !writeFailed;
+  }
 #if CROSSDINK_PERF_LOG
   // [SDW] bookkeeping for handles opened to write: one line at close with the
   // path, bytes written and time spent in write(); a slow one (open, writes,
@@ -1022,6 +1054,7 @@ bool HalStorage::removeDir(const char* path) {
 #define HAL_FILE_WRAPPED_CALL(method, ...) \
   HalStorage::StorageLock lock;            \
   assert(impl != nullptr);                 \
+  impl->drain();                           \
   return impl->file.method(__VA_ARGS__);
 
 #define HAL_FILE_FORWARD_CALL(method, ...) \
@@ -1030,9 +1063,36 @@ bool HalStorage::removeDir(const char* path) {
 
 void HalFile::flush() { HAL_FILE_WRAPPED_CALL(flush, ); }
 size_t HalFile::getName(char* name, size_t len) { HAL_FILE_WRAPPED_CALL(getName, name, len); }
-size_t HalFile::size() { HAL_FILE_FORWARD_CALL(size, ); }              // already thread-safe, no need to wrap
-size_t HalFile::fileSize() { HAL_FILE_FORWARD_CALL(fileSize, ); }      // already thread-safe, no need to wrap
-uint64_t HalFile::fileSize64() { HAL_FILE_FORWARD_CALL(fileSize, ); }  // already thread-safe, no need to wrap
+void HalFile::drainWriteBuffer() {
+  if (!impl || impl->writeLen == 0) return;
+  HalStorage::StorageLock lock;
+  impl->drain();
+}
+bool HalFile::enableWriteBuffer(const size_t capacity) {
+  if (!impl || capacity == 0) return false;
+  if (impl->writeBuf) return true;
+  // malloc, not new: see allocateImplStorage(). Freed by ~Impl when the handle closes.
+  impl->writeBuf = static_cast<uint8_t*>(std::malloc(capacity));
+  if (!impl->writeBuf) {
+    LOG_ERR("SD", "No %u B write buffer; writing unbuffered", static_cast<unsigned>(capacity));
+    return false;
+  }
+  impl->writeCap = capacity;
+  return true;
+}
+// size queries are already thread-safe; only pending buffered bytes need the lock.
+size_t HalFile::size() {
+  drainWriteBuffer();
+  HAL_FILE_FORWARD_CALL(size, );
+}
+size_t HalFile::fileSize() {
+  drainWriteBuffer();
+  HAL_FILE_FORWARD_CALL(fileSize, );
+}
+uint64_t HalFile::fileSize64() {
+  drainWriteBuffer();
+  HAL_FILE_FORWARD_CALL(fileSize, );
+}
 uint32_t HalFile::creationTime() {
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
@@ -1054,11 +1114,17 @@ bool HalFile::seek64(uint64_t pos) { HAL_FILE_WRAPPED_CALL(seekSet, pos); }
 bool HalFile::seekCur(int64_t offset) { HAL_FILE_WRAPPED_CALL(seekCur, offset); }
 bool HalFile::seekSet(size_t offset) { HAL_FILE_WRAPPED_CALL(seekSet, offset); }
 int HalFile::available() const { HAL_FILE_WRAPPED_CALL(available, ); }
-size_t HalFile::position() const { HAL_FILE_WRAPPED_CALL(position, ); }
+size_t HalFile::position() const {
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr);
+  // No drain: the build asks for the position of every page it writes.
+  return impl->file.position() + impl->writeLen;
+}
 int HalFile::read(void* buf, size_t count) {
 #if CROSSDINK_PERF_LOG
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
+  impl->drain();
   const uint32_t startUs = micros();
   const int n = impl->file.read(buf, count);
   const uint32_t readUs = micros() - startUs;
@@ -1073,33 +1139,27 @@ int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
 size_t HalFile::write(const void* buf, size_t count) {
 #if CROSSDINK_PERF_LOG
   const uint32_t callUs = micros();
+#endif
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
-  const uint32_t startUs = micros();
-  const size_t n = impl->file.write(buf, count);
-  const uint32_t us = micros() - startUs;
-  PerfLog::noteSdWrite(static_cast<uint32_t>(n), us);
-  PowerCounters::sdWrite(static_cast<uint32_t>(n), us);
-  impl->writeBytes += n;
-  impl->writeUs += us;
-  impl->waitUs += startUs - callUs;
-  return n;
-#else
-  HAL_FILE_WRAPPED_CALL(write, buf, count);
-#endif
-}
-size_t HalFile::write(uint8_t b) {
 #if CROSSDINK_PERF_LOG
+  impl->waitUs += micros() - callUs;
+#endif
+  if (!impl->writeBuf) return impl->writeThrough(buf, count);
+  if (impl->writeLen + count > impl->writeCap && !impl->drain()) return 0;
+  if (impl->writeFailed) return 0;
+  if (count >= impl->writeCap) return impl->writeThrough(buf, count);
+  memcpy(impl->writeBuf + impl->writeLen, buf, count);
+  impl->writeLen += count;
+  return count;
+}
+size_t HalFile::write(uint8_t b) { return write(&b, 1); }
+bool HalFile::sync() {
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
-  const size_t n = impl->file.write(b);
-  impl->writeBytes += n;
-  return n;
-#else
-  HAL_FILE_WRAPPED_CALL(write, b);
-#endif
+  const bool drained = impl->drain();
+  return impl->file.sync() && drained;
 }
-bool HalFile::sync() { HAL_FILE_WRAPPED_CALL(sync, ); }
 bool HalFile::rename(const char* newPath) {
   // The old name is unknown here; treat any handle rename as a content change.
   Storage.markLibraryContentChanged(newPath);
@@ -1108,6 +1168,7 @@ bool HalFile::rename(const char* newPath) {
   {
     HalStorage::StorageLock lock;
     assert(impl != nullptr);
+    impl->drain();
     ok = impl->file.rename(newPath);
   }
   SDW_LOG(ok, "rename (handle) -> %s", newPath);
@@ -1152,7 +1213,8 @@ bool HalFile::close() {
     const uint32_t lockedUs = micros();
     waitUs += lockedUs - callUs;
 #endif
-    ok = impl->file.close();
+    const bool drained = impl->drain();
+    ok = impl->file.close() && drained;
 #if CROSSDINK_PERF_LOG
     closeUs = micros() - lockedUs;
 #endif

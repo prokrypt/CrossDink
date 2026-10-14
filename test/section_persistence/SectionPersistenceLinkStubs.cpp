@@ -43,6 +43,7 @@ ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() { return P
 bool ChapterHtmlSlimParser::finishParse() { return true; }
 void ChapterHtmlSlimParser::abortParse() {}
 void ChapterHtmlSlimParser::releaseInputFile() {}
+bool ChapterHtmlSlimParser::prewarmSectionAdvanceStep() { return false; }
 
 bool Page::serialize(FsFile& file) const {
   constexpr uint32_t marker = 0x50414745;

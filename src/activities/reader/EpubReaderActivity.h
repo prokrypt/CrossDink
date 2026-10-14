@@ -549,6 +549,8 @@ class EpubReaderActivity final : public Activity {
   static constexpr int NEXT_SECTION_BUILD_PAGES_LEFT = 2;
   // Its HTML inflate holds RenderLock in one piece, so start it only once the page has sat a while.
   static constexpr unsigned long NEXT_SECTION_BUILD_IDLE_MS = 1500;
+  // Pages past the current one built before the deferred font prewarm runs.
+  static constexpr int BACKGROUND_PREWARM_PAGES_AHEAD = 2;
   // Show the indexing popup when an initial build must lay out more than this many pages up front
   // (a deep resume/jump into a not-yet-built section), so it isn't a silent wait. Kept independent
   // of the background build so ordinary landings stay popup-free.

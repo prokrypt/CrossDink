@@ -21,7 +21,12 @@ class GfxRenderer {
   int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 0; }
   bool isSdCardFont(int) const { return false; }
   bool releaseSdCardFontForLowMemory(int, bool = false) { return false; }
-  bool ensureSdCardFontReady(int, const uint32_t*, size_t, bool, bool, uint8_t) const { return true; }
+  // Codepoint batches handed to the font, for the section advance prewarm tests.
+  mutable std::vector<std::vector<uint32_t>> fedCodepoints;
+  bool ensureSdCardFontReady(int, const uint32_t* codepoints, size_t count, bool, bool, uint8_t) const {
+    fedCodepoints.emplace_back(codepoints, codepoints + count);
+    return true;
+  }
   bool ensureSdCardFontReady(int, const std::deque<std::string>&, bool, uint8_t) const { return true; }
   bool ensureSdCardFontReady(int, const char*, uint8_t) const { return true; }
   std::vector<std::string> wrappedText(int, const char*, int, int,
