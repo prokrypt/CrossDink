@@ -2,6 +2,7 @@
 
 #if CROSSDINK_GOODIES
 
+#include <CrossDinkHalFrontlight.h>
 #include <FreeInkDisplay.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -39,6 +40,32 @@ constexpr DuckKind DUCK_KINDS[] = {{"Full", "flashFullDimMs", "flashFullRestoreM
                                    {"Gray", "flashGrayDimMs", "flashGrayRestoreMs"},
                                    {"Paint", "flashPaintDimMs", "flashPaintRestoreMs"},
                                    {"GrayDark", "flashGrayDarkDimMs", "flashGrayDarkRestoreMs"}};
+constexpr int DUCK_KNOB_COUNT = 2 * (sizeof(DUCK_KINDS) / sizeof(DUCK_KINDS[0]));
+static_assert(DUCK_KNOB_COUNT == 8, "DisplayTestActivity::duckKnobsAtStart holds 8");
+
+// Duck knob i: DUCK_KINDS[i / 2]'s dim (even) or restore (odd).
+const char* duckKnobId(const int i) { return i & 1 ? DUCK_KINDS[i / 2].restoreId : DUCK_KINDS[i / 2].dimId; }
+
+int32_t duckKnobValue(const int i) {
+  const int idx = knobs::find(duckKnobId(i));
+  return idx >= 0 ? knobs::get(idx) : 0;
+}
+
+// Writes why the flash duck (main.cpp updateFlashDuckLocked) will not dim for
+// these steps; false when it can.
+bool noDuckReason(char* out, const size_t size) {
+  const unsigned minPct = std::max<unsigned>(KNOBS.flashDuckMinPct, 2);
+  if (!SETTINGS.frontlightFlashDuck) {
+    snprintf(out, size, "No duck: Flash duck is off");
+  } else if (!Frontlight.isOn()) {
+    snprintf(out, size, "No duck: light off");
+  } else if (Frontlight.brightness() <= minPct) {
+    snprintf(out, size, "No duck: brightness at or under the %u%% floor", minPct);
+  } else {
+    return false;
+  }
+  return true;
+}
 }  // namespace
 
 DisplayTestActivity::DisplayTestActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,
@@ -73,12 +100,14 @@ void DisplayTestActivity::onEnter() {
     LOG_INF("GDY", "test=\"%s\" start ops=%u", title.c_str(), static_cast<unsigned>(script.ops.size()));
     phase = Phase::Running;
   }
+  for (const Op& op : script.ops) ducksTest = ducksTest || op.code == OpCode::Ducks;
+  for (int i = 0; ducksTest && i < DUCK_KNOB_COUNT; ++i) duckKnobsAtStart[i] = duckKnobValue(i);
   loops.reserve(4);
   requestUpdate();
 }
 
 void DisplayTestActivity::onExit() {
-  setNight(false);
+  restoreNight();
 #ifndef SIMULATOR
   freeink::setUc8179KbdExperiment(nullptr);
 #endif
@@ -105,20 +134,19 @@ void DisplayTestActivity::loop() {
   }
   int tapX = 0, tapY = 0;
   if (current == Phase::Waiting) {
-    bool go;
-    if (tapWait) {
-      const bool tapped = mappedInput.wasScreenTapped(tapX, tapY);
+    const bool tapped = tapWait && mappedInput.wasScreenTapped(tapX, tapY);
+    const bool ok = tapWait && mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+    const bool due = !tapWait && static_cast<long>(millis() - resumeAtMs) >= 0;
+    if (tapped || ok || due) {
+      RenderLock lock(*this);  // render() runs the steps and redraws from this state
       // Flash ducks pages: only the Next button (or OK) advances; other taps do nothing.
-      go = (tapped && (duckKind < 0 || duckTap(tapX, tapY))) ||
-           mappedInput.wasReleased(MappedInputManager::Button::Confirm);
-    } else {
-      go = static_cast<long>(millis() - resumeAtMs) >= 0;
-    }
-    if (go) {
-      tapWait = false;
-      phase = Phase::Running;
-      requestUpdate();
-      return;
+      if (ok || due || duckKind < 0 || duckTap(tapX, tapY)) {
+        tapWait = false;
+        redrawLabel = false;  // a pending -/+ redraw: the next step draws its own band
+        phase = Phase::Running;
+        requestUpdate();
+        return;
+      }
     }
   }
   if (current == Phase::Asking && askDrawn && script.ops[pc].code == OpCode::Pick) {
@@ -130,6 +158,7 @@ void DisplayTestActivity::loop() {
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
                mappedInput.wasReleased(MappedInputManager::Button::Right)) {
       const int step = mappedInput.wasReleased(MappedInputManager::Button::Left) ? cells - 1 : 1;
+      RenderLock lock(*this);  // drawAsk() reads pickIndex
       pickIndex = (pickIndex + step) % cells;
       askDrawn = false;  // redraw the band with the new selection
       requestUpdate();
@@ -151,6 +180,7 @@ void DisplayTestActivity::loop() {
 }
 
 void DisplayTestActivity::answer(const int option) {
+  RenderLock lock(*this);  // render() runs the steps from pc
   const Op& op = script.ops[pc];
   if (op.code == OpCode::Confirm && option == 0) stopRequested = true;
   if (op.code == OpCode::Pick) {
@@ -280,7 +310,7 @@ void DisplayTestActivity::runOps() {
     ++pc;
   }
   if (!stopped) LOG_INF("GDY", "test=\"%s\" done refreshes=%d", title.c_str(), refreshCount);
-  setNight(false);
+  restoreNight();
   phase = Phase::Finished;
 }
 
@@ -341,6 +371,8 @@ void DisplayTestActivity::drawOp(const Op& op) {
       }
       std::vector<BandLine> wrapped;
       wrapBand(lines, count, wrapped);
+      char noDuck[64];
+      if (duckKind >= 0 && noDuckReason(noDuck, sizeof(noDuck))) wrapped.push_back({noDuck, true});
       if (duckKind >= 0) {
         const int rowH = renderer.getLineHeight(UI_12_FONT_ID) + 12;
         drawDuckControls(drawBand(wrapped, 3 * rowH) + 4);
@@ -371,7 +403,13 @@ void DisplayTestActivity::refresh(const Mode mode) {
   const uint32_t countBefore = freeink::uc8179KbdTiming().count;
 #endif
   const unsigned long startMs = millis();
-  renderer.displayBuffer(halMode);
+  if (mode == Mode::Base) {
+    // The reader's base under a gray pass: over gray on the panel the driver
+    // skips it, so the gray pass that follows is the only flash.
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+  } else {
+    renderer.displayBuffer(halMode);
+  }
   renderer.waitRefreshComplete();
   const auto totalMs = static_cast<uint32_t>(millis() - startMs);
   ++refreshCount;
@@ -425,18 +463,21 @@ void DisplayTestActivity::grayPass() {
 }
 
 // ActivityManager re-applies SETTINGS.screenInverted before every render, so
-// Night Mode for the test goes through the setting (in RAM, never saved) and
-// the user's value comes back when the test ends or exits.
+// Night Mode for the test goes through the setting in RAM, forced either way.
+// The user's value waits in screenInvertedHeld (what a settings save writes)
+// and comes back when the test ends or exits.
 void DisplayTestActivity::setNight(const bool on) {
-  if (on == (savedNight >= 0)) return;
-  if (on) {
-    savedNight = static_cast<int8_t>(SETTINGS.screenInverted);
-    SETTINGS.screenInverted = 1;
-  } else {
-    SETTINGS.screenInverted = static_cast<uint8_t>(savedNight);
-    savedNight = -1;
-  }
+  if (SETTINGS.screenInvertedHeld < 0) SETTINGS.screenInvertedHeld = static_cast<int8_t>(SETTINGS.screenInverted);
+  SETTINGS.screenInverted = on ? 1 : 0;
   renderer.setInvertedTextGray(on);  // overlay gray in panel polarity (as TxtReader's night mode)
+  display.setInverted(on);
+}
+
+void DisplayTestActivity::restoreNight() {
+  if (SETTINGS.screenInvertedHeld < 0) return;
+  SETTINGS.screenInverted = static_cast<uint8_t>(SETTINGS.screenInvertedHeld);
+  SETTINGS.screenInvertedHeld = -1;
+  renderer.setInvertedTextGray(false);
   display.setInverted(SETTINGS.screenInverted != 0);
 }
 
@@ -504,7 +545,7 @@ void DisplayTestActivity::drawDuckControls(int y) {
 
 // A tap on a control: -/+ change the knob (RAM now, knobs.json when the screen
 // closes) and redraw the numbers; Again replays the step from its start; Next
-// returns true (advance). Any other tap does nothing.
+// returns true (advance). Any other tap does nothing. Caller holds RenderLock.
 bool DisplayTestActivity::duckTap(const int x, const int y) {
   for (int i = 0; i < 6; ++i) {
     const Hit& r = duckHit[i];
@@ -514,12 +555,16 @@ bool DisplayTestActivity::duckTap(const int x, const int y) {
       skipTapsUntil = duckPc;  // earlier steps of a replay run on without a tap
       pc = rerunPc;
       tapWait = false;
+      redrawLabel = false;  // the replay draws the band
       phase = Phase::Running;
     } else {
       const DuckKind& k = DUCK_KINDS[duckKind];
       const int idx = knobs::find(i < 2 ? k.dimId : k.restoreId);
       if (idx >= 0) knobs::set(idx, knobs::get(idx) + (i & 1 ? 1 : -1) * knobs::INFO[idx].step);
-      redrawLabel = true;
+      // Over gray, a Fast redraw would be the exit paint (an unannounced Paint
+      // flash that spoils the next step): the band shows the new value at Again or Next.
+      const bool grayOnPanel = duckKind == 1 || duckKind == 3;  // Gray, GrayDark
+      if (!grayOnPanel) redrawLabel = true;
     }
     requestUpdate();
     return false;
@@ -585,7 +630,7 @@ void DisplayTestActivity::drawResult() {
   y += lineHeight / 2;
 
   // Average ms per mode: upload / drf / sync / total.
-  for (int m = 0; m < 4; ++m) {
+  for (int m = 0; m < static_cast<int>(sizeof(stats) / sizeof(stats[0])) && !ducksTest; ++m) {
     const ModeStats& s = stats[m];
     if (s.count == 0) continue;
     snprintf(line, sizeof(line), "%-4s x%-3u %4lu / %4lu / %4lu / %4lu ms",
@@ -594,9 +639,15 @@ void DisplayTestActivity::drawResult() {
              static_cast<unsigned long>(s.sync / s.count), static_cast<unsigned long>(s.total / s.count));
     drawWrapped(line, EpdFontFamily::REGULAR);
   }
-  if (refreshCount > 0) {
+  if (refreshCount > 0 && !ducksTest) {
     drawWrapped("upload / drf / sync / total (avg)", EpdFontFamily::ITALIC);
     y += lineHeight / 2;
+  }
+  // Flash ducks: the duck knobs as the test leaves them, changed ones bold.
+  for (int i = 0; ducksTest && i < DUCK_KNOB_COUNT; ++i) {
+    const int32_t value = duckKnobValue(i);
+    snprintf(line, sizeof(line), "%s %ld ms", duckKnobId(i), static_cast<long>(value));
+    drawWrapped(line, value != duckKnobsAtStart[i] ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   }
   for (const auto& a : answers) drawWrapped(a.c_str(), EpdFontFamily::REGULAR);
 
