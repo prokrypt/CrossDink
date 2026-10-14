@@ -23,6 +23,7 @@
 #include "activities/reader/BookStatsTracking.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
+#include "activities/reader/ReaderExitSave.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -87,7 +88,10 @@ bool canSendNearby(const std::string& path) {
          FsHelpers::hasPngExtension(path) || FsHelpers::hasBmpExtension(path);
 }
 
+// Home and Library run these without a screen change, so the readers' held
+// exit writes (ReaderExitSave) must land before the files change under them.
 void clearFileMetadata(const std::string& fullPath) {
+  ReaderExitSave::flush();
   if (FsHelpers::hasEpubExtension(fullPath)) {
     Epub(fullPath, "/.crossdink").clearCache();
     BookmarkStore::deleteForFilePath(fullPath, "epub");
@@ -100,6 +104,7 @@ void clearFileMetadata(const std::string& fullPath) {
 }
 
 bool clearBookCache(const std::string& fullPath) {
+  ReaderExitSave::flush();
   if (FsHelpers::hasEpubExtension(fullPath) || FsHelpers::hasXtcExtension(fullPath)) {
     return clearBookCachePreservingUserState(fullPath);
   }
@@ -107,6 +112,7 @@ bool clearBookCache(const std::string& fullPath) {
 }
 
 bool deleteBookStats(const std::string& fullPath) {
+  ReaderExitSave::flush();
   const std::string cachePath = bookStatsCachePath(fullPath);
   if (cachePath.empty()) {
     return false;
@@ -198,6 +204,7 @@ bool toggleBookStatsTracking(const std::string& fullPath, bool& enabled) {
 }
 
 bool toggleBookCompleted(const std::string& fullPath, const std::string& displayName, bool& completed) {
+  ReaderExitSave::flush();
   const bool isEpub = FsHelpers::hasEpubExtension(fullPath);
   const bool isXtc = FsHelpers::hasXtcExtension(fullPath);
   if (!isEpub && !isXtc) {

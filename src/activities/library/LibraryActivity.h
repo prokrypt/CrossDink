@@ -21,6 +21,7 @@ class LibraryActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool blocksGlobalInput() const override { return actionPopup.isActive(); }
+  bool readsHeldExitWrites() const override { return true; }
   void onUserInput() override;
   bool preventAutoSleep() override;
 

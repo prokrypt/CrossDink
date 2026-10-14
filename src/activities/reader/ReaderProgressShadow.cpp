@@ -9,8 +9,7 @@
 #include <cstring>
 
 #include "EpubReaderUtils.h"
-#include "util/FileContentEquals.h"
-#include "util/InPlaceFileWrite.h"
+#include "HeldWrites.h"
 
 namespace ReaderProgressShadow {
 namespace {
@@ -55,8 +54,7 @@ bool writeTxtProgress(const char* cachePath, const uint32_t page, const uint32_t
                            static_cast<uint8_t>(offset),       static_cast<uint8_t>(offset >> 8),
                            static_cast<uint8_t>(offset >> 16), static_cast<uint8_t>(offset >> 24)};
   const std::string path = std::string(cachePath) + "/progress.bin";
-  return fileContentEquals("RPS", path.c_str(), data, sizeof(data)) ||
-         writeFileInPlace("RPS", path.c_str(), data, sizeof(data));
+  return HeldWrites::saveFile(path.c_str(), data, sizeof(data), false);  // supersedes a held exit copy
 }
 
 bool writeXtcProgress(const char* cachePath, const uint32_t page) {
@@ -64,8 +62,7 @@ bool writeXtcProgress(const char* cachePath, const uint32_t page) {
   const uint8_t data[4] = {static_cast<uint8_t>(page), static_cast<uint8_t>(page >> 8),
                            static_cast<uint8_t>(page >> 16), static_cast<uint8_t>(page >> 24)};
   const std::string path = std::string(cachePath) + "/progress.bin";
-  return fileContentEquals("RPS", path.c_str(), data, sizeof(data)) ||
-         writeFileInPlace("RPS", path.c_str(), data, sizeof(data));
+  return HeldWrites::saveFile(path.c_str(), data, sizeof(data), false);  // supersedes a held exit copy
 }
 
 }  // namespace
