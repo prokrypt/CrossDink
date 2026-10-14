@@ -48,6 +48,6 @@ class LookedUpWordsActivity final : public Activity {
 
   bool skipLoopDelay() override { return controller.skipLoopDelay(); }
 
-  void showDeleteConfirmation(bool ignoreInitialConfirmRelease);
+  void showDeleteConfirmation();
   static const char* glyphFor(LookupHistory::Status s);
 };

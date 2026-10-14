@@ -49,5 +49,5 @@ class SavedItemsHomeActivity final : public Activity {
   void openBookmarkList(const SavedBookEntry& entry);
   void openClippingList(const SavedBookEntry& entry);
   void showSavedKindMenu(int bookIndex);
-  void showSavedBookActionMenu(int bookIndex, bool ignoreInitialConfirmRelease);
+  void showSavedBookActionMenu(int bookIndex);
 };
