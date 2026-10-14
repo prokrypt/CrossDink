@@ -8,7 +8,7 @@
 #include "TaskCores.h"
 
 namespace {
-// JPEGDEC/PNGdec keep their state in their heap objects; the worker's stack
+// JPEGDEC and PngRowDecoder keep their state on the heap; the worker's stack
 // only carries the decode loop, SD reads and the draw callback's copy.
 constexpr uint32_t WORKER_STACK_BYTES = 8192;
 }  // namespace

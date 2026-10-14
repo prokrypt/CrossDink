@@ -140,6 +140,8 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
       return sdFont->getOverflowBitmap(glyph);  // may be nullptr for zero-width glyphs
     }
   }
+  // A --pack-bitmaps font whose bitmaps were never attached: draw nothing.
+  if (!fontData->bitmap) return nullptr;
   return &fontData->bitmap[glyph->dataOffset];
 }
 
