@@ -325,3 +325,52 @@ bool BookReadingStats::remove(const std::string& cachePath) {
   }
   return ok;
 }
+
+bool BookReadingStats::fallbackTimeLeft(const float progressPercent, uint32_t& seconds) const {
+  seconds = 0;
+  if (progressPercent <= 0.0f || progressPercent >= 100.0f || totalReadingSeconds < 120) {
+    return false;
+  }
+
+  const float progress = progressPercent / 100.0f;
+  const float estimate = (static_cast<float>(totalReadingSeconds) * (1.0f - progress)) / progress;
+  if (estimate <= 0.0f) {
+    return false;
+  }
+  seconds = static_cast<uint32_t>(estimate + 0.5f);
+  return seconds > 0;
+}
+
+bool BookReadingStats::finishDateFromDailyPace(const ReadingStatsDateTime& today,
+                                               const uint32_t estimatedReadingSeconds,
+                                               ReadingStatsDate& outDate) const {
+  outDate = {};
+  if (!today.isValid() || !startDate.isValid() || estimatedReadingSeconds == 0 || totalReadingSeconds == 0) {
+    return false;
+  }
+
+  const uint16_t elapsedDays = readingSpanDaysElapsed(startDate, today.date);
+  const uint16_t readingDays = std::max<uint16_t>(1, elapsedDays);
+
+  // Convert remaining reading time into calendar time using the book's average reading seconds per calendar day.
+  const uint64_t estimatedCalendarSeconds =
+      (static_cast<uint64_t>(estimatedReadingSeconds) * static_cast<uint64_t>(readingDays) * 86400ULL +
+       static_cast<uint64_t>(totalReadingSeconds) / 2ULL) /
+      static_cast<uint64_t>(totalReadingSeconds);
+  if (estimatedCalendarSeconds == 0) {
+    return false;
+  }
+
+  ReadingStatsDateTime estimatedFinish = today;
+  addSecondsToReadingStatsDateTime(estimatedFinish,
+                                   static_cast<uint32_t>(std::min<uint64_t>(estimatedCalendarSeconds, UINT32_MAX)));
+  outDate = estimatedFinish.date;
+  return outDate.isValid();
+}
+
+float BookReadingStats::pagesPerMinute() const {
+  if (totalReadingSeconds <= 60) {
+    return 0.0f;
+  }
+  return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
+}
