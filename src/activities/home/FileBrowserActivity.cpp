@@ -568,6 +568,8 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool
                              case FileBrowserAction::EpubRenderMode:
                              case FileBrowserAction::ResetReaderSettings:
                              case FileBrowserAction::SendNearby:
+                             case FileBrowserAction::SelectChapter:
+                             case FileBrowserAction::ToggleTouchscreen:
                              case FileBrowserAction::Rename:
                                return;
                            }
@@ -732,6 +734,9 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
             return;
           case FileBrowserAction::Rename:
             startRenameFile(fullPath, entry);
+            return;
+          case FileBrowserAction::SelectChapter:
+          case FileBrowserAction::ToggleTouchscreen:
             return;
           case FileBrowserAction::SendNearby:
             activityManager.goToNearbyBookSend(fullPath, false);
