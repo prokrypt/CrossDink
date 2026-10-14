@@ -12,6 +12,8 @@
 #include <cstddef>
 #include <mutex>
 
+#include "HeldWrites.h"
+
 namespace {
 constexpr uint8_t STATE_FILE_VERSION = 5;
 constexpr char STATE_FILE_BIN[] = "/.crossdink/state.bin";
@@ -116,9 +118,8 @@ bool CrossPointState::saveToFile() const {
   const bool unchanged = lastSavedCrcValid && crc == lastSavedCrc;
   if (unchanged) return true;
 
-  Storage.mkdir("/.crossdink");
-  if (!Storage.writeFile(STATE_FILE_JSON, json)) {
-    LOG_ERR("CPS", "Failed to write %s", STATE_FILE_JSON);
+  // Written at the next flush point (HeldWrites), not now.
+  if (!HeldWrites::hold(HeldWrites::Slot::State, json.c_str(), json.length())) {
     lastSavedCrcValid = false;
     return false;
   }
@@ -128,8 +129,8 @@ bool CrossPointState::saveToFile() const {
 }
 
 bool CrossPointState::loadFromFile() {
-  // Try JSON first
-  if (Storage.exists(STATE_FILE_JSON)) {
+  // Try JSON first (a held copy wins over the card's)
+  {
     std::lock_guard<std::mutex> storeLock(storeMutex);
     JsonDocument doc;
     if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
@@ -150,7 +151,7 @@ bool CrossPointState::loadFromFile() {
   // Fall back to binary migration
   if (Storage.exists(STATE_FILE_BIN)) {
     if (loadFromBinaryFile()) {
-      if (saveToFile()) {
+      if (saveToFile() && HeldWrites::flush(HeldWrites::Slot::State)) {
         Storage.rename(STATE_FILE_BIN, STATE_FILE_BAK);
         LOG_DBG("CPS", "Migrated state.bin to state.json");
         return true;
