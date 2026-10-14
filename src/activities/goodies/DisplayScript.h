@@ -40,7 +40,7 @@ enum class OpCode : uint8_t {
   Rerun,     // where Again replays from (the start of the step)
 };
 
-enum class Mode : uint8_t { Full, Half, Fast, Du };
+enum class Mode : uint8_t { Full, Half, Fast, Du, Base };
 
 struct Op {
   OpCode code;
