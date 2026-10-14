@@ -10,6 +10,7 @@
 
 #include "MappedInputManager.h"
 #include "UITheme.h"
+#include "components/KOSyncBadge.h"
 #include "components/icons/listIcons.h"
 
 namespace fui = freeink::ui;
@@ -186,6 +187,16 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
     return static_cast<CoverGridHomeUi*>(user)->paintFramedCover(target, cover, 0);
   };
   fui::bookCard(screen.frame(), rect, card);
+  if (card.progressLabel) {
+    // KOSync badge just above the %: bookCard()'s cover and progress-row geometry.
+    const fui::Rect content = rect.inset(card.padding);
+    const int coverW = std::min<int>(card.coverSize.width, content.width);
+    const int coverH = std::min<int>(card.coverSize.height, content.height);
+    const int coverBottom = content.y + (content.height - coverH) / 2 + coverH;
+    const int progressRowH = std::max<int>(screen.target().lineHeight(card.progressText.font), card.progressHeight);
+    KOSyncBadge::drawAt(renderer, content.x + coverW + card.gap, coverBottom - progressRowH - KOSyncBadge::SIZE,
+                        KOSyncBadge::SIZE);
+  }
 
   if (selected == 0 && !BoardConfig::hasTouch()) {
     const int16_t barHeight = card.coverSize.height;

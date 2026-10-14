@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "components/KOSyncBadge.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -101,7 +102,9 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
       const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;
       // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
-      const int dynamicTitleBoxHeight = dynamicBlockHeight + hPaddingInSelection + 5;
+      // The KOSync badge sits below the title, inside the selection box.
+      const int badgeHeight = KOSyncBadge::hasHomeState(i) ? KOSyncBadge::SIZE : 0;
+      const int dynamicTitleBoxHeight = dynamicBlockHeight + badgeHeight + hPaddingInSelection + 5;
 
       if (bookSelected) {
         // Selection box: 2 px outline around cover and title, not a dither fill.
@@ -116,6 +119,7 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, line.c_str(), true);
         currentY += titleLineHeight;
       }
+      KOSyncBadge::drawAt(renderer, tileX + hPaddingInSelection, currentY, KOSyncBadge::SIZE, true, i);
     }
   } else {
     drawEmptyRecents(renderer, rect);
