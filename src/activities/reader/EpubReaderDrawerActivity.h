@@ -180,6 +180,7 @@ class EpubReaderDrawerActivity final : public Activity {
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};
+  std::atomic<unsigned long> firstDrawDoneMs{0};  // millis() when the first frame finished; 0 = not yet
   int visibleRows = 1;
   freeink::ui::Rect drawerHandleRect{};
 

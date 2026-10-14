@@ -175,6 +175,9 @@ class MappedInputManager {
   bool isListItemTouchLongPressed(int& index, int itemCount, int selectedIndex, int listTop, int listHeight,
                                   bool hasSubtitle, unsigned long thresholdMs) const;
   void suppressNextTouchTap() { suppressTouchTap = true; }
+  // True when a contact held or released this loop began before sinceMs
+  // (millis()), counting samples the loop replays late after a stall.
+  bool touchContactBeganBefore(unsigned long sinceMs) const;
   RowTouch rowTouch(int& row, int top, int rowStep, int rowCount, int xStart = 0, int xEnd = INT32_MAX,
                     int rowHeight = 0) const;
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
@@ -239,6 +242,7 @@ class MappedInputManager {
   constexpr bool wasListItemTouchedDown(int&, int, int, int, int, bool) const { return false; }
   constexpr bool isListItemTouchLongPressed(int&, int, int, int, int, bool, unsigned long) const { return false; }
   constexpr void suppressNextTouchTap() {}
+  constexpr bool touchContactBeganBefore(unsigned long) const { return false; }
   constexpr RowTouch rowTouch(int&, int, int, int, int = 0, int = INT32_MAX, int = 0) const { return RowTouch::None; }
   constexpr RowTouch colTouch(int&, int, int, int, int, int, int = 0) const { return RowTouch::None; }
   constexpr SwipeDir wasSwipe() const { return SwipeDir::None; }
