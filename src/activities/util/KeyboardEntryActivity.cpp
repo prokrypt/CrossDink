@@ -21,6 +21,7 @@
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -1039,7 +1040,10 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     const int toggleY = inputStartY + inputHeight;
     const bool toggleSelected = cursorMode && togglePos;
 
-    if (toggleSelected) {
+    if (toggleSelected && uiGraySelection()) {
+      renderer.drawRoundedRect(toggleX - 2, toggleY, toggleWidth + 5, lineHeight + 3, 2, 0, Color::DarkGray);
+      renderer.drawText(UI_12_FONT_ID, toggleX, toggleY, toggleLabel, true);
+    } else if (toggleSelected) {
       renderer.fillRect(toggleX - 2, toggleY, toggleWidth + 5, lineHeight + 3, true);
       renderer.drawText(UI_12_FONT_ID, toggleX, toggleY, toggleLabel, false);
     } else {
