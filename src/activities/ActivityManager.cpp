@@ -870,6 +870,7 @@ void ActivityManager::loop() {
       // must find the reader's exit writes on SD before it starts.
       if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
       // USB Drive owns the card from onEnter() and skips the deferred flush below.
+      if (currentActivity->requiresExclusiveStorageLoop()) RecentBookProgress::flushSyncMarks();
       if (settingsFlushPending && currentActivity->requiresExclusiveStorageLoop()) {
         settingsFlushPending = false;
         flushSettingsStores();
@@ -1480,6 +1481,10 @@ bool ActivityManager::skipLoopDelay() const { return currentActivity && currentA
 
 bool ActivityManager::allowsRadioIdleSleep() const {
   return currentActivity && currentActivity->allowsRadioIdleSleep();
+}
+
+void ActivityManager::repaintSyncBadge() {
+  if (currentActivity) currentActivity->repaintSyncBadge();
 }
 
 std::string ActivityManager::flushEpubProgressForSync() {

@@ -23,6 +23,7 @@
 #include "activities/reader/BookStatsTracking.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingStatsUtils.h"
+#include "components/KOSyncBadge.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -249,6 +250,15 @@ void drawStatsRow(const GfxRenderer& renderer, const int rightX, const int y, co
   drawRightAlignedText(renderer, SMALL_FONT_ID, rightX, y + valueLineH + kStatsValueLabelGap, label, false, black);
 }
 
+// The progress row: the KOSync badge sits left of its % value.
+void drawProgressRow(const GfxRenderer& renderer, const int rightX, const int y, const char* value, const bool black) {
+  drawStatsRow(renderer, rightX, y, value, tr(STR_STATS_PROGRESS_LBL), black);
+  KOSyncBadge::drawAt(
+      renderer,
+      rightX - renderer.getTextWidth(UI_12_FONT_ID, value, EpdFontFamily::BOLD) - KOSyncBadge::GAP - KOSyncBadge::SIZE,
+      y, renderer.getLineHeight(UI_12_FONT_ID), black);
+}
+
 void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, const BookReadingStats* stats,
                         const float progressPercent, const bool showStats, const bool black = true) {
   const int rightX = renderer.getScreenWidth() - contentInset(renderer) - (gpio.deviceIsX3() ? kPairInwardShiftX3 : 0);
@@ -272,7 +282,7 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
     if (progressPercent >= 0.0f) {
       snprintf(value, sizeof(value), "%d%%", static_cast<int>(progressPercent + 0.5f));
       const int progressY = hasEstimate ? coverRect.y + coverRect.height / 2 + blockH : coverRect.y;
-      drawStatsRow(renderer, rightX, progressY, value, tr(STR_STATS_PROGRESS_LBL), black);
+      drawProgressRow(renderer, rightX, progressY, value, black);
     }
     return;
   }
@@ -303,7 +313,7 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   } else {
     snprintf(value, sizeof(value), "-");
   }
-  drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_PROGRESS_LBL), black);
+  drawProgressRow(renderer, rightX, rowY, value, black);
 
   if (showRtcStats) {
     rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);

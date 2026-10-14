@@ -20,6 +20,7 @@
 #include "FirmwareBoardTag.h"
 #include "GlobalActions.h"
 #include "OtaBootSwitch.h"
+#include "activities/home/RecentBookProgress.h"
 #include "util/BatteryLog.h"
 
 namespace firmware_flash {
@@ -880,6 +881,7 @@ Result flashValidatedFileImpl(HalFile& file, ProgressCb onProgress, void* ctx) {
 
 Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
   flushSettingsStores();  // deferred settings land before a flash that may end in a power cut
+  RecentBookProgress::flushSyncMarks();
   BatteryLog::event("fw_start", "sd");
   const Result r = flashValidatedFileImpl(file, onProgress, ctx);
   BatteryLog::event(r == Result::OK ? "fw_ok" : "fw_fail", resultName(r));

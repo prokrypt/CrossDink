@@ -9,6 +9,7 @@
 
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
+#include "activities/home/RecentBookProgress.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 #include "util/WorkerTask.h"
@@ -98,6 +99,10 @@ class LibraryActivity final : public Activity {
     std::string title;
     std::string subtitle;
     std::string heading;
+    // KOSync badge inputs (EPUB with credentials set): its cache folder, % and mark.
+    std::string syncCachePath;
+    float syncProgress = -1.0f;
+    RecentBookProgress::SyncMark syncMark;
   };
   static constexpr int ROW_CACHE_SIZE = 16;
   std::unique_ptr<CachedRow[]> rowCache;
