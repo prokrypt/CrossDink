@@ -16,13 +16,14 @@ namespace PowerLogRow {
 // Cumulative columns from awake_ms on (gen keys them: never subtract across a
 // change of gen). *_ms are milliseconds, light_full_ms is ms at full LED duty,
 // ref_* are refresh counts from HalDisplay::refreshCounts(), panel_*_ms the
-// time spent waiting on the panel's BUSY line after that kind of refresh.
+// time spent waiting on the panel's BUSY line after that kind of refresh,
+// touch_ms the time the touch controller was out of its sleep mode.
 constexpr char kHeader[] =
     "epoch_utc,local_time,uptime_ms,gen,event,detail,pct,mv,temp_c,panel_c,chg,usb,chg_seen,wifi,"
     "awake_ms,asleep_s,asleep_cw_s,ls_ms,maxclk_ms,busy0_ms,busy1_ms,"
     "wifi_up_ms,wifi_ps_ms,wifi_awake_ms,wifi_ap_ms,scans,connects,ip_tx,ip_rx,"
     "light_full_ms,ref_full,ref_half,ref_fast,ref_gray,ref_flash,"
-    "panel_full_ms,panel_half_ms,panel_fast_ms,panel_gray_ms,booster_ms,sd_rd_kb,sd_wr_kb,sd_ms\n";
+    "panel_full_ms,panel_half_ms,panel_fast_ms,panel_gray_ms,booster_ms,sd_rd_kb,sd_wr_kb,sd_ms,touch_ms\n";
 
 // Fits a row with every field at its type's maximum (PowerLogRow tests check
 // this), so format() never runs out of room in a buffer this size.
@@ -96,7 +97,7 @@ inline size_t format(char* out, const size_t size, const Row& r) {
       "%llu,%lu,%lu,%llu,%llu,%llu,%llu,"
       "%llu,%llu,%llu,%llu,%lu,%lu,%llu,%llu,"
       "%llu,%lu,%lu,%lu,%lu,%lu,"
-      "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+      "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
       epoch, local, static_cast<unsigned long>(r.uptimeMs), static_cast<unsigned>(r.gen), r.event, detail, pct,
       static_cast<unsigned>(r.mv), temp, panel, r.chg ? 1u : 0u, r.usb ? 1u : 0u, r.chargerSeen ? 1u : 0u,
       wifiName(r.wifi), static_cast<ull>(t.awakeMs), static_cast<unsigned long>(t.asleepS[0]),
@@ -112,7 +113,8 @@ inline size_t format(char* out, const size_t size, const Row& r) {
       static_cast<ull>(t.panelBusyMs[PowerCounters::PANEL_HALF]),
       static_cast<ull>(t.panelBusyMs[PowerCounters::PANEL_FAST]),
       static_cast<ull>(t.panelBusyMs[PowerCounters::PANEL_GRAY]), static_cast<ull>(t.boosterMs),
-      static_cast<ull>(t.sdReadBytes / 1024), static_cast<ull>(t.sdWriteBytes / 1024), static_cast<ull>(t.sdUs / 1000));
+      static_cast<ull>(t.sdReadBytes / 1024), static_cast<ull>(t.sdWriteBytes / 1024), static_cast<ull>(t.sdUs / 1000),
+      static_cast<ull>(t.touchMs));
   if (n <= 0 || static_cast<size_t>(n) >= size) return 0;
   return static_cast<size_t>(n);
 }
