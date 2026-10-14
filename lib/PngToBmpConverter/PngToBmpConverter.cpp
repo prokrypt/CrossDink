@@ -77,6 +77,13 @@ enum PngFilter : uint8_t {
   PNG_FILTER_PAETH = 4,
 };
 
+std::atomic<const std::atomic<bool>*> s_cancelFlag{nullptr};
+
+bool cancelRequested() {
+  const std::atomic<bool>* flag = s_cancelFlag.load(std::memory_order_acquire);
+  return flag && flag->load(std::memory_order_relaxed);
+}
+
 void yieldDuringDecode(uint8_t& rowsSinceYield) {
   if (++rowsSinceYield < 8) return;
   rowsSinceYield = 0;
@@ -736,6 +743,11 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
 
   // Process each scanline
   for (uint32_t y = 0; y < height; y++) {
+    if (cancelRequested()) {
+      LOG_DBG("PNG", "PNG decode cancelled at scanline %" PRIu32, y);
+      success = false;
+      break;
+    }
     // Decode one scanline
     if (!decodeScanline(ctx)) {
       LOG_ERR("PNG", "Failed to decode scanline %" PRIu32, y);
@@ -886,6 +898,10 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
   if (success) {
   }
   return success;
+}
+
+void PngToBmpConverter::setCancelFlag(const std::atomic<bool>* flag) {
+  s_cancelFlag.store(flag, std::memory_order_release);
 }
 
 bool PngToBmpConverter::pngFileToBmpStream(FsFile& pngFile, Print& bmpOut, bool crop, bool imageLevels) {
