@@ -543,6 +543,8 @@ their coordinates. Full caches (byte `96`) and suspended partial caches (`0xF0`)
 rebuild so existing books receive the new layout. Complete files use byte `97`;
 suspended partials use `0xEF`, and `0xF0` joins the retired sentinels. The CSS
 rule cache moves to version `25` so `display: inline` rules retain their meaning.
+Image-only paragraphs keep publisher alignment independently of the reader's
+prose alignment.
 
 ### Version 96
 

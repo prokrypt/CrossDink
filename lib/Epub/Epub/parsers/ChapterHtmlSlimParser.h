@@ -275,7 +275,7 @@ class ChapterHtmlSlimParser {
   void markCurrentPageFromCurrentElement();
   void setCurrentPageVisibleOffset(uint32_t offset, uint32_t referenceOffset = UINT32_MAX);
   void completeCurrentPage();
-  void makePages();
+  void makePages(bool completeBlock = true);
   int effectiveLineHeight() const;
   bool isPreviewBuild() const { return !previewAnchor.empty() && previewMaxPages > 0; }
   bool isScanningForPreviewAnchor() const { return isPreviewBuild() && !previewAnchorFound; }

@@ -32,7 +32,8 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v79: Hangul word boundaries and line-end splits change cached page positions.
 // v96: Root text indents, hidden <hr> borders and <figure> spacing change layout.
 //      80-95 are CrossInk's; skipped so a later sync cannot accept a foreign layout.
-// v97: Small EPUB images can share text lines; page-image records gain an inline flag.
+// v97: Small EPUB images share text lines (page images gain an inline flag) and
+//      image-only paragraphs keep publisher alignment.
 constexpr uint8_t SECTION_FILE_VERSION = 97;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume

@@ -847,7 +847,8 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
       return;
     }
 
-    makePages();
+    // A <br> flush is only a fragment: text may follow an image in the same paragraph.
+    makePages(!blockStyle.fromBrElement);
   }
   currentTextRunBytes = 0;
   // If the pending anchor is a TOC chapter boundary, force a page break after the previous
@@ -2777,6 +2778,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     rootBlockStyle.textIndentDefined = true;
   }
 
+  if ((strcmp(name, "html") == 0 || strcmp(name, "body") == 0) && self->blockStyleCount_ > 0 &&
+      userAlignmentBlockStyle.publisherAlignment != CssTextAlign::None) {
+    self->blockStyleBuf_[0].publisherAlignment = userAlignmentBlockStyle.publisherAlignment;
+  }
+
   // Force paragraph indent to prevent unreadable walls of text.
   // This applies if the publisher set text-indent: 0, omitted it, or if it was stripped by disabling embedded styles.
   if (self->forceParagraphIndents && strcmp(name, "p") == 0) {
@@ -4245,7 +4251,7 @@ int ChapterHtmlSlimParser::effectiveLineHeight() const {
   return std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * lineCompression + 0.5f));
 }
 
-void ChapterHtmlSlimParser::makePages() {
+void ChapterHtmlSlimParser::makePages(const bool completeBlock) {
   if (shouldAbortForLowMemory("page layout")) {
     return;
   }
@@ -4258,6 +4264,21 @@ void ChapterHtmlSlimParser::makePages() {
   if (!currentPage) {
     if (!startNewPage("page layout")) {
       return;
+    }
+  }
+
+  // An entire image-only block is artwork, not prose. Keep its source alignment
+  // even when the reader overrides paragraph alignment. Wait until final layout
+  // so text after an inline image still uses the reader's preference. Previously
+  // flushed prose or <br> fragments must not turn an image-only tail into an ornament.
+  if (completeBlock && embeddedStyle && !currentTextBlock->getBlockStyle().fromBrElement &&
+      wordsExtractedInBlock == 0 && !pendingInlineImages.empty() &&
+      currentTextBlock->size() == pendingInlineImages.size()) {
+    auto style = currentTextBlock->getBlockStyle();
+    if (style.publisherAlignment != CssTextAlign::None) {
+      style.alignment = style.publisherAlignment;
+      style.textAlignDefined = true;
+      currentTextBlock->setBlockStyle(style);
     }
   }
 
