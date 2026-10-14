@@ -140,7 +140,8 @@ void OpdsServerListActivity::onExit() {
   Activity::onExit();
   preload.reset();  // joins a fetch in flight before the cache goes
   if (pickerMode && leavingToBrowser) {
-    opds_page_cache_handoff::give(std::move(pageCache));
+    const auto* server = OPDS_STORE.getServer(static_cast<uint32_t>(selectedIndex));
+    opds_page_cache_handoff::give(std::move(pageCache), server ? UrlUtils::buildUrl(server->url, "") : std::string());
   } else {
     pageCache.reset();
   }

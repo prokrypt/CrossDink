@@ -71,6 +71,7 @@
 #include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
+#include "activities/browser/OpdsPageCache.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/KOSyncAuto.h"
 #include "activities/reader/ReaderExitSave.h"
@@ -579,6 +580,7 @@ static void restartToNetworkTarget(const NetworkBootTarget target, const uint32_
   silentRebootTarget = static_cast<uint32_t>(target);
   silentRebootPayload = payload;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
+  if (target == NetworkBootTarget::OPDS) opds_page_cache_handoff::persistForRestart();
   LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(silentRebootTarget),
           static_cast<unsigned long>(payload));
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
