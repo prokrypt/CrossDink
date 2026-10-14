@@ -32,9 +32,9 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
+#include "activities/home/BookActions.h"
 #include "activities/util/BugReportActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
-#include "components/Toast.h"
 #include "network/SerialRemote.h"
 #include "util/BootReason.h"
 #include "util/BugReportSanitize.h"
@@ -554,7 +554,10 @@ void begin(Activity& source) {
       const auto* outcome = std::get_if<OptionSelectionResult>(&saved.data);
       // Repaint the screen the popup covered; loop() toasts over it once the save is done.
       activityManager.requestUpdateAndWait();
-      if (!outcome || !outcome->index) Toast::show(renderer, tr(STR_REPORT_NOT_SAVED));
+      if (!outcome || !outcome->index) {
+        RenderLock lock;
+        BookActions::drawToast(renderer, tr(STR_REPORT_NOT_SAVED));
+      }
     });
   });
 }
@@ -600,7 +603,7 @@ void loop() {
     saveJob.secrets = SecretTable{};
     {
       RenderLock lock;
-      Toast::show(renderer, saveJob.ok ? tr(STR_REPORT_SAVED) : tr(STR_REPORT_NOT_SAVED));
+      BookActions::drawToast(renderer, saveJob.ok ? tr(STR_REPORT_SAVED) : tr(STR_REPORT_NOT_SAVED));
     }
 #ifndef SIMULATOR
     if (saveJob.ok) {
