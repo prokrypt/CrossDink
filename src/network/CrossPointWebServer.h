@@ -167,8 +167,13 @@ class CrossPointWebServer {
   void endTransferHold();
   void releasePollHold();
   // Idle STA modem sleep: MAX_MODEM for the log-only remote (Settings > Max
-  // Wi-Fi powersave, listen interval 3), else MIN_MODEM.
+  // Wi-Fi powersave, listen interval 3), else MIN_MODEM. Also MIN_MODEM within
+  // MDNS_AWAKE_MS of an mDNS frame, so crossdink.local queries get answered.
   void setIdleModemSleep();
+  static KNOB_ALIAS(MDNS_AWAKE_MS, mdnsAwakeMs);  // Goodies > Knobs
+  bool mdnsAwake_ = false;                        // serving task: MIN_MODEM for recent mDNS traffic
+  void watchMdns(bool on);
+  void updateMdnsAwake();
   // Idle STA: blocks until one of this server's sockets is readable or
   // IDLE_POLL_MS passes (to notice stop requests). False on a timeout.
   bool waitForTraffic();
