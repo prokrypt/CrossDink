@@ -116,6 +116,7 @@ void MappedInputManager::update() const {
   expireReleaseSuppressions();
 #if CROSSDINK_APP_CAP_TOUCH
   updateSelectionTouchDown();
+  if (twoFingerContactConsumed && gpio.getTouchSnapshot().count == 0) twoFingerContactConsumed = false;
 #endif
   if (!gpio.isPressed(HalGPIO::BTN_UP) && !gpio.wasReleased(HalGPIO::BTN_UP)) suppressPhysicalUpRelease = false;
   if (!gpio.isPressed(HalGPIO::BTN_DOWN) && !gpio.wasReleased(HalGPIO::BTN_DOWN)) suppressPhysicalDownRelease = false;
@@ -256,7 +257,7 @@ bool MappedInputManager::hasTouchHardware() const { return gpio.hasTouch(); }
 bool MappedInputManager::supportsMultiTouch() const { return touchInputEnabled() && gpio.supportsMultiTouch(); }
 
 bool MappedInputManager::getTwoFingerTouch(int& x1, int& y1, int& x2, int& y2) const {
-  if (!supportsMultiTouch()) return false;
+  if (!supportsMultiTouch() || twoFingerContactConsumed) return false;
 
   const auto touch = gpio.getTouchSnapshot();
   if (touch.count != 2 || touch.reportedCount != 2) return false;

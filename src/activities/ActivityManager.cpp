@@ -483,7 +483,11 @@ bool applyTwoFingerRotation(Activity& activity, MappedInputManager& mappedInput)
   if (!mappedInput.wasCompletedMultiTouchRotation(completed)) return false;
   // Rotate the content opposite the physical gesture so it feels like the
   // reader is turning the page under the user's fingers.
-  return activity.handleTwoFingerRotation(completed.degrees < 0.0f);
+  if (!activity.handleTwoFingerRotation(completed.degrees < 0.0f)) return false;
+  // The SDK reports the twist as soon as it passes the threshold, while the
+  // fingers are still down: the rest of the contact belongs to this rotation.
+  mappedInput.consumeTwoFingerContact();
+  return true;
 }
 }  // namespace
 
@@ -711,6 +715,18 @@ void ActivityManager::loop() {
       mappedInput.resetEdgeSlide();
       currentActivity->loop();
     } else {
+      // Completed two-finger gestures are recognized before normal one-finger
+      // activity gestures. A rotation has priority over translation in the SDK,
+      // so a contact sequence can trigger at most one action here. It is checked
+      // before the live light swipe because it can now arrive mid-contact, on a
+      // frame where a swipe that began as a parallel drag is still live.
+      if (applyTwoFingerRotation(*currentActivity, mappedInput)) {
+#if CROSSDINK_APP_CAP_TOUCH
+        if (twoFingerLightSwipe.active) cancelLiveLightSwipe(*currentActivity, *this, twoFingerLightSwipe);
+        twoFingerLightSwipe = {};
+#endif
+        return;
+      }
 #if CROSSDINK_APP_CAP_TOUCH
       if (currentActivity->name != "FrontlightPanel" &&
           applyLiveTwoFingerLightSwipe(*currentActivity, mappedInput, renderer, *this, twoFingerLightSwipe,
@@ -718,12 +734,6 @@ void ActivityManager::loop() {
         return;
       }
 #endif
-      // Completed two-finger gestures are recognized before normal one-finger
-      // activity gestures. A rotation has priority over translation in the SDK,
-      // so a contact sequence can trigger at most one action here.
-      if (applyTwoFingerRotation(*currentActivity, mappedInput)) {
-        return;
-      }
 
       // The frontlight panel owns its own sliders.
       if (currentActivity->name != "FrontlightPanel" &&

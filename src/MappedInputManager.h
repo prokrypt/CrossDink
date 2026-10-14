@@ -114,7 +114,15 @@ class MappedInputManager {
   // Multi-touch follows the same reader touch gate as all other screen input,
   // so it cannot bypass the Disable Touchscreen setting.
   bool supportsMultiTouch() const;
+  // False for the rest of a contact sequence after consumeTwoFingerContact().
   bool getTwoFingerTouch(int& x1, int& y1, int& x2, int& y2) const;
+  // A two-finger gesture acted mid-contact (a rotation that committed at its
+  // threshold): suppress the contact, and keep live two-finger trackers such as
+  // pinch resizing and light swipes from seeing it until every finger lifts.
+  void consumeTwoFingerContact() {
+    suppressCurrentTouchContact();
+    twoFingerContactConsumed = true;
+  }
   bool wasCompletedMultiTouchSwipe(CompletedSwipe& swipe) const;
   bool wasCompletedMultiTouchRotation(CompletedRotation& rotation) const;
   // Report a side-band drag while held and once on release/cancellation.
@@ -227,6 +235,7 @@ class MappedInputManager {
   constexpr bool isScreenTouchTapCandidate(int&, int&, unsigned long&) const { return false; }
   constexpr bool isScreenTouchHeld(int&, int&) const { return false; }
   constexpr void suppressCurrentTouchContact() {}
+  constexpr void consumeTwoFingerContact() {}
   constexpr bool wasItemTapped(int&) const { return false; }
   constexpr bool wasItemTouchedDown(int&) const { return false; }
   constexpr bool wasTabTapped(int&) const { return false; }
@@ -310,6 +319,7 @@ class MappedInputManager {
   mutable std::array<bool, BUTTON_COUNT> injectedReleases{};
 #if CROSSDINK_APP_CAP_TOUCH
   mutable bool suppressTouchTap = false;
+  mutable bool twoFingerContactConsumed = false;  // cleared once no contact remains
   mutable bool deferredHomeGesture = false;
   static KNOB_ALIAS(SELECT_PRESS_DELAY_MS, selectPressDelayMs);  // Goodies > Knobs
   static KNOB_ALIAS(SELECT_PRESS_SLOP_PX, selectPressSlopPx);
