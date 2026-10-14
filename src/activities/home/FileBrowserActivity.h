@@ -27,9 +27,8 @@ class FileBrowserActivity final : public Activity {
 
   // Deletion
   void promptDeleteFile(const std::string& fullPath, const std::string& entry);
-  void promptDeleteDirectory(const std::string& fullPath, const std::string& entry,
-                             bool ignoreInitialConfirmRelease = false);
-  void showDirectoryActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
+  void promptDeleteDirectory(const std::string& fullPath, const std::string& entry);
+  void showDirectoryActionMenu(const std::string& entry);
   void pinSleepFavorite(const std::string& fullPath);
   void unpinSleepFavorite();
   static bool isPinnedSleepFavorite(const std::string& fullPath);
@@ -39,7 +38,7 @@ class FileBrowserActivity final : public Activity {
   void pinBootFavorite(const std::string& fullPath);
   void unpinBootFavorite();
   static bool isPinnedBootFavorite(const std::string& fullPath);
-  void showFileActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
+  void showFileActionMenu(const std::string& entry);
   void startRenameFile(const std::string& fullPath, const std::string& entry);
   void renameFile(const std::string& oldPath, const std::string& oldEntry, const std::string& newStem,
                   const std::string& extension);
