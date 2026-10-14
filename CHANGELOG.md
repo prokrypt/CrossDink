@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- X4 Pro (debug builds): a file at `/debug/web/<name>` on the SD card replaces the matching built-in web page or asset, so web UI edits need no reflash: `index.html`, `files.html`, `settings.html`, `logs.html`, `fonts.html`, `style.css`, `logo.png`, `jszip.min.js`. Files are sent as they are (not gzipped) and are not cached; hard-reload once if the browser already holds `style.css` or `logo.png`.
 - Header status bar: a small up/down arrow icon left of the Wi-Fi bars while a Wi-Fi remote (or web) request came in during the last 30 s. When the icon turns on, and again when it times out, the screen gets one ordinary header repaint (the same partial refresh a Wi-Fi link change uses, and only on screens with a header, never the reader).
 - Header status bar: hollow Wi-Fi bars show while Wi-Fi is joining (associating or waiting for an address), then solid bars once linked. The existing header poll repaints only when the state (none / joining / up) changes, so nothing extra is refreshed.
 - Frontlight: turning the light on or off (Power/Home key toggle, Frontlight panel, Settings, Quick Lock) fades it over 0.3 s instead of snapping, and the light fades out as the device goes to sleep and fades back in on wake. The fade runs on a timer, so input and drawing never wait for it; going to sleep cuts a fade still running. Brightness slides and swipes still follow the finger with no fade.
