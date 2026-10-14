@@ -27,6 +27,10 @@ struct Context {
 // Main task, from the pull-down's result: redraws the screen the panel covered,
 // saves it as the screenshot, then opens the keyboard over `source`.
 void begin(Activity& source);
+// Main task, for the remote (CMD:BUGREPORT): files a report of the current
+// screen with `text`, screenshot and log included, no keyboard or popup. Puts
+// the report's id in `id`; false when nothing could be saved.
+bool fileNow(const char* text, char (&id)[24]);
 // Main task: writes report.txt, then a worker writes the sanitized log.txt and
 // bundles them (and the screenshot when wanted) into <id>.zip; loop() toasts
 // the outcome and queues it for sending. False when the save could not start.

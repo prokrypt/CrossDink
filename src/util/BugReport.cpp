@@ -28,6 +28,7 @@
 #include "KOReaderCredentialStore.h"
 #include "OpdsServerStore.h"
 #include "SdCardFontSystem.h"
+#include "SettingsList.h"
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
@@ -44,7 +45,9 @@
 #include "util/WorkerTask.h"
 
 #ifndef SIMULATOR
+#include <esp_heap_caps.h>
 #include <esp_http_client.h>
+#include <esp_ota_ops.h>
 #endif
 
 extern GfxRenderer renderer;
@@ -322,7 +325,8 @@ bool writeReport(const Context& ctx, const std::string& text, const SecretTable&
   put(f, "version: %s (%s %s%s, build %s, %s)\n", AppVersion::version(), BuildInfo::shortBranch(), BuildInfo::gitSha(),
       strcmp(BuildInfo::gitDirty(), "1") == 0 ? "-dirty" : "", BuildInfo::buildNumber(), BuildInfo::buildTime());
 #ifndef SIMULATOR
-  put(f, "board: %s\n", BoardConfig::ACTIVE.name);
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  put(f, "board: %s, slot: %s\n", BoardConfig::ACTIVE.name, running ? running->label : "?");
   put(f, "reset: %s, wake: %s\n", resetReasonName(esp_reset_reason()), wakeupCauseName(esp_sleep_get_wakeup_cause()));
 #endif
   put(f, "uptime: %lu s\n", static_cast<unsigned long>(millis() / 1000));
@@ -330,12 +334,19 @@ bool writeReport(const Context& ctx, const std::string& text, const SecretTable&
   const MemoryBudget::PsramSnapshot psram = MemoryBudget::psramSnapshot();
   put(f, "heap: free %" PRIu32 " maxAlloc %" PRIu32 ", psram free %" PRIu32 " maxAlloc %" PRIu32 "\n", heap.freeHeap,
       heap.maxAllocHeap, psram.freeHeap, psram.maxAllocHeap);
+#ifndef SIMULATOR
+  // Lowest internal heap since boot and the main task's spare stack: a leak or
+  // an overflow shows here before it crashes.
+  put(f, "heap min free since boot: %u, loop stack min free: %u\n",
+      static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+      static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+#endif
   put(f, "battery: %u%%\n", static_cast<unsigned>(powerManager.getBatteryPercentage()));
   char row[200];
   lastBatteryRow(row, sizeof(row));
   if (row[0]) put(f, "battery log: %s\n", row);
   if (WiFi.status() == WL_CONNECTED) {
-    put(f, "wifi: connected, rssi %d\n", static_cast<int>(WiFi.RSSI()));
+    put(f, "wifi: connected, rssi %d, ip %s\n", static_cast<int>(WiFi.RSSI()), WiFi.localIP().toString().c_str());
   } else {
     put(f, "wifi: not connected\n");
   }
@@ -353,6 +364,19 @@ bool writeReport(const Context& ctx, const std::string& text, const SecretTable&
   put(f, "sd fonts: %u\n", static_cast<unsigned>(sdFontSystem.registry().getFamilies().size()));
   library::LibraryIndexFile index;
   if (index.open(library::libraryIndexPath())) put(f, "books: %u\n", static_cast<unsigned>(index.bookCount()));
+
+  // Every numeric setting by its web API key (the strings hold names and logins).
+  put(f, "settings:");
+  for (const SettingInfo& s : getBaseSettingsList()) {
+    if (!s.key || !(s.type == SettingType::TOGGLE || s.type == SettingType::ENUM || s.type == SettingType::VALUE))
+      continue;
+    if (s.valuePtr) {
+      put(f, " %s=%u", s.key, static_cast<unsigned>(SETTINGS.*(s.valuePtr)));
+    } else if (s.value16Ptr) {
+      put(f, " %s=%u", s.key, static_cast<unsigned>(SETTINGS.*(s.value16Ptr)));
+    }
+  }
+  put(f, "\n");
 
 #if CROSSDINK_GOODIES
   bool knobHeader = false;
@@ -510,24 +534,41 @@ void sendAll(void*) {
 
 }  // namespace
 
-void begin(Activity& source) {
-  Context ctx;
+namespace {
+// Main task: a new report's id and folder, the screen as it is now (redrawn
+// first, so no panel or popup is on it) and what it shows. False: no folder.
+bool start(Context& ctx) {
   makeId(ctx.id);
   char dir[48];
   workDir(dir, sizeof(dir), ctx.id);
   if (!Storage.ensureDirectoryExists(dir)) {
     LOG_ERR("BUG", "cannot create %s", dir);
-    return;
+    return false;
   }
-  // The panel is gone: draw the screen it covered before taking the shot.
   activityManager.requestUpdateAndWait();
   snprintf(ctx.activity, sizeof(ctx.activity), "%s", activityManager.currentActivityName());
   ctx.book = activityManager.getScreenshotInfo();
+  // Marks the moment in the log tail the report carries.
+  LOG_INF("BUG", "report %s on %s", ctx.id, ctx.activity);
   char shot[64];
   path(shot, sizeof(shot), ctx.id, "screen.bmp");
   ctx.hasScreenshot = ScreenshotUtil::saveFramebufferAsBmp(shot, renderer.getFrameBuffer(), renderer.getDisplayWidth(),
                                                            renderer.getDisplayHeight());
   if (!ctx.hasScreenshot) LOG_ERR("BUG", "screenshot failed");
+  return true;
+}
+}  // namespace
+
+bool fileNow(const char* text, char (&id)[24]) {
+  Context ctx;
+  if (!start(ctx)) return false;
+  memcpy(id, ctx.id, sizeof(id));
+  return save(ctx, std::string(text).substr(0, MAX_TEXT), true, true);
+}
+
+void begin(Activity& source) {
+  Context ctx;
+  if (!start(ctx)) return;
 
   auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInputManager, tr(STR_DESCRIBE_PROBLEM), "",
                                                            MAX_TEXT, InputType::Text);
