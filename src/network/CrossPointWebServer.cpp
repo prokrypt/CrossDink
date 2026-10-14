@@ -25,9 +25,11 @@
 #include <FreeInkDisplay.h>
 #include <esp_heap_caps.h>
 #include <esp_image_format.h>
+#include <esp_netif_net_stack.h>
 #include <esp_ota_ops.h>
 #include <esp_wifi.h>
 #include <freertos/idf_additions.h>
+#include <lwip/netif.h>
 #include <lwip/sockets.h>
 #endif
 
@@ -521,7 +523,9 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // awake to beacon, so it keeps the modem on throughout.
   transferActive.store(false, std::memory_order_relaxed);
   if (apMode) WiFi.setSleep(false);
+  mdnsAwake_ = false;
   setIdleModemSleep();
+  watchMdns(!apMode);
   powerManager.setRadioIdleSleepAllowed(!apMode);
   // Default varies by ESP32 core version. The activity's loss-recovery loop
   // relies on driver retries during transient disconnects.
@@ -852,6 +856,7 @@ void CrossPointWebServer::stop() {
   }
   if (transferActive.exchange(false, std::memory_order_relaxed)) powerManager.endBackgroundWork();
   powerManager.setRadioIdleSleepAllowed(false);
+  watchMdns(false);
   WiFi.setSleep(false);
 
   LOG_DBG("WEB", "[MEM] Free heap before stop: %" PRId32 " bytes", ESP.getFreeHeap());
@@ -988,6 +993,7 @@ void CrossPointWebServer::serveUntilStopped() {
       pumpLogStreams();
 #endif
       logIdleStats();
+      updateMdnsAwake();
       if (isTransferActive()) continue;
       if (readable && !served) {
         // Woke on a socket that had nothing for the server (an EOF it has
@@ -1158,10 +1164,64 @@ void CrossPointWebServer::endTransferHold() {
   setIdleModemSleep();
 }
 
+#ifndef SIMULATOR
+namespace {
+// Wi-Fi RX task: when a frame for the mDNS group (224.0.0.251) last arrived; 0 = never.
+std::atomic<unsigned long> lastMdnsRxMs{0};
+std::atomic<netif_input_fn> wrappedStaInput{nullptr};
+constexpr uint8_t MDNS_MAC[6] = {0x01, 0x00, 0x5e, 0x00, 0x00, 0xfb};
+
+// Runs on the Wi-Fi RX path for every STA frame: one compare, then lwIP's own input.
+err_t mdnsWatchInput(pbuf* p, netif* inp) {
+  if (p->len >= sizeof(MDNS_MAC) && memcmp(p->payload, MDNS_MAC, sizeof(MDNS_MAC)) == 0) {
+    lastMdnsRxMs.store(millis() | 1, std::memory_order_relaxed);
+  }
+  return wrappedStaInput.load(std::memory_order_acquire)(p, inp);
+}
+
+netif* staNetif() {
+  esp_netif_t* sta = WiFi.STA.netif();
+  return sta ? static_cast<netif*>(esp_netif_get_netif_impl(sta)) : nullptr;
+}
+}  // namespace
+#endif
+
+// The IDF mDNS responder has no receive hook, so watch the STA netif's input
+// for frames to the mDNS group MAC. Removed only if still ours: a netif made
+// again since (Wi-Fi off and on) has lwIP's own input.
+void CrossPointWebServer::watchMdns(const bool on) {
+#ifndef SIMULATOR
+  netif* nif = staNetif();
+  if (!nif) return;
+  if (on && nif->input != mdnsWatchInput) {
+    wrappedStaInput.store(nif->input, std::memory_order_release);
+    nif->input = mdnsWatchInput;
+  } else if (!on && nif->input == mdnsWatchInput) {
+    nif->input = wrappedStaInput.load(std::memory_order_acquire);
+  }
+#else
+  (void)on;
+#endif
+}
+
+// MAX_MODEM wakes only every listen_interval beacons and drops the multicast
+// sent after the DTIM beacons in between, so a crossdink.local query often
+// gets no answer. While mDNS traffic was seen in the last MDNS_AWAKE_MS, idle
+// at MIN_MODEM (every DTIM) instead; a quiet LAN keeps MAX_MODEM.
+void CrossPointWebServer::updateMdnsAwake() {
+#ifndef SIMULATOR
+  const unsigned long rxMs = lastMdnsRxMs.load(std::memory_order_relaxed);
+  const bool awake = MDNS_AWAKE_MS > 0 && rxMs != 0 && millis() - rxMs < MDNS_AWAKE_MS;
+  if (awake == mdnsAwake_) return;
+  mdnsAwake_ = awake;
+  if (!isTransferActive()) setIdleModemSleep();
+#endif
+}
+
 void CrossPointWebServer::setIdleModemSleep() {
   if (apMode) return;
 #ifndef SIMULATOR
-  const bool maxModem = logOnly_ && SETTINGS.maxWifiPowersave;
+  const bool maxModem = logOnly_ && SETTINGS.maxWifiPowersave && !mdnsAwake_;
   WiFi.setSleep(maxModem ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
   // listen_interval goes out in the association request: a change applies at
   // the next (re)association. Arduino's WiFi.begin() resets it to 0 (= 3).
@@ -1180,8 +1240,8 @@ void CrossPointWebServer::setIdleModemSleep() {
   if (loggedMode != maxModem || (maxModem && loggedInterval != interval)) {
     loggedMode = maxModem;
     loggedInterval = interval;
-    LOG_INF("WEB", "idle modem sleep %s%s, listen_interval %u (next association)", maxModem ? "MAX" : "MIN",
-            logOnly_ ? " (log-only)" : "", interval);
+    LOG_INF("WEB", "idle modem sleep %s%s%s, listen_interval %u (next association)", maxModem ? "MAX" : "MIN",
+            logOnly_ ? " (log-only)" : "", mdnsAwake_ ? " (mDNS seen)" : "", interval);
   }
 #else
   WiFi.setSleep(true);
