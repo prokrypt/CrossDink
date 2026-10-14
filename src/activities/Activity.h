@@ -31,6 +31,8 @@ class Activity {
   // Touch lists hide their selection until a nav button press on this screen
   // (see ListSelection.h); ActivityManager sets and reads it.
   bool listSelectionRevealed = false;
+  // Its last frame was a list when an overlay covered it; ActivityManager sets and reads it.
+  bool coveredListFrame = false;
 
   // Use when a screen exits on Back press instead of Back release so the
   // parent screen does not also receive the held button's release.
