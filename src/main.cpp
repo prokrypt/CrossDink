@@ -103,6 +103,7 @@
 #include "util/AntiBurnIn.h"
 #include "util/BatteryDiagnosticLog.h"
 #include "util/BatteryLog.h"
+#include "util/BugReport.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
@@ -1700,6 +1701,7 @@ void enterDeepSleep(bool fromTimeout) {
   syncBookBeforeSleep();
   HalPowerManager::sleepStep = "activity exit";
   kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
+  BugReport::stopForSleep();  // no report upload may hold an SD file through Storage.shutdown()
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system
@@ -3123,6 +3125,7 @@ static void loopPass() {
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();
+  BugReport::loop();
   // Auto sync push toast: drawn over the current screen, cleared by its next render.
   static unsigned long koSyncToastAt = 0;
   if (kosync_auto::takePushed()) {
