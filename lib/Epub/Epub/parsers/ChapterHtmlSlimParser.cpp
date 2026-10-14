@@ -63,6 +63,14 @@ constexpr uint32_t SECTION_ADVANCE_PREWARM_FEED_LIMIT = 256;
 // extension starts (observed aborting the build when run from 70KB free).
 KNOB_ALIAS(MIN_FREE_HEAP_FOR_SECTION_PREWARM, sectionPrewarmMinFree);  // Goodies > Knobs
 KNOB_ALIAS(MIN_MAX_ALLOC_FOR_SECTION_PREWARM, sectionPrewarmMinBlock);
+// The sliced prewarm (after the first page) on a PSRAM device: the 16KB codepoint
+// scratch and every advance table past 1KB go to PSRAM, so internal RAM only pays
+// the 512B read buffer and per-batch arrays of a few hundred bytes. It still keeps
+// the layout floor plus headroom free, so the build it shares ticks with never
+// starves. With the Wi-Fi remote on, internal free sits at 66-81KB, under the
+// one-shot gate above, which skipped every sliced run.
+constexpr uint32_t SLICED_PREWARM_HEADROOM = 8 * 1024;
+constexpr uint32_t SLICED_PREWARM_MIN_MAX_ALLOC = 8 * 1024;
 constexpr uint8_t INITIAL_PAGE_ELEMENT_RESERVE = 8;
 constexpr uint8_t INITIAL_TABLE_FRAGMENT_ROW_RESERVE = 8;
 constexpr uint32_t PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC = 1024;
@@ -3575,15 +3583,21 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 }
 
-std::unique_ptr<ChapterHtmlSlimParser::AdvancePrewarm> ChapterHtmlSlimParser::startAdvancePrewarm() const {
+std::unique_ptr<ChapterHtmlSlimParser::AdvancePrewarm> ChapterHtmlSlimParser::startAdvancePrewarm(
+    const bool sliced) const {
   if (!renderer.isSdCardFont(fontId) || isPreviewBuild()) {
     return nullptr;
   }
 
   const auto heap = MemoryBudget::snapshot();
-  if (!MemoryBudget::hasHeap(heap, MIN_FREE_HEAP_FOR_SECTION_PREWARM, MIN_MAX_ALLOC_FOR_SECTION_PREWARM)) {
+  const bool slicedInPsram =
+      sliced && MemoryBudget::psramSnapshot().maxAllocHeap >= SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS * sizeof(uint32_t);
+  const uint32_t needFree = slicedInPsram ? MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE + SLICED_PREWARM_HEADROOM
+                                          : MIN_FREE_HEAP_FOR_SECTION_PREWARM;
+  const uint32_t needBlock = slicedInPsram ? SLICED_PREWARM_MIN_MAX_ALLOC : MIN_MAX_ALLOC_FOR_SECTION_PREWARM;
+  if (!MemoryBudget::hasHeap(heap, needFree, needBlock)) {
     LOG_DBG("EHP", "Skipping section advance prewarm: low heap (free=%lu, maxAlloc=%lu, need %lu/%lu)", heap.freeHeap,
-            heap.maxAllocHeap, MIN_FREE_HEAP_FOR_SECTION_PREWARM, MIN_MAX_ALLOC_FOR_SECTION_PREWARM);
+            heap.maxAllocHeap, needFree, needBlock);
     return nullptr;
   }
 
@@ -3675,7 +3689,7 @@ void ChapterHtmlSlimParser::feedAdvancePrewarm(AdvancePrewarm& state, const uint
 }
 
 void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
-  const auto state = startAdvancePrewarm();
+  const auto state = startAdvancePrewarm(/*sliced=*/false);
   if (!state) {
     file.seekSet(0);
     return;
@@ -3705,7 +3719,7 @@ bool ChapterHtmlSlimParser::prewarmSectionAdvanceStep() {
     return false;
   }
   if (!advancePrewarm_) {
-    advancePrewarm_ = startAdvancePrewarm();
+    advancePrewarm_ = startAdvancePrewarm(/*sliced=*/true);
     if (!advancePrewarm_) {
       advancePrewarmPending_ = false;
       return false;

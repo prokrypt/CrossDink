@@ -321,7 +321,9 @@ class ChapterHtmlSlimParser {
   std::unique_ptr<AdvancePrewarm> advancePrewarm_;
   bool deferAdvancePrewarm_ = false;
   bool advancePrewarmPending_ = false;
-  std::unique_ptr<AdvancePrewarm> startAdvancePrewarm() const;
+  // sliced: the deferred prewarm, which may use a lower internal-RAM gate when
+  // its scratch fits in PSRAM.
+  std::unique_ptr<AdvancePrewarm> startAdvancePrewarm(bool sliced) const;
   void scanAdvancePrewarmChunk(AdvancePrewarm& state, FsFile& file) const;
   void feedAdvancePrewarm(AdvancePrewarm& state, uint32_t maxCount) const;
   void prewarmSectionAdvanceTable(FsFile& file) const;
