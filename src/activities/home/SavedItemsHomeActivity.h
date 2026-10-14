@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 struct SavedBookEntry {
@@ -33,7 +34,7 @@ class SavedItemsHomeActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
   bool longPressOpenHandled = false;
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};

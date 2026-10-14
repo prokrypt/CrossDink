@@ -18,6 +18,7 @@
 #include "ReaderOptionsActivity.h"
 #include "TouchReaderPreviewModel.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #if CROSSDINK_SCALABLE_FONTS
 #include "TtfRenderProfileStore.h"
@@ -72,7 +73,7 @@ class EpubReaderDrawerActivity final : public Activity {
  private:
   using RowId = ReaderDrawerCatalogItem;
 
-  using UiApp = freeink::ui::FreeInkApp<48, 11>;
+  using UiApp = UiAppLarge;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
   static constexpr freeink::ui::ActionId ACTION_TAB = 2;
   static constexpr freeink::ui::ActionId ACTION_DISMISS = 3;

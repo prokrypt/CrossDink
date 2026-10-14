@@ -6,6 +6,7 @@
 #include <atomic>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 /**
@@ -24,7 +25,7 @@ class KOReaderSettingsActivity final : public Activity {
  private:
   // FreeInkApp hosts the settings list (themed rows, touch routing); the
   // header stays on GUI.drawHeader for the battery indicator.
-  using UiApp = freeink::ui::FreeInkApp<12, 4>;
+  using UiApp = UiAppSmall;
 
   ButtonNavigator buttonNavigator;
 

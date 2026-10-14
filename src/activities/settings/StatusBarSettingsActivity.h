@@ -11,6 +11,7 @@
 #include "components/OptionPopup.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #include "util/ReaderStatusBarConfig.h"
 
@@ -42,7 +43,7 @@ class StatusBarSettingsActivity final : public Activity {
   bool readerContext = false;
   View view = View::Root;
 
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
   freeink::ui::GfxRendererTarget uiTarget;  // Must precede app: the app holds a reference to it.
   UiApp app;

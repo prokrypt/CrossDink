@@ -419,7 +419,7 @@ void FrontlightPanelActivity::prepareReaderDetailsLayout() {
       renderer.wrappedText(UI_12_FONT_ID, context.bookDetails.title.c_str(), width, 2, EpdFontFamily::BOLD);
 }
 
-void FrontlightPanelActivity::drawReaderDetails(fui::Screen<20>& screen) {
+void FrontlightPanelActivity::drawReaderDetails(UiApp::ScreenType& screen) {
   const auto& theme = screen.theme();
   const fui::Insets sideInset{0, static_cast<int16_t>(theme.spaceLg * 2), 0, static_cast<int16_t>(theme.spaceLg * 2)};
   screen.spacer(static_cast<int16_t>(theme.spaceLg * 2));

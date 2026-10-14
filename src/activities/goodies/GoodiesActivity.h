@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class CrossPointWebServer;
@@ -60,7 +61,7 @@ void loop(uint32_t idleMs);
 // Debug-build Goodies menu (CROSSDINK_GOODIES). Root lists the tools; the
 // Display test level lists built-in tests, then /debug/display/*.txt.
 class GoodiesActivity final : public Activity {
-  using UiApp = freeink::ui::FreeInkApp<24, 4>;  // list rows + knob tabs
+  using UiApp = UiAppList;  // list rows + knob tabs
 
  public:
   GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
