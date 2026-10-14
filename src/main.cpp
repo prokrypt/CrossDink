@@ -87,6 +87,7 @@
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
 #include "fontIds.h"
+#include "network/SerialRemote.h"
 #include "network/UsbSerialFileTransfer.h"
 #include "network/WifiBackgroundJoin.h"
 #include "network/WifiUtils.h"
@@ -99,6 +100,7 @@
 #include "simulator/SimulatorHomeKeyInput.h"
 #include "simulator/SimulatorSmokeTest.h"
 #endif
+#include "util/AntiBurnIn.h"
 #include "util/BatteryDiagnosticLog.h"
 #include "util/BatteryLog.h"
 #include "util/ButtonNavigator.h"
@@ -368,6 +370,10 @@ constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = FREEINK_MCU_S3 ? 24576 : 163
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
 // plain boot shows the splash. See setup() for the resolution.
 using BootResume = SleepWakePolicy::Resume;
+
+// X4 Pro: this boot is an Up+Down wake to change the sleep wallpaper. It goes
+// straight back to sleep, so the reader-or-Home resume flag must stay as it was.
+bool wallpaperChordWake = false;
 
 // Latched true once enterDeepSleep() commits to sleeping, before it tears down
 // the current activity. WiFi activities call silentRestart() in onExit() to
@@ -957,7 +963,14 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
       break;
     }
     case NetworkBootTarget::OPDS:
-      launched = activityManager.goToOpdsServer(payload, true);
+      if (payload == OPDS_SERVER_LIST_PAYLOAD) {
+        OPDS_STORE.loadFromFile();
+        activityManager.goToBrowser(true);
+        launched = true;
+      } else {
+        launched =
+            activityManager.goToOpdsServer(payload & ~OPDS_FROM_LIST_FLAG, true, (payload & OPDS_FROM_LIST_FLAG) != 0);
+      }
       break;
     case NetworkBootTarget::KOREADER_SYNC:
       launched = startGlobalSyncProgress(true, decodeKOReaderSyncOrientation(payload));
@@ -1027,7 +1040,7 @@ void notifyQuickLockChanged() {
   LOG_DBG("MAIN", "Quick Lock %s", locked ? "enabled" : "disabled");
   if (locked) {
     APP_STATE.quickLockRestoreFrontlight = Frontlight.isOn();
-    Frontlight.setOn(false);
+    frontlightSetOnFaded(false);
     BatteryLog::lightChanged();
     activityManager.notifyInputLockChanged(true);
     int top = 0;
@@ -1059,7 +1072,7 @@ void notifyQuickLockChanged() {
       if (restoredBadgeBackdrop) renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     }
     if (APP_STATE.quickLockRestoreFrontlight) {
-      Frontlight.setOn(true);
+      frontlightSetOnFaded(true);
       BatteryLog::lightChanged();
       APP_STATE.quickLockRestoreFrontlight = false;
     }
@@ -1138,7 +1151,7 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT: {
       if (!Frontlight.present()) return false;
       const bool lightOn = !Frontlight.isOn();
-      Frontlight.setOn(lightOn);
+      frontlightSetOnFaded(lightOn);
       SETTINGS.frontlightOn = lightOn ? 1 : 0;
       activityManager.persistGlobalSettings();
       LOG_INF("LIGHT", "Frontlight toggled %s by shortcut", lightOn ? "on" : "off");
@@ -1304,7 +1317,7 @@ bool executeX4ProHomeButtonAction(const uint8_t action,
       return activityManager.handleHomeButtonBackOrHome();
     case CrossPointSettings::HOME_BUTTON_TOGGLE_FRONTLIGHT: {
       const bool lightOn = !Frontlight.isOn();
-      Frontlight.setOn(lightOn);
+      frontlightSetOnFaded(lightOn);
       SETTINGS.frontlightOn = lightOn ? 1 : 0;
       activityManager.persistGlobalSettings();
       LOG_INF("LIGHT", "Frontlight toggled %s by Home key", lightOn ? "on" : "off");
@@ -1693,7 +1706,7 @@ void enterDeepSleep(bool fromTimeout) {
   // will abort with the lock still held.
   {
     HalPowerManager::Lock powerLock;
-    APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+    if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
     // "request" = power button or a Sleep menu/quick action.
     PerfLog::noteDeepSleep(
         fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
@@ -1750,9 +1763,11 @@ void enterDeepSleep(bool fromTimeout) {
     putTiltSensorToSleepForDeepSleep();
     HalPowerManager::sleepStep = "display sleep";
     display.deepSleep();
-    HalPowerManager::sleepStep = "frontlight, nvs";
-    Frontlight.prepareForDeepSleep();
+    HalPowerManager::sleepStep = "nvs, frontlight";
     mirrorWakeShortPressToNvs();
+    // Last visible step: the sleep screen has settled and every write is done.
+    frontlightFadeOutForSleep();
+    Frontlight.prepareForDeepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
 
   }  // Release powerLock before deep sleep entry
@@ -1800,6 +1815,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   bootPhase("panel");
 #endif
   renderer.begin();
+  renderer.setDitherPhase(AntiBurnIn::seed() & 1, (AntiBurnIn::seed() >> 1) & 1);
   display.setInverted(SETTINGS.screenInverted != 0);
   // FreeInkUI headers need more than 4 KB once the render loop and nested
   // screen builders share the task stack. Some S3 network flows can render a
@@ -1854,6 +1870,7 @@ void setup() {
   vTaskPrioritySet(nullptr, 2);
 #endif
   BoardConfig::holdPowerRails();
+  registerWifiStaTracking();
 
   const esp_reset_reason_t rawResetReason = esp_reset_reason();
   const esp_sleep_wakeup_cause_t rawWakeupCause = esp_sleep_get_wakeup_cause();
@@ -1964,8 +1981,11 @@ void setup() {
   // Marks for the gap between "Input wake armed" and the IMU/RTC lines.
   LOG_INF("BOOT", "mark: power-button wake check");
   const bool shortPressWakes = readWakeShortPressFromNvs();
-  if (wakeupReason == HalGPIO::WakeupReason::PowerButton &&
-      !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
+  const HalGPIO::PageKeyWake pageKeyWake = HalGPIO::checkPageKeyWake();
+  wallpaperChordWake = pageKeyWake == HalGPIO::PageKeyWake::Chord;
+  if (pageKeyWake == HalGPIO::PageKeyWake::Stray ||
+      (pageKeyWake == HalGPIO::PageKeyWake::None && wakeupReason == HalGPIO::WakeupReason::PowerButton &&
+       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS))) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     PerfLog::noteDeepSleep("wake-not-held", "boot");
     armSleepGuard();
@@ -1982,7 +2002,7 @@ void setup() {
                                   ? MappedInputManager::Button::Down
                                   : MappedInputManager::Button::Up;
   const bool recoveryFirmwareMode = wakeupReason == HalGPIO::WakeupReason::PowerButton && !BoardConfig::isPaperMono() &&
-                                    mappedInputManager.isPressed(recoveryButton);
+                                    !wallpaperChordWake && mappedInputManager.isPressed(recoveryButton);
 #else
   const bool recoveryFirmwareMode = false;
 #endif
@@ -2067,6 +2087,16 @@ void setup() {
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
+  if (wallpaperChordWake && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM &&
+      !(SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM &&
+        !APP_STATE.lastSleepFromReader)) {
+    // The sleep screen is not a custom wallpaper, so there is nothing to change.
+    LOG_INF("MAIN", "Up+Down wake: sleep screen is not a custom image, sleeping");
+    PerfLog::noteDeepSleep("wallpaper-chord-skip", "boot");
+    armSleepGuard();
+    Storage.shutdown();
+    powerManager.startDeepSleep(gpio);
+  }
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,
                                wakeupRouteName(wakeupReason));
@@ -2146,7 +2176,8 @@ void setup() {
                           FsHelpers::hasBmpExtension(APP_STATE.favoriteBootImagePath) &&
                           Storage.exists(APP_STATE.favoriteBootImagePath.c_str());
   }
-  const bool skipSplashOnWake = isSleepWake && splashlessWakeArmed && !hasBootScreenDirectory && !hasPinnedBootScreen;
+  const bool skipSplashOnWake =
+      isSleepWake && splashlessWakeArmed && (wallpaperChordWake || (!hasBootScreenDirectory && !hasPinnedBootScreen));
   const BootResume resume = isNetworkResume    ? BootResume::Network
                             : isSilentReboot   ? BootResume::Silent
                             : skipSplashOnWake ? BootResume::SplashlessWake
@@ -2213,6 +2244,11 @@ void setup() {
       break;
   }
 
+  if (wallpaperChordWake) {
+    // Up+Down held while asleep: draw the next custom sleep image and sleep again.
+    LOG_INF("MAIN", "Up+Down wake: changing the sleep image");
+    enterDeepSleep();
+  }
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
@@ -2299,6 +2335,15 @@ void setup() {
     delay(10);
     gpio.update();
   }
+
+  if (resume != BootResume::Silent && resume != BootResume::Network) {
+    // Fresh sample of keys held through boot, settled as above (no new edges).
+    gpio.update();
+    delay(10);
+    gpio.update();
+  }
+  buttonShortcutController.consumeHeldChords(gpio.isPressed(HalGPIO::BTN_POWER), gpio.isPressed(HalGPIO::BTN_UP),
+                                             gpio.isPressed(HalGPIO::BTN_DOWN));
 
   // From here keys and touch are sampled on their own task, so events made
   // during long loop work are queued instead of dropped.
@@ -2528,7 +2573,9 @@ static void updateFlashDuck() {
 // ms), so RenderLock's waits step the duck too, on this task only.
 static TaskHandle_t mainLoopTask = nullptr;
 static void flashDuckRenderWait() {
-  if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
+  if (xTaskGetCurrentTaskHandle() != mainLoopTask) return;
+  TransferLightPulse::updateBlink();  // a remote blink ends on time, not after the refresh
+  updateFlashDuck();
 }
 void installFlashDuckRenderWait() {
   mainLoopTask = xTaskGetCurrentTaskHandle();  // setup() and loop() share the Arduino loop task
@@ -2546,6 +2593,7 @@ static unsigned long lightIdleMs(const unsigned long idleMs) {
 
 uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
+  if (SerialRemote::macroRunning()) return IDLE_WAIT_MS;  // macro WAIT/WAITLOG steps resolve on the loop tick
   if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) &&
                           SETTINGS.frontlightFlashDuck)) {
     return FLASH_DUCK_TICK_MS;
@@ -2564,23 +2612,29 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
 #else
   const bool usbConnected = gpio.isUsbConnectedCached();
 #endif
-  // Timed activity work (automatic page turn), USB serial transfer and radio
-  // exchanges are paced by the tick rather than by input.
+  // USB serial transfer, radio exchanges and screens that hold the device awake
+  // without a deadline are paced by the tick rather than by input. Timed work
+  // with a deadline (automatic page turn) wakes the loop for it instead.
+  const uint32_t timedWorkMs = activityManager.msUntilTimedWork();
   const bool radioIdle = radioMayIdle();
   if (tiltPolling || usbConnected || anyInputHeld() ||
-      (!radioIdle && (activityManager.preventAutoSleep() || WiFi.getMode() != WIFI_MODE_NULL))) {
+      (!radioIdle &&
+       ((activityManager.preventAutoSleep() && timedWorkMs == UINT32_MAX) || WiFi.getMode() != WIFI_MODE_NULL))) {
     return IDLE_WAIT_MS;
   }
+  // Never below the fast tick, so work held past its deadline (a turn skipped
+  // while a render runs) cannot spin the loop.
+  const uint32_t untilWorkMs = std::max(timedWorkMs, static_cast<uint32_t>(IDLE_WAIT_MS));
   // An idle server on its own task (File Transfer, Calibre) or a screen that opted
   // into radio idle (OPDS list, KOSync result) only needs the loop for input,
   // exit requests and link checks: 4 wakes/s instead of 20.
 #if CROSSDINK_GOODIES
   // Only the Wi-Fi remote holds the radio: its server wakes on traffic and
   // /api/cmd wakes the loop (InputTask::wakeLoop), so the long tick.
-  if (goodies_remote::allowsRadioIdleSleep()) return IDLE_WAIT_LONG_MS;
+  if (goodies_remote::allowsRadioIdleSleep()) return std::min(static_cast<uint32_t>(IDLE_WAIT_LONG_MS), untilWorkMs);
 #endif
-  if (radioIdle) return IDLE_WAIT_SETTLED_MS;
-  return IDLE_WAIT_LONG_MS;
+  if (radioIdle) return std::min(static_cast<uint32_t>(IDLE_WAIT_SETTLED_MS), untilWorkMs);
+  return std::min(static_cast<uint32_t>(IDLE_WAIT_LONG_MS), untilWorkMs);
 }
 
 #if CROSSDINK_APP_CAP_TOUCH && !defined(SIMULATOR)
@@ -3029,10 +3083,12 @@ static void loopPass() {
         percent = powerManager.getBatteryPercentage();
       }
       const bool inputPaused = millis() - lastActivityTime >= 2000;
-      // Only the link coming or going repaints; bar-count changes wait for a repaint that happens anyway.
-      const bool linkChanged = (shownWifi == 0) != (connected == 0);
+      // Only the link state (none / joining / up) changing repaints; bar-count changes wait for a repaint that
+      // happens anyway.
+      const auto linkState = [](int bars) { return bars == 0 ? 0 : bars == WIFI_HEADER_CONNECTING ? 1 : 2; };
+      const bool linkChanged = linkState(shownWifi) != linkState(connected);
       const bool stale = linkChanged || (inputPaused && shownPercent != percent);
-      const int want = (connected > 0) << 8 | percent;
+      const int want = linkState(connected) << 8 | percent;
       if (shownWifi < 0 || !stale) {
         requestedFor = -1;
       } else if (requestedFor != want) {

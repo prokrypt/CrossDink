@@ -466,6 +466,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Night mode: inverted output polarity, applied to every activity per render
   // by ActivityManager. Quick Resume preserves it; other sleep screens remain normal.
   uint8_t screenInverted = 0;
+  // Goodies display tests: the user's screenInverted while a test forces Night
+  // Mode in RAM (-1: none). A save meanwhile writes this, not the test's value.
+  int8_t screenInvertedHeld = -1;
   // Sleep screen cover mode settings
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
@@ -520,7 +523,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
   uint8_t forceParagraphIndents = 0;
-  uint8_t textAntiAliasing = 1;
+  uint8_t textAntiAliasing = TEXT_AA_OFF;
   // Touch screen reader zones/gestures on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
   // Page-turn gestures remain independently configurable while touch reader controls stay enabled.

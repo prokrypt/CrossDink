@@ -267,6 +267,9 @@ void GfxRenderer::syncOffscreenFrom(const GfxRenderer& source, uint8_t* buffer) 
   absoluteGrayPlanes = source.absoluteGrayPlanes;
   orientation = source.orientation;
   fadingFix = source.fadingFix;
+  ditherPhaseX = source.ditherPhaseX;
+  ditherPhaseY = source.ditherPhaseY;
+  ditherAlternate = source.ditherAlternate;
 }
 
 bool GfxRenderer::copyFontFrom(const GfxRenderer& source, const int fontId) {
@@ -1477,12 +1480,12 @@ void GfxRenderer::drawPixelDither<Color::White>(const int x, const int y) const 
 
 template <>
 void GfxRenderer::drawPixelDither<Color::LightGray>(const int x, const int y) const {
-  drawPixel(x, y, x % 2 == 0 && y % 2 == 0);
+  drawPixel(x, y, (x + ditherPhaseX) % 2 == 0 && (y + ditherPhaseY) % 2 == 0);
 }
 
 template <>
 void GfxRenderer::drawPixelDither<Color::DarkGray>(const int x, const int y) const {
-  drawPixel(x, y, (x + y) % 2 == 0);  // TODO: maybe find a better pattern?
+  drawPixel(x, y, (x + y + ditherPhaseX + ditherPhaseY) % 2 == 0);  // TODO: maybe find a better pattern?
 }
 
 void GfxRenderer::fillRectDither(const int x, const int y, const int width, const int height, Color color) const {
@@ -1638,8 +1641,8 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
       }
       uint8_t mask = 0;
       for (int b = 0; b < 8; ++b) {
-        const int lx = lxBase + b * dlxPerPhyX;
-        const int ly = lyBase + b * dlyPerPhyX;
+        const int lx = lxBase + b * dlxPerPhyX + ditherPhaseX;
+        const int ly = lyBase + b * dlyPerPhyX + ditherPhaseY;
         bool isBlack;
         if constexpr (C == Color::LightGray) {
           isBlack = ((lx & 1) == 0) && ((ly & 1) == 0);
@@ -2323,6 +2326,9 @@ void GfxRenderer::clearScreen(const uint8_t color) const {
   // Our own target, not the panel's: an offscreen renderer (makeOffscreen)
   // must not wipe the live frame, and a lent framebuffer is null here.
   if (frameBuffer) memset(frameBuffer, color, frameBufferSize);
+  // A full BW repaint starts here: swap the gray dither pixels (burn-in guard).
+  // Strips and gray passes keep the frame's phase so planes stay aligned.
+  if (ditherAlternate && renderMode == BW) ditherPhaseX ^= 1;
 }
 
 void GfxRenderer::beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const {

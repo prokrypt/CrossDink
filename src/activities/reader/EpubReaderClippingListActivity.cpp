@@ -156,7 +156,6 @@ void EpubReaderClippingListActivity::onEnter() {
   topIndex = 0;
   visibleRows = 1;
   uiReady = false;
-  initialListRender = true;
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_ROW, &EpubReaderClippingListActivity::onRowEvent, this);
   app.setScreen(&EpubReaderClippingListActivity::listScreen, this);
@@ -618,14 +617,6 @@ void EpubReaderClippingListActivity::renderDetail() {
 
 void EpubReaderClippingListActivity::render(RenderLock&&) {
   renderer.clearScreen();
-
-  if (initialListRender && CLIPPINGS.clippingCount() > 0) {
-    // Publish feedback before app.render() reads and lays out the clipping previews.
-    // drawPopup flushes the framebuffer while this render still owns RenderLock.
-    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-    renderer.clearScreen();
-  }
-  initialListRender = false;
 
   if (detailMode) {
     renderDetail();

@@ -69,17 +69,21 @@ void start() {
   wait();  // a teardown still running (Back and straight in again)
   begun.store(false, std::memory_order_relaxed);
   if (WiFi.getMode() != WIFI_MODE_NULL) return;  // connected, joining, or the remote's link
-  const size_t internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-  const size_t internalLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  if (internalFree < MIN_INTERNAL_FREE || internalLargest < MIN_INTERNAL_BLOCK) {
-    LOG_INF("WIFI", "Background join skipped: internal free %u largest %u", static_cast<unsigned>(internalFree),
-            static_cast<unsigned>(internalLargest));
-    return;
-  }
+  if (!heapAllows()) return;
   startedAt = millis();
   // Priority 1, under the main loop: it runs only while the loop waits.
   if (!task.start(joinTask, nullptr, TASK_STACK_BYTES, "WifiJoin"))
     LOG_ERR("WIFI", "Background join task did not start");
+}
+
+bool heapAllows() {
+  if (WiFi.getMode() != WIFI_MODE_NULL) return true;  // the driver's buffers are already allocated
+  const size_t internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  const size_t internalLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  if (internalFree >= MIN_INTERNAL_FREE && internalLargest >= MIN_INTERNAL_BLOCK) return true;
+  LOG_INF("WIFI", "Background join skipped: internal free %u largest %u", static_cast<unsigned>(internalFree),
+          static_cast<unsigned>(internalLargest));
+  return false;
 }
 
 void stop() {
@@ -111,6 +115,7 @@ void start() {}
 void stop() {}
 void wait() {}
 bool joining() { return false; }
+bool heapAllows() { return true; }
 }  // namespace wifi_background_join
 
 #endif

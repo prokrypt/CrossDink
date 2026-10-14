@@ -32,6 +32,9 @@ bool takePickerRequest();
 void waitForJoin();
 // Toggle off: server and Wi-Fi off, forgets the toggle.
 void stop();
+// Remote test macro (SerialRemote MACRO): true turns the server and Wi-Fi off
+// and keeps them off, the toggle stays; false lets loop() rejoin at once.
+void hold(bool on);
 // A screen needs port 80 and the radio: server and Wi-Fi off, the toggle stays.
 // keepStation: the screen joins as a station (not AP), so a link to the
 // remote's own network stays up for it to reuse, and so does the server,
@@ -69,13 +72,19 @@ class GoodiesActivity final : public Activity {
   bool holdsSettingsFlush() const override { return level == Level::KeyboardTest; }
 
  private:
-  enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon };
-  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats
+  enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon, PowerTests };
+  // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats, then
+  // Sleep-reboot-log (PSRAM log builds) and Power Test (powerTestRow)
   static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
   static constexpr int KBD_TEST_ROW = 4;
   static constexpr int PINMON_ROW = 5;
   static constexpr int SLEEP_REBOOT_ROW = 7;  // after Battery Stats (6), debug builds with the PSRAM log
+#if CROSSDINK_PSRAM_LOG
+  static constexpr int BOOT_PREV_ROW = 8;  // last row, after Sleep-reboot-log
+#else
+  static constexpr int BOOT_PREV_ROW = 7;
+#endif
   struct Entry {
     std::string label;
     int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
@@ -103,6 +112,7 @@ class GoodiesActivity final : public Activity {
   void showLevel(Level next);
   void activate(int index);
   int remoteRowShown = -1;
+  int powerTestRow = -1;              // Root: the Power Test row, last (debug builds on hardware only)
   unsigned long tokenShownUntil = 0;  // millis(); 0 = API token row shows only its last 4 characters
 
   void toggleRemote();
@@ -113,6 +123,8 @@ class GoodiesActivity final : public Activity {
   void setRowValue(int row, std::string value);
   std::string tokenRowValue();
   void confirmNewPin();
+  void confirmBootPrevious();
+  void showMessage(const char* text);
   void openRemotePicker();
   static int remoteRowState();
   static std::string remoteRowValue();

@@ -445,6 +445,22 @@ class EpubReaderActivity final : public Activity {
   // False while it still runs. Render task or onExit.
   bool joinImageCacheWorker(bool cancel);
 
+  // The background section build runs on the UI core, so loop(), input and
+  // Wi-Fi keep core 0. It holds RenderLock for one page at a time and stops at
+  // a page boundary for input, low heap, completion or failure; loop() joins it
+  // and starts it again while the build still wants ticks.
+  struct BuildWorker {
+    TaskHandle_t task = nullptr;  // loop() and onExit only
+    SemaphoreHandle_t done = nullptr;
+    std::atomic<bool> stop{false};
+  };
+  BuildWorker buildWorker;
+  static void buildWorkerMain(void* param);
+  // One page of the background build; caller owns RenderLock. False once it should stop ticking.
+  bool backgroundBuildTick();
+  // Joins a finished worker; with stop, asks it to stop and waits. loop() or onExit.
+  void joinBuildWorker(bool stop);
+
   // Draw-ahead on the worker core: right after a page is shown, the next page
   // is drawn into prerenderFrameBuffer with an offscreen renderer and its own
   // glyph decompressor, while the render task stays free. Used when the page's
@@ -476,6 +492,8 @@ class EpubReaderActivity final : public Activity {
   static void drawAheadWorkerMain(void* param);
   void runDrawAhead();
   void startDrawAhead(int fontId, int marginTop, int marginLeft, int contentBottom, uint32_t layoutKey);
+  // startDrawAhead() for the page after the current one, with the current layout.
+  void kickDrawAhead();
   // publish: render task only (RenderLock), moves a finished draw into the
   // prerendered* fields; otherwise the draw is discarded.
   void waitDrawAhead(bool publish);
@@ -673,6 +691,7 @@ class EpubReaderActivity final : public Activity {
     return true;
   }
   bool preventAutoSleep() override { return automaticPageTurnActive; }
+  uint32_t msUntilTimedWork() const override;
   // Hold the loop hot only while the build has work this loop would do: a kept-alive
   // build sitting outside the lookahead window is dormant, and reporting it here would
   // pin the CPU at full clock (no power saving, yield-only loop) for the whole read.
@@ -695,7 +714,7 @@ class EpubReaderActivity final : public Activity {
   std::unique_ptr<Page> takePrerenderedPage(uint32_t layoutKey);
   void prewarmNextPageFonts(const char* when);
   bool skipLoopDelay() override {
-    return sectionBuildWantsTick() && !backgroundBuildPausedForLowMemory &&
+    return sectionBuildWantsTick() && !backgroundBuildPausedForLowMemory && !buildWorker.task &&
            !backgroundBuildYieldForInput.load(std::memory_order_relaxed);
   }
   bool isReaderActivity() const override { return true; }

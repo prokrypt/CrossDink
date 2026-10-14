@@ -506,7 +506,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (keyboardLayouts != 0) doc["keyboardLayouts"] = keyboardLayouts;
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
-  doc["screenInverted"] = screenInverted;
+  doc["screenInverted"] = screenInvertedHeld >= 0 ? static_cast<uint8_t>(screenInvertedHeld) : screenInverted;
   doc["goodiesWifiRemote"] = goodiesWifiRemote;
 }
 
@@ -766,6 +766,8 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     }
   }
 
+  if (importingCrossPoint) textAntiAliasing = TEXT_AA_OFF;  // imported settings start with AA off
+
   if (migrateLegacyTiltMode) {
     if (legacyTiltMode == 1 || legacyTiltMode == 2) {
       tiltPageTurn = TILT_ON;
@@ -1011,6 +1013,7 @@ bool CrossPointSettings::loadFromFile() {
   if (Storage.exists(SETTINGS_FILE_BIN)) {
     if (loadFromBinaryFile()) {
       applyLegacyStatusBarSettings(*this);
+      textAntiAliasing = TEXT_AA_OFF;
       bottomReaderStatusBar = migrateBottomStatusBar(
           {statusBarChapterPageCount != 0, stablePageNumbers != 0, statusBarBookProgressPercentage != 0, statusBarTitle,
            statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,

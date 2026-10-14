@@ -474,7 +474,7 @@ void applySettingChange(uint8_t CrossPointSettings::* const member) {
     // The light keeps its own state (main.cpp sets it at boot only).
     Frontlight.setBrightness(SETTINGS.frontlightBrightness);
     Frontlight.setWarmth(SETTINGS.frontlightWarmth);
-    Frontlight.setOn(SETTINGS.frontlightOn != 0);
+    frontlightSetOnFaded(SETTINGS.frontlightOn != 0);
     BatteryLog::lightChanged();                        // remote SET writes a light row like any user change
     activityManager.notifyExternalFrontlightChange();  // an open Frontlight panel takes the new values
   } else if (member == &S::fontFamily) {

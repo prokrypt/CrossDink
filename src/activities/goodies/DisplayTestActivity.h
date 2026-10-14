@@ -19,7 +19,11 @@ class DisplayTestActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool preventAutoSleep() override { return phase.load() != Phase::Finished; }
+  // Waiting on the user (a tap, OK or an answer) may auto-sleep; sleep ends the test.
+  bool preventAutoSleep() override {
+    const Phase p = phase.load();
+    return p == Phase::Running || (p == Phase::Waiting && !tapWait);
+  }
   // The result screen is static: idle power-off drops the booster after a test.
   bool powerOffPanelWhenIdle() const override { return phase.load() == Phase::Finished; }
 
@@ -45,6 +49,7 @@ class DisplayTestActivity final : public Activity {
   bool askDrawn = false;
   int pickIndex = 0;  // button selection while a pick waits
   unsigned long resumeAtMs = 0;
+  std::atomic<bool> tapWait{false};  // Waiting for a tap or Confirm, not resumeAtMs
   int pc = 0;
   std::vector<Loop> loops;
   std::vector<std::string> answers;
@@ -54,19 +59,37 @@ class DisplayTestActivity final : public Activity {
   uint8_t pll = 0;
 
   int refreshCount = 0;
-  ModeStats stats[4];
+  ModeStats stats[5];  // by display_script::Mode
 
   struct BandLine {
     std::string text;
     bool bold;
   };
-  int bandH = 0;  // height of the label/ask band in the framebuffer (0 after a fill)
+  // Flash ducks pages: the kind's dim/restore knobs with -/+ and an Again button.
+  struct Hit {
+    int x, y, w, h;
+  };
+  int duckKind = -1;       // display_script Ducks a0 of the current step (-1: none)
+  int duckPc = 0;          // the step's Ducks op
+  int rerunPc = 0;         // where Again replays from
+  int skipTapsUntil = -1;  // an Again replay runs its earlier steps without waiting for taps
+  int labelPc = 0;         // the page's Label op, redrawn when a value changes
+  bool redrawLabel = false;
+  Hit duckHit[6] = {};               // dim -, dim +, restore -, restore +, Again, Next
+  bool ducksTest = false;            // the script has a `ducks` step: the result lists the duck knobs
+  int32_t duckKnobsAtStart[8] = {};  // DUCK_KINDS dim/restore values when the test started
+  int bandH = 0;                     // height of the label/ask band in the framebuffer (0 after a fill)
 
   void runOps();
   void drawOp(const display_script::Op& op);
   void refresh(display_script::Mode mode);
+  void grayPass();
+  void setNight(bool on);
+  void restoreNight();
   void wrapBand(const std::string* parts, int count, std::vector<BandLine>& out) const;
   int drawBand(const std::vector<BandLine>& lines, int extraH);
+  void drawDuckControls(int y);
+  bool duckTap(int x, int y);
   void drawAsk();
   void drawResult();
   void answer(int option);

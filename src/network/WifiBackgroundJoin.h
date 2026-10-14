@@ -10,6 +10,9 @@ namespace wifi_background_join {
 // task reads wifi.json, brings the driver up and calls WiFi.begin(); a missing
 // saved network ends it quietly.
 void start();
+// Internal RAM clears the Wi-Fi entry gate (or the radio is already up); logs
+// the skip when it does not. start() checks it too.
+bool heapAllows();
 // Radio off on a task, for the screen that called start() when it leaves for a
 // screen without Wi-Fi. Leaves the link alone when the Goodies remote wants it.
 void stop();

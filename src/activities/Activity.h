@@ -62,6 +62,9 @@ class Activity {
 
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
+  // Milliseconds until this screen's next timed work (automatic page turn), so
+  // an idle loop can sleep until then instead of ticking. UINT32_MAX = none.
+  virtual uint32_t msUntilTimedWork() const { return UINT32_MAX; }
   // Owns the radio while on the stack (joins, scans, AP, ESP-NOW, its own server).
   virtual bool usesWifi() const { return false; }
   // A usesWifi() screen that only makes HTTP/NTP requests on the station link

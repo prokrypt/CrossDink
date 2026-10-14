@@ -196,6 +196,12 @@ class HalGPIO {
   // Should only be called when wakeup reason is PowerButton.
   bool verifyPowerButtonWakeup(bool shortPressWakes, uint16_t longHoldMs);
 
+  // X4 Pro deep-sleep wake by Up or Down (HalPowerManager arms them with Power).
+  // Chord = both held together, which changes the sleep wallpaper; Stray = any
+  // other page-key wake, which goes back to sleep.
+  enum class PageKeyWake { None, Stray, Chord };
+  static PageKeyWake checkPageKeyWake();
+
   // Check if USB is connected
   bool isUsbConnected() const;
 

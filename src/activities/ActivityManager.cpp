@@ -1205,20 +1205,25 @@ bool ActivityManager::goToLibrary() {
   return true;
 }
 
-void ActivityManager::goToBrowser() {
+void ActivityManager::goToBrowser(const bool networkBootReady) {
   const auto& servers = OPDS_STORE.getServers();
   // Skip the server picker when there's only one server configured
   if (servers.size() == 1) {
-    goToOpdsServer(0);
+    goToOpdsServer(0, networkBootReady);
+  } else if (!networkBootReady && !wifi_background_join::heapAllows()) {
+    // Too fragmented for the list's background join: free fonts and caches
+    // (or reboot) first, so the list opens with Wi-Fi coming up.
+    silentRestartToNetwork(NetworkBootTarget::OPDS, OPDS_SERVER_LIST_PAYLOAD);
   } else {
     replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true));
   }
 }
 
-bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool networkBootReady) {
+bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool networkBootReady,
+                                     const bool fromServerList) {
 #ifndef SIMULATOR
   if (!networkBootReady) {
-    silentRestartToNetwork(NetworkBootTarget::OPDS, serverIndex);
+    silentRestartToNetwork(NetworkBootTarget::OPDS, serverIndex | (fromServerList ? OPDS_FROM_LIST_FLAG : 0));
     return true;
   }
 #else
@@ -1235,7 +1240,7 @@ bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool netw
 
   OpdsServer server = *storedServer;
   OPDS_STORE.release();
-  auto browser = makeUniqueNoThrow<OpdsBookBrowserActivity>(renderer, mappedInput, std::move(server));
+  auto browser = makeUniqueNoThrow<OpdsBookBrowserActivity>(renderer, mappedInput, std::move(server), fromServerList);
   if (!browser) {
     LOG_ERR("ACT", "OOM: OPDS browser after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
@@ -1357,6 +1362,10 @@ void ActivityManager::popActivity() {
 }
 
 bool ActivityManager::preventAutoSleep() const { return currentActivity && currentActivity->preventAutoSleep(); }
+
+uint32_t ActivityManager::msUntilTimedWork() const {
+  return currentActivity ? currentActivity->msUntilTimedWork() : UINT32_MAX;
+}
 
 bool ActivityManager::requiresExclusiveStorageLoop() const {
   return currentActivity && currentActivity->requiresExclusiveStorageLoop();
@@ -1628,13 +1637,17 @@ void RenderLock::unlock() {
 }
 
 /**
- * Checks if renderingMutex is held by any task, including the calling task.
+ * Checks if renderingMutex is held by any task, including the calling task,
+ * other than RenderLock::backgroundHolder.
  *
- * @return true if renderingMutex has an owner (any task), false otherwise.
+ * @return true if renderingMutex has such an owner, false otherwise.
  *
  * @note Must not be called from ISR context — xSemaphoreGetMutexHolder is not ISR-safe.
  */
-bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
+bool RenderLock::peek() {
+  void* const holder = xSemaphoreGetMutexHolder(activityManager.renderingMutex);
+  return holder != nullptr && holder != backgroundHolder.load(std::memory_order_relaxed);
+}
 
 bool RenderLock::heldByCaller() {
   return xSemaphoreGetMutexHolder(activityManager.renderingMutex) == xTaskGetCurrentTaskHandle();

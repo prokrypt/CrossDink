@@ -8,6 +8,7 @@
 #include <HalPowerManager.h>
 #include <Logging.h>
 #include <PerfLog.h>
+#include <PowerCounters.h>
 #include <SDCardManager.h>
 #if FREEINK_CAP_USB_MSC
 #include <UsbMassStorage.h>
@@ -1060,7 +1061,9 @@ int HalFile::read(void* buf, size_t count) {
   assert(impl != nullptr);
   const uint32_t startUs = micros();
   const int n = impl->file.read(buf, count);
-  PerfLog::noteSdRead(n > 0 ? static_cast<uint32_t>(n) : 0, micros() - startUs);
+  const uint32_t readUs = micros() - startUs;
+  PerfLog::noteSdRead(n > 0 ? static_cast<uint32_t>(n) : 0, readUs);
+  PowerCounters::sdRead(n > 0 ? static_cast<uint32_t>(n) : 0, readUs);
   return n;
 #else
   HAL_FILE_WRAPPED_CALL(read, buf, count);
@@ -1076,6 +1079,7 @@ size_t HalFile::write(const void* buf, size_t count) {
   const size_t n = impl->file.write(buf, count);
   const uint32_t us = micros() - startUs;
   PerfLog::noteSdWrite(static_cast<uint32_t>(n), us);
+  PowerCounters::sdWrite(static_cast<uint32_t>(n), us);
   impl->writeBytes += n;
   impl->writeUs += us;
   impl->waitUs += startUs - callUs;

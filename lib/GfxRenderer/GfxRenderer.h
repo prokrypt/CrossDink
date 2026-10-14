@@ -58,6 +58,13 @@ class GfxRenderer {
   Orientation orientation;
   bool fadingFix;
   bool deferFastRefresh = false;
+  // Dither pattern offset (0/1 per axis), picked once per boot so gray fills
+  // do not hold the same pixels on every boot. X also flips on every
+  // full-screen BW clear while ditherAlternate is on, so grays swap pixels on
+  // each repaint.
+  mutable uint8_t ditherPhaseX = 0;
+  uint8_t ditherPhaseY = 0;
+  bool ditherAlternate = true;
   bool drawOnly = false;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
@@ -303,6 +310,11 @@ class GfxRenderer {
   void maskRoundedRectOutsideCorners(int x, int y, int width, int height, int radius, Color color = Color::White) const;
   void fillRect(int x, int y, int width, int height, bool state = true) const;
   void fillRectDither(int x, int y, int width, int height, Color color) const;
+  void setDitherPhase(const uint8_t x, const uint8_t y) {
+    ditherPhaseX = x & 1;
+    ditherPhaseY = y & 1;
+  }
+  void setDitherAlternate(const bool on) { ditherAlternate = on; }
   void fillRoundedRect(int x, int y, int width, int height, int cornerRadius, Color color) const;
   void fillRoundedRect(int x, int y, int width, int height, int cornerRadius, bool roundTopLeft, bool roundTopRight,
                        bool roundBottomLeft, bool roundBottomRight, Color color) const;

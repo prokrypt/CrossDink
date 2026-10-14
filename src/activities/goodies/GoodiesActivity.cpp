@@ -11,6 +11,9 @@
 #include <Memory.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#ifndef SIMULATOR
+#include <esp_ota_ops.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -22,6 +25,7 @@
 #include "DisplayTestActivity.h"
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
+#include "PowerTestActivity.h"
 #include "SilentRestart.h"
 #include "WifiCredentialStore.h"
 #include "activities/ActivityManager.h"
@@ -35,6 +39,7 @@
 #include "network/CrossPointWebServer.h"
 #include "network/FirmwareFlasher.h"
 #include "network/NetworkName.h"
+#include "network/OtaBootSwitch.h"
 #include "network/SerialRemote.h"
 #include "network/WifiUtils.h"
 #include "platform/PinMon.h"
@@ -66,6 +71,7 @@ bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens t
 // A screen took the radio (pause): rejoin as soon as it leaves, no idle wait.
 bool rejoinAfterPause = false;
 bool pickerRequested = false;
+bool held = false;  // hold(): a macro keeps the radio off
 // The join itself (wifi.json read, WiFi.mode() bringing the driver up,
 // WiFi.begin()) and the toggle-off teardown run on short-lived tasks so the
 // main loop never waits on them. One at a time: radioTask runs both.
@@ -285,6 +291,11 @@ std::unique_ptr<CrossPointWebServer> takeServer() {
   return {};
 }
 
+void hold(const bool on) {
+  held = on;
+  if (on) pause();
+}
+
 void stop() {
   setRemoteWanted(false);
   rejoinNow = false;
@@ -330,7 +341,7 @@ void loop(const uint32_t idleMs) {
     shutdownQueued = false;
     stopServerAndRadioInBackground();
   }
-  if (!remoteWanted()) return;
+  if (!remoteWanted() || held) return;
   // A join or a toggle-off teardown still owns the radio (Off then On in quick succession).
   if (radioTask.running()) return;
   if (joinPending) {
@@ -486,6 +497,7 @@ void GoodiesActivity::showLevel(const Level next) {
   level = next;
   tokenShownUntil = 0;
   entries.clear();
+  powerTestRow = -1;
   if (level == Level::Root) {
     // ">" (as in Settings) marks a row that opens another menu or page.
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}, ">"});
@@ -500,6 +512,22 @@ void GoodiesActivity::showLevel(const Level next) {
 #if CROSSDINK_PSRAM_LOG
     entries.push_back({"Sleep-reboot-log", -1, {}});
 #endif
+    {
+      esp_app_desc_t desc;
+      const esp_partition_t* part = firmware_flash::otherSlot(desc);
+      entries.push_back({"Boot previous firmware", -1, {}, part ? std::string(part->label) + " >" : "none"});
+    }
+    powerTestRow = static_cast<int>(entries.size());
+    entries.push_back({"Power Test", -1, {}, ">"});
+#endif
+  } else if (level == Level::PowerTests) {
+#ifndef SIMULATOR
+    // Run length (Knobs powerTestMin) on each row; the sag probe takes about a minute.
+    char minutes[16];
+    snprintf(minutes, sizeof(minutes), "%u min >", static_cast<unsigned>(KNOBS.powerTestMin));
+    for (int i = 0; i < PowerTestActivity::TEST_COUNT; ++i) {
+      entries.push_back({PowerTestActivity::label(i), i, {}, i == PowerTestActivity::SAG_PROBE ? "~2 min >" : minutes});
+    }
 #endif
   } else if (level == Level::PinMon) {
     // Read when opened: the toggle, then per pin level, changes and wakes since boot.
@@ -597,11 +625,17 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::KeyboardTest);
     } else if (index == PINMON_ROW) {
       showLevel(Level::PinMon);
+    } else if (index == powerTestRow) {
+      showLevel(Level::PowerTests);
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
     } else if (index == SLEEP_REBOOT_ROW) {
       // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
       SleepLog::armSleepReboot();
       enterDeepSleep();
+#endif
+#ifndef SIMULATOR
+    } else if (index == BOOT_PREV_ROW) {
+      confirmBootPrevious();
 #endif
     } else {
 #ifndef SIMULATOR
@@ -614,6 +648,16 @@ void GoodiesActivity::activate(const int index) {
     }
     return;
   }
+#ifndef SIMULATOR
+  if (level == Level::PowerTests) {
+    startActivityForResult(std::make_unique<PowerTestActivity>(renderer, mappedInput, entries[index].builtIn),
+                           [this](const ActivityResult&) {
+                             mappedInput.suppressNextConfirmRelease();
+                             requestUpdate();
+                           });
+    return;
+  }
+#endif
   if (level == Level::PinMon) {
     // Monitor: switches now (PinMon arms or releases the pins), RAM only. Other rows: refresh.
     if (index == 0) PinMon::setEnabled(!PinMon::enabled());
@@ -767,6 +811,58 @@ void GoodiesActivity::setRowValue(const int row, std::string value) {
   lock.unlock();
   requestUpdate();
 }
+
+#ifndef SIMULATOR
+void GoodiesActivity::confirmBootPrevious() {
+  esp_app_desc_t desc;
+  const esp_partition_t* part = firmware_flash::otherSlot(desc);
+  if (!part) {
+    showMessage("No valid firmware in the other slot");
+    return;
+  }
+  char body[160];
+  snprintf(body, sizeof(body), "Reboots into %s: %.31s %.31s, built %.15s %.15s, elf %02x%02x%02x%02x.", part->label,
+           desc.project_name, desc.version, desc.date, desc.time, desc.app_elf_sha256[0], desc.app_elf_sha256[1],
+           desc.app_elf_sha256[2], desc.app_elf_sha256[3]);
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot previous firmware?", body),
+                         [this, part](const ActivityResult& result) {
+                           mappedInput.suppressNextConfirmRelease();
+                           if (result.isCancelled) {
+                             requestUpdate();
+                             return;
+                           }
+                           // The header check above passes a half-flashed slot; the full checksum and SHA-256 pass runs
+                           // only now.
+                           {
+                             RenderLock lock(*this);
+                             GUI.drawPopup(renderer, "Checking...");
+                           }
+                           const firmware_flash::Result verified = firmware_flash::verifyPartition(part);
+                           if (verified != firmware_flash::Result::OK) {
+                             LOG_ERR("BOOT", "boot-previous: %s image failed: %s", part->label,
+                                     firmware_flash::resultName(verified));
+                             showMessage("Other slot failed the image check");
+                             return;
+                           }
+                           if (!ota_boot::switchTo(part)) {
+                             LOG_ERR("BOOT", "boot-previous switch to %s failed", part->label);
+                             showMessage("Switch failed");
+                             return;
+                           }
+                           restartKeepingPanelFrame();  // does not return
+                         });
+}
+
+// A message popup that stays up briefly, then the list repaints.
+void GoodiesActivity::showMessage(const char* text) {
+  {
+    RenderLock lock(*this);
+    GUI.drawPopup(renderer, text);
+  }
+  delay(1500);
+  requestUpdate();
+}
+#endif
 
 void GoodiesActivity::confirmNewPin() {
   startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "New API PIN?",
@@ -1051,6 +1147,7 @@ void GoodiesActivity::render(RenderLock&&) {
                       : level == Level::Knobs        ? "Knobs"
                       : level == Level::KeyboardTest ? "Keyboard Test"
                       : level == Level::PinMon       ? "Pin Monitor"
+                      : level == Level::PowerTests   ? "Power Test"
                                                      : tr(STR_DISPLAY_TEST);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, uiTarget, header, title, false);

@@ -173,8 +173,8 @@ class ActivityManager {
   void goToFileBrowser(std::string path = {});
   // False when the Library could not be allocated and nothing changed.
   bool goToLibrary();
-  void goToBrowser();
-  bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false);
+  void goToBrowser(bool networkBootReady = false);
+  bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false, bool fromServerList = false);
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
                   bool cleanImageBaseOnEntry = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
@@ -195,6 +195,7 @@ class ActivityManager {
   void popActivity();
 
   bool preventAutoSleep() const;
+  uint32_t msUntilTimedWork() const;
   bool requiresExclusiveStorageLoop() const;
   // The active activity has an open modal that owns all global shortcuts and
   // gestures until it is dismissed.

@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <iterator>
@@ -547,6 +548,12 @@ void CrossPointWebServer::begin(const bool logOnly) {
 #endif
 #if CROSSDINK_SERIAL_REMOTE
   server->on("/api/cmd", HTTP_POST, [this] { handleRemoteCmd(); });
+#if CROSSDINK_PSRAM_LOG
+  server->on("/api/psram-log/stream", HTTP_GET, [this] {
+    releasePollHold();
+    handlePsramLogStream();
+  });
+#endif
   server->on("/api/screenshot", HTTP_ANY, [this] { handleScreenshot(); });
   server->on("/api/ota", HTTP_POST, [this] { handleOtaDone(); }, [this] { handleOtaData(); });
   server->on("/api/image", HTTP_POST, [this] { handleImageDone(); }, [this] { handleImageData(); });
@@ -852,6 +859,11 @@ void CrossPointWebServer::stop() {
   if (wsUploadInProgress && wsUploadFile) {
     abortWsUpload("WEB");
   }
+#if CROSSDINK_PSRAM_LOG
+  for (LogStream& stream : logStreams) {
+    if (stream.client.fd() >= 0) closeLogStream(stream, "server stopped");
+  }
+#endif
 
   // Stop WebSocket server
   if (wsServer) {
@@ -968,6 +980,12 @@ void CrossPointWebServer::serveUntilStopped() {
       // Idle STA: one pass per wake, blocked in between so tickless idle can
       // light-sleep. A request found here switches to transfer mode.
       const bool served = handleClient();
+#ifndef SIMULATOR
+      if (pumpFileStreams()) noteTransferActivity();  // a stalled download's resume
+#endif
+#if CROSSDINK_PSRAM_LOG
+      pumpLogStreams();
+#endif
       logIdleStats();
       if (isTransferActive()) continue;
       if (readable && !served) {
@@ -985,10 +1003,19 @@ void CrossPointWebServer::serveUntilStopped() {
     for (int i = 0; i < ACTIVE_PASSES_PER_TICK && !stopRequested.load(std::memory_order_relaxed); i++) {
       handleClient();
     }
+#ifndef SIMULATOR
+    if (pumpFileStreams()) noteTransferActivity();  // a running download keeps the transfer hold
+#endif
+#if CROSSDINK_PSRAM_LOG
+    pumpLogStreams();
+#endif
     // Not yield(): lower-priority workers and IDLE0 need the core too.
     servePhase.store("tick", std::memory_order_relaxed);
     vTaskDelay(1);
   }
+#ifndef SIMULATOR
+  closeFileStreams();
+#endif
   PerfLog::noteTaskExit("WebServer");
   xSemaphoreGive(serverStopped);
 }
@@ -1327,7 +1354,10 @@ void CrossPointWebServer::handleExit() {
 // the X-Log-Next header is the offset for the next poll (X-Log-Oldest: the oldest byte held). &wait=<ms> (max 5000)
 // holds an empty reply until new text arrives; that parks only this server task.
 void CrossPointWebServer::handlePsramLog() const {
-  EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, keeps 1 KB off the loop stack
+  // Static: debug-only, keeps it off the loop stack. One network write per 4 KB,
+  // since each chunked sendContent costs three socket sends.
+  EXT_RAM_NOINIT_ATTR static char chunk[4096];
+  constexpr uint32_t kReadSlice = 1024;  // ring reads copy inside a critical section: keep each short
   const bool tail = server->hasArg("since");
   const uint32_t since = tail ? strtoul(server->arg("since").c_str(), nullptr, 10) : 0;
   if (tail) {
@@ -1356,20 +1386,78 @@ void CrossPointWebServer::handlePsramLog() const {
   } else if (skipped > 0) {
     len = snprintf(chunk, sizeof(chunk), "[psram-log gap %lu bytes]\n", static_cast<unsigned long>(skipped));
   }
-  if (len > 0) server->sendContent(chunk, len);
+  size_t fill = len;
   while (cursor < end) {
     const uint32_t before = cursor;
-    len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
+    len = PsramLog::read(cursor, chunk + fill,
+                         std::min<uint32_t>({kReadSlice, static_cast<uint32_t>(sizeof(chunk) - fill), end - cursor}));
     if (len == 0) break;
     if (cursor - len != before) {  // lapped while streaming: read() skipped ahead
+      if (fill > 0) server->sendContent(chunk, fill);
       char gap[48];
       const int n = snprintf(gap, sizeof(gap), "\n[psram-log gap %lu bytes]\n",
                              static_cast<unsigned long>(cursor - len - before));
       server->sendContent(gap, n);
+      memmove(chunk, chunk + fill, len);
+      fill = 0;
     }
-    server->sendContent(chunk, len);
+    fill += len;
+    if (fill == sizeof(chunk)) {
+      server->sendContent(chunk, fill);
+      fill = 0;
+    }
   }
+  if (fill > 0) server->sendContent(chunk, fill);
   server->sendContent("");
+}
+
+void CrossPointWebServer::closeLogStream(LogStream& stream, const char* why) {
+  LOG_INF("WEB", "log stream fd %d closed: %s", stream.client.fd(), why);
+  stream.client.stop();
+  --logStreamsOpen;
+}
+
+// Serving task: sends each stream client the log text written since its
+// cursor, as much as its socket takes now. Never blocks: a client that reads
+// slower than the log grows stays behind until the ring laps it (gap line).
+void CrossPointWebServer::pumpLogStreams() {
+  if (logStreamsOpen == 0) return;              // the whole idle cost
+  EXT_RAM_NOINIT_ATTR static char chunk[1024];  // Static: debug-only, as handlePsramLog's
+  const uint32_t end = PsramLog::end();
+  for (LogStream& stream : logStreams) {
+    const int fd = stream.client.fd();
+    if (fd < 0) continue;
+    // The client only reads: EOF or an error means it went away; drop anything it sends.
+    int got;
+    do {
+      got = lwip_recv(fd, chunk, sizeof(chunk), MSG_DONTWAIT);
+    } while (got > 0);
+    if (got == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+      closeLogStream(stream, got == 0 ? "client closed" : "recv error");
+      continue;
+    }
+    while (stream.cursor < end) {
+      uint32_t cursor = stream.cursor;
+      const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - stream.cursor));
+      if (len == 0) break;
+      const uint32_t from = cursor - len;  // read() snaps a lapped cursor forward
+      if (from != stream.cursor) {
+        char gap[48];
+        const int n = snprintf(gap, sizeof(gap), "\n[psram-log gap %lu bytes]\n",
+                               static_cast<unsigned long>(from - stream.cursor));
+        // ponytail: best effort; a full socket loses this marker (not the text after it).
+        lwip_send(fd, gap, n, MSG_DONTWAIT);
+        stream.cursor = from;
+      }
+      const int sent = lwip_send(fd, chunk, len, MSG_DONTWAIT);
+      if (sent < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) closeLogStream(stream, "send error");
+        break;
+      }
+      stream.cursor += sent;
+      if (static_cast<size_t>(sent) < len) break;  // socket full: the rest next pass
+    }
+  }
 }
 #endif
 
@@ -1400,6 +1488,42 @@ void CrossPointWebServer::handleApiDownload() const {
   if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
   handleDownload();
 }
+
+#if CROSSDINK_PSRAM_LOG
+// GET /api/psram-log/stream (token): one response that never ends, carrying
+// the log as it is written, from ?since=<offset> (default: new text only).
+// The handler only takes the connection; pumpLogStreams() feeds it, so the
+// server keeps serving other requests. X-Log-Start is the first offset sent.
+void CrossPointWebServer::handlePsramLogStream() {
+  static char out[32];
+  const int status = checkRemoteToken(*server, out, sizeof(out));
+  if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
+  LogStream* stream = nullptr;
+  for (LogStream& s : logStreams) {
+    if (s.client.fd() < 0) stream = &s;
+  }
+  if (!stream) {
+    stream = &logStreams[logStreamNext];
+    logStreamNext = (logStreamNext + 1) % LOG_STREAMS;
+    closeLogStream(*stream, "replaced");
+  }
+  const uint32_t end = PsramLog::end();
+  const uint32_t since = server->hasArg("since") ? strtoul(server->arg("since").c_str(), nullptr, 10) : end;
+  // since > end: the ring restarted (power loss, deep sleep) after that offset; send the new ring, as the poll does.
+  const bool restarted = since > end;
+  stream->cursor = restarted ? PsramLog::oldest() : since;
+  stream->client = server->client();  // WebServer drops its copy after this handler; ours keeps the socket
+  char head[200];
+  const int n = snprintf(head, sizeof(head),
+                         "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n"
+                         "Access-Control-Allow-Origin: *\r\nX-Log-Start: %lu\r\nConnection: close\r\n\r\n",
+                         static_cast<unsigned long>(stream->cursor));
+  stream->client.write(head, n);
+  if (restarted) stream->client.write("[psram-log restarted]\n", 22);
+  ++logStreamsOpen;
+  LOG_INF("WEB", "log stream fd %d open from %lu", stream->client.fd(), static_cast<unsigned long>(stream->cursor));
+}
+#endif
 
 void CrossPointWebServer::handleApiFiles() const {
   if (logOnly_) {
