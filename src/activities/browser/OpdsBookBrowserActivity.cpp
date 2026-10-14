@@ -202,7 +202,13 @@ void OpdsBookBrowserActivity::onExit() {
   // Joins the background download before Wi-Fi goes down and before the
   // cache it would hand its page to is freed.
   preload.reset();
-  pageCache.reset();
+  // Back to the server list: it reuses the pages fetched so far (its roots
+  // included) instead of fetching every server again.
+  if (leavingToList) {
+    opds_page_cache_handoff::give(std::move(pageCache));
+  } else {
+    pageCache.reset();
+  }
 #if defined(FREEINK_NET_WOLFSSL)
   feedConnection.reset();  // closes the kept-alive socket before Wi-Fi goes down
 #endif
@@ -268,6 +274,8 @@ void OpdsBookBrowserActivity::loop() {
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
+        // Retry goes back to the server, not to a cached (e.g. empty) page.
+        if (pageCache) pageCache->erase(UrlUtils::buildUrl(server.url, currentPath));
         showLoadingBeforeFetch(currentPath);
         fetchFeed(currentPath);
       } else {
@@ -759,9 +767,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   markCachedFeeds();
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
-    // An empty feed may fill in later (new shelf, server still indexing); make
-    // Retry go back to the server instead of replaying the cached empty page.
-    if (pageCache) pageCache->erase(url);
+    // Kept cached (the server list marks it fetched); Retry refetches it.
     errorMessage = tr(STR_NO_ENTRIES);
   }
   requestUpdate();
@@ -983,6 +989,10 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool
 
 void OpdsBookBrowserActivity::leaveBrowser() {
   if (fromServerList) {
+    leavingToList = true;
+#ifndef SIMULATOR
+    keepWifiForNextScreen();  // the list finds Wi-Fi up and shows its check marks at once
+#endif
     activityManager.goToBrowser();
   } else {
     onGoHome();

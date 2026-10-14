@@ -47,6 +47,8 @@ class OpdsServerListActivity final : public Activity {
   // A server was picked: the browser takes over the background join's link
   // and the page cache.
   bool leavingToBrowser = false;
+  // Opened by Back from a catalog, which kept Wi-Fi up for this list.
+  bool fromBrowser = false;
   // PSRAM devices, picker mode: the servers' root pages are fetched in the
   // background once Wi-Fi is up (the browser's preload pool, up to three at
   // once) and each row gets the check mark; the cache goes to the browser
