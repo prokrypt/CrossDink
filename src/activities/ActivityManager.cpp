@@ -1483,9 +1483,7 @@ bool ActivityManager::allowsRadioIdleSleep() const {
   return currentActivity && currentActivity->allowsRadioIdleSleep();
 }
 
-void ActivityManager::repaintSyncBadge() {
-  if (currentActivity) currentActivity->repaintSyncBadge();
-}
+bool ActivityManager::repaintSyncBadge() { return currentActivity && currentActivity->repaintSyncBadge(); }
 
 std::string ActivityManager::flushEpubProgressForSync() {
   if (currentActivity && currentActivity->flushProgressForSync()) return currentActivity->getCurrentBookPath();

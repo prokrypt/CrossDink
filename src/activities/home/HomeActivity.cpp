@@ -1101,13 +1101,14 @@ void HomeActivity::endSyncBadge() {
   syncBadgeBox = KOSyncBadge::takeRect();
 }
 
-void HomeActivity::repaintSyncBadge() {
+bool HomeActivity::repaintSyncBadge() {
   const int idx = getHighlightedBookIndex();
-  if (syncBadgeBox.width == 0 || idx < 0) return;
+  if (syncBadgeBox.width == 0 || idx < 0) return false;
   const auto badge = homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark);
-  if (badge == syncBadgeShown) return;
+  if (badge == syncBadgeShown) return false;
   KOSyncBadge::repaint(renderer, syncBadgeBox, badge);
   syncBadgeShown = badge;
+  return true;
 }
 
 int HomeActivity::getHighlightedBookIndex() const {

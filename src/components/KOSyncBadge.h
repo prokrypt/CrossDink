@@ -7,7 +7,7 @@ namespace freeink {
 struct Icon;
 }
 
-// The KOSync badge (cloud / cloud-off / cloud-download) next to a book's % on
+// The KOSync badge (cloud / cloud-off / cloud-download / cloud-upload while syncing) next to a book's % on
 // Home. Home sets the state of the book a theme is about to draw; themes call
 // drawAt() where their % label sits, so no theme signature carries it.
 namespace KOSyncBadge {

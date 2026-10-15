@@ -238,7 +238,8 @@ class ActivityManager {
   // Saves the open EPUB reader's position and returns its book, else empty.
   std::string flushEpubProgressForSync();
   // Main loop, render lock held: the current screen redraws its KOSync badge for the next refresh.
-  void repaintSyncBadge();
+  // True when the badge changed.
+  bool repaintSyncBadge();
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.
