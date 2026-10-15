@@ -3357,7 +3357,7 @@ static void loopPass() {
   static unsigned long themePackToastAt = 0;
   if (const char* themePackToast = ThemePack::takeToast()) {
     RenderLock lock;
-    BookActions::drawToast(renderer, themePackToast);
+    Toast::show(renderer, themePackToast);
     themePackToastAt = millis() | 1;
   } else if (themePackToastAt != 0 && millis() - themePackToastAt >= 1500) {
     themePackToastAt = 0;
