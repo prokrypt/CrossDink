@@ -18,6 +18,7 @@
 #include "KOReaderCredentialStore.h"
 #include "RecentBooksStore.h"
 #include "activities/reader/EpubReaderUtils.h"
+#include "activities/reader/KOSyncAuto.h"
 #include "util/InPlaceFileWrite.h"
 
 using RecentBookProgress::SyncMark;
@@ -374,6 +375,7 @@ void RecentBookProgress::flushSyncMarks() {
 RecentBookProgress::SyncBadge RecentBookProgress::syncBadge(const std::string& cachePath, const float progress,
                                                             SyncMark mark) {
   if (cachePath.empty() || !hasPercent(progress) || !KOREADER_STORE.hasCredentials()) return SyncBadge::None;
+  if (kosync_auto::pushPendingFor(cachePath)) return SyncBadge::Syncing;
   {
     std::lock_guard<std::mutex> lock(heldMutex);
     if (const HeldMark* held = findHeld(cachePath)) mark = held->mark;
