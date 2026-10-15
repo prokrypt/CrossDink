@@ -2538,11 +2538,6 @@ void HomeActivity::render(RenderLock&&) {
     coverRectH = metrics.homeCoverTileHeight;
 
     beginSyncBadge();
-    if (isLyraExtendedTheme()) {
-      for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
-        Lyra3CoversTheme::setTileProgress(i, cachedBookProgress[i]);
-      }
-    }
     GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
                             recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                             std::bind(&HomeActivity::storeCoverBuffer, this),
@@ -2655,6 +2650,12 @@ void HomeActivity::render(RenderLock&&) {
   coverRectH = homeCoverTileHeight;
 
   beginSyncBadge();
+  // Lyra Extended draws here (not the minimal branch above): each tile's %.
+  if (isLyraExtendedTheme()) {
+    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+      Lyra3CoversTheme::setTileProgress(i, cachedBookProgress[i]);
+    }
+  }
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, homeCoverTileHeight}, recentBooks,
                           selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this),
