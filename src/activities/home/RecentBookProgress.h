@@ -37,7 +37,8 @@ float loadSavedEpubPercent(const std::string& cachePath, SyncMark& mark);
 // Saves a cached EPUB reading percentage for fast Home screen rendering.
 void saveCachedEpubPercent(const std::string& cachePath, float progress);
 // Calculates and saves cached EPUB progress from a reader position.
-void saveCachedEpubPercent(const Epub& epub, int spineIndex, int currentPage, int pageCount);
+// hold: a reader exit; the write waits for the next flush point (HeldWrites).
+void saveCachedEpubPercent(const Epub& epub, int spineIndex, int currentPage, int pageCount, bool hold = false);
 // The cached % of a reader position, in basis points.
 uint16_t basisPoints(const Epub& epub, int spineIndex, int currentPage, int pageCount);
 // Any task: a KOSync check found the server holding this book at bp (its own %)

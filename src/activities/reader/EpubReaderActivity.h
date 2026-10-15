@@ -524,9 +524,10 @@ class EpubReaderActivity final : public Activity {
   // position cannot overwrite the reader's. Set allowDuringFootnotePreview for the
   // deliberate on-exit save of the pre-footnote origin, which is the position the
   // suppression exists to protect.
-  bool saveProgress(int spineIndex, int currentPage, int pageCount, bool allowDuringFootnotePreview = false);
+  bool saveProgress(int spineIndex, int currentPage, int pageCount, bool allowDuringFootnotePreview = false,
+                    bool hold = false);
   bool queueProgressSave(int spineIndex, int currentPage, int pageCount, bool forceSave = false);
-  bool flushQueuedProgress();
+  bool flushQueuedProgress(bool hold = false);
   bool saveFootnoteOriginProgress();
   // Saves the position now, the way onExit() does (the link origin while in a
   // footnote). Used before handing off to anything that can silently restart

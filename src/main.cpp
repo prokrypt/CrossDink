@@ -1868,9 +1868,11 @@ void enterDeepSleep(bool fromTimeout) {
     HeldWrites::setWriteThrough(HeldWrites::Sleeping, true);
     flushSettingsStores();  // knobs.json
 
-    // Sleep screens refresh synchronously and display.deepSleep() waits out any
-    // pending refresh and the power-off, so no settle delay is needed here. A
-    // delay would only widen the window in which a wake press is swallowed.
+    // B/W sleep screens start their refresh without waiting (SleepActivity), so
+    // these writes run during its waveform; gray ones refresh synchronously.
+    // display.deepSleep() waits out any pending refresh before the power-off,
+    // so no settle delay is needed here. A delay would only widen the window in
+    // which a wake press is swallowed.
     if (isQuickResumeSleep) {
       saveSleepFrameBuffer();
     } else if (Storage.exists(SLEEP_FRAME_FILE)) {
@@ -2220,11 +2222,10 @@ void setup() {
   bootPhase("sd");
 
   HalSystem::checkPanic();
-  // Before anything reads progress.bin: replay a position a crash or reset kept
-  // off the card.
-  ReaderProgressShadow::recoverPending();
-
   HeldWrites::begin();  // a held copy a reset carried wins over the card's
+  // Before anything reads progress.bin: replay a position a crash or reset kept
+  // off the card (it supersedes a held exit copy of the same book).
+  ReaderProgressShadow::recoverPending();
   SETTINGS.loadFromFile();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));

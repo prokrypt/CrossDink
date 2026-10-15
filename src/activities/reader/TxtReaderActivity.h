@@ -62,9 +62,9 @@ class TxtReaderActivity final : public Activity {
   bool loadPageIndexCache();
   void savePageIndexCache() const;
   uint32_t pageFileOffset(int page) const;
-  bool saveProgress(int page);
+  bool saveProgress(int page, bool hold = false);
   bool queueProgressSave();
-  bool flushQueuedProgress();
+  bool flushQueuedProgress(bool hold = false);
   void loadProgress();
   void toggleDarkMode();
   void toggleHomeButtonInReader();

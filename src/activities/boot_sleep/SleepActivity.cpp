@@ -55,6 +55,18 @@ namespace {
 constexpr bool TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH = true;
 constexpr int sleepBuildInfoSideMargin = 20;
 
+// The final B/W sleep frame: its waveform runs while enterDeepSleep() writes
+// what is held and the outgoing screens exit, and display.deepSleep() waits it
+// out before powering the panel off. Same Half waveform as the blocking path,
+// which panels without a deferred refresh (and the fading fix) still take.
+void refreshSleepFrame(const GfxRenderer& renderer) {
+  if (renderer.supportsAsyncRefresh()) {
+    renderer.displayBufferAsync(HalDisplay::HALF_REFRESH);
+  } else {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  }
+}
+
 bool sleepCoverFilterInvertsGeneratedScreen() {
   return SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE;
 }
@@ -766,7 +778,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
 #endif
 
   if (panelIdlePending) idlePanel();  // custom and cover fallbacks
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  refreshSleepFrame(renderer);
 }
 
 bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const {
@@ -925,7 +937,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
   }
 
   if (!hasGreyscale) {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+    refreshSleepFrame(renderer);
     return true;
   }
 
@@ -1033,7 +1045,7 @@ void SleepActivity::renderReadingStatsSleepScreen() const {
   if (!sleepCoverFilterInvertsGeneratedScreen()) {
     renderer.invertScreen();
   }
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  refreshSleepFrame(renderer);
 }
 
 void SleepActivity::renderMinimalSleepScreen() const {
@@ -1054,7 +1066,7 @@ void SleepActivity::renderMinimalSleepScreen() const {
   theme.drawSleepScreen(renderer, book,
                         BookStatsTracking::isEnabled(bookStatsCachePathFor(path)) ? &bookStats : nullptr,
                         progressPercent, sleepCoverFilterInvertsGeneratedScreen());
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  refreshSleepFrame(renderer);
 }
 
 void SleepActivity::renderMinimalStatsSleepScreen() const {
@@ -1075,7 +1087,7 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
   MinimalTheme theme;
   theme.drawStatsSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent,
                              sleepCoverFilterInvertsGeneratedScreen());
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  refreshSleepFrame(renderer);
 }
 
 void SleepActivity::renderDashboardSleepScreen() const {
@@ -1101,7 +1113,7 @@ void SleepActivity::renderDashboardSleepScreen() const {
   DashboardTheme theme;
   theme.drawSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent, chapterTitle.c_str(),
                         sleepCoverFilterInvertsGeneratedScreen());
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  refreshSleepFrame(renderer);
 }
 
 void SleepActivity::renderLastScreenSleepScreen() const {
@@ -1122,7 +1134,7 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  refreshSleepFrame(renderer);
 }
 
 void SleepActivity::renderOverlaySleepScreen() const {
@@ -1405,11 +1417,11 @@ void SleepActivity::renderOverlaySleepScreen() const {
   // over the sleep image.
   const bool shouldRunGrayscalePass = shouldUseReaderPageBackground && backgroundSupportsGrayscale && !overlayDrawn &&
                                       (backgroundWasRebuilt || (overlayBackgroundBufferStored && !path.empty()));
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, !shouldRunGrayscalePass && TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
-
   if (!shouldRunGrayscalePass) {
+    refreshSleepFrame(renderer);
     return;
   }
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
   if (!renderer.storeBwBuffer()) {
     LOG_ERR("SLP", "Overlay: failed to store BW buffer for grayscale pass");
