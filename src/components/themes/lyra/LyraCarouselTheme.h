@@ -22,7 +22,7 @@ constexpr ThemeMetrics makeValues() {
   return v;
 }
 
-constexpr ThemeMetrics values = makeValues();
+inline constexpr ThemeMetrics values = makeValues();
 }  // namespace LyraCarouselMetrics
 
 class LyraCarouselTheme : public LyraTheme {

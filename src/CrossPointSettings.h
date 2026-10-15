@@ -632,6 +632,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t longPressButtonBehavior = OFF;
   // UI Theme
   uint8_t uiTheme = LYRA;
+  // SD theme pack folder in /.themes or /themes (empty = built-in theme only); its base sets uiTheme.
+  char uiThemePack[32] = "";
   // Recently Opened layout in Library; keep the original raw values for older settings.
   uint8_t recentBooksView = RECENT_BOOKS_LIST;
   // UI scale (list fonts + row heights); touch boards default one step larger
