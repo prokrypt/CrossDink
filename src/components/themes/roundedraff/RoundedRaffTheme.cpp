@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -174,10 +175,8 @@ void RoundedRaffTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                                RoundedRaffMetrics::values.homeCoverHeight, 1, kCoverRadius, true);
 
       if (!hasCover) {
-        // Render empty cover
-        renderer.fillRect(tileX + (tileWidth - coverWidth) / 2, imgY + (RoundedRaffMetrics::values.homeCoverHeight / 3),
-                          coverWidth, 2 * RoundedRaffMetrics::values.homeCoverHeight / 3, true);
-        drawLucideIcon(renderer, icon_book_open_32, tileX + (tileWidth - coverWidth) / 2 + 24, imgY + 24);
+        NoCoverPlaceholder::draw(renderer, tileX + (tileWidth - coverWidth) / 2, imgY, coverWidth,
+                                 RoundedRaffMetrics::values.homeCoverHeight, book);
         renderer.maskRoundedRectOutsideCorners(tileX + (tileWidth - coverWidth) / 2, imgY, coverWidth,
                                                RoundedRaffMetrics::values.homeCoverHeight, kCoverRadius,
                                                Color::LightGray);
