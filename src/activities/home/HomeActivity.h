@@ -85,6 +85,7 @@ class HomeActivity final : public Activity {
   // (width 0: none, or a carousel frame from the cache).
   Rect syncBadgeBox;
   RecentBookProgress::SyncBadge syncBadgeShown = RecentBookProgress::SyncBadge::None;
+  int syncBadgeBook = -1;  // the book syncBadgeBox belongs to
   std::string currentBookChapterTitle;
   BookReadingStats currentBookStats;
   GlobalReadingStats globalStats;
@@ -135,6 +136,7 @@ class HomeActivity final : public Activity {
   // Around a theme's book draw: the highlighted book's KOSync badge, and where it went.
   void beginSyncBadge();
   void endSyncBadge();
+  RecentBookProgress::SyncBadge syncBadgeFor(int idx) const;
   void renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingStats* outStats, float* outProgressPercent,
                                           bool* outUsedCachedStats);
   void renderCarouselFrame(int bookIdx, int slotIdx);
