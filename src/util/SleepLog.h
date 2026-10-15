@@ -16,8 +16,9 @@ namespace SleepLog {
 // write of the whole ring (up to 512 KB) the first time per build; nothing
 // when a sleep-reboot is armed.
 void onSleep();
-// Goodies: the next enterDeepSleep() restarts instead of sleeping.
-void armSleepReboot();
+// Goodies: the next enterDeepSleep() restarts instead of sleeping. saveLog
+// false (a running macro) skips the ring write after the boot.
+void armSleepReboot(bool saveLog = true);
 // Last step of enterDeepSleep(), in place of the power-down: restarts when a
 // sleep-reboot is armed (does not return), else returns.
 void restartIfArmed();
@@ -27,7 +28,7 @@ void loop();
 #else
 namespace SleepLog {
 inline void onSleep() {}
-inline void armSleepReboot() {}
+inline void armSleepReboot(bool = true) {}
 inline void restartIfArmed() {}
 inline void loop() {}
 }  // namespace SleepLog
