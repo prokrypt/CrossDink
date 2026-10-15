@@ -28,6 +28,11 @@ const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMetho
 void loop();
 // Main loop: true once after a push landed (the toast).
 bool takePushed();
+// Any task: a close push for the book with this cache folder is queued or running.
+bool pushPendingFor(const std::string& cachePath);
+// Main loop: true once after a queued close push ended without landing (failed,
+// skipped or not started), so the shown badge can leave Syncing.
+bool takeSettled();
 // Boot, before a deep-sleep wake reopens the book: when the sleep push failed,
 // that open pushes too (its fetch comes from At open, as on any open).
 void noteWake();

@@ -23,6 +23,8 @@ const freeink::Icon* icon(const SyncBadge state) {
       return &icon_cloud_off_20;
     case SyncBadge::ServerAhead:
       return &icon_cloud_download_20;
+    case SyncBadge::Syncing:
+      return &icon_cloud_upload_20;
     case SyncBadge::None:
       break;
   }

@@ -169,6 +169,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal, and every remaining CrossInk name in code, build flags, scripts and docs is now CrossDink.
 
 ### Fixed
+- KOSync status on Home and in Library: while a close push is queued or on its way, the book shows a cloud with an up arrow instead of the crossed-out cloud, so a sync in flight no longer reads as failed. If the push fails or the server needs nothing, Home updates the icon with one fast refresh (no flash) only when it is on screen; a landed push still changes it with the "uploaded" toast. No timers or animation.
 - KOSync Auto Sync: opening a book and closing it on the same page no longer pushes a position one page further each time. The close push compared page fractions against a chapter page count that was still an estimate and shrank between sessions; it now compares the page's text position.
 - Library: book and folder icons draw at their own 32 px size instead of being shrunk to 28 px, and the KOSync cloud badge at its own 20 px instead of being stretched to the row's icon size, so they no longer look pixellated. On Lyra the badge still shrinks to fit the narrow row padding.
 - OPDS server list: after backing out of a catalog, the checkmarks for servers whose first page is already loaded show right away, and a server whose first page was empty is no longer downloaded again.

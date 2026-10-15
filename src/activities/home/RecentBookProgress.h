@@ -14,7 +14,7 @@ struct RecentBook;
 //   const std::string label = RecentBookProgress::formatPercent(progress);
 namespace RecentBookProgress {
 // KOSync state of an EPUB, shown next to its % (Home) and left of its Library row icon.
-enum class SyncBadge : uint8_t { None, Synced, Unsynced, ServerAhead };
+enum class SyncBadge : uint8_t { None, Synced, Unsynced, ServerAhead, Syncing };
 // The book's own % (basis points) when a KOSync check last found the server
 // holding it; serverAhead: the server was further on. kNever: no check yet.
 struct SyncMark {
