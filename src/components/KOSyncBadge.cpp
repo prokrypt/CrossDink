@@ -7,13 +7,19 @@
 
 namespace {
 using RecentBookProgress::SyncBadge;
-SyncBadge homeState = SyncBadge::None;  // render task only, like the theme draws that read it
-Rect lastBox;
+// Render task only, like the theme draws that read them.
+SyncBadge homeState[KOSyncBadge::HOME_SLOTS] = {};
+Rect lastBox[KOSyncBadge::HOME_SLOTS];
+bool validSlot(const int slot) { return slot >= 0 && slot < KOSyncBadge::HOME_SLOTS; }
 }  // namespace
 
 namespace KOSyncBadge {
 
-void setHomeState(const SyncBadge state) { homeState = state; }
+void setHomeState(const SyncBadge state, const int slot) {
+  if (validSlot(slot)) homeState[slot] = state;
+}
+
+bool hasHomeState(const int slot) { return validSlot(slot) && homeState[slot] != SyncBadge::None; }
 
 const freeink::Icon* icon(const SyncBadge state) {
   switch (state) {
@@ -31,18 +37,24 @@ const freeink::Icon* icon(const SyncBadge state) {
   return nullptr;
 }
 
-void drawAt(const GfxRenderer& renderer, const int x, const int lineY, const int lineHeight, const bool black) {
-  lastBox = Rect(x, lineY + (lineHeight - SIZE) / 2, SIZE, SIZE);
-  const freeink::Icon* badge = icon(homeState);
+void drawAt(const GfxRenderer& renderer, const int x, const int lineY, const int lineHeight, const bool black,
+            const int slot) {
+  if (!validSlot(slot)) return;
+  const Rect box(x, lineY + (lineHeight - SIZE) / 2, SIZE, SIZE);
+  lastBox[slot] = box;
+  const freeink::Icon* badge = icon(homeState[slot]);
   if (!badge) return;
   // Opaque backing: the badge may overlap other pixels on tight layouts.
-  renderer.fillRect(lastBox.x, lastBox.y, SIZE, SIZE, !black);
-  drawLucideIcon(renderer, *badge, lastBox.x, lastBox.y, black);
+  renderer.fillRect(box.x, box.y, SIZE, SIZE, !black);
+  drawLucideIcon(renderer, *badge, box.x, box.y, black);
 }
 
-Rect takeRect() {
-  const Rect box = lastBox;
-  lastBox = Rect();
+Rect takeRect(const int slot) {
+  const Rect box = validSlot(slot) ? lastBox[slot] : Rect();
+  for (int i = 0; i < HOME_SLOTS; ++i) {
+    lastBox[i] = Rect();
+    homeState[i] = SyncBadge::None;
+  }
   return box;
 }
 

@@ -378,6 +378,10 @@ bool isDashboardTheme() {
   return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::DASHBOARD;
 }
 
+bool isLyraExtendedTheme() {
+  return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_3_COVERS;
+}
+
 bool usesMinimalHomeInteraction() { return isMinimalTheme() || isDashboardTheme(); }
 
 bool showMinimalHomeButtonHints(const MappedInputManager& mappedInput) { return !mappedInput.hasTouch(); }
@@ -1045,6 +1049,11 @@ void HomeActivity::onEnter() {
   allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
   if (isCarouselTheme) {
     loadAllBookStats();
+  } else if (isLyraExtendedTheme() && KOREADER_STORE.hasCredentials()) {
+    // Every tile shows its KOSync badge: one small read per book, here instead of per draw.
+    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+      cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i], &cachedBookSyncMarks[i]);
+    }
   }
   updateHighlightedBookContext(false);
 
@@ -1069,6 +1078,10 @@ void HomeActivity::onEnter() {
       case HomeMenuItem::NONE:
         break;
     }
+    // The featured book's badge ignores the selection: keep its % and mark.
+    if (KOREADER_STORE.hasCredentials() && !recentBooks.empty()) {
+      cachedBookProgress[0] = loadRecentBookProgress(recentBooks[0], &cachedBookSyncMarks[0]);
+    }
     coverGridUi->begin(recentBooks, hasOpdsServers, gridHasContinueReading,
                        gridHasContinueReading ? loadRecentBookProgress(recentBooks.front()) : -1.0f);
   } else if (initialMenuItem != HomeMenuItem::NONE) {
@@ -1089,22 +1102,32 @@ void HomeActivity::onEnter() {
   requestUpdate();
 }
 
-void HomeActivity::beginSyncBadge() {
-  const int idx = getHighlightedBookIndex();
-  syncBadgeShown = idx >= 0 ? homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark)
-                            : RecentBookProgress::SyncBadge::None;
-  KOSyncBadge::setHomeState(syncBadgeShown);
+RecentBookProgress::SyncBadge HomeActivity::syncBadgeFor(const int idx) const {
+  if (idx < 0 || idx >= static_cast<int>(recentBooks.size())) return RecentBookProgress::SyncBadge::None;
+  if (!coverGridUi && idx == getHighlightedBookIndex()) {
+    return homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark);
+  }
+  // Cover Grid's featured book and Lyra Extended's others: loaded in onEnter().
+  if (idx >= kMaxCachedBooks) return RecentBookProgress::SyncBadge::None;
+  return homeSyncBadge(recentBooks[idx], cachedBookProgress[idx], cachedBookSyncMarks[idx]);
 }
 
-void HomeActivity::endSyncBadge() {
-  KOSyncBadge::setHomeState(RecentBookProgress::SyncBadge::None);
-  syncBadgeBox = KOSyncBadge::takeRect();
+void HomeActivity::beginSyncBadge() {
+  // Cover Grid: the featured card is always the first book, whatever is selected.
+  syncBadgeBook = coverGridUi ? 0 : getHighlightedBookIndex();
+  syncBadgeShown = syncBadgeFor(syncBadgeBook);
+  if (isLyraExtendedTheme()) {
+    for (int i = 0; i < KOSyncBadge::HOME_SLOTS; ++i) KOSyncBadge::setHomeState(syncBadgeFor(i), i);
+  } else {
+    KOSyncBadge::setHomeState(syncBadgeShown);
+  }
 }
+
+void HomeActivity::endSyncBadge() { syncBadgeBox = KOSyncBadge::takeRect(isLyraExtendedTheme() ? syncBadgeBook : 0); }
 
 bool HomeActivity::repaintSyncBadge() {
-  const int idx = getHighlightedBookIndex();
-  if (syncBadgeBox.width == 0 || idx < 0) return false;
-  const auto badge = homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark);
+  if (syncBadgeBox.width == 0) return false;
+  const auto badge = syncBadgeFor(syncBadgeBook);
   if (badge == syncBadgeShown) return false;
   KOSyncBadge::repaint(renderer, syncBadgeBox, badge);
   syncBadgeShown = badge;
@@ -2457,7 +2480,9 @@ void HomeActivity::render(RenderLock&&) {
   if (coverGridUi) {
     renderer.clearScreen();
     coverGridUi->setSelection(selectorIndex);
+    beginSyncBadge();
     coverGridUi->render();
+    endSyncBadge();
     const auto labels = mappedInput.mapLabels(gridHasContinueReading ? tr(STR_READ) : "", tr(STR_SELECT),
                                               tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
