@@ -128,5 +128,5 @@ settings, search, and refresh. Confirm activates the selected control; holding C
 a book opens its actions. On touch devices, tap the header icons or sort controls
 directly and hold a book row for its actions. The sort method opens a modal list.
 
-The Lyra Carousel snapshot cache advances to version 7 so cached home menus
-regenerate with the Library label and landmark icon. No manual EPUB cache reset is required.
+The Lyra Carousel snapshot cache advances to version 8 so cached home menus
+regenerate with the Library (bookshelf) and OPDS (book with a download arrow) icons. No manual EPUB cache reset is required.
