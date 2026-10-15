@@ -559,8 +559,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     if (bookSelected) {
       // Selection box: 2 px 50% gray outline around the tile, not a dither fill.
-      renderer.drawRoundedRect(tileX, tileY, tileWidth, themed(LyraMetrics::values).homeCoverHeight + 2 * hPaddingInSelection,
-                               2, cornerRadius, Color::DarkGray);
+      renderer.drawRoundedRect(tileX, tileY, tileWidth,
+                               themed(LyraMetrics::values).homeCoverHeight + 2 * hPaddingInSelection, 2, cornerRadius,
+                               Color::DarkGray);
     }
 
     auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);

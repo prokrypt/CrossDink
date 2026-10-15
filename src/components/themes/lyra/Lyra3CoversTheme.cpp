@@ -83,8 +83,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
         if (!hasCover) {
           NoCoverPlaceholder::draw(renderer, tileX + hPaddingInSelection, tileY + hPaddingInSelection,
-                                   tileWidth - 2 * hPaddingInSelection, themed(Lyra3CoversMetrics::values).homeCoverHeight,
-                                   recentBooks[i]);
+                                   tileWidth - 2 * hPaddingInSelection,
+                                   themed(Lyra3CoversMetrics::values).homeCoverHeight, recentBooks[i]);
         }
       }
 
@@ -122,8 +122,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         // Selection box: 2 px 50% gray outline around cover and title, not a dither fill.
         renderer.drawRoundedRect(
             tileX, tileY, tileWidth,
-            themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + dynamicTitleBoxHeight, 2, cornerRadius,
-            Color::DarkGray);
+            themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + dynamicTitleBoxHeight, 2,
+            cornerRadius, Color::DarkGray);
       }
 
       int currentY = tileY + themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + 5;
