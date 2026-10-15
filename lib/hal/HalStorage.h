@@ -150,6 +150,7 @@ class HalFile : public Print {
 
   explicit HalFile(ImplPtr impl);
   static void* allocateImplStorage();
+  void drainWriteBuffer();
 
  public:
   HalFile();
@@ -183,6 +184,10 @@ class HalFile : public Print {
   size_t write(const uint8_t* buf, size_t count) override { return write(static_cast<const void*>(buf), count); }
   size_t write(uint8_t b) override;
   bool sync();
+  // Collect writes in a `capacity`-byte heap buffer until it fills or any other call
+  // touches the file (seek, read, size, sync, close...). For handles that append many
+  // small records; false (and unbuffered writes) when the buffer cannot be allocated.
+  bool enableWriteBuffer(size_t capacity);
   bool rename(const char* newPath);
   bool isDirectory() const;
   void rewindDirectory();

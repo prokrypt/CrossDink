@@ -19,7 +19,7 @@
 namespace PowerCounters {
 namespace {
 constexpr uint32_t kMagic = 0x50574354;  // "PWCT"
-constexpr uint16_t kVersion = 1;         // bump on any Rtc or Totals layout change
+constexpr uint16_t kVersion = 2;         // bump on any Rtc or Totals layout change
 constexpr int kCores = 2;
 
 // RTC slow memory: survives deep sleep and restarts, noise after power-on.
@@ -64,6 +64,8 @@ PanelKind panelBusyKind = PANEL_FAST;
 PanelKind lastKind = PANEL_FAST;
 bool boosterOn = false;
 int64_t boosterSince = 0;
+bool touchAwake = false;
+int64_t touchSince = 0;
 
 // Per-core busy time (tick, main loop only).
 uint32_t prevIdle[kCores] = {};
@@ -85,6 +87,7 @@ void add(Totals& a, const Totals& b) {
   a.lightDutyMs += b.lightDutyMs;
   for (int i = 0; i < PANEL_KINDS; ++i) a.panelBusyMs[i] += b.panelBusyMs[i];
   a.boosterMs += b.boosterMs;
+  a.touchMs += b.touchMs;
   a.sdReadBytes += b.sdReadBytes;
   a.sdWriteBytes += b.sdWriteBytes;
   a.sdUs += b.sdUs;
@@ -169,6 +172,7 @@ Totals totals() {
   t.lightDutyMs += static_cast<uint64_t>(dutyNow) * msOf(nowUs - dutySince);
   if (panelBusyOpen) t.panelBusyMs[panelBusyKind] += msOf(nowUs - panelBusySince);
   if (boosterOn) t.boosterMs += msOf(nowUs - boosterSince);
+  if (touchAwake) t.touchMs += msOf(nowUs - touchSince);
   portEXIT_CRITICAL_SAFE(&mux);
   t.awakeMs = millis() - awakeZeroMs;
   add(t, base);
@@ -195,7 +199,7 @@ void reset() {
   // Open segments restart now, so nothing before the reset is counted.
   const int64_t nowUs = esp_timer_get_time();
   boot = Totals{};
-  maxClockSince = dutySince = panelBusySince = boosterSince = nowUs;
+  maxClockSince = dutySince = panelBusySince = boosterSince = touchSince = nowUs;
   portEXIT_CRITICAL_SAFE(&mux);
   base = Totals{};
   awakeZeroMs = millis();
@@ -265,6 +269,18 @@ void booster(const bool on) {
     boot.boosterMs += msOf(nowUs - boosterSince);
   }
   boosterOn = on;
+  portEXIT_CRITICAL_SAFE(&mux);
+}
+
+void touch(const bool awake) {
+  const int64_t nowUs = esp_timer_get_time();
+  portENTER_CRITICAL_SAFE(&mux);
+  if (awake && !touchAwake) {
+    touchSince = nowUs;
+  } else if (!awake && touchAwake) {
+    boot.touchMs += msOf(nowUs - touchSince);
+  }
+  touchAwake = awake;
   portEXIT_CRITICAL_SAFE(&mux);
 }
 

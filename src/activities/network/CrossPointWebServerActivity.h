@@ -92,6 +92,7 @@ class CrossPointWebServerActivity final : public Activity {
   void onExit() override;
   // Only once a mode is picked: the mode picker leaves the Wi-Fi remote running.
   bool usesWifi() const override { return radioTaken; }
+  bool servesFiles() const override { return true; }
   void loop() override;
   void render(RenderLock&&) override;
   // The server runs on its own task; an idle STA-mode server lets the main

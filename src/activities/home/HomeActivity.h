@@ -88,8 +88,9 @@ class HomeActivity final : public Activity {
   std::string currentBookChapterTitle;
   BookReadingStats currentBookStats;
   GlobalReadingStats globalStats;
-  GlobalReadingStats allDevicesGlobalStats;
+  GlobalReadingStats allDevicesGlobalStats;  // Valid only after ensureAllDevicesStats().
   bool showAllDevicesStats = false;
+  bool allDevicesStatsLoaded = false;
 
   // Per-book stats and progress cached at onEnter() to avoid SD reads during navigation.
   std::array<BookReadingStats, kMaxCachedBooks> cachedBookStats{};
@@ -175,6 +176,8 @@ class HomeActivity final : public Activity {
   void runCoverJobs();
   void joinCoverWorker(bool cancel);
   void applyCoverJobs();
+  void reloadGlobalStats();
+  const GlobalReadingStats& ensureAllDevicesStats();
 
   // Background Library indexing starts once Home's own boot work (first frames,
   // covers, carousel warmup) is done, pauses while Home renders or sees input,

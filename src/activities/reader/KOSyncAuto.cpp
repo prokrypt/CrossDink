@@ -114,9 +114,8 @@ bool beginRadioCall() {
 // survives a font or margin change re-paging the chapter. The fraction alone made
 // the same page read as "moved on" whenever the saved count was a partial build's
 // estimate that shrank between sessions, so every open/close pushed a page further.
-int vsOpen(const EpubReaderUtils::Progress& saved) {
-  const OpenAt& o = jobOpenAt;
-  if (!jobOpened) return 1;
+int vsOpen(const bool opened, const OpenAt& o, const EpubReaderUtils::Progress& saved) {
+  if (!opened) return 1;
   if (saved.spineIndex != o.spine) return saved.spineIndex < o.spine ? -1 : 1;
   if (o.hasTextOffset && saved.hasVisibleTextOffset)
     return (saved.visibleTextOffset > o.textOffset) - (saved.visibleTextOffset < o.textOffset);
@@ -143,7 +142,7 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, s
     LOG_ERR("KOSync", "exit push: no saved progress for %s", path.c_str());
     return false;
   }
-  moved = vsOpen(saved);
+  moved = vsOpen(jobOpened, jobOpenAt, saved);
   const int spine = saved.spineIndex >= 0 && saved.spineIndex < epub->getSpineItemsCount() ? saved.spineIndex : 0;
   const int pages = saved.hasPageCount ? std::max(1, saved.pageCount) : 1;
   cachePath = epub->getCachePath();
@@ -396,28 +395,39 @@ bool sleepPushEnabled() {
   return SETTINGS.koSyncSleepWake && (SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE);
 }
 
+// Sleep push in two halves so the caller can draw its toast while the job joins Wi-Fi.
+uint32_t sleepBeganAt = 0;
+std::string sleepAfterRunning;  // a running job is waited out under the toast, then this is pushed
+
 // readerFlushed: a reader just saved a newer position, so a running push of the
 // same book (from an earlier close) is stale and is cut off and redone.
-kosync_auto::PushOutcome sleepPush(std::string epubPath, const bool readerFlushed) {
+bool sleepPushBegin(std::string epubPath, const bool readerFlushed) {
   if (queuedPath == epubPath) queuedPath.clear();  // this push replaces a pending At close one
-  const uint32_t start = millis();
+  sleepBeganAt = millis();
+  sleepAfterRunning.clear();
+  if (!task.running()) return startJob(std::move(epubPath), false);
   // A close push of this same book already running is finished, not redone; any
   // other job (an open pull still waiting on Wi-Fi) gives up now.
-  const bool finishRunning = task.running() && !jobIsPull && jobPath == epubPath && !readerFlushed;
-  if (!finishRunning) kosync_auto::yieldRadio();
+  if (jobIsPull || jobPath != epubPath || readerFlushed) {
+    kosync_auto::yieldRadio();
+    sleepAfterRunning = std::move(epubPath);
+  }
+  return true;
+}
+
+kosync_auto::PushOutcome sleepPushWait() {
   // Every wait is bounded: the job's own Wi-Fi join and HTTP calls time out, and
   // past SLEEP_WAIT_MS the caller moves on with the job cut off from the radio.
-  if (!task.join(SLEEP_WAIT_MS)) {
-    LOG_ERR("KOSync", "sleep push: earlier job still running after %lu ms", static_cast<unsigned long>(SLEEP_WAIT_MS));
-    kosync_auto::yieldRadio();
-    return kosync_auto::PushOutcome::Failed;
+  if (!sleepAfterRunning.empty()) {
+    if (!task.join(SLEEP_WAIT_MS)) {
+      LOG_ERR("KOSync", "sleep push: earlier job still running after %lu ms",
+              static_cast<unsigned long>(SLEEP_WAIT_MS));
+      kosync_auto::yieldRadio();
+      return kosync_auto::PushOutcome::Failed;
+    }
+    if (!startJob(std::move(sleepAfterRunning), false)) return kosync_auto::PushOutcome::Failed;
   }
-  if (finishRunning) {
-    pushOk = false;
-    return pushOutcome;
-  }
-  if (!startJob(std::move(epubPath), false)) return kosync_auto::PushOutcome::Failed;
-  const uint32_t used = millis() - start;
+  const uint32_t used = millis() - sleepBeganAt;
   if (!task.join(used < SLEEP_WAIT_MS ? SLEEP_WAIT_MS - used : 0)) {
     LOG_ERR("KOSync", "sleep push: still running after %lu ms, sleeping anyway",
             static_cast<unsigned long>(SLEEP_WAIT_MS));
@@ -500,12 +510,25 @@ std::string pendingPushPath() {
   return {};
 }
 
+bool movedSinceOpen(const std::string& epubPath, const EpubReaderUtils::Progress& saved) {
+  if (task.running()) return true;  // the job owns unpushedPath; its own check decides, as before
+  if (unpushedPath == epubPath || vsOpen(epubPath == openPath, openAt, saved) > 0) return true;
+  LOG_INF("KOSync", "sleep push skipped: not past the page it opened at (no toast, radio skipped)");
+  return false;
+}
+
 bool wantsSleepPush() {
   return sleepPushEnabled() && KOREADER_STORE.hasCredentials() && !activityManager.anyActivityUsesWifi();
 }
 
-PushOutcome pushNow(std::string epubPath, const bool readerFlushed) {
-  const PushOutcome outcome = sleepPush(std::move(epubPath), readerFlushed);
+bool pushBegin(std::string epubPath, const bool readerFlushed) {
+  const bool started = sleepPushBegin(std::move(epubPath), readerFlushed);
+  if (!started) retryPushMagic = RETRY_PUSH_MAGIC;
+  return started;
+}
+
+PushOutcome pushFinish() {
+  const PushOutcome outcome = sleepPushWait();
   retryPushMagic = outcome == PushOutcome::Failed ? RETRY_PUSH_MAGIC : 0;
   return outcome;
 }

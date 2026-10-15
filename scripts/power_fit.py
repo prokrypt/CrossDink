@@ -13,8 +13,8 @@ never cross a charge, USB power, a counter generation change (power loss,
 crash, stats reset) or a counter that went backwards, and each one spans at
 least --min-drop % so the gauge's own wander stays small next to the drop.
 
-Power test runs (Goodies > Power test) are summarised separately: their drop
-over their run, per hour, and against the idle run when there is one.
+Power test runs (Goodies > Power test) are summarised separately: each run, then
+the runs of one load pooled (drop and time summed) and compared with idle.
 
 Usage:
     python3 scripts/power_fit.py power.csv power.1.csv --capacity-mah 2000
@@ -42,9 +42,11 @@ COUNTERS = [
     "wifi_up_ms", "wifi_ps_ms", "wifi_awake_ms", "wifi_ap_ms", "scans", "connects", "ip_tx", "ip_rx",
     "light_full_ms", "ref_full", "ref_half", "ref_fast", "ref_gray", "ref_flash",
     "panel_full_ms", "panel_half_ms", "panel_fast_ms", "panel_gray_ms", "booster_ms",
-    "sd_rd_kb", "sd_wr_kb", "sd_ms",
+    "sd_rd_kb", "sd_wr_kb", "sd_ms", "touch_ms",
 ]
-REQUIRED = ["gen", "event", "pct", "chg", "usb", "chg_seen"] + COUNTERS
+# Columns added later read as 0 in older files (a counter version change starts a new gen).
+OPTIONAL = {"touch_ms"}
+REQUIRED = ["gen", "event", "pct", "chg", "usb", "chg_seen"] + [c for c in COUNTERS if c not in OPTIONAL]
 
 MS_PER_H = 3_600_000.0
 
@@ -76,11 +78,12 @@ FEATURES = {
     "ref_fast": Feature("ref_fast", "refresh", "Fast refreshes", 100.0),
     "ref_gray": Feature("ref_gray", "refresh", "gray passes", 100.0),
     "booster_h": Feature("booster_h", "h", "panel booster on between refreshes (UC8179)"),
+    "touch_h": Feature("touch_h", "h", "touch controller awake (GT911 not in sleep mode)"),
     "sd_mb": Feature("sd_mb", "MB", "SD card read + written", 1.0),
 }
 DEFAULT_FEATURES = [
     "sleep_h", "sleep_cw_h", "floor_h", "ls_h", "maxclk_h", "wifi_up_h", "wifi_ps_h", "wifi_awake_h",
-    "wifi_ap_h", "light_full_h", "ref_full", "ref_half", "ref_fast", "ref_gray",
+    "wifi_ap_h", "light_full_h", "ref_full", "ref_half", "ref_fast", "ref_gray", "booster_h", "touch_h",
 ]
 
 
@@ -117,7 +120,7 @@ def read_rows(paths: list[str]) -> list[Row]:
                 raise SystemExit(f"{path}: not a power.csv (missing {', '.join(missing)})")
             for i, rec in enumerate(reader, start=2):
                 try:
-                    counters = {k: float(rec[k] or 0) for k in COUNTERS}
+                    counters = {k: float(rec.get(k) or 0) for k in COUNTERS}
                 except ValueError:
                     continue  # a torn row (power cut mid-write)
                 key = (rec["gen"], rec["event"], rec.get("epoch_utc"), rec.get("uptime_ms"), rec["awake_ms"])
@@ -158,6 +161,7 @@ def features_of(a: Row, b: Row) -> dict[str, float]:
         "ref_fast": d["ref_fast"],
         "ref_gray": d["ref_gray"],
         "booster_h": d["booster_ms"] / MS_PER_H,
+        "touch_h": d["touch_ms"] / MS_PER_H,
         "sd_mb": (d["sd_rd_kb"] + d["sd_wr_kb"]) / 1024.0,
         "_hours": (awake / 1000.0 + d["asleep_s"] + d["asleep_cw_s"]) / 3600.0,
     }
@@ -381,11 +385,30 @@ def find_tests(rows: list[Row]) -> tuple[list[TestRun], list[Row]]:
     return runs, sags
 
 
+GAUGE_LSB = 1 / 256  # the gauge's % resolution: each run's drop is off by up to one step
+
+
+def pool_runs(runs: list[TestRun]) -> dict[str, tuple[float, float, int]]:
+    """Per tag: (total drop %, total hours, run count) over on-battery runs.
+
+    Short runs add up to one long one: drop and time are summed before the
+    rate is taken. Charger runs are left out; stopped-early runs count for
+    the time they ran.
+    """
+    pooled: dict[str, tuple[float, float, int]] = {}
+    for t in runs:
+        hours = (t.end.c["awake_ms"] - t.start.c["awake_ms"]) / MS_PER_H
+        if t.charger or t.start.pct is None or t.end.pct is None or hours <= 0:
+            continue
+        d, h, n = pooled.get(t.tag, (0.0, 0.0, 0))
+        pooled[t.tag] = (d + t.start.pct - t.end.pct, h + hours, n + 1)
+    return pooled
+
+
 def print_tests(runs: list[TestRun], sags: list[Row], capacity: float | None, out) -> None:
     if not runs and not sags:
         return
     print("Power test runs:", file=out)
-    rates: dict[str, list[float]] = {}
     for t in runs:
         hours = (t.end.c["awake_ms"] - t.start.c["awake_ms"]) / MS_PER_H
         if t.start.pct is None or t.end.pct is None or hours <= 0:
@@ -393,29 +416,32 @@ def print_tests(runs: list[TestRun], sags: list[Row], capacity: float | None, ou
         drop = t.start.pct - t.end.pct
         rate = drop / hours
         flag = ""
-        usable = False
         if t.charger:
             flag = "  (charger seen: not a drain)"
-        elif drop < 0.3:
-            flag = "  (under 0.3 %: gauge wander dominates)"
-        else:
-            usable = True  # a run stopped early still measured its own load
-            if t.aborted:
-                flag = "  (stopped early)"
-        if usable:
-            rates.setdefault(t.tag, []).append(rate)
+        elif t.aborted:
+            flag = "  (stopped early)"
         ma = f"  {rate * capacity / 100:7.1f} mA" if capacity else ""
         print(f"  {t.tag:<11} {hours * 60:6.1f} min  -{drop:5.2f} %  {rate:6.2f} %/h{ma}{flag}", file=out)
-    idle = np.mean(rates["idle"]) if rates.get("idle") else None
-    if idle is not None and len(rates) > 1:
+    pooled = pool_runs(runs)
+    if pooled:
         print(file=out)
-        print("  Each run's average less the idle run's average (the load's own cost):", file=out)
-        for tag, rs in sorted(rates.items()):
-            if tag == "idle":
-                continue
-            extra = float(np.mean(rs)) - idle
-            ma = f"  {extra * capacity / 100:+7.1f} mA" if capacity else ""
-            print(f"    {tag:<11} {extra:+6.2f} %/h{ma}", file=out)
+        print("  Pooled per load (drop and time summed over its on-battery runs; +- = gauge steps, worst case):", file=out)
+        rates: dict[str, float] = {}
+        for tag, (drop, hours, n) in sorted(pooled.items()):
+            rates[tag] = drop / hours
+            err = n * GAUGE_LSB / hours
+            ma = f"  {rates[tag] * capacity / 100:7.1f} mA" if capacity else ""
+            print(f"    {tag:<11} {n:2d} runs {hours * 60:6.1f} min  -{drop:5.2f} %  "
+                  f"{rates[tag]:6.2f} +-{err:4.2f} %/h{ma}", file=out)
+        if "idle" in rates and len(rates) > 1:
+            print(file=out)
+            print("  Each load's pooled rate less idle's (the load's own cost):", file=out)
+            for tag, rate in rates.items():
+                if tag == "idle":
+                    continue
+                extra = rate - rates["idle"]
+                ma = f"  {extra * capacity / 100:+7.1f} mA" if capacity else ""
+                print(f"    {tag:<11} {extra:+6.2f} %/h{ma}", file=out)
     if sags:
         print(file=out)
         print("Voltage sag probe (cell mV under each load less without; larger drop = more current):", file=out)
@@ -432,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--settle-min", type=float, default=30.0,
                     help="minutes after a charge before an interval may start (default 30)")
     ap.add_argument("--features", help="comma-separated fit columns (default: %s)" % ",".join(DEFAULT_FEATURES))
-    ap.add_argument("--all-features", action="store_true", help="fit every column, busy/packets/booster/SD included")
+    ap.add_argument("--all-features", action="store_true", help="fit every column, busy/packets/SD included")
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--bootstrap", type=int, default=200, help="resamples for the 90%% ranges (0 = none)")
     ap.add_argument("--seed", type=int, default=1)

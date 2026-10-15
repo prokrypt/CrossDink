@@ -5,6 +5,7 @@
 #include "activities/Activity.h"
 
 class Bitmap;
+class HalFile;
 
 class SleepActivity final : public Activity {
  public:
@@ -29,10 +30,14 @@ class SleepActivity final : public Activity {
   void renderMinimalSleepScreen() const;
   void renderMinimalStatsSleepScreen() const;
   void renderDashboardSleepScreen() const;
-  bool renderBitmapSleepScreen(Bitmap& bitmap) const;
+  bool renderBitmapSleepScreen(Bitmap& bitmap, HalFile& file) const;
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen() const;
+  void idlePanel() const;
+  // Set while the pre-draw panel idle is left to the Direct gray image path,
+  // which overlaps it with the decode.
+  mutable bool panelIdlePending = false;
   bool canSnapshotOverlayBackground = false;
   bool overlayBackgroundBufferStored = false;
   std::string currentBookPath;

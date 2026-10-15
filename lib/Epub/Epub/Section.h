@@ -22,6 +22,9 @@ struct SectionBuildOptions {
   bool (*shouldCancel)(void* context) = nullptr;
   void* cancelContext = nullptr;
   bool* cancellationObserved = nullptr;
+  // Leave the whole-section font advance prewarm out of the first chunk so the first
+  // page lays out sooner; the caller then runs it with prewarmSomeMore().
+  bool deferAdvancePrewarm = false;
   // Stable-page coordinates stay in the manifest's word/character units until
   // the parser knows the spine's source-text length. This avoids treating page
   // density as uniform when selecting the rendered screen.
@@ -63,6 +66,7 @@ class Section {
     float smoothedEstimate = 0;
     uint32_t smoothedAtConsumed = 0;
     uint32_t startedMs = 0;  // wall clock, including pauses between chunks
+    uint32_t busyUs = 0;     // time inside buildSomeMore(), for the build log
   };
   std::unique_ptr<BuildContext> build_;
   bool buildComplete_ = false;
@@ -119,12 +123,13 @@ class Section {
   bool startBuild(const ReaderRenderSpec& spec, SectionBuildOptions buildOptions = {},
                   const std::function<void()>& popupFn = nullptr);
   bool buildSomeMore(int maxPages);
+  // One slice of the build's deferred font advance prewarm; false when none is left.
+  bool prewarmSomeMore();
   void releaseBuildFile();
   bool lastBuildImagesWereSuppressed() const { return lastImagesWereSuppressed_; }
   bool lastBuildLayoutAbortedForLowMemory() const { return lastLayoutAbortedForLowMemory_; }
   bool isBuilding() const { return static_cast<bool>(build_); }
   bool isBuildComplete() const { return buildComplete_; }
-  bool activeBuildHasCaughtReadablePages() const { return !build_ || builtPageCount_ >= pageCount; }
   // Best-known total page count: the exact pageCount once finalized, or a smoothed byte-based
   // estimate (pages so far scaled by totalBytes/bytesConsumed, damped by an EMA) while a giant spine
   // is still building, so "page X of Y" / progress don't read off the small build watermark.

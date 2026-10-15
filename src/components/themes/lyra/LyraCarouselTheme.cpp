@@ -307,7 +307,7 @@ void LyraCarouselTheme::drawCarouselBorder(GfxRenderer& renderer, Rect coverRect
   if (!inCarouselRow) return;
   Rect borderRect = shrinkCenterCoverRect(computeCenterCoverSlotRect(renderer, coverRect, recentBooks));
   renderer.drawRoundedRect(borderRect.x, borderRect.y, borderRect.width, borderRect.height, kSelectionLineW,
-                           kCornerRadius, true);
+                           kCornerRadius, Color::DarkGray);
 }
 
 // ---------------------------------------------------------------------------
@@ -560,11 +560,12 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
   }
 
   // Always outline the centre cover at its own edge (white ring sits outside the black line);
-  // thicker when the carousel row is active
+  // thicker and 50% gray (selection box) when the carousel row is active
   registerCarouselCoverTouchTargets(renderer, rect, recentBooks, centerIdx);
   const int outlineW = inCarouselRow ? kSelectionLineW : kThinOutlineW;
   renderer.drawRoundedRect(lastCenterCoverRect.x, lastCenterCoverRect.y, lastCenterCoverRect.width,
-                           lastCenterCoverRect.height, outlineW, kCornerRadius, true);
+                           lastCenterCoverRect.height, outlineW, kCornerRadius,
+                           inCarouselRow ? Color::DarkGray : Color::Black);
 }
 
 // ---------------------------------------------------------------------------
@@ -687,6 +688,6 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
                                  const std::function<bool(int index)>& isHeader, const int rowHeightScale,
                                  const bool showSelection) const {
   drawListWithMetrics(renderer, rect, itemCount, selectedIndex, rowTitle, rowSubtitle, rowIcon, rowValue,
-                      highlightValue, rowDimmed, isHeader, LyraCarouselMetrics::values, true, rowHeightScale,
+                      highlightValue, rowDimmed, isHeader, LyraCarouselMetrics::values, false, rowHeightScale,
                       showSelection);
 }

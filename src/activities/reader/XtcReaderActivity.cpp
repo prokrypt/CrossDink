@@ -27,10 +27,11 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
-#include "XtcReaderMenuActivity.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
+#include "activities/home/FileBrowserActionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/HomeCoverThumbs.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -44,22 +45,6 @@ KNOB_ALIAS(LONG_PRESS_MENU_MS, menuHoldMs);  // Goodies > Knobs
 
 std::string confirmationHeading(const StrId actionLabelId) {
   return std::string(tr(STR_CONFIRM)) + ": " + std::string(I18N.get(actionLabelId));
-}
-
-void drawToast(const GfxRenderer& renderer, const char* msg) {
-  constexpr int toastPadX = 20;
-  constexpr int toastPadY = 12;
-  const bool toastBackgroundBlack = ReaderUtils::readerForegroundBlack();
-  const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);
-  const int msgH = renderer.getLineHeight(UI_10_FONT_ID);
-  const int toastW = msgW + toastPadX * 2;
-  const int toastH = msgH + toastPadY * 2;
-  const int toastX = (renderer.getScreenWidth() - toastW) / 2;
-  const int toastY = (renderer.getScreenHeight() - toastH) / 2;
-  renderer.fillRect(toastX, toastY, toastW, toastH, toastBackgroundBlack);
-  renderer.drawRect(toastX, toastY, toastW, toastH, !toastBackgroundBlack);
-  renderer.drawText(UI_10_FONT_ID, toastX + toastPadX, toastY + toastPadY, msg, !toastBackgroundBlack);
-  renderer.displayBuffer();
 }
 
 enum class XtchRenderPass { Base, Lsb, Msb };
@@ -195,12 +180,33 @@ void XtcReaderActivity::openReaderMenu() {
     title = xtc->getTitle();
   }
 
+  const bool trackStats = SETTINGS.shouldTrackReadingStats();
+  std::vector<FileBrowserActionActivity::MenuItem> items;
+  items.reserve(8);
+  if (hasChapters) items.push_back({FileBrowserAction::SelectChapter, StrId::STR_SELECT_CHAPTER});
+  if (trackStats) {
+    items.push_back({FileBrowserAction::ToggleBookStatsTracking, StrId::STR_TRACK_READING_STATS,
+                     bookStatsEnabled ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF});
+    if (bookStatsEnabled) items.push_back({FileBrowserAction::ReadingStats, StrId::STR_READING_STATS});
+  }
+  items.push_back(
+      {FileBrowserAction::ToggleCompleted, stats.isCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
+  if (trackStats && bookStatsEnabled) items.push_back({FileBrowserAction::DeleteStats, StrId::STR_DELETE_BOOK_STATS});
+  items.push_back({FileBrowserAction::DeleteCache, StrId::STR_DELETE_CACHE});
+  items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
+  if (mappedInput.hasTouchHardware()) {
+    items.push_back({FileBrowserAction::ToggleTouchscreen, StrId::STR_DISABLE_TOUCHSCREEN,
+                     SETTINGS.disableReaderTouchscreen ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF});
+  }
+
   pauseReadingStatsTimer("reader_menu");
+  // Keeps touch usable inside the menu even with Disable Touchscreen on.
+  mappedInput.setReaderTouchscreenOverride(true);
   startActivityForResult(
-      std::make_unique<XtcReaderMenuActivity>(renderer, mappedInput, std::move(title), hasChapters, stats.isCompleted,
-                                              SETTINGS.shouldTrackReadingStats(), bookStatsEnabled),
+      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, std::move(title), std::move(items)),
       [this](const ActivityResult& result) {
-        const auto* menu = std::get_if<MenuResult>(&result.data);
+        mappedInput.setReaderTouchscreenOverride(false);
+        const auto* menu = std::get_if<FileBrowserActionResult>(&result.data);
         if (result.isCancelled || menu == nullptr) {
           resumeReadingStatsTimer("reader_menu_return");
           requestUpdate();
@@ -296,6 +302,10 @@ void XtcReaderActivity::loop() {
   const bool endOfBookMenuOpen = atEndOfBook && endOfBookOptions && endOfBookOptions->menuActive();
   const auto queuedKey = queuedEndOfBookKey;
   queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
+  if (endOfBookMenuOpen != endOfBookHomeUnlocked) {
+    endOfBookHomeUnlocked = endOfBookMenuOpen;
+    mappedInput.setReaderTouchscreenOverride(endOfBookMenuOpen);
+  }
   if (endOfBookMenuOpen) {
     endOfBookAction = queuedKey != EndOfBookOptions::MenuKey::None
                           ? endOfBookOptions->applyMenuKey(queuedKey, &openPath)
@@ -645,8 +655,8 @@ void XtcReaderActivity::toggleHomeButtonInReader() {
     LOG_ERR("XTR", "Failed to save Home button reader setting");
   }
   mappedInput.clearDeferredHomeGesture();
-  drawToast(renderer, SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
-  delay(1000);
+  Toast::show(renderer,
+              SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
   requestUpdate();
 }
 
@@ -980,8 +990,7 @@ void XtcReaderActivity::deleteBookStats() {
             }
           }
           if (statsDeleted) {
-            drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
-            delay(1000);
+            Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
           } else {
             LOG_ERR("XTR", "Failed to delete book stats");
           }
@@ -1006,8 +1015,7 @@ void XtcReaderActivity::deleteBookCache() {
             stats.save(xtc->getCachePath());
           }
           if (cacheDeleted) {
-            drawToast(renderer, tr(STR_BOOK_CACHE_DELETED));
-            delay(1000);
+            Toast::show(renderer, tr(STR_BOOK_CACHE_DELETED));
           } else {
             LOG_ERR("XTR", "Failed to delete book cache");
           }
@@ -1018,19 +1026,18 @@ void XtcReaderActivity::deleteBookCache() {
 }
 
 void XtcReaderActivity::onReaderMenuConfirm(const int action) {
-  switch (static_cast<XtcReaderMenuActivity::MenuAction>(action)) {
-    case XtcReaderMenuActivity::MenuAction::SELECT_CHAPTER:
+  switch (static_cast<FileBrowserAction>(action)) {
+    case FileBrowserAction::SelectChapter:
       openChapterSelection();
       break;
-    case XtcReaderMenuActivity::MenuAction::READING_STATS:
+    case FileBrowserAction::ReadingStats:
       openReadingStats();
       break;
-    case XtcReaderMenuActivity::MenuAction::TOGGLE_BOOK_STATS_TRACKING:
+    case FileBrowserAction::ToggleBookStatsTracking:
       if (xtc && SETTINGS.shouldTrackReadingStats()) {
         const bool enabled = !bookStatsEnabled;
         if (!BookStatsTracking::setBookEnabled(xtc->getCachePath(), enabled)) {
-          drawToast(renderer, (std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER)).c_str());
-          delay(1000);
+          Toast::show(renderer, (std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER)).c_str());
         }
         bookStatsEnabled = BookStatsTracking::isBookEnabled(xtc->getCachePath());
         syncStatsTrackingState();
@@ -1038,22 +1045,30 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
       resumeReadingStatsTimer("toggle_book_stats_return");
       requestUpdate();
       break;
-    case XtcReaderMenuActivity::MenuAction::TOGGLE_COMPLETED:
+    case FileBrowserAction::ToggleCompleted:
       setBookCompleted(!stats.isCompleted);
       resumeReadingStatsTimer("toggle_completed_return");
       requestUpdate();
       break;
-    case XtcReaderMenuActivity::MenuAction::DELETE_STATS:
+    case FileBrowserAction::DeleteStats:
       if (statsTrackingActive) deleteBookStats();
       break;
-    case XtcReaderMenuActivity::MenuAction::DELETE_CACHE:
+    case FileBrowserAction::DeleteCache:
       deleteBookCache();
       break;
-    case XtcReaderMenuActivity::MenuAction::SEND_NEARBY_BOOK:
+    case FileBrowserAction::SendNearby:
       saveProgress(currentPage);
       activityManager.goToNearbyBookSend(xtc ? xtc->getPath() : std::string{}, true);
       return;
-    case XtcReaderMenuActivity::MenuAction::DISABLE_TOUCHSCREEN:
+    case FileBrowserAction::ToggleTouchscreen:
+      SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
+      SETTINGS.saveToFile();
+      resumeReadingStatsTimer("toggle_touch_return");
+      requestUpdate();
+      break;
+    default:
+      resumeReadingStatsTimer("reader_menu_return");
+      requestUpdate();
       break;
   }
 }
@@ -1472,6 +1487,12 @@ bool XtcReaderActivity::queueProgressSave(const uint32_t pageToRender) {
     return true;
   }
   return saveProgress(pageToRender);
+}
+
+bool XtcReaderActivity::flushHeldProgress() {
+  const bool pending = progressSaveDebouncer.hasPending();
+  if (!flushQueuedProgress()) LOG_ERR("XTR", "Failed to flush held progress");
+  return pending;
 }
 
 bool XtcReaderActivity::flushQueuedProgress() {

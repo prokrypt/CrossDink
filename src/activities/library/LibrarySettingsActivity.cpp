@@ -215,7 +215,7 @@ void LibrarySettingsActivity::buildScreen(UiApp::ScreenType& screen) {
   // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
   props.rowStyles.selected.background = fui::Paint::solid(fui::Color::White);
   props.rowStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-  props.rowStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+  props.rowStyles.selected.border = uiSelectionBorder();
   props.rowStyles.selected.borderWidth = 2;
   props.rowStyles.active = props.rowStyles.selected;
   listNav.selected = showSelection ? selection : -1;

@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <SecureHttpClient.h>
 #include <WiFi.h>
 #include <esp_rom_crc.h>
 
@@ -26,6 +27,7 @@
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "network/WifiPowerSaveGuard.h"
 
 namespace fui = freeink::ui;
 
@@ -715,14 +717,22 @@ bool FontDownloadActivity::computeFileCrc32(const char* path, uint32_t& outCrc) 
   if (!Storage.openFileForRead("FONT", path, f)) {
     return false;
   }
-  constexpr size_t BUF_SIZE = 128;
-  uint8_t buf[BUF_SIZE];
+  // Heap, not stack: 4 KB per read instead of 128 B cuts the SD transactions
+  // for a multi-MB font by 32x.
+  constexpr size_t BUF_SIZE = 4096;
+  auto buf = makeUniqueNoThrow<uint8_t[]>(BUF_SIZE);
+  if (!buf) {
+    LOG_ERR("FONT", "No CRC buffer");
+    f.close();
+    return false;
+  }
   uint32_t crc = 0;
   while (f.available()) {
-    const int n = f.read(buf, BUF_SIZE);
+    const int n = f.read(buf.get(), BUF_SIZE);
     if (n <= 0) break;
-    crc = esp_rom_crc32_le(crc, buf, static_cast<uint32_t>(n));
+    crc = esp_rom_crc32_le(crc, buf.get(), static_cast<uint32_t>(n));
   }
+  f.close();
   outCrc = crc;
   return true;
 }
@@ -812,6 +822,15 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     return;
   }
 
+  // Held across the whole family: downloadToFile's own guard restores modem
+  // sleep between files.
+  WifiPowerSaveGuard wifiPowerSaveGuard;
+  // One connection for the family's files; wolfSSL (as OPDS books use) is
+  // ~2x faster than the default transport. A first wolfSSL failure drops back
+  // to the default transport for the rest of the family.
+  auto connection = makeUniqueNoThrow<freeink::SecureHttpClient>();
+  bool useWolfSsl = connection != nullptr;
+
   for (size_t i = 0; i < family.fileCount; i++) {
     const ManifestFile& file = manifestFiles_[family.fileStart + i];
 
@@ -849,6 +868,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.preservePartial = true;
     downloadOptions.resumePartial = true;
+    // PSRAM write-behind: one SD write per 32 KB instead of per TLS record.
+    downloadOptions.writeBufferBytes = 32 * 1024;
     // Poll Back and the touch Cancel controls from shouldCancel, which
     // HttpDownloader checks at the top of every read-loop iteration. The
     // progress callback is throttled to every 64KB / 250ms, so polling input
@@ -867,6 +888,9 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       requestUpdateAndWait();
       if (attempt > 1) delay(FONT_DOWNLOAD_RETRY_DELAY_MS);
 
+      downloadOptions.transport = useWolfSsl ? HttpDownloader::Transport::WOLFSSL : HttpDownloader::Transport::ESP_HTTP;
+      downloadOptions.connection = useWolfSsl ? connection.get() : nullptr;
+      const unsigned long startMs = millis();
       result = HttpDownloader::downloadToFile(
           url, tempPath,
           [this](size_t downloaded, size_t total) {
@@ -895,7 +919,14 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
         return;
       }
       if (result == HttpDownloader::OK) {
+        const unsigned long ms = millis() - startMs;
+        LOG_INF("FONT", "Downloaded %s: %zu bytes in %lu ms (%lu KBps, %s)", file.name, fileTotal_, ms,
+                ms > 0 ? static_cast<unsigned long>(fileTotal_ / ms) : 0UL, useWolfSsl ? "wolfssl" : "esp_http");
         break;
+      }
+      if (useWolfSsl && result == HttpDownloader::HTTP_ERROR) {
+        LOG_INF("FONT", "wolfSSL download failed; falling back to the default transport");
+        useWolfSsl = false;
       }
       LOG_ERR("FONT", "Download attempt failed: %s (%d/%d, error=%d)", file.name, attempt, FONT_DOWNLOAD_MAX_ATTEMPTS,
               result);

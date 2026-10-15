@@ -37,10 +37,11 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:GOTO list` | `OK:GOTO list <screen> ...` | Screen names in this build. |
 | `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
 | `CMD:SLEEPREBOOT` | `OK:SLEEPREBOOT` | Goodies > Sleep-reboot-log without the confirm (PSRAM-log builds): 0.5 s after the reply, the real deep-sleep path, then a restart instead of power-down. The PSRAM log keeps the sleep; read it from `/api/psram-log` once the remote rejoins. |
-| `CMD:REBOOT` | `OK:REBOOT` | Software restart. |
-| `CMD:MACRO <path.txt>` / `status` / `stop` | `OK:MACRO started`, `OK:MACRO running line N`, `OK:MACRO done <results>` | PSRAM-log builds: runs a test script from the SD card with the Wi-Fi remote off; see Test macros below. |
-| `CMD:BOOTSLOT` | `OK:BOOTSLOT running=<label> other=<label> <project> <version> <date> <time> elf=<8 hex>` or `other=none` | Read-only: the other OTA slot's image header, as Goodies > Boot previous firmware shows it. |
+| `CMD:FLUSH` | `OK:FLUSH <n>` | Writes everything held for sleep now: settings, state and recent books (held in PSRAM between flush points), the reader's exit writes and the open book's position. `n` = writes that landed. |
+| `CMD:REBOOT` | `OK:REBOOT` | Software restart. Held settings, state and recent books stay in PSRAM for the next boot instead of being written. |
+| `CMD:BOOTSLOT` | `OK:BOOTSLOT running=<label> other=<label> <project> <version> <date> <time> elf=<8 hex>` or `other=none` | Read-only: the other OTA slot's image header, as Goodies > Boot alternate slot shows it. |
 | `CMD:BOOTSLOT <label>` | `OK:BOOTSLOT <label>` | Boots the other slot without USB. `<label>` must name the other slot (`ERR:BOOTSLOT:not_other <label>`, `ERR:BOOTSLOT:none`; `ERR:BOOTSLOT:busy` while an OTA upload runs). Runs the full image check first (checksum, SHA-256, board tag; a few seconds) and switches nothing on `ERR:BOOTSLOT:verify <reason>`; `ERR:BOOTSLOT:switch` if the otadata write fails. On OK, 0.5 s after the reply, saves the open screens and restarts into that slot. The way back needs the same command (or Goodies) in that build. |
+| `CMD:MACRO <path.txt>` / `status` / `stop` | `OK:MACRO started`, `OK:MACRO running line N`, `OK:MACRO done <results>` | PSRAM-log builds: runs a test script from the SD card with the Wi-Fi remote off; see Test macros below. |
 | `CMD:WAITIDLE [ms]` | `OK:WAITIDLE <elapsed_ms>` or `ERR:WAITIDLE:timeout` | Replies once injected input and typing are done, no render is queued or running, no refresh is pending, and that has held for 150 ms. Default timeout 10 s. |
 
 ## Wi-Fi: POST /api/cmd
@@ -87,7 +88,17 @@ curl -s --data-binary @firmware.bin -H "Content-Type: application/octet-stream" 
   -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/ota
 ```
 
-The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
+With `?size=<image bytes>` the body is the zlib-compressed image (about 37% smaller), inflated on the device as it
+arrives:
+
+```sh
+python3 -c 'import sys,zlib; sys.stdout.buffer.write(zlib.compress(open("firmware.bin","rb").read(), 9))' > fw.z
+curl -s --data-binary @fw.z -H "Content-Type: application/octet-stream" -H "X-Token: $(cat remote-token)" \
+  "http://10.0.1.67/api/ota?size=$(stat -c%s firmware.bin)"
+```
+
+Firmware without this ignores `size` and answers `ERR:OTA:BAD_MAGIC` without switching slots; send the raw image
+then. The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
 table, checksum, SHA-256 and board tag, as SD Card Firmware Update does. Only a verified image switches the boot
 slot; OTA rollback still applies on the next boot.
 
@@ -119,19 +130,21 @@ curl -s --data-binary @planes.bin -H "Content-Type: application/octet-stream" \
 | 403 | `ERR:token` | Missing or wrong `X-Token`. |
 | 400 | `ERR:IMAGE:size (want N)` | Body is not exactly N bytes, or no PSRAM for it. |
 
-## Wi-Fi: SD file download and upload
+## Wi-Fi: SD file download, upload and delete
 
-`GET /api/download?path=<file>` and `POST /api/upload?path=<dir>` (multipart field `file`) are File Transfer's
-`/download` and `/upload` behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
+`GET /api/download?path=<file>`, `POST /api/upload?path=<dir>` (multipart field `file`) and
+`POST /api/delete?path=<item>` (or `paths=<JSON array>`) are File Transfer's `/download`, `/upload` and `/delete`
+behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
 the `token` query argument or an `X-Token` header; bad tokens count toward the lockout. Paths are SD-rooted
 (`..` stops at `/`); hidden items and `/debug/remote-token` are refused (`403`) unless Show Hidden Files is on (the
-token file always). Upload refuses an existing name (`400 File already exists: <name>`); delete first.
+token file always) for download and upload; delete has no such check. Upload refuses an existing name (`400 File already exists: <name>`); delete first.
 Both stream through a 4 KB buffer. Download honors `Range` (`206`/`416`) and upload resumes with `offset=<bytes>`
 (see `webserver-endpoints.md`, `/download` and `/upload`).
 
 ```sh
 curl -s -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
 curl -s -H "X-Token: $(cat remote-token)" -F "file=@book.epub" "http://10.0.1.67/api/upload?path=/Books"
+curl -s -X POST -H "X-Token: $(cat remote-token)" "http://10.0.1.67/api/delete?path=/Books/book.epub"
 # resume a dropped download
 curl -s -C - -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
 # resumable upload: start with offset=0; after a drop, send the rest from the size the 409 reply names
@@ -148,7 +161,8 @@ Offsets count every byte since the ring started, so they carry across software r
 panics). If the ring overwrote text since the last poll the reply starts with `[psram-log gap N bytes]`; if
 it restarted (power loss, deep sleep) it starts with `[psram-log restarted]` and the whole new ring. `wait`
 (max 5000) holds an empty reply until new text arrives; that holds up only the web server task, so
-`/api/cmd` answers after the current poll. Tail from the start of the ring (`o=0`), then follow:
+`/api/cmd` answers after the current poll. `?size=1` returns only the headers (`X-Log-Next` minus
+`X-Log-Oldest` is the bytes held). Tail from the start of the ring (`o=0`), then follow:
 
 ```sh
 o=0; while :; do n=$(curl -s --connect-timeout 3 --max-time 10 -D - -o /dev/stderr "http://10.0.1.67/api/psram-log?since=$o&wait=2000" | tr -d '\r' | awk 'tolower($1)=="x-log-next:"{print $2}'); o=${n:-$o}; done 2>&1
@@ -178,7 +192,7 @@ the script and the remote rejoins. Upload the script with `/api/upload` (names c
 name), start it, wait for the remote to come back (`PING`), check `MACRO status`, then download the results.
 
 One command per line; blank lines and `#` comments are skipped. Any remote command above runs as it would over
-`/api/cmd` (`TOUCH`, `KEY`, `SWIPE`, `TYPE`, `GOTO`, `WAITIDLE`, `SET`, `KNOB`, `SLEEPREBOOT`, `REBOOT`, ...), plus:
+`/api/cmd` (`TOUCH`, `KEY`, `SWIPE`, `TYPE`, `GOTO`, `WAITIDLE`, `SET`, `KNOB`, `SLEEPREBOOT`, `FLUSH`, `REBOOT`, ...), plus:
 
 | Line | Does |
 | --- | --- |

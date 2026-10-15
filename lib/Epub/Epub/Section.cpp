@@ -19,6 +19,11 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
+// Uncompressed spine item size, the figure the reader's popupBytes knob is compared against.
+[[maybe_unused]] size_t spineItemBytes(const Epub& epub, const int spineIndex) {
+  return epub.getCumulativeSpineItemSize(spineIndex) -
+         (spineIndex > 0 ? epub.getCumulativeSpineItemSize(spineIndex - 1) : 0);
+}
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v62: Text blocks persist source whitespace semantics for font-preview reflow.
 // This changes their serialized payload, so full and suspended section caches
@@ -54,6 +59,18 @@ constexpr uint32_t HEADER_SIZE =
     sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
+// Pages are many small writes; collecting them lets whole sectors reach the card as
+// multi-block transfers. 8 KB = two of the SDMMC driver's 8-sector bounce transfers
+// (PSRAM on S3: plain allocations over 1 KB try PSRAM first).
+constexpr size_t SECTION_WRITE_BUFFER_BYTES = 8192;
+
+void enableBuildFileBuffer(FsFile& file) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
+#else
+  (void)file;  // the simulator and test HALs write straight through
+#endif
+}
 
 void prepareSectionZipInflate(GfxRenderer& renderer, const int fontId) {
   if (ESP.getMaxAllocHeap() < InflateStream::requiredInternalStorageSize(true) && renderer.isSdCardFont(fontId)) {
@@ -199,6 +216,7 @@ bool Section::ensureBuildFileOpen() {
     LOG_ERR("SCT", "Failed to reopen section temp file");
     return false;
   }
+  enableBuildFileBuffer(file);
   if (!file.seek(file.size())) {
     LOG_ERR("SCT", "Failed to seek section temp file");
     file.close();
@@ -345,7 +363,16 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.guideReadingEnabled != fileGuideReadingEnabled || spec.wordSpacing != fileWordSpacing ||
         static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
       file.close();
-      LOG_INF("SCT", "Section cache params changed, rebuilding");
+      LOG_INF("SCT",
+              "Section cache params changed, rebuilding: font %d/%d lc %.3f/%.3f vp %ux%u/%ux%u para %d/%d ind %d/%d "
+              "align %u/%u hyph %d/%d style %d/%d img %u/%u focus %d/%d guide %d/%d ws %u/%u mode %u/%u",
+              fileFontId, spec.fontId, fileLineCompression, spec.lineCompression, fileViewportWidth, fileViewportHeight,
+              spec.viewportWidth, spec.viewportHeight, fileExtraParagraphSpacing, spec.extraParagraphSpacing,
+              fileForceParagraphIndents, spec.forceParagraphIndents, fileParagraphAlignment, spec.paragraphAlignment,
+              fileHyphenationEnabled, spec.hyphenationEnabled, fileEmbeddedStyle, spec.embeddedStyle,
+              fileImageRendering, spec.imageRendering, fileFocusReadingEnabled, spec.focusReadingEnabled,
+              fileGuideReadingEnabled, spec.guideReadingEnabled, fileWordSpacing, spec.wordSpacing, fileRenderMode,
+              static_cast<uint8_t>(spec.renderMode));
       clearCache();
       return false;
     }
@@ -604,6 +631,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     cleanupTempHtml();
     return false;
   }
+  enableBuildFileBuffer(file);
   ReaderRenderSpec effectiveSpec = spec;
   effectiveSpec.focusReadingEnabled = effectiveFocusReadingEnabled;
   effectiveSpec.guideReadingEnabled = effectiveGuideReadingEnabled;
@@ -824,8 +852,9 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   partial_ = false;
   partialPageCount_ = 0;
   partialProtectedImageUnits_ = 0;
-  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu ms=%lu", spineIndex, pageCount,
-          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(millis() - buildStartedMs));
+  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu html=%lu ms=%lu", spineIndex, pageCount,
+          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(spineItemBytes(*epub, spineIndex)),
+          static_cast<unsigned long>(millis() - buildStartedMs));
   return true;
 }
 
@@ -936,6 +965,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
     cleanupTempHtml();
     return false;
   }
+  enableBuildFileBuffer(file);
   if (!writeSectionFileHeader(spec)) {
     LOG_ERR("SCT", "Failed to write section header");
     file.close();
@@ -1041,6 +1071,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   ctx->startedMs = buildStartedMs;
   build_ = std::move(ctx);
+  build_->parser->setDeferAdvancePrewarm(buildOptions.deferAdvancePrewarm);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
@@ -1055,6 +1086,8 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   return true;
 }
 
+bool Section::prewarmSomeMore() { return build_ && build_->parser && build_->parser->prewarmSectionAdvanceStep(); }
+
 bool Section::buildSomeMore(const int maxPages) {
   if (!build_ || !build_->parser) {
     LOG_ERR("SCT", "buildSomeMore called with no active build");
@@ -1064,6 +1097,7 @@ bool Section::buildSomeMore(const int maxPages) {
   // pageCount stays pinned at the partial's watermark until the build passes it, which
   // would otherwise turn one "small" chunk into a blocking rebuild of the whole watermark.
   const int startCount = builtPageCount_;
+  const uint32_t startUs = micros();
   for (;;) {
     const auto status = build_->parser->parseStep();
     lastImagesWereSuppressed_ = lastImagesWereSuppressed_ || build_->parser->wasLowMemoryFallbackTriggered();
@@ -1080,11 +1114,13 @@ bool Section::buildSomeMore(const int maxPages) {
       return false;
     }
     if (status == ChapterHtmlSlimParser::ParseStatus::Done) {
+      build_->busyUs += micros() - startUs;
       return finalizeBuild();
     }
     // ParseStatus::More: yield once we've laid out the requested number of pages.
     if (maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) {
       build_->bytesConsumed = build_->parser->parseBytesConsumed();
+      build_->busyUs += micros() - startUs;
       return true;
     }
   }
@@ -1249,9 +1285,18 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
     Storage.remove(build_->tmpSectionPath.c_str());
     return false;
   }
-  LOG_DBG("SCT", "Section %s: spine=%d pages=%u bytes=%lu wall_ms=%lu", asPartial ? "partial" : "built", spineIndex,
-          builtPageCount_, static_cast<unsigned long>(sectionBytes),
-          static_cast<unsigned long>(millis() - build_->startedMs));
+  // busy = layout + write + parse (HTML/CSS/expat and everything else), to size a two-core split.
+  [[maybe_unused]] const uint32_t layoutMs = build_->parser->layoutMicros() / 1000;
+  [[maybe_unused]] const uint32_t writeMs = build_->parser->pageWriteMicros() / 1000;
+  [[maybe_unused]] const uint32_t busyMs = build_->busyUs / 1000;
+  LOG_DBG("SCT",
+          "Section %s: spine=%d pages=%u bytes=%lu html=%lu wall_ms=%lu busy_ms=%lu layout_ms=%lu write_ms=%lu "
+          "parse_ms=%lu",
+          asPartial ? "partial" : "built", spineIndex, builtPageCount_, static_cast<unsigned long>(sectionBytes),
+          static_cast<unsigned long>(spineItemBytes(*epub, spineIndex)),
+          static_cast<unsigned long>(millis() - build_->startedMs), static_cast<unsigned long>(busyMs),
+          static_cast<unsigned long>(layoutMs), static_cast<unsigned long>(writeMs),
+          static_cast<unsigned long>(busyMs > layoutMs + writeMs ? busyMs - layoutMs - writeMs : 0));
   return true;
 }
 

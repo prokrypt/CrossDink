@@ -31,6 +31,16 @@ inline int16_t scaledListMetric(const int metric) {
 }
 }  // namespace UiThemeTokensDetail
 
+// Lyra draws selection boxes in the header rule's 50% dither (swaps phase on full repaints).
+inline bool uiGraySelection() {
+  return UITheme::getInstance().getMetrics().listSelectionStyle == 5;  // fui::SelectionStyle::GrayOutline
+}
+
+inline freeink::ui::Paint uiSelectionBorder() {
+  return uiGraySelection() ? freeink::ui::Paint::dither(freeink::ui::Color::DarkGray)
+                           : freeink::ui::Paint::solid(freeink::ui::Color::Black);
+}
+
 enum class UiListRowType : uint8_t {
   SingleLine,
   WithSubtitle,

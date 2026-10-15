@@ -1,6 +1,8 @@
 #include <OpdsParser.h>
 #include <gtest/gtest.h>
 
+#include <string>
+
 namespace {
 
 constexpr char kMultiAuthorFeed[] = R"(<?xml version="1.0" encoding="UTF-8"?>
@@ -142,4 +144,18 @@ TEST(OpdsParserTest, OpenSearchDescriptionGivesSearchTemplate) {
 
   ASSERT_TRUE(parser.parse(kDescription, sizeof(kDescription) - 1));
   EXPECT_EQ(parser.getSearchTemplate(), "/opds/search?q={searchTerms}");
+}
+
+TEST(OpdsParserTest, FeedCutAfterEntryLimitStillParses) {
+  // The browser stops downloading once the limit is hit, so the cached bytes
+  // end mid-document.
+  const std::string feed(kSummaryCountFeed);
+  const size_t cut = feed.find("Described");
+  ASSERT_NE(cut, std::string::npos);
+  OpdsEntry entries[2];
+  OpdsParser parser(entries, 2);
+
+  ASSERT_TRUE(parser.parse(feed.data(), cut));
+  EXPECT_TRUE(parser.wasTruncated());
+  EXPECT_EQ(parser.getEntryCount(), 2u);
 }

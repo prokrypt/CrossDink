@@ -66,7 +66,8 @@ void HalPowerManager::begin() {
   pmConfig.min_freq_mhz = DFS_MIN_FREQ;
   // Tickless idle light-sleeps whenever every task is blocked and no PM lock is
   // held. HalDisplay's busy-wait hooks (beginDisplayBusyWait/endDisplayBusyWait)
-  // hold displayPmLock during EPD refresh so it stays out of that window.
+  // hold displayPmLock during EPD refresh so it stays out of that window, except
+  // where refreshLightSleep lets a BUSY-pin wake end the sleep.
   pmConfig.light_sleep_enable = true;
   const esp_err_t pmErr = esp_pm_configure(&pmConfig);
   if (pmErr != ESP_OK) {
@@ -81,7 +82,9 @@ void HalPowerManager::begin() {
 // Caller holds modeMutex.
 void HalPowerManager::syncCpuFreqLock() {
   if (cpuFreqLock == nullptr) return;
-  const bool wanted = !isLowPower && !displayBusyWaitActive;
+  // Background work keeps full speed through panel BUSY waits too: it runs on
+  // its own while another task waits.
+  const bool wanted = !isLowPower && (!displayBusyWaitActive || backgroundWorkCount > 0);
   if (wanted == cpuFreqLockHeld) return;
   if (wanted) {
     esp_pm_lock_acquire(cpuFreqLock);
@@ -134,6 +137,9 @@ void HalPowerManager::beginBackgroundWork() {
   if (modeMutex == nullptr) return;
   xSemaphoreTake(modeMutex, portMAX_DELAY);
   ++backgroundWorkCount;
+#if CONFIG_PM_ENABLE
+  syncCpuFreqLock();
+#endif
   xSemaphoreGive(modeMutex);
   setPowerSaving(false);
 }
@@ -142,6 +148,9 @@ void HalPowerManager::endBackgroundWork() {
   if (modeMutex == nullptr) return;
   xSemaphoreTake(modeMutex, portMAX_DELAY);
   if (backgroundWorkCount > 0) --backgroundWorkCount;
+#if CONFIG_PM_ENABLE
+  syncCpuFreqLock();
+#endif
   xSemaphoreGive(modeMutex);
   // The main loop re-enters power saving on its next idle tick.
 }
@@ -224,6 +233,14 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+// RTC_DATA_ATTR survives deep sleep and resets to true on a full boot.
+static RTC_DATA_ATTR bool pageKeyWakeWanted = true;
+// Set when Up/Down are held at sleep entry. Survives charger and stray-key wakes
+// (they sleep again straight from setup()); a full app wake clears it in setPageKeyWake().
+static RTC_DATA_ATTR bool pageKeysLockedOut = false;
+#endif
+
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   sleepStep = "wifi off";
   disableWiFiBeforeDeepSleep();
@@ -296,17 +313,16 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // 2 s (pressed under something) leaves both out: alone it would wake again at
   // once, and with the other key it would still complete the chord.
   const auto& in = BoardConfig::ACTIVE.input;
-  if (BoardConfig::isX4Pro() && in.power >= 0 && !in.powerActiveHigh && in.up >= 0 && in.down >= 0) {
+  if (pageKeyWakeWanted && BoardConfig::isX4Pro() && in.power >= 0 && !in.powerActiveHigh && in.up >= 0 &&
+      in.down >= 0) {
     const unsigned long releaseStart = millis();
     while ((digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) && millis() - releaseStart < 2000) {
       delay(10);
     }
-    // RTC_DATA_ATTR survives deep sleep and resets on a full boot, so Power wake/sleep keeps the lockout.
-    static RTC_DATA_ATTR bool pageKeysLockedOut = false;
     uint64_t mask = 1ULL << in.power;
     if (digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) {
       pageKeysLockedOut = true;
-      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until full boot");
+      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until the next app wake");
     }
     if (!pageKeysLockedOut) {
       pinMode(in.up, INPUT_PULLUP);
@@ -335,6 +351,15 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   esp_deep_sleep_disable_rom_logging();
   sleepStep = "deep sleep start";
   esp_deep_sleep_start();
+}
+
+void HalPowerManager::setPageKeyWake(bool on) {
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  pageKeyWakeWanted = on;
+  if (on) pageKeysLockedOut = false;
+#else
+  (void)on;
+#endif
 }
 
 uint16_t HalPowerManager::getBatteryPercentage() const {
