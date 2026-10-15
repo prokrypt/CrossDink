@@ -17,6 +17,7 @@
 #include <esp_attr.h>
 #include <esp_psram.h>
 #include <esp_rom_crc.h>
+#include <esp_rtc_time.h>
 #include <esp_sleep.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -77,7 +78,12 @@ struct Reading {
   uint8_t light = 0;
 };
 Reading reading;
-uint32_t epochBase = 0;  // 0: RTC not set
+// With no RTC time, rows count seconds from power-on on the RTC timer (it runs
+// through deep sleep) from this base, below BatteryLogParser::REAL_MIN; a
+// clock_set row with was=<that count> lets readers shift them once the RTC is set.
+constexpr uint32_t kCountBase = 946684800;  // 2000-01-01
+constexpr uint32_t kRealMin = 1704067200;   // 2024-01-01, BatteryLogParser::REAL_MIN
+uint32_t epochBase = 0;
 uint32_t epochBaseMs = 0;
 int32_t localOffsetS = 0;
 
@@ -149,14 +155,14 @@ void readClock() {
   uint16_t y = 0;
   uint8_t mo = 0, d = 0, h = 0, mi = 0, s = 0;
   if (!halClock.getDateTime(y, mo, d, h, mi, s) || y < 2024) {
-    epochBase = 0;
+    epochBase = kCountBase + static_cast<uint32_t>(esp_rtc_get_time_us() / 1000000);
     return;
   }
   epochBase = toEpoch(y, mo, d, h, mi, s);
   localOffsetS = (static_cast<int32_t>(LocalClock::currentOffsetQ()) - 48) * 15 * 60;
 }
 
-uint32_t epochNow() { return epochBase != 0 ? epochBase + (millis() - epochBaseMs) / 1000 : 0; }
+uint32_t epochNow() { return epochBase + (millis() - epochBaseMs) / 1000; }
 
 const BatteryMonitor& monitor() {
   static const BatteryMonitor m;  // built on first use, after BoardConfig::ACTIVE is set
@@ -232,7 +238,7 @@ void readSlow() {
 
 void writeRowAt(const uint32_t epoch, const Reading& r, const char* name, const char* detail) {
   char local[20] = "";
-  if (epoch != 0) {
+  if (epoch >= kRealMin) {
     const time_t t = static_cast<time_t>(epoch) + localOffsetS;
     tm parts{};
     gmtime_r(&t, &parts);
@@ -273,6 +279,16 @@ void writeRow(const char* name, const char* detail) {
   const Reading r = reading;
   portEXIT_CRITICAL_SAFE(&ringMux);
   writeRowAt(epochNow(), r, name, detail);
+}
+
+// Main loop. Re-reads the RTC; the first real time after counted ones gets a clock_set row.
+void checkClock() {
+  const uint32_t was = epochNow();
+  readClock();
+  if (was >= kRealMin || epochBase < kRealMin) return;
+  char detail[24];
+  snprintf(detail, sizeof(detail), "was=%lu", static_cast<unsigned long>(was));
+  writeRow("clock_set", detail);
 }
 
 // Sleep and restarts end Wi-Fi without the poll seeing it: say so, so every
@@ -351,6 +367,7 @@ void onBoot() {
 }
 
 void onSleep(const char* why) {
+  checkClock();  // an RTC set since the last poll, before the sleep row
   readQuick();
   readSlow();
   wifiEnded("sleep");
@@ -363,7 +380,7 @@ void poll(const uint32_t idleMs) {
   const uint32_t nowMs = millis();
   if (nowMs - lastPollMs < kPollMs) return;
   lastPollMs = nowMs;
-  if (nowMs - epochBaseMs >= kClockMs) readClock();
+  if (nowMs - epochBaseMs >= kClockMs) checkClock();
 
   const Reading before = reading;
   readQuick(/*debounce=*/true);
