@@ -21,7 +21,7 @@ constexpr ThemeMetrics makeValues() {
   return v;
 }
 
-constexpr ThemeMetrics values = makeValues();
+inline constexpr ThemeMetrics values = makeValues();
 constexpr int homeCoverWidth = coverWidthForHeight(values.homeCoverHeight);
 constexpr int homeCoverImageWidth = homeCoverWidth;
 constexpr int homeCoverImageHeight = 525;

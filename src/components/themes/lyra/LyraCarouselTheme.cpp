@@ -181,7 +181,7 @@ void registerCoverTarget(int bookIdx, Rect rect, int bookCount, int* registeredI
   for (int i = 0; i < registeredCount; ++i) {
     if (registeredIds[i] == bookIdx) return;
   }
-  if (registeredCount < LyraCarouselMetrics::values.homeRecentBooksCount) {
+  if (registeredCount < themed(LyraCarouselMetrics::values).homeRecentBooksCount) {
     registeredIds[registeredCount++] = bookIdx;
   }
   TouchRegistry::getInstance().add(rect, bookIdx, TouchRegistry::Cover);
@@ -284,7 +284,7 @@ void formatCompactReadingTime(uint32_t seconds, char* buf, size_t len) {
 // ---------------------------------------------------------------------------
 void LyraCarouselTheme::setPreRenderIndex(int idx) {
   lastCarouselSelectorIndex.store(idx, std::memory_order_relaxed);
-  if (idx >= 0 && idx < LyraCarouselMetrics::values.homeRecentBooksCount) {
+  if (idx >= 0 && idx < themed(LyraCarouselMetrics::values).homeRecentBooksCount) {
     const Rect cachedRect = cachedCenterCoverRects[idx];
     if (cachedRect.width > 0 && cachedRect.height > 0) lastCenterCoverRect = cachedRect;
   }
@@ -458,7 +458,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     Rect centerCoverRect{};
     drawCenterCover(centerIdx, centerCoverRect);
     lastCenterCoverRect = centerCoverRect;
-    if (centerIdx >= 0 && centerIdx < LyraCarouselMetrics::values.homeRecentBooksCount) {
+    if (centerIdx >= 0 && centerIdx < themed(LyraCarouselMetrics::values).homeRecentBooksCount) {
       cachedCenterCoverRects[centerIdx] = centerCoverRect;
     }
 
@@ -491,7 +491,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     const bool hasStats = (stats != nullptr && stats->sessionCount > 0);
     const bool hasProgress = progressPercent >= 0.0f;
     int infoY = dotsY + kDotSize + kFooterTopGap;
-    const int footerMaxWidth = std::max(0, screenW - 2 * LyraCarouselMetrics::values.contentSidePadding);
+    const int footerMaxWidth = std::max(0, screenW - 2 * themed(LyraCarouselMetrics::values).contentSidePadding);
     const int footerWidth = std::min(footerMaxWidth, centerCoverRect.width);
     const int footerX = centerCoverRect.x + (centerCoverRect.width - footerWidth) / 2;
 

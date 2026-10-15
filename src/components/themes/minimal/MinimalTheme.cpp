@@ -221,7 +221,7 @@ void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& glo
 }
 
 Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
-  const int coverH = MinimalMetrics::values.homeCoverHeight;
+  const int coverH = themed(MinimalMetrics::values).homeCoverHeight;
   const int coverW = MinimalMetrics::homeCoverWidth;
   const int coverX = (renderer.getScreenWidth() - coverW) / 2;
   const int coverY = rect.y + kCoverTopOffset;
@@ -385,13 +385,15 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   // Burn-in guard: text and status chrome at the per-boot offset; the fill stays put and the rule rises.
   const int shiftX = AntiBurnIn::shiftX();
   const int shiftY = AntiBurnIn::shiftY();
-  const int batteryX = rect.x + shiftX + rect.width - StatusBarMetrics::sideInset - MinimalMetrics::values.batteryWidth;
+  const int batteryX =
+      rect.x + shiftX + rect.width - StatusBarMetrics::sideInset - themed(MinimalMetrics::values).batteryWidth;
   const int batteryY = rect.y + shiftY + UITheme::getTopStatusBarInset(renderer) + homeHeaderTopInset;
   const int wifiReserve = showStatus ? wifiStatusReserve() : 0;
   if (showStatus) {
-    drawBatteryRight(
-        renderer, Rect{batteryX, batteryY, MinimalMetrics::values.batteryWidth, MinimalMetrics::values.batteryHeight},
-        showBatteryPercentage);
+    drawBatteryRight(renderer,
+                     Rect{batteryX, batteryY, themed(MinimalMetrics::values).batteryWidth,
+                          themed(MinimalMetrics::values).batteryHeight},
+                     showBatteryPercentage);
   }
   if (wifiReserve > 0) {
     const int percentWidth =
@@ -406,11 +408,12 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   if (title) {
     constexpr int titleInsetX = 12;
     const int titleRight = showStatus ? batteryX - wifiReserve : rect.x + shiftX + rect.width - 12;
-    const int maxTitleWidth = titleRight - (rect.x + shiftX) - titleInsetX - MinimalMetrics::values.contentSidePadding;
+    const int maxTitleWidth =
+        titleRight - (rect.x + shiftX) - titleInsetX - themed(MinimalMetrics::values).contentSidePadding;
     auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
     renderer.drawText(UI_12_FONT_ID, rect.x + shiftX + titleInsetX,
-                      rect.y + shiftY + MinimalMetrics::values.batteryBarHeight + 3, truncatedTitle.c_str(), true,
-                      EpdFontFamily::BOLD);
+                      rect.y + shiftY + themed(MinimalMetrics::values).batteryBarHeight + 3, truncatedTitle.c_str(),
+                      true, EpdFontFamily::BOLD);
     // 50% dither, not solid: the per-boot dither phase then moves every pixel of the rule.
     renderer.fillRectDither(rect.x, rect.y + rect.height - 3 - AntiBurnIn::ruleUp(), rect.width, 3, Color::DarkGray);
   }
@@ -492,7 +495,7 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
 
   const int fileRowHeight = compactFileBrowserRowHeightFor(renderer);
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int folderRowHeight = MinimalMetrics::values.listRowHeight;
+  const int folderRowHeight = themed(MinimalMetrics::values).listRowHeight;
   const auto isFolderRow = [&](int index) { return rowSubtitle(index) == "folder"; };
   const auto rowHeightFor = [&](int index) {
     return !uniformRowHeight && isFolderRow(index) ? folderRowHeight : fileRowHeight;
@@ -526,18 +529,18 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
     pageStart = nextPageStart;
   }
 
-  const int contentWidth =
-      rect.width -
-      (totalPages > 1 ? (MinimalMetrics::values.scrollBarWidth + MinimalMetrics::values.scrollBarRightOffset) : 1);
+  const int contentWidth = rect.width - (totalPages > 1 ? (themed(MinimalMetrics::values).scrollBarWidth +
+                                                           themed(MinimalMetrics::values).scrollBarRightOffset)
+                                                        : 1);
 
   if (totalPages > 1) {
     const int scrollAreaHeight = rect.height;
-    const int scrollBarHeight = std::max(MinimalMetrics::values.scrollBarWidth, scrollAreaHeight / totalPages);
+    const int scrollBarHeight = std::max(themed(MinimalMetrics::values).scrollBarWidth, scrollAreaHeight / totalPages);
     const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
-    const int scrollBarX = rect.x + rect.width - MinimalMetrics::values.scrollBarRightOffset;
+    const int scrollBarX = rect.x + rect.width - themed(MinimalMetrics::values).scrollBarRightOffset;
     renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
-    renderer.fillRect(scrollBarX - MinimalMetrics::values.scrollBarWidth, scrollBarY,
-                      MinimalMetrics::values.scrollBarWidth, scrollBarHeight, true);
+    renderer.fillRect(scrollBarX - themed(MinimalMetrics::values).scrollBarWidth, scrollBarY,
+                      themed(MinimalMetrics::values).scrollBarWidth, scrollBarHeight, true);
   }
 
   if (showSelection && selectedIndex >= 0) {
@@ -547,12 +550,12 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
     }
     const int selectedRowHeight = rowHeightFor(selectedIndex);
     // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
-    renderer.drawRoundedRect(rect.x + MinimalMetrics::values.contentSidePadding, selectedY,
-                             contentWidth - MinimalMetrics::values.contentSidePadding * 2, selectedRowHeight, 2, 6,
-                             true);
+    renderer.drawRoundedRect(rect.x + themed(MinimalMetrics::values).contentSidePadding, selectedY,
+                             contentWidth - themed(MinimalMetrics::values).contentSidePadding * 2, selectedRowHeight, 2,
+                             6, true);
   }
 
-  const int iconX = rect.x + MinimalMetrics::values.contentSidePadding + kFileBrowserTextGap;
+  const int iconX = rect.x + themed(MinimalMetrics::values).contentSidePadding + kFileBrowserTextGap;
   const int textX = iconX + kFileBrowserIconSize + kFileBrowserTextGap;
 
   int itemY = rect.y;
@@ -569,7 +572,7 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
     const int valueWidth = valueText.empty() ? 0 : renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
     const int valueGap = valueText.empty() ? 0 : kFileBrowserTextGap;
     const int textWidth =
-        std::max(1, contentWidth - textX - MinimalMetrics::values.contentSidePadding - valueWidth - valueGap);
+        std::max(1, contentWidth - textX - themed(MinimalMetrics::values).contentSidePadding - valueWidth - valueGap);
 
     const freeink::Icon* iconBitmap = iconForName(rowIcon(i), kFileBrowserIconSize);
     if (iconBitmap != nullptr) {
@@ -588,8 +591,9 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
 
     if (!valueText.empty()) {
       const int valueY = centeredRowY(itemY, rowHeight, lineHeight);
-      renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - MinimalMetrics::values.contentSidePadding - valueWidth,
-                        valueY, valueText.c_str(), true);
+      renderer.drawText(UI_10_FONT_ID,
+                        rect.x + contentWidth - themed(MinimalMetrics::values).contentSidePadding - valueWidth, valueY,
+                        valueText.c_str(), true);
     }
 
     if (rowDimmed && rowDimmed(i) && !selectedRow) {
@@ -724,8 +728,8 @@ void MinimalTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook
                                    const float progressPercent, const bool inverted) const {
   renderer.clearScreen(inverted ? 0xFF : 0x00);
 
-  const Rect contentRect{0, MinimalMetrics::values.homeTopPadding, renderer.getScreenWidth(),
-                         MinimalMetrics::values.homeCoverTileHeight};
+  const Rect contentRect{0, themed(MinimalMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+                         themed(MinimalMetrics::values).homeCoverTileHeight};
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
   drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);
   drawProgressBlock(renderer, coverRect, stats, progressPercent, !inverted);
@@ -736,8 +740,8 @@ void MinimalTheme::drawStatsSleepScreen(const GfxRenderer& renderer, const Recen
                                         const float progressPercent, const bool inverted) const {
   drawSleepScreen(renderer, book, stats, progressPercent, inverted);
   if (globalStats != nullptr) {
-    const Rect contentRect{0, MinimalMetrics::values.homeTopPadding, renderer.getScreenWidth(),
-                           MinimalMetrics::values.homeCoverTileHeight};
+    const Rect contentRect{0, themed(MinimalMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+                           themed(MinimalMetrics::values).homeCoverTileHeight};
     const Rect coverRect = coverRectForScreen(renderer, contentRect);
     drawStatsOverlay(renderer, *globalStats, coverRect, progressPercent, inverted);
   }

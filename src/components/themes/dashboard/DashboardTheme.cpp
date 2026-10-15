@@ -501,7 +501,7 @@ void drawRightAnchoredFooterStat(const GfxRenderer& renderer, const int labelRig
 void drawFooterStats(const GfxRenderer& renderer, const Rect& coverRect, const GlobalReadingStats* globalStats,
                      const bool inverted = false) {
   const int inset = contentInset(renderer);
-  const int buttonHintReserve = gpio.hasTouch() ? 0 : DashboardMetrics::values.buttonHintsHeight;
+  const int buttonHintReserve = gpio.hasTouch() ? 0 : themed(DashboardMetrics::values).buttonHintsHeight;
   const int footerY = renderer.getScreenHeight() - buttonHintReserve - kFooterBottomGap;
   const int centerY = std::max(coverRect.y + coverRect.height + 120, footerY);
 
@@ -594,8 +594,8 @@ void DashboardTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBo
                                      const char* currentChapterTitle, const bool inverted) const {
   renderer.clearScreen(inverted ? 0xFF : 0x00);
 
-  const Rect contentRect{0, DashboardMetrics::values.homeTopPadding, renderer.getScreenWidth(),
-                         DashboardMetrics::values.homeCoverTileHeight};
+  const Rect contentRect{0, themed(DashboardMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+                         themed(DashboardMetrics::values).homeCoverTileHeight};
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
   drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);
   drawDashboardStats(renderer, coverRect, stats, progressPercent, showBookStatsForPath(book.path), inverted);

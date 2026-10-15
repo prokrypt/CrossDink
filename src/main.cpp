@@ -88,6 +88,7 @@
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/Toast.h"
+#include "components/ThemePack.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
@@ -2256,6 +2257,7 @@ void setup() {
              snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) {
     KOREADER_STORE.loadFromFile();
   }
+  ThemePack::bootGuard(rawResetReason);
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
@@ -3350,6 +3352,16 @@ static void loopPass() {
       changed = activityManager.repaintSyncBadge();
     }
     if (changed) activityManager.requestUpdate();
+  }
+  // Theme pack load or crash-guard toast, cleared by a repaint like the sync toast.
+  static unsigned long themePackToastAt = 0;
+  if (const char* themePackToast = ThemePack::takeToast()) {
+    RenderLock lock;
+    BookActions::drawToast(renderer, themePackToast);
+    themePackToastAt = millis() | 1;
+  } else if (themePackToastAt != 0 && millis() - themePackToastAt >= 1500) {
+    themePackToastAt = 0;
+    activityManager.requestUpdate();
   }
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);

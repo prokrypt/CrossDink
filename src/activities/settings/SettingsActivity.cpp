@@ -44,6 +44,7 @@
 #include "activities/util/IntervalSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/CompactHeader.h"
+#include "components/ThemePack.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -317,6 +318,7 @@ void SettingsActivity::rebuildSettingsLists() {
   dictionaryRegistry.refreshIfDirty();
   const auto allSettings = getSettingsList(needsFonts ? &sdFontSystem.registry() : nullptr, &dictionaryRegistry);
   displaySettings = buildGroupedDisplaySettingsList(allSettings);
+  addThemePackSetting();
 #ifndef SIMULATOR
   if (BoardConfig::isX4Pro() || CROSSDINK_APP_DEVICE_X4CLASSIC) {
     displaySettings.erase(
@@ -805,7 +807,39 @@ void SettingsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   self->toggleCurrentSetting();
 }
 
+void SettingsActivity::addThemePackSetting() {
+  if (!themePacksListed) {
+    themePacks = ThemePack::list();
+    themePacksListed = true;
+  }
+  if (themePacks.empty() && SETTINGS.uiThemePack[0] == '\0') return;
+  const auto themeRow = std::find_if(displaySettings.begin(), displaySettings.end(),
+                                     [](const SettingInfo& s) { return s.valuePtr == &CrossPointSettings::uiTheme; });
+  if (themeRow == displaySettings.end()) return;
+
+  const std::vector<std::string>& names = themePacks;
+  SettingInfo row = SettingInfo::DynamicEnum(
+      StrId::STR_THEME_PACK, {},
+      [&names]() -> uint8_t {
+        const auto it = std::find(names.begin(), names.end(), SETTINGS.uiThemePack);
+        return it == names.end() ? 0 : static_cast<uint8_t>(it - names.begin() + 1);
+      },
+      [this, &names](const uint8_t index) {
+        // Picking a pack again re-reads it, so an edited pack shows without a restart.
+        const char* name = index == 0 || index > names.size() ? "" : names[index - 1].c_str();
+        snprintf(SETTINGS.uiThemePack, sizeof(SETTINGS.uiThemePack), "%s", name);
+        reapplyUiTheme(true);
+      });
+  row.enumStringValues.reserve(names.size() + 1);
+  row.enumStringValues.emplace_back(tr(STR_NONE_OPT));
+  row.enumStringValues.insert(row.enumStringValues.end(), names.begin(), names.end());
+  displaySettings.insert(std::next(themeRow), std::move(row));
+}
+
 void SettingsActivity::onExit() {
+  themePacks.clear();
+  themePacks.shrink_to_fit();
+  themePacksListed = false;
   if (!isFileBrowserView()) {
     dictionaryRegistry.clear();
     sdFontSystem.releaseRegistry();
@@ -841,13 +875,17 @@ void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valueP
   if (!themeChanged && !scaleChanged) {
     return;
   }
+  // applySettingChange() already reloaded the theme.
+  reapplyUiTheme(false);
+}
 
+void SettingsActivity::reapplyUiTheme(const bool reloadThemePack) {
   // Rendering reads the shared theme tokens field-by-field. Hold the same
   // mutex used by the render task while replacing the theme and fonts, then
   // release it before requestUpdate() triggers the next repaint.
   {
     RenderLock lock(*this);
-    // applySettingChange() already reloaded the theme.
+    if (reloadThemePack) UITheme::getInstance().reload(true);
     const auto spec = uiScaleSpec();
     uiTarget.setFont(fui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
     uiTarget.setFont(fui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
