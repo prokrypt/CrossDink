@@ -119,3 +119,4 @@ add_subdirectory(scalable_fonts)
 
 add_subdirectory(glyph_bitmap)
 add_subdirectory(png_row_decoder)
+add_subdirectory(theme_pack_fields)

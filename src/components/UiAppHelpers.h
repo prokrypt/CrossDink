@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "MappedInputManager.h"
+#include "components/ThemePack.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -32,13 +33,13 @@ inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) 
 // atomic pointer, so no reader can observe a partially updated token object.
 namespace UiAppThemeDetail {
 struct ConfigKey {
-  uint8_t uiTheme = UINT8_MAX;
+  uint16_t themeGeneration = UINT16_MAX;  // a theme pack can change metrics under the same uiTheme
   uint8_t uiScale = UINT8_MAX;
   bool hasTouch = false;
   int16_t bodyLineHeight = -1;
 
   bool operator==(const ConfigKey& other) const {
-    return uiTheme == other.uiTheme && uiScale == other.uiScale && hasTouch == other.hasTouch &&
+    return themeGeneration == other.themeGeneration && uiScale == other.uiScale && hasTouch == other.hasTouch &&
            bodyLineHeight == other.bodyLineHeight;
   }
 };
@@ -62,7 +63,7 @@ inline ConfigKey& lastConfig() {
 template <size_t MaxInteractions, size_t MaxHandlers>
 inline void applySharedUiTheme(freeink::ui::FreeInkApp<MaxInteractions, MaxHandlers>& app,
                                const freeink::ui::GfxRendererTarget& target) {
-  const UiAppThemeDetail::ConfigKey config{SETTINGS.uiTheme, SETTINGS.uiScale, gpio.hasTouch(),
+  const UiAppThemeDetail::ConfigKey config{UITheme::getInstance().generation(), SETTINGS.uiScale, gpio.hasTouch(),
                                            target.lineHeight(freeink::ui::GfxRendererTarget::FONT_BODY)};
   auto& published = UiAppThemeDetail::publishedTokens();
   const auto current = published.load(std::memory_order_acquire);
@@ -84,6 +85,9 @@ inline void applySharedUiTheme(freeink::ui::FreeInkApp<MaxInteractions, MaxHandl
 // the legacy drawIcon assets use a different bit layout). Two crisp sizes:
 // 24 for single-line rows, 32 for label+subtitle rows.
 inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24) {
+  if (const freeink::Icon* packIcon = ThemePack::icon(icon, size >= 32 ? 32 : 24)) {
+    return freeink::ui::bitmapFromIcon(*packIcon);
+  }
   if (size >= 32) {
     switch (icon) {
       case UIIcon::Folder:

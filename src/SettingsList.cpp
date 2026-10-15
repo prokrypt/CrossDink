@@ -482,6 +482,7 @@ void applySettingChange(uint8_t CrossPointSettings::* const member) {
     SETTINGS.sdFontFamilyName[0] = '\0';
     SETTINGS.readerFontPointSize = closestBuiltinReaderPointSize(SETTINGS.readerFontPointSize);
   } else if (member == &S::uiTheme) {
+    SETTINGS.uiThemePack[0] = '\0';  // picking a built-in theme turns the SD pack off
     RenderLock lock;
     UITheme::getInstance().reload();
   }

@@ -25,7 +25,7 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                                            const BookReadingStats* /*stats*/, float /*progressPercent*/,
                                            const GlobalReadingStats* /*globalStats*/,
                                            const char* /*currentChapterTitle*/) const {
-  const int tileWidth = (rect.width - 2 * Lyra3CoversMetrics::values.contentSidePadding) / 3;
+  const int tileWidth = (rect.width - 2 * themed(Lyra3CoversMetrics::values).contentSidePadding) / 3;
   const int tileY = rect.y;
   const bool hasContinueReading = !recentBooks.empty();
 
@@ -35,15 +35,16 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
   if (hasContinueReading) {
     if (!coverRendered) {
       for (int i = 0;
-           i < std::min(static_cast<int>(recentBooks.size()), Lyra3CoversMetrics::values.homeRecentBooksCount); i++) {
+           i < std::min(static_cast<int>(recentBooks.size()), themed(Lyra3CoversMetrics::values).homeRecentBooksCount);
+           i++) {
         std::string coverPath = recentBooks[i].coverBmpPath;
         bool hasCover = true;
-        int tileX = Lyra3CoversMetrics::values.contentSidePadding + tileWidth * i;
+        int tileX = themed(Lyra3CoversMetrics::values).contentSidePadding + tileWidth * i;
         if (coverPath.empty()) {
           hasCover = false;
         } else {
           const std::string coverBmpPath =
-              UITheme::getCoverThumbPath(coverPath, Lyra3CoversMetrics::values.homeCoverHeight);
+              UITheme::getCoverThumbPath(coverPath, themed(Lyra3CoversMetrics::values).homeCoverHeight);
 
           // First time: load cover from SD and render
           HalFile file;
@@ -54,12 +55,12 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
               float coverWidth = static_cast<float>(bitmap.getWidth());
               float ratio = coverWidth / coverHeight;
               const float tileRatio = static_cast<float>(tileWidth - 2 * hPaddingInSelection) /
-                                      static_cast<float>(Lyra3CoversMetrics::values.homeCoverHeight);
+                                      static_cast<float>(themed(Lyra3CoversMetrics::values).homeCoverHeight);
               float cropX = 1.0f - (tileRatio / ratio);
 
               renderer.drawBitmap(bitmap, tileX + hPaddingInSelection, tileY + hPaddingInSelection,
-                                  tileWidth - 2 * hPaddingInSelection, Lyra3CoversMetrics::values.homeCoverHeight,
-                                  cropX);
+                                  tileWidth - 2 * hPaddingInSelection,
+                                  themed(Lyra3CoversMetrics::values).homeCoverHeight, cropX);
             } else {
               hasCover = false;
             }
@@ -68,14 +69,14 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         }
         // Draw either way
         renderer.drawRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection, tileWidth - 2 * hPaddingInSelection,
-                          Lyra3CoversMetrics::values.homeCoverHeight, true);
+                          themed(Lyra3CoversMetrics::values).homeCoverHeight, true);
 
         if (!hasCover) {
           // Render empty cover
           renderer.fillRect(tileX + hPaddingInSelection,
-                            tileY + hPaddingInSelection + (Lyra3CoversMetrics::values.homeCoverHeight / 3),
-                            tileWidth - 2 * hPaddingInSelection, 2 * Lyra3CoversMetrics::values.homeCoverHeight / 3,
-                            true);
+                            tileY + hPaddingInSelection + (themed(Lyra3CoversMetrics::values).homeCoverHeight / 3),
+                            tileWidth - 2 * hPaddingInSelection,
+                            2 * themed(Lyra3CoversMetrics::values).homeCoverHeight / 3, true);
           drawLucideIcon(renderer, icon_book_open_32, tileX + hPaddingInSelection + 24,
                          tileY + hPaddingInSelection + 24);
         }
@@ -85,13 +86,14 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       coverRendered = coverBufferStored;  // Only consider it rendered if we successfully stored the buffer
     }
 
-    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), Lyra3CoversMetrics::values.homeRecentBooksCount);
+    for (int i = 0;
+         i < std::min(static_cast<int>(recentBooks.size()), themed(Lyra3CoversMetrics::values).homeRecentBooksCount);
          i++) {
       bool bookSelected = (selectorIndex == i);
 
-      int tileX = Lyra3CoversMetrics::values.contentSidePadding + tileWidth * i;
-      const int targetHeight =
-          Lyra3CoversMetrics::values.homeCoverHeight + hPaddingInSelection + renderer.getLineHeight(SMALL_FONT_ID) * 3;
+      int tileX = themed(Lyra3CoversMetrics::values).contentSidePadding + tileWidth * i;
+      const int targetHeight = themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection +
+                               renderer.getLineHeight(SMALL_FONT_ID) * 3;
       TouchRegistry::getInstance().add(Rect{tileX, tileY, tileWidth, targetHeight}, i, TouchRegistry::Cover);
 
       const int maxLineWidth = tileWidth - 2 * hPaddingInSelection;
@@ -107,11 +109,11 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         // Selection box: 2 px outline around cover and title, not a dither fill.
         renderer.drawRoundedRect(
             tileX, tileY, tileWidth,
-            Lyra3CoversMetrics::values.homeCoverHeight + hPaddingInSelection + dynamicTitleBoxHeight, 2, cornerRadius,
-            true);
+            themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + dynamicTitleBoxHeight, 2,
+            cornerRadius, true);
       }
 
-      int currentY = tileY + Lyra3CoversMetrics::values.homeCoverHeight + hPaddingInSelection + 5;
+      int currentY = tileY + themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + 5;
       for (const auto& line : titleLines) {
         renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, line.c_str(), true);
         currentY += titleLineHeight;
