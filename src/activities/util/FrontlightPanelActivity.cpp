@@ -271,7 +271,7 @@ void FrontlightPanelActivity::closeSyncDialog() {
 }
 
 void FrontlightPanelActivity::activateQuickAction(const int index) {
-  if (index < 0 || index >= 5) return;
+  if (index < 0 || index >= 6) return;
   if (index == 0 && !context.showReadingStatsAction) return;
   drawerState.selectedAction = static_cast<int8_t>(index);
   switch (index) {
@@ -292,6 +292,16 @@ void FrontlightPanelActivity::activateQuickAction(const int index) {
     case 4:
       toggleReaderTouchscreen();
       return;
+    case 5: {
+      // Close first: the report snaps the screen without the panel on it.
+      FrontlightPanelResult panelResult;
+      panelResult.state = drawerState;
+      panelResult.action = FrontlightPanelAction::BugReport;
+      panelResult.ttfRenderingChanged = ttfRenderingChanged;
+      setResult(ActivityResult(std::move(panelResult)));
+      finish();
+      return;
+    }
   }
 }
 
@@ -462,14 +472,19 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
 
   const fui::Rect actionBar = screen.takeBottom(ACTION_BAR_HEIGHT);
   const bool showStats = context.showReadingStatsAction;
-  const int16_t slotCount = showStats ? 5 : 4;
+  const int16_t slotCount = showStats ? 6 : 5;
   const int16_t slotWidth = static_cast<int16_t>(actionBar.width / slotCount);
-  const std::array<fui::BitmapRef, 5> icons = {
-      fui::bitmapFromIcon(icon_reading_stats_24), fui::bitmapFromIcon(icon_transfer_24),
-      fui::bitmapFromIcon(icon_tabler_moon_filled_24), fui::bitmapFromIcon(icon_sliders_horizontal_24),
-      fui::bitmapFromIcon(pendingTouchscreenDisabled ? icon_device_tablet_off_24 : icon_device_tablet_24)};
+  const std::array<fui::BitmapRef, 6> icons = {
+      fui::bitmapFromIcon(icon_reading_stats_24),
+      fui::bitmapFromIcon(icon_transfer_24),
+      fui::bitmapFromIcon(icon_tabler_moon_filled_24),
+      fui::bitmapFromIcon(icon_sliders_horizontal_24),
+      fui::bitmapFromIcon(pendingTouchscreenDisabled ? icon_device_tablet_off_24 : icon_device_tablet_24),
+      fui::bitmapFromIcon(icon_bug_24)};
+  // Draw order by action index; the touchscreen toggle stays rightmost.
+  constexpr std::array<int16_t, 6> order = {0, 1, 2, 3, 5, 4};
   for (int16_t slotIndex = 0; slotIndex < slotCount; ++slotIndex) {
-    const int16_t i = showStats ? slotIndex : slotIndex + 1;
+    const int16_t i = order[static_cast<size_t>(showStats ? slotIndex : slotIndex + 1)];
     const int16_t x = static_cast<int16_t>(actionBar.x + slotIndex * slotWidth);
     const int16_t width = slotIndex == slotCount - 1 ? static_cast<int16_t>(actionBar.right() - x) : slotWidth;
     const fui::Rect slot{x, actionBar.y, width, actionBar.height};
