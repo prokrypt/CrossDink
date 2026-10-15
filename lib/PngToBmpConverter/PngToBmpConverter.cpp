@@ -1,6 +1,5 @@
 #include "PngToBmpConverter.h"
 
-#include <atomic>
 #include <HalDisplay.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -8,6 +7,7 @@
 #include <freertos/task.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>

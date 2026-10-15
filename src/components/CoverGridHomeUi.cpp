@@ -10,8 +10,8 @@
 
 #include "MappedInputManager.h"
 #include "UITheme.h"
-#include "components/KOSyncBadge.h"
 #include "UIThemeTokens.h"
+#include "components/KOSyncBadge.h"
 #include "components/icons/listIcons.h"
 
 namespace fui = freeink::ui;
