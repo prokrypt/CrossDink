@@ -1735,6 +1735,12 @@ void syncBookBeforeSleep() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+  // Deep sleep powers PSRAM down and would lose a running macro: any sleep
+  // (power key, timeout, menu) restarts instead, and the macro resumes.
+  if (SerialRemote::macroRunning()) {
+    LOG_INF("MAC", "sleep during macro: sleep-reboot instead");
+    SleepLog::armSleepReboot();
+  }
   armSleepGuard();
   HalPowerManager::sleepStep = "activity exit";
 #if CROSSDINK_GOODIES

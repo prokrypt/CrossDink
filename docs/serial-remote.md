@@ -38,7 +38,7 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
 | `CMD:SLEEPREBOOT` | `OK:SLEEPREBOOT` | Goodies > Sleep-reboot-log without the confirm (PSRAM-log builds): 0.5 s after the reply, the real deep-sleep path, then a restart instead of power-down. The PSRAM log keeps the sleep; read it from `/api/psram-log` once the remote rejoins. |
 | `CMD:REBOOT` | `OK:REBOOT` | Software restart. |
-| `CMD:MACRO <path.txt>` / `status` / `stop` | `OK:MACRO started`, `OK:MACRO running line N`, `OK:MACRO done <results>` | PSRAM-log builds: runs a test script from the SD card with the Wi-Fi remote off; see Test macros below. |
+| `CMD:MACRO <path.txt>` / `status` / `stop` | `OK:MACRO started`, `OK:MACRO running line N`, `OK:MACRO done <script> since=<offset>` | PSRAM-log builds: runs a test script from the SD card with the Wi-Fi remote off; see Test macros below. |
 | `CMD:BOOTSLOT` | `OK:BOOTSLOT running=<label> other=<label> <project> <version> <date> <time> elf=<8 hex>` or `other=none` | Read-only: the other OTA slot's image header, as Goodies > Boot previous firmware shows it. |
 | `CMD:BOOTSLOT <label>` | `OK:BOOTSLOT <label>` | Boots the other slot without USB. `<label>` must name the other slot (`ERR:BOOTSLOT:not_other <label>`, `ERR:BOOTSLOT:none`; `ERR:BOOTSLOT:busy` while an OTA upload runs). Runs the full image check first (checksum, SHA-256, board tag; a few seconds) and switches nothing on `ERR:BOOTSLOT:verify <reason>`; `ERR:BOOTSLOT:switch` if the otadata write fails. On OK, 0.5 s after the reply, saves the open screens and restarts into that slot. The way back needs the same command (or Goodies) in that build. |
 | `CMD:WAITIDLE [ms]` | `OK:WAITIDLE <elapsed_ms>` or `ERR:WAITIDLE:timeout` | Replies once injected input and typing are done, no render is queued or running, no refresh is pending, and that has held for 150 ms. Default timeout 10 s. |
@@ -173,9 +173,9 @@ curl -sN -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/psram-log/stream
 
 `MACRO <path.txt>` runs a script from the SD card on the device itself, so a test can run with the Goodies Wi-Fi
 remote off (radio free for KOReader Sync and the like, no server work skewing timings). 0.5 s after the reply the
-remote's server and Wi-Fi go off and stay off; the script runs on the main loop; then the results are written next to
-the script and the remote rejoins. Upload the script with `/api/upload` (names can't be reused, so give each run its own
-name), start it, wait for the remote to come back (`PING`), check `MACRO status`, then download the results.
+remote's server and Wi-Fi go off and stay off; the script runs on the main loop, logging its results to the PSRAM log;
+then the remote rejoins. Upload the script with `/api/upload` (names can't be reused, so give each run its own name),
+start it, wait for the remote to come back (`PING`), check `MACRO status`, then read the log from its `since` offset.
 
 One command per line; blank lines and `#` comments are skipped. Any remote command above runs as it would over
 `/api/cmd` (`TOUCH`, `KEY`, `SWIPE`, `TYPE`, `GOTO`, `WAITIDLE`, `SET`, `KNOB`, `SLEEPREBOOT`, `REBOOT`, ...), plus:
@@ -189,17 +189,17 @@ One command per line; blank lines and `#` comments are skipped. Any remote comma
 
 A step that gets no reply in 15 s records `ERR:MACRO:no_reply`; the script goes on either way. `SLEEP` and nested
 `MACRO` are refused: deep sleep powers PSRAM down, which would lose the macro. `SLEEPREBOOT` and `REBOOT` are fine:
-the script, its position and the results so far sit in PSRAM that survives a software restart (CRC-checked), so the
-script carries on after the boot (a `# restarted` result line marks it; follow with `WAITIDLE`). The main loop keeps
-its fast tick while a macro runs, so waits resolve within about 50 ms. A device auto-sleep during a long `WAIT` ends the
-macro without results. `MACRO stop` (USB serial while the remote is off) ends it and writes what it has.
+the script and its position sit in PSRAM that survives a software restart (CRC-checked), as does the PSRAM log, so the
+script carries on after the boot (a `[MAC] resuming` line marks it; follow with `WAITIDLE`). Any other deep sleep while
+a macro runs (power key, auto-sleep during a long `WAIT`, a Sleep menu tap) becomes a sleep-reboot, so the macro never
+powers down. The main loop keeps its fast tick while a macro runs, so waits resolve within about 50 ms. `MACRO stop`
+(USB serial while the remote is off) ends it.
 
-Files, next to the script (`/debug/macros/t1.txt` gives `/debug/macros/t1.result.txt` and so on), written once when the
-script ends (shots when taken), the deliberate write the tester asked for:
-
-- `<script>.result.txt`: one line per step, `<line> +<step ms>ms @<log offset> <command> => <reply>` (8 KB at most).
-- `<script>.log`: the PSRAM log from `MACRO` to the end.
-- `<script>.<name>.pnm`: shots.
+Results go to the PSRAM log, one `[MAC]` line per step: `<line> +<step ms>ms @<log offset> <command> => <reply>`, the
+command cut to 40 bytes. `MACRO status` after the run gives `since=<offset>`, the log offset at `MACRO`; read the run
+with `/api/psram-log?since=<offset>` (a `[psram-log gap N bytes]` line means the 512 KB ring overwrote the start).
+Only shots touch the card: `SHOT` writes `<script>.<name>.pnm` next to the script (`/debug/macros/t1.txt` gives
+`/debug/macros/t1.<name>.pnm`).
 
 ```sh
 printf 'GOTO settings\nWAITIDLE\nSHOT settings\nMARK back\nKEY back\nWAITLOG 5000 Home\n' > t1.txt
@@ -207,5 +207,6 @@ curl -s -H "X-Token: $(cat remote-token)" -F "file=@t1.txt" "http://10.0.1.67/ap
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=MACRO /debug/macros/t1.txt" http://10.0.1.67/api/cmd
 # when the remote answers again:
 curl -s --data-urlencode "token=$(cat remote-token)" --data-urlencode "cmd=MACRO status" http://10.0.1.67/api/cmd
-curl -s -H "X-Token: $(cat remote-token)" "http://10.0.1.67/api/download?path=/debug/macros/t1.result.txt"
+# OK:MACRO done /debug/macros/t1 since=123456
+curl -s -H "X-Token: $(cat remote-token)" "http://10.0.1.67/api/psram-log?since=123456" | grep '\[MAC\]'
 ```
