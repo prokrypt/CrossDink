@@ -20,6 +20,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PackedFontBitmaps.h>
 #include <PerfLog.h>
 #include <SPI.h>
 #include <WiFi.h>
@@ -70,6 +71,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/browser/OpdsPageCache.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/RecentBookProgress.h"
 #include "activities/reader/KOReaderSyncActivity.h"
@@ -248,6 +250,31 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, 
 EpdFont ui12RegularFont(&inter_12_regular);
 EpdFont ui12BoldFont(&inter_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &uiSymbols10Font);
+
+// The Inter UI faces ship with packed bitmaps (fontconvert.py --pack-bitmaps):
+// 75 KB in flash, inflated once per boot into ~167 KB of PSRAM before the
+// fonts are registered.
+HeapByteBuffer uiFontBitmapStorage[5];
+
+void attachUiFontBitmaps() {
+  struct UiFontBitmaps {
+    EpdFont& font;
+    PackedAsset bitmaps;
+  };
+  const UiFontBitmaps fonts[] = {
+      {smallFont, {inter_8_regularBitmapsPacked, sizeof(inter_8_regularBitmapsPacked), inter_8_regularBitmapsSize}},
+      {ui10RegularFont,
+       {inter_10_regularBitmapsPacked, sizeof(inter_10_regularBitmapsPacked), inter_10_regularBitmapsSize}},
+      {ui10BoldFont, {inter_10_boldBitmapsPacked, sizeof(inter_10_boldBitmapsPacked), inter_10_boldBitmapsSize}},
+      {ui12RegularFont,
+       {inter_12_regularBitmapsPacked, sizeof(inter_12_regularBitmapsPacked), inter_12_regularBitmapsSize}},
+      {ui12BoldFont, {inter_12_boldBitmapsPacked, sizeof(inter_12_boldBitmapsPacked), inter_12_boldBitmapsSize}},
+  };
+  static_assert(sizeof(fonts) / sizeof(fonts[0]) == sizeof(uiFontBitmapStorage) / sizeof(uiFontBitmapStorage[0]));
+  for (size_t i = 0; i < sizeof(fonts) / sizeof(fonts[0]); ++i) {
+    attachPackedBitmaps(fonts[i].font, fonts[i].bitmaps, uiFontBitmapStorage[i]);
+  }
+}
 
 const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
   switch (reason) {
@@ -580,6 +607,7 @@ static void restartToNetworkTarget(const NetworkBootTarget target, const uint32_
   silentRebootTarget = static_cast<uint32_t>(target);
   silentRebootPayload = payload;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
+  if (target == NetworkBootTarget::OPDS) opds_page_cache_handoff::persistForRestart();
   LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(silentRebootTarget),
           static_cast<unsigned long>(payload));
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
@@ -738,9 +766,23 @@ bool keepWifiForRemote() {
 // whose entry check guards the heap that screen runs on.
 static bool networkEntryPending = false;
 
+static bool keepLinkForNext = false;
+
+void keepWifiForNextScreen() { keepLinkForNext = true; }
+
 bool leaveNetworkInPlace(const bool goingHome) {
+  const bool keepForNext = keepLinkForNext;
+  keepLinkForNext = false;
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
+  if (keepForNext && readerResourcesReady) {
+    // The next screen is another Wi-Fi screen on the same stack and heap the
+    // leaving one ran on, and nothing is left to set up for Home: nothing
+    // torn down, nothing to rejoin. After a minimal network boot the normal
+    // exit below runs instead.
+    LOG_INF("MAIN", "Leaving Wi-Fi in place: link kept for the next Wi-Fi screen");
+    return true;
+  }
   const wifi_mode_t mode = WiFi.getMode();
   // The Goodies remote's own network: hand the link back, no teardown and rejoin.
   const bool keepLink = keepWifiForRemote();
@@ -1845,6 +1887,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
   renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
 #endif
+  attachUiFontBitmaps();
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);

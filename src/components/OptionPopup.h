@@ -143,6 +143,22 @@ class OptionPopup {
     }
     int tx = 0;
     int ty = 0;
+    // The finger or Confirm press that opened the popup (a long-press) must not
+    // pick a row on release. Reading wasScreenTapped() also clears a one-shot
+    // tap suppression the opener set, so it can't eat the first real tap. Not
+    // held covers both the release and a contact suppressed mid-hold.
+    if (ignoreOpeningTouch) {
+      (void)input.wasScreenTapped(tx, ty);
+      if (!input.isScreenTouchHeld(tx, ty)) ignoreOpeningTouch = false;
+      return true;
+    }
+    if (ignoreOpeningConfirm) {
+      if (input.wasReleased(MappedInputManager::Button::Confirm) ||
+          !input.isPressed(MappedInputManager::Button::Confirm)) {
+        ignoreOpeningConfirm = false;
+        return true;
+      }
+    }
     if (input.wasScreenTouchDown(tx, ty)) {
       touchDownOptionIndex = -1;
       touchDownTarget = TouchTarget::None;
@@ -488,6 +504,8 @@ class OptionPopup {
   mutable const MappedInputManager* baseInput = nullptr;
   bool showsTapRow = false;  // this popup set ListSelection::tapRowShown
   bool dismissOnOutsideTouchDown = false;
+  bool ignoreOpeningTouch = false;
+  bool ignoreOpeningConfirm = false;
   bool confirmationMode = false;
   bool footerFocused = false;
   std::string title;
@@ -533,6 +551,10 @@ class OptionPopup {
       selectedIndex = currentIndex;
     }
     active = true;
+    int heldX = 0;
+    int heldY = 0;
+    ignoreOpeningTouch = mappedInputManager.isScreenTouchHeld(heldX, heldY);
+    ignoreOpeningConfirm = mappedInputManager.isPressed(MappedInputManager::Button::Confirm);
     baseFramePending = showTappedRowFirst && mappedInputManager.wasTapOrHeld();
     popupFramePending = false;
     showsTapRow = baseFramePending;

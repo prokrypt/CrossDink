@@ -901,23 +901,6 @@ uint16_t resolveClippingJumpPage(Section& section, const Clipping& clipping, con
   return resolvedPage;
 }
 
-// Both whole AA planes for the X4 Pro deferred-base pass, from PSRAM only.
-bool allocateDeferredGrayscalePlanes(const GfxRenderer& renderer, HeapByteBuffer& lsb, HeapByteBuffer& msb) {
-  if (!psramHeapAvailable()) return false;
-  constexpr size_t PSRAM_PLANE_RESERVE = 128 * 1024;
-  const size_t planeBytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight();
-  const auto psram = MemoryBudget::psramSnapshot();
-  if (psram.freeHeap < 2 * planeBytes + PSRAM_PLANE_RESERVE || psram.maxAllocHeap < planeBytes) return false;
-  lsb = makePsramByteBufferNoThrow(planeBytes);
-  if (lsb) msb = makePsramByteBufferNoThrow(planeBytes);
-  if (!lsb || !msb) {
-    lsb.reset();
-    msb.reset();
-    return false;
-  }
-  return true;
-}
-
 ToastRect computeToastRect(const GfxRenderer& renderer, const char* msg) {
   constexpr int toastPadX = 20;
   constexpr int toastPadY = 12;
@@ -4710,7 +4693,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       pauseReadingPaceTimer("delete_cache_confirm");
       startActivityForResult(
           std::make_unique<ConfirmationActivity>(renderer, mappedInput, confirmationHeading(StrId::STR_DELETE_CACHE),
-                                                 epub ? epub->getTitle() : std::string{}, false, true),
+                                                 epub ? epub->getTitle() : std::string{}, true),
           [this, returnToReaderMenu](const ActivityResult& result) {
             if (result.isCancelled) {
               resumeReadingPaceTimer("delete_cache_cancel");
@@ -4760,7 +4743,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       pauseReadingPaceTimer("reset_reader_settings_confirm");
       auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
           renderer, mappedInput, confirmationHeading(StrId::STR_RESET_BOOK_READER_SETTINGS),
-          epub ? epub->getTitle() : std::string{}, false, true);
+          epub ? epub->getTitle() : std::string{}, true);
       if (!confirmation) {
         LOG_ERR("ERS", "Could not allocate reader settings reset confirmation");
         resumeReadingPaceTimer("reset_reader_settings_alloc_failed");
@@ -8707,9 +8690,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // snapshot/restore and the post-base plane renders drop out of the turn.
   HeapByteBuffer deferredLsbPlane;
   HeapByteBuffer deferredMsbPlane;
-  bool deferredGrayscaleBase = needsTextGrayscale && !tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 &&
-                               renderer.supportsDeferredGrayscaleBase() &&
-                               allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+  bool deferredGrayscaleBase =
+      needsTextGrayscale && !tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 &&
+      renderer.supportsDeferredGrayscaleBase() &&
+      ReaderUtils::allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
   bool baseRefreshPending = false;
   int16_t imgX = 0, imgY = 0, imgW = 0, imgH = 0;
   const bool hasImageBox = pageHasImages && page->getImageBoundingBox(imgX, imgY, imgW, imgH);
@@ -8766,9 +8750,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       // text-only grayscale turns; other panels keep the FAST fallback behavior.
       // X4 Pro: run that base in the background and render the AA planes
       // into PSRAM meanwhile, as text pages do.
-      deferredGrayscaleBase = directImageBase && !cleanBase && needsAnyGrayscale && !tiledGrayscale &&
-                              renderer.supportsDeferredGrayscaleBase() &&
-                              allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+      deferredGrayscaleBase =
+          directImageBase && !cleanBase && needsAnyGrayscale && !tiledGrayscale &&
+          renderer.supportsDeferredGrayscaleBase() &&
+          ReaderUtils::allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
       if (deferredGrayscaleBase) {
         baseRefreshPending = renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
       } else {

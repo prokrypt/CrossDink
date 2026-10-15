@@ -994,7 +994,7 @@ void XtcReaderActivity::deleteBookStats() {
 void XtcReaderActivity::deleteBookCache() {
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, confirmationHeading(StrId::STR_DELETE_CACHE),
-                                             xtc ? xtc->getTitle() : std::string{}, false, true),
+                                             xtc ? xtc->getTitle() : std::string{}, true),
       [this](const ActivityResult& result) {
         if (!result.isCancelled && xtc) {
           bool cacheDeleted = false;
@@ -1332,6 +1332,17 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
       return;
     }
     renderOverlays(true);
+
+    // A failed plane stream drops the gray pass; the BW page stays shown.
+    if (ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, [&]() {
+          const auto pass =
+              renderer.getRenderMode() == GfxRenderer::GRAYSCALE_LSB ? XtchRenderPass::Lsb : XtchRenderPass::Msb;
+          if (!streamXtchRenderPass(*xtc, pageToRender, pageWidth, pageHeight, renderer, pass)) return false;
+          renderOverlays(false);
+          return true;
+        })) {
+      return;
+    }
 
     if (pagesUntilFullRefresh <= 1) {
       renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));

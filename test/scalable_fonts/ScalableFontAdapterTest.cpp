@@ -13,15 +13,24 @@ using FileMode = HalScalableFont::FileMode;
 
 int main(int argc, char** argv) {
   assert(argc >= 2);
-  // Match the reader's eight built-in faces, which stay alive beside SD fonts.
-  const char* names[] = {"bitter_regular",     "bitter_bold",     "bitter_italic",     "bitter_bolditalic",
-                         "lexenddeca_regular", "lexenddeca_bold", "lexenddeca_italic", "lexenddeca_bolditalic"};
-  std::array<std::vector<uint8_t>, 8> bytes;
-  std::array<HalScalableFont, 8> builtin;
-  for (size_t i = 0; i < 8; ++i) {
+  // Match the reader's eight built-in faces, which stay alive beside SD fonts:
+  // six embedded files, with Lexend Deca's italics opened as sheared uprights.
+  const char* names[] = {"bitter_regular",    "bitter_bold",        "bitter_italic",
+                         "bitter_bolditalic", "lexenddeca_regular", "lexenddeca_bold"};
+  constexpr size_t faceFile[] = {0, 1, 2, 3, 4, 5, 4, 5};
+  constexpr int32_t faceSlant[] = {0, 0, 0, 0, 0, 0, 13107, 13107};
+  std::array<std::vector<uint8_t>, 6> bytes;
+  for (size_t i = 0; i < bytes.size(); ++i) {
     std::ifstream file(std::string(argv[1]) + "/" + names[i] + ".ttf", std::ios::binary);
     bytes[i] = {std::istreambuf_iterator<char>(file), {}};
-    assert(builtin[i].openMemory(bytes[i].data(), bytes[i].size()));
+  }
+  std::array<HalScalableFont, 8> builtin;
+  for (size_t i = 0; i < builtin.size(); ++i) {
+    freeink::font::FtFont::RenderOptions faceOptions;
+    faceOptions.hinting = freeink::font::FtFont::HintingMode::Auto;
+    faceOptions.slant16_16 = faceSlant[i];
+    const auto& data = bytes[faceFile[i]];
+    assert(builtin[i].openMemory(data.data(), data.size(), faceOptions));
     assert(builtin[i].probeGlyph('T', 12));
   }
   freeink::font::FtFont::RenderOptions options;

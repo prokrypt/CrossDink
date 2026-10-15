@@ -896,6 +896,12 @@ void TxtReaderActivity::renderPage() {
   renderer.setSmoothGray(SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH && !smoothFullSwingPending);
   renderer.setInvertedTextGray(true);  // night mode: text AA on the inverted panel
   smoothFullSwingPending = false;
+  if (SETTINGS.textAntiAliasing && ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, [&]() {
+        renderLines();
+        return true;
+      })) {
+    return;
+  }
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   if (SETTINGS.textAntiAliasing) {
