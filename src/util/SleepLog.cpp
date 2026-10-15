@@ -15,7 +15,10 @@
 #include "BuildInfo.h"
 
 namespace {
-constexpr uint32_t ARMED_MAGIC = 0x534C5241;  // "SLRA": the next sleep restarts
+constexpr uint32_t ARMED_MAGIC = 0x534C5241;         // "SLRA": the next sleep restarts
+constexpr uint32_t ARMED_QUIET_MAGIC = 0x534C5251;   // "SLRQ": restarts, no ring write after
+constexpr uint32_t DUMP_PENDING_MAGIC = 0x534C5244;  // "SLRD": restarted, ring not yet written
+constexpr uint32_t DUMP_SETTLE_MS = 15000;           // boot, first render and Wi-Fi/OPDS starts are in the ring by then
 
 // RTC memory; power loss leaves garbage that fails the magic check.
 RTC_NOINIT_ATTR uint32_t sleepRebootState;
@@ -52,16 +55,18 @@ namespace SleepLog {
 
 void onSleep() {
   char path[48];
-  if (sleepRebootState == ARMED_MAGIC || !logPath(path, sizeof(path), "sleep") || Storage.exists(path)) return;
+  if (sleepRebootState == ARMED_MAGIC || sleepRebootState == ARMED_QUIET_MAGIC ||
+      !logPath(path, sizeof(path), "sleep") || Storage.exists(path))
+    return;
   Storage.ensureDirectoryExists("/debug");
   dumpRing(path);
 }
 
-void armSleepReboot() { sleepRebootState = ARMED_MAGIC; }
+void armSleepReboot(const bool saveLog) { sleepRebootState = saveLog ? ARMED_MAGIC : ARMED_QUIET_MAGIC; }
 
 void restartIfArmed() {
-  if (sleepRebootState != ARMED_MAGIC) return;
-  sleepRebootState = 0;
+  if (sleepRebootState != ARMED_MAGIC && sleepRebootState != ARMED_QUIET_MAGIC) return;
+  sleepRebootState = sleepRebootState == ARMED_MAGIC ? DUMP_PENDING_MAGIC : 0;
   LOG_INF("SLPLOG", "Sleep-reboot: restarting instead of powering down");
   ESP.restart();
 }

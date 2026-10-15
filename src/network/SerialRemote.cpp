@@ -910,26 +910,24 @@ void cmdBootSlot(const char* args) {
 
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
 // MACRO <path>: runs a script of remote commands on the main task with the
-// Goodies Wi-Fi remote off (radio free, no server work skewing timings), then
-// writes the results to the SD card and turns the remote back on. The script
-// and results live in PSRAM that survives software restarts (CRC-checked), so
-// a SLEEPREBOOT or REBOOT step carries on after the boot. docs/serial-remote.md.
+// Goodies Wi-Fi remote off (radio free, no server work skewing timings), logs
+// one [MAC] line per step to the PSRAM log (no SD writes but SHOT) and turns the
+// remote back on. The script lives in PSRAM that survives software restarts
+// (CRC-checked), so a SLEEPREBOOT or REBOOT step carries on after the boot, and
+// any deep sleep while it runs becomes a sleep-reboot. docs/serial-remote.md.
 namespace macro {
-constexpr uint32_t MAGIC = 0x4D414331;  // "MAC1"
+constexpr uint32_t MAGIC = 0x4D414332;  // "MAC2": the layout without the result buffer
 constexpr size_t SCRIPT_MAX = 16384;
-constexpr size_t RESULT_MAX = 8192;
 constexpr size_t NEEDLE_MAX = 120;
 constexpr uint32_t REPLY_TIMEOUT_MS = 15000;  // WAITIDLE carries its own, shorter by default
 
 struct Saved {
   uint32_t magic;
   uint32_t scriptLen, pos, lineNo;  // pos: the next line to run
-  uint32_t logStart;                // PsramLog offset at MACRO
+  uint32_t logStart;                // PsramLog offset at MACRO: the results start here
   uint32_t logCursor;               // WAITLOG searches from here; MARK moves it to the log end
-  uint32_t resultLen;
-  char base[96];  // the script path without .txt
+  char base[96];                    // the script path without .txt
   char script[SCRIPT_MAX];
-  char result[RESULT_MAX];
   uint32_t crc;  // over everything above
 };
 EXT_RAM_NOINIT_ATTR Saved saved;
@@ -946,22 +944,13 @@ EXT_RAM_NOINIT_ATTR char chunk[4096];
 uint32_t crc() { return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&saved), offsetof(Saved, crc)); }
 void seal() { saved.crc = crc(); }
 
-void record(const char* fmt, ...) {
-  const size_t room = RESULT_MAX - saved.resultLen;
-  if (room <= 1) return;
-  va_list args;
-  va_start(args, fmt);
-  const int n = vsnprintf(saved.result + saved.resultLen, room, fmt, args);
-  va_end(args);
-  saved.resultLen += n < 0 ? 0 : std::min<size_t>(n, room - 1);
-  seal();
-}
-
 // One result line for the line just run: number, step time, log offset, line, reply.
+// The line is cut to 40 bytes so the reply fits the 256-byte log entry.
 void finishStep(const char* replyText) {
-  record("%lu +%lums @%lu %s => %s\n", static_cast<unsigned long>(saved.lineNo),
-         static_cast<unsigned long>(millis() - stepStart), static_cast<unsigned long>(PsramLog::end()), line,
-         replyText);
+  LOG_INF("MAC", "%lu +%lums @%lu %.40s => %s", static_cast<unsigned long>(saved.lineNo),
+          static_cast<unsigned long>(millis() - stepStart), static_cast<unsigned long>(PsramLog::end()), line,
+          replyText);
+  seal();  // MARK and WAITLOG moved the cursor
   step = Step::Next;
 }
 
@@ -1036,31 +1025,6 @@ void shot(const char* name) {
   finishStep(out);
 }
 
-// Results and the PSRAM log since MACRO, written once at the end (a deliberate
-// write the tester asked for, not a deferred store).
-void writeResults() {
-  char path[120];
-  snprintf(path, sizeof(path), "%s.result.txt", saved.base);
-  HalFile file;
-  bool ok = Storage.openFileForWrite("MAC", path, file) && file.write(saved.result, saved.resultLen) == saved.resultLen;
-  file.close();
-  snprintf(lastResult, sizeof(lastResult), "%s %s", ok ? "done" : "write_failed", path);
-  snprintf(path, sizeof(path), "%s.log", saved.base);
-  if (!Storage.openFileForWrite("MAC", path, file)) return;
-  uint32_t cursor = std::max(saved.logStart, PsramLog::oldest());
-  if (cursor != saved.logStart) {
-    const int n = snprintf(chunk, sizeof(chunk), "[psram-log gap %lu bytes]\n",
-                           static_cast<unsigned long>(cursor - saved.logStart));
-    file.write(chunk, n);
-  }
-  const uint32_t end = PsramLog::end();
-  while (cursor < end) {
-    const size_t n = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
-    if (n == 0 || file.write(chunk, n) != n) break;
-  }
-  file.close();
-}
-
 void holdRemote(const bool on) {
 #if CROSSDINK_GOODIES
   goodies_remote::hold(on);
@@ -1117,9 +1081,8 @@ void poll() {
   static bool checkedBoot = false;
   if (!checkedBoot) {
     checkedBoot = true;
-    if (saved.magic == MAGIC && saved.crc == crc() && saved.scriptLen <= SCRIPT_MAX && saved.resultLen < RESULT_MAX) {
+    if (saved.magic == MAGIC && saved.crc == crc() && saved.scriptLen <= SCRIPT_MAX) {
       LOG_INF("MAC", "resuming %s at line %lu after restart", saved.base, static_cast<unsigned long>(saved.lineNo));
-      record("# restarted\n");
       holdRemote(true);
       step = Step::Next;
     } else {
@@ -1154,8 +1117,9 @@ void poll() {
       if (static_cast<int32_t>(now - deadline) >= 0) finishStep("ERR:WAITLOG:timeout");
       return;
     case Step::Finish:
-      LOG_INF("MAC", "%s done, %lu result bytes", saved.base, static_cast<unsigned long>(saved.resultLen));
-      writeResults();
+      LOG_INF("MAC", "%s done", saved.base);
+      snprintf(lastResult, sizeof(lastResult), "done %s since=%lu", saved.base,
+               static_cast<unsigned long>(saved.logStart));
       saved.magic = 0;
       step = Step::Idle;
       holdRemote(false);
@@ -1172,7 +1136,7 @@ void command(const char* args) {
   if (strcasecmp(args, "stop") == 0) {
     if (step == Step::Idle) return reply("ERR:MACRO:not_running");
     macroCapture = false;
-    record("# stopped\n");
+    LOG_INF("MAC", "stopped");
     step = Step::Finish;
     return reply("OK:MACRO stopping");
   }
@@ -1193,15 +1157,15 @@ void command(const char* args) {
   if (len >= SCRIPT_MAX - 1) return reply("ERR:MACRO:too_big");
   saved.magic = MAGIC;
   saved.scriptLen = len;
-  saved.pos = saved.lineNo = saved.resultLen = 0;
+  saved.pos = saved.lineNo = 0;
   strcpy(saved.base, base);
   saved.logStart = saved.logCursor = PsramLog::end();
-  record("# macro %s\n", args);
   lastResult[0] = '\0';
   // Reply first: the remote that carried MACRO goes off once this is sent.
   deadline = millis() + GOTO_DELAY_MS;
   step = Step::Start;
   LOG_INF("MAC", "start %s (%u bytes)", args, static_cast<unsigned>(len));
+  seal();
   reply("OK:MACRO started");
 }
 }  // namespace macro
