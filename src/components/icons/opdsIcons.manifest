@@ -1,0 +1,6 @@
+# Manifest for src/components/icons/opdsIcons.h — regenerate with:
+#   python3 scripts/generate_icons.py --library crossdink \
+#     --manifest src/components/icons/opdsIcons.manifest \
+#     --sizes 24,32 --out src/components/icons/opdsIcons.h
+# then clang-format -i the output.
+opds = book-down-opds

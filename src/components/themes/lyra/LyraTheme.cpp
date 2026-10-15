@@ -75,9 +75,9 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
       case UIIcon::File:
         return &icon_file_24;
       case UIIcon::Library:
-        return &icon_landmark_24;
-      case UIIcon::Opds:
         return &icon_lyra_library_24;
+      case UIIcon::Opds:
+        return &icon_opds_24;
       default:
         return nullptr;
     }
@@ -96,9 +96,9 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
       case UIIcon::Transfer:
         return &icon_lyra_transfer_32;
       case UIIcon::Library:
-        return &icon_landmark_32;
-      case UIIcon::Opds:
         return &icon_lyra_library_32;
+      case UIIcon::Opds:
+        return &icon_opds_32;
       case UIIcon::Wifi:
         return &icon_wifi_32;
       case UIIcon::Hotspot:

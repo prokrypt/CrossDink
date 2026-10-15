@@ -11,6 +11,7 @@
 #include "MappedInputManager.h"
 #include "UITheme.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/opdsIcons.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -229,7 +230,7 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const freeink::Icon* ICONS[] = {&icon_folder_32, &icon_landmark_32, &icon_lyra_library_32,
+  static constexpr const freeink::Icon* ICONS[] = {&icon_folder_32, &icon_lyra_library_32, &icon_opds_32,
                                                    &icon_lyra_transfer_32, &icon_lyra_settings_32};
   int count = 0;
   for (int i = 0; i < 5; ++i) {
