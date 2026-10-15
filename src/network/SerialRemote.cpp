@@ -71,6 +71,7 @@ bool SerialRemote::isTokenPath(const char* path, const bool orFolder) {
 #include "activities/util/RemoteImageActivity.h"
 #include "platform/InputTask.h"
 #include "platform/PinMon.h"
+#include "util/BugReport.h"
 #include "util/SleepLog.h"
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
 #include <PsramLog.h>
@@ -1324,6 +1325,13 @@ bool handleLine(const char* line) {
     silentRestart();  // intentional: remote-control reboot for test runs, no logo
   } else if (strcmp(verb, "WAITIDLE") == 0) {
     cmdWaitIdle(args);
+  } else if (strcmp(verb, "BUGREPORT") == 0) {
+    char id[24];
+    if (BugReport::fileNow(args, id)) {
+      reply("OK:BUGREPORT %s", id);
+    } else {
+      reply("ERR:BUGREPORT:failed");
+    }
   } else if (strcmp(verb, "GOTO") == 0) {
     cmdGoto(args);
   } else if (strcmp(verb, "IMAGE") == 0) {

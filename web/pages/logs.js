@@ -1,4 +1,5 @@
-// Sources: /api/status, the PSRAM ring (debug builds) and every file under /debug.
+// Sources: /api/status, the PSRAM ring (debug builds), every file under /debug and the
+// bug report zips under /bugreports (download only).
 // Missing sources are left out. Search filters the loaded text line by line.
 const $ = (id) => document.getElementById(id);
 // A boot row is a cold boot after power-on; any other reset (OTA, panic, watchdog) is a restart.
@@ -21,6 +22,7 @@ async function walk(dir, depth) {
       if (depth < 3) await walk(p, depth + 1);
     } else if (f.name.toLowerCase() !== 'remote-token') {
       add(p.slice(1) + ' (' + f.size.toLocaleString() + 'B)', '/download?path=' + encodeURIComponent(p), f.name, p.slice(1));
+      if (f.name.endsWith('.zip')) $('src').options[$('src').length - 1].dataset.bin = '1';
     }
   }
 }
@@ -56,6 +58,11 @@ async function load() {
   if (!o || !o.value) return;
   $('dl').href = o.value;
   $('dl').download = o.dataset.dl;
+  if (o.dataset.bin) {
+    text = 'Binary file: use Download.';
+    show();
+    return;
+  }
   $('meta').textContent = 'Loading...';
   try {
     const r = await fetch(o.value);
@@ -77,6 +84,7 @@ async function load() {
     add('PSRAM log (' + size.toLocaleString() + 'B)', '/api/psram-log', 'psram-log.txt');
   }
   await walk('/debug', 1);
+  await walk('/bugreports', 1);
   load();
 })();
 $('src').onchange = load;
