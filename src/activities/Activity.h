@@ -108,7 +108,8 @@ class Activity {
   virtual bool isHomeActivity() const { return false; }
   // Main loop, render lock held, just before a toast refresh: redraw the shown
   // book's KOSync badge into the framebuffer so the toast's refresh carries it.
-  virtual void repaintSyncBadge() {}
+  // True when the badge changed.
+  virtual bool repaintSyncBadge() { return false; }
   // Reads the readers' held exit writes (ReaderExitSave, HeldWrites) instead of
   // SD, so entering it does not flush them.
   virtual bool readsHeldExitWrites() const { return isHomeActivity() || isReaderActivity(); }

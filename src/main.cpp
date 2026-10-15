@@ -3342,6 +3342,15 @@ static void loopPass() {
     }
     activityManager.requestUpdate();
   }
+  // A close push that ended without landing: no toast, one fast redraw only when a shown badge left Syncing.
+  if (kosync_auto::takeSettled()) {
+    bool changed;
+    {
+      RenderLock lock;
+      changed = activityManager.repaintSyncBadge();
+    }
+    if (changed) activityManager.requestUpdate();
+  }
 #if CROSSDINK_GOODIES
   goodies_remote::loop(millis() - lastActivityTime);
   knobs::loop();

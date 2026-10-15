@@ -1131,12 +1131,13 @@ void HomeActivity::beginSyncBadge() {
 
 void HomeActivity::endSyncBadge() { syncBadgeBox = KOSyncBadge::takeRect(isLyraExtendedTheme() ? syncBadgeBook : 0); }
 
-void HomeActivity::repaintSyncBadge() {
-  if (syncBadgeBox.width == 0) return;
+bool HomeActivity::repaintSyncBadge() {
+  if (syncBadgeBox.width == 0) return false;
   const auto badge = syncBadgeFor(syncBadgeBook);
-  if (badge == syncBadgeShown) return;
+  if (badge == syncBadgeShown) return false;
   KOSyncBadge::repaint(renderer, syncBadgeBox, badge);
   syncBadgeShown = badge;
+  return true;
 }
 
 int HomeActivity::getHighlightedBookIndex() const {
