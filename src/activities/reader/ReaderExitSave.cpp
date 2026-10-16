@@ -8,6 +8,7 @@
 #include "BookReadingStats.h"
 #include "CrossPointState.h"
 #include "GlobalReadingStats.h"
+#include "HeldWrites.h"
 
 namespace {
 // Static, not heap: one reader exit is held at a time (~300 B). Written only in
@@ -23,7 +24,7 @@ bool hasGlobal = false;
 
 void ReaderExitSave::queue(const std::string& cachePath, const BookReadingStats* book,
                            const GlobalReadingStats* global) {
-  flush();  // never drop an older held write
+  flushStats();  // never drop an older held write
   heldCachePath = cachePath;
   hasBook = book != nullptr;
   if (book) heldBook = *book;
@@ -32,7 +33,7 @@ void ReaderExitSave::queue(const std::string& cachePath, const BookReadingStats*
   pending.store(true, std::memory_order_release);
 }
 
-bool ReaderExitSave::flush() {
+bool ReaderExitSave::flushStats() {
   if (!pending.load(std::memory_order_acquire)) return false;
   // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long start = millis();
@@ -42,6 +43,12 @@ bool ReaderExitSave::flush() {
   pending.store(false, std::memory_order_release);
   LOG_DBG("RXS", "Reader exit writes flushed in %lu ms", millis() - start);
   return true;
+}
+
+bool ReaderExitSave::flush() {
+  const bool wrote = flushStats();
+  HeldWrites::flushFiles();
+  return wrote;
 }
 
 const BookReadingStats* ReaderExitSave::book(const std::string& cachePath) {

@@ -2506,6 +2506,8 @@ void EpubReaderActivity::onEnter() {
 
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
+  // Held exit stats land first, so this session's saves supersede them.
+  ReaderExitSave::flushStats();
   stats = BookReadingStats::load(epub->getCachePath());
   bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
   statsTrackingActive = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
@@ -2602,8 +2604,9 @@ void EpubReaderActivity::onExit() {
   mappedInput.setReaderMode(false);
 
   // Inside a followed footnote the origin position is what counts; it is saved
-  // below, so RTC has nothing left to hold either way.
-  const bool progressFlushed = footnoteDepth != 0 || flushQueuedProgress();
+  // below, so RTC has nothing left to hold either way. The exit position is
+  // held until the next flush point (HeldWrites carries it across resets).
+  const bool progressFlushed = footnoteDepth != 0 || flushQueuedProgress(/*hold=*/true);
   if (!progressFlushed) {
     LOG_ERR("ERS", "Failed to flush debounced reader progress on exit");
   }
@@ -2645,10 +2648,9 @@ void EpubReaderActivity::onExit() {
     refreshCachedTimeLeftEstimate();
     const bool saveStats =
         statsTrackingActive || paceDirty || pendingStatsCommit || stats.estimatedTimeLeftSeconds != previousEstimate;
-    // Written once Home's first frame is on the panel; a finished-book move below needs them on SD now.
+    // Written at the next flush point; a finished-book move below needs them on SD first.
     ReaderExitSave::queue(epub->getCachePath(), saveStats ? &stats : nullptr,
                           statsTrackingActive || pendingStatsCommit ? &globalStats : nullptr);
-    if (pendingReadFolderMove) ReaderExitSave::flush();
   } else {
     ReaderExitSave::queue({}, nullptr, nullptr);  // APP_STATE only
   }
@@ -2665,7 +2667,8 @@ void EpubReaderActivity::onExit() {
   // here rather than on every debounced save; a crash mid-session leaves it stale
   // until the next reader exit.
   if (epub && lastSavedSpineIndex >= 0) {
-    RecentBookProgress::saveCachedEpubPercent(*epub, lastSavedSpineIndex, lastSavedPage, lastSavedPageCount);
+    RecentBookProgress::saveCachedEpubPercent(*epub, lastSavedSpineIndex, lastSavedPage, lastSavedPageCount,
+                                              /*hold=*/true);
   }
 
   BOOKMARKS.unload();
@@ -2679,6 +2682,7 @@ void EpubReaderActivity::onExit() {
     const std::string title = epub->getTitle();
     const std::string author = epub->getAuthor();
     const std::string dstPath = BookMoveUtils::buildReadFolderDestination(srcPath);
+    ReaderExitSave::flush();
     epub.reset();  // release the Epub (and any open handles) before renaming on the SD card
     moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
     if (Storage.exists(dstPath.c_str())) syncPath = dstPath;
@@ -8238,7 +8242,7 @@ bool EpubReaderActivity::applyDeferredReposition() {
 }
 
 bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount,
-                                      const bool allowDuringFootnotePreview) {
+                                      const bool allowDuringFootnotePreview, const bool hold) {
   if (activeFootnotePreview && !allowDuringFootnotePreview) {
     return true;
   }
@@ -8257,7 +8261,7 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     // another file open while a still-building EPUB section keeps files open.
     section->releaseBuildFile();
   }
-  const bool saved = EpubReaderUtils::saveProgress(*epub, spineIndex, currentPage, pageCount, visibleTextOffset);
+  const bool saved = EpubReaderUtils::saveProgress(*epub, spineIndex, currentPage, pageCount, visibleTextOffset, hold);
   if (saved) {
     lastSavedSpineIndex = spineIndex;
     lastSavedPage = currentPage;
@@ -8314,7 +8318,7 @@ bool EpubReaderActivity::queueProgressSave(const int spineIndex, const int curre
   return saveProgress(spineIndex, currentPage, pageCount);
 }
 
-bool EpubReaderActivity::flushQueuedProgress() {
+bool EpubReaderActivity::flushQueuedProgress(const bool hold) {
   if (!progressSaveDebouncer.hasPending()) {
     return true;
   }
@@ -8327,7 +8331,7 @@ bool EpubReaderActivity::flushQueuedProgress() {
   const int spineIndex = static_cast<int>(positionKey >> 16);
   const int pageNumber = static_cast<int>(positionKey & 0xFFFFU);
   const int pageCount = static_cast<int>(progressSaveDebouncer.lastObservedMetadata());
-  return saveProgress(spineIndex, pageNumber, pageCount);
+  return saveProgress(spineIndex, pageNumber, pageCount, /*allowDuringFootnotePreview=*/false, hold);
 }
 
 bool EpubReaderActivity::ensureGrayscaleStripScratch() {

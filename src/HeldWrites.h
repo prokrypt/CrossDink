@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 // The small store files (state.json, recent.json, settings.json) are held in
 // RAM and written to SD only at flush points: sleep, OTA/SD firmware update,
@@ -28,6 +29,22 @@ bool flush(Slot slot);
 
 // Writes every held file. Returns how many were written.
 int flushAll();
+
+// Reader exit files (progress.bin and its backup slot, progress_percent.bin)
+// are held the same way, a few small files by path. hold false writes now and
+// drops a held copy of path, which that write supersedes; hold true holds it,
+// or writes now under write-through, with the table full or data too long.
+// Data equal to the held copy (else the card's file) is not rewritten. Returns
+// false only when the data was neither held nor written.
+bool saveFile(const char* path, const uint8_t* data, size_t len, bool hold);
+// The held copy of path: copies up to cap bytes and returns its length, or -1
+// when path is not held.
+int heldFile(const char* path, uint8_t* out, size_t cap);
+// heldFile(), else up to cap bytes of the card's file; -1 when neither opens.
+int readFile(const char* module, const std::string& path, uint8_t* out, size_t cap);
+// Writes every held file (flushAll() does too). A file whose folder is gone
+// (cache cleared, book deleted) is dropped.
+void flushFiles();
 
 // While any reason is on, every hold writes at once; turning one on flushes.
 enum Reason : uint8_t {
