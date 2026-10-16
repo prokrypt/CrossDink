@@ -109,11 +109,11 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       const int dynamicTitleBoxHeight = dynamicBlockHeight + badgeHeight + hPaddingInSelection + 5;
 
       if (bookSelected) {
-        // Selection box: 2 px outline around cover and title, not a dither fill.
+        // Selection box: 2 px 50% gray outline around cover and title, not a dither fill.
         renderer.drawRoundedRect(
             tileX, tileY, tileWidth,
             themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + dynamicTitleBoxHeight, 2,
-            cornerRadius, true);
+            cornerRadius, Color::DarkGray);
       }
 
       int currentY = tileY + themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + 5;

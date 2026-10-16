@@ -560,11 +560,12 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
   }
 
   // Always outline the centre cover at its own edge (white ring sits outside the black line);
-  // thicker when the carousel row is active
+  // thicker and 50% gray (selection box) when the carousel row is active
   registerCarouselCoverTouchTargets(renderer, rect, recentBooks, centerIdx);
   const int outlineW = inCarouselRow ? kSelectionLineW : kThinOutlineW;
   renderer.drawRoundedRect(lastCenterCoverRect.x, lastCenterCoverRect.y, lastCenterCoverRect.width,
-                           lastCenterCoverRect.height, outlineW, kCornerRadius, true);
+                           lastCenterCoverRect.height, outlineW, kCornerRadius,
+                           inCarouselRow ? Color::DarkGray : Color::Black);
 }
 
 // ---------------------------------------------------------------------------
