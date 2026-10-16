@@ -163,7 +163,7 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
                               static_cast<int16_t>(rect.width + BUTTON_SLIDER_FOCUS_PADDING_X * 2),
                               static_cast<int16_t>(rect.height + BUTTON_SLIDER_FOCUS_PADDING_Y * 2)};
     // Editing = 2 px outline, focus = 1 px; outlines ghost less than a dither fill.
-    screen.target().stroke(focusRect, fui::Paint::solid(fui::Color::Black), row.editing ? 2 : 1, 4);
+    screen.target().stroke(focusRect, uiSelectionBorder(), row.editing ? 2 : 1, 4);
   }
 
   const int16_t lineHeight = screen.target().lineHeight(labelStyle.font);

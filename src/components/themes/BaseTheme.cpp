@@ -1427,7 +1427,8 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
         }
         // Light selection is a 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
         if (selected && metrics.optionPopupSelectionLight) {
-          renderer.drawRoundedRect(itemRectX, itemY, itemRectW, rowHeight, 2, selectionRadius, true);
+          renderer.drawRoundedRect(itemRectX, itemY, itemRectW, rowHeight, 2, selectionRadius,
+                                   uiGraySelection() ? Color::DarkGray : Color::Black);
         }
       }
 
@@ -1449,6 +1450,14 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
     const char* leftLabel = cancelLabel ? cancelLabel : "";
 #endif
     const char* rightLabel = saveLabel ? saveLabel : "";
+    // Lyra marks a focused Save with the dotted outline instead of a black fill.
+    const bool grayFocus = saveFocused && uiGraySelection();
+    const bool fillSave = saveFocused && !grayFocus;
+    auto outlineSave = [&](const int x, const int w) {
+      constexpr int inset = 3;
+      renderer.drawRoundedRect(x + inset, footerY + inset, w - 2 * inset, footerHeight - 2 * inset, 2, selectionRadius,
+                               Color::DarkGray);
+    };
     // Button devices already map Back to cancel, so the on-screen action can
     // use the full footer width for Save.
     renderer.drawLine(dialogX, footerY, dialogX + dialogW, footerY, true);
@@ -1457,16 +1466,18 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
     if (gpio.hasTouch()) {
       const int dividerX = dialogX + dialogW / 2;
       renderer.drawLine(dividerX, footerY, dividerX, dialogY + dialogH, true);
-      if (saveFocused) renderer.fillRect(dividerX, footerY + 1, dialogX + dialogW - dividerX, footerHeight - 1, true);
+      if (fillSave) renderer.fillRect(dividerX, footerY + 1, dialogX + dialogW - dividerX, footerHeight - 1, true);
+      if (grayFocus) outlineSave(dividerX, dialogX + dialogW - dividerX);
       renderer.drawText(UI_12_FONT_ID, dialogX + (dialogW / 2 - renderer.getTextWidth(UI_12_FONT_ID, leftLabel)) / 2,
                         labelY, leftLabel, true, EpdFontFamily::REGULAR);
       renderer.drawText(UI_12_FONT_ID, dividerX + (dialogW / 2 - renderer.getTextWidth(UI_12_FONT_ID, rightLabel)) / 2,
-                        labelY, rightLabel, !saveFocused, EpdFontFamily::BOLD);
+                        labelY, rightLabel, !fillSave, EpdFontFamily::BOLD);
     } else {
 #endif
-      if (saveFocused) renderer.fillRect(dialogX, footerY + 1, dialogW, footerHeight - 1, true);
+      if (fillSave) renderer.fillRect(dialogX, footerY + 1, dialogW, footerHeight - 1, true);
+      if (grayFocus) outlineSave(dialogX, dialogW);
       renderer.drawText(UI_12_FONT_ID, dialogX + (dialogW - renderer.getTextWidth(UI_12_FONT_ID, rightLabel)) / 2,
-                        labelY, rightLabel, !saveFocused, EpdFontFamily::BOLD);
+                        labelY, rightLabel, !fillSave, EpdFontFamily::BOLD);
 #if CROSSDINK_APP_CAP_TOUCH
     }
 #endif
