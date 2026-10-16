@@ -42,7 +42,12 @@ def table(text, name):
 
 
 def overrides(text):
-    return {k: value(v) for k, v in re.findall(r"\bv\.(\w+)\s*=\s*([^;]+);", text)}
+    out = {}
+    for k, op, v in re.findall(r"\bv\.(\w+)\s*([-+*/|&^]?=)\s*([^;]+);", text):
+        if op != "=":
+            raise SystemExit(f"v.{k} {op} not supported: write a plain assignment")
+        out[k] = value(v)
+    return out
 
 
 fields_src = read("ThemePackFields.cpp")
@@ -53,7 +58,7 @@ for kind, name, rest in re.findall(r"^\s+TP_(FIELD|BOOL)\((\w+)(.*?)\),?\s*$", f
     if kind == "BOOL":
         fields.append([name, "bool"])
     else:
-        lo, hi = (int(x) for x in re.findall(r"-?\d+", rest)[:2])
+        lo, hi = (int(x, 0) for x in re.findall(r"-?(?:0x[0-9a-fA-F]+|\d+)", rest)[:2])
         fields.append([name, {"int": "int", "float": "ratio", "ThemeTabBarAppearance": "enum"}[t], lo, hi])
 keys = [f[0] for f in fields]
 

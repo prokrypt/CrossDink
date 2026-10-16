@@ -84,22 +84,30 @@ const fieldOf = Object.fromEntries(FIELDS.map(f => [f[0], f]));
 let m = {};
 
 // ---- state and JSON ----
-const clamp = (f, v) => f[1] === 'bool' ? !!v : Math.min(f[3] * (f[1] === 'ratio' ? 1e-3 : 1), Math.max(f[2] * (f[1] === 'ratio' ? 1e-3 : 1), v));
-function setBase(b) { m = { ...BASES[b] }; refresh(true); }
+// Whole numbers (the firmware rounds too); ratios keep thousandths, the unit it stores.
+const clamp = (f, v) => {
+  if (f[1] === 'bool') return !!v;
+  const s = f[1] === 'ratio' ? 1e-3 : 1;
+  return Math.round(Math.min(f[3] * s, Math.max(f[2] * s, v)) / s) * s;
+};
+let icons = null; // a loaded pack's icons block, written back unchanged
+function setBase(b) { m = { ...BASES[b] }; icons = null; refresh(true); }
 function toJson() {
   const b = BASES[$('base').value], metrics = {};
   for (const [k] of FIELDS) if (m[k] !== b[k]) metrics[k] = m[k];
   const o = { name: $('name').value, base: $('base').value };
   if (Object.keys(metrics).length) o.metrics = metrics;
+  if (icons) o.icons = icons;
   return JSON.stringify(o, null, 2) + '\n';
 }
 function loadJson(text) {
   let o;
   try { o = JSON.parse(text); } catch (e) { alert('Not valid JSON: ' + e.message); return; }
-  if (!BASES[o.base] || ![...$('base').options].some(x => x.value === o.base)) { alert('Base not available on the X4 Pro: ' + o.base); return; }
-  $('base').value = o.base; $('name').value = o.name || 'my-theme';
+  if (!o || typeof o !== 'object' || !BASES[o.base] || ![...$('base').options].some(x => x.value === o.base)) { alert('Base not available on the X4 Pro: ' + (o && o.base)); return; }
+  $('base').value = o.base; $('name').value = String(o.name || 'my-theme').slice(0, 31);
   setBase(o.base);
   for (const [k, v] of Object.entries(o.metrics || {})) if (fieldOf[k] && typeof v === (fieldOf[k][1] === 'bool' ? 'boolean' : 'number')) m[k] = clamp(fieldOf[k], v);
+  if (o.icons && typeof o.icons === 'object') icons = o.icons;
   refresh(true);
 }
 
@@ -116,12 +124,14 @@ function build() {
   $('fields').oninput = e => {
     const k = e.target.dataset.k; if (!k) return;
     const f = fieldOf[k], el = e.target;
+    if (f[1] !== 'bool' && el.value === '') return;
     m[k] = f[1] === 'bool' ? el.checked : f[1] === 'enum' ? +el.value : clamp(f, +el.value);
     refresh(false, k);
   };
+  $('fields').onchange = () => refresh(true); // number box: show the clamped value once editing ends
 }
 function ctl([k, kind, lo, hi]) {
-  const label = k.replace(/([A-Z])/g, ' $1').toLowerCase() + (NO_TOUCH.has(k) ? ' (no effect on X4 Pro)' : '');
+  const label = k.replace(/([A-Z])/g, ' $1').toLowerCase() + (NO_TOUCH.has(k) ? ' (not used to draw X4 Pro lists)' : '');
   const head = `<label class="f" data-row="${k}"><span>${label}</span>`;
   if (kind === 'bool') return `${head}<input type="checkbox" data-k="${k}">` + '</label>';
   if (NAMES[k]) return `${head}<select data-k="${k}">${NAMES[k].map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></label>`;
@@ -133,7 +143,7 @@ function refresh(full) {
     const row = document.querySelector(`[data-row="${k}"]`);
     row.classList.toggle('mod', m[k] !== BASES[$('base').value][k]);
     for (const el of row.querySelectorAll('[data-k]')) {
-      if (el === document.activeElement && el.type === 'number') continue;
+      if (!full && el === document.activeElement && el.type === 'number') continue; // do not fight typing
       if (kind === 'bool') el.checked = m[k]; else el.value = m[k];
     }
   }
@@ -242,28 +252,28 @@ function drawHome() {
 function drawPopups() {
   header('Mayberry');
   for (let i = 0; i < 12; i++) text(['Linux Containers and Virtualization', 'Linux for Small Business Owners'][i % 2], 36, 110 + i * 48, 18);
-  // progress popup (BaseTheme::drawPopup)
-  const ow = 360 + 2 * m.popupMarginX, oh = 56 + 2 * m.popupMarginY, ox = (W - ow) / 2, py = Math.round(H * m.popupTopOffsetRatio), inv = m.popupTextInverted, t = m.popupFrameThickness;
-  fill('#fff'); rr(ox, py, ow, oh, m.popupCornerRadius, 'fill');
-  if (inv) { fill(INK); rr(ox, py, ow, oh, m.popupCornerRadius, 'fill'); }
-  if (t) { stroke(INK); rr(ox, py, ow, oh, m.popupCornerRadius, 'stroke', t); }
-  text('Downloading...', W / 2, py + m.popupMarginY + 18 + m.popupTextBaselineOffsetY, 20, inv ? '#fff' : INK, 'center', m.popupTextBold);
-  const bx = ox + m.popupMarginX + 8, bw = ow - 2 * m.popupMarginX - 16, by = py + oh - m.popupMarginY - m.popupProgressBarHeight - 4;
-  if (m.popupProgressDrawOutline) { stroke(inv ? '#fff' : INK); c.lineWidth = 1; c.strokeRect(bx + .5, by - .5, bw, m.popupProgressBarHeight + 1); }
-  fill(m.popupProgressFillInverted ? '#fff' : INK); c.fillRect(bx, by, bw * .6, m.popupProgressBarHeight);
-  // option popup (OptionPopup)
+  // progress popup (BaseTheme::drawPopup, fillPopupProgress): rounded = black box in a white halo, square = black frame round a white box
+  const t = m.popupFrameThickness, r = m.popupCornerRadius, ow = 170 + 2 * m.popupMarginX, oh = 28 + 2 * m.popupMarginY, ox = (W - ow) / 2, py = Math.round(H * m.popupTopOffsetRatio);
+  if (r > 0) { fill('#fff'); rr(ox - t, py - t, ow + 2 * t, oh + 2 * t, r + t, 'fill'); fill(INK); rr(ox, py, ow, oh, r, 'fill'); }
+  else { fill(INK); c.fillRect(ox - t, py - t, ow + 2 * t, oh + 2 * t); fill('#fff'); c.fillRect(ox, py, ow, oh); }
+  text('Downloading...', W / 2, py + m.popupMarginY + 14 + m.popupTextBaselineOffsetY, 20, m.popupTextInverted ? INK : '#fff', 'center', m.popupTextBold);
+  const bw = ow - 2 * m.popupMarginX, bx = ox + m.popupMarginX, bh = m.popupProgressBarHeight, by = py + oh - Math.floor(m.popupMarginY / 2) - Math.floor(bh / 2) - 1;
+  if (m.popupProgressDrawOutline) { stroke(m.popupProgressOutlineInverted ? INK : '#fff'); c.lineWidth = 1; c.strokeRect(bx + .5, by + .5, bw - 1, bh - 1); }
+  fill(m.popupProgressFillInverted ? INK : '#fff'); c.fillRect(bx, by, bw * .6, bh);
+  // option popup (OptionPopup): frame uses the popup radius and thickness
   const dx = m.optionPopupDialogSideMargin, dw = W - 2 * dx, pad = m.optionPopupInnerPadding, fs = m.optionPopupUseSmallFont ? 18 : 20;
   const rowH = fs + 2 * m.optionPopupSelectionVPadding + 8, opts = ['Small', 'Medium', 'Large', 'Extra large'];
   const dh = pad * 2 + 28 + m.optionPopupTitleGap + opts.length * rowH + (opts.length - 1) * m.optionPopupItemSpacing, dy = 360;
-  fill('#fff'); rr(dx, dy, dw, dh, 8, 'fill'); stroke(INK); rr(dx, dy, dw, dh, 8, 'stroke', 2);
+  if (r > 0) { fill('#fff'); rr(dx - t, dy - t, dw + 2 * t, dh + 2 * t, r + t, 'fill'); fill(INK); rr(dx, dy, dw, dh, r, 'fill'); fill('#fff'); rr(dx + t, dy + t, dw - 2 * t, dh - 2 * t, Math.max(0, r - t), 'fill'); }
+  else { fill(INK); c.fillRect(dx - t, dy - t, dw + 2 * t, dh + 2 * t); fill('#fff'); c.fillRect(dx, dy, dw, dh); }
   text('Font size', W / 2, dy + pad + 14, 22, INK, 'center', true);
   if (m.optionPopupTitleSeparator) { fill(INK); c.fillRect(dx + pad, dy + pad + 30, dw - 2 * pad, 1); }
   let oy = dy + pad + 28 + m.optionPopupTitleGap;
   opts.forEach((o, i) => {
     const sel = i === 1, rx = dx + pad, rw = dw - 2 * pad, light = m.optionPopupSelectionLight;
     if (sel || m.optionPopupDrawAllRows) {
-      if (sel) { fill(light ? LIGHT : INK); rr(rx, oy, rw, rowH, m.optionPopupSelectionRadius, 'fill'); }
-      else { stroke(DARK); rr(rx, oy, rw, rowH, m.optionPopupSelectionRadius, 'stroke', 1); }
+      fill(sel && !light ? INK : '#fff'); rr(rx, oy, rw, rowH, m.optionPopupSelectionRadius, 'fill');
+      if (sel && light) { stroke(INK); rr(rx, oy, rw, rowH, m.optionPopupSelectionRadius, 'stroke', 2); } // outline, not a dither fill
     }
     text(o, W / 2, oy + rowH / 2, fs, sel && !light ? '#fff' : INK, 'center', m.optionPopupOptionFontBold);
     oy += rowH + m.optionPopupItemSpacing;
