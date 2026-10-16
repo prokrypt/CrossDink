@@ -48,6 +48,7 @@
 #include "components/KOSyncBadge.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
+#include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
@@ -1049,8 +1050,8 @@ void HomeActivity::onEnter() {
   allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
   if (isCarouselTheme) {
     loadAllBookStats();
-  } else if (isLyraExtendedTheme() && KOREADER_STORE.hasCredentials()) {
-    // Every tile shows its KOSync badge: one small read per book, here instead of per draw.
+  } else if (isLyraExtendedTheme()) {
+    // Every tile shows its % and KOSync badge: one small read per book, here instead of per draw.
     for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
       cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i], &cachedBookSyncMarks[i]);
     }
@@ -2650,6 +2651,12 @@ void HomeActivity::render(RenderLock&&) {
   coverRectH = homeCoverTileHeight;
 
   beginSyncBadge();
+  // Lyra Extended draws here (not the minimal branch above): each tile's %.
+  if (isLyraExtendedTheme()) {
+    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+      Lyra3CoversTheme::setTileProgress(i, cachedBookProgress[i]);
+    }
+  }
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, homeCoverTileHeight}, recentBooks,
                           selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this),
