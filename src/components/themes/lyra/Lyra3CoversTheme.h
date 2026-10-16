@@ -7,7 +7,7 @@
 class GfxRenderer;
 
 namespace Lyra3CoversMetrics {
-constexpr ThemeMetrics values = [] {
+inline constexpr ThemeMetrics values = [] {
   ThemeMetrics v = LyraMetrics::values;
   v.menuRowHeight = 46;
   v.homeCoverTileHeight = 300;
