@@ -751,11 +751,7 @@ class EpubReaderActivity final : public Activity {
   void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }
-  bool flushProgressForSync() override {
-    if (!epub) return false;
-    saveProgressBeforeRestart();
-    return true;
-  }
+  bool flushProgressForSync() override;
   bool flushHeldProgress() override {
     if (!epub) return false;
     const bool pending = progressSaveDebouncer.hasPending() || footnoteDepth > 0;
