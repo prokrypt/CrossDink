@@ -60,9 +60,15 @@ inline bool isPowerButtonActionAvailableOutsideReader(const CrossPointSettings::
 }
 
 void enterDeepSleep(bool fromTimeout = false);
-// Writes deferred settings (SETTINGS, knobs.json) that changed. Screen exit,
-// sleep, every restart and firmware flashing call it.
-void flushSettingsStores();
+// Writes every held store (HeldWrites: settings, state, recent books) and
+// knobs.json. Sleep, non-silent restarts, firmware flashing, USB Drive / File
+// Transfer entry, low battery and the remote FLUSH command call it.
+// Returns how many held files were written.
+int flushSettingsStores();
+// Everything held at once (low battery, remote FLUSH): the open reader's
+// position, the reader's exit writes, sync marks, APP_STATE and the held
+// stores. Main loop only. Returns how many writes landed.
+int flushHeldWrites();
 bool handleGlobalPowerButtonAction(CrossPointSettings::SHORT_PWRBTN action,
                                    QuickLockTrigger quickLockTrigger = QuickLockTrigger::None);
 bool dispatchShortcutAction(CrossPointSettings::SHORT_PWRBTN action);
