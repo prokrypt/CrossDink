@@ -785,11 +785,11 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
 
     if (!bufferRestored && !coverRendered) {
-      // No cover image: draw border or fill, plus bookmark as visual flair
+      // No cover image: border (thickened when selected, not a black fill), plus bookmark as visual flair
+      renderer.drawRect(bookX, bookY, bookWidth, bookHeight);
       if (bookSelected) {
-        renderer.fillRect(bookX, bookY, bookWidth, bookHeight);
-      } else {
-        renderer.drawRect(bookX, bookY, bookWidth, bookHeight);
+        renderer.drawRect(bookX + 1, bookY + 1, bookWidth - 2, bookHeight - 2);
+        renderer.drawRect(bookX + 2, bookY + 2, bookWidth - 4, bookHeight - 4);
       }
 
       // Draw bookmark ribbon when no cover image (visual decoration)
@@ -812,8 +812,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
             bookmarkY + bookmarkHeight                // bottom-left
         };
 
-        // Draw bookmark ribbon (inverted if selected)
-        renderer.fillPolygon(xPoints, yPoints, 5, !bookSelected);
+        renderer.fillPolygon(xPoints, yPoints, 5, true);
       }
     }
 

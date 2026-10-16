@@ -17,6 +17,7 @@
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
 #include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/ThemePack.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
@@ -543,11 +544,8 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
                         themed(LyraMetrics::values).homeCoverHeight, true);
 
       if (!hasCover) {
-        // Render empty cover
-        renderer.fillRect(tileX + hPaddingInSelection,
-                          tileY + hPaddingInSelection + (themed(LyraMetrics::values).homeCoverHeight / 3), coverWidth,
-                          2 * themed(LyraMetrics::values).homeCoverHeight / 3, true);
-        drawLucideIcon(renderer, icon_book_open_32, tileX + hPaddingInSelection + 24, tileY + hPaddingInSelection + 24);
+        NoCoverPlaceholder::draw(renderer, tileX + hPaddingInSelection, tileY + hPaddingInSelection, coverWidth,
+                                 themed(LyraMetrics::values).homeCoverHeight, book);
       }
 
       coverBufferStored = storeCoverBuffer();
