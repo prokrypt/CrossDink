@@ -160,7 +160,7 @@ void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::ve
                                  cornerRadius, Color::Black);
       } else {
         renderer.drawRoundedRect(currentX, rect.y + 1, textWidth + 2 * hPaddingInSelection, rect.height - 4, 2,
-                                 cornerRadius, true);
+                                 cornerRadius, Color::DarkGray);
       }
     }
 
@@ -276,7 +276,8 @@ void LyraTheme::drawListWithMetrics(const GfxRenderer& renderer, Rect rect, int 
       renderer.fillRoundedRect(selX, selY, selW, rowHeight, cornerRadius, Color::Black);
     } else {
       // Outline, not a dither fill: fewer pixels change per move, all in lines, so less ghosting.
-      renderer.drawRoundedRect(selX, selY, selW, rowHeight, 2, cornerRadius, true);
+      // 50% gray like the header rule; its dither swaps on full repaints (burn-in guard).
+      renderer.drawRoundedRect(selX, selY, selW, rowHeight, 2, cornerRadius, Color::DarkGray);
     }
   }
 
@@ -559,10 +560,10 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     int textWidth = tileWidth - 2 * hPaddingInSelection - themed(LyraMetrics::values).verticalSpacing - coverWidth;
 
     if (bookSelected) {
-      // Selection box: 2 px outline around the tile, not a dither fill.
+      // Selection box: 2 px 50% gray outline around the tile, not a dither fill.
       renderer.drawRoundedRect(tileX, tileY, tileWidth,
                                themed(LyraMetrics::values).homeCoverHeight + 2 * hPaddingInSelection, 2, cornerRadius,
-                               true);
+                               Color::DarkGray);
     }
 
     auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);
@@ -672,7 +673,8 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     const bool selected = selectedIndex == i;
 
     if (selected) {
-      renderer.drawRoundedRect(tileRect.x, tileRect.y, tileRect.width, tileRect.height, 2, cornerRadius, true);
+      renderer.drawRoundedRect(tileRect.x, tileRect.y, tileRect.width, tileRect.height, 2, cornerRadius,
+                               Color::DarkGray);
     }
 
     const char* label = buttonLabel != nullptr ? buttonLabel(i) : "";
