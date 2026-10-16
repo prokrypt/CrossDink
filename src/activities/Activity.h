@@ -110,6 +110,9 @@ class Activity {
   // book's KOSync badge into the framebuffer so the toast's refresh carries it.
   // True when the badge changed.
   virtual bool repaintSyncBadge() { return false; }
+  // Reads the readers' held exit writes (ReaderExitSave, HeldWrites) instead of
+  // SD, so entering it does not flush them.
+  virtual bool readsHeldExitWrites() const { return isHomeActivity() || isReaderActivity(); }
   // The open book uses its vertical swipe actions across the entire page;
   // dialogs and lists retain their normal edge or scroll gestures.
   virtual bool usesFullScreenReaderVerticalSwipes() const { return false; }
