@@ -14,6 +14,7 @@
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "components/UiAppHelpers.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class TtfRenderOptionsActivity final : public Activity {
@@ -40,7 +41,7 @@ class TtfRenderOptionsActivity final : public Activity {
   bool readerMode_ = false;
   bool changed_ = false;
 
-  using UiApp = freeink::ui::FreeInkApp<12, 4>;
+  using UiApp = UiAppSmall;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
   freeink::ui::GfxRendererTarget uiTarget_;
   UiApp app_;

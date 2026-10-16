@@ -10,9 +10,17 @@
 class GfxRenderer;
 class MappedInputManager;
 
-// Owns the small protocol shared by FreeInkUI activities.  Capacity remains a
-// property of the activity so a simple screen does not pay the RAM cost of a
-// larger interaction table on ESP32-C3.
+// FreeInkApp capacities shared by every screen: each distinct <interactions, handlers> pair compiles its own
+// copy of the FreeInkUI widgets (~5 KB of flash for list() alone), while a bigger table costs only
+// 32 B per interaction slot in the activity object. Pick the smallest bucket that fits; do not add sizes.
+constexpr size_t kUiSmallInteractions = 12, kUiSmallHandlers = 4;
+constexpr size_t kUiListInteractions = 24, kUiListHandlers = 7;
+constexpr size_t kUiLargeInteractions = 48, kUiLargeHandlers = 11;
+using UiAppSmall = freeink::ui::FreeInkApp<kUiSmallInteractions, kUiSmallHandlers>;
+using UiAppList = freeink::ui::FreeInkApp<kUiListInteractions, kUiListHandlers>;
+using UiAppLarge = freeink::ui::FreeInkApp<kUiLargeInteractions, kUiLargeHandlers>;
+
+// Owns the small protocol shared by FreeInkUI activities.
 template <size_t MaxInteractions, size_t MaxHandlers>
 class UiAppHost {
  public:

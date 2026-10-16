@@ -9,6 +9,7 @@
 #include "FrontlightPanelModel.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -22,7 +23,7 @@ struct Rect;
 class FrontlightPanelActivity final : public Activity {
   // The sun toggle, two sliders, and four -/+ targets need seven interaction
   // slots. Keep small headroom for the panel's fixed controls.
-  using UiApp = freeink::ui::FreeInkApp<20, 7>;
+  using UiApp = UiAppList;
 
   ButtonNavigator buttonNavigator;
 
@@ -66,7 +67,7 @@ class FrontlightPanelActivity final : public Activity {
   // content margin, and dismiss threshold all agree.
   int computePanelBottom() const;
   void prepareReaderDetailsLayout();
-  void drawReaderDetails(freeink::ui::Screen<20>& screen);
+  void drawReaderDetails(UiApp::ScreenType& screen);
   void adjustBrightness(int delta);
   void adjustWarmth(int delta);
   void toggleLight();

@@ -68,19 +68,6 @@ Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
   return Rect{inset + (gpio.deviceIsX3() ? kPairInwardShiftX3 : 0), rect.y + kTopInset, coverW, coverH};
 }
 
-Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
-  if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
-    return target;
-  }
-
-  const float widthScale = static_cast<float>(target.width) / static_cast<float>(bitmap.getWidth());
-  const float heightScale = static_cast<float>(target.height) / static_cast<float>(bitmap.getHeight());
-  const float scale = std::min(1.0f, std::min(widthScale, heightScale));
-  const int drawnW = std::min(target.width, std::max(1, static_cast<int>(std::ceil(bitmap.getWidth() * scale))));
-  const int drawnH = std::min(target.height, std::max(1, static_cast<int>(std::ceil(bitmap.getHeight() * scale))));
-  return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
-}
-
 std::string coverPathForRect(const RecentBook& book, const Rect& imageRect) {
   if (book.coverBmpPath.empty()) {
     return {};
@@ -126,7 +113,7 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
     if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
       Bitmap bitmap(file);
       if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-        const Rect bitmapRect = fittedBitmapRect(bitmap, coverRect);
+        const Rect bitmapRect = MinimalTheme::fittedBitmapRect(bitmap, coverRect);
         renderer.fillRoundedRect(coverRect.x, coverRect.y, coverRect.width, coverRect.height, kCoverCornerRadius,
                                  backgroundColor);
         renderer.fillRoundedRect(bitmapRect.x, bitmapRect.y, bitmapRect.width, bitmapRect.height, kCoverCornerRadius,
@@ -173,58 +160,12 @@ void formatCompactDuration(const uint32_t seconds, char* buf, const size_t len) 
   }
 }
 
-bool fallbackEstimatedTimeLeft(const BookReadingStats& stats, const float progressPercent, uint32_t& seconds) {
-  seconds = 0;
-  if (progressPercent <= 0.0f || progressPercent >= 100.0f || stats.totalReadingSeconds < 120) {
-    return false;
-  }
-  const float progress = progressPercent / 100.0f;
-  const float estimate = (static_cast<float>(stats.totalReadingSeconds) * (1.0f - progress)) / progress;
-  if (estimate <= 0.0f) {
-    return false;
-  }
-  seconds = static_cast<uint32_t>(estimate + 0.5f);
-  return seconds > 0;
-}
-
 bool estimatedTimeLeft(const BookReadingStats& stats, const float progressPercent, uint32_t& seconds) {
   if (stats.estimatedTimeLeftSeconds > 0) {
     seconds = stats.estimatedTimeLeftSeconds;
     return true;
   }
-  return fallbackEstimatedTimeLeft(stats, progressPercent, seconds);
-}
-
-bool estimateFinishDateFromDailyPace(const BookReadingStats& stats, const ReadingStatsDateTime& today,
-                                     const uint32_t estimatedReadingSeconds, ReadingStatsDate& outDate) {
-  outDate = {};
-  if (!today.isValid() || !stats.startDate.isValid() || estimatedReadingSeconds == 0 ||
-      stats.totalReadingSeconds == 0) {
-    return false;
-  }
-
-  const uint16_t elapsedDays = readingSpanDaysElapsed(stats.startDate, today.date);
-  const uint16_t readingDays = std::max<uint16_t>(1, elapsedDays);
-  const uint64_t estimatedCalendarSeconds =
-      (static_cast<uint64_t>(estimatedReadingSeconds) * static_cast<uint64_t>(readingDays) * 86400ULL +
-       static_cast<uint64_t>(stats.totalReadingSeconds) / 2ULL) /
-      static_cast<uint64_t>(stats.totalReadingSeconds);
-  if (estimatedCalendarSeconds == 0) {
-    return false;
-  }
-
-  ReadingStatsDateTime estimatedFinish = today;
-  addSecondsToReadingStatsDateTime(estimatedFinish,
-                                   static_cast<uint32_t>(std::min<uint64_t>(estimatedCalendarSeconds, UINT32_MAX)));
-  outDate = estimatedFinish.date;
-  return outDate.isValid();
-}
-
-float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadingSeconds) {
-  if (totalReadingSeconds <= 60) {
-    return 0.0f;
-  }
-  return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
+  return stats.fallbackTimeLeft(progressPercent, seconds);
 }
 
 const char* dayCountText(const uint16_t days) { return days == 1 ? tr(STR_STATS_DAY) : tr(STR_STATS_DAYS); }
@@ -327,7 +268,8 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   }
 
   rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
-  snprintf(value, sizeof(value), "%.1f", pagesPerMinute(bookStats.totalPagesTurned, bookStats.totalReadingSeconds));
+  snprintf(value, sizeof(value), "%.1f",
+           readingPagesPerMinute(bookStats.totalPagesTurned, bookStats.totalReadingSeconds));
   drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_PAGES_PER_MIN), black);
 
   if (!showRtcStats) {
@@ -357,7 +299,7 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   if (bookStats.isCompleted) {
     finishDisplayDate = bookStats.finishedDate;
   } else if (hasToday && hasEstimate) {
-    if (!estimateFinishDateFromDailyPace(bookStats, today, estimatedSeconds, finishDisplayDate)) {
+    if (!bookStats.finishDateFromDailyPace(today, estimatedSeconds, finishDisplayDate)) {
       ReadingStatsDateTime estimatedFinish = today;
       addSecondsToReadingStatsDateTime(estimatedFinish, estimatedSeconds);
       finishDisplayDate = estimatedFinish.date;
@@ -375,84 +317,6 @@ bool showBookStatsForPath(const std::string& path) {
   if (FsHelpers::hasXtcExtension(path))
     return BookStatsTracking::isBookEnabled(Xtc(path, "/.crossdink").getCachePath());
   return false;
-}
-
-bool dominantReaderTypeBucket(const GlobalReadingStats& globalStats, ReadingTimeBucket& bucketOut) {
-  const auto& values = globalStats.timeOfDaySeconds;
-  const uint32_t totalSeconds = std::accumulate(values.begin(), values.end(), 0u);
-  if (totalSeconds == 0) {
-    return false;
-  }
-
-  const size_t dominantIndex =
-      static_cast<size_t>(std::distance(values.begin(), std::max_element(values.begin(), values.end())));
-  bucketOut = static_cast<ReadingTimeBucket>(dominantIndex);
-  return true;
-}
-
-const char* readerTypeLabel(const GlobalReadingStats* globalStats) {
-  if (globalStats == nullptr) {
-    return tr(STR_STATS_NEW_READER);
-  }
-
-  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
-  if (!dominantReaderTypeBucket(*globalStats, bucket)) {
-    return tr(STR_STATS_NEW_READER);
-  }
-
-  switch (bucket) {
-    case ReadingTimeBucket::Morning:
-      return tr(STR_STATS_MORNING_READER);
-    case ReadingTimeBucket::Afternoon:
-      return tr(STR_STATS_AFTERNOON_READER);
-    case ReadingTimeBucket::Evening:
-      return tr(STR_STATS_EVENING_READER);
-    case ReadingTimeBucket::Night:
-    default:
-      return tr(STR_STATS_NIGHT_READER);
-  }
-}
-
-const uint8_t* readerTypeIcon(const GlobalReadingStats* globalStats) {
-  if (globalStats == nullptr) {
-    return Book24Icon;
-  }
-
-  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
-  if (!dominantReaderTypeBucket(*globalStats, bucket)) {
-    return Book24Icon;
-  }
-
-  switch (bucket) {
-    case ReadingTimeBucket::Morning:
-      return MorningReaderIcon;
-    case ReadingTimeBucket::Afternoon:
-      return AfternoonReaderIcon;
-    case ReadingTimeBucket::Evening:
-      return EveningReaderIcon;
-    case ReadingTimeBucket::Night:
-    default:
-      return NightReaderIcon;
-  }
-}
-
-void formatStreakStat(const GlobalReadingStats* globalStats, char* buf, const size_t len) {
-  if (len == 0) {
-    return;
-  }
-  if (globalStats == nullptr) {
-    snprintf(buf, len, "%s", tr(STR_STATS_NO_STREAK));
-    return;
-  }
-
-  ReadingStatsDateTime today;
-  const uint16_t streak =
-      getCurrentLocalReadingStatsDateTime(today) ? globalStats->currentReadingStreak(&today.date) : 0;
-  if (streak == 0) {
-    snprintf(buf, len, "%s", tr(STR_STATS_NO_STREAK));
-    return;
-  }
-  snprintf(buf, len, tr(STR_STATS_DAY_STREAK_FORMAT), static_cast<unsigned>(streak));
 }
 
 void drawIconLabel(const GfxRenderer& renderer, const uint8_t* icon, const int iconX, const int centerY,
@@ -536,16 +400,16 @@ void drawFooterStats(const GfxRenderer& renderer, const Rect& coverRect, const G
   }
 
   char streakBuf[48];
-  formatStreakStat(globalStats, streakBuf, sizeof(streakBuf));
+  MinimalTheme::formatStreakStat(globalStats, streakBuf, sizeof(streakBuf));
 
   const int leftTextW = renderer.getScreenWidth() / 2 - inset - kFooterIconSize - kFooterIconTextGap;
   drawIconLabel(renderer, StreakIcon, coverRect.x, centerY, streakBuf, leftTextW, inverted);
 
-  const char* readerLabel = readerTypeLabel(globalStats);
+  const char* readerLabel = MinimalTheme::readerTypeLabel(globalStats);
   const int rightX = renderer.getScreenWidth() - inset - (gpio.deviceIsX3() ? kPairInwardShiftX3 : 0);
   const int maxReaderTextW = std::max(1, renderer.getScreenWidth() / 2 - inset - kFooterIconSize - kFooterIconTextGap);
-  drawRightAlignedIconLabel(renderer, readerTypeIcon(globalStats), rightX, centerY, readerLabel, maxReaderTextW,
-                            inverted);
+  drawRightAlignedIconLabel(renderer, MinimalTheme::readerTypeIcon(globalStats), rightX, centerY, readerLabel,
+                            maxReaderTextW, inverted);
 }
 
 void drawBookText(const GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book,

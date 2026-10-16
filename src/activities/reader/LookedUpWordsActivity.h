@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #include "util/DictionaryLookupController.h"
 #include "util/LookupHistory.h"
@@ -22,7 +23,7 @@ class LookedUpWordsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
 
   static void historyScreen(UiApp::ScreenType& screen, void* user);

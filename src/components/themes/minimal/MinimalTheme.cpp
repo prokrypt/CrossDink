@@ -102,60 +102,6 @@ bool dominantReaderTypeBucket(const GlobalReadingStats& globalStats, ReadingTime
   return true;
 }
 
-const char* readerTypeLabel(const GlobalReadingStats& globalStats) {
-  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
-  if (!dominantReaderTypeBucket(globalStats, bucket)) {
-    return tr(STR_STATS_NEW_READER);
-  }
-
-  switch (bucket) {
-    case ReadingTimeBucket::Morning:
-      return tr(STR_STATS_MORNING_READER);
-    case ReadingTimeBucket::Afternoon:
-      return tr(STR_STATS_AFTERNOON_READER);
-    case ReadingTimeBucket::Evening:
-      return tr(STR_STATS_EVENING_READER);
-    case ReadingTimeBucket::Night:
-    default:
-      return tr(STR_STATS_NIGHT_READER);
-  }
-}
-
-const uint8_t* readerTypeIcon(const GlobalReadingStats& globalStats) {
-  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
-  if (!dominantReaderTypeBucket(globalStats, bucket)) {
-    return Book24Icon;
-  }
-
-  switch (bucket) {
-    case ReadingTimeBucket::Morning:
-      return MorningReaderIcon;
-    case ReadingTimeBucket::Afternoon:
-      return AfternoonReaderIcon;
-    case ReadingTimeBucket::Evening:
-      return EveningReaderIcon;
-    case ReadingTimeBucket::Night:
-    default:
-      return NightReaderIcon;
-  }
-}
-
-void formatStreakStat(const GlobalReadingStats& globalStats, char* buf, const size_t len) {
-  if (len == 0) {
-    return;
-  }
-
-  ReadingStatsDateTime today;
-  const uint16_t streak =
-      getCurrentLocalReadingStatsDateTime(today) ? globalStats.currentReadingStreak(&today.date) : 0;
-  if (streak == 0) {
-    snprintf(buf, len, "%s", tr(STR_STATS_NO_STREAK));
-    return;
-  }
-
-  snprintf(buf, len, tr(STR_STATS_DAY_STREAK_FORMAT), static_cast<unsigned>(streak));
-}
-
 Rect coverImageRectForFrame(const Rect& coverRect);
 
 void drawCenteredStatsRow(const GfxRenderer& renderer, const uint8_t* icon, const int iconSize, const char* label,
@@ -205,13 +151,13 @@ void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& glo
   }
 
   char streakBuf[48];
-  formatStreakStat(globalStats, streakBuf, sizeof(streakBuf));
-  const char* readerLabel = readerTypeLabel(globalStats);
+  MinimalTheme::formatStreakStat(&globalStats, streakBuf, sizeof(streakBuf));
+  const char* readerLabel = MinimalTheme::readerTypeLabel(&globalStats);
 
   const int readerRegionTop = 0;
   const int readerRegionBottom = coverImageRectForFrame(coverRect).y;
-  drawCenteredStatsRow(renderer, readerTypeIcon(globalStats), kStatsFooterReaderIconSize, readerLabel, readerRegionTop,
-                       readerRegionBottom, inverted);
+  drawCenteredStatsRow(renderer, MinimalTheme::readerTypeIcon(&globalStats), kStatsFooterReaderIconSize, readerLabel,
+                       readerRegionTop, readerRegionBottom, inverted);
 
   const int streakRegionTop = progressLabelBottomY(renderer, coverRect, progressPercent);
   const int streakRegionBottom = renderer.getScreenHeight();
@@ -232,19 +178,6 @@ Rect coverImageRectForFrame(const Rect& coverRect) {
   const int imageH = std::min(coverRect.height, MinimalMetrics::homeCoverImageHeight);
   return Rect{coverRect.x + (coverRect.width - imageW) / 2, coverRect.y + (coverRect.height - imageH) / 2, imageW,
               imageH};
-}
-
-Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
-  if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
-    return target;
-  }
-
-  const float widthScale = static_cast<float>(target.width) / static_cast<float>(bitmap.getWidth());
-  const float heightScale = static_cast<float>(target.height) / static_cast<float>(bitmap.getHeight());
-  const float scale = std::min(1.0f, std::min(widthScale, heightScale));
-  const int drawnW = std::min(target.width, std::max(1, static_cast<int>(std::ceil(bitmap.getWidth() * scale))));
-  const int drawnH = std::min(target.height, std::max(1, static_cast<int>(std::ceil(bitmap.getHeight() * scale))));
-  return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
 }
 
 std::string coverPathForImageRect(const RecentBook& book, const Rect& imageRect) {
@@ -390,7 +323,7 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
       if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
         Bitmap bitmap(file);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          const Rect bitmapRect = fittedBitmapRect(bitmap, imageRect);
+          const Rect bitmapRect = MinimalTheme::fittedBitmapRect(bitmap, imageRect);
           renderer.fillRoundedRect(coverRect.x, coverRect.y, coverRect.width, coverRect.height, kCoverCornerRadius,
                                    backgroundColor);
           renderer.fillRoundedRect(bitmapRect.x, bitmapRect.y, bitmapRect.width, bitmapRect.height, kCoverCornerRadius,
@@ -412,6 +345,74 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
   }
 }
 }  // namespace
+
+Rect MinimalTheme::fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
+  if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
+    return target;
+  }
+
+  const float widthScale = static_cast<float>(target.width) / static_cast<float>(bitmap.getWidth());
+  const float heightScale = static_cast<float>(target.height) / static_cast<float>(bitmap.getHeight());
+  const float scale = std::min(1.0f, std::min(widthScale, heightScale));
+  const int drawnW = std::min(target.width, std::max(1, static_cast<int>(std::ceil(bitmap.getWidth() * scale))));
+  const int drawnH = std::min(target.height, std::max(1, static_cast<int>(std::ceil(bitmap.getHeight() * scale))));
+  return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
+}
+
+const char* MinimalTheme::readerTypeLabel(const GlobalReadingStats* globalStats) {
+  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
+  if (globalStats == nullptr || !dominantReaderTypeBucket(*globalStats, bucket)) {
+    return tr(STR_STATS_NEW_READER);
+  }
+
+  switch (bucket) {
+    case ReadingTimeBucket::Morning:
+      return tr(STR_STATS_MORNING_READER);
+    case ReadingTimeBucket::Afternoon:
+      return tr(STR_STATS_AFTERNOON_READER);
+    case ReadingTimeBucket::Evening:
+      return tr(STR_STATS_EVENING_READER);
+    case ReadingTimeBucket::Night:
+    default:
+      return tr(STR_STATS_NIGHT_READER);
+  }
+}
+
+const uint8_t* MinimalTheme::readerTypeIcon(const GlobalReadingStats* globalStats) {
+  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
+  if (globalStats == nullptr || !dominantReaderTypeBucket(*globalStats, bucket)) {
+    return Book24Icon;
+  }
+
+  switch (bucket) {
+    case ReadingTimeBucket::Morning:
+      return MorningReaderIcon;
+    case ReadingTimeBucket::Afternoon:
+      return AfternoonReaderIcon;
+    case ReadingTimeBucket::Evening:
+      return EveningReaderIcon;
+    case ReadingTimeBucket::Night:
+    default:
+      return NightReaderIcon;
+  }
+}
+
+void MinimalTheme::formatStreakStat(const GlobalReadingStats* globalStats, char* buf, const size_t len) {
+  if (len == 0) {
+    return;
+  }
+
+  ReadingStatsDateTime today;
+  const uint16_t streak = globalStats != nullptr && getCurrentLocalReadingStatsDateTime(today)
+                              ? globalStats->currentReadingStreak(&today.date)
+                              : 0;
+  if (streak == 0) {
+    snprintf(buf, len, "%s", tr(STR_STATS_NO_STREAK));
+    return;
+  }
+
+  snprintf(buf, len, tr(STR_STATS_DAY_STREAK_FORMAT), static_cast<unsigned>(streak));
+}
 
 void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
                               const bool readerContext, const bool showStatus) const {

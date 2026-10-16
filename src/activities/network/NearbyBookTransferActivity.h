@@ -13,6 +13,7 @@
 #include "activities/ScreenTransitionRefresh.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class NearbyBookTransferActivity final : public Activity {
@@ -108,7 +109,7 @@ class NearbyBookTransferActivity final : public Activity {
 
   ButtonNavigator buttonNavigator_;
 
-  using UiApp = freeink::ui::FreeInkApp<8, 4>;
+  using UiApp = UiAppSmall;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
   freeink::ui::GfxRendererTarget uiTarget_;  // Must precede app_: app_ holds a reference to it.
   UiApp app_;

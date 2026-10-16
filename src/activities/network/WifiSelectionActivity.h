@@ -13,6 +13,7 @@
 
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -118,7 +119,7 @@ class WifiSelectionActivity final : public Activity {
 
   // FreeInkApp hosts the network list (themed rows, touch routing); every
   // other state keeps its legacy centered-text rendering.
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
   // render() rebuilds the app's interaction table; loop() only routes touch

@@ -9,10 +9,11 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderChapterSelectionActivity final : public Activity {
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   static constexpr size_t CHAPTER_WINDOW_SIZE = 20;
 
   std::shared_ptr<Epub> epub;
