@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "MappedInputManager.h"
 #include "QuickActions.h"
 #include "ReaderProgressShadow.h"
@@ -23,10 +24,9 @@
 #include "SdCardFontSystem.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/home/FileBrowserActionActivity.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/FileContentEquals.h"
-#include "util/InPlaceFileWrite.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;      // 8KB chunk for reading
@@ -103,21 +103,6 @@ int getReaderLineHeight(const GfxRenderer& renderer, const int fontId) {
   return std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * SETTINGS.getReaderLineCompression() + 0.5f));
 }
 
-void drawToast(const GfxRenderer& renderer, const char* msg) {
-  constexpr int toastPadX = 20;
-  constexpr int toastPadY = 12;
-  const bool toastBackgroundBlack = ReaderUtils::readerForegroundBlack();
-  const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);
-  const int msgH = renderer.getLineHeight(UI_10_FONT_ID);
-  const int toastW = msgW + toastPadX * 2;
-  const int toastH = msgH + toastPadY * 2;
-  const int toastX = (renderer.getScreenWidth() - toastW) / 2;
-  const int toastY = (renderer.getScreenHeight() - toastH) / 2;
-  renderer.fillRect(toastX, toastY, toastW, toastH, toastBackgroundBlack);
-  renderer.drawRect(toastX, toastY, toastW, toastH, !toastBackgroundBlack);
-  renderer.drawText(UI_10_FONT_ID, toastX + toastPadX, toastY + toastPadY, msg, !toastBackgroundBlack);
-  renderer.displayBuffer();
-}
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -163,7 +148,7 @@ void TxtReaderActivity::onExit() {
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
 
-  const bool progressFlushed = flushQueuedProgress();
+  const bool progressFlushed = flushQueuedProgress(/*hold=*/true);  // lands at the next flush point
   if (!progressFlushed) {
     LOG_ERR("TRS", "Failed to flush debounced reader progress on exit");
   }
@@ -587,8 +572,8 @@ void TxtReaderActivity::toggleHomeButtonInReader() {
     LOG_ERR("TXT", "Failed to save Home button reader setting");
   }
   mappedInput.clearDeferredHomeGesture();
-  drawToast(renderer, SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
-  delay(1000);
+  Toast::show(renderer,
+              SETTINGS.homeButtonInReaderEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED));
   requestUpdate();
 }
 
@@ -957,7 +942,7 @@ uint32_t TxtReaderActivity::pageFileOffset(const int page) const {
   return (page >= 0 && page < static_cast<int>(pageOffsets.size())) ? static_cast<uint32_t>(pageOffsets[page]) : 0;
 }
 
-bool TxtReaderActivity::saveProgress(const int page) {
+bool TxtReaderActivity::saveProgress(const int page, const bool hold) {
   if (!txt) {
     return false;
   }
@@ -974,8 +959,7 @@ bool TxtReaderActivity::saveProgress(const int page) {
   // Overwrite in place (no truncate, so no FAT churn and never an empty file),
   // and skip the write entirely when the card already holds this position.
   const std::string path = txt->getCachePath() + "/progress.bin";
-  if (!fileContentEquals("TRS", path.c_str(), data, sizeof(data)) &&
-      !writeFileInPlace("TRS", path.c_str(), data, sizeof(data))) {
+  if (!HeldWrites::saveFile(path.c_str(), data, sizeof(data), hold)) {
     LOG_ERR("TRS", "Failed to save reader progress");
     return false;
   }
@@ -995,25 +979,27 @@ bool TxtReaderActivity::queueProgressSave() {
   return saveProgress(currentPage);
 }
 
-bool TxtReaderActivity::flushQueuedProgress() {
+bool TxtReaderActivity::flushHeldProgress() {
+  const bool pending = progressSaveDebouncer.hasPending();
+  if (!flushQueuedProgress()) LOG_ERR("TRS", "Failed to flush held progress");
+  return pending;
+}
+
+bool TxtReaderActivity::flushQueuedProgress(const bool hold) {
   return !progressSaveDebouncer.hasPending() ||
-         saveProgress(static_cast<int>(progressSaveDebouncer.lastObservedPosition()));
+         saveProgress(static_cast<int>(progressSaveDebouncer.lastObservedPosition()), hold);
 }
 
 void TxtReaderActivity::loadProgress() {
-  HalFile f;
-  if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
-      currentPage = data[0] + (data[1] << 8);
-      if (currentPage >= totalPages) {
-        currentPage = totalPages - 1;
-      }
-      if (currentPage < 0) {
-        currentPage = 0;
-      }
+  uint8_t data[4];
+  if (HeldWrites::readFile("TRS", txt->getCachePath() + "/progress.bin", data, sizeof(data)) == 4) {
+    currentPage = data[0] + (data[1] << 8);
+    if (currentPage >= totalPages) {
+      currentPage = totalPages - 1;
     }
-    f.close();
+    if (currentPage < 0) {
+      currentPage = 0;
+    }
   }
 }
 
@@ -1202,21 +1188,17 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   size_t savedOffset = 0;
   bool offsetKnown = false;
   {
-    FsFile progFile;
-    if (Storage.openFileForRead("SLP", txt.getCachePath() + "/progress.bin", progFile)) {
-      uint8_t data[6] = {0};
-      const int n = progFile.read(data, 6);
-      progFile.close();
-      if (n >= 2) {
-        savedPage = (int)((uint32_t)data[0] | ((uint32_t)data[1] << 8));
-      }
-      if (n >= 6) {
-        const uint32_t off =
-            (uint32_t)data[2] | ((uint32_t)data[3] << 8) | ((uint32_t)data[4] << 16) | ((uint32_t)data[5] << 24);
-        if (off < txt.getFileSize()) {
-          savedOffset = off;
-          offsetKnown = true;
-        }
+    uint8_t data[6] = {0};
+    const int n = HeldWrites::readFile("SLP", txt.getCachePath() + "/progress.bin", data, sizeof(data));
+    if (n >= 2) {
+      savedPage = (int)((uint32_t)data[0] | ((uint32_t)data[1] << 8));
+    }
+    if (n >= 6) {
+      const uint32_t off =
+          (uint32_t)data[2] | ((uint32_t)data[3] << 8) | ((uint32_t)data[4] << 16) | ((uint32_t)data[5] << 24);
+      if (off < txt.getFileSize()) {
+        savedOffset = off;
+        offsetKnown = true;
       }
     }
   }

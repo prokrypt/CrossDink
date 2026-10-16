@@ -44,6 +44,7 @@ struct Totals {
   uint64_t lightDutyMs;  // sum of duty (0-1023) x ms; / 1023 = ms at full light
   uint64_t panelBusyMs[PANEL_KINDS];
   uint64_t boosterMs;  // panel booster on (UC8179 powerOnIdle/powerOffIdle)
+  uint64_t touchMs;    // touch controller awake (GT911 out of its sleep mode)
   uint64_t sdReadBytes;
   uint64_t sdWriteBytes;
   uint64_t sdUs;
@@ -76,6 +77,7 @@ void lightDuty(uint16_t duty1023);  // HalFrontlight::drive
 void panelKind(PanelKind kind);     // HalDisplay::count, before the refresh
 void panelBusy(bool begin);         // HalDisplay busy-wait hooks
 void booster(bool on);              // HalDisplay refresh start, powerOnIdle/powerOffIdle, deepSleep
+void touch(bool awake);             // HalGPIO::begin, HalGPIO::setTouchSleep
 void sdRead(uint32_t bytes, uint32_t us);
 void sdWrite(uint32_t bytes, uint32_t us);
 void wifiMs(RadioState state, uint32_t ms);
@@ -97,6 +99,7 @@ inline void lightDuty(uint16_t) {}
 inline void panelKind(PanelKind) {}
 inline void panelBusy(bool) {}
 inline void booster(bool) {}
+inline void touch(bool) {}
 inline void sdRead(uint32_t, uint32_t) {}
 inline void sdWrite(uint32_t, uint32_t) {}
 inline void wifiMs(RadioState, uint32_t) {}

@@ -735,8 +735,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   };
   sink.write = writeChunk;
 
-  DownloadError result =
-      runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
+  DownloadError result = runGet(url, username, password, options.authorizationOrigin, sink, bufferSize,
+                                options.transport, options.connection);
   if (sink.rangeIgnored) {
     writeBehind.abort();  // the writer task must be done with the file first
     writeBehindTried = false;
@@ -752,7 +752,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     sink.downloaded = 0;
     sink.total = 0;
     sink.write = writeChunk;
-    result = runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
+    result = runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport,
+                    options.connection);
   }
 
   if (fileOpen) {

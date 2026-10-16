@@ -20,6 +20,7 @@
 #include <mutex>
 #include <string>
 
+#include "HeldWrites.h"
 #include "I18nKeys.h"
 #include "QuickActions.h"
 #include "SettingsList.h"
@@ -926,30 +927,29 @@ bool CrossPointSettings::saveToFile() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   JsonDocument doc;
   toJson(doc);
-  pendingJson = "";
-  serializeJson(doc, pendingJson);
-  return true;
+  String json;
+  serializeJson(doc, json);
+  return HeldWrites::hold(HeldWrites::Slot::Settings, json.c_str(), json.length());
 }
 
-bool CrossPointSettings::flush() const {
-  std::lock_guard<std::mutex> lock(storeMutex);
-  if (pendingJson.isEmpty()) return true;
+bool CrossPointSettings::flush() const { return HeldWrites::flush(HeldWrites::Slot::Settings); }
+
+bool CrossPointSettings::writeJsonToCard(const char* json, const size_t len) {
   // Two copies rewritten in place, .bak first, so one always parses (load falls
   // back to .bak). No temp file, rename or remove: creating settings.json.tmp
   // took 580-615 ms on the card. Padding spaces from a longer save are trimmed.
   const String onCard = Storage.exists(SETTINGS_FILE_JSON) ? Storage.readFile(SETTINGS_FILE_JSON) : String();
   size_t onCardLen = onCard.length();
   while (onCardLen > 0 && onCard[onCardLen - 1] == ' ') --onCardLen;
-  if (onCardLen != pendingJson.length() || strncmp(onCard.c_str(), pendingJson.c_str(), onCardLen) != 0) {
+  if (onCardLen != len || strncmp(onCard.c_str(), json, onCardLen) != 0) {
     Storage.mkdir("/.crossdink");
-    const auto* data = reinterpret_cast<const uint8_t*>(pendingJson.c_str());
-    if (!writeFileInPlace("CPS", SETTINGS_FILE_JSON_BAK, data, pendingJson.length(), true) ||
-        !writeFileInPlace("CPS", SETTINGS_FILE_JSON, data, pendingJson.length(), true)) {
+    const auto* data = reinterpret_cast<const uint8_t*>(json);
+    if (!writeFileInPlace("CPS", SETTINGS_FILE_JSON_BAK, data, len, true) ||
+        !writeFileInPlace("CPS", SETTINGS_FILE_JSON, data, len, true)) {
       LOG_ERR("CPS", "Failed to write %s; kept for the next flush", SETTINGS_FILE_JSON);
       return false;
     }
   }
-  pendingJson = String();
   return true;
 }
 
@@ -971,8 +971,6 @@ bool CrossPointSettings::loadFromFile() {
       if (result) {
         std::lock_guard<std::mutex> settingsLock(_mutex);
         if (restoreLegacyRtcDateSyncState(*this)) resave = true;
-        // Imports start on IncreMENTAL; the user's later choice sticks.
-        if (migrateToCurrentPath) indexingMethod = INDEXING_INCREMENTAL_MENTAL;
       }
       if (result && (resave || migrateToCurrentPath)) {
         if (saveToFile() && flush()) {

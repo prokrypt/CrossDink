@@ -76,22 +76,21 @@ class Activity {
   // panel's booster off right after each frame's refresh finishes.
   virtual bool powerOffPanelWhenIdle() const { return false; }
   // Input arriving mid-refresh waits for the waveform to end, then all of it
-  // lands in one frame (typing). Default: the next frame draws at once and
-  // overlaps the waveform's tail.
-  virtual bool batchesInputDuringRefresh() const { return false; }
+  // lands in one frame. Drawing at once instead queues that frame behind the
+  // running waveform, so a second input meanwhile waits for two refreshes.
+  virtual bool batchesInputDuringRefresh() const { return !isReaderActivity(); }
   // Serial remote control: insert text as if typed. False when the screen has
   // no text entry.
   virtual bool injectText(const char*) { return false; }
   // A Wi-Fi screen that is idle between transfers: the main loop may power
   // save and light-sleep between ticks even though the radio is up.
   virtual bool allowsRadioIdleSleep() { return false; }
-  // While true, deferred settings stay unwritten when a screen above closes
-  // (Goodies > Keyboard test opening the keyboard); sleep, restart and
-  // firmware flashing still write them.
-  virtual bool holdsSettingsFlush() const { return false; }
   // While true, main-loop global controls and activity replacement are
   // suspended so an exclusive storage owner cannot race the filesystem.
   virtual bool requiresExclusiveStorageLoop() const { return false; }
+  // A computer reads and writes the card while this screen runs (USB Drive,
+  // File Transfer): held store writes land first and later ones write at once.
+  virtual bool servesFiles() const { return requiresExclusiveStorageLoop(); }
   // Called by the app-wide Quick Lock. Reader activities use it to exclude
   // locked time from reading statistics; other activities have no state to change.
   virtual void onInputLockChanged(bool) {}
@@ -111,6 +110,9 @@ class Activity {
   // book's KOSync badge into the framebuffer so the toast's refresh carries it.
   // True when the badge changed.
   virtual bool repaintSyncBadge() { return false; }
+  // Reads the readers' held exit writes (ReaderExitSave, HeldWrites) instead of
+  // SD, so entering it does not flush them.
+  virtual bool readsHeldExitWrites() const { return isHomeActivity() || isReaderActivity(); }
   // The open book uses its vertical swipe actions across the entire page;
   // dialogs and lists retain their normal edge or scroll gestures.
   virtual bool usesFullScreenReaderVerticalSwipes() const { return false; }
@@ -136,8 +138,12 @@ class Activity {
   // Let overlays consume the global Home gesture as a dismiss action.
   virtual bool handleHomeGesture() { return false; }
   virtual bool canSnapshotForSleepOverlay() const { return false; }
-  // An EPUB reader saves its position now (Sync on Wake & Sleep); false elsewhere.
+  // An EPUB reader saves its position now (Sync on Wake & Sleep) and says whether it
+  // moved past where it opened (else nothing to push); false elsewhere.
   virtual bool flushProgressForSync() { return false; }
+  // A reader writes its unsaved position now (low battery, remote FLUSH) and
+  // says whether one was pending; readers no longer save mid-session.
+  virtual bool flushHeldProgress() { return false; }
   // Activity-specific swipe actions (chapter and font commands). Global
   // frontlight commands are handled by ActivityManager before this callback.
   virtual bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION) { return false; }

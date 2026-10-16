@@ -230,7 +230,8 @@ Form parameters:
 | `path` | Yes, unless `paths` is provided | Single path to delete |
 | `paths` | Yes, unless `path` is provided | JSON array of paths to delete |
 
-Hidden and system items are protected while **Show Hidden Files** is off.
+Delete, rename and move work on hidden and system items and the remote token
+file too, whatever **Show Hidden Files** says.
 Non-empty folders are rejected. EPUB cache data for deleted files is cleared.
 
 ## Settings API

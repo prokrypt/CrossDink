@@ -60,6 +60,4 @@ class BatteryStatsActivity final : public Activity {
   int scroll = 0;           // first line drawn
   bool more = false;        // lines were cut off below
   uint16_t builtState = 0;  // estimateState() the estimate line was built for
-  uint16_t seenState = 0;   // last estimateState() seen in loop(), and since when
-  uint32_t seenMs = 0;
 };

@@ -44,6 +44,7 @@ Every counter column is cumulative. Subtract two rows of the same `gen` to get t
 | `panel_*_ms` | Time spent waiting on the panel's BUSY line, by the kind of the last refresh started. An async refresh that finishes before anyone waits is not in it, so prefer the counts. |
 | `booster_ms` | UC8179 booster on between refreshes (until `powerOffIdle()`); 0 on other panels. |
 | `sd_rd_kb`, `sd_wr_kb`, `sd_ms` | Bytes and time through `HalFile::read/write` (not USB Drive). |
+| `touch_ms` | Touch controller awake (GT911 out of its sleep mode; it sleeps under Quick Lock and on reader pages with the touchscreen disabled). 0 on builds without touch; empty in logs from before this column. |
 
 ## Knobs
 
@@ -52,7 +53,7 @@ Every counter column is cumulative. Subtract two rows of the same `gen` to get t
   sleep current. Set it to 0 for a few nights: sleep time then lands in `asleep_s` instead of `asleep_cw_s`, and
   the fit gives both costs. With 0, charging while asleep is no longer logged.
 - `powerTickMin` (Power, default 10): minutes between periodic rows while awake.
-- `powerTestMin` (Power, default 30): Power Test run length.
+- `powerTestMin` (Power, default 5): Power Test run length. Short runs of the same load add up in the script.
 - `powerTestRefreshS` (Power, default 10): seconds between refreshes in the refresh loop tests.
 
 ## Goodies > Power Test
@@ -74,9 +75,11 @@ run ends the page keeps its end values.
 | Fast refresh loop, Full refresh loop | half the screen black, swapping sides every `powerTestRefreshS` |
 | Voltage sag probe | about 2 min: see below |
 
-Run them with a charged battery off USB, at room temperature, and at least 30 min each: the gauge needs a drop of
-a few tenths of a percent before a rate means much. Charging or USB during a run makes it useless (the script says
-so).
+Run them with a charged battery off USB and at room temperature. One 5 min run is mostly gauge noise (the drop
+is often under 0.3 %), so repeat each load whenever convenient: `scripts/power_fit.py` lists every run, then pools
+the on-battery runs of each load (drop and time summed, stopped-early runs included) into one rate with a worst-case
+gauge error of one step (1/256 %) per run, so plan on about 6 runs per load. Charging or USB during a run makes it
+useless and the script leaves it out of the pool.
 
 ### Voltage sag probe
 
@@ -106,8 +109,8 @@ beside %/h (1 %/h = capacity / 100 mA). Overlapping copies of the same file are 
 
 The costs add up: `floor_h` is the awake base at the clock floor, `maxclk_h` is the cost of an hour at full clock
 instead (not on top of the floor), `ls_h` an hour light-sleeping, and `wifi_*_h`, `light_full_h` and the refresh
-costs come on top of whichever clock state the CPU was in. `--all-features` adds core busy time, IP packets,
-booster time and SD traffic; `--features a,b,c` picks columns. A cost of 0 with a wide range means the log never
+costs come on top of whichever clock state the CPU was in, as do `booster_h` (e-ink booster on between
+refreshes) and `touch_h` (touch controller awake). `--all-features` adds core busy time, IP packets and SD traffic; `--features a,b,c` picks columns. A cost of 0 with a wide range means the log never
 varied it on its own: run its Power Test. The cross-validated error against "one average rate per hour" shows
 whether the split explains anything.
 
@@ -124,7 +127,7 @@ whether the split explains anything.
 
 1. Flash `x4-pro-debug`, use the device for a day, then look for `/debug/logs/power.csv` (it is written at the
    first sleep). Serial and the PSRAM log show each row as a `[PWL]` line, and a `Power counters gen N` line at boot.
-2. Run Goodies > Power Test > Light 100% for 30 min off USB: the page should show `At full light 30m`, and
-   `power.csv` a `test_start` / `test_end` pair 30 min apart with `light_full_ms` up by about 1,800,000.
+2. Run Goodies > Power Test > Light 100% for 5 min off USB: the page should show `At full light 5m`, and
+   `power.csv` a `test_start` / `test_end` pair 5 min apart with `light_full_ms` up by about 300,000.
 3. Run the voltage sag probe: four `sag` rows; the light and Wi-Fi drops should be clearly larger than the noise.
 4. `python3 scripts/power_fit.py power.csv` lists the runs; the fit appears once there are enough intervals.

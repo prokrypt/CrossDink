@@ -24,6 +24,7 @@
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -87,21 +88,7 @@ void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, co
                            Color::White);
   renderer.drawRoundedRect(coverRect.x, coverRect.y, coverRect.width, coverRect.height, 1, kCoverCornerRadius, true);
 
-  constexpr int iconSize = 32;
-  drawLucideIcon(renderer, icon_book_open_32, coverRect.x + (coverRect.width - iconSize) / 2, coverRect.y + 36);
-
-  constexpr int textPadding = 14;
-  const int textW = coverRect.width - textPadding * 2;
-  const char* title = book.title.empty() ? book.path.c_str() : book.title.c_str();
-  auto titleLines = renderer.wrappedText(UI_12_FONT_ID, title, textW, 4, EpdFontFamily::BOLD);
-  const int lineH = renderer.getLineHeight(UI_12_FONT_ID);
-  int textY = coverRect.y + (coverRect.height - static_cast<int>(titleLines.size()) * lineH) / 2;
-  for (const auto& line : titleLines) {
-    const int lineW = renderer.getTextWidth(UI_12_FONT_ID, line.c_str(), EpdFontFamily::BOLD);
-    renderer.drawText(UI_12_FONT_ID, coverRect.x + (coverRect.width - lineW) / 2, textY, line.c_str(), true,
-                      EpdFontFamily::BOLD);
-    textY += lineH;
-  }
+  NoCoverPlaceholder::draw(renderer, coverRect.x, coverRect.y, coverRect.width, coverRect.height, book);
 }
 
 void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book,

@@ -21,6 +21,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
@@ -31,6 +32,7 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/ListSelection.h"
+#include "components/Toast.h"
 #include "components/TouchRegistry.h"
 #include "components/themes/BaseTheme.h"
 #include "home/AlertActivity.h"
@@ -161,10 +163,8 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   return context;
 }
 
-bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput,
-                         const FrontlightDrawerState* restoredState = nullptr) {
+bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput) {
   FrontlightPanelContext context = buildFrontlightPanelContext(activity, renderer, mappedInput);
-  if (restoredState) context.drawerState = *restoredState;
   auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput, std::move(context));
   if (!panel) {
     LOG_ERR("ACT", "OOM opening frontlight panel");
@@ -537,7 +537,14 @@ void ActivityManager::renderTaskLoop() {
 #endif
         continue;
       }
-      if (notified == PANEL_WAKE_BIT) {
+      if (notified == PANEL_DOZE_BIT) {
+        // Light Timeout: switch the booster off after the usual poll, which
+        // waits out any refresh still on the panel.
+        idlePanelOffArmed = true;
+        idlePanelOffMs = PANEL_OFF_POLL_MS;
+        continue;
+      }
+      if ((notified & ~PANEL_DOZE_BIT) == PANEL_WAKE_BIT) {
         // Input with no frame requested yet (finger down, button press):
         // power the booster on now, so the coming refresh skips its ~127 ms
         // power-on. Nothing drawn: switch it off again after the idle delay.
@@ -573,12 +580,13 @@ void ActivityManager::renderTaskLoop() {
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       batchInput = currentActivity->batchesInputDuringRefresh();
       renderer.setDeferFastRefresh(deferredRender);
-      PerfLog::noteRenderStart(currentActivity->name.c_str());
+      PerfLog::noteRenderStart(currentActivity->name.c_str(), renderer.isRefreshPending());
       // Interactive screens keep the booster on so input never waits on PON.
       idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
       idlePanelOffMs = PANEL_OFF_POLL_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       BaseTheme::beginFrameStatus();
+      Toast::beginFrame();
       if (currentActivity.get() != listSelectionOwner) {
         listSelectionOwner = currentActivity.get();
         ListSelection::tapRowShown = false;  // a popup of the previous screen
@@ -587,7 +595,6 @@ void ActivityManager::renderTaskLoop() {
       ListSelection::hidThisFrame = false;
       ListSelection::listThisFrame = false;
       currentActivity->render(std::move(lock));
-      currentActivityPainted.store(true, std::memory_order_release);
       ListSelection::hidOnScreen = ListSelection::hidThisFrame;
       ListSelection::listOnScreen = ListSelection::listThisFrame;
       PerfLog::noteRenderEnd();
@@ -619,8 +626,10 @@ void ActivityManager::renderTaskLoop() {
       }
       lock.unlock();
       while (true) {
-        // An early-wake bit alone is no frame: the booster is on mid-refresh.
-        if ((ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) & ~PANEL_WAKE_BIT) != 0) {
+        // Wake/doze bits alone are no frame: the booster is on mid-refresh,
+        // and a doze is picked up from panelDozing below.
+        const uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS));
+        if ((notified & ~(PANEL_WAKE_BIT | PANEL_DOZE_BIT)) != 0) {
           renderQueued = true;
           if (!batchInput) break;
         }
@@ -642,6 +651,8 @@ void ActivityManager::renderTaskLoop() {
       powerManager.endDisplayRefreshHold();
       displayPmHeld = false;
     }
+    // Light Timeout held: this draw's booster goes off too.
+    if (panelDozing.load(std::memory_order_acquire)) idlePanelOffArmed = true;
     // Renders leave work for the loop (queued page turns, toasts, alerts,
     // prerender timers): one pass now instead of at the next idle tick.
     InputTask::wakeLoop();
@@ -778,7 +789,6 @@ void ActivityManager::loop() {
 
       // Destroy the current activity
       exitActivity(lock);
-      settingsFlushPending = true;
       pendingAction = PendingAction::None;
 
       if (stackActivities.empty()) {
@@ -790,7 +800,6 @@ void ActivityManager::loop() {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
         restoredActivityNeedsRender = true;
-        currentActivityPainted.store(false, std::memory_order_release);
 
         if (closedFrontlightPanel) currentActivity->onFrontlightPanelClosed();
 
@@ -853,7 +862,6 @@ void ActivityManager::loop() {
       if (pendingAction == PendingAction::Replace) {
         // Destroy the current activity
         exitActivity(lock);
-        settingsFlushPending = true;
         // Clear the stack
         while (!stackActivities.empty()) {
           stackActivities.back()->onExit();
@@ -866,17 +874,19 @@ void ActivityManager::loop() {
       }
       pendingAction = PendingAction::None;
       currentActivity = std::move(pendingActivity);
-      currentActivityPainted.store(false, std::memory_order_release);
 
       lock.unlock();  // onEnter may acquire its own lock
-      // Only Home waits for its first frame; anything else (USB Drive included)
-      // must find the reader's exit writes on SD before it starts.
-      if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
-      // USB Drive owns the card from onEnter() and skips the deferred flush below.
+      // The readers' exit writes stay held until sleep or another flush point.
+      // Home, Library and the readers read the held copies; anything else (USB
+      // Drive included) must find them on SD before it starts.
+      if (!currentActivity->readsHeldExitWrites()) ReaderExitSave::flush();
+      // USB Drive owns the card from onEnter(): write the held sync marks first.
       if (currentActivity->requiresExclusiveStorageLoop()) RecentBookProgress::flushSyncMarks();
-      if (settingsFlushPending && currentActivity->requiresExclusiveStorageLoop()) {
-        settingsFlushPending = false;
-        flushSettingsStores();
+      // USB Drive and File Transfer share the card with a computer until the
+      // restart that ends them: write what is held now, and every later save at once.
+      if (currentActivity->servesFiles()) {
+        HeldWrites::setWriteThrough(HeldWrites::ServesFiles, true);
+        flushSettingsStores();  // knobs.json
       }
 #if CROSSDINK_GOODIES
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
@@ -915,15 +925,11 @@ void ActivityManager::loop() {
           if (resume.overlay == PendingOverlayType::ReaderDrawer && currentActivity->restorePendingOverlay(resume)) {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
-          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&
-                     supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                              hasStickyReaderDetailsPanel())) {
-            FrontlightDrawerState restoredState;
-            restoredState.selectedAction = static_cast<int8_t>(resume.selectedIndex);
-            if (openFrontlightPanel(*currentActivity, renderer, mappedInput, &restoredState)) {
-              PendingOverlayResume consumed;
-              APP_STATE.consumePendingOverlayResume(consumed);
-            }
+          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer) {
+            // The top drawer stays closed after a Sync & Transfer flow; the resume only
+            // carries reader orientation / return-home state, so just consume it.
+            PendingOverlayResume consumed;
+            APP_STATE.consumePendingOverlayResume(consumed);
           }
         }
       }
@@ -933,24 +939,13 @@ void ActivityManager::loop() {
     }
   }
 
-  // The new screen's first frame is refreshing on the panel: the reader's exit
-  // writes (Home) and deferred settings run in that wait instead of before it drew.
-  if (!currentActivity || currentActivityPainted.load(std::memory_order_acquire)) {
-    ReaderExitSave::flush();
-    // Settings changed on a screen or panel are written once it has closed,
-    // while the screen below refreshes.
-    if (settingsFlushPending && !(currentActivity && currentActivity->holdsSettingsFlush())) {
-      settingsFlushPending = false;
-      flushSettingsStores();
-    }
-  }
-
   if (APP_STATE.hasPendingAlert.load(std::memory_order_acquire) && pendingAction == PendingAction::None) {
     APP_STATE.hasPendingAlert.store(false, std::memory_order_relaxed);
     pushActivity(std::make_unique<AlertActivity>(renderer, mappedInput));
   }
 
-  if (requestedUpdate.exchange(false)) {
+  // A toast holds the next frame until it times out or input releases it.
+  if (!Toast::holding() && requestedUpdate.exchange(false)) {
     // Using direct notification to signal the render task to update
     // Increment counter so multiple rapid calls won't be lost
     if (renderTaskHandle) {
@@ -992,17 +987,22 @@ bool ActivityManager::handleGlobalHomeGesture() {
     return false;
   }
 
-  const bool homeGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
-                               ? mappedInput.wasReaderHomeGesture()
-                               : (currentActivity->allowGlobalHomeSwipeGesture() || mappedInput.hasHomeKey()) &&
-                                     mappedInput.wasHomeGesture();
+  const bool readerSwipes = currentActivity->usesFullScreenReaderVerticalSwipes();
+  const bool allowSwipe = currentActivity->allowGlobalHomeSwipeGesture();
+  // Home-key boards: a bottom-edge up-swipe goes straight Home on non-reader
+  // screens. The reader keeps the old flow: the swipe opens the drawer first.
+  const bool edgeSwipeHome = mappedInput.hasHomeKey() && !mappedInput.isHomeButtonLockedInReader() && !readerSwipes &&
+                             allowSwipe && mappedInput.wasBottomEdgeUpSwipe();
+  const bool homeGesture =
+      edgeSwipeHome || (readerSwipes ? mappedInput.wasReaderHomeGesture()
+                                     : (allowSwipe || mappedInput.hasHomeKey()) && mappedInput.wasHomeGesture());
   if (!homeGesture) {
     return false;
   }
 
   // Touch-only devices use an edge swipe as a Home shortcut. Keep that
   // shortcut separate from the X4 Pro's physical Back/Home key.
-  if (!mappedInput.hasHomeKey()) {
+  if (!mappedInput.hasHomeKey() || edgeSwipeHome) {
     if (!currentActivity->handleHomeGesture()) goHome();
     return true;
   }
@@ -1496,6 +1496,14 @@ std::string ActivityManager::flushEpubProgressForSync() {
   return {};
 }
 
+bool ActivityManager::flushHeldProgress() {
+  bool any = currentActivity && currentActivity->flushHeldProgress();
+  for (auto& activity : stackActivities) {
+    if (activity && activity->flushHeldProgress()) any = true;
+  }
+  return any;
+}
+
 std::string ActivityManager::getCurrentBookPath() const {
   if (currentActivity) {
     const std::string path = currentActivity->getCurrentBookPath();
@@ -1540,8 +1548,17 @@ ScreenshotInfo ActivityManager::getScreenshotInfo() const {
 
 void ActivityManager::wakePanelEarly() {
 #ifndef SIMULATOR
+  panelDozing.store(false, std::memory_order_release);
   if (renderTaskHandle && panelBoosterOff.exchange(false, std::memory_order_acq_rel)) {
     xTaskNotify(renderTaskHandle, PANEL_WAKE_BIT, eSetBits);
+  }
+#endif
+}
+
+void ActivityManager::dozePanel() {
+#ifndef SIMULATOR
+  if (renderTaskHandle && !panelDozing.exchange(true, std::memory_order_acq_rel)) {
+    xTaskNotify(renderTaskHandle, PANEL_DOZE_BIT, eSetBits);
   }
 #endif
 }

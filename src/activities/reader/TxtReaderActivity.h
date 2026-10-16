@@ -62,9 +62,9 @@ class TxtReaderActivity final : public Activity {
   bool loadPageIndexCache();
   void savePageIndexCache() const;
   uint32_t pageFileOffset(int page) const;
-  bool saveProgress(int page);
+  bool saveProgress(int page, bool hold = false);
   bool queueProgressSave();
-  bool flushQueuedProgress();
+  bool flushQueuedProgress(bool hold = false);
   void loadProgress();
   void toggleDarkMode();
   void toggleHomeButtonInReader();
@@ -125,6 +125,7 @@ class TxtReaderActivity final : public Activity {
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
   // The panel leads to Settings, whose update and font downloads restart the device.
   void onFrontlightPanelOpened() override { flushQueuedProgress(); }
+  bool flushHeldProgress() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.

@@ -23,6 +23,7 @@
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchRegistry.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
@@ -268,48 +269,8 @@ void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, co
   renderer.drawRoundedRect(placeholderRect.x, placeholderRect.y, placeholderRect.width, placeholderRect.height, 1,
                            kCoverCornerRadius, true);
 
-  const int dividerY = placeholderRect.y + placeholderRect.height / 3;
-  renderer.drawLine(placeholderRect.x, dividerY, placeholderRect.x + placeholderRect.width - 1, dividerY, true);
-
-  constexpr int iconSize = 32;
-  drawLucideIcon(renderer, icon_book_open_32, placeholderRect.x + (placeholderRect.width - iconSize) / 2,
-                 placeholderRect.y + (placeholderRect.height / 3 - iconSize) / 2);
-
-  constexpr int textPadding = 16;
-  constexpr int textVerticalPadding = 22;
-  constexpr int titleAuthorGap = 28;
-  const int textW = placeholderRect.width - textPadding * 2;
-  const std::string& titleText = book.title.empty() ? book.path : book.title;
-  const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int authorLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const bool hasAuthor = !book.author.empty();
-  auto authorLines =
-      hasAuthor ? renderer.wrappedText(UI_10_FONT_ID, book.author.c_str(), textW, 2) : std::vector<std::string>{};
-  const int lowerAreaHeight = placeholderRect.y + placeholderRect.height - dividerY;
-  const int authorBlockHeight = authorLineHeight * static_cast<int>(authorLines.size());
-  const int authorGap = authorLines.empty() ? 0 : titleAuthorGap;
-  const int availableTitleHeight = lowerAreaHeight - textVerticalPadding * 2 - authorBlockHeight - authorGap;
-  const int maxTitleLines = std::clamp(availableTitleHeight / titleLineHeight, 1, 4);
-  auto titleLines = renderer.wrappedText(UI_12_FONT_ID, titleText.c_str(), textW, maxTitleLines);
-
-  const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
-  const int totalTextHeight = titleBlockHeight + authorBlockHeight + authorGap;
-  int textY = dividerY + std::max(textVerticalPadding, (lowerAreaHeight - totalTextHeight) / 2);
-
-  for (const auto& line : titleLines) {
-    const int lineW = renderer.getTextWidth(UI_12_FONT_ID, line.c_str());
-    renderer.drawText(UI_12_FONT_ID, placeholderRect.x + (placeholderRect.width - lineW) / 2, textY, line.c_str());
-    textY += titleLineHeight;
-  }
-
-  if (!authorLines.empty()) {
-    textY += titleAuthorGap;
-    for (const auto& line : authorLines) {
-      const int lineW = renderer.getTextWidth(UI_10_FONT_ID, line.c_str());
-      renderer.drawText(UI_10_FONT_ID, placeholderRect.x + (placeholderRect.width - lineW) / 2, textY, line.c_str());
-      textY += authorLineHeight;
-    }
-  }
+  NoCoverPlaceholder::draw(renderer, placeholderRect.x, placeholderRect.y, placeholderRect.width,
+                           placeholderRect.height, book);
 }
 
 void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book,

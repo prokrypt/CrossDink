@@ -34,14 +34,16 @@ uint32_t nextInputSeq();
 void noteInput(bool release, const char* kind, uint32_t seq);
 // Render task brackets around Activity::render(). Start takes the activity
 // name while the render lock is held; after render() the lock is gone and the
-// activity may already be destroyed.
-void noteRenderStart(const char* activity);
+// activity may already be destroyed. refreshPending: an earlier frame's refresh
+// is still on the panel, so this render's first display call finishes it first.
+void noteRenderStart(const char* activity, bool refreshPending = false);
 void noteRenderEnd();
 // Reader: how the page frame was produced ("pre" drawn ahead, "draw" composed).
 void notePagePath(const char* path);
 // A refresh finished on the panel: closes the pending latency sample, and the
-// first one after reset logs [BOOT].
-void noteInk();
+// first one after reset logs [BOOT]. finishedEarlier: it was an async refresh
+// started by an earlier display call.
+void noteInk(bool finishedEarlier = false);
 // Boot phase mark (name is a string literal): the first ink logs
 // "[BOOT] t <name>=<ms since previous mark> ... ink= first_ink=".
 void noteBootPhase(const char* name);
@@ -105,10 +107,10 @@ namespace PerfLog {
 inline bool lightSleepStats(LightSleepStats&) { return false; }
 inline uint32_t nextInputSeq() { return 0; }
 inline void noteInput(bool, const char*, uint32_t) {}
-inline void noteRenderStart(const char*) {}
+inline void noteRenderStart(const char*, bool = false) {}
 inline void noteRenderEnd() {}
 inline void notePagePath(const char*) {}
-inline void noteInk() {}
+inline void noteInk(bool = false) {}
 inline void noteBootPhase(const char*) {}
 inline void noteRestart() {}
 inline void noteDeepSleep(const char*, const char*) {}

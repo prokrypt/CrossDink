@@ -140,8 +140,13 @@ void InputWake::begin() {
   // service is up, before its handler is back: with no handler to disarm it, it
   // storms into an INT_WDT panic on every boot until a power-on reset (1002b:
   // GPIO21 floating high). Runs before anything else installs GPIO interrupts.
+  // The type goes too: Arduino's pinMode() keeps a pin's type and re-enables
+  // the interrupt when it is set (1009b: BUSY left level-armed by a refresh
+  // wait, then the display probe's pinMode stormed on every boot).
   for (int pin = 0; pin < GPIO_PIN_COUNT; ++pin) {
-    if (GPIO_IS_VALID_GPIO(pin)) gpio_ll_intr_disable(&GPIO, pin);
+    if (!GPIO_IS_VALID_GPIO(pin)) continue;
+    gpio_ll_intr_disable(&GPIO, pin);
+    gpio_ll_set_intr_type(&GPIO, pin, GPIO_INTR_DISABLE);
   }
 #if SOC_RTCIO_WAKE_SUPPORTED
   // RTC IO light-sleep wakes (gpio_wakeup_enable on an RTC pin) live in the RTC
@@ -211,10 +216,10 @@ void InputWake::begin() {
   LOG_INF("WAKE", "Input wake armed on %u line(s)", static_cast<unsigned>(wakePinCount));
 }
 
-void InputWake::wait(const uint32_t timeoutMs) {
+bool InputWake::wait(const uint32_t timeoutMs) {
   if (wakeSignal == nullptr || wakePinCount == 0) {
     delay(timeoutMs);
-    return;
+    return false;
   }
   for (size_t i = 0; i < wakePinCount; ++i) {
     const gpio_num_t pin = wakePins[i];
@@ -236,7 +241,7 @@ void InputWake::wait(const uint32_t timeoutMs) {
     logStatPad("5s", chargePin, readStatPad(chargePin));
   }
 #endif
-  xSemaphoreTake(wakeSignal, pdMS_TO_TICKS(timeoutMs));
+  return xSemaphoreTake(wakeSignal, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
 }
 
 void InputWake::wake() {
@@ -298,7 +303,10 @@ uint32_t InputWake::touchWakeTotal() {
 
 void InputWake::begin() {}
 
-void InputWake::wait(const uint32_t timeoutMs) { delay(timeoutMs); }
+bool InputWake::wait(const uint32_t timeoutMs) {
+  delay(timeoutMs);
+  return false;
+}
 
 void InputWake::wake() {}
 

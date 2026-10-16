@@ -11,6 +11,8 @@
 #include <iterator>
 #include <utility>
 
+#include "HeldWrites.h"
+
 namespace {
 constexpr uint8_t RECENT_BOOKS_FILE_VERSION = 3;
 constexpr char RECENT_BOOKS_FILE_BIN[] = "/.crossdink/recent.bin";
@@ -56,7 +58,10 @@ bool RecentBooksStore::saveToFile() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   JsonDocument doc;
   toJson(doc);
-  return PersistableStoreBase::writeDocToFileAtomically(getFilePath(), doc);
+  String json;
+  serializeDoc(doc, json);
+  // Written at the next flush point (HeldWrites), not now.
+  return HeldWrites::hold(HeldWrites::Slot::Recent, json.c_str(), json.length());
 }
 
 void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::string& title, const std::string& author,
@@ -200,7 +205,7 @@ bool RecentBooksStore::loadFromFile() {
 
   if (Storage.exists(RECENT_BOOKS_FILE_BIN)) {
     if (loadFromBinaryFile()) {
-      saveToFile();
+      if (!saveToFile() || !HeldWrites::flush(HeldWrites::Slot::Recent)) return true;  // keep recent.bin for a retry
       Storage.rename(RECENT_BOOKS_FILE_BIN, RECENT_BOOKS_FILE_BAK);
       LOG_DBG("RBS", "Migrated recent.bin to recent.json");
       return true;

@@ -112,8 +112,13 @@ class ActivityManager {
   // Render-task notification bit for wakePanelEarly(); renders use eIncrement,
   // so a value of exactly this bit means "wake only, nothing to draw".
   static constexpr uint32_t PANEL_WAKE_BIT = 1UL << 31;
+  // Render-task notification bit for dozePanel(): booster off, nothing to draw.
+  static constexpr uint32_t PANEL_DOZE_BIT = 1UL << 30;
   // True while the idle booster-off holds; the first input after it wakes the panel.
   std::atomic<bool> panelBoosterOff{false};
+  // Set by dozePanel(), cleared by wakePanelEarly(): every screen powers the
+  // booster off after its draws, as opted-in screens always do.
+  std::atomic<bool> panelDozing{false};
 
   // Set by requestUpdateAndWait(); read and cleared by the render task after render completes.
   // Note: only one waiting task is supported at a time
@@ -131,10 +136,6 @@ class ActivityManager {
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
   std::atomic<bool> restoredActivityNeedsRender{false};
-  bool settingsFlushPending = false;  // a screen exited; main loop flushes deferred settings
-  // Set by the render task once the current activity has drawn a frame. Home
-  // holds the reader's exit writes (ReaderExitSave) until then.
-  std::atomic<bool> currentActivityPainted{false};
   // Render task only: the activity the last frame came from (ListSelection).
   const Activity* listSelectionOwner = nullptr;
 
@@ -155,6 +156,9 @@ class ActivityManager {
   // User input (finger down, button press): power the panel booster back on
   // ahead of the refresh if the idle booster-off switched it off. Any task.
   void wakePanelEarly();
+  // Light Timeout: power the panel booster off on any screen until the next
+  // input (wakePanelEarly). Idempotent. Any task.
+  void dozePanel();
 
   // Will replace currentActivity and drop all activities on stack
   void replaceActivity(std::unique_ptr<Activity>&& newActivity);
@@ -240,6 +244,8 @@ class ActivityManager {
   // Main loop, render lock held: the current screen redraws its KOSync badge for the next refresh.
   // True when the badge changed.
   bool repaintSyncBadge();
+  // Every open reader (current or below it) writes its unsaved position; true when one was pending.
+  bool flushHeldProgress();
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.

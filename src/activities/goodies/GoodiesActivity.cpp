@@ -65,7 +65,8 @@ std::string remoteIp;
 // power-off. RTC_NOINIT keeps the network across ESP.restart() and deep sleep;
 // after power-on it is garbage and the last connected network is used instead.
 RTC_NOINIT_ATTR char remoteSsid[33];
-bool rejoining = false;
+// rejoining and joinPending are read by the render task through joining().
+std::atomic<bool> rejoining{false};
 bool rejoinNow = false;     // Toggled on in Goodies: skip the boot and idle waits
 bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens the picker
 // A screen took the radio (pause): rejoin as soon as it leaves, no idle wait.
@@ -76,7 +77,7 @@ bool held = false;  // hold(): a macro keeps the radio off
 // WiFi.begin()) and the toggle-off teardown run on short-lived tasks so the
 // main loop never waits on them. One at a time: radioTask runs both.
 // Main task only, except radioTask's state and joinOutcome, which the tasks set.
-bool joinPending = false;
+std::atomic<bool> joinPending{false};
 bool shutdownQueued = false;  // Off during a join: loop() shuts down once it ends
 WorkerTask radioTask;
 std::atomic<uint8_t> joinOutcome{0};
@@ -245,6 +246,8 @@ namespace goodies_remote {
 bool running() { return remoteServer && remoteServer->isRunning() && WiFi.status() == WL_CONNECTED; }
 
 bool wanted() { return remoteWanted(); }
+
+bool joining() { return joinPending || rejoining; }
 
 bool waitingForMemory() { return rejoinSkippedForMemory && remoteWanted() && !remoteServer; }
 
@@ -515,7 +518,7 @@ void GoodiesActivity::showLevel(const Level next) {
     {
       esp_app_desc_t desc;
       const esp_partition_t* part = firmware_flash::otherSlot(desc);
-      entries.push_back({"Boot previous firmware", -1, {}, part ? std::string(part->label) + " >" : "none"});
+      entries.push_back({"Boot alternate slot", -1, {}, part ? std::string(part->label) + " >" : "none"});
     }
     powerTestRow = static_cast<int>(entries.size());
     entries.push_back({"Power Test", -1, {}, ">"});
@@ -645,13 +648,22 @@ void GoodiesActivity::activate(const int index) {
 #endif
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
     } else if (index == SLEEP_REBOOT_ROW) {
-      // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
-      SleepLog::armSleepReboot();
-      enterDeepSleep();
+      // The sleep path, then a restart instead of power-down: the PSRAM log survives it (/api/psram-log).
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Sleep-reboot-log?",
+                                                                    "Runs the sleep path, then reboots."),
+                             [this](const ActivityResult& result) {
+                               mappedInput.suppressNextConfirmRelease();
+                               if (result.isCancelled) {
+                                 requestUpdate();
+                                 return;
+                               }
+                               SleepLog::armSleepReboot();
+                               enterDeepSleep();  // restarts, does not return
+                             });
 #endif
 #ifndef SIMULATOR
-    } else if (index == BOOT_PREV_ROW) {
-      confirmBootPrevious();
+    } else if (index == BOOT_ALT_ROW) {
+      confirmBootAlternate();
 #endif
     } else {
 #ifndef SIMULATOR
@@ -829,7 +841,7 @@ void GoodiesActivity::setRowValue(const int row, std::string value) {
 }
 
 #ifndef SIMULATOR
-void GoodiesActivity::confirmBootPrevious() {
+void GoodiesActivity::confirmBootAlternate() {
   esp_app_desc_t desc;
   const esp_partition_t* part = firmware_flash::otherSlot(desc);
   if (!part) {
@@ -840,7 +852,7 @@ void GoodiesActivity::confirmBootPrevious() {
   snprintf(body, sizeof(body), "Reboots into %s: %.31s %.31s, built %.15s %.15s, elf %02x%02x%02x%02x.", part->label,
            desc.project_name, desc.version, desc.date, desc.time, desc.app_elf_sha256[0], desc.app_elf_sha256[1],
            desc.app_elf_sha256[2], desc.app_elf_sha256[3]);
-  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot previous firmware?", body),
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Boot alternate slot?", body),
                          [this, part](const ActivityResult& result) {
                            mappedInput.suppressNextConfirmRelease();
                            if (result.isCancelled) {
@@ -855,13 +867,13 @@ void GoodiesActivity::confirmBootPrevious() {
                            }
                            const firmware_flash::Result verified = firmware_flash::verifyPartition(part);
                            if (verified != firmware_flash::Result::OK) {
-                             LOG_ERR("BOOT", "boot-previous: %s image failed: %s", part->label,
+                             LOG_ERR("BOOT", "boot-alternate: %s image failed: %s", part->label,
                                      firmware_flash::resultName(verified));
                              showMessage("Other slot failed the image check");
                              return;
                            }
                            if (!ota_boot::switchTo(part)) {
-                             LOG_ERR("BOOT", "boot-previous switch to %s failed", part->label);
+                             LOG_ERR("BOOT", "boot-alternate switch to %s failed", part->label);
                              showMessage("Switch failed");
                              return;
                            }
@@ -938,8 +950,7 @@ void GoodiesActivity::onStepEvent(const fui::ActionEvent& event, void* user) {
   static_cast<GoodiesActivity*>(user)->pendingStep = event.value;
 }
 
-// Applies at once; the write waits until the page is left (holdsSettingsFlush),
-// or for sleep, restart or a firmware flash.
+// Applies at once; the write waits for a flush point (HeldWrites).
 void GoodiesActivity::stepKbdTest(const int row, const int dir) {
   if (row <= 0 || row >= static_cast<int>(entries.size())) return;
   const int index = entries[row].builtIn;

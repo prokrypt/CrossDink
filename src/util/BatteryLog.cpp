@@ -17,6 +17,7 @@
 #include <esp_attr.h>
 #include <esp_psram.h>
 #include <esp_rom_crc.h>
+#include <esp_rtc_time.h>
 #include <esp_sleep.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -77,7 +78,12 @@ struct Reading {
   uint8_t light = 0;
 };
 Reading reading;
-uint32_t epochBase = 0;  // 0: RTC not set
+// With no RTC time, rows count seconds from power-on on the RTC timer (it runs
+// through deep sleep) from this base, below BatteryLogParser::REAL_MIN; a
+// clock_set row with was=<that count> lets readers shift them once the RTC is set.
+constexpr uint32_t kCountBase = 946684800;  // 2000-01-01
+constexpr uint32_t kRealMin = 1704067200;   // 2024-01-01, BatteryLogParser::REAL_MIN
+uint32_t epochBase = 0;
 uint32_t epochBaseMs = 0;
 int32_t localOffsetS = 0;
 
@@ -86,7 +92,6 @@ uint32_t slowAtMs = 0;            // last mV/temp read
 uint32_t usbSinceMs = 0;          // raw USB has differed from reading.usb since; 0 = same
 uint32_t chgSinceMs = 0;          // same for charging
 TaskHandle_t mainTask = nullptr;  // gauge I2C only from here (touch polls the bus too)
-bool bootFlushPending = false;
 bool wifiOn = false;
 
 uint32_t statsCrc() { return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&rtcStats), offsetof(Stats, crc)); }
@@ -149,14 +154,14 @@ void readClock() {
   uint16_t y = 0;
   uint8_t mo = 0, d = 0, h = 0, mi = 0, s = 0;
   if (!halClock.getDateTime(y, mo, d, h, mi, s) || y < 2024) {
-    epochBase = 0;
+    epochBase = kCountBase + static_cast<uint32_t>(esp_rtc_get_time_us() / 1000000);
     return;
   }
   epochBase = toEpoch(y, mo, d, h, mi, s);
   localOffsetS = (static_cast<int32_t>(LocalClock::currentOffsetQ()) - 48) * 15 * 60;
 }
 
-uint32_t epochNow() { return epochBase != 0 ? epochBase + (millis() - epochBaseMs) / 1000 : 0; }
+uint32_t epochNow() { return epochBase + (millis() - epochBaseMs) / 1000; }
 
 const BatteryMonitor& monitor() {
   static const BatteryMonitor m;  // built on first use, after BoardConfig::ACTIVE is set
@@ -232,7 +237,7 @@ void readSlow() {
 
 void writeRowAt(const uint32_t epoch, const Reading& r, const char* name, const char* detail) {
   char local[20] = "";
-  if (epoch != 0) {
+  if (epoch >= kRealMin) {
     const time_t t = static_cast<time_t>(epoch) + localOffsetS;
     tm parts{};
     gmtime_r(&t, &parts);
@@ -275,6 +280,16 @@ void writeRow(const char* name, const char* detail) {
   writeRowAt(epochNow(), r, name, detail);
 }
 
+// Main loop. Re-reads the RTC; the first real time after counted ones gets a clock_set row.
+void checkClock() {
+  const uint32_t was = epochNow();
+  readClock();
+  if (was >= kRealMin || epochBase < kRealMin) return;
+  char detail[24];
+  snprintf(detail, sizeof(detail), "was=%lu", static_cast<unsigned long>(was));
+  writeRow("clock_set", detail);
+}
+
 // Sleep and restarts end Wi-Fi without the poll seeing it: say so, so every
 // wifi_on has its wifi_off. No gauge read here (a restart may be mid-I2C).
 void wifiEnded(const char* why) {
@@ -288,7 +303,7 @@ void wifiEnded(const char* why) {
 
 }  // namespace
 
-// The row stays in the PSRAM ring; the next boot flushes it.
+// The row stays in the PSRAM ring until the next flush (sleep, low battery, 3/4 full).
 void onRestart() {
   wifiEnded("restart");
   PowerLog::onRestart();
@@ -343,14 +358,13 @@ void onBoot() {
   // wake paths that sleep again before the knobs load.
   PowerCounters::setChargeWakeAllowed(KNOBS.chargeWake != 0);
   powerManager.wakeOnChargeChange = KNOBS.chargeWake != 0;
-  // After a restart or crash the ring still holds rows the card lacks: write
-  // them soon. A clean deep-sleep wake wiped the ring, so this session's rows
-  // wait for the sleep flush (or the low-battery / 3/4-full flush); a power
-  // cut while awake loses them.
-  bootFlushPending = !(wake && esp_reset_reason() == ESP_RST_DEEPSLEEP);
+  // Rows a restart or crash left in the ring wait for the sleep flush (or the
+  // low-battery / 3/4-full flush) with this session's: creating or appending
+  // the file at boot stalled the loop (176 ms). A power cut while awake loses them.
 }
 
 void onSleep(const char* why) {
+  checkClock();  // an RTC set since the last poll, before the sleep row
   readQuick();
   readSlow();
   wifiEnded("sleep");
@@ -363,7 +377,7 @@ void poll(const uint32_t idleMs) {
   const uint32_t nowMs = millis();
   if (nowMs - lastPollMs < kPollMs) return;
   lastPollMs = nowMs;
-  if (nowMs - epochBaseMs >= kClockMs) readClock();
+  if (nowMs - epochBaseMs >= kClockMs) checkClock();
 
   const Reading before = reading;
   readQuick(/*debounce=*/true);
@@ -389,9 +403,7 @@ void poll(const uint32_t idleMs) {
   const uint32_t pending = ring.head - ring.aux;
   // Low battery: out in 4 KB lots (not row by row) before a brownout can take the ring.
   const bool low = !reading.usb && reading.pct <= kLowPct && pending >= kLowFlushBytes;
-  if (pending != 0 && (bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) {
-    bootFlushPending = false;
-  }
+  if (pending != 0 && (low || pending >= kRingBytes / 4 * 3)) flush();
 }
 
 void onChargeWake() {

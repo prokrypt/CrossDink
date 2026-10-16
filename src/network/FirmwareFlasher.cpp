@@ -19,6 +19,7 @@
 
 #include "FirmwareBoardTag.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "OtaBootSwitch.h"
 #include "activities/home/RecentBookProgress.h"
 #include "util/BatteryLog.h"
@@ -880,11 +881,15 @@ Result flashValidatedFileImpl(HalFile& file, ProgressCb onProgress, void* ctx) {
 }  // namespace
 
 Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
-  flushSettingsStores();  // deferred settings land before a flash that may end in a power cut
+  // Held stores land before a flash that may end in a power cut, and later saves
+  // write at once: the new firmware may not read what PSRAM would carry.
+  HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, true);
+  flushSettingsStores();  // knobs.json
   RecentBookProgress::flushSyncMarks();
   BatteryLog::event("fw_start", "sd");
   const Result r = flashValidatedFileImpl(file, onProgress, ctx);
   BatteryLog::event(r == Result::OK ? "fw_ok" : "fw_fail", resultName(r));
+  if (r != Result::OK) HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, false);  // staying on this firmware
   return r;
 }
 
@@ -892,7 +897,10 @@ namespace {
 struct Stream {
   const esp_partition_t* dest = nullptr;
   std::unique_ptr<ImageVerifier> verifier;
-  std::unique_ptr<uint8_t[]> buf;  // one sector: keeps writes aligned for encrypted slots
+  // One sector: keeps writes aligned for encrypted slots. Internal RAM: from
+  // PSRAM esp_flash_write copies through a 32-byte stack buffer, one program
+  // command per 32 bytes instead of per 256-byte page.
+  HeapByteBuffer buf;
   size_t total = 0;
   size_t written = 0;
   size_t fill = 0;
@@ -1006,7 +1014,7 @@ Result beginHere(const size_t totalSize) {
   if (totalSize < MIN_FIRMWARE_SIZE) return failStream(Result::TOO_SMALL);
   if (totalSize > stream.dest->size) return failStream(Result::TOO_LARGE);
   stream.verifier = makeUniqueNoThrow<ImageVerifier>(totalSize);
-  stream.buf = makeUniqueNoThrow<uint8_t[]>(SEC);
+  stream.buf = makeInternalByteBufferNoThrow(SEC);
   if (!stream.verifier || !stream.buf) return failStream(Result::OOM);
   stream.total = totalSize;
   streamOpen.store(true, std::memory_order_relaxed);
@@ -1059,6 +1067,7 @@ Result finishHere() {
 }  // namespace
 
 Result streamBegin(size_t totalSize) {
+  HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, true);  // as flashValidatedFile()
   flushSettingsStores();
   return endStep(onInternalStack([](void* size) { return beginHere(*static_cast<size_t*>(size)); }, &totalSize));
 }
@@ -1083,6 +1092,7 @@ Result streamFinish() {
 void streamAbort() {
   closeStream();
   stopFlashWorker();
+  HeldWrites::setWriteThrough(HeldWrites::FirmwareUpdate, false);  // staying on this firmware
 }
 
 bool streamActive() { return streamOpen.load(std::memory_order_relaxed); }

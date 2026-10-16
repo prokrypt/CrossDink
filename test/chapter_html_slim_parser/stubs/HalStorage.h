@@ -2,18 +2,32 @@
 
 #include <Print.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 class HalFile : public Print {
  public:
-  int available() const { return 0; }
-  size_t position() const { return 0; }
-  size_t size() const { return 0; }
-  int read(void*, size_t) { return 0; }
-  bool seek(size_t) { return false; }
-  bool seekSet(size_t) { return false; }
+  // In-memory contents for tests that read through a file; empty acts as a closed file.
+  std::string data;
+  size_t pos = 0;
+  int available() const { return pos < data.size() ? static_cast<int>(data.size() - pos) : 0; }
+  size_t position() const { return pos; }
+  size_t size() const { return data.size(); }
+  int read(void* out, size_t n) {
+    n = std::min(n, data.size() - std::min(pos, data.size()));
+    std::memcpy(out, data.data() + pos, n);
+    pos += n;
+    return static_cast<int>(n);
+  }
+  bool seek(size_t p) {
+    if (data.empty() || p > data.size()) return false;
+    pos = p;
+    return true;
+  }
+  bool seekSet(size_t p) { return seek(p); }
   bool close() { return true; }
   bool isOpen() const { return false; }
   operator bool() const { return false; }
