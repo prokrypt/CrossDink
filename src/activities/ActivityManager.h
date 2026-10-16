@@ -109,6 +109,11 @@ class ActivityManager {
   // Input on an opted-in screen powers the booster on early (wakePanelEarly);
   // if no frame follows, it switches off again after this long.
   static KNOB_ALIAS(PANEL_IDLE_OFF_MS, panelIdleOffMs);  // Goodies > Knobs
+  // Every other screen keeps the booster on between frames so input never
+  // waits on PON, but not through a long dwell: an image held this long under
+  // the powered booster ghosts under the next clean refresh (auto-sleep's
+  // sleep image). Input powers it back on early, as above.
+  static KNOB_ALIAS(PANEL_DWELL_OFF_MS, panelDwellOffMs);  // Goodies > Knobs
   // Render-task notification bit for wakePanelEarly(); renders use eIncrement,
   // so a value of exactly this bit means "wake only, nothing to draw".
   static constexpr uint32_t PANEL_WAKE_BIT = 1UL << 31;

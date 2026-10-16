@@ -532,7 +532,10 @@ void ActivityManager::renderTaskLoop() {
           idlePanelOffMs = PANEL_OFF_POLL_MS;
         } else if (currentActivity && display.powerOffIdle()) {
           panelBoosterOff.store(true, std::memory_order_release);
-          LOG_DBG("ACT", "Panel booster off after %s", idlePanelOffMs == PANEL_IDLE_OFF_MS ? "idle" : "draw");
+          LOG_DBG("ACT", "Panel booster off after %s",
+                  idlePanelOffMs == PANEL_IDLE_OFF_MS    ? "idle"
+                  : idlePanelOffMs == PANEL_DWELL_OFF_MS ? "dwell"
+                                                         : "draw");
         }
 #endif
         continue;
@@ -581,9 +584,10 @@ void ActivityManager::renderTaskLoop() {
       batchInput = currentActivity->batchesInputDuringRefresh();
       renderer.setDeferFastRefresh(deferredRender);
       PerfLog::noteRenderStart(currentActivity->name.c_str(), renderer.isRefreshPending());
-      // Interactive screens keep the booster on so input never waits on PON.
-      idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
-      idlePanelOffMs = PANEL_OFF_POLL_MS;
+      // Interactive screens keep the booster on so input never waits on PON,
+      // until the frame has dwelled PANEL_DWELL_OFF_MS.
+      idlePanelOffArmed = true;
+      idlePanelOffMs = currentActivity->powerOffPanelWhenIdle() ? PANEL_OFF_POLL_MS : PANEL_DWELL_OFF_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       BaseTheme::beginFrameStatus();
       Toast::beginFrame();
