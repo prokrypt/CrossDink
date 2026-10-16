@@ -24,6 +24,7 @@
 #include "DisplayScript.h"
 #include "DisplayTestActivity.h"
 #include "GlobalActions.h"
+#include "GoodyModuleActivity.h"
 #include "MappedInputManager.h"
 #include "PowerTestActivity.h"
 #include "SilentRestart.h"
@@ -53,9 +54,8 @@ constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_TAB = 2;
 constexpr fui::ActionId ACTION_STEP = 3;  // Keyboard test - / +: value = row * 2 (+ 1 for +)
 constexpr char DISPLAY_TEST_DIR[] = "/debug/display";
+constexpr char GOODY_MODULE_DIR[] = "/debug/goodies";
 constexpr size_t MAX_SD_TESTS = 64;
-
-bool hasTxtExtension(const char* name, const size_t len) { return len > 4 && strcasecmp(name + len - 4, ".txt") == 0; }
 
 std::unique_ptr<CrossPointWebServer> remoteServer;
 std::string remoteIp;
@@ -519,6 +519,8 @@ void GoodiesActivity::showLevel(const Level next) {
     }
     powerTestRow = static_cast<int>(entries.size());
     entries.push_back({"Power Test", -1, {}, ">"});
+    // SD modules (goodies/goody.h): /debug/goodies/*.wasm, sorted by name.
+    appendSdEntries(GOODY_MODULE_DIR, ".wasm");
 #endif
   } else if (level == Level::PowerTests) {
 #ifndef SIMULATOR
@@ -565,22 +567,7 @@ void GoodiesActivity::showLevel(const Level next) {
       entries.push_back({display_script::BUILT_INS[i].name, i, {}});
     }
     // AI- or hand-written tests: /debug/display/*.txt, sorted by name.
-    const size_t firstSd = entries.size();
-    FsFile dir = Storage.open(DISPLAY_TEST_DIR);
-    if (dir && dir.isDirectory()) {
-      char name[96];
-      for (FsFile file = dir.openNextFile(); file && entries.size() - firstSd < MAX_SD_TESTS;
-           file = dir.openNextFile()) {
-        const size_t len = file.getName(name, sizeof(name));
-        const bool script = !file.isDirectory() && name[0] != '.' && hasTxtExtension(name, len);
-        file.close();
-        if (!script) continue;
-        entries.push_back({std::string(name, len - 4), -1, std::string(DISPLAY_TEST_DIR) + "/" + name});
-      }
-    }
-    if (dir) dir.close();
-    std::sort(entries.begin() + firstSd, entries.end(),
-              [](const Entry& a, const Entry& b) { return a.label < b.label; });
+    appendSdEntries(DISPLAY_TEST_DIR, ".txt");
   }
   rowItems.assign(entries.size(), fui::ListItem{});
   for (size_t i = 0; i < entries.size(); ++i) {
@@ -600,6 +587,26 @@ void GoodiesActivity::showLevel(const Level next) {
   uiReady = false;
   lock.unlock();
   requestUpdate();
+}
+
+// Files in dir ending in ext (up to MAX_SD_TESTS), sorted by name; the label drops ext.
+void GoodiesActivity::appendSdEntries(const char* dirPath, const char* ext) {
+  const size_t firstSd = entries.size();
+  const size_t extLen = strlen(ext);
+  FsFile dir = Storage.open(dirPath);
+  if (dir && dir.isDirectory()) {
+    char name[96];
+    for (FsFile file = dir.openNextFile(); file && entries.size() - firstSd < MAX_SD_TESTS; file = dir.openNextFile()) {
+      const size_t len = file.getName(name, sizeof(name));
+      const bool match =
+          !file.isDirectory() && name[0] != '.' && len > extLen && strcasecmp(name + len - extLen, ext) == 0;
+      file.close();
+      if (!match) continue;
+      entries.push_back({std::string(name, len - extLen), -1, std::string(dirPath) + "/" + name});
+    }
+  }
+  if (dir) dir.close();
+  std::sort(entries.begin() + firstSd, entries.end(), [](const Entry& a, const Entry& b) { return a.label < b.label; });
 }
 
 void GoodiesActivity::activate(const int index) {
@@ -627,6 +634,15 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::PinMon);
     } else if (index == powerTestRow) {
       showLevel(Level::PowerTests);
+#ifndef SIMULATOR
+    } else if (!entries[index].path.empty()) {
+      startActivityForResult(
+          std::make_unique<GoodyModuleActivity>(renderer, mappedInput, entries[index].label, entries[index].path),
+          [this](const ActivityResult&) {
+            mappedInput.suppressNextConfirmRelease();
+            requestUpdate();
+          });
+#endif
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
     } else if (index == SLEEP_REBOOT_ROW) {
       // The sleep path, then a restart instead of power-down: the PSRAM log survives it and is saved after boot.
