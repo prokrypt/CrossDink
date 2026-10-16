@@ -938,8 +938,7 @@ void GoodiesActivity::onStepEvent(const fui::ActionEvent& event, void* user) {
   static_cast<GoodiesActivity*>(user)->pendingStep = event.value;
 }
 
-// Applies at once; the write waits until the page is left (holdsSettingsFlush),
-// or for sleep, restart or a firmware flash.
+// Applies at once; the write waits for a flush point (HeldWrites).
 void GoodiesActivity::stepKbdTest(const int row, const int dir) {
   if (row <= 0 || row >= static_cast<int>(entries.size())) return;
   const int index = entries[row].builtIn;

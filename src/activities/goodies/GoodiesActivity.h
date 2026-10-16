@@ -69,8 +69,6 @@ class GoodiesActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // Keyboard test: knob and Turbo changes wait to be written until the page is left.
-  bool holdsSettingsFlush() const override { return level == Level::KeyboardTest; }
 
  private:
   enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon, PowerTests };

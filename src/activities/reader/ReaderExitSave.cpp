@@ -32,8 +32,8 @@ void ReaderExitSave::queue(const std::string& cachePath, const BookReadingStats*
   pending.store(true, std::memory_order_release);
 }
 
-void ReaderExitSave::flush() {
-  if (!pending.load(std::memory_order_acquire)) return;
+bool ReaderExitSave::flush() {
+  if (!pending.load(std::memory_order_acquire)) return false;
   // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long start = millis();
   // Same order as the reader always used: global stats only once the book's landed.
@@ -41,6 +41,7 @@ void ReaderExitSave::flush() {
   APP_STATE.saveToFile();
   pending.store(false, std::memory_order_release);
   LOG_DBG("RXS", "Reader exit writes flushed in %lu ms", millis() - start);
+  return true;
 }
 
 const BookReadingStats* ReaderExitSave::book(const std::string& cachePath) {
