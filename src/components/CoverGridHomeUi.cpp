@@ -12,7 +12,6 @@
 #include "UITheme.h"
 #include "UIThemeTokens.h"
 #include "components/KOSyncBadge.h"
-#include "components/NoCoverPlaceholder.h"
 #include "components/icons/listIcons.h"
 #include "components/icons/opdsIcons.h"
 
@@ -280,12 +279,9 @@ bool CoverGridHomeUi::paintFramedCover(fui::DrawTarget& target, fui::Rect rect, 
   const auto ink = fui::Paint::solid(fui::Color::Black);
   target.fill(fui::Rect{rect.right(), static_cast<int16_t>(rect.y + SHADOW_OFFSET), SHADOW_OFFSET, rect.height}, ink);
   target.fill(fui::Rect{static_cast<int16_t>(rect.x + SHADOW_OFFSET), rect.bottom(), rect.width, SHADOW_OFFSET}, ink);
-  bool drawn = index < coverPaths.size() && coverCache.paint(rect, index, coverPaths[index]);
-  if (!drawn && books && index < books->size()) {
-    target.fill(rect, fui::Paint::solid(fui::Color::White));
-    NoCoverPlaceholder::draw(renderer, rect.x, rect.y, rect.width, rect.height, (*books)[index]);
-    drawn = true;
-  }
+  // The cache draws the no-cover placeholder itself and snapshots it with the covers.
+  const bool drawn = index < coverPaths.size() && index < books->size() &&
+                     coverCache.paint(rect, index, coverPaths[index], (*books)[index]);
   target.stroke(rect, ink, 1, 0);
   return drawn;
 }

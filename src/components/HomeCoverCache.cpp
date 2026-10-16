@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "UITheme.h"
+#include "components/NoCoverPlaceholder.h"
 
 namespace fui = freeink::ui;
 
@@ -42,7 +43,7 @@ void HomeCoverCache::prepare() {
   }
 }
 
-bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path) {
+bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path, const RecentBook& book) {
   if (index >= cachedCovers.size()) return false;
   auto& cached = cachedCovers[index];
   if (coverCache && cached.valid && cached.rect.x == rect.x && cached.rect.y == rect.y &&
@@ -68,7 +69,7 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
   }
   if (!drawn) {
     renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
-    renderer.fillRect(rect.x, rect.y + rect.height / 3, rect.width, rect.height - rect.height / 3, true);
+    NoCoverPlaceholder::draw(renderer, rect.x, rect.y, rect.width, rect.height, book);
     renderer.drawRect(rect.x, rect.y, rect.width, rect.height, true);
   }
   if (coverCache) {
