@@ -11,6 +11,7 @@
 
 #include "RecentBooksStore.h"
 #include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -81,13 +82,9 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                           themed(Lyra3CoversMetrics::values).homeCoverHeight, true);
 
         if (!hasCover) {
-          // Render empty cover
-          renderer.fillRect(tileX + hPaddingInSelection,
-                            tileY + hPaddingInSelection + (themed(Lyra3CoversMetrics::values).homeCoverHeight / 3),
-                            tileWidth - 2 * hPaddingInSelection,
-                            2 * themed(Lyra3CoversMetrics::values).homeCoverHeight / 3, true);
-          drawLucideIcon(renderer, icon_book_open_32, tileX + hPaddingInSelection + 24,
-                         tileY + hPaddingInSelection + 24);
+          NoCoverPlaceholder::draw(renderer, tileX + hPaddingInSelection, tileY + hPaddingInSelection,
+                                   tileWidth - 2 * hPaddingInSelection,
+                                   themed(Lyra3CoversMetrics::values).homeCoverHeight, recentBooks[i]);
         }
       }
 
