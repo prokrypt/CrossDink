@@ -128,9 +128,12 @@ void fitBoundsToPunctuation(const ClipWordStore& wordStore, const uint16_t* word
   const size_t lastEnd = std::min<size_t>(bounds.lastWordByteEndOffset, last.textLength);
   const char* lastText = wordStore.text(last);
   const size_t openLen = firstText[0] == '"' ? 1 : strncmp(firstText, "\xE2\x80\x9C", 3) == 0 ? 3 : 0;
-  const size_t closeLen = lastEnd >= 1 && lastText[lastEnd - 1] == '"'                              ? 1
-                          : lastEnd >= 3 && strncmp(lastText + lastEnd - 3, "\xE2\x80\x9D", 3) == 0 ? 3
-                                                                                                    : 0;
+  size_t closeLen = 0;
+  if (lastEnd >= 3 && strncmp(lastText + lastEnd - 3, "\xE2\x80\x9D", 3) == 0) {
+    closeLen = 3;
+  } else if (lastEnd >= 1 && lastText[lastEnd - 1] == '"') {
+    closeLen = 1;
+  }
   if (closeLen && !openLen) {
     bounds.lastWordByteEndOffset = static_cast<uint16_t>(lastEnd - closeLen);
   } else if (openLen && !closeLen) {
