@@ -1,9 +1,11 @@
 #include "ClipTextBuilder.h"
 
 #include <Logging.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 namespace ClipTextBuilder {
 namespace {
@@ -95,6 +97,49 @@ bool isSelectedTableWord(const WordRef& word, const uint16_t tableSelection) {
 }
 
 }  // namespace
+
+void fitBoundsToPunctuation(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int orderCount,
+                            int& fromOrder, int& toOrder, SelectionBounds& bounds) {
+  const auto& words = wordStore.words;
+  const auto isAttachedPunctuation = [&](const WordRef& anchor, const WordRef& word) {
+    return areWordsVisuallyAttached(anchor, word) && !utf8ContainsLookupCharacter(wordStore.text(word));
+  };
+  if (bounds.lastWordByteEndOffset >= words[wordOrder[toOrder]].textLength) {
+    while (toOrder + 1 < orderCount &&
+           isAttachedPunctuation(words[wordOrder[toOrder]], words[wordOrder[toOrder + 1]])) {
+      const WordRef& word = words[wordOrder[++toOrder]];
+      bounds.lastPageIdx = static_cast<uint8_t>(word.pageIdx);
+      bounds.lastPageWordOrdinal = word.pageWordIndex;
+      bounds.lastWordByteEndOffset = word.textLength;
+    }
+  }
+  if (bounds.firstWordByteOffset == 0) {
+    while (fromOrder > 0 && isAttachedPunctuation(words[wordOrder[fromOrder]], words[wordOrder[fromOrder - 1]])) {
+      const WordRef& word = words[wordOrder[--fromOrder]];
+      bounds.firstPageIdx = static_cast<uint8_t>(word.pageIdx);
+      bounds.firstPageWordOrdinal = word.pageWordIndex;
+    }
+  }
+
+  // Keep a double quote at one end only when the other end has one too.
+  const WordRef& first = words[wordOrder[fromOrder]];
+  const WordRef& last = words[wordOrder[toOrder]];
+  const char* firstText = wordStore.text(first) + std::min<size_t>(bounds.firstWordByteOffset, first.textLength);
+  const size_t lastEnd = std::min<size_t>(bounds.lastWordByteEndOffset, last.textLength);
+  const char* lastText = wordStore.text(last);
+  const size_t openLen = firstText[0] == '"' ? 1 : strncmp(firstText, "\xE2\x80\x9C", 3) == 0 ? 3 : 0;
+  size_t closeLen = 0;
+  if (lastEnd >= 3 && strncmp(lastText + lastEnd - 3, "\xE2\x80\x9D", 3) == 0) {
+    closeLen = 3;
+  } else if (lastEnd >= 1 && lastText[lastEnd - 1] == '"') {
+    closeLen = 1;
+  }
+  if (closeLen && !openLen) {
+    bounds.lastWordByteEndOffset = static_cast<uint16_t>(lastEnd - closeLen);
+  } else if (openLen && !closeLen) {
+    bounds.firstWordByteOffset = static_cast<uint16_t>(bounds.firstWordByteOffset + openLen);
+  }
+}
 
 ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int fromOrder, const int toOrder,
                      const int startPageInSection, const int sectionPageCount, const SelectionBounds* selectionBounds,

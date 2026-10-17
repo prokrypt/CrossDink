@@ -143,6 +143,77 @@ TEST(ClipTextBuilder, AppliesDictionaryFragmentBoundsToTheirOwnPages) {
   EXPECT_EQ(result.text, "t middle f");
 }
 
+TEST(ClipTextBuilder, DictionarySelectionKeepsGluedPunctuation) {
+  ClipWordStore store;
+  const auto add = [&](const char* text, const int x, const int w) {
+    WordRef word;
+    word.pageWordIndex = static_cast<uint16_t>(store.words.size());
+    word.x = x;
+    word.w = w;
+    ASSERT_TRUE(store.appendText(word, text));
+    store.words.push_back(word);
+  };
+  add("\xE2\x80\x9C", 0, 4);  // opening quote in its own run
+  add("you", 4, 10);
+  add("say", 20, 10);
+  add("?\xE2\x80\x9D", 30, 6);  // ?" glued after "say"
+  add("Then", 46, 12);
+
+  const uint16_t order[] = {0, 1, 2, 3, 4};
+  int from = 1;
+  int to = 2;
+  ClipTextBuilder::SelectionBounds bounds{0, 1, 0, 0, 2, 3};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 5, from, to, bounds);
+  EXPECT_EQ(from, 0);
+  EXPECT_EQ(to, 3);
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "\xE2\x80\x9Cyou say?\xE2\x80\x9D");
+
+  // A selection ending mid-word does not widen.
+  from = 1;
+  to = 2;
+  bounds = ClipTextBuilder::SelectionBounds{0, 1, 1, 0, 2, 2};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 5, from, to, bounds);
+  EXPECT_EQ(from, 1);
+  EXPECT_EQ(to, 2);
+}
+
+TEST(ClipTextBuilder, DictionarySelectionDropsUnpairedQuotes) {
+  ClipWordStore store;
+  const auto add = [&](const char* text, const int x, const int w) {
+    WordRef word;
+    word.pageWordIndex = static_cast<uint16_t>(store.words.size());
+    word.x = x;
+    word.w = w;
+    ASSERT_TRUE(store.appendText(word, text));
+    store.words.push_back(word);
+  };
+  add("\xE2\x80\x9C", 0, 4);
+  add("you", 4, 10);
+  add("say", 20, 10);
+  add("?\xE2\x80\x9D", 30, 6);
+  add("he", 46, 8);
+  add("said\"", 60, 20);
+
+  const uint16_t order[] = {0, 1, 2, 3, 4, 5};
+  int from = 2;
+  int to = 2;
+  ClipTextBuilder::SelectionBounds bounds{0, 2, 0, 0, 2, 3};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "say?");
+
+  from = 1;
+  to = 1;
+  bounds = ClipTextBuilder::SelectionBounds{0, 1, 0, 0, 1, 3};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "you");
+
+  from = 4;
+  to = 5;
+  bounds = ClipTextBuilder::SelectionBounds{0, 4, 0, 0, 5, 5};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "he said");
+}
+
 TEST(ClipTextBuilder, KeepsVerticalTableSelectionsInTheirColumn) {
   ClipWordStore store;
   constexpr uint16_t leftColumn = 8;
