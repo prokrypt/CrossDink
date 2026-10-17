@@ -17,6 +17,11 @@ struct SelectionBounds {
   uint16_t lastWordByteEndOffset = 0;
 };
 
+// A punctuation-only run glued to a word (a closing ?" in its own text node) is a
+// separate page word that dictionary selection cannot select; widen the range over it.
+void extendOverAttachedPunctuation(const ClipWordStore& wordStore, const uint16_t* wordOrder, int orderCount,
+                                   int& fromOrder, int& toOrder, SelectionBounds& bounds);
+
 ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, int fromOrder, int toOrder,
                      int startPageInSection, int sectionPageCount, const SelectionBounds* selectionBounds = nullptr,
                      uint16_t tableSelection = UINT16_MAX);

@@ -1,6 +1,7 @@
 add_executable(ClipWordStoreTest
   ClipWordStoreTest.cpp
   ${REPO_ROOT}/src/clippings/ClipTextBuilder.cpp
+  ${REPO_ROOT}/lib/Utf8/Utf8.cpp
 )
 
 target_link_libraries(ClipWordStoreTest PRIVATE
@@ -13,6 +14,7 @@ target_include_directories(ClipWordStoreTest PRIVATE
   ${REPO_ROOT}/src
   ${REPO_ROOT}/src/clippings
   ${REPO_ROOT}/lib/EpdFont
+  ${REPO_ROOT}/lib/Utf8
 )
 
 gtest_discover_tests(ClipWordStoreTest)

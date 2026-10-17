@@ -1,6 +1,7 @@
 #include "ClipTextBuilder.h"
 
 #include <Logging.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <cctype>
@@ -95,6 +96,30 @@ bool isSelectedTableWord(const WordRef& word, const uint16_t tableSelection) {
 }
 
 }  // namespace
+
+void extendOverAttachedPunctuation(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int orderCount,
+                                   int& fromOrder, int& toOrder, SelectionBounds& bounds) {
+  const auto& words = wordStore.words;
+  const auto isAttachedPunctuation = [&](const WordRef& anchor, const WordRef& word) {
+    return areWordsVisuallyAttached(anchor, word) && !utf8ContainsLookupCharacter(wordStore.text(word));
+  };
+  if (bounds.lastWordByteEndOffset >= words[wordOrder[toOrder]].textLength) {
+    while (toOrder + 1 < orderCount &&
+           isAttachedPunctuation(words[wordOrder[toOrder]], words[wordOrder[toOrder + 1]])) {
+      const WordRef& word = words[wordOrder[++toOrder]];
+      bounds.lastPageIdx = static_cast<uint8_t>(word.pageIdx);
+      bounds.lastPageWordOrdinal = word.pageWordIndex;
+      bounds.lastWordByteEndOffset = word.textLength;
+    }
+  }
+  if (bounds.firstWordByteOffset == 0) {
+    while (fromOrder > 0 && isAttachedPunctuation(words[wordOrder[fromOrder]], words[wordOrder[fromOrder - 1]])) {
+      const WordRef& word = words[wordOrder[--fromOrder]];
+      bounds.firstPageIdx = static_cast<uint8_t>(word.pageIdx);
+      bounds.firstPageWordOrdinal = word.pageWordIndex;
+    }
+  }
+}
 
 ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int fromOrder, const int toOrder,
                      const int startPageInSection, const int sectionPageCount, const SelectionBounds* selectionBounds,
