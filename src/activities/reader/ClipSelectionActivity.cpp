@@ -487,8 +487,8 @@ bool ClipSelectionActivity::finishDictionarySelection() {
       dictionaryRequest.firstPageOffset,     dictionaryRequest.firstPageWordOrdinal,
       dictionaryRequest.firstWordByteOffset, dictionaryRequest.lastPageOffset,
       dictionaryRequest.lastPageWordOrdinal, dictionaryRequest.lastWordByteEndOffset};
-  ClipTextBuilder::extendOverAttachedPunctuation(wordStore, readingOrder.data(), static_cast<int>(readingOrderSize),
-                                                 from, to, selectionBounds);
+  ClipTextBuilder::fitBoundsToPunctuation(wordStore, readingOrder.data(), static_cast<int>(readingOrderSize), from, to,
+                                          selectionBounds);
   auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, startPageInSection, section.pageCount,
                                        &selectionBounds);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {

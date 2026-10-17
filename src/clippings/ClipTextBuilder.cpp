@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 namespace ClipTextBuilder {
 namespace {
@@ -97,8 +98,8 @@ bool isSelectedTableWord(const WordRef& word, const uint16_t tableSelection) {
 
 }  // namespace
 
-void extendOverAttachedPunctuation(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int orderCount,
-                                   int& fromOrder, int& toOrder, SelectionBounds& bounds) {
+void fitBoundsToPunctuation(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int orderCount,
+                            int& fromOrder, int& toOrder, SelectionBounds& bounds) {
   const auto& words = wordStore.words;
   const auto isAttachedPunctuation = [&](const WordRef& anchor, const WordRef& word) {
     return areWordsVisuallyAttached(anchor, word) && !utf8ContainsLookupCharacter(wordStore.text(word));
@@ -118,6 +119,22 @@ void extendOverAttachedPunctuation(const ClipWordStore& wordStore, const uint16_
       bounds.firstPageIdx = static_cast<uint8_t>(word.pageIdx);
       bounds.firstPageWordOrdinal = word.pageWordIndex;
     }
+  }
+
+  // Keep a double quote at one end only when the other end has one too.
+  const WordRef& first = words[wordOrder[fromOrder]];
+  const WordRef& last = words[wordOrder[toOrder]];
+  const char* firstText = wordStore.text(first) + std::min<size_t>(bounds.firstWordByteOffset, first.textLength);
+  const size_t lastEnd = std::min<size_t>(bounds.lastWordByteEndOffset, last.textLength);
+  const char* lastText = wordStore.text(last);
+  const size_t openLen = firstText[0] == '"' ? 1 : strncmp(firstText, "\xE2\x80\x9C", 3) == 0 ? 3 : 0;
+  const size_t closeLen = lastEnd >= 1 && lastText[lastEnd - 1] == '"'                              ? 1
+                          : lastEnd >= 3 && strncmp(lastText + lastEnd - 3, "\xE2\x80\x9D", 3) == 0 ? 3
+                                                                                                    : 0;
+  if (closeLen && !openLen) {
+    bounds.lastWordByteEndOffset = static_cast<uint16_t>(lastEnd - closeLen);
+  } else if (openLen && !closeLen) {
+    bounds.firstWordByteOffset = static_cast<uint16_t>(bounds.firstWordByteOffset + openLen);
   }
 }
 
