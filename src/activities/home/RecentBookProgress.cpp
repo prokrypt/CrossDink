@@ -364,6 +364,17 @@ void RecentBookProgress::flushSyncMarks() {
   }
 }
 
+RecentBookProgress::SyncMark RecentBookProgress::syncMark(const std::string& cachePath) {
+  {
+    std::lock_guard<std::mutex> lock(heldMutex);
+    if (const HeldMark* held = findHeld(cachePath)) return held->mark;
+  }
+  SyncMark mark;
+  uint16_t basisPoints = 0;
+  if (!readCachedEpubRecord(cachePath, basisPoints, mark)) return {};
+  return mark;
+}
+
 RecentBookProgress::SyncBadge RecentBookProgress::syncBadge(const std::string& cachePath, const float progress,
                                                             SyncMark mark) {
   if (cachePath.empty() || !hasPercent(progress) || !KOREADER_STORE.hasCredentials()) return SyncBadge::None;

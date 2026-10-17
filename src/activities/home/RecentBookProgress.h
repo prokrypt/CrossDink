@@ -44,6 +44,8 @@ uint16_t basisPoints(const Epub& epub, int spineIndex, int currentPage, int page
 // Any task: a KOSync check found the server holding this book at bp (its own %)
 // or further on. Kept in RAM until flushSyncMarks(); a newer note replaces it.
 void noteSynced(const std::string& cachePath, uint16_t bp, bool serverAhead);
+// Any task: the book's KOSync mark, the held one if newer (kNever when none). One small read.
+SyncMark syncMark(const std::string& cachePath);
 // Sleep, restart, OTA, USB Drive, File Transfer: saves held marks with the books' %.
 void flushSyncMarks();
 // The badge for a book at progress (0-100) with its saved mark, or a newer held
