@@ -200,6 +200,13 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, s
   return true;
 }
 
+// The book's badge reads Unsynced: its % is past the last mark, so a sync since
+// then failed or never ran. The mark survives a reboot, unlike unpushedPath.
+bool lastSyncFailed(const std::string& cachePath, const uint16_t bp) {
+  const RecentBookProgress::SyncMark mark = RecentBookProgress::syncMark(cachePath);
+  return mark.bp != RecentBookProgress::SyncMark::kNever && !mark.serverAhead && bp > mark.bp;
+}
+
 std::string documentId(const std::string& path, const DocumentMatchMethod method) {
   return method == DocumentMatchMethod::FILENAME ? KOReaderDocumentId::calculateFromFilename(path)
                                                  : KOReaderDocumentId::calculate(path);
@@ -260,7 +267,7 @@ void run(void*) {
     LOG_INF("KOSync", "%s skipped: closed before the page it opened at (radio skipped)", what);
     pushOutcome = kosync_auto::PushOutcome::Same;
     return;
-  } else if (moved == 0 && unpushedPath != jobPath) {
+  } else if (moved == 0 && unpushedPath != jobPath && !lastSyncFailed(cachePath, bp)) {
     // Opened and closed without turning a page: nothing new since the last sync.
     LOG_INF("KOSync", "%s skipped: closed at the page it opened at (radio skipped)", what);
     pushOutcome = kosync_auto::PushOutcome::Same;
