@@ -87,6 +87,7 @@ RadioOwner radioOwner = RadioOwner::None;
 bool sharedStartTried = false;
 uint32_t rejoinAt = 0;
 uint32_t rejoinRetryMs = 0;                      // 0 until an attempt fails; doubles per failure
+uint32_t linkLostAt = 0;                         // millis() | 1 when the server's link went down; 0 while it is up
 KNOB_ALIAS(REJOIN_TIMEOUT_MS, rejoinTimeoutMs);  // Goodies > Knobs, as the rejoin times below
 KNOB_ALIAS(REJOIN_RETRY_MIN_MS, rejoinRetryMinMs);
 KNOB_ALIAS(REJOIN_RETRY_MAX_MS, rejoinRetryMaxMs);
@@ -187,6 +188,7 @@ bool startRemote(const bool ownsRadio = true) {
   remoteIp = WiFi.localIP().toString().c_str();
   snprintf(remoteSsid, sizeof(remoteSsid), "%s", WiFi.SSID().c_str());
   rejoinRetryMs = 0;
+  linkLostAt = 0;
   setRemoteWanted(true);
   LOG_INF("GDY", "wifi remote on: http://%s/api/psram-log", remoteIp.c_str());
   return true;
@@ -415,7 +417,22 @@ void loop(const uint32_t idleMs) {
     }
     return;
   }
-  if (remoteServer) return;
+  if (remoteServer) {
+    // The server outlives its link, and Arduino's auto-reconnect gives up on some reasons
+    // (AUTH_FAIL, an AP's low-ack kick): past the join timeout, rejoin as Off and On would.
+    if (hasActiveStationWifiConnection()) {
+      linkLostAt = 0;
+    } else if (linkLostAt == 0) {
+      linkLostAt = millis() | 1;
+    } else if (millis() - linkLostAt > REJOIN_TIMEOUT_MS) {
+      LOG_ERR("GDY", "wifi remote: link down %lu ms (status %d), rejoining",
+              static_cast<unsigned long>(millis() - linkLostAt), static_cast<int>(WiFi.status()));
+      linkLostAt = 0;
+      stopServerAndRadioInBackground();  // off the main loop; the rejoin below waits for it
+      rejoinAt = millis();  // rejoinRetryMs is 0 after a good start: the first try is at once
+    }
+    return;
+  }
   if (!rejoinNow && !rejoinAfterPause) {
     if (millis() < REJOIN_BOOT_DELAY_MS || idleMs < REJOIN_IDLE_MS) return;
     if (rejoinAt != 0 && millis() - rejoinAt < rejoinRetryMs) return;
