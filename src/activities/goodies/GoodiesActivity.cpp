@@ -429,7 +429,7 @@ void loop(const uint32_t idleMs) {
               static_cast<unsigned long>(millis() - linkLostAt), static_cast<int>(WiFi.status()));
       linkLostAt = 0;
       stopServerAndRadioInBackground();  // off the main loop; the rejoin below waits for it
-      rejoinAt = millis();  // rejoinRetryMs is 0 after a good start: the first try is at once
+      rejoinAt = millis();               // rejoinRetryMs is 0 after a good start: the first try is at once
     }
     return;
   }
