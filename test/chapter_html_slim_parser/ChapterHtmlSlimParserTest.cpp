@@ -2,9 +2,11 @@
 #include <GfxRenderer.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
+#include <vector>
 
 #define class struct
 #define private public
@@ -278,6 +280,52 @@ TEST_F(ChapterHtmlSlimParserTest, HiddenNestedListDoesNotResetOuterCounter) {
   ChapterHtmlSlimParser::startElement(&parser, "li", nullptr);
   ASSERT_EQ(parser.currentTextBlock->size(), 1u);
   EXPECT_EQ(parser.currentTextBlock->words[0], "2.");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, AdvancePrewarmScanResumesAcrossSlicesAndFeedsEveryCodepoint) {
+  // Longer than two 512-byte reads, with a 2-byte UTF-8 character straddling a read boundary.
+  std::string html = "<p class=\"x\">ab&amp;c</p>";
+  html.append(510 - html.size(), 'd');
+  html += "\xC3\xA9";  // U+00E9 split across bytes 510/511 and 512
+  html += "<b>zz</b> \xE2\x80\x94 end";
+  html.append(600, 'q');
+
+  const auto scanAll = [&](const bool reseekEachChunk) {
+    ChapterHtmlSlimParser::AdvancePrewarm state;
+    state.codepoints = std::make_unique<uint32_t[]>(4096);
+    state.buffer = std::make_unique<uint8_t[]>(512);
+    HalFile file;
+    file.data = html;
+    while (!state.scanned) {
+      if (reseekEachChunk) {
+        file.seek(0);  // the parser moved the file; the scan resumes from its own offset
+        EXPECT_TRUE(file.seek(state.offset));
+      }
+      parser.scanAdvancePrewarmChunk(state, file);
+    }
+    EXPECT_EQ(state.offset, html.size());
+    return std::vector<uint32_t>(state.codepoints.get(), state.codepoints.get() + state.cpCount);
+  };
+
+  const auto oneGo = scanAll(false);
+  EXPECT_EQ(scanAll(true), oneGo);
+  for (const uint32_t cp : {uint32_t{'a'}, uint32_t{' '}, uint32_t{'z'}, uint32_t{0xE9}, uint32_t{0x2014}}) {
+    EXPECT_NE(std::find(oneGo.begin(), oneGo.end(), cp), oneGo.end()) << cp;
+  }
+  EXPECT_EQ(std::find(oneGo.begin(), oneGo.end(), uint32_t{'<'}), oneGo.end());
+  EXPECT_EQ(std::find(oneGo.begin(), oneGo.end(), uint32_t{'m'}), oneGo.end());  // only inside &amp;
+
+  ChapterHtmlSlimParser::AdvancePrewarm state;
+  state.codepoints = std::make_unique<uint32_t[]>(oneGo.size());
+  std::copy(oneGo.begin(), oneGo.end(), state.codepoints.get());
+  state.cpCount = static_cast<uint32_t>(oneGo.size());
+  while (state.fedCount < state.cpCount) parser.feedAdvancePrewarm(state, 3);
+  std::vector<uint32_t> fed;
+  for (const auto& batch : renderer.fedCodepoints) {
+    EXPECT_LE(batch.size(), 3u);
+    fed.insert(fed.end(), batch.begin(), batch.end());
+  }
+  EXPECT_EQ(fed, oneGo);
 }
 
 }  // namespace

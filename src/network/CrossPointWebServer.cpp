@@ -1357,23 +1357,51 @@ static void sendStaticContent(WebServer* server, const char* data, size_t len, c
   server->send_P(200, contentType, data, len);
 }
 
+#if CROSSDINK_GOODIES
+// Debug builds: a file at /debug/web/<name> on the SD card replaces the built-in page or asset, so web UI edits
+// need no reflash. Sent uncompressed and uncached; the browser may still hold a cached /style.css or /logo.png
+// (they are served immutable), so hard-reload after the first override.
+static bool sendWebOverride(WebServer* server, const char* name, const char* contentType) {
+  char path[48];
+  snprintf(path, sizeof(path), "/debug/web/%s", name);
+  if (!Storage.exists(path)) return false;
+  HalFile file = Storage.open(path);
+  if (!file) {
+    LOG_ERR("WEB", "web override %s: open failed", path);
+    return false;
+  }
+  server->sendHeader("Cache-Control", "no-cache");
+  sendFileWithRange(*server, file, contentType);
+  file.close();
+  return true;
+}
+#define WEB_OVERRIDE(name, type) \
+  if (sendWebOverride(server.get(), name, type)) return
+#else
+#define WEB_OVERRIDE(name, type)
+#endif
+
 void CrossPointWebServer::handleRoot() const {
+  WEB_OVERRIDE("index.html", "text/html");
   sendStaticContent(server.get(), HomePageHtml, sizeof(HomePageHtml), HomePageHtmlETag);
 }
 
 void CrossPointWebServer::handleJszip() const {
+  WEB_OVERRIDE("jszip.min.js", "application/javascript");
   sendStaticContent(server.get(), jszip_minJs, jszip_minJsCompressedSize, jszip_minJsETag, "application/javascript");
 }
 
 // Shared stylesheet and logo are referenced with a content-hashed ?v= query,
 // so they can be cached aggressively: a new build changes the URL.
 void CrossPointWebServer::handleStyleCss() const {
+  WEB_OVERRIDE("style.css", "text/css");
   server->sendHeader("Content-Encoding", "gzip");
   server->sendHeader("Cache-Control", "public, max-age=31536000, immutable");
   server->send_P(200, "text/css", StyleCss, StyleCssCompressedSize);
 }
 
 void CrossPointWebServer::handleLogo() const {
+  WEB_OVERRIDE("logo.png", "image/png");
   // Raw PNG (already compressed); no Content-Encoding.
   server->sendHeader("Cache-Control", "public, max-age=31536000, immutable");
   server->send_P(200, "image/png", LogoPng, LogoPngSize);
@@ -2089,6 +2117,7 @@ bool CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor,
 bool CrossPointWebServer::isEpubFile(const String& filename) const { return FsHelpers::hasEpubExtension(filename); }
 
 void CrossPointWebServer::handleFileList() const {
+  WEB_OVERRIDE("files.html", "text/html");
   sendStaticContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml), FilesPageHtmlETag);
 }
 
@@ -2819,6 +2848,7 @@ void CrossPointWebServer::handleDelete() const {
 }
 
 void CrossPointWebServer::handleSettingsPage() const {
+  WEB_OVERRIDE("settings.html", "text/html");
   sendStaticContent(server.get(), SettingsPageHtml, sizeof(SettingsPageHtml), SettingsPageHtmlETag);
 }
 
@@ -3641,10 +3671,12 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 // --- Font management handlers ---
 
 void CrossPointWebServer::handleLogsPage() const {
+  WEB_OVERRIDE("logs.html", "text/html");
   sendStaticContent(server.get(), LogsPageHtml, sizeof(LogsPageHtml), LogsPageHtmlETag);
 }
 
 void CrossPointWebServer::handleFontsPage() const {
+  WEB_OVERRIDE("fonts.html", "text/html");
   sendStaticContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml), FontsPageHtmlETag);
 }
 

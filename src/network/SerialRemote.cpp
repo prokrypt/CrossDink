@@ -1278,6 +1278,9 @@ bool handleLine(const char* line) {
   } else if (strcmp(verb, "BOOTSLOT") == 0) {
     cmdBootSlot(args);
 #endif
+  } else if (strcmp(verb, "FLUSH") == 0) {
+    // Emergency: write everything held for sleep (HeldWrites, reader progress) now.
+    reply("OK:FLUSH %d", flushHeldWrites());
   } else if (strcmp(verb, "REBOOT") == 0) {
     reply("OK:REBOOT");
     logSerial.flush();

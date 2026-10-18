@@ -52,7 +52,6 @@ bool ringReady = false;
 
 SampleFn sampleFn = nullptr;
 bool begun = false;
-bool bootFlushPending = false;
 bool headerChecked = false;  // once per boot, before the first append
 bool chargerSeen = false;
 uint32_t lastPollMs = 0;
@@ -177,9 +176,7 @@ void begin(const SampleFn sample, const bool deepSleepWake, const char* event, c
   WiFi.onEvent(onWifiEvent, ARDUINO_EVENT_WIFI_STA_CONNECTED);
   wifiSinceMs = lastPollMs = millis();
   wifiState = sampleWifi();
-  ensureRing();
-  // After a restart or crash the ring may hold rows the card lacks.
-  bootFlushPending = ringReady && ring.head != ring.aux;
+  ensureRing();  // rows a restart or crash left wait for the next flush (sleep, low battery, 3/4 full)
   writeRow(event, detail, true);
 }
 
@@ -202,7 +199,7 @@ void poll(const uint32_t idleMs) {
   Sample s;
   if (sampleFn) sampleFn(s);
   const bool low = !s.usb && s.pct != 0 && s.pct <= kLowPct && pending >= kLowFlushBytes;
-  if ((bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) bootFlushPending = false;
+  if (low || pending >= kRingBytes / 4 * 3) flush();
 }
 
 void event(const char* name, const char* detail) {

@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 
+#include "HeldWrites.h"
 #include "ProgressRecord.h"
 #include "util/InPlaceFileWrite.h"
 
@@ -36,6 +37,11 @@ inline Progress toProgress(const progress_record::Fields& fields) {
 
 inline progress_record::Slot readProgressSlot(const char* moduleName, const std::string& path) {
   progress_record::Slot slot;
+  uint8_t data[progress_record::RECORD_BYTES];
+  // A reader exit held this slot until the next flush point (HeldWrites).
+  if (const int held = HeldWrites::heldFile(path.c_str(), data, sizeof(data)); held >= 0) {
+    return progress_record::decode(data, static_cast<size_t>(held));
+  }
   if (!Storage.exists(path.c_str())) {
     return slot;
   }
@@ -44,7 +50,6 @@ inline progress_record::Slot readProgressSlot(const char* moduleName, const std:
   if (!Storage.openFileForRead(moduleName, path, f)) {
     return slot;
   }
-  uint8_t data[progress_record::RECORD_BYTES];
   const size_t fileSize = f.fileSize();
   const int dataSize = f.read(data, sizeof(data));
   f.close();
@@ -86,8 +91,10 @@ inline bool loadProgress(const Epub& epub, Progress& progress, const char* modul
 
 // Persists reader progress to an EPUB cache directory. Returns true on success,
 // including when the stored position already matches and nothing is written.
+// hold: a reader exit; the write waits for the next flush point (HeldWrites).
 inline bool saveProgressToCachePath(const std::string& cachePath, int spineIndex, int pageNumber, int pageCount,
-                                    const std::optional<uint32_t> visibleTextOffset = std::nullopt) {
+                                    const std::optional<uint32_t> visibleTextOffset = std::nullopt,
+                                    const bool hold = false) {
   if (spineIndex < 0 || spineIndex > 0xFFFF || pageNumber < 0 || pageNumber > 0xFFFF || pageCount < 0 ||
       pageCount > 0xFFFF) {
     LOG_ERR("ERS", "Progress values out of range: spine=%d page=%d count=%d", spineIndex, pageNumber, pageCount);
@@ -118,7 +125,7 @@ inline bool saveProgressToCachePath(const std::string& cachePath, int spineIndex
   progress_record::encode(fields, progress_record::nextSeq(primary, backup), record);
   const std::string& targetPath =
       progress_record::target(primary, backup) == progress_record::PRIMARY ? primaryPath : backupPath;
-  if (!writeFileInPlace("ERS", targetPath.c_str(), record, sizeof(record))) {
+  if (!HeldWrites::saveFile(targetPath.c_str(), record, sizeof(record), hold)) {
     LOG_ERR("ERS", "Could not save progress to %s", targetPath.c_str());
     return false;
   }
@@ -126,8 +133,8 @@ inline bool saveProgressToCachePath(const std::string& cachePath, int spineIndex
 }
 
 inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int pageCount,
-                         const std::optional<uint32_t> visibleTextOffset = std::nullopt) {
-  return saveProgressToCachePath(epub.getCachePath(), spineIndex, pageNumber, pageCount, visibleTextOffset);
+                         const std::optional<uint32_t> visibleTextOffset = std::nullopt, const bool hold = false) {
+  return saveProgressToCachePath(epub.getCachePath(), spineIndex, pageNumber, pageCount, visibleTextOffset, hold);
 }
 
 }  // namespace EpubReaderUtils

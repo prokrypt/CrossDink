@@ -21,6 +21,7 @@
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -181,7 +182,6 @@ void KeyboardEntryActivity::onExit() {
 #ifndef SIMULATOR
   // ActivityManager holds RenderLock around onExit, so no refresh is running.
   freeink::setUc8179KbdExperiment(nullptr);
-  display.setRefreshLightSleep(false);
   if (kbdExpFlags & KBD_EXP_HALF_ON_CLOSE) freeink::requestUc8179HalfNext();
 #endif
 }
@@ -228,9 +228,6 @@ void KeyboardEntryActivity::loadKbdExperiment() {
   kbdFrame = 0;
   prevFrameStrokeMs = 0;
   highlightPending = false;
-#ifndef SIMULATOR
-  display.setRefreshLightSleep((kbdExpFlags & KBD_EXP_LIGHT_SLEEP_DRF) != 0);
-#endif
 }
 
 void KeyboardEntryActivity::requestStrokeUpdate(const StrokeCause cause) {
@@ -1043,7 +1040,10 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     const int toggleY = inputStartY + inputHeight;
     const bool toggleSelected = cursorMode && togglePos;
 
-    if (toggleSelected) {
+    if (toggleSelected && uiGraySelection()) {
+      renderer.drawRoundedRect(toggleX - 2, toggleY, toggleWidth + 5, lineHeight + 3, 2, 0, Color::DarkGray);
+      renderer.drawText(UI_12_FONT_ID, toggleX, toggleY, toggleLabel, true);
+    } else if (toggleSelected) {
       renderer.fillRect(toggleX - 2, toggleY, toggleWidth + 5, lineHeight + 3, true);
       renderer.drawText(UI_12_FONT_ID, toggleX, toggleY, toggleLabel, false);
     } else {

@@ -66,7 +66,8 @@ void HalPowerManager::begin() {
   pmConfig.min_freq_mhz = DFS_MIN_FREQ;
   // Tickless idle light-sleeps whenever every task is blocked and no PM lock is
   // held. HalDisplay's busy-wait hooks (beginDisplayBusyWait/endDisplayBusyWait)
-  // hold displayPmLock during EPD refresh so it stays out of that window.
+  // hold displayPmLock during EPD refresh so it stays out of that window, except
+  // where refreshLightSleep lets a BUSY-pin wake end the sleep.
   pmConfig.light_sleep_enable = true;
   const esp_err_t pmErr = esp_pm_configure(&pmConfig);
   if (pmErr != ESP_OK) {

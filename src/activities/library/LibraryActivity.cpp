@@ -33,6 +33,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "activities/util/OptionSelectionActivity.h"
 #include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -1288,18 +1289,19 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
     }
     if (!drawn) {
       renderer.fillRoundedRect(x, y, coverWidth, coverHeight, GRID_COVER_CORNER_RADIUS, Color::White);
-      if (coverWidth >= 36 && coverHeight >= 36)
-        drawLucideIcon(renderer, icon_book_marked_32, x + (coverWidth - 32) / 2, y + (coverHeight - 32) / 2);
+      if (available) NoCoverPlaceholder::draw(renderer, x, y, coverWidth, coverHeight, rowScratch);
     }
     renderer.maskRoundedRectOutsideCorners(x, y, coverWidth, coverHeight, GRID_COVER_CORNER_RADIUS, Color::White);
     renderer.drawRoundedRect(x, y, coverWidth, coverHeight, 2, GRID_COVER_CORNER_RADIUS, true);
     if (row == selectedRow) {
+      const Color selectionColor = uiGraySelection() ? Color::DarkGray : Color::Black;
       renderer.drawRoundedRect(x - GRID_SELECTION_PADDING, y - GRID_SELECTION_PADDING,
                                coverWidth + 2 * GRID_SELECTION_PADDING, coverHeight + 2 * GRID_SELECTION_PADDING, 3,
-                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_PADDING, true);
-      renderer.drawRoundedRect(
-          x - GRID_SELECTION_OUTER_INSET, y - GRID_SELECTION_OUTER_INSET, coverWidth + 2 * GRID_SELECTION_OUTER_INSET,
-          coverHeight + 2 * GRID_SELECTION_OUTER_INSET, 1, GRID_COVER_CORNER_RADIUS + GRID_SELECTION_OUTER_INSET, true);
+                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_PADDING, selectionColor);
+      renderer.drawRoundedRect(x - GRID_SELECTION_OUTER_INSET, y - GRID_SELECTION_OUTER_INSET,
+                               coverWidth + 2 * GRID_SELECTION_OUTER_INSET,
+                               coverHeight + 2 * GRID_SELECTION_OUTER_INSET, 1,
+                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_OUTER_INSET, selectionColor);
     }
     if (available)
       screen.frame().hit(cell, ACTION_ROW, static_cast<int16_t>(row), fui::InputTouch | fui::InputLongPress);

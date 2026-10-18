@@ -3,12 +3,15 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
 #include "RecentBooksStore.h"
 #include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -18,7 +21,13 @@
 namespace {
 constexpr int hPaddingInSelection = 8;
 constexpr int cornerRadius = 6;
+// Render task only: Home sets these right before drawRecentBookCover().
+float tileProgress[Lyra3CoversMetrics::values.homeRecentBooksCount] = {-1.0f, -1.0f, -1.0f};
 }  // namespace
+
+void Lyra3CoversTheme::setTileProgress(const int slot, const float progressPercent) {
+  if (slot >= 0 && slot < Lyra3CoversMetrics::values.homeRecentBooksCount) tileProgress[slot] = progressPercent;
+}
 
 void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                            int selectorIndex, bool& coverRendered, bool& coverBufferStored,
@@ -73,13 +82,9 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                           themed(Lyra3CoversMetrics::values).homeCoverHeight, true);
 
         if (!hasCover) {
-          // Render empty cover
-          renderer.fillRect(tileX + hPaddingInSelection,
-                            tileY + hPaddingInSelection + (themed(Lyra3CoversMetrics::values).homeCoverHeight / 3),
-                            tileWidth - 2 * hPaddingInSelection,
-                            2 * themed(Lyra3CoversMetrics::values).homeCoverHeight / 3, true);
-          drawLucideIcon(renderer, icon_book_open_32, tileX + hPaddingInSelection + 24,
-                         tileY + hPaddingInSelection + 24);
+          NoCoverPlaceholder::draw(renderer, tileX + hPaddingInSelection, tileY + hPaddingInSelection,
+                                   tileWidth - 2 * hPaddingInSelection,
+                                   themed(Lyra3CoversMetrics::values).homeCoverHeight, recentBooks[i]);
         }
       }
 
@@ -104,16 +109,21 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
       const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;
       // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
-      // The KOSync badge sits below the title, inside the selection box.
-      const int badgeHeight = KOSyncBadge::hasHomeState(i) ? KOSyncBadge::SIZE : 0;
-      const int dynamicTitleBoxHeight = dynamicBlockHeight + badgeHeight + hPaddingInSelection + 5;
+      // The book's % and then its KOSync badge sit on one row below the title, inside the selection box.
+      char progressLabel[8] = "";
+      if (tileProgress[i] >= 0.0f) snprintf(progressLabel, sizeof(progressLabel), "%.0f%%", tileProgress[i]);
+      tileProgress[i] = -1.0f;
+      const int statusRowHeight = std::max(titleLineHeight, static_cast<int>(KOSyncBadge::SIZE));
+      const bool hasStatusRow = progressLabel[0] || KOSyncBadge::hasHomeState(i);
+      const int dynamicTitleBoxHeight =
+          dynamicBlockHeight + (hasStatusRow ? statusRowHeight : 0) + hPaddingInSelection + 5;
 
       if (bookSelected) {
-        // Selection box: 2 px outline around cover and title, not a dither fill.
+        // Selection box: 2 px 50% gray outline around cover and title, not a dither fill.
         renderer.drawRoundedRect(
             tileX, tileY, tileWidth,
             themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + dynamicTitleBoxHeight, 2,
-            cornerRadius, true);
+            cornerRadius, Color::DarkGray);
       }
 
       int currentY = tileY + themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + 5;
@@ -121,7 +131,13 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, line.c_str(), true);
         currentY += titleLineHeight;
       }
-      KOSyncBadge::drawAt(renderer, tileX + hPaddingInSelection, currentY, KOSyncBadge::SIZE, true, i);
+      int badgeX = tileX + hPaddingInSelection;
+      if (progressLabel[0]) {
+        renderer.drawText(SMALL_FONT_ID, badgeX, currentY + (statusRowHeight - titleLineHeight) / 2, progressLabel,
+                          true);
+        badgeX += renderer.getTextWidth(SMALL_FONT_ID, progressLabel) + KOSyncBadge::GAP;
+      }
+      KOSyncBadge::drawAt(renderer, badgeX, currentY, statusRowHeight, true, i);
     }
   } else {
     drawEmptyRecents(renderer, rect);
