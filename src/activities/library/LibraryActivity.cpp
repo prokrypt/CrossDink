@@ -1159,8 +1159,12 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
                             static_cast<int16_t>(header.y + header.height - controlSize), controlSize, controlSize});
   }
   buildSortHeader(screen);
+  // Status lines share the sort row's side padding instead of touching the bezel.
+  const int16_t statusPadding = static_cast<int16_t>(metrics.contentSidePadding);
+  const fui::Insets statusInsets{0, statusPadding, 0, statusPadding};
   if (scanFailed || index.ranksDegraded() || filterFailed) {
-    const auto warning = screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8);
+    const auto warning =
+        screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8).inset(statusInsets);
     uiTarget.text(warning,
                   filterFailed ? tr(STR_LIBRARY_SEARCH_FAILED)
                   : scanFailed ? tr(STR_LIBRARY_SCAN_FAILED)
@@ -1168,7 +1172,8 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
                   screen.theme().smallText);
   }
   if (!query.empty()) {
-    const auto search = screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8);
+    const auto search =
+        screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8).inset(statusInsets);
     uiTarget.text(search, query.c_str(), screen.theme().smallText);
   }
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
