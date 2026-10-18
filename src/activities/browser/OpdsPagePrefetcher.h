@@ -48,6 +48,7 @@ class OpdsPagePrefetcher {
   const std::string& url() const { return job.url; }
 
   void cancel() { cancelRequested.store(true, std::memory_order_release); }
+  bool cancelling() const { return cancelRequested.load(std::memory_order_acquire); }
   // Blocks the caller until the background task has exited.
   void join() { task.join(); }
 
