@@ -433,6 +433,12 @@ void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) 
 void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool withSearch) {
   screen.takeBottom(static_cast<int16_t>(UITheme::getInstance().getMetrics().buttonHintsHeight));
   const char* title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
+  // Browsing a feed that gives its catalog size: "<name> (<total>)".
+  char titleWithTotal[96];
+  if (withSearch && feedTotal >= 0) {
+    snprintf(titleWithTotal, sizeof(titleWithTotal), "%s (%ld)", title, static_cast<long>(feedTotal));
+    title = titleWithTotal;
+  }
   // One header for every state, so the title and status row never jump. On
   // touch its arrow is Back, or Cancel while downloading.
   const Rect headerRect = TouchHeaderBackButton::headerRect(renderer, mappedInput);
@@ -732,6 +738,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   entryCount = parser.getEntryCount();
+  feedTotal = parser.getTotalResults();
   for (size_t i = 0; i < entryCount; ++i) {
     if (entries[i].type == OpdsEntryType::NAVIGATION) replaceFolderEmoji(entries[i].title);
   }
@@ -964,6 +971,7 @@ void OpdsBookBrowserActivity::clearEntries() {
     entries[i] = OpdsEntry{};
   }
   entryCount = 0;
+  feedTotal = -1;
   hasPrevPageRow = false;
   hasNextPageRow = false;
 }

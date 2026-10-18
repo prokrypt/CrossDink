@@ -146,6 +146,8 @@ class OpdsParser final : public Print {
   const std::string& getSearchDescriptionUrl() const { return searchDescriptionUrl; }
   const std::string& getNextPageUrl() const { return nextPageUrl; }
   const std::string& getPrevPageUrl() const { return prevPageUrl; }
+  // OpenSearch opensearch:totalResults on the feed; -1 when the feed does not say.
+  int32_t getTotalResults() const { return totalResults; }
   OpdsParser(const OpdsParser&) = delete;
   OpdsParser& operator=(const OpdsParser&) = delete;
 
@@ -186,6 +188,11 @@ class OpdsParser final : public Print {
   std::string searchDescriptionUrl;
   std::string nextPageUrl;
   std::string prevPageUrl;
+  // Feed-level OpenSearch paging fields; -1 when absent.
+  int32_t totalResults = -1;
+  int32_t itemsPerPage = -1;
+  int32_t startIndex = -1;
+  int32_t* feedNumber = nullptr;  // field whose text is being read, if any
   // Helper to find attribute value
   static const char* findAttribute(const XML_Char** atts, const char* name);
   template <typename String>
