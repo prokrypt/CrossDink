@@ -225,7 +225,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
-void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
+void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
   sleepStep = "wifi off";
   disableWiFiBeforeDeepSleep();
 
@@ -302,12 +302,14 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
     while ((digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) && millis() - releaseStart < 2000) {
       delay(10);
     }
-    // RTC_DATA_ATTR survives deep sleep and resets on a full boot, so Power wake/sleep keeps the lockout.
+    // RTC_DATA_ATTR survives deep sleep and resets on a full boot. Charger and stray-key wakes sleep again
+    // from setup() and keep the lockout; a sleep after a full app wake (fullWake) clears it.
     static RTC_DATA_ATTR bool pageKeysLockedOut = false;
+    if (fullWake) pageKeysLockedOut = false;
     uint64_t mask = 1ULL << in.power;
     if (digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) {
       pageKeysLockedOut = true;
-      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until full boot");
+      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until the next full wake");
     }
     if (!pageKeysLockedOut) {
       pinMode(in.up, INPUT_PULLUP);

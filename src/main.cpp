@@ -1930,7 +1930,7 @@ void enterDeepSleep(bool fromTimeout) {
   }  // Release powerLock before deep sleep entry
 
   SleepLog::restartIfArmed();  // Goodies > Sleep-reboot-log: debug the sleep path without losing the log
-  powerManager.startDeepSleep(gpio);
+  powerManager.startDeepSleep(gpio, true);
 }
 
 void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, const bool useReaderRenderStack) {
