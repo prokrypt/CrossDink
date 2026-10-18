@@ -88,10 +88,11 @@ let m = {};
 const clamp = (f, v) => {
   if (f[1] === 'bool') return !!v;
   const s = f[1] === 'ratio' ? 1e-3 : 1;
-  return Math.round(Math.min(f[3] * s, Math.max(f[2] * s, v)) / s) * s;
+  const x = Math.min(f[3] * s, Math.max(f[2] * s, v)) / s;
+  return Math.sign(x) * Math.round(Math.abs(x)) / (1 / s); // half away from zero like std::lround; divide so 0.009 stays 0.009
 };
 let icons = null; // a loaded pack's icons block, written back unchanged
-function setBase(b) { m = { ...BASES[b] }; icons = null; refresh(true); }
+function setBase(b) { m = { ...BASES[b] }; refresh(true); }
 function toJson() {
   const b = BASES[$('base').value], metrics = {};
   for (const [k] of FIELDS) if (m[k] !== b[k]) metrics[k] = m[k];
@@ -107,7 +108,7 @@ function loadJson(text) {
   $('base').value = o.base; $('name').value = String(o.name || 'my-theme').slice(0, 31);
   setBase(o.base);
   for (const [k, v] of Object.entries(o.metrics || {})) if (fieldOf[k] && typeof v === (fieldOf[k][1] === 'bool' ? 'boolean' : 'number')) m[k] = clamp(fieldOf[k], v);
-  if (o.icons && typeof o.icons === 'object') icons = o.icons;
+  icons = o.icons && typeof o.icons === 'object' ? o.icons : null;
   refresh(true);
 }
 
