@@ -12,6 +12,7 @@
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#include <InflateStream.h>
 #include <Knobs.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -37,6 +38,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 
@@ -228,12 +230,12 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
   return true;
 }
 
-// Streams a font-catalog JSON response in bounded pieces. This avoids holding
-// both an ArduinoJson document and its serialized String in the fragmented
-// network heap, and gives WiFi a chance to drain each piece before the next.
-class FontListJsonWriter {
+// Streams a JSON response in bounded pieces. This avoids holding both an
+// ArduinoJson document and its serialized String in the fragmented network
+// heap, and gives WiFi a chance to drain each piece before the next.
+class ChunkedJsonWriter {
  public:
-  explicit FontListJsonWriter(WebServer& server) : server_(server) {}
+  explicit ChunkedJsonWriter(WebServer& server) : server_(server) {}
 
   void append(const char* text) { append(text, strlen(text)); }
 
@@ -291,6 +293,17 @@ class FontListJsonWriter {
       }
     }
     append("\"");
+  }
+
+  // ArduinoJson writer interface: serializeJson(doc, writer) streams through the
+  // buffer, so no entry is limited by a fixed output size.
+  size_t write(uint8_t c) {
+    append(reinterpret_cast<const char*>(&c), 1);
+    return 1;
+  }
+  size_t write(const uint8_t* data, size_t length) {
+    append(reinterpret_cast<const char*>(data), length);
+    return length;
   }
 
   void flush() {
@@ -543,6 +556,20 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // and PWAs on other origins can use the HTTP API. Preflight OPTIONS requests
   // are answered in handleNotFound().
   server->enableCORS(true);
+#ifndef SIMULATOR
+  // The server serves one request at a time, so a slow one stalls every
+  // other client (a WebDAV mount waits with no timeout). Name the slow ones.
+  server->addMiddleware([](WebServer& s, Middleware::Callback next) {
+    const unsigned long startMs = millis();
+    const bool handled = next();
+    const unsigned long tookMs = millis() - startMs;
+    if (tookMs >= 1000) {
+      LOG_DBG("WEB", "Slow request: method %d %s from %s:%u took %lu ms", static_cast<int>(s.method()), s.uri().c_str(),
+              s.client().remoteIP().toString().c_str(), s.client().remotePort(), tookMs);
+    }
+    return handled;
+  });
+#endif
 
   // Setup routes
 #if CROSSDINK_PSRAM_LOG
@@ -566,6 +593,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   // behind a remote-token check (docs/serial-remote.md).
   server->on("/api/download", HTTP_GET, [this] { handleApiDownload(); });
   server->on("/api/upload", HTTP_POST, [this] { handleApiUploadPost(); }, [this] { handleApiUpload(); });
+  server->on("/api/delete", HTTP_POST, [this] { handleApiDelete(); });
   // Registered here for both modes (first match wins over registerFullRoutes()); token-gated only while log-only.
   server->on("/api/files", HTTP_GET, [this] { handleApiFiles(); });
 #endif
@@ -581,7 +609,7 @@ void CrossPointWebServer::begin(const bool logOnly) {
   });
   if (logOnly) {
     // Nothing else: no SD access behind other screens beyond the token-gated
-    // /api/download, /api/upload and /api/files, and /api/status's
+    // /api/download, /api/upload, /api/delete and /api/files, and /api/status's
     // battery and sensor I2C reads would race touch polling there.
     const char* remoteHeaders[] = {"X-Token", "Range"};
     server->collectHeaders(remoteHeaders, 2);
@@ -767,9 +795,10 @@ void CrossPointWebServer::registerFullRoutes() {
   server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth",   "Destination",   "Overwrite", "If",    "Lock-Token",
-                              "Timeout", "If-None-Match", "X-Token",   "Range", "Content-Range"};
-  server->collectHeaders(davHeaders, 10);
+  const char* davHeaders[] = {"Depth",      "Destination",   "Overwrite",     "If",
+                              "Lock-Token", "Timeout",       "If-None-Match", "X-Token",
+                              "Range",      "Content-Range", "Content-Length"};
+  server->collectHeaders(davHeaders, 11);
   // Note: WebDAVHandler will be deleted by WebServer when server is stopped
   server->addHandler(new WebDAVHandler(&stopRequested));
 }
@@ -843,6 +872,16 @@ void CrossPointWebServer::stop() {
   // Hand the server back to this task: the serving task finishes its current
   // request, then exits.
   stopRequested.store(true, std::memory_order_release);
+#ifndef SIMULATOR
+  // An idle serving task sees the request only when its select() times out
+  // (IDLE_POLL_MS). Shutting the listeners wakes it now; connections keep the
+  // grace period below.
+  forEachSocket([](const int fd, uint16_t) {
+    sockaddr_storage peer;
+    socklen_t len = sizeof(peer);
+    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) != 0) lwip_shutdown(fd, SHUT_RDWR);
+  });
+#endif
   if (serverTask && !waitForServeTask()) {
     LOG_ERR("WEB", "stop: serving task stuck in %s for %lu ms, restarting", servePhase.load(std::memory_order_relaxed),
             static_cast<unsigned long>(STOP_GIVE_UP_MS));
@@ -941,30 +980,39 @@ bool CrossPointWebServer::waitForServeTask() {
 }
 
 void CrossPointWebServer::logStopWait(const unsigned long waitedMs) const {
-  // fd:localPort<peer for each of this server's sockets; "-" = listener or UDP.
-  char socks[200] = "";
+  // fd:localPort<peer+unread for each of this server's sockets; "-" = listener or UDP.
+  char socks[300] = "";
   size_t used = 0;
   forEachSocket([&](const int fd, const uint16_t local) {
     char ip[16] = "-";
     unsigned peerPort = 0;
+    int unread = 0;
 #ifndef SIMULATOR
-    sockaddr_in peer{};
+    sockaddr_storage peer{};
     socklen_t len = sizeof(peer);
-    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0 && peer.sin_family == AF_INET) {
-      inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
-      peerPort = ntohs(peer.sin_port);
+    if (lwip_getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &len) == 0) {
+      // The HTTP listener is dual-stack: IPv4 clients come back v4-mapped.
+      const auto* v4 = reinterpret_cast<const sockaddr_in*>(&peer);
+      const auto* v6 = reinterpret_cast<const sockaddr_in6*>(&peer);
+      if (peer.ss_family == AF_INET) inet_ntop(AF_INET, &v4->sin_addr, ip, sizeof(ip));
+      if (peer.ss_family == AF_INET6) inet_ntop(AF_INET, &v6->sin6_addr.s6_addr[12], ip, sizeof(ip));
+      peerPort = ntohs(v4->sin_port);
     }
+    lwip_ioctl(fd, FIONREAD, &unread);
 #endif
     if (used < sizeof(socks)) {
-      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u", fd, local, ip, peerPort);
+      used += snprintf(socks + used, sizeof(socks) - used, " %d:%u<%s:%u+%d", fd, local, ip, peerPort, unread);
     }
   });
   const unsigned long reqStart = requestStartMs.load(std::memory_order_relaxed);
   // eRunning, eReady, eBlocked, eSuspended, eDeleted, eInvalid
   const char state = serverTask ? "RrBSDI"[std::min<int>(eTaskGetState(serverTask), 5)] : '-';
-  LOG_INF("WEB", "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, ws upload %d, sockets%s",
+  LOG_INF("WEB",
+          "stop: waited %lu ms for serving task: state %c, in %s, request %lu ms, client status %d method %d for %lu "
+          "ms, ws upload %d, sockets%s",
           waitedMs, state, servePhase.load(std::memory_order_relaxed), reqStart ? millis() - reqStart : 0UL,
-          wsUploadInProgress ? 1 : 0, used ? socks : " none");
+          server ? server->clientStatus() : -1, server ? server->clientMethod() : -1,
+          server ? server->clientStatusMs() : 0UL, wsUploadInProgress ? 1 : 0, used ? socks : " none");
 }
 
 void CrossPointWebServer::serverTaskMain(void* param) {
@@ -1074,6 +1122,15 @@ bool CrossPointWebServer::handleClient() {
   }
   servePhase.store("http", std::memory_order_relaxed);
   server->handleClient();
+#ifndef SIMULATOR
+  // A connection kept open without a complete request (handlers log the rest).
+  static int waitingFd = -1;
+  const int clientFd = server->client().fd();
+  if (clientFd >= 0 && clientFd != waitingFd) {
+    LOG_DBG("WEB", "Connection fd %d waiting for its request, %d bytes in", clientFd, server->client().available());
+  }
+  waitingFd = clientFd;
+#endif
   if (pending) {
     if (!pollRequest) lastTransferMs = millis();
     requestStartMs.store(0, std::memory_order_relaxed);
@@ -1463,6 +1520,7 @@ void CrossPointWebServer::handleExit() {
 // offset (a "[psram-log gap ...]" line marks any the ring overwrote first), and
 // the X-Log-Next header is the offset for the next poll (X-Log-Oldest: the oldest byte held). &wait=<ms> (max 5000)
 // holds an empty reply until new text arrives; that parks only this server task.
+// ?size=1 sends only the headers.
 void CrossPointWebServer::handlePsramLog() const {
   // Static: debug-only, keeps it off the loop stack. One network write per 4 KB,
   // since each chunked sendContent costs three socket sends.
@@ -1485,6 +1543,10 @@ void CrossPointWebServer::handlePsramLog() const {
   const uint32_t end = PsramLog::end();
   server->sendHeader("X-Log-Next", String(end));
   server->sendHeader("X-Log-Oldest", String(PsramLog::oldest()));  // Logs page shows next - oldest as the size
+  if (server->hasArg("size")) {                                    // Logs page size probe: the headers alone
+    server->send(200, "text/plain", "");
+    return;
+  }
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "text/plain; charset=utf-8", "");
   size_t len = 0;
@@ -1599,6 +1661,13 @@ void CrossPointWebServer::handleApiDownload() const {
   handleDownload();
 }
 
+void CrossPointWebServer::handleApiDelete() const {
+  static char out[32];
+  const int status = checkRemoteToken(*server, out, sizeof(out));
+  if (status != 200) return server->send(status, "text/plain; charset=utf-8", out);
+  handleDelete();
+}
+
 #if CROSSDINK_PSRAM_LOG
 // GET /api/psram-log/stream (token): one response that never ends, carrying
 // the log as it is written, from ?since=<offset> (default: new text only).
@@ -1672,12 +1741,38 @@ namespace {
 // /api/ota state, server task only.
 bool otaAuthorized = false;
 firmware_flash::Result otaResult = firmware_flash::Result::OK;
+
+// /api/ota?size=N: the body is the zlib-compressed image, N its inflated size.
+struct OtaInflate {
+  InflateStream z;
+  uint8_t out[4096];
+  bool done = false;
+};
+std::unique_ptr<OtaInflate> otaInflate;
+
+firmware_flash::Result otaInflateWrite(const uint8_t* data, const size_t len) {
+  otaInflate->z.feed(data, len);
+  for (;;) {
+    size_t got = 0;
+    const InflateStream::Status status = otaInflate->z.readAtMost(otaInflate->out, sizeof(otaInflate->out), &got);
+    if (status == InflateStream::Status::Error) {
+      LOG_ERR("WEB", "/api/ota: bad zlib stream");
+      return firmware_flash::Result::READ_FAIL;
+    }
+    if (got > 0) {
+      const firmware_flash::Result r = firmware_flash::streamWrite(otaInflate->out, got);
+      if (r != firmware_flash::Result::OK) return r;
+    }
+    if (status == InflateStream::Status::Done) otaInflate->done = true;
+    if (status == InflateStream::Status::Done || got < sizeof(otaInflate->out)) return firmware_flash::Result::OK;
+  }
+}
 }  // namespace
 
 // Debug builds: raw firmware upload (docs/serial-remote.md). The token is
 // checked on the main task (as /api/cmd) before anything is erased; the image
-// streams into the next OTA slot, verified in the same pass, and only a
-// verified image switches otadata. No SD access.
+// streams into the next OTA slot (inflated first with ?size=), verified in the
+// same pass, and only a verified image switches otadata. No SD access.
 void CrossPointWebServer::handleOtaData() const {
   const HTTPRaw& raw = server->raw();
   static char out[32];
@@ -1685,19 +1780,44 @@ void CrossPointWebServer::handleOtaData() const {
     case RAW_START:
       otaAuthorized = SerialRemote::runFromOtherTask(server->header("X-Token").c_str(), "PING", clientIp(*server), out,
                                                      sizeof(out), 12000) == 200;
-      otaResult =
-          otaAuthorized ? firmware_flash::streamBegin(server->clientContentLength()) : firmware_flash::Result::OK;
+      otaResult = firmware_flash::Result::OK;
+      otaInflate.reset();
+      if (!otaAuthorized) break;
+      if (server->hasArg("size")) {
+        otaInflate = makeUniqueNoThrow<OtaInflate>();
+        if (!otaInflate || !otaInflate->z.init(true)) {
+          LOG_ERR("WEB", "/api/ota: no memory for inflate");
+          otaInflate.reset();
+          otaResult = firmware_flash::Result::OOM;
+          break;
+        }
+        otaInflate->z.setZlibWrapped();
+        LOG_INF("WEB", "/api/ota: zlib body, %u bytes", static_cast<unsigned>(server->clientContentLength()));
+      }
+      // streamBegin() bounds the size by the slot; the verifier checks the bytes.
+      otaResult = firmware_flash::streamBegin(otaInflate ? strtoul(server->arg("size").c_str(), nullptr, 10)
+                                                         : server->clientContentLength());
       break;
     case RAW_WRITE:
       if (otaAuthorized && otaResult == firmware_flash::Result::OK) {
-        otaResult = firmware_flash::streamWrite(raw.buf, raw.currentSize);
+        otaResult = otaInflate ? otaInflateWrite(raw.buf, raw.currentSize)
+                               : firmware_flash::streamWrite(raw.buf, raw.currentSize);
       }
       break;
     case RAW_END:
-      if (otaAuthorized && otaResult == firmware_flash::Result::OK) otaResult = firmware_flash::streamFinish();
+      if (otaAuthorized && otaResult == firmware_flash::Result::OK) {
+        if (otaInflate && !otaInflate->done) {
+          LOG_ERR("WEB", "/api/ota: zlib stream ended early");
+          otaResult = firmware_flash::Result::BAD_SIZE;
+        } else {
+          otaResult = firmware_flash::streamFinish();
+        }
+      }
+      otaInflate.reset();
       break;
     case RAW_ABORTED:
       firmware_flash::streamAbort();
+      otaInflate.reset();
       otaResult = firmware_flash::Result::READ_FAIL;
       break;
   }
@@ -2591,12 +2711,7 @@ void CrossPointWebServer::handleRename() const {
     server->send(400, "text/plain", "New name cannot be empty");
     return;
   }
-  if (isProtectedPath(itemPath)) {
-    server->send(403, "text/plain", "Cannot rename protected item");
-    return;
-  }
-
-  // Calculate new path to check if it's protected
+  // New path: same folder, new name
   String parentPath = itemPath.substring(0, itemPath.lastIndexOf('/'));
   if (parentPath.isEmpty()) {
     parentPath = "/";
@@ -2607,9 +2722,8 @@ void CrossPointWebServer::handleRename() const {
   }
   newPath += newName;
 
-  if (isProtectedPath(newPath) || SerialRemote::isTokenPath(itemPath.c_str(), true) ||
-      SerialRemote::isTokenPath(newPath.c_str(), true)) {
-    server->send(403, "text/plain", "Cannot rename to protected path");
+  if (SerialRemote::isTokenPath(newPath.c_str())) {
+    server->send(403, "text/plain", "Cannot rename onto a protected file");
     return;
   }
 
@@ -2673,15 +2787,6 @@ void CrossPointWebServer::handleMove() const {
   }
   if (destPath.isEmpty()) {
     server->send(400, "text/plain", "Invalid destination");
-    return;
-  }
-
-  if (isProtectedPath(itemPath)) {
-    server->send(403, "text/plain", "Cannot move protected item");
-    return;
-  }
-  if (isProtectedPath(destPath)) {
-    server->send(403, "text/plain", "Cannot move into protected folder");
     return;
   }
 
@@ -2953,10 +3058,9 @@ void CrossPointWebServer::handleGetSettings() const {
 
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
-  server->sendContent("[");
+  ChunkedJsonWriter json(*server);
+  json.append("[");
 
-  char output[512];
-  constexpr size_t outputSize = sizeof(output);
   bool seenFirst = false;
   JsonDocument doc;
 
@@ -3069,20 +3173,14 @@ void CrossPointWebServer::handleGetSettings() const {
         continue;
     }
 
-    const size_t prefixSize = seenFirst ? 1 : 0;
-    if (prefixSize != 0) output[0] = ',';
-    const size_t written = serializeJson(doc, output + prefixSize, outputSize - prefixSize);
-    if (written >= outputSize - prefixSize) {
-      LOG_DBG("WEB", "Skipping oversized setting JSON for: %s", s.key);
-      continue;
-    }
-
+    if (seenFirst) json.append(",");
     seenFirst = true;
-    server->sendContent(output, written + prefixSize);
+    serializeJson(doc, json);
     yield();  // Allow WiFi and other tasks to run during a slow send.
   }
 
-  server->sendContent("]");
+  json.append("]");
+  json.flush();
   server->sendContent("");
   sdFontSystem.releaseRegistry();
 }
@@ -3690,59 +3788,86 @@ void CrossPointWebServer::handleFontList() const {
   // can exhaust the fragmented network heap with larger font collections.
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
-  FontListJsonWriter json(*server);
+  ChunkedJsonWriter json(*server);
   json.append("{\"families\":[");
 
+  // Walk each font root once with directory handles: openNextFile() yields every
+  // family folder and file with its size, so no path is resolved from the SD
+  // root again. Hydrating each family from the index and opening every file by
+  // path cost ~33 ms per family. The registry still decides which folders are
+  // families (the hidden root wins a duplicate); the page sorts them by name.
+  uint8_t listed[(SdCardFontRegistry::MAX_SD_FAMILIES + 7) / 8] = {};
   bool firstFamily = true;
-  for (const auto& family : families) {
-    // Hydrate and emit one family's paths at a time. Keeping every family's
-    // paths resident is what made larger catalogs exhaust the X3 network heap.
-    if (!family.ensureDetails()) continue;
-
-    if (!firstFamily) json.append(",");
-    firstFamily = false;
-
-    json.append("{\"name\":");
-    json.appendJsonString(family.name.c_str());
-    json.append(",\"sizes\":[");
-
-    bool firstSize = true;
-    for (uint8_t s : family.availableSizes()) {
-      if (!firstSize) json.append(",");
-      firstSize = false;
-      json.appendUnsigned(s);
-    }
-    json.append("],\"files\":[");
-
-    bool firstFile = true;
-    family.ensureDetails();
-    for (const auto& file : family.files) {
-      if (!firstFile) json.append(",");
-      firstFile = false;
-
-      // Extract filename from full path
-      const char* name = strrchr(file.path.c_str(), '/');
-      json.append("{\"name\":");
-      json.appendJsonString(name ? name + 1 : file.path.c_str());
-
-      // Stat the file for size
-      HalFile f;
-      unsigned long fileSize = 0;
-      if (Storage.openFileForRead("WEB", file.path.c_str(), f)) {
-        fileSize = static_cast<unsigned long>(f.size());
-        f.close();
+  char name[128];
+  for (const char* root : {SdCardFontRegistry::FONTS_DIR_HIDDEN, SdCardFontRegistry::FONTS_DIR_VISIBLE}) {
+    char resolved[16];
+    HalFile dir =
+        Storage.open(FsHelpers::resolveRootDirectoryIgnoreCase(root, resolved, sizeof(resolved)) ? resolved : root);
+    while (dir && dir.isDirectory()) {
+      HalFile familyDir = dir.openNextFile();
+      if (!familyDir) break;
+      familyDir.getName(name, sizeof(name));
+      const auto family = std::lower_bound(families.begin(), families.end(), name,
+                                           [](const SdCardFontFamilyInfo& f, const char* n) { return f.name < n; });
+      const size_t index = family - families.begin();
+      if (!familyDir.isDirectory() || family == families.end() || family->name != name ||
+          (listed[index >> 3] & (1U << (index & 7)))) {
+        familyDir.close();
+        continue;
       }
 
-      json.append(",\"size\":");
-      json.appendUnsigned(fileSize);
-      json.append("}");
+      const bool scalable = family->isScalable();
+      uint8_t sizes[32] = {};  // point-size bitmap
+      if (scalable)
+        for (const uint8_t pt : SCALABLE_READER_FONT_SIZES) sizes[pt >> 3] |= 1U << (pt & 7);
+      bool firstFile = true;
+      while (true) {
+        HalFile file = familyDir.openNextFile();
+        if (!file) break;
+        file.getName(name, sizeof(name));
+        const bool isDir = file.isDirectory();
+        const uint64_t bytes = file.fileSize64();
+        file.close();
+        const size_t nameLength = strlen(name);
+        uint8_t pt = 0, style = 0;
+        if (isDir || name[0] == '.' || name[0] == '_' ||
+            !(scalable ? nameLength >= 5 && strcasecmp(name + nameLength - 4, ".ttf") == 0
+                       : SdCardFontRegistry::parseFilename(name, pt, style)))
+          continue;
+        if (firstFile) {
+          listed[index >> 3] |= 1U << (index & 7);
+          if (!firstFamily) json.append(",");
+          firstFamily = false;
+          json.append("{\"name\":");
+          json.appendJsonString(family->name.c_str());
+          json.append(",\"files\":[");
+        } else {
+          json.append(",");
+        }
+        firstFile = false;
+        if (!scalable) sizes[pt >> 3] |= 1U << (pt & 7);
+        json.append("{\"name\":");
+        json.appendJsonString(name);
+        json.append(",\"size\":");
+        json.appendUnsigned(static_cast<unsigned long>(bytes));
+        json.append("}");
+      }
+      familyDir.close();
+      if (firstFile) continue;
+
+      json.append("],\"sizes\":[");
+      bool firstSize = true;
+      for (unsigned pt = 1; pt < 256; ++pt) {
+        if (!(sizes[pt >> 3] & (1U << (pt & 7)))) continue;
+        if (!firstSize) json.append(",");
+        firstSize = false;
+        json.appendUnsigned(pt);
+      }
+      json.append("]}");
       json.flush();
       yield();
     }
-    json.append("]}");
-    json.flush();
-    family.releaseDetails();
-    yield();
+    dir.close();
   }
 
 #if CROSSDINK_SCALABLE_FONTS

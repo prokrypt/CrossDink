@@ -22,6 +22,8 @@ function formatSize(bytes) {
           el.appendChild(p);
           return;
         }
+        // The device lists families in folder order.
+        data.families.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
         for (const f of data.families) {
           const row = document.createElement('div');
           row.className = 'family';
