@@ -31,7 +31,7 @@
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
-#include "activities/util/OptionSelectionActivity.h"
+#include "activities/util/OptionPopupActivity.h"
 #include "components/KOSyncBadge.h"
 #include "components/NoCoverPlaceholder.h"
 #include "components/Toast.h"
@@ -1497,18 +1497,19 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
     items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
   }
 
-  openDialog(makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items)),
-             [this, book](const ActivityResult& result) {
-               longPressFired = false;
-               if (result.isCancelled) {
-                 return;
-               }
+  openDialog(
+      makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items)),
+      [this, book](const ActivityResult& result) {
+        longPressFired = false;
+        if (result.isCancelled) {
+          return;
+        }
 
-               const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
-               if (!actionResult) {
-                 LOG_ERR("LIB", "Book action result missing");
-                 return;
-               }
+        const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
+        if (!actionResult) {
+          LOG_ERR("LIB", "Book action result missing");
+          return;
+        }
 
                switch (static_cast<FileBrowserAction>(actionResult->action)) {
                  case FileBrowserAction::ToggleBookStatsTracking: {
@@ -1584,8 +1585,8 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
                  case FileBrowserAction::EpubRenderMode: {
                    const uint8_t currentIndex =
                        BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(book.path));
-                   openDialog(makeUniqueNoThrow<OptionSelectionActivity>(
-                                  renderer, mappedInput, "LibraryEpubRenderModeSelect", StrId::STR_EPUB_RENDER_MODE,
+                   openDialog(makeUniqueNoThrow<OptionPopupActivity>(
+                                  renderer, mappedInput, StrId::STR_EPUB_RENDER_MODE,
                                   BookActions::epubRenderModeOptions(), currentIndex),
                               [this, book](const ActivityResult& selectionResult) {
                                 if (!selectionResult.isCancelled) {
