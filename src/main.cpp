@@ -1930,7 +1930,11 @@ void enterDeepSleep(bool fromTimeout) {
   }  // Release powerLock before deep sleep entry
 
   SleepLog::restartIfArmed();  // Goodies > Sleep-reboot-log: debug the sleep path without losing the log
+#ifdef SIMULATOR
+  powerManager.startDeepSleep(gpio);  // the simulator's HalPowerManager has no lockout to clear
+#else
   powerManager.startDeepSleep(gpio, true);
+#endif
 }
 
 void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, const bool useReaderRenderStack) {
