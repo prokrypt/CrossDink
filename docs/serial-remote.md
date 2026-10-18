@@ -89,7 +89,17 @@ curl -s --data-binary @firmware.bin -H "Content-Type: application/octet-stream" 
   -H "X-Token: $(cat remote-token)" http://10.0.1.67/api/ota
 ```
 
-The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
+With `?size=<image bytes>` the body is the zlib-compressed image (about 37% smaller), inflated on the device as it
+arrives:
+
+```sh
+python3 -c 'import sys,zlib; sys.stdout.buffer.write(zlib.compress(open("firmware.bin","rb").read(), 9))' > fw.z
+curl -s --data-binary @fw.z -H "Content-Type: application/octet-stream" -H "X-Token: $(cat remote-token)" \
+  "http://10.0.1.67/api/ota?size=$(stat -c%s firmware.bin)"
+```
+
+Firmware without this ignores `size` and answers `ERR:OTA:BAD_MAGIC` without switching slots; send the raw image
+then. The body streams into the next OTA slot (no SD card) and is verified as it is written: size, chip, segment
 table, checksum, SHA-256 and board tag, as SD Card Firmware Update does. Only a verified image switches the boot
 slot; OTA rollback still applies on the next boot.
 
@@ -121,19 +131,21 @@ curl -s --data-binary @planes.bin -H "Content-Type: application/octet-stream" \
 | 403 | `ERR:token` | Missing or wrong `X-Token`. |
 | 400 | `ERR:IMAGE:size (want N)` | Body is not exactly N bytes, or no PSRAM for it. |
 
-## Wi-Fi: SD file download and upload
+## Wi-Fi: SD file download, upload and delete
 
-`GET /api/download?path=<file>` and `POST /api/upload?path=<dir>` (multipart field `file`) are File Transfer's
-`/download` and `/upload` behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
+`GET /api/download?path=<file>`, `POST /api/upload?path=<dir>` (multipart field `file`) and
+`POST /api/delete?path=<item>` (or `paths=<JSON array>`) are File Transfer's `/download`, `/upload` and `/delete`
+behind the same token, so they also work on Goodies > Wi-Fi remote. Send the token as
 the `token` query argument or an `X-Token` header; bad tokens count toward the lockout. Paths are SD-rooted
 (`..` stops at `/`); hidden items and `/debug/remote-token` are refused (`403`) unless Show Hidden Files is on (the
-token file always). Upload refuses an existing name (`400 File already exists: <name>`); delete first.
+token file always) for download and upload; delete has no such check. Upload refuses an existing name (`400 File already exists: <name>`); delete first.
 Both stream through a 4 KB buffer. Download honors `Range` (`206`/`416`) and upload resumes with `offset=<bytes>`
 (see `webserver-endpoints.md`, `/download` and `/upload`).
 
 ```sh
 curl -s -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
 curl -s -H "X-Token: $(cat remote-token)" -F "file=@book.epub" "http://10.0.1.67/api/upload?path=/Books"
+curl -s -X POST -H "X-Token: $(cat remote-token)" "http://10.0.1.67/api/delete?path=/Books/book.epub"
 # resume a dropped download
 curl -s -C - -H "X-Token: $(cat remote-token)" -o book.epub "http://10.0.1.67/api/download?path=/Books/book.epub"
 # resumable upload: start with offset=0; after a drop, send the rest from the size the 409 reply names
@@ -150,7 +162,8 @@ Offsets count every byte since the ring started, so they carry across software r
 panics). If the ring overwrote text since the last poll the reply starts with `[psram-log gap N bytes]`; if
 it restarted (power loss, deep sleep) it starts with `[psram-log restarted]` and the whole new ring. `wait`
 (max 5000) holds an empty reply until new text arrives; that holds up only the web server task, so
-`/api/cmd` answers after the current poll. Tail from the start of the ring (`o=0`), then follow:
+`/api/cmd` answers after the current poll. `?size=1` returns only the headers (`X-Log-Next` minus
+`X-Log-Oldest` is the bytes held). Tail from the start of the ring (`o=0`), then follow:
 
 ```sh
 o=0; while :; do n=$(curl -s --connect-timeout 3 --max-time 10 -D - -o /dev/stderr "http://10.0.1.67/api/psram-log?since=$o&wait=2000" | tr -d '\r' | awk 'tolower($1)=="x-log-next:"{print $2}'); o=${n:-$o}; done 2>&1

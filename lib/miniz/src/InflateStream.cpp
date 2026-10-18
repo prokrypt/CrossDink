@@ -176,8 +176,10 @@ InflateStream::Status InflateStream::readAtMost(uint8_t* dest, const size_t maxL
     // TINFL_STATUS_NEEDS_MORE_INPUT loops back to the fill above; once the fill
     // runs dry the HAS_MORE_INPUT flag drops and tinfl either finishes or fails
     // (truncated stream) instead of spinning.
-    if (status == TINFL_STATUS_NEEDS_MORE_INPUT && inputExhausted && inAvail == 0) {
-      return Status::Error;
+    if (status == TINFL_STATUS_NEEDS_MORE_INPUT && inAvail == 0) {
+      if (inputExhausted) return Status::Error;
+      // feed(): this piece is used up and its output delivered; wait for the next.
+      if (!fill && pendingLen == 0) return Status::Ok;
     }
     if (*produced == maxLen) {
       return (finished && pendingLen == 0) ? Status::Done : Status::Ok;
