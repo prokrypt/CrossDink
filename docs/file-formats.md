@@ -203,6 +203,8 @@ eight-byte EPUB content key.
 
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
+Version 10 rebuilds metadata with namespace-aware OPF parsing so optimizer-generated
+XML prefixes do not leave an empty chapter list. The binary layout is unchanged.
 Version 9 stores book and TOC title strings NFC-composed so decomposed
 diacritics render correctly with device fonts. It also rebuilds metadata after
 the EPUB guide start-reference handling changed.
@@ -214,7 +216,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 9
+#define EXPECTED_VERSION 10
 #define MAX_STRING_LENGTH 65535
 
 struct String {
