@@ -1780,10 +1780,10 @@ void syncBookBeforeSleep() {
 void enterDeepSleep(bool fromTimeout) {
   // Deep sleep powers PSRAM down and would lose a running macro: any sleep
   // (power key, timeout, menu, SLEEPREBOOT) restarts instead, and the macro
-  // resumes; no ring write to SD after the boot.
+  // resumes.
   if (SerialRemote::macroRunning()) {
     LOG_INF("MAC", "sleep during macro: sleep-reboot instead");
-    SleepLog::armSleepReboot(false);
+    SleepLog::armSleepReboot();
   }
   armSleepGuard();
   HalPowerManager::sleepStep = "activity exit";
@@ -3349,7 +3349,6 @@ static void loopPass() {
 void loop() {
   loopPassBlocked = false;
   loopPass();
-  SleepLog::loop();
   // loopTask runs on core 0 at priority 2, above IDLE0 and the priority-1
   // workers. Early returns (held chords, Home-key taps, shortcut dispatch)
   // skip the pass-end wait; one tick keeps them from starving IDLE0 into a
