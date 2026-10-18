@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class CrossPointWebServer;
@@ -60,7 +61,7 @@ void loop(uint32_t idleMs);
 // Debug-build Goodies menu (CROSSDINK_GOODIES). Root lists the tools; the
 // Display test level lists built-in tests, then /debug/display/*.txt.
 class GoodiesActivity final : public Activity {
-  using UiApp = freeink::ui::FreeInkApp<24, 4>;  // list rows + knob tabs
+  using UiApp = UiAppList;  // list rows + knob tabs
 
  public:
   GoodiesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
@@ -68,13 +69,11 @@ class GoodiesActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // Keyboard test: knob and Turbo changes wait to be written until the page is left.
-  bool holdsSettingsFlush() const override { return level == Level::KeyboardTest; }
 
  private:
   enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon, PowerTests };
   // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats, then
-  // Sleep-reboot-log (PSRAM log builds) and Power Test (powerTestRow)
+  // Sleep-reboot-log (PSRAM log builds), Power Test (powerTestRow) and the SD modules (/debug/goodies/*.wasm)
   static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
   static constexpr int KBD_TEST_ROW = 4;
@@ -110,6 +109,7 @@ class GoodiesActivity final : public Activity {
   std::atomic<bool> uiReady{false};
 
   void showLevel(Level next);
+  void appendSdEntries(const char* dirPath, const char* ext);
   void activate(int index);
   int remoteRowShown = -1;
   int powerTestRow = -1;              // Root: the Power Test row, last (debug builds on hardware only)

@@ -248,6 +248,18 @@ jobs:
             grep -E "RAM:\s|Flash:\s" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Largest symbols and source files
+        if: matrix.environment == 'x4-pro'
+        # Size-work map: the 150 largest flash/RAM symbols and the per-source-file totals.
+        run: |
+          set -euo pipefail
+          nm=$(find ~/.platformio/packages -name 'xtensa-esp32s3-elf-nm' -path '*bin*' | head -1)
+          elf=.pio/build/${{ matrix.environment }}/firmware.elf
+          echo "== largest symbols (bytes type name) =="
+          "$nm" -C -S --size-sort --radix=d "$elf" | tail -150 | awk '{ $1 = ""; print }'
+          echo "== bytes per source file (top 120) =="
+          timeout 600 "$nm" -S -l --radix=d "$elf" | awk 'NF >= 5 && $3 ~ /[TtRrDdBb]/ { f = $NF; sub(/:[0-9]+$/, "", f); sub(/.*\/(src|lib|freeink-sdk|libdeps|framework-[^\/]*)\//, "", f); s[f] += $2 } END { for (f in s) print s[f], f }' | sort -n | tail -120 || true
+
       - name: Upload ${{ matrix.environment }} firmware
         if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/test/combined-dink-')
         # Flashable app image for testing PR and combine builds; the release workflows publish

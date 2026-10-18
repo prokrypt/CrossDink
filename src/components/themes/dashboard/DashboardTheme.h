@@ -16,7 +16,7 @@ constexpr ThemeMetrics makeValues() {
   return v;
 }
 
-constexpr ThemeMetrics values = makeValues();
+inline constexpr ThemeMetrics values = makeValues();
 constexpr int homeCoverImageWidth = 296;
 constexpr int homeCoverImageHeight = 444;
 }  // namespace DashboardMetrics

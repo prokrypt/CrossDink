@@ -23,6 +23,7 @@
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchRegistry.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
@@ -102,60 +103,6 @@ bool dominantReaderTypeBucket(const GlobalReadingStats& globalStats, ReadingTime
   return true;
 }
 
-const char* readerTypeLabel(const GlobalReadingStats& globalStats) {
-  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
-  if (!dominantReaderTypeBucket(globalStats, bucket)) {
-    return tr(STR_STATS_NEW_READER);
-  }
-
-  switch (bucket) {
-    case ReadingTimeBucket::Morning:
-      return tr(STR_STATS_MORNING_READER);
-    case ReadingTimeBucket::Afternoon:
-      return tr(STR_STATS_AFTERNOON_READER);
-    case ReadingTimeBucket::Evening:
-      return tr(STR_STATS_EVENING_READER);
-    case ReadingTimeBucket::Night:
-    default:
-      return tr(STR_STATS_NIGHT_READER);
-  }
-}
-
-const uint8_t* readerTypeIcon(const GlobalReadingStats& globalStats) {
-  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
-  if (!dominantReaderTypeBucket(globalStats, bucket)) {
-    return Book24Icon;
-  }
-
-  switch (bucket) {
-    case ReadingTimeBucket::Morning:
-      return MorningReaderIcon;
-    case ReadingTimeBucket::Afternoon:
-      return AfternoonReaderIcon;
-    case ReadingTimeBucket::Evening:
-      return EveningReaderIcon;
-    case ReadingTimeBucket::Night:
-    default:
-      return NightReaderIcon;
-  }
-}
-
-void formatStreakStat(const GlobalReadingStats& globalStats, char* buf, const size_t len) {
-  if (len == 0) {
-    return;
-  }
-
-  ReadingStatsDateTime today;
-  const uint16_t streak =
-      getCurrentLocalReadingStatsDateTime(today) ? globalStats.currentReadingStreak(&today.date) : 0;
-  if (streak == 0) {
-    snprintf(buf, len, "%s", tr(STR_STATS_NO_STREAK));
-    return;
-  }
-
-  snprintf(buf, len, tr(STR_STATS_DAY_STREAK_FORMAT), static_cast<unsigned>(streak));
-}
-
 Rect coverImageRectForFrame(const Rect& coverRect);
 
 void drawCenteredStatsRow(const GfxRenderer& renderer, const uint8_t* icon, const int iconSize, const char* label,
@@ -205,13 +152,13 @@ void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& glo
   }
 
   char streakBuf[48];
-  formatStreakStat(globalStats, streakBuf, sizeof(streakBuf));
-  const char* readerLabel = readerTypeLabel(globalStats);
+  MinimalTheme::formatStreakStat(&globalStats, streakBuf, sizeof(streakBuf));
+  const char* readerLabel = MinimalTheme::readerTypeLabel(&globalStats);
 
   const int readerRegionTop = 0;
   const int readerRegionBottom = coverImageRectForFrame(coverRect).y;
-  drawCenteredStatsRow(renderer, readerTypeIcon(globalStats), kStatsFooterReaderIconSize, readerLabel, readerRegionTop,
-                       readerRegionBottom, inverted);
+  drawCenteredStatsRow(renderer, MinimalTheme::readerTypeIcon(&globalStats), kStatsFooterReaderIconSize, readerLabel,
+                       readerRegionTop, readerRegionBottom, inverted);
 
   const int streakRegionTop = progressLabelBottomY(renderer, coverRect, progressPercent);
   const int streakRegionBottom = renderer.getScreenHeight();
@@ -220,7 +167,7 @@ void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& glo
 }
 
 Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
-  const int coverH = MinimalMetrics::values.homeCoverHeight;
+  const int coverH = themed(MinimalMetrics::values).homeCoverHeight;
   const int coverW = MinimalMetrics::homeCoverWidth;
   const int coverX = (renderer.getScreenWidth() - coverW) / 2;
   const int coverY = rect.y + kCoverTopOffset;
@@ -232,19 +179,6 @@ Rect coverImageRectForFrame(const Rect& coverRect) {
   const int imageH = std::min(coverRect.height, MinimalMetrics::homeCoverImageHeight);
   return Rect{coverRect.x + (coverRect.width - imageW) / 2, coverRect.y + (coverRect.height - imageH) / 2, imageW,
               imageH};
-}
-
-Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
-  if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
-    return target;
-  }
-
-  const float widthScale = static_cast<float>(target.width) / static_cast<float>(bitmap.getWidth());
-  const float heightScale = static_cast<float>(target.height) / static_cast<float>(bitmap.getHeight());
-  const float scale = std::min(1.0f, std::min(widthScale, heightScale));
-  const int drawnW = std::min(target.width, std::max(1, static_cast<int>(std::ceil(bitmap.getWidth() * scale))));
-  const int drawnH = std::min(target.height, std::max(1, static_cast<int>(std::ceil(bitmap.getHeight() * scale))));
-  return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
 }
 
 std::string coverPathForImageRect(const RecentBook& book, const Rect& imageRect) {
@@ -335,48 +269,8 @@ void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, co
   renderer.drawRoundedRect(placeholderRect.x, placeholderRect.y, placeholderRect.width, placeholderRect.height, 1,
                            kCoverCornerRadius, true);
 
-  const int dividerY = placeholderRect.y + placeholderRect.height / 3;
-  renderer.drawLine(placeholderRect.x, dividerY, placeholderRect.x + placeholderRect.width - 1, dividerY, true);
-
-  constexpr int iconSize = 32;
-  drawLucideIcon(renderer, icon_book_open_32, placeholderRect.x + (placeholderRect.width - iconSize) / 2,
-                 placeholderRect.y + (placeholderRect.height / 3 - iconSize) / 2);
-
-  constexpr int textPadding = 16;
-  constexpr int textVerticalPadding = 22;
-  constexpr int titleAuthorGap = 28;
-  const int textW = placeholderRect.width - textPadding * 2;
-  const std::string& titleText = book.title.empty() ? book.path : book.title;
-  const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int authorLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const bool hasAuthor = !book.author.empty();
-  auto authorLines =
-      hasAuthor ? renderer.wrappedText(UI_10_FONT_ID, book.author.c_str(), textW, 2) : std::vector<std::string>{};
-  const int lowerAreaHeight = placeholderRect.y + placeholderRect.height - dividerY;
-  const int authorBlockHeight = authorLineHeight * static_cast<int>(authorLines.size());
-  const int authorGap = authorLines.empty() ? 0 : titleAuthorGap;
-  const int availableTitleHeight = lowerAreaHeight - textVerticalPadding * 2 - authorBlockHeight - authorGap;
-  const int maxTitleLines = std::clamp(availableTitleHeight / titleLineHeight, 1, 4);
-  auto titleLines = renderer.wrappedText(UI_12_FONT_ID, titleText.c_str(), textW, maxTitleLines);
-
-  const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
-  const int totalTextHeight = titleBlockHeight + authorBlockHeight + authorGap;
-  int textY = dividerY + std::max(textVerticalPadding, (lowerAreaHeight - totalTextHeight) / 2);
-
-  for (const auto& line : titleLines) {
-    const int lineW = renderer.getTextWidth(UI_12_FONT_ID, line.c_str());
-    renderer.drawText(UI_12_FONT_ID, placeholderRect.x + (placeholderRect.width - lineW) / 2, textY, line.c_str());
-    textY += titleLineHeight;
-  }
-
-  if (!authorLines.empty()) {
-    textY += titleAuthorGap;
-    for (const auto& line : authorLines) {
-      const int lineW = renderer.getTextWidth(UI_10_FONT_ID, line.c_str());
-      renderer.drawText(UI_10_FONT_ID, placeholderRect.x + (placeholderRect.width - lineW) / 2, textY, line.c_str());
-      textY += authorLineHeight;
-    }
-  }
+  NoCoverPlaceholder::draw(renderer, placeholderRect.x, placeholderRect.y, placeholderRect.width,
+                           placeholderRect.height, book);
 }
 
 void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book,
@@ -390,7 +284,7 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
       if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
         Bitmap bitmap(file);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          const Rect bitmapRect = fittedBitmapRect(bitmap, imageRect);
+          const Rect bitmapRect = MinimalTheme::fittedBitmapRect(bitmap, imageRect);
           renderer.fillRoundedRect(coverRect.x, coverRect.y, coverRect.width, coverRect.height, kCoverCornerRadius,
                                    backgroundColor);
           renderer.fillRoundedRect(bitmapRect.x, bitmapRect.y, bitmapRect.width, bitmapRect.height, kCoverCornerRadius,
@@ -413,6 +307,74 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
 }
 }  // namespace
 
+Rect MinimalTheme::fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
+  if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
+    return target;
+  }
+
+  const float widthScale = static_cast<float>(target.width) / static_cast<float>(bitmap.getWidth());
+  const float heightScale = static_cast<float>(target.height) / static_cast<float>(bitmap.getHeight());
+  const float scale = std::min(1.0f, std::min(widthScale, heightScale));
+  const int drawnW = std::min(target.width, std::max(1, static_cast<int>(std::ceil(bitmap.getWidth() * scale))));
+  const int drawnH = std::min(target.height, std::max(1, static_cast<int>(std::ceil(bitmap.getHeight() * scale))));
+  return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
+}
+
+const char* MinimalTheme::readerTypeLabel(const GlobalReadingStats* globalStats) {
+  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
+  if (globalStats == nullptr || !dominantReaderTypeBucket(*globalStats, bucket)) {
+    return tr(STR_STATS_NEW_READER);
+  }
+
+  switch (bucket) {
+    case ReadingTimeBucket::Morning:
+      return tr(STR_STATS_MORNING_READER);
+    case ReadingTimeBucket::Afternoon:
+      return tr(STR_STATS_AFTERNOON_READER);
+    case ReadingTimeBucket::Evening:
+      return tr(STR_STATS_EVENING_READER);
+    case ReadingTimeBucket::Night:
+    default:
+      return tr(STR_STATS_NIGHT_READER);
+  }
+}
+
+const uint8_t* MinimalTheme::readerTypeIcon(const GlobalReadingStats* globalStats) {
+  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
+  if (globalStats == nullptr || !dominantReaderTypeBucket(*globalStats, bucket)) {
+    return Book24Icon;
+  }
+
+  switch (bucket) {
+    case ReadingTimeBucket::Morning:
+      return MorningReaderIcon;
+    case ReadingTimeBucket::Afternoon:
+      return AfternoonReaderIcon;
+    case ReadingTimeBucket::Evening:
+      return EveningReaderIcon;
+    case ReadingTimeBucket::Night:
+    default:
+      return NightReaderIcon;
+  }
+}
+
+void MinimalTheme::formatStreakStat(const GlobalReadingStats* globalStats, char* buf, const size_t len) {
+  if (len == 0) {
+    return;
+  }
+
+  ReadingStatsDateTime today;
+  const uint16_t streak = globalStats != nullptr && getCurrentLocalReadingStatsDateTime(today)
+                              ? globalStats->currentReadingStreak(&today.date)
+                              : 0;
+  if (streak == 0) {
+    snprintf(buf, len, "%s", tr(STR_STATS_NO_STREAK));
+    return;
+  }
+
+  snprintf(buf, len, tr(STR_STATS_DAY_STREAK_FORMAT), static_cast<unsigned>(streak));
+}
+
 void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
                               const bool readerContext, const bool showStatus) const {
   (void)subtitle;
@@ -424,13 +386,15 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   // Burn-in guard: text and status chrome at the per-boot offset; the fill stays put and the rule rises.
   const int shiftX = AntiBurnIn::shiftX();
   const int shiftY = AntiBurnIn::shiftY();
-  const int batteryX = rect.x + shiftX + rect.width - StatusBarMetrics::sideInset - MinimalMetrics::values.batteryWidth;
+  const int batteryX =
+      rect.x + shiftX + rect.width - StatusBarMetrics::sideInset - themed(MinimalMetrics::values).batteryWidth;
   const int batteryY = rect.y + shiftY + UITheme::getTopStatusBarInset(renderer) + homeHeaderTopInset;
   const int wifiReserve = showStatus ? wifiStatusReserve() : 0;
   if (showStatus) {
-    drawBatteryRight(
-        renderer, Rect{batteryX, batteryY, MinimalMetrics::values.batteryWidth, MinimalMetrics::values.batteryHeight},
-        showBatteryPercentage);
+    drawBatteryRight(renderer,
+                     Rect{batteryX, batteryY, themed(MinimalMetrics::values).batteryWidth,
+                          themed(MinimalMetrics::values).batteryHeight},
+                     showBatteryPercentage);
   }
   if (wifiReserve > 0) {
     const int percentWidth =
@@ -445,11 +409,12 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   if (title) {
     constexpr int titleInsetX = 12;
     const int titleRight = showStatus ? batteryX - wifiReserve : rect.x + shiftX + rect.width - 12;
-    const int maxTitleWidth = titleRight - (rect.x + shiftX) - titleInsetX - MinimalMetrics::values.contentSidePadding;
+    const int maxTitleWidth =
+        titleRight - (rect.x + shiftX) - titleInsetX - themed(MinimalMetrics::values).contentSidePadding;
     auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
     renderer.drawText(UI_12_FONT_ID, rect.x + shiftX + titleInsetX,
-                      rect.y + shiftY + MinimalMetrics::values.batteryBarHeight + 3, truncatedTitle.c_str(), true,
-                      EpdFontFamily::BOLD);
+                      rect.y + shiftY + themed(MinimalMetrics::values).batteryBarHeight + 3, truncatedTitle.c_str(),
+                      true, EpdFontFamily::BOLD);
     // 50% dither, not solid: the per-boot dither phase then moves every pixel of the rule.
     renderer.fillRectDither(rect.x, rect.y + rect.height - 3 - AntiBurnIn::ruleUp(), rect.width, 3, Color::DarkGray);
   }
@@ -531,7 +496,7 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
 
   const int fileRowHeight = compactFileBrowserRowHeightFor(renderer);
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int folderRowHeight = MinimalMetrics::values.listRowHeight;
+  const int folderRowHeight = themed(MinimalMetrics::values).listRowHeight;
   const auto isFolderRow = [&](int index) { return rowSubtitle(index) == "folder"; };
   const auto rowHeightFor = [&](int index) {
     return !uniformRowHeight && isFolderRow(index) ? folderRowHeight : fileRowHeight;
@@ -565,18 +530,18 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
     pageStart = nextPageStart;
   }
 
-  const int contentWidth =
-      rect.width -
-      (totalPages > 1 ? (MinimalMetrics::values.scrollBarWidth + MinimalMetrics::values.scrollBarRightOffset) : 1);
+  const int contentWidth = rect.width - (totalPages > 1 ? (themed(MinimalMetrics::values).scrollBarWidth +
+                                                           themed(MinimalMetrics::values).scrollBarRightOffset)
+                                                        : 1);
 
   if (totalPages > 1) {
     const int scrollAreaHeight = rect.height;
-    const int scrollBarHeight = std::max(MinimalMetrics::values.scrollBarWidth, scrollAreaHeight / totalPages);
+    const int scrollBarHeight = std::max(themed(MinimalMetrics::values).scrollBarWidth, scrollAreaHeight / totalPages);
     const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
-    const int scrollBarX = rect.x + rect.width - MinimalMetrics::values.scrollBarRightOffset;
+    const int scrollBarX = rect.x + rect.width - themed(MinimalMetrics::values).scrollBarRightOffset;
     renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
-    renderer.fillRect(scrollBarX - MinimalMetrics::values.scrollBarWidth, scrollBarY,
-                      MinimalMetrics::values.scrollBarWidth, scrollBarHeight, true);
+    renderer.fillRect(scrollBarX - themed(MinimalMetrics::values).scrollBarWidth, scrollBarY,
+                      themed(MinimalMetrics::values).scrollBarWidth, scrollBarHeight, true);
   }
 
   if (showSelection && selectedIndex >= 0) {
@@ -586,12 +551,12 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
     }
     const int selectedRowHeight = rowHeightFor(selectedIndex);
     // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
-    renderer.drawRoundedRect(rect.x + MinimalMetrics::values.contentSidePadding, selectedY,
-                             contentWidth - MinimalMetrics::values.contentSidePadding * 2, selectedRowHeight, 2, 6,
-                             true);
+    renderer.drawRoundedRect(rect.x + themed(MinimalMetrics::values).contentSidePadding, selectedY,
+                             contentWidth - themed(MinimalMetrics::values).contentSidePadding * 2, selectedRowHeight, 2,
+                             6, true);
   }
 
-  const int iconX = rect.x + MinimalMetrics::values.contentSidePadding + kFileBrowserTextGap;
+  const int iconX = rect.x + themed(MinimalMetrics::values).contentSidePadding + kFileBrowserTextGap;
   const int textX = iconX + kFileBrowserIconSize + kFileBrowserTextGap;
 
   int itemY = rect.y;
@@ -608,7 +573,7 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
     const int valueWidth = valueText.empty() ? 0 : renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
     const int valueGap = valueText.empty() ? 0 : kFileBrowserTextGap;
     const int textWidth =
-        std::max(1, contentWidth - textX - MinimalMetrics::values.contentSidePadding - valueWidth - valueGap);
+        std::max(1, contentWidth - textX - themed(MinimalMetrics::values).contentSidePadding - valueWidth - valueGap);
 
     const freeink::Icon* iconBitmap = iconForName(rowIcon(i), kFileBrowserIconSize);
     if (iconBitmap != nullptr) {
@@ -627,8 +592,9 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
 
     if (!valueText.empty()) {
       const int valueY = centeredRowY(itemY, rowHeight, lineHeight);
-      renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - MinimalMetrics::values.contentSidePadding - valueWidth,
-                        valueY, valueText.c_str(), true);
+      renderer.drawText(UI_10_FONT_ID,
+                        rect.x + contentWidth - themed(MinimalMetrics::values).contentSidePadding - valueWidth, valueY,
+                        valueText.c_str(), true);
     }
 
     if (rowDimmed && rowDimmed(i) && !selectedRow) {
@@ -763,8 +729,8 @@ void MinimalTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook
                                    const float progressPercent, const bool inverted) const {
   renderer.clearScreen(inverted ? 0xFF : 0x00);
 
-  const Rect contentRect{0, MinimalMetrics::values.homeTopPadding, renderer.getScreenWidth(),
-                         MinimalMetrics::values.homeCoverTileHeight};
+  const Rect contentRect{0, themed(MinimalMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+                         themed(MinimalMetrics::values).homeCoverTileHeight};
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
   drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);
   drawProgressBlock(renderer, coverRect, stats, progressPercent, !inverted);
@@ -775,8 +741,8 @@ void MinimalTheme::drawStatsSleepScreen(const GfxRenderer& renderer, const Recen
                                         const float progressPercent, const bool inverted) const {
   drawSleepScreen(renderer, book, stats, progressPercent, inverted);
   if (globalStats != nullptr) {
-    const Rect contentRect{0, MinimalMetrics::values.homeTopPadding, renderer.getScreenWidth(),
-                           MinimalMetrics::values.homeCoverTileHeight};
+    const Rect contentRect{0, themed(MinimalMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+                           themed(MinimalMetrics::values).homeCoverTileHeight};
     const Rect coverRect = coverRectForScreen(renderer, contentRect);
     drawStatsOverlay(renderer, *globalStats, coverRect, progressPercent, inverted);
   }

@@ -48,6 +48,7 @@
 #include "components/KOSyncBadge.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
+#include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
@@ -59,7 +60,7 @@ namespace {
 constexpr uint32_t CAROUSEL_CACHE_MAGIC = 0x43434152;  // "CCAR"
 // Cached frames include all Home visuals, including the menu icons. Bump this
 // whenever their rendering changes so stale snapshots are rebuilt after OTA.
-constexpr uint16_t CAROUSEL_CACHE_VERSION = 7;
+constexpr uint16_t CAROUSEL_CACHE_VERSION = 8;
 constexpr char CAROUSEL_CACHE_PATH[] = "/.crossdink/home_carousel_cache.bin";
 constexpr char CAROUSEL_CACHE_TMP_PATH[] = "/.crossdink/home_carousel_cache.tmp";
 constexpr uint32_t CAROUSEL_FRAME_MIN_FREE_AFTER_ALLOC = 64U * 1024U;
@@ -376,6 +377,10 @@ bool isMinimalTheme() {
 
 bool isDashboardTheme() {
   return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::DASHBOARD;
+}
+
+bool isLyraExtendedTheme() {
+  return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_3_COVERS;
 }
 
 bool usesMinimalHomeInteraction() { return isMinimalTheme() || isDashboardTheme(); }
@@ -1045,6 +1050,11 @@ void HomeActivity::onEnter() {
   allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
   if (isCarouselTheme) {
     loadAllBookStats();
+  } else if (isLyraExtendedTheme()) {
+    // Every tile shows its % and KOSync badge: one small read per book, here instead of per draw.
+    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+      cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i], &cachedBookSyncMarks[i]);
+    }
   }
   updateHighlightedBookContext(false);
 
@@ -1069,6 +1079,10 @@ void HomeActivity::onEnter() {
       case HomeMenuItem::NONE:
         break;
     }
+    // The featured book's badge ignores the selection: keep its % and mark.
+    if (KOREADER_STORE.hasCredentials() && !recentBooks.empty()) {
+      cachedBookProgress[0] = loadRecentBookProgress(recentBooks[0], &cachedBookSyncMarks[0]);
+    }
     coverGridUi->begin(recentBooks, hasOpdsServers, gridHasContinueReading,
                        gridHasContinueReading ? loadRecentBookProgress(recentBooks.front()) : -1.0f);
   } else if (initialMenuItem != HomeMenuItem::NONE) {
@@ -1089,25 +1103,36 @@ void HomeActivity::onEnter() {
   requestUpdate();
 }
 
+RecentBookProgress::SyncBadge HomeActivity::syncBadgeFor(const int idx) const {
+  if (idx < 0 || idx >= static_cast<int>(recentBooks.size())) return RecentBookProgress::SyncBadge::None;
+  if (!coverGridUi && idx == getHighlightedBookIndex()) {
+    return homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark);
+  }
+  // Cover Grid's featured book and Lyra Extended's others: loaded in onEnter().
+  if (idx >= kMaxCachedBooks) return RecentBookProgress::SyncBadge::None;
+  return homeSyncBadge(recentBooks[idx], cachedBookProgress[idx], cachedBookSyncMarks[idx]);
+}
+
 void HomeActivity::beginSyncBadge() {
-  const int idx = getHighlightedBookIndex();
-  syncBadgeShown = idx >= 0 ? homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark)
-                            : RecentBookProgress::SyncBadge::None;
-  KOSyncBadge::setHomeState(syncBadgeShown);
+  // Cover Grid: the featured card is always the first book, whatever is selected.
+  syncBadgeBook = coverGridUi ? 0 : getHighlightedBookIndex();
+  syncBadgeShown = syncBadgeFor(syncBadgeBook);
+  if (isLyraExtendedTheme()) {
+    for (int i = 0; i < KOSyncBadge::HOME_SLOTS; ++i) KOSyncBadge::setHomeState(syncBadgeFor(i), i);
+  } else {
+    KOSyncBadge::setHomeState(syncBadgeShown);
+  }
 }
 
-void HomeActivity::endSyncBadge() {
-  KOSyncBadge::setHomeState(RecentBookProgress::SyncBadge::None);
-  syncBadgeBox = KOSyncBadge::takeRect();
-}
+void HomeActivity::endSyncBadge() { syncBadgeBox = KOSyncBadge::takeRect(isLyraExtendedTheme() ? syncBadgeBook : 0); }
 
-void HomeActivity::repaintSyncBadge() {
-  const int idx = getHighlightedBookIndex();
-  if (syncBadgeBox.width == 0 || idx < 0) return;
-  const auto badge = homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark);
-  if (badge == syncBadgeShown) return;
+bool HomeActivity::repaintSyncBadge() {
+  if (syncBadgeBox.width == 0) return false;
+  const auto badge = syncBadgeFor(syncBadgeBook);
+  if (badge == syncBadgeShown) return false;
   KOSyncBadge::repaint(renderer, syncBadgeBox, badge);
   syncBadgeShown = badge;
+  return true;
 }
 
 int HomeActivity::getHighlightedBookIndex() const {
@@ -2456,7 +2481,9 @@ void HomeActivity::render(RenderLock&&) {
   if (coverGridUi) {
     renderer.clearScreen();
     coverGridUi->setSelection(selectorIndex);
+    beginSyncBadge();
     coverGridUi->render();
+    endSyncBadge();
     const auto labels = mappedInput.mapLabels(gridHasContinueReading ? tr(STR_READ) : "", tr(STR_SELECT),
                                               tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -2624,6 +2651,12 @@ void HomeActivity::render(RenderLock&&) {
   coverRectH = homeCoverTileHeight;
 
   beginSyncBadge();
+  // Lyra Extended draws here (not the minimal branch above): each tile's %.
+  if (isLyraExtendedTheme()) {
+    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+      Lyra3CoversTheme::setTileProgress(i, cachedBookProgress[i]);
+    }
+  }
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, homeCoverTileHeight}, recentBooks,
                           selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this),

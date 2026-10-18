@@ -21,6 +21,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
@@ -55,6 +56,7 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/BatteryLog.h"
+#include "util/BugReport.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/SwipeAdjustment.h"
@@ -173,7 +175,9 @@ bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputM
   activity.onFrontlightPanelOpened();
   activity.startActivityForResult(std::move(panel), [&activity](const ActivityResult& result) {
     const auto* panelResult = std::get_if<FrontlightPanelResult>(&result.data);
-    if (panelResult) activity.handleFrontlightPanelResult(*panelResult);
+    if (!panelResult) return;
+    activity.handleFrontlightPanelResult(*panelResult);  // ignores BugReport; still applies font changes
+    if (panelResult->action == FrontlightPanelAction::BugReport) BugReport::begin(activity);
   });
   return true;
 }
@@ -529,7 +533,10 @@ void ActivityManager::renderTaskLoop() {
           idlePanelOffMs = PANEL_OFF_POLL_MS;
         } else if (currentActivity && display.powerOffIdle()) {
           panelBoosterOff.store(true, std::memory_order_release);
-          LOG_DBG("ACT", "Panel booster off after %s", idlePanelOffMs == PANEL_IDLE_OFF_MS ? "idle" : "draw");
+          LOG_DBG("ACT", "Panel booster off after %s",
+                  idlePanelOffMs == PANEL_IDLE_OFF_MS    ? "idle"
+                  : idlePanelOffMs == PANEL_DWELL_OFF_MS ? "dwell"
+                                                         : "draw");
         }
 #endif
         continue;
@@ -571,9 +578,10 @@ void ActivityManager::renderTaskLoop() {
       batchInput = currentActivity->batchesInputDuringRefresh();
       renderer.setDeferFastRefresh(deferredRender);
       PerfLog::noteRenderStart(currentActivity->name.c_str());
-      // Interactive screens keep the booster on so input never waits on PON.
-      idlePanelOffArmed = currentActivity->powerOffPanelWhenIdle();
-      idlePanelOffMs = PANEL_OFF_POLL_MS;
+      // Interactive screens keep the booster on so input never waits on PON,
+      // until the frame has dwelled PANEL_DWELL_OFF_MS.
+      idlePanelOffArmed = true;
+      idlePanelOffMs = currentActivity->powerOffPanelWhenIdle() ? PANEL_OFF_POLL_MS : PANEL_DWELL_OFF_MS;
       panelBoosterOff.store(false, std::memory_order_release);  // this frame's refresh powers it on
       BaseTheme::beginFrameStatus();
       if (currentActivity.get() != listSelectionOwner) {
@@ -584,7 +592,6 @@ void ActivityManager::renderTaskLoop() {
       ListSelection::hidThisFrame = false;
       ListSelection::listThisFrame = false;
       currentActivity->render(std::move(lock));
-      currentActivityPainted.store(true, std::memory_order_release);
       ListSelection::hidOnScreen = ListSelection::hidThisFrame;
       ListSelection::listOnScreen = ListSelection::listThisFrame;
       PerfLog::noteRenderEnd();
@@ -775,7 +782,6 @@ void ActivityManager::loop() {
 
       // Destroy the current activity
       exitActivity(lock);
-      settingsFlushPending = true;
       pendingAction = PendingAction::None;
 
       if (stackActivities.empty()) {
@@ -787,7 +793,6 @@ void ActivityManager::loop() {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
         restoredActivityNeedsRender = true;
-        currentActivityPainted.store(false, std::memory_order_release);
 
         if (closedFrontlightPanel) currentActivity->onFrontlightPanelClosed();
 
@@ -850,7 +855,6 @@ void ActivityManager::loop() {
       if (pendingAction == PendingAction::Replace) {
         // Destroy the current activity
         exitActivity(lock);
-        settingsFlushPending = true;
         // Clear the stack
         while (!stackActivities.empty()) {
           stackActivities.back()->onExit();
@@ -863,17 +867,19 @@ void ActivityManager::loop() {
       }
       pendingAction = PendingAction::None;
       currentActivity = std::move(pendingActivity);
-      currentActivityPainted.store(false, std::memory_order_release);
 
       lock.unlock();  // onEnter may acquire its own lock
-      // Only Home waits for its first frame; anything else (USB Drive included)
-      // must find the reader's exit writes on SD before it starts.
-      if (!currentActivity->isHomeActivity()) ReaderExitSave::flush();
-      // USB Drive owns the card from onEnter() and skips the deferred flush below.
+      // The readers' exit writes stay held until sleep or another flush point.
+      // Home, Library and the readers read the held copies; anything else (USB
+      // Drive included) must find them on SD before it starts.
+      if (!currentActivity->readsHeldExitWrites()) ReaderExitSave::flush();
+      // USB Drive owns the card from onEnter(): write the held sync marks first.
       if (currentActivity->requiresExclusiveStorageLoop()) RecentBookProgress::flushSyncMarks();
-      if (settingsFlushPending && currentActivity->requiresExclusiveStorageLoop()) {
-        settingsFlushPending = false;
-        flushSettingsStores();
+      // USB Drive and File Transfer share the card with a computer until the
+      // restart that ends them: write what is held now, and every later save at once.
+      if (currentActivity->servesFiles()) {
+        HeldWrites::setWriteThrough(HeldWrites::ServesFiles, true);
+        flushSettingsStores();  // knobs.json
       }
 #if CROSSDINK_GOODIES
       // The Goodies Wi-Fi remote's join task must be done before this screen takes the radio.
@@ -927,18 +933,6 @@ void ActivityManager::loop() {
 
       // onEnter may request another pending action, we will handle it in the next loop iteration
       continue;
-    }
-  }
-
-  // The new screen's first frame is refreshing on the panel: the reader's exit
-  // writes (Home) and deferred settings run in that wait instead of before it drew.
-  if (!currentActivity || currentActivityPainted.load(std::memory_order_acquire)) {
-    ReaderExitSave::flush();
-    // Settings changed on a screen or panel are written once it has closed,
-    // while the screen below refreshes.
-    if (settingsFlushPending && !(currentActivity && currentActivity->holdsSettingsFlush())) {
-      settingsFlushPending = false;
-      flushSettingsStores();
     }
   }
 
@@ -1483,9 +1477,7 @@ bool ActivityManager::allowsRadioIdleSleep() const {
   return currentActivity && currentActivity->allowsRadioIdleSleep();
 }
 
-void ActivityManager::repaintSyncBadge() {
-  if (currentActivity) currentActivity->repaintSyncBadge();
-}
+bool ActivityManager::repaintSyncBadge() { return currentActivity && currentActivity->repaintSyncBadge(); }
 
 std::string ActivityManager::flushEpubProgressForSync() {
   if (currentActivity && currentActivity->flushProgressForSync()) return currentActivity->getCurrentBookPath();
@@ -1493,6 +1485,14 @@ std::string ActivityManager::flushEpubProgressForSync() {
     if (*it && (*it)->flushProgressForSync()) return (*it)->getCurrentBookPath();
   }
   return {};
+}
+
+bool ActivityManager::flushHeldProgress() {
+  bool any = currentActivity && currentActivity->flushHeldProgress();
+  for (auto& activity : stackActivities) {
+    if (activity && activity->flushHeldProgress()) any = true;
+  }
+  return any;
 }
 
 std::string ActivityManager::getCurrentBookPath() const {

@@ -140,8 +140,13 @@ void InputWake::begin() {
   // service is up, before its handler is back: with no handler to disarm it, it
   // storms into an INT_WDT panic on every boot until a power-on reset (1002b:
   // GPIO21 floating high). Runs before anything else installs GPIO interrupts.
+  // The type goes too: Arduino's pinMode() keeps a pin's type and re-enables
+  // the interrupt when it is set (1009b: BUSY left level-armed by a refresh
+  // wait, then the display probe's pinMode stormed on every boot).
   for (int pin = 0; pin < GPIO_PIN_COUNT; ++pin) {
-    if (GPIO_IS_VALID_GPIO(pin)) gpio_ll_intr_disable(&GPIO, pin);
+    if (!GPIO_IS_VALID_GPIO(pin)) continue;
+    gpio_ll_intr_disable(&GPIO, pin);
+    gpio_ll_set_intr_type(&GPIO, pin, GPIO_INTR_DISABLE);
   }
 #if SOC_RTCIO_WAKE_SUPPORTED
   // RTC IO light-sleep wakes (gpio_wakeup_enable on an RTC pin) live in the RTC

@@ -344,8 +344,9 @@ void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 
 int BaseTheme::getListRowStep(bool hasSubtitle, const int rowHeightScale) const {
   const int rowScale = std::max(1, rowHeightScale);
-  int rowHeight =
-      ((hasSubtitle) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight) * rowScale;
+  int rowHeight = ((hasSubtitle) ? themed(BaseMetrics::values).listWithSubtitleRowHeight
+                                 : themed(BaseMetrics::values).listRowHeight) *
+                  rowScale;
   return rowHeight;
 }
 
@@ -364,9 +365,9 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<bool(int index)>& isHeader, const int rowHeightScale,
                          const bool showSelection) const {
   const int rowScale = std::max(1, rowHeightScale);
-  int rowHeight =
-      ((rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight) *
-      rowScale;
+  int rowHeight = ((rowSubtitle != nullptr) ? themed(BaseMetrics::values).listWithSubtitleRowHeight
+                                            : themed(BaseMetrics::values).listRowHeight) *
+                  rowScale;
   int pageItems = rowHeight > 0 ? std::max(1, rect.height / rowHeight) : 1;
   constexpr int sectionHeaderTopPadding = 15;
 
@@ -425,7 +426,7 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
       TouchRegistry::getInstance().add(Rect{rect.x, itemY - 2, rect.width, rowHeight}, i, TouchRegistry::Item);
     }
 
-    int rowTextWidth = contentWidth - BaseMetrics::values.contentSidePadding * 2;
+    int rowTextWidth = contentWidth - themed(BaseMetrics::values).contentSidePadding * 2;
     std::string valueText;
     if (rowValue != nullptr) {
       valueText = rowValue(i);
@@ -441,17 +442,18 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     auto font = UI_10_FONT_ID;
     auto item = renderer.truncatedText(font, itemName.c_str(), rowTextWidth);
     if (isHeader && isHeader(i)) {
-      renderer.drawText(font, rect.x + BaseMetrics::values.contentSidePadding, itemY, item.c_str(), true,
+      renderer.drawText(font, rect.x + themed(BaseMetrics::values).contentSidePadding, itemY, item.c_str(), true,
                         EpdFontFamily::BOLD);
       continue;
     }
-    renderer.drawText(font, rect.x + BaseMetrics::values.contentSidePadding, itemY, item.c_str(), i != selectedIndex);
+    renderer.drawText(font, rect.x + themed(BaseMetrics::values).contentSidePadding, itemY, item.c_str(),
+                      i != selectedIndex);
 
     // Apply checkerboard dither to create gray text effect for dimmed items
     if (rowDimmed && rowDimmed(i) && i != selectedIndex) {
       const int titleWidth = renderer.getTextWidth(font, item.c_str());
       const int lineH = renderer.getLineHeight(font);
-      const int tx = rect.x + BaseMetrics::values.contentSidePadding;
+      const int tx = rect.x + themed(BaseMetrics::values).contentSidePadding;
       for (int py = itemY; py < itemY + lineH; py++)
         for (int px = tx; px < tx + titleWidth; px++)
           if ((px + py) % 2 == 0) renderer.drawPixel(px, py, false);
@@ -461,8 +463,8 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
       std::string subtitleText = rowSubtitle(i);
       if (!subtitleText.empty()) {
         auto subtitle = renderer.truncatedText(SMALL_FONT_ID, subtitleText.c_str(), rowTextWidth);
-        renderer.drawText(SMALL_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding, itemY + 22, subtitle.c_str(),
-                          i != selectedIndex);
+        renderer.drawText(SMALL_FONT_ID, rect.x + themed(BaseMetrics::values).contentSidePadding, itemY + 22,
+                          subtitle.c_str(), i != selectedIndex);
       }
     }
 
@@ -472,8 +474,9 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
       if (rowSubtitle != nullptr) {
         valueY = itemY + 10;
       }
-      renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - BaseMetrics::values.contentSidePadding - valueTextWidth,
-                        valueY, valueText.c_str(), i != selectedIndex);
+      renderer.drawText(UI_10_FONT_ID,
+                        rect.x + contentWidth - themed(BaseMetrics::values).contentSidePadding - valueTextWidth, valueY,
+                        valueText.c_str(), i != selectedIndex);
     }
   }
 }
@@ -604,19 +607,21 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
 void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label, const char* rightLabel) const {
   constexpr int maxListValueWidth = 200;
 
-  int currentX = rect.x + BaseMetrics::values.contentSidePadding;
-  int rightSpace = BaseMetrics::values.contentSidePadding;
+  int currentX = rect.x + themed(BaseMetrics::values).contentSidePadding;
+  int rightSpace = themed(BaseMetrics::values).contentSidePadding;
   if (rightLabel) {
     auto truncatedRightLabel =
         renderer.truncatedText(SMALL_FONT_ID, rightLabel, maxListValueWidth, EpdFontFamily::REGULAR);
     int rightLabelWidth = renderer.getTextWidth(SMALL_FONT_ID, truncatedRightLabel.c_str());
-    renderer.drawText(SMALL_FONT_ID, rect.x + rect.width - BaseMetrics::values.contentSidePadding - rightLabelWidth,
+    renderer.drawText(SMALL_FONT_ID,
+                      rect.x + rect.width - themed(BaseMetrics::values).contentSidePadding - rightLabelWidth,
                       rect.y + 7, truncatedRightLabel.c_str());
     rightSpace += rightLabelWidth + 10;
   }
 
-  auto truncatedLabel = renderer.truncatedText(
-      UI_12_FONT_ID, label, rect.width - BaseMetrics::values.contentSidePadding - rightSpace, EpdFontFamily::REGULAR);
+  auto truncatedLabel = renderer.truncatedText(UI_12_FONT_ID, label,
+                                               rect.width - themed(BaseMetrics::values).contentSidePadding - rightSpace,
+                                               EpdFontFamily::REGULAR);
   renderer.drawText(UI_12_FONT_ID, currentX, rect.y, truncatedLabel.c_str(), true, EpdFontFamily::REGULAR);
 }
 
@@ -627,15 +632,15 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
 
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
 
-  int currentX = rect.x + BaseMetrics::values.contentSidePadding;
+  int currentX = rect.x + themed(BaseMetrics::values).contentSidePadding;
 
   for (size_t i = 0; i < tabs.size(); ++i) {
     const auto& tab = tabs[i];
     const int textWidth =
         renderer.getTextWidth(UI_12_FONT_ID, tab.label, tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     TouchRegistry::getInstance().add(
-        Rect{currentX - 3, rect.y, textWidth + BaseMetrics::values.tabSpacing, rect.height}, static_cast<int>(i),
-        TouchRegistry::Tab);
+        Rect{currentX - 3, rect.y, textWidth + themed(BaseMetrics::values).tabSpacing, rect.height},
+        static_cast<int>(i), TouchRegistry::Tab);
 
     // Draw underline for selected tab
     if (tab.selected) {
@@ -650,7 +655,7 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
     renderer.drawText(UI_12_FONT_ID, currentX, rect.y, tab.label, !(tab.selected && selected),
                       tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
-    currentX += textWidth + BaseMetrics::values.tabSpacing;
+    currentX += textWidth + themed(BaseMetrics::values).tabSpacing;
   }
 }
 
@@ -660,18 +665,18 @@ bool BaseTheme::tabIndexFromPoint(const GfxRenderer& renderer, const Rect rect, 
     return false;
   }
 
-  int currentX = rect.x + BaseMetrics::values.contentSidePadding;
+  int currentX = rect.x + themed(BaseMetrics::values).contentSidePadding;
   for (size_t i = 0; i < tabs.size(); i++) {
     const auto& tab = tabs[i];
     const int textWidth =
         renderer.getTextWidth(UI_12_FONT_ID, tab.label, tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    const int left = (i == 0) ? rect.x : currentX - BaseMetrics::values.tabSpacing / 2;
-    const int right = currentX + textWidth + BaseMetrics::values.tabSpacing / 2;
+    const int left = (i == 0) ? rect.x : currentX - themed(BaseMetrics::values).tabSpacing / 2;
+    const int right = currentX + textWidth + themed(BaseMetrics::values).tabSpacing / 2;
     if (x >= left && x < right) {
       index = static_cast<int>(i);
       return true;
     }
-    currentX += textWidth + BaseMetrics::values.tabSpacing;
+    currentX += textWidth + themed(BaseMetrics::values).tabSpacing;
   }
 
   return false;
@@ -699,7 +704,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   if (hasContinueReading && !recentBooks[0].coverBmpPath.empty()) {
     // Try to get actual image dimensions from BMP header
     const std::string coverBmpPath =
-        UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, BaseMetrics::values.homeCoverHeight);
+        UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, themed(BaseMetrics::values).homeCoverHeight);
 
     FsFile file;
     if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
@@ -751,7 +756,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     if (hasContinueReading && !recentBooks[0].coverBmpPath.empty() && !coverRendered) {
       const std::string coverBmpPath =
-          UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, BaseMetrics::values.homeCoverHeight);
+          UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, themed(BaseMetrics::values).homeCoverHeight);
 
       // First time: load cover from SD and render
       FsFile file;
@@ -780,11 +785,11 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
 
     if (!bufferRestored && !coverRendered) {
-      // No cover image: draw border or fill, plus bookmark as visual flair
+      // No cover image: border (thickened when selected, not a black fill), plus bookmark as visual flair
+      renderer.drawRect(bookX, bookY, bookWidth, bookHeight);
       if (bookSelected) {
-        renderer.fillRect(bookX, bookY, bookWidth, bookHeight);
-      } else {
-        renderer.drawRect(bookX, bookY, bookWidth, bookHeight);
+        renderer.drawRect(bookX + 1, bookY + 1, bookWidth - 2, bookHeight - 2);
+        renderer.drawRect(bookX + 2, bookY + 2, bookWidth - 4, bookHeight - 4);
       }
 
       // Draw bookmark ribbon when no cover image (visual decoration)
@@ -807,8 +812,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
             bookmarkY + bookmarkHeight                // bottom-left
         };
 
-        // Draw bookmark ribbon (inverted if selected)
-        renderer.fillPolygon(xPoints, yPoints, 5, !bookSelected);
+        renderer.fillPolygon(xPoints, yPoints, 5, true);
       }
     }
 
@@ -1422,7 +1426,8 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
         }
         // Light selection is a 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
         if (selected && metrics.optionPopupSelectionLight) {
-          renderer.drawRoundedRect(itemRectX, itemY, itemRectW, rowHeight, 2, selectionRadius, true);
+          renderer.drawRoundedRect(itemRectX, itemY, itemRectW, rowHeight, 2, selectionRadius,
+                                   uiGraySelection() ? Color::DarkGray : Color::Black);
         }
       }
 
@@ -1444,6 +1449,14 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
     const char* leftLabel = cancelLabel ? cancelLabel : "";
 #endif
     const char* rightLabel = saveLabel ? saveLabel : "";
+    // Lyra marks a focused Save with the dotted outline instead of a black fill.
+    const bool grayFocus = saveFocused && uiGraySelection();
+    const bool fillSave = saveFocused && !grayFocus;
+    auto outlineSave = [&](const int x, const int w) {
+      constexpr int inset = 3;
+      renderer.drawRoundedRect(x + inset, footerY + inset, w - 2 * inset, footerHeight - 2 * inset, 2, selectionRadius,
+                               Color::DarkGray);
+    };
     // Button devices already map Back to cancel, so the on-screen action can
     // use the full footer width for Save.
     renderer.drawLine(dialogX, footerY, dialogX + dialogW, footerY, true);
@@ -1452,16 +1465,18 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
     if (gpio.hasTouch()) {
       const int dividerX = dialogX + dialogW / 2;
       renderer.drawLine(dividerX, footerY, dividerX, dialogY + dialogH, true);
-      if (saveFocused) renderer.fillRect(dividerX, footerY + 1, dialogX + dialogW - dividerX, footerHeight - 1, true);
+      if (fillSave) renderer.fillRect(dividerX, footerY + 1, dialogX + dialogW - dividerX, footerHeight - 1, true);
+      if (grayFocus) outlineSave(dividerX, dialogX + dialogW - dividerX);
       renderer.drawText(UI_12_FONT_ID, dialogX + (dialogW / 2 - renderer.getTextWidth(UI_12_FONT_ID, leftLabel)) / 2,
                         labelY, leftLabel, true, EpdFontFamily::REGULAR);
       renderer.drawText(UI_12_FONT_ID, dividerX + (dialogW / 2 - renderer.getTextWidth(UI_12_FONT_ID, rightLabel)) / 2,
-                        labelY, rightLabel, !saveFocused, EpdFontFamily::BOLD);
+                        labelY, rightLabel, !fillSave, EpdFontFamily::BOLD);
     } else {
 #endif
-      if (saveFocused) renderer.fillRect(dialogX, footerY + 1, dialogW, footerHeight - 1, true);
+      if (fillSave) renderer.fillRect(dialogX, footerY + 1, dialogW, footerHeight - 1, true);
+      if (grayFocus) outlineSave(dialogX, dialogW);
       renderer.drawText(UI_12_FONT_ID, dialogX + (dialogW - renderer.getTextWidth(UI_12_FONT_ID, rightLabel)) / 2,
-                        labelY, rightLabel, !saveFocused, EpdFontFamily::BOLD);
+                        labelY, rightLabel, !fillSave, EpdFontFamily::BOLD);
 #if CROSSDINK_APP_CAP_TOUCH
     }
 #endif

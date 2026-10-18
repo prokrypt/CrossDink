@@ -14,6 +14,7 @@
 
 #include "MappedInputManager.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class GfxRenderer;
@@ -68,7 +69,7 @@ class IntervalSelectionActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
 #if CROSSDINK_APP_CAP_TOUCH
-  using UiApp = freeink::ui::FreeInkApp<8, 3>;
+  using UiApp = UiAppSmall;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};

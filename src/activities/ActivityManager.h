@@ -109,6 +109,11 @@ class ActivityManager {
   // Input on an opted-in screen powers the booster on early (wakePanelEarly);
   // if no frame follows, it switches off again after this long.
   static KNOB_ALIAS(PANEL_IDLE_OFF_MS, panelIdleOffMs);  // Goodies > Knobs
+  // Every other screen keeps the booster on between frames so input never
+  // waits on PON, but not through a long dwell: an image held this long under
+  // the powered booster ghosts under the next clean refresh (auto-sleep's
+  // sleep image). Input powers it back on early, as above.
+  static KNOB_ALIAS(PANEL_DWELL_OFF_MS, panelDwellOffMs);  // Goodies > Knobs
   // Render-task notification bit for wakePanelEarly(); renders use eIncrement,
   // so a value of exactly this bit means "wake only, nothing to draw".
   static constexpr uint32_t PANEL_WAKE_BIT = 1UL << 31;
@@ -131,10 +136,6 @@ class ActivityManager {
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
   std::atomic<bool> restoredActivityNeedsRender{false};
-  bool settingsFlushPending = false;  // a screen exited; main loop flushes deferred settings
-  // Set by the render task once the current activity has drawn a frame. Home
-  // holds the reader's exit writes (ReaderExitSave) until then.
-  std::atomic<bool> currentActivityPainted{false};
   // Render task only: the activity the last frame came from (ListSelection).
   const Activity* listSelectionOwner = nullptr;
 
@@ -238,7 +239,10 @@ class ActivityManager {
   // Saves the open EPUB reader's position and returns its book, else empty.
   std::string flushEpubProgressForSync();
   // Main loop, render lock held: the current screen redraws its KOSync badge for the next refresh.
-  void repaintSyncBadge();
+  // True when the badge changed.
+  bool repaintSyncBadge();
+  // Every open reader (current or below it) writes its unsaved position; true when one was pending.
+  bool flushHeldProgress();
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.

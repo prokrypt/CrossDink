@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "components/UiAppHost.h"
+
 class GfxRenderer;
 class MappedInputManager;
 
@@ -62,7 +64,7 @@ class EndOfBookOptions {
   // FreeInkApp hosts the suggestion list (themed rows, touch routing); the title and
   // button hints stay on the legacy UITheme calls. 4 rows (3 suggestions + Home) is
   // the whole interaction surface; 2 handler slots give the row action headroom.
-  using UiApp = freeink::ui::FreeInkApp<6, 2>;
+  using UiApp = UiAppSmall;
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);

@@ -21,8 +21,10 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "MappedInputManager.h"
 #include "QuickActions.h"
+#include "ReaderExitSave.h"
 #include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
@@ -34,8 +36,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
-#include "util/FileContentEquals.h"
-#include "util/InPlaceFileWrite.h"
 
 namespace {
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
@@ -133,6 +133,7 @@ void XtcReaderActivity::onEnter() {
   // Load saved progress
   loadProgress();
 
+  ReaderExitSave::flushStats();  // held exit stats land first, so this session's saves supersede them
   stats = BookReadingStats::load(xtc->getCachePath());
   globalStats = GlobalReadingStats::load();
   bookStatsEnabled = BookStatsTracking::isBookEnabled(xtc->getCachePath());
@@ -160,7 +161,7 @@ void XtcReaderActivity::onExit() {
 
   mappedInput.setReaderMode(false);
 
-  const bool progressFlushed = flushQueuedProgress();
+  const bool progressFlushed = flushQueuedProgress(/*hold=*/true);  // lands at the next flush point
   if (!progressFlushed) {
     LOG_ERR("XTR", "Failed to flush debounced reader progress on exit");
   }
@@ -833,8 +834,10 @@ void XtcReaderActivity::commitReadingStats() {
       stats.startDate = sessionStartLocalDateTime.date;
     }
   }
+  // Written at the next flush point, as the EPUB reader's are (ReaderExitSave).
   if (statsTrackingActive || paceDirty || pendingStatsCommit) {
-    if (stats.save(xtc->getCachePath()) && (statsTrackingActive || pendingStatsCommit)) globalStats.save();
+    ReaderExitSave::queue(xtc->getCachePath(), &stats,
+                          statsTrackingActive || pendingStatsCommit ? &globalStats : nullptr);
   }
 }
 
@@ -1441,7 +1444,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 }
 
-bool XtcReaderActivity::saveProgress(const uint32_t page) {
+bool XtcReaderActivity::saveProgress(const uint32_t page, const bool hold) {
   if (!xtc) {
     return false;
   }
@@ -1453,8 +1456,7 @@ bool XtcReaderActivity::saveProgress(const uint32_t page) {
   // Overwrite in place (no truncate, so no FAT churn and never an empty file),
   // and skip the write entirely when the card already holds this position.
   const std::string path = xtc->getCachePath() + "/progress.bin";
-  if (!fileContentEquals("XTR", path.c_str(), data, sizeof(data)) &&
-      !writeFileInPlace("XTR", path.c_str(), data, sizeof(data))) {
+  if (!HeldWrites::saveFile(path.c_str(), data, sizeof(data), hold)) {
     LOG_ERR("XTR", "Failed to save reader progress");
     return false;
   }
@@ -1474,23 +1476,25 @@ bool XtcReaderActivity::queueProgressSave(const uint32_t pageToRender) {
   return saveProgress(pageToRender);
 }
 
-bool XtcReaderActivity::flushQueuedProgress() {
-  return !progressSaveDebouncer.hasPending() || saveProgress(progressSaveDebouncer.lastObservedPosition());
+bool XtcReaderActivity::flushHeldProgress() {
+  const bool pending = progressSaveDebouncer.hasPending();
+  if (!flushQueuedProgress()) LOG_ERR("XTR", "Failed to flush held progress");
+  return pending;
+}
+
+bool XtcReaderActivity::flushQueuedProgress(const bool hold) {
+  return !progressSaveDebouncer.hasPending() || saveProgress(progressSaveDebouncer.lastObservedPosition(), hold);
 }
 
 void XtcReaderActivity::loadProgress() {
-  HalFile f;
-  if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
-      currentPage = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+  uint8_t data[4];
+  if (HeldWrites::readFile("XTR", xtc->getCachePath() + "/progress.bin", data, sizeof(data)) == 4) {
+    currentPage = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
 
-      // Validate page number
-      if (currentPage >= xtc->getPageCount()) {
-        currentPage = 0;
-      }
+    // Validate page number
+    if (currentPage >= xtc->getPageCount()) {
+      currentPage = 0;
     }
-    f.close();
   }
 }
 
@@ -1503,13 +1507,9 @@ bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, con
 
   // Load saved page number
   uint32_t savedPage = 0;
-  FsFile f;
-  if (Storage.openFileForRead("SLP", xtc.getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
-      savedPage = (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
-    }
-    f.close();
+  uint8_t data[4];
+  if (HeldWrites::readFile("SLP", xtc.getCachePath() + "/progress.bin", data, sizeof(data)) == 4) {
+    savedPage = (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
   }
   if (savedPage >= xtc.getPageCount()) savedPage = 0;
 

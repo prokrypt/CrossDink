@@ -10,7 +10,10 @@
 
 #include "MappedInputManager.h"
 #include "UITheme.h"
+#include "UIThemeTokens.h"
+#include "components/KOSyncBadge.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/opdsIcons.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -162,7 +165,7 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
   card.styles = theme.listRow;
   // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
   card.styles.selected.background = fui::Paint::solid(fui::Color::White);
-  card.styles.selected.border = fui::Paint::solid(fui::Color::Black);
+  card.styles.selected.border = uiSelectionBorder();
   card.styles.selected.borderWidth = 2;
   card.styles.selected.foreground = fui::Paint::solid(fui::Color::Black);
   card.styles.selected.radius = theme.listRowRadius;
@@ -186,6 +189,16 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
     return static_cast<CoverGridHomeUi*>(user)->paintFramedCover(target, cover, 0);
   };
   fui::bookCard(screen.frame(), rect, card);
+  if (card.progressLabel) {
+    // KOSync badge just above the %: bookCard()'s cover and progress-row geometry.
+    const fui::Rect content = rect.inset(card.padding);
+    const int coverW = std::min<int>(card.coverSize.width, content.width);
+    const int coverH = std::min<int>(card.coverSize.height, content.height);
+    const int coverBottom = content.y + (content.height - coverH) / 2 + coverH;
+    const int progressRowH = std::max<int>(screen.target().lineHeight(card.progressText.font), card.progressHeight);
+    KOSyncBadge::drawAt(renderer, content.x + coverW + card.gap, coverBottom - progressRowH - KOSyncBadge::SIZE,
+                        KOSyncBadge::SIZE);
+  }
 
   if (selected == 0 && !BoardConfig::hasTouch()) {
     const int16_t barHeight = card.coverSize.height;
@@ -229,7 +242,7 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const freeink::Icon* ICONS[] = {&icon_folder_32, &icon_landmark_32, &icon_lyra_library_32,
+  static constexpr const freeink::Icon* ICONS[] = {&icon_folder_32, &icon_lyra_library_32, &icon_opds_32,
                                                    &icon_lyra_transfer_32, &icon_lyra_settings_32};
   int count = 0;
   for (int i = 0; i < 5; ++i) {
@@ -266,7 +279,9 @@ bool CoverGridHomeUi::paintFramedCover(fui::DrawTarget& target, fui::Rect rect, 
   const auto ink = fui::Paint::solid(fui::Color::Black);
   target.fill(fui::Rect{rect.right(), static_cast<int16_t>(rect.y + SHADOW_OFFSET), SHADOW_OFFSET, rect.height}, ink);
   target.fill(fui::Rect{static_cast<int16_t>(rect.x + SHADOW_OFFSET), rect.bottom(), rect.width, SHADOW_OFFSET}, ink);
-  const bool drawn = index < coverPaths.size() && coverCache.paint(rect, index, coverPaths[index]);
+  // The cache draws the no-cover placeholder itself and snapshots it with the covers.
+  const bool drawn = index < coverPaths.size() && index < books->size() &&
+                     coverCache.paint(rect, index, coverPaths[index], (*books)[index]);
   target.stroke(rect, ink, 1, 0);
   return drawn;
 }

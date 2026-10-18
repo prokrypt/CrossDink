@@ -7,6 +7,7 @@
 
 #include "MappedInputManager.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderPercentSelectionActivity final : public Activity {
@@ -28,7 +29,7 @@ class EpubReaderPercentSelectionActivity final : public Activity {
   // FreeInkApp hosts the 4x3 numeric keypad (touch always; non-touch once the user
   // holds Confirm to enter it) and its backspace icon. The shared CrossDink back
   // header stays separate. 12 grid keys + 1 backspace, one spare slot; 2 handlers.
-  using UiApp = freeink::ui::FreeInkApp<14, 2>;
+  using UiApp = UiAppList;
 
   static void percentScreen(UiApp::ScreenType& screen, void* user);
   static void onKeypadKeyEvent(const freeink::ui::ActionEvent& event, void* user);

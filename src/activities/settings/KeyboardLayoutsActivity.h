@@ -7,10 +7,11 @@
 
 #include "activities/Activity.h"
 #include "activities/util/KeyboardLayoutSet.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class KeyboardLayoutsActivity final : public Activity {
-  using UiApp = freeink::ui::FreeInkApp<16, 4>;
+  using UiApp = UiAppList;
 
  public:
   KeyboardLayoutsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);

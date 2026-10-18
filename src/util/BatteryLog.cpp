@@ -86,7 +86,6 @@ uint32_t slowAtMs = 0;            // last mV/temp read
 uint32_t usbSinceMs = 0;          // raw USB has differed from reading.usb since; 0 = same
 uint32_t chgSinceMs = 0;          // same for charging
 TaskHandle_t mainTask = nullptr;  // gauge I2C only from here (touch polls the bus too)
-bool bootFlushPending = false;
 bool wifiOn = false;
 
 uint32_t statsCrc() { return esp_rom_crc32_le(0, reinterpret_cast<const uint8_t*>(&rtcStats), offsetof(Stats, crc)); }
@@ -288,7 +287,7 @@ void wifiEnded(const char* why) {
 
 }  // namespace
 
-// The row stays in the PSRAM ring; the next boot flushes it.
+// The row stays in the PSRAM ring until the next flush (sleep, low battery, 3/4 full).
 void onRestart() {
   wifiEnded("restart");
   PowerLog::onRestart();
@@ -343,11 +342,9 @@ void onBoot() {
   // wake paths that sleep again before the knobs load.
   PowerCounters::setChargeWakeAllowed(KNOBS.chargeWake != 0);
   powerManager.wakeOnChargeChange = KNOBS.chargeWake != 0;
-  // After a restart or crash the ring still holds rows the card lacks: write
-  // them soon. A clean deep-sleep wake wiped the ring, so this session's rows
-  // wait for the sleep flush (or the low-battery / 3/4-full flush); a power
-  // cut while awake loses them.
-  bootFlushPending = !(wake && esp_reset_reason() == ESP_RST_DEEPSLEEP);
+  // Rows a restart or crash left in the ring wait for the sleep flush (or the
+  // low-battery / 3/4-full flush) with this session's: creating or appending
+  // the file at boot stalled the loop (176 ms). A power cut while awake loses them.
 }
 
 void onSleep(const char* why) {
@@ -389,9 +386,7 @@ void poll(const uint32_t idleMs) {
   const uint32_t pending = ring.head - ring.aux;
   // Low battery: out in 4 KB lots (not row by row) before a brownout can take the ring.
   const bool low = !reading.usb && reading.pct <= kLowPct && pending >= kLowFlushBytes;
-  if (pending != 0 && (bootFlushPending || low || pending >= kRingBytes / 4 * 3) && flush()) {
-    bootFlushPending = false;
-  }
+  if (pending != 0 && (low || pending >= kRingBytes / 4 * 3)) flush();
 }
 
 void onChargeWake() {

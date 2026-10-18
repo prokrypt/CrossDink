@@ -4,6 +4,7 @@
 #include <FreeInkUIGfxRenderer.h>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class LibrarySettingsActivity final : public Activity {
@@ -14,7 +15,7 @@ class LibrarySettingsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  using UiApp = freeink::ui::FreeInkApp<16, 2>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   ButtonNavigator buttonNavigator;

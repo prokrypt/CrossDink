@@ -12,6 +12,7 @@
 #include "components/OptionPopup.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class ReaderOptionsActivity final : public Activity {
@@ -50,7 +51,7 @@ class ReaderOptionsActivity final : public Activity {
   bool ttfRenderingChanged = false;
   bool stablePageNumbersAvailable = false;
 
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
   freeink::ui::GfxRendererTarget uiTarget;  // Must precede app: the app holds a reference to it.
   UiApp app;

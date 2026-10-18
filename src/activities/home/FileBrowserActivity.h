@@ -13,6 +13,7 @@
 
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class FileBrowserActivity final : public Activity {
@@ -23,7 +24,7 @@ class FileBrowserActivity final : public Activity {
  private:
   // FreeInkApp hosts the file list (themed rows, icons, touch routing); the
   // header stays on GUI.drawHeader for the battery indicator.
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
 
   // Deletion
   void promptDeleteFile(const std::string& fullPath, const std::string& entry);

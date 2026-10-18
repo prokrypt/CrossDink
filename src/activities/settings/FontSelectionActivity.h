@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
@@ -49,7 +50,7 @@ class FontSelectionActivity final : public Activity {
   int bottomReserved = 0;
   int usableHeight = 0;
   int previewHeight = 0;
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget_;
   UiApp app_;
   std::atomic<bool> uiReady_{false};

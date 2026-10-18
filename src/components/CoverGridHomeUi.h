@@ -11,9 +11,9 @@
 #include "components/media/book-card.h"
 #include "components/media/cover-grid.h"
 
-class CoverGridHomeUi final : public UiAppHost<16, 1> {
+class CoverGridHomeUi final : public UiAppHost<kUiListInteractions, kUiListHandlers> {
  public:
-  using UiScreen = UiAppHost<16, 1>::Screen;
+  using UiScreen = UiAppHost<kUiListInteractions, kUiListHandlers>::Screen;
   static constexpr int THUMB_HEIGHT = 400;
   static constexpr int GRID_COLUMNS = 3;
   static constexpr int GRID_ROWS = 2;

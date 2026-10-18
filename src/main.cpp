@@ -57,6 +57,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "KOReaderCredentialStore.h"
 #include "Knobs.h"
 #include "MappedInputManager.h"
@@ -86,6 +87,7 @@
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "components/ThemePack.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
@@ -106,6 +108,7 @@
 #include "util/AntiBurnIn.h"
 #include "util/BatteryDiagnosticLog.h"
 #include "util/BatteryLog.h"
+#include "util/BugReport.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
@@ -515,6 +518,7 @@ void restartKeepingPanelFrame() {
 
 static void restartWithSilentToken() {
   PerfLog::noteRestart();
+  HeldWrites::carryNextRestart();
   retainPanelFrame();
   // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
   // policy change the light without saving it, so hand the live state over.
@@ -1618,11 +1622,50 @@ void mirrorWakeShortPressToNvs() {
 #endif
 }
 
-void flushSettingsStores() {
-  SETTINGS.flush();
+int flushSettingsStores() {
+  const int written = HeldWrites::flushAll();
 #if CROSSDINK_GOODIES
   knobs::flush();
 #endif
+  return written;
+}
+
+int flushHeldWrites() {
+  int written = activityManager.flushHeldProgress() ? 1 : 0;
+  if (ReaderExitSave::flush()) written++;
+  RecentBookProgress::flushSyncMarks();
+  APP_STATE.saveToFile();
+  written += flushSettingsStores();
+  LOG_INF("HLD", "Flushed %d held write(s)", written);
+  return written;
+}
+
+// Low battery: write everything held and turn on write-through, so a brownout
+// cannot take it; each further percent writes the open book's position again
+// (shadowed readers no longer save mid-session). USB power ends it.
+static void pollLowBatteryWrites() {
+  constexpr uint16_t LOW_PCT = 5;  // BatteryLog's low-battery flush threshold
+  constexpr unsigned long POLL_MS = 10000;
+  static unsigned long lastPollMs = 0;
+  static uint16_t flushedAtPct = UINT16_MAX;  // UINT16_MAX = not low
+  if (millis() - lastPollMs < POLL_MS) return;
+  lastPollMs = millis();
+  const uint16_t pct = powerManager.getBatteryPercentage();
+  // Off only above LOW_PCT + 2, so a reading flapping between 5% and 6% does not re-flush.
+  if (gpio.isUsbConnectedCached() || pct > (flushedAtPct == UINT16_MAX ? LOW_PCT : LOW_PCT + 2)) {
+    if (flushedAtPct != UINT16_MAX) {
+      flushedAtPct = UINT16_MAX;
+      HeldWrites::setWriteThrough(HeldWrites::LowBattery, false);
+    }
+    return;
+  }
+  if (pct >= flushedAtPct) return;
+  if (flushedAtPct == UINT16_MAX) {
+    LOG_INF("HLD", "Battery at %u%%: writing held data", pct);
+    HeldWrites::setWriteThrough(HeldWrites::LowBattery, true);
+  }
+  flushedAtPct = pct;
+  flushHeldWrites();
 }
 
 // Sleep entry has no task watchdog: a wait that never returns leaves the device
@@ -1699,8 +1742,8 @@ static void disarmBootGuard() {
 }
 
 // Before the sleep screen, push under a progress toast and show the result for a
-// moment: the open book's just-saved position (KOReader Sync > Sync on Wake &
-// Sleep), else a close push still queued or running, which deep sleep would drop.
+// moment: the open book's just-saved position once past where it opened (KOReader
+// Sync > Sync on Wake & Sleep), else a close push still queued or running, which deep sleep would drop.
 // pushNow() bounds the whole wait, so sleep always goes on.
 void syncBookBeforeSleep() {
   std::string path = kosync_auto::wantsSleepPush() ? activityManager.flushEpubProgressForSync() : std::string();
@@ -1794,6 +1837,13 @@ static void showChordClock() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+  // Deep sleep powers PSRAM down and would lose a running macro: any sleep
+  // (power key, timeout, menu, SLEEPREBOOT) restarts instead, and the macro
+  // resumes; no ring write to SD after the boot.
+  if (SerialRemote::macroRunning()) {
+    LOG_INF("MAC", "sleep during macro: sleep-reboot instead");
+    SleepLog::armSleepReboot(false);
+  }
   armSleepGuard();
   HalPowerManager::sleepStep = "activity exit";
 #if CROSSDINK_GOODIES
@@ -1802,6 +1852,7 @@ void enterDeepSleep(bool fromTimeout) {
   syncBookBeforeSleep();
   HalPowerManager::sleepStep = "activity exit";
   kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
+  BugReport::stopForSleep();  // no report upload may hold an SD file through Storage.shutdown()
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system
@@ -1830,15 +1881,18 @@ void enterDeepSleep(bool fromTimeout) {
     HalPowerManager::sleepStep = "sleep writes";
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     RecentBookProgress::flushSyncMarks();
-    flushSettingsStores();
-    // Persist after the sleep screen is up so the write does not delay it. The
-    // reader's onExit() usually saves the same state already, so this write is
-    // then skipped as unchanged.
+    // Hold the newest state, then write every held store behind the sleep screen.
+    // The reader's onExit() usually holds the same state already, so this hold
+    // is then skipped as unchanged.
     APP_STATE.saveToFile();
+    HeldWrites::setWriteThrough(HeldWrites::Sleeping, true);
+    flushSettingsStores();  // knobs.json
 
-    // Sleep screens refresh synchronously and display.deepSleep() waits out any
-    // pending refresh and the power-off, so no settle delay is needed here. A
-    // delay would only widen the window in which a wake press is swallowed.
+    // B/W sleep screens start their refresh without waiting (SleepActivity), so
+    // these writes run during its waveform; gray ones refresh synchronously.
+    // display.deepSleep() waits out any pending refresh before the power-off,
+    // so no settle delay is needed here. A delay would only widen the window in
+    // which a wake press is swallowed.
     if (isQuickResumeSleep) {
       saveSleepFrameBuffer();
     } else if (Storage.exists(SLEEP_FRAME_FILE)) {
@@ -1903,7 +1957,14 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   esp_register_shutdown_handler([] {
     ReaderExitSave::flush();
     RecentBookProgress::flushSyncMarks();
-    flushSettingsStores();
+    if (HeldWrites::carrying()) {
+      // Silent restart: held stores stay in PSRAM for the next boot.
+#if CROSSDINK_GOODIES
+      knobs::flush();
+#endif
+    } else {
+      flushSettingsStores();
+    }
     BatteryLog::onRestart();
   });
   if (seamless) {
@@ -2181,10 +2242,10 @@ void setup() {
   bootPhase("sd");
 
   HalSystem::checkPanic();
+  HeldWrites::begin();  // a held copy a reset carried wins over the card's
   // Before anything reads progress.bin: replay a position a crash or reset kept
-  // off the card.
+  // off the card (it supersedes a held exit copy of the same book).
   ReaderProgressShadow::recoverPending();
-
   SETTINGS.loadFromFile();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
@@ -2208,6 +2269,7 @@ void setup() {
              snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) {
     KOREADER_STORE.loadFromFile();
   }
+  ThemePack::bootGuard(rawResetReason);
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
@@ -2999,6 +3061,7 @@ static void loopPass() {
   }
   updateFlashDuck();
   BatteryLog::poll(millis() - lastActivityTime);
+  pollLowBatteryWrites();
 
   // Let wake continue as soon as its hold has been verified. The release can
   // arrive after setup, so consume that one input frame rather than making it
@@ -3223,6 +3286,7 @@ static void loopPass() {
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();
+  BugReport::loop();
   // Auto sync push toast: drawn over the current screen, cleared by its next render.
   static unsigned long koSyncToastAt = 0;
   if (kosync_auto::takePushed()) {
@@ -3232,6 +3296,25 @@ static void loopPass() {
     koSyncToastAt = millis() | 1;
   } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
     koSyncToastAt = 0;
+    activityManager.requestUpdate();
+  }
+  // A close push that ended without landing: no toast, one fast redraw only when a shown badge left Syncing.
+  if (kosync_auto::takeSettled()) {
+    bool changed;
+    {
+      RenderLock lock;
+      changed = activityManager.repaintSyncBadge();
+    }
+    if (changed) activityManager.requestUpdate();
+  }
+  // Theme pack load or crash-guard toast, cleared by a repaint like the sync toast.
+  static unsigned long themePackToastAt = 0;
+  if (const char* themePackToast = ThemePack::takeToast()) {
+    RenderLock lock;
+    BookActions::drawToast(renderer, themePackToast);
+    themePackToastAt = millis() | 1;
+  } else if (themePackToastAt != 0 && millis() - themePackToastAt >= 1500) {
+    themePackToastAt = 0;
     activityManager.requestUpdate();
   }
 #if CROSSDINK_GOODIES

@@ -10,6 +10,7 @@
 
 #include "ClippingStore.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderClippingListActivity final : public Activity {
@@ -30,7 +31,7 @@ class EpubReaderClippingListActivity final : public Activity {
   int detailLinesPerPage = 0;
   bool longPressConfirmHandled = false;
   bool detailMode = false;
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   // Caps the rendered row window: the label buffers below are fixed size, so the
   // visible-row count from the theme geometry must never exceed them.
   static constexpr size_t CLIPPING_WINDOW_SIZE = 20;

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderFootnotesActivity final : public Activity {
@@ -28,7 +29,7 @@ class EpubReaderFootnotesActivity final : public Activity {
   const std::vector<FootnoteEntry>& footnotes;
   int selectedIndex = 0;
   ButtonNavigator buttonNavigator;
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};

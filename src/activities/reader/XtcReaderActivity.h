@@ -68,9 +68,9 @@ class XtcReaderActivity final : public Activity {
   void renderPage(uint32_t pageToRender);
   void renderStatusBarOverlay(StatusBarOverlayPosition position, uint32_t pageToRender, bool drawContent) const;
   StatusBarInfo getStatusBarInfo(uint32_t pageToRender, bool includeTitle = false) const;
-  bool saveProgress(uint32_t page);
+  bool saveProgress(uint32_t page, bool hold = false);
   bool queueProgressSave(uint32_t pageToRender);
-  bool flushQueuedProgress();
+  bool flushQueuedProgress(bool hold = false);
   void loadProgress();
   void pauseReadingStatsTimer(const char* source = "unknown");
   void syncStatsTrackingState();
@@ -143,6 +143,7 @@ class XtcReaderActivity final : public Activity {
     flushQueuedProgress();
   }
   void onFrontlightPanelClosed() override;
+  bool flushHeldProgress() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.

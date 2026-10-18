@@ -1,6 +1,6 @@
 #include "PsramLog.h"
 
-#if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
+#if CROSSDINK_HAS_PSRAM_LOG_RING
 
 #include <esp_attr.h>
 #include <esp_psram.h>
@@ -17,12 +17,16 @@
 #include "PsramRing.h"
 
 #if !CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY
-#error "CROSSDINK_PSRAM_LOG needs CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y"
+#error "The PSRAM log ring needs CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y"
 #endif
 
 namespace {
 // Power of two so the ring position is a mask of the running byte count.
+#if CROSSDINK_PSRAM_LOG
 constexpr uint32_t kRingBytes = 512 * 1024;
+#else
+constexpr uint32_t kRingBytes = 64 * 1024;  // release: bug report log only
+#endif
 constexpr uint32_t kMagicA = 0x50534C47;  // "PSLG"
 constexpr uint32_t kMagicB = 0xC0DE0513;
 

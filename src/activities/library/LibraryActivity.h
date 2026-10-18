@@ -11,6 +11,7 @@
 #include "activities/Activity.h"
 #include "activities/home/RecentBookProgress.h"
 #include "components/OptionPopup.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #include "util/WorkerTask.h"
 
@@ -22,6 +23,7 @@ class LibraryActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool blocksGlobalInput() const override { return actionPopup.isActive(); }
+  bool readsHeldExitWrites() const override { return true; }
   void onUserInput() override;
   bool preventAutoSleep() override;
 
@@ -29,7 +31,7 @@ class LibraryActivity final : public Activity {
   enum class Sort : uint8_t { DateAdded, Title, AuthorLast, AuthorFirst, RecentlyRead, Series, Genre };
   // Touch header controls precede the book rows; button-only navigation visits books directly.
   static constexpr int CONTROL_COUNT = 5;
-  using UiApp = freeink::ui::FreeInkApp<32, 4>;
+  using UiApp = UiAppLarge;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   ButtonNavigator buttonNavigator;

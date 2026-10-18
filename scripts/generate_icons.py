@@ -15,7 +15,9 @@ SVG_DIRS = {
     "lucide": PROJECT_ROOT / "freeink-sdk/libs/assets/Icons/lucide/icons",
     "tabler": PROJECT_ROOT / "assets/tabler-icons/icons/outline",
     "tabler-filled": PROJECT_ROOT / "assets/tabler-icons/icons/filled",
+    "crossdink": PROJECT_ROOT / "assets/crossdink-icons",
 }
+HEADER_SOURCE_NAMES = {"tabler": "Tabler", "tabler-filled": "Tabler", "crossdink": "CrossDink"}
 STROKE_WIDTH_ATTRIBUTE = re.compile(r'(\bstroke-width\s*=\s*")[^"]*(")')
 
 
@@ -101,9 +103,10 @@ def main():
     # The SDK generator accepts any single-colour SVGs, but its generated
     # comments currently name Lucide. Keep firmware headers accurate without
     # changing the SDK implementation.
-    if args.library in ("tabler", "tabler-filled"):
+    source_name = HEADER_SOURCE_NAMES.get(args.library)
+    if source_name:
         generated = output.read_text()
-        output.write_text(generated.replace("Lucide", "Tabler").replace("lucide:", "tabler:"))
+        output.write_text(generated.replace("Lucide", source_name).replace("lucide:", f"{args.library}:"))
 
 
 if __name__ == "__main__":
