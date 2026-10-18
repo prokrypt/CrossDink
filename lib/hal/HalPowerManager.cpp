@@ -291,8 +291,8 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   freeink::PowerManager::armPowerButtonWakeup();
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
-  // X4 Pro: Up and Down wake too, so holding both while asleep can change the
-  // wallpaper (HalGPIO::checkPageKeyWake). Same active-low pull-up as Power, so
+  // X4 Pro: Up and Down wake too, so holding both while asleep shows the clock
+  // (HalGPIO::checkPageKeyWake). Same active-low pull-up as Power, so
   // no extra sleep current until a key is pressed. A page key still down after
   // 2 s (pressed under something) leaves both out: alone it would wake again at
   // once, and with the other key it would still complete the chord.
