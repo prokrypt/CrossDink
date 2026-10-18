@@ -542,7 +542,14 @@ void ActivityManager::renderTaskLoop() {
 #endif
         continue;
       }
-      if (notified == PANEL_WAKE_BIT) {
+      if (notified == PANEL_DOZE_BIT) {
+        // Light Timeout: switch the booster off after the usual poll, which
+        // waits out any refresh still on the panel.
+        idlePanelOffArmed = true;
+        idlePanelOffMs = PANEL_OFF_POLL_MS;
+        continue;
+      }
+      if ((notified & ~PANEL_DOZE_BIT) == PANEL_WAKE_BIT) {
         // Input with no frame requested yet (finger down, button press):
         // power the booster on now, so the coming refresh skips its ~127 ms
         // power-on. Nothing drawn: switch it off again after the idle delay.
@@ -625,8 +632,10 @@ void ActivityManager::renderTaskLoop() {
       }
       lock.unlock();
       while (true) {
-        // An early-wake bit alone is no frame: the booster is on mid-refresh.
-        if ((ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS)) & ~PANEL_WAKE_BIT) != 0) {
+        // Wake/doze bits alone are no frame: the booster is on mid-refresh,
+        // and a doze is picked up from panelDozing below.
+        const uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(DEFERRED_REFRESH_POLL_MS));
+        if ((notified & ~(PANEL_WAKE_BIT | PANEL_DOZE_BIT)) != 0) {
           renderQueued = true;
           if (!batchInput) break;
         }
@@ -647,6 +656,11 @@ void ActivityManager::renderTaskLoop() {
     if (displayPmHeld && (!deferredRender || !renderer.isRefreshPending())) {
       powerManager.endDisplayRefreshHold();
       displayPmHeld = false;
+    }
+    // Light Timeout held: this draw's booster goes off right after it, not after the dwell.
+    if (panelDozing.load(std::memory_order_acquire)) {
+      idlePanelOffArmed = true;
+      idlePanelOffMs = PANEL_OFF_POLL_MS;
     }
     // Renders leave work for the loop (queued page turns, toasts, alerts,
     // prerender timers): one pass now instead of at the next idle tick.
@@ -1542,8 +1556,17 @@ ScreenshotInfo ActivityManager::getScreenshotInfo() const {
 
 void ActivityManager::wakePanelEarly() {
 #ifndef SIMULATOR
+  panelDozing.store(false, std::memory_order_release);
   if (renderTaskHandle && panelBoosterOff.exchange(false, std::memory_order_acq_rel)) {
     xTaskNotify(renderTaskHandle, PANEL_WAKE_BIT, eSetBits);
+  }
+#endif
+}
+
+void ActivityManager::dozePanel() {
+#ifndef SIMULATOR
+  if (renderTaskHandle && !panelDozing.exchange(true, std::memory_order_acq_rel)) {
+    xTaskNotify(renderTaskHandle, PANEL_DOZE_BIT, eSetBits);
   }
 #endif
 }

@@ -82,7 +82,9 @@ void HalPowerManager::begin() {
 // Caller holds modeMutex.
 void HalPowerManager::syncCpuFreqLock() {
   if (cpuFreqLock == nullptr) return;
-  const bool wanted = !isLowPower && !displayBusyWaitActive;
+  // Background work keeps full speed through panel BUSY waits too: it runs on
+  // its own while another task waits.
+  const bool wanted = !isLowPower && (!displayBusyWaitActive || backgroundWorkCount > 0);
   if (wanted == cpuFreqLockHeld) return;
   if (wanted) {
     esp_pm_lock_acquire(cpuFreqLock);
@@ -135,6 +137,9 @@ void HalPowerManager::beginBackgroundWork() {
   if (modeMutex == nullptr) return;
   xSemaphoreTake(modeMutex, portMAX_DELAY);
   ++backgroundWorkCount;
+#if CONFIG_PM_ENABLE
+  syncCpuFreqLock();
+#endif
   xSemaphoreGive(modeMutex);
   setPowerSaving(false);
 }
@@ -143,6 +148,9 @@ void HalPowerManager::endBackgroundWork() {
   if (modeMutex == nullptr) return;
   xSemaphoreTake(modeMutex, portMAX_DELAY);
   if (backgroundWorkCount > 0) --backgroundWorkCount;
+#if CONFIG_PM_ENABLE
+  syncCpuFreqLock();
+#endif
   xSemaphoreGive(modeMutex);
   // The main loop re-enters power saving on its next idle tick.
 }
@@ -225,6 +233,18 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+// Set when Up/Down are held at sleep entry. RTC_DATA_ATTR survives charger and
+// stray-key wakes (they sleep again straight from setup()); an app sleep clears it.
+static RTC_DATA_ATTR bool pageKeysLockedOut = false;
+#endif
+
+void HalPowerManager::clearPageKeyLockout() {
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  pageKeysLockedOut = false;
+#endif
+}
+
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   sleepStep = "wifi off";
   disableWiFiBeforeDeepSleep();
@@ -302,12 +322,10 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
     while ((digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) && millis() - releaseStart < 2000) {
       delay(10);
     }
-    // RTC_DATA_ATTR survives deep sleep and resets on a full boot, so Power wake/sleep keeps the lockout.
-    static RTC_DATA_ATTR bool pageKeysLockedOut = false;
     uint64_t mask = 1ULL << in.power;
     if (digitalRead(in.up) == LOW || digitalRead(in.down) == LOW) {
       pageKeysLockedOut = true;
-      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until full boot");
+      LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until the next app wake");
     }
     if (!pageKeysLockedOut) {
       pinMode(in.up, INPUT_PULLUP);
