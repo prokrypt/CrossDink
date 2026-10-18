@@ -29,8 +29,8 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
-#include "XtcReaderMenuActivity.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
+#include "activities/home/FileBrowserActionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/UITheme.h"
@@ -196,12 +196,33 @@ void XtcReaderActivity::openReaderMenu() {
     title = xtc->getTitle();
   }
 
+  const bool trackStats = SETTINGS.shouldTrackReadingStats();
+  std::vector<FileBrowserActionActivity::MenuItem> items;
+  items.reserve(8);
+  if (hasChapters) items.push_back({FileBrowserAction::SelectChapter, StrId::STR_SELECT_CHAPTER});
+  if (trackStats) {
+    items.push_back({FileBrowserAction::ToggleBookStatsTracking, StrId::STR_TRACK_READING_STATS,
+                     bookStatsEnabled ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF});
+    if (bookStatsEnabled) items.push_back({FileBrowserAction::ReadingStats, StrId::STR_READING_STATS});
+  }
+  items.push_back(
+      {FileBrowserAction::ToggleCompleted, stats.isCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
+  if (trackStats && bookStatsEnabled) items.push_back({FileBrowserAction::DeleteStats, StrId::STR_DELETE_BOOK_STATS});
+  items.push_back({FileBrowserAction::DeleteCache, StrId::STR_DELETE_CACHE});
+  items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
+  if (mappedInput.hasTouchHardware()) {
+    items.push_back({FileBrowserAction::ToggleTouchscreen, StrId::STR_DISABLE_TOUCHSCREEN,
+                     SETTINGS.disableReaderTouchscreen ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF});
+  }
+
   pauseReadingStatsTimer("reader_menu");
+  // Keeps touch usable inside the menu even with Disable Touchscreen on.
+  mappedInput.setReaderTouchscreenOverride(true);
   startActivityForResult(
-      std::make_unique<XtcReaderMenuActivity>(renderer, mappedInput, std::move(title), hasChapters, stats.isCompleted,
-                                              SETTINGS.shouldTrackReadingStats(), bookStatsEnabled),
+      std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, std::move(title), std::move(items)),
       [this](const ActivityResult& result) {
-        const auto* menu = std::get_if<MenuResult>(&result.data);
+        mappedInput.setReaderTouchscreenOverride(false);
+        const auto* menu = std::get_if<FileBrowserActionResult>(&result.data);
         if (result.isCancelled || menu == nullptr) {
           resumeReadingStatsTimer("reader_menu_return");
           requestUpdate();
@@ -1021,14 +1042,14 @@ void XtcReaderActivity::deleteBookCache() {
 }
 
 void XtcReaderActivity::onReaderMenuConfirm(const int action) {
-  switch (static_cast<XtcReaderMenuActivity::MenuAction>(action)) {
-    case XtcReaderMenuActivity::MenuAction::SELECT_CHAPTER:
+  switch (static_cast<FileBrowserAction>(action)) {
+    case FileBrowserAction::SelectChapter:
       openChapterSelection();
       break;
-    case XtcReaderMenuActivity::MenuAction::READING_STATS:
+    case FileBrowserAction::ReadingStats:
       openReadingStats();
       break;
-    case XtcReaderMenuActivity::MenuAction::TOGGLE_BOOK_STATS_TRACKING:
+    case FileBrowserAction::ToggleBookStatsTracking:
       if (xtc && SETTINGS.shouldTrackReadingStats()) {
         const bool enabled = !bookStatsEnabled;
         if (!BookStatsTracking::setBookEnabled(xtc->getCachePath(), enabled)) {
@@ -1041,22 +1062,30 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
       resumeReadingStatsTimer("toggle_book_stats_return");
       requestUpdate();
       break;
-    case XtcReaderMenuActivity::MenuAction::TOGGLE_COMPLETED:
+    case FileBrowserAction::ToggleCompleted:
       setBookCompleted(!stats.isCompleted);
       resumeReadingStatsTimer("toggle_completed_return");
       requestUpdate();
       break;
-    case XtcReaderMenuActivity::MenuAction::DELETE_STATS:
+    case FileBrowserAction::DeleteStats:
       if (statsTrackingActive) deleteBookStats();
       break;
-    case XtcReaderMenuActivity::MenuAction::DELETE_CACHE:
+    case FileBrowserAction::DeleteCache:
       deleteBookCache();
       break;
-    case XtcReaderMenuActivity::MenuAction::SEND_NEARBY_BOOK:
+    case FileBrowserAction::SendNearby:
       saveProgress(currentPage);
       activityManager.goToNearbyBookSend(xtc ? xtc->getPath() : std::string{}, true);
       return;
-    case XtcReaderMenuActivity::MenuAction::DISABLE_TOUCHSCREEN:
+    case FileBrowserAction::ToggleTouchscreen:
+      SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
+      SETTINGS.saveToFile();
+      resumeReadingStatsTimer("toggle_touch_return");
+      requestUpdate();
+      break;
+    default:
+      resumeReadingStatsTimer("reader_menu_return");
+      requestUpdate();
       break;
   }
 }
