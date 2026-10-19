@@ -66,7 +66,7 @@ bool flush();
 // chunks (they follow the file's last row). Read-only; the ring keeps them.
 void forEachPending(void (*sink)(void* ctx, const char* data, uint32_t len), void* ctx);
 const Stats& stats();
-// UTC seconds from the RTC, 0 when it is not set.
+// UTC seconds from the RTC; without one, seconds since power-on from 2000-01-01.
 uint32_t nowEpoch();
 // Clears Stats and the display refresh counts (not the SD file).
 void reset();

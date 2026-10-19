@@ -219,6 +219,50 @@ TEST(BatteryLogParser, BlankPercentIsNoReading) {
   EXPECT_EQ(p.st.battS[0], 1200u);
 }
 
+// A row without an RTC time (clock lost with the battery, boot row included)
+// breaks the chain: the next timed row is no span from the last timed one.
+TEST(BatteryLogParser, UntimedRowBreaksSpan) {
+  static BatteryLogParser p{};
+  for (const char* row : {"1790896000,x,0,50.00,4000,0,0,30,0,pct,", "1790896600,x,0,49.90,4000,0,0,30,0,pct,",
+                          "0,,5,10.00,3600,1,1,,0,boot,reset=POWERON", "1790990000,x,0,60.00,4000,0,0,30,0,pct,",
+                          "1790990600,x,0,59.90,4000,0,0,30,0,pct,"}) {
+    p.parseRow(row);
+  }
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.st.awakeS, 1200u);  // two 600 s steps, not the ~26 h gap
+  EXPECT_EQ(p.st.battS[0], 1200u);
+  EXPECT_EQ(p.st.dropC[0], 20u);
+}
+
+// Rows counted from power-on (no RTC time) chart as they are; a clock_set row
+// moves them onto RTC time, and the span across it continues.
+TEST(BatteryLogParser, ClockSetShiftsCountedRows) {
+  static BatteryLogParser p{};
+  for (const char* row : {"946684805,,5000,50.00,4000,0,0,30,0,boot,reset=POWERON",
+                          "946685405,,0,49.90,4000,0,0,30,0,pct,", "946686005,,0,49.80,4000,0,0,30,0,pct,",
+                          "1790990000,2026-10-02 00:33:20,0,49.80,4000,0,0,30,0,clock_set,was=946686005",
+                          "1790990600,x,0,49.70,4000,0,0,30,0,pct,"}) {
+    p.parseRow(row);
+  }
+  BatteryLogParser::endStretch(p.st);
+  EXPECT_EQ(p.pointCount, 5);
+  EXPECT_EQ(p.points[0].epoch, 1790990000u - 1200u);
+  EXPECT_EQ(p.points[2].epoch, 1790990000u);
+  EXPECT_EQ(p.st.first, 1790990000u - 1200u);
+  EXPECT_EQ(p.st.awakeS, 1800u);
+  EXPECT_EQ(p.st.dropC[0], 30u);
+}
+
+// Counted time to RTC time without a clock_set row: the gap is not counted.
+TEST(BatteryLogParser, JumpToRtcTimeBreaksSpan) {
+  static BatteryLogParser p{};
+  for (const char* row : {"946684805,,0,50.00,4000,0,0,30,0,pct,", "946685405,,0,49.90,4000,0,0,30,0,pct,",
+                          "1790990000,x,0,49.80,4000,0,0,30,0,pct,", "1790990600,x,0,49.70,4000,0,0,30,0,pct,"}) {
+    p.parseRow(row);
+  }
+  EXPECT_EQ(p.st.awakeS, 1200u);
+}
+
 // A step one half-life older than its state's newest weighs half: 10 then 40 (0.01 %)
 // over 600 s each, a day apart, give (5 + 40) / (300 + 600), not 50 / 1200.
 TEST(BatteryLogParser, RecentSumsHalveEachHalfLife) {
