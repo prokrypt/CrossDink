@@ -9,6 +9,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <Xtc.h>
+#include <ZipFile.h>
 
 #include <cstdio>
 
@@ -188,6 +189,23 @@ std::string confirmationHeading(const StrId actionLabelId) {
 bool isBookCompleted(const std::string& fullPath) {
   const std::string cachePath = bookStatsCachePath(fullPath);
   return !cachePath.empty() && BookReadingStats::load(cachePath).isCompleted;
+}
+
+bool isListedBookCompleted(const std::string& fullPath) {
+  std::string cachePath;
+  if (FsHelpers::hasEpubExtension(fullPath)) {
+    cachePath = Epub::cachePathForFilePath(fullPath, "/.crossdink");
+    // Not opened since /.crossdink: read the path-keyed /.crosspoint stats
+    // instead of copying that cache in the way opening the book does.
+    if (!Storage.exists(cachePath.c_str())) {
+      cachePath = "/.crosspoint/epub_" + std::to_string(ZipFile::fnvHash64(fullPath.c_str(), fullPath.size()));
+    }
+  } else if (FsHelpers::hasXtcExtension(fullPath)) {
+    cachePath = Xtc(fullPath, "/.crossdink").getCachePath();
+  } else {
+    return false;
+  }
+  return Storage.exists(cachePath.c_str()) && BookReadingStats::load(cachePath).isCompleted;
 }
 
 bool isBookStatsTrackingEnabled(const std::string& fullPath) {

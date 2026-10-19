@@ -73,6 +73,15 @@ class FileBrowserActivity final : public Activity {
   bool usingIndex = false;
   bool fileListMemoryLimited = false;
   bool fileListReadFailed = false;
+  // Finished flag of recently drawn book rows, keyed by path hash (0 = empty
+  // slot), so a repaint reads no stats file. Cleared with each folder load.
+  struct FinishedMemo {
+    uint64_t pathHash = 0;
+    bool finished = false;
+  };
+  std::array<FinishedMemo, INDEX_ROW_CACHE_SIZE> finishedMemo{};
+  size_t finishedMemoNext = 0;
+  bool isFinishedBook(const std::string& fullPath);
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
