@@ -225,6 +225,8 @@ class CrossPointWebServer {
   void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length);
   static void wsEventCallback(uint8_t num, WStype_t type, uint8_t* payload, size_t length);
   void abortWsUpload(const char* tag);
+  // True once stop() began (running false): drops the client mid-upload.
+  bool dropUploadIfStopping() const;
 
   // File scanning
   using FileVisitor = void (*)(const FileInfo& info, void* context);
@@ -273,6 +275,7 @@ class CrossPointWebServer {
   void handleFileListData() const;
   void handleDownload() const;
   void handleUpload(UploadState& state) const;
+  void abortUpload(UploadState& state) const;
   void handleUploadPost(UploadState& state) const;
   void handleCreateFolder() const;
   void handleRename() const;
@@ -292,6 +295,7 @@ class CrossPointWebServer {
   void handleFontList() const;
   void handleFontUpload();
   void handleFontUploadData();
+  void abortFontUpload();
   void handleFontDelete();
 
   // Font upload state
