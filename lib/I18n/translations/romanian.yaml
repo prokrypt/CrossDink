@@ -604,3 +604,5 @@ STR_STATUS_BAR_EMPTY: "Gol"
 STR_STATUS_BAR_CLOCK: "Ceas"
 STR_STATUS_BAR_BOTH: "Ambele"
 STR_CLOCK_OUTSIDE_READER: "Ceas în afara cititorului"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Inversează biblioteca/fișierele"

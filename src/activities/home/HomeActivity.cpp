@@ -315,7 +315,11 @@ HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bo
 
 HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
   HomeMenuEntries items;
-  items.push({tr(STR_LIBRARY), Library, HomeMenuAction::Library});
+  if (SETTINGS.isLibraryFileBrowserSwapped()) {
+    items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
+  } else {
+    items.push({tr(STR_LIBRARY), Library, HomeMenuAction::Library});
+  }
 
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Opds, HomeMenuAction::OpdsBrowser});
@@ -1939,7 +1943,7 @@ void HomeActivity::loop() {
         return;
       case MappedInputManager::SwipeDir::Right:
         minimalHomeNavIndex = 1;
-        onFileBrowserOpen();
+        onMinimalBrowseOpen();
         return;
       case MappedInputManager::SwipeDir::Up:
         minimalHomeNavIndex = 0;
@@ -1995,7 +1999,7 @@ void HomeActivity::loop() {
           requestUpdate();
           break;
         case 1:
-          onFileBrowserOpen();
+          onMinimalBrowseOpen();
           break;
         case 2:
           onSettingsOpen();
@@ -2574,8 +2578,9 @@ void HomeActivity::render(RenderLock&&) {
     }
     if (showMinimalHomeButtonHints(mappedInput)) {
       MinimalTheme::setHomeButtonHintSelection(minimalHomeNavIndex);
-      GUI.drawButtonHints(renderer, tr(STR_MENU), tr(STR_BROWSE), tr(STR_SETTINGS_SHORT),
-                          recentBooks.empty() ? "" : tr(STR_READ));
+      GUI.drawButtonHints(renderer, tr(STR_MENU),
+                          SETTINGS.isLibraryFileBrowserSwapped() ? tr(STR_LIBRARY) : tr(STR_BROWSE),
+                          tr(STR_SETTINGS_SHORT), recentBooks.empty() ? "" : tr(STR_READ));
     }
 
     displayHomeBuffer();
@@ -2760,6 +2765,14 @@ void HomeActivity::openBook(const std::string& path) {
     Storage.remove(CAROUSEL_CACHE_TMP_PATH);
   }
   activityManager.goToReader(path);
+}
+
+void HomeActivity::onMinimalBrowseOpen() {
+  if (SETTINGS.isLibraryFileBrowserSwapped()) {
+    onLibraryOpen();
+  } else {
+    onFileBrowserOpen();
+  }
 }
 
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }

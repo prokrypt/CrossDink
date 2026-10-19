@@ -594,3 +594,5 @@ STR_STATUS_BAR_EMPTY: "Tyhjä"
 STR_STATUS_BAR_CLOCK: "Kello"
 STR_STATUS_BAR_BOTH: "Molemmat"
 STR_CLOCK_OUTSIDE_READER: "Kello lukijan ulkopuolella"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Vaihda kirjasto/tiedostoselain"

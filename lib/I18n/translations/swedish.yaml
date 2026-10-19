@@ -660,3 +660,5 @@ STR_STATUS_BAR_EMPTY: "Tom"
 STR_STATUS_BAR_CLOCK: "Klocka"
 STR_STATUS_BAR_BOTH: "Båda"
 STR_CLOCK_OUTSIDE_READER: "Klocka utanför läsaren"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Byt bibliotek/filbläddrare"
