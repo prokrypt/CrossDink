@@ -401,15 +401,17 @@ void BatteryStatsActivity::loop() {
   }
   if (loading) step(LOAD_STEP_MS);
   // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
-  // for 1 s. No repaint of its own (a full page refresh after every light
-  // slide); the next frame (scroll, Refresh) shows it.
+  // for 1 s, then one fast repaint (a light slide coalesces into one).
   const uint16_t state = estimateState();
   if (state != seenState) {
     seenState = state;
     seenMs = millis();
   } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
-    RenderLock lock(*this);  // render() reads lines
-    buildLines();
+    {
+      RenderLock lock(*this);  // render() reads lines
+      buildLines();
+    }
+    requestUpdate();
   }
   const auto swipe = mappedInput.wasSwipe();
   const bool down =
