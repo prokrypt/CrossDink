@@ -583,26 +583,29 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
   return true;
 }
 
-void ClipSelectionActivity::applyWordStyle(const WordRef& word, const ClipWordStyle& style) const {
+ClippingHighlightGeometry::WordRect ClipSelectionActivity::wordHighlightRect(const WordRef& word) const {
   const auto textStyle = static_cast<EpdFontFamily::Style>(word.style & ~EpdFontFamily::UNDERLINE);
   const int skipX =
       hasEmSpace(wordStore.text(word)) ? renderer.getTextAdvanceX(renderFontId, "\xe2\x80\x83", textStyle) : 0;
-  const int drawX = word.x + skipX;
-  const int drawW = word.w - skipX;
-  if (drawW <= 0) return;
+  return {word.pageWordIndex, word.x + skipX, word.y, word.w - skipX, word.h};
+}
+
+void ClipSelectionActivity::applyHighlightStyle(const ClippingHighlightGeometry::WordRect& rect,
+                                                const ClipWordStyle& style) const {
+  if (rect.width <= 0) return;
   const bool fill = (style.flags & ClipWordStyle::FILL) != 0;
   if (fill) {
     // Build the highlight from the existing framebuffer instead of redrawing
     // the word, which avoids font-cache work on every selection step.
-    for (int y = word.y; y < word.y + word.h; y += 2) {
-      for (int x = drawX; x < drawX + drawW; x += 2) {
+    for (int y = rect.y; y < rect.y + rect.height; y += 2) {
+      for (int x = rect.x; x < rect.x + rect.width; x += 2) {
         renderer.drawPixel(x, y, true);
       }
     }
   }
 
   if ((style.flags & ClipWordStyle::BORDER) != 0) {
-    renderer.drawRect(drawX, word.y, drawW, word.h, true);
+    renderer.drawRect(rect.x, rect.y, rect.width, rect.height, true);
   }
 }
 
@@ -626,11 +629,29 @@ void ClipSelectionActivity::drawHighlights() {
     const int from = std::min(startMarkIdx, cursorIdx);
     const int to = std::max(startMarkIdx, cursorIdx);
     const uint16_t tableSelection = tableSelectionForRange(from, to);
+    ClippingHighlightGeometry::WordRect previousRect;
+    uint16_t previousTableSelection = UINT16_MAX;
+    bool hasPreviousRect = false;
     for (int i = from; i <= to; i++) {
       const WordRef& word = wordStore.words[readingOrder[i]];
       if (word.pageIdx == currentDisplayPage &&
           (tableSelection == UINT16_MAX || word.tableSelection == tableSelection)) {
-        applyWordStyle(word, selectionStyle);
+        const auto rect = wordHighlightRect(word);
+        ClippingHighlightGeometry::GapRect gap;
+        // Reading order can run backwards for RTL lines. Geometry expects
+        // ascending page-word indexes, and table cells must stay separate.
+        const auto& first = previousRect.pageWordIndex < rect.pageWordIndex ? previousRect : rect;
+        const auto& second = previousRect.pageWordIndex < rect.pageWordIndex ? rect : previousRect;
+        if (hasPreviousRect && previousTableSelection == word.tableSelection &&
+            ClippingHighlightGeometry::gapBetweenAdjacentWords(first, second, gap)) {
+          applyHighlightStyle({0, gap.x, gap.y, gap.width, gap.height}, selectionStyle);
+        }
+        applyHighlightStyle(rect, selectionStyle);
+        previousRect = rect;
+        previousTableSelection = word.tableSelection;
+        hasPreviousRect = rect.width > 0;
+      } else {
+        hasPreviousRect = false;
       }
     }
   }
@@ -639,7 +660,7 @@ void ClipSelectionActivity::drawHighlights() {
   if (cursorWord.pageIdx == currentDisplayPage) {
     // Before the first endpoint, the cursor supplies its own fill. Afterwards
     // selectionStyle has already filled it, so only add the active border.
-    applyWordStyle(cursorWord, startMarkIdx == -1 ? initialCursorStyle : selectedCursorStyle);
+    applyHighlightStyle(wordHighlightRect(cursorWord), startMarkIdx == -1 ? initialCursorStyle : selectedCursorStyle);
   }
 }
 
