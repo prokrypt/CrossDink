@@ -282,9 +282,9 @@ bool FileBrowserActivity::loadFilesIntoVector(size_t cap, bool& overflow) {
 bool FileBrowserActivity::isFinishedBook(const std::string& fullPath) {
   if (!FsHelpers::hasEpubExtension(fullPath) && !FsHelpers::hasXtcExtension(fullPath)) return false;
   const uint64_t pathHash = ZipFile::fnvHash64(fullPath.c_str(), fullPath.size());
-  for (const FinishedMemo& memo : finishedMemo) {
-    if (memo.pathHash == pathHash) return memo.finished;
-  }
+  const auto memo = std::find_if(finishedMemo.begin(), finishedMemo.end(),
+                                 [pathHash](const FinishedMemo& m) { return m.pathHash == pathHash; });
+  if (memo != finishedMemo.end()) return memo->finished;
   const bool finished = BookActions::isListedBookCompleted(fullPath);
   finishedMemo[finishedMemoNext] = {pathHash, finished};
   finishedMemoNext = (finishedMemoNext + 1) % finishedMemo.size();
