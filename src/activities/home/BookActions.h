@@ -30,6 +30,5 @@ bool isBookCompleted(const std::string& fullPath);
 bool isBookStatsTrackingEnabled(const std::string& fullPath);
 bool toggleBookStatsTracking(const std::string& fullPath, bool& enabled);
 bool toggleBookCompleted(const std::string& fullPath, const std::string& displayName, bool& completed);
-void drawToast(const GfxRenderer& renderer, const char* msg);
 
 }  // namespace BookActions
