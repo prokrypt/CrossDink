@@ -86,6 +86,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Fixed
 - KOReader Sync auto sync: closing a book whose last sync failed (crossed-out cloud) now syncs again even when it was left on the page it opened at, including after a reboot. Before, only a failed push from the same boot was retried.
+- Leaving File Transfer during a book or font upload ends the upload at once instead of waiting for it to time out, and removes the incomplete file (a resumable upload keeps its part for a retry). Before, an upload cut off this way could leave a half-written book that blocked the retry with "File already exists".
 
 ### Added
 - Debug builds (X4 Pro): each Goodies > Display Test > Flash ducks page shows that flash kind's current dim and restore timings (Goodies > Knobs, e.g. flashFullDimMs) with - and + buttons that change them at once (written when you leave the screen), an Again button that runs the page's flash again (the exit-paint pages replay the gray page before them, still showing their own label), and a Next button; a tap anywhere else does nothing, so a mistap no longer skips the page. A - or + press redraws the numbers with a Fast refresh, so on a gray page that refresh is the normal exit paint.
