@@ -709,7 +709,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   const std::string url = UrlUtils::buildUrl(server.url, path);
   OpdsParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
   fetchCancelled = false;
-  if (!loadFeed(url, parser)) {
+  OpdsFeedError feedError = OpdsFeedError::Other;
+  if (!loadFeed(url, parser, &feedError)) {
     if (fetchCancelled) {
       // pollFetchCancel() consumed the Back press, so act on it here.
       LOG_INF("OPDS", "Feed fetch cancelled by Back");
@@ -718,7 +719,23 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
       return;
     }
     state = BrowserState::ERROR;
-    errorMessage = tr(STR_FETCH_FEED_FAILED);
+    switch (feedError) {
+      case OpdsFeedError::Unauthorized:
+        errorMessage = tr(STR_FEED_UNAUTHORIZED);
+        break;
+      case OpdsFeedError::Redirected:
+        errorMessage = tr(STR_FEED_REDIRECTED);
+        break;
+      case OpdsFeedError::ServerError:
+        errorMessage = tr(STR_FEED_SERVER_ERROR);
+        break;
+      case OpdsFeedError::Unreachable:
+        errorMessage = tr(STR_FEED_UNREACHABLE);
+        break;
+      case OpdsFeedError::Other:
+        errorMessage = tr(STR_FETCH_FEED_FAILED);
+        break;
+    }
     requestUpdate();
     return;
   }
@@ -786,7 +803,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   if (preload) preload->pump();
 }
 
-bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parser) {
+bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parser, OpdsFeedError* error) {
   // A cache hit needs no network, so background downloads keep going.
   // Otherwise a foreground request never overlaps them: finish the one for
   // this very page, pause the rest. Either way completed pages land in the
@@ -822,14 +839,18 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     downloadOptions.authorizationOrigin = authorizationOrigin;
     downloadOptions.connection = feedConnectionForRequest();
     downloadOptions.shouldCancel = [this]() { return pollFetchCancel(); };
+    HttpRequestDiagnostics diagnostics;
     const auto result = HttpDownloader::streamUrl(
         url,
         [&stream, &page, cachePage](const uint8_t* data, const size_t len) {
           if (cachePage) page.append(data, len);  // overflow only skips caching
           return stream.write(data, len) == len;
         },
-        nullptr, server.username, server.password, std::move(downloadOptions));
-    if (result != HttpDownloader::OK) return false;
+        nullptr, server.username, server.password, std::move(downloadOptions), &diagnostics);
+    if (result != HttpDownloader::OK) {
+      if (error) *error = classifyFeedFailure(diagnostics, result == HttpDownloader::HTTP_ERROR);
+      return false;
+    }
   }
 
   if (cachePage && parser && !page.failed()) pageCache->store(url, std::move(page), true, millis());
