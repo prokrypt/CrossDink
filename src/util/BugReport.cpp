@@ -83,7 +83,7 @@ void zipPath(char* out, const size_t cap, const char* id, const bool sent) {
   snprintf(out, cap, "%s/%s%s", DIR, id, sent ? ".sent.zip" : ".zip");
 }
 
-constexpr const char* BUNDLE_FILES[] = {"report.txt", "log.txt", "screen.bmp"};
+constexpr const char* BUNDLE_FILES[] = {"report.txt", "log.txt", "screen.png"};
 
 // Stored (uncompressed) zip: the device has
 // no deflate. Two reads per file: CRC first, since the local header needs it.
@@ -609,8 +609,8 @@ bool start(Context& ctx) {
   // Marks the moment in the log tail the report carries.
   LOG_INF("BUG", "report %s on %s", ctx.id, ctx.activity);
   char shot[64];
-  path(shot, sizeof(shot), ctx.id, "screen.bmp");
-  ctx.hasScreenshot = ScreenshotUtil::saveFramebufferAsBmp(shot, renderer.getFrameBuffer(), renderer.getDisplayWidth(),
+  path(shot, sizeof(shot), ctx.id, "screen.png");
+  ctx.hasScreenshot = ScreenshotUtil::saveFramebufferAsPng(shot, renderer.getFrameBuffer(), renderer.getDisplayWidth(),
                                                            renderer.getDisplayHeight());
   if (!ctx.hasScreenshot) LOG_ERR("BUG", "screenshot failed");
   return true;
@@ -679,7 +679,7 @@ bool save(const Context& ctx, const std::string& text, const bool includeScreens
   }
   if (!includeScreenshot && ctx.hasScreenshot) {
     char shot[64];
-    path(shot, sizeof(shot), ctx.id, "screen.bmp");
+    path(shot, sizeof(shot), ctx.id, "screen.png");
     Storage.remove(shot);
   }
   // SD only, no flash writes: a PSRAM stack is safe (as Library's thumbnail worker).
