@@ -49,6 +49,9 @@ class FrontlightPanelActivity final : public Activity {
   int panelBottom = 0;
   freeink::ui::Rect drawerHandleRect{};
   std::vector<std::string> readerTitleLines;
+  // Cleared by computePanelBottom() when the chapter line cannot fit beside
+  // the controls.
+  bool showChapterLine = false;
 
   static void panelScreen(UiApp::ScreenType& screen, void* user);
   static void onBrightnessEvent(const freeink::ui::ActionEvent& event, void* user);
@@ -65,7 +68,8 @@ class FrontlightPanelActivity final : public Activity {
   // Height of the drop-down, derived from the content it holds (header +
   // sliders + toggle). Same layout math as buildPanelScreen so the frame,
   // content margin, and dismiss threshold all agree.
-  int computePanelBottom() const;
+  int computePanelBottom();
+  int panelBottomFor() const;
   void prepareReaderDetailsLayout();
   void drawReaderDetails(UiApp::ScreenType& screen);
   void adjustBrightness(int delta);
@@ -80,6 +84,8 @@ class FrontlightPanelActivity final : public Activity {
   void openGlobalSettings();
   void drawHeader();
   bool showsBookProgress() const;
+  const char* bookSummaryChapter() const;
+  int bookSummaryHeight() const;
   void drawBookProgress();
 
  public:
