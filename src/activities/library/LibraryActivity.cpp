@@ -923,7 +923,8 @@ void LibraryActivity::provideRow(void* user, const uint16_t row, fui::ListItem& 
   }
   item.label = cached.title.c_str();
   if (!cached.subtitle.empty()) item.subtitle = cached.subtitle.c_str();
-  item.icon = listIconFor(static_cast<UIIcon>(cached.icon), 32);
+  item.icon =
+      cached.finished ? fui::bitmapFromIcon(icon_book_check_32) : listIconFor(static_cast<UIIcon>(cached.icon), 32);
 #ifdef FREEINK_UI_LIST_MARGIN_ICON
   // Badge from the row's saved mark or a newer one held since: a sync landing
   // while the list is up shows on its next draw without refilling the row.
@@ -946,6 +947,28 @@ LibraryActivity::CachedRow& LibraryActivity::rowFor(const int row) {
     entry.row = entry.ok && rowCache ? row : -1;
   }
   return entry;
+}
+
+bool LibraryActivity::rowFinished(const int row) {
+  // Read once per row fill; the row cache keeps it across repaints.
+  library::ClixRecord record{};
+  const uint16_t ordinal = ordinalForRow(row);
+  if (ordinal == UINT16_MAX || !index.readRecord(ordinal, record)) return false;
+  std::string cachePath;
+  if (FsHelpers::hasEpubExtension(rowScratch.path)) {
+    // The index holds the content key, so no book tail is read.
+    uint64_t key = 0;
+    if (index.readContentKey(record, key) && key != 0) cachePath = "/.crossdink/epub_" + std::to_string(key);
+    uint64_t pathHash = 0;
+    if ((cachePath.empty() || !Storage.exists(cachePath.c_str())) && index.readPathHash(record, pathHash)) {
+      cachePath = "/.crosspoint/epub_" + std::to_string(pathHash);
+    }
+  } else if (FsHelpers::hasXtcExtension(rowScratch.path)) {
+    std::string path;
+    if (!index.readPath(record, path)) return false;
+    cachePath = Xtc(path, "/.crossdink").getCachePath();
+  }
+  return !cachePath.empty() && Storage.exists(cachePath.c_str()) && BookReadingStats::load(cachePath).isCompleted;
 }
 
 void LibraryActivity::fillRow(const int row, CachedRow& out) {
@@ -995,6 +1018,7 @@ void LibraryActivity::fillRow(const int row, CachedRow& out) {
     }
   }
   out.icon = static_cast<uint8_t>(UITheme::getFileIcon(rowScratch.path));
+  out.finished = !SETTINGS.libraryHideFinishedBooks && rowFinished(row);
   if (SETTINGS.libraryListExpanded && sort == Sort::DateAdded) {
     const uint16_t date = dateGroupForRow(row);
     if (row == 0 || date != dateGroupForRow(row - 1)) {
