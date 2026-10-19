@@ -18,6 +18,7 @@
 #include "activities/ScreenTransitionRefresh.h"
 #include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
+#include "util/OpdsFeedError.h"
 
 /**
  * Activity for browsing and downloading books from an OPDS server.
@@ -154,7 +155,7 @@ class OpdsBookBrowserActivity final : public Activity {
   void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0, bool recheck = true);
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
-  bool loadFeed(const std::string& url, OpdsParser& parser);
+  bool loadFeed(const std::string& url, OpdsParser& parser, OpdsFeedError* error = nullptr);
   bool pollFetchCancel();
   void startNextPagePrefetch(const std::string& nextHref);
   // First page only: queues every navigation row's feed for the preload pool.
