@@ -16,6 +16,7 @@
 #include "activities/settings/SettingsActivity.h"
 #include "components/DrawerHandle.h"
 #include "components/HeaderDate.h"
+#include "components/ReaderBookSummary.h"
 #include "components/Toast.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -375,14 +376,24 @@ Rect FrontlightPanelActivity::homeButtonRect() const {
               TouchHeaderBackButton::height(metrics, mappedInput)};
 }
 
-int FrontlightPanelActivity::computePanelBottom() const {
+int FrontlightPanelActivity::computePanelBottom() {
+  showChapterLine = showsBookProgress() && !context.bookDetails.chapter.empty();
+  const int bottom = panelBottomFor();
+  // The chapter line is the only optional content; give it up before the
+  // handle would be pushed off screen (e.g. landscape at Large scale).
+  if (!showChapterLine || bottom <= renderer.getScreenHeight()) return bottom;
+  showChapterLine = false;
+  return panelBottomFor();
+}
+
+int FrontlightPanelActivity::panelBottomFor() const {
   // Mirror buildPanelScreen's takeTop/spacer sequence so the frame, content
   // margin, and dismiss threshold land on the same edge.
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto tokens = uiThemeTokens(uiTarget);
   const int16_t lh = uiTarget.lineHeight(tokens.bodyText.font);
   int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
-  if (showsBookProgress()) y += metrics.tabBarHeight;
+  y += bookSummaryHeight();
   if (context.showReaderDetails) {
     const int16_t titleLh = uiTarget.lineHeight(tokens.titleText.font);
     y += tokens.spaceLg * 2;
@@ -465,7 +476,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   const int16_t bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - sheetContent.bottom());
   screen.setContentMargin(
       fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                       (showsBookProgress() ? metrics.tabBarHeight : 0)),
+                                       bookSummaryHeight()),
                   0, bottomInset, 0});
 
   const fui::Rect actionBar = screen.takeBottom(ACTION_BAR_HEIGHT);
@@ -596,17 +607,23 @@ bool FrontlightPanelActivity::showsBookProgress() const {
   return context.activeReaderBook && !context.showReaderDetails && !context.bookDetails.title.empty();
 }
 
+const char* FrontlightPanelActivity::bookSummaryChapter() const {
+  return showChapterLine ? context.bookDetails.chapter.c_str() : nullptr;
+}
+
+int FrontlightPanelActivity::bookSummaryHeight() const {
+  return showsBookProgress() ? ReaderBookSummary::height(renderer, bookSummaryChapter()) : 0;
+}
+
 void FrontlightPanelActivity::drawBookProgress() {
   if (!showsBookProgress()) return;
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
-  const Rect row{0, y, renderer.getScreenWidth(), metrics.tabBarHeight};
   char progress[96];
   formatReaderBookProgress(progress, sizeof(progress), context.bookDetails.chapterPage,
                            context.bookDetails.chapterPageCount, context.bookDetails.chapterPageCountEstimated,
                            context.bookDetails.progressPercent);
-  GUI.drawSubHeader(renderer, row, progress);
-  renderer.drawLine(row.x, row.y + row.height - 1, row.x + row.width - 1, row.y + row.height - 1, 1, true);
+  ReaderBookSummary::draw(renderer, Rect{0, y, renderer.getScreenWidth(), 0}, bookSummaryChapter(), progress);
 }
 
 void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui::Rect& row, const uint8_t value,

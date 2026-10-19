@@ -34,6 +34,7 @@
 #include "activities/settings/TtfRenderOptionsActivity.h"
 #endif
 #include "components/DrawerHandle.h"
+#include "components/ReaderBookSummary.h"
 #include "components/SliderValue.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -880,7 +881,7 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   if (buttonDevice) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     buttonHeaderHeight = static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                              metrics.tabBarHeight);
+                                              ReaderBookSummary::height(renderer, chapterTitle.c_str()));
     screen.takeTop(buttonHeaderHeight);
   }
   // Give every tab row four pixels of white space above and below its icons.
@@ -959,13 +960,11 @@ void EpubReaderDrawerActivity::drawButtonBookHeader() {
                     TouchHeaderBackButton::height(metrics, mappedInput)};
   GUI.drawHeader(renderer, header, epub ? epub->getTitle().c_str() : "", nullptr, false, true);
 
-  const Rect summary{safe.x, header.y + header.height, safe.width, metrics.tabBarHeight};
   char progress[96];
   formatReaderBookProgress(progress, sizeof(progress), chapterPage, chapterPageCount, chapterPageCountEstimated,
                            percentSeed / 100);
-  GUI.drawSubHeader(renderer, summary, progress);
-  renderer.drawLine(summary.x, summary.y + summary.height - 1, summary.x + summary.width - 1,
-                    summary.y + summary.height - 1, 1, true);
+  ReaderBookSummary::draw(renderer, Rect{safe.x, header.y + header.height, safe.width, 0}, chapterTitle.c_str(),
+                          progress);
 }
 
 void EpubReaderDrawerActivity::buildTabBar(UiApp::ScreenType& screen, const fui::Rect rect, const bool drawBottomRule) {

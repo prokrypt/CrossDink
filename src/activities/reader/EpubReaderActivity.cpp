@@ -2678,6 +2678,9 @@ void EpubReaderActivity::openReaderMenu() {
   uint32_t stablePageCount = 0;
   bool isBookCompleted;
   bool previewActive = false;
+  // Only the button menu has a book header to show it in.
+  const bool showChapterTitle = !mappedInput.hasTouchHardware();
+  std::string chapterTitle;
   {
     // Serialize EPUB metadata/file access with the render task.
     RenderLock lock(*this);
@@ -2703,6 +2706,7 @@ void EpubReaderActivity::openReaderMenu() {
     }
     isBookCompleted = stats.isCompleted;
     bookProgress = getCurrentBookProgressPercent();
+    if (showChapterTitle && !previewActive) chapterTitle = currentChapterTitle();
   }
   pauseReadingPaceTimer("reader_menu");
   const BookReaderSettingsData bookSettings = loadBookReaderSettingsFile(epub->getCachePath());
@@ -2744,6 +2748,7 @@ void EpubReaderActivity::openReaderMenu() {
     requestUpdate();
     return;
   }
+  menuActivity->setChapterTitle(std::move(chapterTitle));
   startActivityForResult(std::move(menuActivity), [this](const ActivityResult& result) {
 #if !CROSSDINK_APP_CAP_TOUCH
     const auto heapAfterMenu = MemoryBudget::snapshot();
@@ -5177,11 +5182,8 @@ bool EpubReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetail
 
   details.title = epub->getTitle();
   details.author = epub->getAuthor();
-  details.chapter.clear();
-  const int tocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);
-  if (tocIndex >= 0 && tocIndex < epub->getTocItemsCount()) {
-    details.chapter = epub->getTocItem(tocIndex).title;
-  }
+  // A footnote preview moves the spine to the notes file; don't title it as a chapter.
+  details.chapter = activeFootnotePreview ? std::string{} : currentChapterTitle();
   details.progressPercent = clampPercent(static_cast<int>(getCurrentBookProgressPercent() + 0.5f));
   int chapterPage = section ? section->currentPage + 1 : 0;
   int chapterPageCount = section ? section->estimatedTotalPages() : 0;
@@ -5194,6 +5196,16 @@ bool EpubReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetail
   details.chapterPageCount = static_cast<uint32_t>(chapterPageCount);
   details.chapterPageCountEstimated = chapterPageCountEstimated;
   return true;
+}
+
+std::string EpubReaderActivity::currentChapterTitle() const {
+  if (!epub) return {};
+  int titleSpineIndex = currentSpineIndex;
+  int groupLastSpineIndex = currentSpineIndex;
+  epub->resolveChapterGroupRange(currentSpineIndex, titleSpineIndex, groupLastSpineIndex);
+  const int tocIndex = epub->getTocIndexForSpineIndex(titleSpineIndex);
+  if (tocIndex < 0 || tocIndex >= epub->getTocItemsCount()) return {};
+  return epub->getTocItem(tocIndex).title;
 }
 
 void EpubReaderActivity::onFrontlightPanelOpened() {
