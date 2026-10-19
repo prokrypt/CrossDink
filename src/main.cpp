@@ -1863,9 +1863,6 @@ void enterDeepSleep(bool fromTimeout) {
   {
     HalPowerManager::Lock powerLock;
     if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
-#ifndef SIMULATOR
-    HalPowerManager::clearPageKeyLockout();  // a key held now locks them out again in startDeepSleep()
-#endif
     // "request" = power button or a Sleep menu/quick action.
     PerfLog::noteDeepSleep(
         fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
@@ -1936,7 +1933,11 @@ void enterDeepSleep(bool fromTimeout) {
   }  // Release powerLock before deep sleep entry
 
   SleepLog::restartIfArmed();  // Goodies > Sleep-reboot-log: debug the sleep path without losing the log
-  powerManager.startDeepSleep(gpio);
+#ifdef SIMULATOR
+  powerManager.startDeepSleep(gpio);  // the simulator's HalPowerManager has no lockout to clear
+#else
+  powerManager.startDeepSleep(gpio, true);
+#endif
 }
 
 void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, const bool useReaderRenderStack) {
