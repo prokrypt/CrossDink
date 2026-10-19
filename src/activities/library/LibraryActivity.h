@@ -64,6 +64,7 @@ class LibraryActivity final : public Activity {
   int gridProgressRow = -1;
   float gridProgress = -1.0f;
   bool uiReady = false;
+  bool prunePending = false;
   bool longPressFired = false;
   bool ignoreConfirmRelease = false;
   bool scanFailed = false;
@@ -72,8 +73,6 @@ class LibraryActivity final : public Activity {
   bool backgroundRefresh = false;
   unsigned long lastInputMs = 0;
   bool filterFailed = false;
-  bool pendingCacheDeletedFeedback = false;
-  unsigned long cacheDeletedFeedbackShowTime = 0;
   std::string query;
   // Searches and file-type filters allocate one u16 per visible source book, fallibly.
   std::unique_ptr<uint16_t[]> filtered;
