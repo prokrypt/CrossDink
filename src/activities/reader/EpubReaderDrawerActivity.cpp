@@ -2621,9 +2621,14 @@ void EpubReaderDrawerActivity::renderPreviewWithAntiAliasing(const int previewFo
 
 void EpubReaderDrawerActivity::loop() {
   // A swipe begun while the drawer was still drawing must not close it (the reader would then
-  // take the release and reopen it): ignore every contact that began before the first frame.
+  // take the release and reopen it): ignore every contact that began before the first frame,
+  // except a repeat of the opening swipe (double swipe), which goes Home.
   const unsigned long drawnAt = firstDrawDoneMs.load();
   if (mappedInput.touchContactBeganBefore(drawnAt != 0 ? drawnAt : millis() + 1)) {
+    if (mappedInput.wasReaderMenuGesture()) {
+      closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
+      return;
+    }
     mappedInput.suppressCurrentTouchContact();
   }
   if (mappedInput.wasBottomEdgeUpSwipe()) {
