@@ -65,7 +65,8 @@ std::string remoteIp;
 // power-off. RTC_NOINIT keeps the network across ESP.restart() and deep sleep;
 // after power-on it is garbage and the last connected network is used instead.
 RTC_NOINIT_ATTR char remoteSsid[33];
-bool rejoining = false;
+// rejoining and joinPending are read by the render task through joining().
+std::atomic<bool> rejoining{false};
 bool rejoinNow = false;     // Toggled on in Goodies: skip the boot and idle waits
 bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens the picker
 // A screen took the radio (pause): rejoin as soon as it leaves, no idle wait.
@@ -76,7 +77,7 @@ bool held = false;  // hold(): a macro keeps the radio off
 // WiFi.begin()) and the toggle-off teardown run on short-lived tasks so the
 // main loop never waits on them. One at a time: radioTask runs both.
 // Main task only, except radioTask's state and joinOutcome, which the tasks set.
-bool joinPending = false;
+std::atomic<bool> joinPending{false};
 bool shutdownQueued = false;  // Off during a join: loop() shuts down once it ends
 WorkerTask radioTask;
 std::atomic<uint8_t> joinOutcome{0};
@@ -247,6 +248,8 @@ namespace goodies_remote {
 bool running() { return remoteServer && remoteServer->isRunning() && WiFi.status() == WL_CONNECTED; }
 
 bool wanted() { return remoteWanted(); }
+
+bool joining() { return joinPending || rejoining; }
 
 bool waitingForMemory() { return rejoinSkippedForMemory && remoteWanted() && !remoteServer; }
 

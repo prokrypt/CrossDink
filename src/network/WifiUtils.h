@@ -6,6 +6,12 @@
 #include <algorithm>
 #include <atomic>
 
+#if defined(CROSSDINK_GOODIES) && CROSSDINK_GOODIES
+namespace goodies_remote {
+bool joining();
+}
+#endif
+
 inline bool hasActiveStationWifiConnection() {
   return (WiFi.getMode() & WIFI_MODE_STA) && WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
 }
@@ -72,6 +78,9 @@ constexpr int WIFI_HEADER_CONNECTING = 5;
 // The hysteresis state is shared by the renderer and the main-loop poll, so both see the same value.
 inline int wifiHeaderBars() {
   if (!hasActiveStationWifiConnection()) {
+#if defined(CROSSDINK_GOODIES) && CROSSDINK_GOODIES
+    if (goodies_remote::joining()) return WIFI_HEADER_CONNECTING;  // covers the gap before the driver's STA_START
+#endif
     return wifiStaActive().load(std::memory_order_relaxed) ? WIFI_HEADER_CONNECTING : 0;
   }
   static int bars = 0;
