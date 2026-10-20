@@ -667,7 +667,6 @@ void SettingsActivity::openWordSpacingPicker() {
 void SettingsActivity::openFilenameFontPicker() {
 #if CROSSDINK_SCALABLE_FONTS
   RenderLock lock(*this);
-  optionPopup.clear();
   if (!filenameFontSystem.discover(filenameFontNames)) {
     optionPopup.show(
         StrId::STR_FILENAME_FALLBACK_FONT, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
