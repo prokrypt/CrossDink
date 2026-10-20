@@ -228,9 +228,9 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  const bool confirmReleased = mappedInput.wasReleased(MappedInputManager::Button::Confirm);
   if (longPressMenuHandled) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
-        !mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+    if (confirmReleased || !mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
       longPressMenuHandled = false;
     }
     return;
@@ -245,15 +245,14 @@ void TxtReaderActivity::loop() {
 
   if (SETTINGS.longPressMenuAction == CrossPointSettings::LONG_MENU_LIBRARY &&
       mappedInput.getHeldTime() >= LONG_PRESS_MENU_MS &&
-      (mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
-       mappedInput.wasReleased(MappedInputManager::Button::Confirm))) {
+      (mappedInput.isPressed(MappedInputManager::Button::Confirm) || confirmReleased)) {
     longPressMenuHandled = mappedInput.isPressed(MappedInputManager::Button::Confirm);
     mappedInput.suppressNextConfirmRelease();
     activityManager.goToLibrary();
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  if (confirmReleased) {
     openReaderMenu();
     return;
   }

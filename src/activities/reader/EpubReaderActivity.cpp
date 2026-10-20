@@ -151,8 +151,6 @@ constexpr uint8_t READER_SETTINGS_FLAG_RENDER_MODE = 1 << 2;
 constexpr uint8_t READER_SETTINGS_FLAG_DICTIONARY_FONT = 1 << 3;
 constexpr uint8_t READER_SETTINGS_FLAG_SAFE_MODE = 1 << 4;
 constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
-constexpr char BALANCED_SECTION_CACHE_SUFFIX[] = "_balanced";
-constexpr char LIGHT_SECTION_CACHE_SUFFIX[] = "_light";
 constexpr unsigned long RENDER_MODE_TOAST_MS = 1500UL;
 KNOB_ALIAS(MIN_MANUAL_PAGE_TURN_GAP_MS, pageTurnGapMs);  // Goodies > Knobs
 // Shared dwell time for the transient bookmark/completed/tilt confirmations.
@@ -248,18 +246,6 @@ EpubRenderMode normalizeRenderMode(const uint8_t rawMode) {
 }
 
 uint8_t normalizeRenderModeRaw(const uint8_t rawMode) { return static_cast<uint8_t>(normalizeRenderMode(rawMode)); }
-
-const char* sectionCacheSuffixForRenderMode(const EpubRenderMode renderMode) {
-  switch (renderMode) {
-    case EpubRenderMode::Balanced:
-      return BALANCED_SECTION_CACHE_SUFFIX;
-    case EpubRenderMode::Light:
-      return LIGHT_SECTION_CACHE_SUFFIX;
-    case EpubRenderMode::CrossDinkDefault:
-    default:
-      return "";
-  }
-}
 
 void getSyncPageAnchors(const Section& section, const int page, std::optional<uint16_t>& paragraphIndex,
                         std::optional<uint16_t>& listItemIndex) {
@@ -1555,6 +1541,10 @@ bool EpubReaderActivity::bookUsesLandscapeLayout(const Epub& epub) {
 uint8_t EpubReaderActivity::loadBookRenderMode(const std::string& filePath) {
   Epub epub(filePath, "/.crossdink");
   epub.setupCacheDir();
+  return loadBookRenderMode(epub);
+}
+
+uint8_t EpubReaderActivity::loadBookRenderMode(const Epub& epub) {
   const BookReaderSettingsData data = loadBookReaderSettingsFile(epub.getCachePath());
   return data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
                                     : static_cast<uint8_t>(EpubRenderMode::CrossDinkDefault);

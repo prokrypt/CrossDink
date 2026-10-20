@@ -102,6 +102,8 @@ inline bool logSerialWriteAll(const char* data, size_t len, uint32_t budgetMs = 
 
 std::string getLastLogs();
 void clearLastLogs();
+// Serial output continues while retained pre-crash logs are protected during startup.
+void pauseLogRetention(bool paused);
 // Validates the RTC log state (magic word + logHead range). Returns true if
 // corruption was detected (magic mismatch or logHead out of range), meaning
 // logMessages is untrusted garbage. Callers should call clearLastLogs() when

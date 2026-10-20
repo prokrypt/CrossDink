@@ -457,6 +457,7 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
 #include <string>
 
 #include "CrossPointSettings.h"
+#include "Epub/EpubRenderMode.h"
 #include "Epub/Section.h"
 #include "EpubReaderActivity.h"
 #include "EpubReaderUtils.h"
@@ -1177,8 +1178,9 @@ bool NearbyBookPositionSyncActivity::mapPeerPosition() {
 
   if (peerCrossPoint_.hasLiIndex || peerCrossPoint_.xpathAnchorId[0] != '\0' || peerCrossPoint_.hasParagraphIndex) {
     // The reader resets the renderer to portrait on exit, so name the layout
-    // the book reopens in to read its section cache.
-    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer, "",
+    // and render mode the book reopens in to read its section cache.
+    const auto renderMode = static_cast<EpubRenderMode>(EpubReaderActivity::loadBookRenderMode(*epub_));
+    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer, sectionCacheSuffixForRenderMode(renderMode),
                         EpubReaderActivity::bookUsesLandscapeLayout(*epub_));
     bool refined = false;
     if (peerCrossPoint_.hasLiIndex) {
