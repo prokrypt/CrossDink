@@ -33,6 +33,9 @@ constexpr char BACKUP_PATH[] = "/.crossdink/library.idx.bak";
 constexpr char STAGE_PATH[] = "/.crossdink/library.stage";
 constexpr char CACHE_DIR[] = "/.crossdink";
 constexpr size_t LIBRARY_IO_BUFFER_SIZE = 4096;
+// The largest library whose per-book sort arrays fit the internal heap of a
+// build without PSRAM (the simulator, or a board whose PSRAM failed to start).
+constexpr uint16_t INTERNAL_RAM_BOOK_LIMIT = 4096;
 
 // Matches lib/FileIndex's buffer so a name this walk accepts is one the file
 // browser could also show.
@@ -135,22 +138,50 @@ void logScanCounters([[maybe_unused]] const uint16_t books) {
 // statics avoid threading the control through every phase helper.
 const BuildControl* gBuildControl = nullptr;
 bool gBuildCancelled = false;
+BuildProgress gProgress;
+BuildProgress gReported;
+uint32_t gLastProgressMs = 0;
+
+void reportProgress() {
+  gBuildControl->progress(gBuildControl->context, gProgress);
+  gReported = gProgress;
+  // Measured after the callback, so a slow e-ink refresh does not eat the interval.
+  gLastProgressMs = millis();
+}
 
 // Gives a background owner the chance to pause (the hook blocks) or stop the
-// build. Returns false once the build has been told to stop.
+// build, and a foreground owner a throttled progress repaint. Returns false
+// once the build has been told to stop.
 bool continueBuild() {
   if (gBuildCancelled) return false;
-  if (gBuildControl != nullptr && gBuildControl->service != nullptr &&
-      !gBuildControl->service(gBuildControl->context)) {
+  if (gBuildControl == nullptr) return true;
+  if (gBuildControl->service != nullptr && !gBuildControl->service(gBuildControl->context)) {
     gBuildCancelled = true;
+    return false;
   }
-  return !gBuildCancelled;
+  if (gBuildControl->progress != nullptr && gProgress.books != gReported.books &&
+      millis() - gLastProgressMs >= LIBRARY_PROGRESS_INTERVAL_MS) {
+    reportProgress();
+  }
+  return true;
 }
+
+void setBuildPhase(const BuildPhase phase) {
+  if (gProgress.phase == phase) return;
+  gProgress.phase = phase;
+  if (gBuildControl != nullptr && gBuildControl->progress != nullptr) reportProgress();
+}
+
+// The unchanged-card check and a full walk both count; never let the shown
+// count drop when the check hands over to the full walk.
+void noteBookFound(const uint16_t books) { gProgress.books = std::max(gProgress.books, books); }
 
 struct BuildControlScope {
   explicit BuildControlScope(const BuildControl* control) {
     gBuildControl = control;
     gBuildCancelled = false;
+    gProgress = gReported = BuildProgress{};
+    gLastProgressMs = millis();
   }
   ~BuildControlScope() { gBuildControl = nullptr; }
   BuildControlScope(const BuildControlScope&) = delete;
@@ -711,6 +742,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
     return false;
   }
   st.books++;
+  noteBookFound(st.books);
   return true;
 }
 
@@ -742,6 +774,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
   }
   markPriorMatched(st.prior[priorIndex]);
   st.books++;
+  noteBookFound(st.books);
   return true;
 }
 
@@ -857,9 +890,10 @@ void walk(WalkState& st, const std::string& path, const int depth) {
         st.dedupDegraded = true;
       }
     }
-    if (st.books >= CLIX_MAX_RECORDS) {
+    if (st.books >= libraryBookLimit()) {
       LOG_ERR("LIBIDX", "library exceeds the %u-book index limit; keeping the previous index",
-              static_cast<unsigned>(CLIX_MAX_RECORDS));
+              static_cast<unsigned>(libraryBookLimit()));
+      st.stats->tooManyBooks = true;
       st.failed = true;
       break;
     }
@@ -1011,8 +1045,8 @@ bool emitIndex(Stage& records, Stage& folders, WalkState& st, const uint16_t* or
 
   // Author order has to be known BEFORE the records are written because its
   // permutation section is emitted first.
-  // The title key array is already gone before this phase. At the 4096-record
-  // ceiling this checked, phase-local allocation is 57,344 bytes.
+  // The title key array is already gone before this phase. At the 4,096-book
+  // internal-RAM limit this checked, phase-local allocation is 57,344 bytes.
   const bool rankable = coreSortsAvailable;
   if (rankable && n > 1) {
     LOG_DBG("LIBIDX", "author sort alloc: %u bytes, heap %u, max block %u", static_cast<unsigned>(n * sizeof(SortKey)),
@@ -1710,6 +1744,8 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
     return true;
   }
 
+  setBuildPhase(BuildPhase::Organizing);
+
   // --- second pass: renames, then genuinely new books ----------------------
   //
   // Resolved into RAM, never by rewriting the staging file: openFileForWrite
@@ -1800,7 +1836,8 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
   dedupKeys.reset();
 
   // Read the staged fold prefixes back and sort ordinals. The checked 14-byte
-  // key allocation reaches 57,344 bytes at the 4,096-record format ceiling.
+  // key allocation reaches 57,344 bytes at the 4,096-book internal-RAM limit
+  // and 458,738 at the 32,767-book PSRAM one (above 1 KiB, malloc tries PSRAM first).
   auto order = makeUniqueNoThrow<uint16_t[]>(st.books == 0 ? 1 : st.books);
   if (!order) {
     LOG_ERR("LIBIDX", "order array alloc failed (%u books)", static_cast<unsigned>(st.books));
@@ -1893,6 +1930,8 @@ std::atomic<bool> indexDirty{true};
 }
 
 void invalidateLibraryIndex() { indexDirty.store(true, std::memory_order_relaxed); }
+
+uint16_t libraryBookLimit() { return psramHeapAvailable() ? CLIX_MAX_RECORDS : INTERNAL_RAM_BOOK_LIMIT; }
 
 bool libraryIndexNeedsRefresh() { return indexDirty.load(std::memory_order_relaxed); }
 

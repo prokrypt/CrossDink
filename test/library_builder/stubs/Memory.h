@@ -28,6 +28,8 @@ struct HeapByteBufferDeleter {
 using HeapByteBuffer = std::unique_ptr<uint8_t[], HeapByteBufferDeleter>;
 
 // fake::psram stands in for a board with PSRAM; off by default, as on a C3.
+inline bool psramHeapAvailable() { return fake::psram; }
+
 inline HeapByteBuffer makePsramByteBufferNoThrow(const size_t count) {
   if (!fake::psram || count == 0) return {};
   return HeapByteBuffer(static_cast<uint8_t*>(std::malloc(count)));

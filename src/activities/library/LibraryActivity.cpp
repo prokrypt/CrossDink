@@ -182,16 +182,40 @@ bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force, co
     return !scanFailed;
   }
   index.close();
-  if (showScanning) GUI.drawPopup(renderer, tr(STR_LIBRARY_SCANNING));
+  // A cancelled scan stays cancelled for this visit: book actions that leave
+  // the card unchanged show the previous index instead of scanning again.
+  if (!force && scanCancelled && generation == scanCancelledGeneration) {
+    if (!index.open(library::libraryIndexPath())) index.openForReconciliation(library::libraryIndexPath());
+    resolveRecents();
+    applyFilter();
+    return false;
+  }
+  if (showScanning) drawScanScreen(tr(STR_LIBRARY_SCANNING));
   library::BuildStats stats;
+  library::BuildControl control;
+  control.context = this;
+  control.service = &LibraryActivity::scanService;
+  if (showScanning) control.progress = &LibraryActivity::onScanProgress;
+  scanCancelled = false;
+  scanBackHeldAtStart = mappedInput.isPressed(MappedInputManager::Button::Back);
+  scanLastPollMs = millis();
   // A manual refresh also retries books whose metadata read failed before.
-  scanFailed = !library::buildLibraryIndex("/", stats, useMetadata, nullptr, /*retryFailedMetadata=*/force);
+  scanFailed = !library::buildLibraryIndex("/", stats, useMetadata, &control, /*retryFailedMetadata=*/force);
+  scanFailureText = stats.cancelled      ? StrId::STR_LIBRARY_SCAN_CANCELLED
+                    : stats.tooManyBooks ? StrId::STR_LIBRARY_TOO_MANY_BOOKS
+                                         : StrId::STR_LIBRARY_SCAN_FAILED;
+  if (stats.cancelled) {
+    scanCancelled = true;
+    scanCancelledGeneration = generation;
+    ignoreBackRelease = mappedInput.isPressed(MappedInputManager::Button::Back);
+  }
   if (scanFailed) LOG_ERR("LIB", "Library scan failed; retaining the previous index");
   if (!index.open(library::libraryIndexPath())) {
     // A failed one-time upgrade leaves the previous index on the card. Keep
     // its books readable while the next visit retries the rebuild.
     if (!scanFailed || !index.openForReconciliation(library::libraryIndexPath())) {
       LOG_ERR("LIB", "Cannot open library index");
+      if (!scanFailed) scanFailureText = StrId::STR_LIBRARY_SCAN_FAILED;
       scanFailed = true;
     } else {
       LOG_INF("LIB", "Using previous Library index until rebuild succeeds");
@@ -207,6 +231,60 @@ bool LibraryActivity::rebuildIndex(const bool showScanning, const bool force, co
   resolveRecents();
   applyFilter();
   return !scanFailed;
+}
+
+void LibraryActivity::drawScanScreen(const char* message) const {
+  renderer.clearScreen();
+  if (mappedInput.hasTouch()) {
+    int bounds[4]{};
+    renderer.getOrientedViewableTRBL(&bounds[0], &bounds[1], &bounds[2], &bounds[3]);
+    renderer.drawCenteredText(UI_10_FONT_ID,
+                              renderer.getScreenHeight() - bounds[2] - renderer.getLineHeight(UI_10_FONT_ID) * 2,
+                              tr(STR_TAP_TO_CANCEL));
+  } else {
+    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  }
+  // drawPopup() pushes the whole buffer, including the hint above.
+  GUI.drawPopup(renderer, message);
+}
+
+bool LibraryActivity::scanService(void* context) {
+  auto* self = static_cast<LibraryActivity*>(context);
+  // The builder calls this per directory entry; input needs far less.
+  if (millis() - self->scanLastPollMs < SCAN_CANCEL_POLL_MS) return true;
+  self->scanLastPollMs = millis();
+  auto& input = self->mappedInput;
+  // The build blocks the main loop, so poll here as OPDS downloads do.
+  input.update();
+  int x = 0;
+  int y = 0;
+  if (input.hasTouch() && input.wasScreenTouchDown(x, y)) {
+    // The release must not reach the list as a tap once the scan unwinds.
+    input.suppressCurrentTouchContact();
+    return false;
+  }
+  if (input.wasHomeGesture()) return false;
+  const bool backHeld = input.isPressed(MappedInputManager::Button::Back);
+  // Back held when the scan started belongs to whatever opened the Library;
+  // only a fresh press after its release cancels.
+  if (self->scanBackHeldAtStart) {
+    if (!backHeld) self->scanBackHeldAtStart = false;
+    return true;
+  }
+  // Polls stall during an EPUB parse, so a held button counts as well as a press edge.
+  return !(backHeld || input.wasPressed(MappedInputManager::Button::Back));
+}
+
+void LibraryActivity::onScanProgress(void* context, const library::BuildProgress& progress) {
+  const auto* self = static_cast<const LibraryActivity*>(context);
+  if (progress.phase == library::BuildPhase::Organizing) {
+    self->drawScanScreen(tr(STR_LIBRARY_ORGANIZING));
+    return;
+  }
+  char message[96];
+  snprintf(message, sizeof(message), tr(STR_LIBRARY_SCAN_COUNT), static_cast<unsigned>(progress.books));
+  self->drawScanScreen(message);
 }
 
 void LibraryActivity::finishBackgroundRefresh() {
@@ -717,7 +795,15 @@ void LibraryActivity::latchInput() {
     --pending.scrollPages;
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) pending.confirmReleased = true;
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) pending.backReleased = true;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // The press that cancelled a scan must not also leave the Library.
+    if (ignoreBackRelease)
+      ignoreBackRelease = false;
+    else
+      pending.backReleased = true;
+  } else if (ignoreBackRelease && !mappedInput.isPressed(MappedInputManager::Button::Back)) {
+    ignoreBackRelease = false;
+  }
   const auto step = [](int8_t& value, const int delta) {
     value = static_cast<int8_t>(std::max<int>(INT8_MIN, std::min<int>(INT8_MAX, value + delta)));
   };
@@ -1191,7 +1277,7 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
         screen.take(fui::LayoutAnchor::Top, uiTarget.lineHeight(screen.theme().smallText.font) + 8).inset(statusInsets);
     uiTarget.text(warning,
                   filterFailed ? tr(STR_LIBRARY_SEARCH_FAILED)
-                  : scanFailed ? tr(STR_LIBRARY_SCAN_FAILED)
+                  : scanFailed ? I18n::getInstance().get(scanFailureText)
                                : tr(STR_LIBRARY_UNSORTED),
                   screen.theme().smallText);
   }

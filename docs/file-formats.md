@@ -119,13 +119,16 @@ do not contain series or genre.
 
 `LibraryIndexFile` (`lib/LibraryIndex/LibraryIndexFile.{h,cpp}`) reads the
 `CLX1` on-disk index for the Library screen: one sorted, searchable
-snapshot of up to 4,096 books on the card, built by `LibraryBuilder` so paging,
+snapshot of up to 32,767 books on the card, built by `LibraryBuilder` so paging,
 sorting, and searching the shelf cost a handful of seeks instead of a
 directory walk per screen. The format itself (`lib/LibraryIndex/LibraryFormat.h`)
 is free of `HalStorage` and Arduino so its layout and validation rules are
 host-testable (`test/library_format`, `test/library_index_file`).
-If the scan finds another book beyond the limit, the rebuild fails and keeps
-the previous index instead of publishing a partial shelf.
+The builder enforces a device limit below that ceiling: 32,767 books with
+PSRAM, where its per-book sort arrays live, and 4,096 books without it (the
+simulator). Readers accept any valid count. If the scan finds another book
+beyond the limit, the rebuild fails and keeps the previous index instead of
+publishing a partial shelf.
 
 Every section starts on a 512-byte boundary. Records are a fixed 128 bytes
 each, so record `k` always lives at `recordStart + 128*k` with no offset table
