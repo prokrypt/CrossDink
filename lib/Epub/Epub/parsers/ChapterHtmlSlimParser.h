@@ -71,6 +71,7 @@ class ChapterHtmlSlimParser {
   uint16_t currentTextRunBytes = 0;
   bool nextWordContinues = false;  // true when next flushed word attaches to previous (inline element boundary)
   std::unique_ptr<ParsedText> currentTextBlock = nullptr;
+  bool emptyTextBlockAfterImage = false;  // Container insets must not leak into following text.
   // Ruby text state
   bool inRuby = false;
   int rubyStartWordIndex = -1;
