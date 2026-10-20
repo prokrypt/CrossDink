@@ -65,7 +65,7 @@ constexpr int WIFI_HEADER_CONNECTING = 5;
 inline int wifiHeaderBars() {
   if (!hasActiveStationWifiConnection()) {
 #if defined(CROSSDINK_GOODIES) && CROSSDINK_GOODIES
-    if (goodies_remote::joining()) return WIFI_HEADER_CONNECTING;  // covers the gap before the driver's STA_START
+    if (goodies_remote::joining()) return WIFI_HEADER_CONNECTING;  // covers the waits and the gap before STA_START
 #endif
     return wifiStaActive().load(std::memory_order_relaxed) ? WIFI_HEADER_CONNECTING : 0;
   }

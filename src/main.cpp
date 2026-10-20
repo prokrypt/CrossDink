@@ -3068,7 +3068,7 @@ static void loopPass() {
     static unsigned long lastHeaderStatusPoll = 0;
     static int requestedFor = -1;
 #if defined(CROSSDINK_GOODIES) && CROSSDINK_GOODIES
-    // A join lasts about a second: poll fast enough to catch it and draw the joining icon.
+    // A join lasts well under a second: poll fast so the bars turn solid as soon as the link is up.
     const unsigned long pollMs = goodies_remote::joining() ? 100 : 1000;
 #else
     const unsigned long pollMs = 1000;
