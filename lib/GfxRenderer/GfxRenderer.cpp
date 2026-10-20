@@ -2908,7 +2908,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
     uint32_t lastCp = 0;
     bool lastScaledSmallCap = false;
     while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
-      if (utf8IsVariationSelector(cp) || BidiUtils::isTransparentMark(cp)) {
+      if (utf8IsVariationSelector(cp) || utf8IsCombiningMark(cp) || BidiUtils::isTransparentMark(cp)) {
         continue;
       }
       const bool scaledSmallCap = isSmallCapsLowercase(style, cp);
