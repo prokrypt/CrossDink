@@ -71,6 +71,8 @@ class OpdsBookBrowserActivity final : public Activity {
   std::unique_ptr<OpdsPageCache> pageCache;
   std::unique_ptr<OpdsPreloadPool> preload;
   size_t entryCount = 0;
+  // Catalog size from the feed's opensearch:totalResults; -1 when not given.
+  int32_t feedTotal = -1;
   // Whether entries[0] / entries[entryCount - 1] are the synthetic Prev / Next
   // page rows added from the feed's rel="previous" / rel="next" links.
   bool hasPrevPageRow = false;
