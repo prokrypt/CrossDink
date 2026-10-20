@@ -96,6 +96,13 @@ class ActivityManager {
 
   // Task to render and display the activity
   TaskHandle_t renderTaskHandle = nullptr;
+  // The task running the current activity's onEnter(), else null. Until it
+  // returns, renders wait unless onEnter asked for this one (requestUpdateAndWait,
+  // or requestUpdate(true) for a loading screen it keeps working under): stale
+  // or background requests must not draw half-set-up state.
+  std::atomic<TaskHandle_t> enteringTask{nullptr};
+  std::atomic<bool> entryRenderRequested{false};
+  void enterCurrentActivity();
   static void renderTaskTrampoline(void* param);
   [[noreturn]] virtual void renderTaskLoop();
   // Whether a FAST refresh in this activity's render may return before the waveform ends.

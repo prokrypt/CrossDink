@@ -46,6 +46,7 @@ void CalibreConnectActivity::onEnter() {
     startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                            [this](const ActivityResult& result) {
                              if (!result.isCancelled) {
+                               RenderLock lock(*this);
                                const auto& wifi = std::get<WifiResult>(result.data);
                                connectedIP = wifi.ip;
                                connectedSSID = wifi.ssid;
@@ -81,7 +82,10 @@ void CalibreConnectActivity::onWifiSelectionComplete(const bool connected) {
 }
 
 void CalibreConnectActivity::startWebServer() {
-  state = CalibreConnectState::SERVER_STARTING;
+  {
+    RenderLock lock(*this);
+    state = CalibreConnectState::SERVER_STARTING;
+  }
   requestUpdate();
 
   MDNS.end();
@@ -98,15 +102,14 @@ void CalibreConnectActivity::startWebServer() {
     webServer->begin();
   }
 
-  if (webServer->isRunning()) {
-    state = CalibreConnectState::SERVER_RUNNING;
-    // Pulse only once the server is up; Wi-Fi selection keeps the user's brightness.
-    transferLight.begin();
-    requestUpdate();
-  } else {
-    state = CalibreConnectState::ERROR;
-    requestUpdate();
+  const bool running = webServer->isRunning();
+  {
+    RenderLock lock(*this);
+    state = running ? CalibreConnectState::SERVER_RUNNING : CalibreConnectState::ERROR;
   }
+  // Pulse only once the server is up; Wi-Fi selection keeps the user's brightness.
+  if (running) transferLight.begin();
+  requestUpdate();
 }
 
 void CalibreConnectActivity::stopWebServer() {
@@ -127,6 +130,7 @@ void CalibreConnectActivity::loop() {
   if (webServer && webServer->isRunning()) {
     // Requests are served on the server's own task.
     const auto status = webServer->getWsUploadStatus();
+    RenderLock lock(*this);  // publish upload names and their counters together with respect to render()
     bool changed = false;
     if (status.inProgress) {
       if (status.received != lastProgressReceived || status.total != lastProgressTotal ||

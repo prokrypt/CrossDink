@@ -16,6 +16,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "Epub/EpubRenderMode.h"
 #include "Epub/Section.h"
 #include "EpubReaderActivity.h"
 #include "EpubReaderUtils.h"
@@ -501,11 +502,14 @@ bool KOReaderSyncActivity::mapRemoteProgress(const std::shared_ptr<Epub>& epub, 
   // The reader keeps portrait and landscape section caches apart, and this
   // screen's orientation need not be the book's.
   const bool landscapeLayout = EpubReaderActivity::bookUsesLandscapeLayout(*epub);
+  const auto renderMode = static_cast<EpubRenderMode>(EpubReaderActivity::loadBookRenderMode(*epub));
+  const char* cacheSuffix = sectionCacheSuffixForRenderMode(renderMode);
   bool usedRichPosition = false;
   // The client only accepts rich positions from the official CrossPoint Sync server.
   // Filename matching still needs source-document mapping because optimized books can diverge.
   if (remoteCoordinateSpace == PositionCoordinateSpace::CurrentDocument && remote.position.has_value()) {
-    const auto richMapped = ProgressMapper::fromRichPosition(epub, *remote.position, renderer, landscapeLayout);
+    const auto richMapped =
+        ProgressMapper::fromRichPosition(epub, *remote.position, renderer, cacheSuffix, landscapeLayout);
     if (richMapped.has_value()) {
       remotePosition = *richMapped;
       usedRichPosition = true;
@@ -522,7 +526,7 @@ bool KOReaderSyncActivity::mapRemoteProgress(const std::shared_ptr<Epub>& epub, 
   // watermark; preserving that offset lets the reader index through to it.
   if (!usedRichPosition && (remotePosition.hasVisibleTextOffset || remotePosition.hasLiIndex ||
                             remotePosition.xpathAnchorId[0] != '\0' || remotePosition.hasParagraphIndex)) {
-    Section tempSection(epub, remotePosition.spineIndex, renderer, "", landscapeLayout);
+    Section tempSection(epub, remotePosition.spineIndex, renderer, cacheSuffix, landscapeLayout);
     bool refined = false;
     if (remotePosition.hasVisibleTextOffset) {
       const auto contentPage = tempSection.getPageForVisibleTextOffset(remotePosition.visibleTextOffset, true);
