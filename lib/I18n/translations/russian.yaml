@@ -672,3 +672,5 @@ STR_STATUS_BAR_EMPTY: "Пусто"
 STR_STATUS_BAR_CLOCK: "Часы"
 STR_STATUS_BAR_BOTH: "Обе"
 STR_CLOCK_OUTSIDE_READER: "Часы вне режима чтения"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Поменять библиотеку/файлы"

@@ -604,3 +604,5 @@ STR_STATUS_BAR_EMPTY: "Boş"
 STR_STATUS_BAR_CLOCK: "Saat"
 STR_STATUS_BAR_BOTH: "İkisi"
 STR_CLOCK_OUTSIDE_READER: "Okuyucu dışı saat"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Kitaplık/dosya tarayıcısını değiştir"
