@@ -195,13 +195,19 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     }
 
   } else if (raw.status == RAW_END) {
-    if (_putFile) _putFile.close();
-    if (_putOk) {
-      String tempPath = _putPath + ".davtmp";
-      sdFontSystem.markRegistryDirtyForPath(_putPath.c_str());
-      _putOk = replaceFile(tempPath, _putPath, _putExisted);
-      if (!_putOk) Storage.remove(tempPath.c_str());
+    const bool wroteTemp = _putFile;
+    if (wroteTemp) {
+      // A write the card never committed must not replace the old file.
+      _putOk = _putFile.sync() && _putOk;
+      _putOk = _putFile.close() && _putOk;
+      if (!_putOk) LOG_ERR("DAV", "Failed to finish PUT: %s", _putPath.c_str());
     }
+    if (_putOk) {
+      sdFontSystem.markRegistryDirtyForPath(_putPath.c_str());
+      _putOk = replaceFile(_putPath + ".davtmp", _putPath, _putExisted);
+    }
+    // Also drops the temp of a body write that failed midway.
+    if (wroteTemp && !_putOk) Storage.remove((_putPath + ".davtmp").c_str());
     LOG_DBG("DAV", "PUT END: %u bytes, ok=%d", raw.totalSize, _putOk);
 
   } else if (raw.status == RAW_ABORTED) {
