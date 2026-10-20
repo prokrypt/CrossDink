@@ -37,6 +37,9 @@
 #endif
 
 class EpubReaderActivity final : public Activity {
+#ifdef SIMULATOR
+  friend struct EpubReaderCompletionSmokeTest;
+#endif
  public:
   bool usesFullScreenReaderVerticalSwipes() const override { return true; }
 
@@ -654,6 +657,7 @@ class EpubReaderActivity final : public Activity {
   // Opens the reader menu for the current position (short-press Confirm)
   void openReaderMenu();
   void applyOrientation(uint8_t orientation);
+  bool handleEndOfBookPageTurn(bool isForwardTurn);
   void requestManualPageTurn(bool isForwardTurn, const char* source);
   bool drainPendingManualPageTurn();
   // Also cancels a running AA pass; `aaReason` names the event in the log.
