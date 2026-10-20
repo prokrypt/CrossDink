@@ -172,18 +172,19 @@ void fitBoundsToPunctuation(const ClipWordStore& wordStore, const uint16_t* word
     bounds.lastWordByteEndOffset = static_cast<uint16_t>(end);
   };
   // Widened words are punctuation-only, so a trim that empties one steps back to the full previous word.
+  // Returns whether it stepped back.
   const auto trimLastTo = [&](const size_t end) {
     if (end == 0 && toOrder > fromOrder) {
       setLast(toOrder - 1, words[wordOrder[toOrder - 1]].textLength);
-    } else {
-      bounds.lastWordByteEndOffset = static_cast<uint16_t>(end);
+      return true;
     }
+    bounds.lastWordByteEndOffset = static_cast<uint16_t>(end);
+    return false;
   };
 
   if (!isSentenceStart(wordStore, wordOrder, fromOrder, toOrder, bounds.firstWordByteOffset)) {
     // Drop the first `?` of the trailing ?/quote run and everything after it.
     for (bool trimmed = true; trimmed;) {
-      trimmed = false;
       const char* text = wordStore.text(words[wordOrder[toOrder]]);
       const size_t end = bounds.lastWordByteEndOffset;
       size_t i = end;
@@ -197,11 +198,8 @@ void fitBoundsToPunctuation(const ClipWordStore& wordStore, const uint16_t* word
           break;
         }
       }
-      if (questionAt != SIZE_MAX) {
-        const int before = toOrder;
-        trimLastTo(questionAt);
-        trimmed = toOrder != before;  // stepped back: the previous word may end in ? too
-      }
+      // Stepped back: the previous word may end in ? too.
+      trimmed = questionAt != SIZE_MAX && trimLastTo(questionAt);
     }
   }
 
