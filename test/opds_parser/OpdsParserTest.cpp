@@ -143,3 +143,36 @@ TEST(OpdsParserTest, OpenSearchDescriptionGivesSearchTemplate) {
   ASSERT_TRUE(parser.parse(kDescription, sizeof(kDescription) - 1));
   EXPECT_EQ(parser.getSearchTemplate(), "/opds/search?q={searchTerms}");
 }
+
+TEST(OpdsParserTest, OpenSearchTotalAndLastPage) {
+  constexpr char kMiddle[] =
+      R"(<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <opensearch:totalResults> 120 </opensearch:totalResults>
+  <opensearch:itemsPerPage>50</opensearch:itemsPerPage>
+  <opensearch:startIndex>51</opensearch:startIndex>
+  <link rel="next" href="/p3" type="application/atom+xml"/>
+</feed>)";
+  constexpr char kLast[] = R"(<feed xmlns="http://www.w3.org/2005/Atom" xmlns:os="http://a9.com/-/spec/opensearch/1.1/">
+  <link rel="next" href="/p4" type="application/atom+xml"/>
+  <os:totalResults>120</os:totalResults>
+  <os:itemsPerPage>50</os:itemsPerPage>
+  <os:startIndex>101</os:startIndex>
+</feed>)";
+  constexpr char kNoFields[] = R"(<feed xmlns="http://www.w3.org/2005/Atom">
+  <link rel="next" href="/p2" type="application/atom+xml"/>
+</feed>)";
+  OpdsEntry entries[MAX_OPDS_FEED_ENTRIES];
+  OpdsParser parser(entries);
+
+  ASSERT_TRUE(parser.parse(kMiddle, sizeof(kMiddle) - 1));
+  EXPECT_EQ(parser.getTotalResults(), 120);
+  EXPECT_EQ(parser.getNextPageUrl(), "/p3");
+
+  ASSERT_TRUE(parser.parse(kLast, sizeof(kLast) - 1));
+  EXPECT_EQ(parser.getTotalResults(), 120);
+  EXPECT_TRUE(parser.getNextPageUrl().empty());
+
+  ASSERT_TRUE(parser.parse(kNoFields, sizeof(kNoFields) - 1));
+  EXPECT_EQ(parser.getTotalResults(), -1);
+  EXPECT_EQ(parser.getNextPageUrl(), "/p2");
+}
