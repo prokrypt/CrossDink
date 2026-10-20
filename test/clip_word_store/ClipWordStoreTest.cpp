@@ -164,9 +164,8 @@ TEST(ClipTextBuilder, DictionarySelectionKeepsGluedPunctuation) {
   int to = 2;
   ClipTextBuilder::SelectionBounds bounds{0, 1, 0, 0, 2, 3};
   ClipTextBuilder::fitBoundsToPunctuation(store, order, 5, from, to, bounds);
-  EXPECT_EQ(from, 0);
-  EXPECT_EQ(to, 3);
-  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "\xE2\x80\x9Cyou say?\xE2\x80\x9D");
+  // Not a sentence: the glued ?" and the then-unpaired opening quote are dropped.
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "you say");
 
   // A selection ending mid-word does not widen.
   from = 1;
@@ -199,7 +198,7 @@ TEST(ClipTextBuilder, DictionarySelectionDropsUnpairedQuotes) {
   int to = 2;
   ClipTextBuilder::SelectionBounds bounds{0, 2, 0, 0, 2, 3};
   ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
-  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "say?");
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "say");
 
   from = 1;
   to = 1;
@@ -212,6 +211,42 @@ TEST(ClipTextBuilder, DictionarySelectionDropsUnpairedQuotes) {
   bounds = ClipTextBuilder::SelectionBounds{0, 4, 0, 0, 5, 5};
   ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
   EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "he said");
+}
+
+TEST(ClipTextBuilder, DictionarySelectionKeepsQuestionMarkOnlyForSentences) {
+  ClipWordStore store;
+  const auto add = [&](const char* text, const int x, const int w) {
+    WordRef word;
+    word.pageWordIndex = static_cast<uint16_t>(store.words.size());
+    word.x = x;
+    word.w = w;
+    ASSERT_TRUE(store.appendText(word, text));
+    store.words.push_back(word);
+  };
+  add("Fine.", 0, 20);
+  add("\xE2\x80\x9C", 30, 4);
+  add("Do", 34, 10);
+  add("you", 50, 10);
+  add("say?\xE2\x80\x9D", 66, 20);
+  add("Do", 96, 10);
+  add("say?\"", 112, 20);
+
+  const uint16_t order[] = {0, 1, 2, 3, 4, 5, 6};
+  const auto clip = [&](int from, int to, const uint16_t lastEnd) {
+    ClipTextBuilder::SelectionBounds bounds{0, static_cast<uint16_t>(from), 0, 0, static_cast<uint16_t>(to), lastEnd};
+    ClipTextBuilder::fitBoundsToPunctuation(store, order, 7, from, to, bounds);
+    return ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text;
+  };
+  // Sentence after "Fine.": ? stays, quotes pair up.
+  EXPECT_EQ(clip(2, 4, 7),
+            "\xE2\x80\x9C"
+            "Do you say?\xE2\x80\x9D");
+  // Not a sentence (lowercase start): ? and the quotes go.
+  EXPECT_EQ(clip(3, 4, 7), "you say");
+  // Sentence (previous word ends in ?) with one quote: ? stays, the lone quote goes.
+  EXPECT_EQ(clip(5, 6, 5), "Do say?");
+  // A single word is not a sentence unless it follows one.
+  EXPECT_EQ(clip(6, 6, 5), "say");
 }
 
 TEST(ClipTextBuilder, KeepsVerticalTableSelectionsInTheirColumn) {
