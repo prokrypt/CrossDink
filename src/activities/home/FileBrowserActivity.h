@@ -89,7 +89,9 @@ class FileBrowserActivity final : public Activity {
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onSettingsEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onSelectDirectoryEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
+  void selectDirectory();
   void activateSelected();
   void navigateBack();
   void openSettings();
