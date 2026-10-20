@@ -103,6 +103,7 @@ struct CssPropertyFlags {
   uint32_t pageBreakAfter : 1;
   uint32_t fontVariantCaps : 1;
   uint32_t listStyleType : 1;
+  uint32_t border : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -127,12 +128,13 @@ struct CssPropertyFlags {
         pageBreakBefore(0),
         pageBreakAfter(0),
         fontVariantCaps(0),
-        listStyleType(0) {}
+        listStyleType(0),
+        border(0) {}
 
   [[nodiscard]] bool anySet() const {
-    return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
-           marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
+    return border || textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop ||
+           marginBottom || marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight ||
+           imageHeight || imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
            pageBreakAfter || fontVariantCaps || listStyleType;
   }
 
@@ -141,7 +143,7 @@ struct CssPropertyFlags {
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
-    pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = 0;
+    pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = border = 0;
   }
 };
 
@@ -177,11 +179,29 @@ struct CssStyle {
   bool pageBreakAfter = false;
   CssListStyleType listStyleType = CssListStyleType::Disc;
 
+  // Four edge bits (top/right/bottom/left). Track style and width separately so
+  // later declarations can restore one without losing suppression by the other.
+  uint8_t borderStyleSuppressed = 0;
+  uint8_t borderWidthSuppressed = 0;
+  uint8_t borderStyleDefined = 0;
+  uint8_t borderWidthDefined = 0;
+
+  [[nodiscard]] bool suppressesHorizontalRule() const {
+    return (borderStyleSuppressed | borderWidthSuppressed) == 0x0F;
+  }
+
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
   // Apply properties from another style, only overwriting if the other style
   // has that property explicitly defined
   void applyOver(const CssStyle& base) {
+    if (base.defined.border) {
+      borderStyleSuppressed = (borderStyleSuppressed & ~base.borderStyleDefined) | base.borderStyleSuppressed;
+      borderWidthSuppressed = (borderWidthSuppressed & ~base.borderWidthDefined) | base.borderWidthSuppressed;
+      borderStyleDefined |= base.borderStyleDefined;
+      borderWidthDefined |= base.borderWidthDefined;
+      defined.border = 1;
+    }
     if (base.hasTextAlign()) {
       textAlign = base.textAlign;
       defined.textAlign = 1;
@@ -317,6 +337,7 @@ struct CssStyle {
     pageBreakBefore = false;
     pageBreakAfter = false;
     listStyleType = CssListStyleType::Disc;
+    borderStyleSuppressed = borderWidthSuppressed = borderStyleDefined = borderWidthDefined = 0;
     defined.clearAll();
   }
 };

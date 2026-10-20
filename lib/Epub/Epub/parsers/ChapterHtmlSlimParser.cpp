@@ -89,7 +89,7 @@ KNOB_ALIAS(MIN_FREE_HEAP_FOR_RICH_TABLE, richTableMinFree);  // Goodies > Knobs
 KNOB_ALIAS(MIN_MAX_ALLOC_FOR_RICH_TABLE, richTableMinBlock);
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol"};
+static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol", "figure"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -815,6 +815,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     return;
   }
 
+  emptyTextBlockAfterImage = false;
   nextWordContinues = false;  // New block = new paragraph, no continuation
   pendingInlinePadding = 0;
   partWordInlinePadding = 0;
@@ -938,7 +939,7 @@ void ChapterHtmlSlimParser::finalizeCurrentTableCell() {
   nextWordContinues = false;
 }
 
-void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
+void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle, const bool visible) {
   if (partWordBufferIndex > 0) {
     flushPartWordBuffer();
   }
@@ -955,14 +956,15 @@ void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
   }
 
   const int16_t lineHeight = static_cast<int16_t>(renderer.getLineHeight(fontId) * lineCompression + 0.5f);
-  const int16_t defaultVerticalSpacing = static_cast<int16_t>(lineHeight / 2);
+  // Invisible thematic breaks retain publisher spacing without a default ornament gap.
+  const int16_t defaultVerticalSpacing = visible ? static_cast<int16_t>(lineHeight / 2) : 0;
   const int16_t topSpacing =
       static_cast<int16_t>((blockStyle.marginTop > 0 ? blockStyle.marginTop : defaultVerticalSpacing) +
                            (blockStyle.paddingTop > 0 ? blockStyle.paddingTop : 0));
   const int16_t bottomSpacing =
       static_cast<int16_t>((blockStyle.marginBottom > 0 ? blockStyle.marginBottom : defaultVerticalSpacing) +
                            (blockStyle.paddingBottom > 0 ? blockStyle.paddingBottom : 0));
-  constexpr uint8_t ruleThickness = 2;
+  const uint8_t ruleThickness = visible ? 2 : 0;
   const int16_t availableWidth =
       std::max<int16_t>(1, static_cast<int16_t>(viewportWidth - blockStyle.totalHorizontalInset()));
   const int16_t width = std::max<int16_t>(1, static_cast<int16_t>(availableWidth / 4));
@@ -984,15 +986,17 @@ void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
   currentPageNextY += topSpacing;
   attachPendingPublisherPageMarkers(currentPageNextY);
 
-  auto pageRule = makeUniqueNoThrow<PageHorizontalRule>(width, ruleThickness, xPos, currentPageNextY);
-  if (!pageRule) {
-    LOG_ERR("EHP", "Failed to create PageHorizontalRule");
-    lowMemoryAbort = true;
-    return;
+  if (visible) {
+    auto pageRule = makeUniqueNoThrow<PageHorizontalRule>(width, ruleThickness, xPos, currentPageNextY);
+    if (!pageRule) {
+      LOG_ERR("EHP", "Failed to create PageHorizontalRule");
+      lowMemoryAbort = true;
+      return;
+    }
+    currentPage->elements.push_back(std::move(pageRule));
+    setCurrentPageVisibleOffset(visibleTextOffset);
+    markCurrentPageFromCurrentElement();
   }
-  currentPage->elements.push_back(std::move(pageRule));
-  setCurrentPageVisibleOffset(visibleTextOffset);
-  markCurrentPageFromCurrentElement();
   currentPageNextY = static_cast<int16_t>(currentPageNextY + ruleThickness + bottomSpacing);
   headingOpenerActive = false;
 
@@ -2537,10 +2541,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 self->currentPage->elements.push_back(std::move(pageImage));
                 self->setCurrentPageVisibleOffset(self->visibleTextOffset);
                 self->markCurrentPageFromCurrentElement();
-                self->currentPageNextY += displayHeight + imageMarginBottom;
+                self->currentPageNextY += displayHeight;  // The container spends its bottom inset when it closes.
 
                 if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
-                  BlockStyle afterImageStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1].withoutBottom();
+                  BlockStyle afterImageStyle =
+                      self->blockStyleBuf_[self->blockStyleCount_ - 1].withoutTop().withoutBottom();
                   if (self->headingOpenerActive) {
                     // The title run trailing the ornament copies the heading style too and would inherit
                     // the same drop margin, stacking a second heading-sized gap under the image. Replace
@@ -2549,6 +2554,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     afterImageStyle.paddingTop = 0;
                   }
                   self->currentTextBlock->setBlockStyle(afterImageStyle);
+                  self->emptyTextBlockAfterImage = true;
                 }
 
                 self->pushCssAncestor(self->depth, name, classAttr);
@@ -2691,8 +2697,23 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     userAlignmentBlockStyle.alignment = requestedAlign == CssTextAlign::None ? CssTextAlign::Justify : requestedAlign;
   }
 
+  // Figures lay out artwork and captions, independently of the reader's prose alignment.
+  if (self->embeddedStyle && strcmp(name, "figure") == 0 && cssStyle.hasTextAlign()) {
+    userAlignmentBlockStyle.alignment = cssStyle.textAlign;
+  }
+
   if (!self->embeddedStyle || self->isLightMode()) {
     stripPublisherSpacing(userAlignmentBlockStyle);
+  }
+
+  // <html> and <body> are transparent to the block layout stack, but CSS
+  // text-indent is inherited by descendant paragraphs. Preserve that value on
+  // the root style so ordinary child-block merging applies paragraph overrides.
+  if ((strcmp(name, "html") == 0 || strcmp(name, "body") == 0) && self->blockStyleCount_ > 0 &&
+      userAlignmentBlockStyle.textIndentDefined) {
+    auto& rootBlockStyle = self->blockStyleBuf_[0];
+    rootBlockStyle.textIndent = userAlignmentBlockStyle.textIndent;
+    rootBlockStyle.textIndentDefined = true;
   }
 
   // Force paragraph indent to prevent unreadable walls of text.
@@ -2718,7 +2739,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     if (!self->embeddedStyle || self->isLightMode()) {
       stripPublisherSpacing(hrBlockStyle);
     }
-    self->emitHorizontalRule(hrBlockStyle);
+    self->emitHorizontalRule(hrBlockStyle, !cssStyle.suppressesHorizontalRule());
     self->pushCssAncestor(self->depth, name, classAttr);
     self->depth += 1;
     return;
@@ -3549,12 +3570,19 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
     // br is self-closing and not a container — it doesn't push/pop the stack.
     if (strcmp(name, "br") != 0 && self->blockStyleCount_ > 1) {
-      // Apply closing element's bottom margin to the current text block so
-      // container spacing appears after the element's content (on the last child),
-      // not on the first child via the empty-block merge in startNewTextBlock.
-      if (self->currentTextBlock) {
-        const auto style = self->currentTextBlock->getBlockStyle();
-        self->currentTextBlock->setBlockStyle(style.addBottom(self->blockStyleBuf_[self->blockStyleCount_ - 1]));
+      // Spend the container's closing inset once: on its last text block, or directly
+      // when nothing (or only the empty block after an image) is left to carry it.
+      const auto& closingStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1];
+      if (!self->currentTextBlock || (self->emptyTextBlockAfterImage && self->currentTextBlock->isEmpty())) {
+        self->currentPageNextY += closingStyle.bottomInset();
+        if (self->currentTextBlock) {
+          // A direct image already consumed the top inset. Keep the empty buffer usable for
+          // following bare text, but restore the parent style before it can inherit figure spacing.
+          self->currentTextBlock->setBlockStyle(
+              self->blockStyleBuf_[self->blockStyleCount_ - 2].withoutTop().withoutBottom());
+        }
+      } else {
+        self->currentTextBlock->setBlockStyle(self->currentTextBlock->getBlockStyle().addBottom(closingStyle));
       }
       self->blockStyleCount_--;
       self->updateEffectiveInlineStyle();
