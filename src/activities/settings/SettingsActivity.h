@@ -49,6 +49,7 @@ enum class SettingAction {
   CheckForUpdates,
   SdFirmwareUpdate,
   Language,
+  FilenameFallbackFont,
   KeyboardLayouts,
   DownloadFonts,
   TtfRendering,
@@ -281,6 +282,11 @@ class SettingsActivity final : public Activity {
   SettingAction parentSubmenu = SettingAction::None;
 
   OptionPopup optionPopup;
+#if CROSSDINK_SCALABLE_FONTS
+  std::vector<std::string> filenameFontNames;
+  char pendingFilenameFont[64] = {};
+  bool filenameFontSelectionPending = false;
+#endif
 
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
@@ -315,6 +321,7 @@ class SettingsActivity final : public Activity {
   void openScreenMarginPicker(const SettingInfo& setting);
   void openWordSpacingPicker();
   void openLanguagePicker();
+  void openFilenameFontPicker();
   void openIdleTimeThresholdPicker();
   void toggleCurrentSetting();
   void openSleepTimeoutPicker();

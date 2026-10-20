@@ -601,3 +601,6 @@ STR_STATUS_BAR_EMPTY: "Tuščia"
 STR_STATUS_BAR_CLOCK: "Laikrodis"
 STR_STATUS_BAR_BOTH: "Abi"
 STR_CLOCK_OUTSIDE_READER: "Laikrodis ne skaityklėje"
+
+STR_FILENAME_FALLBACK_FONT: "Atsarginis failų vardų šriftas"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Įprastas būtinas; paryškintas neprivalomas."

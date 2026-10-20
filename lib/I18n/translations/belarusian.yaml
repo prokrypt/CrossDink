@@ -602,3 +602,6 @@ STR_STATUS_BAR_EMPTY: "Пуста"
 STR_STATUS_BAR_CLOCK: "Гадзіннік"
 STR_STATUS_BAR_BOTH: "Абодва"
 STR_CLOCK_OUTSIDE_READER: "Гадзіннік па-за чытаннем"
+
+STR_FILENAME_FALLBACK_FONT: "Рэзервовы шрыфт назваў файлаў"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Звычайны абавязковы; тлусты неабавязковы."

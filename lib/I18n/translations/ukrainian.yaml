@@ -654,3 +654,6 @@ STR_STATUS_BAR_EMPTY: "Порожньо"
 STR_STATUS_BAR_CLOCK: "Годинник"
 STR_STATUS_BAR_BOTH: "Обидва"
 STR_CLOCK_OUTSIDE_READER: "Годинник поза читанням"
+
+STR_FILENAME_FALLBACK_FONT: "Запасний шрифт назв файлів"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Звичайний обов’язковий; жирний необов’язковий."

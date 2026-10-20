@@ -600,3 +600,6 @@ STR_STATUS_BAR_EMPTY: "Boş"
 STR_STATUS_BAR_CLOCK: "Saat"
 STR_STATUS_BAR_BOTH: "İkisi"
 STR_CLOCK_OUTSIDE_READER: "Okuyucu dışı saat"
+
+STR_FILENAME_FALLBACK_FONT: "Dosya adı yedek yazı tipi"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal gerekli; kalın isteğe bağlı."

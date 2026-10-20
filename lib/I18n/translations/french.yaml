@@ -601,3 +601,6 @@ STR_STATUS_BAR_EMPTY: "Vide"
 STR_STATUS_BAR_CLOCK: "Horloge"
 STR_STATUS_BAR_BOTH: "Les deux"
 STR_CLOCK_OUTSIDE_READER: "Horloge hors lecture"
+
+STR_FILENAME_FALLBACK_FONT: "Police de secours des fichiers"
+STR_FILENAME_FONT_HINT: "TTF : /.crossdink/languages/fonts. Normal requis ; gras facultatif."

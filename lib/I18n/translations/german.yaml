@@ -777,3 +777,6 @@ STR_STATUS_BAR_EMPTY: "Leer"
 STR_STATUS_BAR_CLOCK: "Uhr"
 STR_STATUS_BAR_BOTH: "Beide"
 STR_CLOCK_OUTSIDE_READER: "Uhr außerhalb des Lesers"
+
+STR_FILENAME_FALLBACK_FONT: "Ersatzschrift für Dateinamen"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal erforderlich; Fett optional."

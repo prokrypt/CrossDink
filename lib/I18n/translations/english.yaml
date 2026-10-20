@@ -981,3 +981,6 @@ STR_INCLUDE_LOG: "Include log"
 STR_SAVE_REPORT: "Save report"
 STR_REPORT_SAVED: "Report saved"
 STR_REPORT_NOT_SAVED: "Report not saved"
+
+STR_FILENAME_FALLBACK_FONT: "Filename Fallback Font"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Regular required; bold optional."

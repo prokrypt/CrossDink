@@ -601,3 +601,6 @@ STR_STATUS_BAR_EMPTY: "Üres"
 STR_STATUS_BAR_CLOCK: "Óra"
 STR_STATUS_BAR_BOTH: "Mindkettő"
 STR_CLOCK_OUTSIDE_READER: "Óra az olvasón kívül"
+
+STR_FILENAME_FALLBACK_FONT: "Fájlnevek tartalék betűtípusa"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normál kötelező; félkövér választható."

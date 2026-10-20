@@ -590,3 +590,6 @@ STR_STATUS_BAR_EMPTY: "Tyhjä"
 STR_STATUS_BAR_CLOCK: "Kello"
 STR_STATUS_BAR_BOTH: "Molemmat"
 STR_CLOCK_OUTSIDE_READER: "Kello lukijan ulkopuolella"
+
+STR_FILENAME_FALLBACK_FONT: "Tiedostonimien varafontti"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Tavallinen vaaditaan; lihavoitu valinnainen."

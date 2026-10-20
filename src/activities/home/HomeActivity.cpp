@@ -35,6 +35,7 @@
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "FilenameFontSystem.h"
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
@@ -528,6 +529,10 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const boo
                            std::string& key, uint64_t& keyHash) {
   key.clear();
   key.reserve(512);
+  key += SETTINGS.filenameFallbackFont;
+  key += '\0';
+  key += std::to_string(filenameFontSystem.fingerprint());
+  key += '\0';
   // Framebuffer snapshots include both UI pixels and counter-inverted cover
   // pixels, so a Light Mode snapshot cannot be reused in Dark Mode (or vice
   // versa).
@@ -980,6 +985,11 @@ void HomeActivity::applyCoverJobs() {
 }
 
 void HomeActivity::onEnter() {
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
+
   Activity::onEnter();
 
   hasOpdsServers = OPDS_STORE.hasServers();
@@ -2640,7 +2650,8 @@ void HomeActivity::render(RenderLock&&) {
   }
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding},
-                 metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr);
+                 metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr,
+                 nullptr, false, true, true);
 
   // Record the tile rect so storeCoverBuffer (called from the theme) knows
   // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait

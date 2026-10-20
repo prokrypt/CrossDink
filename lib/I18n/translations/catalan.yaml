@@ -661,3 +661,6 @@ STR_STATUS_BAR_EMPTY: "Buit"
 STR_STATUS_BAR_CLOCK: "Rellotge"
 STR_STATUS_BAR_BOTH: "Ambdues"
 STR_CLOCK_OUTSIDE_READER: "Rellotge fora del lector"
+
+STR_FILENAME_FALLBACK_FONT: "Font alternativa de fitxers"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal obligatòria; negreta opcional."

@@ -779,3 +779,6 @@ STR_STATUS_BAR_EMPTY: "فارغ"
 STR_STATUS_BAR_CLOCK: "الساعة"
 STR_STATUS_BAR_BOTH: "كلاهما"
 STR_CLOCK_OUTSIDE_READER: "الساعة خارج القارئ"
+
+STR_FILENAME_FALLBACK_FONT: "خط بديل لأسماء الملفات"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. العادي مطلوب؛ العريض اختياري."

@@ -482,7 +482,7 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 }
 
 void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
-                           const bool readerContext, const bool showStatus) const {
+                           const bool readerContext, const bool showStatus, const bool filenameTitle) const {
   namespace fui = freeink::ui;
   const auto spec = uiScaleSpec();
   fui::GfxRendererFrame<1> ui(renderer, spec.smallFontId, spec.bodyFontId, spec.titleFontId);
@@ -509,6 +509,7 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   batteryReserve = static_cast<int16_t>(batteryReserve + wifiReserve);
 
   fui::HeaderProps props;
+  if (filenameTitle) ui.target.setFont(fui::GfxRendererTarget::FONT_TITLE, renderer.filenameFontId(spec.titleFontId));
   props.title = title;
   props.rightLabel = subtitle;
   props.borderEdges = fui::EdgeBottom;

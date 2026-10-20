@@ -775,3 +775,6 @@ STR_STATUS_BAR_EMPTY: "Vazio"
 STR_STATUS_BAR_CLOCK: "Relógio"
 STR_STATUS_BAR_BOTH: "Ambas"
 STR_CLOCK_OUTSIDE_READER: "Relógio fora do leitor"
+
+STR_FILENAME_FALLBACK_FONT: "Fonte alternativa de arquivos"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Regular obrigatório; negrito opcional."

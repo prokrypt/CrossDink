@@ -600,3 +600,6 @@ STR_STATUS_BAR_EMPTY: "Leeg"
 STR_STATUS_BAR_CLOCK: "Klok"
 STR_STATUS_BAR_BOTH: "Beide"
 STR_CLOCK_OUTSIDE_READER: "Klok buiten lezer"
+
+STR_FILENAME_FALLBACK_FONT: "Terugvallettertype bestandsnamen"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normaal verplicht; vet optioneel."

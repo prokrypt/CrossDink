@@ -404,21 +404,24 @@ void drawBookText(const GfxRenderer& renderer, const Rect& coverRect, const Rece
   const int inset = contentInset(renderer);
   const int textW = renderer.getScreenWidth() - inset * 2;
   const char* title = book.title.empty() ? book.path.c_str() : book.title.c_str();
-  auto titleLines = renderer.wrappedText(UI_12_FONT_ID, title, textW, kBookTitleMaxLines, EpdFontFamily::BOLD);
+  auto titleLines = renderer.wrappedText(renderer.filenameFontId(UI_12_FONT_ID), title, textW, kBookTitleMaxLines,
+                                         EpdFontFamily::BOLD);
   int textY = coverRect.y + coverRect.height + kTitleTopGap;
-  const int titleLineH = renderer.getLineHeight(UI_12_FONT_ID);
+  const int titleLineH = renderer.getLineHeight(renderer.filenameFontId(UI_12_FONT_ID));
   for (const auto& line : titleLines) {
-    renderer.drawText(UI_12_FONT_ID, coverRect.x, textY, line.c_str(), black, EpdFontFamily::BOLD);
+    renderer.drawText(renderer.filenameFontId(UI_12_FONT_ID), coverRect.x, textY, line.c_str(), black,
+                      EpdFontFamily::BOLD);
     textY += titleLineH;
   }
 
   const char* subtitle =
       (currentChapterTitle != nullptr && currentChapterTitle[0] != '\0') ? currentChapterTitle : book.author.c_str();
   if (subtitle != nullptr && subtitle[0] != '\0') {
-    auto subtitleLines = renderer.wrappedText(UI_12_FONT_ID, subtitle, textW, kBookChapterMaxLines);
+    auto subtitleLines =
+        renderer.wrappedText(renderer.filenameFontId(UI_12_FONT_ID), subtitle, textW, kBookChapterMaxLines);
     int subtitleY = textY + kTitleChapterGap;
     for (const auto& line : subtitleLines) {
-      renderer.drawText(UI_12_FONT_ID, coverRect.x, subtitleY, line.c_str(), black);
+      renderer.drawText(renderer.filenameFontId(UI_12_FONT_ID), coverRect.x, subtitleY, line.c_str(), black);
       subtitleY += titleLineH;
     }
   }

@@ -787,3 +787,6 @@ STR_STATUS_BAR_EMPTY: "Prázdné"
 STR_STATUS_BAR_CLOCK: "Hodiny"
 STR_STATUS_BAR_BOTH: "Oba"
 STR_CLOCK_OUTSIDE_READER: "Hodiny mimo čtečku"
+
+STR_FILENAME_FALLBACK_FONT: "Záložní písmo názvů souborů"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Běžný řez povinný; tučný volitelný."

@@ -621,3 +621,6 @@ STR_STATUS_BAR_EMPTY: "Puste"
 STR_STATUS_BAR_CLOCK: "Zegar"
 STR_STATUS_BAR_BOTH: "Oba"
 STR_CLOCK_OUTSIDE_READER: "Zegar poza czytnikiem"
+
+STR_FILENAME_FALLBACK_FONT: "Zapasowa czcionka nazw plików"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Zwykły wymagany; pogrubiony opcjonalny."

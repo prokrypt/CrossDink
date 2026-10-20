@@ -601,3 +601,6 @@ STR_STATUS_BAR_EMPTY: "Tom"
 STR_STATUS_BAR_CLOCK: "Ur"
 STR_STATUS_BAR_BOTH: "Begge"
 STR_CLOCK_OUTSIDE_READER: "Ur uden for læseren"
+
+STR_FILENAME_FALLBACK_FONT: "Reservefont til filnavne"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal påkrævet; fed valgfri."

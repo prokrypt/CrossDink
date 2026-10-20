@@ -601,3 +601,6 @@ STR_STATUS_BAR_EMPTY: "Бос"
 STR_STATUS_BAR_CLOCK: "Сағат"
 STR_STATUS_BAR_BOTH: "Екеуі"
 STR_CLOCK_OUTSIDE_READER: "Оқудан тыс сағат"
+
+STR_FILENAME_FALLBACK_FONT: "Файл атауларының қосалқы қарпі"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Қалыпты міндетті; қалың міндетті емес."

@@ -600,3 +600,6 @@ STR_STATUS_BAR_EMPTY: "Gol"
 STR_STATUS_BAR_CLOCK: "Ceas"
 STR_STATUS_BAR_BOTH: "Ambele"
 STR_CLOCK_OUTSIDE_READER: "Ceas în afara cititorului"
+
+STR_FILENAME_FALLBACK_FONT: "Font alternativ pentru fișiere"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal obligatoriu; aldin opțional."

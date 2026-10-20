@@ -724,6 +724,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t flashDuckDepth = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
+  char filenameFallbackFont[64] = "";  // Folder name under /.crossdink/languages/fonts; empty disables fallback.
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
   uint16_t keyboardLayouts = 0;

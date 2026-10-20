@@ -668,3 +668,6 @@ STR_STATUS_BAR_EMPTY: "Пусто"
 STR_STATUS_BAR_CLOCK: "Часы"
 STR_STATUS_BAR_BOTH: "Обе"
 STR_CLOCK_OUTSIDE_READER: "Часы вне режима чтения"
+
+STR_FILENAME_FALLBACK_FONT: "Запасной шрифт имён файлов"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Обычный обязателен; жирный необязателен."

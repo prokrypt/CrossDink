@@ -504,6 +504,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     quickActionSlotsJson.add(action);
   }
   doc["quickActionsTrigger"] = quickActionsTrigger;
+  doc["filenameFallbackFont"] = filenameFallbackFont;
   doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
   if (keyboardLayouts != 0) doc["keyboardLayouts"] = keyboardLayouts;
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
@@ -906,6 +907,11 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   }
   if (doc["language"].is<const char*>()) {
     language = static_cast<uint8_t>(I18n::languageFromCode(doc["language"].as<const char*>()));
+  }
+  const char* filenameFont = doc["filenameFallbackFont"] | "";
+  if (std::strlen(filenameFont) < sizeof(filenameFallbackFont) && !std::strchr(filenameFont, '/') &&
+      !std::strchr(filenameFont, '\\') && std::strcmp(filenameFont, ".") != 0 && std::strcmp(filenameFont, "..") != 0) {
+    std::strcpy(filenameFallbackFont, filenameFont);
   }
   if (doc["keyboardLayouts"].is<uint16_t>()) {
     keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();

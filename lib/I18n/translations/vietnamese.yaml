@@ -659,3 +659,6 @@ STR_STATUS_BAR_EMPTY: "Trống"
 STR_STATUS_BAR_CLOCK: "Đồng hồ"
 STR_STATUS_BAR_BOTH: "Cả hai"
 STR_CLOCK_OUTSIDE_READER: "Đồng hồ ngoài trình đọc"
+
+STR_FILENAME_FALLBACK_FONT: "Phông dự phòng tên tệp"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Bắt buộc kiểu thường; kiểu đậm tùy chọn."
