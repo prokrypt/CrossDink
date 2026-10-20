@@ -2080,9 +2080,9 @@ bool EpubReaderActivity::isAtOrPastCompletionTrigger() const {
 }
 
 bool EpubReaderActivity::shouldQueueCompletionPromptOnChapterExit() const {
-  if (completionPromptShown || completionPromptQueued || stats.isCompleted || footnoteDepth > 0 ||
-      !completionTriggerCrossed || !epub || !section || section->pageCount == 0 || completionTriggerSpineIndex < 0 ||
-      section->isBuilding() || section->isPartial()) {
+  if (completionPromptShown || completionPromptQueued || stats.isCompleted || activeFootnotePreview ||
+      !pendingFootnotePreviewAnchor.empty() || !completionTriggerCrossed || !epub || !section ||
+      section->pageCount == 0 || completionTriggerSpineIndex < 0 || section->isBuilding() || section->isPartial()) {
     return false;
   }
 
@@ -2094,7 +2094,8 @@ bool EpubReaderActivity::shouldQueueCompletionPromptOnChapterExit() const {
 }
 
 void EpubReaderActivity::queueCompletionPromptIfNeeded() {
-  if (completionPromptShown || completionPromptQueued || stats.isCompleted || footnoteDepth > 0) {
+  if (completionPromptShown || completionPromptQueued || stats.isCompleted || activeFootnotePreview ||
+      !pendingFootnotePreviewAnchor.empty()) {
     return;
   }
 
@@ -2504,6 +2505,8 @@ void EpubReaderActivity::onEnter() {
     }
   }
 
+  loadLinkStack();
+
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
   // Held exit stats land first, so this session's saves supersede them.
@@ -2603,10 +2606,10 @@ void EpubReaderActivity::onExit() {
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
 
-  // Inside a followed footnote the origin position is what counts; it is saved
-  // below, so RTC has nothing left to hold either way. The exit position is
-  // held until the next flush point (HeldWrites carries it across resets).
-  const bool progressFlushed = footnoteDepth != 0 || flushQueuedProgress(/*hold=*/true);
+  // A followed link resumes at the last page read; a footnote preview at its
+  // origin. The exit position is held until the next flush point (HeldWrites
+  // carries it across resets).
+  const bool progressFlushed = saveReadingProgress(/*hold=*/true);
   if (!progressFlushed) {
     LOG_ERR("ERS", "Failed to flush debounced reader progress on exit");
   }
@@ -2655,14 +2658,6 @@ void EpubReaderActivity::onExit() {
     ReaderExitSave::queue({}, nullptr, nullptr);  // APP_STATE only
   }
 
-  // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
-  // pre-footnote position so the book reopens at the link origin, not the footnote.
-  if (footnoteDepth > 0 && epub) {
-    if (!saveFootnoteOriginProgress()) {
-      LOG_ERR("ERS", "Failed to save footnote origin on exit");
-    }
-  }
-
   // Home reads this lightweight value instead of opening the EPUB. Written once
   // here rather than on every debounced save; a crash mid-session leaves it stale
   // until the next reader exit.
@@ -2674,6 +2669,9 @@ void EpubReaderActivity::onExit() {
   BOOKMARKS.unload();
   CLIPPINGS.unload();
   section.reset();
+  if (epub && !saveLinkStack()) {
+    LOG_ERR("ERS", "Failed to save link return stack on exit");
+  }
 
   std::string syncPath = epub ? epub->getPath() : std::string();
   if (pendingReadFolderMove && epub) {
@@ -4938,13 +4936,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                                    requestUpdate();
                                });
       } else {
-        const int currentPage = section ? section->currentPage : nextPageNumber;
-        const int totalPages = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
-
         // Persist current position so the reader resumes at the right page on return.
         // goToReader() depends on this file, so abort the sync if the write fails.
-        const bool saved =
-            footnoteDepth > 0 ? saveFootnoteOriginProgress() : saveProgress(currentSpineIndex, currentPage, totalPages);
+        const bool saved = saveReadingProgress();
         if (!saved) {
           LOG_ERR("KOSync", "Aborting sync because current progress could not be saved");
           pendingSyncSaveError = true;
@@ -8309,7 +8303,7 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   }
   std::optional<uint32_t> visibleTextOffset;
   // A preview section's page table describes the note, not the chapter being saved, so
-  // its offsets must never be attached to the forced origin save above.
+  // its offsets must never be attached to the reading-origin save.
   if (!activeFootnotePreview && section && spineIndex == currentSpineIndex && currentPage >= 0 &&
       currentPage < section->pageCount) {
     visibleTextOffset = section->getVisibleTextOffsetForPage(static_cast<uint16_t>(currentPage));
@@ -8331,30 +8325,35 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   return saved;
 }
 
-bool EpubReaderActivity::saveFootnoteOriginProgress() {
-  const SavedPosition& origin = savedPositions[0];
-  // Record the origin chapter's real page count. A zero reads back as a valid
-  // record with hasPageCount set, which breaks the percent math on reopen.
-  // A preview section describes the note rather than the origin chapter, so its page
-  // count is not usable here; fall back to the last count persisted for that spine.
-  int originPageCount = 0;
-  if (!activeFootnotePreview && section && origin.spineIndex == currentSpineIndex) {
-    originPageCount = section->estimatedTotalPages();
-  } else if (lastSavedSpineIndex == origin.spineIndex) {
-    originPageCount = std::max(0, lastSavedPageCount);
-  }
-  // Forced past the footnote-preview suppression: this origin position is exactly what
-  // that suppression protects, so it is the one save that must go through.
-  return saveProgress(origin.spineIndex, origin.pageNumber, originPageCount, /*allowDuringFootnotePreview=*/true);
+bool EpubReaderActivity::saveReadingProgress(const bool hold) {
+  const bool preview = activeFootnotePreview || !pendingFootnotePreviewAnchor.empty();
+  const auto progress = EpubLinkReturnState::readingProgress(
+      savedPositions, footnoteDepth, preview, progressSaveDebouncer, lastSavedSpineIndex, lastSavedPageCount);
+  if (!progress) return true;
+  // No section check: saveProgress() only consults it opportunistically for the
+  // visible-text offset, and end-of-book leaves it null with a write still pending.
+  return saveProgress(progress->spineIndex, progress->pageNumber, progress->pageCount,
+                      /*allowDuringFootnotePreview=*/preview, hold);
+}
+
+bool EpubReaderActivity::saveLinkStack() const {
+  return EpubLinkReturnState::save(epub->getCachePath(), savedPositions, footnoteDepth,
+                                   activeFootnotePreview || !pendingFootnotePreviewAnchor.empty());
+}
+
+void EpubReaderActivity::loadLinkStack() {
+  EpubLinkReturnState::load(epub->getCachePath(), savedPositions, footnoteDepth, epub->getSpineItemsCount());
 }
 
 void EpubReaderActivity::saveProgressBeforeRestart() {
   // Runs on the input loop; the render task may be building or swapping `section`,
   // which saveProgress() reads and whose build file it may release.
   RenderLock lock(*this);
-  const bool saved = footnoteDepth > 0 ? (epub && saveFootnoteOriginProgress()) : flushQueuedProgress();
-  if (!saved) {
+  if (!saveReadingProgress()) {
     LOG_ERR("ERS", "Failed to save progress before restart");
+  }
+  if (epub && !saveLinkStack()) {
+    LOG_ERR("ERS", "Failed to save link return stack before restart");
   }
 }
 
@@ -8373,31 +8372,14 @@ bool EpubReaderActivity::queueProgressSave(const int spineIndex, const int curre
   }
   const uint32_t positionKey = (static_cast<uint32_t>(spineIndex) << 16) | static_cast<uint16_t>(currentPage);
   const bool saveDue = progressSaveDebouncer.observe(positionKey, static_cast<uint32_t>(pageCount));
-  // After a crash inside a followed footnote, resume at the link origin (the
-  // last position noted before the jump), as a normal exit would.
-  if (progressSaveDebouncer.hasPending() && footnoteDepth == 0) {
+  // A followed link resumes at the last page read, as a normal exit would.
+  if (progressSaveDebouncer.hasPending()) {
     ReaderProgressShadow::notePending(positionKey, static_cast<uint32_t>(pageCount));
   }
   if (!saveDue && !forceSave) {
     return true;
   }
   return saveProgress(spineIndex, currentPage, pageCount);
-}
-
-bool EpubReaderActivity::flushQueuedProgress(const bool hold) {
-  if (!progressSaveDebouncer.hasPending()) {
-    return true;
-  }
-  // No section check: saveProgress() only consults it opportunistically for the
-  // visible-text offset, and end-of-book leaves it null with a write still pending.
-  if (!epub) {
-    return false;
-  }
-  const uint32_t positionKey = progressSaveDebouncer.lastObservedPosition();
-  const int spineIndex = static_cast<int>(positionKey >> 16);
-  const int pageNumber = static_cast<int>(positionKey & 0xFFFFU);
-  const int pageCount = static_cast<int>(progressSaveDebouncer.lastObservedMetadata());
-  return saveProgress(spineIndex, pageNumber, pageCount, /*allowDuringFootnotePreview=*/false, hold);
 }
 
 bool EpubReaderActivity::ensureGrayscaleStripScratch() {
@@ -9542,9 +9524,9 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
   // Keep the return stack for an endnote that happens to point at a TOC
   // chapter.
   const bool saveReturnPosition = savePosition && !contentsNavigation;
-  if (saveReturnPosition && section && footnoteDepth < MAX_FOOTNOTE_DEPTH) {
-    savedPositions[footnoteDepth] = {currentSpineIndex, section->currentPage};
-    footnoteDepth++;
+  if (saveReturnPosition) {
+    EpubLinkReturnState::push(savedPositions, footnoteDepth,
+                              {currentSpineIndex, section ? section->currentPage : nextPageNumber});
   }
 
   {

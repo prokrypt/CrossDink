@@ -423,6 +423,25 @@ book is renamed or moved outside CrossDink, the path hash changes, so the old
 clipping file may no longer be associated with the book until the file is moved
 back or the clipping store is migrated.
 
+## `epub_<hash>/links.bin`
+
+The EPUB reader saves followed-link Back history on clean exit (Home, sleep,
+or reader replacement for sync) and before a silent restart. The record is a
+fixed 13 bytes: a one-byte depth (0–3), then three pairs of little-endian `u16`
+spine index and `u16` page number, oldest first, unused pairs zero. Depth 0 is
+empty history. A book that never followed a link has no file. A transient
+footnote preview resumes at its immediate origin and omits that final entry;
+earlier full-section links remain in the record. Writes are held in RAM until
+the next flush point (sleep, restart, low battery; `HeldWrites`), so page turns
+never write it.
+
+On open, the reader checks the length and each spine index, then overwrites the
+record with depth 0 before adopting the history. Malformed records are also
+consumed. A later clean exit rewrites the current stack; a crash or reset cannot
+revive history from a previous session (power loss before the next flush can).
+This sidecar does not change EPUB layout cache formats. As with in-memory Back
+history, changing font or layout may shift the destination page.
+
 ## EPUB `progress.bin` and `progress.bin.bak`
 
 ### Slot record (20 bytes)
