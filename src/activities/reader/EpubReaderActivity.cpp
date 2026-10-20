@@ -8512,7 +8512,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       case CrossPointSettings::IMAGES_DISPLAY_DITHER:
         return DirectPixelWriter::BW_IMAGES_DITHER;
       default:
-        return DirectPixelWriter::BW_IMAGES_OFF;
+        // Night Mode drops gray on image pages, so gray images would show only
+        // their B/W pass (every non-white level black): dither them instead.
+        return SETTINGS.screenInverted ? DirectPixelWriter::BW_IMAGES_DITHER : DirectPixelWriter::BW_IMAGES_OFF;
     }
   }());
 #if CROSSDINK_APP_CAP_TOUCH
