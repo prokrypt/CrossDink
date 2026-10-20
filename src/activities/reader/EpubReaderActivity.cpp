@@ -4093,24 +4093,7 @@ void EpubReaderActivity::loop() {
     cancelSilentPrefetchForInput();
   }
 
-  // At end of the book with no suggestion menu, forward button goes home and back
-  // button returns to last page
-  if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
-    if (endOfBookOptions && endOfBookOptions->menuActive()) {
-      // Selection movement was handled above; absorb leftover page-turn triggers so
-      // e.g. "previous" at the top of the list doesn't jump back into the book
-      return;
-    }
-    if (nextTriggered) {
-      onGoHome();
-    } else {
-      currentSpineIndex = epub->getSpineItemsCount() - 1;
-      nextPageNumber = 0;
-      pendingPageJump = std::numeric_limits<uint16_t>::max();
-      requestUpdate();
-    }
-    return;
-  }
+  if (handleEndOfBookPageTurn(nextTriggered)) return;
 
   // Touch page turns deliberately ignore the physical-button long-press
   // settings. Keep those saved settings intact for a later move back to a
@@ -6584,7 +6567,27 @@ void EpubReaderActivity::setAutoPageTurnIntervalSeconds(uint16_t seconds) {
   }
 }
 
+bool EpubReaderActivity::handleEndOfBookPageTurn(const bool isForwardTurn) {
+  if (!epub || currentSpineIndex <= 0 || currentSpineIndex < epub->getSpineItemsCount()) return false;
+
+  RenderLock lock(*this);
+  clearPendingManualPageTurns();
+  // The suggestion menu owns navigation until it is dismissed.
+  if (endOfBookOptions && endOfBookOptions->menuActive()) return true;
+
+  if (isForwardTurn) {
+    onGoHome();
+  } else {
+    currentSpineIndex = epub->getSpineItemsCount() - 1;
+    nextPageNumber = 0;
+    pendingPageJump = std::numeric_limits<uint16_t>::max();
+    requestUpdate();
+  }
+  return true;
+}
+
 void EpubReaderActivity::requestManualPageTurn(const bool isForwardTurn, const char* source) {
+  if (handleEndOfBookPageTurn(isForwardTurn)) return;
   finishManualPageTurnBrakeIfReady();
   const ManualPageTurnRequest request{isForwardTurn, source};
   if (pendingManualPageTurns.dispatchedDirectionOpposes(isForwardTurn)) {
@@ -6625,11 +6628,6 @@ bool EpubReaderActivity::drainPendingManualPageTurn() {
 
   ManualPageTurnRequest request;
   if (!pendingManualPageTurns.takeNext(request)) return false;
-  if (!section || (!request.isForward && isAtBookStart())) {
-    clearPendingManualPageTurns(/*requestRecoveryRedraw=*/true, "book-start");
-    return false;
-  }
-
   if (request.isForward) cancelSilentNextChapterPrefetchForForwardTurn();
   // This successor replaces the currently displayed page, so a prior deferred
   // quality pass no longer needs recovery.
@@ -6689,6 +6687,18 @@ bool EpubReaderActivity::isAtBookStart() const {
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
+  // Keep the chapter alive while the render task can replace it during loading.
+  RenderLock lock(*this);
+  if (!section) {
+    clearPendingManualPageTurns(true, "no-section");
+    requestUpdate();
+    return;
+  }
+  if (!isForwardTurn && isAtBookStart()) {
+    // First page of the book: nothing to go back to, so skip the redraw too.
+    clearPendingManualPageTurns(true, "book-start");
+    return;
+  }
   pageLoadRetryCount = 0;
   lastTurnBackward = !isForwardTurn;
   turnFromSpine = currentSpineIndex;
@@ -6703,6 +6713,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       if (section && section->currentPage > 0) {
         section->currentPage--;
       } else if (source && strcmp(source, "touch") == 0) {
+        lock.unlock();
         restoreSavedPosition();
         return;
       }
@@ -6732,13 +6743,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
         return;
       }
 
-      // We don't want to delete the section mid-render, so grab the semaphore
-      {
-        RenderLock lock(*this);
-        nextPageNumber = 0;
-        currentSpineIndex++;
-        section.reset();
-      }
+      nextPageNumber = 0;
+      currentSpineIndex++;
+      section.reset();
     }
     if (shouldRecordForwardRead) {
       if (!exitingChapter) {
@@ -6750,23 +6757,15 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       }
     }
   } else {
-    if (isAtBookStart()) {
-      // First page of the book: nothing to go back to, so skip the redraw too.
-      return;
-    }
     recordCurrentPageReadingTime(source);
     armReadingPaceWarmup("back_page");
     if (section->currentPage > 0) {
       section->currentPage--;
     } else if (currentSpineIndex > 0) {
-      // We don't want to delete the section mid-render, so grab the semaphore
-      {
-        RenderLock lock(*this);
-        nextPageNumber = 0;
-        pendingPageJump = std::numeric_limits<uint16_t>::max();
-        currentSpineIndex--;
-        section.reset();
-      }
+      nextPageNumber = 0;
+      pendingPageJump = std::numeric_limits<uint16_t>::max();
+      currentSpineIndex--;
+      section.reset();
     }
   }
   lastPageTurnTime = millis();
