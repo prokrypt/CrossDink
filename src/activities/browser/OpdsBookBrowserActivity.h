@@ -3,6 +3,7 @@
 #include <FreeInkUIGfxRenderer.h>
 #include <OpdsParser.h>
 
+#include <array>
 #include <atomic>
 #include <bitset>
 #include <memory>
@@ -87,6 +88,7 @@ class OpdsBookBrowserActivity final : public Activity {
   std::string searchDescriptionUrl;                   // OpenSearch description; fetched on first search
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> onSd;        // book rows already in the download folder
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> pageCached;  // feed rows whose page is in pageCache
+  std::array<char, 16> countLabel{};                  // scratch for the row provider's count label
   uint32_t pageCachedAt = 0;                          // pageCache->changes() when pageCached was set
   int selectorIndex = 0;
   std::string errorMessage;
@@ -137,6 +139,7 @@ class OpdsBookBrowserActivity final : public Activity {
   static void onCancelEvent(const freeink::ui::ActionEvent& event, void* user);
   void screenHeader(UiApp::ScreenType& screen, bool withSearch);
   void buildBrowsingScreen(UiApp::ScreenType& screen);
+  static void provideRow(void* user, uint16_t index, freeink::ui::ListItem& item);
   void buildDownloadScreen(UiApp::ScreenType& screen);
   void buildStatusScreen(UiApp::ScreenType& screen);
   void activateSelected();

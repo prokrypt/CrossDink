@@ -480,39 +480,12 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
     return;
   }
 
-  // Transient per-render: sized once via reserve, points into `entries`
-  // strings, freed on scope exit.
-  std::vector<fui::ListItem> items;
-  items.reserve(entryCount);
-  // Right-aligned "(<count>) >" for navigation entries whose feed advertises a
-  // book count; same lifetime as `items`.
-  using CountLabel = std::array<char, 16>;
-  std::vector<CountLabel> countLabels(entryCount);
-  // 20 px bold check in the row inset left of the title (Lyra: 20 inset + 8
-  // padding); the list clamps it to that room, so titles never move.
-  const fui::BitmapRef mark = fui::bitmapFromIcon(icon_check_20);
-  for (size_t i = 0; i < entryCount; ++i) {
-    const auto& entry = entries[i];
-    fui::ListItem item;
-    item.label = entry.title.c_str();
-    if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
-    // One mark for "no network needed": a downloaded book or a cached feed page.
-    if ((entry.type == OpdsEntryType::BOOK && onSd[i]) || pageCached[i]) item.icon = mark;
-    if (entry.type == OpdsEntryType::NAVIGATION) {
-      if (entry.count >= 0) {
-        snprintf(countLabels[i].data(), countLabels[i].size(), "(%ld) >", static_cast<long>(entry.count));
-        item.value = countLabels[i].data();
-      } else {
-        item.value = ">";
-      }
-    }
-    item.actionValue = static_cast<int16_t>(items.size());
-    items.push_back(item);
-  }
-
+  // Rows are formatted on demand for the visible viewport only, so a redraw
+  // never allocates; after a download the heap can be too fragmented for it.
   fui::ListProps props;
-  props.items = items.data();
-  props.count = static_cast<uint16_t>(items.size());
+  props.rowProvider = &OpdsBookBrowserActivity::provideRow;
+  props.rowProviderCtx = this;
+  props.count = static_cast<uint16_t>(entryCount);
   props.selectedIndex = static_cast<int16_t>(selectorIndex);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
@@ -523,6 +496,29 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entryCount));  // clamp to range
   props.topIndex = static_cast<uint16_t>(topIndex);
   screen.list(props);
+}
+
+void OpdsBookBrowserActivity::provideRow(void* user, const uint16_t index, fui::ListItem& item) {
+  auto& self = *static_cast<OpdsBookBrowserActivity*>(user);
+  const auto& entry = self.entries[index];
+  item.label = entry.title.c_str();
+  if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
+  // 20 px bold check in the row inset left of the title (Lyra: 20 inset + 8
+  // padding); the list clamps it to that room, so titles never move.
+  // One mark for "no network needed": a downloaded book or a cached feed page.
+  if ((entry.type == OpdsEntryType::BOOK && self.onSd[index]) || self.pageCached[index]) {
+    item.icon = fui::bitmapFromIcon(icon_check_20);
+  }
+  if (entry.type == OpdsEntryType::NAVIGATION) {
+    if (entry.count >= 0) {
+      // Right-aligned "(<count>) >"; the list reads it before the next provider call.
+      snprintf(self.countLabel.data(), self.countLabel.size(), "(%ld) >", static_cast<long>(entry.count));
+      item.value = self.countLabel.data();
+    } else {
+      item.value = ">";
+    }
+  }
+  item.actionValue = static_cast<int16_t>(index);
 }
 
 void OpdsBookBrowserActivity::buildDownloadScreen(UiApp::ScreenType& screen) {
