@@ -82,7 +82,10 @@ On touchscreen devices with multi-touch support, **Two-finger Screen Rotation**
 is enabled by default in **Settings > Controls > Taps & Gestures**. While
 reading an EPUB or TXT book, place two fingers on the page and twist them to
 rotate the reading orientation one step, the same as changing **Reading
-Orientation** by hand. The new orientation is saved, so it survives sleep and
+Orientation** by hand. The page turns as soon as the twist passes about 20
+degrees, while your fingers are still down; lifting them afterwards does
+nothing else. The gap between your fingers may change by about a third while
+you twist. The new orientation is saved, so it survives sleep and
 restart. Turn the toggle off if accidental twists rotate the page while you
 read; the four-way **Reading Orientation** setting still works.
 

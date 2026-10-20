@@ -100,6 +100,8 @@ void apply() {
   t.touchMultiSeparationSlopPx = KNOBS.multiSeparationSlopPx;
   t.touchLongPressMs = KNOBS.touchLongPressMs;
   t.touchContactJumpPx = KNOBS.contactJumpPx;
+  t.touchRotationMinDegrees = static_cast<float>(KNOBS.rotationMinDeg);
+  t.touchRotationScaleTolerancePct = KNOBS.rotationGapTolPct;
   InputManager::setTuning(t);
 }
 
