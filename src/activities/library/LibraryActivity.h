@@ -97,6 +97,7 @@ class LibraryActivity final : public Activity {
     int32_t row = -1;
     bool ok = false;
     bool hasHeading = false;
+    bool finished = false;
     uint8_t icon = 0;
     std::string title;
     std::string subtitle;
@@ -175,6 +176,8 @@ class LibraryActivity final : public Activity {
   void keepViewportAfterReload();
   CachedRow& rowFor(int row);
   void fillRow(int row, CachedRow& out);
+  // Whether the book on row (named in rowScratch) is marked finished.
+  bool rowFinished(int row);
   void invalidateRowCache();
   void resolveRecents();
   void applyFilter();
