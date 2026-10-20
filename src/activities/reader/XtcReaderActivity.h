@@ -81,6 +81,7 @@ class XtcReaderActivity final : public Activity {
   void recordForwardPageTurn(uint32_t seconds, bool recordPace);
   bool formatTimeLeftLabel(char* buf, size_t len, uint32_t pageToRender, bool bookEstimate) const;
   void commitReadingStats();
+  uint32_t globalStatsResetRevisionAtPanelOpen = 0;
   void resetCurrentBookStatsAfterDelete();
   void setBookCompleted(bool isCompleted);
   float getCurrentBookProgressPercent() const;
@@ -141,6 +142,7 @@ class XtcReaderActivity final : public Activity {
     pauseReadingStatsTimer("frontlight_panel");
     // The panel leads to Settings, whose update and font downloads restart the device.
     flushQueuedProgress();
+    globalStatsResetRevisionAtPanelOpen = GlobalReadingStats::localResetRevision();
   }
   void onFrontlightPanelClosed() override;
   bool flushHeldProgress() override;
