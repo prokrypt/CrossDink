@@ -291,7 +291,8 @@ void ClipSelectionActivity::loop() {
           touchDragHasMoved || ClipSelectionPaging::hasDraggedFrom(touchDragStartX, touchDragStartY, touchX, touchY);
       // Keep timing through a small capacitive-touch jitter margin around the
       // selected final word, but reset when the finger genuinely drags away.
-      const bool touchedWord = selectWordAtPoint(touchX, touchY);
+      const bool keepPageEnd = touchDragPageEndIdx == cursorIdx && isWithinCurrentPageEndDwellSlop(touchX, touchY);
+      const bool touchedWord = !keepPageEnd && selectWordAtPoint(touchX, touchY);
       // Releasing on the final word finishes there. Holding it for a moment
       // is the explicit intent to continue the clipping onto the next page.
       const int nextPageStart = ClipSelectionPaging::nextPageStartIndexForTouchDrag(
