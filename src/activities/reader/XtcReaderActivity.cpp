@@ -27,6 +27,7 @@
 #include "ReaderExitSave.h"
 #include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
+#include "ReadingSessionStats.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
@@ -667,6 +668,9 @@ void XtcReaderActivity::syncStatsTrackingState() {
   const bool active = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
   if (active == statsTrackingActive) return;
   if (statsTrackingActive) {  // active differs, so tracking is turning off
+    recordCurrentPageReadingTime("session_commit");
+    commitReadingSession(stats, globalStats, sessionReadingSeconds,
+                         hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
     pendingStatsCommit = true;
     if (stats.save(xtc->getCachePath())) {
       globalStats.save();
@@ -823,23 +827,12 @@ void XtcReaderActivity::commitReadingStats() {
   if (!xtc) {
     return;
   }
-  if (statsTrackingActive) recordCurrentPageReadingTime("reader_exit");
-  const uint32_t elapsedSecs = sessionReadingSeconds;
-  if (statsTrackingActive && elapsedSecs >= 60) {
-    stats.sessionCount++;
-    globalStats.totalSessions++;
+  if (statsTrackingActive) {
+    recordCurrentPageReadingTime("reader_exit");
+    commitReadingSession(stats, globalStats, sessionReadingSeconds,
+                         hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
   }
-  if (statsTrackingActive && elapsedSecs >= 10) {
-    stats.totalReadingSeconds += elapsedSecs;
-    globalStats.totalReadingSeconds += elapsedSecs;
-    if (hasSessionStartLocalDateTime) {
-      stats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
-      globalStats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
-    }
-    if (elapsedSecs >= 120 && !stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime) {
-      stats.startDate = sessionStartLocalDateTime.date;
-    }
-  }
+  sessionReadingSeconds = 0;
   // Written at the next flush point, as the EPUB reader's are (ReaderExitSave).
   if (statsTrackingActive || paceDirty || pendingStatsCommit) {
     ReaderExitSave::queue(xtc->getCachePath(), &stats,
@@ -925,8 +918,10 @@ std::unique_ptr<Activity> XtcReaderActivity::createFrontlightReadingStatsActivit
 }
 
 void XtcReaderActivity::onFrontlightPanelClosed() {
-  globalStats = GlobalReadingStats::load();
-  stats = xtc ? BookReadingStats::load(xtc->getCachePath()) : stats;
+  // Keep live counters: the drawer stats screen may have saved a preview that
+  // already includes the pending session.
+  if (xtc) importBookStatsEdits(stats, BookReadingStats::load(xtc->getCachePath()));
+  refreshGlobalStatsAfterOverlay(globalStats, globalStatsResetRevisionAtPanelOpen);
   resumeReadingStatsTimer("frontlight_panel_return");
   requestUpdate();
 }
@@ -967,8 +962,10 @@ void XtcReaderActivity::openReadingStats() {
     return;
   }
   startActivityForResult(std::move(bookStats), [this](const ActivityResult&) {
-    if (xtc) stats = BookReadingStats::load(xtc->getCachePath());
-    globalStats = GlobalReadingStats::load();
+    // The stats screen saves a preview that includes the pending session, so
+    // keep live counters and import only edits.
+    if (xtc) importBookStatsEdits(stats, BookReadingStats::load(xtc->getCachePath()));
+    globalStats.completedBooks = GlobalReadingStats::load().completedBooks;
     resumeReadingStatsTimer("book_stats_return");
     requestUpdate();
   });

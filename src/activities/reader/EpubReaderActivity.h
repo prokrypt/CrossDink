@@ -228,6 +228,11 @@ class EpubReaderActivity final : public Activity {
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
   void syncStatsTrackingState();
+  void commitReadingStatsSession();
+  uint32_t globalStatsResetRevisionAtPanelOpen = 0;
+  uint32_t ttfRenderGenerationAtPanelOpen = 0;
+  bool pendingTtfRenderRelayout = false;
+  void relayoutAfterTtfRenderChange();
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
