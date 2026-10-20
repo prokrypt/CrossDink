@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "./FileBrowserActivity.h"
+#include "CrossPointSettings.h"
 #include "QuickActions.h"
 #include "activities/Activity.h"
 #include "activities/home/RecentBookProgress.h"
@@ -102,6 +103,9 @@ class HomeActivity final : public Activity {
   bool carouselFramesReady = false;
   bool carouselFramesInverted = false;
   bool carouselWarmupPending = false;
+  uint8_t themeBeforeFrontlightPanel = 0;
+  uint8_t scaleBeforeFrontlightPanel = 0;
+  char themePackBeforeFrontlightPanel[sizeof(CrossPointSettings::uiThemePack)] = {};
 
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
@@ -213,6 +217,7 @@ class HomeActivity final : public Activity {
   std::string getCurrentBookPath() const override;
   std::string getCurrentBookTitle() const override;
   std::unique_ptr<Activity> createFrontlightReadingStatsActivity() override;
+  void onFrontlightPanelOpened() override;
   void onFrontlightPanelClosed() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
   void onUserInput() override;
