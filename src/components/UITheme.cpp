@@ -17,6 +17,7 @@
 
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+#include "ThemePack.h"
 #include "components/themes/BaseTheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
@@ -62,7 +63,8 @@ UITheme::UITheme() : currentMetrics(&LyraMetrics::values), currentTheme(std::mak
   // main.cpp reloads the saved theme after setup.
 }
 
-void UITheme::reload() {
+void UITheme::reload(const bool reloadThemePack) {
+  ThemePack::sync(reloadThemePack);  // an active pack sets SETTINGS.uiTheme to its base
   auto themeType = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
   setTheme(themeType);
 }
@@ -131,6 +133,8 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentMetrics = &BaseMetrics::values;
       break;
   }
+  currentMetrics = &themed(*currentMetrics);
+  ++themeGeneration;
   metricsValid = false;
 }
 

@@ -34,7 +34,7 @@ class HalPowerManager {
   // floor and lets tickless idle enter light sleep.
   esp_pm_lock_handle_t cpuFreqLock = nullptr;
   // Held only for the duration of an EPD busy-wait (see beginDisplayBusyWait),
-  // so tickless idle can never light-sleep mid-refresh.
+  // so tickless idle can never light-sleep mid-refresh, unless refreshLightSleep.
   esp_pm_lock_handle_t displayPmLock = nullptr;
   // cpuFreqLock is wanted while the device is active, except during an EPD
   // busy-wait, where the CPU only waits on the panel and can idle at the DFS
@@ -89,8 +89,8 @@ class HalPowerManager {
   // lock creation failed.
   void beginDisplayBusyWait();
   void endDisplayBusyWait();
-  // Trial (keyboard kbd-exp bit 128): busy-waits skip the no-light-sleep lock,
-  // and HalDisplay's slice hook sleeps the task in 10 ms steps, so tickless
+  // Busy-waits skip the no-light-sleep lock, and HalDisplay's slice hook blocks
+  // the task until a BUSY level interrupt (also a light-sleep wake), so tickless
   // idle can light-sleep through the waveform. Set between refreshes.
   void setRefreshLightSleep(bool allowed) { refreshLightSleep = allowed; }
   bool refreshLightSleepAllowed() const { return refreshLightSleep; }
@@ -119,7 +119,7 @@ class HalPowerManager {
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the lockCount
-  void startDeepSleep(HalGPIO& gpio) const;
+  void startDeepSleep(HalGPIO& gpio, bool fullWake = false) const;
   // The sleep-entry step in progress, for main.cpp's stuck-sleep guard log.
   static inline const char* volatile sleepStep = "";
   // Also wake from deep sleep when the charger STAT pin changes (charge start or

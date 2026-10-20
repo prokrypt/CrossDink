@@ -30,8 +30,11 @@ class UITheme {
   static int drawCenteredWrappedTextAtCenter(const GfxRenderer& renderer, Rect screen, int fontId, int y,
                                              const char* text, int maxLines, bool black = true,
                                              EpdFontFamily::Style style = EpdFontFamily::REGULAR, int lineSpacing = 0);
-  void reload();
+  // reloadThemePack re-reads the SD theme pack even when its name did not change.
+  void reload(bool reloadThemePack = false);
   void setTheme(CrossPointSettings::UI_THEME type);
+  // Bumped by every setTheme(), so cached theme tokens know to rebuild.
+  uint16_t generation() const { return themeGeneration; }
   static bool supportsCoverGrid();
   static bool hasCoverGridHome();
   static int getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
@@ -65,6 +68,7 @@ class UITheme {
   mutable ThemeMetrics adjustedMetrics;
   mutable bool metricsValid = false;
   mutable bool metricsForTouch = false;
+  uint16_t themeGeneration = 0;
 };
 
 // Helper macro to access current theme

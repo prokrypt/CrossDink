@@ -16,6 +16,7 @@
 #include "OpdsServerStore.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 /**
@@ -44,7 +45,7 @@ class OpdsBookBrowserActivity final : public Activity {
   // routes touch snapshots, and dispatches row/search actions to the static
   // handlers below. 24 interaction slots cover the densest page (Small scale,
   // ~12 rows) plus the header's search button, with headroom.
-  using UiApp = freeink::ui::FreeInkApp<24, 4>;
+  using UiApp = UiAppList;
 
   ButtonNavigator buttonNavigator;
   BrowserState state = BrowserState::LOADING;
@@ -103,6 +104,7 @@ class OpdsBookBrowserActivity final : public Activity {
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
   // Picked from the server list: Back at the root returns there, not Home.
   const bool fromServerList;
+  bool leavingToList = false;  // Back to the server list: onExit hands the page cache over
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;

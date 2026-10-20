@@ -7,6 +7,7 @@
 #include <LibraryBuilder.h>
 #include <SdCardFontSystem.h>
 
+#include "HeldWrites.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "components/TouchHeaderBackButton.h"
@@ -67,7 +68,10 @@ void UsbDriveActivity::onExit() {
   transferLight.end();  // restores the user's brightness
   library::invalidateLibraryIndex();
 #ifndef SIMULATOR
-  if (!restartRequested) Storage.endUsbDrive();
+  if (!restartRequested) {
+    Storage.endUsbDrive();
+    HeldWrites::setWriteThrough(HeldWrites::ServesFiles, false);  // left without the restart
+  }
   Epub::forgetCacheKeys();  // the host may have replaced books
 #endif
   Activity::onExit();

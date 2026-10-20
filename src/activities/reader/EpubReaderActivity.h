@@ -443,9 +443,21 @@ class EpubReaderActivity final : public Activity {
     std::atomic<bool> redraw{false};  // worker -> loop: caches ready, draw the page again
   };
   ImageCacheWorker imageCacheWorker;
-  // Render task: true when the page's missing image caches are (still) being
-  // built in the background and the page should draw placeholders for now.
-  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop);
+  // Render task (or loop under RenderLock): true when the missing image caches
+  // of `pageIndex` are (still) being built in the background and that page
+  // should draw placeholders for now.
+  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop, int pageIndex);
+  // Idle: starts the worker on the next page (previous after a back turn;
+  // both after an open or a jump) so turning onto it draws its images at once.
+  // Same section only.
+  void prefetchImageCaches();
+  const Section* imagePrefetchAnchorSection = nullptr;  // the page the tried bits belong to
+  int imagePrefetchAnchorSpine = -1;
+  int imagePrefetchAnchorPage = -1;
+  uint8_t imagePrefetchTried = 0;  // 1: next page, 2: previous page
+  bool lastTurnBackward = false;
+  int turnFromSpine = -1;  // where the last page turn started
+  int turnFromPage = -1;
   static void imageCacheWorkerMain(void* param);
   // Joins a finished job (all of it when cancel), applying its failures.
   // False while it still runs. Render task or onExit.
@@ -537,6 +549,8 @@ class EpubReaderActivity final : public Activity {
   static constexpr int NEXT_SECTION_BUILD_PAGES_LEFT = 2;
   // Its HTML inflate holds RenderLock in one piece, so start it only once the page has sat a while.
   static constexpr unsigned long NEXT_SECTION_BUILD_IDLE_MS = 1500;
+  // Pages past the current one built before the deferred font prewarm runs.
+  static constexpr int BACKGROUND_PREWARM_PAGES_AHEAD = 2;
   // Show the indexing popup when an initial build must lay out more than this many pages up front
   // (a deep resume/jump into a not-yet-built section), so it isn't a silent wait. Kept independent
   // of the background build so ordinary landings stay popup-free.
@@ -560,9 +574,10 @@ class EpubReaderActivity final : public Activity {
   // position cannot overwrite the reader's. Set allowDuringFootnotePreview for the
   // deliberate on-exit save of the pre-footnote origin, which is the position the
   // suppression exists to protect.
-  bool saveProgress(int spineIndex, int currentPage, int pageCount, bool allowDuringFootnotePreview = false);
+  bool saveProgress(int spineIndex, int currentPage, int pageCount, bool allowDuringFootnotePreview = false,
+                    bool hold = false);
   bool queueProgressSave(int spineIndex, int currentPage, int pageCount, bool forceSave = false);
-  bool flushQueuedProgress();
+  bool flushQueuedProgress(bool hold = false);
   bool saveFootnoteOriginProgress();
   // Saves the position now, the way onExit() does (the link origin while in a
   // footnote). Used before handing off to anything that can silently restart
@@ -736,10 +751,12 @@ class EpubReaderActivity final : public Activity {
   void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }
-  bool flushProgressForSync() override {
+  bool flushProgressForSync() override;
+  bool flushHeldProgress() override {
     if (!epub) return false;
+    const bool pending = progressSaveDebouncer.hasPending() || footnoteDepth > 0;
     saveProgressBeforeRestart();
-    return true;
+    return pending;
   }
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }
   bool blocksGlobalInput() const override { return quickActionsPopup.isActive(); }

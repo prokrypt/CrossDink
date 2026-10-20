@@ -1,5 +1,9 @@
 #include "I18n.h"
 
+#include <Logging.h>
+#include <PackedAsset.h>
+
+#include <atomic>
 #include <cstddef>
 #include <cstring>
 
@@ -15,6 +19,42 @@ bool isBuiltinLanguage(const Language language) {
   }
   return false;
 }
+
+// English lives raw in flash; other languages are inflated from their pack
+// into PSRAM when selected (~10-24 KB each instead of ~440 KB in flash).
+constexpr LangStrings kEnglish{STRINGS_EN_DATA, OFFSETS_EN};
+
+// get() can run on the render task while setLanguage() runs on the main loop,
+// so the active table is published as one pointer. The LangStrings header sits
+// at the front of each pack buffer, so the pointer and its data swap together.
+std::atomic<const LangStrings*> activeStrings{&kEnglish};
+
+// The previous pack outlives one more switch: a tr() pointer fetched just
+// before a switch may still be drawn after it.
+HeapByteBuffer currentPack;
+HeapByteBuffer previousPack;
+
+// Header room in front of the inflated pack; keeps the uint16 offsets aligned.
+constexpr size_t kPackHeader = (sizeof(LangStrings) + 7) & ~size_t{7};
+
+const LangStrings* loadPack(const Language lang) {
+  const PackedLanguage& packed = PACKED_LANGUAGES[static_cast<size_t>(lang)];
+  if (!packed.data) return &kEnglish;
+  constexpr size_t offsetBytes = static_cast<size_t>(StrId::_COUNT) * sizeof(uint16_t);
+  if (packed.rawSize <= offsetBytes) {
+    LOG_ERR("I18N", "Language pack %u too small", unsigned(lang));
+    return nullptr;
+  }
+  HeapByteBuffer buf = inflatePackedAsset({packed.data, packed.packedSize, packed.rawSize}, "I18N",
+                                          PackedAssetFallback::PsramOnly, kPackHeader);
+  if (!buf) return nullptr;
+  auto* table = reinterpret_cast<LangStrings*>(buf.get());
+  table->offsets = reinterpret_cast<const uint16_t*>(buf.get() + kPackHeader);
+  table->data = reinterpret_cast<const char*>(buf.get() + kPackHeader + offsetBytes);
+  previousPack = std::move(currentPack);
+  currentPack = std::move(buf);
+  return table;
+}
 }  // namespace
 
 I18n& I18n::getInstance() {
@@ -28,13 +68,12 @@ const char* I18n::get(StrId id) const {
     return "???";
   }
 
-  // Use generated helper function - no hardcoded switch needed!
-  const LangStrings lang = getLanguageStrings(_language);
+  const LangStrings* lang = activeStrings.load(std::memory_order_acquire);
 
   // If bit 15 of the offset is set, apply the offset to the English lookup table
-  const uint16_t off = lang.offsets[index];
+  const uint16_t off = lang->offsets[index];
   if (off & 0x8000) return STRINGS_EN_DATA + (off & 0x7FFF);
-  return lang.data + off;
+  return lang->data + off;
 }
 
 void I18n::setLanguage(Language lang) {
@@ -43,7 +82,17 @@ void I18n::setLanguage(Language lang) {
   }
   // Keep persisted settings untouched, but make every runtime language-dependent
   // behavior agree with the English string fallback in reduced-language builds.
-  _language = isBuiltinLanguage(lang) ? lang : Language::EN;
+  Language effective = isBuiltinLanguage(lang) ? lang : Language::EN;
+  if (effective == _language && (effective == Language::EN || currentPack)) return;
+  const LangStrings* table = loadPack(effective);
+  if (!table) {
+    // Same English fallback as a reduced-language build.
+    LOG_ERR("I18N", "Language %u unavailable; using English", unsigned(effective));
+    effective = Language::EN;
+    table = &kEnglish;
+  }
+  activeStrings.store(table, std::memory_order_release);
+  _language = effective;
 }
 
 const char* I18n::getLanguageName(Language lang) const {

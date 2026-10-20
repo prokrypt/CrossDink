@@ -20,7 +20,7 @@ class ButtonRemapActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  using UiHost = UiAppHost<4, 1>;
+  using UiHost = UiAppHost<kUiSmallInteractions, kUiSmallHandlers>;
   using UiApp = UiHost::App;
 
   bool readerMode;

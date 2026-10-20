@@ -32,6 +32,7 @@
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
 #include "fontIds.h"
 #include "network/WifiUtils.h"
 #include "util/WorkerTask.h"
@@ -170,6 +171,8 @@ bool KOReaderSyncActivity::ensureLocalProgressLoaded() {
                                                       ? PositionCoordinateSpace::SourceDocument
                                                       : PositionCoordinateSpace::CurrentDocument;
   localProgress = ProgressMapper::toKOReader(epub, localPos, coordinateSpace);
+  localCachePath = epub->getCachePath();
+  localBp = RecentBookProgress::basisPoints(*epub, currentSpineIndex, currentPage, totalPagesInSpine);
   const int tocIdx = epub->getTocIndexForSpineIndex(currentSpineIndex);
   localChapterName = tocIdx >= 0 ? epub->getTocItem(tocIdx).title : "";
   localProgressDeferred = false;
@@ -197,6 +200,9 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
     return;
   }
   RecentBookProgress::saveCachedEpubPercent(*epub, position.spineIndex, position.pageNumber, pageCount);
+  RecentBookProgress::noteSynced(
+      epub->getCachePath(), RecentBookProgress::basisPoints(*epub, position.spineIndex, position.pageNumber, pageCount),
+      false);
   returnToReader();
 }
 
@@ -315,6 +321,7 @@ void KOReaderSyncActivity::logSyncTiming() {
 void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
 
 void KOReaderSyncActivity::completeAlreadySynced() {
+  RecentBookProgress::noteSynced(localCachePath, localBp, false);
   {
     RenderLock lock(*this);
     state = SYNC_COMPLETE;
@@ -664,6 +671,7 @@ void KOReaderSyncActivity::finishUpload() {
     return;
   }
 
+  RecentBookProgress::noteSynced(localCachePath, localBp, false);
   {
     RenderLock lock(*this);
     state = UPLOAD_COMPLETE;
@@ -846,13 +854,19 @@ void KOReaderSyncActivity::render(RenderLock&&) {
       for (int option = 0; option < 2; ++option) {
         const Rect& button = actions.buttons[option];
         const bool selected = selectedOption == option;
-        if (selected) {
+        const bool filled = selected && !uiGraySelection();
+        if (filled) {
           renderer.fillRect(button.x, button.y, button.width, button.height);
         }
         renderer.drawRect(button.x, button.y, button.width, button.height, true);
+        // Lyra: dotted outline inside the border instead of a black fill.
+        if (selected && !filled) {
+          renderer.drawRoundedRect(button.x + 2, button.y + 2, button.width - 4, button.height - 4, 2, 0,
+                                   Color::DarkGray);
+        }
         const int textX = button.x + (button.width - renderer.getTextWidth(UI_10_FONT_ID, actionLabels[option])) / 2;
         const int textY = button.y + (button.height - lineHeight) / 2;
-        renderer.drawText(UI_10_FONT_ID, textX, textY, actionLabels[option], !selected);
+        renderer.drawText(UI_10_FONT_ID, textX, textY, actionLabels[option], !filled);
       }
     }
 

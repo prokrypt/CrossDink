@@ -16,10 +16,11 @@
 
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
+#include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
-#include "components/icons/cover.h"
 #include "components/icons/readingStatsIcons.h"
 #include "fontIds.h"
 
@@ -180,7 +181,7 @@ void registerCoverTarget(int bookIdx, Rect rect, int bookCount, int* registeredI
   for (int i = 0; i < registeredCount; ++i) {
     if (registeredIds[i] == bookIdx) return;
   }
-  if (registeredCount < LyraCarouselMetrics::values.homeRecentBooksCount) {
+  if (registeredCount < themed(LyraCarouselMetrics::values).homeRecentBooksCount) {
     registeredIds[registeredCount++] = bookIdx;
   }
   TouchRegistry::getInstance().add(rect, bookIdx, TouchRegistry::Cover);
@@ -261,16 +262,6 @@ void drawPerspectiveOutline(const GfxRenderer& renderer, int x, int y, int width
   renderer.fillRect(x, y + maxHeight + 1, width, 2, false);
 }
 
-void fillPerspectiveSilhouette(const GfxRenderer& renderer, int x, int y, int width, int leftHeight, int rightHeight) {
-  const int maxHeight = std::max(leftHeight, rightHeight);
-  renderer.fillRect(x, y, width, maxHeight, false);
-  for (int dx = 0; dx < width; ++dx) {
-    const int columnHeight = (width <= 1) ? leftHeight : (leftHeight + ((rightHeight - leftHeight) * dx) / (width - 1));
-    const int top = y + (maxHeight - columnHeight) / 2;
-    renderer.fillRect(x + dx, top, 1, columnHeight, true);
-  }
-}
-
 void formatCompactReadingTime(uint32_t seconds, char* buf, size_t len) {
   if (seconds < 60) {
     snprintf(buf, len, "%s", tr(STR_STATS_LESS_THAN_MIN));
@@ -293,7 +284,7 @@ void formatCompactReadingTime(uint32_t seconds, char* buf, size_t len) {
 // ---------------------------------------------------------------------------
 void LyraCarouselTheme::setPreRenderIndex(int idx) {
   lastCarouselSelectorIndex.store(idx, std::memory_order_relaxed);
-  if (idx >= 0 && idx < LyraCarouselMetrics::values.homeRecentBooksCount) {
+  if (idx >= 0 && idx < themed(LyraCarouselMetrics::values).homeRecentBooksCount) {
     const Rect cachedRect = cachedCenterCoverRects[idx];
     if (cachedRect.width > 0 && cachedRect.height > 0) lastCenterCoverRect = cachedRect;
   }
@@ -306,7 +297,7 @@ void LyraCarouselTheme::drawCarouselBorder(GfxRenderer& renderer, Rect coverRect
   if (!inCarouselRow) return;
   Rect borderRect = shrinkCenterCoverRect(computeCenterCoverSlotRect(renderer, coverRect, recentBooks));
   renderer.drawRoundedRect(borderRect.x, borderRect.y, borderRect.width, borderRect.height, kSelectionLineW,
-                           kCornerRadius, true);
+                           kCornerRadius, Color::DarkGray);
 }
 
 // ---------------------------------------------------------------------------
@@ -413,31 +404,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     renderer.fillRect(outRect.x - kCenterOutlineW, outRect.y - kCenterOutlineW, outRect.width + 2 * kCenterOutlineW,
                       outRect.height + 2 * kCenterOutlineW, false);
     renderer.drawRoundedRect(outRect.x, outRect.y, outRect.width, outRect.height, 1, kCornerRadius, true);
-    renderer.fillRoundedRect(outRect.x, outRect.y + outRect.height / 3, outRect.width, 2 * outRect.height / 3,
-                             kCornerRadius, /*roundTopLeft=*/false, /*roundTopRight=*/false,
-                             /*roundBottomLeft=*/true, /*roundBottomRight=*/true, Color::Black);
-    constexpr int kFallbackTitlePadX = 14;
-    constexpr int kFallbackTitlePadBottom = 14;
-    constexpr int kFallbackIconGap = 10;
-    const int iconX = outRect.x + outRect.width / 2 - 16;
-    const int iconY = outRect.y + outRect.height / 3 + 14;
-    renderer.drawIcon(CoverIcon, iconX, iconY, 32, 32);
-
-    const int fallbackTitleY = iconY + 32 + kFallbackIconGap;
-    const int fallbackTitleW = outRect.width - kFallbackTitlePadX * 2;
-    const int fallbackTitleH = outRect.y + outRect.height - kFallbackTitlePadBottom - fallbackTitleY;
-    const int fallbackLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-    const int maxFallbackLines = std::clamp(fallbackTitleH / std::max(1, fallbackLineHeight), 1, 4);
-    const auto fallbackTitleLines =
-        renderer.wrappedText(UI_10_FONT_ID, book.title.c_str(), fallbackTitleW, maxFallbackLines, EpdFontFamily::BOLD);
-    const int fallbackBlockH = fallbackLineHeight * static_cast<int>(fallbackTitleLines.size());
-    int fallbackLineY = fallbackTitleY + std::max(0, (fallbackTitleH - fallbackBlockH) / 2);
-    for (const auto& line : fallbackTitleLines) {
-      const int lineW = renderer.getTextWidth(UI_10_FONT_ID, line.c_str(), EpdFontFamily::BOLD);
-      renderer.drawText(UI_10_FONT_ID, outRect.x + (outRect.width - lineW) / 2, fallbackLineY, line.c_str(), false,
-                        EpdFontFamily::BOLD);
-      fallbackLineY += fallbackLineHeight;
-    }
+    NoCoverPlaceholder::draw(renderer, outRect.x, outRect.y, outRect.width, outRect.height, book);
     return false;
   };
 
@@ -463,9 +430,10 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
       }
     }
 
-    fillPerspectiveSilhouette(renderer, x, sideTileY, width, leftHeight, rightHeight);
+    renderer.fillRect(x, sideTileY, width, std::max(leftHeight, rightHeight), false);
     renderer.maskRoundedRectOutsideCorners(x, sideTileY, width, std::max(leftHeight, rightHeight), kSideCornerRadius,
                                            Color::White);
+    drawPerspectiveOutline(renderer, x, sideTileY, width, leftHeight, rightHeight);
     return false;
   };
 
@@ -490,7 +458,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     Rect centerCoverRect{};
     drawCenterCover(centerIdx, centerCoverRect);
     lastCenterCoverRect = centerCoverRect;
-    if (centerIdx >= 0 && centerIdx < LyraCarouselMetrics::values.homeRecentBooksCount) {
+    if (centerIdx >= 0 && centerIdx < themed(LyraCarouselMetrics::values).homeRecentBooksCount) {
       cachedCenterCoverRects[centerIdx] = centerCoverRect;
     }
 
@@ -523,7 +491,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     const bool hasStats = (stats != nullptr && stats->sessionCount > 0);
     const bool hasProgress = progressPercent >= 0.0f;
     int infoY = dotsY + kDotSize + kFooterTopGap;
-    const int footerMaxWidth = std::max(0, screenW - 2 * LyraCarouselMetrics::values.contentSidePadding);
+    const int footerMaxWidth = std::max(0, screenW - 2 * themed(LyraCarouselMetrics::values).contentSidePadding);
     const int footerWidth = std::min(footerMaxWidth, centerCoverRect.width);
     const int footerX = centerCoverRect.x + (centerCoverRect.width - footerWidth) / 2;
 
@@ -548,6 +516,8 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
       const int progressLabelY = progressBarY + kFooterProgressBarHeight + kFooterPercentTopGap;
       renderer.drawText(footerLabelFontId, footerX + footerWidth - progressLabelW, progressLabelY, progressLabel, true,
                         EpdFontFamily::REGULAR);
+      KOSyncBadge::drawAt(renderer, footerX + footerWidth - progressLabelW - KOSyncBadge::GAP - KOSyncBadge::SIZE,
+                          progressLabelY, footerLabelLineHeight);
     }
 
     coverBufferStored = storeCoverBuffer();
@@ -557,11 +527,12 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
   }
 
   // Always outline the centre cover at its own edge (white ring sits outside the black line);
-  // thicker when the carousel row is active
+  // thicker and 50% gray (selection box) when the carousel row is active
   registerCarouselCoverTouchTargets(renderer, rect, recentBooks, centerIdx);
   const int outlineW = inCarouselRow ? kSelectionLineW : kThinOutlineW;
   renderer.drawRoundedRect(lastCenterCoverRect.x, lastCenterCoverRect.y, lastCenterCoverRect.width,
-                           lastCenterCoverRect.height, outlineW, kCornerRadius, true);
+                           lastCenterCoverRect.height, outlineW, kCornerRadius,
+                           inCarouselRow ? Color::DarkGray : Color::Black);
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +655,6 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
                                  const std::function<bool(int index)>& isHeader, const int rowHeightScale,
                                  const bool showSelection) const {
   drawListWithMetrics(renderer, rect, itemCount, selectedIndex, rowTitle, rowSubtitle, rowIcon, rowValue,
-                      highlightValue, rowDimmed, isHeader, LyraCarouselMetrics::values, true, rowHeightScale,
+                      highlightValue, rowDimmed, isHeader, LyraCarouselMetrics::values, false, rowHeightScale,
                       showSelection);
 }

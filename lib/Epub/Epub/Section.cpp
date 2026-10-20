@@ -54,6 +54,18 @@ constexpr uint32_t HEADER_SIZE =
     sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
+// Pages are many small writes; collecting them lets whole sectors reach the card as
+// multi-block transfers. 8 KB = two of the SDMMC driver's 8-sector bounce transfers
+// (PSRAM on S3: plain allocations over 1 KB try PSRAM first).
+constexpr size_t SECTION_WRITE_BUFFER_BYTES = 8192;
+
+void enableBuildFileBuffer(FsFile& file) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  file.enableWriteBuffer(SECTION_WRITE_BUFFER_BYTES);
+#else
+  (void)file;  // the simulator and test HALs write straight through
+#endif
+}
 
 void prepareSectionZipInflate(GfxRenderer& renderer, const int fontId) {
   if (ESP.getMaxAllocHeap() < InflateStream::requiredInternalStorageSize(true) && renderer.isSdCardFont(fontId)) {
@@ -199,6 +211,7 @@ bool Section::ensureBuildFileOpen() {
     LOG_ERR("SCT", "Failed to reopen section temp file");
     return false;
   }
+  enableBuildFileBuffer(file);
   if (!file.seek(file.size())) {
     LOG_ERR("SCT", "Failed to seek section temp file");
     file.close();
@@ -345,7 +358,16 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.guideReadingEnabled != fileGuideReadingEnabled || spec.wordSpacing != fileWordSpacing ||
         static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
       file.close();
-      LOG_INF("SCT", "Section cache params changed, rebuilding");
+      LOG_INF("SCT",
+              "Section cache params changed, rebuilding: font %d/%d lc %.3f/%.3f vp %ux%u/%ux%u para %d/%d ind %d/%d "
+              "align %u/%u hyph %d/%d style %d/%d img %u/%u focus %d/%d guide %d/%d ws %u/%u mode %u/%u",
+              fileFontId, spec.fontId, fileLineCompression, spec.lineCompression, fileViewportWidth, fileViewportHeight,
+              spec.viewportWidth, spec.viewportHeight, fileExtraParagraphSpacing, spec.extraParagraphSpacing,
+              fileForceParagraphIndents, spec.forceParagraphIndents, fileParagraphAlignment, spec.paragraphAlignment,
+              fileHyphenationEnabled, spec.hyphenationEnabled, fileEmbeddedStyle, spec.embeddedStyle,
+              fileImageRendering, spec.imageRendering, fileFocusReadingEnabled, spec.focusReadingEnabled,
+              fileGuideReadingEnabled, spec.guideReadingEnabled, fileWordSpacing, spec.wordSpacing, fileRenderMode,
+              static_cast<uint8_t>(spec.renderMode));
       clearCache();
       return false;
     }
@@ -604,6 +626,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     cleanupTempHtml();
     return false;
   }
+  enableBuildFileBuffer(file);
   ReaderRenderSpec effectiveSpec = spec;
   effectiveSpec.focusReadingEnabled = effectiveFocusReadingEnabled;
   effectiveSpec.guideReadingEnabled = effectiveGuideReadingEnabled;
@@ -936,6 +959,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
     cleanupTempHtml();
     return false;
   }
+  enableBuildFileBuffer(file);
   if (!writeSectionFileHeader(spec)) {
     LOG_ERR("SCT", "Failed to write section header");
     file.close();
@@ -1041,6 +1065,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   ctx->startedMs = buildStartedMs;
   build_ = std::move(ctx);
+  build_->parser->setDeferAdvancePrewarm(buildOptions.deferAdvancePrewarm);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
@@ -1054,6 +1079,8 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   build_->totalBytes = build_->parser->parseTotalBytes();
   return true;
 }
+
+bool Section::prewarmSomeMore() { return build_ && build_->parser && build_->parser->prewarmSectionAdvanceStep(); }
 
 bool Section::buildSomeMore(const int maxPages) {
   if (!build_ || !build_->parser) {

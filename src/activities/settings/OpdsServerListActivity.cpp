@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "OpdsSettingsActivity.h"
+#include "SilentRestart.h"
 #include "activities/ActivityManager.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/TouchHeaderBackButton.h"
@@ -84,6 +85,20 @@ void OpdsServerListActivity::onEnter() {
   if (pickerMode) {
     wifi_background_join::start();
     rootsQueued = false;
+    // Back from a catalog: its page cache comes back with the roots already in it.
+    if (!pageCache) {
+      pageCache = opds_page_cache_handoff::take();
+      fromBrowser = pageCache != nullptr;
+    }
+    if (pageCache) {
+      // Marks for roots already cached show on the first frame, not after the pool.
+      pageCachedAt = pageCache->changes();
+      rootCached.reset();
+      const auto& servers = OPDS_STORE.getServers();
+      for (size_t i = 0; i < servers.size() && i < rootCached.size(); ++i) {
+        if (pageCache->contains(UrlUtils::buildUrl(servers[i].url, ""))) rootCached.set(i);
+      }
+    }
     if (!pageCache && psramHeapAvailable()) {
       const size_t budget = std::min(OPDS_PAGE_CACHE_MAX_BYTES, byteHeapSnapshot(MemoryPool::Psram).free / 4);
       pageCache = makeUniqueNoThrow<OpdsPageCache>(budget);
@@ -103,9 +118,10 @@ void OpdsServerListActivity::onEnter() {
 // land mark their rows; a server that fails just stays unmarked.
 void OpdsServerListActivity::pumpPrefetch() {
 #ifndef SIMULATOR
-  if (!preload || !hasActiveStationWifiConnection()) return;
+  if (!preload) return;
   const auto& servers = OPDS_STORE.getServers();
-  if (!rootsQueued) {
+  // Marks for cached roots show with or without Wi-Fi; only fetching needs it.
+  if (hasActiveStationWifiConnection() && !rootsQueued) {
     rootsQueued = true;
     for (const auto& server : servers) {
       if (server.url.empty()) continue;
@@ -113,7 +129,7 @@ void OpdsServerListActivity::pumpPrefetch() {
                        UrlUtils::ensureProtocol(server.url));
     }
   }
-  preload->pump();
+  if (hasActiveStationWifiConnection()) preload->pump();
   if (pageCache->changes() != pageCachedAt) {
     pageCachedAt = pageCache->changes();
     std::bitset<OpdsServerStore::MAX_SERVERS> cached;
@@ -140,12 +156,24 @@ void OpdsServerListActivity::onExit() {
   Activity::onExit();
   preload.reset();  // joins a fetch in flight before the cache goes
   if (pickerMode && leavingToBrowser) {
-    opds_page_cache_handoff::give(std::move(pageCache));
+    const auto* server = OPDS_STORE.getServer(static_cast<uint32_t>(selectedIndex));
+    opds_page_cache_handoff::give(std::move(pageCache), server ? UrlUtils::buildUrl(server->url, "") : std::string());
   } else {
     pageCache.reset();
   }
-  // Back to Home or into the server editor: the link is not needed any more.
-  if (pickerMode && !leavingToBrowser) wifi_background_join::stop();
+  // Back to Home: the link is not needed any more.
+  if (pickerMode && !leavingToBrowser) {
+#ifndef SIMULATOR
+    if (fromBrowser) {
+      // The browser kept the link past its own exit check: take it down the
+      // way that exit would have, with the heap check for Home.
+      wifi_background_join::wait();
+      leaveNetworkAfterExit({});
+      return;
+    }
+#endif
+    wifi_background_join::stop();
+  }
 }
 
 // Not while the join or a root-page fetch is running, as the browser's list.
@@ -218,6 +246,14 @@ void OpdsServerListActivity::handleSelection() {
     // Picker mode: select a server or add the first one without leaving the flow.
     if (selectedIndex < serverCount) {
       leavingToBrowser = true;
+      // onExit's reset cancels every fetch, so let this server's root page land
+      // in the handed-off cache instead of being fetched again by the browser.
+      if (preload) {
+        const unsigned long joinStart = millis();
+        const auto& server = OPDS_STORE.getServers()[selectedIndex];
+        if (preload->pause(UrlUtils::buildUrl(server.url, "")))
+          LOG_INF("OPDS", "Waited %lu ms for background fetch", millis() - joinStart);
+      }
       activityManager.goToOpdsServer(static_cast<uint32_t>(selectedIndex), false, true);
     } else {
       auto editor = makeUniqueNoThrow<OpdsSettingsActivity>(renderer, mappedInput, -1);

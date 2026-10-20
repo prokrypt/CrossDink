@@ -13,6 +13,7 @@
 
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class FileBrowserActivity final : public Activity {
@@ -23,13 +24,12 @@ class FileBrowserActivity final : public Activity {
  private:
   // FreeInkApp hosts the file list (themed rows, icons, touch routing); the
   // header stays on GUI.drawHeader for the battery indicator.
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
 
   // Deletion
   void promptDeleteFile(const std::string& fullPath, const std::string& entry);
-  void promptDeleteDirectory(const std::string& fullPath, const std::string& entry,
-                             bool ignoreInitialConfirmRelease = false);
-  void showDirectoryActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
+  void promptDeleteDirectory(const std::string& fullPath, const std::string& entry);
+  void showDirectoryActionMenu(const std::string& entry);
   void pinSleepFavorite(const std::string& fullPath);
   void unpinSleepFavorite();
   static bool isPinnedSleepFavorite(const std::string& fullPath);
@@ -39,7 +39,7 @@ class FileBrowserActivity final : public Activity {
   void pinBootFavorite(const std::string& fullPath);
   void unpinBootFavorite();
   static bool isPinnedBootFavorite(const std::string& fullPath);
-  void showFileActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
+  void showFileActionMenu(const std::string& entry);
   void startRenameFile(const std::string& fullPath, const std::string& entry);
   void renameFile(const std::string& oldPath, const std::string& oldEntry, const std::string& newStem,
                   const std::string& extension);

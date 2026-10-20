@@ -12,6 +12,7 @@
 #include "SdCardFont.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -130,7 +131,7 @@ class FontDownloadActivity : public Activity {
 
   // FreeInkApp hosts the family list (themed rows, touch routing); the other
   // states keep their legacy centered-text rendering.
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget_;  // must precede `app_`: the app holds a reference to it
   UiApp app_;
   // render() rebuilds the app's interaction table; loop() only routes touch

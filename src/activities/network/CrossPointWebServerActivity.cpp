@@ -10,6 +10,7 @@
 
 #include <cstddef>
 
+#include "HeldWrites.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SdCardFontSystem.h"
@@ -18,6 +19,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/goodies/GoodiesActivity.h"
+#include "activities/home/RecentBookProgress.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -75,6 +77,7 @@ void CrossPointWebServerActivity::releaseFontsForNetwork() {
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
   BatteryLog::event("xfer_start", "file-transfer");
+  RecentBookProgress::flushSyncMarks();  // the computer sees the books' KOSync marks
   radioTaken = false;
   enteredUiTheme = SETTINGS.uiTheme;
   enteredUiScale = SETTINGS.uiScale;
@@ -116,7 +119,10 @@ void CrossPointWebServerActivity::onExit() {
 
   state = WebServerActivityState::SHUTTING_DOWN;
   // Picker left without a mode: the remote kept the radio and port 80.
-  if (!radioTaken && !networkBootReady) return;
+  if (!radioTaken && !networkBootReady) {
+    HeldWrites::setWriteThrough(HeldWrites::ServesFiles, false);
+    return;
+  }
 
   const bool wifiWasActive = WiFi.getMode() != WIFI_MODE_NULL;
 
@@ -125,6 +131,7 @@ void CrossPointWebServerActivity::onExit() {
 
   // Stop local services before disconnecting/restarting WiFi.
   stopWebServer();
+  HeldWrites::setWriteThrough(HeldWrites::ServesFiles, false);  // no computer reaches the card now
   MDNS.end();
   if (dnsServer) {
     dnsServer->stop();

@@ -45,8 +45,10 @@
 #include "TaskCores.h"
 #include "activities/library/LibraryPrewarm.h"
 #include "components/HomeCoverThumbs.h"
+#include "components/KOSyncBadge.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
+#include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
@@ -58,7 +60,7 @@ namespace {
 constexpr uint32_t CAROUSEL_CACHE_MAGIC = 0x43434152;  // "CCAR"
 // Cached frames include all Home visuals, including the menu icons. Bump this
 // whenever their rendering changes so stale snapshots are rebuilt after OTA.
-constexpr uint16_t CAROUSEL_CACHE_VERSION = 7;
+constexpr uint16_t CAROUSEL_CACHE_VERSION = 8;
 constexpr char CAROUSEL_CACHE_PATH[] = "/.crossdink/home_carousel_cache.bin";
 constexpr char CAROUSEL_CACHE_TMP_PATH[] = "/.crossdink/home_carousel_cache.tmp";
 constexpr uint32_t CAROUSEL_FRAME_MIN_FREE_AFTER_ALLOC = 64U * 1024U;
@@ -202,9 +204,18 @@ BookReadingStats loadRecentBookStats(const RecentBook& book) {
   return visibleRecentBookStats(book, BookReadingStats::load(getRecentBookCachePath(book)));
 }
 
-float loadRecentBookProgress(const RecentBook& book) {
-  return FsHelpers::hasEpubExtension(book.path) ? RecentBookProgress::loadCachedEpubPercent(book)
+float loadRecentBookProgress(const RecentBook& book, RecentBookProgress::SyncMark* mark = nullptr) {
+  return FsHelpers::hasEpubExtension(book.path) ? RecentBookProgress::loadCachedEpubPercent(book, mark)
                                                 : RecentBookProgress::loadPercent(book);
+}
+
+RecentBookProgress::SyncBadge homeSyncBadge(const RecentBook& book, const float progress,
+                                            const RecentBookProgress::SyncMark& mark) {
+  // Credentials first: the cache path costs a book tail read the first time.
+  if (!FsHelpers::hasEpubExtension(book.path) || !KOREADER_STORE.hasCredentials()) {
+    return RecentBookProgress::SyncBadge::None;
+  }
+  return RecentBookProgress::syncBadge(Epub::cachePathForFilePath(book.path, "/.crossdink"), progress, mark);
 }
 
 std::string loadEpubHighlightedChapterTitle(const RecentBook& book) {
@@ -368,6 +379,10 @@ bool isDashboardTheme() {
   return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::DASHBOARD;
 }
 
+bool isLyraExtendedTheme() {
+  return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_3_COVERS;
+}
+
 bool usesMinimalHomeInteraction() { return isMinimalTheme() || isDashboardTheme(); }
 
 bool showMinimalHomeButtonHints(const MappedInputManager& mappedInput) { return !mappedInput.hasTouch(); }
@@ -450,11 +465,13 @@ void appendCarouselCoverStateToKey(std::string& key, const RecentBook& book) {
   // reader exit, and each change rewrote the whole snapshot (books x 48 KB).
   const BookReadingStats stats = loadRecentBookStats(book);
   // ponytail: 0.01% steps; a 1 px bar change inside one step stays stale until the next.
-  const float progress = loadRecentBookProgress(book);
+  RecentBookProgress::SyncMark mark;
+  const float progress = loadRecentBookProgress(book, &mark);
   char shown[64];
-  snprintf(shown, sizeof(shown), "%.0f:%d:%d:%d:%lu", progress, static_cast<int>(progress * 100.0f),
+  snprintf(shown, sizeof(shown), "%.0f:%d:%d:%d:%lu:%d", progress, static_cast<int>(progress * 100.0f),
            hasAnyBookStats(stats) ? 1 : 0, stats.sessionCount > 0 ? 1 : 0,
-           static_cast<unsigned long>(stats.totalReadingSeconds / 60));
+           static_cast<unsigned long>(stats.totalReadingSeconds / 60),
+           static_cast<int>(homeSyncBadge(book, progress, mark)));
   key += shown;
   key += '\0';
 }
@@ -760,7 +777,7 @@ void HomeActivity::loadAllBookStats() {
   const int count = std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks);
   for (int i = 0; i < count; ++i) {
     cachedBookStats[i] = loadRecentBookStats(recentBooks[i]);
-    cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i]);
+    cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i], &cachedBookSyncMarks[i]);
   }
   bookStatsCached = true;
   LOG_DBG("HOME", "carousel: cached stats/progress for %d book(s) in %lums", count, millis() - start);
@@ -1033,6 +1050,11 @@ void HomeActivity::onEnter() {
   allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
   if (isCarouselTheme) {
     loadAllBookStats();
+  } else if (isLyraExtendedTheme()) {
+    // Every tile shows its % and KOSync badge: one small read per book, here instead of per draw.
+    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+      cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i], &cachedBookSyncMarks[i]);
+    }
   }
   updateHighlightedBookContext(false);
 
@@ -1057,6 +1079,10 @@ void HomeActivity::onEnter() {
       case HomeMenuItem::NONE:
         break;
     }
+    // The featured book's badge ignores the selection: keep its % and mark.
+    if (KOREADER_STORE.hasCredentials() && !recentBooks.empty()) {
+      cachedBookProgress[0] = loadRecentBookProgress(recentBooks[0], &cachedBookSyncMarks[0]);
+    }
     coverGridUi->begin(recentBooks, hasOpdsServers, gridHasContinueReading,
                        gridHasContinueReading ? loadRecentBookProgress(recentBooks.front()) : -1.0f);
   } else if (initialMenuItem != HomeMenuItem::NONE) {
@@ -1075,6 +1101,38 @@ void HomeActivity::onEnter() {
   }
 
   requestUpdate();
+}
+
+RecentBookProgress::SyncBadge HomeActivity::syncBadgeFor(const int idx) const {
+  if (idx < 0 || idx >= static_cast<int>(recentBooks.size())) return RecentBookProgress::SyncBadge::None;
+  if (!coverGridUi && idx == getHighlightedBookIndex()) {
+    return homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark);
+  }
+  // Cover Grid's featured book and Lyra Extended's others: loaded in onEnter().
+  if (idx >= kMaxCachedBooks) return RecentBookProgress::SyncBadge::None;
+  return homeSyncBadge(recentBooks[idx], cachedBookProgress[idx], cachedBookSyncMarks[idx]);
+}
+
+void HomeActivity::beginSyncBadge() {
+  // Cover Grid: the featured card is always the first book, whatever is selected.
+  syncBadgeBook = coverGridUi ? 0 : getHighlightedBookIndex();
+  syncBadgeShown = syncBadgeFor(syncBadgeBook);
+  if (isLyraExtendedTheme()) {
+    for (int i = 0; i < KOSyncBadge::HOME_SLOTS; ++i) KOSyncBadge::setHomeState(syncBadgeFor(i), i);
+  } else {
+    KOSyncBadge::setHomeState(syncBadgeShown);
+  }
+}
+
+void HomeActivity::endSyncBadge() { syncBadgeBox = KOSyncBadge::takeRect(isLyraExtendedTheme() ? syncBadgeBook : 0); }
+
+bool HomeActivity::repaintSyncBadge() {
+  if (syncBadgeBox.width == 0) return false;
+  const auto badge = syncBadgeFor(syncBadgeBook);
+  if (badge == syncBadgeShown) return false;
+  KOSyncBadge::repaint(renderer, syncBadgeBox, badge);
+  syncBadgeShown = badge;
+  return true;
 }
 
 int HomeActivity::getHighlightedBookIndex() const {
@@ -1198,6 +1256,7 @@ bool HomeActivity::handleFrontlightPanelResult(const FrontlightPanelResult& resu
 void HomeActivity::updateHighlightedBookContext(const bool allowChapterTitleRead) {
   currentBookStats = BookReadingStats{};
   currentBookProgressPercent = -1.0f;
+  currentBookSyncMark = {};
   currentBookChapterTitle.clear();
 
   const int idx = getHighlightedBookIndex();
@@ -1209,12 +1268,13 @@ void HomeActivity::updateHighlightedBookContext(const bool allowChapterTitleRead
     if (useCachedStats) {
       currentBookStats = visibleRecentBookStats(book, cachedBookStats[idx]);
       currentBookProgressPercent = cachedBookProgress[idx];
+      currentBookSyncMark = cachedBookSyncMarks[idx];
       if (allowChapterTitleRead && loadChapterTitle && isEpub) {
         currentBookChapterTitle = loadEpubHighlightedChapterTitle(book);
       }
     } else {
       currentBookStats = loadRecentBookStats(book);
-      currentBookProgressPercent = loadRecentBookProgress(book);
+      currentBookProgressPercent = loadRecentBookProgress(book, &currentBookSyncMark);
       if (isEpub && allowChapterTitleRead && loadChapterTitle) {
         currentBookChapterTitle = loadEpubHighlightedChapterTitle(book);
       }
@@ -1374,6 +1434,7 @@ void HomeActivity::renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingSt
   BookReadingStats frameStats;
   const BookReadingStats* frameStatsPtr = nullptr;
   float frameProgressPercent = -1.0f;
+  RecentBookProgress::SyncMark frameSyncMark;
   bool usedCachedStats = false;
 
   if (bookIdx >= 0 && bookIdx < bookCount) {
@@ -1381,11 +1442,13 @@ void HomeActivity::renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingSt
       usedCachedStats = true;
       frameStats = visibleRecentBookStats(recentBooks[bookIdx], cachedBookStats[bookIdx]);
       frameProgressPercent = cachedBookProgress[bookIdx];
+      frameSyncMark = cachedBookSyncMarks[bookIdx];
     } else {
       frameStats = loadRecentBookStats(recentBooks[bookIdx]);
-      frameProgressPercent = loadRecentBookProgress(recentBooks[bookIdx]);
+      frameProgressPercent = loadRecentBookProgress(recentBooks[bookIdx], &frameSyncMark);
     }
     if (hasAnyBookStats(frameStats)) frameStatsPtr = &frameStats;
+    KOSyncBadge::setHomeState(homeSyncBadge(recentBooks[bookIdx], frameProgressPercent, frameSyncMark));
   }
 
   LyraCarouselTheme::setPreRenderIndex(bookIdx);
@@ -1394,6 +1457,8 @@ void HomeActivity::renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingSt
   GUI.drawRecentBookCover(
       renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight}, recentBooks, bookCount, dummy1,
       dummy2, dummy3, []() { return true; }, frameStatsPtr, frameProgressPercent);
+  KOSyncBadge::setHomeState(RecentBookProgress::SyncBadge::None);
+  KOSyncBadge::takeRect();  // a cached frame: no toast-time repaint
 
   const bool frameHasReadingStats =
       SETTINGS.shouldTrackReadingStats() && (hasAnyBookStats(frameStats) || hasAnyGlobalStats(globalStats) ||
@@ -2398,6 +2463,7 @@ void HomeActivity::render(RenderLock&&) {
     applyCoverJobs();
   }
 
+  syncBadgeBox = Rect();  // set again only by a frame that draws the badge live
   if (quickActionsPopup.processRender(renderer, mappedInput)) {
     return;
   }
@@ -2415,7 +2481,9 @@ void HomeActivity::render(RenderLock&&) {
   if (coverGridUi) {
     renderer.clearScreen();
     coverGridUi->setSelection(selectorIndex);
+    beginSyncBadge();
     coverGridUi->render();
+    endSyncBadge();
     const auto labels = mappedInput.mapLabels(gridHasContinueReading ? tr(STR_READ) : "", tr(STR_SELECT),
                                               tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -2470,11 +2538,13 @@ void HomeActivity::render(RenderLock&&) {
     coverRectW = pageWidth;
     coverRectH = metrics.homeCoverTileHeight;
 
+    beginSyncBadge();
     GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
                             recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                             std::bind(&HomeActivity::storeCoverBuffer, this),
                             (isDashboardTheme() || hasAnyBookStats(currentBookStats)) ? &currentBookStats : nullptr,
                             currentBookProgressPercent, &globalStats, currentBookChapterTitle.c_str());
+    endSyncBadge();
 
     const int homeNavCount = minimalHomeNavCount(!recentBooks.empty());
     if (minimalHomeNavIndex >= homeNavCount) {
@@ -2580,10 +2650,18 @@ void HomeActivity::render(RenderLock&&) {
   coverRectW = pageWidth;
   coverRectH = homeCoverTileHeight;
 
+  beginSyncBadge();
+  // Lyra Extended draws here (not the minimal branch above): each tile's %.
+  if (isLyraExtendedTheme()) {
+    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+      Lyra3CoversTheme::setTileProgress(i, cachedBookProgress[i]);
+    }
+  }
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, homeCoverTileHeight}, recentBooks,
                           selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this),
                           hasAnyBookStats(currentBookStats) ? &currentBookStats : nullptr, currentBookProgressPercent);
+  endSyncBadge();
 
   const int menuStartY = metrics.homeTopPadding + homeCoverTileHeight + metrics.homeMenuTopOffset;
   const int menuEndY = pageHeight - metrics.buttonHintsHeight;

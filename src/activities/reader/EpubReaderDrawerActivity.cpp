@@ -163,7 +163,7 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
                               static_cast<int16_t>(rect.width + BUTTON_SLIDER_FOCUS_PADDING_X * 2),
                               static_cast<int16_t>(rect.height + BUTTON_SLIDER_FOCUS_PADDING_Y * 2)};
     // Editing = 2 px outline, focus = 1 px; outlines ghost less than a dither fill.
-    screen.target().stroke(focusRect, fui::Paint::solid(fui::Color::Black), row.editing ? 2 : 1, 4);
+    screen.target().stroke(focusRect, uiSelectionBorder(), row.editing ? 2 : 1, 4);
   }
 
   const int16_t lineHeight = screen.target().lineHeight(labelStyle.font);
@@ -317,7 +317,7 @@ void setDrawerSelectionStyle(fui::StyleSet& styles) {
   // 2 px outline, not a dither fill: fewer changed pixels, less ghosting.
   styles.selected.background = fui::Paint::solid(fui::Color::White);
   styles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-  styles.selected.border = fui::Paint::solid(fui::Color::Black);
+  styles.selected.border = uiSelectionBorder();
   styles.selected.borderWidth = 2;
   styles.selected.radius = 4;
 }
@@ -990,7 +990,7 @@ void EpubReaderDrawerActivity::buildTabBar(UiApp::ScreenType& screen, const fui:
   if (!mappedInput.hasTouchHardware() && (state.pane != ReaderDrawerPane::Root || buttonFocusActive)) {
     props.tabStyles.selected.background = fui::Paint::solid(fui::Color::White);
     props.tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
-    props.tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+    props.tabStyles.selected.border = uiSelectionBorder();
     props.tabStyles.selected.borderWidth = 1;
   }
   props.tabInset = fui::Insets{static_cast<int16_t>(4 + TAB_BAR_VERTICAL_PADDING), 4,

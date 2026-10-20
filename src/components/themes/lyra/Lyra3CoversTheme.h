@@ -7,7 +7,7 @@
 class GfxRenderer;
 
 namespace Lyra3CoversMetrics {
-constexpr ThemeMetrics values = [] {
+inline constexpr ThemeMetrics values = [] {
   ThemeMetrics v = LyraMetrics::values;
   v.menuRowHeight = 46;
   v.homeCoverTileHeight = 300;
@@ -20,6 +20,8 @@ constexpr ThemeMetrics values = [] {
 
 class Lyra3CoversTheme : public LyraTheme {
  public:
+  // Home: book slot's % (negative: none) for the next drawRecentBookCover(); cleared once drawn.
+  static void setTileProgress(int slot, float progressPercent);
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                            const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,

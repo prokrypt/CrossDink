@@ -7,6 +7,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <KOReaderCredentialStore.h>
 #include <LibraryBuilder.h>
 #include <LibraryFileTypes.h>
 #include <LibraryRecentOrder.h>
@@ -31,6 +32,8 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "activities/util/OptionSelectionActivity.h"
+#include "components/KOSyncBadge.h"
+#include "components/NoCoverPlaceholder.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -778,7 +781,7 @@ void LibraryActivity::loop() {
   if (mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= LONG_PRESS_MS) {
     longPressFired = true;
     if (selection >= CONTROL_COUNT && rowCount() > 0)
-      showBookActionMenu(selection - CONTROL_COUNT, true);
+      showBookActionMenu(selection - CONTROL_COUNT);
     else
       activateControl(selection);
     return;
@@ -920,6 +923,16 @@ void LibraryActivity::provideRow(void* user, const uint16_t row, fui::ListItem& 
   item.label = cached.title.c_str();
   if (!cached.subtitle.empty()) item.subtitle = cached.subtitle.c_str();
   item.icon = listIconFor(static_cast<UIIcon>(cached.icon), 32);
+#ifdef FREEINK_UI_LIST_MARGIN_ICON
+  // Badge from the row's saved mark or a newer one held since: a sync landing
+  // while the list is up shows on its next draw without refilling the row.
+  if (!cached.syncCachePath.empty()) {
+    if (const freeink::Icon* badge = KOSyncBadge::icon(
+            RecentBookProgress::syncBadge(cached.syncCachePath, cached.syncProgress, cached.syncMark))) {
+      item.marginIcon = fui::bitmapFromIcon(*badge);
+    }
+  }
+#endif
   item.actionValue = static_cast<int16_t>(row);
   if (cached.hasHeading) item.sectionHeading = cached.heading.c_str();
 }
@@ -938,8 +951,20 @@ void LibraryActivity::fillRow(const int row, CachedRow& out) {
   out.ok = false;
   out.hasHeading = false;
   out.subtitle.clear();
+  out.syncCachePath.clear();
   if (!readBook(row, rowScratch, false)) return;
   out.ok = true;
+#ifdef FREEINK_UI_LIST_MARGIN_ICON
+  // One small read per EPUB row, and only with KOSync credentials set.
+  library::ClixRecord syncRecord{};
+  uint64_t syncKey = 0;
+  const uint16_t syncOrdinal = ordinalForRow(row);
+  if (FsHelpers::hasEpubExtension(rowScratch.path) && KOREADER_STORE.hasCredentials() && syncOrdinal != UINT16_MAX &&
+      index.readRecord(syncOrdinal, syncRecord) && index.readContentKey(syncRecord, syncKey) && syncKey != 0) {
+    out.syncCachePath = "/.crossdink/epub_" + std::to_string(syncKey);
+    out.syncProgress = RecentBookProgress::loadSavedEpubPercent(out.syncCachePath, out.syncMark);
+  }
+#endif
   out.title = rowScratch.title;
   out.subtitle = rowScratch.author;
   // Expanded lists already show the sorted field as a group heading.
@@ -1169,7 +1194,6 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.selectedIndex = showSelection ? static_cast<int16_t>(selection - CONTROL_COUNT) : -1;
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch | fui::InputLongPress;
-  props.iconSize = 28;
   props.labelText = screen.theme().bodyText;
   props.labelText.bold = true;
   props.labelText.maxLines = 1;
@@ -1265,18 +1289,19 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
     }
     if (!drawn) {
       renderer.fillRoundedRect(x, y, coverWidth, coverHeight, GRID_COVER_CORNER_RADIUS, Color::White);
-      if (coverWidth >= 36 && coverHeight >= 36)
-        drawLucideIcon(renderer, icon_book_marked_32, x + (coverWidth - 32) / 2, y + (coverHeight - 32) / 2);
+      if (available) NoCoverPlaceholder::draw(renderer, x, y, coverWidth, coverHeight, rowScratch);
     }
     renderer.maskRoundedRectOutsideCorners(x, y, coverWidth, coverHeight, GRID_COVER_CORNER_RADIUS, Color::White);
     renderer.drawRoundedRect(x, y, coverWidth, coverHeight, 2, GRID_COVER_CORNER_RADIUS, true);
     if (row == selectedRow) {
+      const Color selectionColor = uiGraySelection() ? Color::DarkGray : Color::Black;
       renderer.drawRoundedRect(x - GRID_SELECTION_PADDING, y - GRID_SELECTION_PADDING,
                                coverWidth + 2 * GRID_SELECTION_PADDING, coverHeight + 2 * GRID_SELECTION_PADDING, 3,
-                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_PADDING, true);
-      renderer.drawRoundedRect(
-          x - GRID_SELECTION_OUTER_INSET, y - GRID_SELECTION_OUTER_INSET, coverWidth + 2 * GRID_SELECTION_OUTER_INSET,
-          coverHeight + 2 * GRID_SELECTION_OUTER_INSET, 1, GRID_COVER_CORNER_RADIUS + GRID_SELECTION_OUTER_INSET, true);
+                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_PADDING, selectionColor);
+      renderer.drawRoundedRect(x - GRID_SELECTION_OUTER_INSET, y - GRID_SELECTION_OUTER_INSET,
+                               coverWidth + 2 * GRID_SELECTION_OUTER_INSET,
+                               coverHeight + 2 * GRID_SELECTION_OUTER_INSET, 1,
+                               GRID_COVER_CORNER_RADIUS + GRID_SELECTION_OUTER_INSET, selectionColor);
     }
     if (available)
       screen.frame().hit(cell, ACTION_ROW, static_cast<int16_t>(row), fui::InputTouch | fui::InputLongPress);
@@ -1455,12 +1480,11 @@ void LibraryActivity::promptRemoveBook(const std::string& path, const std::strin
     }
   };
 
-  openDialog(makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title,
-                                                     /*ignoreInitialConfirmRelease=*/false),
+  openDialog(makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title),
              std::move(handler));
 }
 
-void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool ignoreInitialConfirmRelease) {
+void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
   RecentBook book;
   if (!readBook(static_cast<int>(bookIndex), book)) return;
   const auto& recents = RECENT_BOOKS.getBooks();
@@ -1472,8 +1496,7 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
     items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
   }
 
-  openDialog(makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items),
-                                                          ignoreInitialConfirmRelease),
+  openDialog(makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items)),
              [this, book](const ActivityResult& result) {
                longPressFired = false;
                if (result.isCancelled) {

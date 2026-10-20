@@ -9,6 +9,7 @@
 
 #include "../Activity.h"
 #include "components/OptionPopup.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #include "util/Dictionary.h"
 
@@ -54,7 +55,7 @@ class DictionarySelectActivity final : public Activity {
   bool temporarySelection = false;
 
   ButtonNavigator buttonNavigator;
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};

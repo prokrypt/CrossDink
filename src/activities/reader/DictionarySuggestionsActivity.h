@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "components/UiAppHost.h"
 
 class DictionarySuggestionsActivity final : public Activity {
  public:
@@ -17,7 +18,7 @@ class DictionarySuggestionsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;
 
   static void suggestionsScreen(UiApp::ScreenType& screen, void* user);

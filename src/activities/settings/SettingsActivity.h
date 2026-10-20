@@ -13,6 +13,7 @@
 #include "CrossPointSettings.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING, SECTION_HEADER, SUBMENU };
@@ -237,6 +238,9 @@ class SettingsActivity final : public Activity {
 
   // Per-category settings derived from shared list + device-only actions
   std::vector<SettingInfo> displaySettings;
+  // SD theme pack folders, listed once per Settings visit.
+  std::vector<std::string> themePacks;
+  bool themePacksListed = false;
   std::vector<SettingInfo> displaySleepSettings;
   std::vector<SettingInfo> displayFrontlightSettings;
   std::vector<SettingInfo> readerSettings;
@@ -283,7 +287,7 @@ class SettingsActivity final : public Activity {
 
   // FreeInkApp hosts the tab bar + settings list (themed, touch-routed); the
   // header stays on GUI.drawHeader for the battery, OptionPopup stays legacy.
-  using UiApp = freeink::ui::FreeInkApp<24, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
   // render() rebuilds the app's interaction table; loop() only routes touch
@@ -298,6 +302,8 @@ class SettingsActivity final : public Activity {
   static std::string settingValueText(const SettingInfo& setting);
   void buildSettingsScreen(UiApp::ScreenType& screen);
   void applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr);
+  void reapplyUiTheme(bool reloadThemePack);
+  void addThemePackSetting();
 
   void enterCategory(int categoryIndex);
   void setCurrentSettingsForCategory();

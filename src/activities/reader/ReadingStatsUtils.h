@@ -45,6 +45,8 @@ uint16_t readingSpanDaysElapsed(const ReadingStatsDate& start, const ReadingStat
 void formatReadingStatsShortDate(const ReadingStatsDate& date, char* buf, size_t len);
 void formatReadingStatsMonthToken(const ReadingStatsDate& date, char* buf, size_t len);
 void formatCompactReadingDuration(uint32_t seconds, char* buf, size_t len);
+// 0 until more than a minute has been read.
+float readingPagesPerMinute(uint32_t totalPagesTurned, uint32_t totalReadingSeconds);
 
 void recordReadingSpanIntoBuckets(std::array<uint32_t, READING_TIME_BUCKET_COUNT>& timeOfDaySeconds,
                                   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT>& dayOfWeekSeconds,

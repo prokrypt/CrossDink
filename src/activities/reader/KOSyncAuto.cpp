@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cinttypes>
 #include <memory>
+#include <mutex>
 #include <utility>
 
 #include "CrossPointSettings.h"
@@ -24,6 +25,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/home/RecentBookProgress.h"
 #include "network/WifiUtils.h"
 #include "util/WorkerTask.h"
 #if CROSSDINK_GOODIES
@@ -50,6 +52,16 @@ KNOB_ALIAS(MIN_FREE, koSyncMinFree);  // Goodies > Knobs
 KNOB_ALIAS(MIN_BLOCK, koSyncMinBlock);
 
 std::string queuedPath;  // main task only
+// Cache folder of the book whose close push is queued or running: Home and Library
+// draw it as Syncing from the render task, so it is guarded.
+std::mutex pendingMutex;
+std::string pendingCache;
+bool settled = false;  // main task only
+void setPending(const std::string& epubPath) {
+  std::string cache = Epub::cachePathForFilePath(epubPath, "/.crossdink");
+  std::lock_guard<std::mutex> lock(pendingMutex);
+  pendingCache = std::move(cache);
+}
 uint32_t queuedAt = 0;
 std::string pullPath;  // main task only
 uint32_t pullAt = 0;
@@ -80,7 +92,9 @@ void remember(const std::string& path, const DocumentMatchMethod method, const f
 struct OpenAt {
   int spine = 0;
   int page = 0;
-  int pages = 0;  // 0: page count unknown
+  int pages = 0;            // 0: page count unknown
+  uint32_t textOffset = 0;  // the page's first text byte, when hasTextOffset
+  bool hasTextOffset = false;
 };
 std::string openPath;  // main task only; startJob() hands the task a copy
 OpenAt openAt;
@@ -106,12 +120,16 @@ bool beginRadioCall() {
 }
 
 // <0 before, 0 at, >0 past where the book opened (>0 too when not opened this boot).
-// Within a chapter it compares the fraction read, which survives a font or margin
-// change re-paging the chapter.
-int vsOpen(const EpubReaderUtils::Progress& saved) {
-  const OpenAt& o = jobOpenAt;
-  if (!jobOpened) return 1;
+// Within a chapter it compares the page's text offset, which is the same on the
+// same page whatever the chapter's page count; else the fraction read, which
+// survives a font or margin change re-paging the chapter. The fraction alone made
+// the same page read as "moved on" whenever the saved count was a partial build's
+// estimate that shrank between sessions, so every open/close pushed a page further.
+int vsOpen(const bool opened, const OpenAt& o, const EpubReaderUtils::Progress& saved) {
+  if (!opened) return 1;
   if (saved.spineIndex != o.spine) return saved.spineIndex < o.spine ? -1 : 1;
+  if (o.hasTextOffset && saved.hasVisibleTextOffset)
+    return (saved.visibleTextOffset > o.textOffset) - (saved.visibleTextOffset < o.textOffset);
   if (!saved.hasPageCount || saved.pageCount <= 0 || o.pages <= 0)
     return (saved.pageNumber > o.page) - (saved.pageNumber < o.page);
   const float s = static_cast<float>(saved.pageNumber) / saved.pageCount;
@@ -121,7 +139,8 @@ int vsOpen(const EpubReaderUtils::Progress& saved) {
 
 // Same mapping as the KOSync screen's upload of saved progress.
 // moved: vsOpen() of the saved position (<0: paged back to look something up, 0: never moved).
-bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved) {
+// cachePath, bp: the book's cache and its % there, for the KOSync mark.
+bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, std::string& cachePath, uint16_t& bp) {
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
   auto epub = std::make_shared<Epub>(path, "/.crossdink");
   epub->setupCacheDir();
@@ -134,9 +153,11 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved) {
     LOG_ERR("KOSync", "exit push: no saved progress for %s", path.c_str());
     return false;
   }
-  moved = vsOpen(saved);
+  moved = vsOpen(jobOpened, jobOpenAt, saved);
   const int spine = saved.spineIndex >= 0 && saved.spineIndex < epub->getSpineItemsCount() ? saved.spineIndex : 0;
   const int pages = saved.hasPageCount ? std::max(1, saved.pageCount) : 1;
+  cachePath = epub->getCachePath();
+  bp = RecentBookProgress::basisPoints(*epub, spine, saved.pageNumber, pages);
   CrossPointPosition pos = {spine, saved.pageNumber, pages};
   if (saved.hasVisibleTextOffset) {
     pos.visibleTextOffset = saved.visibleTextOffset;
@@ -223,6 +244,8 @@ void run(void*) {
   KOReaderProgress progress;
   bool skipped = false;
   std::string hash, altHash;
+  std::string cachePath;
+  uint16_t bp = 0;
   const DocumentMatchMethod method = KOREADER_STORE.getMatchMethod();
   if (jobIsPull) {
     hash = documentId(jobPath, method);
@@ -231,7 +254,7 @@ void run(void*) {
       LOG_ERR("KOSync", "open pull: document hash failed");
       return;
     }
-  } else if (int moved = 0; !buildProgress(jobPath, progress, moved)) {
+  } else if (int moved = 0; !buildProgress(jobPath, progress, moved, cachePath, bp)) {
     return;  // the Epub is freed here, before TLS
   } else if (moved < 0) {
     LOG_INF("KOSync", "%s skipped: closed before the page it opened at (radio skipped)", what);
@@ -249,6 +272,7 @@ void run(void*) {
             knownRemote);
     pushOutcome = knownRemote - progress.percentage > SAME_PROGRESS_EPSILON ? kosync_auto::PushOutcome::ServerAhead
                                                                             : kosync_auto::PushOutcome::Same;
+    RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead);
     return;
   } else {
     altHash = documentId(jobPath, otherMethod(method));  // SD reads before the radio comes up
@@ -320,12 +344,14 @@ void run(void*) {
         pushOutcome = pulled.percentage - progress.percentage > SAME_PROGRESS_EPSILON
                           ? kosync_auto::PushOutcome::ServerAhead
                           : kosync_auto::PushOutcome::Same;
+        RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead);
       } else if ((result == KOReaderSyncClient::OK || result == KOReaderSyncClient::NOT_FOUND) &&
                  !radioClaimed.load()) {
         result = retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });
         pushOk = result == KOReaderSyncClient::OK;
         if (pushOk) {
           pushOutcome = kosync_auto::PushOutcome::Pushed;
+          RecentBookProgress::noteSynced(cachePath, bp, false);
           unpushedPath.clear();
           remember(jobPath, method, progress.percentage);
         }
@@ -421,15 +447,17 @@ void noteWake() {
   retryPushMagic = 0;
 }
 
-void queuePull(const std::string& epubPath, const int spineIndex, const int pageNumber, const int pageCount) {
+void queuePull(const std::string& epubPath, const int spineIndex, const int pageNumber, const int pageCount,
+               const std::optional<uint32_t> textOffset) {
   openPath = epubPath;
-  openAt = {spineIndex, pageNumber, pageCount};
+  openAt = {spineIndex, pageNumber, pageCount, textOffset.value_or(0), textOffset.has_value()};
   queuedAt = millis();  // a pending push also waits out the book's open
   // ponytail: a wake whose reader never reaches here leaves the retry for the next open (one extra checked push).
   // The push's own server check makes its order against the pull irrelevant.
   if (std::exchange(wakePush, false) && KOREADER_STORE.hasCredentials()) {
     LOG_INF("KOSync", "wake: retrying the failed sleep push");
     queuedPath = epubPath;
+    setPending(epubPath);
     openPath.clear();  // the retry pushes from the page the wake reopened at
   }
   if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_OPEN) || !KOREADER_STORE.hasCredentials()) return;
@@ -442,6 +470,7 @@ void queue(const std::string& epubPath) {
   if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE) || !KOREADER_STORE.hasCredentials()) return;
   queuedPath = epubPath;
   queuedAt = millis();
+  setPending(epubPath);
 }
 
 const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMethod& method) {
@@ -455,11 +484,26 @@ const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMetho
 bool takePushed() {
   if (!pushOk || task.running()) return false;
   pushOk = false;
+  settled = false;  // the toast path repaints the badge
   return true;
 }
 
+bool pushPendingFor(const std::string& cachePath) {
+  std::lock_guard<std::mutex> lock(pendingMutex);
+  return !pendingCache.empty() && pendingCache == cachePath;
+}
+
+bool takeSettled() { return std::exchange(settled, false); }
+
 void loop() {
   if (task.running()) return;  // a push or fetch waits for the one before it
+  if (queuedPath.empty()) {
+    std::lock_guard<std::mutex> lock(pendingMutex);
+    if (!pendingCache.empty()) {
+      pendingCache.clear();
+      settled = true;
+    }
+  }
   if (!queuedPath.empty() && millis() - queuedAt >= START_DELAY_MS) {
     // A screen with its own network (the KOSync screen included) keeps it queued.
     if (activityManager.anyActivityUsesWifi()) return;
@@ -481,6 +525,13 @@ std::string pendingPushPath() {
   if (!queuedPath.empty()) return queuedPath;
   if (task.running() && !jobIsPull) return jobPath;
   return {};
+}
+
+bool movedSinceOpen(const std::string& epubPath, const EpubReaderUtils::Progress& saved) {
+  if (task.running()) return true;  // the job owns unpushedPath; its own check decides, as before
+  if (unpushedPath == epubPath || vsOpen(epubPath == openPath, openAt, saved) > 0) return true;
+  LOG_INF("KOSync", "sleep push skipped: not past the page it opened at (no toast, radio skipped)");
+  return false;
 }
 
 bool wantsSleepPush() {

@@ -6,7 +6,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
-#include <PNGdec.h>
+#include <PngRowDecoder.h>
 
 #include <cstdlib>
 #include <new>
@@ -18,10 +18,9 @@
 
 namespace {
 
-// Context struct passed through PNGdec callbacks to avoid global mutable state.
-// The draw callback receives this via pDraw->pUser (set by png.decode()).
-// The file I/O callbacks receive the FsFile* via pFile->fHandle (set by pngOpen()).
+// Per-decode state for the row handler, so no global mutable state is needed.
 struct PngContext {
+  PngRowDecoder* png{nullptr};
   GfxRenderer* renderer{nullptr};
   const RenderConfig* config{nullptr};
   int screenWidth{0};
@@ -41,104 +40,33 @@ struct PngContext {
   uint8_t* grayLineBuffer{nullptr};
   uint32_t lastYieldMs{0};
 
-  // Split decode: PNGdec inflates and converts rows to gray on the worker
-  // core, tracking its own last row; this task dithers them.
+  // Split decode: the row decoder inflates and converts rows to gray on the
+  // worker core, tracking its own last row; this task dithers them.
   DecodePipeline* pipeline{nullptr};
   int workerLastDstY{-1};
 };
 
-// File I/O callbacks use pFile->fHandle to access the FsFile*,
-// avoiding the need for global file state.
-void* pngOpenWithHandle(const char* filename, int32_t* size) {
-  auto f = makeUniqueNoThrow<FsFile>();
-  if (!f) {
-    LOG_ERR("PNG", "OOM: PNG file handle (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
-    return nullptr;
-  }
-  if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {
-    return nullptr;
-  }
-  *size = f->size();
-  return f.release();  // PNGdec owns this handle until pngCloseWithHandle deletes it.
-}
+// Row decoder working set: ~11 KB inflate state plus a 32 KB window (PSRAM
+// when available) and two scanlines. Checked before each decode so a low-heap
+// page skips the image instead of failing mid-way.
+constexpr uint32_t PNG_DECODER_APPROX_SIZE = 44U * 1024U;
 
-void pngCloseWithHandle(void* handle) {
-  FsFile* f = reinterpret_cast<FsFile*>(handle);
-  if (f) {
-    f->close();
-    delete f;
-  }
-}
-
-int32_t pngReadWithHandle(PNGFILE* pFile, uint8_t* pBuf, int32_t len) {
-  FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
-  if (!f) return 0;
-  return f->read(pBuf, len);
-}
-
-int32_t pngSeekWithHandle(PNGFILE* pFile, int32_t pos) {
-  FsFile* f = reinterpret_cast<FsFile*>(pFile->fHandle);
-  if (!f) return -1;
-  return f->seek(pos);
-}
-
-// The PNG decoder (PNGdec) is ~42 KB due to internal zlib decompression buffers.
-// We heap-allocate it on demand rather than using a static instance, so this memory
-// is only consumed while actually decoding/querying PNG images. This is critical on
-// the ESP32-C3 where total RAM is ~320 KB.
-constexpr uint32_t PNG_DECODER_APPROX_SIZE = 44U * 1024U;  // ~42 KB + overhead
-
-// PNGdec keeps TWO scanlines in its internal ucPixels buffer (current + previous)
-// and each scanline includes a leading filter byte.
-// Required storage is therefore approximately: 2 * (pitch + 1) + alignment slack.
-// If PNG_MAX_BUFFERED_PIXELS is smaller than this requirement for a given image,
-// PNGdec can overrun its internal buffer before our draw callback executes.
-int bytesPerPixelFromType(int pixelType) {
-  switch (pixelType) {
-    case PNG_PIXEL_TRUECOLOR:
-      return 3;
-    case PNG_PIXEL_GRAY_ALPHA:
-      return 2;
-    case PNG_PIXEL_TRUECOLOR_ALPHA:
-      return 4;
-    case PNG_PIXEL_GRAYSCALE:
-    case PNG_PIXEL_INDEXED:
-    default:
-      return 1;
-  }
-}
-
-int packedRowBytes(int srcWidth, int bitsPerSample) { return (srcWidth * bitsPerSample + 7) / 8; }
-
-int requiredPngInternalBufferBytes(int srcWidth, int pixelType, int bitsPerSample) {
-  // +1 filter byte per scanline, *2 for current+previous lines, +32 for alignment margin.
-  int pitch = srcWidth * bytesPerPixelFromType(pixelType);
-  if ((pixelType == PNG_PIXEL_GRAYSCALE || pixelType == PNG_PIXEL_INDEXED) && bitsPerSample < 8) {
-    pitch = packedRowBytes(srcWidth, bitsPerSample);
-  }
-  return ((pitch + 1) * 2) + 32;
-}
+// The converter expands each source row to 8-bit gray before dithering; this
+// caps that scratch row (the limit PNGdec's 16416-byte buffer used to imply).
+constexpr size_t MAX_GRAY_LINE_BUFFER_BYTES = 8208;
 
 bool isSupportedBitDepth(int pixelType, int bitsPerSample) {
   if (bitsPerSample == 8) return true;
   if (bitsPerSample != 1 && bitsPerSample != 2 && bitsPerSample != 4) return false;
-  return pixelType == PNG_PIXEL_GRAYSCALE || pixelType == PNG_PIXEL_INDEXED;
+  return pixelType == PngRowDecoder::Gray || pixelType == PngRowDecoder::Palette;
 }
 
 uint8_t readPackedSample(const uint8_t* pixels, int x, int bitsPerSample) {
-  if (bitsPerSample == 8) return pixels[x];
-
-  const int bitOffset = x * bitsPerSample;
-  const int shift = 8 - bitsPerSample - (bitOffset & 7);
-  const uint8_t mask = (1U << bitsPerSample) - 1;
-  return (pixels[bitOffset >> 3] >> shift) & mask;
+  return PngRowDecoder::sample(pixels, static_cast<uint32_t>(x), static_cast<uint8_t>(bitsPerSample));
 }
 
 uint8_t expandSampleToByte(uint8_t sample, int bitsPerSample) {
-  if (bitsPerSample == 8) return sample;
-  const uint8_t maxSample = (1U << bitsPerSample) - 1;
-  return static_cast<uint8_t>((sample * 255U) / maxSample);
+  return PngRowDecoder::sampleToByte(sample, static_cast<uint8_t>(bitsPerSample));
 }
 
 // Convert entire source line to grayscale with alpha blending to white background.
@@ -146,9 +74,9 @@ uint8_t expandSampleToByte(uint8_t sample, int bitsPerSample) {
 // For indexed PNGs with tRNS chunk, alpha values are stored at palette[768] onwards.
 // Processing the whole line at once improves cache locality and reduces per-pixel overhead.
 void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int pixelType, int bitsPerSample,
-                       uint8_t* palette, int hasAlpha) {
+                       const uint8_t* palette, bool hasAlpha) {
   switch (pixelType) {
-    case PNG_PIXEL_GRAYSCALE:
+    case PngRowDecoder::Gray:
       if (bitsPerSample == 8) {
         memcpy(grayLine, pPixels, width);
       } else {
@@ -158,19 +86,19 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
       }
       break;
 
-    case PNG_PIXEL_TRUECOLOR:
+    case PngRowDecoder::Rgb:
       for (int x = 0; x < width; x++) {
         const uint8_t* p = &pPixels[x * 3];
         grayLine[x] = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
       }
       break;
 
-    case PNG_PIXEL_INDEXED:
+    case PngRowDecoder::Palette:
       if (palette) {
         if (hasAlpha) {
           for (int x = 0; x < width; x++) {
             uint8_t idx = readPackedSample(pPixels, x, bitsPerSample);
-            uint8_t* p = &palette[idx * 3];
+            const uint8_t* p = &palette[idx * 3];
             uint8_t gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
             uint8_t alpha = palette[768 + idx];
             grayLine[x] = (uint8_t)((gray * alpha + 255 * (255 - alpha)) / 255);
@@ -178,7 +106,7 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
         } else {
           for (int x = 0; x < width; x++) {
             uint8_t idx = readPackedSample(pPixels, x, bitsPerSample);
-            uint8_t* p = &palette[idx * 3];
+            const uint8_t* p = &palette[idx * 3];
             grayLine[x] = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
           }
         }
@@ -189,7 +117,7 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
       }
       break;
 
-    case PNG_PIXEL_GRAY_ALPHA:
+    case PngRowDecoder::GrayAlpha:
       for (int x = 0; x < width; x++) {
         uint8_t gray = pPixels[x * 2];
         uint8_t alpha = pPixels[x * 2 + 1];
@@ -197,7 +125,7 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
       }
       break;
 
-    case PNG_PIXEL_TRUECOLOR_ALPHA:
+    case PngRowDecoder::Rgba:
       for (int x = 0; x < width; x++) {
         const uint8_t* p = &pPixels[x * 4];
         uint8_t gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
@@ -252,7 +180,7 @@ void pngDrawRows(PngContext* ctx, const int firstDstY, const int endDstY, const 
     pw.beginRow(outY);
 
     // The cache streams to disk one row at a time. Flushing rows below this one
-    // (PNGdec delivers scanlines top to bottom) repositions the single-row band.
+    // (scanlines arrive top to bottom) repositions the single-row band.
     // A flush failure stops caching for the rest of the decode so we never write
     // past the band buffer; finalize() then drops the partial file.
     bool caching = ctx->caching;
@@ -295,39 +223,50 @@ void pngDrawRows(PngContext* ctx, const int firstDstY, const int endDstY, const 
   }
 }
 
-int pngDrawCallback(PNGDRAW* pDraw) {
-  PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
-  if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
+// Handle one decoded source row. Returns false to stop decoding.
+bool pngHandleRow(PngContext* ctx, const int srcY, const uint8_t* pixels) {
+  if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return false;
+  const PngRowDecoder& png = *ctx->png;
 
   int firstDstY = 0;
   int endDstY = 0;
   if (ctx->pipeline) {
     // Worker core. The caller repeats this mapping against its own lastDstY
     // and gets the same rows, since it sees every row this side sends.
-    if (!pngOutputRows(*ctx, pDraw->y, ctx->workerLastDstY, firstDstY, endDstY)) return 1;
+    if (!pngOutputRows(*ctx, srcY, ctx->workerLastDstY, firstDstY, endDstY)) return true;
     ctx->workerLastDstY = endDstY - 1;
     uint8_t* slot = ctx->pipeline->acquire();
-    if (!slot) return 0;
-    convertLineToGray(pDraw->pPixels, slot, ctx->srcWidth, pDraw->iPixelType, pDraw->iBpp, pDraw->pPalette,
-                      pDraw->iHasAlpha);
+    if (!slot) return false;
+    convertLineToGray(pixels, slot, ctx->srcWidth, png.colorType(), png.bitDepth(), png.palette(), png.hasAlpha());
     DecodePipeline::Block block;
-    block.y = pDraw->y;
+    block.y = srcY;
     block.width = ctx->srcWidth;
     block.widthUsed = ctx->srcWidth;
     block.height = 1;
     ctx->pipeline->commit(block);
-    return 1;
+    return true;
   }
 
-  if (ctx->config->cancel && ctx->config->cancel->load(std::memory_order_relaxed)) return 0;
+  if (ctx->config->cancel && ctx->config->cancel->load(std::memory_order_relaxed)) return false;
   ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
-  if (!pngOutputRows(*ctx, pDraw->y, ctx->lastDstY, firstDstY, endDstY)) return 1;
+  if (!pngOutputRows(*ctx, srcY, ctx->lastDstY, firstDstY, endDstY)) return true;
 
   // Convert entire source line to grayscale (improves cache locality)
-  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, ctx->srcWidth, pDraw->iPixelType, pDraw->iBpp, pDraw->pPalette,
-                    pDraw->iHasAlpha);
+  convertLineToGray(pixels, ctx->grayLineBuffer, ctx->srcWidth, png.colorType(), png.bitDepth(), png.palette(),
+                    png.hasAlpha());
   pngDrawRows(ctx, firstDstY, endDstY, ctx->grayLineBuffer);
-  return 1;
+  return true;
+}
+
+// Decode every row through pngHandleRow. Returns 0 on success, -1 on a
+// corrupt stream, 1 when the handler stopped early (cancel, pipeline abort).
+int decodePngRows(PngContext* ctx) {
+  for (uint32_t y = 0; y < ctx->png->height(); ++y) {
+    const uint8_t* row = ctx->png->nextRow();
+    if (!row) return -1;
+    if (!pngHandleRow(ctx, static_cast<int>(y), row)) return 1;
+  }
+  return 0;
 }
 
 bool drawPipelinedPngRow(void* context, const DecodePipeline::Block& block) {
@@ -341,43 +280,22 @@ bool drawPipelinedPngRow(void* context, const DecodePipeline::Block& block) {
   return true;
 }
 
-struct PngDecodeJob {
-  PNG* png;
-  PngContext* ctx;
-};
-
-int runPngDecode(void* context) {
-  auto* job = static_cast<PngDecodeJob*>(context);
-  return job->png->decode(job->ctx, 0);
-}
+int runPngDecode(void* context) { return decodePngRows(static_cast<PngContext*>(context)); }
 
 }  // namespace
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
-  if (!MemoryBudget::hasHeapForImageDecoder("PNG", "PNG", PNG_DECODER_APPROX_SIZE)) {
+  FsFile file;
+  if (!Storage.openFileForRead("PNG", imagePath, file)) return false;
+  PngRowDecoder png;
+  const bool opened = png.openFile(file);
+  file.close();
+  if (!opened) {
+    LOG_ERR("PNG", "Failed to open PNG for dimensions: %s", imagePath.c_str());
     return false;
   }
-
-  PNG* png = new (std::nothrow) PNG();
-  if (!png) {
-    LOG_ERR("PNG", "Failed to allocate PNG decoder for dimensions");
-    return false;
-  }
-
-  int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
-                     nullptr);
-
-  if (rc != 0) {
-    LOG_ERR("PNG", "Failed to open PNG for dimensions: %d", rc);
-    delete png;
-    return false;
-  }
-
-  out.width = png->getWidth();
-  out.height = png->getHeight();
-
-  png->close();
-  delete png;
+  out.width = static_cast<int>(png.width());
+  out.height = static_cast<int>(png.height());
   return true;
 }
 
@@ -387,39 +305,35 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     return false;
   }
 
-  // Heap-allocate PNG decoder (~42 KB) - freed at end of function
-  PNG* png = new (std::nothrow) PNG();
-  if (!png) {
-    LOG_ERR("PNG", "Failed to allocate PNG decoder");
+  FsFile file;
+  PngRowDecoder png;
+  bool opened = false;
+  if (config.sourceData) {
+    opened = png.openMemory(config.sourceData, config.sourceSize);
+  } else if (Storage.openFileForRead("PNG", imagePath, file)) {
+    opened = png.openFile(file);
+  }
+  if (!opened) {
+    LOG_ERR("PNG", "Failed to open PNG: %s", imagePath.c_str());
+    if (file) file.close();
     return false;
   }
 
   PngContext ctx;
+  ctx.png = &png;
   ctx.renderer = &renderer;
   ctx.config = &config;
   ctx.screenWidth = renderer.getScreenWidth();
   ctx.screenHeight = renderer.getScreenHeight();
 
-  // PNGdec only reads the buffer; its API is not const.
-  int rc = config.sourceData ? png->openRAM(const_cast<uint8_t*>(config.sourceData),
-                                            static_cast<int>(config.sourceSize), pngDrawCallback)
-                             : png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle,
-                                         pngSeekWithHandle, pngDrawCallback);
-  if (rc != PNG_SUCCESS) {
-    LOG_ERR("PNG", "Failed to open PNG: %d", rc);
-    delete png;
-    return false;
-  }
-
-  if (!validateImageDimensions(png->getWidth(), png->getHeight(), "PNG")) {
-    png->close();
-    delete png;
+  if (!validateImageDimensions(static_cast<int>(png.width()), static_cast<int>(png.height()), "PNG")) {
+    if (file) file.close();
     return false;
   }
 
   // Calculate output dimensions
-  ctx.srcWidth = png->getWidth();
-  ctx.srcHeight = png->getHeight();
+  ctx.srcWidth = static_cast<int>(png.width());
+  ctx.srcHeight = static_cast<int>(png.height());
 
   if (config.useExactDimensions && config.maxWidth > 0 && config.maxHeight > 0) {
     // Use exact dimensions as specified (avoids rounding mismatches with pre-calculated sizes)
@@ -438,57 +352,45 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   }
   ctx.lastDstY = -1;  // Reset row tracking
 
-  const int pixelType = png->getPixelType();
-  const int bitsPerSample = png->getBpp();
-
-  const int requiredInternal = requiredPngInternalBufferBytes(ctx.srcWidth, pixelType, bitsPerSample);
-  if (requiredInternal > PNG_MAX_BUFFERED_PIXELS) {
-    LOG_ERR(
-        "PNG",
-        "PNG row buffer too small: need %d bytes for width=%d type=%d bpp=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
-        requiredInternal, ctx.srcWidth, pixelType, bitsPerSample, PNG_MAX_BUFFERED_PIXELS);
-    LOG_ERR("PNG", "Aborting decode to avoid PNGdec internal buffer overflow");
-    png->close();
-    delete png;
-    return false;
-  }
-
+  const int pixelType = png.colorType();
+  const int bitsPerSample = png.bitDepth();
   if (!isSupportedBitDepth(pixelType, bitsPerSample)) {
     warnUnsupportedFeature(
         "bit depth (" + std::to_string(bitsPerSample) + "bpp) for pixel type " + std::to_string(pixelType), imagePath);
-    png->close();
-    delete png;
+    if (file) file.close();
     return false;
   }
 
   // The converter expands each source row to 8-bit grayscale before dithering,
-  // so this scratch buffer is sized by source pixels even when PNGdec reads a
-  // packed 1/2/4-bit row internally.
-  constexpr size_t MAX_GRAY_LINE_BUFFER_BYTES = PNG_MAX_BUFFERED_PIXELS / 2;
+  // so this scratch buffer is sized by source pixels even when the decoder
+  // reads a packed 1/2/4-bit row.
   const size_t grayBufSize = static_cast<size_t>(ctx.srcWidth);
   if (grayBufSize > MAX_GRAY_LINE_BUFFER_BYTES) {
     LOG_ERR("PNG", "Expanded gray row too wide: need %u bytes for width=%d, max=%u", static_cast<unsigned>(grayBufSize),
             ctx.srcWidth, static_cast<unsigned>(MAX_GRAY_LINE_BUFFER_BYTES));
-    png->close();
-    delete png;
+    if (file) file.close();
+    return false;
+  }
+
+  if (!png.begin()) {
+    if (file) file.close();
     return false;
   }
 
   auto grayLineBuffer = makeUniqueNoThrow<uint8_t[]>(grayBufSize);
   if (!grayLineBuffer) {
     LOG_ERR("PNG", "Failed to allocate gray line buffer");
-    png->close();
-    delete png;
+    if (file) file.close();
     return false;
   }
   ctx.grayLineBuffer = grayLineBuffer.get();
 
-  // Stream the pixel cache to disk. PNGdec delivers source scanlines top to
-  // bottom and we emit at most one (downscaled) output row per callback, so the
-  // band only needs a single row. Streaming keeps the working set tiny, so
-  // unlike the old full-image buffer it neither competes with the ~44KB decoder
-  // nor forces larger images to skip caching - which previously meant a full
-  // re-decode on every one of an image page's ~14 render passes.
+  // Stream the pixel cache to disk. Source scanlines arrive top to bottom and
+  // we emit at most one (downscaled) output row per source row, so the band
+  // only needs a single row. Streaming keeps the working set tiny, so unlike
+  // the old full-image buffer it neither competes with the decoder nor forces
+  // larger images to skip caching - which previously meant a full re-decode on
+  // every one of an image page's ~14 render passes.
   ctx.caching = !config.cachePath.empty();
   if (ctx.caching) {
     if (!ctx.cache.begin(config.cachePath, ctx.dstWidth, ctx.dstHeight, config.x, config.y, 1)) {
@@ -501,27 +403,23 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   // Inflate and row conversion on the worker core while this task dithers the
   // previous rows; the split falls back to an inline decode.
   DecodePipeline pipeline;
-  PngDecodeJob job{png, &ctx};
+  int rc = 0;
   bool decoded = false;
   if (DecodePipeline::worthSplitting() && pipeline.begin(static_cast<size_t>(ctx.srcWidth))) {
     ctx.pipeline = &pipeline;
-    decoded = pipeline.run(runPngDecode, &job, drawPipelinedPngRow, &ctx, rc);
+    decoded = pipeline.run(runPngDecode, &ctx, drawPipelinedPngRow, &ctx, rc);
     ctx.pipeline = nullptr;
   }
-  if (!decoded) rc = png->decode(&ctx, 0);
+  if (!decoded) rc = decodePngRows(&ctx);
 
   ctx.grayLineBuffer = nullptr;
+  if (file) file.close();
 
-  if (rc != PNG_SUCCESS) {
+  if (rc != 0) {
     LOG_ERR("PNG", "Decode failed: %d", rc);
     if (ctx.caching) ctx.cache.abort();
-    png->close();
-    delete png;
     return false;
   }
-
-  png->close();
-  delete png;
 
   // Finalize the streamed cache (caching may have been cleared on a flush error).
   if (ctx.caching) {

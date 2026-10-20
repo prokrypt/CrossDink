@@ -96,6 +96,7 @@ X("Power", idleWaitSettledMs, uint32_t, 250, 50, 1000, 50, "ms")       // settle
 X("Power", idleWaitLongMs, uint32_t, 1000, 250, 5000, 250, "ms")       // deep idle tick
 X("Power", idleBackoffAfterMs, unsigned long, 2000, 2000, 10000, 500, "ms")  // idle before backing off
 X("Power", panelIdleOffMs, uint32_t, 10000, 2000, 60000, 1000, "ms")   // booster off after an early wake
+X("Power", panelDwellOffMs, uint32_t, 60000, 10000, 600000, 10000, "ms")  // booster off on a screen left unchanged this long
 X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // battery gauge cache
 X("Power", batteryStateSkipS, uint16_t, 120, 0, 900, 10, "s")      // Battery & stats: per-state drain skips this after a light/Wi-Fi/wake change
 X("Power", batteryHalfLifeH, uint16_t, 24, 0, 720, 1, "h")       // Battery & stats: Est to empty weighs an awake step half per this age, 0 = all equal
@@ -157,6 +158,7 @@ X("Wi-Fi", hintedConnectTimeoutMs, unsigned long, 6000, 1000, 30000, 1000, "ms")
 X("Wi-Fi", wifiAbandonMs, unsigned long, 300000, 30000, 1800000, 30000, "ms")  // File Transfer gives up on lost Wi-Fi
 X("Wi-Fi", transferLingerMs, unsigned long, 500, 0, 5000, 100, "ms")        // full clock after the last byte
 X("Wi-Fi", serverIdlePollMs, uint32_t, 250, 10, 500, 10, "ms")              // idle server: stop check (traffic wakes it)
+X("Wi-Fi", mdnsAwakeMs, unsigned long, 5000, 0, 300000, 5000, "ms")        // Max powersave: MIN modem after mDNS traffic, 0 = off
 X("Wi-Fi", serverActivePasses, int, 64, 1, 256, 1, "")                      // handleClient passes per tick
 X("Wi-Fi", httpTimeoutMs, int, 60000, 5000, 120000, 5000, "ms")             // download HTTP timeout
 X("Wi-Fi", httpReadPollMs, int, 5000, 500, 30000, 500, "ms")                // download per-read poll

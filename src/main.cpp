@@ -20,6 +20,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <PackedFontBitmaps.h>
 #include <PerfLog.h>
 #include <SPI.h>
 #include <WiFi.h>
@@ -56,6 +57,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "KOReaderCredentialStore.h"
 #include "Knobs.h"
 #include "MappedInputManager.h"
@@ -70,7 +72,9 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/browser/OpdsPageCache.h"
 #include "activities/home/BookActions.h"
+#include "activities/home/RecentBookProgress.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/KOSyncAuto.h"
 #include "activities/reader/ReaderExitSave.h"
@@ -83,6 +87,7 @@
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "components/ThemePack.h"
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
 #include "components/themes/BaseTheme.h"
@@ -103,6 +108,7 @@
 #include "util/AntiBurnIn.h"
 #include "util/BatteryDiagnosticLog.h"
 #include "util/BatteryLog.h"
+#include "util/BugReport.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
@@ -247,6 +253,31 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, 
 EpdFont ui12RegularFont(&inter_12_regular);
 EpdFont ui12BoldFont(&inter_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &uiSymbols10Font);
+
+// The Inter UI faces ship with packed bitmaps (fontconvert.py --pack-bitmaps):
+// 75 KB in flash, inflated once per boot into ~167 KB of PSRAM before the
+// fonts are registered.
+HeapByteBuffer uiFontBitmapStorage[5];
+
+void attachUiFontBitmaps() {
+  struct UiFontBitmaps {
+    EpdFont& font;
+    PackedAsset bitmaps;
+  };
+  const UiFontBitmaps fonts[] = {
+      {smallFont, {inter_8_regularBitmapsPacked, sizeof(inter_8_regularBitmapsPacked), inter_8_regularBitmapsSize}},
+      {ui10RegularFont,
+       {inter_10_regularBitmapsPacked, sizeof(inter_10_regularBitmapsPacked), inter_10_regularBitmapsSize}},
+      {ui10BoldFont, {inter_10_boldBitmapsPacked, sizeof(inter_10_boldBitmapsPacked), inter_10_boldBitmapsSize}},
+      {ui12RegularFont,
+       {inter_12_regularBitmapsPacked, sizeof(inter_12_regularBitmapsPacked), inter_12_regularBitmapsSize}},
+      {ui12BoldFont, {inter_12_boldBitmapsPacked, sizeof(inter_12_boldBitmapsPacked), inter_12_boldBitmapsSize}},
+  };
+  static_assert(sizeof(fonts) / sizeof(fonts[0]) == sizeof(uiFontBitmapStorage) / sizeof(uiFontBitmapStorage[0]));
+  for (size_t i = 0; i < sizeof(fonts) / sizeof(fonts[0]); ++i) {
+    attachPackedBitmaps(fonts[i].font, fonts[i].bitmaps, uiFontBitmapStorage[i]);
+  }
+}
 
 const char* wakeupRouteName(const HalGPIO::WakeupReason reason) {
   switch (reason) {
@@ -487,6 +518,7 @@ void restartKeepingPanelFrame() {
 
 static void restartWithSilentToken() {
   PerfLog::noteRestart();
+  HeldWrites::carryNextRestart();
   retainPanelFrame();
   // SETTINGS.frontlightOn only tracks explicit toggles; wake and schedule
   // policy change the light without saving it, so hand the live state over.
@@ -579,6 +611,7 @@ static void restartToNetworkTarget(const NetworkBootTarget target, const uint32_
   silentRebootTarget = static_cast<uint32_t>(target);
   silentRebootPayload = payload;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
+  if (target == NetworkBootTarget::OPDS) opds_page_cache_handoff::persistForRestart();
   LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(silentRebootTarget),
           static_cast<unsigned long>(payload));
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
@@ -737,9 +770,23 @@ bool keepWifiForRemote() {
 // whose entry check guards the heap that screen runs on.
 static bool networkEntryPending = false;
 
+static bool keepLinkForNext = false;
+
+void keepWifiForNextScreen() { keepLinkForNext = true; }
+
 bool leaveNetworkInPlace(const bool goingHome) {
+  const bool keepForNext = keepLinkForNext;
+  keepLinkForNext = false;
   if (deepSleepInProgress) return true;
 #ifndef SIMULATOR
+  if (keepForNext && readerResourcesReady) {
+    // The next screen is another Wi-Fi screen on the same stack and heap the
+    // leaving one ran on, and nothing is left to set up for Home: nothing
+    // torn down, nothing to rejoin. After a minimal network boot the normal
+    // exit below runs instead.
+    LOG_INF("MAIN", "Leaving Wi-Fi in place: link kept for the next Wi-Fi screen");
+    return true;
+  }
   const wifi_mode_t mode = WiFi.getMode();
   // The Goodies remote's own network: hand the link back, no teardown and rejoin.
   const bool keepLink = keepWifiForRemote();
@@ -1575,11 +1622,50 @@ void mirrorWakeShortPressToNvs() {
 #endif
 }
 
-void flushSettingsStores() {
-  SETTINGS.flush();
+int flushSettingsStores() {
+  const int written = HeldWrites::flushAll();
 #if CROSSDINK_GOODIES
   knobs::flush();
 #endif
+  return written;
+}
+
+int flushHeldWrites() {
+  int written = activityManager.flushHeldProgress() ? 1 : 0;
+  if (ReaderExitSave::flush()) written++;
+  RecentBookProgress::flushSyncMarks();
+  APP_STATE.saveToFile();
+  written += flushSettingsStores();
+  LOG_INF("HLD", "Flushed %d held write(s)", written);
+  return written;
+}
+
+// Low battery: write everything held and turn on write-through, so a brownout
+// cannot take it; each further percent writes the open book's position again
+// (shadowed readers no longer save mid-session). USB power ends it.
+static void pollLowBatteryWrites() {
+  constexpr uint16_t LOW_PCT = 5;  // BatteryLog's low-battery flush threshold
+  constexpr unsigned long POLL_MS = 10000;
+  static unsigned long lastPollMs = 0;
+  static uint16_t flushedAtPct = UINT16_MAX;  // UINT16_MAX = not low
+  if (millis() - lastPollMs < POLL_MS) return;
+  lastPollMs = millis();
+  const uint16_t pct = powerManager.getBatteryPercentage();
+  // Off only above LOW_PCT + 2, so a reading flapping between 5% and 6% does not re-flush.
+  if (gpio.isUsbConnectedCached() || pct > (flushedAtPct == UINT16_MAX ? LOW_PCT : LOW_PCT + 2)) {
+    if (flushedAtPct != UINT16_MAX) {
+      flushedAtPct = UINT16_MAX;
+      HeldWrites::setWriteThrough(HeldWrites::LowBattery, false);
+    }
+    return;
+  }
+  if (pct >= flushedAtPct) return;
+  if (flushedAtPct == UINT16_MAX) {
+    LOG_INF("HLD", "Battery at %u%%: writing held data", pct);
+    HeldWrites::setWriteThrough(HeldWrites::LowBattery, true);
+  }
+  flushedAtPct = pct;
+  flushHeldWrites();
 }
 
 // Sleep entry has no task watchdog: a wait that never returns leaves the device
@@ -1656,8 +1742,8 @@ static void disarmBootGuard() {
 }
 
 // Before the sleep screen, push under a progress toast and show the result for a
-// moment: the open book's just-saved position (KOReader Sync > Sync on Wake &
-// Sleep), else a close push still queued or running, which deep sleep would drop.
+// moment: the open book's just-saved position once past where it opened (KOReader
+// Sync > Sync on Wake & Sleep), else a close push still queued or running, which deep sleep would drop.
 // pushNow() bounds the whole wait, so sleep always goes on.
 void syncBookBeforeSleep() {
   std::string path = kosync_auto::wantsSleepPush() ? activityManager.flushEpubProgressForSync() : std::string();
@@ -1690,8 +1776,74 @@ void syncBookBeforeSleep() {
   renderer.copyBufferToRegion(0, bandY, bandW, bandH, band.get(), bandBytes);
 }
 
+// Up+Down wake (X4 Pro): draw the date and time large. The text is drawn small at the
+// top-left, then magnified pixel by pixel into place, because no larger font is bundled.
+static void drawChordMagnified(const int fontId, const char* text, const int centerY, const int maxScale) {
+  const int w = renderer.getTextWidth(fontId, text, EpdFontFamily::BOLD);
+  const int h = renderer.getLineHeight(fontId);
+  if (w <= 0 || h <= 0) return;
+  const int scale = std::max(1, std::min(maxScale, renderer.getScreenWidth() * 9 / 10 / w));
+  const int dx = (renderer.getScreenWidth() - w * scale) / 2;
+  const int dy = std::max(h, centerY - h * scale / 2);  // below the source strip so the two never overlap
+  renderer.drawText(fontId, 0, 0, text, true, EpdFontFamily::BOLD);
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      if (renderer.isPixelBlack(x, y)) renderer.fillRect(dx + x * scale, dy + y * scale, scale, scale);
+    }
+  }
+  renderer.fillRect(0, 0, w, h, false);
+}
+
+static void showChordClock() {
+  char timeBuf[12] = "--:--";
+  char dateBuf[40] = "";
+  if (halClock.hasTrustedDateTime()) {
+    const uint8_t offsetQ = LocalClock::currentOffsetQ();
+    halClock.formatTime(timeBuf, sizeof(timeBuf), offsetQ, SETTINGS.clockFormat == 1);
+    halClock.formatDate(dateBuf, sizeof(dateBuf), offsetQ);
+  }
+  // Quick Resume and Overlay sleep screens draw over what the buffer holds (Quick
+  // Resume's saved frame), so put that back after the clock. A plain copy, because
+  // restoreBwBuffer() would also tell the panel driver that frame is on screen.
+  const size_t frameSize = renderer.getBufferSize();
+  const auto keptFrame = makeUniqueNoThrow<uint8_t[]>(frameSize);  // 48 KB, PSRAM, freed on return
+  if (keptFrame) {
+    memcpy(keptFrame.get(), renderer.getFrameBuffer(), frameSize);
+  } else {
+    LOG_ERR("MAIN", "Up+Down clock: no memory to keep the sleep frame; it redraws over white");
+  }
+  renderer.clearScreen();
+  const int pageHeight = renderer.getScreenHeight();
+  drawChordMagnified(UI_12_FONT_ID, timeBuf, pageHeight * 2 / 5, 8);
+  if (dateBuf[0]) drawChordMagnified(UI_12_FONT_ID, dateBuf, pageHeight * 3 / 5, 3);
+  renderer.displayBuffer(retainedPanelFrameSeeded ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
+  // Stay up while both keys are down; a release must last RELEASE_MS so a contact
+  // bounce does not end it, and the cap keeps a stuck key from draining the battery.
+  constexpr unsigned long CLOCK_MAX_MS = 30000;
+  constexpr unsigned long RELEASE_MS = 100;
+  const unsigned long start = millis();
+  unsigned long heldAt = start;
+  while (millis() - heldAt < RELEASE_MS && millis() - start < CLOCK_MAX_MS) {
+    delay(20);
+    gpio.update();
+    if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN)) heldAt = millis();
+  }
+  if (keptFrame) {
+    memcpy(renderer.getFrameBuffer(), keptFrame.get(), frameSize);
+  } else {
+    renderer.clearScreen();
+  }
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+  // Deep sleep powers PSRAM down and would lose a running macro: any sleep
+  // (power key, timeout, menu, SLEEPREBOOT) restarts instead, and the macro
+  // resumes; no ring write to SD after the boot.
+  if (SerialRemote::macroRunning()) {
+    LOG_INF("MAC", "sleep during macro: sleep-reboot instead");
+    SleepLog::armSleepReboot(false);
+  }
   armSleepGuard();
   HalPowerManager::sleepStep = "activity exit";
 #if CROSSDINK_GOODIES
@@ -1700,6 +1852,7 @@ void enterDeepSleep(bool fromTimeout) {
   syncBookBeforeSleep();
   HalPowerManager::sleepStep = "activity exit";
   kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
+  BugReport::stopForSleep();  // no report upload may hold an SD file through Storage.shutdown()
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
   // The lock is held during sleep prep to ensure full speed for file I/O and state
   // save, but it must be released before esp_deep_sleep_start() or the PM system
@@ -1727,15 +1880,19 @@ void enterDeepSleep(bool fromTimeout) {
     wifi_background_join::wait();  // the OPDS list's onExit() may have queued the radio off
     HalPowerManager::sleepStep = "sleep writes";
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
-    flushSettingsStores();
-    // Persist after the sleep screen is up so the write does not delay it. The
-    // reader's onExit() usually saves the same state already, so this write is
-    // then skipped as unchanged.
+    RecentBookProgress::flushSyncMarks();
+    // Hold the newest state, then write every held store behind the sleep screen.
+    // The reader's onExit() usually holds the same state already, so this hold
+    // is then skipped as unchanged.
     APP_STATE.saveToFile();
+    HeldWrites::setWriteThrough(HeldWrites::Sleeping, true);
+    flushSettingsStores();  // knobs.json
 
-    // Sleep screens refresh synchronously and display.deepSleep() waits out any
-    // pending refresh and the power-off, so no settle delay is needed here. A
-    // delay would only widen the window in which a wake press is swallowed.
+    // B/W sleep screens start their refresh without waiting (SleepActivity), so
+    // these writes run during its waveform; gray ones refresh synchronously.
+    // display.deepSleep() waits out any pending refresh before the power-off,
+    // so no settle delay is needed here. A delay would only widen the window in
+    // which a wake press is swallowed.
     if (isQuickResumeSleep) {
       saveSleepFrameBuffer();
     } else if (Storage.exists(SLEEP_FRAME_FILE)) {
@@ -1773,7 +1930,11 @@ void enterDeepSleep(bool fromTimeout) {
   }  // Release powerLock before deep sleep entry
 
   SleepLog::restartIfArmed();  // Goodies > Sleep-reboot-log: debug the sleep path without losing the log
-  powerManager.startDeepSleep(gpio);
+#ifdef SIMULATOR
+  powerManager.startDeepSleep(gpio);  // the simulator's HalPowerManager has no lockout to clear
+#else
+  powerManager.startDeepSleep(gpio, true);
+#endif
 }
 
 void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, const bool useReaderRenderStack) {
@@ -1799,7 +1960,15 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   // One handler: IDF has 5 slots and Wi-Fi takes one.
   esp_register_shutdown_handler([] {
     ReaderExitSave::flush();
-    flushSettingsStores();
+    RecentBookProgress::flushSyncMarks();
+    if (HeldWrites::carrying()) {
+      // Silent restart: held stores stay in PSRAM for the next boot.
+#if CROSSDINK_GOODIES
+      knobs::flush();
+#endif
+    } else {
+      flushSettingsStores();
+    }
     BatteryLog::onRestart();
   });
   if (seamless) {
@@ -1842,6 +2011,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
   renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
 #endif
+  attachUiFontBitmaps();
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
@@ -2076,10 +2246,10 @@ void setup() {
   bootPhase("sd");
 
   HalSystem::checkPanic();
+  HeldWrites::begin();  // a held copy a reset carried wins over the card's
   // Before anything reads progress.bin: replay a position a crash or reset kept
-  // off the card.
+  // off the card (it supersedes a held exit copy of the same book).
   ReaderProgressShadow::recoverPending();
-
   SETTINGS.loadFromFile();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
@@ -2087,16 +2257,6 @@ void setup() {
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
-  if (wallpaperChordWake && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM &&
-      !(SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM &&
-        !APP_STATE.lastSleepFromReader)) {
-    // The sleep screen is not a custom wallpaper, so there is nothing to change.
-    LOG_INF("MAIN", "Up+Down wake: sleep screen is not a custom image, sleeping");
-    PerfLog::noteDeepSleep("wallpaper-chord-skip", "boot");
-    armSleepGuard();
-    Storage.shutdown();
-    powerManager.startDeepSleep(gpio);
-  }
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,
                                wakeupRouteName(wakeupReason));
@@ -2113,6 +2273,7 @@ void setup() {
              snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) {
     KOREADER_STORE.loadFromFile();
   }
+  ThemePack::bootGuard(rawResetReason);
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   logBootHeap("boot state ready");
@@ -2245,8 +2406,11 @@ void setup() {
   }
 
   if (wallpaperChordWake) {
-    // Up+Down held while asleep: draw the next custom sleep image and sleep again.
-    LOG_INF("MAIN", "Up+Down wake: changing the sleep image");
+    // Up+Down held while asleep: show the clock until a key is released, then draw
+    // the next sleep screen (a custom image advances) and sleep again.
+    LOG_INF("MAIN", "Up+Down wake: showing the clock");
+    showChordClock();
+    disarmBootGuard();  // the hold can run 30 s; sleep entry arms its own guard
     enterDeepSleep();
   }
   if (recoveryFirmwareMode) {
@@ -2901,6 +3065,7 @@ static void loopPass() {
   }
   updateFlashDuck();
   BatteryLog::poll(millis() - lastActivityTime);
+  pollLowBatteryWrites();
 
   // Let wake continue as soon as its hold has been verified. The release can
   // arrive after setup, so consume that one input frame rather than making it
@@ -3131,14 +3296,35 @@ static void loopPass() {
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();
+  BugReport::loop();
   // Auto sync push toast: drawn over the current screen, cleared by its next render.
   static unsigned long koSyncToastAt = 0;
   if (kosync_auto::takePushed()) {
     RenderLock lock;
+    activityManager.repaintSyncBadge();  // the new KOSync badge rides the toast's refresh
     BookActions::drawToast(renderer, tr(STR_UPLOAD_SUCCESS));
     koSyncToastAt = millis() | 1;
   } else if (koSyncToastAt != 0 && millis() - koSyncToastAt >= 1500) {
     koSyncToastAt = 0;
+    activityManager.requestUpdate();
+  }
+  // A close push that ended without landing: no toast, one fast redraw only when a shown badge left Syncing.
+  if (kosync_auto::takeSettled()) {
+    bool changed;
+    {
+      RenderLock lock;
+      changed = activityManager.repaintSyncBadge();
+    }
+    if (changed) activityManager.requestUpdate();
+  }
+  // Theme pack load or crash-guard toast, cleared by a repaint like the sync toast.
+  static unsigned long themePackToastAt = 0;
+  if (const char* themePackToast = ThemePack::takeToast()) {
+    RenderLock lock;
+    BookActions::drawToast(renderer, themePackToast);
+    themePackToastAt = millis() | 1;
+  } else if (themePackToastAt != 0 && millis() - themePackToastAt >= 1500) {
+    themePackToastAt = 0;
     activityManager.requestUpdate();
   }
 #if CROSSDINK_GOODIES

@@ -44,4 +44,11 @@ struct BookReadingStats {
   // Formats a duration in seconds into a human-readable string.
   // Output examples: "< 1 min", "45 min", "2h 30 min"
   static void formatDuration(uint32_t seconds, char* buf, size_t len);
+
+  // Time left from total reading time and progress alone; false below 2 min read or outside 0-100 %.
+  bool fallbackTimeLeft(float progressPercent, uint32_t& seconds) const;
+
+  // Finish date from the book's reading seconds per calendar day since startDate.
+  bool finishDateFromDailyPace(const ReadingStatsDateTime& today, uint32_t estimatedReadingSeconds,
+                               ReadingStatsDate& outDate) const;
 };

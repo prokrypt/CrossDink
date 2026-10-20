@@ -11,6 +11,7 @@
 #include "Dictionary.h"
 #include "LookupHistory.h"
 #include "WordSelectNavigator.h"
+#include "components/UiAppHost.h"
 
 class Activity;
 class DictionaryLookupWorker;
@@ -134,7 +135,7 @@ class DictionaryLookupController {
 
  private:
 #if CROSSDINK_APP_CAP_TOUCH
-  using AltFormUiApp = freeink::ui::FreeInkApp<3, 1>;
+  using AltFormUiApp = UiAppSmall;
   static constexpr freeink::ui::ActionId ACTION_ALT_FORM_NO = 1;
   static constexpr freeink::ui::ActionId ACTION_ALT_FORM_YES = 2;
   static constexpr freeink::ui::ActionId ACTION_CREATE_CLIPPING = 3;

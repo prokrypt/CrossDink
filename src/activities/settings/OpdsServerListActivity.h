@@ -12,6 +12,7 @@
 #include "activities/browser/OpdsPageCache.h"
 #include "activities/browser/OpdsPreloadPool.h"
 #include "components/OptionPopup.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 /**
@@ -39,7 +40,7 @@ class OpdsServerListActivity final : public Activity {
  private:
   // FreeInkApp hosts the server list (themed rows, touch routing); the header
   // stays on GUI.drawHeader for the battery indicator.
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
 
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
@@ -47,6 +48,8 @@ class OpdsServerListActivity final : public Activity {
   // A server was picked: the browser takes over the background join's link
   // and the page cache.
   bool leavingToBrowser = false;
+  // Opened by Back from a catalog, which kept Wi-Fi up for this list.
+  bool fromBrowser = false;
   // PSRAM devices, picker mode: the servers' root pages are fetched in the
   // background once Wi-Fi is up (the browser's preload pool, up to three at
   // once) and each row gets the check mark; the cache goes to the browser

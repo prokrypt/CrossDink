@@ -9,6 +9,7 @@
 #include "../Activity.h"
 #include "BookmarkStore.h"
 #include "components/OptionPopup.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderBookmarkListActivity final : public Activity {
@@ -29,7 +30,7 @@ class EpubReaderBookmarkListActivity final : public Activity {
   bool confirmingDelete = false;
   ButtonNavigator buttonNavigator;
   OptionPopup confirmPopup;
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   std::atomic<bool> uiReady{false};

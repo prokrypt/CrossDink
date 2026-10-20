@@ -118,8 +118,13 @@ class OpdsPageCache {
 
 // The server list's cache (each server's root page), handed to the browser it
 // opens so the picked server's first page shows without a fetch. Main loop
-// only; empty after a reboot, or when nothing was handed over.
+// only; empty when nothing was handed over. (OpdsPageCacheHandoff.cpp)
 namespace opds_page_cache_handoff {
-void give(std::unique_ptr<OpdsPageCache> cache);
+// focusUrl: the page the receiver opens first, the one kept across a reboot.
+void give(std::unique_ptr<OpdsPageCache> cache, std::string focusUrl = {});
 std::unique_ptr<OpdsPageCache> take();
+// Right before a network reboot: saves the focus page to the SD card.
+void persistForRestart();
+// After that reboot: stores the saved page in cache, once (the file goes).
+void restoreAfterRestart(OpdsPageCache& cache);
 }  // namespace opds_page_cache_handoff

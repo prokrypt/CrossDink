@@ -12,15 +12,23 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
 
+#include "HeldWrites.h"
+#include "KOReaderCredentialStore.h"
 #include "RecentBooksStore.h"
 #include "activities/reader/EpubReaderUtils.h"
+#include "activities/reader/KOSyncAuto.h"
 #include "util/InPlaceFileWrite.h"
+
+using RecentBookProgress::SyncMark;
 
 namespace {
 constexpr uint32_t EPUB_PERCENT_CACHE_MAGIC = 0x45505250;  // "EPRP"
-constexpr uint8_t EPUB_PERCENT_CACHE_VERSION = 1;
+// v2 appends the KOSync mark (bp, flags); v1 (7 bytes, CrossInk's too) reads as never checked.
+constexpr uint8_t EPUB_PERCENT_CACHE_VERSION = 2;
+constexpr uint8_t SYNC_FLAG_SERVER_AHEAD = 1;
 constexpr char EPUB_PERCENT_CACHE_FILE[] = "/progress_percent.bin";
 constexpr uint32_t TXT_CACHE_MAGIC = 0x54585449;  // "TXTI"
 constexpr uint8_t TXT_CACHE_VERSION = 4;
@@ -29,57 +37,112 @@ float clampProgressPercent(const float progress) { return std::clamp(progress, 0
 
 std::string epubPercentCachePath(const std::string& cachePath) { return cachePath + EPUB_PERCENT_CACHE_FILE; }
 
-bool readCachedEpubBasisPoints(const std::string& cachePath, uint16_t& basisPoints) {
+bool readCachedEpubRecord(const std::string& cachePath, uint16_t& basisPoints, SyncMark& mark) {
+  mark = SyncMark{};
   if (cachePath.empty()) {
     return false;
   }
 
-  FsFile file;
-  if (!Storage.openFileForRead("RBPR", epubPercentCachePath(cachePath), file)) {
+  // Magic, version, basis points; v2 appends the KOSync mark (bp, flags).
+  constexpr size_t kVersionAt = sizeof(uint32_t);
+  constexpr size_t kBasisAt = kVersionAt + sizeof(uint8_t);
+  constexpr size_t kV1Size = kBasisAt + sizeof(uint16_t);
+  uint8_t record[kV1Size + sizeof(uint16_t) + sizeof(uint8_t)];
+  const int got = HeldWrites::readFile("RBPR", epubPercentCachePath(cachePath), record, sizeof(record));
+  if (got < static_cast<int>(kV1Size)) {
     return false;
   }
-
   uint32_t magic = 0;
-  uint8_t version = 0;
-  const bool readOk = serialization::tryReadPod(file, magic) && serialization::tryReadPod(file, version) &&
-                      serialization::tryReadPod(file, basisPoints);
-  file.close();
-  return readOk && magic == EPUB_PERCENT_CACHE_MAGIC && version == EPUB_PERCENT_CACHE_VERSION && basisPoints <= 10000;
+  uint8_t version = record[kVersionAt];
+  memcpy(&magic, record, sizeof(magic));
+  memcpy(&basisPoints, record + kBasisAt, sizeof(basisPoints));
+  if (version == EPUB_PERCENT_CACHE_VERSION && got == static_cast<int>(sizeof(record))) {
+    memcpy(&mark.bp, record + kV1Size, sizeof(mark.bp));
+    mark.serverAhead = (record[kV1Size + sizeof(mark.bp)] & SYNC_FLAG_SERVER_AHEAD) != 0;
+  }
+  if (mark.bp > 10000) mark = SyncMark{};
+  return magic == EPUB_PERCENT_CACHE_MAGIC && (version == 1 || version == EPUB_PERCENT_CACHE_VERSION) &&
+         basisPoints <= 10000;
 }
 
-float loadCachedEpubPercentFromCachePath(const std::string& cachePath) {
+// Same bytes tryWritePod() produced, written over the existing file: a torn
+// write only costs a recompute, since the reader validates magic, version and range.
+// hold: a reader exit; the write waits for the next flush point (HeldWrites).
+void writeCachedEpubRecord(const std::string& cachePath, const uint16_t basisPoints, const SyncMark& mark,
+                           const bool hold) {
+  const uint8_t flags = mark.serverAhead ? SYNC_FLAG_SERVER_AHEAD : 0;
+  uint8_t record[sizeof(EPUB_PERCENT_CACHE_MAGIC) + sizeof(EPUB_PERCENT_CACHE_VERSION) + sizeof(basisPoints) +
+                 sizeof(mark.bp) + sizeof(flags)];
+  uint8_t* out = record;
+  memcpy(out, &EPUB_PERCENT_CACHE_MAGIC, sizeof(EPUB_PERCENT_CACHE_MAGIC));
+  out += sizeof(EPUB_PERCENT_CACHE_MAGIC);
+  memcpy(out, &EPUB_PERCENT_CACHE_VERSION, sizeof(EPUB_PERCENT_CACHE_VERSION));
+  out += sizeof(EPUB_PERCENT_CACHE_VERSION);
+  memcpy(out, &basisPoints, sizeof(basisPoints));
+  out += sizeof(basisPoints);
+  memcpy(out, &mark.bp, sizeof(mark.bp));
+  out += sizeof(mark.bp);
+  memcpy(out, &flags, sizeof(flags));
+  if (!HeldWrites::saveFile(epubPercentCachePath(cachePath).c_str(), record, sizeof(record), hold)) {
+    LOG_ERR("RBPR", "failed to write EPUB percent cache: %s", cachePath.c_str());
+  }
+}
+
+uint16_t toBasisPoints(const float progress) {
+  return static_cast<uint16_t>((clampProgressPercent(progress) * 100.0f) + 0.5f);
+}
+
+// KOSync marks held in RAM until a flush point (deep sleep and the others in
+// the header), so a sync costs no card write of its own.
+struct HeldMark {
+  std::string cachePath;  // empty: free slot
+  SyncMark mark;
+};
+constexpr size_t HELD_MARKS = 4;
+std::mutex heldMutex;  // the KOSync task notes, Home and Library read on the render task
+HeldMark heldMarks[HELD_MARKS];
+
+HeldMark* findHeld(const std::string& cachePath) {
+  for (auto& held : heldMarks) {
+    if (held.cachePath == cachePath) return &held;
+  }
+  return nullptr;
+}
+
+void saveHeldMark(const HeldMark& held) {
   uint16_t basisPoints = 0;
-  if (!readCachedEpubBasisPoints(cachePath, basisPoints)) {
+  SyncMark saved;
+  if (!readCachedEpubRecord(held.cachePath, basisPoints, saved)) {
+    basisPoints = held.mark.bp;  // no % cache yet: the book's % at the check
+  } else if (saved.bp == held.mark.bp && saved.serverAhead == held.mark.serverAhead) {
+    return;
+  }
+  writeCachedEpubRecord(held.cachePath, basisPoints, held.mark, false);
+}
+
+float loadCachedEpubPercentFromCachePath(const std::string& cachePath, SyncMark& mark) {
+  uint16_t basisPoints = 0;
+  if (!readCachedEpubRecord(cachePath, basisPoints, mark)) {
     return -1.0f;
   }
   return static_cast<float>(basisPoints) / 100.0f;
 }
 
-void saveCachedEpubPercentToCachePath(const std::string& cachePath, const float progress) {
+void saveCachedEpubPercentToCachePath(const std::string& cachePath, const float progress, const bool hold) {
   if (cachePath.empty() || progress < 0.0f) {
     return;
   }
 
-  const float clamped = clampProgressPercent(progress);
-  const uint16_t basisPoints = static_cast<uint16_t>((clamped * 100.0f) + 0.5f);
+  const uint16_t basisPoints = toBasisPoints(progress);
 
   // The reader saves this on every exit; a read is cheaper on the card than
-  // rewriting an identical value.
+  // rewriting an identical value. The KOSync mark rides along unchanged.
   uint16_t existing = 0;
-  if (readCachedEpubBasisPoints(cachePath, existing) && existing == basisPoints) {
+  SyncMark mark;
+  if (readCachedEpubRecord(cachePath, existing, mark) && existing == basisPoints) {
     return;
   }
-
-  // Same bytes tryWritePod() produced, written over the existing file: a torn
-  // write only costs a recompute, since the reader validates magic, version and range.
-  uint8_t record[sizeof(EPUB_PERCENT_CACHE_MAGIC) + sizeof(EPUB_PERCENT_CACHE_VERSION) + sizeof(basisPoints)];
-  memcpy(record, &EPUB_PERCENT_CACHE_MAGIC, sizeof(EPUB_PERCENT_CACHE_MAGIC));
-  memcpy(record + sizeof(EPUB_PERCENT_CACHE_MAGIC), &EPUB_PERCENT_CACHE_VERSION, sizeof(EPUB_PERCENT_CACHE_VERSION));
-  memcpy(record + sizeof(EPUB_PERCENT_CACHE_MAGIC) + sizeof(EPUB_PERCENT_CACHE_VERSION), &basisPoints,
-         sizeof(basisPoints));
-  if (!writeFileInPlace("RBPR", epubPercentCachePath(cachePath).c_str(), record, sizeof(record))) {
-    LOG_ERR("RBPR", "failed to write EPUB percent cache: %s", cachePath.c_str());
-  }
+  writeCachedEpubRecord(cachePath, basisPoints, mark, hold);
 }
 
 float loadEpubSizeProgressPercentFromCachePath(const std::string& cachePath) {
@@ -146,15 +209,8 @@ float loadXtcProgressPercent(const RecentBook& book) {
     return -1.0f;
   }
 
-  FsFile file;
-  if (!Storage.openFileForRead("RBPR", xtc.getCachePath() + "/progress.bin", file)) {
-    return -1.0f;
-  }
-
   uint8_t data[4];
-  const int bytesRead = file.read(data, sizeof(data));
-  file.close();
-  if (bytesRead != 4) {
+  if (HeldWrites::readFile("RBPR", xtc.getCachePath() + "/progress.bin", data, sizeof(data)) != 4) {
     return -1.0f;
   }
 
@@ -169,19 +225,13 @@ float loadTxtProgressPercent(const RecentBook& book) {
     return -1.0f;
   }
 
-  FsFile progressFile;
-  if (!Storage.openFileForRead("RBPR", txt.getCachePath() + "/progress.bin", progressFile)) {
-    return -1.0f;
-  }
-
   // TXT progress starts with a 16-bit page number; the remaining bytes are a
   // file offset used only to restore the reader page.
   // Read the reader's four-byte minimum so an interrupted write is rejected,
   // then decode only its two-byte page field.
   uint8_t progressData[4];
-  const int progressBytes = progressFile.read(progressData, sizeof(progressData));
-  progressFile.close();
-  if (progressBytes != static_cast<int>(sizeof(progressData))) {
+  if (HeldWrites::readFile("RBPR", txt.getCachePath() + "/progress.bin", progressData, sizeof(progressData)) !=
+      static_cast<int>(sizeof(progressData))) {
     return -1.0f;
   }
 
@@ -240,34 +290,91 @@ float RecentBookProgress::loadPercent(const RecentBook& book) {
   return -1.0f;
 }
 
-float RecentBookProgress::loadCachedEpubPercent(const RecentBook& book) {
+float RecentBookProgress::loadCachedEpubPercent(const RecentBook& book, SyncMark* mark) {
+  if (mark) *mark = SyncMark{};
   if (!FsHelpers::hasEpubExtension(book.path)) {
     return -1.0f;
   }
-  return loadCachedEpubPercentAt(Epub::resolveCachePathForFilePath(book.path, "/.crossdink"));
+  return loadCachedEpubPercentAt(Epub::resolveCachePathForFilePath(book.path, "/.crossdink"), mark);
 }
 
-float RecentBookProgress::loadCachedEpubPercentAt(const std::string& cachePath) {
-  const float cachedProgress = loadCachedEpubPercentFromCachePath(cachePath);
+float RecentBookProgress::loadCachedEpubPercentAt(const std::string& cachePath, SyncMark* mark) {
+  SyncMark saved;
+  const float cachedProgress = loadCachedEpubPercentFromCachePath(cachePath, saved);
+  if (mark) *mark = saved;
   if (cachedProgress >= 0.0f) {
     return cachedProgress;
   }
   return loadEpubSizeProgressPercentFromCachePath(cachePath);
 }
 
+float RecentBookProgress::loadSavedEpubPercent(const std::string& cachePath, SyncMark& mark) {
+  return loadCachedEpubPercentFromCachePath(cachePath, mark);
+}
+
 void RecentBookProgress::saveCachedEpubPercent(const std::string& cachePath, const float progress) {
-  saveCachedEpubPercentToCachePath(cachePath, progress);
+  saveCachedEpubPercentToCachePath(cachePath, progress, false);
 }
 
 void RecentBookProgress::saveCachedEpubPercent(const Epub& epub, const int spineIndex, const int currentPage,
-                                               const int pageCount) {
+                                               const int pageCount, const bool hold) {
   if (pageCount <= 0) {
     return;
   }
+  saveCachedEpubPercentToCachePath(
+      epub.getCachePath(), static_cast<float>(basisPoints(epub, spineIndex, currentPage, pageCount)) / 100.0f, hold);
+}
 
-  const float chapterProgress = static_cast<float>(currentPage + 1) / static_cast<float>(pageCount);
-  const float progressPercent = clampProgressPercent(epub.calculateProgress(spineIndex, chapterProgress) * 100.0f);
-  saveCachedEpubPercentToCachePath(epub.getCachePath(), progressPercent);
+uint16_t RecentBookProgress::basisPoints(const Epub& epub, const int spineIndex, const int currentPage,
+                                         const int pageCount) {
+  const float chapterProgress = static_cast<float>(currentPage + 1) / static_cast<float>(std::max(1, pageCount));
+  return toBasisPoints(epub.calculateProgress(spineIndex, chapterProgress) * 100.0f);
+}
+
+void RecentBookProgress::noteSynced(const std::string& cachePath, const uint16_t bp, const bool serverAhead) {
+  if (cachePath.empty()) return;
+  HeldMark evicted;
+  {
+    std::lock_guard<std::mutex> lock(heldMutex);
+    HeldMark* slot = findHeld(cachePath);
+    if (!slot) slot = findHeld(std::string());
+    if (!slot) {
+      // Five books checked between flush points: the oldest note is written now.
+      evicted = std::move(heldMarks[0]);
+      std::move(heldMarks + 1, heldMarks + HELD_MARKS, heldMarks);
+      slot = &heldMarks[HELD_MARKS - 1];
+    }
+    slot->cachePath = cachePath;
+    slot->mark = SyncMark{bp, serverAhead};
+  }
+  LOG_INF("RBPR", "KOSync mark %s: %u bp%s (held)", cachePath.c_str(), static_cast<unsigned>(bp),
+          serverAhead ? ", server ahead" : "");
+  if (!evicted.cachePath.empty()) saveHeldMark(evicted);
+}
+
+void RecentBookProgress::flushSyncMarks() {
+  HeldMark pending[HELD_MARKS];
+  {
+    std::lock_guard<std::mutex> lock(heldMutex);
+    std::move(heldMarks, heldMarks + HELD_MARKS, pending);
+    for (auto& held : heldMarks) held.cachePath.clear();
+  }
+  for (const auto& held : pending) {
+    if (!held.cachePath.empty()) saveHeldMark(held);
+  }
+}
+
+RecentBookProgress::SyncBadge RecentBookProgress::syncBadge(const std::string& cachePath, const float progress,
+                                                            SyncMark mark) {
+  if (cachePath.empty() || !hasPercent(progress) || !KOREADER_STORE.hasCredentials()) return SyncBadge::None;
+  if (kosync_auto::pushPendingFor(cachePath)) return SyncBadge::Syncing;
+  {
+    std::lock_guard<std::mutex> lock(heldMutex);
+    if (const HeldMark* held = findHeld(cachePath)) mark = held->mark;
+  }
+  if (mark.bp == SyncMark::kNever) return SyncBadge::None;
+  if (mark.serverAhead) return SyncBadge::ServerAhead;
+  return toBasisPoints(progress) > mark.bp ? SyncBadge::Unsynced : SyncBadge::Synced;
 }
 
 bool RecentBookProgress::hasPercent(const float progress) { return progress >= 0.0f; }

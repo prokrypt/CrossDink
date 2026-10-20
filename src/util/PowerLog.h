@@ -14,8 +14,9 @@
 //
 // Rows go to a 16 KB PSRAM ring (survives restarts, not deep sleep or power
 // loss) and are appended to the file before deep sleep, from BatteryLog::flush(),
-// and from the main loop after 2 s without input once a boot left rows, the
-// ring is 3/4 full, or 1 KB is waiting with the battery at 5% or less off USB.
+// and from the main loop after 2 s without input once the ring is 3/4 full or
+// 1 KB is waiting with the battery at 5% or less off USB. Rows a restart left
+// wait for those too.
 // At 256 KB, or when the file's header is not this build's, it becomes
 // power.1.csv (one old copy).
 //

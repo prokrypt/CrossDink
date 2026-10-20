@@ -45,7 +45,12 @@ inline bool wifiRemoteActive() {
 
 #ifndef SIMULATOR
 inline void onWifiStaStart(WiFiEvent_t, WiFiEventInfo_t) { wifiStaActive().store(true, std::memory_order_relaxed); }
-inline void onWifiStaStop(WiFiEvent_t, WiFiEventInfo_t) { wifiStaActive().store(false, std::memory_order_relaxed); }
+// Wi-Fi off / new link: drop the last request time so a stale one can't light the remote icon.
+inline void onWifiStaStop(WiFiEvent_t, WiFiEventInfo_t) {
+  wifiStaActive().store(false, std::memory_order_relaxed);
+  wifiRemoteRequestMs().store(0, std::memory_order_relaxed);
+}
+inline void onWifiStaGotIp(WiFiEvent_t, WiFiEventInfo_t) { wifiRemoteRequestMs().store(0, std::memory_order_relaxed); }
 #endif
 
 // Call once at boot; the flag is only ever read by the header.
@@ -53,6 +58,7 @@ inline void registerWifiStaTracking() {
 #ifndef SIMULATOR
   WiFi.onEvent(onWifiStaStart, ARDUINO_EVENT_WIFI_STA_START);
   WiFi.onEvent(onWifiStaStop, ARDUINO_EVENT_WIFI_STA_STOP);
+  WiFi.onEvent(onWifiStaGotIp, ARDUINO_EVENT_WIFI_STA_GOT_IP);
 #endif
 }
 

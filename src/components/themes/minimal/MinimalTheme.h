@@ -21,19 +21,25 @@ constexpr ThemeMetrics makeValues() {
   return v;
 }
 
-constexpr ThemeMetrics values = makeValues();
+inline constexpr ThemeMetrics values = makeValues();
 constexpr int homeCoverWidth = coverWidthForHeight(values.homeCoverHeight);
 constexpr int homeCoverImageWidth = homeCoverWidth;
 constexpr int homeCoverImageHeight = 525;
 }  // namespace MinimalMetrics
 
 struct GlobalReadingStats;
+class Bitmap;
 
 class MinimalTheme : public LyraTheme {
  public:
   static void setHomeButtonHintSelection(int selectedIndex);
   static Rect buttonMenuPanelRect(const GfxRenderer& renderer, int buttonCount);
   static int compactFileBrowserRowHeightFor(const GfxRenderer& renderer);
+  // Shared with DashboardTheme. globalStats may be null (new reader, no streak).
+  static Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target);
+  static const char* readerTypeLabel(const GlobalReadingStats* globalStats);
+  static const uint8_t* readerTypeIcon(const GlobalReadingStats* globalStats);
+  static void formatStreakStat(const GlobalReadingStats* globalStats, char* buf, size_t len);
   static void drawCompactFileBrowserList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                                          const std::function<std::string(int index)>& rowTitle,
                                          const std::function<std::string(int index)>& rowSubtitle,

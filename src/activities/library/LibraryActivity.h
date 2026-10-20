@@ -9,7 +9,9 @@
 
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
+#include "activities/home/RecentBookProgress.h"
 #include "components/OptionPopup.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #include "util/WorkerTask.h"
 
@@ -21,6 +23,7 @@ class LibraryActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool blocksGlobalInput() const override { return actionPopup.isActive(); }
+  bool readsHeldExitWrites() const override { return true; }
   void onUserInput() override;
   bool preventAutoSleep() override;
 
@@ -28,7 +31,7 @@ class LibraryActivity final : public Activity {
   enum class Sort : uint8_t { DateAdded, Title, AuthorLast, AuthorFirst, RecentlyRead, Series, Genre };
   // Touch header controls precede the book rows; button-only navigation visits books directly.
   static constexpr int CONTROL_COUNT = 5;
-  using UiApp = freeink::ui::FreeInkApp<32, 4>;
+  using UiApp = UiAppLarge;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   ButtonNavigator buttonNavigator;
@@ -98,6 +101,10 @@ class LibraryActivity final : public Activity {
     std::string title;
     std::string subtitle;
     std::string heading;
+    // KOSync badge inputs (EPUB with credentials set): its cache folder, % and mark.
+    std::string syncCachePath;
+    float syncProgress = -1.0f;
+    RecentBookProgress::SyncMark syncMark;
   };
   static constexpr int ROW_CACHE_SIZE = 16;
   std::unique_ptr<CachedRow[]> rowCache;
@@ -184,5 +191,5 @@ class LibraryActivity final : public Activity {
   void openDialog(std::unique_ptr<Activity>&& activity, ActivityResultHandler handler);
   void promptDeleteBook(const RecentBook& book);
   void promptRemoveBook(const std::string& path, const std::string& title);
-  void showBookActionMenu(size_t bookIndex, bool ignoreInitialConfirmRelease = false);
+  void showBookActionMenu(size_t bookIndex);
 };

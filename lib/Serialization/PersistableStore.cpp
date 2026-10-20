@@ -21,6 +21,11 @@ bool PersistableStoreBase::writeDocToFileAtomically(const char* path, const Json
   return writeStringToFileAtomically(path, json);
 }
 
+void PersistableStoreBase::serializeDoc(const JsonDocument& doc, String& out) {
+  out = String();
+  serializeJson(doc, out);
+}
+
 bool PersistableStoreBase::writeStringToFileAtomically(const char* path, const String& json) {
   // Callers may save unchanged values; an identical file is not rewritten.
   if (Storage.exists(path) && Storage.readFile(path) == json) return true;
@@ -71,6 +76,13 @@ bool PersistableStoreBase::replaceWithTemp(const char* path) {
 }
 
 bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) {
+  String heldCopy;
+  if (heldJson && heldJson(path, heldCopy)) {
+    const auto error = deserializeJson(doc, heldCopy);
+    if (!error) return true;
+    LOG_ERR("PERSIST", "JSON parse error in held %s: %s; reading the card", path, error.c_str());
+    doc.clear();
+  }
   std::string recoveryPath;
   const char* readPath = path;
   if (!Storage.exists(path)) {

@@ -8,10 +8,11 @@
 #include <memory>
 
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
 class XtcReaderChapterSelectionActivity final : public Activity {
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  using UiApp = UiAppList;
 
   std::shared_ptr<Xtc> xtc;
   ButtonNavigator buttonNavigator;

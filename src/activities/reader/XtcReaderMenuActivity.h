@@ -36,7 +36,7 @@ class XtcReaderMenuActivity final : public Activity {
   bool allowGlobalHomeGesture() const override { return false; }
 
  private:
-  using UiHost = UiAppHost<9, 2>;
+  using UiHost = UiAppHost<kUiSmallInteractions, kUiSmallHandlers>;
   using UiApp = UiHost::App;
   static constexpr size_t kMaxMenuItems = 8;
 
