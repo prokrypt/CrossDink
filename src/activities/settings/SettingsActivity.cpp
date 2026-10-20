@@ -225,6 +225,9 @@ std::string formatSettingValue(const SettingInfo& setting) {
   if (setting.valuePtr == &CrossPointSettings::clockUtcOffsetQ) {
     return formatUtcOffset(SETTINGS.*(setting.valuePtr));
   }
+  if (setting.valuePtr == &CrossPointSettings::ghostBusters && SETTINGS.ghostBusters == 0) {
+    return tr(STR_STATE_OFF);
+  }
   return std::to_string(SETTINGS.*(setting.valuePtr));
 }
 
