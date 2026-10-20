@@ -21,6 +21,7 @@
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "EndOfBookOptions.h"
+#include "EpubLinkReturnState.h"
 #include "EpubReaderMenuModel.h"
 #include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
@@ -316,11 +317,8 @@ class EpubReaderActivity final : public Activity {
   ReaderPinchGesture pinchFontGesture;
   FootnoteLinkTargets currentPageFootnoteTouchTargets{};
 #endif
-  struct SavedPosition {
-    int spineIndex;
-    int pageNumber;
-  };
-  static constexpr int MAX_FOOTNOTE_DEPTH = 3;
+  using SavedPosition = EpubLinkReturnState::Position;
+  static constexpr int MAX_FOOTNOTE_DEPTH = EpubLinkReturnState::MAX_DEPTH;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
 
@@ -579,12 +577,13 @@ class EpubReaderActivity final : public Activity {
   bool saveProgress(int spineIndex, int currentPage, int pageCount, bool allowDuringFootnotePreview = false,
                     bool hold = false);
   bool queueProgressSave(int spineIndex, int currentPage, int pageCount, bool forceSave = false);
-  bool flushQueuedProgress(bool hold = false);
-  bool saveFootnoteOriginProgress();
   // Saves the position now, the way onExit() does (the link origin while in a
-  // footnote). Used before handing off to anything that can silently restart
-  // the device, which reboots without running onExit().
+  // footnote preview). Used before handing off to anything that can silently
+  // restart the device, which reboots without running onExit().
   void saveProgressBeforeRestart();
+  bool saveReadingProgress(bool hold = false);
+  bool saveLinkStack() const;
+  void loadLinkStack();
   void cacheCurrentSectionPosition();
   void pauseReadingPaceTimer(const char* reason = "unknown");
   void resumeReadingPaceTimer(const char* reason = "unknown");
