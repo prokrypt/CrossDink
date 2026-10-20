@@ -344,18 +344,8 @@ fui::Rect drawerScrollbarBounds(fui::Rect bounds) {
 }
 
 const char* wordSpacingValue(const uint8_t value) {
-  switch (std::min<uint8_t>(value, CrossPointSettings::MAX_WORD_SPACING)) {
-    case 0:
-      return "0";
-    case 1:
-      return "1";
-    case 2:
-      return "2";
-    case 3:
-      return "3";
-    default:
-      return "4";
-  }
+  static constexpr const char* labels[] = {"-4", "-3", "-2", "-1", "0", "1", "2", "3", "4"};
+  return labels[WordSpacing::sliderValue(value)];
 }
 
 uint8_t percentToByte(const int16_t permille, const uint8_t minimum, const uint8_t maximum) {
@@ -528,8 +518,8 @@ void EpubReaderDrawerActivity::refreshTtfRenderingRow() {
   paneRows.erase(std::remove(paneRows.begin(), paneRows.end(), RowId::TtfRendering), paneRows.end());
 #if CROSSDINK_SCALABLE_FONTS
   if (state.pane == ReaderDrawerPane::ReaderFont && sdFontSystem.isScalableFamily(draft.sdFontFamilyName.data())) {
-    const auto fontSize = std::find(paneRows.begin(), paneRows.end(), RowId::FontSize);
-    if (fontSize != paneRows.end()) paneRows.insert(std::next(fontSize), RowId::TtfRendering);
+    const auto spacing = std::find(paneRows.begin(), paneRows.end(), RowId::CharacterSpacing);
+    if (spacing != paneRows.end()) paneRows.insert(std::next(spacing), RowId::TtfRendering);
   }
 #endif
 }
@@ -638,6 +628,7 @@ ReaderSettingsDraft EpubReaderDrawerActivity::captureSettings() {
   std::strncpy(value.sdFontFamilyName.data(), SETTINGS.sdFontFamilyName, value.sdFontFamilyName.size() - 1);
   value.lineHeightPercent = SETTINGS.lineHeightPercent;
   value.wordSpacing = SETTINGS.wordSpacing;
+  value.characterSpacing = SETTINGS.characterSpacing;
   value.screenMarginVertical = SETTINGS.screenMarginVertical;
   value.screenMarginHorizontal = SETTINGS.screenMarginHorizontal;
   value.orientation = SETTINGS.orientation;
@@ -663,6 +654,7 @@ void EpubReaderDrawerActivity::applySettings(const ReaderSettingsDraft& value) {
   SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
   SETTINGS.lineHeightPercent = value.lineHeightPercent;
   SETTINGS.wordSpacing = value.wordSpacing;
+  SETTINGS.characterSpacing = value.characterSpacing;
   SETTINGS.screenMarginVertical = value.screenMarginVertical;
   SETTINGS.screenMarginHorizontal = value.screenMarginHorizontal;
   SETTINGS.orientation = value.orientation;
@@ -748,9 +740,12 @@ void EpubReaderDrawerActivity::onSliderEvent(const fui::ActionEvent& event, void
     return self->sliderTapPending ? snapSliderTapValue(value, minimum, maximum, 5) : value;
   };
   const bool second = event.action == ACTION_SLIDER + 3;
-  if (self->state.pane == ReaderDrawerPane::Spacing) {
+  if (self->state.pane == ReaderDrawerPane::CharacterSpacing) {
+    self->draft.characterSpacing = percentToByte(event.dragPermille, 0, CrossPointSettings::MAX_CHARACTER_SPACING);
+  } else if (self->state.pane == ReaderDrawerPane::Spacing) {
     if (second) {
-      self->draft.wordSpacing = percentToByte(event.dragPermille, 0, CrossPointSettings::MAX_WORD_SPACING);
+      self->draft.wordSpacing =
+          WordSpacing::fromSlider(percentToByte(event.dragPermille, 0, CrossPointSettings::MAX_WORD_SPACING));
     } else {
       const int value = percentToByte(event.dragPermille, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
                                       CrossPointSettings::MAX_LINE_HEIGHT_PERCENT);
@@ -791,8 +786,7 @@ void EpubReaderDrawerActivity::onStepEvent(const fui::ActionEvent& event, void* 
   const bool second = event.action == ACTION_STEP + 3;
   if (second) {
     if (self->state.pane == ReaderDrawerPane::Spacing) {
-      self->draft.wordSpacing =
-          std::clamp<int>(self->draft.wordSpacing + event.value, 0, CrossPointSettings::MAX_WORD_SPACING);
+      self->draft.wordSpacing = WordSpacing::fromLevel(WordSpacing::level(self->draft.wordSpacing) + event.value);
     } else if (self->state.pane == ReaderDrawerPane::Margins) {
       self->draft.screenMarginHorizontal =
           std::clamp<int>(self->draft.screenMarginHorizontal + event.value, CrossPointSettings::MIN_SCREEN_MARGIN,
@@ -903,7 +897,8 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
       row.label = row.value = row.minimumLabel = row.maximumLabel = " ";
       row.captionGap = COMPACT_SLIDER_CAPTION_GAP;
       const int controlsHeight =
-          screen.theme().headerHeight + 2 * readerSliderRowHeight(screen, row) +
+          screen.theme().headerHeight +
+          (state.pane == ReaderDrawerPane::CharacterSpacing ? 1 : 2) * readerSliderRowHeight(screen, row) +
           2 * (screen.target().lineHeight(screen.theme().smallText.font) + screen.theme().spaceSm) +
           screen.theme().spaceSm + sheet.ruleWidth + metrics.verticalSpacing;
       previewHeight = std::min(previewHeight, std::max(0, screen.body().height - controlsHeight));
@@ -916,6 +911,9 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   switch (state.pane) {
     case ReaderDrawerPane::Root:
       buildRootRows(screen);
+      break;
+    case ReaderDrawerPane::CharacterSpacing:
+      buildCharacterSpacingPane(screen);
       break;
     case ReaderDrawerPane::Spacing:
       buildSpacingPane(screen);
@@ -1109,6 +1107,24 @@ void EpubReaderDrawerActivity::buildSimplePane(UiApp::ScreenType& screen) {
   }
 }
 
+void EpubReaderDrawerActivity::buildCharacterSpacingPane(UiApp::ScreenType& screen) {
+  buildPaneHeader(screen);
+  char value[8];
+  CrossPointSettings::formatCharacterSpacing(draft.characterSpacing, value, sizeof(value));
+  ReaderSliderRowProps row;
+  row.value = value;
+  row.sliderValue = byteToPermille(draft.characterSpacing, 0, CrossPointSettings::MAX_CHARACTER_SPACING);
+  row.sliderAction = ACTION_SLIDER;
+  row.max = 1000;
+  row.decrement = ACTION_STEP;
+  row.increment = ACTION_STEP;
+  configureReaderSliderScale(row, "-5", "+5");
+  row.focused = !mappedInput.hasTouchHardware();
+  row.editing = row.focused && buttonSliderState.editing;
+  drawReaderSliderRow(screen, row);
+  if (!mappedInput.hasTouchHardware()) drawButtonSliderStepHints(screen, 1, 5, "");
+}
+
 void EpubReaderDrawerActivity::buildSpacingPane(UiApp::ScreenType& screen) {
   buildPaneHeader(screen);
   char lineValue[16];
@@ -1126,12 +1142,13 @@ void EpubReaderDrawerActivity::buildSpacingPane(UiApp::ScreenType& screen) {
   ReaderSliderRowProps word;
   word.label = tr(STR_WORD_SPACING);
   word.value = wordSpacingValue(draft.wordSpacing);
-  word.sliderValue = byteToPermille(draft.wordSpacing, 0, CrossPointSettings::MAX_WORD_SPACING);
+  word.sliderValue =
+      byteToPermille(WordSpacing::sliderValue(draft.wordSpacing), 0, CrossPointSettings::MAX_WORD_SPACING);
   word.max = 1000;
   word.sliderAction = ACTION_SLIDER + 3;
   word.decrement = ACTION_STEP + 3;
   word.increment = ACTION_STEP + 3;
-  configureReaderSliderScale(word, "0", "4");
+  configureReaderSliderScale(word, "-4", "4");
   line.captionGap = COMPACT_SLIDER_CAPTION_GAP;
   word.captionGap = COMPACT_SLIDER_CAPTION_GAP;
   line.focused = !mappedInput.hasTouchHardware() && buttonSliderState.focus == 0;
@@ -1520,7 +1537,7 @@ void EpubReaderDrawerActivity::openPane(const ReaderDrawerPane pane) {
   }
   paneRows.clear();
   if (pane == ReaderDrawerPane::ReaderFont) {
-    paneRows = {RowId::FontFamily, RowId::FontSize};
+    paneRows = {RowId::FontFamily, RowId::FontSize, RowId::CharacterSpacing};
     refreshTtfRenderingRow();
   }
   if (pane == ReaderDrawerPane::DictionaryFont) {
@@ -1546,7 +1563,7 @@ void EpubReaderDrawerActivity::closePane() {
   }
   if (state.pane == ReaderDrawerPane::EnumOptions) {
     state.pane = enumOptionReturnPane;
-  } else if (state.pane == ReaderDrawerPane::FontFamily) {
+  } else if (state.pane == ReaderDrawerPane::FontFamily || state.pane == ReaderDrawerPane::CharacterSpacing) {
     state.pane = ReaderDrawerPane::ReaderFont;
 #if CROSSDINK_SCALABLE_FONTS
   } else if (state.pane == ReaderDrawerPane::TtfRendering) {
@@ -1558,7 +1575,7 @@ void EpubReaderDrawerActivity::closePane() {
   }
   paneRows.clear();
   if (state.pane == ReaderDrawerPane::ReaderFont) {
-    paneRows = {RowId::FontFamily, RowId::FontSize};
+    paneRows = {RowId::FontFamily, RowId::FontSize, RowId::CharacterSpacing};
     refreshTtfRenderingRow();
   }
   if (state.pane == ReaderDrawerPane::DictionaryFont) {
@@ -1605,7 +1622,7 @@ void EpubReaderDrawerActivity::activateListIndex(const int index) {
     if (index < 0 || index >= static_cast<int>(fontSettingIndexes.size())) return;
     if (state.pendingFontIndex == index) {
       state.pane = ReaderDrawerPane::ReaderFont;
-      paneRows = {RowId::FontFamily, RowId::FontSize};
+      paneRows = {RowId::FontFamily, RowId::FontSize, RowId::CharacterSpacing};
       refreshTtfRenderingRow();
       state.pendingFontIndex = -1;
       state.selectedIndex = 0;
@@ -1640,6 +1657,9 @@ void EpubReaderDrawerActivity::activateListIndex(const int index) {
 
 void EpubReaderDrawerActivity::activateRow(const RowId row) {
   switch (row) {
+    case RowId::CharacterSpacing:
+      openPane(ReaderDrawerPane::CharacterSpacing);
+      return;
     case RowId::ReaderFont:
       openPane(ReaderDrawerPane::ReaderFont);
       return;
@@ -2320,7 +2340,10 @@ void EpubReaderDrawerActivity::completeAutoPageTurnSelection() {
 }
 
 void EpubReaderDrawerActivity::adjustActiveSlider(const int delta) {
-  if (state.pane == ReaderDrawerPane::Spacing) {
+  if (state.pane == ReaderDrawerPane::CharacterSpacing) {
+    draft.characterSpacing =
+        std::clamp<int>(draft.characterSpacing + delta, 0, CrossPointSettings::MAX_CHARACTER_SPACING);
+  } else if (state.pane == ReaderDrawerPane::Spacing) {
     draft.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(static_cast<uint8_t>(
         std::clamp<int>(draft.lineHeightPercent + delta, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
                         CrossPointSettings::MAX_LINE_HEIGHT_PERCENT)));
@@ -2336,7 +2359,11 @@ void EpubReaderDrawerActivity::adjustActiveSlider(const int delta) {
 
 void EpubReaderDrawerActivity::adjustButtonSlider(const int delta) {
   bool changed = false;
-  if (state.pane == ReaderDrawerPane::Spacing) {
+  if (state.pane == ReaderDrawerPane::CharacterSpacing) {
+    const uint8_t previous = draft.characterSpacing;
+    adjustActiveSlider(delta);
+    changed = previous != draft.characterSpacing;
+  } else if (state.pane == ReaderDrawerPane::Spacing) {
     if (buttonSliderState.focus == 0) {
       const uint8_t value = CrossPointSettings::clampedLineHeightPercent(static_cast<uint8_t>(
           std::clamp<int>(draft.lineHeightPercent + delta, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
@@ -2344,8 +2371,7 @@ void EpubReaderDrawerActivity::adjustButtonSlider(const int delta) {
       changed = value != draft.lineHeightPercent;
       draft.lineHeightPercent = value;
     } else {
-      const uint8_t value =
-          static_cast<uint8_t>(std::clamp<int>(draft.wordSpacing + delta, 0, CrossPointSettings::MAX_WORD_SPACING));
+      const uint8_t value = WordSpacing::fromLevel(WordSpacing::level(draft.wordSpacing) + delta);
       changed = value != draft.wordSpacing;
       draft.wordSpacing = value;
     }
@@ -2475,6 +2501,7 @@ void EpubReaderDrawerActivity::renderPreviewText(const ReaderSettingsDraft& prev
                             previewSettings.sdFontFamilyName == sourceSettings.sdFontFamilyName &&
                             previewSettings.lineHeightPercent == sourceSettings.lineHeightPercent &&
                             previewSettings.wordSpacing == sourceSettings.wordSpacing &&
+                            previewSettings.characterSpacing == sourceSettings.characterSpacing &&
                             previewSettings.screenMarginVertical == sourceSettings.screenMarginVertical &&
                             previewSettings.screenMarginHorizontal == sourceSettings.screenMarginHorizontal &&
                             previewSettings.paragraphAlignment == sourceSettings.paragraphAlignment &&
@@ -2498,10 +2525,11 @@ void EpubReaderDrawerActivity::renderPreviewText(const ReaderSettingsDraft& prev
   const int previewWidth =
       std::max(1, renderer.getScreenWidth() - static_cast<int>(previewSettings.screenMarginHorizontal) * 2);
   renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
-  previewModel->renderText(renderer, previewFontId, previewSettings.screenMarginHorizontal, previewYOffset,
-                           previewWidth, previewSettings.lineHeightPercent, previewSettings.wordSpacing,
-                           previewSettings.paragraphAlignment, previewSettings.focusReadingEnabled,
-                           previewSettings.guideReadingEnabled, ReaderUtils::readerForegroundBlack());
+  previewModel->renderText(
+      renderer, previewFontId, previewSettings.screenMarginHorizontal, previewYOffset, previewWidth,
+      previewSettings.lineHeightPercent, previewSettings.wordSpacing, previewSettings.paragraphAlignment,
+      previewSettings.focusReadingEnabled, previewSettings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(),
+      std::numeric_limits<int>::max(), CrossPointSettings::characterSpacingLevel(previewSettings.characterSpacing));
   renderer.endTextClip();
 }
 
@@ -2524,7 +2552,8 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
   previewModel->renderText(renderer, fontId, area.x + marginX, top, width, settings.lineHeightPercent,
                            settings.wordSpacing, settings.paragraphAlignment, settings.focusReadingEnabled,
                            settings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(),
-                           top + std::max(0, textHeight - marginY * 2));
+                           top + std::max(0, textHeight - marginY * 2),
+                           CrossPointSettings::characterSpacingLevel(settings.characterSpacing));
   renderer.endTextClip();
 }
 
@@ -2914,6 +2943,8 @@ const char* EpubReaderDrawerActivity::paneTitle() const {
       return tr(STR_DICTIONARY_FONT);
     case ReaderDrawerPane::FontFamily:
       return tr(STR_FONT_FAMILY);
+    case ReaderDrawerPane::CharacterSpacing:
+      return tr(STR_CHARACTER_SPACING);
     case ReaderDrawerPane::Spacing:
       return tr(STR_SPACING);
     case ReaderDrawerPane::Margins:
@@ -3036,6 +3067,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_SEND_NEARBY_BOOK);
     case RowId::FontFamily:
       return tr(STR_FONT_FAMILY);
+    case RowId::CharacterSpacing:
+      return tr(STR_CHARACTER_SPACING);
     case RowId::FontSize:
       return tr(STR_FONT_SIZE);
     case RowId::DictionaryFontFamily:
@@ -3073,6 +3106,9 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
       if (draft.fontFamily >= labels.size()) return tr(STR_UNAVAILABLE);
       return I18N.get(labels[draft.fontFamily]);
     }
+    case RowId::CharacterSpacing:
+      CrossPointSettings::formatCharacterSpacing(draft.characterSpacing, buffer, bufferSize);
+      return buffer;
     case RowId::FontSize:
       std::snprintf(buffer, bufferSize, "%upt", draft.readerFontPointSize);
       return buffer;

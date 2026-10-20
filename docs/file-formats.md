@@ -5,6 +5,23 @@ All POD fields are written in the ESP32 little-endian representation used by
 `Serialization.h`; strings are length-prefixed UTF-8 unless a format notes a
 fixed-size char buffer.
 
+## Settings: word and character spacing
+
+`wordSpacing` keeps saved values `0..4`. Values `5..8` encode levels `-1..-4`;
+sliders show levels `-4..4`. Negative levels remove 20% of the natural word gap
+per step, keeping at least one pixel. Positive levels keep their 10-pixel steps.
+
+`characterSpacing` is `0..10`, encoding `-5..+5` (default `5`, no change). Each
+step adds or removes half a pixel between letters; spaces keep their word
+spacing, and ligatures are skipped while it is not `0`. It is part of the EPUB
+section layout identity and the TXT index header, so a changed value rebuilds
+those caches around the saved text position.
+
+## TXT `index.bin`
+
+Version 5 adds signed `characterSpacing` (-5..5) after the source file size in
+the index header. A changed spacing value or older version rebuilds pagination.
+
 ## `/.crossdink/ttf-rendering.json`
 
 This user-owned JSON file stores only custom TTF families whose raster settings
@@ -286,7 +303,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 9
+### Version 12
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -307,6 +324,12 @@ display setting. Version 10 appends a field mask so a book overrides only the
 reader settings that differ from its current global defaults. Version 2-9
 records with the custom-settings flag keep their full snapshot as an override
 when migrated; they cannot distinguish past manual edits from automatic ones.
+Version 12 follows CrossInk's version 12 byte layout so records carried over
+from a CrossInk card load: the SD-font mask bit moves from 18 to 19, a `u8`
+image-grayscale byte follows the mask (CrossDink writes `1` and ignores it,
+along with mask bit 18), then `u8 characterSpacing` (0-10 encodes -5..+5,
+default 5) with override bit 20. Version 10 records keep their overrides and
+inherit global character spacing. CrossInk's version 11 is not read.
 The file can preserve an auto-page-turn interval without forcing custom
 font/layout settings for the book. It also stores a per-book EPUB render mode override,
 which can be changed from book action menus before opening the book so a
@@ -317,7 +340,7 @@ fallback successfully opens a difficult book.
 
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 10
+    u8 version; // 12
     u8 flags;   // bit 0 = at least one custom reader field, bit 1 = custom auto-page-turn interval, bit 2 = render mode override, bit 3 = dictionary font override, bit 4 = Safe Mode override
     u16 autoPageTurnSeconds;
     u8 renderMode; // 0 = CrossDink Default, 1 = Balanced, 2 = Light
@@ -325,7 +348,7 @@ struct ReaderSettingsBin {
     u8 fontFamily;
     u8 readerFontPointSize; // physical point size; versions 2-5 stored a size slot
     u8 lineHeightPercent;
-    u8 wordSpacing; // 0 = natural font spacing; 1-4 widen each gap by ~75% per level
+    u8 wordSpacing; // 0 = natural; 1-4 add 10px per level; 5-8 encode -1..-4 (20% tighter per level)
     u8 orientation;
     u8 screenMarginVertical;
     u8 screenMarginHorizontal;
@@ -344,7 +367,9 @@ struct ReaderSettingsBin {
     char sdFontFamilyName[64];
     char dictionarySdFontFamilyName[64]; // meaningful only when flag bit 3 is set
     u8 dictionaryFontPointSize; // 0 = follow reader size
-    u32 readerSettingsOverrideMask; // bits 0-17 correspond to snapshot fields above, excluding snapshotRenderMode; bit 18 = sdFontFamilyName
+    u32 readerSettingsOverrideMask; // bits 0-17 = snapshot fields excluding snapshotRenderMode; bit 18 = unused (CrossInk image grayscale); bit 19 = sdFontFamilyName; bit 20 = characterSpacing
+    u8 imageGrayscale; // CrossInk only; CrossDink writes 1 and ignores it
+    u8 characterSpacing; // 0..10 encodes -5..+5
 };
 ```
 
@@ -514,6 +539,14 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 97
+
+Complete caches use `97`; suspended partial caches use `0xEF` (`0xF0` and `0xF1`
+are retired). Version 96 is left to the inherited-paragraph-style change. The
+section header adds signed `characterSpacing` (-5..5) immediately after
+`wordSpacing`. Each TextBlock adds the same signed byte immediately before
+`textBytes`, so cached drawing keeps the exact spacing used for layout. Older
+full and partial caches rebuild automatically.
 ### Version 79
 
 Version 79 keeps the version 78 serialized layout. Korean words now wrap at
@@ -717,6 +750,7 @@ struct TextBlock {
     u8 hasFocus;
     u8 hasGuideDots;
     u8 hasWordFlags;
+    s8 characterSpacing [[comment("-5..5, half-pixel steps between letters")]];
     u16 textBytes [[comment("Total size of text[], including one NUL per word")]];
 
     if (wordCount > 0) {
@@ -862,6 +896,7 @@ struct SectionBin {
     bool focusReadingEnabled;
     bool guideReadingEnabled;
     u8 wordSpacing;
+    s8 characterSpacing;
     u8 renderMode; // 0 = CrossDink Default, 1 = Balanced, 2 = Light
 
     u16 pageCount;

@@ -225,6 +225,14 @@ std::string formatSettingValue(const SettingInfo& setting) {
   if (setting.valuePtr == &CrossPointSettings::clockUtcOffsetQ) {
     return formatUtcOffset(SETTINGS.*(setting.valuePtr));
   }
+  if (setting.valuePtr == &CrossPointSettings::wordSpacing) {
+    return std::to_string(WordSpacing::level(SETTINGS.wordSpacing));
+  }
+  if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
+    char value[8];
+    CrossPointSettings::formatCharacterSpacing(SETTINGS.characterSpacing, value, sizeof(value));
+    return value;
+  }
   return std::to_string(SETTINGS.*(setting.valuePtr));
 }
 
@@ -646,17 +654,38 @@ void SettingsActivity::openScreenMarginPicker(const SettingInfo& setting) {
 void SettingsActivity::openWordSpacingPicker() {
   startActivityForResult(
       std::make_unique<IntervalSelectionActivity>(
-          renderer, mappedInput, "WordSpacingInterval", StrId::STR_WORD_SPACING, SETTINGS.wordSpacing, 0,
-          CrossPointSettings::MAX_WORD_SPACING, 1, 1, StrId::STR_NONE_OPT,
+          renderer, mappedInput, "WordSpacingInterval", StrId::STR_WORD_SPACING,
+          WordSpacing::sliderValue(SETTINGS.wordSpacing), 0, CrossPointSettings::MAX_WORD_SPACING, 1, 1,
+          StrId::STR_NONE_OPT,
           /*readerActivity=*/false, /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false,
           /*showPercentValue=*/false, StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false,
-          /*showTouchHeaderBackButton=*/true, /*valueFormatter=*/nullptr, /*tapStep=*/1,
+          /*showTouchHeaderBackButton=*/true, /*valueFormatter=*/CrossPointSettings::formatWordSpacingSlider,
+          /*tapStep=*/1,
           /*useReaderSlider=*/true),
       [this](const ActivityResult& result) {
         if (!result.isCancelled) {
-          SETTINGS.wordSpacing =
+          SETTINGS.wordSpacing = WordSpacing::fromSlider(std::get<IntervalResult>(result.data).value);
+          SETTINGS.saveToFile();
+        }
+        requestUpdate();
+      });
+}
+
+void SettingsActivity::openCharacterSpacingPicker() {
+  startActivityForResult(
+      std::make_unique<IntervalSelectionActivity>(
+          renderer, mappedInput, "CharacterSpacingInterval", StrId::STR_CHARACTER_SPACING, SETTINGS.characterSpacing, 0,
+          CrossPointSettings::MAX_CHARACTER_SPACING, 1, 1, StrId::STR_NONE_OPT,
+          /*readerActivity=*/false, /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false,
+          /*showPercentValue=*/false, StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false,
+          /*showTouchHeaderBackButton=*/true, /*valueFormatter=*/CrossPointSettings::formatCharacterSpacing,
+          /*tapStep=*/1,
+          /*useReaderSlider=*/true),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          SETTINGS.characterSpacing =
               static_cast<uint8_t>(std::clamp(std::get<IntervalResult>(result.data).value, static_cast<uint32_t>(0),
-                                              static_cast<uint32_t>(CrossPointSettings::MAX_WORD_SPACING)));
+                                              static_cast<uint32_t>(CrossPointSettings::MAX_CHARACTER_SPACING)));
           SETTINGS.saveToFile();
         }
         requestUpdate();
@@ -1103,6 +1132,10 @@ void SettingsActivity::toggleCurrentSetting() {
           }
           requestUpdate();
         });
+    return;
+  }
+  if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
+    openCharacterSpacingPicker();
     return;
   }
   if (setting.valuePtr == &CrossPointSettings::wordSpacing) {

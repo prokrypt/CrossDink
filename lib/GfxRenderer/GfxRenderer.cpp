@@ -46,6 +46,18 @@ int32_t resolveSdCardAdvanceFP(const SdCardFont& sdFont, const EpdFontFamily& fo
   return glyph ? glyph->advanceX : 0;
 }
 
+bool characterSpacingBoundary(const uint32_t left, const uint32_t right) {
+  const auto base = [](const uint32_t cp) {
+    return cp > 0x20 && cp != 0xa0 && !(cp >= 0x2000 && cp <= 0x200b) && cp != 0x202f && cp != 0x3000 &&
+           !utf8IsCombiningMark(cp) && !utf8IsVariationSelector(cp) && !BidiUtils::isTransparentMark(cp);
+  };
+  return base(left) && base(right);
+}
+
+int characterSpacingPixels(const int gaps, const int8_t level) {
+  return fp4::toPixel(gaps * std::clamp<int>(level, -5, 5) * 8);
+}
+
 int32_t halfAdvanceFP(const int32_t advanceFP) { return (advanceFP + 1) / 2; }
 
 int32_t smallCapsAdvanceFP(const int32_t advanceFP) {
@@ -1059,7 +1071,7 @@ const char* resolveVisualText(const char* text, std::string& visualBuffer, const
 }  // namespace
 
 int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style,
-                              const BidiUtils::BidiBaseDir baseDir) const {
+                              const BidiUtils::BidiBaseDir baseDir, const int8_t characterSpacing) const {
 #if CROSSDINK_SCALABLE_FONTS
   ScalableFontAccess access;
 #endif
@@ -1069,6 +1081,9 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
 
   const int resolvedFontId = resolveTextFontId(fontId, text, style);
 
+  if (characterSpacing != 0) {
+    return getTextAdvanceX(resolvedFontId, text, style, 0, characterSpacing);
+  }
   std::string visualBuffer;
   const char* textCursor = resolveVisualText(text, visualBuffer, baseDir);
   if ((style & EpdFontFamily::SMALL_CAPS) != 0) {
@@ -1125,7 +1140,8 @@ void GfxRenderer::endTextClip() const {
 }
 
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
-                           const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir) const {
+                           const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir,
+                           const int8_t characterSpacing) const {
   // cannot draw a NULL / empty string
   if (text == nullptr || *text == '\0') {
     return;
@@ -1160,6 +1176,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   const auto& font = fontIt->second;
 
   uint32_t cp;
+  int trackingGaps = 0;
   uint32_t prevCp = 0;
   bool prevScaledSmallCap = false;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&textCursor)))) {
@@ -1180,7 +1197,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     const bool scaledSmallCap = isSmallCapsLowercase(style, cp);
     if (scaledSmallCap) {
       cp = smallCapsUppercaseCodepoint(cp);
-    } else {
+    } else if (characterSpacing == 0) {
       cp = font.applyLigatures(cp, textCursor, style);
     }
     cp = font.getFallbackCodepoint(cp, style);
@@ -1193,6 +1210,11 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       int32_t kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
       if (prevScaledSmallCap || scaledSmallCap) {
         kernFP = smallCapsAdvanceFP(kernFP);
+      }
+      if (characterSpacing != 0 && characterSpacingBoundary(prevCp, cp)) {
+        lastBaseX += characterSpacingPixels(trackingGaps + 1, characterSpacing) -
+                     characterSpacingPixels(trackingGaps, characterSpacing);
+        ++trackingGaps;
       }
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
@@ -2841,18 +2863,20 @@ int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const 
 }
 
 int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint32_t rightCp,
-                            const EpdFontFamily::Style style) const {
+                            const EpdFontFamily::Style style, const int8_t characterSpacing) const {
 #if CROSSDINK_SCALABLE_FONTS
   ScalableFontAccess access;
 #endif
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) return 0;
   const int kernFP = fontIt->second.getKerning(leftCp, rightCp, style);  // 4.4 fixed-point
-  return fp4::toPixel(kernFP);                                           // snap 4.4 fixed-point to nearest pixel
+  return fp4::toPixel(kernFP) + (characterSpacing != 0 && characterSpacingBoundary(leftCp, rightCp)
+                                     ? characterSpacingPixels(1, characterSpacing)
+                                     : 0);  // snap 4.4 fixed-point to nearest pixel
 }
 
 int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFontFamily::Style style,
-                                 const uint32_t followingCp) const {
+                                 const uint32_t followingCp, const int8_t characterSpacing) const {
 #if CROSSDINK_SCALABLE_FONTS
   ScalableFontAccess access;
 #endif
@@ -2899,6 +2923,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
       } else {
         widthFP += advFP;
       }
+      if (characterSpacing != 0 && characterSpacingBoundary(lastCp, cp)) widthFP += characterSpacing * 8;
       lastCp = cp;
       lastScaledSmallCap = scaledSmallCap;
     }
@@ -2913,6 +2938,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
         kernFP = smallCapsAdvanceFP(kernFP);
       }
       widthFP += kernFP;
+      if (characterSpacing != 0 && characterSpacingBoundary(lastCp, followingCp)) widthFP += characterSpacing * 8;
     }
     return fp4::toPixel(widthFP);
   }
@@ -2924,6 +2950,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
   }
 
   uint32_t cp;
+  int trackingGaps = 0;
   uint32_t prevCp = 0;
   int widthPx = 0;
   int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
@@ -2940,7 +2967,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
     const bool scaledSmallCap = isSmallCapsLowercase(style, cp);
     if (scaledSmallCap) {
       cp = smallCapsUppercaseCodepoint(cp);
-    } else {
+    } else if (characterSpacing == 0) {
       cp = font.applyLigatures(cp, text, style);
     }
     cp = font.getFallbackCodepoint(cp, style);
@@ -2952,6 +2979,11 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
       int32_t kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
       if (prevScaledSmallCap || scaledSmallCap) {
         kernFP = smallCapsAdvanceFP(kernFP);
+      }
+      if (characterSpacing != 0 && characterSpacingBoundary(prevCp, cp)) {
+        widthPx += characterSpacingPixels(trackingGaps + 1, characterSpacing) -
+                   characterSpacingPixels(trackingGaps, characterSpacing);
+        ++trackingGaps;
       }
       widthPx += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
@@ -3004,6 +3036,10 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
     int32_t kernFP = font.getKerning(prevCp, adjustedFollowingCp, style);  // 4.4 fixed-point kern
     if (prevScaledSmallCap || followingScaledSmallCap) {
       kernFP = smallCapsAdvanceFP(kernFP);
+    }
+    if (characterSpacing != 0 && characterSpacingBoundary(prevCp, followingCp)) {
+      widthPx += characterSpacingPixels(trackingGaps + 1, characterSpacing) -
+                 characterSpacingPixels(trackingGaps, characterSpacing);
     }
     widthPx += fp4::toPixel(prevAdvanceFP + kernFP);
   } else {

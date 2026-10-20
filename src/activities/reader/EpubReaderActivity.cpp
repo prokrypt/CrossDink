@@ -144,7 +144,10 @@ constexpr uint8_t PRE_DICTIONARY_FONT_SIZE_READER_SETTINGS_FILE_VERSION = 6;
 constexpr uint8_t PRE_SPLIT_SCREEN_MARGIN_READER_SETTINGS_FILE_VERSION = 7;
 constexpr uint8_t PRE_GLOBAL_DARK_MODE_READER_SETTINGS_FILE_VERSION = 8;
 constexpr uint8_t PRE_FIELD_OVERRIDES_READER_SETTINGS_FILE_VERSION = 9;
-constexpr uint8_t READER_SETTINGS_FILE_VERSION = 10;
+constexpr uint8_t PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION = 10;
+// Version 12 matches CrossInk's v12 byte layout, so reader settings carried over
+// from a CrossInk card load cleanly. CrossInk's v11 has no CrossDink twin and stays rejected.
+constexpr uint8_t READER_SETTINGS_FILE_VERSION = 12;
 constexpr uint8_t READER_SETTINGS_FLAG_CUSTOM = 1 << 0;
 constexpr uint8_t READER_SETTINGS_FLAG_AUTO_PAGE_TURN = 1 << 1;
 constexpr uint8_t READER_SETTINGS_FLAG_RENDER_MODE = 1 << 2;
@@ -1175,6 +1178,7 @@ void captureReaderSettings(EpubReaderActivity::ReaderSettingsSnapshot& out) {
   out.readerFontPointSize = SETTINGS.readerFontPointSize;
   out.lineHeightPercent = SETTINGS.lineHeightPercent;
   out.wordSpacing = SETTINGS.wordSpacing;
+  out.characterSpacing = SETTINGS.characterSpacing;
   out.orientation = SETTINGS.orientation;
   out.screenMarginVertical = SETTINGS.screenMarginVertical;
   out.screenMarginHorizontal = SETTINGS.screenMarginHorizontal;
@@ -1210,6 +1214,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   }
   SETTINGS.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(in.lineHeightPercent);
   SETTINGS.wordSpacing = std::min<uint8_t>(in.wordSpacing, CrossPointSettings::MAX_WORD_SPACING);
+  SETTINGS.characterSpacing = std::min<uint8_t>(in.characterSpacing, CrossPointSettings::MAX_CHARACTER_SPACING);
   SETTINGS.orientation = in.orientation < CrossPointSettings::ORIENTATION_COUNT ? in.orientation : SETTINGS.orientation;
   SETTINGS.screenMarginVertical = std::clamp<uint8_t>(in.screenMarginVertical, CrossPointSettings::MIN_SCREEN_MARGIN,
                                                       CrossPointSettings::MAX_SCREEN_MARGIN);
@@ -1236,7 +1241,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
 }
 
 using ReaderSettingsSnapshot = EpubReaderActivity::ReaderSettingsSnapshot;
-constexpr std::array<uint8_t ReaderSettingsSnapshot::*, 18> READER_SETTING_FIELDS = {
+constexpr std::array<uint8_t ReaderSettingsSnapshot::*, 19> READER_SETTING_FIELDS = {
     &ReaderSettingsSnapshot::fontFamily,
     &ReaderSettingsSnapshot::readerFontPointSize,
     &ReaderSettingsSnapshot::lineHeightPercent,
@@ -1256,8 +1261,15 @@ constexpr std::array<uint8_t ReaderSettingsSnapshot::*, 18> READER_SETTING_FIELD
     &ReaderSettingsSnapshot::guideReadingEnabled,
     &ReaderSettingsSnapshot::indexingMethod,
 };
-constexpr uint32_t SD_FONT_FAMILY_OVERRIDE = 1U << READER_SETTING_FIELDS.size();
-constexpr uint32_t ALL_READER_SETTING_OVERRIDES = (SD_FONT_FAMILY_OVERRIDE << 1) - 1;
+// Bits follow CrossInk's v12 layout: 18 is its image grayscale (ignored here),
+// 19 the SD font, 20 character spacing.
+constexpr uint32_t CROSSINK_IMAGE_GRAYSCALE_OVERRIDE = 1U << 18;
+constexpr uint32_t SD_FONT_FAMILY_OVERRIDE = 1U << 19;
+constexpr uint32_t CHARACTER_SPACING_OVERRIDE = 1U << 20;
+constexpr uint32_t ALL_READER_SETTING_OVERRIDES =
+    ((CHARACTER_SPACING_OVERRIDE << 1) - 1) & ~CROSSINK_IMAGE_GRAYSCALE_OVERRIDE;
+constexpr uint32_t readerSettingBit(size_t index) { return index < 18 ? 1U << index : CHARACTER_SPACING_OVERRIDE; }
+static_assert(READER_SETTING_FIELDS.size() == 19, "update readerSettingBit for new fields");
 constexpr uint32_t READER_FONT_OVERRIDES = (1U << 0) | (1U << 1) | SD_FONT_FAMILY_OVERRIDE;
 // Anti-aliasing changes the page drawing, but not its saved line/page layout.
 constexpr uint32_t READER_LAYOUT_SETTING_OVERRIDES = ALL_READER_SETTING_OVERRIDES & ~(1U << 11);
@@ -1267,7 +1279,7 @@ uint32_t changedReaderSettingsMask(const ReaderSettingsSnapshot& current, const 
   uint32_t mask = 0;
   for (size_t i = 0; i < READER_SETTING_FIELDS.size(); ++i) {
     const auto field = READER_SETTING_FIELDS[i];
-    if (current.*field != global.*field) mask |= 1U << i;
+    if (current.*field != global.*field) mask |= readerSettingBit(i);
   }
   if (std::strcmp(current.sdFontFamilyName, global.sdFontFamilyName) != 0) mask |= SD_FONT_FAMILY_OVERRIDE;
   return mask;
@@ -1276,7 +1288,7 @@ uint32_t changedReaderSettingsMask(const ReaderSettingsSnapshot& current, const 
 void applyReaderSettingsOverrides(ReaderSettingsSnapshot& target, const ReaderSettingsSnapshot& book,
                                   const uint32_t mask) {
   for (size_t i = 0; i < READER_SETTING_FIELDS.size(); ++i) {
-    if (mask & (1U << i)) {
+    if (mask & readerSettingBit(i)) {
       const auto field = READER_SETTING_FIELDS[i];
       target.*field = book.*field;
     }
@@ -1380,7 +1392,8 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
       version != PRE_DICTIONARY_FONT_SIZE_READER_SETTINGS_FILE_VERSION &&
       version != PRE_SPLIT_SCREEN_MARGIN_READER_SETTINGS_FILE_VERSION &&
       version != PRE_GLOBAL_DARK_MODE_READER_SETTINGS_FILE_VERSION &&
-      version != PRE_FIELD_OVERRIDES_READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION) {
+      version != PRE_FIELD_OVERRIDES_READER_SETTINGS_FILE_VERSION &&
+      version != PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION) {
     file.close();
     LOG_DBG("ERS", "Reader settings version mismatch, using defaults");
     return data;
@@ -1410,8 +1423,23 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
     ok = readU8(file, data.dictionaryFontPointSize);
   }
   uint32_t overrideMask = 0;
+  if (ok && version >= PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION) {
+    const uint32_t validMask = version == PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION
+                                   ? (1U << 19) - 1
+                                   : ALL_READER_SETTING_OVERRIDES | CROSSINK_IMAGE_GRAYSCALE_OVERRIDE;
+    ok = readU32(file, overrideMask) && (overrideMask & ~validMask) == 0;
+    if (version == PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION) {
+      // Version 10 used bit 18 for the SD font; version 12 moves it to bit 19.
+      const bool hasSdFontOverride = (overrideMask & (1U << 18)) != 0;
+      overrideMask &= ~(1U << 18);
+      if (hasSdFontOverride) overrideMask |= SD_FONT_FAMILY_OVERRIDE;
+    }
+    overrideMask &= ~CROSSINK_IMAGE_GRAYSCALE_OVERRIDE;
+  }
   if (ok && version >= READER_SETTINGS_FILE_VERSION) {
-    ok = readU32(file, overrideMask) && (overrideMask & ~ALL_READER_SETTING_OVERRIDES) == 0;
+    uint8_t imageGrayscale = 0;  // CrossInk's image grayscale byte; CrossDink has no such setting.
+    ok = readU8(file, imageGrayscale) && readU8(file, snapshot.characterSpacing) &&
+         snapshot.characterSpacing <= CrossPointSettings::MAX_CHARACTER_SPACING;
   }
   file.close();
   if (!ok) {
@@ -1426,8 +1454,9 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   if (flags & READER_SETTINGS_FLAG_CUSTOM) {
     // Older records owned the entire snapshot. New records only own the fields
     // the reader actually changed, so unrelated global defaults still apply.
-    data.readerSettingsOverrideMask =
-        version < READER_SETTINGS_FILE_VERSION ? ALL_READER_SETTING_OVERRIDES : overrideMask;
+    data.readerSettingsOverrideMask = version < PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION
+                                          ? ALL_READER_SETTING_OVERRIDES & ~CHARACTER_SPACING_OVERRIDE
+                                          : overrideMask;
     data.hasCustomReaderSettings = data.readerSettingsOverrideMask != 0;
     applyReaderSettingsOverrides(data.readerSettings, snapshot, data.readerSettingsOverrideMask);
   }
@@ -1474,7 +1503,10 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
                   writeReaderSettingsSnapshot(file, normalizedReaderSettings) &&
                   writeExact(file, data.dictionarySdFontFamilyName, sizeof(data.dictionarySdFontFamilyName)) &&
                   writeU8(file, data.dictionaryFontPointSize) &&
-                  writeU32(file, data.readerSettingsOverrideMask & ALL_READER_SETTING_OVERRIDES);
+                  writeU32(file, data.readerSettingsOverrideMask & ALL_READER_SETTING_OVERRIDES) &&
+                  writeU8(file, 1) &&  // CrossInk's image grayscale byte, at its default.
+                  writeU8(file, std::min<uint8_t>(normalizedReaderSettings.characterSpacing,
+                                                  CrossPointSettings::MAX_CHARACTER_SPACING));
   file.close();
   if (!ok) {
     LOG_ERR("ERS", "Short write saving reader settings");
@@ -9344,6 +9376,7 @@ void EpubReaderActivity::refreshChapterGroupEstimate(const uint16_t viewportWidt
   mix(SETTINGS.focusReadingEnabled);
   mix(SETTINGS.guideReadingEnabled);
   mix(SETTINGS.wordSpacing);
+  mix(SETTINGS.characterSpacing);
   mix(SETTINGS.epubRenderMode);
   if (chapterGroupEstimate.valid && chapterGroupEstimate.currentSpineIndex == currentSpineIndex &&
       chapterGroupEstimate.settingsSignature == signature) {

@@ -19,10 +19,10 @@
 #include <GfxRenderer.h>
 
 namespace {
-constexpr uint8_t kFullVersion = 79;
-constexpr uint8_t kPartialVersion = 0xF1;
-constexpr uint8_t kPreviousFullVersion = 78;
-constexpr uint8_t kPreviousPartialVersion = 0xF4;  // v75/v79 sentinel
+constexpr uint8_t kFullVersion = 97;
+constexpr uint8_t kPartialVersion = 0xEF;
+constexpr uint8_t kPreviousFullVersion = 79;
+constexpr uint8_t kPreviousPartialVersion = 0xF1;
 
 ReaderRenderSpec renderSpec() {
   ReaderRenderSpec spec;
@@ -168,3 +168,19 @@ TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   }
 }
 }  // namespace
+
+TEST_F(SectionPersistenceTest, CharacterSpacingInvalidatesCompleteAndPartialSections) {
+  for (const auto version : {kFullVersion, kPartialVersion}) {
+    Storage.reset();
+    SectionHarness harness;
+    harness.spec.characterSpacing = -5;
+    harness.begin();
+    harness.appendPages(1);
+    ASSERT_TRUE(harness.commit(version, version == kPartialVersion ? 100 : 0, 200));
+    harness.finishSuccessfulCommit();
+    Section reopened(harness.epub, 0, harness.renderer);
+    EXPECT_TRUE(reopened.loadSectionFile(harness.spec));
+    harness.spec.characterSpacing = 5;
+    EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
+  }
+}
