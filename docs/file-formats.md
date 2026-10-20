@@ -514,6 +514,24 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 96
+
+Version 96 keeps the version 79 serialized layout. Paragraphs inherit
+`text-indent` from `<html>` and `<body>`, an `<hr>` whose CSS hides every border
+edge keeps its spacing but draws no rule, and `<figure>` is a block container
+whose publisher alignment and margins apply once around its images. Full caches
+(byte `79`) and suspended partial caches (`0xF1`) rebuild because page positions
+change. Complete files use byte `96`; suspended partials use `0xF0`, and `0xF1`
+joins the retired sentinels. Versions 80–95 are skipped: CrossInk uses them for
+other layouts, so a later sync cannot accept one of its caches as current.
+
+The CSS rule cache moves to version `24` (versions 19–23 occur in CrossInk and
+local branch history). Each style payload appends four border edge masks after
+`listStyleType`: suppressed styles, zero widths, defined styles and defined
+widths (one byte each, bits 0–3 for top/right/bottom/left). Defined-property
+bit 24 marks border state. The fixed style payload grows from 71 to 75 bytes.
+Older CSS caches rebuild.
+
 ### Version 79
 
 Version 79 keeps the version 78 serialized layout. Korean words now wrap at
