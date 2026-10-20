@@ -605,3 +605,5 @@ STR_STATUS_BAR_EMPTY: "Бос"
 STR_STATUS_BAR_CLOCK: "Сағат"
 STR_STATUS_BAR_BOTH: "Екеуі"
 STR_CLOCK_OUTSIDE_READER: "Оқудан тыс сағат"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Кітапхана/файл шолғышын ауыстыру"

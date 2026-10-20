@@ -665,3 +665,5 @@ STR_STATUS_BAR_EMPTY: "Buit"
 STR_STATUS_BAR_CLOCK: "Rellotge"
 STR_STATUS_BAR_BOTH: "Ambdues"
 STR_CLOCK_OUTSIDE_READER: "Rellotge fora del lector"
+
+STR_SWAP_LIBRARY_FILE_BROWSER: "Intercanvia biblioteca/fitxers"
