@@ -168,7 +168,7 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, s
                                  method == DocumentMatchMethod::FILENAME ? PositionCoordinateSpace::SourceDocument
                                                                          : PositionCoordinateSpace::CurrentDocument);
   if (!ko.valid) {
-    LOG_ERR("KOSync", "exit push: no source position map; re-optimize the EPUB");
+    LOG_ERR("KOSync", "exit push: cannot resolve sync position (needs re-optimization=%d)", ko.needsReoptimization);
     return false;
   }
   out.document = method == DocumentMatchMethod::FILENAME ? KOReaderDocumentId::calculateFromFilename(path)

@@ -4999,8 +4999,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                                                           : PositionCoordinateSpace::CurrentDocument;
       KOReaderPosition localKoPos = ProgressMapper::toKOReader(epub, localPos, coordinateSpace);
       if (!localKoPos.valid) {
-        LOG_ERR("NBPS", "Exact filename sync needs a source map; re-optimize this split EPUB");
-        drawToast(renderer, tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+        LOG_ERR("NBPS", "Cannot resolve nearby sync position (needs re-optimization=%d)",
+                localKoPos.needsReoptimization);
+        drawToast(renderer,
+                  localKoPos.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG));
         delay(1200);
         requestUpdate();
         break;
