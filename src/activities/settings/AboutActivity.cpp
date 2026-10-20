@@ -118,10 +118,9 @@ void AboutActivity::loop() {
 }
 
 void AboutActivity::provideRow(void* user, uint16_t index, fui::ListItem& item) {
-  auto& self = *static_cast<AboutActivity*>(user);
-  const auto& s = self.snapshot;
-  auto* buf = self.valueBuffer;
-  const auto size = sizeof(self.valueBuffer);
+  char* buf = static_cast<AboutActivity*>(user)->valueBuffer;
+  const auto& s = static_cast<const AboutActivity*>(user)->snapshot;
+  constexpr auto size = sizeof(valueBuffer);
   item.label = I18N.get(labels[index]);
   item.subtitle = tr(STR_ABOUT_UNSUPPORTED);
   auto kib = [&](uint32_t bytes) {
