@@ -133,7 +133,7 @@ font(0);
 
 // Battery: /debug/logs/battery.3.csv to battery.1.csv + battery.csv + rows still in PSRAM
 // (/api/battery-pending), columns as BatteryLog.h, plus live readings and
-// refresh counts from /api/status. Rows without an RTC time (epoch 0) are left out.
+// refresh counts from /api/status. Rows with epoch 0 (older builds, no RTC time) are left out.
 let bat = [];
 let batAll = []; // bat plus rows with a blank %, which the counters still read
 let sum = null; // /api/battery-sum: the device's saved counts and where they end
@@ -419,6 +419,7 @@ const UNPLUG_SKIP_S = 1800;
 const RUN_ERR_C = 625; // (0.25 %)^2
 const FULL_C = 9500; // a charge ending at or above this may still be on a charger ...
 const FULL_DROP_C = 5; // ... until the % drops this far below the charge end
+const REAL_MIN = 1704067200; // 2024-01-01: earlier epochs count from power-on (no RTC time), BatteryLogParser::REAL_MIN
 function logStats() {
   const zero = (reset) => ({ reset, first: 0, last: 0, cold: 0, rst: 0, wakes: 0, falseWakes: 0, awake: 0, asleep: 0, charged: 0, from: null, to: null, charging: false, b: [0, 0], d: [0, 0], e: [0, 0], run: -1, n: [0, 0], ne: [0, 0], sd: [0, 0, 0, 0], ss: [0, 0, 0, 0], su: [0, 0, 0, 0], rd: [0, 0, 0, 0], rs: [0, 0, 0, 0], ru: [0, 0, 0, 0], re: [0, 0, 0, 0] });
   // The open stretch of on-battery steps keeps a signed net drop per category (n),
@@ -475,8 +476,16 @@ function logStats() {
     // A blank % (logged before the gauge first answered) takes the previous row's.
     const r = r0.blank ? { ...r0, c: prev ? prev.c : 0, fine: prev ? prev.fine : false, pct: prev ? prev.pct : 0, q: prev ? prev.q : 1 } : r0;
     const c = r.ev === 'boot' && cold(r.det);
+    let jump = false; // counted time to RTC time with no clock_set row: the gap is unknown
+    if (r.ev === 'clock_set' && r.det.startsWith('was=')) {
+      // parse() moved the rows; the counts from battery.sum may still hold counted epochs (BatteryLogParser::shiftCounted)
+      const was = +r.det.slice(4);
+      const shift = (e) => (e && e < REAL_MIN && was < REAL_MIN && r.t >= REAL_MIN ? e + r.t - was : e);
+      (s.first = shift(s.first)), (s.last = shift(s.last)), (s.charged = shift(s.charged)), (s.re = s.re.map(shift)), (changed = shift(changed));
+      if (prev) prev = { ...prev, t: shift(prev.t) };
+    } else jump = prev && prev.t < REAL_MIN && r.t >= REAL_MIN;
     if (r.ev === 'stats_reset') s = zero(true);
-    else if (s.first && prev && r.t >= prev.t && !c) {
+    else if (s.first && prev && !r.gap && !jump && r.t >= prev.t && !c) {
       // The span from the previous row is awake or asleep; before a cold boot it was off.
       const dt = r.t - prev.t;
       const awake = !(prev.ev === 'sleep' || prev.det.startsWith('asleep'));
@@ -622,15 +631,33 @@ tab();
     return r && r.ok ? r.text() : '';
   };
   const csv = (i) => get('/download?path=' + encodeURIComponent('/debug/logs/battery' + (i ? '.' + i : '') + '.csv'));
-  const parse = (text) =>
-    text
-      .split('\n')
-      .map((l) => l.split(','))
-      .filter((f) => f.length >= 10 && +f[0] > 0)
-      .map((f) => ({
+  const parse = (text) => {
+    const out = [];
+    let gap = false; // a row without an RTC time since the last kept one: the span across it is unknown
+    for (const l of text.split('\n')) {
+      const f = l.split(',');
+      if (f.length < 10) continue;
+      if (!(+f[0] > 0)) {
+        gap ||= /^\d/.test(f[0]); // not the header (BatteryLogParser::parseRow)
+        continue;
+      }
+      if (f[9] === 'clock_set' && f[10].startsWith('was=')) {
+        // RTC time arrived: the counted rows of this power-on move onto it (counts restart at power-on, so going back they rise)
+        const was = +f[10].slice(4);
+        for (let i = out.length - 1; was < REAL_MIN && +f[0] >= REAL_MIN && i >= 0 && out[i].t < REAL_MIN; i--) {
+          const last = i === 0 || out[i - 1].t > out[i].t;
+          out[i].t += +f[0] - was;
+          if (last) break;
+        }
+      }
+      out.push({
         t: +f[0], local: f[1], pct: +f[3], blank: f[3] === '', c: Math.round(+f[3] * 100), fine: f[3].includes('.'), q: f[3].includes('.') ? 0.01 : 1, mv: +f[4], chg: f[5] === '1', usb: f[6] === '1', plug: f[6] === '1' || f[9] === 'charged',
-        temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','),
-      }));
+        temp: f[7] === '' ? null : +f[7], light: +f[8], ev: f[9], det: f.slice(10).join(','), gap,
+      });
+      gap = false;
+    }
+    return out;
+  };
   // Newest first: battery.csv and the unwritten rows draw at once, then each
   // older file (battery.1.csv to battery.3.csv) goes in front, with a redraw each.
   const files = [await csv(0)];
