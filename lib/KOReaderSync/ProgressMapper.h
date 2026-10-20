@@ -93,5 +93,5 @@ class ProgressMapper {
    */
   static std::optional<CrossPointPosition> fromRichPosition(const std::shared_ptr<Epub>& epub,
                                                             const KOReaderRichPosition& rich, GfxRenderer& renderer,
-                                                            bool landscapeLayout);
+                                                            const char* sectionCacheSuffix, bool landscapeLayout);
 };
