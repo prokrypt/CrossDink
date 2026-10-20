@@ -68,6 +68,7 @@
 #include "ReaderFontLoading.h"
 #include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
+#include "ReadingSessionStats.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
@@ -1598,10 +1599,19 @@ void EpubReaderActivity::pauseReadingPaceTimer(const char* reason) {
   paceSampleWarmupPending = true;
 }
 
+void EpubReaderActivity::commitReadingStatsSession() {
+  if (!statsTrackingActive) return;
+  recordCurrentPageReadingTime("session_commit");
+  commitReadingSession(stats, globalStats, sessionReadingSeconds,
+                       hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+  sessionReadingSeconds = 0;
+}
+
 void EpubReaderActivity::syncStatsTrackingState() {
   const bool enabled = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
   if (enabled == statsTrackingActive) return;
   if (statsTrackingActive && !enabled && epub) {
+    commitReadingStatsSession();
     pendingStatsCommit = true;
     if (stats.save(epub->getCachePath())) {
       globalStats.save();
@@ -1975,14 +1985,7 @@ void EpubReaderActivity::refreshCachedTimeLeftEstimate() {
 // The stats screen can edit dates/completion using a preview copy that includes
 // current-session time, so keep live counters in memory and import only edits.
 void EpubReaderActivity::applyBookStatsEditsFromDisk() {
-  if (epub) {
-    const BookReadingStats diskStats = BookReadingStats::load(epub->getCachePath());
-    stats.isCompleted = diskStats.isCompleted;
-    stats.startDateManual = diskStats.startDateManual;
-    stats.finishedDateManual = diskStats.finishedDateManual;
-    stats.startDate = diskStats.startDate;
-    stats.finishedDate = diskStats.finishedDate;
-  }
+  if (epub) importBookStatsEdits(stats, BookReadingStats::load(epub->getCachePath()));
 
   const GlobalReadingStats diskGlobalStats = GlobalReadingStats::load();
   globalStats.completedBooks = diskGlobalStats.completedBooks;
@@ -2618,30 +2621,7 @@ void EpubReaderActivity::onExit() {
   APP_STATE.setReaderActivityLoadCount(0);
 
   syncStatsTrackingState();
-  if (statsTrackingActive) {
-    recordCurrentPageReadingTime("reader_exit");
-
-    // Commit session stats based on active reading time. Page intervals longer
-    // than the idle threshold are rejected before they reach sessionReadingSeconds.
-    // Sessions under 1 minute don't count toward session count or reading time.
-    // Sessions under 10 seconds don't add to reading time.
-    const uint32_t elapsedSecs = sessionReadingSeconds;
-    if (elapsedSecs >= 60) {
-      stats.sessionCount++;
-      globalStats.totalSessions++;
-    }
-    if (elapsedSecs >= 10) {
-      stats.totalReadingSeconds += elapsedSecs;
-      globalStats.totalReadingSeconds += elapsedSecs;
-      if (hasSessionStartLocalDateTime) {
-        stats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
-        globalStats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
-      }
-      if (elapsedSecs >= 120 && !stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime) {
-        stats.startDate = sessionStartLocalDateTime.date;
-      }
-    }
-  }
+  commitReadingStatsSession();
   if (epub) {
     recoverStoredPaceFromSession("reader_exit");
     const uint32_t previousEstimate = stats.estimatedTimeLeftSeconds;
@@ -3433,6 +3413,10 @@ uint32_t EpubReaderActivity::msUntilTimedWork() const {
 
 void EpubReaderActivity::loop() {
   syncStatsTrackingState();
+  if (pendingTtfRenderRelayout && epub) {
+    relayoutAfterTtfRenderChange();
+    requestUpdate();
+  }
   if (aaRedrawPending.load(std::memory_order_acquire) && !RenderLock::peek() && !pendingManualPageTurns.hasPending()) {
     aaRedrawPending.store(false, std::memory_order_release);
     LOG_DBG("AA", "redraw after cancel");
@@ -5241,29 +5225,43 @@ void EpubReaderActivity::onFrontlightPanelOpened() {
   pauseReadingPaceTimer("frontlight_panel");
   // The panel leads to Settings, whose update and font downloads restart the device.
   saveProgressBeforeRestart();
+  globalStatsResetRevisionAtPanelOpen = GlobalReadingStats::localResetRevision();
+  ttfRenderGenerationAtPanelOpen = sdFontSystem.scalableRenderOptionsGeneration();
 }
 
 void EpubReaderActivity::onFrontlightPanelClosed() {
-  globalStats = GlobalReadingStats::load();
-  stats = epub ? BookReadingStats::load(epub->getCachePath()) : stats;
+  // Keep live counters: the drawer stats screen may have saved a preview that
+  // already includes the pending session.
+  if (epub) importBookStatsEdits(stats, BookReadingStats::load(epub->getCachePath()));
+  refreshGlobalStatsAfterOverlay(globalStats, globalStatsResetRevisionAtPanelOpen);
+  // A shortcut can unwind the drawer without its result, so detect TTF reloads
+  // directly instead of relying only on FrontlightPanelResult.
+  if (sdFontSystem.scalableRenderOptionsGeneration() != ttfRenderGenerationAtPanelOpen) {
+    pendingTtfRenderRelayout = true;
+  }
   resumeReadingPaceTimer("frontlight_panel_return");
   requestUpdate();
+}
+
+void EpubReaderActivity::relayoutAfterTtfRenderChange() {
+  pendingTtfRenderRelayout = false;
+  clearPendingManualPageTurns(true, "frontlight");
+  // Locked first: a render between the join and the reload would start new
+  // workers on the fonts about to be unloaded.
+  RenderLock lock(*this);
+  waitSilentIndexWorker(/*cancel=*/true);
+  waitDrawAhead(/*publish=*/false);
+  ensureReaderSdFontLoaded(renderer);
+  workerLaneMissFontId = 0;
+  prepareCurrentSectionForRelayout();
+  section.reset();
 }
 
 bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult& result) {
   if (!epub) return false;
   bool handled = false;
-  if (result.ttfRenderingChanged) {
-    clearPendingManualPageTurns(true, "frontlight");
-    // Locked first: a render between the join and the reload would start new
-    // workers on the fonts about to be unloaded.
-    RenderLock lock(*this);
-    waitSilentIndexWorker(/*cancel=*/true);
-    waitDrawAhead(/*publish=*/false);
-    ensureReaderSdFontLoaded(renderer);
-    workerLaneMissFontId = 0;
-    prepareCurrentSectionForRelayout();
-    section.reset();
+  if (result.ttfRenderingChanged || pendingTtfRenderRelayout) {
+    relayoutAfterTtfRenderChange();
     handled = true;
   }
   if (result.action == FrontlightPanelAction::None) return handled;
