@@ -527,15 +527,15 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CALIBRE_WIRELESS:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::JOIN_NETWORK:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CREATE_HOTSPOT:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_DARK_MODE:
@@ -607,15 +607,15 @@ bool TxtReaderActivity::executeLongPressBackAction() {
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CALIBRE_WIRELESS:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_JOIN_NETWORK:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_HOTSPOT:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_TOGGLE_DARK_MODE:
@@ -997,6 +997,12 @@ bool TxtReaderActivity::flushHeldProgress() {
   const bool pending = progressSaveDebouncer.hasPending();
   if (!flushQueuedProgress()) LOG_ERR("TRS", "Failed to flush held progress");
   return pending;
+}
+
+void TxtReaderActivity::saveProgressBeforeRestart() {
+  // Network and Settings flows can restart without onExit(); the render task updates the debouncer.
+  RenderLock lock(*this);
+  if (!flushQueuedProgress()) LOG_ERR("TRS", "Failed to save progress before restart");
 }
 
 bool TxtReaderActivity::flushQueuedProgress(const bool hold) {
