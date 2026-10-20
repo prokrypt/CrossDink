@@ -408,7 +408,7 @@ void KOReaderSyncActivity::finishSync() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
-      statusMessage = tr(STR_SYNC_REOPTIMIZE_REQUIRED);
+      statusMessage = localProgress.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG);
     }
     requestUpdate(true);
     return;
@@ -717,9 +717,10 @@ void KOReaderSyncActivity::onEnter() {
   lockInitialConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
 
   if (!localProgressDeferred && !localProgress.valid) {
-    LOG_ERR("KOSync", "Source position map unavailable; re-optimize the EPUB before filename-based sync");
+    LOG_ERR("KOSync", "Cannot resolve local sync position (needs re-optimization=%d)",
+            localProgress.needsReoptimization);
     state = SYNC_FAILED;
-    statusMessage = tr(STR_SYNC_REOPTIMIZE_REQUIRED);
+    statusMessage = localProgress.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG);
     requestUpdate();
     return;
   }
