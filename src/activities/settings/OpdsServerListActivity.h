@@ -45,6 +45,7 @@ class OpdsServerListActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
   bool pickerMode = false;
+  bool showFolderError = false;
   // A server was picked: the browser takes over the background join's link
   // and the page cache.
   bool leavingToBrowser = false;

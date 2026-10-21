@@ -1089,3 +1089,7 @@ the card to the host. Manage Fonts performs a full rescan; alternatively remove
 this cache to force reinspection after external same-length font changes.
 
 EPUB layout cache versions and identities are unchanged by this catalog.
+
+## OPDS server list
+
+`/.crossdink/opds.json` holds `servers`, an array of objects with `name`, `url`, `username`, `password_obf`, `filenameFormat` (`author_title`, `title_author` or `server_filename`) and an optional `downloadFolder`. A missing or empty `downloadFolder` uses the global `opdsDownloadFolder` setting; `/` is the SD root; anything else is an absolute folder path of at most 63 bytes, normalized on load. An invalid value is logged and treated as empty. Older files need no migration.

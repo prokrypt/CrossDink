@@ -553,7 +553,12 @@ let allSettings = [];
         '<span class="setting-control"><select id="opds-filename-' + id + '">' +
           '<option value="author_title"' + ((srv.filenameFormat || 'author_title') === 'author_title' ? ' selected' : '') + '>Author - Title</option>' +
           '<option value="title_author"' + (srv.filenameFormat === 'title_author' ? ' selected' : '') + '>Title - Author</option>' +
+          '<option value="server_filename"' + (srv.filenameFormat === 'server_filename' ? ' selected' : '') + '>Server filename</option>' +
         '</select></span>' +
+      '</div>' +
+      '<div class="setting-row">' +
+        '<span class="setting-name">Download Folder</span>' +
+        '<span class="setting-control"><input type="text" maxlength="63" id="opds-folder-' + id + '" value="' + escapeHtml(srv.downloadFolder || '') + '" placeholder="Empty: default, /: SD root"></span>' +
       '</div>' +
       '<div class="opds-actions">' +
         '<button class="btn btn-primary" onclick="saveOpdsServer(' + idx + ')">💾 Save</button>' +
@@ -607,6 +612,7 @@ let allSettings = [];
       url: document.getElementById('opds-url-' + id).value,
       username: document.getElementById('opds-user-' + id).value,
       filenameFormat: document.getElementById('opds-filename-' + id).value,
+      downloadFolder: document.getElementById('opds-folder-' + id).value,
     };
     // Only include password in payload when the user actually typed something;
     // omitting it tells the server to keep the existing password.

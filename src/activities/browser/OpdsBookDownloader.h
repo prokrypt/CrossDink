@@ -35,6 +35,13 @@ class OpdsBookDownloader {
     // Only learn the file size (total()) with a HEAD request; nothing is
     // written. total() stays 0 when the server sends no Content-Length.
     bool sizeOnly = false;
+    // Save under the server's Content-Disposition name in path's folder (see
+    // HttpDownloader::DownloadOptions::useServerFilename). Once a response
+    // names the file, path() becomes that path and this clears, so a retry or
+    // resume continues the same file.
+    bool serverFilename = false;
+    // The one existing path the user agreed to replace (serverFilename only).
+    std::string approvedPath;
   };
 
   OpdsBookDownloader() = default;
@@ -62,6 +69,8 @@ class OpdsBookDownloader {
   // Valid after the task has exited.
   HttpDownloader::DownloadError result() const { return outcome; }
   const std::string& path() const { return job.path; }
+  // True when serverFilename was asked for and no response has named the file yet.
+  bool serverFilenamePending() const { return job.serverFilename; }
   const std::string& validator() const { return job.validator; }
 
  private:

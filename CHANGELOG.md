@@ -5,6 +5,8 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- OPDS: each server can save books under the server's own file name (Filename > Server filename), so a book keeps the same name, and its reading progress matches, across devices. The name comes from the download's `Content-Disposition` header and is only used when it is a plain `.epub` name that is safe on FAT (no folders, `..`, leading dot, reserved or invalid characters, at most 240 bytes); otherwise the book gets the usual Author - Title name. When that name is already on the card you are asked before it is replaced.
+- OPDS: each server can have its own download folder (server settings > Download Folder, or the web portal). Empty uses the shared default folder, now labelled Default Folder, and `/` saves to the SD root. Folder names are checked on entry: `.`/`..` parts, invalid characters and paths over 63 bytes are refused.
 - Add a Display toggle to swap Library and File Browser on the Minimal and Dashboard home screens.
 - Reader menu (button devices) and the pull-down drawer (X4 Pro, Sticky) show the current chapter title under the book title. The drawer leaves the chapter line out when it would push the handle off screen.
 - File browser and Library list: a book marked as finished shows a book-with-check icon instead of its file icon (EPUB and XTC). Each row's finished flag is read once when the row is first drawn and kept in memory, so moving the selection reads nothing from the card; marking a book finished or unfinished updates the icon. Library skips the lookup while Hide finished books is on.

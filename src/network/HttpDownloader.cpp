@@ -23,6 +23,7 @@
 
 #include "AppVersion.h"
 #include "TaskCores.h"
+#include "network/HttpDownloadFilename.h"
 #include "network/HttpRedirectPolicy.h"
 #include "network/SdWriteBehind.h"
 #include "network/WifiPowerSaveGuard.h"
@@ -128,6 +129,8 @@ struct Sink {
   uint32_t firstByteTimeoutMs = 0;   // DownloadOptions::firstByteTimeoutMs
   uint32_t startMs = 0;              // millis() when runGet started
   HttpRequestDiagnostics* diagnostics = nullptr;
+  bool wantDisposition = false;  // DownloadOptions::useServerFilename
+  std::string disposition;       // the final response's sole Content-Disposition
 };
 
 // wolfSSL path abort poll: a user cancel, or a body that stopped arriving.
@@ -181,6 +184,20 @@ void logTlsError(esp_http_client_handle_t client, const char* phase) {
 }
 
 #if defined(FREEINK_NET_WOLFSSL)
+// Empty when absent, repeated (ambiguous) or oversized.
+// shortcut: copies every header once per response; use SecureHttpClient::getUniqueHeader once the SDK pin has it.
+std::string uniqueDisposition(const freeink::SecureHttpClient& http) {
+  std::string value;
+  bool seen = false;
+  for (auto& header : http.getHeaders()) {
+    if (header.first != "content-disposition") continue;
+    if (seen) return {};
+    seen = true;
+    value = std::move(header.second);
+  }
+  return value.size() <= HttpDownloadFilename::MAX_HEADER_BYTES ? value : std::string();
+}
+
 HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::string& username,
                                             const std::string& password,
                                             const HttpRedirectPolicy::Url& credentialOrigin, const bool hasCredentials,
@@ -264,6 +281,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
               const std::string etag = http.getHeader("etag");
               *sink.validator = !etag.empty() && etag.rfind("W/", 0) != 0 ? etag : http.getHeader("last-modified");
             }
+            if (sink.wantDisposition) sink.disposition = uniqueDisposition(http);
           }
 
           if (sink.downloaded < sink.resumeOffset) sink.downloaded = sink.resumeOffset;
@@ -636,9 +654,17 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   (void)wifiPowerSaveGuard;
 
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
-  const std::string writePath = options.stageAsPart ? destPath + ".part" : destPath;
+  if (options.useServerFilename && !options.stageAsPart) {
+    LOG_ERR("HTTP", "Server filenames require staged replacement");
+    return FILE_ERROR;
+  }
+  // With useServerFilename both are settled by prepareDestination() once the
+  // response headers are in; until then nothing on SD is touched.
+  std::string destination = destPath;
+  std::string writePath = options.stageAsPart ? destPath + ".part" : destPath;
+  bool outputPrepared = !options.useServerFilename;
   size_t resumeOffset = 0;
-  if (options.resumePartial && Storage.exists(writePath.c_str())) {
+  if (outputPrepared && options.resumePartial && Storage.exists(writePath.c_str())) {
     FsFile existingFile;
     if (Storage.openFileForRead("HTTP", writePath.c_str(), existingFile)) {
       resumeOffset = existingFile.fileSize();
@@ -646,7 +672,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     }
   }
 
-  if (resumeOffset == 0 && Storage.exists(writePath.c_str())) {
+  if (outputPrepared && resumeOffset == 0 && Storage.exists(writePath.c_str())) {
     Storage.remove(writePath.c_str());
   }
 
@@ -657,6 +683,37 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   sink.resumeOffset = resumeOffset;
   sink.validator = options.validator;
   sink.stallTimeoutMs = options.stallTimeoutMs;
+  sink.wantDisposition = options.useServerFilename;
+
+  DownloadError destinationError = OK;
+  auto prepareDestination = [&]() {
+    if (outputPrepared) return true;
+    // HttpDownloadFilename::parse rejects path separators, leading dots,
+    // FAT-invalid and control characters, reserved device names, invalid
+    // UTF-8, names over 240 bytes and anything not ending in .epub.
+    std::string name;
+    if (HttpDownloadFilename::parse(sink.disposition, name)) {
+      destination.assign(destPath, 0, destPath.rfind('/') + 1);  // npos + 1 == 0: no folder
+      destination += name;
+    } else {
+      LOG_INF("HTTP", "Using generated filename: server name missing or unsafe");
+    }
+    if (options.resolvedPath) *options.resolvedPath = destination;
+    if (Storage.exists(destination.c_str()) && options.overwriteApprovedPath != destination) {
+      LOG_INF("HTTP", "Server filename already on SD: %s", destination.c_str());
+      destinationError = FILE_EXISTS;
+      return false;
+    }
+    writePath = destination + ".part";
+    // No validator survives from an earlier session for this name: start fresh.
+    if (Storage.exists(writePath.c_str()) && !Storage.remove(writePath.c_str())) {
+      LOG_ERR("HTTP", "Could not remove stale %s", writePath.c_str());
+      destinationError = FILE_ERROR;
+      return false;
+    }
+    outputPrepared = true;
+    return true;
+  };
 
   FsFile file;
   bool fileOpen = false;
@@ -682,6 +739,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   };
   auto openOutputFile = [&]() {
     if (fileOpen) return true;
+    if (!prepareDestination()) return false;
     // Cheap up-front check (capacity is cached at mount): a book larger than
     // the whole card can never fit.
     const uint64_t totalBytes = Storage.totalBytes();
@@ -787,6 +845,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     file.close();
   }
   if (insufficientSpace) result = INSUFFICIENT_SPACE;
+  if (destinationError != OK) result = destinationError;
 
   if (result != OK) {
     if (result == ABORTED) {
@@ -797,7 +856,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     }
     // A full card cannot take the rest either: free the space now.
     if (result == ABORTED || result == INSUFFICIENT_SPACE || !options.preservePartial) {
-      Storage.remove(writePath.c_str());
+      if (outputPrepared) Storage.remove(writePath.c_str());
     }
     return result;
   }
@@ -805,7 +864,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (sink.downloaded == 0) {
     LOG_ERR("HTTP", "Download failed: no data received");
     if (!options.preservePartial) {
-      Storage.remove(writePath.c_str());
+      if (outputPrepared) Storage.remove(writePath.c_str());
     }
     return HTTP_ERROR;
   }
@@ -828,21 +887,21 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     // FAT rename will not replace an existing file, so move the old copy aside
     // first and only delete it once the new one is in place. A failed swap puts
     // the old copy back, so a failed download never costs the user their book.
-    const std::string backupPath = destPath + ".old";
-    const bool hadOld = Storage.exists(destPath.c_str());
+    const std::string backupPath = destination + ".old";
+    const bool hadOld = Storage.exists(destination.c_str());
     if (hadOld) {
       if (Storage.exists(backupPath.c_str())) Storage.remove(backupPath.c_str());
-      if (!Storage.rename(destPath.c_str(), backupPath.c_str())) {
-        LOG_ERR("HTTP", "Could not move aside %s", destPath.c_str());
+      if (!Storage.rename(destination.c_str(), backupPath.c_str())) {
+        LOG_ERR("HTTP", "Could not move aside %s", destination.c_str());
         Storage.remove(writePath.c_str());
         return FILE_ERROR;
       }
     }
-    if (!Storage.rename(writePath.c_str(), destPath.c_str())) {
-      LOG_ERR("HTTP", "Could not rename %s to %s", writePath.c_str(), destPath.c_str());
+    if (!Storage.rename(writePath.c_str(), destination.c_str())) {
+      LOG_ERR("HTTP", "Could not rename %s to %s", writePath.c_str(), destination.c_str());
       Storage.remove(writePath.c_str());
-      if (hadOld && !Storage.rename(backupPath.c_str(), destPath.c_str())) {
-        LOG_ERR("HTTP", "Could not restore %s", destPath.c_str());
+      if (hadOld && !Storage.rename(backupPath.c_str(), destination.c_str())) {
+        LOG_ERR("HTTP", "Could not restore %s", destination.c_str());
       }
       return FILE_ERROR;
     }
