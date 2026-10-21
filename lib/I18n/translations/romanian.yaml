@@ -619,3 +619,5 @@ STR_CLOCK_OUTSIDE_READER: "Ceas în afara cititorului"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Inversează biblioteca/fișierele"
 STR_CLIP: "Fragment"
+STR_FILENAME_FALLBACK_FONT: "Font alternativ pentru fișiere"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal obligatoriu; aldin opțional."

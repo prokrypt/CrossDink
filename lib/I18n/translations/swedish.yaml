@@ -675,3 +675,5 @@ STR_CLOCK_OUTSIDE_READER: "Klocka utanför läsaren"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Byt bibliotek/filbläddrare"
 STR_CLIP: "Urklipp"
+STR_FILENAME_FALLBACK_FONT: "Reservteckensnitt för filnamn"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal krävs; fet valfri."
