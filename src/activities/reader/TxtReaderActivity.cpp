@@ -121,12 +121,14 @@ void drawToast(const GfxRenderer& renderer, const char* msg) {
 
 void TxtReaderActivity::onEnter() {
   Activity::onEnter();
+  showOpeningFeedback();
 
   if (!txt) {
     return;
   }
 
   sdFontSystem.ensureLoaded(renderer);
+  showOpeningFeedback();
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   // Activate reader-specific front button mapping (if configured).
@@ -140,12 +142,14 @@ void TxtReaderActivity::onEnter() {
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
   APP_STATE.openEpubPath = filePath;
   APP_STATE.saveToFile();
+  showOpeningFeedback();
   SleepCoverAssets::prepareTxt(*txt);
   const std::string coverBmpPath = Storage.exists(txt->getCoverBmpPath().c_str()) ? txt->getCoverBmpPath() : "";
   if (!skipRecentBookUpdateOnEntry) {
     RECENT_BOOKS.addOrUpdateBook(filePath, fileName, "", coverBmpPath);
   }
 
+  showOpeningFeedback();
   // Trigger first update
   requestUpdate();
 }
@@ -711,7 +715,7 @@ void TxtReaderActivity::buildPageIndex() {
   size_t offset = 0;
   const size_t fileSize = txt->getFileSize();
 
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
+  openingFeedback.showIndexing(renderer);
 
   while (offset < fileSize) {
     std::vector<std::string> tempLines;
@@ -782,6 +786,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
 }
 
 void TxtReaderActivity::render(RenderLock&&) {
+  showOpeningFeedback();
   if (!txt) {
     return;
   }
@@ -811,7 +816,9 @@ void TxtReaderActivity::render(RenderLock&&) {
     }
   }
 
+  showOpeningFeedback();
   if (pageOffsets.empty()) {
+    openingFeedback.finish();
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_FILE), ReaderUtils::readerForegroundBlack(),
                               EpdFontFamily::BOLD);
@@ -828,6 +835,7 @@ void TxtReaderActivity::render(RenderLock&&) {
   size_t nextOffset;
   currentPageLines.clear();
   loadPageAtOffset(offset, currentPageLines, nextOffset);
+  showOpeningFeedback();
 
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   renderPage();
@@ -886,6 +894,8 @@ void TxtReaderActivity::renderPage() {
   auto scope = fcm->createPrewarmScope();
   renderLines();  // scan pass — text accumulated, no drawing
   scope.endScanAndPrewarm();
+  if (showOpeningFeedback()) renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+  openingFeedback.finish();
 
   // BW rendering
   renderLines();

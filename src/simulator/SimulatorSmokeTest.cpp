@@ -31,6 +31,7 @@
 #include "SettingsList.h"
 #include "activities/ActivityManager.h"
 #include "activities/home/RecentBookProgress.h"
+#include "activities/reader/BookLoadingFeedback.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/ReaderFontLoading.h"
@@ -1085,6 +1086,19 @@ class SimulatorSmokeTest {
         break;
 
       case SmokeStep::Home:
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK_LOADING")) {
+          RenderLock lock;
+          BookLoadingFeedback feedback;
+          feedback.start(millis());
+          if (feedback.showIfDue(renderer)) fail("Fast book open showed loading feedback");
+          captureStatusBarScreen("book-loading-fast");
+          // Simulate elapsed loading time without slowing normal smoke runs.
+          feedback.start(millis() - BookLoadingFeedback::DELAY_MS);
+          if (!feedback.showIfDue(renderer)) fail("Slow book open omitted loading feedback");
+          captureStatusBarScreen("book-loading-slow");
+          if (feedback.showIfDue(renderer)) fail("Book loading feedback refreshed twice");
+          LOG_INF("SMOKE", "Delayed book loading feedback passed");
+        }
         activityManager.goToFileBrowser("/books");
         queueStep("File Browser", SmokeStep::FileBrowser);
         break;

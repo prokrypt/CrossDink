@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include "BookLoadingFeedback.h"
 #include "CrossPointSettings.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "SideButtonShortcuts.h"
@@ -84,13 +85,22 @@ class TxtReaderActivity final : public Activity {
   void resetPinchFontGesture();
 #endif
 
+  BookLoadingFeedback openingFeedback;
+  bool showOpeningFeedback() {
+    if (!openingFeedback.showIfDue(renderer)) return false;
+    pagesUntilFullRefresh = 0;
+    return true;
+  }
+
  public:
   explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt,
-                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false)
+                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false,
+                             BookLoadingFeedback openingFeedback = {})
       : Activity("TxtReader", renderer, mappedInput),
         txt(std::move(txt)),
         pagesUntilFullRefresh(initialRefreshCountdown),
-        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
+        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry),
+        openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
   // Noflash swings fully on open and after a covering screen (see EpubReaderActivity).
