@@ -43,6 +43,8 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
             .withEnumRawValues({CrossPointSettings::REFRESH_1, CrossPointSettings::REFRESH_5,
                                 CrossPointSettings::REFRESH_10, CrossPointSettings::REFRESH_15,
                                 CrossPointSettings::REFRESH_30, CrossPointSettings::REFRESH_NEVER}));
+    add(SettingInfo::Value(StrId::STR_GHOST_BUSTERS, &CrossPointSettings::ghostBusters,
+                           {0, CrossPointSettings::GHOST_BUSTERS_MAX, 1}, "ghostBusters", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Toggle(StrId::STR_NIGHT_MODE, &CrossPointSettings::screenInverted, "screenInverted",
                             StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
