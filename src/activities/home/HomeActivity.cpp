@@ -445,6 +445,9 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, std::stri
   // headers and menus are drawn live, so reading cannot invalidate this cache.
   key += SETTINGS.screenInverted ? "dark:1" : "dark:0";
   key += '\0';
+  // A theme pack can change the carousel layout.
+  key.append(SETTINGS.uiThemePack, strnlen(SETTINGS.uiThemePack, sizeof(SETTINGS.uiThemePack)));
+  key += '\0';
   for (const auto& book : recentBooks) {
     appendCarouselCoverStateToKey(key, book);
   }
@@ -532,6 +535,8 @@ class CarouselCache {
   int frameBookIdx[HomeActivity::kCarouselFrameCount] = {-1};
   int frameCount = 0;
   int lastCenterIdx = -1;
+  // Rendered by preRenderCarouselFrames() but not yet on SD; render() saves it after the refresh starts.
+  int unsavedBookIdx = -1;
   std::string key;
   uint64_t keyHash = 0;
 
@@ -550,6 +555,7 @@ class CarouselCache {
     }
     frameCount = 0;
     lastCenterIdx = -1;
+    unsavedBookIdx = -1;
     key.clear();
     keyHash = 0;
   }
@@ -1504,7 +1510,7 @@ void HomeActivity::preRenderCarouselFrames() {
   carouselFramesInverted = SETTINGS.screenInverted != 0;
   coverRendered = false;
   coverBufferStored = false;
-  if (!loaded) saveCarouselFrameToDisk(newKeyHash, bookCount, initialBookIdx, 0);
+  if (!loaded) gCarouselCache.unsavedBookIdx = initialBookIdx;
 }
 
 void HomeActivity::onUserInput() {
@@ -2394,6 +2400,10 @@ void HomeActivity::render(RenderLock&&) {
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
       displayHomeBuffer();
+      if (gCarouselCache.unsavedBookIdx == centerIdx) {
+        gCarouselCache.unsavedBookIdx = -1;
+        saveViewedFrame = true;
+      }
       if (saveViewedFrame) saveCarouselFrameToDisk(gCarouselCache.keyHash, bookCount, centerIdx, slotIdx);
       // The refresh is already running: generate missing thumbnails now; the
       // covers repaint when their job ends.
