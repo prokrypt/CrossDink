@@ -58,7 +58,8 @@ class TxtReaderActivity final : public Activity {
   void renderStatusBar() const;
 
   void initializeReader();
-  bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset);
+  bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset,
+                        uint8_t* scratch = nullptr);
   void buildPageIndex();
   bool loadPageIndexCache();
   void savePageIndexCache() const;

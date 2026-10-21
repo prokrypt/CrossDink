@@ -1603,6 +1603,67 @@ std::optional<uint16_t> Section::findParagraphDuringBuild(const uint16_t pIndex)
   return std::nullopt;
 }
 
+std::optional<Section::ParagraphPosition> Section::getParagraphPositionForPage(const uint16_t page) const {
+  if (page >= pageCount) return std::nullopt;
+  FsFile f;
+  bool attemptedOpen = false;
+  bool readable = false;
+  uint32_t lutOffset = 0;
+  uint16_t count = 0;
+  constexpr uint16_t CHUNK_ENTRIES = 64;
+  uint16_t chunk[CHUNK_ENTRIES];  // 128 bytes; bounded independently of chapter length.
+  uint16_t chunkStart = 0;
+  uint16_t chunkCount = 0;
+  const auto readParagraph = [&](const uint16_t at) -> std::optional<uint16_t> {
+    // Partial extension builds may only have rebuilt part of the readable cache.
+    // Preserve the existing per-page preference for the active build's index.
+    if (build_ && at < build_->pageIndex.size()) return build_->pageIndex[at].paragraphIndex;
+    if (!attemptedOpen) {
+      attemptedOpen = true;
+      if (Storage.openFileForRead("SCT", filePath, f)) {
+        const uint32_t size = f.size();
+        readable = f.seek(HEADER_SIZE - sizeof(uint32_t) * 3) && serialization::tryReadPod(f, lutOffset) &&
+                   lutOffset > 0 && lutOffset < size && f.seek(lutOffset) && serialization::tryReadPod(f, count) &&
+                   sizeof(count) + static_cast<uint32_t>(count) * sizeof(uint16_t) <= size - lutOffset;
+        lutOffset += sizeof(count);
+        if (!readable) LOG_ERR("SCT", "Invalid paragraph lookup table");
+      }
+    }
+    if (!readable || at >= count) return std::nullopt;
+    if (at < chunkStart || at >= static_cast<uint32_t>(chunkStart) + chunkCount) {
+      chunkStart = (at / CHUNK_ENTRIES) * CHUNK_ENTRIES;
+      chunkCount = std::min<uint16_t>(CHUNK_ENTRIES, count - chunkStart);
+      const size_t bytes = chunkCount * sizeof(uint16_t);
+      if (!f.seek(lutOffset + static_cast<uint32_t>(chunkStart) * sizeof(uint16_t)) ||
+          f.read(chunk, bytes) != static_cast<int>(bytes)) {
+        LOG_ERR("SCT", "Failed to read paragraph lookup chunk");
+        readable = false;
+        return std::nullopt;
+      }
+    }
+    return chunk[at - chunkStart];
+  };
+  const auto index = readParagraph(page);
+  if (!index) {
+    if (f) f.close();
+    return std::nullopt;
+  }
+  uint16_t start = page;
+  while (start > 0) {
+    const auto previous = readParagraph(start - 1);
+    if (!previous || *previous != *index) break;
+    --start;
+  }
+  uint16_t end = page + 1;
+  while (end < pageCount) {
+    const auto next = readParagraph(end);
+    if (!next || *next != *index) break;
+    ++end;
+  }
+  if (f) f.close();
+  return ParagraphPosition{*index, static_cast<uint16_t>(page - start), static_cast<uint16_t>(end - start)};
+}
+
 std::optional<uint16_t> Section::getParagraphIndexForPage(const uint16_t page) const {
   if (build_ && page < build_->pageIndex.size()) {
     return build_->pageIndex[page].paragraphIndex;
@@ -1839,18 +1900,33 @@ std::optional<uint16_t> Section::getPageForVisibleTextOffset(const uint32_t offs
       lutOffset + static_cast<uint32_t>(count) * sizeof(uint32_t) > fileSize) {
     return std::nullopt;
   }
+  if (!f.seek(lutOffset)) return std::nullopt;
   uint16_t result = 0;
   uint32_t last = 0;
-  for (uint16_t i = 0; i < count; i++) {
-    uint32_t start = 0;
-    if (!f.seek(lutOffset + static_cast<uint32_t>(i) * sizeof(uint32_t)) || !serialization::tryReadPod(f, start)) {
+  // Read a bounded batch instead of seeking and reading four bytes per page.
+  // Keep the original first-match order, including repeated offsets on image/table pages.
+  uint32_t starts[32];  // 128 bytes; no heap allocation on the restore/reflow path.
+  for (uint32_t base = 0; base < count; base += 32) {
+    const uint32_t batch = std::min<uint32_t>(32, count - base);
+    const size_t bytes = batch * sizeof(uint32_t);
+    if (f.read(starts, bytes) != static_cast<int>(bytes)) {
+      f.close();
       return std::nullopt;
     }
-    last = start;
-    if (start > offset) break;
-    result = i;
-    if (preferFirstAtOffset && start == offset) break;
+    for (uint32_t i = 0; i < batch; ++i) {
+      last = starts[i];
+      if (last > offset) {
+        f.close();
+        return result;
+      }
+      result = static_cast<uint16_t>(base + i);
+      if (preferFirstAtOffset && last == offset) {
+        f.close();
+        return result;
+      }
+    }
   }
+  f.close();
   if (version == SECTION_FILE_PARTIAL_VERSION && offset > last) return std::nullopt;
   return result;
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <string>
@@ -170,6 +171,128 @@ TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
     EXPECT_FALSE(Storage.exists(harness.section.filePath.c_str()));
   }
 }
+TEST_F(SectionPersistenceTest, PositionLookupBatchesReadsAcrossALongChapter) {
+  SectionHarness harness;
+  harness.begin();
+  harness.appendPages(1025);
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  const size_t readsBefore = Storage.reads(reopened.filePath);
+  const size_t seeksBefore = Storage.seeks(reopened.filePath);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(1024 * 17), 1024);
+  // Five header reads plus ceil(1025/32) batches, and just three seeks.
+  EXPECT_LE(Storage.reads(reopened.filePath) - readsBefore, 38U);
+  EXPECT_LE(Storage.seeks(reopened.filePath) - seeksBefore, 3U);
+}
+
+TEST_F(SectionPersistenceTest, PositionLookupPreservesFirstAndLastDuplicateAcrossBatchBoundary) {
+  SectionHarness harness;
+  harness.begin();
+  for (size_t i = 0; i < 66; ++i) {
+    ASSERT_EQ(harness.section.build_->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
+    const uint32_t position = harness.section.onPageComplete(std::make_unique<Page>());
+    const uint32_t offset = i < 31 ? 0 : (i <= 64 ? 100 : 200);
+    harness.section.build_->pageIndex.appendPrepared({position, 0, 0, offset});
+  }
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(0, true), 0);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(0), 30);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(100, true), 31);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(100), 64);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(150, true), 64);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(999), 65);
+}
+
+TEST_F(SectionPersistenceTest, PartialPositionLookupRejectsOffsetsBeyondCommittedPages) {
+  SectionHarness harness;
+  harness.begin();
+  harness.appendPages(65);
+  ASSERT_TRUE(harness.commit(kPartialVersion, 12345, 67890));
+  harness.finishSuccessfulCommit();
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(1088), 64);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(1089), std::nullopt);
+  EXPECT_EQ(reopened.getPageForVisibleTextOffset(1089, true), std::nullopt);
+}
+
+TEST_F(SectionPersistenceTest, ParagraphPositionMatchesLegacyWalkAcrossChunks) {
+  SectionHarness harness;
+  harness.begin();
+  // A long paragraph crosses both 64-entry chunk boundaries.
+  for (uint16_t i = 0; i < 150; ++i) {
+    ASSERT_EQ(harness.section.build_->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
+    const auto offset = harness.section.onPageComplete(std::make_unique<Page>());
+    harness.section.build_->pageIndex.appendPrepared({offset,
+                                                      static_cast<uint16_t>(i < 2     ? 1
+                                                                            : i < 140 ? 7
+                                                                                      : 9),
+                                                      0, i});
+  }
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  const auto before = Storage.reads(reopened.filePath);
+  const auto position = reopened.getParagraphPositionForPage(90);
+  ASSERT_TRUE(position);
+  EXPECT_EQ(position->index, 7);
+  EXPECT_EQ(position->offset, 88);
+  EXPECT_EQ(position->span, 138);
+  EXPECT_LE(Storage.reads(reopened.filePath) - before, 6u);
+  for (uint16_t page : {0, 1, 2, 63, 64, 90, 127, 128, 139, 140, 149}) {
+    const auto index = reopened.getParagraphIndexForPage(page);
+    ASSERT_TRUE(index);
+    uint16_t start = page, end = page + 1;
+    while (start > 0 && reopened.getParagraphIndexForPage(start - 1) == index) --start;
+    while (end < reopened.pageCount && reopened.getParagraphIndexForPage(end) == index) ++end;
+    const auto actual = reopened.getParagraphPositionForPage(page);
+    ASSERT_TRUE(actual);
+    EXPECT_EQ(actual->index, *index);
+    EXPECT_EQ(actual->offset, page - start);
+    EXPECT_EQ(actual->span, end - start);
+  }
+  EXPECT_FALSE(reopened.getParagraphPositionForPage(150));
+}
+
+TEST_F(SectionPersistenceTest, ParagraphPositionUsesLivePrefixAndRejectsInvalidDiskTable) {
+  SectionHarness harness;
+  harness.begin();
+  const size_t headerSize = harness.section.file.position();
+  harness.appendPages(5);
+  ASSERT_TRUE(harness.commit(kPartialVersion, 100, 200));
+  harness.finishSuccessfulCommit();
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  auto replay = makeUniqueNoThrow<Section::BuildContext>();
+  for (uint16_t i = 0; i < 3; ++i) {
+    ASSERT_EQ(replay->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
+    replay->pageIndex.appendPrepared({100u + i, 9, 0, 0});
+  }
+  reopened.build_ = std::move(replay);
+  // Disk page 3 is also paragraph 9, but page 4 is paragraph 12.
+  const auto position = reopened.getParagraphPositionForPage(1);
+  ASSERT_TRUE(position);
+  EXPECT_EQ(position->index, 9);
+  EXPECT_EQ(position->offset, 1);
+  EXPECT_EQ(position->span, 4);
+  const auto diskPosition = reopened.getParagraphPositionForPage(3);
+  ASSERT_TRUE(diskPosition);
+  EXPECT_EQ(diskPosition->offset, 3);
+  EXPECT_EQ(diskPosition->span, 4);
+  reopened.build_.reset();
+  auto bytes = Storage.bytes(reopened.filePath);
+  const uint32_t invalid = UINT32_MAX;
+  memcpy(bytes.data() + headerSize - 3 * sizeof(uint32_t), &invalid, sizeof(invalid));
+  Storage.put(reopened.filePath, bytes);
+  EXPECT_FALSE(reopened.getParagraphPositionForPage(1));
+}
+
 }  // namespace
 
 TEST_F(SectionPersistenceTest, CharacterSpacingInvalidatesCompleteAndPartialSections) {
