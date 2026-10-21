@@ -535,13 +535,14 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 97
+### Version 98
 
-Version 97 places small inline images within text lines while keeping larger
+Version 98 places small inline images within text lines while keeping larger
 images as centered blocks. Page-image records add a one-byte inline flag after
 their coordinates. Full caches (byte `96`) and suspended partial caches (`0xF0`)
-rebuild so existing books receive the new layout. Complete files use byte `97`;
-suspended partials use `0xEF`, and `0xF0` joins the retired sentinels. The CSS
+rebuild so existing books receive the new layout. Complete files use byte `98`;
+suspended partials use `0xEE`, and `0xEF` and `0xF0` join the retired sentinels.
+Version 97 and `0xEF` are skipped: another CrossDink change uses them. The CSS
 rule cache moves to version `25` so `display: inline` rules retain their meaning.
 Image-only paragraphs keep publisher alignment independently of the reader's
 prose alignment.
