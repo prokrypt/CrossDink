@@ -431,7 +431,7 @@ void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) 
 // Shared chrome for every state: reserve the firmware's button-hint band and
 // draw the themed header (padding, centering, and rule come from the theme).
 void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool withSearch) {
-  screen.takeBottom(static_cast<int16_t>(UITheme::getInstance().getMetrics().buttonHintsHeight));
+  screen.takeBottom(static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)));
   const char* title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
   // Browsing a feed that gives its catalog size: "<name> (<total>)".
   char titleWithTotal[96];
@@ -628,7 +628,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
   if (state == BrowserState::DOWNLOADING) {
     const ShownDownloadFrame frame{true, downloadReceiving, downloadProgress, downloadTotal};

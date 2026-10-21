@@ -1,5 +1,6 @@
 #pragma once
 #include <HalDisplay.h>
+#include <ScreenInsets.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -103,6 +104,7 @@ class HomeActivity final : public Activity {
   bool carouselFramesReady = false;
   bool carouselFramesInverted = false;
   bool carouselWarmupPending = false;
+  ScreenInsets insetsBeforeFrontlightPanel;
   uint8_t themeBeforeFrontlightPanel = 0;
   uint8_t scaleBeforeFrontlightPanel = 0;
   char themePackBeforeFrontlightPanel[sizeof(CrossPointSettings::uiThemePack)] = {};

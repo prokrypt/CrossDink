@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Settings > Display > Screen Calibration: move each screen edge (top, right, bottom, left, 0-32 px) until a test border is fully visible, so headers, button hints, lists and reader margins stay clear of the bezel. Buttons or touch (-/+ steppers), Reset to Defaults, Save or Cancel. The values are kept in the device (NVS), not on the SD card, so they stay when the card changes; with nothing saved every screen lays out exactly as before. Saving writes once; drawing reads the values from memory.
 - Add a Display toggle to swap Library and File Browser on the Minimal and Dashboard home screens.
 - Reader menu (button devices) and the pull-down drawer (X4 Pro, Sticky) show the current chapter title under the book title. The drawer leaves the chapter line out when it would push the handle off screen.
 - File browser and Library list: a book marked as finished shows a book-with-check icon instead of its file icon (EPUB and XTC). Each row's finished flag is read once when the row is first drawn and kept in memory, so moving the selection reads nothing from the card; marking a book finished or unfinished updates the icon. Library skips the lookup while Hide finished books is on.

@@ -373,9 +373,8 @@ void FrontlightPanelActivity::loop() {
 }
 
 Rect FrontlightPanelActivity::homeButtonRect() const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  return Rect{renderer.getScreenWidth() - HEADER_BUTTON_WIDTH, metrics.topPadding, HEADER_BUTTON_WIDTH,
-              TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  return Rect{header.x + header.width - HEADER_BUTTON_WIDTH, header.y, HEADER_BUTTON_WIDTH, header.height};
 }
 
 int FrontlightPanelActivity::computePanelBottom() {
@@ -394,7 +393,7 @@ int FrontlightPanelActivity::panelBottomFor() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto tokens = uiThemeTokens(uiTarget);
   const int16_t lh = uiTarget.lineHeight(tokens.bodyText.font);
-  int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
+  int y = TouchHeaderBackButton::contentTop(renderer, mappedInput);
   y += bookSummaryHeight();
   if (context.showReaderDetails) {
     const int16_t titleLh = uiTarget.lineHeight(tokens.titleText.font);
@@ -477,8 +476,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   drawerHandleRect = DrawerHandle::registerTap(screen.frame(), sheetContent, sheet, ACTION_DISMISS);
   const int16_t bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - sheetContent.bottom());
   screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                       bookSummaryHeight()),
+      fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + bookSummaryHeight()),
                   0, bottomInset, 0});
 
   const fui::Rect actionBar = screen.takeBottom(ACTION_BAR_HEIGHT);
@@ -555,9 +553,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
 }
 
 void FrontlightPanelActivity::drawHeader() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int headerHeight = TouchHeaderBackButton::height(metrics, mappedInput);
-  const Rect header{0, metrics.topPadding, renderer.getScreenWidth(), headerHeight};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
 
   char date[16] = {};
   const char* title = context.showReaderDetails ? "" : tr(STR_FRONTLIGHT);
@@ -620,7 +616,7 @@ int FrontlightPanelActivity::bookSummaryHeight() const {
 void FrontlightPanelActivity::drawBookProgress() {
   if (!showsBookProgress()) return;
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
+  const int y = TouchHeaderBackButton::contentTop(renderer, mappedInput);
   char progress[96];
   formatReaderBookProgress(progress, sizeof(progress), context.bookDetails.chapterPage,
                            context.bookDetails.chapterPageCount, context.bookDetails.chapterPageCountEstimated,
@@ -659,7 +655,7 @@ void FrontlightPanelActivity::render(RenderLock&&) {
   // clearScreen — same as the theme popups draw over the current frame.
   panelBottom = computePanelBottom();
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
   drawHeader();
   drawBookProgress();
