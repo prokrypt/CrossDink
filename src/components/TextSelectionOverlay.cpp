@@ -52,8 +52,8 @@ void placeActions(const GfxRenderer& renderer, Layout& layout, const int anchorX
   if (overlaps(layout.startHandle) || overlaps(layout.endHandle)) {
     const int below = std::max(layout.startHandle.bottom(), layout.endHandle.bottom()) + metrics.verticalSpacing;
     int firstBottom = safe.bottom();
-    for (const auto handle : {layout.startHandle, layout.endHandle}) {
-      if (!handle.empty()) firstBottom = std::min<int>(firstBottom, handle.bottom());
+    for (const auto box : {layout.startHandle, layout.endHandle}) {
+      if (!box.empty()) firstBottom = std::min<int>(firstBottom, box.bottom());
     }
     const int buttonY = below + height <= safe.bottom() ? below : firstBottom + metrics.verticalSpacing;
     y = std::clamp(buttonY - padding, top, std::max(top, safe.bottom() - height - padding));
