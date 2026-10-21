@@ -3629,22 +3629,19 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // Dismissing falls through: the button that clears a toast still turns the page.
   if (pendingBookmarkFeedback && transientFeedbackDismissed(bookmarkFeedbackShowTime)) {
     pendingBookmarkFeedback = false;
     requestUpdate();
-    return;
   }
-
   if (pendingCompletedFeedback && transientFeedbackDismissed(completedFeedbackShowTime)) {
     pendingCompletedFeedback = false;
     requestUpdate();
-    return;
   }
   if (pendingTiltPageTurnFeedback && transientFeedbackDismissed(tiltPageTurnFeedbackShowTime)) {
     pendingTiltPageTurnFeedback = false;
     homeButtonInReaderFeedback = false;
     requestUpdate();
-    return;
   }
   if ((pendingRenderModeToast || pendingSafeModeToast) && (millis() - renderModeToastShowTime) >= Toast::DURATION_MS) {
     bool toastRegionRestored = false;
