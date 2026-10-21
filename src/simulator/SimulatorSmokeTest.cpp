@@ -1091,11 +1091,9 @@ class SimulatorSmokeTest {
           BookLoadingFeedback feedback;
           feedback.start(millis());
           if (feedback.showIfDue(renderer)) fail("Fast book open showed loading feedback");
-          captureStatusBarScreen("book-loading-fast");
           // Simulate elapsed loading time without slowing normal smoke runs.
           feedback.start(millis() - BookLoadingFeedback::DELAY_MS);
           if (!feedback.showIfDue(renderer)) fail("Slow book open omitted loading feedback");
-          captureStatusBarScreen("book-loading-slow");
           if (feedback.showIfDue(renderer)) fail("Book loading feedback refreshed twice");
           LOG_INF("SMOKE", "Delayed book loading feedback passed");
         }
