@@ -37,7 +37,7 @@ class LibraryActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   freeink::ui::ListNav listNav;
   OptionPopup actionPopup;
-  library::LibraryIndexFile index;
+  library::LibraryIndexFile index{true};  // Reuse one decoded display row across its labels, icon and group.
   Sort sort = Sort::RecentlyRead;
   bool descending = true;
   int selection = CONTROL_COUNT;

@@ -558,8 +558,11 @@ bool ZipFile::loadZipDetails() {
     return false;
   }
 
-  file.seek(fileSize - scanRange);
-  file.read(buffer, scanRange);
+  if (!file.seek(fileSize - scanRange) || file.read(buffer, scanRange) != scanRange) {
+    LOG_ERR("ZIP", "Failed to read ZIP end-of-directory record");
+    free(buffer);
+    return false;
+  }
 
   // Scan backwards for the signature
   int foundOffset = -1;
@@ -696,36 +699,44 @@ int ZipFile::fillEntryIdentities(const EntryTarget* targets, const size_t target
   }
 
   const ScopedOpenClose zip{*this};
-  if (!zip) return 0;
+  if (!zip) return -1;
 
-  if (!loadZipDetails()) return 0;
+  if (!loadZipDetails()) return -1;
 
-  file.seek(zipDetails.centralDirOffset);
+  if (!file.seek(zipDetails.centralDirOffset)) {
+    LOG_ERR("ZIP", "Failed to seek ZIP central directory");
+    return -1;
+  }
 
   int matched = 0;
   const auto expectedMatches = static_cast<int>(targetCount);
   const EntryTarget* const targetEnd = targets + targetCount;
-  uint32_t sig;
   char itemName[256];
+  uint8_t header[46];  // fixed central directory entry header, read in one call
 
-  while (file.available()) {
-    file.read(&sig, 4);
-    if (sig != 0x02014b50) break;
+  // Callers treat "not found" as proof of absence, so any short read fails the whole scan.
+  for (uint32_t i = 0; i < zipDetails.totalEntries; ++i) {
+    uint32_t sig = 0;
+    if (file.read(header, sizeof(header)) == static_cast<int>(sizeof(header))) memcpy(&sig, header, sizeof(sig));
+    if (sig != 0x02014b50) {
+      LOG_ERR("ZIP", "Failed to read central directory entry %u", static_cast<unsigned>(i));
+      return -1;
+    }
 
-    // Skip versions, flags, compression method, and modification time/date.
-    file.seekCur(12);
     EntryIdentity identity;
-    file.read(&identity.crc32, 4);
-    file.read(&identity.compressedSize, 4);
-    file.read(&identity.uncompressedSize, 4);
+    memcpy(&identity.crc32, header + 16, 4);
+    memcpy(&identity.compressedSize, header + 20, 4);
+    memcpy(&identity.uncompressedSize, header + 24, 4);
     uint16_t nameLen, extraLen, commentLen;
-    file.read(&nameLen, 2);
-    file.read(&extraLen, 2);
-    file.read(&commentLen, 2);
-    file.seekCur(12);
+    memcpy(&nameLen, header + 28, 2);
+    memcpy(&extraLen, header + 30, 2);
+    memcpy(&commentLen, header + 32, 2);
 
     if (nameLen < sizeof(itemName)) {
-      file.read(itemName, nameLen);
+      if (file.read(itemName, nameLen) != nameLen) {
+        LOG_ERR("ZIP", "Failed to read central directory name %u", static_cast<unsigned>(i));
+        return -1;
+      }
       itemName[nameLen] = '\0';
 
       const uint64_t hash = fnvHash64(itemName, nameLen);
@@ -747,11 +758,15 @@ int ZipFile::fillEntryIdentities(const EntryTarget* targets, const size_t target
       if (matched >= expectedMatches) {
         break;
       }
-    } else {
-      file.seekCur(nameLen);
+    } else if (!file.seekCur(nameLen)) {
+      LOG_ERR("ZIP", "Failed to skip central directory name %u", static_cast<unsigned>(i));
+      return -1;
     }
 
-    file.seekCur(extraLen + commentLen);
+    if (!file.seekCur(extraLen + commentLen)) {
+      LOG_ERR("ZIP", "Failed to skip central directory entry %u", static_cast<unsigned>(i));
+      return -1;
+    }
   }
 
   return matched;
