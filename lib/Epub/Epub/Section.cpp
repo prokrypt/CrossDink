@@ -30,15 +30,14 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v77: Ordered lists, marker suppression, and list-container insets affect page layout.
 // v78: Inline CSS padding affects dialogue and other styled text positions.
 // v79: Hangul word boundaries and line-end splits change cached page positions.
-// v96: Root text indents, hidden <hr> borders and <figure> spacing change layout.
-//      80-95 are CrossInk's; skipped so a later sync cannot accept a foreign layout.
-constexpr uint8_t SECTION_FILE_VERSION = 96;
+// v97: Character spacing in the layout identity and cached text blocks (96 is taken by inherited paragraph styles).
+constexpr uint8_t SECTION_FILE_VERSION = 97;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract. Never reuse a retired sentinel: an old
 // partial on SD would resume with stale page positions. Pick below the lowest.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF0;
-constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xEF;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
                                                         0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
 constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
   for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
@@ -52,8 +51,8 @@ static_assert(SECTION_FILE_PARTIAL_VERSION > SECTION_FILE_VERSION, "partial sent
 constexpr uint32_t HEADER_SIZE =
     sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
     sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
-    sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t) +
-    sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
+    sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(int8_t) + sizeof(uint8_t) + sizeof(uint16_t) +
+    sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
 // Pages are many small writes; collecting them lets whole sectors reach the card as
@@ -245,16 +244,16 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
     LOG_DBG("SCT", "File not open for writing header");
     return false;
   }
-  static_assert(HEADER_SIZE == sizeof(SECTION_CACHE_MAGIC) + sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) +
-                                   sizeof(spec.lineCompression) + sizeof(spec.extraParagraphSpacing) +
-                                   sizeof(spec.forceParagraphIndents) + sizeof(spec.paragraphAlignment) +
-                                   sizeof(spec.viewportWidth) + sizeof(spec.viewportHeight) +
-                                   sizeof(spec.hyphenationEnabled) + sizeof(spec.embeddedStyle) +
-                                   sizeof(spec.imageRendering) + sizeof(spec.focusReadingEnabled) +
-                                   sizeof(spec.guideReadingEnabled) + sizeof(spec.wordSpacing) + sizeof(uint8_t) +
-                                   sizeof(pageCount) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
-                                   sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
-                "Header size mismatch");
+  static_assert(
+      HEADER_SIZE == sizeof(SECTION_CACHE_MAGIC) + sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) +
+                         sizeof(spec.lineCompression) + sizeof(spec.extraParagraphSpacing) +
+                         sizeof(spec.forceParagraphIndents) + sizeof(spec.paragraphAlignment) +
+                         sizeof(spec.viewportWidth) + sizeof(spec.viewportHeight) + sizeof(spec.hyphenationEnabled) +
+                         sizeof(spec.embeddedStyle) + sizeof(spec.imageRendering) + sizeof(spec.focusReadingEnabled) +
+                         sizeof(spec.guideReadingEnabled) + sizeof(spec.wordSpacing) + sizeof(spec.characterSpacing) +
+                         sizeof(uint8_t) + sizeof(pageCount) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+                         sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
+      "Header size mismatch");
   return serialization::tryWritePod(file, SECTION_CACHE_MAGIC) &&
          serialization::tryWritePod(file, SECTION_FILE_VERSION) && serialization::tryWritePod(file, spec.fontId) &&
          serialization::tryWritePod(file, spec.lineCompression) &&
@@ -269,6 +268,7 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
          serialization::tryWritePod(file, spec.focusReadingEnabled) &&
          serialization::tryWritePod(file, spec.guideReadingEnabled) &&
          serialization::tryWritePod(file, spec.wordSpacing) &&
+         serialization::tryWritePod(file, spec.characterSpacing) &&
          serialization::tryWritePod(file, static_cast<uint8_t>(spec.renderMode)) &&
          serialization::tryWritePod(file,
                                     pageCount) &&  // Placeholder for page count (will be initially 0, patched later)
@@ -334,6 +334,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     bool fileFocusReadingEnabled;
     bool fileGuideReadingEnabled;
     uint8_t fileWordSpacing;
+    int8_t fileCharacterSpacing;
     uint8_t fileRenderMode;
     if (!serialization::tryReadPod(file, fileFontId) || !serialization::tryReadPod(file, fileLineCompression) ||
         !serialization::tryReadPod(file, fileExtraParagraphSpacing) ||
@@ -344,7 +345,8 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         !serialization::tryReadPod(file, fileEmbeddedStyle) || !serialization::tryReadPod(file, fileImageRendering) ||
         !serialization::tryReadPod(file, fileFocusReadingEnabled) ||
         !serialization::tryReadPod(file, fileGuideReadingEnabled) ||
-        !serialization::tryReadPod(file, fileWordSpacing) || !serialization::tryReadPod(file, fileRenderMode)) {
+        !serialization::tryReadPod(file, fileWordSpacing) || !serialization::tryReadPod(file, fileCharacterSpacing) ||
+        !serialization::tryReadPod(file, fileRenderMode)) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: truncated section header");
       clearCache();
@@ -358,7 +360,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.hyphenationEnabled != fileHyphenationEnabled || spec.embeddedStyle != fileEmbeddedStyle ||
         spec.imageRendering != fileImageRendering || spec.focusReadingEnabled != fileFocusReadingEnabled ||
         spec.guideReadingEnabled != fileGuideReadingEnabled || spec.wordSpacing != fileWordSpacing ||
-        static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
+        spec.characterSpacing != fileCharacterSpacing || static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
       file.close();
       LOG_INF("SCT",
               "Section cache params changed, rebuilding: font %d/%d lc %.3f/%.3f vp %ux%u/%ux%u para %d/%d ind %d/%d "
@@ -717,7 +719,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       },
       embeddedStyle, contentBase, imageBasePath, imageRendering, std::move(tocAnchors), popupFn, cssParser, renderMode,
       buildOptions.isPreview() ? std::string(buildOptions.previewAnchor) : std::string{}, buildOptions.previewMaxPages,
-      buildOptions.referenceUnitsAreCharacters);
+      buildOptions.referenceUnitsAreCharacters, spec.characterSpacing);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   if (inflateOverlapped) visitor.setStreamInput(&overlappedInflate);
   bool cancelled = false;
@@ -1053,7 +1055,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
       },
       embeddedStyle, ctxPtr->contentBase, ctxPtr->imageBasePath, imageRendering, std::move(tocAnchors), popupFn,
       ctxPtr->cssParser, renderMode, buildOptions.isPreview() ? std::string(buildOptions.previewAnchor) : std::string{},
-      buildOptions.previewMaxPages, false);
+      buildOptions.previewMaxPages, false, spec.characterSpacing);
   if (!ctx->parser) {
     LOG_ERR("SCT", "Failed to allocate section parser");
     lastLayoutAbortedForLowMemory_ = true;

@@ -853,7 +853,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   flushPendingAnchor();
   currentTextBlock.reset(new (std::nothrow) ParsedText(extraParagraphSpacing, forceParagraphIndents, hyphenationEnabled,
                                                        focusReadingEnabled, guideReadingEnabled, wordSpacing,
-                                                       blockStyle, trackReferenceCharacters));
+                                                       blockStyle, trackReferenceCharacters, characterSpacing));
   if (!currentTextBlock) {
     const auto heap = MemoryBudget::snapshot();
     LOG_ERR("EHP", "Failed to create text block (%lu free, %lu max alloc)", heap.freeHeap, heap.maxAllocHeap);
@@ -2039,9 +2039,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->currentTextBlock.reset();
       const uint16_t lineHeight =
           static_cast<uint16_t>(self->renderer.getLineHeight(self->fontId) * self->lineCompression);
-      self->currentCompactTable =
-          makeUniqueNoThrow<CompactTableLayout>(self->renderer, self->fontId, self->viewportWidth, self->viewportHeight,
-                                                lineHeight, TABLE_CELL_PADDING, tableBlockStyle);
+      self->currentCompactTable = makeUniqueNoThrow<CompactTableLayout>(
+          self->renderer, self->fontId, self->viewportWidth, self->viewportHeight, lineHeight, TABLE_CELL_PADDING,
+          tableBlockStyle, self->characterSpacing);
       if (!self->currentCompactTable || !self->currentCompactTable->valid()) {
         LOG_ERR("EHP", "Failed to allocate compact table layout (free=%lu, maxAlloc=%lu)", heap.freeHeap,
                 heap.maxAllocHeap);

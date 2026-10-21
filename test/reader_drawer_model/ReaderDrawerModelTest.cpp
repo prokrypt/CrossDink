@@ -328,3 +328,10 @@ TEST(ReaderDrawerModel, SamplePreviewCoversLiveTextSettingsOnly) {
     EXPECT_FALSE(readerDrawerShowsSamplePreview(Pane::EnumOptions, Tab::Layout, row));
   EXPECT_FALSE(readerDrawerShowsSamplePreview(Pane::DictionaryFont, Tab::Font, Row::FontSize));
 }
+
+TEST(ReaderDrawerModelTest, CharacterSpacingReservesPreviewAndUsesSliderInput) {
+  EXPECT_TRUE(readerDrawerStepChangesSettings(ReaderDrawerPane::CharacterSpacing));
+  EXPECT_TRUE(readerDrawerShowsSamplePreview(ReaderDrawerPane::CharacterSpacing, ReaderDrawerTab::Font,
+                                             ReaderDrawerCatalogItem::CharacterSpacing));
+  EXPECT_TRUE(readerDrawerSliderPreviewsText(ReaderDrawerPane::CharacterSpacing));
+}
