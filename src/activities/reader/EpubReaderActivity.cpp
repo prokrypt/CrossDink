@@ -2380,6 +2380,7 @@ void EpubReaderActivity::endGlobalSettingsEditForBookReader(void* ctx) {
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
+  showOpeningFeedback();
   pageLoadRetryCount = 0;
 
   MemoryBudget::logEpubHeapPools("reader enter");
@@ -2395,6 +2396,7 @@ void EpubReaderActivity::onEnter() {
     GfxRenderer::FrameBufferLoan loan(renderer);
     epub->ensureOptimizerImageIndex();
   }
+  showOpeningFeedback();
   loadBookReaderSettings();
   sdFontSystem.setSettingsPersistenceCallback(persistReaderSdFontSettingsForBook, this);
   ensureReaderSdFontLoaded(renderer);
@@ -2407,6 +2409,7 @@ void EpubReaderActivity::onEnter() {
   homeThumbWorker.attempted = false;
   if (!imageCacheWorker.done) imageCacheWorker.done = xSemaphoreCreateBinary();
   if (!buildWorker.done) buildWorker.done = xSemaphoreCreateBinary();
+  showOpeningFeedback();
   ImageBlock::clearSessionRenderFailures();
   ImageBlock::setExtractor(
       epub.get(),
@@ -2426,6 +2429,7 @@ void EpubReaderActivity::onEnter() {
 
   BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
+  showOpeningFeedback();
 
   uint16_t restartPageBuildSpine = UINT16_MAX;
   uint16_t restartPageBuildTarget = 0;
@@ -2544,6 +2548,7 @@ void EpubReaderActivity::onEnter() {
   kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
                          openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt);
 
+  showOpeningFeedback();
   // Trigger first update
   requestUpdate();
 }
@@ -2865,7 +2870,7 @@ void EpubReaderActivity::openReaderMenu() {
 
 void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
+  openingFeedback.showIndexing(renderer);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
@@ -6778,6 +6783,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+  showOpeningFeedback();
   // The render task now owns the mutex requested by the input action. Background
   // indexing may resume only after this render releases it.
   backgroundBuildYieldForInput.store(false, std::memory_order_relaxed);
@@ -6815,6 +6821,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   };
 
   const auto showLowMemoryLayoutError = [this, &queueLowMemoryLayoutAlert]() {
+    openingFeedback.finish();
     queueLowMemoryLayoutAlert(true);
     GUI.drawPopup(renderer, tr(STR_EPUB_LAYOUT_MEMORY_TITLE));
   };
@@ -6823,13 +6830,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   // "Indexing" popup on screen with no way forward. Surface an explicit error instead of hanging.
   // clearScreen first so the error popup doesn't overlay the stale "Indexing" popup.
   const auto showBuildError = [this]() {
+    openingFeedback.finish();
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
     GUI.drawPopup(renderer, tr(STR_INDEX_FAILED));
     automaticPageTurnActive = false;
   };
 
   const auto showIndexingPopup = [this]() {
-    GUI.drawPopup(renderer, tr(STR_INDEXING));
+    openingFeedback.showIndexing(renderer);
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     // The popup is a Fast frame too: where Fast tracks the panel, the chapter's
     // first page needs no cleanup flash.
@@ -6894,6 +6902,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       endOfBookOptions->loadOnce(epub->getPath());
       endOfBookOptions->render(renderer, mappedInput);
     }
+    openingFeedback.finish();
     renderer.displayBuffer();
     automaticPageTurnActive = false;
     showPendingSyncSaveError();
@@ -6955,6 +6964,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     };
 
     loadedSection = loadSectionWithFont(readerFontId, selectedRenderMode);
+    showOpeningFeedback();
     if (loadedSection && pendingReferenceUnitOffset) {
       // A finalized cache knows where rendered pages start, but it does not retain
       // the source-unit mapping needed to resolve an exact stable-page target.
@@ -6984,7 +6994,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
 
       const auto popupFn = [this]() {
-        if (renderer.hasFrameBuffer()) GUI.drawPopup(renderer, tr(STR_INDEXING));
+        if (renderer.hasFrameBuffer()) {
+          openingFeedback.showIndexing(renderer);
+        }
       };
 
       bool layoutAbortedForLowMemory = false;
@@ -7509,10 +7521,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     return;
   }
 
+  showOpeningFeedback();
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
 
   if (section->pageCount == 0) {
     LOG_DBG("ERS", "No pages to render");
+    openingFeedback.finish();
     renderer.drawCenteredText(UI_12_FONT_ID, ReaderUtils::messageCenterY(renderer), tr(STR_EMPTY_CHAPTER),
                               ReaderUtils::readerForegroundBlack(), EpdFontFamily::BOLD);
     renderStatusBar();
@@ -7524,6 +7538,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   if (section->currentPage < 0 || section->currentPage >= section->pageCount) {
     LOG_DBG("ERS", "Page out of bounds: %d (max %d)", section->currentPage, section->pageCount);
+    openingFeedback.finish();
     renderer.drawCenteredText(UI_12_FONT_ID, ReaderUtils::messageCenterY(renderer), tr(STR_OUT_OF_BOUNDS),
                               ReaderUtils::readerForegroundBlack(), EpdFontFamily::BOLD);
     renderStatusBar();
@@ -7556,6 +7571,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       LOG_ERR("ERS", "Failed to load page from SD after %d retries", pageLoadRetryCount);
       pageLoadRetryCount = 0;
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+      openingFeedback.finish();
       renderer.drawCenteredText(UI_12_FONT_ID, ReaderUtils::messageCenterY(renderer), tr(STR_PAGE_LOAD_ERROR),
                                 ReaderUtils::readerForegroundBlack(), EpdFontFamily::BOLD);
       renderStatusBar();
@@ -7565,6 +7581,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       return;
     }
     pageLoadRetryCount = 0;
+    if (showOpeningFeedback()) renderer.clearScreen(ReaderUtils::readerBackgroundColor());
 
     // Preview pages are transient note windows, not full chapter pages with reusable footnote metadata.
     if (activeFootnotePreview) {
@@ -7585,6 +7602,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       currentPageFootnoteTouchTargets.fill({});
 #endif
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+      openingFeedback.finish();
       GUI.drawPopup(renderer, renderer.isSdCardFont(renderFontId) ? tr(STR_MEMORY_ERROR) : tr(STR_PAGE_LOAD_ERROR));
       renderer.displayBuffer();
       automaticPageTurnActive = false;
@@ -8604,6 +8622,13 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     deferImageLoading = true;
     needsImageGrayscale = false;
     needsTextGrayscale = false;
+  }
+
+  if (updatePanel) {
+    // First-page glyph and image checks can be slower than opening the book.
+    // Clear a newly drawn popup before composing the page; no second buffer is needed.
+    if (showOpeningFeedback()) renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+    openingFeedback.finish();
   }
 
   const auto finalizeBufferComposition = [&]() {

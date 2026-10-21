@@ -105,6 +105,7 @@ int centredErrorY(const GfxRenderer& renderer) {
 
 void XtcReaderActivity::onEnter() {
   Activity::onEnter();
+  showOpeningFeedback();
 
   if (!xtc) {
     return;
@@ -135,8 +136,10 @@ void XtcReaderActivity::onEnter() {
   if (!skipRecentBookUpdateOnEntry) {
     RECENT_BOOKS.addOrUpdateBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath());
   }
+  showOpeningFeedback();
   SleepCoverAssets::prepareXtc(*xtc);
 
+  showOpeningFeedback();
   // Trigger first update
   requestUpdate();
 }
@@ -1229,6 +1232,7 @@ bool XtcReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PWR
 }
 
 void XtcReaderActivity::render(RenderLock&&) {
+  showOpeningFeedback();
   if (!xtc) {
     return;
   }
@@ -1251,11 +1255,13 @@ void XtcReaderActivity::render(RenderLock&&) {
       endOfBookOptions->loadOnce(xtc->getPath());
       endOfBookOptions->render(renderer, mappedInput);
     }
+    openingFeedback.finish();
     renderer.displayBuffer();
     return;
   }
 
   renderPage(pageToRender);
+  openingFeedback.finish();
   pageShownAtMs = millis();
   if (!queueProgressSave(pageToRender)) {
     LOG_ERR("XTR", "Failed to save debounced reader progress");
@@ -1380,6 +1386,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
       return;
     }
     renderOverlays(true);
+    openingFeedback.finish();
 
     // A failed plane stream drops the gray pass; the BW page stays shown.
     if (ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, [&]() {
@@ -1455,6 +1462,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
     return;
   }
 
+  showOpeningFeedback();
   // Clear screen first
   renderer.clearScreen();
 
