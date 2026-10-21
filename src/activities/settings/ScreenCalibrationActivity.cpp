@@ -197,7 +197,7 @@ void ScreenCalibrationActivity::loop() {
 }
 
 void ScreenCalibrationActivity::calibrationScreen(UiApp::ScreenType& screen, void* user) {
-  auto& self = *static_cast<ScreenCalibrationActivity*>(user);
+  const auto& self = *static_cast<const ScreenCalibrationActivity*>(user);
   const auto& renderer = self.renderer;
   const auto safe = screen.device().safeRect();
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);

@@ -192,7 +192,6 @@ void EpubReaderBookmarkListActivity::buildListScreen(UiApp::ScreenType& screen) 
 
 void EpubReaderBookmarkListActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
   TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_BOOKMARKS), true);

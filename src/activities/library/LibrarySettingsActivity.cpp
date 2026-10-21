@@ -190,7 +190,6 @@ void LibrarySettingsActivity::provideRow(void*, const uint16_t row, fui::ListIte
 }
 
 void LibrarySettingsActivity::buildScreen(UiApp::ScreenType& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
   int bounds[4]{};
   renderer.getOrientedViewableTRBL(&bounds[0], &bounds[1], &bounds[2], &bounds[3]);
   const int16_t headerBottom = static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput));

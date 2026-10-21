@@ -390,7 +390,6 @@ int FrontlightPanelActivity::computePanelBottom() {
 int FrontlightPanelActivity::panelBottomFor() const {
   // Mirror buildPanelScreen's takeTop/spacer sequence so the frame, content
   // margin, and dismiss threshold land on the same edge.
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const auto tokens = uiThemeTokens(uiTarget);
   const int16_t lh = uiTarget.lineHeight(tokens.bodyText.font);
   int y = TouchHeaderBackButton::contentTop(renderer, mappedInput);
@@ -465,7 +464,6 @@ void FrontlightPanelActivity::panelScreen(UiApp::ScreenType& screen, void* user)
 }
 
 void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& theme = screen.theme();
   const fui::SheetProps sheet = frontlightSheetProps();
   const fui::Rect sheetRect{0, 0, static_cast<int16_t>(renderer.getScreenWidth()), static_cast<int16_t>(panelBottom)};
@@ -615,7 +613,6 @@ int FrontlightPanelActivity::bookSummaryHeight() const {
 
 void FrontlightPanelActivity::drawBookProgress() {
   if (!showsBookProgress()) return;
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const int y = TouchHeaderBackButton::contentTop(renderer, mappedInput);
   char progress[96];
   formatReaderBookProgress(progress, sizeof(progress), context.bookDetails.chapterPage,

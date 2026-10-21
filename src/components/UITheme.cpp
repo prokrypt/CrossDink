@@ -216,6 +216,7 @@ Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButton
   if (renderer.hasCustomViewableInsets()) {
     int top, right, bottom, left;
     renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+    // cppcheck-suppress knownConditionTrueFalse ; constant on buttons-only boards
     if (hasSideButtonHints && !gpio.hasTouch()) {
       if (deviceHasEdgeSideButtons(gpio)) left += getMetrics().sideButtonHintsWidth;
       right += getMetrics().sideButtonHintsWidth;

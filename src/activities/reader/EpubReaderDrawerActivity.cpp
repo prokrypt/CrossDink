@@ -960,7 +960,6 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
 
 void EpubReaderDrawerActivity::drawButtonBookHeader() {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
   GUI.drawHeader(renderer, header, epub ? epub->getTitle().c_str() : "", nullptr, false, true);
 
