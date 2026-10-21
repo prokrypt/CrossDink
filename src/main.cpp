@@ -381,6 +381,10 @@ RTC_NOINIT_ATTR uint32_t silentRebootFrontlight;
 // state.json saves an SD write on every wake; power loss clears it, so a cold
 // boot shows the splash.
 RTC_NOINIT_ATTR uint32_t splashlessWakeMagic;
+// CRC of the Quick Resume frame this sleep left on the glass, 0 when none. Only
+// a matching file may be seeded as the panel's OLD plane: a stale one would
+// drive every mismatched pixel one way.
+RTC_NOINIT_ATTR uint32_t quickResumeFrameCrc;
 constexpr uint32_t SPLASHLESS_WAKE_MAGIC = 0x534C5750;         // "SLWP"
 constexpr uint32_t SILENT_FIRMWARE_UPDATE_MAGIC = 0x46574E55;  // "FWNU"
 constexpr uint32_t SILENT_REBOOT_FRONTLIGHT_OFF = 0xC1EA1100;
@@ -1534,8 +1538,14 @@ constexpr char SLEEP_FRAME_FILE[] = "/.crossdink/sleep_frame.bin";
 static void saveSleepFrameBuffer() {
   HalFile file;
   if (!Storage.openFileForWrite("SLP", SLEEP_FRAME_FILE, file)) return;
-  file.write(renderer.getFrameBuffer(), renderer.getBufferSize());
+  const size_t size = renderer.getBufferSize();
+  const bool written = file.write(renderer.getFrameBuffer(), size) == size;
   file.close();
+  // Night Mode flips the frame only while it is sent, and direct gray is not a
+  // B/W state: in both the glass is not this buffer.
+  if (written && SETTINGS.screenInverted == 0 && !display.grayOnPanel()) {
+    quickResumeFrameCrc = uzlib_crc32(renderer.getFrameBuffer(), static_cast<unsigned int>(size), 0);
+  }
 }
 
 static bool loadSleepFrameBuffer() {
@@ -1893,6 +1903,7 @@ void enterDeepSleep(bool fromTimeout) {
     // display.deepSleep() waits out any pending refresh before the power-off,
     // so no settle delay is needed here. A delay would only widen the window in
     // which a wake press is swallowed.
+    quickResumeFrameCrc = 0;
     if (isQuickResumeSleep) {
       saveSleepFrameBuffer();
     } else if (Storage.exists(SLEEP_FRAME_FILE)) {
@@ -2355,7 +2366,7 @@ void setup() {
   const bool shouldRestoreSleepFrame =
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
-  bool x4WakeFrameAlreadyCleaned = false;
+  bool x4WakeCanFastPaint = false;
 
   // A plain software restart that left its frame behind (restartKeepingPanelFrame,
   // e.g. after an SD firmware update) also starts seamlessly: the splash is
@@ -2385,6 +2396,18 @@ void setup() {
           renderer.cleanupGrayscaleWithFrameBuffer();
           allowFastInitialReaderRefresh = true;
         }
+#ifndef SIMULATOR
+        else if (quickResumeFrameCrc != 0 &&
+                 uzlib_crc32(display.getFrameBuffer(), static_cast<unsigned int>(display.getBufferSize()), 0) ==
+                     quickResumeFrameCrc &&
+                 display.seedDisplayedFrame(display.getFrameBuffer())) {
+          // Quick Resume left this exact frame on the glass. Load it as the
+          // panel's OLD plane so the first Home/reader paint is a Fast update of
+          // the changed pixels (the moon included) instead of a full flash.
+          allowFastInitialReaderRefresh = true;
+          x4WakeCanFastPaint = true;
+        }
+#endif
       } else if (isUc8279X3 && hasValidSleepFrame) {
         // The frame passed the size preflight but could not be read after display
         // setup. Do one clean, device-specific recovery rather than painting
@@ -2401,7 +2424,7 @@ void setup() {
         // baseline, so the reader's first page can use its fast initial cycle
         // instead of repeating the cleanup waveform.
         allowFastInitialReaderRefresh = true;
-        x4WakeFrameAlreadyCleaned = true;
+        x4WakeCanFastPaint = true;
       }
       break;
     case BootResume::Splash:
@@ -2475,7 +2498,7 @@ void setup() {
     // crashed (indicated by readerActivityLoadCount > 0)
     // On X4, use the first Home paint to clean the retained sleep image.
     const auto homeRefreshMode =
-        resume == BootResume::SplashlessWake && shouldClearX4WakeGhosting() && !x4WakeFrameAlreadyCleaned
+        resume == BootResume::SplashlessWake && shouldClearX4WakeGhosting() && !x4WakeCanFastPaint
             ? HalDisplay::HALF_REFRESH
             : HalDisplay::FAST_REFRESH;
     activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
