@@ -7,6 +7,8 @@
 #include <string_view>
 #include <utility>
 
+#include "HttpRequestDiagnostics.h"
+
 namespace freeink {
 class SecureHttpClient;
 }
@@ -112,10 +114,12 @@ class HttpDownloader {
 
   /**
    * Stream a URL with cancellation/progress support and a detailed result.
+   * Optional diagnostics are reset on entry and borrowed only during this call.
    */
   static DownloadError streamUrl(const std::string& url, const DataCallback& onData,
                                  ProgressCallback progress = nullptr, const std::string& username = "",
-                                 const std::string& password = "", DownloadOptions options = DownloadOptions());
+                                 const std::string& password = "", DownloadOptions options = DownloadOptions(),
+                                 HttpRequestDiagnostics* diagnostics = nullptr);
 
   /**
    * Download a file to the SD card with optional credentials.

@@ -50,6 +50,10 @@ struct GlobalReadingStats {
   // Replaces the stats files (both slots and global_stats.bin) with fresh empty stats
   // without touching the backups in /.crossink-stats-backup.
   static bool resetLocal();
+  // Advances after each successful resetLocal(), so an open reader knows its
+  // in-memory copy was replaced on disk. Any new path that replaces the file
+  // while a reader may be open must advance it too.
+  static uint32_t localResetRevision();
 
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
   uint16_t currentReadingStreak(const ReadingStatsDate* today) const;

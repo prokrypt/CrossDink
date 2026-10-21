@@ -61,6 +61,8 @@ struct BatteryLogParser {
   static constexpr uint32_t RUN_ERR_C = 625;  // (0.25 %)²: fractional rows rose up to 0.61% between rows (10/1 log)
   static constexpr uint16_t FULL_C = 9500;    // a charge ending at or above this may still be on a charger
   static constexpr uint16_t FULL_DROP_C = 5;  // ... until the % drops this far below the charge end
+  // Epochs below this are BatteryLog's count from power-on (no RTC time), from 2000-01-01.
+  static constexpr uint32_t REAL_MIN = 1704067200;  // 2024-01-01
 
   Point points[MAX_POINTS];
   int pointCount;
@@ -126,6 +128,27 @@ struct BatteryLogParser {
     return static_cast<uint16_t>(std::min<uint32_t>(v, 10000));
   }
 
+  // A clock_set row: the counted epochs read so far move by d onto RTC time.
+  // Points only back to the start of this power-on (counts restart there, so going back they rise).
+  // shortcut: a scalar from an older counted power-on moves too; wrong only after two power cuts with no sync.
+  void shiftCounted(const uint32_t d) {
+    auto shift = [d](uint32_t& e) {
+      if (e != 0 && e < REAL_MIN) e += d;
+    };
+    shift(st.first);
+    shift(st.last);
+    shift(st.chargedEpoch);
+    shift(st.chargeStartEpoch);
+    for (uint32_t& e : st.recentEpoch) shift(e);
+    shift(stateChangeEpoch);
+    shift(prev.epoch);
+    for (int i = pointCount - 1; i >= 0 && points[i].epoch < REAL_MIN; --i) {
+      const bool last = i == 0 || points[i - 1].epoch > points[i].epoch;
+      points[i].epoch += d;
+      if (last) break;
+    }
+  }
+
   // One CSV row (no newline). Header rows and rows without an RTC time are skipped.
   void parseRow(const char* line) {
     // Split once: f[10] (detail) is the rest of the row, commas and all.
@@ -136,15 +159,20 @@ struct BatteryLogParser {
       if (*p == ',') f[n++] = p + 1;
     }
     const uint32_t epoch = strtoul(line, nullptr, 10);
-    if (epoch == 0 || n < 10) return;  // header, or no RTC time
+    if (epoch == 0 || n < 10) {
+      // A data row with epoch 0 (builds before the power-on count, RTC unset):
+      // the span across it is unknown, so the next timed row starts a new one.
+      if (*line >= '0' && *line <= '9') prev.epoch = 0;
+      return;  // header, or no RTC time
+    }
     const char* detail = n > 10 ? f[10] : nullptr;
-    enum Ev : uint8_t { OTHER, STATS_RESET, BOOT, WAKE, SLEEP, WIFI_ON, WIFI_OFF, CHARGED };
+    enum Ev : uint8_t { OTHER, STATS_RESET, BOOT, WAKE, SLEEP, WIFI_ON, WIFI_OFF, CHARGED, CLOCK_SET };
     Ev ev = OTHER;
     {
       const size_t len = detail ? static_cast<size_t>(detail - 1 - f[9]) : strlen(f[9]);
-      static constexpr const char* NAMES[] = {"",      "stats_reset", "boot",     "wake",
-                                              "sleep", "wifi_on",     "wifi_off", "charged"};
-      for (int i = 1; i < 8; ++i) {
+      static constexpr const char* NAMES[] = {"",        "stats_reset", "boot",    "wake",     "sleep",
+                                              "wifi_on", "wifi_off",    "charged", "clock_set"};
+      for (int i = 1; i < 9; ++i) {
         if (strlen(NAMES[i]) == len && memcmp(f[9], NAMES[i], len) == 0) ev = static_cast<Ev>(i);
       }
     }
@@ -158,6 +186,12 @@ struct BatteryLogParser {
     const bool usb = *f[6] == '1' || ev == CHARGED;
     const bool asleep = ev == SLEEP || (detail && strncmp(detail, "asleep", 6) == 0);
     const bool cold = ev == BOOT && detail && strstr(detail, "reset=POWERON");
+    if (ev == CLOCK_SET && detail && strncmp(detail, "was=", 4) == 0) {
+      const uint32_t was = strtoul(detail + 4, nullptr, 10);
+      if (was < REAL_MIN && epoch >= REAL_MIN) shiftCounted(epoch - was);
+    } else if (prev.epoch < REAL_MIN && epoch >= REAL_MIN) {
+      prev.epoch = 0;  // counted time to RTC time with no clock_set row: the gap is unknown
+    }
 
     if (ev == STATS_RESET) {
       st = {};

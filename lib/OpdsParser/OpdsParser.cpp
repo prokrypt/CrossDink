@@ -16,6 +16,7 @@ constexpr size_t MAX_PAGE_URL_CHARS = 768;
 // Only short "<N> books" summaries carry a count; one char past the limit
 // marks a longer (descriptive) summary as not-a-count.
 constexpr size_t MAX_SUMMARY_COUNT_CHARS = 32;
+constexpr size_t MAX_FEED_NUMBER_CHARS = 16;
 
 bool isSpace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 bool isDigit(const char c) { return c >= '0' && c <= '9'; }
@@ -164,6 +165,8 @@ void OpdsParser::clear() {
   searchDescriptionUrl.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
+  totalResults = itemsPerPage = startIndex = -1;
+  feedNumber = nullptr;
   currentEntry = OpdsEntry{};
   currentText.clear();
   inEntry = inTitle = inAuthor = inAuthorName = inId = inSummary = false;
@@ -292,7 +295,20 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
     return;
   }
 
-  if (!self->inEntry) return;
+  if (!self->inEntry) {
+    // OpenSearch paging on the feed itself (any prefix, e.g. opensearch:totalResults).
+    const char* colon = strrchr(name, ':');
+    const char* local = colon ? colon + 1 : name;
+    if (strcmp(local, "totalResults") == 0) {
+      self->feedNumber = &self->totalResults;
+    } else if (strcmp(local, "itemsPerPage") == 0) {
+      self->feedNumber = &self->itemsPerPage;
+    } else if (strcmp(local, "startIndex") == 0) {
+      self->feedNumber = &self->startIndex;
+    }
+    if (self->feedNumber) self->currentText.clear();
+    return;
+  }
 
   if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
     self->inTitle = true;
@@ -313,6 +329,30 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
 
 void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
   auto* self = static_cast<OpdsParser*>(userData);
+
+  if (self->feedNumber) {
+    const char* p = self->currentText.c_str();
+    while (isSpace(*p)) ++p;
+    int32_t value = -1;
+    if (consumeCount(p, value)) {
+      while (isSpace(*p)) ++p;
+      if (*p == '\0') *self->feedNumber = value;
+    }
+    self->feedNumber = nullptr;
+    return;
+  }
+
+  if (strcmp(name, "feed") == 0 || strstr(name, ":feed") != nullptr) {
+    // Last page: its items reach totalResults. start + per > total holds for both
+    // 1-based (spec) and 0-based startIndex only when nothing follows.
+    if (!self->nextPageUrl.empty() && self->totalResults >= 0 && self->itemsPerPage > 0 && self->startIndex >= 0 &&
+        static_cast<int64_t>(self->startIndex) + self->itemsPerPage > self->totalResults) {
+      LOG_DBG("OPDS", "Last page (%ld of %ld): next link dropped", static_cast<long>(self->startIndex),
+              static_cast<long>(self->totalResults));
+      self->nextPageUrl.clear();
+    }
+    return;
+  }
 
   if (strcmp(name, "entry") == 0 || strstr(name, ":entry") != nullptr) {
     if (!self->currentEntry.title.empty() && !self->currentEntry.href.empty()) {
@@ -348,7 +388,9 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
 
 void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const int len) {
   auto* self = static_cast<OpdsParser*>(userData);
-  if (self->inTitle) {
+  if (self->feedNumber) {
+    appendBounded(self->currentText, s, len, MAX_FEED_NUMBER_CHARS);
+  } else if (self->inTitle) {
     appendBounded(self->currentText, s, len, MAX_TITLE_CHARS);
   } else if (self->inAuthorName) {
     appendBounded(self->currentText, s, len, MAX_AUTHOR_CHARS);

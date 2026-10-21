@@ -27,6 +27,9 @@ uint8_t epubRenderModeDisplayIndex(uint8_t renderMode);
 uint8_t epubRenderModeForDisplayIndex(uint8_t displayIndex);
 std::string confirmationHeading(StrId actionLabelId);
 bool isBookCompleted(const std::string& fullPath);
+// Read-only variant for list rows: writes nothing, so a never-opened book
+// costs only its content key and one stats read.
+bool isListedBookCompleted(const std::string& fullPath);
 bool isBookStatsTrackingEnabled(const std::string& fullPath);
 bool toggleBookStatsTracking(const std::string& fullPath, bool& enabled);
 bool toggleBookCompleted(const std::string& fullPath, const std::string& displayName, bool& completed);

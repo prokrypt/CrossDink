@@ -126,6 +126,92 @@ async function finishUpload(page) {
   assert.fail(`Upload did not finish: ${page.element('progress-text').textContent}`);
 }
 
+test('canonical and case-insensitive collisions preserve numbered suffixes and source entries', async () => {
+  const entries = [{ name: 'CAFE\u0301.EPUB' }, { name: 'Café (2).epub' }];
+  const page = portal({ entries });
+  const used = await page.context.fetchExistingUploadNames();
+  assert.equal(page.context.reserveAvailableUploadFilename('Cafe\u0301.epub', used), 'Café (3).epub');
+  assert.equal(page.context.reserveAvailableUploadFilename('Café.epub', used), 'Café (4).epub');
+  assert.equal(page.context.reserveAvailableUploadFilename('Re\u0301sume\u0301', used), 'Résumé');
+  assert.equal(page.context.reserveAvailableUploadFilename('Résumé', used), 'Résumé (2)');
+  assert.equal(page.context.reserveAvailableUploadFilename('.cafe\u0301', used), '.café');
+  assert.equal(page.context.reserveAvailableUploadFilename('.café', used), '.café (2)');
+  assert.deepEqual(entries, [{ name: 'CAFE\u0301.EPUB' }, { name: 'Café (2).epub' }]);
+  assert.equal(page.requests.length, 1);
+  assert.match(page.requests[0], /^\/api\/files\?path=%2Fbooks/);
+  assert.ok(page.logs.some(line => line.includes('Normalized filename to NFC:')));
+  assert.ok(page.logs.some(line => line.includes('Renamed to avoid collision:')));
+});
+
+test('metadata sanitation still strips illegal characters and preserves filename limits', () => {
+  const { context } = portal();
+  assert.equal(context.buildMetadataFilename('.. Cafe\u0301: / <Guide>?*\u0000. ', ' A\\B|C" '), 'Café Guide - A B C.epub');
+  assert.equal(context.buildMetadataFilename('... ', 'Author'), '');
+  assert.equal(context.buildMetadataFilename('x'.repeat(200), '').length, 185);
+});
+
+for (const fallback of [false, true]) {
+  for (const rename of [false, true]) {
+    for (const convert of [false, true]) {
+      test(`${fallback ? 'HTTP fallback' : 'WebSocket'}: metadata ${rename ? 'on' : 'off'}, conversion ${convert ? 'on' : 'off'}`, async () => {
+        const existing = rename ? 'CAFE\u0301 Guide - Jose\u0301.epub' : 'CAFE\u0301.epub';
+        const page = portal({ entries: [{ name: existing }], fallback });
+        const inputFiles = ['Cafe\u0301.epub', 'Café.epub'].map(name => new File(['original book'], name,
+          { type: 'application/epub+zip', lastModified: 123456 }));
+        page.element('fileInput').files = inputFiles;
+        page.element('renameFromMetadataToggle').checked = rename;
+        page.element('convertBeforeUpload').checked = convert;
+        page.storage.set('saved-settings', 'preserve me');
+        const beforeSettings = JSON.stringify(page.context.getCurrentUploadSettings());
+        let metadataReads = 0;
+        let conversions = 0;
+        page.context.getMetadataFilenameForEpub = async () => {
+          metadataReads++;
+          return page.context.buildMetadataFilename('Cafe\u0301: Guide', 'Jose\u0301');
+        };
+        page.context.convertEpubFile = async file => {
+          conversions++;
+          return new Blob(['converted book']);
+        };
+        // Logging UI is outside filename/transport behavior.
+        page.context.clearLog = () => {};
+        page.context.showLog = () => {};
+        page.context.logError = () => {};
+        await finishUpload(page);
+        const base = rename ? 'Café Guide - José' : 'Café';
+        assert.deepEqual(page.uploads.map(upload => upload.name), [`${base} (2).epub`, `${base} (3).epub`]);
+        assert.equal(metadataReads, rename ? 2 : 0);
+        assert.equal(conversions, convert ? 2 : 0);
+        assert.equal(JSON.stringify(page.context.getCurrentUploadSettings()), beforeSettings);
+        assert.equal(page.storage.get('saved-settings'), 'preserve me');
+        assert.deepEqual(inputFiles.map(file => file.name), ['Cafe\u0301.epub', 'Café.epub']);
+        for (const upload of page.uploads) {
+          assert.equal(upload.transport, fallback ? 'http' : 'ws');
+          const bytes = fallback ? Buffer.from(await upload.file.arrayBuffer()) : Buffer.concat(upload.chunks);
+          assert.equal(bytes.toString(), convert ? 'converted book' : 'original book');
+          if (fallback) {
+            assert.equal(upload.url, '/upload?path=%2Fbooks');
+            assert.equal(upload.file.type, 'application/epub+zip');
+            if (!convert) assert.equal(upload.file.lastModified, 123456);
+          } else assert.equal(upload.path, '/books');
+        }
+        assert.ok(page.requests.every(url => !url.includes('/rename')));
+      });
+    }
+  }
+}
+
+test('missing or failed metadata keeps the original name and still normalizes it', async () => {
+  for (const fail of [false, true]) {
+    const page = portal();
+    page.element('fileInput').files = [new File(['book'], 'Re\u0301sume\u0301.epub')];
+    page.element('renameFromMetadataToggle').checked = true;
+    page.context.getMetadataFilenameForEpub = async () => { if (fail) throw Error('bad EPUB'); return ''; };
+    await finishUpload(page);
+    assert.equal(page.uploads[0].name, 'Résumé.epub');
+  }
+});
+
 test('dialog drags and inside interactions stay open; actual backdrop clicks clean up', async () => {
   const page = portal();
   await page.context.hydrate();

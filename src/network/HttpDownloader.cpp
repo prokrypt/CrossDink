@@ -127,6 +127,7 @@ struct Sink {
   bool headOnly = false;             // DownloadOptions::headOnly
   uint32_t firstByteTimeoutMs = 0;   // DownloadOptions::firstByteTimeoutMs
   uint32_t startMs = 0;              // millis() when runGet started
+  HttpRequestDiagnostics* diagnostics = nullptr;
 };
 
 // wolfSSL path abort poll: a user cancel, or a body that stopped arriving.
@@ -195,10 +196,12 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
   ProgressNotifier progressNotifier(sink.progress);
 
   for (uint8_t hop = 0; hop < MAX_REDIRECTS; ++hop) {
+    if (sink.diagnostics) *sink.diagnostics = {};
     HttpRedirectPolicy::Url currentOrigin;
     const bool currentParsed = HttpRedirectPolicy::parseUrl(currentUrl, currentOrigin);
     const bool sendAuthorization =
         currentParsed && HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, hasCredentials);
+    if (sink.diagnostics) sink.diagnostics->authorizationWithheld = hasCredentials && !sendAuthorization;
 
     http.setTimeout(HTTP_TIMEOUT_MS);
     // SecureNet does not yet expose ESP-IDF's CA bundle. This matches the
@@ -229,6 +232,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     // "shared": a following request to the same host logs no new TLS handshake.
     const char* method = sink.headOnly ? "HEAD" : "GET";
     LOG_DBG("HTTP", "wolfSSL %s%s: %s", method, sharedHttp ? " (shared)" : "", logUrl(currentUrl).c_str());
+    if (sink.diagnostics) sink.diagnostics->attempted = true;
     const int status = http.sendRequest(
         method, nullptr, 0,
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
@@ -267,7 +271,10 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
             sink.total = sink.resumeOffset + http.getContentLength();
             progressNotifier.setTotal(sink.total);
           }
-          if (!sink.write(data, len)) return false;
+          if (!sink.write(data, len)) {
+            if (sink.diagnostics) sink.diagnostics->callbackRejected = true;
+            return false;
+          }
           sink.downloaded += len;
           sink.lastDataMs = millis();
           progressNotifier.notify(sink.downloaded, false);
@@ -275,6 +282,8 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         },
         [&sink]() { return shouldAbortTransfer(sink); });
 
+    // The request can fail after headers arrive (including a truncated 200).
+    if (sink.diagnostics) sink.diagnostics->status = http.getStatus();
     if (sink.stalled) {
       logStallDiagnostics("Stalled", sink);
       return HttpDownloader::HTTP_ERROR;
@@ -350,10 +359,12 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
   std::string currentUrl = url;
 
   for (uint8_t hop = 0; hop < MAX_REDIRECTS; ++hop) {
+    if (sink.diagnostics) *sink.diagnostics = {};
     HttpRedirectPolicy::Url currentOrigin;
     const bool currentParsed = HttpRedirectPolicy::parseUrl(currentUrl, currentOrigin);
     const bool sendAuthorization =
         currentParsed && HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, hasCredentials);
+    if (sink.diagnostics) sink.diagnostics->authorizationWithheld = hasCredentials && !sendAuthorization;
     std::string redirectLocation;
 
     esp_http_client_config_t config = {};
@@ -375,6 +386,7 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
 
     setRequestHeaders(client, username, password, sink.resumeOffset, sendAuthorization);
 
+    if (sink.diagnostics) sink.diagnostics->attempted = true;
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
       LOG_ERR("HTTP", "Open failed: %s", esp_err_to_name(err));
@@ -386,6 +398,7 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
 
     int64_t responseLength = esp_http_client_fetch_headers(client);
     const int status = esp_http_client_get_status_code(client);
+    if (sink.diagnostics) sink.diagnostics->status = status;
     if (responseLength < 0) {
       LOG_ERR("HTTP", "Fetch headers failed: %lld", static_cast<long long>(responseLength));
       logNetworkState("Fetch headers failure");
@@ -490,6 +503,7 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
       if (bytesRead == 0) break;
 
       if (!sink.write(reinterpret_cast<const uint8_t*>(buffer.get()), static_cast<size_t>(bytesRead))) {
+        if (sink.diagnostics) sink.diagnostics->callbackRejected = true;
         LOG_ERR("HTTP", "Write failed after %zu/%zu bytes", sink.downloaded, sink.total);
         logNetworkState("Write failure");
         esp_http_client_cleanup(client);
@@ -590,7 +604,9 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
 
 HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, const DataCallback& onData,
                                                         ProgressCallback progress, const std::string& username,
-                                                        const std::string& password, DownloadOptions options) {
+                                                        const std::string& password, DownloadOptions options,
+                                                        HttpRequestDiagnostics* diagnostics) {
+  if (diagnostics) *diagnostics = {};
   WifiPowerSaveGuard wifiPowerSaveGuard;
   (void)wifiPowerSaveGuard;
 
@@ -600,6 +616,7 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   }
 
   Sink sink;
+  sink.diagnostics = diagnostics;
   sink.write = onData;
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);

@@ -83,7 +83,7 @@ Button layout can be customized in **Settings > Controls**.
 
 ### Taking a Screenshot
 
-When the Power Button and Down button are pressed at the same time, it will take a screenshot and save it in the folder `screenshots/`.
+When the Power Button and Down button are pressed at the same time, it will take a screenshot (PNG) and save it in the folder `screenshots/`.
 
 Alternatively, while reading a book, press the **Confirm** button to open the reader menu and select **Take screenshot**.
 
@@ -304,7 +304,7 @@ Book Cache** does not reset these choices.
 
 - **Extra Paragraph Spacing**: Set how to handle paragraph breaks:
   - "ON" - Vertical space will be added between paragraphs in Reading Mode
-  - "OFF" - Paragraphs will not have vertical space added, but will have first-line indentation
+  - "OFF" - Paragraphs will not have vertical space added; source-defined first-line indentation is shown when available
 
 - **Reader Dark Mode**, **Embedded Style**, **Images**, **Focus Reading**, and
   **Guide Dots** are directly available from the Reader settings. See
@@ -817,7 +817,7 @@ the slider track rounds the selected value to the nearest multiple of five.
 
 When reading an EPUB that contains footnotes, you can navigate to the footnote text by selecting the footnote reference in the book. From the footnote, you can return to your original reading position.
 
-If the device goes to sleep or you close the book while viewing a footnote, the book reopens to your original reading position, not the footnote.
+After following an in-book link to a full chapter, sleeping or closing the book reopens on the last page read. Back retains the three most recent link origins across reopening and KOReader sync. If you close a transient footnote preview, the book resumes on the page that opened that preview, with any earlier link origins still available through Back.
 
 ### System Navigation
 

@@ -203,6 +203,8 @@ eight-byte EPUB content key.
 
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
+Version 10 rebuilds metadata with namespace-aware OPF parsing so optimizer-generated
+XML prefixes do not leave an empty chapter list. The binary layout is unchanged.
 Version 9 stores book and TOC title strings NFC-composed so decomposed
 diacritics render correctly with device fonts. It also rebuilds metadata after
 the EPUB guide start-reference handling changed.
@@ -214,7 +216,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 9
+#define EXPECTED_VERSION 10
 #define MAX_STRING_LENGTH 65535
 
 struct String {
@@ -423,6 +425,25 @@ book is renamed or moved outside CrossDink, the path hash changes, so the old
 clipping file may no longer be associated with the book until the file is moved
 back or the clipping store is migrated.
 
+## `epub_<hash>/links.bin`
+
+The EPUB reader saves followed-link Back history on clean exit (Home, sleep,
+or reader replacement for sync) and before a silent restart. The record is a
+fixed 13 bytes: a one-byte depth (0–3), then three pairs of little-endian `u16`
+spine index and `u16` page number, oldest first, unused pairs zero. Depth 0 is
+empty history. A book that never followed a link has no file. A transient
+footnote preview resumes at its immediate origin and omits that final entry;
+earlier full-section links remain in the record. Writes are held in RAM until
+the next flush point (sleep, restart, low battery; `HeldWrites`), so page turns
+never write it.
+
+On open, the reader checks the length and each spine index, then overwrites the
+record with depth 0 before adopting the history. Malformed records are also
+consumed. A later clean exit rewrites the current stack; a crash or reset cannot
+revive history from a previous session (power loss before the next flush can).
+This sidecar does not change EPUB layout cache formats. As with in-memory Back
+history, changing font or layout may shift the destination page.
+
 ## EPUB `progress.bin` and `progress.bin.bak`
 
 ### Slot record (20 bytes)
@@ -513,6 +534,24 @@ Binary layout:
 - `[69-72]` `estimatedTimeLeftSeconds` (`uint32_t` LE, `0` means unavailable)
 
 ## `section.bin`
+
+### Version 96
+
+Version 96 keeps the version 79 serialized layout. Paragraphs inherit
+`text-indent` from `<html>` and `<body>`, an `<hr>` whose CSS hides every border
+edge keeps its spacing but draws no rule, and `<figure>` is a block container
+whose publisher alignment and margins apply once around its images. Full caches
+(byte `79`) and suspended partial caches (`0xF1`) rebuild because page positions
+change. Complete files use byte `96`; suspended partials use `0xF0`, and `0xF1`
+joins the retired sentinels. Versions 80–95 are skipped: CrossInk uses them for
+other layouts, so a later sync cannot accept one of its caches as current.
+
+The CSS rule cache moves to version `24` (versions 19–23 occur in CrossInk and
+local branch history). Each style payload appends four border edge masks after
+`listStyleType`: suppressed styles, zero widths, defined styles and defined
+widths (one byte each, bits 0–3 for top/right/bottom/left). Defined-property
+bit 24 marks border state. The fixed style payload grows from 71 to 75 bytes.
+Older CSS caches rebuild.
 
 ### Version 79
 
