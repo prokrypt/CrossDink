@@ -378,7 +378,7 @@ void SettingsActivity::rebuildSettingsLists() {
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u) +
-                                       (deviceHasMenuNavigationSetting(gpio) ? 1u : 0u);
+                                       1u;  // Menu navigation: always shown without touch
   constexpr size_t expectedFrontButtonCount = controlsFrontButtonCount;
 #endif
   if (controlsSettings.size() != expectedControlsCount ||

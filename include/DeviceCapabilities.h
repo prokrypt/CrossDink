@@ -25,7 +25,12 @@ inline bool deviceUsesHorizontalSideButtonsForMenus(const HalGPIO& gpio) {
 // Directional/Legacy menu navigation changes button behavior wherever the
 // side buttons move between tabs or front buttons exist (X4 Pro, X4 Classic).
 inline bool deviceHasMenuNavigationSetting(const HalGPIO& gpio) {
+#if CROSSDINK_APP_CAP_TOUCH
   return deviceUsesHorizontalSideButtonsForMenus(gpio) || !gpio.hasTouch();
+#else
+  (void)gpio;
+  return true;
+#endif
 }
 
 inline bool deviceUsesSideButtonHintGutters(const HalGPIO& gpio) {
