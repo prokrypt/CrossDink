@@ -145,6 +145,7 @@ const fui::KeyboardLayout URL_SNIPPET_LAYOUT{URL_SNIP_ROWS, 4};
 
 void KeyboardEntryActivity::onEnter() {
   Activity::onEnter();
+  inputLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
   // Every keystroke repaints: alternating the gray panel behind the keys would
   // drive half its pixels on each short Turbo DU refresh, so hold its phase here.
   renderer.setDitherAlternate(false);
@@ -515,7 +516,7 @@ KeyboardEntryActivity::InputFieldTouchTarget KeyboardEntryActivity::inputFieldTo
   const int pageWidth = renderer.getScreenWidth();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int lineHeight = inputLineHeight;
   const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
                           metrics.verticalSpacing + metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
 
@@ -619,7 +620,7 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
   if (hasTouch) {
     const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
                             metrics.verticalSpacing * 5 + metrics.keyboardVerticalOffset;
-    const int inputBottom = inputStartY + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing + 8;
+    const int inputBottom = inputStartY + inputLineHeight + metrics.verticalSpacing + 8;
     y = std::max(y, inputBottom);
   }
   return fui::Rect{0, static_cast<int16_t>(y), static_cast<int16_t>(pageWidth),
@@ -901,7 +902,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
 
-  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int lineHeight = inputLineHeight;
   const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
                           metrics.verticalSpacing + metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
   int inputHeight = 0;
@@ -1226,6 +1227,9 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     props.altHintRightPadding = 5;
   }
   frame.target().fill(kbRect, props.background);
+  // The SDK fills the keys rect with this paint too. The outer fill already
+  // covers it and the surrounding panel, so avoid drawing that area twice.
+  props.background = fui::Paint::none();
   // Fingers land low on the bottom row (occlusion) and there is no key below
   // to catch the miss — extend its hit band down to the button hints bar.
   const int bottomEdge = mappedInput.hasTouchHardware() ? renderer.getScreenHeight()

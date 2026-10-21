@@ -61,6 +61,9 @@ class Activity {
   virtual RequestUpdateResult requestUpdateAndWait();
 
   virtual bool skipLoopDelay() { return false; }
+  // Read on the main task even while render() holds the render lock.
+  // Overrides must return a fixed value that does not depend on render state.
+  virtual uint8_t inputPollDelayMs() const { return 10; }
   virtual bool preventAutoSleep() { return false; }
   // Milliseconds until this screen's next timed work (automatic page turn), so
   // an idle loop can sleep until then instead of ticking. UINT32_MAX = none.
