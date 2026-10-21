@@ -20,12 +20,12 @@
 #include <GfxRenderer.h>
 
 namespace {
-constexpr uint8_t kFullVersion = 97;
-constexpr uint8_t kPartialVersion = 0xEF;
-constexpr uint8_t kPreviousFullVersion = 79;
-constexpr uint8_t kPreviousPartialVersion = 0xF1;
-constexpr uint8_t kOlderFullVersion = 78;
-constexpr uint8_t kOlderPartialVersion = 0xF4;  // v75/v79 sentinel
+constexpr uint8_t kFullVersion = 98;
+constexpr uint8_t kPartialVersion = 0xEE;
+constexpr uint8_t kPreviousFullVersion = 97;
+constexpr uint8_t kPreviousPartialVersion = 0xEF;
+constexpr uint8_t kOlderFullVersion = 96;
+constexpr uint8_t kOlderPartialVersion = 0xF0;
 
 ReaderRenderSpec renderSpec() {
   ReaderRenderSpec spec;
