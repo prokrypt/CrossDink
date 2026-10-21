@@ -62,10 +62,14 @@ The **Look Up Word** option in the reader menu is only visible when a dictionary
 
 In an EPUB reader with **Touch Reader Controls** enabled, touch and hold a
 word for about one second. CrossDink opens word selection on that word; lift
-your finger to look it up. To look up a phrase, keep holding after the
-selection opens, drag to the last word, then lift your finger. This is a
-direct shortcut from the reading page, so you do not need to open the reader
-menu first.
+your finger to show the floating **Look Up** and **Clip** toolbar.
+Drag either selection handle to adjust the highlighted range. To select a phrase,
+keep holding after selection opens, drag to the last word, then lift your
+finger. Hold on the page's final word for about one second to continue onto
+the next page. You do not need to open the reader menu first. **Clip**
+is available without a dictionary; **Look Up** is disabled until one is active.
+The toolbar sits near the selection and hides while you drag. Press **Back** to clear the range,
+or tap outside the selection and toolbar to return to reading.
 
 From a definition, touch and hold a word for about one second to start another
 lookup. Keep holding and drag to select a phrase, then lift your finger to look
@@ -132,12 +136,16 @@ In word-select mode, you can select a sequence of words to look up as a phrase.
 Multi-word select works in both the reader word-select and the definition word-select (chained lookup).
 
 On a touchscreen, use a press-and-drag selection instead of the button
-sequence: touch the first word, drag to the last word, and lift your finger to
-look up the selected phrase. The first long hold on the reading page is only
-needed to enter lookup; once word selection is open, touching a word starts
-the range immediately.
+sequence: touch the first word, drag to the last word, and lift your finger.
+In the EPUB reader, adjust the handles if needed and choose **Look Up** from
+the floating toolbar. Inside a definition, lifting your finger starts the
+lookup immediately. The first long hold on the reading page is only needed
+to enter selection; once word selection is open, touching a word starts the
+range immediately.
 
-**Limitation:** Multi-word selection cannot span a page boundary. If a phrase crosses from one page to the next, only the words on the current page are available for selection. As a workaround, reduce the reader font size so more words fit on a single page, perform the lookup, then restore the original font size.
+Touch selection in the EPUB reader can continue onto the next page in the
+same chapter: drag to the final word and hold there for about one second.
+Button selection and selection inside definitions stay on the current page.
 
 ---
 

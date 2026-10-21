@@ -225,6 +225,12 @@ your finger; CrossDink saves the clipping immediately. A touch drag does not
 turn pages, so use the direction buttons if a clipping must extend to another
 page.
 
+You can also touch and hold text directly on the EPUB reading page with
+**Touch Reader Controls** enabled. Drag to select a phrase if needed, then
+lift your finger and choose **Clip** or **Look Up** from the floating toolbar.
+Clipping is available even without a dictionary; lookup requires an active
+dictionary.
+
 A saved clipping is used in three ways:
 
 - It appears as a highlight in the reader

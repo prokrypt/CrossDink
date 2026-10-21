@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <MemoryBudget.h>
 
 #include <algorithm>
 #include <cstring>
@@ -95,7 +96,13 @@ void ClipSelectionActivity::onEnter() {
   if (hasDictionaryRequest) {
     if (!finishDictionarySelection()) {
       ActivityResult result;
-      result.isCancelled = true;
+      if (textBuildMemoryError) {
+        ClippingResult failure;
+        failure.memoryError = true;
+        result = ActivityResult{std::move(failure)};
+      } else {
+        result.isCancelled = true;
+      }
       setResult(std::move(result));
       finish();
     }
@@ -271,6 +278,16 @@ void ClipSelectionActivity::loop() {
     return;
   }
 
+  if (textBuildMemoryError) {
+    int x = 0, y = 0;
+    if (mappedInput.wasReleased(Button::Back) || mappedInput.wasReleased(Button::Confirm) ||
+        mappedInput.wasScreenTapped(x, y)) {
+      textBuildMemoryError = false;
+      requestUpdate();
+    }
+    return;
+  }
+
   const int total = static_cast<int>(readingOrderSize);
 
   auto moveCursor = [this](const int nextOrderIdx) {
@@ -411,6 +428,22 @@ uint16_t ClipSelectionActivity::tableSelectionForRange(const int from, const int
   return first.tableSelection;
 }
 
+bool ClipSelectionActivity::hasTextBuildMemory(const int from, const int to, const uint16_t tableSelection) const {
+  const auto budget = ClipTextBuilder::allocationBudget(wordStore, readingOrder.data(), from, to, tableSelection);
+  const auto heap = MemoryBudget::snapshot();
+  if (budget.fits(heap.freeHeap, heap.maxAllocHeap)) return true;
+  // snapshot() is internal RAM only. Buffers of 1 KB and up try PSRAM first
+  // (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so a long clipping's text can live there.
+  const auto psram = MemoryBudget::psramSnapshot();
+  if (budget.textCapacity >= 1024 && psram.maxAllocHeap > budget.textCapacity &&
+      heap.freeHeap > budget.temporaryBytes + 1024) {
+    return true;
+  }
+  LOG_ERR("CLIP", "Low heap assembling selection (%u free, %u largest; %u text + %u temporary)", heap.freeHeap,
+          heap.maxAllocHeap, static_cast<unsigned>(budget.textCapacity), static_cast<unsigned>(budget.temporaryBytes));
+  return false;
+}
+
 void ClipSelectionActivity::confirmSelection() {
   if (startMarkIdx == -1) {
     startMarkIdx = cursorIdx;
@@ -421,6 +454,11 @@ void ClipSelectionActivity::confirmSelection() {
   const int from = std::min(startMarkIdx, cursorIdx);
   const int to = std::max(startMarkIdx, cursorIdx);
   const uint16_t tableSelection = tableSelectionForRange(from, to);
+  if (!hasTextBuildMemory(from, to, tableSelection)) {
+    textBuildMemoryError = true;
+    requestUpdate();
+    return;
+  }
   auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, startPageInSection, section.pageCount,
                                        nullptr, tableSelection);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
@@ -472,6 +510,10 @@ bool ClipSelectionActivity::finishDictionarySelection() {
             static_cast<unsigned>(dictionaryRequest.lastPageWordOrdinal));
     return false;
   }
+  if (!hasTextBuildMemory(std::min(firstOrder, lastOrder), std::max(firstOrder, lastOrder))) {
+    textBuildMemoryError = true;
+    return false;
+  }
 
   int from = std::min(firstOrder, lastOrder);
   int to = std::max(firstOrder, lastOrder);
@@ -519,6 +561,11 @@ void ClipSelectionActivity::render(RenderLock&&) {
   }
 
   drawHighlights();
+  if (textBuildMemoryError) {
+    GUI.drawPopup(renderer, tr(STR_MEMORY_ERROR));
+    renderer.displayBuffer();
+    return;
+  }
 
   const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
   const auto labels =

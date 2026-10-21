@@ -4369,10 +4369,6 @@ bool EpubReaderActivity::handleTouchDictionaryLookup() {
   }
 
   touchDictionaryLookupHandled = true;
-  if (!Dictionary::exists(epub->getCachePath().c_str())) {
-    return false;
-  }
-
   openWordSelect(/*framebufferContainsPage=*/true, touchX, touchY, /*autoLookupInitialWord=*/true);
   return true;
 }
@@ -5645,7 +5641,9 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
     bool saved = false;
     if (!result.isCancelled) {
       const auto& clip = std::get<ClippingResult>(result.data);
-      if (!clip.text.empty()) {
+      if (clip.memoryError) {
+        clippingFeedback = tr(STR_MEMORY_ERROR);
+      } else if (!clip.text.empty()) {
         const size_t clippingIndex = CLIPPINGS.clippingCount();
         const auto addResult = CLIPPINGS.addClipping(
             static_cast<uint16_t>(currentSpineIndex), clip.sectionPage, clip.endSectionPage, clip.sectionPageCount,
