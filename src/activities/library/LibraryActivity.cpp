@@ -1527,18 +1527,19 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
     items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
   }
 
-  openDialog(makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items)),
-             [this, book](const ActivityResult& result) {
-               longPressFired = false;
-               if (result.isCancelled) {
-                 return;
-               }
+  openDialog(
+      makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, book.title, std::move(items)),
+      [this, book](const ActivityResult& result) {
+        longPressFired = false;
+        if (result.isCancelled) {
+          return;
+        }
 
-               const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
-               if (!actionResult) {
-                 LOG_ERR("LIB", "Book action result missing");
-                 return;
-               }
+        const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
+        if (!actionResult) {
+          LOG_ERR("LIB", "Book action result missing");
+          return;
+        }
 
                const auto action = static_cast<FileBrowserAction>(actionResult->action);
                const BookActions::Host host{renderer, mappedInput,
