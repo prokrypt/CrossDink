@@ -406,6 +406,8 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return Chord::CHORD_NEARBY_POSITION_SYNC;
         case Action::LIBRARY:
           return Chord::CHORD_LIBRARY;
+        case Action::SELECT_CHAPTER:
+          return Chord::CHORD_SELECT_CHAPTER;
         case Action::FILE_TRANSFER:
           return Chord::CHORD_FILE_TRANSFER;
         case Action::CALIBRE_WIRELESS:
@@ -436,6 +438,10 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return Chord::CHORD_TOGGLE_TOUCHSCREEN;
         case Action::QUICK_LOCK:
           return Chord::CHORD_QUICK_LOCK;
+        case Action::HOME_READER:
+          return Chord::CHORD_HOME_READER;
+        case Action::BACK_HOME:
+          return Chord::CHORD_BACK_HOME;
         case Action::TOGGLE_TILT_PAGE_TURN:
           return SHORTCUT_OPTION_UNAVAILABLE;
         default:
@@ -494,6 +500,12 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return LongPress::LONG_MENU_QUICK_LOCK;
         case Action::LIBRARY:
           return LongPress::LONG_MENU_LIBRARY;
+        case Action::HOME_READER:
+          return LongPress::LONG_MENU_HOME_READER;
+        case Action::BACK_HOME:
+          return LongPress::LONG_MENU_BACK_HOME;
+        case Action::SELECT_CHAPTER:
+          return LongPress::LONG_MENU_SELECT_CHAPTER;
         case Action::PAGE_TURN:
         case Action::PREVIOUS_PAGE:
         case Action::NEARBY_POSITION_SYNC:
@@ -507,6 +519,8 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
       break;
     case ShortcutOptionCatalog::HomeButton:
       switch (action) {
+        case Action::BACK_HOME:
+          return CrossPointSettings::HOME_BUTTON_BACK_HOME;
         case Action::TOGGLE_TILT_PAGE_TURN:
         case Action::TOGGLE_HOME_BUTTON_IN_READER:
         case Action::TOGGLE_FRONTLIGHT:
@@ -527,6 +541,8 @@ inline void appendShortcutOptions(SettingInfo& setting, const ShortcutOptionCata
   if (catalog == ShortcutOptionCatalog::HomeButton) {
     setting.enumValues.push_back(StrId::STR_BACK_HOME);
     setting.enumRawValues.push_back(CrossPointSettings::HOME_BUTTON_BACK_HOME);
+    setting.enumValues.push_back(StrId::STR_HOME_READER);
+    setting.enumRawValues.push_back(CrossPointSettings::HOME_READER);
     if (Frontlight.present()) {
       setting.enumValues.push_back(StrId::STR_TOGGLE_FRONTLIGHT);
       setting.enumRawValues.push_back(CrossPointSettings::HOME_BUTTON_TOGGLE_FRONTLIGHT);
@@ -536,6 +552,9 @@ inline void appendShortcutOptions(SettingInfo& setting, const ShortcutOptionCata
   }
 
   for (const auto action : QuickActions::shortcutActionOrder) {
+    if (catalog == ShortcutOptionCatalog::HomeButton &&
+        (action == CrossPointSettings::HOME_READER || action == CrossPointSettings::BACK_HOME))
+      continue;
     if (!QuickActions::isActionAvailable(static_cast<uint8_t>(action))) continue;
     const uint8_t rawValue = shortcutRawValue(catalog, action);
     if (rawValue == SHORTCUT_OPTION_UNAVAILABLE) continue;

@@ -5,6 +5,8 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Home/Reader shortcut on all devices (button shortcuts, Quick Actions, long-press, two-finger swipes, edge slides): returns from nested reader menus straight to the open book, otherwise goes Home. Back/Home is offered next to it in the same lists.
+- Select Chapter in every shortcut list (power, chords, long-press, Quick Actions, two-finger swipes): opens the chapter list in EPUB and XTC books. A held side button that opens it no longer scrolls the new list.
 - Add a Display toggle to swap Library and File Browser on the Minimal and Dashboard home screens.
 - Reader menu (button devices) and the pull-down drawer (X4 Pro, Sticky) show the current chapter title under the book title. The drawer leaves the chapter line out when it would push the handle off screen.
 - File browser and Library list: a book marked as finished shows a book-with-check icon instead of its file icon (EPUB and XTC). Each row's finished flag is read once when the row is first drawn and kept in memory, so moving the selection reads nothing from the card; marking a book finished or unfinished updates the icon. Library skips the lookup while Hide finished books is on.
