@@ -19,7 +19,8 @@ struct SelectionBounds {
 
 // A punctuation-only run glued to a word (a closing ?" in its own text node) is a
 // separate page word that dictionary selection cannot select; widen the range over it.
-// Then drop a double quote at one end unless the other end has one.
+// Then drop a trailing ? (and what follows it) unless the selection is a sentence, and a
+// double quote at either end unless the selection holds another one.
 void fitBoundsToPunctuation(const ClipWordStore& wordStore, const uint16_t* wordOrder, int orderCount, int& fromOrder,
                             int& toOrder, SelectionBounds& bounds);
 
