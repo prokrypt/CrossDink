@@ -263,6 +263,8 @@ class MappedInputManager {
   constexpr bool wasReaderMenuHold() const { return false; }
   // cppcheck-suppress-end functionStatic
 #endif
+  // Directions for tabbed menus, derived from the physical button layout.
+  Button menuButton(Button direction) const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;

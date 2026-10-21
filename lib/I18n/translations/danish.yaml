@@ -612,3 +612,6 @@ STR_STATUS_BAR_BOTH: "Begge"
 STR_CLOCK_OUTSIDE_READER: "Ur uden for læseren"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Byt bibliotek/filbrowser"
+STR_MENU_NAVIGATION: "Menunavigation"
+STR_MENU_DIRECTIONAL: "Retningsbestemt"
+STR_MENU_CLASSIC: "Ældre"

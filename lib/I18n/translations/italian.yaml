@@ -682,3 +682,6 @@ STR_STATUS_BAR_BOTH: "Entrambe"
 STR_CLOCK_OUTSIDE_READER: "Orologio fuori dal lettore"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Scambia libreria/file"
+STR_MENU_NAVIGATION: "Navigazione menu"
+STR_MENU_DIRECTIONAL: "Direzionale"
+STR_MENU_CLASSIC: "Precedente"

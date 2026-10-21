@@ -611,3 +611,6 @@ STR_STATUS_BAR_BOTH: "Ambele"
 STR_CLOCK_OUTSIDE_READER: "Ceas în afara cititorului"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Inversează biblioteca/fișierele"
+STR_MENU_NAVIGATION: "Navigare în meniu"
+STR_MENU_DIRECTIONAL: "Direcțională"
+STR_MENU_CLASSIC: "Veche"

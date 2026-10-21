@@ -790,3 +790,6 @@ STR_STATUS_BAR_BOTH: "كلاهما"
 STR_CLOCK_OUTSIDE_READER: "الساعة خارج القارئ"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "تبديل المكتبة/متصفح الملفات"
+STR_MENU_NAVIGATION: "التنقل في القوائم"
+STR_MENU_DIRECTIONAL: "اتجاهي"
+STR_MENU_CLASSIC: "قديم"

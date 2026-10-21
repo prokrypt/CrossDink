@@ -43,7 +43,8 @@ class EpubReaderDrawerActivity final : public Activity {
       void* endGlobalSettingsEditContext = nullptr, const char* dictionaryFontFamilyName = nullptr,
       uint8_t dictionaryFontPointSize = 0, bool hasDictionaryFontOverride = false,
       ReaderOptionsActivity::DictionaryFontChangedCallback dictionaryFontChangedCallback = nullptr,
-      void* dictionaryFontChangedContext = nullptr, const ReaderDrawerState& initialState = {},
+      void* dictionaryFontChangedContext = nullptr,
+      const ReaderDrawerState& initialState = initialReaderDrawerState(CROSSDINK_APP_CAP_TOUCH),
       std::unique_ptr<EpubReaderPreviewModel> ownedPreviewModel = nullptr);
 
   // Button menu only: shown under the book title. Set before the activity starts.

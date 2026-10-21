@@ -612,3 +612,6 @@ STR_STATUS_BAR_BOTH: "Obe"
 STR_CLOCK_OUTSIDE_READER: "Ura zunaj bralnika"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Zamenjaj knjižnico/datoteke"
+STR_MENU_NAVIGATION: "Krmarjenje po menijih"
+STR_MENU_DIRECTIONAL: "Smerno"
+STR_MENU_CLASSIC: "Stara"

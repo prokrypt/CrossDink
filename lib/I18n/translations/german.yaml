@@ -788,3 +788,6 @@ STR_STATUS_BAR_BOTH: "Beide"
 STR_CLOCK_OUTSIDE_READER: "Uhr außerhalb des Lesers"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Bibliothek/Dateibrowser tauschen"
+STR_MENU_NAVIGATION: "Menünavigation"
+STR_MENU_DIRECTIONAL: "Richtungsbasiert"
+STR_MENU_CLASSIC: "Alt"

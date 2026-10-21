@@ -880,3 +880,6 @@ STR_STATUS_BAR_BOTH: "Ambas"
 STR_CLOCK_OUTSIDE_READER: "Relógio fora do leitor"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Trocar biblioteca/ficheiros"
+STR_MENU_NAVIGATION: "Navegação nos menus"
+STR_MENU_DIRECTIONAL: "Direcional"
+STR_MENU_CLASSIC: "Antiga"

@@ -609,3 +609,6 @@ STR_STATUS_BAR_BOTH: "שניהם"
 STR_CLOCK_OUTSIDE_READER: "שעון מחוץ לקורא"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "החלפת ספרייה/דפדפן קבצים"
+STR_MENU_NAVIGATION: "ניווט בתפריטים"
+STR_MENU_DIRECTIONAL: "כיווני"
+STR_MENU_CLASSIC: "מדור קודם"

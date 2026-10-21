@@ -632,3 +632,6 @@ STR_STATUS_BAR_BOTH: "Oba"
 STR_CLOCK_OUTSIDE_READER: "Zegar poza czytnikiem"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Zamień bibliotekę/przeglądarkę plików"
+STR_MENU_NAVIGATION: "Nawigacja w menu"
+STR_MENU_DIRECTIONAL: "Kierunkowa"
+STR_MENU_CLASSIC: "Starsza"

@@ -670,3 +670,6 @@ STR_STATUS_BAR_BOTH: "Cả hai"
 STR_CLOCK_OUTSIDE_READER: "Đồng hồ ngoài trình đọc"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Đổi thư viện/trình duyệt tệp"
+STR_MENU_NAVIGATION: "Điều hướng menu"
+STR_MENU_DIRECTIONAL: "Theo hướng"
+STR_MENU_CLASSIC: "Cũ"

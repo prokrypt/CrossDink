@@ -613,3 +613,6 @@ STR_STATUS_BAR_BOTH: "Абодва"
 STR_CLOCK_OUTSIDE_READER: "Гадзіннік па-за чытаннем"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Памяняць бібліятэку/файлы"
+STR_MENU_NAVIGATION: "Навігацыя па меню"
+STR_MENU_DIRECTIONAL: "Па напрамках"
+STR_MENU_CLASSIC: "Традыцыйная"
