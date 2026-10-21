@@ -65,7 +65,7 @@ std::string remoteIp;
 // power-off. RTC_NOINIT keeps the network across ESP.restart() and deep sleep;
 // after power-on it is garbage and the last connected network is used instead.
 RTC_NOINIT_ATTR char remoteSsid[33];
-// rejoining and joinPending are read by the render task through joining().
+// rejoining, joinPending and rejoinDue are read by the render task through joining().
 std::atomic<bool> rejoining{false};
 bool rejoinNow = false;     // Toggled on in Goodies: skip the boot and idle waits
 bool rejoinByUser = false;  // The attempt rejoinNow started; no network opens the picker
@@ -78,6 +78,9 @@ bool held = false;  // hold(): a macro keeps the radio off
 // main loop never waits on them. One at a time: radioTask runs both.
 // Main task only, except radioTask's state and joinOutcome, which the tasks set.
 std::atomic<bool> joinPending{false};
+// A rejoin starts on its own once the boot and idle waits pass: no backoff, no server, no screen owns the
+// radio. Set after each loop() pass; true before the first so Home's first frame after boot shows joining.
+std::atomic<bool> rejoinDue{true};
 bool shutdownQueued = false;  // Off during a join: loop() shuts down once it ends
 WorkerTask radioTask;
 std::atomic<uint8_t> joinOutcome{0};
@@ -249,7 +252,7 @@ bool running() { return remoteServer && remoteServer->isRunning() && WiFi.status
 
 bool wanted() { return remoteWanted(); }
 
-bool joining() { return joinPending || rejoining; }
+bool joining() { return joinPending || rejoining || (rejoinDue && remoteWanted()); }
 
 bool waitingForMemory() { return rejoinSkippedForMemory && remoteWanted() && !remoteServer; }
 
@@ -274,6 +277,7 @@ bool keepsStation() {
 
 void pause(const bool keepStation) {
   rejoinAfterPause = true;
+  rejoinDue = false;  // the screen owns the radio from its first frame
   if (!remoteServer && !rejoining && !joinPending) return;
   if (keepStation && keepsStation()) {
     // The screen reuses the association and adopts the server (takeServer).
@@ -340,7 +344,7 @@ void updateOtaLight() {
   }
 }
 
-void loop(const uint32_t idleMs) {
+static void step(const uint32_t idleMs) {
   updateOtaLight();
   if (shutdownQueued && !radioTask.running()) {
     shutdownQueued = false;
@@ -444,6 +448,11 @@ void loop(const uint32_t idleMs) {
   rejoinNow = false;
   rejoinAfterPause = false;
   beginRejoin();
+}
+
+void loop(const uint32_t idleMs) {
+  step(idleMs);
+  rejoinDue = !held && !remoteServer && radioOwner == RadioOwner::None && rejoinAt == 0;
 }
 }  // namespace goodies_remote
 
