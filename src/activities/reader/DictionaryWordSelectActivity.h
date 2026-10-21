@@ -55,13 +55,9 @@ class DictionaryWordSelectActivity final : public Activity {
     navigator.setHighlightSnapshotStorage(&highlightSnapshotStorage_);
   }
 
-  bool blocksGlobalInput() const override {
 #if CROSSDINK_APP_CAP_TOUCH
-    return touchSelectionActive_;
-#else
-    return false;
+  bool blocksGlobalInput() const override { return touchSelectionActive_; }
 #endif
-  }
   void onEnter() override;
   void onExit() override;
   void loop() override;
