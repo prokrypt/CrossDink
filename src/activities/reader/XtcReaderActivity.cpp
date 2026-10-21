@@ -950,11 +950,7 @@ void XtcReaderActivity::openChapterSelection() {
     }
   }
   if (!hasChapters) {
-    {
-      RenderLock lock(*this);
-      drawToast(renderer, tr(STR_NO_CHAPTERS));
-    }
-    delay(1000);
+    Toast::show(renderer, tr(STR_NO_CHAPTERS), ReaderUtils::readerForegroundBlack());
     resumeReadingStatsTimer("chapter_selection_unavailable");
     requestUpdate();
     return;
