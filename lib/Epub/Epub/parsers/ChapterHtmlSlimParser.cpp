@@ -2347,9 +2347,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 dims = {static_cast<int16_t>(optimizerWidth), static_cast<int16_t>(optimizerHeight)};
               }
               ImageDimsProbe headerProbe;
-              const bool headerRead = dimensionsFromOptimizer || self->epub->readItemContentsToStream(
-                                                                     resolvedPath, headerProbe, 1024,
-                                                                     /*allowEarlyStop=*/true);
+              const bool headerRead =
+                  dimensionsFromOptimizer || self->epub->readItemContentsToStream(resolvedPath, headerProbe, 1024,
+                                                                                  /*allowEarlyStop=*/true);
               bool gotDimensions = dimensionsFromOptimizer || (headerRead && headerProbe.getDimensions(dims));
               if (!headerRead) {
                 // A deflated header needs a 32 KiB inflate window even when
