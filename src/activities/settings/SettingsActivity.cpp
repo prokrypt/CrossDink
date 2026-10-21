@@ -23,6 +23,7 @@
 #include "ClockSyncActivity.h"
 #include "CrossPointSettings.h"
 #include "FilenameFontSystem.h"
+#include "DeviceCapabilities.h"
 #include "FontSelectionActivity.h"
 #if CROSSDINK_SCALABLE_FONTS
 #include "TtfRenderOptionsActivity.h"
@@ -379,7 +380,8 @@ void SettingsActivity::rebuildSettingsLists() {
   const size_t expectedControlsCount = controlsParentBaseCount - (hasTouch ? 1u : 0u) + (hasHomeKey ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u);
+                                       (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u) +
+                                       (deviceHasMenuNavigationSetting(gpio) ? 1u : 0u);
   const size_t expectedFrontButtonCount = hasTouch ? 0u : controlsFrontButtonCount;
 #else
   controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
@@ -388,7 +390,8 @@ void SettingsActivity::rebuildSettingsLists() {
   const size_t expectedControlsCount = controlsParentBaseCount + (gpio.hasHomeKey() ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u);
+                                       (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u) +
+                                       1u;  // Menu navigation: always shown without touch
   constexpr size_t expectedFrontButtonCount = controlsFrontButtonCount;
 #endif
   if (controlsSettings.size() != expectedControlsCount ||
@@ -1089,32 +1092,45 @@ void SettingsActivity::loop() {
     }
     requestUpdate();
   };
-  buttonNavigator.onNextRelease([this, &moveSelection] {
-    const int next = selectedSettingIndex >= settingsCount ? 1 : selectedSettingIndex + 1;
-    moveSelection(next, true);
-  });
-  buttonNavigator.onPreviousRelease([this, &moveSelection] {
-    const int previous = selectedSettingIndex <= 1 ? settingsCount : selectedSettingIndex - 1;
-    moveSelection(previous, false);
-  });
+  const auto navigateRows = [this, &moveSelection](const bool forward) {
+    const int index = forward ? (selectedSettingIndex >= settingsCount ? 1 : selectedSettingIndex + 1)
+                              : (selectedSettingIndex <= 1 ? settingsCount : selectedSettingIndex - 1);
+    moveSelection(index, forward);
+  };
+  const bool classicNavigation = SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_CLASSIC;
+  const bool legacyRowButtons = isFileBrowserView() || classicNavigation;
+  const auto up = mappedInput.menuButton(MappedInputManager::Button::Up);
+  const auto down = mappedInput.menuButton(MappedInputManager::Button::Down);
+  const auto previousButtons = legacyRowButtons ? ButtonNavigator::getPreviousButtons() : std::array{up, up};
+  const auto nextButtons = legacyRowButtons ? ButtonNavigator::getNextButtons() : std::array{down, down};
+  buttonNavigator.onRelease(nextButtons, [&] { navigateRows(true); });
+  buttonNavigator.onRelease(previousButtons, [&] { navigateRows(false); });
 
   if (!isFileBrowserView()) {
-    buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
+    const auto changeCategory = [this, &hasChangedCategory](const bool forward) {
       hasChangedCategory = true;
       showSettingSelection = true;
-      enterCategory(ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount));
+      enterCategory(forward ? ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount)
+                            : ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount));
       requestUpdate();
-    });
-
-    buttonNavigator.onPreviousContinuous([this, &hasChangedCategory] {
-      hasChangedCategory = true;
-      showSettingSelection = true;
-      enterCategory(ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount));
-      requestUpdate();
-    });
+    };
+    if (classicNavigation) {
+      buttonNavigator.onNextContinuous([&] { changeCategory(true); });
+      buttonNavigator.onPreviousContinuous([&] { changeCategory(false); });
+    } else {
+      buttonNavigator.onContinuous(nextButtons, [&] { navigateRows(true); });
+      buttonNavigator.onContinuous(previousButtons, [&] { navigateRows(false); });
+      const auto left = mappedInput.menuButton(MappedInputManager::Button::Left);
+      const auto right = mappedInput.menuButton(MappedInputManager::Button::Right);
+      buttonNavigator.onRelease({right, right}, [&] { changeCategory(true); });
+      buttonNavigator.onRelease({left, left}, [&] { changeCategory(false); });
+      buttonNavigator.onContinuous({right, right}, [&] { changeCategory(true); });
+      buttonNavigator.onContinuous({left, left}, [&] { changeCategory(false); });
+    }
   }
 
   if (hasChangedCategory) {
+    topIndex = 0;
     selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : 1;
     setCurrentSettingsForCategory();
     // Advance past any leading section headers
@@ -1787,8 +1803,11 @@ void SettingsActivity::render(RenderLock&&) {
                  ? tr(STR_SELECT)
                  : tr(STR_TOGGLE));
 
-  const auto labels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const bool horizontalFront = SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_DIRECTIONAL &&
+                               !isFileBrowserView() && !deviceUsesHorizontalSideButtonsForMenus(gpio);
+  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel,
+                                            (horizontalFront ? tr(STR_DIR_LEFT) : tr(STR_DIR_UP)),
+                                            (horizontalFront ? tr(STR_DIR_RIGHT) : tr(STR_DIR_DOWN)));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   // Always use standard refresh for settings screen

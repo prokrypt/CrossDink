@@ -2382,6 +2382,7 @@ void EpubReaderActivity::onEnter() {
   Activity::onEnter();
   showOpeningFeedback();
   pageLoadRetryCount = 0;
+  touchReaderDrawerState = initialReaderDrawerState(mappedInput.hasTouchHardware());
 
   MemoryBudget::logEpubHeapPools("reader enter");
   dictionaryRegistry.markDirty();  // the drawer scans dictionaries once per reading session
@@ -2812,7 +2813,8 @@ void EpubReaderActivity::openReaderMenu() {
       requestUpdate();
       return;
     }
-    touchReaderDrawerState = menu->reopenDrawer ? menu->drawerState : ReaderDrawerState{};
+    touchReaderDrawerState =
+        menu->reopenDrawer ? menu->drawerState : initialReaderDrawerState(mappedInput.hasTouchHardware());
     applyOrientation(menu->orientation);
     if (menu->settingsChanged && hasReaderSettingsChange(menu->changeMask, ReaderSettingsChangeMask::Relayout)) {
       // Locked first: a render between the join and the reload would start new

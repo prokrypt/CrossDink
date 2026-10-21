@@ -881,3 +881,6 @@ STR_RECOVERY_MODE_HINT: "Įdėkite firmware.bin į SD kortelės šaknį ir pasir
 STR_TAP_HOME_SHORTCUT: "Bakstelėkite Pradžia"
 STR_LONG_PRESS_HOME_SHORTCUT: "Ilgai paspauskite Pradžia"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Dukart palieskite Pradžia"
+STR_MENU_NAVIGATION: "Meniu naršymas"
+STR_MENU_DIRECTIONAL: "Kryptinis"
+STR_MENU_CLASSIC: "Senoji"

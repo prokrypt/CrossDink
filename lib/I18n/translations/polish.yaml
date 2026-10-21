@@ -891,3 +891,6 @@ STR_RECOVERY_MODE_HINT: "Umieść plik firmware.bin w katalogu głównym karty S
 STR_TAP_HOME_SHORTCUT: "Kliknij Strona główna"
 STR_LONG_PRESS_HOME_SHORTCUT: "Naciśnij i przytrzymaj przycisk Home"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Kliknij dwukrotnie stronę główną"
+STR_MENU_NAVIGATION: "Nawigacja w menu"
+STR_MENU_DIRECTIONAL: "Kierunkowa"
+STR_MENU_CLASSIC: "Starsza"

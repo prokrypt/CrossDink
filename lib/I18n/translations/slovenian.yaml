@@ -881,3 +881,6 @@ STR_RECOVERY_MODE_HINT: "Namestite firmware.bin v koren kartice SD in ga izberit
 STR_TAP_HOME_SHORTCUT: "Dotaknite se Domov"
 STR_LONG_PRESS_HOME_SHORTCUT: "Dolg pritisk na Domov"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Dvakrat se dotaknite Domov"
+STR_MENU_NAVIGATION: "Krmarjenje po menijih"
+STR_MENU_DIRECTIONAL: "Smerno"
+STR_MENU_CLASSIC: "Stara"
