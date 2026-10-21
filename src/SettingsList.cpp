@@ -297,7 +297,7 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                             StrId::STR_CAT_SYSTEM));
     // Persisted and available to the web settings API, but category-less because
     // the on-device editor lives under System > OPDS Servers.
-    add(SettingInfo::String(StrId::STR_OPDS_DOWNLOAD_FOLDER, SETTINGS.opdsDownloadFolder,
+    add(SettingInfo::String(StrId::STR_OPDS_DEFAULT_FOLDER, SETTINGS.opdsDownloadFolder,
                             sizeof(SETTINGS.opdsDownloadFolder), "opdsDownloadFolder"));
     // Persisted here, but edited from the nearby receive screen's folder picker.
     add(SettingInfo::String(StrId::STR_NEARBY_RECEIVE_FOLDER, SETTINGS.nearbyReceiveFolder,

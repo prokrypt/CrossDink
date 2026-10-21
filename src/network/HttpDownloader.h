@@ -32,6 +32,7 @@ class HttpDownloader {
     FILE_ERROR,
     ABORTED,
     INSUFFICIENT_SPACE,
+    FILE_EXISTS,  // useServerFilename: the server's name is taken; needs overwrite approval
   };
 
   enum class Transport {
@@ -95,6 +96,16 @@ class HttpDownloader {
     // WOLFSSL only: send HEAD instead of GET. No body is read; the progress
     // callback reports (0, Content-Length) once, when the response is 200.
     bool headOnly = false;
+    // downloadToFile + WOLFSSL only (needs stageAsPart): save under the
+    // response's safe Content-Disposition name in destPath's folder, else
+    // destPath. A name already on SD fails with FILE_EXISTS before anything is
+    // written, unless it equals overwriteApprovedPath. Resumes are not
+    // supported: retry with the resolved path and this off.
+    bool useServerFilename = false;
+    std::string_view overwriteApprovedPath;  // borrowed for this call
+    // Out, useServerFilename only: the chosen path once a response arrived
+    // (also on FILE_EXISTS); untouched when no response came.
+    std::string* resolvedPath = nullptr;
   };
 
   /**

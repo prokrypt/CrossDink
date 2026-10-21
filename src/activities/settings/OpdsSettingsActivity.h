@@ -12,7 +12,7 @@
 
 /**
  * Edit screen for a single OPDS server.
- * Shows Name, URL, Username, Password, Filename fields and a Delete option.
+ * Shows server credentials, filename format, download folder and Delete.
  * Used for both adding new servers and editing existing ones.
  */
 class OpdsSettingsActivity final : public Activity {
@@ -39,6 +39,8 @@ class OpdsSettingsActivity final : public Activity {
   OpdsServer editServer;
   bool isNewServer = false;
   bool showSaveError = false;
+  bool showFolderError = false;
+  std::string downloadFolderLabel;  // Built on edit, read by the screen builder.
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
@@ -55,4 +57,5 @@ class OpdsSettingsActivity final : public Activity {
   int getMenuItemCount() const;
   void handleSelection();
   bool saveServer();
+  void updateDownloadFolderLabel();
 };
