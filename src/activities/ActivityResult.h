@@ -102,6 +102,7 @@ struct ClippingResult {
   uint16_t paragraphIndex = UINT16_MAX;
   uint16_t tableSelection = UINT16_MAX;
   uint16_t wordCount = 0;
+  bool memoryError = false;
 };
 
 // A dictionary lookup retains the selected page-word range and exact byte

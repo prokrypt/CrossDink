@@ -11,6 +11,9 @@
 #include "../Activity.h"
 #include "util/DictionaryLookupController.h"
 #include "util/WordSelectNavigator.h"
+#if CROSSDINK_APP_CAP_TOUCH
+#include "components/TextSelectionOverlay.h"
+#endif
 
 class DictionaryWordSelectActivity final : public Activity {
  public:
@@ -52,6 +55,13 @@ class DictionaryWordSelectActivity final : public Activity {
     navigator.setHighlightSnapshotStorage(&highlightSnapshotStorage_);
   }
 
+  bool blocksGlobalInput() const override {
+#if CROSSDINK_APP_CAP_TOUCH
+    return touchSelectionActive_;
+#else
+    return false;
+#endif
+  }
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -131,6 +141,25 @@ class DictionaryWordSelectActivity final : public Activity {
   // dictionary selection resident while laying out EPUB sections.
   char dictionaryFontFamilyName_[64] = "";
   uint8_t dictionaryFontPointSize_ = 0;
+#if CROSSDINK_APP_CAP_TOUCH
+  bool touchSelectionActive_ = false;
+  bool touchLookupEnabled_ = false;
+  bool ignoreTouchUntilRelease_ = false;
+  int touchDragOffsetX_ = 0;
+  int touchDragOffsetY_ = 0;
+  int touchPressedAction_ = -1;
+  // Only needed if the next-page working set cannot be built.
+
+  std::string pendingTouchPhrase_;
+  size_t pendingTouchWordCount_ = 0;
+  int touchPageEndIndex_ = -1;
+  uint32_t touchPageEndHeldSince_ = 0;
+  void showTouchSelectionActions(std::string phrase, size_t wordCount);
+  TextSelectionOverlay::Layout touchSelectionLayout() const;
+  bool handleTouchSelection();
+  void performTouchSelectionAction(int action);
+  void drawTouchSelection() const;
+#endif
   bool touchDragLookup_ = false;
   bool touchDragHasMoved_ = false;
   int touchDragStartX_ = 0;
