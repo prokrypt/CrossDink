@@ -1303,3 +1303,34 @@ TEST_F(LibraryBuilderTest, EmptyLibraryStillRecordsMetadataModeChanges) {
   ASSERT_TRUE(index.open(INDEX));
   EXPECT_EQ(index.header().metadataEnabled, 1);
 }
+
+TEST_F(LibraryBuilderTest, VersionSevenSeriesMetadataIsReparsedKeepingHistoryAndContentKey) {
+  bookMetadata["/a.epub"].series = "Old wrong series";
+  initial();
+  LibraryIndexFile before;
+  ASSERT_TRUE(before.open(INDEX));
+  ClixRecord original{};
+  ASSERT_TRUE(recordAtPath(before, "/a.epub", original));
+  uint64_t originalKey = 0;
+  ASSERT_TRUE(before.readContentKey(original, originalKey));
+  before.close();
+  fake::files[INDEX]->bytes[offsetof(ClixHeader, formatVersion)] = 7;
+  bookMetadata["/a.epub"].series = "Correct series";
+  bookMetadata["/a.epub"].seriesIndex = "2.5";
+  fake::parses = 0;
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(fake::parses, 2u);
+  EXPECT_EQ(stats.metadataReused, 0);
+  LibraryIndexFile after;
+  ASSERT_TRUE(after.open(INDEX));
+  EXPECT_EQ(after.header().formatVersion, CLIX_FORMAT_VERSION);
+  ClixRecord rebuilt{};
+  ASSERT_TRUE(recordAtPath(after, "/a.epub", rebuilt));
+  EXPECT_EQ(rebuilt.firstSeen, original.firstSeen);
+  uint64_t rebuiltKey = 0;
+  ASSERT_TRUE(after.readContentKey(rebuilt, rebuiltKey));
+  EXPECT_EQ(rebuiltKey, originalKey);
+  std::string series;
+  ASSERT_TRUE(after.readSeries(rebuilt, series));
+  EXPECT_EQ(series, "Correct series");
+}
