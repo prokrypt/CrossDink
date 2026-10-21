@@ -352,11 +352,17 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  if (longPressMenuAction == CrossPointSettings::LONG_MENU_LIBRARY && mappedInput.getHeldTime() >= LONG_PRESS_MENU_MS &&
+  if ((longPressMenuAction == CrossPointSettings::LONG_MENU_LIBRARY ||
+       ReaderUtils::isNavigationLongPressAction(longPressMenuAction) ||
+       longPressMenuAction == CrossPointSettings::LONG_MENU_SELECT_CHAPTER) &&
+      mappedInput.getHeldTime() >= LONG_PRESS_MENU_MS &&
       (mappedInput.isPressed(MappedInputManager::Button::Confirm) || confirmReleased)) {
     longPressMenuHandled = mappedInput.isPressed(MappedInputManager::Button::Confirm);
     mappedInput.suppressNextConfirmRelease();
-    activityManager.goToLibrary();
+    if (longPressMenuAction == CrossPointSettings::LONG_MENU_SELECT_CHAPTER)
+      openChapterSelection();
+    else if (!ReaderUtils::dispatchNavigationLongPressAction(longPressMenuAction))
+      activityManager.goToLibrary();
     return;
   }
 
@@ -639,7 +645,11 @@ void XtcReaderActivity::loop() {
   }
 }
 
-bool XtcReaderActivity::handleTwoFingerSwipeAction(const CrossPointSettings::TWO_FINGER_SWIPE_ACTION) {
+bool XtcReaderActivity::handleTwoFingerSwipeAction(const CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) {
+  if (action == CrossPointSettings::TWO_FINGER_SWIPE_SELECT_CHAPTER) {
+    openChapterSelection();
+    return true;
+  }
   // XTC pages are pre-rendered images: they cannot be reflowed for font-size
   // changes, and the reader does not expose stable chapter jumps. Consume the
   // configured command without letting it turn into a regular page swipe.
@@ -927,6 +937,9 @@ void XtcReaderActivity::onFrontlightPanelClosed() {
 }
 
 void XtcReaderActivity::openChapterSelection() {
+  // Direct shortcuts have not passed through the already-paused reader menu.
+  // Record their current interval before any success or failure path restarts it.
+  pauseReadingStatsTimer("chapter_selection");
   uint32_t pageToSelect = 0;
   bool hasChapters = false;
   {
@@ -937,20 +950,35 @@ void XtcReaderActivity::openChapterSelection() {
     }
   }
   if (!hasChapters) {
+    {
+      RenderLock lock(*this);
+      drawToast(renderer, tr(STR_NO_CHAPTERS));
+    }
+    delay(1000);
     resumeReadingStatsTimer("chapter_selection_unavailable");
     requestUpdate();
     return;
   }
 
-  startActivityForResult(std::make_unique<XtcReaderChapterSelectionActivity>(renderer, mappedInput, xtc, pageToSelect),
-                         [this](const ActivityResult& result) {
-                           if (!result.isCancelled) {
-                             RenderLock lock(*this);
-                             currentPage = std::get<PageResult>(result.data).page;
-                           }
-                           resumeReadingStatsTimer("chapter_selection_return");
-                           requestUpdate();
-                         });
+  auto chapterSelection =
+      makeUniqueNoThrow<XtcReaderChapterSelectionActivity>(renderer, mappedInput, xtc, pageToSelect);
+  if (!chapterSelection) {
+    LOG_ERR("XTR", "OOM: chapter selection activity");
+    resumeReadingStatsTimer("chapter_selection_oom");
+    requestUpdate();
+    return;
+  }
+  mappedInput.suppressNextConfirmRelease();
+  mappedInput.suppressNextPowerRelease();
+  mappedInput.suppressNextPowerConfirmRelease();
+  startActivityForResult(std::move(chapterSelection), [this](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      RenderLock lock(*this);
+      currentPage = std::get<PageResult>(result.data).page;
+    }
+    resumeReadingStatsTimer("chapter_selection_return");
+    requestUpdate();
+  });
 }
 
 void XtcReaderActivity::openReadingStats() {
@@ -1078,6 +1106,7 @@ bool XtcReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult&
 
 bool XtcReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRBTN action) {
   switch (action) {
+    case CrossPointSettings::SHORT_PWRBTN::SELECT_CHAPTER:
     case CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE:
     case CrossPointSettings::SHORT_PWRBTN::SLEEP:
     case CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH:
@@ -1089,6 +1118,8 @@ bool XtcReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRB
     case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
+    case CrossPointSettings::SHORT_PWRBTN::BACK_HOME:
+    case CrossPointSettings::SHORT_PWRBTN::HOME_READER:
       return true;
     default:
       return false;
@@ -1102,6 +1133,9 @@ bool XtcReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       return true;
     case CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE:
       shortcutPreviousPagePending = true;
+      return true;
+    case CrossPointSettings::SHORT_PWRBTN::SELECT_CHAPTER:
+      openChapterSelection();
       return true;
     case CrossPointSettings::SHORT_PWRBTN::FILE_TRANSFER:
       activityManager.goToFileTransfer(xtc ? xtc->getPath() : "");
@@ -1136,6 +1170,7 @@ bool XtcReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
 }
 
 bool XtcReaderActivity::executeLongPressBackAction() {
+  if (ReaderUtils::dispatchNavigationLongPressAction(SETTINGS.longPressBackAction)) return true;
   switch (static_cast<CrossPointSettings::LONG_PRESS_MENU_ACTION>(SETTINGS.longPressBackAction)) {
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_SLEEP:
       enterDeepSleep();
@@ -1162,6 +1197,9 @@ bool XtcReaderActivity::executeLongPressBackAction() {
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_BROWSER:
       activityManager.goToFileBrowser(xtc ? xtc->getPath() : "");
       return true;
+    case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_SELECT_CHAPTER:
+      openChapterSelection();
+      return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_LIBRARY:
       activityManager.goToLibrary();
       return true;
@@ -1175,6 +1213,8 @@ bool XtcReaderActivity::executeLongPressBackAction() {
 }
 
 bool XtcReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PWRBTN action) {
+  if (action == CrossPointSettings::SHORT_PWRBTN::HOME_READER || action == CrossPointSettings::SHORT_PWRBTN::BACK_HOME)
+    return dispatchShortcutAction(action);
   if (action == CrossPointSettings::SHORT_PWRBTN::QUICK_ACTIONS) {
     QuickActions::showConfiguredPopup(
         quickActionsPopup, [this] { requestUpdate(); },
