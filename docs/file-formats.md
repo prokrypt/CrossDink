@@ -5,6 +5,24 @@ All POD fields are written in the ESP32 little-endian representation used by
 `Serialization.h`; strings are length-prefixed UTF-8 unless a format notes a
 fixed-size char buffer.
 
+## `/.crossdink/home_carousel_cache_<index>.bin`
+
+### Version 9
+
+Each Lyra Carousel position has a disposable snapshot containing only cover
+artwork, titles and position dots. Progress, reading time, the KOReader Sync
+badge, header, menu icons and button hints are drawn live after restoration.
+Each file contains a `CarouselCacheHeader` followed by one full framebuffer. The
+header's `frameCount` records the number of recent books used to compose the
+artwork, rather than the number of stored frames. The key tracks Dark Mode and
+the ordered book paths, titles, cover paths and thumbnail availability, rather
+than reading progress or statistics.
+
+Frames are rendered and saved only when viewed; returning Home does not prepare
+other positions in advance. Version 8's combined `home_carousel_cache.bin` is
+removed after the first successful write. Cache regeneration is automatic; EPUB
+layout caches and reading history are unaffected.
+
 ## `/.crossdink/ttf-rendering.json`
 
 This user-owned JSON file stores only custom TTF families whose raster settings
