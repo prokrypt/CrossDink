@@ -2055,14 +2055,14 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.setFontCacheManager(&fontCacheManager);
 
 #if !CROSSDINK_SCALABLE_FONTS
-  renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
-  renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
-  renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily);
-  renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
-  renderer.insertFont(BITTER_10_FONT_ID, bitter10FontFamily);
-  renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily);
-  renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
-  renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
+  renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily.withSize(LEXENDDECA_10_FONT_ID, 10));
+  renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily.withSize(LEXENDDECA_10_FONT_ID, 12));
+  renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily.withSize(LEXENDDECA_10_FONT_ID, 14));
+  renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily.withSize(LEXENDDECA_10_FONT_ID, 16));
+  renderer.insertFont(BITTER_10_FONT_ID, bitter10FontFamily.withSize(BITTER_10_FONT_ID, 10));
+  renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily.withSize(BITTER_10_FONT_ID, 12));
+  renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily.withSize(BITTER_10_FONT_ID, 14));
+  renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily.withSize(BITTER_10_FONT_ID, 16));
 #endif
   attachUiFontBitmaps();
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
