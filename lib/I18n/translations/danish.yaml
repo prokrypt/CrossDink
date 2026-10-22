@@ -620,3 +620,5 @@ STR_CLOCK_OUTSIDE_READER: "Ur uden for læseren"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Byt bibliotek/filbrowser"
 STR_CLIP: "Klip"
+STR_FILENAME_FALLBACK_FONT: "Reservefont til filnavne"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal påkrævet; fed valgfri."

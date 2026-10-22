@@ -620,3 +620,5 @@ STR_CLOCK_OUTSIDE_READER: "Horloge hors lecture"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Inverser bibliothèque/fichiers"
 STR_CLIP: "Extrait"
+STR_FILENAME_FALLBACK_FONT: "Police de secours des fichiers"
+STR_FILENAME_FONT_HINT: "TTF : /.crossdink/languages/fonts. Normal requis ; gras facultatif."

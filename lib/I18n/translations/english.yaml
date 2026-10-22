@@ -999,3 +999,6 @@ STR_REPORT_SAVED: "Report saved"
 STR_REPORT_NOT_SAVED: "Report not saved"
 STR_SWAP_LIBRARY_FILE_BROWSER: "Swap Library/File Browser"
 STR_CLIP: "Clip"
+
+STR_FILENAME_FALLBACK_FONT: "Filename Fallback Font"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Regular required; bold optional."

@@ -687,3 +687,5 @@ STR_CLOCK_OUTSIDE_READER: "Часы вне режима чтения"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Поменять библиотеку/файлы"
 STR_CLIP: "Вырезка"
+STR_FILENAME_FALLBACK_FONT: "Запасной шрифт имён файлов"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Обычный обязателен; жирный необязателен."

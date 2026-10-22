@@ -343,8 +343,9 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
   const int screenW = renderer.getScreenWidth();
   const int textMaxWidth = std::min(screenW - 40, kCenterCoverMaxW + 40);
   const auto titleLines =
-      renderer.wrappedText(kTitleFontId, recentBooks[centerIdx].title.c_str(), textMaxWidth, 2, EpdFontFamily::BOLD);
-  const int titleLineHeight = renderer.getLineHeight(kTitleFontId);
+      renderer.wrappedText(renderer.filenameFontId(kTitleFontId), recentBooks[centerIdx].title.c_str(), textMaxWidth, 2,
+                           EpdFontFamily::BOLD);
+  const int titleLineHeight = renderer.getLineHeight(renderer.filenameFontId(kTitleFontId));
   const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
   const int reservedTitleBlockHeight = titleLineHeight * 2;
   const int titleY = rect.y + kTitleTopClearance;
@@ -467,9 +468,10 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     const int titleVerticalInset = (reservedTitleBlockHeight - titleBlockHeight) / 2;
     int currentTitleY = titleY + titleVerticalInset + kTitleDrawOffset;
     for (const auto& titleLine : titleLines) {
-      const int titleW = renderer.getTextWidth(kTitleFontId, titleLine.c_str(), EpdFontFamily::BOLD);
-      renderer.drawText(kTitleFontId, textCenterX - titleW / 2, currentTitleY, titleLine.c_str(), true,
-                        EpdFontFamily::BOLD);
+      const int titleW =
+          renderer.getTextWidth(renderer.filenameFontId(kTitleFontId), titleLine.c_str(), EpdFontFamily::BOLD);
+      renderer.drawText(renderer.filenameFontId(kTitleFontId), textCenterX - titleW / 2, currentTitleY,
+                        titleLine.c_str(), true, EpdFontFamily::BOLD);
       currentTitleY += titleLineHeight;
     }
 
