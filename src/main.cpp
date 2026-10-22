@@ -1906,9 +1906,6 @@ void enterDeepSleep(bool fromTimeout) {
   {
     HalPowerManager::Lock powerLock;
     if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
-#ifndef SIMULATOR
-    HalPowerManager::clearPageKeyLockout();  // a key held now locks them out again in startDeepSleep()
-#endif
     // "request" = power button or a Sleep menu/quick action.
     PerfLog::noteDeepSleep(
         fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",

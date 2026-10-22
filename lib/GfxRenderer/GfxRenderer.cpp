@@ -1125,7 +1125,7 @@ GfxRenderer::TextVerticalBounds GfxRenderer::getTextVerticalBounds(const int fon
   ScalableFontAccess access;
 #endif
   if (!text || !*text) return {};
-  const int resolvedFontId = resolveTextFontId(fontId, text, EpdFontFamily::REGULAR);
+  const int resolvedFontId = fontId;
   const auto fontIt = fontMap.find(resolvedFontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", resolvedFontId);
