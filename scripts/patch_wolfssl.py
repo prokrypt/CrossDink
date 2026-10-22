@@ -45,7 +45,9 @@ def patch_user_settings(path: Path) -> None:
 # PSRAM-less C3 needs a fresh ~17 KB contiguous block for every record, and
 # fails with MEMORY_E once fragmentation leaves none. Keep the grown buffer
 # until the connection is freed: one allocation per connection, failing at the
-# first record rather than megabytes into the transfer.
+# first record rather than megabytes into the transfer. A later, larger record
+# still grows it; patch_input_buffer_growth frees the consumed buffer first so
+# the old and new blocks never need to fit at once.
 # Marker text stays "CrossInk": already-patched libdeps checkouts carry it.
 SHRINK_MARKER = "/* CrossInk: keep a grown input buffer until the connection is freed */"
 SHRINK_ORIGINAL = """    if (!forcedFree && (usedLength > STATIC_BUFFER_LEN ||
@@ -71,6 +73,37 @@ def patch_input_buffer_shrink(path: Path) -> None:
         env.Exit(1)
     path.write_text(text.replace(SHRINK_ORIGINAL, SHRINK_PATCHED, 1))
     print(f"Patched wolfSSL input buffer: {path.relative_to(PROJECT_DIR)}")
+
+
+GROW_MARKER = "/* CrossDink: release a consumed input buffer before growing it */"
+GROW_ORIGINAL = """    tmp = (byte*)XMALLOC(size + usedLength + align,
+                             ssl->heap, DYNAMIC_TYPE_IN_BUFFER);
+    WOLFSSL_MSG("growing input buffer");
+"""
+GROW_PATCHED = f"""    {GROW_MARKER}
+    /* No unread ciphertext or pending plaintext may refer to this buffer.
+     * A forced shrink zeroes and frees it and restores the static buffer, so
+     * an allocation failure below still leaves a valid, empty buffer. */
+    if (ssl->buffers.inputBuffer.dynamicFlag && usedLength == 0 &&
+            ssl->buffers.inputBuffer.length == ssl->buffers.inputBuffer.idx &&
+            ssl->buffers.clearOutputBuffer.length == 0) {{
+        ShrinkInputBuffer(ssl, FORCED_FREE);
+    }}
+{GROW_ORIGINAL}"""
+
+
+def patch_input_buffer_growth(path: Path) -> None:
+    text = path.read_text()
+    if GROW_MARKER in text:
+        return
+    if text.count(GROW_ORIGINAL) != 1:
+        print(
+            f"ERROR: wolfSSL GrowInputBuffer not found in {path.relative_to(PROJECT_DIR)}; "
+            "re-check scripts/patch_wolfssl.py against the new wolfSSL version"
+        )
+        env.Exit(1)
+    path.write_text(text.replace(GROW_ORIGINAL, GROW_PATCHED, 1))
+    print(f"Patched wolfSSL input growth: {path.relative_to(PROJECT_DIR)}")
 
 
 # Arduino-wolfSSL builds SINGLE_THREADED, so the global session cache has no
@@ -111,6 +144,7 @@ for settings in PROJECT_DIR.glob(".pio/libdeps/*/Arduino-wolfSSL/src/user_settin
 
 for internal in PROJECT_DIR.glob(".pio/libdeps/*/Arduino-wolfSSL/src/src/internal.c"):
     patch_input_buffer_shrink(internal)
+    patch_input_buffer_growth(internal)
 
 for sessions in PROJECT_DIR.glob(".pio/libdeps/*/Arduino-wolfSSL/src/src/ssl_sess.c"):
     patch_session_cache_off(sessions)
