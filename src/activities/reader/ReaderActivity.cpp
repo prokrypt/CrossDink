@@ -189,7 +189,10 @@ void ReaderActivity::onEnter() {
     return;
   }
 
-  openingFeedback.start(millis());
+  // EPUBs get no Loading notice: a cached open routinely passes the delay, and the
+  // notice then costs a popup refresh plus a full first-page refresh on every open.
+  // A first open still shows Indexing.
+  if (isXtcFile(initialBookPath) || isTxtFile(initialBookPath)) openingFeedback.start(millis());
 
   if (isImagePreviewFile(initialBookPath)) {
     onGoToBmpViewer(initialBookPath);
