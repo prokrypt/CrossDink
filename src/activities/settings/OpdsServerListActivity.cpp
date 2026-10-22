@@ -23,21 +23,13 @@
 #include "fontIds.h"
 #include "network/WifiBackgroundJoin.h"
 #include "network/WifiUtils.h"
+#include "util/OpdsDownloadFolder.h"
 #include "util/UrlUtils.h"
 
 namespace fui = freeink::ui;
 
 namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
-
-std::string normalizeDownloadFolder(std::string folder) {
-  while (!folder.empty() && (folder.front() == ' ' || folder.front() == '\t')) folder.erase(folder.begin());
-  while (!folder.empty() && (folder.back() == ' ' || folder.back() == '\t')) folder.pop_back();
-  if (folder.empty() || folder == "/") return "";
-  if (folder.front() != '/') folder.insert(folder.begin(), '/');
-  while (folder.size() > 1 && folder.back() == '/') folder.pop_back();
-  return folder;
-}
 }  // namespace
 
 int OpdsServerListActivity::getItemCount() const {
@@ -271,11 +263,18 @@ void OpdsServerListActivity::handleSelection() {
 
   // Item layout: configured servers, Add Server, Download Folder.
   if (selectedIndex == serverCount + 1) {
+    showFolderError = false;
     auto resultHandler = [this](const ActivityResult& result) {
       if (result.isCancelled) return;
 
       const auto& keyboardResult = std::get<KeyboardResult>(result.data);
-      const std::string folder = normalizeDownloadFolder(keyboardResult.text);
+      std::string folder;
+      if (!OpdsDownloadFolder::normalize(keyboardResult.text, folder)) {
+        showFolderError = true;
+        requestUpdate();
+        return;
+      }
+      if (folder == "/") folder.clear();  // the setting stores the SD root as empty
       strncpy(SETTINGS.opdsDownloadFolder, folder.c_str(), sizeof(SETTINGS.opdsDownloadFolder) - 1);
       SETTINGS.opdsDownloadFolder[sizeof(SETTINGS.opdsDownloadFolder) - 1] = '\0';
       if (!SETTINGS.saveToFile()) {
@@ -284,7 +283,7 @@ void OpdsServerListActivity::handleSelection() {
       requestUpdate();
     };
     startActivityForResult(std::make_unique<KeyboardEntryActivity>(
-                               renderer, mappedInput, tr(STR_OPDS_DOWNLOAD_FOLDER), SETTINGS.opdsDownloadFolder,
+                               renderer, mappedInput, tr(STR_OPDS_DEFAULT_FOLDER), SETTINGS.opdsDownloadFolder,
                                sizeof(SETTINGS.opdsDownloadFolder) - 1, InputType::Text),
                            resultHandler);
     return;
@@ -346,7 +345,7 @@ void OpdsServerListActivity::buildListScreen(UiApp::ScreenType& screen) {
 
   if (!pickerMode) {
     fui::ListItem folder;
-    folder.label = tr(STR_OPDS_DOWNLOAD_FOLDER);
+    folder.label = tr(STR_OPDS_DEFAULT_FOLDER);
     folder.subtitle = SETTINGS.opdsDownloadFolder[0] ? SETTINGS.opdsDownloadFolder : tr(STR_OPDS_SD_ROOT);
     folder.actionValue = static_cast<int16_t>(serverCount + 1);
     items.push_back(folder);
@@ -384,5 +383,6 @@ void OpdsServerListActivity::render(RenderLock&&) {
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
+  if (showFolderError) GUI.drawPopup(renderer, tr(STR_OPDS_INVALID_FOLDER));
   renderer.displayBuffer();
 }

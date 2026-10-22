@@ -133,8 +133,21 @@ void OpdsBookDownloader::run() {
     bytesDone.store(downloaded, std::memory_order_release);
   };
 
-  outcome =
-      HttpDownloader::downloadToFile(job.url, job.path, onProgress, nullptr, job.username, job.password, makeOptions());
+  auto firstOptions = makeOptions();
+  std::string resolvedPath;
+  if (job.serverFilename) {
+    firstOptions.resumePartial = false;
+    firstOptions.useServerFilename = true;
+    firstOptions.overwriteApprovedPath = job.approvedPath;
+    firstOptions.resolvedPath = &resolvedPath;
+  }
+  outcome = HttpDownloader::downloadToFile(job.url, job.path, onProgress, nullptr, job.username, job.password,
+                                           std::move(firstOptions));
+  // The name is settled: resumes and retries continue that exact file.
+  if (!resolvedPath.empty()) {
+    job.path = std::move(resolvedPath);
+    job.serverFilename = false;
+  }
   // A failed attempt keeps its .part file: continue it from where it stopped
   // while each attempt still moves the file forward.
   size_t attemptStart = 0;
