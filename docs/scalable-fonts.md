@@ -1,19 +1,19 @@
-# Scalable TTF fonts on ESP32-S3 devices
+# Scalable fonts on ESP32-S3 devices
 
 CrossDink includes Bitter and Lexend Deca as scalable TrueType fonts on every
-supported reader. You can also add your own static `.ttf` fonts, and `.cpfont`
+supported reader. You can also add your own static `.ttf` or `.otf` fonts, and `.cpfont`
 font packs still work alongside them.
 
-## Add your own TTF fonts
+## Add your own scalable fonts
 
-1. Copy your `.ttf` files into a family folder on the SD card, such as
+1. Copy your `.ttf` or `.otf` files into a family folder on the SD card, such as
    `/fonts/My Font/`. The hidden `/.fonts/My Font/` location works too.
 2. If you copied the files using a computer, restart the reader or refresh its
    font list.
 3. Choose the family from **Settings > Reader > Font Options > Font Family**, or
    from the font picker while reading.
 
-You can also upload `.ttf` files through the **Fonts** tab in the reader's web
+You can also upload `.ttf` or `.otf` files through the **Fonts** tab in the reader's web
 interface. See [SD Card Fonts](./sd-card-fonts.md) for how to open that interface.
 No font conversion or separate files for each size are needed.
 
@@ -21,7 +21,7 @@ For the full range of text styles, add all four files for a family: **regular**,
 **bold**, **italic**, and **bold italic**. CrossDink can use a family with fewer
 styles, but missing styles may appear in another available style. If the files
 are in a family folder, that folder's name appears in the font picker. Keep
-`.ttf` and `.cpfont` files in separate family folders.
+scalable fonts and `.cpfont` files in separate family folders.
 
 ## Adjust the appearance
 
@@ -37,7 +37,8 @@ positions can change. Your bookmarks and clippings remain saved.
 
 ## Supported files and limits
 
-- Use static TrueType `.ttf` files. Variable fonts, `.otf` fonts, and font
+- Use static TrueType `.ttf` or OpenType CFF `.otf` files. Some CFF fonts have a
+  `.ttf` filename; CrossDink checks the file contents. Variable fonts and font
   collections are not supported.
 - Each file must be **2 MiB or smaller**, and the four files in one family must
   total **6 MiB or less**.

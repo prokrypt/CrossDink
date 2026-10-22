@@ -17,7 +17,7 @@ You can view pre-built fonts available for download at [Inky](https://inky.cross
 
 To make `.cpfont` packs from your own TrueType/OpenType fonts, use CrossPoint's
 [Font Builder](https://crosspointreader.com/fonts). On ESP32-S3 devices, static
-`.ttf` files do not need conversion.
+`.ttf` and `.otf` files do not need conversion.
 
 ## Installing Fonts
 
@@ -26,7 +26,7 @@ There are three ways to install fonts:
 ### Option 1: Manual SD card copy (Fastest)
 
 1.  Download pre-built `.cpfont` files from [Inky](https://inky.crossink.dev/#downloads),
-    or use your own static `.ttf` files on an ESP32-S3 device.
+    or use your own static `.ttf` or `.otf` files on an ESP32-S3 device.
     - If you downloaded a `.zip`, extract it first.
 2.  Copy font family folders to one of two locations on your SD card:
     - `/.fonts/` — hidden directory (preferred; keeps the SD root tidy
@@ -39,7 +39,7 @@ There are three ways to install fonts:
     exists, and vice versa. The two roots only collide if the same family
     name appears in both — in that case the copy in `/.fonts/` wins and
     the duplicate in `/fonts/` is ignored. Put each font family in its own
-    folder, including TTF families. Do not mix `.cpfont` and `.ttf` files in
+    folder, including scalable families. Do not mix `.cpfont` with `.ttf` or `.otf` files in
     one family folder.
 
         SD Card Root/
@@ -54,7 +54,7 @@ There are three ways to install fonts:
                 ├── Merriweather_12.cpfont
                 └── ...
 
-    On an ESP32-S3 device, a TTF family can look like
+    On an ESP32-S3 device, a scalable family can look like
     `/fonts/MyFont/MyFont-Regular.ttf` alongside its bold, italic, and bold
     italic files.
 
@@ -77,13 +77,13 @@ This option downloads pre-built `.cpfont` packs.
 2. Open the web interface URL shown on the reader
 3. Navigate to the **Fonts** tab
 4. Select a folder containing one font family, then upload its `.cpfont` files
-   or, on an ESP32-S3 device, its static `.ttf` files. The web UI only offers
-   TTF uploads on devices that support them.
+   or, on an ESP32-S3 device, its static `.ttf` or `.otf` files. The web UI only offers
+   scalable font uploads on devices that support them.
 
-For the full range of text styles with a TTF family, include regular, bold,
-italic, and bold italic files. Variable fonts are not supported. Each `.ttf`
+For the full range of text styles with a scalable family, include regular, bold,
+italic, and bold italic files. Variable fonts are not supported. Each `.ttf` or `.otf`
 file must be 2 MiB or smaller, and the family must total 6 MiB or less. See
-[Scalable TTF Fonts](./scalable-fonts.md) for more about using them.
+[Scalable Fonts](./scalable-fonts.md) for more about using them.
 
 ## Dictionary Fonts
 

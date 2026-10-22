@@ -87,9 +87,9 @@ Related docs:
 
 - [SD Card Fonts](./sd-card-fonts.md)
 
-## Custom TTF Fonts
+## Custom Scalable Fonts
 
-On ESP32-S3 readers, you can use your own static TrueType (`.ttf`) fonts. Copy
+On ESP32-S3 readers, you can use static TrueType (`.ttf`) or OpenType CFF (`.otf`) fonts. Copy
 the files into `/fonts` on the SD card, either together or in a folder named
 after the font family. Restart the reader or refresh its font list, then choose
 the family from the font picker.
