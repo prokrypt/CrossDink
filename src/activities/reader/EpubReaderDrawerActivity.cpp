@@ -1931,7 +1931,7 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       break;
     case RowId::PublisherFonts:
       title = StrId::STR_PUBLISHER_FONTS;
-      labels = {tr(STR_OFF), tr(STR_PUBLISHER_FONTS_ACCENTS), tr(STR_PUBLISHER_FONTS_ALL)};
+      labels = {tr(STR_STATE_OFF), tr(STR_PUBLISHER_FONTS_ACCENTS), tr(STR_PUBLISHER_FONTS_ALL)};
       raw = {0, 1, 2};
       currentRaw = draft.publisherFonts;
       break;
@@ -3182,7 +3182,7 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
       return I18N.get(labels[std::min<size_t>(draft.paragraphAlignment, labels.size() - 1)]);
     }
     case RowId::PublisherFonts: {
-      static constexpr std::array<StrId, 3> labels = {StrId::STR_OFF, StrId::STR_PUBLISHER_FONTS_ACCENTS,
+      static constexpr std::array<StrId, 3> labels = {StrId::STR_STATE_OFF, StrId::STR_PUBLISHER_FONTS_ACCENTS,
                                                       StrId::STR_PUBLISHER_FONTS_ALL};
       return I18N.get(labels[std::min<size_t>(draft.publisherFonts, labels.size() - 1)]);
     }

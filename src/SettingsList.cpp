@@ -132,7 +132,7 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
         "paragraphAlignment", StrId::STR_CAT_READER));
 #if CROSSDINK_SCALABLE_FONTS
     add(SettingInfo::Enum(StrId::STR_PUBLISHER_FONTS, &CrossPointSettings::publisherFonts,
-                          {StrId::STR_OFF, StrId::STR_PUBLISHER_FONTS_ACCENTS, StrId::STR_PUBLISHER_FONTS_ALL},
+                          {StrId::STR_STATE_OFF, StrId::STR_PUBLISHER_FONTS_ACCENTS, StrId::STR_PUBLISHER_FONTS_ALL},
                           "publisherFonts", StrId::STR_CAT_READER));
 #endif
     add(SettingInfo::Toggle(StrId::STR_EMBEDDED_STYLE, &CrossPointSettings::embeddedStyle, "embeddedStyle",
