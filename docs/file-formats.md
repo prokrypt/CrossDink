@@ -767,6 +767,16 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 102
+
+Complete caches use `102`; suspended partial caches use `0xEA`, and `0xEB`-`0xED`
+join the retired sentinels (100/`0xEC` and 101/`0xEB` belong to other branches).
+The payload is unchanged, but EPUB headings and CSS font sizes now use the
+installed bitmap sizes of SD `.cpfont` families, so both cache types rebuild for
+the new wrapping and line heights. SD reader font identities include the
+content of the optional sizes that fit the memory budget, so a changed size file
+or a load under tighter memory also invalidates previously paginated sections.
+
 ### Version 100
 
 The payload is unchanged. Fieldset containers now get a default 1 px solid
