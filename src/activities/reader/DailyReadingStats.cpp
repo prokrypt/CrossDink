@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 namespace DailyReadingStats {
 namespace {
@@ -227,8 +228,9 @@ bool pruneMonth(uint32_t first, uint8_t count) {
   Month month;
   if (!loadMonth(first, count, month)) return false;
   if (month.slot < 0) return true;
-  for (const auto& counter : month.days)
-    if (counter.seconds != counter.uploaded) return true;
+  if (std::any_of(std::begin(month.days), std::end(month.days),
+                  [](const auto& counter) { return counter.seconds != counter.uploaded; }))
+    return true;
   // A corrupt sibling could hide a newer unsynced checkpoint. Unlike normal
   // recovery reads, deletion requires every existing slot to be valid and covered.
   for (int slot = 0; slot < 2; ++slot) {
@@ -242,6 +244,7 @@ bool pruneMonth(uint32_t first, uint8_t count) {
   }
   // Keep the newest fully acknowledged copy until last. A failed delete or reboot
   // leaves enough information to retry, without reviving an older unacknowledged copy.
+  // cppcheck-suppress useStlAlgorithm ; ordered deletes with a logged early exit
   for (int slot : {1 - month.slot, month.slot}) {
     char path[64];
     monthPath(path, first, slot);
@@ -427,13 +430,14 @@ bool Session::accept(const ReadingStatsDateTime& end, uint8_t utcOffset, uint32_
     pendingCount = retained;
   }
   if (!seconds || !startTime.isValid() || !end.isValid() || offset != utcOffset || utcOffset > 104) return ok;
-  const uint64_t start = uint64_t(readingStatsDayIndex(startTime.date)) * 86400 + startTime.hour * 3600u +
-                         startTime.minute * 60u + startTime.second;
+  const uint64_t startSecond = uint64_t(readingStatsDayIndex(startTime.date)) * 86400 + startTime.hour * 3600u +
+                               startTime.minute * 60u + startTime.second;
   const uint64_t finish =
       uint64_t(readingStatsDayIndex(end.date)) * 86400 + end.hour * 3600u + end.minute * 60u + end.second;
   // Clock corrections and unavailable clocks must not manufacture dated time.
-  if (finish < start || finish - start + 2 < seconds || finish - start > uint64_t(seconds) + 2) return ok;
-  uint64_t cursor = start;
+  if (finish < startSecond || finish - startSecond + 2 < seconds || finish - startSecond > uint64_t(seconds) + 2)
+    return ok;
+  uint64_t cursor = startSecond;
   uint32_t remaining = seconds;
   while (remaining) {
     const uint32_t segment = std::min(remaining, 86400u - uint32_t(cursor % 86400));
