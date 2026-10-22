@@ -1616,6 +1616,8 @@ bool ActivityManager::flushHeldProgress() {
   return any;
 }
 
+uint8_t ActivityManager::inputPollDelayMs() const { return currentActivity ? currentActivity->inputPollDelayMs() : 10; }
+
 std::string ActivityManager::getCurrentBookPath() const {
   if (currentActivity) {
     const std::string path = currentActivity->getCurrentBookPath();

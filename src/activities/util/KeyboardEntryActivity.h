@@ -35,6 +35,8 @@ class KeyboardEntryActivity : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
+  bool batchesInputDuringRefresh() const override { return true; }
+  uint8_t inputPollDelayMs() const override { return mappedInput.hasTouchHardware() ? 2 : 10; }
 
  private:
   std::string title;
@@ -43,6 +45,9 @@ class KeyboardEntryActivity : public Activity {
   InputType inputType;
   size_t minLength;
   bool passwordVisible = false;
+  // Fixed UI font metric, captured before input starts. Querying the renderer
+  // during hit testing can wait for an entire e-ink refresh on TTF builds.
+  int inputLineHeight = 0;
 
   // EXPERIMENT (test/kbd-uc8179): UC8179 keyboard refresh toggles.
   // Skip the ~27 ms OLD-plane re-stream after DU frames: the controller copies
@@ -184,6 +189,7 @@ class KeyboardEntryActivity : public Activity {
   static size_t utf8Next(const std::string& s, size_t pos);
 
   freeink::ui::Rect keyboardRect() const;
+  int textFieldMargin() const;
 
   static KNOB_ALIAS(LONG_PRESS_MS, kbdHoldMs);  // Goodies > Knobs, as the three below
   static KNOB_ALIAS(DEL_LONG_PRESS_MS, kbdDelHoldMs);
