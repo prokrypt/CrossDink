@@ -25,8 +25,10 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "FileBrowserActionActivity.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/network/StatsUploadActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -47,11 +49,11 @@ namespace fui = freeink::ui;
 
 namespace {
 KNOB_ALIAS(GO_HOME_MS, goHomeHoldMs);  // Goodies > Knobs
-constexpr unsigned long COMPLETED_FEEDBACK_MS = 1000;
 constexpr int ROOT_HINT_GAP = 20;
 constexpr size_t NAME_BUFFER_SIZE = 500;
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SETTINGS = 2;
+constexpr fui::ActionId ACTION_SELECT_DIRECTORY = 3;
 constexpr size_t INDEX_THRESHOLD = 200;
 constexpr size_t MAX_VIRTUAL_LIST_ENTRIES = static_cast<size_t>(std::numeric_limits<int16_t>::max());
 constexpr uint32_t FILE_BROWSER_APPEND_MIN_FREE_AFTER_ALLOC = 48U * 1024U;
@@ -379,6 +381,11 @@ const char* FileBrowserActivity::entryNameAt(size_t row) {
 }
 
 void FileBrowserActivity::onEnter() {
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
+
   Activity::onEnter();
 
   fileNameBuffer = makeUniqueNoThrow<char[]>(NAME_BUFFER_SIZE);
@@ -430,6 +437,7 @@ void FileBrowserActivity::onEnter() {
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_ROW, &FileBrowserActivity::onRowEvent, this);
   app.on(ACTION_SETTINGS, &FileBrowserActivity::onSettingsEvent, this);
+  app.on(ACTION_SELECT_DIRECTORY, &FileBrowserActivity::onSelectDirectoryEvent, this);
   app.setScreen(&FileBrowserActivity::listScreen, this);
   requestUpdate();
 }
@@ -541,6 +549,7 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
   std::vector<FileBrowserActionActivity::MenuItem> items;
   items.push_back({useDefaultFolders ? FileBrowserAction::ClearSleepFolder : FileBrowserAction::SetSleepFolder,
                    useDefaultFolders ? StrId::STR_USE_DEFAULT_SLEEP_FOLDERS : StrId::STR_SET_AS_SLEEP_FOLDER});
+  items.push_back({FileBrowserAction::SyncFolder, StrId::STR_FOLDER_SYNC});
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
 
   startActivityForResult(
@@ -553,6 +562,16 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
 
         const auto action = static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
         switch (action) {
+          case FileBrowserAction::SyncFolder: {
+            // Asks first; this list stays underneath for when it is done.
+            auto sync = makeUniqueNoThrow<StatsUploadActivity>(renderer, mappedInput, fullPath);
+            if (!sync) {
+              LOG_ERR("FileBrowser", "Cannot allocate folder sync activity");
+              return;
+            }
+            startActivityForResult(std::move(sync), [this](const ActivityResult&) { requestUpdate(); });
+            return;
+          }
           case FileBrowserAction::Delete:
             promptDeleteDirectory(fullPath, entry);
             return;
@@ -582,6 +601,7 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
           case FileBrowserAction::SelectChapter:
           case FileBrowserAction::ToggleTouchscreen:
           case FileBrowserAction::Rename:
+          case FileBrowserAction::SyncProgress:
             return;
         }
       });
@@ -724,114 +744,33 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry) {
         }
 
         const auto action = static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
+        const BookActions::Host host{renderer, mappedInput,
+                                     [this](std::unique_ptr<Activity>&& child, ActivityResultHandler handler) {
+                                       if (child) {
+                                         startActivityForResult(std::move(child), std::move(handler));
+                                       } else {
+                                         LOG_ERR("FileBrowser", "Cannot open book action dialog");
+                                       }
+                                     },
+                                     [this, action] {
+                                       if (action == FileBrowserAction::ToggleCompleted) {
+                                         RenderLock lock(*this);
+                                         loadFilesLocked();
+                                         selectorIndex =
+                                             entryCount() == 0 ? 0 : std::min(selectorIndex, entryCount() - 1);
+                                       }
+                                       requestUpdate(action == FileBrowserAction::ToggleCompleted);
+                                     }};
+        if (BookActions::runSharedAction(action, fullPath, getFileName(entry), host)) {
+          return;
+        }
         switch (action) {
-          case FileBrowserAction::ToggleBookStatsTracking: {
-            bool enabled = false;
-            if (!BookActions::toggleBookStatsTracking(fullPath, enabled)) {
-              const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
-              Toast::show(renderer, error.c_str());
-            }
-            requestUpdate();
-            return;
-          }
-          case FileBrowserAction::ReadingStats:
-            if (auto statsActivity =
-                    BookActions::createReadingStatsActivity(renderer, mappedInput, fullPath, getFileName(entry))) {
-              startActivityForResult(std::move(statsActivity), [this](const ActivityResult&) { requestUpdate(); });
-            } else {
-              LOG_ERR("FileBrowser", "Failed to open reading stats for: %s", fullPath.c_str());
-            }
-            return;
           case FileBrowserAction::Rename:
             startRenameFile(fullPath, entry);
-            return;
-          case FileBrowserAction::SelectChapter:
-          case FileBrowserAction::ToggleTouchscreen:
-            return;
-          case FileBrowserAction::SendNearby:
-            activityManager.goToNearbyBookSend(fullPath, false);
             return;
           case FileBrowserAction::Delete:
             promptDeleteFile(fullPath, entry);
             return;
-          case FileBrowserAction::DeleteCache:
-            startActivityForResult(std::make_unique<ConfirmationActivity>(
-                                       renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE_CACHE),
-                                       getFileName(entry)),
-                                   [this, fullPath](const ActivityResult& confirmation) {
-                                     if (!confirmation.isCancelled) {
-                                       if (!BookActions::clearBookCache(fullPath)) {
-                                         LOG_ERR("FileBrowser", "Failed to clear book cache for: %s", fullPath.c_str());
-                                       } else {
-                                         Toast::show(renderer, tr(STR_BOOK_CACHE_DELETED));
-                                       }
-                                     }
-                                     requestUpdate();
-                                   });
-            return;
-          case FileBrowserAction::DeleteStats:
-            startActivityForResult(
-                std::make_unique<ConfirmationActivity>(renderer, mappedInput,
-                                                       BookActions::confirmationHeading(StrId::STR_DELETE_BOOK_STATS),
-                                                       getFileName(entry)),
-                [this, fullPath](const ActivityResult& confirmation) {
-                  if (!confirmation.isCancelled) {
-                    if (!BookActions::deleteBookStats(fullPath)) {
-                      LOG_ERR("FileBrowser", "Failed to delete book stats for: %s", fullPath.c_str());
-                    } else {
-                      Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
-                    }
-                  }
-                  requestUpdate();
-                });
-            return;
-          case FileBrowserAction::ResetReaderSettings:
-            startActivityForResult(
-                std::make_unique<ConfirmationActivity>(
-                    renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_RESET_BOOK_READER_SETTINGS),
-                    getFileName(entry)),
-                [this, fullPath](const ActivityResult& confirmation) {
-                  if (!confirmation.isCancelled) {
-                    if (!BookActions::resetBookReaderSettings(fullPath)) {
-                      LOG_ERR("FileBrowser", "Failed to reset reader settings for: %s", fullPath.c_str());
-                    } else {
-                      Toast::show(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
-                    }
-                  }
-                  requestUpdate();
-                });
-            return;
-          case FileBrowserAction::ToggleCompleted:
-            if (BookActions::toggleBookCompleted(fullPath, getFileName(entry), completedFeedbackIsFinished)) {
-              pendingCompletedFeedback = true;
-              completedFeedbackShowTime = millis();
-            }
-            {
-              RenderLock lock(*this);
-              loadFilesLocked();
-              selectorIndex = entryCount() == 0 ? 0 : std::min(selectorIndex, entryCount() - 1);
-            }
-            requestUpdate(true);
-            return;
-          case FileBrowserAction::EpubRenderMode: {
-            const uint8_t currentIndex =
-                BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(fullPath));
-            startActivityForResult(
-                std::make_unique<OptionPopupActivity>(renderer, mappedInput, StrId::STR_EPUB_RENDER_MODE,
-                                                      BookActions::epubRenderModeOptions(), currentIndex),
-                [this, fullPath](const ActivityResult& selectionResult) {
-                  if (!selectionResult.isCancelled) {
-                    const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);
-                    if (selection != nullptr &&
-                        !EpubReaderActivity::saveBookRenderMode(
-                            fullPath, BookActions::epubRenderModeForDisplayIndex(selection->index))) {
-                      LOG_ERR("FileBrowser", "Failed to save render mode for: %s", fullPath.c_str());
-                    }
-                  }
-                  requestUpdate();
-                });
-            return;
-          }
           case FileBrowserAction::PinFavorite:
             if (FsHelpers::hasPngExtension(fullPath)) {
               startActivityForResult(
@@ -854,13 +793,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry) {
           case FileBrowserAction::UnpinBootFavorite:
             unpinBootFavorite();
             return;
-          case FileBrowserAction::SetSleepFolder:
-          case FileBrowserAction::ClearSleepFolder:
-          case FileBrowserAction::RemoveFromRecents:
-          case FileBrowserAction::ViewBookmarks:
-          case FileBrowserAction::ViewClippings:
-          case FileBrowserAction::DeleteBookmarks:
-          case FileBrowserAction::DeleteClippings:
+          default:
             return;
         }
       });
@@ -995,6 +928,20 @@ void FileBrowserActivity::onSettingsEvent(const fui::ActionEvent&, void* user) {
   self->openSettings();
 }
 
+void FileBrowserActivity::onSelectDirectoryEvent(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<FileBrowserActivity*>(user);
+  self->app.clearTapFlash();
+  self->selectDirectory();
+}
+
+void FileBrowserActivity::selectDirectory() {
+  if (mode != Mode::PickDirectory) return;
+  ActivityResult result{FilePathResult{normalizeDirectoryPath(basepath)}};
+  result.isCancelled = false;
+  setResult(std::move(result));
+  finish();
+}
+
 void FileBrowserActivity::openSettings() {
   const std::string selectedEntry =
       entryCount() > 0 && selectorIndex < entryCount() ? entryNameAt(selectorIndex) : std::string();
@@ -1070,26 +1017,10 @@ void FileBrowserActivity::loop() {
     navigateBack();
     return;
   }
-  if (pendingCompletedFeedback) {
-    const bool timedOut = (millis() - completedFeedbackShowTime) >= COMPLETED_FEEDBACK_MS;
-    const bool navPressed = mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-                            mappedInput.wasReleased(MappedInputManager::Button::Right) ||
-                            mappedInput.wasReleased(MappedInputManager::Button::Up) ||
-                            mappedInput.wasReleased(MappedInputManager::Button::Down);
-    if (timedOut || navPressed) {
-      pendingCompletedFeedback = false;
-      requestUpdate();
-      return;
-    }
-  }
-
   // In directory-picker mode the fourth front button selects the folder shown
   // in the path band; Confirm continues to descend into the highlighted child.
   if (mode == Mode::PickDirectory && mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-    ActivityResult result{FilePathResult{normalizeDirectoryPath(basepath)}};
-    result.isCancelled = false;
-    setResult(std::move(result));
-    finish();
+    selectDirectory();
     return;
   }
 
@@ -1309,9 +1240,9 @@ void FileBrowserActivity::listScreen(UiApp::ScreenType& screen, void* user) {
 void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
-                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput)), 0,
+                                 static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
 
   if (mode == Mode::Books && mappedInput.hasTouchHardware()) {
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
@@ -1334,7 +1265,22 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   }
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-  // Full path band at the bottom: separator on top, left-truncated so the
+  if (mode == Mode::PickDirectory && mappedInput.hasTouchHardware()) {
+    const auto& theme = screen.theme();
+    const int16_t height = std::max(theme.rowHeight, theme.minTouchSize);
+    const auto actions = screen.takeBottom(static_cast<int16_t>(height + metrics.verticalSpacing));
+    fui::ButtonProps select;
+    select.label = tr(STR_SELECT);
+    select.action = ACTION_SELECT_DIRECTORY;
+    select.inputMask = fui::InputTouch;
+    select.styles = fui::outlinedButtonStyles();
+    select.minTouchSize = theme.minTouchSize;
+    const fui::Rect button{static_cast<int16_t>(actions.x + metrics.contentSidePadding), actions.y,
+                           static_cast<int16_t>(actions.width - metrics.contentSidePadding * 2), height};
+    screen.button(select, button);
+  }
+
+  // Full path band above any touch actions: separator on top, left-truncated so the
   // deepest directory stays visible.
   {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
@@ -1346,21 +1292,21 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     const char* pathStr = basepath.c_str();
     const char* pathDisplay = pathStr;
     char leftTruncBuf[256];
-    if (renderer.getTextWidth(SMALL_FONT_ID, pathStr) > pathMaxWidth) {
+    if (renderer.getTextWidth(renderer.filenameFontId(SMALL_FONT_ID), pathStr) > pathMaxWidth) {
       const char ellipsis[] = "\xe2\x80\xa6";  // UTF-8 ellipsis (…)
-      const int ellipsisWidth = renderer.getTextWidth(SMALL_FONT_ID, ellipsis);
+      const int ellipsisWidth = renderer.getTextWidth(renderer.filenameFontId(SMALL_FONT_ID), ellipsis);
       const int available = pathMaxWidth - ellipsisWidth;
       // Walk forward from the start until the suffix fits, skipping UTF-8 continuation bytes
       const char* p = pathStr;
       while (*p) {
-        if (renderer.getTextWidth(SMALL_FONT_ID, p) <= available) break;
+        if (renderer.getTextWidth(renderer.filenameFontId(SMALL_FONT_ID), p) <= available) break;
         ++p;
         while (*p && (static_cast<unsigned char>(*p) & 0xC0) == 0x80) ++p;
       }
       snprintf(leftTruncBuf, sizeof(leftTruncBuf), "%s%s", ellipsis, p);
       pathDisplay = leftTruncBuf;
     }
-    renderer.drawText(SMALL_FONT_ID, band.x + metrics.contentSidePadding, pathY, pathDisplay);
+    renderer.drawText(renderer.filenameFontId(SMALL_FONT_ID), band.x + metrics.contentSidePadding, pathY, pathDisplay);
   }
 
   const size_t totalEntries = entryCount();
@@ -1449,7 +1395,10 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   // than one line. Keep every rendered item contiguous until the SDK exposes
   // the consumed index.
   props.partialTrailingRow = false;
-  screen.list(props);
+  {
+    FilenameUiFontScope fonts(uiTarget, renderer);
+    screen.list(props);
+  }
   if (usesVirtualList) topIndex = listNav.top;
   // The nav path knows how many rows the layout actually fits; the local
   // window path has only the fixed-height estimate.
@@ -1475,12 +1424,16 @@ void FileBrowserActivity::render(RenderLock&&) {
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const auto spec = uiScaleSpec();
+  if (mode == Mode::Books && basepath != "/")
+    uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, renderer.filenameFontId(spec.titleFontId));
   const int rightReserve = mode == Mode::Books ? TouchHeaderBackButton::layout(header).iconRect.width + 8 : 0;
   TouchHeaderBackButton::draw(renderer, uiTarget, header, folderName.c_str(), false, rightReserve);
+  uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, spec.titleFontId);
 
   uiReady = false;
   for (int pass = 0; pass < 8; ++pass) {
-    app.render();
+    renderUiApp(app, uiTarget);
     if (!listNav.consumeRebuildNeeded()) break;
   }
   uiReady = true;
@@ -1501,7 +1454,8 @@ void FileBrowserActivity::render(RenderLock&&) {
 
   if (!mappedInput.hasTouch() && mode == Mode::Books && basepath == "/") {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-    const int bandY = renderer.getScreenHeight() - metrics.buttonHintsHeight - pathLineHeight - metrics.verticalSpacing;
+    const int bandY = renderer.getScreenHeight() - UITheme::getButtonHintsReserve(renderer) - pathLineHeight -
+                      metrics.verticalSpacing;
     const int pathY = bandY + metrics.verticalSpacing / 2 +
                       (pathLineHeight + metrics.verticalSpacing - metrics.verticalSpacing / 2 - pathLineHeight) / 2;
     const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
@@ -1510,10 +1464,6 @@ void FileBrowserActivity::render(RenderLock&&) {
     const auto hint = renderer.truncatedText(SMALL_FONT_ID, tr(STR_TOGGLE_HIDDEN_FILES_HINT), hintMaxWidth);
     const int hintWidth = renderer.getTextWidth(SMALL_FONT_ID, hint.c_str());
     renderer.drawText(SMALL_FONT_ID, pageWidth - metrics.contentSidePadding - hintWidth, pathY, hint.c_str());
-  }
-
-  if (pendingCompletedFeedback) {
-    GUI.drawPopup(renderer, completedFeedbackIsFinished ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
   }
 
   renderer.displayBuffer();
