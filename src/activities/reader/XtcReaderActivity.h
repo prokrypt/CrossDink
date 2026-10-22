@@ -13,7 +13,9 @@
 #include <string>
 #include <utility>
 
+#include "BookLoadingFeedback.h"
 #include "BookReadingStats.h"
+#include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
 #include "ReaderProgressSaveDebouncer.h"
@@ -30,6 +32,8 @@ class XtcReaderActivity final : public Activity {
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageShownAtMs = 0UL;
   uint32_t sessionReadingSeconds = 0;
+  DailyReadingStats::Session dailyReadingSession;
+  void startDailyReadingInterval();
   BookReadingStats stats;
   GlobalReadingStats globalStats;
   ReadingStatsDateTime sessionStartLocalDateTime;
@@ -57,6 +61,7 @@ class XtcReaderActivity final : public Activity {
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
   // First menu press made while the end-of-book menu was still loading (main loop only).
   EndOfBookOptions::MenuKey queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
+  bool endOfBookHomeUnlocked = false;  // Home key lock lifted while the menu is open
 
   enum class StatusBarOverlayPosition { Bottom, Top };
   struct StatusBarInfo {
@@ -71,6 +76,7 @@ class XtcReaderActivity final : public Activity {
   bool saveProgress(uint32_t page, bool hold = false);
   bool queueProgressSave(uint32_t pageToRender);
   bool flushQueuedProgress(bool hold = false);
+  void saveProgressBeforeRestart();
   void loadProgress();
   void pauseReadingStatsTimer(const char* source = "unknown");
   void syncStatsTrackingState();
@@ -96,13 +102,22 @@ class XtcReaderActivity final : public Activity {
   bool executeReaderShortcutAction(CrossPointSettings::SHORT_PWRBTN action);
   bool executeLongPressBackAction();
 
+  BookLoadingFeedback openingFeedback;
+  bool showOpeningFeedback() {
+    if (!openingFeedback.showIfDue(renderer)) return false;
+    pagesUntilFullRefresh = 0;
+    return true;
+  }
+
  public:
   explicit XtcReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Xtc> xtc,
-                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false)
+                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false,
+                             BookLoadingFeedback openingFeedback = {})
       : Activity("XtcReader", renderer, mappedInput),
         xtc(std::move(xtc)),
         pagesUntilFullRefresh(initialRefreshCountdown),
-        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
+        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry),
+        openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -113,8 +128,11 @@ class XtcReaderActivity final : public Activity {
     return true;
   }
   bool isReaderActivity() const override { return true; }
+  bool isBookReaderActivity() const override { return true; }
   // cppcheck-suppress uselessOverride ; differs from the base only on some device builds
   bool usesFullScreenReaderVerticalSwipes() const override {
+    // The End of book menu is a plain list: Home button / bottom-edge swipe go Home as elsewhere.
+    if (endOfBookOptions && endOfBookOptions->menuActive()) return false;
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
     return true;
 #else
@@ -141,7 +159,7 @@ class XtcReaderActivity final : public Activity {
   void onFrontlightPanelOpened() override {
     pauseReadingStatsTimer("frontlight_panel");
     // The panel leads to Settings, whose update and font downloads restart the device.
-    flushQueuedProgress();
+    saveProgressBeforeRestart();
     globalStatsResetRevisionAtPanelOpen = GlobalReadingStats::localResetRevision();
   }
   void onFrontlightPanelClosed() override;

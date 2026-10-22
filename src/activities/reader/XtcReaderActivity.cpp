@@ -1107,15 +1107,15 @@ bool XtcReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       activityManager.goToFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CALIBRE_WIRELESS:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::JOIN_NETWORK:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CREATE_HOTSPOT:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
@@ -1148,15 +1148,15 @@ bool XtcReaderActivity::executeLongPressBackAction() {
       activityManager.goToFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CALIBRE_WIRELESS:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_JOIN_NETWORK:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_HOTSPOT:
-      flushQueuedProgress();  // silent restart skips onExit()
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_BROWSER:
@@ -1489,6 +1489,12 @@ bool XtcReaderActivity::flushHeldProgress() {
   const bool pending = progressSaveDebouncer.hasPending();
   if (!flushQueuedProgress()) LOG_ERR("XTR", "Failed to flush held progress");
   return pending;
+}
+
+void XtcReaderActivity::saveProgressBeforeRestart() {
+  // Network and Settings flows can restart without onExit(); the render task updates the debouncer.
+  RenderLock lock(*this);
+  if (!flushQueuedProgress()) LOG_ERR("XTR", "Failed to save progress before restart");
 }
 
 bool XtcReaderActivity::flushQueuedProgress(const bool hold) {
