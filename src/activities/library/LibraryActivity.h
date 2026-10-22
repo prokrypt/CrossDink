@@ -2,11 +2,13 @@
 
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
+#include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
 
 #include <memory>
 #include <string>
 
+#include "I18nKeys.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "activities/home/RecentBookProgress.h"
@@ -67,6 +69,17 @@ class LibraryActivity final : public Activity {
   bool longPressFired = false;
   bool ignoreConfirmRelease = false;
   bool scanFailed = false;
+  StrId scanFailureText = StrId::STR_LIBRARY_SCAN_FAILED;
+  // A cancelled foreground scan is not restarted this visit until the card
+  // changes (storage generation) or the user refreshes.
+  bool scanCancelled = false;
+  uint32_t scanCancelledGeneration = 0;
+  // Back held when a scan starts belongs to whatever opened the Library.
+  bool scanBackHeldAtStart = false;
+  // Set when the Back press that cancelled a scan is still held.
+  bool ignoreBackRelease = false;
+  unsigned long scanLastPollMs = 0;
+  static constexpr unsigned long SCAN_CANCEL_POLL_MS = 50;
   // Showing the previous index (held in PSRAM) while the background build
   // reconciles the card.
   bool backgroundRefresh = false;
@@ -172,6 +185,9 @@ class LibraryActivity final : public Activity {
   // The background build that rebuildIndex() left running has finished:
   // reopen the new index and redraw in place.
   void finishBackgroundRefresh();
+  void drawScanScreen(const char* message) const;
+  static bool scanService(void* context);
+  static void onScanProgress(void* context, const library::BuildProgress& progress);
   // Clamps the selection and reloads grid covers/progress after the rows changed.
   void keepViewportAfterReload();
   CachedRow& rowFor(int row);
