@@ -255,6 +255,11 @@ bool HalStorage::beginUsbDrive() {
     LOG_ERR("USB", "USB Drive context allocation failed");
     return false;
   }
+  // detach ends the volume, which drops a dirty FAT sector unwritten; sync first.
+  if (HalFile root = open("/")) {
+    if (!root.sync()) LOG_ERR("USB", "SD volume sync failed before USB Drive");
+    root.close();
+  }
   auto* const blockDevice = SDCard.detachFilesystemForRawAccess();
   if (!blockDevice) {
     LOG_ERR("USB", "USB Drive requires a mounted SDMMC filesystem");
@@ -550,6 +555,12 @@ void HalStorage::shutdown() {
   rtcLibraryScanCurrent = current ? LIBRARY_SCAN_CURRENT_MAGIC : 0;
   rtcLibraryScanCurrentCheck = current ? ~LIBRARY_SCAN_CURRENT_MAGIC : 0;
   StorageLock lock;
+  // SdFat holds written FAT and data sectors in RAM until a sync, and
+  // FsVolume::end() drops them; syncing any handle writes both caches.
+  if (FsFile root = SDCard.open("/", O_RDONLY)) {
+    if (!root.sync()) LOG_ERR("SD", "SD volume sync failed before sleep");
+    root.close();
+  }
   SDCard.shutdown();
 }
 
