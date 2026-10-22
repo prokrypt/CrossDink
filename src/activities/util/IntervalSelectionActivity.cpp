@@ -14,6 +14,7 @@
 #include "CrossPointSettings.h"
 #include "DeviceCapabilities.h"
 #include "SdCardFontSystem.h"
+#include "WordSpacing.h"
 #include "components/SliderValue.h"
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
@@ -387,7 +388,7 @@ void IntervalSelectionActivity::renderReaderPreview(const Rect& area) {
                                  ? CrossPointSettings::clampedLineHeightPercent(static_cast<uint8_t>(value))
                                  : SETTINGS.lineHeightPercent;
   const uint8_t wordSpacing =
-      readerPreviewSetting == ReaderPreviewSetting::WordSpacing ? static_cast<uint8_t>(value) : SETTINGS.wordSpacing;
+      readerPreviewSetting == ReaderPreviewSetting::WordSpacing ? WordSpacing::fromSlider(value) : SETTINGS.wordSpacing;
   const int marginX =
       readerPreviewSetting == ReaderPreviewSetting::HorizontalMargin ? value : SETTINGS.screenMarginHorizontal;
   const int marginVertical =
