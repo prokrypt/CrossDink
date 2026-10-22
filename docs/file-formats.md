@@ -570,6 +570,14 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 100
+
+The payload is unchanged. Fieldset containers now get a default 1 px solid
+outline, 2 px side margins and padding (0.35em top, 0.625em bottom, 0.75em
+sides); publisher CSS overrides each part, and Light mode or disabled book
+styles draw no box. Complete files use byte `100`; suspended partials use
+`0xEC`, and `0xED` joins the retired sentinels.
+
 ### Version 99
 
 Scalable-font EPUB headings and whole text blocks carry a resolved point size

@@ -36,14 +36,15 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v98: Small EPUB images share text lines (page images gain an inline flag) and
 //      image-only paragraphs keep publisher alignment.
 // v99: Scalable heading/block/word sizes, drop caps, borders, shading and white-space.
-constexpr uint8_t SECTION_FILE_VERSION = 99;
+// v100: Fieldset defaults add bordered containers and change page layout.
+constexpr uint8_t SECTION_FILE_VERSION = 100;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract. Never reuse a retired sentinel: an old
 // partial on SD would resume with stale page positions. Pick below the lowest.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xED;
-constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xEE, 0xEF, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
-                                                        0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xEC;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xED, 0xEE, 0xEF, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5,
+                                                        0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
 constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
   for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
     if (retired == v) return true;
