@@ -1751,6 +1751,11 @@ char apiUploadOut[32];
 void CrossPointWebServer::handleApiUpload() {
   if (server->upload().status == UPLOAD_FILE_START) {
     apiUploadStatus = checkRemoteToken(*server, apiUploadOut, sizeof(apiUploadOut));
+    // Remote clients (xink-file put) name any destination: create missing parent folders.
+    const String dir = server->hasArg("path") ? normalizeWebPath(server->arg("path")) : String("/");
+    if (apiUploadStatus == 200 && !isProtectedPath(dir) && !Storage.exists(dir.c_str())) {
+      if (!Storage.mkdir(dir.c_str())) LOG_ERR("WEB", "[UPLOAD] mkdir failed: %s", dir.c_str());
+    }
   }
   if (apiUploadStatus == 200) handleUpload(upload);
 }
