@@ -918,3 +918,6 @@ STR_NEARBY_STATS_SIMULATOR_UNAVAILABLE: "Die Synchronisierung von Nearby-Statist
 STR_TAP_HOME_SHORTCUT: "Home antippen"
 STR_LONG_PRESS_HOME_SHORTCUT: "Home lang drücken"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Home doppeltippen"
+STR_MENU_NAVIGATION: "Menünavigation"
+STR_MENU_DIRECTIONAL: "Richtungsbasiert"
+STR_MENU_CLASSIC: "Alt"

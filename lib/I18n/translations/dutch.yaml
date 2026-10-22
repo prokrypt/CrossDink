@@ -880,3 +880,6 @@ STR_RECOVERY_MODE_HINT: "Plaats firmware.bin op de SD-kaartroot en selecteer dez
 STR_TAP_HOME_SHORTCUT: "Tik op Thuis"
 STR_LONG_PRESS_HOME_SHORTCUT: "Druk lang op Home"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Dubbeltik op Thuis"
+STR_MENU_NAVIGATION: "Menunavigatie"
+STR_MENU_DIRECTIONAL: "Richtingsgericht"
+STR_MENU_CLASSIC: "Oud"

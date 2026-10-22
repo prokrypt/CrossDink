@@ -881,3 +881,6 @@ STR_RECOVERY_MODE_HINT: "Helyezze a firmware.bin fájlt a SD kártyagyökérre, 
 STR_TAP_HOME_SHORTCUT: "Koppintson a Kezdőlap elemre"
 STR_LONG_PRESS_HOME_SHORTCUT: "Kezdőlap hosszú nyomása"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Koppintson duplán a Kezdőlapra"
+STR_MENU_NAVIGATION: "Menünavigáció"
+STR_MENU_DIRECTIONAL: "Irányalapú"
+STR_MENU_CLASSIC: "Régi"

@@ -895,3 +895,6 @@ STR_RECOVERY_MODE_HINT: "Đặt firmware.bin vào thư mục gốc thẻ SD và 
 STR_TAP_HOME_SHORTCUT: "Nhấn vào Trang chủ"
 STR_LONG_PRESS_HOME_SHORTCUT: "Nhấn giữ Trang chủ"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Nhấn đúp vào trang chủ"
+STR_MENU_NAVIGATION: "Điều hướng menu"
+STR_MENU_DIRECTIONAL: "Theo hướng"
+STR_MENU_CLASSIC: "Cũ"

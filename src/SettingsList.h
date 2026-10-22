@@ -647,6 +647,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       }
     }
   }
+  if (!deviceHasMenuNavigationSetting(gpio)) {
+    v.erase(
+        std::remove_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_MENU_NAVIGATION; }),
+        v.end());
+  }
   const bool hasTouch = gpio.hasTouch();
   if (!hasTouch) {
     v.erase(std::remove_if(v.begin(), v.end(),
@@ -879,11 +884,13 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   const bool hasTiltPageTurnDirectionSetting = hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
   const bool hasTapsGestures = hasSettingByName(allSettings, StrId::STR_NEXT_PAGE);
   const bool hasFrontButtons = !gpio.hasTouch();
+  const bool hasMenuNavigation = deviceHasMenuNavigationSetting(gpio);
   const bool hasHomeKey = gpio.hasHomeKey();
 
   std::vector<SettingInfo> settings;
-  settings.reserve(3 + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 1u : 0u) + (hasTiltPageTurnSetting ? 1u : 0u) +
-                   (hasTiltPageTurnDirectionSetting ? 1u : 0u) + (hasTapsGestures ? 1u : 0u));
+  settings.reserve(3 + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 1u : 0u) + (hasMenuNavigation ? 1u : 0u) +
+                   (hasTiltPageTurnSetting ? 1u : 0u) + (hasTiltPageTurnDirectionSetting ? 1u : 0u) +
+                   (hasTapsGestures ? 1u : 0u));
   if (hasHomeKey) {
     settings.push_back(SettingInfo::Submenu(StrId::STR_HOME_BUTTON, SettingAction::ControlsHomeButton));
   }
@@ -898,6 +905,7 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   }
   if (hasTiltPageTurnSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN);
   if (hasTiltPageTurnDirectionSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
+  if (hasMenuNavigation) addSettingByKey(settings, allSettings, "menuNavigation");
   return settings;
 }
 
