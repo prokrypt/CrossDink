@@ -2,6 +2,8 @@
 
 #include <HalClock.h>
 
+#include <cstdio>
+
 #include "CrossPointSettings.h"
 #include "util/LocalClock.h"
 
@@ -72,7 +74,7 @@ void ReadingStatsDate::clear() {
   day = 0;
 }
 
-bool ReadingStatsDateTime::isValid() const { return date.isValid(); }
+bool ReadingStatsDateTime::isValid() const { return date.isValid() && hour < 24 && minute < 60 && second < 60; }
 
 bool isLeapYear(const uint16_t year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
 
@@ -476,4 +478,41 @@ uint16_t computeReadingHistoryCurrentStreak(uint32_t anchorDay, const std::array
     streak++;
   }
   return streak;
+}
+
+bool getCurrentLocalDailyReadingDateTime(ReadingStatsDateTime& out) {
+  out = {};
+  uint16_t year = 0;
+  uint8_t month = 0, day = 0, hour = 0, minute = 0, second = 0;
+  // An unset RTC must not manufacture dated reading time.
+  if (!halClock.getDateTime(year, month, day, hour, minute, second) || year < 2025) return false;
+  out.date = {year, month, day};
+  out.hour = hour;
+  out.minute = minute;
+  out.second = second;
+  if (!out.isValid()) {
+    out = {};
+    return false;
+  }
+  int minutes = int(hour) * 60 + minute + (int(LocalClock::offsetQAtUtc(year, month, day, hour, minute)) - 48) * 15;
+  if (minutes < 0) {
+    addDaysToReadingStatsDate(out.date, -1);
+    minutes += 1440;
+  }
+  if (minutes >= 1440) {
+    addDaysToReadingStatsDate(out.date, 1);
+    minutes -= 1440;
+  }
+  out.hour = minutes / 60;
+  out.minute = minutes % 60;
+  return out.isValid();
+}
+
+bool readingStatsIntervalSeconds(uint32_t nowMs, uint32_t shownAtMs, uint32_t idleSeconds, uint32_t& seconds) {
+  seconds = 0;
+  if (!shownAtMs) return false;
+  const uint32_t elapsed = (nowMs - shownAtMs) / 1000u;
+  if (!elapsed || elapsed > idleSeconds) return false;
+  seconds = elapsed;
+  return true;
 }

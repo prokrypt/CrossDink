@@ -151,8 +151,17 @@ ReadingStatsDate readDate(const uint8_t* data, const int offset) {
 }  // namespace
 
 BookReadingStats BookReadingStats::load(const std::string& cachePath) {
-  if (const BookReadingStats* held = ReaderExitSave::book(cachePath)) return *held;  // newer than the file
   BookReadingStats stats;
+  loadForUpload(cachePath, stats);
+  return stats;
+}
+
+bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingStats& stats) {
+  stats = {};
+  if (const BookReadingStats* held = ReaderExitSave::book(cachePath)) {  // newer than the file
+    stats = *held;
+    return true;
+  }
   uint8_t data[two_slot::MAX_PAYLOAD_BYTES] = {};
   const std::string statsPath = cachePath + "/" + statsFileNameForVersion(STATS_FILE_VERSION);
   int n = static_cast<int>(std::min(
@@ -160,20 +169,20 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
       static_cast<size_t>(STATS_FILE_SIZE)));
   if (n == 0) {
     FsFile f;
-    if (!openMigrationSource(cachePath, f)) return stats;
+    if (!openMigrationSource(cachePath, f)) return false;
     n = f.read(data, STATS_FILE_SIZE);
     f.close();
   }
 
   if (n == STATS_FILE_SIZE_V1 && data[0] == STATS_FILE_VERSION_V1) {
     readCommonStats(data, stats);
-    return stats;
+    return true;
   }
 
   if (n == STATS_FILE_SIZE_V2 && data[0] == STATS_FILE_VERSION_V2) {
     readCommonStats(data, stats);
     stats.isCompleted = data[11] != 0;
-    return stats;
+    return true;
   }
 
   if (n == STATS_FILE_SIZE_V3 && data[0] == STATS_FILE_VERSION_V3) {
@@ -181,20 +190,20 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
     stats.isCompleted = data[11] != 0;
     stats.avgSecondsPerForwardPage = readLe16(data, 12);
     stats.paceSampleCount = readLe16(data, 14);
-    return stats;
+    return true;
   }
 
   if (n != STATS_FILE_SIZE && n != STATS_FILE_SIZE_V4) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
-    return stats;
+    return false;
   }
   if (n == STATS_FILE_SIZE_V4 && data[0] != STATS_FILE_VERSION_V4) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
-    return stats;
+    return false;
   }
   if (n == STATS_FILE_SIZE && data[0] != STATS_FILE_VERSION) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
-    return stats;
+    return false;
   }
   readCommonStats(data, stats);
   stats.isCompleted = data[11] != 0;
@@ -214,7 +223,7 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   if (n == STATS_FILE_SIZE) {
     stats.estimatedTimeLeftSeconds = readLe32(data, 69);
   }
-  return stats;
+  return true;
 }
 
 void BookReadingStats::recordForwardPageRead(uint32_t seconds) {

@@ -651,6 +651,8 @@ void BmpViewerActivity::showContextMenu() {
           case FileBrowserAction::SelectChapter:
           case FileBrowserAction::ToggleTouchscreen:
           case FileBrowserAction::Rename:
+          case FileBrowserAction::SyncProgress:
+          case FileBrowserAction::SyncFolder:
             return;
         }
       });

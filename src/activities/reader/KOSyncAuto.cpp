@@ -26,6 +26,7 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/home/RecentBookProgress.h"
+#include "network/ReadingSyncUpload.h"
 #include "network/WifiUtils.h"
 #include "util/WorkerTask.h"
 #if CROSSDINK_GOODIES
@@ -370,6 +371,15 @@ void run(void*) {
           remember(jobPath, method, progress.percentage);
         }
       }
+    }
+    // Reading Stats and Clippings ride the same session once the progress
+    // step reached the server (pushed, or already there).
+    const bool progressReached = pushOk || skipped;
+    if (!jobIsPull && progressReached && !radioClaimed.load() &&
+        (ReadingSyncUpload::canSyncReadingStats() || ReadingSyncUpload::canSyncClippings())) {
+      // shortcut: the book's pending stats/clippings bits stay set (no SD write here), so the
+      // next bulk sync sends it again; clear them on the main task if that resend ever matters.
+      ReadingSyncUpload::extras(jobPath, progress.document);
     }
     KOReaderSyncClient::endSession();  // before the radio goes down
   }

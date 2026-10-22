@@ -1,0 +1,8 @@
+# Manifest for src/components/icons/syncMenuIcons.h — regenerate with:
+#   python3 scripts/generate_icons.py --library tabler \
+#     --manifest src/components/icons/syncMenuIcons.manifest \
+#     --sizes 32 --out src/components/icons/syncMenuIcons.h
+# then clang-format -i the output.
+# File Transfer's Sync Server rows.
+cloud-upload = cloud-upload
+blockquote = blockquote
