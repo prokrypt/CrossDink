@@ -319,7 +319,7 @@ void checkPanic() {
         // Keep the crash data for CrashActivity, but mark it consumed so a
         // later watchdog reset cannot be mistaken for this panic.
         panicCaptureMarker = 0;
-        LOG_INF("SYS", "Dumped panic info to SD card");
+        LOG_INF("SYS", "Dumped panic info to SD card");  // BugReport.cpp scanRing() matches this text
       } else {
         LOG_ERR("SYS", "Failed to write complete crash report (%zu of %zu bytes)", written, panicInfo.size());
       }
