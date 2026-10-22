@@ -87,13 +87,14 @@ class PageDropCap final : public PageElement {
 
  private:
   uint8_t fontSize;
+  uint32_t fontFamily = 0;
   uint16_t scale256;
   EpdFontFamily::Style style;
   char text[MAX_TEXT_BYTES + 1] = {};
 
  public:
   PageDropCap(uint8_t fontSize, uint16_t scale256, EpdFontFamily::Style style, const char* utf8, int16_t xPos,
-              int16_t yPos);
+              int16_t yPos, uint32_t fontFamily = 0);
   const char* getText() const { return text; }
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
   bool serialize(FsFile& file) override;

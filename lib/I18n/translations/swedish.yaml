@@ -896,3 +896,7 @@ STR_CALIBRATION_RESET: "Återställ standardvärden"
 STR_CALIBRATION_SAVE_FAILED: "Det gick inte att spara kalibreringen. Försök igen."
 STR_CALIBRATION_EDIT_OR_APPLY: "Ändra eller använd"
 STR_CALIBRATION_ADJUST: "Justera"
+
+STR_PUBLISHER_FONTS: "Förlagets typsnitt"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorera brödtextens typsnitt"
+STR_PUBLISHER_FONTS_ALL: "All text"

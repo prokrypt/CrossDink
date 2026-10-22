@@ -39,7 +39,8 @@ class ParsedText {
   char initialLetter[13] = {};
   std::deque<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
-  std::vector<uint8_t> wordFontSizes;  // empty for ordinary paragraphs; one byte per token otherwise
+  std::vector<uint32_t> wordFontFamilies;  // allocated only for publisher fonts
+  std::vector<uint8_t> wordFontSizes;      // empty for ordinary paragraphs; one byte per token otherwise
   int wordFontId(const GfxRenderer& renderer, int base, size_t index) const;
   std::vector<bool> wordContinues;         // true = word attaches to previous (no space before it)
   std::vector<bool> wordNoSpaceBefore;     // true = may break before token, but no synthetic space when joined
@@ -154,7 +155,7 @@ class ParsedText {
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,
                bool backgroundBlack = false, uint8_t linkId = 0, uint32_t visibleTextOffset = 0,
                uint32_t referenceTextOffset = 0, int16_t leadingPadding = 0, bool noSpaceBefore = false,
-               uint8_t pointSize = 0);
+               uint8_t pointSize = 0, uint32_t fontFamily = 0);
   void addInlineImage(uint16_t id, uint16_t width, uint16_t height, bool attachToPrevious, uint32_t visibleTextOffset,
                       uint32_t referenceTextOffset);
   const std::vector<InlineImagePlacement>& currentLineImages() const { return lineImagesScratch; }

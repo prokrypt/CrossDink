@@ -1052,7 +1052,10 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
       Storage.remove(tmpCssPath.c_str());
       continue;
     }
-    if (!cssParser->loadFromStream(tempCssFile)) {
+    const auto slash = cssPath.find_last_of('/');
+    const std::string_view baseDir =
+        slash == std::string::npos ? std::string_view{} : std::string_view(cssPath).substr(0, slash + 1);
+    if (!cssParser->loadFromStream(tempCssFile, baseDir)) {
       failedCssFileIndex = cssFileIndex + 1;
       failedCssPath = cssPath;
       LOG_ERR("EBP", "CSS parsing failed for file %zu/%zu after %zu parsed files: %s", failedCssFileIndex,

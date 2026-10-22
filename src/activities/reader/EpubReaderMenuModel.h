@@ -110,6 +110,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   ExtraSpacing,
   ForceIndents,
   EmbeddedStyle,
+  PublisherFonts,
   Images,
   SelectChapter,
   GoToPercent,
@@ -179,6 +180,9 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   ReaderDrawerCatalog catalog{};
   auto& font = catalog[static_cast<size_t>(ReaderDrawerTab::Font)];
   font.add(ReaderDrawerCatalogItem::ReaderFont);
+#if CROSSDINK_SCALABLE_FONTS
+  font.add(ReaderDrawerCatalogItem::PublisherFonts);
+#endif
   font.add(ReaderDrawerCatalogItem::DictionaryFont);
   font.add(ReaderDrawerCatalogItem::Spacing);
   font.add(ReaderDrawerCatalogItem::TextAa);
@@ -343,6 +347,7 @@ struct ReaderSettingsDraft {
   uint8_t extraParagraphSpacing = 0;
   uint8_t forceParagraphIndents = 0;
   uint8_t embeddedStyle = 0;
+  uint8_t publisherFonts = 0;
   uint8_t imageRendering = 0;
   uint8_t epubRenderMode = 0;
   uint8_t indexingMethod = 0;

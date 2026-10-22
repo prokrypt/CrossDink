@@ -14,8 +14,16 @@ class GfxRenderer {
  public:
   bool getCodepointMetrics(int, uint32_t, EpdFontFamily::Style, int32_t&, int&) const { return false; }
   bool scalable = false;
+  int publisherFont = 0;
+  mutable unsigned ascenderCalls = 0;
   int getFontIdForSize(int id, uint8_t size) const { return scalable && size ? size : id; }
-  int getFontAscenderSize(int id) const { return 12 + id; }
+  int resolveBookFont(int id, uint32_t family, uint8_t size = 0) const {
+    return family && publisherFont ? publisherFont : getFontIdForSize(id, size);
+  }
+  int getFontAscenderSize(int id) const {
+    ++ascenderCalls;
+    return 12 + id;
+  }
   int getLineHeight(int id) const { return 16 + id; }
   static int characters(const char* text) {
     int n = 0;

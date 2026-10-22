@@ -899,3 +899,7 @@ STR_CALIBRATION_RESET: "Restaura els valors per defecte"
 STR_CALIBRATION_SAVE_FAILED: "No s'ha pogut desar el calibratge. Torna-ho a provar."
 STR_CALIBRATION_EDIT_OR_APPLY: "Edita o aplica"
 STR_CALIBRATION_ADJUST: "Ajusta"
+
+STR_PUBLISHER_FONTS: "Tipus de lletra de l’editor"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignora la font del cos"
+STR_PUBLISHER_FONTS_ALL: "Tot el text"

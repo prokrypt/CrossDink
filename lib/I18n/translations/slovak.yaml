@@ -916,3 +916,7 @@ STR_CALIBRATION_RESET: "Obnoviť predvolené hodnoty"
 STR_CALIBRATION_SAVE_FAILED: "Kalibráciu sa nepodarilo uložiť. Skúste to znova."
 STR_CALIBRATION_EDIT_OR_APPLY: "Upraviť alebo použiť"
 STR_CALIBRATION_ADJUST: "Upraviť"
+
+STR_PUBLISHER_FONTS: "Písma vydavateľa"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorovať písmo tela"
+STR_PUBLISHER_FONTS_ALL: "Všetok text"
