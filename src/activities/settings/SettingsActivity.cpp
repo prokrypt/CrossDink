@@ -22,8 +22,8 @@
 #include "ClockOffsetActivity.h"
 #include "ClockSyncActivity.h"
 #include "CrossPointSettings.h"
-#include "FilenameFontSystem.h"
 #include "DeviceCapabilities.h"
+#include "FilenameFontSystem.h"
 #include "FontSelectionActivity.h"
 #if CROSSDINK_SCALABLE_FONTS
 #include "TtfRenderOptionsActivity.h"
