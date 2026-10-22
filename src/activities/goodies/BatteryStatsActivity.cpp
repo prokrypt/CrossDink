@@ -400,16 +400,15 @@ void BatteryStatsActivity::loop() {
     }
   }
   if (loading) step(LOAD_STEP_MS);
-  // Brightness or Wi-Fi changed on this page: redo the estimate once it holds
-  // for 1 s. No repaint of its own (a full page refresh after every light
-  // slide); the next frame (scroll, Refresh) shows it.
-  const uint16_t state = estimateState();
-  if (state != seenState) {
-    seenState = state;
-    seenMs = millis();
-  } else if (!loading && state != builtState && millis() - seenMs >= 1000) {
-    RenderLock lock(*this);  // render() reads lines
-    buildLines();
+  // Brightness or Wi-Fi changed on this page: redo the estimate and repaint at
+  // once, but not while a finger is down (a light slide repaints once, on lift).
+  int tx = 0, ty = 0;
+  if (!loading && estimateState() != builtState && !mappedInput.isScreenTouchHeld(tx, ty)) {
+    {
+      RenderLock lock(*this);  // render() reads lines
+      buildLines();
+    }
+    requestUpdate();
   }
   const auto swipe = mappedInput.wasSwipe();
   const bool down =
@@ -420,6 +419,13 @@ void BatteryStatsActivity::loop() {
     scroll += down && more ? 1 : -1;
     requestUpdate();
   }
+}
+
+// The pulldown changed the light: rebuild before the close repaint so that one
+// frame shows the new estimate. The caller holds the render lock.
+void BatteryStatsActivity::onFrontlightPanelClosed() {
+  if (!loading && estimateState() != builtState) buildLines();
+  Activity::onFrontlightPanelClosed();
 }
 
 void BatteryStatsActivity::render(RenderLock&&) {
