@@ -780,4 +780,3 @@ bool ClippingStore::rollbackRenameMigration(RenameMigration& migration) {
   if (ok) migration.active = false;
   return ok;
 }
-
