@@ -1493,32 +1493,10 @@ void WifiSelectionActivity::renderSavePrompt(const Rect* screen, const ThemeMetr
 
   UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top + 40, tr(STR_SAVE_PASSWORD));
 
-  if (mappedInput.hasTouch()) {
-    const auto actions = promptActionLayout(*screen, *metrics, height);
-    const char* labels[] = {tr(STR_YES), tr(STR_NO)};
-    TouchActionButtons::draw(renderer, actions, labels, 0, savePromptSelection, UI_10_FONT_ID);
-  } else {
-    // Button-only readers still need visible choices for Left/Right selection.
-    const int buttonY = top + 80;
-    constexpr int buttonWidth = 60;
-    constexpr int buttonSpacing = 30;
-    constexpr int totalWidth = buttonWidth * 2 + buttonSpacing;
-    const int startX = screen->x + (screen->width - totalWidth) / 2;
-
-    if (savePromptSelection == 0) {
-      const std::string text = "[" + std::string(tr(STR_YES)) + "]";
-      renderer.drawText(UI_10_FONT_ID, startX, buttonY, text.c_str());
-    } else {
-      renderer.drawText(UI_10_FONT_ID, startX + 4, buttonY, tr(STR_YES));
-    }
-
-    if (savePromptSelection == 1) {
-      const std::string text = "[" + std::string(tr(STR_NO)) + "]";
-      renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing, buttonY, text.c_str());
-    } else {
-      renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing + 4, buttonY, tr(STR_NO));
-    }
-  }
+  // Full-width choices on every device; Up/Left and Down/Right move between them on button readers.
+  const auto actions = promptActionLayout(*screen, *metrics, height);
+  const char* actionLabels[] = {tr(STR_YES), tr(STR_NO)};
+  TouchActionButtons::draw(renderer, actions, actionLabels, 0, savePromptSelection, UI_10_FONT_ID);
 
   // Use centralized button hints
   const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
