@@ -24,6 +24,7 @@ class BatteryStatsActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  void onFrontlightPanelClosed() override;
   bool powerOffPanelWhenIdle() const override { return true; }
   // Reading the log runs a slice per loop pass: no idle wait between slices.
   bool skipLoopDelay() override { return loading; }
@@ -60,6 +61,4 @@ class BatteryStatsActivity final : public Activity {
   int scroll = 0;           // first line drawn
   bool more = false;        // lines were cut off below
   uint16_t builtState = 0;  // estimateState() the estimate line was built for
-  uint16_t seenState = 0;   // last estimateState() seen in loop(), and since when
-  uint32_t seenMs = 0;
 };
