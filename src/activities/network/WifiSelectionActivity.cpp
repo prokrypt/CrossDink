@@ -745,6 +745,11 @@ void WifiSelectionActivity::handleAutoConnectFailure() {
     return;
   }
 
+  // The quick attempt before scanning can fail while the radio or AP is
+  // settling. Let the scan try that saved network once more if it is visible.
+  // Once scan results exist, the branch above keeps attempts bounded to one
+  // per saved SSID and falls back to the picker when they are exhausted.
+  autoAttemptedSsids.clear();
   startWifiScan(true);
 }
 
