@@ -874,8 +874,13 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   int16_t buttonHeaderHeight = 0;
   if (buttonDevice) {
     const auto& metrics = UITheme::getInstance().getMetrics();
-    buttonHeaderHeight = static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                              ReaderBookSummary::height(renderer, chapterTitle.c_str()));
+    const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+    const int summaryHeight = ReaderBookSummary::height(renderer, chapterTitle.c_str());
+    buttonHeaderHeight =
+        static_cast<int16_t>(renderer.hasCustomViewableInsets()
+                                 ? std::max(0, header.y + header.height + summaryHeight - screen.contentRect().y)
+                                 : metrics.topPadding + header.height + summaryHeight);
     screen.takeTop(buttonHeaderHeight);
   }
   // Give every tab row four pixels of white space above and below its icons.
@@ -953,9 +958,7 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
 
 void EpubReaderDrawerActivity::drawButtonBookHeader() {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
   GUI.drawHeader(renderer, header, epub ? epub->getTitle().c_str() : "", nullptr, false, true);
 
   char progress[96];
@@ -2900,15 +2903,14 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
     GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
     fontPreviewLoading = false;
   }
-  app.setDevice(uiTarget.deviceContext());
-  app.render();
+  renderUiApp(app, uiTarget);
   if (buttonDevice) drawButtonBookHeader();
   if (CROSSDINK_APP_READER_SAMPLE_PREVIEW) {
     previewDirty = true;  // The full-screen UI cleared the sample area as well.
     previewRendered = renderPreview(previewFontId, previewPrewarmScope);
     // cppcheck-suppress knownConditionTrueFalse ; compile-time constant on builds without the sample preview
     if (showsSamplePreview() && previewUnavailable) {
-      app.render();  // A failed font selection rolled the draft back; repaint its values too.
+      renderUiApp(app, uiTarget);  // A failed font selection rolled the draft back; repaint its values too.
       drawButtonBookHeader();
       renderPreviewUnavailable();
     }

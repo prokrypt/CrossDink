@@ -189,6 +189,7 @@ class KeyboardEntryActivity : public Activity {
   static size_t utf8Next(const std::string& s, size_t pos);
 
   freeink::ui::Rect keyboardRect() const;
+  int textFieldMargin() const;
 
   static KNOB_ALIAS(LONG_PRESS_MS, kbdHoldMs);  // Goodies > Knobs, as the three below
   static KNOB_ALIAS(DEL_LONG_PRESS_MS, kbdDelHoldMs);

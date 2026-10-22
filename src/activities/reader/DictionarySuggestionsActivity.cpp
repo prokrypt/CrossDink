@@ -54,10 +54,11 @@ void DictionarySuggestionsActivity::suggestionsScreen(UiApp::ScreenType& screen,
 
 void DictionarySuggestionsActivity::buildSuggestionsScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                       metrics.verticalSpacing),
-                  0, static_cast<int16_t>(metrics.buttonHintsHeight + metrics.verticalSpacing), 0});
+  setUiContentMargin(
+      screen, renderer,
+      fui::Insets{
+          static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing), 0,
+          static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing), 0});
 
   fui::ListProps props;
   props.items = uiItems.data();
@@ -131,7 +132,7 @@ void DictionarySuggestionsActivity::render(RenderLock&&) {
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_DICT_DID_YOU_MEAN), true);
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

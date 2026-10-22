@@ -22,6 +22,7 @@
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
@@ -743,10 +744,11 @@ void NearbyBookTransferActivity::onRowEvent(const fui::ActionEvent& event, void*
 
 void NearbyBookTransferActivity::buildMenuScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                       metrics.verticalSpacing),
-                  0, static_cast<int16_t>(metrics.buttonHintsHeight + metrics.verticalSpacing), 0});
+  setUiContentMargin(
+      screen, renderer,
+      fui::Insets{
+          static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing), 0,
+          static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing), 0});
 
   std::array<fui::ListItem, MAX_PEERS> items{};
   const int count = menuItemCount();
@@ -873,7 +875,7 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
   };
   uiReady_ = false;
   if (isMenuState()) {
-    app_.render();
+    renderUiApp(app_, uiTarget_);
     uiReady_ = true;
   } else if (state_ == State::Listening) {
     centered(tr(STR_NEARBY_TRANSFER_LISTENING));

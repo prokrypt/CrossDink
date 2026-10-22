@@ -50,6 +50,7 @@ class TxtReaderActivity final : public Activity {
   uint8_t cachedParagraphAlignment = CrossPointSettings::LEFT_ALIGN;
   int cachedTopStatusBarHeight = 0;
   int cachedBottomStatusBarHeight = 0;
+  ScreenInsets cachedViewableInsets;
   int cachedOrientedMarginTop = 0;
   int cachedOrientedMarginRight = 0;
   int cachedOrientedMarginBottom = 0;
