@@ -114,6 +114,16 @@ class WordSelectNavigator {
   // highlighted word changed.
   bool selectWordAtPoint(int x, int y, int lineHeight, bool* hit = nullptr);
 
+  // Endpoint editing keeps the opposite endpoint fixed. Nearest-word dragging
+  // prioritizes the row, so crossing a line gap cannot jump to a distant column.
+  bool selectIndex(int index);
+  bool selectNearestWord(int x, int y, int lineHeight);
+  bool setTouchSelection(int anchor, int cursor);
+  void clearTouchSelection() {
+    inMultiSelectMode = false;
+    clearCompletedSelection();
+  }
+
   // Currently highlighted word. nullptr if the word list is empty.
   const WordInfo* getSelected() const;
 
@@ -125,6 +135,8 @@ class WordSelectNavigator {
   // Range selected for the current lookup. A completed multi-select remains
   // available until its caller consumes it, even though the visual mode exits.
   bool getLookupSelectionRange(int& fromIdx, int& toIdx) const;
+  // Normalized visual bounds include both fragments of a wrapped word.
+  bool getExpandedSelectionRange(int& fromIdx, int& toIdx) const;
   size_t getLookupSelectionWordCount() const;
   void clearCompletedSelection() {
     completedSelectionStart = -1;
