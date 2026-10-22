@@ -2620,10 +2620,19 @@ void EpubReaderDrawerActivity::renderPreviewWithAntiAliasing(const int previewFo
 
 void EpubReaderDrawerActivity::loop() {
   // A swipe begun while the drawer was still drawing must not close it (the reader would then
-  // take the release and reopen it): ignore every contact that began before the first frame.
+  // take the release and reopen it): ignore every contact that began before the first frame,
+  // except a repeat of the opening swipe (double swipe), which goes Home. A swipe is only known
+  // at its release, so such a contact runs until then and is dropped on that frame.
   const unsigned long drawnAt = firstDrawDoneMs.load();
-  if (mappedInput.touchContactBeganBefore(drawnAt != 0 ? drawnAt : millis() + 1)) {
-    mappedInput.suppressCurrentTouchContact();
+  const bool earlyContact = mappedInput.touchContactBeganBefore(drawnAt != 0 ? drawnAt : millis() + 1);
+  if (earlyContact) {
+    if (mappedInput.wasReaderMenuGesture()) {
+      closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
+      return;
+    }
+    int heldX = 0;
+    int heldY = 0;
+    if (!mappedInput.isScreenTouchHeld(heldX, heldY)) mappedInput.suppressCurrentTouchContact();
   }
   if (mappedInput.wasBottomEdgeUpSwipe()) {
     closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
@@ -2639,7 +2648,7 @@ void EpubReaderDrawerActivity::loop() {
     scrollBy(swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows);
     return;
   }
-  if (uiReady) {
+  if (uiReady && !earlyContact) {
     fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
     // List rows (and the Percent/StablePage keypad, which is buttons only, not a
     // slider) activate on release. Do not route their touch-down edge, otherwise a
