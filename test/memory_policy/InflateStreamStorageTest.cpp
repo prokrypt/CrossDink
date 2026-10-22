@@ -166,3 +166,30 @@ TEST_F(InflateStreamStorageTest, CorruptAndTruncatedStreamsFail) {
     EXPECT_EQ(status, InflateStream::Status::Error);
   }
 }
+TEST_F(InflateStreamStorageTest, FedPiecesInflateLikeTheOtaUpload) {
+  const auto input = raw();
+  const auto encoded = compress(input);
+  for (size_t cut : {encoded.size(), encoded.size() - 1}) {
+    InflateStream stream;
+    ASSERT_TRUE(stream.init(true));
+    stream.setZlibWrapped();
+    std::vector<uint8_t> actual;
+    std::array<uint8_t, 4096> out{};
+    InflateStream::Status status = InflateStream::Status::Ok;
+    for (size_t at = 0; at < cut && status != InflateStream::Status::Done; at += 1436) {
+      stream.feed(encoded.data() + at, std::min(size_t{1436}, cut - at));
+      size_t got = out.size();
+      while (status == InflateStream::Status::Ok && got == out.size()) {
+        status = stream.readAtMost(out.data(), out.size(), &got);
+        ASSERT_NE(status, InflateStream::Status::Error);
+        actual.insert(actual.end(), out.begin(), out.begin() + got);
+      }
+    }
+    if (cut == encoded.size()) {
+      EXPECT_EQ(status, InflateStream::Status::Done);
+      EXPECT_EQ(actual, input);
+    } else {
+      EXPECT_EQ(status, InflateStream::Status::Ok);  // one byte short: still waiting, never Done
+    }
+  }
+}

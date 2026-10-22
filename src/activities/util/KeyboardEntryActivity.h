@@ -35,7 +35,6 @@ class KeyboardEntryActivity : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
-  bool batchesInputDuringRefresh() const override { return true; }
 
  private:
   std::string title;
