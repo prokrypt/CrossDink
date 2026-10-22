@@ -11,14 +11,16 @@
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #if CROSSDINK_SCALABLE_FONTS
+#include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalScalableFont.h>
 
-#include <filesystem>
 #include <fstream>
 
 #include "FontInstaller.h"
 #include "TtfRenderProfileStore.h"
+#include "util/WordSelectNavigator.h"
 #endif
 #include <memory>
 #include <vector>
@@ -31,6 +33,8 @@
 #include "SettingsList.h"
 #include "activities/ActivityManager.h"
 #include "activities/home/RecentBookProgress.h"
+#include "activities/reader/BookLoadingFeedback.h"
+#include "activities/reader/BookReadingStats.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/ReaderFontLoading.h"
@@ -104,6 +108,7 @@ enum class SmokeStep : uint8_t {
   ReaderInput,
   CompletionReturnedHome,
   CompletionReaderRestored,
+  CarouselHome,
   Done,
 };
 
@@ -161,6 +166,11 @@ class SimulatorSmokeTest {
   unsigned libraryRefreshPass = 0;
   uint16_t libraryBaselineBooks = 0;
   SmokeStep inputCompletionStep = SmokeStep::Done;
+  unsigned carouselCachePass = 0;
+  std::filesystem::file_time_type carouselCacheWrittenAt;
+  std::filesystem::file_time_type carouselSecondWrittenAt;
+  uint64_t carouselCacheHash = 0;
+  uint64_t carouselScreenHash = 0;
 
   static bool enabled() { return std::getenv("CROSSDINK_SIMULATOR_SMOKE_TEST") != nullptr; }
 
@@ -833,6 +843,111 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Wake Power hold/release ignored; fresh long press opens Quick Actions");
   }
 
+  // The SDK measures a twist in the panel's touch frame and the reader turns by
+  // its sign. Every board maps its digitizer into that frame (the swap/flip
+  // that makes taps land), so the sign is right on all of them as long as each
+  // reading orientation keeps a clockwise turn clockwise; a mirroring step in
+  // tapToLogical would make a twist turn the page the wrong way.
+  void verifyTwoFingerRotationHandedness() {
+#if CROSSDINK_APP_CAP_TOUCH
+    RenderLock lock;
+    const auto originalOrientation = renderer.getOrientation();
+    // Normalized panel coordinates, Y down: the second line is the first one
+    // turned 30 degrees clockwise about the panel center.
+    const float lines[2][4] = {{0.40f, 0.50f, 0.60f, 0.50f}, {0.4134f, 0.45f, 0.5866f, 0.55f}};
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise,
+                                   GfxRenderer::PortraitInverted, GfxRenderer::LandscapeCounterClockwise}) {
+      renderer.setOrientation(orientation);
+      int logical[2][4] = {};
+      for (int line = 0; line < 2; ++line) {
+        renderer.tapToLogical(lines[line][0], lines[line][1], logical[line][0], logical[line][1]);
+        renderer.tapToLogical(lines[line][2], lines[line][3], logical[line][2], logical[line][3]);
+      }
+      const int64_t fromDx = logical[0][2] - logical[0][0];
+      const int64_t fromDy = logical[0][3] - logical[0][1];
+      const int64_t toDx = logical[1][2] - logical[1][0];
+      const int64_t toDy = logical[1][3] - logical[1][1];
+      if (fromDx * toDy - fromDy * toDx <= 0) {
+        fail("Clockwise panel twist reads counterclockwise in orientation %d", static_cast<int>(orientation));
+      }
+    }
+    renderer.setOrientation(originalOrientation);
+    for (uint8_t orientation = 0; orientation < CrossPointSettings::ORIENTATION_COUNT; ++orientation) {
+      if (ReaderUtils::rotatedOrientation(ReaderUtils::rotatedOrientation(orientation, true), false) != orientation) {
+        fail("Opposite two-finger rotations do not return to orientation %u", orientation);
+      }
+    }
+    LOG_INF("SMOKE", "Two-finger rotation keeps its direction in all orientations");
+#endif
+  }
+
+#if CROSSDINK_SCALABLE_FONTS
+  void verifyBlockFontSizes(const int readerFontId) {
+    RenderLock lock;
+    const int baseFont = renderer.getFontIdForSize(readerFontId, 12);
+    if (renderer.getFontPointSize(baseFont) != 12) fail("Missing scalable body size");
+    for (const uint8_t points : {8, 12, 24, 32, 44}) {
+      if (renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, points)) != points)
+        fail("Missing scalable content size %u", unsigned(points));
+    }
+    const std::string path = "/block-font-smoke.xhtml";
+    if (!Storage.writeFile(path.c_str(),
+                           "<html><body><h1>Heading Heading Heading Heading Heading</h1>"
+                           "<p style=\"font-size:150%\">Large Large Large</p><p>Body Body Body</p></body></html>"))
+      fail("Cannot write block font fixture");
+    Epub book("/block-font-smoke.epub", "/.crossdink");
+    CssParser css("/.crossdink/block-font-smoke");
+    unsigned checked = 0;
+    ChapterHtmlSlimParser parser(
+        book, path, renderer, baseFont, 1.0f, false, false, 1, 320, 600, false, false, false, 0,
+        [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+          FsFile file;
+          if (!Storage.openFileForWrite("SMOKE", "/block-font-page", file) || !page->serialize(file))
+            fail("Cannot save sized page");
+          file.close();
+          if (!Storage.openFileForRead("SMOKE", "/block-font-page", file)) fail("Cannot reload sized page");
+          auto restored = Page::deserialize(file);
+          file.close();
+          if (!restored) fail("Sized page cache did not round trip");
+          int bottom = 0;
+          for (const auto& element : restored->elements) {
+            if (element->getTag() != TAG_PageLine) continue;
+            const auto& line = static_cast<const PageLine&>(*element);
+            const auto& block = *line.getBlock();
+            if (!block.wordCount()) continue;
+            const char* word = block.wordText(0);
+            const int expected = std::strcmp(word, "Heading") == 0 ? 24 : std::strcmp(word, "Large") == 0 ? 18 : 12;
+            const int actualFont = block.resolvedFontId(renderer, baseFont);
+            if (block.getBlockStyle().fontSize != expected || renderer.getFontPointSize(actualFont) != expected ||
+                block.getBlockStyle().lineHeight != renderer.getLineHeight(actualFont))
+              fail("Sized page metrics mismatch: %s", word);
+            if (line.yPos < bottom || line.yPos + block.getBlockStyle().lineHeight > 600)
+              fail("Sized page lines overlap or overflow");
+            bottom = line.yPos + block.getBlockStyle().lineHeight;
+            ++checked;
+          }
+          restored->renderText(renderer, baseFont, 0, 0);
+        },
+        true, "", "", 0, {}, nullptr, &css);
+    if (!parser.parseAndBuildPages() || checked < 3) fail("Block font parser smoke failed");
+    WordSelectNavigator navigator;
+    WordSelectNavigator::WordInfo word;
+    word.textLen = word.lookupLen = 7;
+    word.screenX = 20;
+    word.screenY = 20;
+    word.width = 100;
+    word.setLineHeight(60);
+    word.fontId = renderer.getFontIdForSize(baseFont, 24);
+    navigator.load({word}, {{20, 0, 1}}, "Heading", false);
+    bool hit = false;
+    navigator.selectWordAtPoint(50, 75, 20, &hit);
+    if (!hit) fail("Heading word selection used body height");
+    Storage.remove(path.c_str());
+    Storage.remove("/block-font-page");
+    LOG_INF("SMOKE", "Block font sizes: layout, cache, rendering and selection passed");
+  }
+#endif
+
   static void verifyCachedHomeProgressMigration() {
     const RecentBook book{"/books/legacy-home-smoke.epub", "Legacy Home smoke", {}, {}};
     const std::string legacy = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
@@ -854,6 +969,128 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Legacy Home progress migration without EPUB loading passed");
   }
 
+  static uint64_t hashBytes(const uint8_t* bytes, size_t size, uint64_t hash = 14695981039346656037ull) {
+    for (size_t i = 0; i < size; ++i) {
+      hash ^= bytes[i];
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+
+  static uint64_t hashCarouselCache() {
+    FsFile file;
+    if (!Storage.openFileForRead("SMOKE", "/.crossdink/home_carousel_cache_0.bin", file)) {
+      fail("Carousel did not publish an artwork cache");
+    }
+    if (file.size() < renderer.getBufferSize() || file.size() >= 2 * renderer.getBufferSize()) {
+      file.close();
+      fail("Carousel snapshot must contain only one viewed artwork frame");
+    }
+    uint64_t hash = 14695981039346656037ull;
+    uint8_t bytes[128];
+    int count;
+    while ((count = file.read(bytes, sizeof(bytes))) > 0) hash = hashBytes(bytes, count, hash);
+    file.close();
+    return hash;
+  }
+
+  void queueCarouselSwipe(bool next) {
+    ++carouselCachePass;
+    inputScript.clear();
+    scriptIndex = 0;
+    inputCompletionStep = SmokeStep::CarouselHome;
+#if CROSSDINK_APP_CAP_TOUCH
+    if (mappedInputManager.hasTouchHardware()) {
+      const int startX = renderer.getScreenWidth() * (next ? 3 : 1) / 4;
+      const int endX = renderer.getScreenWidth() * (next ? 1 : 3) / 4;
+      const int y = renderer.getScreenHeight() / 2;
+      inputScript.push_back(touchDown(startX, y));
+      inputScript.push_back(touchMove(endX, y));
+      inputScript.push_back(touchRelease(endX, y));
+    } else
+#endif
+    {
+      addTap(next ? MappedInputManager::Button::Right : MappedInputManager::Button::Left);
+    }
+    inputScript.push_back(render("Carousel viewed position", 8));
+    step = SmokeStep::ReaderInput;
+  }
+
+  void verifyCarouselCacheReturn() {
+    const auto writtenAt = std::filesystem::last_write_time("fs_/.crossdink/home_carousel_cache_0.bin");
+    const uint64_t cacheHash = hashCarouselCache();
+    uint64_t screenHash;
+    {
+      RenderLock lock;
+      screenHash = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+    }
+    if (carouselCachePass == 0) {
+      if (Storage.exists("/.crossdink/home_carousel_cache_1.bin") ||
+          Storage.exists("/.crossdink/home_carousel_cache_2.bin")) {
+        fail("Carousel eagerly prepared unviewed positions");
+      }
+      carouselCacheWrittenAt = writtenAt;
+      carouselCacheHash = cacheHash;
+      const RecentBook& book = RECENT_BOOKS.getBooks().front();
+      const std::string cachePath = Epub::resolveCachePathForFilePath(book.path, "/.crossdink");
+      const float oldProgress = RecentBookProgress::loadCachedEpubPercent(book);
+      RecentBookProgress::saveCachedEpubPercent(cachePath, oldProgress < 50.0f ? 75.0f : 25.0f);
+      BookReadingStats stats = BookReadingStats::load(cachePath);
+      stats.sessionCount = 1;
+      stats.totalReadingSeconds += 7200;
+      if (!stats.save(cachePath)) fail("Cannot save carousel stats fixture");
+    } else if (carouselCachePass <= 2) {
+      if (writtenAt != carouselCacheWrittenAt || cacheHash != carouselCacheHash) {
+        fail("Reading progress/stats or tracking settings rebuilt the carousel artwork");
+      }
+      if (screenHash == carouselScreenHash) fail("Carousel restored stale progress/stats or menu pixels");
+      if (carouselCachePass == 1) {
+        SETTINGS.trackReadingStats = 0;
+      } else {
+        SETTINGS.screenInverted = !SETTINGS.screenInverted;
+      }
+    } else if (carouselCachePass == 3) {
+      if (cacheHash == carouselCacheHash) fail("Dark Mode did not invalidate carousel artwork");
+      carouselCacheHash = cacheHash;
+      const RecentBook book = RECENT_BOOKS.getBooks().front();
+      if (!RECENT_BOOKS.updateBook(book.path, "Changed carousel title", book.author, book.coverBmpPath,
+                                   book.coverState))
+        fail("Cannot update carousel title fixture");
+    } else if (carouselCachePass == 4) {
+      if (cacheHash == carouselCacheHash) fail("Title changes did not invalidate carousel artwork");
+      carouselCacheHash = cacheHash;
+      carouselCacheWrittenAt = writtenAt;
+      queueCarouselSwipe(true);
+      return;
+    } else {
+      if (cacheHash != carouselCacheHash || writtenAt != carouselCacheWrittenAt) {
+        fail("Navigating the carousel rewrote an already cached position");
+      }
+      const bool secondExists = Storage.exists("/.crossdink/home_carousel_cache_1.bin");
+      if (!secondExists || Storage.exists("/.crossdink/home_carousel_cache_2.bin")) {
+        fail("Carousel navigation did not cache only the viewed position");
+      }
+      const auto secondWrittenAt = std::filesystem::last_write_time("fs_/.crossdink/home_carousel_cache_1.bin");
+      const int selected = carouselCachePass == 5 ? 1 : 0;
+      if (activityManager.getCurrentBookPath() != RECENT_BOOKS.getBooks()[selected].path) {
+        fail("Carousel swipe did not select the expected book");
+      }
+      if (carouselCachePass == 5) {
+        carouselSecondWrittenAt = secondWrittenAt;
+        queueCarouselSwipe(false);
+        return;
+      }
+      if (secondWrittenAt != carouselSecondWrittenAt) fail("Carousel rewrote the previous position while leaving it");
+      LOG_INF("SMOKE", "Carousel lazy cache, live progress/stats/menu, Dark Mode and title invalidation passed");
+      step = SmokeStep::Done;
+      return;
+    }
+    carouselScreenHash = screenHash;
+    ++carouselCachePass;
+    activityManager.goHome();
+    queueStep("Carousel return cache", SmokeStep::CarouselHome, 8);
+  }
+
   void tickImpl() {
     mappedInputManager.simulatorClearInputFrame();
 
@@ -870,6 +1107,7 @@ class SimulatorSmokeTest {
       case SmokeStep::Start:
         LOG_INF("SMOKE", "Starting simulator smoke test");
         verifyLoadingPopupBackdrop();
+        verifyTwoFingerRotationHandedness();
         verifyCachedHomeProgressMigration();
         if (!CrossPointSettings::verifySleepTimeoutMigrationContract()) {
           fail("Sleep timeout migration contract failed");
@@ -885,6 +1123,7 @@ class SimulatorSmokeTest {
         verifyReaderControlsSettings();
         verifyMixedPageGestures();
 #if CROSSDINK_SCALABLE_FONTS
+        verifyBlockFontSizes(sdFontSystem.ensureBuiltInReaderFont(renderer));
         if (const char* family = std::getenv("CROSSDINK_SIMULATOR_SMOKE_FONT_FAMILY")) {
           // Exercise the production registry, adapter, size cache, and dictionary
           // handoff before the normal reader navigation smoke sequence.
@@ -905,6 +1144,7 @@ class SimulatorSmokeTest {
           SETTINGS.readerFontPointSize = 12;
           sdFontSystem.ensureLoaded(renderer);
           const int original = SETTINGS.getReaderFontId();
+          verifyBlockFontSizes(original);
           const TtfRenderProfile initialProfile = TTF_RENDER_PROFILES.profileFor(family);
           TtfRenderProfile nativeProfile = initialProfile;
           nativeProfile.hinting = 1;  // TtfRenderProfile: Native
@@ -1085,6 +1325,17 @@ class SimulatorSmokeTest {
         break;
 
       case SmokeStep::Home:
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK_LOADING")) {
+          RenderLock lock;
+          BookLoadingFeedback feedback;
+          feedback.start(millis());
+          if (feedback.showIfDue(renderer)) fail("Fast book open showed loading feedback");
+          // Simulate elapsed loading time without slowing normal smoke runs.
+          feedback.start(millis() - BookLoadingFeedback::DELAY_MS);
+          if (!feedback.showIfDue(renderer)) fail("Slow book open omitted loading feedback");
+          if (feedback.showIfDue(renderer)) fail("Book loading feedback refreshed twice");
+          LOG_INF("SMOKE", "Delayed book loading feedback passed");
+        }
         activityManager.goToFileBrowser("/books");
         queueStep("File Browser", SmokeStep::FileBrowser);
         break;
@@ -1235,7 +1486,24 @@ class SimulatorSmokeTest {
         runReaderInputScript();
         break;
 
+      case SmokeStep::CarouselHome:
+        verifyCarouselCacheReturn();
+        break;
+
       case SmokeStep::Done:
+        if (SETTINGS.uiTheme == CrossPointSettings::LYRA_CAROUSEL && carouselCachePass == 0 &&
+            std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK")) {
+          const RecentBook book = RECENT_BOOKS.getBooks().front();
+          for (const char* path : {"/books/carousel-second.txt", "/books/carousel-third.txt"}) {
+            if (!Storage.writeFile(path, "Carousel side cover fixture")) fail("Cannot create carousel fixture");
+            RECENT_BOOKS.addOrUpdateBook(path, path, {}, {}, RecentBook::CoverState::Missing);
+          }
+          RECENT_BOOKS.addOrUpdateBook(book.path, book.title, book.author, book.coverBmpPath, book.coverState);
+          SETTINGS.trackReadingStats = 1;
+          activityManager.goHome();
+          queueStep("Carousel return cache", SmokeStep::CarouselHome, 8);
+          break;
+        }
         LOG_INF("SMOKE", "Simulator smoke test passed");
         std::_Exit(0);
     }
