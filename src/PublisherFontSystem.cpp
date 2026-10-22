@@ -1,8 +1,4 @@
-// clang-format off
-// HAL first: see BookFontSystem.h.
-#include <HalStorage.h>
-#include "BookFontSystem.h"
-// clang-format on
+#include "PublisherFontSystem.h"
 
 #if CROSSDINK_SCALABLE_FONTS
 #include <Epub.h>

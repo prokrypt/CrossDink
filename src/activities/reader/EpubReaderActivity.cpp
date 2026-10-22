@@ -36,7 +36,6 @@
 
 #include "../settings/DictionarySelectActivity.h"
 #include "../settings/KOReaderSettingsActivity.h"
-#include "BookFontSystem.h"
 #include "BookStatsActivity.h"
 #include "BookStatsTracking.h"
 #include "ClipSelectionActivity.h"
@@ -63,6 +62,7 @@
 #include "NearbyBookPositionSyncActivity.h"
 #include "PageWordGeometry.h"
 #include "ProgressMapper.h"
+#include "PublisherFontSystem.h"
 #include "QrDisplayActivity.h"
 #include "QuickActions.h"
 #include "ReaderExitSave.h"
