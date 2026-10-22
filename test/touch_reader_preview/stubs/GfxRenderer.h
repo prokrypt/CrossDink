@@ -21,6 +21,8 @@ class GfxRenderer {
   mutable std::vector<DrawCall> drawCalls;
   int spaceWidth = 1;
 
+  bool isFontCacheScanning() const { return false; }
+
   int getLineHeight(int) const { return 10; }
   int getTextHeight(int) const { return 10; }
   int getSpaceWidth(int, EpdFontFamily::Style) const { return spaceWidth; }

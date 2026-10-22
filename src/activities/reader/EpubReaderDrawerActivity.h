@@ -204,6 +204,7 @@ class EpubReaderDrawerActivity final : public Activity {
   void buildDrawer(UiApp::ScreenType& screen);
   void drawButtonBookHeader();
   bool showsSamplePreview() const;
+  bool samplePreviewBesideControls() const;
   void renderPreviewUnavailable();
   void renderSamplePreviewText(const ReaderSettingsDraft& settings, int fontId);
   void buildTabBar(UiApp::ScreenType& screen, freeink::ui::Rect rect, bool drawBottomRule);
@@ -223,6 +224,7 @@ class EpubReaderDrawerActivity final : public Activity {
   void buildAutoPageTurnPane(UiApp::ScreenType& screen);
   void buildConfirmButton(UiApp::ScreenType& screen);
   void buildDictionaryPane(UiApp::ScreenType& screen);
+  int currentFontSelectionIndex() const;
   void buildFontFamilyPane(UiApp::ScreenType& screen);
   void buildEnumOptionsPane(UiApp::ScreenType& screen);
   void buildTtfRenderingPane(UiApp::ScreenType& screen);
