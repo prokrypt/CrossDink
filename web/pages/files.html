@@ -104,7 +104,19 @@
               </div>
               <div class="setting-controls">
                 <label class="toggle-switch">
-                  <input type="checkbox" id="preserveCoverColorToggle" onchange="updateUploadSettingsPersistence()" checked />
+                  <input type="checkbox" id="preserveCoverColorToggle" onchange="updateUploadSettingsPersistence()" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="advanced-setting-row">
+              <div class="setting-label">
+                <div class="setting-title">Remove Embedded Fonts</div>
+                <div class="setting-desc">Use the reader's selected font</div>
+              </div>
+              <div class="setting-controls">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="removeEmbeddedFontsToggle" aria-label="Remove Embedded Fonts" onchange="updateUploadSettingsPersistence()" />
                   <span class="toggle-slider"></span>
                 </label>
               </div>
