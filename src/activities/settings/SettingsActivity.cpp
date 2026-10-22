@@ -630,7 +630,10 @@ void SettingsActivity::openScreenMarginPicker(const SettingInfo& setting) {
           StrId::STR_NONE_OPT, /*readerActivity=*/false,
           /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/false,
           StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
-          /*valueFormatter=*/nullptr, /*tapStep=*/5, /*useReaderSlider=*/true),
+          /*valueFormatter=*/nullptr, /*tapStep=*/5, /*useReaderSlider=*/true,
+          selectedSetting.valuePtr == &CrossPointSettings::screenMarginVertical
+              ? IntervalSelectionActivity::ReaderPreviewSetting::VerticalMargin
+              : IntervalSelectionActivity::ReaderPreviewSetting::HorizontalMargin),
       [this, selectedSetting](const ActivityResult& result) {
         if (!result.isCancelled) {
           SETTINGS.*(selectedSetting.valuePtr) = static_cast<uint8_t>(std::clamp(
@@ -650,7 +653,7 @@ void SettingsActivity::openWordSpacingPicker() {
           /*readerActivity=*/false, /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false,
           /*showPercentValue=*/false, StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false,
           /*showTouchHeaderBackButton=*/true, /*valueFormatter=*/nullptr, /*tapStep=*/1,
-          /*useReaderSlider=*/true),
+          /*useReaderSlider=*/true, IntervalSelectionActivity::ReaderPreviewSetting::WordSpacing),
       [this](const ActivityResult& result) {
         if (!result.isCancelled) {
           SETTINGS.wordSpacing =
@@ -1377,7 +1380,8 @@ void SettingsActivity::openLineHeightPicker() {
           StrId::STR_NONE_OPT, /*readerActivity=*/false,
           /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/true,
           StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false, /*showTouchHeaderBackButton=*/true,
-          /*valueFormatter=*/nullptr, /*tapStep=*/5, /*useReaderSlider=*/true),
+          /*valueFormatter=*/nullptr, /*tapStep=*/5, /*useReaderSlider=*/true,
+          IntervalSelectionActivity::ReaderPreviewSetting::LineSpacing),
       [this](const ActivityResult& result) {
         if (!result.isCancelled) {
           SETTINGS.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(
