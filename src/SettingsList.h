@@ -612,6 +612,10 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // touch devices, Publisher fonts on scalable-font builds, and the two tilt
 // page-turn entries inserted at runtime on devices with an IMU. The simulator
 // smoke test fails if this falls short.
+// Saves a What to Sync toggle (device screen and web settings alike) and
+// queues or drops that data's pending uploads to match.
+void setSyncDataEnabled(bool stats, bool enabled);
+
 #if CROSSDINK_SCALABLE_FONTS
 inline constexpr size_t PUBLISHER_FONT_SETTINGS = 1;
 #else
@@ -1101,7 +1105,7 @@ inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_FILES_CACHE, SettingAction::SystemFilesCache));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_READING_STATS, SettingAction::SystemReadingStats));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SYNC_SERVER, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));

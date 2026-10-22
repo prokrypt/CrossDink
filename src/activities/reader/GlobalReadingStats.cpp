@@ -227,6 +227,17 @@ bool saveToFile(const GlobalReadingStats& stats) {
 }
 }  // namespace
 
+bool GlobalReadingStats::loadForUpload(GlobalReadingStats& stats) {
+  stats = {};
+  if (const GlobalReadingStats* held = ReaderExitSave::global()) {  // newer than the file
+    stats = *held;
+    return true;
+  }
+  uint8_t data[two_slot::MAX_PAYLOAD_BYTES];
+  const size_t size = readNewest(isCurrentOrOlder, data);
+  return size != 0 && loadFromBytes(data, size, stats).result == StatsLoadResult::Ok;
+}
+
 GlobalReadingStats GlobalReadingStats::load() {
   if (const GlobalReadingStats* held = ReaderExitSave::global()) return *held;  // newer than the file
   GlobalReadingStats stats;

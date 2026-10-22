@@ -267,6 +267,13 @@ let allSettings = [];
       }
     });
 
+    if (Object.prototype.hasOwnProperty.call(changes, 'koMatchMethod') &&
+        !confirm('Change Document Matching? Books get new ids, so the next sync checks every book again. ' +
+                 'Progress already uploaded stays under the old ids until you merge books in the web app.')) {
+      delete changes.koMatchMethod;
+      setControlValue('koMatchMethod', originalValues.koMatchMethod);
+    }
+
     if (Object.keys(changes).length === 0) {
       showMessage('No changes to save.', false);
       btn.textContent = '💾 Save Settings';

@@ -48,5 +48,9 @@ struct Host {
 // Runs the book actions Library and File browser share. Returns false for any other
 // action, which the host handles itself.
 bool runSharedAction(FileBrowserAction action, const std::string& fullPath, const std::string& title, const Host& host);
+// Sync Book from a book list (EPUB or XTC): the sync screen to open over the
+// list, or Sync Server settings when no account is set up.
+std::unique_ptr<Activity> createSyncBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                                 const std::string& fullPath);
 
 }  // namespace BookActions

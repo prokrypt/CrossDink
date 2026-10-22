@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "sync/SyncPending.h"
+
 inline constexpr size_t CLIPPING_CHAPTER_TITLE_MAX = 48;
 // Clipping text lives on the SD card rather than in every in-memory clipping
 // record. Match the reader's bounded selection-text budget so previews retain
@@ -25,6 +27,10 @@ inline uint32_t clippingWordLayoutSignature(const uint32_t readerLayoutSignature
   signature *= 16777619U;
   return signature == 0 ? 1 : signature;
 }
+
+// Legacy values were millis()/1000 (at most one 32-bit millisecond wrap).
+// Zero is the wire/storage sentinel for an unknown calendar creation date.
+inline constexpr uint32_t clippingUnixTimestamp(uint32_t saved) { return saved >= 946684800U ? saved : 0; }
 
 struct Clipping {
   uint16_t spineIndex = 0;
@@ -94,11 +100,21 @@ class ClippingStore {
   bool readClippingPreview(size_t index, std::string& out) const;
   bool readClippingText(const Clipping& clipping, std::string& out) const;
 
+  // Read a single saved record for upload without loading the book's full index.
+  // Missing files/end of records are successful with done=true; corrupt data fails.
+  static bool readForUpload(const std::string& filePath, size_t ordinal, Clipping& clipping, std::string& text,
+                            bool& done);
   static bool hasAnyClippings();
   static bool getAllClippedBooks(std::vector<ClippedBookEntry>& out);
+  enum class ClippedBookStep : uint8_t { Book, Skip, Done, Error };
+  // Streams the clippings folder one file per call, with no list in RAM and no
+  // handle held between calls. `position` starts at 0 and is advanced here.
+  // Book: an EPUB with saved clippings that still exists at `bookPath`.
+  static ClippedBookStep nextClippedEpub(uint64_t& position, std::string& bookPath);
   static void deleteForFilePath(const std::string& filePath, const std::string& bookType);
   static bool migrateForFilePath(const std::string& oldFilePath, const std::string& newFilePath,
                                  const std::string& title, const std::string& author, const std::string& bookType);
+  // A clippings file (or its backup/temp twin) exists for this book.
   static bool hasStoredStateForFilePath(const std::string& filePath, const std::string& bookType);
   static bool beginRenameMigration(const std::string& oldFilePath, const std::string& newFilePath,
                                    const std::string& title, const std::string& author, const std::string& bookType,
@@ -111,13 +127,14 @@ class ClippingStore {
 
   std::vector<Clipping> clippings;
   std::string bookFilePath;
+  SyncPending::SessionMarker pendingSync;
   std::string bookTitle;
   std::string bookAuthor;
   std::string storeFilePath;
   bool dirty = false;
 
   bool readFromFile();
-  bool readFromFile(const std::string& path, std::vector<Clipping>& out) const;
+  bool readFromFile(const std::string& path, std::vector<Clipping>& out, size_t onlyIndex = SIZE_MAX) const;
   bool writeToFile(const std::string* replacementText = nullptr, size_t replacementIndex = SIZE_MAX,
                    const std::string* sourcePathOverride = nullptr);
 };

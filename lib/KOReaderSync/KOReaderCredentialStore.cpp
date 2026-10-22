@@ -27,6 +27,12 @@ void KOReaderCredentialStore::toJson(JsonDocument& doc) const {
   doc["serverUrl"] = serverUrl;
   doc["matchMethod"] = static_cast<uint8_t>(matchMethod);
   doc["sendMetadata"] = sendMetadata;
+  doc["syncStats"] = syncStats;
+  doc["syncClippings"] = syncClippings;
+  if (serverSupport != SyncServerSupport::UNKNOWN && !serverSupportUrl.empty()) {
+    doc["serverSupport"] = static_cast<uint8_t>(serverSupport);
+    doc["serverSupportUrl"] = serverSupportUrl;
+  }
   doc["syncBehavior"] = static_cast<uint8_t>(syncBehavior);
 }
 
@@ -71,6 +77,13 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
     setMatchMethod(DocumentMatchMethod::FILENAME);
   }
   setSendMetadata(doc["sendMetadata"] | false);
+  setSyncStats(doc["syncStats"] | false);
+  setSyncClippings(doc["syncClippings"] | false);
+  const uint8_t support = doc["serverSupport"] | (uint8_t)0;
+  serverSupportUrl = doc["serverSupportUrl"] | "";
+  serverSupport = support <= static_cast<uint8_t>(SyncServerSupport::UNSUPPORTED)
+                      ? static_cast<SyncServerSupport>(support)
+                      : SyncServerSupport::UNKNOWN;
 
   const JsonVariantConst behaviorValue = doc["syncBehavior"];
   const bool missingBehavior = behaviorValue.isNull();
@@ -144,6 +157,48 @@ std::string KOReaderCredentialStore::getBaseUrl() const {
 }
 
 bool KOReaderCredentialStore::usesCrossPointSyncServer() const { return getBaseUrl() == DEFAULT_SERVER_URL; }
+
+SyncServerSupport KOReaderCredentialStore::getServerSupport() const {
+  ensureLoaded();
+  const std::string base = getBaseUrl();
+  if (base == DEFAULT_SERVER_URL) return SyncServerSupport::SUPPORTED;
+  // A changed URL (from the device or the web portal) invalidates what was learned.
+  return base == serverSupportUrl ? serverSupport : SyncServerSupport::UNKNOWN;
+}
+
+void KOReaderCredentialStore::setServerSupport(const SyncServerSupport support) {
+  ensureLoaded();
+  std::string base = getBaseUrl();
+  if (base == DEFAULT_SERVER_URL) return;  // Always supported; nothing to learn or persist.
+  if (support == serverSupport && base == serverSupportUrl) return;
+  serverSupport = support;
+  serverSupportUrl = std::move(base);
+  LOG_INF("KRS", "Sync server extensions: %s",
+          support == SyncServerSupport::SUPPORTED     ? "supported"
+          : support == SyncServerSupport::UNSUPPORTED ? "unsupported"
+                                                      : "unknown");
+  if (!saveToFile()) LOG_ERR("KRS", "Cannot save sync server support");
+}
+
+bool KOReaderCredentialStore::getSyncStats() const {
+  ensureLoaded();
+  return syncStats && getServerSupport() != SyncServerSupport::UNSUPPORTED;
+}
+
+bool KOReaderCredentialStore::getSyncClippings() const {
+  ensureLoaded();
+  return syncClippings && getServerSupport() != SyncServerSupport::UNSUPPORTED;
+}
+
+void KOReaderCredentialStore::setSyncStats(const bool enabled) {
+  ensureLoaded();
+  syncStats = enabled;
+}
+
+void KOReaderCredentialStore::setSyncClippings(const bool enabled) {
+  ensureLoaded();
+  syncClippings = enabled;
+}
 
 void KOReaderCredentialStore::setMatchMethod(DocumentMatchMethod method) {
   ensureLoaded();

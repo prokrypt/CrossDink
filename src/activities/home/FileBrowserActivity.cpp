@@ -28,6 +28,7 @@
 #include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/network/StatsUploadActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -548,6 +549,7 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
   std::vector<FileBrowserActionActivity::MenuItem> items;
   items.push_back({useDefaultFolders ? FileBrowserAction::ClearSleepFolder : FileBrowserAction::SetSleepFolder,
                    useDefaultFolders ? StrId::STR_USE_DEFAULT_SLEEP_FOLDERS : StrId::STR_SET_AS_SLEEP_FOLDER});
+  items.push_back({FileBrowserAction::SyncFolder, StrId::STR_FOLDER_SYNC});
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
 
   startActivityForResult(
@@ -560,6 +562,16 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
 
         const auto action = static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
         switch (action) {
+          case FileBrowserAction::SyncFolder: {
+            // Asks first; this list stays underneath for when it is done.
+            auto sync = makeUniqueNoThrow<StatsUploadActivity>(renderer, mappedInput, fullPath);
+            if (!sync) {
+              LOG_ERR("FileBrowser", "Cannot allocate folder sync activity");
+              return;
+            }
+            startActivityForResult(std::move(sync), [this](const ActivityResult&) { requestUpdate(); });
+            return;
+          }
           case FileBrowserAction::Delete:
             promptDeleteDirectory(fullPath, entry);
             return;
@@ -589,6 +601,7 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry) {
           case FileBrowserAction::SelectChapter:
           case FileBrowserAction::ToggleTouchscreen:
           case FileBrowserAction::Rename:
+          case FileBrowserAction::SyncProgress:
             return;
         }
       });
