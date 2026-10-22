@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Logging.h>
 #include <WiFi.h>
 
 #include <algorithm>
@@ -45,6 +46,12 @@ inline void onWifiStaStop(WiFiEvent_t, WiFiEventInfo_t) {
   wifiRemoteRequestMs().store(0, std::memory_order_relaxed);
 }
 inline void onWifiStaGotIp(WiFiEvent_t, WiFiEventInfo_t) { wifiRemoteRequestMs().store(0, std::memory_order_relaxed); }
+// Arduino's auto-reconnect retries only some reasons (not AUTH_FAIL or an AP's low-ack kick), so log each one.
+inline void onWifiStaDisconnected(WiFiEvent_t, WiFiEventInfo_t info) {
+  const uint8_t reason = info.wifi_sta_disconnected.reason;
+  LOG_INF("WIFI", "disconnected: reason %u %s", reason,
+          WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)));
+}
 #endif
 
 // Call once at boot; the flag is only ever read by the header.
@@ -53,6 +60,7 @@ inline void registerWifiStaTracking() {
   WiFi.onEvent(onWifiStaStart, ARDUINO_EVENT_WIFI_STA_START);
   WiFi.onEvent(onWifiStaStop, ARDUINO_EVENT_WIFI_STA_STOP);
   WiFi.onEvent(onWifiStaGotIp, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(onWifiStaDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 #endif
 }
 
