@@ -24,6 +24,8 @@ constexpr int kStatsButtonHintTopGap = 10;
 constexpr int kStandaloneNoRtcMaxTopCardHeightDivisor = 2;
 constexpr int kStandaloneNoRtcMaxVerticalOffset = 32;
 constexpr int kPerBookRtcTopCardMaxExtra = 84;
+// BookStatsActivity draws page dots just above the button hints, inside the last card's bottom edge.
+constexpr int kPageIndicatorClearance = 14;
 
 struct StatsLayout {
   int headerHeight;
@@ -138,6 +140,14 @@ int globalRtcCardHeightForPerBookRowSpacing(const StatsLayout& layout, const int
   const int perBookDataRowH =
       (perBookRtcTopCardHeight(layout, perBookExtraHeight) - layout.topCardTitleH) / perBookDataRowCount;
   return std::max(layout.globalCardH, layout.topCardTitleH + perBookDataRowH * globalDataRowCount);
+}
+
+// Tightens the top card's rows so the page dots clear the last card. Returns the total height reserved;
+// anything the top card cannot give up comes out of the chart cards instead.
+int pageIndicatorClearance(int& extraTopCardHeight, const bool showPageIndicators) {
+  if (!showPageIndicators) return 0;
+  extraTopCardHeight -= std::min(extraTopCardHeight, kPageIndicatorClearance);
+  return kPageIndicatorClearance;
 }
 
 const StatsLayout& getStatsLayout(const GfxRenderer& renderer, const MappedInputManager* mappedInput,
@@ -442,8 +452,9 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
     const int compactContentHeight =
         headerHeight + layout.topGap + layout.topCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
     const int extraHeight = std::max(0, availableHeight - compactContentHeight);
-    const int extraTopCardHeight = std::min(extraHeight, kPerBookRtcTopCardMaxExtra);
-    const int remainingExtraHeight = extraHeight - extraTopCardHeight;
+    int extraTopCardHeight = std::min(extraHeight, kPerBookRtcTopCardMaxExtra);
+    const int indicatorClearance = pageIndicatorClearance(extraTopCardHeight, showButtonHints);
+    const int remainingExtraHeight = std::max(0, extraHeight - extraTopCardHeight - indicatorClearance);
     const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
     const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
     const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
@@ -517,8 +528,9 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
         headerHeight + layout.topGap + layout.topCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
     const int perBookExtraHeight = std::max(0, availableHeight - perBookCompactContentHeight);
     const int targetGlobalCardH = globalRtcCardHeightForPerBookRowSpacing(layout, perBookExtraHeight);
-    const int extraTopCardHeight = std::min(extraHeight, std::max(0, targetGlobalCardH - layout.globalCardH));
-    const int remainingExtraHeight = extraHeight - extraTopCardHeight;
+    int extraTopCardHeight = std::min(extraHeight, std::max(0, targetGlobalCardH - layout.globalCardH));
+    const int indicatorClearance = pageIndicatorClearance(extraTopCardHeight, showButtonHints);
+    const int remainingExtraHeight = std::max(0, extraHeight - extraTopCardHeight - indicatorClearance);
     const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
     const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
     const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
