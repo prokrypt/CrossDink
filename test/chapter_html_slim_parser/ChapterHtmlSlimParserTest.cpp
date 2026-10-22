@@ -15,6 +15,7 @@
 #undef class
 
 #include <Epub.h>
+#include <MemoryBudget.h>
 
 namespace {
 
@@ -40,6 +41,9 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
   std::array<BlockStyle, ChapterHtmlSlimParser::MAX_BLOCK_STYLE_DEPTH> blockStyles{};
 
   void SetUp() override {
+    GfxRenderer::loanActive = false;
+    GfxRenderer::fileProbeHadLoan = false;
+    MemoryBudget::imageAllowed = true;
     parser.currentTextBlock = std::make_unique<ParsedText>(false);
     parser.inlineStyleBuf_ = inlineStyles.data();
     parser.blockStyleBuf_ = blockStyles.data();
@@ -285,6 +289,94 @@ TEST_F(ChapterHtmlSlimParserTest, PreservesEmptyInlinePaddingBeforeDialogueText)
   EXPECT_EQ(renderedLine->wordXpos(1), 24);
 }
 
+// SOF header of a 800 x 200 JPEG. The real streaming dimension parser is linked.
+static const std::vector<uint8_t> jpegHeader = {0xff, 0xd8, 0xff, 0xc0, 0, 7, 8, 0, 200, 3, 32};
+
+TEST_F(ChapterHtmlSlimParserTest, OrdinaryImageHeaderDoesNotLoanWhenHeapProbeSucceeds) {
+  epub.probeBytes = jpegHeader;
+  const XML_Char* attributes[] = {"src", "wide.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  EXPECT_EQ(epub.streamReadCount, 1u);
+  EXPECT_EQ(epub.extractCount, 0u);
+  EXPECT_EQ(renderer.loans, 0u);
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, RetriesImageHeaderWithLoanAndKeepsLazySource) {
+  epub.probeBytes = jpegHeader;
+  epub.requireLoan = true;
+  const XML_Char* attributes[] = {"src", "wide.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  EXPECT_EQ(epub.streamReadCount, 2u);
+  EXPECT_EQ(epub.extractCount, 0u);
+  EXPECT_EQ(renderer.loans, 1u);
+  EXPECT_TRUE(renderer.hasFrameBuffer());
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+  const auto& image = static_cast<const PageImage&>(*parser.currentPage->elements.front()).getImageBlock();
+  EXPECT_EQ(image.getWidth(), 480);
+  EXPECT_EQ(image.getHeight(), 120);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FailedProbeLoansOnlyAfterHeapAttemptsFail) {
+  // streamFails: the read itself failed, so the probe retries under a loan.
+  // Otherwise the header was read but not understood: no probe retry.
+  for (const bool streamFails : {false, true}) {
+    epub.probeBytes = streamFails ? jpegHeader : std::vector<uint8_t>{0xff, 0xd8, 0x00};
+    epub.streamFails = streamFails;
+    epub.streamReadCount = epub.extractCount = 0;
+    renderer.loans = 0;
+    const XML_Char* attributes[] = {"src", "broken.jpg", nullptr};
+    ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+    EXPECT_EQ(epub.streamReadCount, streamFails ? 2u : 1u);
+    EXPECT_EQ(epub.extractCount, 2u);
+    EXPECT_TRUE(epub.extractHadLoan);
+    EXPECT_EQ(renderer.loans, streamFails ? 2u : 1u);
+    EXPECT_TRUE(renderer.hasFrameBuffer());
+    EXPECT_TRUE(!parser.currentPage || parser.currentPage->elements.empty());
+    ChapterHtmlSlimParser::endElement(&parser, "img");
+  }
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FullFileFallbackExtractsWithoutLoanWhenHeapSuffices) {
+  epub.probeBytes = {0xff, 0xd8, 0};
+  epub.extractSucceeds = true;
+  const XML_Char* attributes[] = {"src", "unusual.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  EXPECT_EQ(epub.extractCount, 1u);
+  EXPECT_FALSE(epub.extractHadLoan);
+  EXPECT_EQ(renderer.loans, 0u);
+  EXPECT_FALSE(GfxRenderer::fileProbeHadLoan);
+  EXPECT_TRUE(renderer.hasFrameBuffer());
+  ASSERT_NE(parser.currentPage, nullptr);
+  EXPECT_EQ(parser.currentPage->elements.size(), 1u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ImageAdmissionStillRejectsBeforeAnyProbeOrLoan) {
+  MemoryBudget::imageAllowed = false;
+  epub.probeBytes = jpegHeader;
+  epub.requireLoan = true;
+  const XML_Char* attributes[] = {"src", "wide.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  EXPECT_EQ(epub.streamReadCount, 0u);
+  EXPECT_EQ(epub.extractCount, 0u);
+  EXPECT_EQ(renderer.loans, 0u);
+  EXPECT_TRUE(parser.lowMemoryImageFallback);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, NestedProbeLoanDoesNotReturnOuterStorage) {
+  epub.probeBytes = {0xff, 0xd8, 0};
+  const XML_Char* attributes[] = {"src", "broken.jpg", nullptr};
+  {
+    GfxRenderer::FrameBufferLoan outer(renderer);
+    ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+    EXPECT_FALSE(renderer.hasFrameBuffer());
+    EXPECT_EQ(renderer.loans, 1u);
+  }
+  EXPECT_TRUE(renderer.hasFrameBuffer());
+}
+
 TEST_F(ChapterHtmlSlimParserTest, UsesOptimizerImageDimensionsWithoutReadingTheCompressedImage) {
   epub.optimizerImageAvailable = true;
   epub.optimizerImageWidth = 800;
@@ -294,12 +386,355 @@ TEST_F(ChapterHtmlSlimParserTest, UsesOptimizerImageDimensionsWithoutReadingTheC
   ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
 
   EXPECT_EQ(epub.streamReadCount, 0u);
+  EXPECT_EQ(renderer.loans, 0u);
   ASSERT_NE(parser.currentPage, nullptr);
   ASSERT_EQ(parser.currentPage->elements.size(), 1u);
   ASSERT_EQ(parser.currentPage->elements.front()->getTag(), TAG_PageImage);
   const auto& image = static_cast<const PageImage&>(*parser.currentPage->elements.front()).getImageBlock();
   EXPECT_EQ(image.getWidth(), 480);
   EXPECT_EQ(image.getHeight(), 4);
+  EXPECT_FALSE(static_cast<const PageImage&>(*parser.currentPage->elements.front()).isInlineImage());
+}
+
+// Perfidia's scene break: a 27x25 image nested in a French span in a centered p.
+TEST_F(ChapterHtmlSlimParserTest, HonorsPublisherCenterForImageOnlyParagraphWithReaderJustification) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Justify);
+  parser.forceParagraphIndents = true;
+  cssParser.rulesBySelector_[".MsoNormalCxSpFirst"] = CssParser::parseInlineStyle(
+      "display: block; font-size: 1.33333em; margin: 0; text-align: center; text-indent: 0");
+  cssParser.rulesBySelector_[".calibre9"] = CssParser::parseInlineStyle("width: 27; height: 25");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* paragraphAttributes[] = {"class", "MsoNormalCxSpFirst", nullptr};
+  const XML_Char* spanAttributes[] = {"lang", "FR", nullptr};
+  const XML_Char* imageAttributes[] = {"src", "image007.jpg", "class", "calibre9", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", paragraphAttributes);
+  ChapterHtmlSlimParser::startElement(&parser, "span", spanAttributes);
+  ChapterHtmlSlimParser::startElement(&parser, "img", imageAttributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  // End-element cleanup must not lose the source alignment before layout.
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().alignment, CssTextAlign::Justify);
+  ChapterHtmlSlimParser::characterData(&parser, "After", 5);
+  parser.flushPartWordBuffer();
+  parser.makePages();
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  ASSERT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements[0]->xPos, (parser.viewportWidth - 27) / 2);
+  EXPECT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageLine);
+  EXPECT_EQ(static_cast<const PageLine&>(*parser.currentPage->elements[1]).getBlock()->getBlockStyle().alignment,
+            CssTextAlign::Justify);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, InheritsPublisherAlignmentForImageOnlyParagraph) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["div"] = CssParser::parseInlineStyle("text-align: right");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* imageAttributes[] = {"src", "icon.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "div", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "img", imageAttributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+  EXPECT_EQ(parser.currentPage->elements[0]->xPos, parser.viewportWidth - 27);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, MixedImageParagraphKeepsReaderAlignment) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle("text-align: center");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* imageAttributes[] = {"src", "icon.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "img", imageAttributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  ChapterHtmlSlimParser::characterData(&parser, "After", 5);
+  parser.flushPartWordBuffer();
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  ASSERT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements[1]->xPos, 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ImageOnlyAlignmentWorksAcrossReadingModesAndReaderPreferences) {
+  for (const auto mode : {EpubRenderMode::CrossDinkDefault, EpubRenderMode::Balanced, EpubRenderMode::Light}) {
+    for (const auto readerAlignment :
+         {CssTextAlign::Justify, CssTextAlign::Left, CssTextAlign::Right, CssTextAlign::None}) {
+      for (const auto sourceAlignment : {"left", "center", "right"}) {
+        SCOPED_TRACE(std::string(sourceAlignment) + ":" + std::to_string(int(mode)) + ":" +
+                     std::to_string(int(readerAlignment)));
+        parser.renderMode = mode;
+        parser.paragraphAlignment = static_cast<uint8_t>(readerAlignment);
+        cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle(std::string("text-align: ") + sourceAlignment);
+        epub.optimizerImageAvailable = true;
+        epub.optimizerImageWidth = 27;
+        epub.optimizerImageHeight = 25;
+        const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+        ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+        ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+        ChapterHtmlSlimParser::endElement(&parser, "img");
+        ChapterHtmlSlimParser::endElement(&parser, "p");
+        parser.makePages();
+        ASSERT_NE(parser.currentPage, nullptr);
+        ASSERT_EQ(parser.currentPage->elements.back()->getTag(), TAG_PageImage);
+        const int expected = std::string(sourceAlignment) == "center"  ? (parser.viewportWidth - 27) / 2
+                             : std::string(sourceAlignment) == "right" ? parser.viewportWidth - 27
+                                                                       : 0;
+        EXPECT_EQ(parser.currentPage->elements.back()->xPos, expected);
+        parser.currentPage.reset();
+        parser.currentPageNextY = 0;
+        parser.currentTextBlock.reset();
+      }
+    }
+  }
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ImageOnlyTailAfterFlushedProseKeepsReaderAlignment) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle("text-align: center");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* imageAttributes[] = {"src", "icon.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Before ", 7);
+  parser.flushLongTextRunIfNeeded(true, true);
+  ASSERT_GT(parser.wordsExtractedInBlock, 0);
+  ChapterHtmlSlimParser::startElement(&parser, "img", imageAttributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.back()->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements.back()->xPos, 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, InheritsBodyAlignmentAndRespectsExplicitParagraphOverride) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["body"] = CssParser::parseInlineStyle("text-align: center");
+  cssParser.rulesBySelector_["p.left"] = CssParser::parseInlineStyle("text-align: left");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* imageAttributes[] = {"src", "icon.jpg", nullptr};
+  const XML_Char* leftAttributes[] = {"class", "left", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "body", nullptr);
+  for (int i = 0; i < 2; ++i) {
+    ChapterHtmlSlimParser::startElement(&parser, "p", i == 0 ? nullptr : leftAttributes);
+    ChapterHtmlSlimParser::startElement(&parser, "img", imageAttributes);
+    ChapterHtmlSlimParser::endElement(&parser, "img");
+    ChapterHtmlSlimParser::endElement(&parser, "p");
+  }
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  EXPECT_EQ(parser.currentPage->elements[0]->xPos, (parser.viewportWidth - 27) / 2);
+  EXPECT_EQ(parser.currentPage->elements[1]->xPos, 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, CentersMultipleImagesTogetherWithinPublisherInsets) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["p"] =
+      CssParser::parseInlineStyle("text-align: center; margin-left: 10px; margin-right: 20px");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  for (int i = 0; i < 2; ++i) {
+    ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+    ChapterHtmlSlimParser::endElement(&parser, "img");
+  }
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  const int expected = 10 + (parser.viewportWidth - 30 - 54) / 2;
+  EXPECT_EQ(parser.currentPage->elements[0]->xPos, expected);
+  EXPECT_EQ(parser.currentPage->elements[1]->xPos, expected + 27);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ImageAfterLineBreakInMixedParagraphKeepsReaderAlignment) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle("text-align: center");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Before", 6);
+  ChapterHtmlSlimParser::startElement(&parser, "br", nullptr);
+  ChapterHtmlSlimParser::endElement(&parser, "br");
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  ASSERT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements[1]->xPos, 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ImageBeforeLineBreakAndCaptionKeepsReaderAlignment) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle("text-align: center");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  ChapterHtmlSlimParser::startElement(&parser, "br", nullptr);
+  ChapterHtmlSlimParser::endElement(&parser, "br");
+  ChapterHtmlSlimParser::characterData(&parser, "Caption", 7);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  ASSERT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements[0]->xPos, 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ImageOnlyParagraphWithoutEmbeddedStylesKeepsReaderAlignment) {
+  parser.embeddedStyle = false;
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["p"] = CssParser::parseInlineStyle("text-align: center");
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 27;
+  epub.optimizerImageHeight = 25;
+  const XML_Char* imageAttributes[] = {"src", "icon.jpg", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "img", imageAttributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+  EXPECT_EQ(parser.currentPage->elements[0]->xPos, 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PlacesSmallImageInsideTextLine) {
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 16;
+  epub.optimizerImageHeight = 16;
+  const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+
+  ChapterHtmlSlimParser::characterData(&parser, "Before", 6);
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  ChapterHtmlSlimParser::characterData(&parser, "After", 5);
+  parser.flushPartWordBuffer();
+  parser.makePages();
+
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  EXPECT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  EXPECT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageImage);
+  const auto& line = static_cast<const PageLine&>(*parser.currentPage->elements[0]);
+  EXPECT_EQ(line.getBlock()->wordCount(), 2u);
+  const auto& image = static_cast<const PageImage&>(*parser.currentPage->elements[1]);
+  EXPECT_TRUE(image.isInlineImage());
+  EXPECT_EQ(image.yPos, parser.currentPage->elements[0]->yPos);
+  EXPECT_EQ(image.getImageBlock().getWidth(), 16);
+  EXPECT_TRUE(parser.pendingInlineImages.empty());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, WrapsTextAfterInlineImageWithoutSplittingTheImage) {
+  renderer.textAdvancePerChar = 4;
+  parser.viewportWidth = 22;
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 16;
+  epub.optimizerImageHeight = 16;
+  const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+
+  ChapterHtmlSlimParser::characterData(&parser, "A", 1);
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  ChapterHtmlSlimParser::characterData(&parser, "B", 1);
+  parser.flushPartWordBuffer();
+  parser.makePages();
+
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 3u);
+  EXPECT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  EXPECT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements[2]->getTag(), TAG_PageLine);
+  EXPECT_EQ(parser.currentPage->elements[1]->xPos, 4);
+  EXPECT_EQ(parser.currentPage->elements[0]->yPos, parser.currentPage->elements[1]->yPos);
+  EXPECT_EQ(parser.currentPage->elements[2]->yPos, 16);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, AlignsTextWithTallerInlineImage) {
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 20;
+  epub.optimizerImageHeight = 32;
+  const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+
+  ChapterHtmlSlimParser::characterData(&parser, "A", 1);
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  parser.makePages();
+
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  EXPECT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  EXPECT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements[0]->yPos, 16);
+  EXPECT_EQ(parser.currentPage->elements[1]->yPos, 0);
+  EXPECT_EQ(parser.currentPageNextY, 32);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, HonorsExplicitBlockDisplayForSmallImage) {
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 16;
+  epub.optimizerImageHeight = 16;
+  const XML_Char* attributes[] = {"src", "icon.jpg", "style", "display: block", nullptr};
+
+  ChapterHtmlSlimParser::characterData(&parser, "A", 1);
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  EXPECT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  EXPECT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageImage);
+  EXPECT_GE(parser.currentPage->elements[1]->yPos, 16);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, HonorsExplicitInlineDisplayForTallerImage) {
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 20;
+  epub.optimizerImageHeight = 48;
+  const XML_Char* attributes[] = {"src", "icon.jpg", "style", "display: inline", nullptr};
+
+  ChapterHtmlSlimParser::characterData(&parser, "A", 1);
+  ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+  ChapterHtmlSlimParser::endElement(&parser, "img");
+  parser.makePages();
+
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  EXPECT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  EXPECT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageImage);
+  EXPECT_EQ(parser.currentPage->elements[0]->yPos, 32);
+  EXPECT_EQ(parser.currentPage->elements[1]->yPos, 0);
+  EXPECT_EQ(parser.currentPageNextY, 48);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BoundsPendingImagesInAnIconOnlyParagraph) {
+  epub.optimizerImageAvailable = true;
+  epub.optimizerImageWidth = 1;
+  epub.optimizerImageHeight = 1;
+  const XML_Char* attributes[] = {"src", "icon.jpg", nullptr};
+
+  for (int i = 0; i < 40; ++i) {
+    ChapterHtmlSlimParser::startElement(&parser, "img", attributes);
+    ChapterHtmlSlimParser::endElement(&parser, "img");
+    EXPECT_LT(parser.pendingInlineImages.size(), parser.MAX_PENDING_INLINE_IMAGES);
+  }
+  parser.makePages();
+
+  ASSERT_NE(parser.currentPage, nullptr);
+  EXPECT_TRUE(parser.pendingInlineImages.empty());
+  EXPECT_EQ(parser.currentPage->elements.size(), 40u);
 }
 
 TEST_F(ChapterHtmlSlimParserTest, CentersChapterFigureWithJustifiedParagraphs) {
