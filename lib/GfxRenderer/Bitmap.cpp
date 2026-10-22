@@ -252,6 +252,15 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   if (pixelData) {
     memcpy(rowBuffer, pixelData + static_cast<size_t>(sourceY) * rowBytes, rowBytes);
     sourceRowsRead = sourceY + 1;
+  } else if (sourceY > sourceRowsRead) {
+    // Downsampling only uses one source row per output row. Seek past the rows
+    // in between instead of streaming them from SD: a 1448-row wallpaper fitted
+    // to an 800-row panel then reads ~55% of its pixel data per decode pass.
+    const int64_t skipBytes = static_cast<int64_t>(sourceY - sourceRowsRead) * rowBytes;
+    if (file.seekCur(skipBytes)) {
+      sourceRowsRead = sourceY;
+    }
+    // On a failed seek, fall through and read the rows sequentially.
   }
   while (sourceRowsRead <= sourceY) {
     if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;

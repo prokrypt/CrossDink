@@ -2863,8 +2863,8 @@ void EpubReaderActivity::openReaderMenu() {
 
 void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
+  // drawPopup() already refreshes the panel with a FAST waveform.
   GUI.drawPopup(renderer, tr(STR_INDEXING));
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
 }
@@ -6809,8 +6809,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   };
 
   const auto showIndexingPopup = [this]() {
+    // drawPopup() already refreshes the panel with a FAST waveform. A second
+    // refresh of the identical frame cost ~0.55-0.7 s before every index build.
     GUI.drawPopup(renderer, tr(STR_INDEXING));
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     // The popup is a Fast frame too: where Fast tracks the panel, the chapter's
     // first page needs no cleanup flash.
     if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;
@@ -7566,7 +7567,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 #endif
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
       GUI.drawPopup(renderer, renderer.isSdCardFont(renderFontId) ? tr(STR_MEMORY_ERROR) : tr(STR_PAGE_LOAD_ERROR));
-      renderer.displayBuffer();
       automaticPageTurnActive = false;
       showPendingSyncSaveError();
       return;
