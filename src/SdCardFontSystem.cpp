@@ -346,8 +346,8 @@ void SdCardFontSystem::releaseForNetwork(GfxRenderer& renderer) {
 }
 
 int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t /*pointSize*/) const {
-  // The manager loads exactly one size (closest to the selected point size), so the
-  // enum is implicit — always return the single loaded font ID for this family.
+  // Return the active body-size identity; optional content sizes are selected
+  // internally by the renderer and must not change the saved reader size.
   // ensureLoaded() must have been called with the current settings before this.
   return manager_.getFontId(familyName);
 }
@@ -523,7 +523,23 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
 
   if (manager_.currentFamilyName() != familyName || manager_.currentPointSize() != selectedPointSize) {
     if (!manager_.currentFamilyName().empty()) manager_.unloadAll(renderer);
-    if (!manager_.loadFamilyFile(path, familyName, selectedPointSize, renderer)) {
+    // Discover just the body and two candidates, rather than allocating the
+    // whole catalog on a tight dictionary-return heap. At most three short
+    // paths are heap-owned here and freed before the reader resumes.
+    SdCardFontFamilyInfo contentFamily;
+    contentFamily.name = familyName;
+    contentFamily.files.reserve(3);
+    contentFamily.files.push_back({path, selectedPointSize, 0});
+    const uint8_t bodySize = selectedPointSize;
+    if (bodySize >= 8 && bodySize <= 44) {
+      for (const uint8_t target : SdCardFontManager::contentSizeTargets(bodySize)) {
+        if (findInstalledFontFile(familyName, target, FontFileSelection::Closest, path, sizeof(path),
+                                  selectedPointSize))
+          contentFamily.files.push_back({path, selectedPointSize, 0});
+      }
+    }
+    const bool loaded = manager_.loadFamilyClosest(contentFamily, renderer, bodySize);
+    if (!loaded) {
       LOG_ERR("SDFS", "Failed to restore reader font: %s", familyName);
       MemoryBudget::logHeapShape("dict.font_after_restore");
       return ensureBuiltInReaderFont(renderer);

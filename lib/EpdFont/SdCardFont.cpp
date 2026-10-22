@@ -240,11 +240,13 @@ void SdCardFont::freeAll() {
   styleCount_ = 0;
   contentHash_ = 0;
   loaded_ = false;
+  contentBitmap_.reset();
+  leanContent_ = false;
 }
 
 void SdCardFont::clearOverflow() {
   for (uint32_t i = 0; i < overflowCount_; i++) {
-    delete[] overflow_[i].bitmap;
+    if (!leanContent_) delete[] overflow_[i].bitmap;
     overflow_[i].bitmap = nullptr;
     overflow_[i].codepoint = 0;
   }
@@ -572,8 +574,10 @@ void SdCardFont::computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset) {
 
 // --- Load ---
 
-bool SdCardFont::load(const char* path) {
+bool SdCardFont::load(const char* path, const size_t residentLimit) {
   freeAll();
+  leanContent_ = residentLimit != 0;
+  size_t residentBytes = sizeof(SdCardFont) + CONTENT_BITMAP_BYTES;
   if (strlen(path) >= sizeof(filePath_)) {
     LOG_ERR("SDCF", "Path too long (%zu bytes, max %zu)", strlen(path), sizeof(filePath_) - 1);
     return false;
@@ -669,6 +673,47 @@ bool SdCardFont::load(const char* path) {
     computeStyleFileOffsets(s, dataOffset);
   }
 
+  // Optional font sizes must fit even when intervals cannot be shared. Reject
+  // before allocating, rather than temporarily loading a large CJK table.
+  if (leanContent_) {
+    for (const auto& s : styles_) {
+      if (!s.present) continue;
+      residentBytes += size_t(s.header.intervalCount) * sizeof(EpdUnicodeInterval) +
+                       size_t(s.header.ligaturePairCount) * sizeof(EpdLigaturePair);
+      if (residentBytes > residentLimit) {
+        LOG_DBG("SDCF", "Content size exceeds %zu-byte resident budget", residentLimit);
+        file.close();
+        freeAll();
+        return false;
+      }
+      // Validate the glyph scratch requirement before this font can affect
+      // pagination. Metrics stream through one small local glyph, no buffer.
+      if (!file.seekSet(s.glyphsFileOffset)) {
+        LOG_ERR("SDCF", "Cannot inspect content-size glyphs");
+        file.close();
+        freeAll();
+        return false;
+      }
+      for (uint32_t glyph = 0; glyph < s.header.glyphCount; ++glyph) {
+        EpdGlyph metrics{};
+        if (file.read(&metrics, sizeof(metrics)) != sizeof(metrics) || metrics.dataLength > CONTENT_BITMAP_BYTES) {
+          LOG_ERR("SDCF", "Content-size glyph exceeds scratch or is unreadable");
+          file.close();
+          freeAll();
+          return false;
+        }
+      }
+    }
+    // Font-lifetime 4KB scratch is too large for the stack; reused for every
+    // glyph and freed with the optional font, avoiding render-time heap churn.
+    contentBitmap_ = makeUniqueNoThrow<uint8_t[]>(CONTENT_BITMAP_BYTES);
+    if (!contentBitmap_) {
+      LOG_ERR("SDCF", "Cannot allocate content-size glyph scratch");
+      file.close();
+      freeAll();
+      return false;
+    }
+  }
   styleCount_ = styleCount;
   contentHash_ = hash;
 
@@ -822,6 +867,15 @@ bool SdCardFont::load(const char* path) {
     applyGlyphMissCallback(i);
   }
 
+  file.close();
+  if (leanContent_) {
+    for (auto& s : styles_) {
+      if (s.present && !loadStyleLigatures(s)) {
+        freeAll();
+        return false;
+      }
+    }
+  }
   loaded_ = true;
 
   LOG_DBG("SDCF", "Loaded: %s (v%u, %u styles)", path, CPFONT_VERSION, styleCount_);
@@ -894,6 +948,12 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
   if (!loaded_) return failPrewarm(-1);
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
+  if (leanContent_) {
+    for (uint8_t style = 0; style < MAX_STYLES; ++style) {
+      if ((styleMask & (1 << style)) && !loadStyleLigatures(styles_[style])) return failPrewarm(-1);
+    }
+    return 0;  // Exact metrics stream from SD; bitmaps reuse the fixed scratch.
+  }
 
   unsigned long startMs = millis();
 
@@ -1592,6 +1652,7 @@ template <typename Iter>
 int SdCardFont::buildAdvanceTableRange(Iter begin, Iter end, bool includeSpace, bool includeHyphen, uint8_t styleMask,
                                        const char* extraText) {
   if (!loaded_) return -1;
+  if (leanContent_) return 0;
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
 
@@ -1659,6 +1720,7 @@ int SdCardFont::buildAdvanceTable(const std::deque<std::string>& words, bool inc
 int SdCardFont::buildAdvanceTableForCodepoints(const uint32_t* sourceCodepoints, uint32_t cpCount, bool includeSpace,
                                                bool includeHyphen, uint8_t styleMask) {
   if (!loaded_) return -1;
+  if (leanContent_) return 0;
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
 
@@ -1755,12 +1817,18 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   const auto& s = self->styles_[styleIdx];
   if (!s.fullIntervals && !s.bmpIntervals) return nullptr;
 
-  // Check overflow cache first (matching both codepoint and style)
+  // The lean path shares one bitmap: only the most recently read slot still
+  // owns valid pixels. Repeated metric/draw queries for that glyph reuse it.
+  const uint32_t latest = (self->overflowNext_ + OVERFLOW_CAPACITY - 1) % OVERFLOW_CAPACITY;
   for (uint32_t i = 0; i < self->overflowCount_; i++) {
+    if (self->leanContent_ && i != latest) continue;
     if (self->overflow_[i].codepoint == codepoint && self->overflow_[i].styleIdx == styleIdx) {
       return &self->overflow_[i].glyph;
     }
   }
+
+  // A failed read may overwrite the shared scratch; do not reuse its old key.
+  if (self->leanContent_ && self->overflowCount_) self->overflow_[latest].codepoint = 0;
 
   // Look up global glyph index via full intervals
   int32_t globalIdx = self->findGlobalGlyphIndex(s, codepoint);
@@ -1794,7 +1862,12 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   // Read bitmap data into temporary (if any)
   uint8_t* tempBitmap = nullptr;
   if (tempGlyph.dataLength > 0) {
-    tempBitmap = new (std::nothrow) uint8_t[tempGlyph.dataLength];
+    if (self->leanContent_ && tempGlyph.dataLength > CONTENT_BITMAP_BYTES) {
+      LOG_ERR("SDCF", "Content bitmap changed beyond its fixed scratch");
+      file.close();
+      return nullptr;
+    }
+    tempBitmap = self->leanContent_ ? self->contentBitmap_.get() : new (std::nothrow) uint8_t[tempGlyph.dataLength];
     if (!tempBitmap) {
       LOG_ERR("SDCF", "Overflow: failed to allocate %u bytes for U+%04" PRIX32 " bitmap", tempGlyph.dataLength,
               codepoint);
@@ -1802,20 +1875,21 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
     }
     if (!file.seekSet(s.bitmapFileOffset + tempGlyph.dataOffset)) {
       LOG_ERR("SDCF", "Overflow: failed to seek to bitmap for U+%04" PRIX32, codepoint);
-      delete[] tempBitmap;
+      if (!self->leanContent_) delete[] tempBitmap;
       file.close();
       return nullptr;
     }
     if (file.read(tempBitmap, tempGlyph.dataLength) != static_cast<int>(tempGlyph.dataLength)) {
       LOG_ERR("SDCF", "Overflow: failed to read bitmap for U+%04" PRIX32, codepoint);
-      delete[] tempBitmap;
+      if (!self->leanContent_) delete[] tempBitmap;
       return nullptr;
     }
   }
 
   // All reads succeeded — commit to slot and advance ring buffer
+  file.close();
   if (wasAtCapacity) {
-    delete[] self->overflow_[slot].bitmap;
+    if (!self->leanContent_) delete[] self->overflow_[slot].bitmap;
   } else {
     self->overflowCount_++;
   }
