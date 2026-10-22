@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <FreeInkUIIcon.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -42,6 +43,7 @@
 #include "network/WifiBackgroundJoin.h"
 #include "util/BookCacheUtils.h"
 #include "util/DaylightSaving.h"
+#include "util/OpdsDownloadFolder.h"
 #include "util/StringUtils.h"
 #include "util/UrlUtils.h"
 
@@ -70,14 +72,25 @@ std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameForma
   return author + " - " + title;
 }
 
-// SD path a book downloads to: the configured folder (or the root) plus the
+// Folder books from server download to: its own folder, else the shared
+// default; "/" for the SD root, empty when the configured folder is invalid.
+std::string downloadFolderFor(const OpdsServer& server) {
+  std::string folder;
+  if (!OpdsDownloadFolder::normalize(OpdsDownloadFolder::effective(server.downloadFolder, SETTINGS.opdsDownloadFolder),
+                                     folder)) {
+    LOG_ERR("OPDS", "Invalid download folder");
+    return {};
+  }
+  return folder.empty() ? "/" : folder;
+}
+
+// SD path a book downloads to: folder (from downloadFolderFor) plus the
 // sanitized "<author> - <title>.epub" name.
-std::string bookDownloadPath(const OpdsEntry& book, const OpdsFilenameFormat format) {
-  const char* downloadFolder = SETTINGS.opdsDownloadFolder;
+std::string bookDownloadPath(const OpdsEntry& book, const OpdsFilenameFormat format, const std::string& folder) {
   std::string path;
   path.reserve(96);
-  if (downloadFolder[0] != '\0') path += downloadFolder;
-  path += '/';
+  path += folder;
+  if (path != "/") path += '/';
   path += StringUtils::sanitizeFilename(buildBookFilenameBase(book, format));
   path += ".epub";
   return path;
@@ -323,8 +336,14 @@ void OpdsBookBrowserActivity::loop() {
     // fetch or a book download pauses them.
     if (preload) {
       preload->pump();
-      // A preload stored or evicted a page: recheck the row marks.
-      if (pageCache && pageCache->changes() != pageCachedAt) markCachedFeeds();
+      // A preload stored or evicted a page: recheck the row marks and redraw
+      // them in batches (as the server list): a redraw per landed page cost
+      // extra e-ink refreshes and queued taps behind them. A repaint the user
+      // causes meanwhile shows the marks landed so far.
+      if (pageCache && pageCache->changes() != pageCachedAt && markCachedFeeds() && marksPendingMs == 0) {
+        marksPendingMs = millis() | 1;
+      }
+      if (preload->marksDue(marksPendingMs)) requestUpdate();
       // A recheck found the shown page changed: re-parse it in place.
       std::string changed;
       if (preload->takeChange(changed) && changed == UrlUtils::buildUrl(server.url, currentPath)) {
@@ -431,7 +450,7 @@ void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) 
 // Shared chrome for every state: reserve the firmware's button-hint band and
 // draw the themed header (padding, centering, and rule come from the theme).
 void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool withSearch) {
-  screen.takeBottom(static_cast<int16_t>(UITheme::getInstance().getMetrics().buttonHintsHeight));
+  screen.takeBottom(static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)));
   const char* title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
   // Browsing a feed that gives its catalog size: "<name> (<total>)".
   char titleWithTotal[96];
@@ -624,7 +643,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
   if (state == BrowserState::DOWNLOADING) {
     const ShownDownloadFrame frame{true, downloadReceiving, downloadProgress, downloadTotal};
@@ -651,6 +670,9 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
       LOG_INF("OPDS", "Cache hit, no Loading frame: %s", UrlUtils::maskUserInfo(url).c_str());
       return;
     }
+    // The tapped page goes first: other downloads stop sharing Wi-Fi with it
+    // while the Loading frame draws, not after.
+    if (preload) preload->cancelOthers(url);
   }
   state = BrowserState::LOADING;
   statusMessage = tr(STR_LOADING);
@@ -786,6 +808,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
   markBooksOnSd();
   markCachedFeeds();
+  marksPendingMs = 0;  // the redraw below shows them
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // Kept cached (the server list marks it fetched); Retry refetches it.
@@ -838,12 +861,15 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     HttpRequestDiagnostics diagnostics;
     const auto result = HttpDownloader::streamUrl(
         url,
-        [&stream, &page, cachePage](const uint8_t* data, const size_t len) {
+        [&stream, &page, &parser, cachePage](const uint8_t* data, const size_t len) {
           if (cachePage) page.append(data, len);  // overflow only skips caching
-          return stream.write(data, len) == len;
+          // Stop at the entry limit: the rest of a huge feed is never shown.
+          return stream.write(data, len) == len && !parser.wasTruncated();
         },
         nullptr, server.username, server.password, std::move(downloadOptions), &diagnostics);
-    if (result != HttpDownloader::OK) {
+    if (parser.wasTruncated() && !fetchCancelled) {
+      LOG_INF("OPDS", "Stopped feed at entry limit after %zu bytes", page.size());
+    } else if (result != HttpDownloader::OK) {
       if (error) *error = classifyFeedFailure(diagnostics, result == HttpDownloader::HTTP_ERROR);
       return false;
     }
@@ -915,7 +941,7 @@ void OpdsBookBrowserActivity::stopPrefetch() {
 
 // Feed rows (Prev/Next included) resolved to cache keys as navigateToEntry()
 // and the preloads do. Main loop only: the cache has no lock.
-void OpdsBookBrowserActivity::markCachedFeeds() {
+bool OpdsBookBrowserActivity::markCachedFeeds() {
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> cached;
   if (pageCache) {
     pageCachedAt = pageCache->changes();
@@ -926,13 +952,10 @@ void OpdsBookBrowserActivity::markCachedFeeds() {
       if (pageCache->contains(UrlUtils::buildUrl(server.url, path))) cached.set(i);
     }
   }
-  if (cached == pageCached) return;
-  {
-    RenderLock lock(*this);
-    pageCached = cached;
-  }
-  // A preload landing flips a ✓ on: redraw the list through the normal refresh.
-  if (state == BrowserState::BROWSING) requestUpdate();
+  if (cached == pageCached) return false;
+  RenderLock lock(*this);
+  pageCached = cached;
+  return true;
 }
 
 // One pass over the download folder, not an exists() per book: each lookup
@@ -941,18 +964,20 @@ void OpdsBookBrowserActivity::markBooksOnSd() {
   onSd.reset();
   // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long startMs = millis();
-  // Transient: the page's expected file names, freed on return.
+  const std::string folder = downloadFolderFor(server);
+  if (folder.empty()) return;
+  // Transient: the page's expected file names, freed on return. With server
+  // filenames only the generated fallback name can be predicted.
   std::vector<std::string> names(entryCount);
   size_t wanted = 0;
   for (size_t i = 0; i < entryCount; ++i) {
     if (entries[i].type != OpdsEntryType::BOOK) continue;
-    const std::string path = bookDownloadPath(entries[i], server.filenameFormat);
+    const std::string path = bookDownloadPath(entries[i], server.filenameFormat, folder);
     names[i] = path.substr(path.rfind('/') + 1);
     ++wanted;
   }
   if (wanted == 0) return;
-  const char* folder = SETTINGS.opdsDownloadFolder[0] != '\0' ? SETTINGS.opdsDownloadFolder : "/";
-  HalFile dir = Storage.open(folder);
+  HalFile dir = Storage.open(folder.c_str());
   if (dir && dir.isDirectory()) {
     char name[256];
     size_t found = 0;
@@ -1044,11 +1069,22 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   // One prompt before every download: "Download? <title>", or the overwrite
   // question with the copy's size and date when the book is already on SD.
   // Read-only open: one directory lookup, no SD write until Confirm.
-  std::string path = bookDownloadPath(book, server.filenameFormat);
+  const std::string folder = downloadFolderFor(server);
+  if (folder.empty()) {
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_OPDS_INVALID_FOLDER);
+    requestUpdate();
+    return;
+  }
+  std::string path = bookDownloadPath(book, server.filenameFormat, folder);
+  // The server's name is only known once the download starts; a clash then
+  // gets its own overwrite prompt (offerOverwrite).
+  const bool serverFilename = server.filenameFormat == OpdsFilenameFormat::SERVER_FILENAME;
   std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
   // cppcheck-suppress stlcstrAssignment ; title is a PsramString, not std::string
   std::string details = book.title.c_str();
-  HalFile existing = Storage.open(path.c_str());
+  HalFile existing;
+  if (!serverFilename) existing = Storage.open(path.c_str());
   const bool onSdAlready = existing && !existing.isDirectory();
   if (onSdAlready) {
     char sizeLabel[16];
@@ -1091,11 +1127,12 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   // entries and selectorIndex stay put while the dialog is on top (this
   // activity's loop does not run), so the index is enough to find the book.
   const int bookIndex = selectorIndex;
-  startActivityForResult(std::move(dialog), [this, bookIndex, path = std::move(path)](const ActivityResult& result) {
-    bookDownloader.cancel();  // a size probe still running; downloadBook joins it
-    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
-    downloadBook(entries[bookIndex], path);
-  });
+  startActivityForResult(
+      std::move(dialog), [this, bookIndex, path = std::move(path), serverFilename](const ActivityResult& result) {
+        bookDownloader.cancel();  // a size probe still running; downloadBook joins it
+        if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
+        downloadBook(entries[bookIndex], path, nullptr, serverFilename);
+      });
 }
 
 bool OpdsBookBrowserActivity::pollDownloadSize(void* self, std::string& body) {
@@ -1120,7 +1157,7 @@ OpdsBookDownloader::Request OpdsBookBrowserActivity::bookRequest(const OpdsEntry
 }
 
 void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::string& filename,
-                                           const std::string* resumeValidator) {
+                                           const std::string* resumeValidator, const bool serverFilename) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
@@ -1149,9 +1186,11 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
   if (feedConnection) feedConnection->end();
 #endif
 
-  const char* downloadFolder = SETTINGS.opdsDownloadFolder;
-  if (downloadFolder[0] != '\0' && !Storage.exists(downloadFolder) && !Storage.mkdir(downloadFolder)) {
-    LOG_ERR("OPDS", "Could not create download folder %s", downloadFolder);
+  // The folder from requestDownload, not the settings: they may have changed
+  // since, and a retry must land next to its .part file.
+  const std::string downloadFolder = FsHelpers::extractFolderPath(filename);
+  if (downloadFolder != "/" && !Storage.exists(downloadFolder.c_str()) && !Storage.mkdir(downloadFolder.c_str())) {
+    LOG_ERR("OPDS", "Could not create download folder %s", downloadFolder.c_str());
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
     requestUpdate();
@@ -1160,6 +1199,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book, const std::str
 
   OpdsBookDownloader::Request request = bookRequest(book);
   request.path = filename;
+  request.serverFilename = serverFilename;
   if (resumeValidator) {
     request.resume = true;
     request.validator = *resumeValidator;
@@ -1228,6 +1268,13 @@ void OpdsBookBrowserActivity::pollDownload() {
   } else if (result == HttpDownloader::INSUFFICIENT_SPACE) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_SD_CARD_FULL);
+  } else if (result == HttpDownloader::FILE_EXISTS) {
+    state = BrowserState::BROWSING;
+    if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+      LOG_ERR("OPDS", "List could not be rendered before the overwrite prompt");
+    }
+    offerOverwrite(filename);
+    return;
   } else {
     state = BrowserState::BROWSING;
     if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
@@ -1257,16 +1304,47 @@ void OpdsBookBrowserActivity::offerRetry(const std::string& path) {
   // As in requestDownload(): entries and selectorIndex stay put under the
   // dialog, so the index still names the failed book.
   const int bookIndex = selectorIndex;
-  startActivityForResult(
-      std::move(dialog), [this, bookIndex, path, validator = bookDownloader.validator()](const ActivityResult& result) {
-        if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
-          LOG_INF("OPDS", "Download retry declined; removing partial file");
-          Storage.remove((path + ".part").c_str());
-          return;
-        }
-        LOG_INF("OPDS", "Retrying download: %s", path.c_str());
-        downloadBook(entries[bookIndex], path, &validator);
-      });
+  // Still pending: no response named the file, so nothing was written at path.
+  const bool serverFilename = bookDownloader.serverFilenamePending();
+  startActivityForResult(std::move(dialog), [this, bookIndex, path, serverFilename,
+                                             validator = bookDownloader.validator()](const ActivityResult& result) {
+    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
+      LOG_INF("OPDS", "Download retry declined; removing partial file");
+      if (!serverFilename) Storage.remove((path + ".part").c_str());
+      return;
+    }
+    LOG_INF("OPDS", "Retrying download: %s", path.c_str());
+    downloadBook(entries[bookIndex], path, &validator, serverFilename);
+  });
+}
+
+void OpdsBookBrowserActivity::offerOverwrite(const std::string& path) {
+  std::string details = path.substr(path.rfind('/') + 1);
+  HalFile existing = Storage.open(path.c_str());
+  if (existing && !existing.isDirectory()) {
+    char sizeLabel[16];
+    formatFileSize(existing.fileSize64(), sizeLabel, sizeof(sizeLabel));
+    details += ", ";
+    details += sizeLabel;
+    char dateLabel[20];
+    if (formatFatDateTime(existing.modificationTime(), dateLabel, sizeof(dateLabel))) {
+      details += ", ";
+      details += dateLabel;
+    }
+  }
+  if (existing) existing.close();
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_BOOK_EXISTS_OVERWRITE), details);
+  if (!dialog) {
+    LOG_ERR("OPDS", "Cannot allocate overwrite dialog");
+    requestUpdate();
+    return;
+  }
+  const int bookIndex = selectorIndex;
+  startActivityForResult(std::move(dialog), [this, bookIndex, path](const ActivityResult& result) {
+    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
+    // The name is settled: replace exactly that file, no second lookup.
+    downloadBook(entries[bookIndex], path);
+  });
 }
 
 void OpdsBookBrowserActivity::offerToOpen(const std::string& path) {
