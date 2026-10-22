@@ -152,12 +152,12 @@ TEST(ReaderDrawerModel, CatalogOrderAndConditionalRowsMatchTouchDesign) {
   EXPECT_EQ(location.items[6], ReaderDrawerCatalogItem::DisplayQr);
 
   const auto& settings = complete[static_cast<size_t>(ReaderDrawerTab::Settings)];
-  EXPECT_EQ(settings.count, 11);
+  EXPECT_EQ(settings.count, 10);
   EXPECT_EQ(settings.items[0], ReaderDrawerCatalogItem::StatusBar);
   EXPECT_EQ(settings.items[1], ReaderDrawerCatalogItem::Controls);
-  EXPECT_EQ(settings.items[6], ReaderDrawerCatalogItem::TrackBookStats);
-  EXPECT_EQ(settings.items[7], ReaderDrawerCatalogItem::ResetReadingPace);
-  EXPECT_EQ(settings.items[10], ReaderDrawerCatalogItem::ResetBookReaderSettings);
+  EXPECT_EQ(settings.items[5], ReaderDrawerCatalogItem::TrackBookStats);
+  EXPECT_EQ(settings.items[6], ReaderDrawerCatalogItem::ResetReadingPace);
+  EXPECT_EQ(settings.items[9], ReaderDrawerCatalogItem::ResetBookReaderSettings);
 }
 
 TEST(ReaderDrawerModel, StatsRowsFollowGlobalAndBookTrackingChoices) {
@@ -167,7 +167,7 @@ TEST(ReaderDrawerModel, StatsRowsFollowGlobalAndBookTrackingChoices) {
   auto catalog = makeReaderDrawerCatalog(available);
   EXPECT_EQ(catalog[static_cast<size_t>(ReaderDrawerTab::More)].count, 3);
   const auto& settings = catalog[static_cast<size_t>(ReaderDrawerTab::Settings)];
-  EXPECT_EQ(settings.items[6], ReaderDrawerCatalogItem::TrackBookStats);
+  EXPECT_EQ(settings.items[5], ReaderDrawerCatalogItem::TrackBookStats);
   EXPECT_EQ(settings.items[settings.count - 1], ReaderDrawerCatalogItem::ResetBookReaderSettings);
 
   available.globalStatsEnabled = false;
