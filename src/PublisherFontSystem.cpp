@@ -23,6 +23,7 @@ void BookFontSystem::close() {
         renderer_->removeFont(fontId(faces_[i].family, points));
     }
   }
+  // cppcheck-suppress useStlAlgorithm ; Face is move-only, std::fill needs copies
   for (auto& face : faces_) face = Face{};
   faceCount_ = 0;
   signature_ = 0;
@@ -63,6 +64,7 @@ void BookFontSystem::open(Epub& epub, GfxRenderer& renderer) {
     face.href = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(source.href));
     for (const uint32_t value : {face.family, static_cast<uint32_t>(style)})
       signature_ = (signature_ ^ value) * 16777619U;
+    // cppcheck-suppress useStlAlgorithm ; one FNV-1a step per byte
     for (const unsigned char c : face.href) signature_ = (signature_ ^ c) * 16777619U;
     signature_ = (signature_ ^ 0U) * 16777619U;
   }
