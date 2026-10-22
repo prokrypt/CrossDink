@@ -19,6 +19,11 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
+// Uncompressed spine item size, the figure the reader's popupBytes knob is compared against.
+[[maybe_unused]] size_t spineItemBytes(const Epub& epub, const int spineIndex) {
+  return epub.getCumulativeSpineItemSize(spineIndex) -
+         (spineIndex > 0 ? epub.getCumulativeSpineItemSize(spineIndex - 1) : 0);
+}
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v62: Text blocks persist source whitespace semantics for font-preview reflow.
 // This changes their serialized payload, so full and suspended section caches
@@ -32,14 +37,20 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v79: Hangul word boundaries and line-end splits change cached page positions.
 // v96: Root text indents, hidden <hr> borders and <figure> spacing change layout.
 //      80-95 are CrossInk's; skipped so a later sync cannot accept a foreign layout.
-constexpr uint8_t SECTION_FILE_VERSION = 96;
+// v97: Character spacing in the layout identity and cached text blocks (96 is taken by inherited paragraph styles).
+// v98: Small EPUB images share text lines (page images gain an inline flag) and
+//      image-only paragraphs keep publisher alignment.
+// v99: Scalable heading/block/word sizes, drop caps, borders, shading and white-space.
+// v102: SD bitmap (.cpfont) heading/CSS sizes change layout and cached font identities
+//       (100 is fieldsets, 101 is publisher fonts).
+constexpr uint8_t SECTION_FILE_VERSION = 102;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract. Never reuse a retired sentinel: an old
 // partial on SD would resume with stale page positions. Pick below the lowest.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF0;
-constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
-                                                        0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xEA;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xEB, 0xEC, 0xED, 0xEE, 0xEF, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4,
+                                                        0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
 constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
   for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
     if (retired == v) return true;
@@ -49,11 +60,12 @@ constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
 static_assert(!isRetiredSectionPartialVersion(SECTION_FILE_PARTIAL_VERSION),
               "SECTION_FILE_PARTIAL_VERSION reuses a retired partial sentinel");
 static_assert(SECTION_FILE_PARTIAL_VERSION > SECTION_FILE_VERSION, "partial sentinel collides with full versions");
-constexpr uint32_t HEADER_SIZE =
-    sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
-    sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
-    sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t) +
-    sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
+constexpr uint32_t HEADER_SIZE = 4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) +
+                                 sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
+                                 sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) +
+                                 sizeof(uint8_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(int8_t) +
+                                 sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+                                 sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
 // Pages are many small writes; collecting them lets whole sectors reach the card as
@@ -170,6 +182,11 @@ Section::Section(Epub& epub, const int spineIndex, GfxRenderer& renderer, const 
 Section::~Section() { suspendBuild(); }
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
+  if (publisherFontsEnabled_) {
+    publisherFontFaces_ = renderer.bookFontUsage();
+    publisherLoadedFaces_ = renderer.bookFontLoaded();
+    publisherFaceSignature_ = renderer.bookFontSignature(publisherFontFaces_);
+  }
   if (!ensureBuildFileOpen()) {
     LOG_ERR("SCT", "File not open for writing page %d", builtPageCount_);
     return 0;
@@ -183,7 +200,7 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   // Scan the page before serializing it so image-only and mixed pages can be
   // protected from the later XHTML byte-density projection without changing
   // the serialized page payload.
-  const uint16_t imageUnits = page->imageEstimateUnits(imageEstimateViewportHeight_);
+  const uint16_t imageUnits = page->imageEstimateUnits(imageEstimateViewportWidth_, imageEstimateViewportHeight_);
   if (!page->serialize(file)) {
     LOG_ERR("SCT", "Failed to serialize page %d", builtPageCount_);
     return 0;
@@ -240,20 +257,30 @@ void Section::releaseBuildFile() {
   }
 }
 
+bool Section::writePublisherFontState() {
+  return file.seek(HEADER_SIZE - sizeof(uint32_t) * 9 - sizeof(pageCount)) &&
+         serialization::tryWritePod(file, publisherFontFaces_) &&
+         serialization::tryWritePod(file, publisherFaceSignature_) &&
+         serialization::tryWritePod(file, publisherLoadedFaces_);
+}
+
 bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
+  baseLayoutSignature_ = readerRenderSpecSignature(spec);
+  publisherFontsEnabled_ = spec.publisherFonts != PublisherFonts::Off;
+  publisherFontFaces_ = publisherFaceSignature_ = publisherLoadedFaces_ = 0;
   if (!file) {
     LOG_DBG("SCT", "File not open for writing header");
     return false;
   }
-  static_assert(HEADER_SIZE == sizeof(SECTION_CACHE_MAGIC) + sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) +
-                                   sizeof(spec.lineCompression) + sizeof(spec.extraParagraphSpacing) +
-                                   sizeof(spec.forceParagraphIndents) + sizeof(spec.paragraphAlignment) +
-                                   sizeof(spec.viewportWidth) + sizeof(spec.viewportHeight) +
-                                   sizeof(spec.hyphenationEnabled) + sizeof(spec.embeddedStyle) +
-                                   sizeof(spec.imageRendering) + sizeof(spec.focusReadingEnabled) +
-                                   sizeof(spec.guideReadingEnabled) + sizeof(spec.wordSpacing) + sizeof(uint8_t) +
-                                   sizeof(pageCount) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
-                                   sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
+  static_assert(HEADER_SIZE ==
+                    4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) +
+                        sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) + sizeof(spec.lineCompression) +
+                        sizeof(spec.extraParagraphSpacing) + sizeof(spec.forceParagraphIndents) +
+                        sizeof(spec.paragraphAlignment) + sizeof(spec.viewportWidth) + sizeof(spec.viewportHeight) +
+                        sizeof(spec.hyphenationEnabled) + sizeof(spec.embeddedStyle) + sizeof(spec.imageRendering) +
+                        sizeof(spec.focusReadingEnabled) + sizeof(spec.guideReadingEnabled) + sizeof(spec.wordSpacing) +
+                        sizeof(spec.characterSpacing) + sizeof(uint8_t) + sizeof(pageCount) + sizeof(uint32_t) +
+                        sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
                 "Header size mismatch");
   return serialization::tryWritePod(file, SECTION_CACHE_MAGIC) &&
          serialization::tryWritePod(file, SECTION_FILE_VERSION) && serialization::tryWritePod(file, spec.fontId) &&
@@ -269,7 +296,13 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
          serialization::tryWritePod(file, spec.focusReadingEnabled) &&
          serialization::tryWritePod(file, spec.guideReadingEnabled) &&
          serialization::tryWritePod(file, spec.wordSpacing) &&
+         serialization::tryWritePod(file, spec.characterSpacing) &&
          serialization::tryWritePod(file, static_cast<uint8_t>(spec.renderMode)) &&
+         serialization::tryWritePod(file, spec.publisherFonts) &&
+         serialization::tryWritePod(file, spec.publisherFontSignature) &&
+         serialization::tryWritePod(file, publisherFontFaces_) &&
+         serialization::tryWritePod(file, publisherFaceSignature_) &&
+         serialization::tryWritePod(file, publisherLoadedFaces_) &&
          serialization::tryWritePod(file,
                                     pageCount) &&  // Placeholder for page count (will be initially 0, patched later)
          serialization::tryWritePod(file, static_cast<uint32_t>(0)) &&  // Protected image units (patched later)
@@ -334,7 +367,10 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     bool fileFocusReadingEnabled;
     bool fileGuideReadingEnabled;
     uint8_t fileWordSpacing;
+    int8_t fileCharacterSpacing;
     uint8_t fileRenderMode;
+    PublisherFonts filePublisherFonts;
+    uint32_t filePublisherFontSignature;
     if (!serialization::tryReadPod(file, fileFontId) || !serialization::tryReadPod(file, fileLineCompression) ||
         !serialization::tryReadPod(file, fileExtraParagraphSpacing) ||
         !serialization::tryReadPod(file, fileForceParagraphIndents) ||
@@ -344,7 +380,9 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         !serialization::tryReadPod(file, fileEmbeddedStyle) || !serialization::tryReadPod(file, fileImageRendering) ||
         !serialization::tryReadPod(file, fileFocusReadingEnabled) ||
         !serialization::tryReadPod(file, fileGuideReadingEnabled) ||
-        !serialization::tryReadPod(file, fileWordSpacing) || !serialization::tryReadPod(file, fileRenderMode)) {
+        !serialization::tryReadPod(file, fileWordSpacing) || !serialization::tryReadPod(file, fileCharacterSpacing) ||
+        !serialization::tryReadPod(file, fileRenderMode) || !serialization::tryReadPod(file, filePublisherFonts) ||
+        !serialization::tryReadPod(file, filePublisherFontSignature)) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: truncated section header");
       clearCache();
@@ -358,7 +396,8 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.hyphenationEnabled != fileHyphenationEnabled || spec.embeddedStyle != fileEmbeddedStyle ||
         spec.imageRendering != fileImageRendering || spec.focusReadingEnabled != fileFocusReadingEnabled ||
         spec.guideReadingEnabled != fileGuideReadingEnabled || spec.wordSpacing != fileWordSpacing ||
-        static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
+        spec.characterSpacing != fileCharacterSpacing || static_cast<uint8_t>(spec.renderMode) != fileRenderMode ||
+        spec.publisherFonts != filePublisherFonts || spec.publisherFontSignature != filePublisherFontSignature) {
       file.close();
       LOG_INF("SCT",
               "Section cache params changed, rebuilding: font %d/%d lc %.3f/%.3f vp %ux%u/%ux%u para %d/%d ind %d/%d "
@@ -374,6 +413,21 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
       return false;
     }
   }
+
+  uint32_t requiredFaces = 0, faceSignature = 0, loadedFaces = 0;
+  if (!serialization::tryReadPod(file, requiredFaces) || !serialization::tryReadPod(file, faceSignature) ||
+      !serialization::tryReadPod(file, loadedFaces) ||
+      !renderer.restoreBookFonts(requiredFaces, loadedFaces, faceSignature)) {
+    file.close();
+    LOG_ERR("SCT", "Publisher font availability changed");
+    clearCache();
+    return false;
+  }
+
+  baseLayoutSignature_ = readerRenderSpecSignature(spec);
+  publisherFontFaces_ = requiredFaces;
+  publisherFaceSignature_ = faceSignature;
+  publisherLoadedFaces_ = loadedFaces;
 
   if (!serialization::tryReadPod(file, pageCount)) {
     file.close();
@@ -487,6 +541,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   pageCount = 0;
   builtPageCount_ = 0;
   imageEstimateViewportHeight_ = viewportHeight;
+  imageEstimateViewportWidth_ = viewportWidth;
   protectedImageUnits_ = 0;
   if (layoutAbortedForLowMemory) *layoutAbortedForLowMemory = false;
   if (buildOptions.cancellationObserved) *buildOptions.cancellationObserved = false;
@@ -530,11 +585,12 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   }
   // First build of a chapter: inflate it on the worker core while this task
   // parses. SD card fonts need the whole file up front for their glyph
-  // prewarm, and previews read only a slice, so both inflate first.
+  // prewarm, previews read only a slice, and the Ignore Body Font scan
+  // rewinds the file, so those inflate first.
   HtmlInflateStream overlappedInflate;
   bool inflateOverlapped = false;
   if (!reusedHtml && !buildOptions.isPreview() && !renderer.isSdCardFont(fontId) &&
-      HtmlInflateStream::worthSplitting()) {
+      spec.publisherFonts != PublisherFonts::Accents && HtmlInflateStream::worthSplitting()) {
     size_t itemBytes = 0;
     if (epub->getItemSize(localPath, &itemBytes) && itemBytes > 0 && itemBytes <= HtmlInflateStream::MAX_ITEM_BYTES) {
       Storage.mkdir(htmlDir.c_str());
@@ -717,7 +773,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       },
       embeddedStyle, contentBase, imageBasePath, imageRendering, std::move(tocAnchors), popupFn, cssParser, renderMode,
       buildOptions.isPreview() ? std::string(buildOptions.previewAnchor) : std::string{}, buildOptions.previewMaxPages,
-      buildOptions.referenceUnitsAreCharacters);
+      buildOptions.referenceUnitsAreCharacters, spec.characterSpacing);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   if (inflateOverlapped) visitor.setStreamInput(&overlappedInflate);
   bool cancelled = false;
@@ -725,6 +781,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   if (cancelBuild()) {
     cancelled = true;
   } else {
+    visitor.setPublisherFonts(spec.publisherFonts);
     success = visitor.beginParse();
   }
   while (success && !cancelled) {
@@ -817,8 +874,8 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   }
 
   // Patch header with final pageCount and all cache lookup-table offsets.
-  if (!file.seek(HEADER_SIZE - sizeof(uint32_t) * 6 - sizeof(pageCount)) ||
-      !serialization::tryWritePod(file, pageCount) || !serialization::tryWritePod(file, protectedImageUnits_) ||
+  if (!writePublisherFontState() || !serialization::tryWritePod(file, pageCount) ||
+      !serialization::tryWritePod(file, protectedImageUnits_) ||
       !serialization::tryWritePod(file, pageIndexOffsets.page) ||
       !serialization::tryWritePod(file, pageIndexOffsets.anchorMap) ||
       !serialization::tryWritePod(file, pageIndexOffsets.paragraph) ||
@@ -849,8 +906,9 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   partial_ = false;
   partialPageCount_ = 0;
   partialProtectedImageUnits_ = 0;
-  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu ms=%lu", spineIndex, pageCount,
-          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(millis() - buildStartedMs));
+  LOG_DBG("SCT", "Section built: spine=%d pages=%u bytes=%lu html=%lu ms=%lu", spineIndex, pageCount,
+          static_cast<unsigned long>(sectionBytes), static_cast<unsigned long>(spineItemBytes(*epub, spineIndex)),
+          static_cast<unsigned long>(millis() - buildStartedMs));
   return true;
 }
 
@@ -889,6 +947,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   const auto tmpSectionPath = binTmpPath();
   builtPageCount_ = 0;
   imageEstimateViewportHeight_ = viewportHeight;
+  imageEstimateViewportWidth_ = viewportWidth;
   protectedImageUnits_ = 0;
   pageCount = partial_ ? partialPageCount_ : 0;
   buildComplete_ = false;
@@ -1053,7 +1112,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
       },
       embeddedStyle, ctxPtr->contentBase, ctxPtr->imageBasePath, imageRendering, std::move(tocAnchors), popupFn,
       ctxPtr->cssParser, renderMode, buildOptions.isPreview() ? std::string(buildOptions.previewAnchor) : std::string{},
-      buildOptions.previewMaxPages, false);
+      buildOptions.previewMaxPages, false, spec.characterSpacing);
   if (!ctx->parser) {
     LOG_ERR("SCT", "Failed to allocate section parser");
     lastLayoutAbortedForLowMemory_ = true;
@@ -1068,6 +1127,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   ctx->startedMs = buildStartedMs;
   build_ = std::move(ctx);
   build_->parser->setDeferAdvancePrewarm(buildOptions.deferAdvancePrewarm);
+  build_->parser->setPublisherFonts(spec.publisherFonts);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
@@ -1093,6 +1153,7 @@ bool Section::buildSomeMore(const int maxPages) {
   // pageCount stays pinned at the partial's watermark until the build passes it, which
   // would otherwise turn one "small" chunk into a blocking rebuild of the whole watermark.
   const int startCount = builtPageCount_;
+  const uint32_t startUs = micros();
   for (;;) {
     const auto status = build_->parser->parseStep();
     lastImagesWereSuppressed_ = lastImagesWereSuppressed_ || build_->parser->wasLowMemoryFallbackTriggered();
@@ -1109,11 +1170,13 @@ bool Section::buildSomeMore(const int maxPages) {
       return false;
     }
     if (status == ChapterHtmlSlimParser::ParseStatus::Done) {
+      build_->busyUs += micros() - startUs;
       return finalizeBuild();
     }
     // ParseStatus::More: yield once we've laid out the requested number of pages.
     if (maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) {
       build_->bytesConsumed = build_->parser->parseBytesConsumed();
+      build_->busyUs += micros() - startUs;
       return true;
     }
   }
@@ -1256,8 +1319,8 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
   }
 
   // Patch header with the built page count and section offsets...
-  if (!file.seek(HEADER_SIZE - sizeof(uint32_t) * 6 - sizeof(builtPageCount_)) ||
-      !serialization::tryWritePod(file, builtPageCount_) || !serialization::tryWritePod(file, protectedImageUnits_) ||
+  if (!writePublisherFontState() || !serialization::tryWritePod(file, builtPageCount_) ||
+      !serialization::tryWritePod(file, protectedImageUnits_) ||
       !serialization::tryWritePod(file, pageIndexOffsets.page) ||
       !serialization::tryWritePod(file, pageIndexOffsets.anchorMap) ||
       !serialization::tryWritePod(file, pageIndexOffsets.paragraph) ||
@@ -1278,9 +1341,18 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
     Storage.remove(build_->tmpSectionPath.c_str());
     return false;
   }
-  LOG_DBG("SCT", "Section %s: spine=%d pages=%u bytes=%lu wall_ms=%lu", asPartial ? "partial" : "built", spineIndex,
-          builtPageCount_, static_cast<unsigned long>(sectionBytes),
-          static_cast<unsigned long>(millis() - build_->startedMs));
+  // busy = layout + write + parse (HTML/CSS/expat and everything else), to size a two-core split.
+  [[maybe_unused]] const uint32_t layoutMs = build_->parser->layoutMicros() / 1000;
+  [[maybe_unused]] const uint32_t writeMs = build_->parser->pageWriteMicros() / 1000;
+  [[maybe_unused]] const uint32_t busyMs = build_->busyUs / 1000;
+  LOG_DBG("SCT",
+          "Section %s: spine=%d pages=%u bytes=%lu html=%lu wall_ms=%lu busy_ms=%lu layout_ms=%lu write_ms=%lu "
+          "parse_ms=%lu",
+          asPartial ? "partial" : "built", spineIndex, builtPageCount_, static_cast<unsigned long>(sectionBytes),
+          static_cast<unsigned long>(spineItemBytes(*epub, spineIndex)),
+          static_cast<unsigned long>(millis() - build_->startedMs), static_cast<unsigned long>(busyMs),
+          static_cast<unsigned long>(layoutMs), static_cast<unsigned long>(writeMs),
+          static_cast<unsigned long>(busyMs > layoutMs + writeMs ? busyMs - layoutMs - writeMs : 0));
   return true;
 }
 
@@ -1601,6 +1673,67 @@ std::optional<uint16_t> Section::findParagraphDuringBuild(const uint16_t pIndex)
   return std::nullopt;
 }
 
+std::optional<Section::ParagraphPosition> Section::getParagraphPositionForPage(const uint16_t page) const {
+  if (page >= pageCount) return std::nullopt;
+  FsFile f;
+  bool attemptedOpen = false;
+  bool readable = false;
+  uint32_t lutOffset = 0;
+  uint16_t count = 0;
+  constexpr uint16_t CHUNK_ENTRIES = 64;
+  uint16_t chunk[CHUNK_ENTRIES];  // 128 bytes; bounded independently of chapter length.
+  uint16_t chunkStart = 0;
+  uint16_t chunkCount = 0;
+  const auto readParagraph = [&](const uint16_t at) -> std::optional<uint16_t> {
+    // Partial extension builds may only have rebuilt part of the readable cache.
+    // Preserve the existing per-page preference for the active build's index.
+    if (build_ && at < build_->pageIndex.size()) return build_->pageIndex[at].paragraphIndex;
+    if (!attemptedOpen) {
+      attemptedOpen = true;
+      if (Storage.openFileForRead("SCT", filePath, f)) {
+        const uint32_t size = f.size();
+        readable = f.seek(HEADER_SIZE - sizeof(uint32_t) * 3) && serialization::tryReadPod(f, lutOffset) &&
+                   lutOffset > 0 && lutOffset < size && f.seek(lutOffset) && serialization::tryReadPod(f, count) &&
+                   sizeof(count) + static_cast<uint32_t>(count) * sizeof(uint16_t) <= size - lutOffset;
+        lutOffset += sizeof(count);
+        if (!readable) LOG_ERR("SCT", "Invalid paragraph lookup table");
+      }
+    }
+    if (!readable || at >= count) return std::nullopt;
+    if (at < chunkStart || at >= static_cast<uint32_t>(chunkStart) + chunkCount) {
+      chunkStart = (at / CHUNK_ENTRIES) * CHUNK_ENTRIES;
+      chunkCount = std::min<uint16_t>(CHUNK_ENTRIES, count - chunkStart);
+      const size_t bytes = chunkCount * sizeof(uint16_t);
+      if (!f.seek(lutOffset + static_cast<uint32_t>(chunkStart) * sizeof(uint16_t)) ||
+          f.read(chunk, bytes) != static_cast<int>(bytes)) {
+        LOG_ERR("SCT", "Failed to read paragraph lookup chunk");
+        readable = false;
+        return std::nullopt;
+      }
+    }
+    return chunk[at - chunkStart];
+  };
+  const auto index = readParagraph(page);
+  if (!index) {
+    if (f) f.close();
+    return std::nullopt;
+  }
+  uint16_t start = page;
+  while (start > 0) {
+    const auto previous = readParagraph(start - 1);
+    if (!previous || *previous != *index) break;
+    --start;
+  }
+  uint16_t end = page + 1;
+  while (end < pageCount) {
+    const auto next = readParagraph(end);
+    if (!next || *next != *index) break;
+    ++end;
+  }
+  if (f) f.close();
+  return ParagraphPosition{*index, static_cast<uint16_t>(page - start), static_cast<uint16_t>(end - start)};
+}
+
 std::optional<uint16_t> Section::getParagraphIndexForPage(const uint16_t page) const {
   if (build_ && page < build_->pageIndex.size()) {
     return build_->pageIndex[page].paragraphIndex;
@@ -1837,18 +1970,33 @@ std::optional<uint16_t> Section::getPageForVisibleTextOffset(const uint32_t offs
       lutOffset + static_cast<uint32_t>(count) * sizeof(uint32_t) > fileSize) {
     return std::nullopt;
   }
+  if (!f.seek(lutOffset)) return std::nullopt;
   uint16_t result = 0;
   uint32_t last = 0;
-  for (uint16_t i = 0; i < count; i++) {
-    uint32_t start = 0;
-    if (!f.seek(lutOffset + static_cast<uint32_t>(i) * sizeof(uint32_t)) || !serialization::tryReadPod(f, start)) {
+  // Read a bounded batch instead of seeking and reading four bytes per page.
+  // Keep the original first-match order, including repeated offsets on image/table pages.
+  uint32_t starts[32];  // 128 bytes; no heap allocation on the restore/reflow path.
+  for (uint32_t base = 0; base < count; base += 32) {
+    const uint32_t batch = std::min<uint32_t>(32, count - base);
+    const size_t bytes = batch * sizeof(uint32_t);
+    if (f.read(starts, bytes) != static_cast<int>(bytes)) {
+      f.close();
       return std::nullopt;
     }
-    last = start;
-    if (start > offset) break;
-    result = i;
-    if (preferFirstAtOffset && start == offset) break;
+    for (uint32_t i = 0; i < batch; ++i) {
+      last = starts[i];
+      if (last > offset) {
+        f.close();
+        return result;
+      }
+      result = static_cast<uint16_t>(base + i);
+      if (preferFirstAtOffset && last == offset) {
+        f.close();
+        return result;
+      }
+    }
   }
+  f.close();
   if (version == SECTION_FILE_PARTIAL_VERSION && offset > last) return std::nullopt;
   return result;
 }
