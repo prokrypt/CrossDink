@@ -3839,7 +3839,8 @@ void CrossPointWebServer::handleFontUploadData() {
 
         if (fontUpload.bufferPos >= FontUploadState::BUFFER_SIZE) {
           if (fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos) != fontUpload.bufferPos) {
-            abortFontUpload();
+            LOG_ERR("WEB", "Font upload SD write failed");
+            fontUpload.valid = false;  // END removes the partial file
             break;
           }
           fontUpload.bytesWritten += fontUpload.bufferPos;
