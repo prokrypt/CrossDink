@@ -120,6 +120,7 @@ bool ClippingStore::loadForBook(const std::string& filePath, const std::string& 
   }
 
   bookFilePath = filePath;
+  pendingSync = {};  // a new reading session for this book
   bookTitle = title;
   bookAuthor = author;
   dirty = false;
@@ -181,6 +182,7 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
     return AddResult::SaveFailed;
   }
   dirty = false;
+  pendingSync.mark(bookFilePath, SyncPending::CLIPPINGS_BIT);
   return AddResult::Added;
 }
 
@@ -192,8 +194,11 @@ bool ClippingStore::removeClippingAt(const size_t index) {
   if (!saveToFile()) {
     clippings.insert(clippings.begin() + index, std::move(clipping));
     dirty = true;
+    // unload() may still persist a retried save; queueing the book is harmless.
+    pendingSync.mark(bookFilePath, SyncPending::CLIPPINGS_BIT);
     return false;
   }
+  pendingSync.mark(bookFilePath, SyncPending::CLIPPINGS_BIT);
   return true;
 }
 
@@ -279,6 +284,7 @@ void ClippingStore::clearAll() {
   dirty = false;
   if (!storeFilePath.empty() && Storage.exists(storeFilePath.c_str())) {
     Storage.remove(storeFilePath.c_str());
+    pendingSync.mark(bookFilePath, SyncPending::CLIPPINGS_BIT);
   }
 }
 
@@ -766,4 +772,11 @@ bool ClippingStore::rollbackRenameMigration(RenameMigration& migration) {
   }
   if (ok) migration.active = false;
   return ok;
+}
+
+bool ClippingStore::hasStoredStateForFilePath(const std::string& filePath, const std::string& bookType) {
+  const std::string path = storeFilePathForBook(filePath, bookType);
+  constexpr std::array<const char*, 4> suffixes = {"", ".bak", ".tmp", ".rename.bak"};
+  return std::any_of(suffixes.begin(), suffixes.end(),
+                     [&path](const char* suffix) { return Storage.exists((path + suffix).c_str()); });
 }

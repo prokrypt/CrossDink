@@ -33,6 +33,7 @@
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
+#include "sync/KeptPosition.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "activities/reader/ReaderPinchGesture.h"
 #endif
@@ -360,6 +361,10 @@ class EpubReaderActivity final : public Activity {
   // Last position successfully persisted by saveProgress, used to skip redundant
   // writeAtomic calls on no-op re-renders.
   int lastSavedSpineIndex = -1;
+  bool progressSavedThisSession = false;  // queues the book for the next sync push on exit
+  // A position a bulk sync kept for this book ("Continue from 45% (Phone)?"), offered once after open.
+  std::unique_ptr<KeptPosition::Offer> keptOffer;
+  bool offerKeptPosition();
   int lastSavedPage = -1;
   int lastSavedPageCount = -1;
   ReaderProgressSaveDebouncer progressSaveDebouncer;

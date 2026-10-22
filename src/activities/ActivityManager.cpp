@@ -151,14 +151,14 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     statsTitle = tr(STR_READING_STATS);
     if (!context.activeReaderBook) context.bookTitle = statsTitle;
   }
-  if (GlobalReadingStats::hasSyncedStats()) {
-    context.readingStatsActivity =
-        makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath, bookStats, progress, false,
-                                             0, global, GlobalReadingStats::loadAggregated(global));
-  } else {
-    context.readingStatsActivity = makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath,
-                                                                        bookStats, progress, false, 0, global);
-  }
+  auto statsActivity =
+      GlobalReadingStats::hasSyncedStats()
+          ? makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath, bookStats, progress,
+                                                 false, 0, global, GlobalReadingStats::loadAggregated(global))
+          : makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath, bookStats, progress,
+                                                 false, 0, global);
+  if (statsActivity && !cachePath.empty()) statsActivity->setSyncBookPath(context.bookPath);
+  context.readingStatsActivity = std::move(statsActivity);
   return context;
 }
 
@@ -771,7 +771,15 @@ void ActivityManager::loop() {
     mappedInput.setPowerAsConfirmInReaderMode(false);
   }
 
-  while (pendingAction != PendingAction::None) {
+  // A deferred full-stack replace waits until its requester has popped and every
+  // result handler has settled, then runs as an ordinary Replace.
+  while (pendingAction != PendingAction::None || (afterReturnActivity && afterReturnOwnerExited)) {
+    if (pendingAction == PendingAction::None) {
+      afterReturnOwnerExited = false;
+      TouchRegistry::getInstance().clear();
+      pendingActivity = std::move(afterReturnActivity);
+      pendingAction = PendingAction::Replace;
+    }
     if (pendingAction == PendingAction::Pop) {
       RenderLock lock;
 
@@ -784,6 +792,10 @@ void ActivityManager::loop() {
 
       const bool closedFrontlightPanel = currentActivity->name == "FrontlightPanel";
       ActivityResult pendingResult = std::move(currentActivity->result);
+      if (afterReturnActivity && currentActivity.get() == afterReturnOwner) {
+        afterReturnOwnerExited = true;
+        afterReturnOwner = nullptr;
+      }
 
       // Destroy the current activity
       exitActivity(lock);
@@ -858,6 +870,16 @@ void ActivityManager::loop() {
       RenderLock lock;
 
       if (pendingAction == PendingAction::Replace) {
+        // A full-stack navigation while the requester is still open (Home
+        // gesture, sleep) cancels the deferred one. After the requester has
+        // exited (e.g. its pop fell back to Home) the deferred one still runs.
+        if (afterReturnActivity && !afterReturnOwnerExited) {
+          LOG_INF("ACT", "Dropping deferred %s for %s", afterReturnActivity->name.c_str(),
+                  pendingActivity->name.c_str());
+          afterReturnActivity.reset();
+          afterReturnOwner = nullptr;
+          afterReturnOwnerExited = false;
+        }
         // Destroy the current activity
         exitActivity(lock);
         // Clear the stack
@@ -1351,6 +1373,13 @@ void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
   TouchRegistry::getInstance().clear();
   pendingActivity = std::move(activity);
   pendingAction = PendingAction::Push;
+}
+
+void ActivityManager::replaceAfterReturn(std::unique_ptr<Activity>&& activity) {
+  // Main-loop only, like replaceActivity(): no lock.
+  afterReturnActivity = std::move(activity);
+  afterReturnOwner = currentActivity.get();
+  afterReturnOwnerExited = false;
 }
 
 void ActivityManager::popActivity() {

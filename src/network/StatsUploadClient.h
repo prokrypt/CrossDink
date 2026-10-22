@@ -14,11 +14,13 @@ class StatsUploadClient {
   // A non-JSON 200 (captive portal, proxy page) is only persisted when
   // `trustHtml` is set, i.e. right after the server accepted our credentials.
   Result probe(bool trustHtml = false);
+  static const char* errorString(Result result);
   // A server without the extension API is not an upload failure: progress-only
   // servers simply have nothing to receive stats or clippings.
   static bool failed(Result result) {
     return result != Result::Ok && result != Result::Skipped && result != Result::Unsupported;
   }
+  static const char* resultString(Result result);
   // The upload is done with: sent, or nothing to send. "Unsupported" is not:
   // the data still has to go once the server accepts it.
   static bool settled(Result result) { return result == Result::Ok || result == Result::Skipped; }

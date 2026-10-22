@@ -1,11 +1,14 @@
 #include "StatsUploadClient.h"
 
 #include <ArduinoJson.h>
+#include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <KOReaderSyncClient.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <SecureHttpClient.h>
+#ifndef SIMULATOR
+#endif
 
 #include <cstdio>
 #include <cstring>
@@ -156,4 +159,28 @@ StatsUploadClient::Result StatsUploadClient::probe(const bool trustHtml) {
   }
   KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
   return Result::Ok;
+}
+
+const char* StatsUploadClient::resultString(Result result) {
+  if (result == Result::Ok) return tr(STR_DONE);
+  if (result == Result::Skipped) return tr(STR_NONE_OPT);
+  if (result == Result::Unsupported) return tr(STR_NOT_SUPPORTED);
+  return errorString(result);
+}
+
+const char* StatsUploadClient::errorString(Result result) {
+  switch (result) {
+    case Result::Ok:
+      return "";
+    case Result::Auth:
+      return tr(STR_AUTH_FAILED);
+    case Result::Unsupported:
+      return tr(STR_KOREADER_SYNC_HTTP_404);
+    case Result::LowMemory:
+      return tr(STR_KOREADER_SYNC_LOW_MEMORY);
+    case Result::Network:
+      return tr(STR_CONNECTION_FAILED);
+    default:
+      return tr(STR_SYNC_FAILED_MSG);
+  }
 }

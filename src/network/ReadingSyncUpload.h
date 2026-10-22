@@ -32,4 +32,15 @@ bool loadBookStats(const std::string& path, BookReadingStats& stats);
 bool canSyncReadingStats();
 bool canSyncClippings();
 ExtrasResult extras(const std::string& path, const std::string& document);
+// Shared result wording for every sync screen: "Not supported" on a progress-only
+// server, "OFF" when the user turned that data off, otherwise the upload result.
+const char* statusLabel(StatsUploadClient::Result result, bool clippings);
+// Bulk variant: "3" or "3 (1 failed)", with the same OFF / Not supported states.
+const char* countLabel(char* buffer, size_t capacity, uint32_t ok, uint32_t failed, bool clippings);
+// Heading for a book that failed to sync: names the part that failed
+// ("Progress sync failed"), or "Sync failed" when several (or none known) did.
+const char* failureHeading(bool progress, bool stats, bool clippings);
+// The book's file name without folder or extension, for failure screens that
+// have no EPUB metadata loaded.
+std::string displayName(const std::string& bookPath);
 }  // namespace ReadingSyncUpload

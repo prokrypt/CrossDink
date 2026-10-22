@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 
 struct BookReadingStats;
@@ -12,7 +13,9 @@ struct GlobalReadingStats;
 // battery, the remote FLUSH and the book actions. While held, the stats loaders
 // return these copies.
 namespace ReaderExitSave {
-void queue(const std::string& cachePath, const BookReadingStats* book, const GlobalReadingStats* global);
+// `syncBits` (SyncPending bits) queue `bookPath` for the next sync push at the same flush point.
+void queue(const std::string& cachePath, const BookReadingStats* book, const GlobalReadingStats* global,
+           const std::string& bookPath = {}, uint8_t syncBits = 0);
 // The held stats and APP_STATE only: a reader opening a book writes them first,
 // so its own saves during the session cannot be overwritten by an older copy.
 bool flushStats();  // no-op when nothing is queued; true when it wrote

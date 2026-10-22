@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "sync/SyncPending.h"
+
 inline constexpr size_t CLIPPING_CHAPTER_TITLE_MAX = 48;
 // Clipping text lives on the SD card rather than in every in-memory clipping
 // record. Match the reader's bounded selection-text budget so previews retain
@@ -112,6 +114,8 @@ class ClippingStore {
   static void deleteForFilePath(const std::string& filePath, const std::string& bookType);
   static bool migrateForFilePath(const std::string& oldFilePath, const std::string& newFilePath,
                                  const std::string& title, const std::string& author, const std::string& bookType);
+  // A clippings file (or its backup/temp twin) exists for this book.
+  static bool hasStoredStateForFilePath(const std::string& filePath, const std::string& bookType);
   static bool beginRenameMigration(const std::string& oldFilePath, const std::string& newFilePath,
                                    const std::string& title, const std::string& author, const std::string& bookType,
                                    RenameMigration& migration);
@@ -123,6 +127,7 @@ class ClippingStore {
 
   std::vector<Clipping> clippings;
   std::string bookFilePath;
+  SyncPending::SessionMarker pendingSync;
   std::string bookTitle;
   std::string bookAuthor;
   std::string storeFilePath;

@@ -2,7 +2,25 @@
 
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
+#include "sync/DocumentMatching.h"
+#include "sync/SyncPending.h"
+#include "sync/SyncState.h"
 #include "util/BatteryLog.h"
+
+void setSyncDataEnabled(const bool stats, const bool enabled) {
+  if ((stats ? KOREADER_STORE.getSyncStats() : KOREADER_STORE.getSyncClippings()) == enabled) return;
+  if (stats)
+    KOREADER_STORE.setSyncStats(enabled);
+  else
+    KOREADER_STORE.setSyncClippings(enabled);
+  KOREADER_STORE.saveToFile();
+  // Off: nothing of that type is queued any more. On: changes made while it
+  // was off were never queued, so the next sync re-sends that data once.
+  if (enabled)
+    SyncState::restartCatchup(stats);
+  else
+    SyncPending::clearEverywhere(stats ? SyncPending::STATS_BIT : SyncPending::CLIPPINGS_BIT);
+}
 
 const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
@@ -314,29 +332,27 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
           KOREADER_STORE.setCredentials(v, KOREADER_STORE.getPassword());
           KOREADER_STORE.saveToFile();
         },
-        "koUsername", StrId::STR_KOREADER_SYNC));
+        "koUsername", StrId::STR_SYNC_SERVER));
     add(SettingInfo::DynamicString(
         StrId::STR_KOREADER_PASSWORD, [] { return KOREADER_STORE.getPassword(); },
         [](const std::string& v) {
           KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), v);
           KOREADER_STORE.saveToFile();
         },
-        "koPassword", StrId::STR_KOREADER_SYNC));
+        "koPassword", StrId::STR_SYNC_SERVER));
     add(SettingInfo::DynamicString(
         StrId::STR_SYNC_SERVER_URL, [] { return KOREADER_STORE.getServerUrl(); },
         [](const std::string& v) {
           KOREADER_STORE.setServerUrl(v);
           KOREADER_STORE.saveToFile();
         },
-        "koServerUrl", StrId::STR_KOREADER_SYNC));
+        "koServerUrl", StrId::STR_SYNC_SERVER));
     add(SettingInfo::DynamicEnum(
         StrId::STR_DOCUMENT_MATCHING, {StrId::STR_FILENAME, StrId::STR_BINARY},
         [] { return static_cast<uint8_t>(KOREADER_STORE.getMatchMethod()); },
-        [](uint8_t v) {
-          KOREADER_STORE.setMatchMethod(static_cast<DocumentMatchMethod>(v));
-          KOREADER_STORE.saveToFile();
-        },
-        "koMatchMethod", StrId::STR_KOREADER_SYNC));
+        // The web settings page warns before saving a change.
+        [](uint8_t v) { DocumentMatching::set(static_cast<DocumentMatchMethod>(v)); }, "koMatchMethod",
+        StrId::STR_SYNC_SERVER));
     add(SettingInfo::DynamicEnum(
         StrId::STR_SEND_METADATA, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
         [] { return static_cast<uint8_t>(KOREADER_STORE.getSendMetadata()); },
@@ -344,7 +360,16 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
           KOREADER_STORE.setSendMetadata(v != 0);
           KOREADER_STORE.saveToFile();
         },
-        "koSendMetadata", StrId::STR_KOREADER_SYNC));
+        "koSendMetadata", StrId::STR_SYNC_SERVER));
+    // What to Sync, as on the device's Sync Server screen.
+    add(SettingInfo::DynamicEnum(
+        StrId::STR_READING_STATS, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
+        [] { return static_cast<uint8_t>(KOREADER_STORE.getSyncStats()); },
+        [](uint8_t v) { setSyncDataEnabled(true, v != 0); }, "koSyncStats", StrId::STR_SYNC_SERVER));
+    add(SettingInfo::DynamicEnum(
+        StrId::STR_CLIPPINGS, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
+        [] { return static_cast<uint8_t>(KOREADER_STORE.getSyncClippings()); },
+        [](uint8_t v) { setSyncDataEnabled(false, v != 0); }, "koSyncClippings", StrId::STR_SYNC_SERVER));
 
     add(SettingInfo::DynamicEnum(
         StrId::STR_SYNC_BEHAVIOR, {StrId::STR_ASK_EVERY_TIME, StrId::STR_SMART_SYNC},
@@ -353,12 +378,12 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
           KOREADER_STORE.setSyncBehavior(static_cast<KOReaderSyncBehavior>(v));
           KOREADER_STORE.saveToFile();
         },
-        "koSyncBehavior", StrId::STR_KOREADER_SYNC));
+        "koSyncBehavior", StrId::STR_SYNC_SERVER));
     add(SettingInfo::Enum(StrId::STR_AUTO_SYNC, &CrossPointSettings::koAutoSync,
                           {StrId::STR_DISABLED, StrId::STR_AT_OPEN, StrId::STR_AT_CLOSE, StrId::STR_BOTH}, "koAutoSync",
-                          StrId::STR_KOREADER_SYNC));
+                          StrId::STR_SYNC_SERVER));
     add(SettingInfo::Toggle(StrId::STR_SYNC_SLEEP_WAKE, &CrossPointSettings::koSyncSleepWake, "koSyncSleepWake",
-                            StrId::STR_KOREADER_SYNC));
+                            StrId::STR_SYNC_SERVER));
 
     // Legacy fields stay in JSON for one-time status bar migration; the web
     // editor uses /api/status-bars instead of exposing these controls.

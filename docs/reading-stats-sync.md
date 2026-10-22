@@ -85,3 +85,16 @@ If a sync was interrupted, a temporary `*.part` file may be left in `synced_stat
 You can manually copy a valid stats file into another reader's `/.crossdink/synced_stats/` folder. A descriptive file name such as `old_reader.bin` can work because CrossDink validates the file contents, not the name.
 
 Use normal `device_<mac>.bin` names when possible. Do not copy this reader's own local `global_stats.bin` into `synced_stats/` under a different name; CrossDink will treat it like another reader and the all-time total will be too high.
+
+## Sync Server (stats and clippings)
+
+With a CrossPoint Sync account (Settings > System > Sync Server), reading stats and clippings can also go to the server. KOReader-only servers take progress only; the toggles then read Requires CrossPoint Sync.
+
+- **What to Sync > Reading Stats / Clippings**: both OFF by default. Turning one on queues every book for a catch-up on the next bulk sync; turning it off drops its queued books.
+- **Sync Book** (book long-press menu in Library and Browse Files): progress (EPUB), the book's stats and clippings, plus the all-time stats.
+- **Sync Folder** (folder long-press menu in Browse Files) and **File Transfer > Sync Server > Sync Books** (whole card): every book's progress, stats and clippings. The first run walks the folder; later runs send only books queued since (opened, read, finished, clipped) and apply positions other readers uploaded.
+- **Sync Reading Stats** / **Sync Clippings** (File Transfer, and the Sync button on Reading Stats > This Device): that data only.
+- **Auto Sync > At close** also sends the closed book's stats and clippings after its progress push, in the same Wi-Fi session.
+- A position another reader moved further, fetched by a bulk sync, is kept and offered when the book opens: "Continue from 45% (Phone)?". Stay here keeps this reader's position and sends it on the next sync.
+
+Queued books live in `/.crossdink/sync_pending.bin`; see [file formats](file-formats.md) for it and the other sync files. The reader adds a book there at its held exit writes (sleep, restart, leaving for another screen), never on a page turn.

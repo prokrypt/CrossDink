@@ -34,5 +34,9 @@ bool isBookStatsTrackingEnabled(const std::string& fullPath);
 bool toggleBookStatsTracking(const std::string& fullPath, bool& enabled);
 bool toggleBookCompleted(const std::string& fullPath, const std::string& displayName, bool& completed);
 void drawToast(const GfxRenderer& renderer, const char* msg);
+// Sync Book from a book list (EPUB or XTC): the sync screen to open over the
+// list, or Sync Server settings when no account is set up.
+std::unique_ptr<Activity> createSyncBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                                 const std::string& fullPath);
 
 }  // namespace BookActions

@@ -19,14 +19,18 @@
 #include "CrossPointState.h"
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
+#include "activities/network/StatsUploadActivity.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/BookStatsActivity.h"
 #include "activities/reader/BookStatsTracking.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReaderExitSave.h"
+#include "activities/settings/KOReaderSettingsActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncPending.h"
 #include "util/BookCacheUtils.h"
 #include "util/BookMoveUtils.h"
 
@@ -52,7 +56,7 @@ std::string bookStatsCachePath(const std::string& path) {
 std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std::string& fullPath,
                                                                       const bool includeRemoveFromRecents) {
   std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.reserve(includeRemoveFromRecents ? 9 : 8);
+  items.reserve(includeRemoveFromRecents ? 10 : 9);
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
   if (hasClearableBookCache(fullPath)) {
     items.push_back({FileBrowserAction::DeleteCache, StrId::STR_DELETE_CACHE});
@@ -73,11 +77,24 @@ std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std:
     }
     items.push_back({FileBrowserAction::ToggleCompleted,
                      isBookCompleted(fullPath) ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
+    // XTC books have no KOReader position, but their reading stats still sync.
+    items.push_back({FileBrowserAction::SyncProgress, StrId::STR_SYNC_BOOK});
   }
   if (includeRemoveFromRecents) {
     items.push_back({FileBrowserAction::RemoveFromRecents, StrId::STR_REMOVE_FROM_RECENTS_ACTION});
   }
   return items;
+}
+
+std::unique_ptr<Activity> createSyncBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                                 const std::string& fullPath) {
+  if (!KOREADER_STORE.hasCredentials()) return makeUniqueNoThrow<KOReaderSettingsActivity>(renderer, mappedInput);
+  if (!hasReadingStats(fullPath) || !Storage.exists(fullPath.c_str())) {
+    LOG_ERR("BookActions", "Cannot sync missing or unsupported book: %s", fullPath.c_str());
+    return {};
+  }
+  ReaderExitSave::flush();  // the sync reads the saved position and stats
+  return makeUniqueNoThrow<StatsUploadActivity>(renderer, mappedInput, fullPath, StatsUploadActivity::Scope::Book);
 }
 
 bool hasClearableBookCache(const std::string& path) {
@@ -138,12 +155,14 @@ std::unique_ptr<Activity> createReadingStatsActivity(GfxRenderer& renderer, Mapp
                                                                : RecentBookProgress::loadPercent(book);
   const BookReadingStats stats = BookReadingStats::load(cachePath);
   const GlobalReadingStats global = GlobalReadingStats::load();
-  if (GlobalReadingStats::hasSyncedStats()) {
-    return makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, title, cachePath, stats, progress, false, 0,
-                                                global, GlobalReadingStats::loadAggregated(global));
-  }
-  return makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, title, cachePath, stats, progress, false, 0,
-                                              global);
+  auto activity =
+      GlobalReadingStats::hasSyncedStats()
+          ? makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, title, cachePath, stats, progress, false, 0,
+                                                 global, GlobalReadingStats::loadAggregated(global))
+          : makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, title, cachePath, stats, progress, false, 0,
+                                                 global);
+  if (activity) activity->setSyncBookPath(fullPath);
+  return activity;
 }
 
 bool resetBookReaderSettings(const std::string& fullPath) {
@@ -264,6 +283,8 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
     LOG_ERR("BookActions", "Could not save completion for: %s", fullPath.c_str());
     return false;
   }
+  SyncPending::mark(fullPath, SyncPending::STATS_BIT);
+  BookSyncFile::onFinishedChanged(fullPath, completed);
   if (trackStats) {
     GlobalReadingStats globalStats = GlobalReadingStats::load();
     if (completed) {

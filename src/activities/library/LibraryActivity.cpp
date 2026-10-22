@@ -1553,6 +1553,13 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
             openDialog(BookActions::createReadingStatsActivity(renderer, mappedInput, book.path, book.title),
                        [this](const ActivityResult&) { requestUpdate(); });
             return;
+          case FileBrowserAction::SyncProgress:
+            if (auto sync = BookActions::createSyncBookActivity(renderer, mappedInput, book.path)) {
+              openDialog(std::move(sync), [this](const ActivityResult&) { requestUpdate(); });
+            } else {
+              BookActions::drawToast(renderer, tr(STR_SYNC_FAILED_MSG));
+            }
+            return;
           case FileBrowserAction::Delete:
             promptDeleteBook(book);
             return;
@@ -1648,6 +1655,7 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
           case FileBrowserAction::DeleteBookmarks:
           case FileBrowserAction::DeleteClippings:
           case FileBrowserAction::Rename:
+          case FileBrowserAction::SyncFolder:
             return;
         }
       });

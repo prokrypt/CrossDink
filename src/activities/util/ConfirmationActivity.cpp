@@ -24,7 +24,8 @@ void ConfirmationActivity::onEnter() {
     mappedInput.setReaderTouchscreenOverride(true);
   }
 
-  const char* options[] = {I18N.get(StrId::STR_CANCEL), confirmLabel ? confirmLabel : I18N.get(StrId::STR_CONFIRM)};
+  const char* options[] = {cancelLabel ? cancelLabel : I18N.get(StrId::STR_CANCEL),
+                           confirmLabel ? confirmLabel : I18N.get(StrId::STR_CONFIRM)};
   confirmPopup.setShowTappedRowFirst(false);  // ActivityManager drew the tapped row under us
   confirmPopup.show(
       popupTitle.c_str(), options, 2, confirmFocused ? 1 : 0,

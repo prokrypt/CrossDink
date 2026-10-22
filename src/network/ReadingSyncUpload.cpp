@@ -2,6 +2,7 @@
 
 #include <Epub.h>
 #include <FsHelpers.h>
+#include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <KOReaderDocumentId.h>
 #include <Logging.h>
@@ -160,4 +161,40 @@ ReadingSyncUpload::ExtrasResult ReadingSyncUpload::extras(const std::string& pat
   LOG_INF("ReadingSync", "Extras: stats=%d clippings=%d", static_cast<int>(result.stats),
           static_cast<int>(result.clippings));
   return result;
+}
+
+namespace {
+const char* unavailableLabel(const bool clippings) {
+  if (KOREADER_STORE.getServerSupport() == SyncServerSupport::UNSUPPORTED) return tr(STR_NOT_SUPPORTED);
+  const bool enabled = clippings ? KOREADER_STORE.getSyncClippings() : KOREADER_STORE.getSyncStats();
+  return enabled ? nullptr : tr(STR_STATE_OFF);
+}
+}  // namespace
+
+const char* ReadingSyncUpload::statusLabel(const StatsUploadClient::Result result, const bool clippings) {
+  const char* unavailable = unavailableLabel(clippings);
+  return unavailable ? unavailable : StatsUploadClient::resultString(result);
+}
+
+const char* ReadingSyncUpload::countLabel(char* buffer, const size_t capacity, const uint32_t ok, const uint32_t failed,
+                                          const bool clippings) {
+  const char* unavailable = unavailableLabel(clippings);
+  if (unavailable) return unavailable;
+  if (failed == 0)
+    snprintf(buffer, capacity, "%u", static_cast<unsigned>(ok));
+  else
+    snprintf(buffer, capacity, "%u (%u %s)", static_cast<unsigned>(ok), static_cast<unsigned>(failed),
+             tr(STR_FAILED_LOWER));
+  return buffer;
+}
+
+const char* ReadingSyncUpload::failureHeading(const bool progress, const bool stats, const bool clippings) {
+  if (progress + stats + clippings != 1) return tr(STR_SYNC_FAILED_MSG);
+  return progress ? tr(STR_PROGRESS_SYNC_FAILED) : stats ? tr(STR_STATS_SYNC_FAILED) : tr(STR_CLIPPINGS_SYNC_FAILED);
+}
+
+std::string ReadingSyncUpload::displayName(const std::string& bookPath) {
+  const size_t start = bookPath.find_last_of('/') + 1;
+  const size_t dot = bookPath.find_last_of('.');
+  return bookPath.substr(start, dot != std::string::npos && dot > start ? dot - start : std::string::npos);
 }

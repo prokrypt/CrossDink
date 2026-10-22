@@ -36,6 +36,8 @@
 #include "components/HomeCoverThumbs.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncPending.h"
 #include "util/BookCacheUtils.h"
 
 namespace {
@@ -827,7 +829,8 @@ void XtcReaderActivity::commitReadingStats() {
   // Written at the next flush point, as the EPUB reader's are (ReaderExitSave).
   if (statsTrackingActive || paceDirty || pendingStatsCommit) {
     ReaderExitSave::queue(xtc->getCachePath(), &stats,
-                          statsTrackingActive || pendingStatsCommit ? &globalStats : nullptr);
+                          statsTrackingActive || pendingStatsCommit ? &globalStats : nullptr, xtc->getPath(),
+                          SyncPending::STATS_BIT);
   }
 }
 
@@ -851,7 +854,12 @@ void XtcReaderActivity::setBookCompleted(const bool isCompleted) {
     }
   }
 
-  if (stats.save(xtc->getCachePath()) && statsTrackingActive) {
+  const bool saved = stats.save(xtc->getCachePath());
+  if (saved) {
+    SyncPending::mark(xtc->getPath(), SyncPending::STATS_BIT);
+    BookSyncFile::onFinishedChanged(xtc->getPath(), isCompleted);
+  }
+  if (saved && statsTrackingActive) {
     if (isCompleted) {
       globalStats.completedBooks++;
     } else if (globalStats.completedBooks > 0) {
@@ -900,13 +908,15 @@ std::unique_ptr<Activity> XtcReaderActivity::createFrontlightReadingStatsActivit
   }
 
   const bool hasSyncedStats = GlobalReadingStats::hasSyncedStats();
-  if (hasSyncedStats) {
-    return makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, xtc->getTitle(), xtc->getCachePath(),
-                                                displayStats, getCurrentBookProgressPercent(), false, 0, globalStats,
-                                                GlobalReadingStats::loadAggregated(globalStats));
-  }
-  return makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, xtc->getTitle(), xtc->getCachePath(), displayStats,
-                                              getCurrentBookProgressPercent(), false, 0, globalStats);
+  auto statsActivity =
+      hasSyncedStats
+          ? makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, xtc->getTitle(), xtc->getCachePath(),
+                                                 displayStats, getCurrentBookProgressPercent(), false, 0, globalStats,
+                                                 GlobalReadingStats::loadAggregated(globalStats))
+          : makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, xtc->getTitle(), xtc->getCachePath(),
+                                                 displayStats, getCurrentBookProgressPercent(), false, 0, globalStats);
+  if (statsActivity) statsActivity->setSyncBookPath(xtc->getPath());
+  return statsActivity;
 }
 
 void XtcReaderActivity::onFrontlightPanelClosed() {

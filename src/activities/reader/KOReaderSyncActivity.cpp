@@ -35,6 +35,9 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/WifiUtils.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncParked.h"
+#include "sync/SyncPending.h"
 #include "util/WorkerTask.h"
 
 namespace {
@@ -51,11 +54,27 @@ long displayedTenths(const float percentage) { return std::lround(percentage * 1
 
 // Apply/Upload buttons are pinned above the button hints (or the bottom edge on touch devices) so the
 // progress cards can use the space above them. Rendering and hit testing share this layout.
-TouchActionButtons::Layout resultActionLayout(const Rect& screen, const ThemeMetrics& metrics, const bool hasTouch) {
-  constexpr uint8_t buttonCount = 2;
+TouchActionButtons::Layout resultActionLayout(const Rect& screen, const ThemeMetrics& metrics, const bool hasTouch,
+                                              const uint8_t buttonCount = 2) {
   const int buttonHeight = hasTouch ? TouchActionButtons::kDefaultHeight : RESULT_NON_TOUCH_ACTION_HEIGHT;
   const int buttonGap = hasTouch ? TouchActionButtons::kDefaultGap : RESULT_NON_TOUCH_ACTION_GAP;
   const int reservedBottom = hasTouch ? metrics.verticalSpacing : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  if (buttonCount == 3 && screen.width > screen.height) {
+    // Landscape places the progress cards side by side, leaving room for two rows:
+    // the two progress choices share the first row and Skip book takes the second.
+    const int totalHeight = buttonHeight * 2 + buttonGap;
+    TouchActionButtons::Layout layout;
+    layout.container =
+        Rect{screen.x + metrics.contentSidePadding, screen.y + screen.height - reservedBottom - totalHeight,
+             std::max(1, screen.width - metrics.contentSidePadding * 2), totalHeight};
+    layout.count = 3;
+    const Rect& area = layout.container;
+    const int half = std::max(1, (area.width - buttonGap) / 2);
+    layout.buttons[0] = Rect{area.x, area.y, half, buttonHeight};
+    layout.buttons[1] = Rect{area.x + area.width - half, area.y, half, buttonHeight};
+    layout.buttons[2] = Rect{area.x, area.y + buttonHeight + buttonGap, area.width, buttonHeight};
+    return layout;
+  }
   const int totalHeight = buttonHeight * buttonCount + buttonGap * (buttonCount - 1);
   const Rect container{screen.x + metrics.contentSidePadding, screen.y + screen.height - reservedBottom - totalHeight,
                        std::max(1, screen.width - metrics.contentSidePadding * 2), totalHeight};
@@ -149,9 +168,9 @@ void drawProgressCard(const GfxRenderer& renderer, const Rect& card, const Progr
   renderer.drawText(UI_10_FONT_ID, x, y, chapter.c_str());
 }
 
-TouchActionButtons::Layout noRemoteProgressActionLayout(const Rect& screen, const ThemeMetrics& metrics) {
-  constexpr uint8_t buttonCount = 2;
-  constexpr int totalHeight =
+TouchActionButtons::Layout bottomActionLayout(const Rect& screen, const ThemeMetrics& metrics,
+                                              const uint8_t buttonCount) {
+  const int totalHeight =
       TouchActionButtons::kDefaultHeight * buttonCount + TouchActionButtons::kDefaultGap * (buttonCount - 1);
   const Rect container{screen.x + metrics.contentSidePadding,
                        screen.y + screen.height - metrics.verticalSpacing - totalHeight,
@@ -198,6 +217,65 @@ void wifiOff() {
   WiFi.disconnect(false);
   WiFi.mode(WIFI_OFF);
 }
+// One sync request at a time. Static, not a member: a request abandoned at
+// sleep keeps writing here after the activity is gone (deep sleep follows, so
+// no later job reuses it).
+enum class NetJobKind : uint8_t { Fetch, Upload, Extras };
+struct NetJob {
+  NetJobKind kind = NetJobKind::Fetch;
+  DocumentMatchMethod method = DocumentMatchMethod::FILENAME;  // logs only
+  std::string hash;
+  std::string altHash;          // empty: no alternate probe
+  KOReaderProgress progress{};  // Fetch: primary result; Upload: what to send
+  KOReaderProgress altProgress{};
+  KOReaderSyncClient::Error result = KOReaderSyncClient::OK;
+  KOReaderSyncClient::Error altResult = KOReaderSyncClient::NOT_FOUND;
+  // Extras: one book's stats and clippings, plus overall stats when asked.
+  std::string path;
+  bool includeGlobal = false;
+  ReadingSyncUpload::ExtrasResult extras{};
+  StatsUploadClient::Result global = StatsUploadClient::Result::Skipped;
+  uint32_t elapsedMs = 0;
+};
+NetJob netJob;
+WorkerTask netTask;
+
+void runNetJob() {
+  NetJob& job = netJob;
+  const unsigned long start = millis();
+  // One request on a fresh connection after a transport failure: a GET once
+  // hung 8 s after a good handshake (http=-1) and the user's retry right after
+  // took 1.2 s. The failed connection is already closed (releaseClient).
+  const auto retriedOnce = [](const char* what, auto&& request) {
+    KOReaderSyncClient::Error result = request();
+    if (result == KOReaderSyncClient::NETWORK_ERROR) {
+      LOG_INF("KOSync", "%s failed (http=%d); retrying once", what, KOReaderSyncClient::lastHttpCode);
+      result = request();
+    }
+    return result;
+  };
+  if (job.kind == NetJobKind::Extras) {
+    if (job.includeGlobal) job.global = ReadingSyncUpload::globalStats();
+    job.extras = ReadingSyncUpload::extras(job.path, job.hash);
+  } else if (job.kind == NetJobKind::Upload) {
+    job.result = retriedOnce("Upload", [&job]() { return KOReaderSyncClient::updateProgress(job.progress); });
+  } else {
+    job.result =
+        retriedOnce("Get progress", [&job]() { return KOReaderSyncClient::getProgress(job.hash, job.progress); });
+    LOG_DBG("KOSync", "Primary remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s", matchMethodName(job.method),
+            job.result, KOReaderSyncClient::lastHttpCode, job.hash.c_str(), job.progress.percentage,
+            job.progress.progress.c_str());
+    // A network or auth failure would fail the alternate probe too; skip its handshake.
+    if (!job.altHash.empty() && job.result != KOReaderSyncClient::NETWORK_ERROR &&
+        job.result != KOReaderSyncClient::AUTH_FAILED && job.result != KOReaderSyncClient::LOW_MEMORY) {
+      job.altResult = KOReaderSyncClient::getProgress(job.altHash, job.altProgress);
+      LOG_DBG("KOSync", "Alternate remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s",
+              matchMethodName(alternateMatchMethod(job.method)), job.altResult, KOReaderSyncClient::lastHttpCode,
+              job.altHash.c_str(), job.altProgress.percentage, job.altProgress.progress.c_str());
+    }
+  }
+  job.elapsedMs = millis() - start;
+}
 }  // namespace
 
 void KOReaderSyncActivity::ensureEpubLoaded() {
@@ -210,6 +288,8 @@ void KOReaderSyncActivity::ensureEpubLoaded() {
       epub.reset();
       return;
     }
+    // Kept for failure screens, which may show after the EPUB is released.
+    if (bookTitle.empty()) bookTitle = epub->getTitle();
   }
 }
 
@@ -248,6 +328,11 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
   // epub is guaranteed non-null here: ensureEpubLoaded() was called in performSync() before
   // SHOWING_RESULT state is entered, and this method is only called from that state.
   assert(epub);
+  // A bulk sync's Exit must not still change this book's saved position.
+  if (batchExitRequested()) {
+    exitBatch();
+    return;
+  }
   const int pageCount = std::max(position.totalPages, position.pageNumber + 1);
   if (pageCount != position.totalPages) {
     LOG_DBG("KOSync", "Adjusted remote page count before save: page=%d count=%d -> %d", position.pageNumber,
@@ -259,6 +344,7 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
+      progressFailed = true;
       statusMessage = tr(STR_SAVE_PROGRESS_FAILED);
     }
     requestUpdate(true);
@@ -268,66 +354,201 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
   RecentBookProgress::noteSynced(
       epub->getCachePath(), RecentBookProgress::basisPoints(*epub, position.spineIndex, position.pageNumber, pageCount),
       false);
-  returnToReader();
+  progressSucceeded = true;
+  uploadExtras(AfterExtras::ReturnToSource);
 }
 
-namespace {
-// One sync request at a time. Static, not a member: a request abandoned at
-// sleep keeps writing here after the activity is gone (deep sleep follows, so
-// no later job reuses it).
-enum class NetJobKind : uint8_t { Fetch, Upload };
-struct NetJob {
-  NetJobKind kind = NetJobKind::Fetch;
-  DocumentMatchMethod method = DocumentMatchMethod::FILENAME;  // logs only
-  std::string hash;
-  std::string altHash;          // empty: no alternate probe
-  KOReaderProgress progress{};  // Fetch: primary result; Upload: what to send
-  KOReaderProgress altProgress{};
-  KOReaderSyncClient::Error result = KOReaderSyncClient::OK;
-  KOReaderSyncClient::Error altResult = KOReaderSyncClient::NOT_FOUND;
-  uint32_t elapsedMs = 0;
-};
-NetJob netJob;
-WorkerTask netTask;
-
-void runNetJob() {
-  NetJob& job = netJob;
-  const unsigned long start = millis();
-  // One request on a fresh connection after a transport failure: a GET once
-  // hung 8 s after a good handshake (http=-1) and the user's retry right after
-  // took 1.2 s. The failed connection is already closed (releaseClient).
-  const auto retriedOnce = [](const char* what, auto&& request) {
-    KOReaderSyncClient::Error result = request();
-    if (result == KOReaderSyncClient::NETWORK_ERROR) {
-      LOG_INF("KOSync", "%s failed (http=%d); retrying once", what, KOReaderSyncClient::lastHttpCode);
-      result = request();
+void KOReaderSyncActivity::returnToSource() {
+  if (folderSync) {
+    if (netTask.running()) {
+      exitRequested = true;  // pollNetJob() exits once the request ends
+      return;
     }
-    return result;
-  };
-  if (job.kind == NetJobKind::Upload) {
-    job.result = retriedOnce("Upload", [&job]() { return KOReaderSyncClient::updateProgress(job.progress); });
-  } else {
-    job.result =
-        retriedOnce("Get progress", [&job]() { return KOReaderSyncClient::getProgress(job.hash, job.progress); });
-    LOG_DBG("KOSync", "Primary remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s", matchMethodName(job.method),
-            job.result, KOReaderSyncClient::lastHttpCode, job.hash.c_str(), job.progress.percentage,
-            job.progress.progress.c_str());
-    // A network or auth failure would fail the alternate probe too; skip its handshake.
-    if (!job.altHash.empty() && job.result != KOReaderSyncClient::NETWORK_ERROR &&
-        job.result != KOReaderSyncClient::AUTH_FAILED && job.result != KOReaderSyncClient::LOW_MEMORY) {
-      job.altResult = KOReaderSyncClient::getProgress(job.altHash, job.altProgress);
-      LOG_DBG("KOSync", "Alternate remote (%s): result=%d http=%d doc=%s remote=%.6f xpath=%s",
-              matchMethodName(alternateMatchMethod(job.method)), job.altResult, KOReaderSyncClient::lastHttpCode,
-              job.altHash.c_str(), job.altProgress.percentage, job.altProgress.progress.c_str());
+    if (syncSucceeded) {
+      setResult(syncResult());
+    } else {
+      ActivityResult result;
+      result.isCancelled = true;
+      setResult(std::move(result));
     }
+    finish();
+    return;
   }
-  job.elapsedMs = millis() - start;
-}
-}  // namespace
-
-void KOReaderSyncActivity::returnToReader() {
   if (netTask.running()) abandonNetJob = true;
   activityManager.goToReader(epubPath, false, false, true);
+}
+
+void KOReaderSyncActivity::skipBook() {
+  LOG_INF("KOSync", "Skipping bulk sync book: %s", epubPath.c_str());
+  // Stats and clippings do not depend on the progress choice.
+  uploadExtras(AfterExtras::Skip);
+}
+
+void KOReaderSyncActivity::deferChoice() {
+  LOG_INF("KOSync", "Conflict kept for the end of the bulk sync: %s", epubPath.c_str());
+  // Stats and clippings do not depend on the choice.
+  uploadExtras(AfterExtras::Defer);
+}
+
+void KOReaderSyncActivity::finishFailed() {
+  LOG_INF("KOSync", "Bulk sync book failed: %s (%s)", epubPath.c_str(), statusMessage.c_str());
+  parkRemote();
+  ProgressSyncResult result = syncResult();
+  result.progressFailed = progressFailed;
+  result.reason = std::move(statusMessage);
+  setResult(std::move(result));
+  finish();
+}
+
+void KOReaderSyncActivity::parkRemote() {
+  // Keep the remote position this book was not reconciled with, so a later
+  // push compares with it instead of overwriting it. (A pulled change is
+  // parked by the bulk sync itself.)
+  if (progressOnly || documentHash.empty() || remoteProgress.progress.empty()) return;
+  KOReaderProgressChange kept;
+  kept.document = documentHash;
+  kept.percentage = remoteProgress.percentage;
+  kept.progress = remoteProgress.progress;
+  kept.position = remoteProgress.position;
+  kept.device = remoteProgress.device;
+  kept.timestamp = remoteProgress.timestamp;
+  if (!SyncParked::park(kept)) LOG_ERR("KOSync", "Cannot keep the remote position: %s", epubPath.c_str());
+}
+
+void KOReaderSyncActivity::exitBatch() {
+  if (exitingBatch) return;  // Already finishing; never set a second result.
+  LOG_INF("KOSync", "Bulk sync exited at: %s", epubPath.c_str());
+  exitingBatch = true;
+  mappedInput.suppressNextBackRelease();
+  ActivityResult result;
+  result.isCancelled = true;
+  setResult(std::move(result));
+  finish();
+}
+
+ProgressSyncResult KOReaderSyncActivity::syncResult() const {
+  ProgressSyncResult result{syncSucceeded,
+                            progressSucceeded,
+                            extrasResult.stats == StatsUploadClient::Result::Ok,
+                            extrasResult.clippings == StatsUploadClient::Result::Ok,
+                            StatsUploadClient::failed(extrasResult.stats),
+                            StatsUploadClient::failed(extrasResult.clippings)};
+  result.title = bookTitle;
+  return result;
+}
+
+void KOReaderSyncActivity::drawExtrasResults(const Rect textArea, int y, const bool withProgress) const {
+  const auto drawRow = [&](const char* title, const char* status) {
+    y += UITheme::drawCenteredStatusRow(renderer, textArea, UI_10_FONT_ID, y, title, status) + 8;
+  };
+  if (withProgress) {
+    drawRow(tr(STR_STATS_PROGRESS_LBL), progressSucceeded ? tr(STR_DONE)
+                                        : progressFailed  ? tr(STR_SYNC_FAILED_MSG)
+                                                          : tr(STR_NONE_OPT));
+    // A failure before stats and clippings were tried has no results for them.
+    if (!extrasAttempted) return;
+  }
+  // Folder runs report overall stats once in their own summary, not per book.
+  if (includeGlobalStats) drawRow(tr(STR_ALL_TIME_STATS), ReadingSyncUpload::statusLabel(globalStatsResult, false));
+  drawRow(tr(STR_READING_STATS), ReadingSyncUpload::statusLabel(extrasResult.stats, false));
+  drawRow(tr(STR_CLIPPINGS), ReadingSyncUpload::statusLabel(extrasResult.clippings, true));
+}
+
+void KOReaderSyncActivity::uploadExtras(const AfterExtras next) {
+  afterExtras = next;
+  // The bulk sync's push sends a pulled book's stats and clippings; a book
+  // whose extras already ran goes on only if they succeeded.
+  if (progressOnly) {
+    continueAfterExtras();
+    return;
+  }
+  if (extrasAttempted) {
+    if (!StatsUploadClient::failed(globalStatsResult) && extrasResult.success()) continueAfterExtras();
+    return;
+  }
+  if (batchExitRequested()) {
+    exitBatch();
+    return;
+  }
+  extrasAttempted = true;
+  if (!KOREADER_STORE.getSyncStats() && !KOREADER_STORE.getSyncClippings()) {
+    continueAfterExtras();
+    return;
+  }
+  {
+    RenderLock lock(*this);
+    state = UPLOADING;
+    statusMessage = tr(STR_LOADING);
+  }
+  epub.reset();  // TLS needs the heap; nothing below reads the book
+  requestUpdate(true);
+  netJob = NetJob{};
+  netJob.kind = NetJobKind::Extras;
+  netJob.path = epubPath;
+  netJob.hash = documentHash;
+  netJob.includeGlobal = includeGlobalStats && KOREADER_STORE.getSyncStats();
+  startNetJob();
+}
+
+void KOReaderSyncActivity::finishExtras() {
+  logSyncTiming();
+  globalStatsResult = netJob.global;
+  extrasResult = netJob.extras;
+  if (!StatsUploadClient::failed(globalStatsResult) && extrasResult.success()) {
+    continueAfterExtras();
+    return;
+  }
+  if (afterExtras == AfterExtras::ShowFailure) {
+    continueAfterExtras();  // the progress failure stays the headline
+    return;
+  }
+  if (!folderSync) wifiOff();
+  {
+    RenderLock lock(*this);
+    state = SYNC_FAILED;
+    statusMessage.clear();  // the heading and result rows say what failed
+  }
+  requestUpdate(true);
+}
+
+void KOReaderSyncActivity::continueAfterExtras() {
+  switch (afterExtras) {
+    case AfterExtras::ReturnToSource:
+      syncSucceeded = true;
+      returnToSource();
+      return;
+    case AfterExtras::SyncComplete:
+    case AfterExtras::UploadComplete:
+      syncSucceeded = true;
+      if (folderSync) {
+        returnToSource();
+        return;
+      }
+      if (afterExtras == AfterExtras::UploadComplete) wifiOff();
+      {
+        RenderLock lock(*this);
+        state = afterExtras == AfterExtras::SyncComplete ? SYNC_COMPLETE : UPLOAD_COMPLETE;
+      }
+      if (afterExtras == AfterExtras::SyncComplete || smartSyncEnabled()) markAutoReturn();
+      requestUpdate(true);
+      return;
+    case AfterExtras::Skip:
+    case AfterExtras::Defer: {
+      parkRemote();
+      ProgressSyncResult result = syncResult();
+      (afterExtras == AfterExtras::Skip ? result.skipped : result.deferred) = true;
+      setResult(std::move(result));
+      finish();
+      return;
+    }
+    case AfterExtras::ShowFailure: {
+      RenderLock lock(*this);
+      state = SYNC_FAILED;
+      statusMessage = std::move(progressError);
+    }
+      requestUpdate(true);
+      return;
+  }
 }
 
 void KOReaderSyncActivity::startNetJob() {
@@ -351,6 +572,15 @@ void KOReaderSyncActivity::startNetJob() {
 void KOReaderSyncActivity::pollNetJob() {
   if (!netJobPending || netTask.running()) return;
   netJobPending = false;
+  if (batchExitRequested()) {
+    logSyncTiming();
+    exitBatch();
+    return;
+  }
+  if (netJob.kind == NetJobKind::Extras) {
+    finishExtras();
+    return;
+  }
   if (netJob.kind == NetJobKind::Upload) {
     finishUpload();
     return;
@@ -387,18 +617,14 @@ void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RET
 
 void KOReaderSyncActivity::completeAlreadySynced() {
   RecentBookProgress::noteSynced(localCachePath, localBp, false);
-  {
-    RenderLock lock(*this);
-    state = SYNC_COMPLETE;
-  }
-  markAutoReturn();
-  requestUpdate(true);
+  progressSucceeded = true;
+  uploadExtras(AfterExtras::SyncComplete);
 }
 
 void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
     LOG_DBG("KOSync", "WiFi connection failed, exiting");
-    returnToReader();
+    returnToSource();
     return;
   }
 
@@ -416,8 +642,9 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   }
   requestUpdate(true);
 
+  // The folder batch synchronizes time once, with its first book.
   const unsigned long ntpStart = millis();
-  if (syncTimeWithNTP()) timing.ntp = millis() - ntpStart;
+  if ((!folderSync || includeGlobalStats) && syncTimeWithNTP()) timing.ntp = millis() - ntpStart;
 
   // GET, the alternate GET and the PUT reuse one TLS connection.
   KOReaderSyncClient::beginSession();
@@ -428,11 +655,16 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
 void KOReaderSyncActivity::performSync() {
   const DocumentMatchMethod primaryMethod = primaryMatchMethod;
   remoteMatchMethod = primaryMethod;
-  documentHash = calculateDocumentHashForMethod(epubPath, primaryMethod);
+  // The configured method goes through the book's sync record, which caches
+  // the id and records the book in sync_ids.bin for the progress pull.
+  documentHash = primaryMethod == KOREADER_STORE.getMatchMethod()
+                     ? BookSyncFile::documentId(epubPath)
+                     : calculateDocumentHashForMethod(epubPath, primaryMethod);
   if (documentHash.empty()) {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
+      progressFailed = true;
       statusMessage = tr(STR_HASH_FAILED);
     }
     requestUpdate(true);
@@ -446,7 +678,15 @@ void KOReaderSyncActivity::performSync() {
   netJob = NetJob{};
   netJob.method = primaryMethod;
   netJob.hash = documentHash;
-  if (smartSyncEnabled()) {
+  if (injectedRemote) {
+    // A pulled change: the feed already delivered the remote position.
+    netJob.progress = std::move(*injectedRemote);
+    injectedRemote.reset();
+    finishSync();
+    return;
+  }
+  // A bulk sync matches under the configured method only, like the pull does.
+  if (smartSyncEnabled() && !folderSync) {
     netJob.altHash = calculateDocumentHashForMethod(epubPath, alternateMatchMethod(primaryMethod));
     if (netJob.altHash == documentHash) netJob.altHash.clear();
   }
@@ -473,6 +713,7 @@ void KOReaderSyncActivity::finishSync() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
+      progressFailed = true;
       statusMessage = localProgress.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG);
     }
     requestUpdate(true);
@@ -480,7 +721,8 @@ void KOReaderSyncActivity::finishSync() {
   }
 
   if (result == KOReaderSyncClient::NOT_FOUND) {
-    if (smartSyncEnabled()) {
+    // Nothing to conflict with: a bulk sync never asks.
+    if (smartSyncEnabled() || folderSync) {
       LOG_DBG("KOSync", "Smart sync: no remote progress found for known document hashes; uploading local %.6f",
               localProgress.percentage);
       performUpload();
@@ -501,6 +743,7 @@ void KOReaderSyncActivity::finishSync() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
+      progressFailed = true;
       statusMessage = KOReaderSyncClient::errorString(result);
     }
     requestUpdate(true);
@@ -514,6 +757,7 @@ void KOReaderSyncActivity::finishSync() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
+      progressFailed = true;
       statusMessage = tr(STR_SYNC_REOPTIMIZE_REQUIRED);
     }
     requestUpdate(true);
@@ -541,6 +785,18 @@ void KOReaderSyncActivity::finishSync() {
 
     saveProgressAndReturn(remotePosition);
     return;
+  }
+  if (folderSync) {
+    // Matching positions are not a conflict in a bulk sync either.
+    static constexpr float SAME_PROGRESS_EPSILON = 0.001f;
+    if (std::fabs(localProgress.percentage - remoteProgress.percentage) <= SAME_PROGRESS_EPSILON) {
+      completeAlreadySynced();
+      return;
+    }
+    if (background) {
+      deferChoice();
+      return;
+    }
   }
   {
     RenderLock lock(*this);
@@ -656,6 +912,10 @@ bool KOReaderSyncActivity::mapRemoteProgress(const std::shared_ptr<Epub>& epub, 
 }
 
 void KOReaderSyncActivity::performUpload() {
+  if (batchExitRequested()) {
+    exitBatch();
+    return;
+  }
   // A user-chosen upload starts a new timed run; smart sync continues its own.
   if (timing.start == 0) timing.start = millis();
   {
@@ -725,14 +985,15 @@ void KOReaderSyncActivity::finishUpload() {
   timing.put = job.elapsedMs;
   const auto result = job.result;
 
-  // Drop the radio while user reads the result; full teardown happens at silent reboot.
-  wifiOff();
   logSyncTiming();
 
   if (result != KOReaderSyncClient::OK) {
+    // Drop the radio while user reads the result; full teardown happens at silent reboot.
+    if (!folderSync) wifiOff();
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
+      progressFailed = true;
       statusMessage = KOReaderSyncClient::errorString(result);
     }
     requestUpdate();
@@ -740,14 +1001,8 @@ void KOReaderSyncActivity::finishUpload() {
   }
 
   RecentBookProgress::noteSynced(localCachePath, localBp, false);
-  {
-    RenderLock lock(*this);
-    state = UPLOAD_COMPLETE;
-  }
-  if (smartSyncEnabled()) {
-    markAutoReturn();
-  }
-  requestUpdate(true);
+  progressSucceeded = true;
+  uploadExtras(AfterExtras::UploadComplete);
 }
 
 void KOReaderSyncActivity::onEnter() {
@@ -777,8 +1032,9 @@ void KOReaderSyncActivity::onEnter() {
   uint8_t syncOrientation =
       readerOrientation < CrossPointSettings::ORIENTATION_COUNT ? readerOrientation : SETTINGS.orientation;
   const PendingOverlayResume& resume = APP_STATE.pendingOverlayResume;
-  if (resume.origin == PendingOverlayOrigin::Reader && resume.overlay == PendingOverlayType::FrontlightDrawer &&
-      resume.preserveReaderOrientation && resume.readerOrientation < CrossPointSettings::ORIENTATION_COUNT) {
+  if (!folderSync && resume.origin == PendingOverlayOrigin::Reader &&
+      resume.overlay == PendingOverlayType::FrontlightDrawer && resume.preserveReaderOrientation &&
+      resume.readerOrientation < CrossPointSettings::ORIENTATION_COUNT) {
     syncOrientation = resume.readerOrientation;
   }
   ReaderUtils::applyOrientation(renderer, syncOrientation);
@@ -788,6 +1044,7 @@ void KOReaderSyncActivity::onEnter() {
     LOG_ERR("KOSync", "Cannot resolve local sync position (needs re-optimization=%d)",
             localProgress.needsReoptimization);
     state = SYNC_FAILED;
+    progressFailed = true;
     statusMessage = localProgress.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG);
     requestUpdate();
     return;
@@ -819,6 +1076,16 @@ void KOReaderSyncActivity::onEnter() {
 }
 
 void KOReaderSyncActivity::onExit() {
+  // Every way out (result, Skip book, Exit, failure) clears exactly what this
+  // run settled, before the silent restart below. Progress counts as settled
+  // when uploaded, applied from the server, or already in sync.
+  uint8_t settled = progressSucceeded ? SyncPending::PROGRESS_BIT : 0;
+  if (extrasAttempted && StatsUploadClient::settled(extrasResult.stats)) settled |= SyncPending::STATS_BIT;
+  if (extrasAttempted && StatsUploadClient::settled(extrasResult.clippings)) settled |= SyncPending::CLIPPINGS_BIT;
+  if (settled) SyncPending::clear(epubPath, settled);
+  // Reconciled with the server: a remote position parked for this book is settled too.
+  if (progressSucceeded && !documentHash.empty()) SyncParked::remove(documentHash);
+
   if (touchOverrideActive) {
     mappedInput.setReaderTouchscreenOverride(false);
     touchOverrideActive = false;
@@ -829,17 +1096,21 @@ void KOReaderSyncActivity::onExit() {
     // a little for it, then leave it running: deep sleep drops it.
     if (abandonNetJob) silentRestartToReader(true);
     if (!netTask.join(NET_JOIN_TIMEOUT_MS)) {
-      silentRestartToReader(true);  // returns only during deep sleep
+      if (!folderSync) silentRestartToReader(true);  // returns only during deep sleep
       LOG_ERR("KOSync", "Net job still running at exit; left to deep sleep");
       return;  // its TLS session stays open
     }
   }
   KOReaderSyncClient::endSession();  // before the radio goes down
 
-  if (wifiActivated && !leaveNetworkInPlace()) silentRestartToReader(true);
+  // A bulk sync's owner keeps the connection for its next book.
+  if (wifiActivated && !folderSync && !leaveNetworkInPlace()) silentRestartToReader(true);
 }
 
 void KOReaderSyncActivity::render(RenderLock&&) {
+  // The bulk sync's progress screen stays up; touching the framebuffer here
+  // would only cost a refresh.
+  if (background) return;
   renderer.clearScreen();
 
   auto metrics = UITheme::getInstance().getMetrics();
@@ -847,7 +1118,10 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
-  TouchHeaderBackButton::draw(renderer, header, tr(STR_KOREADER_SYNC), true);
+  const std::string heading = folderSync ? ReadingSyncUpload::displayName(epubPath) : tr(STR_KOREADER_SYNC);
+  TouchHeaderBackButton::draw(renderer, header, heading.c_str(), true);
+  // In a bulk sync Back leaves the whole sync, not this book.
+  const char* backLabel = folderSync ? tr(STR_EXIT) : tr(STR_BACK);
 
   int top = screen.y + screen.height / 2 - 40;
   if (state == NO_CREDENTIALS) {
@@ -864,7 +1138,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
   if (state == SYNCING || state == UPLOADING) {
     UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top, statusMessage.c_str(), true, EpdFontFamily::BOLD);
-    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
+    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(backLabel), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
     return;
@@ -915,13 +1189,13 @@ void KOReaderSyncActivity::render(RenderLock&&) {
       drawProgressCard(renderer, Rect{contentX, top + cardHeight + cardGap, contentWidth, cardHeight}, cards[1]);
     }
 
-    const auto actions = resultActionLayout(screen, metrics, hasTouch);
-    const char* actionLabels[] = {tr(STR_APPLY_REMOTE), tr(STR_UPLOAD_LOCAL)};
+    const auto actions = resultActionLayout(screen, metrics, hasTouch, folderSync ? 3 : 2);
+    const char* actionLabels[] = {tr(STR_APPLY_REMOTE), tr(STR_UPLOAD_LOCAL), tr(STR_SKIP_BOOK)};
     TouchActionButtons::draw(renderer, actions, actionLabels, selectedOption, selectedOption, UI_10_FONT_ID);
 
     // Bottom button hints
-    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP),
-                                              tr(STR_DIR_DOWN));
+    const auto labels =
+        mappedInput.mapLabels(mappedInput.withBackArrow(backLabel), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
     return;
@@ -932,7 +1206,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
     UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top + 40, tr(STR_UPLOAD_PROMPT));
 
     if (mappedInput.hasTouch()) {
-      const auto actions = noRemoteProgressActionLayout(screen, metrics);
+      const auto actions = bottomActionLayout(screen, metrics, 2);
       const char* actionLabels[] = {tr(STR_UPLOAD), tr(STR_CANCEL)};
       TouchActionButtons::draw(renderer, actions, actionLabels, 0, -1, UI_10_FONT_ID);
     }
@@ -943,10 +1217,17 @@ void KOReaderSyncActivity::render(RenderLock&&) {
     return;
   }
 
+  const Rect textArea{screen.x + metrics.contentSidePadding, screen.y, screen.width - metrics.contentSidePadding * 2,
+                      screen.height};
   if (state == UPLOAD_COMPLETE || state == SYNC_COMPLETE) {
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top,
-                              state == UPLOAD_COMPLETE ? tr(STR_UPLOAD_SUCCESS) : tr(STR_ALREADY_SYNCED), true,
-                              EpdFontFamily::BOLD);
+    top = screen.y + screen.height / 3;
+    top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top,
+                                            state == UPLOAD_COMPLETE ? tr(STR_UPLOAD_SUCCESS) : tr(STR_ALREADY_SYNCED),
+                                            2, true, EpdFontFamily::BOLD, 4) +
+           24;
+    // One line per kind once stats or clippings are on, as on the failure screen.
+    if (extrasAttempted && (KOREADER_STORE.getSyncStats() || KOREADER_STORE.getSyncClippings()))
+      drawExtrasResults(textArea, top, true);
 
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_DONE), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
@@ -955,14 +1236,35 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == SYNC_FAILED) {
-    const Rect textArea{screen.x + metrics.contentSidePadding, screen.y, screen.width - metrics.contentSidePadding * 2,
-                        screen.height};
-    UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, tr(STR_SYNC_FAILED_MSG), 2, true,
-                                     EpdFontFamily::BOLD);
-    UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top + 40, statusMessage.c_str(), 3, true,
-                                     EpdFontFamily::REGULAR, 4);
-
-    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
+    top = screen.y + screen.height / 3;
+    // Name what failed and for which book: a bulk sync shows one of these per book.
+    const bool statsFailed = extrasAttempted && (StatsUploadClient::failed(extrasResult.stats) ||
+                                                 StatsUploadClient::failed(globalStatsResult));
+    const bool clippingsFailed = extrasAttempted && StatsUploadClient::failed(extrasResult.clippings);
+    top += UITheme::drawCenteredWrappedText(
+               renderer, textArea, UI_10_FONT_ID, top,
+               ReadingSyncUpload::failureHeading(progressFailed, statsFailed, clippingsFailed), 2, true,
+               EpdFontFamily::BOLD, 4) +
+           8;
+    const std::string book = bookTitle.empty() ? ReadingSyncUpload::displayName(epubPath) : bookTitle;
+    top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, book.c_str(), 2, true,
+                                            EpdFontFamily::REGULAR, 4) +
+           16;
+    // The reason, e.g. "Sync server returned HTTP 500".
+    if (!statusMessage.empty()) {
+      top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, statusMessage.c_str(), 3, true,
+                                              EpdFontFamily::REGULAR, 4) +
+             16;
+    }
+    top += 8;
+    drawExtrasResults(textArea, top, true);
+    if (folderSync && mappedInput.hasTouchHardware()) {
+      const auto actions = bottomActionLayout(screen, metrics, 1);
+      const char* actionLabels[] = {tr(STR_SKIP_BOOK)};
+      TouchActionButtons::draw(renderer, actions, actionLabels, 0);
+    }
+    const auto labels =
+        mappedInput.mapLabels(mappedInput.withBackArrow(backLabel), folderSync ? tr(STR_SKIP_BOOK) : "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
     renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
     return;
@@ -979,82 +1281,120 @@ void KOReaderSyncActivity::loop() {
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
   if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
-    returnToReader();
+    returnToSource();
     return;
   }
 
   if (state == SYNCING || state == UPLOADING) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      returnToReader();
-      return;
+      returnToSource();
+      if (!exitRequested) return;  // a bulk sync's running request ends first
     }
     pollNetJob();
     return;
   }
 
+  if (folderSync && state == SYNC_FAILED) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      returnToSource();
+      return;
+    }
+    // A failed progress fetch or coordinate map must not strand independent
+    // saved stats/clippings; a pulled change's book leaves them to the push.
+    if (!progressOnly && !extrasAttempted && !documentHash.empty()) {
+      progressError = std::move(statusMessage);
+      uploadExtras(AfterExtras::ShowFailure);
+      return;
+    }
+    if (background) {
+      finishFailed();
+      return;
+    }
+    int x = 0, y = 0;
+    const bool skipTapped = mappedInput.wasScreenTapped(x, y) &&
+                            TouchActionButtons::indexAt(bottomActionLayout(screen, metrics, 1), x, y) == 0;
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || skipTapped) {
+      LOG_INF("KOSync", "Skipping failed folder book: %s", epubPath.c_str());
+      parkRemote();
+      setResult(syncResult());
+      finish();
+    }
+    return;
+  }
+
   if (state == NO_CREDENTIALS || state == SYNC_FAILED || state == UPLOAD_COMPLETE || state == SYNC_COMPLETE) {
     if (autoReturnAt != 0 && millis() >= autoReturnAt) {
-      returnToReader();
+      returnToSource();
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
         mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      returnToReader();
+      returnToSource();
     }
     return;
   }
 
   if (state == SHOWING_RESULT) {
+    const int optionCount = folderSync ? 3 : 2;
     auto chooseSelected = [this] {
       if (selectedOption == 0) {
         saveProgressAndReturn(remotePosition);
       } else if (selectedOption == 1) {
         performUpload();
+      } else if (selectedOption == 2) {
+        skipBook();
       }
     };
 
     {
-      const auto actions = resultActionLayout(screen, metrics, mappedInput.hasTouchHardware());
-      const Rect& first = actions.buttons[0];
-      int touchedOption = -1;
-      const auto touch = mappedInput.rowTouch(touchedOption, first.y, actions.buttons[1].y - first.y, actions.count,
-                                              first.x, first.x + first.width, first.height);
-      if (touch == MappedInputManager::RowTouch::Down) {
-        if (selectedOption != touchedOption) {
-          selectedOption = touchedOption;
-          requestUpdate();
+      const auto actions = resultActionLayout(screen, metrics, mappedInput.hasTouchHardware(), optionCount);
+      if (actions.buttons[1].x != actions.buttons[0].x) {
+        // The landscape two-row layout is not a single column, so hit-test the tap directly.
+        int x = 0, y = 0;
+        const int tapped = mappedInput.wasScreenTapped(x, y) ? TouchActionButtons::indexAt(actions, x, y) : -1;
+        if (tapped >= 0) {
+          selectedOption = tapped;
+          chooseSelected();
+          return;
         }
-        return;
-      }
-      if (touch == MappedInputManager::RowTouch::Tap) {
-        selectedOption = touchedOption;
-        chooseSelected();
-        return;
+      } else {
+        const Rect& first = actions.buttons[0];
+        int touchedOption = -1;
+        const auto touch = mappedInput.rowTouch(touchedOption, first.y, actions.buttons[1].y - first.y, actions.count,
+                                                first.x, first.x + first.width, first.height);
+        if (touch == MappedInputManager::RowTouch::Down) {
+          if (selectedOption != touchedOption) {
+            selectedOption = touchedOption;
+            requestUpdate();
+          }
+          return;
+        }
+        if (touch == MappedInputManager::RowTouch::Tap) {
+          selectedOption = touchedOption;
+          chooseSelected();
+          return;
+        }
       }
     }
 
     // Navigate options
     if (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
         mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      selectedOption = (selectedOption + 1) % 2;  // Wrap around among 2 options
+      selectedOption = (selectedOption + optionCount - 1) % optionCount;
       requestUpdate();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Down) ||
                mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-      selectedOption = (selectedOption + 1) % 2;  // Wrap around among 2 options
+      selectedOption = (selectedOption + 1) % optionCount;
       requestUpdate();
     }
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      if (selectedOption == 0) {
-        saveProgressAndReturn(remotePosition);
-      } else if (selectedOption == 1) {
-        // Upload local progress
-        performUpload();
-      }
+      chooseSelected();
+      return;
     }
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      returnToReader();
+      returnToSource();
     }
     return;
   }
@@ -1063,7 +1403,7 @@ void KOReaderSyncActivity::loop() {
     if (mappedInput.hasTouch()) {
       const auto& metrics = UITheme::getInstance().getMetrics();
       const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-      const auto actions = noRemoteProgressActionLayout(screen, metrics);
+      const auto actions = bottomActionLayout(screen, metrics, 2);
       int touchedOption = -1;
       const auto touch = mappedInput.rowTouch(
           touchedOption, actions.buttons[0].y, TouchActionButtons::kDefaultHeight + TouchActionButtons::kDefaultGap,
@@ -1077,7 +1417,7 @@ void KOReaderSyncActivity::loop() {
           }
           performUpload();
         } else if (touchedOption == 1) {
-          returnToReader();
+          returnToSource();
         }
         return;
       }
@@ -1092,7 +1432,7 @@ void KOReaderSyncActivity::loop() {
     }
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      returnToReader();
+      returnToSource();
     }
     return;
   }
