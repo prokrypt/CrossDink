@@ -694,8 +694,9 @@ void ActivityManager::renderTaskLoop() {
   }
 }
 
+// The keyboard by name: batchesInputDuringRefresh() is also true for menus that batch taps.
 bool ActivityManager::ghostBustersFit(const Activity& activity) {
-  return allowsDeferredRefresh(activity) && !activity.batchesInputDuringRefresh() && !activity.powerOffPanelWhenIdle();
+  return allowsDeferredRefresh(activity) && activity.name != "KeyboardEntry" && !activity.powerOffPanelWhenIdle();
 }
 
 bool ActivityManager::allowsDeferredRefresh(const Activity& activity) {
