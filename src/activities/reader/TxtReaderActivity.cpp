@@ -663,6 +663,7 @@ void TxtReaderActivity::initializeReader() {
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
   cachedTopStatusBarHeight = ReaderUtils::getTopStatusBarReservedHeight(renderer);
   cachedBottomStatusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  cachedViewableInsets = renderer.getViewableInsets();
 
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
@@ -794,7 +795,8 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   bool relayout = false;
   size_t readingOffset = 0;
-  if (initialized && (cachedTopStatusBarHeight != ReaderUtils::getTopStatusBarReservedHeight(renderer) ||
+  if (initialized && (cachedViewableInsets != renderer.getViewableInsets() ||
+                      cachedTopStatusBarHeight != ReaderUtils::getTopStatusBarReservedHeight(renderer) ||
                       cachedBottomStatusBarHeight != UITheme::getInstance().getStatusBarHeight())) {
     if (currentPage >= 0 && currentPage < static_cast<int>(pageOffsets.size())) {
       readingOffset = pageOffsets[currentPage];

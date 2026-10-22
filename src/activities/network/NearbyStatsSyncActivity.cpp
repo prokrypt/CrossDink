@@ -681,8 +681,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
 void NearbyStatsSyncActivity::renderReady(const std::string& primary, const std::string& detailPrimary,
                                           const std::string& detailSecondary) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int contentTop =
-      metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
+  const int contentTop = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
   const Rect textArea{metrics.contentSidePadding, 0, renderer.getScreenWidth() - metrics.contentSidePadding * 2,
                       renderer.getScreenHeight()};
   int y = contentTop + 70;

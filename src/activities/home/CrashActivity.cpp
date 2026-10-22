@@ -37,9 +37,10 @@ void CrashActivity::render(RenderLock&&) {
   const auto x = metrics.contentSidePadding;
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CRASH_TITLE));
+  const Rect header = UITheme::getHeaderRect(renderer, metrics.headerHeight);
+  GUI.drawHeader(renderer, header, tr(STR_CRASH_TITLE));
 
-  int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  int y = header.y + header.height + metrics.verticalSpacing;
 
   auto descLines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_CRASH_DESCRIPTION), contentWidth, 10);
   for (const auto& line : descLines) {

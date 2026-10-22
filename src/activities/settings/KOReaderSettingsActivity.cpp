@@ -198,9 +198,9 @@ void KOReaderSettingsActivity::listScreen(UiApp::ScreenType& screen, void* user)
 void KOReaderSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
-                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput)), 0,
+                                 static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   // Per-render owned value strings; items point into them for the draw only.
@@ -279,7 +279,7 @@ void KOReaderSettingsActivity::render(RenderLock&&) {
   TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_KOREADER_SYNC), false);
 
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
 
   const auto labels =
