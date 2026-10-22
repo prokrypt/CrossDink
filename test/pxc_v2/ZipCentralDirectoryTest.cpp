@@ -125,12 +125,8 @@ class ZipCentralDirectory : public testing::Test {
 TEST_F(ZipCentralDirectory, FreshLookupsFindEveryStoredName) {
   for (const auto& entry : entries) {
     size_t size = 0;
-    const bool found = ZipFile(path).getInflatedFileSize(entry.name.c_str(), &size);
-    if (entry.name.size() > 255) {
-      EXPECT_FALSE(found) << "oversized names are not addressable";
-      continue;
-    }
-    ASSERT_TRUE(found) << entry.name;
+    // The sorted directory table also addresses names longer than the scan's 255-byte buffer.
+    ASSERT_TRUE(ZipFile(path).getInflatedFileSize(entry.name.c_str(), &size)) << entry.name;
     EXPECT_EQ(size, entry.data.size()) << entry.name;
   }
   size_t size = 0;
