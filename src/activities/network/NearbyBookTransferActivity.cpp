@@ -411,8 +411,8 @@ bool NearbyBookTransferActivity::acceptOffer(const bool keepBoth) {
   // No free-space precheck: usedBytes() walks the whole FAT (8.3 s frozen UI on .67). A full card
   // fails the write instead, which reports and removes the partial file.
   const std::string finalName = fileNameFromPath(finalPath_);
-  tempPath_ = joinPath(destinationFolder_, "." + finalName + ".crossink-part");
-  backupPath_ = joinPath(destinationFolder_, "." + finalName + ".crossink-backup");
+  tempPath_ = joinPath(destinationFolder_, "." + finalName + ".crossdink-part");
+  backupPath_ = joinPath(destinationFolder_, "." + finalName + ".crossdink-backup");
   if (Storage.exists(tempPath_.c_str())) Storage.remove(tempPath_.c_str());
   if (!Storage.openFileForWrite(LOG_TAG, tempPath_, receiveFile_)) {
     setError(tr(STR_NEARBY_TRANSFER_WRITE_FAILED));

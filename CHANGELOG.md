@@ -79,6 +79,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Snappier screens: settings changed on a screen are saved while the next screen refreshes instead of before it draws, and `settings.json` is rewritten in place (with a `.bak` copy written first, which a damaged file falls back to) instead of through a new temporary file that took about 0.6 s to create; Library grid cover thumbnails are made on the second core, so the Library takes taps while they are made; the reader's pull-up panel looks for dictionaries once per reading session instead of on every open; the Battery Stats page draws once per Refresh tap and no longer refreshes the whole page after each brightness slide (the estimate updates on the next redraw); Home no longer draws its first frame twice after a silent restart. Debug logs: a redraw that no input caused is no longer billed as a slow tap.
 
 ### Fixed
+- Reading stats backups now go to `/.crossdink-stats-backup/` instead of `/.crossink-stats-backup/`, so keeping the last 7 backups no longer deletes ones CrossInk wrote. Backups already in the old folder stay there. Nearby book transfer temp files are named `.crossdink-part`/`.crossdink-backup`.
 - KOReader Sync auto sync: closing a book whose last sync failed (crossed-out cloud) now syncs again even when it was left on the page it opened at, including after a reboot. Before, only a failed push from the same boot was retried.
 
 ### Added
