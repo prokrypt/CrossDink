@@ -35,6 +35,27 @@ Custom TTF fonts use the existing **8–22 pt** size choices. Changing fonts or
 their appearance may make CrossDink lay out the current book again, so page
 positions can change. Your bookmarks and clippings remain saved.
 
+## Publisher fonts in EPUBs
+
+Many EPUBs carry their own fonts (`@font-face` rules pointing at `.ttf` or
+`.otf` files inside the book). **Publisher Fonts** under **Settings > Reader >
+Font Options**, or the **Font** tab of the in-book menu, picks how they are
+used:
+
+- **Off**: all text uses your reader font.
+- **Ignore Body Font** (default): headings, decorative and special text use the
+  book's fonts; the body text keeps your reader font.
+- **All Text**: the book's fonts are used everywhere they are assigned.
+
+Publisher fonts need **Embedded Style** on and are not used in Light render
+mode. A face loads only when a page uses it (up to 2 MiB per face, 4 MiB per
+book, 32 faces). It is copied into the book's cache on first use, so later
+opens skip that step. A book without embedded fonts lays out exactly as with
+the setting off. Changing the setting lays out the current chapter again.
+
+To drop a book's fonts before it reaches the device, turn on **Remove Embedded
+Fonts** in the web portal's upload settings (off by default).
+
 ## Supported files and limits
 
 - Use static TrueType `.ttf` or OpenType CFF `.otf` files. Some CFF fonts have a
