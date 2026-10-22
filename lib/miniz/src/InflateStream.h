@@ -33,14 +33,14 @@ struct tinfl_decompressor_tag;
 // Input is either a single contiguous buffer (setSource) or pulled on demand
 // through a fill callback (setFill): return the number of bytes available and
 // point *data at them (valid until the next fill call); return 0 at end of
-// input. Call setZlibWrapped() before the first read when the stream has a
-// zlib header (e.g. PNG IDAT).
+// input. feed() pushes input piece by piece instead. Call setZlibWrapped()
+// before the first read when the stream has a zlib header (e.g. PNG IDAT).
 class InflateStream {
  public:
   static constexpr size_t STREAMING_WINDOW_SIZE = 32768;
 
   enum class Status {
-    Ok,     // Output buffer full; more decompressed data remains.
+    Ok,     // Output buffer full, or (feed) the fed piece is used up.
     Done,   // Stream ended cleanly. produced may be < maxLen.
     Error,  // Corrupt/truncated stream, or decompression failed.
   };
@@ -69,6 +69,14 @@ class InflateStream {
 
   // Provide the entire compressed input as one contiguous buffer.
   void setSource(const uint8_t* src, size_t len);
+
+  // Push the next piece of a longer input (valid until the next feed). Once it
+  // is consumed, readAtMost() returns Ok with what it produced so far; feed the
+  // next piece and call again.
+  void feed(const uint8_t* src, size_t len) {
+    inPtr = src;
+    inAvail = len;
+  }
 
   // Provide compressed input on demand. ctx is passed back to fn verbatim.
   void setFill(FillFn fn, void* ctx);
