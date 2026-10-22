@@ -11,6 +11,9 @@ function formatSize(bytes) {
         const res = await fetch('/api/fonts');
         const data = await res.json();
         ttfSupported = data.ttfSupported === true;
+        document.getElementById('formatHelp').textContent = ttfSupported
+          ? 'Upload .cpfont packs or static .ttf/.otf fonts (up to 2 MiB per file). Variable fonts and collections are unsupported.'
+          : 'Upload .cpfont font packs. Scalable .ttf/.otf fonts require a supported PSRAM device.';
         // Build rows with DOM APIs and textContent so on-device family names
         // (which can contain arbitrary characters) cannot break markup or
         // execute script via innerHTML / inline onclick interpolation.
@@ -87,7 +90,7 @@ function formatSize(bytes) {
     // Derive family name from a .cpfont filename: take everything before the
     // last '-' or '_' (that separator precedes the size suffix, e.g. Bookerly_12.cpfont).
     function familyFromFilename(name) {
-      if (/\.ttf$/i.test(name)) return name.replace(/\.ttf$/i, '').replace(/[-_ ]?(Regular|BoldItalic|Bold|Italic)$/i, '');
+      if (/\.(ttf|otf)$/i.test(name)) return name.replace(/\.(ttf|otf)$/i, '').replace(/[-_ ]?(Bold[-_ ]?Italic|Regular|Medium|Bold|Italic)$/i, '');
       const stem = name.replace(/\.cpfont$/i, '');
       const cut = Math.max(stem.lastIndexOf('-'), stem.lastIndexOf('_'));
       return cut > 0 ? stem.slice(0, cut) : stem;
@@ -99,14 +102,14 @@ function formatSize(bytes) {
     }
 
     function cpfontFilesOnly(fileList) {
-      return Array.from(fileList).filter(f => (/\.cpfont$/i.test(f.name) || (ttfSupported && /\.ttf$/i.test(f.name))));
+      return Array.from(fileList).filter(f => (/\.cpfont$/i.test(f.name) || (ttfSupported && /\.(ttf|otf)$/i.test(f.name))));
     }
 
     document.getElementById('fontFiles').addEventListener('change', function() {
       const info = document.getElementById('pickedInfo');
       const files = cpfontFilesOnly(this.files);
       if (files.length === 0) {
-        info.textContent = 'No .cpfont or .ttf files found in the selected folder.';
+        info.textContent = 'No supported font files found in the selected folder.';
         return;
       }
       const family = sanitizeFamily(familyFromFilename(files[0].name));
@@ -121,7 +124,7 @@ function formatSize(bytes) {
       if (files.length === 0) {
         status.className = 'status-err';
         status.style.display = 'block';
-        status.textContent = 'No .cpfont or .ttf files selected.';
+        status.textContent = 'No supported font files selected.';
         return;
       }
 

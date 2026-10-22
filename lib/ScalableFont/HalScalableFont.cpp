@@ -10,6 +10,7 @@
 
 #include "FixedArenaAllocator.h"
 #include "ScalableFontSizing.h"
+#include "TrueTypeFormat.h"
 
 namespace {
 SemaphoreHandle_t renderMutex = nullptr;
@@ -321,6 +322,11 @@ Runtime& runtime() {
   static Runtime value;
   return value;
 }
+truetype::Result inspectFormat(HalFile& file, size_t size) {
+  return truetype::inspect(size, [&](size_t offset, uint8_t* bytes, size_t count) {
+    return file.seekSet(offset) && file.read(bytes, count) == static_cast<int>(count);
+  });
+}
 // Static fonts may release their worker copies during process exit, so the
 // worker library and runtime are constructed once and never destroyed.
 template <typename T, typename... Args>
@@ -484,7 +490,13 @@ bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size) {
 
 bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size,
                                  const freeink::font::FtFont::RenderOptions& options) {
-  if (!bytes || !size) return false;
+  if (!bytes || truetype::inspect(size, [&](size_t offset, uint8_t* dest, size_t count) {
+                  std::memcpy(dest, bytes + offset, count);
+                  return true;
+                }) != truetype::Result::Supported) {
+    LOG_ERR("TTF", "Unsupported or malformed static outline data");
+    return false;
+  }
   fontDataFailure_ = false;
   const auto summary = summarizeFontBytes(bytes, size);
   integrityChecksum_ = summary.checksum;
@@ -633,6 +645,11 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
   }
   const size_t size = file.size();
   if (!validFileSize(path, size)) {
+    file.close();
+    return false;
+  }
+  if (inspectFormat(file, size) != truetype::Result::Supported || !file.seekSet(0)) {
+    LOG_ERR("TTF", "Unsupported or malformed static outline font: %s", path);
     file.close();
     return false;
   }
@@ -845,6 +862,19 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
   const size_t size = file.size();
   if (!validFileSize(path, size)) {
     if (unavailable) *unavailable = false;
+    file.close();
+    return false;
+  }
+  info = Info{};
+  const auto format = inspectFormat(file, size);
+  if (format != truetype::Result::Supported) {
+    if (unavailable) *unavailable = format == truetype::Result::Unavailable;
+    uint8_t signature[4] = {};
+    const bool signatureRead = file.seekSet(0) && file.read(signature, sizeof(signature)) == sizeof(signature);
+    LOG_ERR("TTF",
+            "Unsupported static outline font: %s (preflight=%u cff=%u size=%u signature=%02X%02X%02X%02X read=%u)",
+            path, unsigned(format), unsigned(truetype::kCffEnabled), unsigned(size), unsigned(signature[0]),
+            unsigned(signature[1]), unsigned(signature[2]), unsigned(signature[3]), unsigned(signatureRead));
     file.close();
     return false;
   }

@@ -11,6 +11,14 @@
 
 using FileMode = HalScalableFont::FileMode;
 
+static size_t tableCount(const char* path) {
+  std::ifstream file(path, std::ios::binary);
+  uint8_t header[6];
+  file.read(reinterpret_cast<char*>(header), sizeof(header));
+  assert(file.gcount() == sizeof(header));
+  return (size_t(header[4]) << 8) | header[5];
+}
+
 int main(int argc, char** argv) {
   assert(argc >= 2);
   // Match the reader's eight built-in faces, which stay alive beside SD fonts:
@@ -62,7 +70,8 @@ int main(int argc, char** argv) {
     const auto openedBytes = storageReadBytes;
     if (mode == FileMode::Temporary) {
       size_t totalFileBytes = 0;
-      for (int i = 2; i < argc; ++i) totalFileBytes += family[i - 2].fileBytes();
+      // Opening now includes a bounded static-outline table-directory preflight.
+      for (int i = 2; i < argc; ++i) totalFileBytes += family[i - 2].fileBytes() + 12 + 16 * tableCount(argv[i]);
       if (argc > 2) assert(openedBytes <= totalFileBytes);
     }
     const auto renderGlyph = [&](int i, unsigned cp, unsigned size) {
@@ -174,7 +183,7 @@ int main(int argc, char** argv) {
   size_t fileBytes = 0;
   assert(HalScalableFont::fileSize(path.c_str(), fileBytes));
   const auto failures = injectedReadFailures;
-  failStorageRead = storageReadCalls + (fileBytes + 4095) / 4096 + 1;
+  failStorageRead = storageReadCalls + 1 + tableCount(path.c_str()) + (fileBytes + 4095) / 4096 + 1;
   {
     HalScalableFont streamed;
     assert(streamed.openFile(path.c_str(), HalScalableFont::MaxFileBytes, options, FileMode::Stream));

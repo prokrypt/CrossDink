@@ -1056,7 +1056,7 @@ limits and lifecycle.
 
 ## `/.crossdink/font-catalog.bin`
 
-### Version 1
+### Versions 1–2
 
 Disposable font metadata cache, shared by reader, settings and web font controls.
 The 24-byte little-endian header contains magic `0x46434931`, version, a 64-bit
@@ -1089,3 +1089,6 @@ the card to the host. Manage Fonts performs a full rescan; alternatively remove
 this cache to force reinspection after external same-length font changes.
 
 EPUB layout cache versions and identities are unchanged by this catalog.
+
+Version 2 rescans `.ttf` and `.otf` files so static TrueType and OpenType CFF
+faces rejected by earlier firmware enter the catalog. The binary layout is unchanged.
