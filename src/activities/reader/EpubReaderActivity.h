@@ -20,6 +20,7 @@
 
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
+#include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "EpubLinkReturnState.h"
 #include "EpubReaderMenuModel.h"
@@ -221,6 +222,8 @@ class EpubReaderActivity final : public Activity {
   uint32_t sessionPaceSampleSeconds = 0;
   uint16_t sessionPaceSampleCount = 0;
   uint32_t sessionReadingSeconds = 0;
+  DailyReadingStats::Session dailyReadingSession;
+  void startDailyReadingInterval();
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
   bool bookHasCustomReaderSettings = false;
   bool bookHasAutoPageTurnInterval = false;

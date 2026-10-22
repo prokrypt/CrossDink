@@ -1610,8 +1610,10 @@ void EpubReaderActivity::syncStatsTrackingState() {
   }
   statsTrackingActive = enabled;
   sessionReadingSeconds = 0;
+  dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
+  startDailyReadingInterval();
   armReadingPaceWarmup("stats_toggle");
 }
 
@@ -1622,6 +1624,7 @@ void EpubReaderActivity::resumeReadingPaceTimer(const char*) {
   }
   if (section && section->pageCount > 0 && section->currentPage >= 0 && section->currentPage < section->pageCount) {
     pageShownAtMs = millis();
+    startDailyReadingInterval();
   } else {
     pageShownAtMs = 0UL;
   }
@@ -1701,19 +1704,7 @@ bool EpubReaderActivity::currentPageReadingSecondsForStats(uint32_t& seconds, co
     return false;
   }
 
-  const unsigned long elapsedMs = millis() - pageShownAtMs;
-  const uint32_t elapsedSeconds = static_cast<uint32_t>(elapsedMs / 1000UL);
-  if (elapsedSeconds == 0) {
-    return false;
-  }
-
-  const uint32_t thresholdSeconds = SETTINGS.getReadingIdleTimeThresholdSeconds();
-  if (elapsedSeconds > thresholdSeconds) {
-    return false;
-  }
-
-  seconds = elapsedSeconds;
-  return true;
+  return readingStatsIntervalSeconds(millis(), pageShownAtMs, SETTINGS.getReadingIdleTimeThresholdSeconds(), seconds);
 }
 
 void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
@@ -1724,6 +1715,11 @@ void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
   uint32_t seconds = 0;
   if (currentPageReadingSecondsForStats(seconds, source)) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
+    ReadingStatsDateTime end;
+    getCurrentLocalDailyReadingDateTime(end);
+    if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
+      LOG_ERR("DailyStats", "Cannot record accepted reading interval");
+    }
   }
   pageShownAtMs = 0UL;
 }
@@ -2519,6 +2515,7 @@ void EpubReaderActivity::onEnter() {
 #endif
   armReadingPaceWarmup("reader_open");
   sessionReadingSeconds = 0;
+  dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 
   globalStats = GlobalReadingStats::load();
@@ -5721,6 +5718,7 @@ void EpubReaderActivity::resetReadingPaceData() {
 void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   stats = BookReadingStats{};
   sessionReadingSeconds = 0;
+  dailyReadingSession.reset();
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
   pendingReadFolderMove = false;
@@ -7580,6 +7578,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       MemoryBudget::logHeapShape("dict.reader_redrawn");
     }
     pageShownAtMs = activeFootnotePreview ? 0UL : millis();
+    startDailyReadingInterval();
   }
   if (!activeFootnotePreview) {
     const int totalPages = section->estimatedTotalPages();
@@ -9739,6 +9738,12 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
                            ReaderUtils::readerForegroundBlack());
   // No displayBuffer call; caller (SleepActivity) handles that after compositing the overlay.
   return true;
+}
+
+void EpubReaderActivity::startDailyReadingInterval() {
+  ReadingStatsDateTime local;
+  if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
+  dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {

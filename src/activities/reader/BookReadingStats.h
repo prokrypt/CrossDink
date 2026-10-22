@@ -26,6 +26,9 @@ struct BookReadingStats {
   // default-constructed stats if no compatible file exists.
   static BookReadingStats load(const std::string& cachePath);
 
+  // Checked export: false for missing, malformed, or unsupported snapshots.
+  static bool loadForUpload(const std::string& cachePath, BookReadingStats& stats);
+
   // Saves stats in place to the older of the two slots stats_v5.bin and
   // stats_v5.bin.bak (TwoSlotFile.h). Returns false if the write failed.
   bool save(const std::string& cachePath) const;

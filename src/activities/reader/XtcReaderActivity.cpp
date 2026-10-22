@@ -142,6 +142,7 @@ void XtcReaderActivity::onEnter() {
   paceDirty = false;
   pendingStatsCommit = false;
   sessionReadingSeconds = 0;
+  dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 
   // Save current XTC as last opened book and add to recent books
@@ -673,13 +674,16 @@ void XtcReaderActivity::syncStatsTrackingState() {
   }
   statsTrackingActive = active;
   sessionReadingSeconds = 0;
+  dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   pageShownAtMs = millis();
+  startDailyReadingInterval();
 }
 
 void XtcReaderActivity::resumeReadingStatsTimer(const char*) {
   if (xtc && currentPage < xtc->getPageCount()) {
     pageShownAtMs = millis();
+    startDailyReadingInterval();
   } else {
     pageShownAtMs = 0UL;
   }
@@ -740,19 +744,7 @@ bool XtcReaderActivity::currentPageReadingSecondsForStats(uint32_t& seconds, con
     return false;
   }
 
-  const unsigned long elapsedMs = millis() - pageShownAtMs;
-  const uint32_t elapsedSeconds = static_cast<uint32_t>(elapsedMs / 1000UL);
-  if (elapsedSeconds == 0) {
-    return false;
-  }
-
-  const uint32_t thresholdSeconds = SETTINGS.getReadingIdleTimeThresholdSeconds();
-  if (elapsedSeconds > thresholdSeconds) {
-    return false;
-  }
-
-  seconds = elapsedSeconds;
-  return true;
+  return readingStatsIntervalSeconds(millis(), pageShownAtMs, SETTINGS.getReadingIdleTimeThresholdSeconds(), seconds);
 }
 
 bool XtcReaderActivity::forwardPageReadElapsed(uint32_t& seconds, const char*) const {
@@ -779,6 +771,11 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source) {
   uint32_t seconds = 0;
   if (currentPageReadingSecondsForStats(seconds, source)) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
+    ReadingStatsDateTime end;
+    getCurrentLocalDailyReadingDateTime(end);
+    if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
+      LOG_ERR("DailyStats", "Cannot record accepted reading interval");
+    }
   }
   pageShownAtMs = 0UL;
 }
@@ -837,6 +834,7 @@ void XtcReaderActivity::commitReadingStats() {
 void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
   stats = BookReadingStats{};
   sessionReadingSeconds = 0;
+  dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 }
 
@@ -1209,6 +1207,7 @@ void XtcReaderActivity::render(RenderLock&&) {
 
   renderPage(pageToRender);
   pageShownAtMs = millis();
+  startDailyReadingInterval();
   if (!queueProgressSave(pageToRender)) {
     LOG_ERR("XTR", "Failed to save debounced reader progress");
   }
@@ -1564,6 +1563,12 @@ bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, con
 
   free(pageBuffer);
   return true;
+}
+
+void XtcReaderActivity::startDailyReadingInterval() {
+  ReadingStatsDateTime local;
+  if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
+  dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 ScreenshotInfo XtcReaderActivity::getScreenshotInfo() const {

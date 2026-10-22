@@ -1,6 +1,8 @@
 #include "ClippingStore.h"
 
 #include <Arduino.h>
+#include <FsHelpers.h>
+#include <HalClock.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
@@ -10,8 +12,10 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <ctime>
 #include <functional>
 
+#include "activities/reader/ReadingStatsUtils.h"
 #include "clippings/ClippingPreview.h"
 
 namespace {
@@ -22,6 +26,22 @@ constexpr uint8_t VERSION = 4;
 constexpr size_t INITIAL_CLIPPING_RESERVE = 4;
 constexpr char CLIPPINGS_DIR[] = "/.crossdink/clippings";
 constexpr size_t TEXT_COPY_BUFFER_SIZE = 128;
+
+uint32_t creationTimeUtc() {
+  const time_t now = time(nullptr);
+  if (now >= 946684800LL && static_cast<uint64_t>(now) <= UINT32_MAX) return static_cast<uint32_t>(now);
+  uint16_t year;
+  uint8_t month, day, hour, minute;
+  if (halClock.getDateTime(year, month, day, hour, minute)) {
+    const ReadingStatsDate date{year, month, day};
+    if (date.isValid() && hour < 24 && minute < 60) {
+      const uint64_t utc =
+          946684800ULL + static_cast<uint64_t>(readingStatsDayIndex(date)) * 86400 + hour * 3600U + minute * 60U;
+      if (utc <= UINT32_MAX) return static_cast<uint32_t>(utc);
+    }
+  }
+  return 0;  // No clock: preserve an unknown date instead of inventing one.
+}
 
 struct ClippingFileHeader {
   std::string title;
@@ -146,7 +166,7 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
   clipping.endWordIndex = endWordIndex;
   clipping.wordCount = wordCount;
   clipping.paragraphIndex = paragraphIndex;
-  clipping.timestamp = static_cast<uint32_t>(millis() / 1000UL);
+  clipping.timestamp = creationTimeUtc();
   clipping.layoutSignature = layoutSignature;
   clipping.tableSelection = tableSelection;
   copyBounded(clipping.chapterTitle, sizeof(clipping.chapterTitle), chapterTitle);
@@ -264,7 +284,7 @@ void ClippingStore::clearAll() {
 
 bool ClippingStore::readFromFile() { return readFromFile(storeFilePath, clippings); }
 
-bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>& out) const {
+bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>& out, const size_t onlyIndex) const {
   out.clear();
   FsFile f;
   if (!Storage.openFileForRead("CLIP", path, f)) {
@@ -292,7 +312,11 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
     return false;
   }
 
-  out.reserve(count);
+  if (onlyIndex != SIZE_MAX && onlyIndex >= count) {
+    f.close();
+    return true;
+  }
+  out.reserve(onlyIndex == SIZE_MAX ? count : 1);
   for (uint16_t i = 0; i < count; ++i) {
     Clipping clipping;
     if (!serialization::tryReadPod(f, clipping.spineIndex) || !serialization::tryReadPod(f, clipping.startPage) ||
@@ -356,11 +380,33 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
         return false;
       }
     }
-    out.push_back(std::move(clipping));
+    if (onlyIndex == SIZE_MAX || onlyIndex == i) out.push_back(std::move(clipping));
+    if (onlyIndex == i) break;
   }
 
   f.close();
   return true;
+}
+
+bool ClippingStore::readForUpload(const std::string& filePath, const size_t ordinal, Clipping& clipping,
+                                  std::string& text, bool& done) {
+  done = false;
+  ClippingStore reader;
+  reader.storeFilePath = storeFilePathForBook(filePath, "epub");
+  if (!Storage.exists(reader.storeFilePath.c_str())) {
+    reader.storeFilePath += ".bak";
+    if (!Storage.exists(reader.storeFilePath.c_str())) {
+      done = true;
+      return true;
+    }
+  }
+  if (!reader.readFromFile(reader.storeFilePath, reader.clippings, ordinal)) return false;
+  if (reader.clippings.empty()) {
+    done = true;
+    return true;
+  }
+  clipping = reader.clippings.front();
+  return reader.readClippingText(clipping, text);
 }
 
 bool ClippingStore::writeToFile(const std::string* replacementText, const size_t replacementIndex,
@@ -514,6 +560,46 @@ bool ClippingStore::getAllClippedBooks(std::vector<ClippedBookEntry>& out) {
                    std::move(header.bookType), header.count});
   }
   return true;
+}
+
+ClippingStore::ClippedBookStep ClippingStore::nextClippedEpub(uint64_t& position, std::string& bookPath) {
+  if (!Storage.exists(CLIPPINGS_DIR)) return ClippedBookStep::Done;
+  auto dir = Storage.open(CLIPPINGS_DIR);
+  if (!dir || !dir.isDirectory() || (position && !dir.seekSet(position))) {
+    if (dir) dir.close();
+    LOG_ERR("CLIP", "Cannot enumerate clippings folder");
+    return ClippedBookStep::Error;
+  }
+  auto entry = dir.openNextFile();
+  if (!entry) {
+    const bool failed = FsHelpers::directoryIterationFailed(dir);
+    dir.close();
+    if (failed) {
+      LOG_ERR("CLIP", "Clippings folder listing failed");
+      return ClippedBookStep::Error;
+    }
+    return ClippedBookStep::Done;
+  }
+  position = dir.position();
+  char name[64]{};
+  const size_t nameLength = entry.getName(name, sizeof(name));
+  const bool folder = entry.isDirectory();
+  entry.close();
+  dir.close();
+  // Store files are short "<type>_<crc>.bin" names; anything else is not ours.
+  if (folder || nameLength == 0 || nameLength >= sizeof(name) - 1 || strncmp(name, "epub_", 5) != 0 || nameLength < 4 ||
+      strcmp(name + nameLength - 4, ".bin") != 0)
+    return ClippedBookStep::Skip;
+  ClippingFileHeader header;
+  const std::string fullPath = std::string(CLIPPINGS_DIR) + "/" + name;
+  if (!readClippingFileHeader(fullPath, name, header) || header.path.empty() || header.count == 0)
+    return ClippedBookStep::Skip;
+  if (!Storage.exists(header.path.c_str())) {
+    LOG_DBG("CLIP", "Skipping clippings for missing book: %s", header.path.c_str());
+    return ClippedBookStep::Skip;
+  }
+  bookPath = std::move(header.path);
+  return ClippedBookStep::Book;
 }
 
 void ClippingStore::deleteForFilePath(const std::string& filePath, const std::string& bookType) {

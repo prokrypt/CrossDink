@@ -1,0 +1,163 @@
+#include "ReadingSyncUpload.h"
+
+#include <Epub.h>
+#include <FsHelpers.h>
+#include <KOReaderCredentialStore.h>
+#include <KOReaderDocumentId.h>
+#include <Logging.h>
+#include <Memory.h>
+#include <ProgressMapper.h>
+#include <Xtc.h>
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+
+#include "ClippingsUpload.h"
+#include "CrossPointSettings.h"
+#include "activities/reader/BookStatsTracking.h"
+#include "activities/reader/DailyReadingStats.h"
+#include "activities/reader/EpubReaderUtils.h"
+#include "activities/reader/StatsUploadPayload.h"
+#include "sync/BookSyncFile.h"
+
+bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgress& progress) {
+  if (!FsHelpers::hasEpubExtension(path)) return false;
+  // ProgressMapper requires shared ownership. Release the whole EPUB before TLS.
+  std::shared_ptr<Epub> epub = makeUniqueNoThrow<Epub>(path, "/.crossdink");
+  if (!epub) {
+    LOG_ERR("ReadingSync", "Cannot allocate EPUB for saved progress");
+    return false;
+  }
+  EpubReaderUtils::Progress saved;
+  if (!EpubReaderUtils::loadProgress(*epub, saved) ||
+      !epub->load(false, true, Epub::XLocationLoadMode::Immediate, true) || saved.spineIndex < 0 ||
+      saved.spineIndex >= epub->getSpineItemsCount() || !saved.hasPageCount || saved.pageCount < 1 ||
+      saved.pageNumber >= saved.pageCount) {
+    LOG_DBG("ReadingSync", "Skipping book without usable saved progress: %s", path.c_str());
+    return false;
+  }
+  CrossPointPosition position{saved.spineIndex, saved.pageNumber, saved.pageCount};
+  position.visibleTextOffset = saved.visibleTextOffset;
+  position.hasVisibleTextOffset = saved.hasVisibleTextOffset;
+  const auto method = KOREADER_STORE.getMatchMethod();
+  const auto mapped =
+      ProgressMapper::toKOReader(epub, position,
+                                 method == DocumentMatchMethod::FILENAME ? PositionCoordinateSpace::SourceDocument
+                                                                         : PositionCoordinateSpace::CurrentDocument);
+  if (!mapped.valid || mapped.xpath.empty() || !std::isfinite(mapped.percentage) || mapped.percentage < 0 ||
+      mapped.percentage > 1)
+    return false;
+  progress = {};
+  progress.document = BookSyncFile::documentId(path);
+  if (progress.document.empty()) return false;
+  progress.progress = mapped.xpath;
+  progress.percentage = mapped.percentage;
+  progress.device = SETTINGS.getEffectiveDeviceName();
+  if (KOREADER_STORE.getSendMetadata()) {
+    progress.metadata = KOReaderMetadata{path.substr(path.find_last_of('/') + 1), epub->getTitle(), epub->getAuthor()};
+  }
+  if (KOREADER_STORE.usesCrossPointSyncServer()) {
+    KOReaderRichPosition rich;
+    rich.pctQ = static_cast<uint32_t>(mapped.percentage * 1000000.0f + 0.5f);
+    rich.spineIndex = saved.spineIndex;
+    rich.pageNumber = saved.pageNumber;
+    rich.totalPages = saved.pageCount;
+    rich.xpath = mapped.xpath;
+    progress.position = std::move(rich);
+  }
+  return true;
+}
+
+StatsUploadClient::Result ReadingSyncUpload::globalStats() {
+  using Result = StatsUploadClient::Result;
+  if (!SETTINGS.shouldTrackReadingStats()) return Result::Skipped;
+  // Existing fixed 1536-byte upload buffer stays off the small task stack.
+  auto payload = makeUniqueNoThrow<char[]>(StatsUploadPayload::CAPACITY);
+  char deviceId[32];
+  if (!payload || !StatsUploadClient::deviceId(deviceId, sizeof(deviceId))) return Result::LowMemory;
+  StatsUploadClient client;
+  return globalStats(client, payload.get(), StatsUploadPayload::CAPACITY, deviceId);
+}
+
+StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& client, char* payload, size_t capacity,
+                                                         const char* deviceId) {
+  using Result = StatsUploadClient::Result;
+  if (!SETTINGS.shouldTrackReadingStats()) return Result::Skipped;
+  GlobalReadingStats global;
+  if (!GlobalReadingStats::loadForUpload(global)) return Result::Skipped;
+  if (!StatsUploadPayload::global(payload, capacity, deviceId, global)) return Result::InvalidResponse;
+  auto result = client.put("/api/v1/stats/global", payload, false);
+  if (result != Result::Ok) return result;
+  struct UploadContext {
+    StatsUploadClient& client;
+    char* payload;
+    size_t capacity;
+    const char* deviceId;
+    const GlobalReadingStats& global;
+    Result result = Result::Ok;
+  } context{client, payload, capacity, deviceId, global};
+  const bool complete = DailyReadingStats::uploadPending(
+      [](void* opaque, uint32_t day, uint32_t seconds) {
+        auto& ctx = *static_cast<UploadContext*>(opaque);
+        if (!StatsUploadPayload::global(ctx.payload, ctx.capacity, ctx.deviceId, ctx.global, day, seconds)) {
+          ctx.result = Result::InvalidResponse;
+          return false;
+        }
+        ctx.result = ctx.client.put("/api/v1/stats/global", ctx.payload, false, true);
+        return ctx.result == Result::Ok;
+      },
+      &context);
+  result = context.result;
+  if (!complete && result == Result::Ok) result = Result::InvalidResponse;
+  if (!complete) LOG_ERR("ReadingSync", "Daily counter upload incomplete");
+  if (complete) {
+    ReadingStatsDateTime local;
+    if (getCurrentLocalDailyReadingDateTime(local) && !DailyReadingStats::pruneSyncedMonths(local.date))
+      LOG_ERR("ReadingSync", "Synced monthly history cleanup deferred");
+  }
+  return result;
+}
+
+bool ReadingSyncUpload::loadBookStats(const std::string& path, BookReadingStats& stats) {
+  if (!SETTINGS.shouldTrackReadingStats()) return false;
+  // XTC books keep stats in their own cache folder; they have no KOReader position.
+  const auto cache = FsHelpers::hasXtcExtension(path) ? Xtc(path, "/.crossdink").getCachePath()
+                                                      : Epub::resolveCachePathForFilePath(path, "/.crossdink");
+  return BookStatsTracking::isBookEnabled(cache) && BookReadingStats::loadForUpload(cache, stats);
+}
+
+bool ReadingSyncUpload::canSyncReadingStats() {
+  return KOREADER_STORE.hasCredentials() && KOREADER_STORE.getServerSupport() == SyncServerSupport::SUPPORTED &&
+         KOREADER_STORE.getSyncStats() && SETTINGS.shouldTrackReadingStats();
+}
+
+bool ReadingSyncUpload::canSyncClippings() {
+  return KOREADER_STORE.hasCredentials() && KOREADER_STORE.getServerSupport() == SyncServerSupport::SUPPORTED &&
+         KOREADER_STORE.getSyncClippings();
+}
+
+StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, const std::string& document) {
+  using Result = StatsUploadClient::Result;
+  BookReadingStats book;
+  if (!loadBookStats(path, book)) return Result::Skipped;
+  auto payload = makeUniqueNoThrow<char[]>(StatsUploadPayload::CAPACITY);
+  char deviceId[32];
+  if (!payload || !StatsUploadClient::deviceId(deviceId, sizeof(deviceId))) return Result::LowMemory;
+  if (!StatsUploadPayload::book(payload.get(), StatsUploadPayload::CAPACITY, deviceId, document.c_str(), book))
+    return Result::InvalidResponse;
+  StatsUploadClient client;
+  return client.put("/api/v1/stats/books", payload.get(), true);
+}
+
+ReadingSyncUpload::ExtrasResult ReadingSyncUpload::extras(const std::string& path, const std::string& document) {
+  ExtrasResult result;
+  if (KOREADER_STORE.getSyncStats()) result.stats = stats(path, document);
+  // These independent snapshots must still be attempted after a stats failure.
+  // Clippings are EPUB-only; XTC books never save any.
+  if (KOREADER_STORE.getSyncClippings() && FsHelpers::hasEpubExtension(path))
+    result.clippings = ClippingsUpload::upload(path, document);
+  LOG_INF("ReadingSync", "Extras: stats=%d clippings=%d", static_cast<int>(result.stats),
+          static_cast<int>(result.clippings));
+  return result;
+}

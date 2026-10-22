@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Reading stats: active reading time is now also kept per local day (`/.crossdink/daily_reading/`, two 264-byte files per month), for the coming stats and clippings sync to a CrossPoint Sync server. Seconds collect in RAM and are written at the same points as the reader's held exit writes (sleep, restart, leaving for another screen), never on a page turn. New clippings save their creation time as a calendar date when the clock is set.
 - Add a Display toggle to swap Library and File Browser on the Minimal and Dashboard home screens.
 - Reader menu (button devices) and the pull-down drawer (X4 Pro, Sticky) show the current chapter title under the book title. The drawer leaves the chapter line out when it would push the handle off screen.
 - File browser and Library list: a book marked as finished shows a book-with-check icon instead of its file icon (EPUB and XTC). Each row's finished flag is read once when the row is first drawn and kept in memory, so moving the selection reads nothing from the card; marking a book finished or unfinished updates the icon. Library skips the lookup while Hide finished books is on.

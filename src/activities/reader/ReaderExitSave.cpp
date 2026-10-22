@@ -7,6 +7,7 @@
 
 #include "BookReadingStats.h"
 #include "CrossPointState.h"
+#include "DailyReadingStats.h"
 #include "GlobalReadingStats.h"
 #include "HeldWrites.h"
 
@@ -47,6 +48,7 @@ bool ReaderExitSave::flushStats() {
 
 bool ReaderExitSave::flush() {
   const bool wrote = flushStats();
+  if (!DailyReadingStats::flush()) LOG_ERR("RXS", "Daily reading totals stay in RAM until the next flush");
   HeldWrites::flushFiles();
   return wrote;
 }
