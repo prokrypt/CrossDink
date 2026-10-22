@@ -1,4 +1,5 @@
 #pragma once
+
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Page.h>
@@ -18,6 +19,7 @@
 #include <optional>
 #include <string>
 
+#include "BookLoadingFeedback.h"
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "EndOfBookOptions.h"
@@ -700,16 +702,25 @@ class EpubReaderActivity final : public Activity {
   void navigateToHref(const std::string& href, bool savePosition = false, bool preferFootnotePreview = false);
   void restoreSavedPosition();
 
+  BookLoadingFeedback openingFeedback;
+  bool showOpeningFeedback() {
+    if (!openingFeedback.showIfDue(renderer)) return false;
+    pagesUntilFullRefresh = 0;
+    return true;
+  }
+
  public:
   explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub,
                               const BookReaderSettingsData& readerSettings, int initialRefreshCountdown,
-                              bool cleanImageBaseOnEntry = false, bool skipRecentBookUpdateOnEntry = false)
+                              bool cleanImageBaseOnEntry = false, bool skipRecentBookUpdateOnEntry = false,
+                              BookLoadingFeedback openingFeedback = {})
       : Activity("EpubReader", renderer, mappedInput),
         epub(std::move(epub)),
         initialBookReaderSettings(readerSettings),
         pagesUntilFullRefresh(initialRefreshCountdown),
         cleanImageBasePending(cleanImageBaseOnEntry),
-        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
+        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry),
+        openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
   void onCovered() override {
