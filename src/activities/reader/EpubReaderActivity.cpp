@@ -2922,8 +2922,8 @@ bool EpubReaderActivity::backgroundBuildTick() {
 
 void EpubReaderActivity::queueNextSectionBuild() {
   const int next = currentSpineIndex + 1;
-  if (nextSection || nextSectionSpine == next || !section || section->isBuilding() || section->isPartial() || activeFootnotePreview ||
-      buildViewportWidth == 0 || next >= epub->getSpineItemsCount() ||
+  if (nextSection || nextSectionSpine == next || !section || section->isBuilding() || section->isPartial() ||
+      activeFootnotePreview || buildViewportWidth == 0 || next >= epub->getSpineItemsCount() ||
       section->currentPage + NEXT_SECTION_BUILD_PAGES_LEFT < static_cast<int>(section->pageCount) ||
       millis() - lastRenderCompleteMs < NEXT_SECTION_BUILD_IDLE_MS) {
     return;
