@@ -73,6 +73,9 @@ RTC_NOINIT_ATTR uint32_t retryPushMagic;
 // Written before the task starts, then the task's until running() reads false.
 std::string jobPath;
 bool jobIsPull = false;
+// The job runs on a PSRAM stack, so it must not start the radio: Wi-Fi start
+// reads and writes NVS (PHY calibration), and flash calls need an internal stack.
+bool jobPsramStack = false;
 bool pullReady = false;
 // The task's memory of the last book it synced this boot (RAM only, task only):
 // the hash method its record sits under and the server position last seen or pushed.
@@ -168,7 +171,7 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, s
                                  method == DocumentMatchMethod::FILENAME ? PositionCoordinateSpace::SourceDocument
                                                                          : PositionCoordinateSpace::CurrentDocument);
   if (!ko.valid) {
-    LOG_ERR("KOSync", "exit push: no source position map; re-optimize the EPUB");
+    LOG_ERR("KOSync", "exit push: cannot resolve sync position (needs re-optimization=%d)", ko.needsReoptimization);
     return false;
   }
   out.document = method == DocumentMatchMethod::FILENAME ? KOReaderDocumentId::calculateFromFilename(path)
@@ -298,6 +301,10 @@ void run(void*) {
 #endif
   bool ownRadio = false;
   if (!hasActiveStationWifiConnection()) {
+    if (jobPsramStack) {
+      LOG_INF("KOSync", "%s skipped: Wi-Fi link dropped before the job ran", what);
+      return;
+    }
     auto cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
     if (!cred) {
       LOG_INF("KOSync", "%s skipped: no saved Wi-Fi network", what);
@@ -396,7 +403,13 @@ bool startJob(std::string path, const bool pull) {
   pushOk = false;
   pushOutcome = kosync_auto::PushOutcome::Failed;
   radioClaimed.store(false);
-  if (task.start(run, nullptr, TASK_STACK_BYTES, "KOSyncAuto")) return true;
+  // A link already up (usually the Wi-Fi remote's, beside an open book) means no
+  // radio start, so the 14 KB stack goes to PSRAM: internal, it came out of the
+  // free heap the reader's layout gate needs while the book's first chapter builds.
+  jobPsramStack = hasActiveStationWifiConnection();
+  if (task.start(run, nullptr, TASK_STACK_BYTES, "KOSyncAuto", false,
+                 jobPsramStack ? WorkerTask::Stack::Psram : WorkerTask::Stack::Internal))
+    return true;
   LOG_ERR("KOSync", "auto sync: task did not start");
   return false;
 }
@@ -496,7 +509,7 @@ bool pushPendingFor(const std::string& cachePath) {
 bool takeSettled() { return std::exchange(settled, false); }
 
 void loop() {
-  if (task.running()) return;  // a push or fetch waits for the one before it
+  if (!task.join(0)) return;  // a push or fetch waits for the one before it; join frees a parked PSRAM stack
   if (queuedPath.empty()) {
     std::lock_guard<std::mutex> lock(pendingMutex);
     if (!pendingCache.empty()) {

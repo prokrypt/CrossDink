@@ -9,6 +9,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -46,6 +47,11 @@ RTC_NOINIT_ATTR size_t logHead = 0;
 // never properly initialized.
 RTC_NOINIT_ATTR uint32_t rtcLogMagic;
 static constexpr uint32_t LOG_RTC_MAGIC = 0xDEADBEEF;
+// Boot code decides whether the RTC ring belongs to a previous panic before
+// allowing any startup log to overwrite it. This costs no second log buffer.
+static std::atomic<bool> logRetentionPaused{true};
+
+void pauseLogRetention(const bool paused) { logRetentionPaused = paused; }
 
 // logPrintf runs on both cores at once (loop on core 0, render on core 1), so
 // the ring's head and slots need a lock. A spinlock, because logging happens
@@ -60,6 +66,7 @@ static portMUX_TYPE logRingMux = portMUX_INITIALIZER_UNLOCKED;
 #endif
 
 void addToLogRingBuffer(const char* message) {
+  if (logRetentionPaused) return;
   // Add the message to the ring buffer, overwriting old messages if necessary.
   // If the magic is wrong or logHead is out of range (RTC_NOINIT_ATTR garbage
   // on cold boot), clear the entire buffer so subsequent reads are safe.

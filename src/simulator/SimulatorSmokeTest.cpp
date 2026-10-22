@@ -31,12 +31,14 @@
 #include "SettingsList.h"
 #include "activities/ActivityManager.h"
 #include "activities/home/RecentBookProgress.h"
+#include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderOptionsActivity.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/SideButtonShortcuts.h"
 #include "activities/settings/QuickActionsActivity.h"
+#include "components/ReaderBookSummary.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "simulator/SimulatorHomeKeyInput.h"
@@ -45,6 +47,45 @@
 extern ActivityManager activityManager;
 extern GfxRenderer renderer;
 extern MappedInputManager mappedInputManager;
+
+// Use a detached reader so these boundary checks cannot race its render task.
+struct EpubReaderCompletionSmokeTest {
+  static bool run(EpubReaderActivity& active) {
+    auto reader = std::make_unique<EpubReaderActivity>(renderer, mappedInputManager, nullptr,
+                                                       EpubReaderActivity::BookReaderSettingsData{}, 1);
+    reader->epub = active.epub;
+    const int spineCount = reader->epub->getSpineItemsCount();
+    if (spineCount <= 0) return false;
+
+    // Both shortcut entry points must tolerate a chapter that has not loaded yet.
+    for (const auto action :
+         {CrossPointSettings::SHORT_PWRBTN::PAGE_TURN, CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE}) {
+      reader->handleShortcutAction(action);
+      reader->handleShortcutAction(static_cast<uint8_t>(action));
+      if (reader->section || reader->currentSpineIndex != 0) return false;
+    }
+    reader->pageTurn(true, "auto");
+    reader->pageTurn(false, "test");
+
+    // Previous-page shortcuts on the plain end screen return to the final page.
+    for (const bool homeButton : {false, true}) {
+      reader->currentSpineIndex = spineCount;
+      reader->pendingPageJump = 0;
+      if (homeButton) {
+        reader->handleShortcutAction(static_cast<uint8_t>(CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE));
+      } else {
+        reader->handleShortcutAction(CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE);
+      }
+      if (reader->currentSpineIndex != spineCount - 1 || reader->nextPageNumber != 0 ||
+          reader->pendingPageJump != std::numeric_limits<uint16_t>::max())
+        return false;
+    }
+    reader->currentSpineIndex = spineCount;
+    reader->handleShortcutAction(CrossPointSettings::SHORT_PWRBTN::PAGE_TURN);
+    LOG_INF("SMOKE", "EPUB completion shortcuts: missing chapter and end-screen return passed");
+    return true;
+  }
+};
 
 namespace {
 
@@ -61,6 +102,8 @@ enum class SmokeStep : uint8_t {
   Sleep,
   Reader,
   ReaderInput,
+  CompletionReturnedHome,
+  CompletionReaderRestored,
   Done,
 };
 
@@ -742,6 +785,54 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Loading popup preserves backdrop in all orientations");
   }
 
+  static void verifyWakePowerReaderShortcut() {
+    if (!activityManager.isCurrentActivityNamed("EpubReader")) return;
+    auto* reader = activityManager.simulatorCurrentActivity();
+    const uint8_t savedShort = SETTINGS.shortPwrBtn;
+    const uint8_t savedLong = SETTINGS.longPwrBtn;
+    const uint8_t savedSlot = SETTINGS.quickActionSlots[0];
+    SETTINGS.shortPwrBtn = CrossPointSettings::SHORT_PWRBTN::QUICK_LOCK;
+    SETTINGS.longPwrBtn = CrossPointSettings::SHORT_PWRBTN::QUICK_ACTIONS;
+    SETTINGS.quickActionSlots[0] = CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH;
+
+    // Apply the same mapped-input guards as a Power-button wake, then exercise
+    // the reader's independent long-press route across the hold and release.
+    mappedInputManager.suppressNextPowerRelease();
+    mappedInputManager.suppressNextPowerConfirmRelease();
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    delay(SETTINGS.getPowerButtonLongPressDuration() + 10);
+    if (!mappedInputManager.isPhysicalPressed(MappedInputManager::Button::Power)) fail("Wake test lost Power hold");
+    reader->loop();
+    if (reader->blocksGlobalInput()) fail("Wake Power hold opened Quick Actions");
+
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    reader->loop();
+    if (reader->blocksGlobalInput()) fail("Wake Power release opened Quick Actions");
+    mappedInputManager.simulatorClearInputFrame();
+    mappedInputManager.update();
+
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    delay(SETTINGS.getPowerButtonLongPressDuration() + 10);
+    reader->loop();
+    if (!reader->blocksGlobalInput()) fail("Fresh long Power press did not open Quick Actions");
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Power);
+    mappedInputManager.update();
+    reader->loop();
+    mappedInputManager.simulatorClearInputFrame();
+    mappedInputManager.update();
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Back);
+    reader->loop();
+    mappedInputManager.simulatorClearInputFrame();
+    if (reader->blocksGlobalInput()) fail("Wake test could not close Quick Actions");
+    SETTINGS.shortPwrBtn = savedShort;
+    SETTINGS.longPwrBtn = savedLong;
+    SETTINGS.quickActionSlots[0] = savedSlot;
+    LOG_INF("SMOKE", "Wake Power hold/release ignored; fresh long press opens Quick Actions");
+  }
+
   static void verifyCachedHomeProgressMigration() {
     const RecentBook book{"/books/legacy-home-smoke.epub", "Legacy Home smoke", {}, {}};
     const std::string legacy = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
@@ -1155,6 +1246,26 @@ class SimulatorSmokeTest {
       }
 
       case SmokeStep::Reader:
+        verifyWakePowerReaderShortcut();
+        if (!activityManager.isCurrentActivityNamed("EpubReader")) {
+          buildReaderInputScript();
+          step = SmokeStep::ReaderInput;
+          break;
+        }
+        if (!EpubReaderCompletionSmokeTest::run(
+                *static_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity()))) {
+          fail("EPUB completion shortcut regression");
+        }
+        queueStep("Completion shortcut returned Home", SmokeStep::CompletionReturnedHome);
+        break;
+
+      case SmokeStep::CompletionReturnedHome:
+        if (!activityManager.isCurrentActivityNamed("Home")) fail("End-screen forward shortcut did not return Home");
+        activityManager.goToReader(std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK"), true);
+        queueStep("Reader after completion shortcuts", SmokeStep::CompletionReaderRestored, 8);
+        break;
+
+      case SmokeStep::CompletionReaderRestored:
         buildReaderInputScript();
         step = SmokeStep::ReaderInput;
         break;
@@ -1345,8 +1456,11 @@ class SimulatorSmokeTest {
         inputScript.push_back(touchRelease(20, 8));
         inputScript.push_back(render("Frontlight Panel remains open after in-drawer swipe up", 4));
         inputScript.push_back(assertActivity("FrontlightPanel"));
-        // The book-progress row puts the portrait sheet's handle near 58% height.
-        inputScript.push_back(touchDown(width / 2, height * 23 / 40));
+        // The book-progress row puts the portrait sheet's handle near 58% height;
+        // the smoke book's chapter title line pushes the sheet down further.
+        const int chapterLine =
+            ReaderBookSummary::height(renderer, "Chapter") - ReaderBookSummary::height(renderer, nullptr);
+        inputScript.push_back(touchDown(width / 2, height * 23 / 40 + chapterLine));
         inputScript.push_back(touchMove(width / 2, 8));
         inputScript.push_back(touchRelease(width / 2, 8));
         inputScript.push_back(render("Reader restored after Frontlight Panel handle drag up", 4));
@@ -1358,8 +1472,8 @@ class SimulatorSmokeTest {
         inputScript.push_back(assertActivity("FrontlightPanel"));
         // The fourth of six action-bar slots opens Global Settings through the real
         // FrontlightPanelActivity callback path.
-        inputScript.push_back(touchDown(width * 7 / 12, height * 21 / 40));
-        inputScript.push_back(touchRelease(width * 7 / 12, height * 21 / 40));
+        inputScript.push_back(touchDown(width * 7 / 12, height * 21 / 40 + chapterLine));
+        inputScript.push_back(touchRelease(width * 7 / 12, height * 21 / 40 + chapterLine));
         inputScript.push_back(render("Global Settings opened from Frontlight Panel", 4));
         inputScript.push_back(assertActivity("Settings"));
         inputScript.push_back(touchDown(width / 2, height * 3 / 4));
@@ -1377,8 +1491,8 @@ class SimulatorSmokeTest {
         inputScript.push_back(touchRelease(width / 2, height / 4));
         inputScript.push_back(render("Frontlight Panel reopened after Global Settings", 4));
         inputScript.push_back(assertActivity("FrontlightPanel"));
-        inputScript.push_back(touchDown(width / 4, height * 21 / 40));
-        inputScript.push_back(touchRelease(width / 4, height * 21 / 40));
+        inputScript.push_back(touchDown(width / 4, height * 21 / 40 + chapterLine));
+        inputScript.push_back(touchRelease(width / 4, height * 21 / 40 + chapterLine));
         inputScript.push_back(render("Sync dialog opened from Frontlight Panel", 4));
         inputScript.push_back(assertActivity("FrontlightPanel"));
         inputScript.push_back(touchDown(width / 2, height - 60));

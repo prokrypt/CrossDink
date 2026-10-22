@@ -34,13 +34,20 @@ TaskHandle_t loopTask = nullptr;
 
 void inputTaskMain(void*) {
   const uint32_t idleWaitMs = InputWake::coversAllInputs() ? IDLE_COVERED_WAIT_MS : IDLE_POLLED_WAIT_MS;
+  bool settle = false;
   for (;;) {
     const HalGPIO::SampleResult result = gpio.sampleInput();
     if (result.events || InputWake::takeChargeWake()) xSemaphoreGive(loopWake);
-    if (result.active) {
+    if (result.active || settle) {
+      settle = false;
       vTaskDelay(pdMS_TO_TICKS(ACTIVE_POLL_MS));
     } else {
-      InputWake::wait(idleWaitMs);
+      // A key's first contact bounce can wake us yet sample as released; wait()
+      // would then arm the line for the release and the press is lost. One more
+      // sample after the bounce settles catches it.
+      // shortcut: assumes bounce shorter than ACTIVE_POLL_MS; arm keys at their
+      // pressed level instead if presses still go missing.
+      settle = InputWake::wait(idleWaitMs);
     }
   }
 }

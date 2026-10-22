@@ -558,6 +558,11 @@ void ActivityManager::renderTaskLoop() {
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
     RenderLock lock;
+    if (enteringTask.load() && !entryRenderRequested.load()) {
+      requestedUpdate = true;  // the loop sends it once onEnter() returns
+      continue;
+    }
+    entryRenderRequested = false;
     TouchRegistry::getInstance().setEnabled(mappedInput.hasTouch());
     TouchRegistry::getInstance().beginFrame();
     bool deferredRender = false;
@@ -867,8 +872,9 @@ void ActivityManager::loop() {
       }
       pendingAction = PendingAction::None;
       currentActivity = std::move(pendingActivity);
+      enteringTask = xTaskGetCurrentTaskHandle();
 
-      lock.unlock();  // onEnter may acquire its own lock
+      lock.unlock();  // onEnter may acquire its own lock or synchronously render a loading screen
       // The readers' exit writes stay held until sleep or another flush point.
       // Home, Library and the readers read the held copies; anything else (USB
       // Drive included) must find them on SD before it starts.
@@ -889,7 +895,7 @@ void ActivityManager::loop() {
         kosync_auto::yieldRadio();
         wifi_background_join::wait();  // likewise the OPDS list's join or teardown task
       }
-      currentActivity->onEnter();
+      enterCurrentActivity();
 
       // cppcheck-suppress knownConditionTrueFalse ; onEnter() above may queue another navigation
       if (pendingAction == PendingAction::None && pendingReaderMenuAction >= 0 &&
@@ -1059,6 +1065,13 @@ void ActivityManager::exitActivity(const RenderLock& lock) {
   }
 }
 
+void ActivityManager::enterCurrentActivity() {
+  currentActivity->onEnter();
+  RenderLock lock;  // a render that skipped this activity has set requestedUpdate before this returns
+  enteringTask = nullptr;
+  entryRenderRequested = false;
+}
+
 void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
   // Note: no lock here, this is usually called by loop() and we may run into deadlock
   if (currentActivity) {
@@ -1070,8 +1083,12 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
   } else {
     // No current activity, safe to launch immediately
     TouchRegistry::getInstance().clear();
-    currentActivity = std::move(newActivity);
-    currentActivity->onEnter();
+    {
+      RenderLock lock;
+      currentActivity = std::move(newActivity);
+      enteringTask = xTaskGetCurrentTaskHandle();
+    }
+    enterCurrentActivity();
   }
 }
 
@@ -1547,6 +1564,8 @@ void ActivityManager::wakePanelEarly() {
 
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {
+    // onEnter()'s own immediate frame is ready, as with requestUpdateAndWait().
+    if (enteringTask.load() == xTaskGetCurrentTaskHandle()) entryRenderRequested = true;
     if (renderTaskHandle) {
       xTaskNotify(renderTaskHandle, 1, eIncrement);
     }
@@ -1593,6 +1612,8 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
   // This frame draws everything requested so far: drop a pending deferred
   // request so the next loop pass doesn't draw the same frame again.
   requestedUpdate = false;
+  // The caller promises its state is ready for this render, even mid-onEnter().
+  entryRenderRequested = enteringTask.load() != nullptr;
   xTaskNotify(renderTaskHandle, 1, eIncrement);
   while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(RenderLock::WAIT_TICK_MS)) == 0) {
     if (RenderLock::waitTick) RenderLock::waitTick();

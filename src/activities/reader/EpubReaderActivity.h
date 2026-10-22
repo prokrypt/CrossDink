@@ -21,6 +21,7 @@
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "EndOfBookOptions.h"
+#include "EpubLinkReturnState.h"
 #include "EpubReaderMenuModel.h"
 #include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
@@ -43,6 +44,9 @@ struct ToastRect {
 };
 
 class EpubReaderActivity final : public Activity {
+#ifdef SIMULATOR
+  friend struct EpubReaderCompletionSmokeTest;
+#endif
  public:
   bool usesFullScreenReaderVerticalSwipes() const override { return true; }
 
@@ -234,6 +238,11 @@ class EpubReaderActivity final : public Activity {
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
   void syncStatsTrackingState();
+  void commitReadingStatsSession();
+  uint32_t globalStatsResetRevisionAtPanelOpen = 0;
+  uint32_t ttfRenderGenerationAtPanelOpen = 0;
+  bool pendingTtfRenderRelayout = false;
+  void relayoutAfterTtfRenderChange();
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
@@ -314,11 +323,8 @@ class EpubReaderActivity final : public Activity {
   ReaderPinchGesture pinchFontGesture;
   FootnoteLinkTargets currentPageFootnoteTouchTargets{};
 #endif
-  struct SavedPosition {
-    int spineIndex;
-    int pageNumber;
-  };
-  static constexpr int MAX_FOOTNOTE_DEPTH = 3;
+  using SavedPosition = EpubLinkReturnState::Position;
+  static constexpr int MAX_FOOTNOTE_DEPTH = EpubLinkReturnState::MAX_DEPTH;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
 
@@ -577,12 +583,13 @@ class EpubReaderActivity final : public Activity {
   bool saveProgress(int spineIndex, int currentPage, int pageCount, bool allowDuringFootnotePreview = false,
                     bool hold = false);
   bool queueProgressSave(int spineIndex, int currentPage, int pageCount, bool forceSave = false);
-  bool flushQueuedProgress(bool hold = false);
-  bool saveFootnoteOriginProgress();
   // Saves the position now, the way onExit() does (the link origin while in a
-  // footnote). Used before handing off to anything that can silently restart
-  // the device, which reboots without running onExit().
+  // footnote preview). Used before handing off to anything that can silently
+  // restart the device, which reboots without running onExit().
   void saveProgressBeforeRestart();
+  bool saveReadingProgress(bool hold = false);
+  bool saveLinkStack() const;
+  void loadLinkStack();
   void cacheCurrentSectionPosition();
   void pauseReadingPaceTimer(const char* reason = "unknown");
   void resumeReadingPaceTimer(const char* reason = "unknown");
@@ -655,6 +662,7 @@ class EpubReaderActivity final : public Activity {
   // Opens the reader menu for the current position (short-press Confirm)
   void openReaderMenu();
   void applyOrientation(uint8_t orientation);
+  bool handleEndOfBookPageTurn(bool isForwardTurn);
   void requestManualPageTurn(bool isForwardTurn, const char* source);
   bool drainPendingManualPageTurn();
   // Also cancels a running AA pass; `aaReason` names the event in the log.
@@ -668,6 +676,8 @@ class EpubReaderActivity final : public Activity {
   bool isAtBookStart() const;
   void pageTurn(bool isForwardTurn, const char* source = "unknown");
   float getCurrentBookProgressPercent() const;
+  // Caller holds RenderLock. Matches the status bar's chapter-group title.
+  std::string currentChapterTitle() const;
   void initializeCompletionPromptTrigger();
   bool isAtOrPastCompletionTrigger() const;
   bool shouldQueueCompletionPromptOnChapterExit() const;
@@ -795,6 +805,7 @@ class EpubReaderActivity final : public Activity {
   // sync reads outside the reader.
   static bool bookUsesLandscapeLayout(const Epub& epub);
   static uint8_t loadBookRenderMode(const std::string& filePath);
+  static uint8_t loadBookRenderMode(const Epub& epub);
   static bool saveBookRenderMode(const std::string& filePath, uint8_t renderMode);
   static bool resetBookReaderSettings(const std::string& filePath);
   ScreenshotInfo getScreenshotInfo() const override;

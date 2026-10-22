@@ -319,6 +319,8 @@ void GlobalReadingStats::save() const {
   saveToFile(*this);
 }
 
+static uint32_t s_localResetRevision = 0;
+
 bool GlobalReadingStats::resetLocal() {
   // Every copy goes first, so none can bring the old stats back.
   for (const char* path : {GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_PATH, LEGACY_STATS_BAK_PATH, LEGACY_STATS_PATH}) {
@@ -327,8 +329,11 @@ bool GlobalReadingStats::resetLocal() {
       return false;
     }
   }
+  s_localResetRevision++;  // the old stats are gone even if the fresh file fails
   return saveToFile(GlobalReadingStats{});
 }
+
+uint32_t GlobalReadingStats::localResetRevision() { return s_localResetRevision; }
 
 void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStart, const uint32_t seconds) {
   recordReadingSpanIntoBuckets(timeOfDaySeconds, dayOfWeekSeconds, localStart, seconds);
