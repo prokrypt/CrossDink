@@ -116,12 +116,13 @@ Available actions depend on the device and reader:
 | --- | --- |
 | Increase Brightness / Decrease Brightness | Devices with a frontlight |
 | Increase Warmth / Decrease Warmth | Devices with an adjustable warm/cool frontlight |
+| Select Chapter | EPUB and XTC books with a chapter list |
 | Next Chapter / Previous Chapter | EPUB readers |
 | Increase Font Size / Decrease Font Size | EPUB and TXT readers |
 
 Use a clear, mostly straight motion so both contacts are recognized as one
 gesture. Configured two-finger swipes are handled separately from the ordinary
-one-finger page-turn mapping. On image-based XTC books, chapter and font-size
+one-finger page-turn mapping. Select Chapter opens the chapter list in EPUB and XTC books. On image-based XTC books, Next/Previous Chapter and font-size
 actions are consumed but cannot change the pre-rendered pages.
 
 ## Side Button Long-press Action
