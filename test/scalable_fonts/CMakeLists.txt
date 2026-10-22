@@ -75,3 +75,11 @@ add_test(NAME scalable_font_adapter COMMAND scalable_font_adapter_test
   ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/EpdFont/scalableFonts/bitter_bold.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/EpdFont/scalableFonts/bitter_italic.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/EpdFont/scalableFonts/bitter_bolditalic.ttf)
+
+add_executable(font_byte_digest_test FontByteDigestTest.cpp)
+target_compile_options(font_byte_digest_test PRIVATE -UNDEBUG)
+if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(font_byte_digest_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(font_byte_digest_test PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME font_byte_digest COMMAND font_byte_digest_test)
