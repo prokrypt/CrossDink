@@ -238,6 +238,58 @@ class LineSanitizer {
   size_t used = 0;
 };
 
+#if CROSSDINK_HAS_PSRAM_LOG_RING
+constexpr uint32_t NOT_FOUND = UINT32_MAX;
+constexpr size_t KEEP_BOOTS = 3;  // the current boot and the two before it
+
+// Streaming substring match; the patterns below have no self-overlap.
+struct Matcher {
+  const char* text;
+  size_t len;
+  size_t pos = 0;
+  // True when c completes a match.
+  bool step(const char c) {
+    if (c != text[pos]) {
+      pos = c == text[0] ? 1 : 0;
+      return false;
+    }
+    if (++pos < len) return false;
+    pos = 0;
+    return true;
+  }
+};
+
+struct RingScan {
+  uint32_t start;      // where log.txt begins: KEEP_BOOTS boot lines back, or the window start
+  uint32_t firstBoot;  // oldest kept boot line, NOT_FOUND if none
+  uint32_t panicDump;  // last "Dumped panic info" line, NOT_FOUND if none
+};
+
+// One pass over [from, end) for the boot lines PsramLog writes and the line
+// HalSystem::checkPanic() logs after saving crash_report.txt.
+RingScan scanRing(const uint32_t from, const uint32_t end, char* chunk) {
+  static constexpr char BOOT[] = "\n=== boot: PSRAM log ";         // PsramLog.cpp appendBootLineIfPending()
+  static constexpr char PANIC[] = "Dumped panic info to SD card";  // HalSystem.cpp checkPanic()
+  Matcher boot{BOOT, sizeof(BOOT) - 1};
+  Matcher panic{PANIC, sizeof(PANIC) - 1};
+  uint32_t boots[KEEP_BOOTS];
+  size_t bootCount = 0;
+  uint32_t panicDump = NOT_FOUND;
+  uint32_t cursor = from;
+  size_t n;
+  while (cursor < end && (n = PsramLog::read(cursor, chunk, std::min<size_t>(MAX_LINE_BYTES, end - cursor))) > 0) {
+    const uint32_t base = cursor - n;  // read() may have snapped a lapped cursor forward
+    for (size_t i = 0; i < n; ++i) {
+      if (boot.step(chunk[i])) boots[bootCount++ % KEEP_BOOTS] = base + i + 2 - boot.len;  // after the '\n'
+      if (panic.step(chunk[i])) panicDump = base + i;
+    }
+  }
+  if (bootCount < KEEP_BOOTS) return {from, bootCount ? boots[0] : NOT_FOUND, panicDump};
+  const uint32_t oldestKept = boots[bootCount % KEEP_BOOTS];
+  return {oldestKept, oldestKept, panicDump};
+}
+#endif
+
 bool writeLog(const Context& ctx, const SecretTable& secrets) {
   char file[64];
   path(file, sizeof(file), ctx.id, "log.txt");
@@ -254,8 +306,10 @@ bool writeLog(const Context& ctx, const SecretTable& secrets) {
 
 #if CROSSDINK_HAS_PSRAM_LOG_RING
   const uint32_t end = PsramLog::end();
-  uint32_t cursor = std::max<uint32_t>(PsramLog::oldest(), end > LOG_BYTES ? end - LOG_BYTES : 0);
-  bool first = true;
+  const uint32_t windowStart = std::max<uint32_t>(PsramLog::oldest(), end > LOG_BYTES ? end - LOG_BYTES : 0);
+  const RingScan scan = scanRing(windowStart, end, chunk);
+  uint32_t cursor = scan.start;
+  bool first = scan.start != scan.firstBoot;  // a cut window starts mid-line
   size_t n;
   while (cursor < end && (n = PsramLog::read(cursor, chunk, std::min<size_t>(MAX_LINE_BYTES, end - cursor))) > 0) {
     size_t skip = 0;
@@ -266,14 +320,18 @@ bool writeLog(const Context& ctx, const SecretTable& secrets) {
     }
     lines.feed(chunk + skip, n - skip);
   }
+  // crash_report.txt outlives its boot; attach it only when it was written in
+  // one of the boots above, not a crash from days ago.
+  const bool crashIsRecent = scan.panicDump >= scan.start && scan.panicDump != NOT_FOUND;
 #else
   const std::string rtc = getLastLogs();
   lines.feed(rtc.data(), rtc.size());
+  const bool crashIsRecent = true;  // shortcut: no boot history to date it by (X4 Classic); add a ring there to trim
 #endif
   lines.finish();
 
   HalFile crash;
-  if (Storage.openFileForReadIfPresent("BUG", "/debug/crash_report.txt", crash)) {
+  if (crashIsRecent && Storage.openFileForReadIfPresent("BUG", "/debug/crash_report.txt", crash)) {
     static constexpr char header[] = "\n--- /debug/crash_report.txt ---\n";
     out.write(header, sizeof(header) - 1);
     int r;
