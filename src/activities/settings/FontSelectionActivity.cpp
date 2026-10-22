@@ -325,13 +325,31 @@ void FontSelectionActivity::renderPreviewPane(int top, int height, int fontId, c
 
   const auto lines = renderer.wrappedText(fontId, previewText, width, maxLines);
 
-  int y = top + metrics_.previewPadding;
-  const int textBottomLimit = top + height - labelReserved;
+  // Center the sample's ink between the header divider and the preview label, clipped so a tall SD font
+  // cannot overlap either. The pane starts after the header gap, so include that gap.
+  const int textAreaTop = top - metrics_.verticalSpacing;
+  const int textAreaHeight = labelY - labelGap - textAreaTop;
+  if (textAreaHeight <= 0) return;
+  int blockTop = 0, blockBottom = 0, lineOffset = 0;
+  bool hasInk = false;
   for (const auto& line : lines) {
-    if (y + lineH > textBottomLimit) break;
+    const auto bounds = renderer.getTextVerticalBounds(fontId, line.c_str());
+    if (bounds.bottom > bounds.top) {
+      blockTop = hasInk ? std::min(blockTop, lineOffset + bounds.top) : lineOffset + bounds.top;
+      blockBottom = hasInk ? std::max(blockBottom, lineOffset + bounds.bottom) : lineOffset + bounds.bottom;
+      hasInk = true;
+    }
+    lineOffset += lineH + 2;
+  }
+  if (!hasInk) return;
+
+  int y = textAreaTop + (textAreaHeight - (blockBottom - blockTop)) / 2 - blockTop;
+  renderer.beginTextClip(0, textAreaTop, renderer.getScreenWidth(), textAreaHeight);
+  for (const auto& line : lines) {
     renderer.drawText(fontId, left, y, line.c_str());
     y += lineH + 2;
   }
+  renderer.endTextClip();
 }
 
 void FontSelectionActivity::listScreen(UiApp::ScreenType& screen, void* user) {

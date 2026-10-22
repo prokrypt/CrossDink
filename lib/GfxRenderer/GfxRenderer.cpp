@@ -1104,6 +1104,26 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   return w;
 }
 
+GfxRenderer::TextVerticalBounds GfxRenderer::getTextVerticalBounds(const int fontId, const char* text) const {
+#if CROSSDINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
+  if (!text || !*text) return {};
+  const int resolvedFontId = resolveTextFontId(fontId, text, EpdFontFamily::REGULAR);
+  const auto fontIt = fontMap.find(resolvedFontId);
+  if (fontIt == fontMap.end()) {
+    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
+    return {};
+  }
+
+  std::string visualBuffer;
+  const char* textCursor = resolveVisualText(text, visualBuffer, BidiUtils::BidiBaseDir::AUTO);
+  int width = 0, height = 0, minY = 0, maxY = 0;
+  fontIt->second.getTextDimensions(textCursor, &width, &height, EpdFontFamily::REGULAR, &minY, &maxY);
+  const int ascender = fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
+  return {ascender - maxY, ascender - minY};
+}
+
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
                                    const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir) const {
   const int x = (getScreenWidth() - getTextWidth(fontId, text, style, baseDir)) / 2;

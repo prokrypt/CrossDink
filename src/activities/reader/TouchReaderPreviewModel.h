@@ -145,6 +145,21 @@ class ReaderPreviewModel {
                   const uint8_t paragraphAlignment, const bool focusReadingEnabled, const bool guideReadingEnabled,
                   const bool foregroundBlack, const int bottom = std::numeric_limits<int>::max()) const {
     if (!valid()) return;
+    if constexpr (!KeepSourceBlocks) {
+      if (renderer.isFontCacheScanning()) {
+        // A newly selected SD font has no glyph metrics yet. Scan the whole
+        // bounded sample so changed line breaks cannot expose unprepared glyphs.
+        for (uint16_t index = 0; index < wordCount; ++index) {
+          drawWord(renderer, fontId, xOffset, yOffset, words[index], focusReadingEnabled, foregroundBlack);
+        }
+        // Spaces are measured between words even though they are not drawn.
+        renderer.drawText(fontId, xOffset, yOffset, " ", foregroundBlack, EpdFontFamily::REGULAR);
+        if (guideReadingEnabled) {
+          renderer.drawText(fontId, xOffset, yOffset, GUIDE_DOT_UTF8, foregroundBlack, EpdFontFamily::REGULAR);
+        }
+        return;
+      }
+    }
     const int currentLineHeight = std::max(1, (renderer.getLineHeight(fontId) * lineHeightPercent + 50) / 100);
     int y = firstLineY + yOffset;
     for (size_t paragraphStart = 0; paragraphStart < lineCount;) {
