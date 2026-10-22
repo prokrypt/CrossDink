@@ -587,6 +587,51 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 99
+
+Scalable-font EPUB headings and whole text blocks carry a resolved point size
+and line height. Each serialized `TextBlock` appends `u8 fontSize` (0 = reader
+font, otherwise 8-44 pt) and `u16 lineHeight` after `directionDefined` in its
+`BlockStyle` payload. The inherited Q8 font scale is layout-only and is not
+serialized. Nested blocks also keep inherited CSS bold and italic styles, which
+can change glyphs and wrapping. Complete files use byte `99`; suspended partials
+use `0xED`, and `0xEE` joins the retired sentinels.
+
+Version 99 also adds publisher decorations, contextual CSS selectors, preserved
+whitespace and inline font sizes. TextBlock adds one-byte `wordSizesPresent` and
+`initialLetterBytes` fields immediately before `textBytes`. The initial-letter
+prefix (0-12 bytes) stays in the first logical word for dictionary lookup and
+clippings; ordinary text rendering skips those bytes because the drop cap draws
+them. When `wordSizesPresent` is set, the arena stores one point-size byte per
+word after the whitespace bitset and before UTF-8 text; zero uses the block
+font. The flag is zero for ordinary lines, so they need no extra per-word
+storage. Sizes use the existing scalable font family and share the tallest
+word's baseline and line height.
+
+Page tags `5` and `6` are drop caps and border boxes. Drop caps contain x/y
+(int16 each), source font point size (uint8, zero means the reader font), Q8
+scale (uint16), style (uint8), UTF-8 byte length (uint8, 1-12), then text bytes.
+Border boxes contain x/y (int16 each), width/height (uint16 each), four pairs of
+width/style bytes in top/right/bottom/left order, and a shaded byte. Styles are
+none/solid/double/dotted/dashed (0-4), and border widths are capped at 8 pixels.
+
+The CSS rule cache moves to version `26`. Each
+style payload adds a five-byte font-size length (float value plus unit) after
+`imageWidth`, then after the four border masks a whitespace byte, eight border
+width/style bytes and shaded/float-left/initial-letter bytes, before the uint32
+defined flags. Defined-property bit 23 marks font size; bits 25-28 mark
+whitespace, shading, float and initial-letter declarations. The fixed style
+payload grows from 75 to 92 bytes. Context-rule records keep the two-string
+format; the first string is the ancestor chain (`@` means no constraint), and
+the second is the subject compound, optionally ending in `::first-letter`.
+Older CSS caches rebuild.
+
+On scalable fonts, headings default to 2, 1.5, 1.17, 1, 0.83, and 0.67 times the
+inherited size, rounded to whole points and bounded to 8-44 pt. Enabled book
+styles can override block sizes using em, rem, %, px, pt, and size keywords.
+CSS 16px/12pt maps to the user's selected body size; em/% use the parent and
+rem uses the HTML root. Inline span size changes and table-cell sizing remain
+uniform. Light mode and bitmap fonts retain their existing sizes.
 ### Version 98
 
 Version 98 places small inline images within text lines while keeping larger
@@ -821,6 +866,8 @@ struct BlockStyle {
     bool textIndentDefined;
     bool isRtl;
     bool directionDefined;
+    u8 fontSize;
+    u16 lineHeight;
 };
 
 struct TextBlock {

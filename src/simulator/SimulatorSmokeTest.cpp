@@ -13,12 +13,14 @@
 #include <exception>
 #include <filesystem>
 #if CROSSDINK_SCALABLE_FONTS
+#include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalScalableFont.h>
 
 #include <fstream>
 
 #include "FontInstaller.h"
 #include "TtfRenderProfileStore.h"
+#include "util/WordSelectNavigator.h"
 #endif
 #include <memory>
 #include <vector>
@@ -879,6 +881,73 @@ class SimulatorSmokeTest {
 #endif
   }
 
+#if CROSSDINK_SCALABLE_FONTS
+  void verifyBlockFontSizes(const int readerFontId) {
+    RenderLock lock;
+    const int baseFont = renderer.getFontIdForSize(readerFontId, 12);
+    if (renderer.getFontPointSize(baseFont) != 12) fail("Missing scalable body size");
+    for (const uint8_t points : {8, 12, 24, 32, 44}) {
+      if (renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, points)) != points)
+        fail("Missing scalable content size %u", unsigned(points));
+    }
+    const std::string path = "/block-font-smoke.xhtml";
+    if (!Storage.writeFile(path.c_str(),
+                           "<html><body><h1>Heading Heading Heading Heading Heading</h1>"
+                           "<p style=\"font-size:150%\">Large Large Large</p><p>Body Body Body</p></body></html>"))
+      fail("Cannot write block font fixture");
+    Epub book("/block-font-smoke.epub", "/.crossdink");
+    CssParser css("/.crossdink/block-font-smoke");
+    unsigned checked = 0;
+    ChapterHtmlSlimParser parser(
+        book, path, renderer, baseFont, 1.0f, false, false, 1, 320, 600, false, false, false, 0,
+        [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+          FsFile file;
+          if (!Storage.openFileForWrite("SMOKE", "/block-font-page", file) || !page->serialize(file))
+            fail("Cannot save sized page");
+          file.close();
+          if (!Storage.openFileForRead("SMOKE", "/block-font-page", file)) fail("Cannot reload sized page");
+          auto restored = Page::deserialize(file);
+          file.close();
+          if (!restored) fail("Sized page cache did not round trip");
+          int bottom = 0;
+          for (const auto& element : restored->elements) {
+            if (element->getTag() != TAG_PageLine) continue;
+            const auto& line = static_cast<const PageLine&>(*element);
+            const auto& block = *line.getBlock();
+            if (!block.wordCount()) continue;
+            const char* word = block.wordText(0);
+            const int expected = std::strcmp(word, "Heading") == 0 ? 24 : std::strcmp(word, "Large") == 0 ? 18 : 12;
+            const int actualFont = block.resolvedFontId(renderer, baseFont);
+            if (block.getBlockStyle().fontSize != expected || renderer.getFontPointSize(actualFont) != expected ||
+                block.getBlockStyle().lineHeight != renderer.getLineHeight(actualFont))
+              fail("Sized page metrics mismatch: %s", word);
+            if (line.yPos < bottom || line.yPos + block.getBlockStyle().lineHeight > 600)
+              fail("Sized page lines overlap or overflow");
+            bottom = line.yPos + block.getBlockStyle().lineHeight;
+            ++checked;
+          }
+          restored->renderText(renderer, baseFont, 0, 0);
+        },
+        true, "", "", 0, {}, nullptr, &css);
+    if (!parser.parseAndBuildPages() || checked < 3) fail("Block font parser smoke failed");
+    WordSelectNavigator navigator;
+    WordSelectNavigator::WordInfo word;
+    word.textLen = word.lookupLen = 7;
+    word.screenX = 20;
+    word.screenY = 20;
+    word.width = 100;
+    word.setLineHeight(60);
+    word.fontId = renderer.getFontIdForSize(baseFont, 24);
+    navigator.load({word}, {{20, 0, 1}}, "Heading", false);
+    bool hit = false;
+    navigator.selectWordAtPoint(50, 75, 20, &hit);
+    if (!hit) fail("Heading word selection used body height");
+    Storage.remove(path.c_str());
+    Storage.remove("/block-font-page");
+    LOG_INF("SMOKE", "Block font sizes: layout, cache, rendering and selection passed");
+  }
+#endif
+
   static void verifyCachedHomeProgressMigration() {
     const RecentBook book{"/books/legacy-home-smoke.epub", "Legacy Home smoke", {}, {}};
     const std::string legacy = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
@@ -1054,6 +1123,7 @@ class SimulatorSmokeTest {
         verifyReaderControlsSettings();
         verifyMixedPageGestures();
 #if CROSSDINK_SCALABLE_FONTS
+        verifyBlockFontSizes(sdFontSystem.ensureBuiltInReaderFont(renderer));
         if (const char* family = std::getenv("CROSSDINK_SIMULATOR_SMOKE_FONT_FAMILY")) {
           // Exercise the production registry, adapter, size cache, and dictionary
           // handoff before the normal reader navigation smoke sequence.
@@ -1074,6 +1144,7 @@ class SimulatorSmokeTest {
           SETTINGS.readerFontPointSize = 12;
           sdFontSystem.ensureLoaded(renderer);
           const int original = SETTINGS.getReaderFontId();
+          verifyBlockFontSizes(original);
           const TtfRenderProfile initialProfile = TTF_RENDER_PROFILES.profileFor(family);
           TtfRenderProfile nativeProfile = initialProfile;
           nativeProfile.hinting = 1;  // TtfRenderProfile: Native
