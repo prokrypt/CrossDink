@@ -2584,10 +2584,11 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     state.powerSaveGuard.reset();
     if (state.file) {
       // Flush any remaining buffered data
-      if (!flushUploadBuffer(state)) {
+      if (!flushUploadBuffer(state) || !state.file.sync()) {
         state.error = "Failed to write final data to SD card";
       }
-      state.file.close();
+      if (!state.file.close() && state.error.isEmpty()) state.error = "Failed to close file on SD card";
+      if (!state.error.isEmpty()) LOG_ERR("WEB", "[UPLOAD] %s: %s", state.error.c_str(), state.fileName.c_str());
       if (state.error.isEmpty() && !state.partPath.isEmpty()) {
         String filePath = state.path;
         if (!filePath.endsWith("/")) filePath += "/";
