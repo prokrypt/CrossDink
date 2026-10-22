@@ -71,6 +71,7 @@ class ChapterHtmlSlimParser {
   uint16_t currentTextRunBytes = 0;
   bool nextWordContinues = false;  // true when next flushed word attaches to previous (inline element boundary)
   std::unique_ptr<ParsedText> currentTextBlock = nullptr;
+  bool emptyTextBlockAfterImage = false;  // Container insets must not leak into following text.
   // Ruby text state
   bool inRuby = false;
   int rubyStartWordIndex = -1;
@@ -283,7 +284,7 @@ class ChapterHtmlSlimParser {
   static void applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css);
   static void applySmallCapsToEntry(StyleStackEntry& entry, const CssStyle& css);
   static void applyVerticalAlignToEntry(StyleStackEntry& entry, const CssStyle& css);
-  void emitHorizontalRule(const BlockStyle& blockStyle);
+  void emitHorizontalRule(const BlockStyle& blockStyle, bool visible);
   void finalizeCurrentTableCell();
   void emitBufferedTableAsParagraphs(BufferedTable& table);
   void emitBufferedTableAsFragments(BufferedTable& table);

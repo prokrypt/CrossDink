@@ -43,7 +43,6 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
-#include "activities/util/OptionSelectionActivity.h"
 #include "components/CompactHeader.h"
 #include "components/ThemePack.h"
 #include "components/TouchHeaderBackButton.h"
@@ -1472,6 +1471,8 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   screen.setContentMargin(fui::Insets{static_cast<int16_t>(tabTop - safe.y), 0, static_cast<int16_t>(bottomMargin), 0});
 
   if (isFileBrowserView()) {
+    const int16_t listInset = static_cast<int16_t>(metrics.listInset);
+    screen.insetContent(fui::Insets{0, listInset, 0, listInset});
     screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
     visibleRows = settingsCount;
     topIndex = 0;
@@ -1483,6 +1484,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       row.valueId = static_cast<int16_t>(i);
       row.labelText = screen.theme().bodyText;
       row.valueText = screen.theme().bodyText;
+      row.sidePadding = static_cast<int16_t>(metrics.listSidePadding);
       row.state = showSettingSelection && selectedSettingIndex == i + 1 && ListSelection::shown() ? fui::StateSelected
                                                                                                   : fui::StateNormal;
       if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {

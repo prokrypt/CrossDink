@@ -30,14 +30,16 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v77: Ordered lists, marker suppression, and list-container insets affect page layout.
 // v78: Inline CSS padding affects dialogue and other styled text positions.
 // v79: Hangul word boundaries and line-end splits change cached page positions.
-constexpr uint8_t SECTION_FILE_VERSION = 79;
+// v96: Root text indents, hidden <hr> borders and <figure> spacing change layout.
+//      80-95 are CrossInk's; skipped so a later sync cannot accept a foreign layout.
+constexpr uint8_t SECTION_FILE_VERSION = 96;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract. Never reuse a retired sentinel: an old
 // partial on SD would resume with stale page positions. Pick below the lowest.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF1;
-constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
-                                                        0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xF0;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+                                                        0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
 constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
   for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
     if (retired == v) return true;

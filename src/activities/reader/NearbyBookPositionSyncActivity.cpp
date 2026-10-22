@@ -256,7 +256,7 @@ bool NearbyBookPositionSyncActivity::prepareLocalPosition() {
   if (localPrepared_) return true;
 
   if (!localKoPosition_.valid) {
-    setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+    setError(localKoPosition_.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG));
     return false;
   }
 
@@ -457,6 +457,7 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
 #include <string>
 
 #include "CrossPointSettings.h"
+#include "Epub/EpubRenderMode.h"
 #include "Epub/Section.h"
 #include "EpubReaderActivity.h"
 #include "EpubReaderUtils.h"
@@ -693,8 +694,9 @@ bool NearbyBookPositionSyncActivity::prepareLocalPosition() {
   if (localPrepared_) return true;
 
   if (!localKoPosition_.valid) {
-    LOG_ERR(LOG_TAG, "Source position map unavailable; re-optimize the EPUB before filename-based nearby sync");
-    setError(tr(STR_SYNC_REOPTIMIZE_REQUIRED));
+    LOG_ERR(LOG_TAG, "Cannot resolve nearby sync position (needs re-optimization=%d)",
+            localKoPosition_.needsReoptimization);
+    setError(localKoPosition_.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG));
     return false;
   }
 
@@ -1177,8 +1179,9 @@ bool NearbyBookPositionSyncActivity::mapPeerPosition() {
 
   if (peerCrossPoint_.hasLiIndex || peerCrossPoint_.xpathAnchorId[0] != '\0' || peerCrossPoint_.hasParagraphIndex) {
     // The reader resets the renderer to portrait on exit, so name the layout
-    // the book reopens in to read its section cache.
-    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer, "",
+    // and render mode the book reopens in to read its section cache.
+    const auto renderMode = static_cast<EpubRenderMode>(EpubReaderActivity::loadBookRenderMode(*epub_));
+    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer, sectionCacheSuffixForRenderMode(renderMode),
                         EpubReaderActivity::bookUsesLandscapeLayout(*epub_));
     bool refined = false;
     if (peerCrossPoint_.hasLiIndex) {

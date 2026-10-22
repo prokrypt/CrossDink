@@ -1005,6 +1005,9 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   addDisplaySetting(StrId::STR_GHOST_BUSTERS);
   addDisplaySetting(StrId::STR_NIGHT_MODE);
   addDisplaySetting(StrId::STR_UI_THEME);
+  if (SETTINGS.supportsLibraryFileBrowserSwap()) {
+    addDisplaySetting(StrId::STR_SWAP_LIBRARY_FILE_BROWSER);
+  }
   addDisplaySetting(StrId::STR_UI_SCALE);
   addDisplaySetting(StrId::STR_SUNLIGHT_FADING_FIX);
   addDisplaySetting(StrId::STR_IMAGE_VIEWER);

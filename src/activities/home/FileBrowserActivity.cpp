@@ -14,6 +14,7 @@
 #include <Txt.h>
 #include <Utf8.h>
 #include <Xtc.h>
+#include <ZipFile.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -30,7 +31,7 @@
 #include "activities/settings/SettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
-#include "activities/util/OptionSelectionActivity.h"
+#include "activities/util/OptionPopupActivity.h"
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -278,6 +279,18 @@ bool FileBrowserActivity::loadFilesIntoVector(size_t cap, bool& overflow) {
   return true;
 }
 
+bool FileBrowserActivity::isFinishedBook(const std::string& fullPath) {
+  if (!FsHelpers::hasEpubExtension(fullPath) && !FsHelpers::hasXtcExtension(fullPath)) return false;
+  const uint64_t pathHash = ZipFile::fnvHash64(fullPath.c_str(), fullPath.size());
+  const auto memo = std::find_if(finishedMemo.begin(), finishedMemo.end(),
+                                 [pathHash](const FinishedMemo& m) { return m.pathHash == pathHash; });
+  if (memo != finishedMemo.end()) return memo->finished;
+  const bool finished = BookActions::isListedBookCompleted(fullPath);
+  finishedMemo[finishedMemoNext] = {pathHash, finished};
+  finishedMemoNext = (finishedMemoNext + 1) % finishedMemo.size();
+  return finished;
+}
+
 void FileBrowserActivity::loadFiles() {
   RenderLock lock(*this);
   loadFilesLocked();
@@ -286,6 +299,7 @@ void FileBrowserActivity::loadFiles() {
 void FileBrowserActivity::loadFilesLocked() {
   usingIndex = false;
   clearIndexNameCache();
+  finishedMemo.fill({});
   fileListMemoryLimited = false;
   fileListReadFailed = false;
   if (fileIndex) fileIndex->close();
@@ -800,9 +814,8 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry) {
             const uint8_t currentIndex =
                 BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(fullPath));
             startActivityForResult(
-                std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "EpubRenderModeSelect",
-                                                          StrId::STR_EPUB_RENDER_MODE,
-                                                          BookActions::epubRenderModeOptions(), currentIndex),
+                std::make_unique<OptionPopupActivity>(renderer, mappedInput, StrId::STR_EPUB_RENDER_MODE,
+                                                      BookActions::epubRenderModeOptions(), currentIndex),
                 [this, fullPath](const ActivityResult& selectionResult) {
                   if (!selectionResult.isCancelled) {
                     const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);
@@ -1443,7 +1456,9 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = names[i].c_str();
     if (!values[i].empty()) item.value = values[i].c_str();
-    item.icon = listIconFor(UITheme::getFileIcon(entry), twoLineRows ? 32 : 24);
+    item.icon = entry.back() != '/' && isFinishedBook(fullPath)
+                    ? fui::bitmapFromIcon(twoLineRows ? icon_book_check_32 : icon_book_check_24)
+                    : listIconFor(UITheme::getFileIcon(entry), twoLineRows ? 32 : 24);
     item.actionValue = static_cast<int16_t>(usesVirtualList ? entryIndex : i);
     items.push_back(item);
   }

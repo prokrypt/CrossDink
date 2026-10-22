@@ -1,6 +1,8 @@
 add_executable(KOReaderXPathResolverTest
   KOReaderXPathResolverTest.cpp
   ${REPO_ROOT}/lib/KOReaderSync/ChapterXPathResolver.cpp
+  ${REPO_ROOT}/lib/KOReaderSync/ProgressMapper.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/htmlEntities.cpp
   ${REPO_ROOT}/lib/Utf8/Utf8.cpp
   ${REPO_ROOT}/lib/expat/xmlparse.c
   ${REPO_ROOT}/lib/expat/xmlrole.c

@@ -3,7 +3,7 @@
 
 The device POSTs each report to the URL in /bugreports/url.txt as
 `POST <url>?id=<report id>` with the report zip (report.txt, log.txt,
-screen.bmp) as the body. This writes it to <out>/<id>.zip.
+screen.png) as the body. This writes it to <out>/<id>.zip.
 
     python3 scripts/bugreport_receiver.py --port 8765 --out ./bugreports
     # on the SD card: /bugreports/url.txt = http://<this machine>:8765/report

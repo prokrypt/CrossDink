@@ -315,7 +315,11 @@ HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bo
 
 HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
   HomeMenuEntries items;
-  items.push({tr(STR_LIBRARY), Library, HomeMenuAction::Library});
+  if (SETTINGS.isLibraryFileBrowserSwapped()) {
+    items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
+  } else {
+    items.push({tr(STR_LIBRARY), Library, HomeMenuAction::Library});
+  }
 
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Opds, HomeMenuAction::OpdsBrowser});
@@ -1215,7 +1219,29 @@ std::unique_ptr<Activity> HomeActivity::createFrontlightReadingStatsActivity() {
                                               bookStats, progress, false, 0, deviceStats);
 }
 
+void HomeActivity::onFrontlightPanelOpened() {
+  themeBeforeFrontlightPanel = SETTINGS.uiTheme;
+  scaleBeforeFrontlightPanel = SETTINGS.uiScale;
+  memcpy(themePackBeforeFrontlightPanel, SETTINGS.uiThemePack, sizeof(themePackBeforeFrontlightPanel));
+  // Save the selection before changed theme metrics can reinterpret its index.
+  initialBookPath = getCurrentBookPath();
+}
+
 void HomeActivity::onFrontlightPanelClosed() {
+  if (themeBeforeFrontlightPanel != SETTINGS.uiTheme || scaleBeforeFrontlightPanel != SETTINGS.uiScale ||
+      strncmp(themePackBeforeFrontlightPanel, SETTINGS.uiThemePack, sizeof(themePackBeforeFrontlightPanel)) != 0) {
+    // Drawer Settings keeps Home alive. Recreate its theme-specific controls,
+    // cover snapshots and thumbnail loading state through the normal lifecycle.
+    // ActivityManager owns the replacement; its heavy caches allocate onEnter,
+    // after the outgoing Home has released its buffers in onExit.
+    auto home = makeUniqueNoThrow<HomeActivity>(renderer, mappedInput, HomeMenuItem::NONE, HalDisplay::FAST_REFRESH,
+                                                initialBookPath);
+    if (home) {
+      activityManager.replaceActivity(std::move(home));
+      return;
+    }
+    LOG_ERR("HOME", "Cannot rebuild Home after theme or UI scale change");
+  }
   globalStats = GlobalReadingStats::load();
   showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
   allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
@@ -1917,7 +1943,7 @@ void HomeActivity::loop() {
         return;
       case MappedInputManager::SwipeDir::Right:
         minimalHomeNavIndex = 1;
-        onFileBrowserOpen();
+        onMinimalBrowseOpen();
         return;
       case MappedInputManager::SwipeDir::Up:
         minimalHomeNavIndex = 0;
@@ -1973,7 +1999,7 @@ void HomeActivity::loop() {
           requestUpdate();
           break;
         case 1:
-          onFileBrowserOpen();
+          onMinimalBrowseOpen();
           break;
         case 2:
           onSettingsOpen();
@@ -2552,8 +2578,9 @@ void HomeActivity::render(RenderLock&&) {
     }
     if (showMinimalHomeButtonHints(mappedInput)) {
       MinimalTheme::setHomeButtonHintSelection(minimalHomeNavIndex);
-      GUI.drawButtonHints(renderer, tr(STR_MENU), tr(STR_BROWSE), tr(STR_SETTINGS_SHORT),
-                          recentBooks.empty() ? "" : tr(STR_READ));
+      GUI.drawButtonHints(renderer, tr(STR_MENU),
+                          SETTINGS.isLibraryFileBrowserSwapped() ? tr(STR_LIBRARY) : tr(STR_BROWSE),
+                          tr(STR_SETTINGS_SHORT), recentBooks.empty() ? "" : tr(STR_READ));
     }
 
     displayHomeBuffer();
@@ -2738,6 +2765,14 @@ void HomeActivity::openBook(const std::string& path) {
     Storage.remove(CAROUSEL_CACHE_TMP_PATH);
   }
   activityManager.goToReader(path);
+}
+
+void HomeActivity::onMinimalBrowseOpen() {
+  if (SETTINGS.isLibraryFileBrowserSwapped()) {
+    onLibraryOpen();
+  } else {
+    onFileBrowserOpen();
+  }
 }
 
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
