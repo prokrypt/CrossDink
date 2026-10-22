@@ -77,6 +77,10 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Wi-Fi: the Save password? prompt shows full-width Yes/No buttons on button devices too.
 - Reader menu (X4 Classic, landscape): font, size, alignment, spacing and margin panes show the text preview in a full-height column beside the controls; slider step hints use the small font.
 - Reader menu (X4 Pro, Sticky): in the Spacing and Margins tabs each label sits left of its slider and the drawer is shorter, so more of the live page preview shows.
+- Large EPUBs open faster: full scans of the ZIP directory (chapter sizes, stylesheet checks, file lists) read the card in 1 KiB chunks instead of a dozen small reads per file entry. Percent jumps and the completion prompt find their chapter by binary search instead of reading every earlier chapter size.
+- Indexing, dictionary, page-error and memory-error popups refresh the screen once instead of twice (about 0.5 s less before each chapter index).
+- Sleep and boot images larger than the screen skip the source rows they do not show; boot images are dithered at screen size like sleep images. 1-bit BMPs decode four pixels at a time.
+- Opening a TTF font checksums it in larger batches.
 - The KOReader Sync progress choice now shows remote and local progress as cards with a large percentage, a progress bar and the chapter, with an "Ahead" marker on the further one. In landscape the cards sit side by side; the Apply/Upload buttons stay pinned above the button hints.
 - X4 Pro: the Up/Down wake lockout (a page key still held 2 s after sleep starts) now clears on the next Power wake, so after waking with Power and sleeping again, holding Up and Down shows the clock. Charger and stray page-key wakes still keep the lockout.
 - X4 Pro: the Up/Down wake lockout (a page key still held 2 s after sleep starts) now clears on the next Power wake, so after waking with Power and sleeping again, holding Up and Down shows the clock. Charger and stray page-key wakes still keep the lockout.
