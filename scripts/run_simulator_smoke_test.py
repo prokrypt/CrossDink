@@ -85,6 +85,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSDINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
         if args.font_family:
             env["CROSSDINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
+        if args.font_recovery:
+            env["CROSSDINK_SIMULATOR_SMOKE_FONT_RECOVERY"] = "1"
         env["CROSSDINK_SIMULATOR_SMOKE_TEST"] = "1"
         env["CROSSDINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
         env["CROSSDINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
@@ -115,6 +117,10 @@ def run_smoke(args: argparse.Namespace) -> int:
             print(f"Simulator smoke test output contained crash pattern: {pattern}", file=sys.stderr)
             return 2
 
+    if args.font_recovery and "Simulator smoke test passed: font recovery" not in proc.stdout:
+        print("Simulator did not complete the font recovery checks", file=sys.stderr)
+        return 2
+
     if "Simulator smoke test passed" not in proc.stdout:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
         return 2
@@ -135,6 +141,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
                         help="PlatformIO simulator environment to build and run")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
+    parser.add_argument("--font-recovery", action="store_true", help="Check reader selection recovery after font catalog memory pressure")
     parser.add_argument("--font-family", help="Exercise custom-font size and dictionary lifecycle")
     parser.add_argument("--timeout", type=int, default=45, help="Seconds before the simulator run is treated as hung")
     parser.add_argument("--page-turns", type=int, default=2, help="Number of EPUB page-forward taps to run")

@@ -24,15 +24,20 @@ struct Rect;
 #define FONTS_MANIFEST_VERSION 1
 
 #ifndef FONT_MANIFEST_URL
-// Default hosted SD-font manifest. Use plain HTTP for this public S3 bucket:
-// HTTPS stalls inside esp_http_client on ESP32-C3, and downloaded .cpfont files
-// are still validated by CRC before install. The versioned prefix must stay in
-// sync with .github/workflows/release-fonts.yml and cpfont_version.py.
+// Builds opt into a font host with -DFONT_DOWNLOAD_BASE_URL="http://host/".
+// Plain HTTP avoids the TLS stall inside esp_http_client; downloaded .cpfont
+// files are still validated by CRC before install. The versioned prefix must
+// stay in sync with .github/workflows/release-fonts.yml and cpfont_version.py.
+// Without a host, downloads show as unavailable and nothing is fetched.
+#ifdef FONT_DOWNLOAD_BASE_URL
 #define FONT_MANIFEST_URL_STRINGIFY_INNER(x) #x
 #define FONT_MANIFEST_URL_STRINGIFY(x) FONT_MANIFEST_URL_STRINGIFY_INNER(x)
-#define FONT_MANIFEST_URL                                                                    \
-  "http://crossink-fonts.s3.us-east-1.amazonaws.com/sd-fonts-m" FONT_MANIFEST_URL_STRINGIFY( \
+#define FONT_MANIFEST_URL                                          \
+  FONT_DOWNLOAD_BASE_URL "sd-fonts-m" FONT_MANIFEST_URL_STRINGIFY( \
       FONTS_MANIFEST_VERSION) "-b" FONT_MANIFEST_URL_STRINGIFY(CPFONT_VERSION) "/fonts.json"
+#else
+#define FONT_MANIFEST_URL ""
+#endif
 #endif
 
 class FontDownloadActivity : public Activity {

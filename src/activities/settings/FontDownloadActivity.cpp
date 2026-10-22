@@ -190,6 +190,13 @@ void FontDownloadActivity::onEnter() {
   applySharedUiTheme(app_, uiTarget_);
   app_.on(ACTION_ROW, &FontDownloadActivity::onRowEvent, this);
   app_.setScreen(&FontDownloadActivity::listScreen, this);
+  if (FONT_MANIFEST_URL[0] == '\0') {
+    LOG_ERR("FONT", "No font download host configured (FONT_DOWNLOAD_BASE_URL)");
+    errorMessage_ = "Font downloads unavailable";
+    state_ = ERROR;
+    requestUpdate();
+    return;
+  }
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
@@ -208,6 +215,19 @@ void FontDownloadActivity::onExit() {
     }
   }
 
+  // The catalog is no longer rendered. Free it before restoring the reader
+  // font so a full download list cannot starve the selected font of memory.
+  uiReady_ = false;
+  listItems_.reset();
+  listItemCapacity_ = 0;
+  retryFamily_ = {};
+  hasRetryFamily_ = false;
+  clearManifestFamilies();
+  manifestFiles_.reset();
+  manifestStringArena_.reset();
+  manifestStringArenaUsed_ = 0;
+  manifestStringArenaCapacity_ = 0;
+  sdFontSystem.releaseRegistry();
   sdFontSystem.ensureLoaded(renderer);
   sdFontSystem.releaseRegistry();
 }
@@ -544,6 +564,7 @@ bool FontDownloadActivity::installedFilesMatch(const ManifestFamily& family, boo
   if (resolvedFamilyName) {
     *resolvedFamilyName = installedFamily->name;
   }
+  installedFamily->releaseDetails();
   return true;
 }
 
