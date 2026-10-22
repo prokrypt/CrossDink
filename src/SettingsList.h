@@ -608,10 +608,20 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
-// 113 entries on every build, four edge gesture entries compiled only for
-// touch devices, and the two tilt page-turn entries inserted at runtime on
-// devices with an IMU. The simulator smoke test fails if this falls short.
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 113 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + 2;
+// 117 entries on every build, four edge gesture entries compiled only for
+// touch devices, Publisher fonts on scalable-font builds, and the two tilt
+// page-turn entries inserted at runtime on devices with an IMU. The simulator
+// smoke test fails if this falls short.
+// Saves a What to Sync toggle (device screen and web settings alike) and
+// queues or drops that data's pending uploads to match.
+void setSyncDataEnabled(bool stats, bool enabled);
+
+#if CROSSDINK_SCALABLE_FONTS
+inline constexpr size_t PUBLISHER_FONT_SETTINGS = 1;
+#else
+inline constexpr size_t PUBLISHER_FONT_SETTINGS = 0;
+#endif
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 117 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 2;
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the
@@ -812,7 +822,6 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
   addSettingByName(readerSettings, allSettings, StrId::STR_FOCUS_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_GUIDE_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_DICTIONARY);
-  addSettingByName(readerSettings, allSettings, StrId::STR_INDEXING_METHOD);
   return readerSettings;
 }
 
@@ -827,9 +836,10 @@ inline std::vector<SettingInfo> buildBookReaderSettingsParentList(const std::vec
 
 inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(10);
+  settings.reserve(11);
   addSettingByName(settings, allSettings, StrId::STR_FONT_FAMILY);
   addSettingByName(settings, allSettings, StrId::STR_FONT_SIZE);
+  addSettingByName(settings, allSettings, StrId::STR_PUBLISHER_FONTS);
   addSettingByName(settings, allSettings, StrId::STR_DICTIONARY_FONT);
   addSettingByName(settings, allSettings, StrId::STR_DICTIONARY_FONT_SIZE);
   addSettingByName(settings, allSettings, StrId::STR_LINE_SPACING);
@@ -1011,7 +1021,7 @@ inline std::vector<SettingInfo> buildControlsSideButtonSettingsList(const std::v
 
 inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> displaySettings;
-  displaySettings.reserve(12);
+  displaySettings.reserve(13);
 
   auto addDisplaySetting = [&](StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
@@ -1031,6 +1041,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   }
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SCREEN_CALIBRATION, SettingAction::ScreenCalibration));
   addDisplaySetting(StrId::STR_REFRESH_FREQ);
+  addDisplaySetting(StrId::STR_GHOST_BUSTERS);
   addDisplaySetting(StrId::STR_NIGHT_MODE);
   addDisplaySetting(StrId::STR_UI_THEME);
   if (SETTINGS.supportsLibraryFileBrowserSwap()) {
@@ -1093,7 +1104,7 @@ inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_FILES_CACHE, SettingAction::SystemFilesCache));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_READING_STATS, SettingAction::SystemReadingStats));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SYNC_SERVER, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));

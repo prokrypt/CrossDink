@@ -61,6 +61,7 @@ void HalDisplay::count(int) {}
 #endif
 
 namespace {
+bool grayPassShown = false;  // a gray pass ran, no B/W refresh since
 #if GRAY_SHOT
 // Screenshots: copies of the last gray pass's planes, so screenshots can show 4
 // levels. PSRAM statics, never read by rendering.
@@ -68,21 +69,19 @@ constexpr uint32_t SHOT_PLANE_MAX = 48000;  // largest current panel
 EXT_RAM_NOINIT_ATTR uint8_t shotLsb[SHOT_PLANE_MAX];
 EXT_RAM_NOINIT_ATTR uint8_t shotMsb[SHOT_PLANE_MAX];
 bool shotAbsolute = false;
-bool shotShown = false;  // planes match the panel: a gray pass ran, no B/W refresh since
 
 void shotRefresh(const bool absolute) {
-  shotShown = false;
+  grayPassShown = false;
   shotAbsolute = absolute;
 }
 void shotPlane(const bool lsb, const uint8_t* src, const uint32_t offset, const uint32_t len) {
   if (src && offset + len <= SHOT_PLANE_MAX) memcpy((lsb ? shotLsb : shotMsb) + offset, src, len);
 }
-void shotGrayShown() { shotShown = true; }
 #else
-void shotRefresh(bool) {}
+void shotRefresh(bool) { grayPassShown = false; }
 void shotPlane(bool, const uint8_t*, uint32_t, uint32_t) {}
-void shotGrayShown() {}
 #endif
+void shotGrayShown() { grayPassShown = true; }
 }  // namespace
 
 #define SD_SPI_MISO 7
@@ -542,9 +541,11 @@ uint16_t HalDisplay::getDisplayWidthBytes() const { return einkDisplay.getDispla
 
 uint32_t HalDisplay::getBufferSize() const { return einkDisplay.getBufferSize(); }
 
+bool HalDisplay::grayShown() const { return grayPassShown || grayOnPanel(); }
+
 bool HalDisplay::grayShotReady() const {
 #if GRAY_SHOT
-  return shotShown && getBufferSize() <= SHOT_PLANE_MAX;
+  return grayPassShown && getBufferSize() <= SHOT_PLANE_MAX;
 #else
   return false;
 #endif

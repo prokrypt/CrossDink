@@ -36,6 +36,9 @@ class HalDisplay {
   // begin(). False when the panel driver cannot use it.
   bool seedDisplayedFrame(const uint8_t* frame);
   bool grayOnPanel() const { return einkDisplay.grayOnPanel(); }
+  // Any gray on the panel (a gray pass with no B/W refresh since, or direct
+  // gray): the framebuffer is not the panel's image then.
+  bool grayShown() const;
 
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;

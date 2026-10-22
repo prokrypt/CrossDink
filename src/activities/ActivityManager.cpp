@@ -153,21 +153,19 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     statsTitle = tr(STR_READING_STATS);
     if (!context.activeReaderBook) context.bookTitle = statsTitle;
   }
-  if (GlobalReadingStats::hasSyncedStats()) {
-    context.readingStatsActivity =
-        makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath, bookStats, progress, false,
-                                             0, global, GlobalReadingStats::loadAggregated(global));
-  } else {
-    context.readingStatsActivity = makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath,
-                                                                        bookStats, progress, false, 0, global);
-  }
+  auto statsActivity =
+      GlobalReadingStats::hasSyncedStats()
+          ? makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath, bookStats, progress,
+                                                 false, 0, global, GlobalReadingStats::loadAggregated(global))
+          : makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, statsTitle, cachePath, bookStats, progress,
+                                                 false, 0, global);
+  if (statsActivity && !cachePath.empty()) statsActivity->setSyncBookPath(context.bookPath);
+  context.readingStatsActivity = std::move(statsActivity);
   return context;
 }
 
-bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput,
-                         const FrontlightDrawerState* restoredState = nullptr) {
+bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput) {
   FrontlightPanelContext context = buildFrontlightPanelContext(activity, renderer, mappedInput);
-  if (restoredState) context.drawerState = *restoredState;
   auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput, std::move(context));
   if (!panel) {
     LOG_ERR("ACT", "OOM opening frontlight panel");
@@ -526,11 +524,25 @@ void ActivityManager::renderTaskLoop() {
   bool displayPmHeld = false;
   bool idlePanelOffArmed = false;
   uint32_t idlePanelOffMs = PANEL_OFF_POLL_MS;
+  uint8_t ghostBusters = 0;  // left for the screen now shown
+  uint32_t lastFrameMs = 0;  // when the last frame (not a buster) was done
+  const auto ghostBusterWaitMs = [this, &lastFrameMs]() -> uint32_t {
+    const uint32_t now = millis();
+    const uint32_t quietMs = std::min(now - lastFrameMs, now - lastInputMs.load(std::memory_order_relaxed));
+    return quietMs >= GHOST_BUSTER_QUIET_MS ? 0 : GHOST_BUSTER_QUIET_MS - quietMs;
+  };
   while (true) {
+    bool ghostBuster = false;
     if (!renderQueued) {
-      const uint32_t notified =
-          ulTaskNotifyTake(pdTRUE, idlePanelOffArmed ? pdMS_TO_TICKS(idlePanelOffMs) : portMAX_DELAY);
-      if (notified == 0) {
+      TickType_t wait = idlePanelOffArmed ? pdMS_TO_TICKS(idlePanelOffMs) : portMAX_DELAY;
+      if (ghostBusters > 0) wait = std::min<TickType_t>(wait, pdMS_TO_TICKS(ghostBusterWaitMs()));
+      const uint32_t notified = ulTaskNotifyTake(pdTRUE, wait);
+      if (notified == 0 && ghostBusters > 0) {
+        // Input meanwhile: wait for the pause again. The booster stays on until
+        // the busters are done; each of them would power it on anyway.
+        if (ghostBusterWaitMs() > 0) continue;
+        ghostBuster = true;
+      } else if (notified == 0) {
         // No new frame within the idle delay (right after the draw on screens
         // that opted in): switch the booster off. The next refresh, or an
         // early wake on input, powers it back on.
@@ -581,11 +593,34 @@ void ActivityManager::renderTaskLoop() {
       continue;
     }
     entryRenderRequested = false;
-    TouchRegistry::getInstance().setEnabled(mappedInput.hasTouch());
-    TouchRegistry::getInstance().beginFrame();
+    if (!ghostBuster) {
+      TouchRegistry::getInstance().setEnabled(mappedInput.hasTouch());
+      TouchRegistry::getInstance().beginFrame();
+    }
     bool deferredRender = false;
     bool batchInput = false;
-    if (currentActivity) {
+    if (ghostBuster) {
+#ifndef SIMULATOR  // the simulator HAL has no panel
+      // The frame on screen again as a plain Fast refresh: no flash, and OLD =
+      // NEW, so only the panel's own Fast hold rows run. Only while the
+      // framebuffer is that frame: same screen, no gray since, not lent out.
+      if (currentActivity && currentActivity.get() == listSelectionOwner && ghostBustersFit(*currentActivity) &&
+          renderer.hasFrameBuffer() && !display.grayShown()) {
+        HalPowerManager::Lock powerLock;
+        panelBoosterOff.store(false, std::memory_order_release);  // the refresh powers it on
+        renderer.setDeferFastRefresh(true);
+        renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+        renderer.setDeferFastRefresh(false);
+        deferredRender = true;
+        ghostBusters--;
+        LOG_DBG("ACT", "Ghost buster, %u left", static_cast<unsigned>(ghostBusters));
+      } else {
+        ghostBusters = 0;
+      }
+#else
+      ghostBusters = 0;
+#endif
+    } else if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
       // Apply Night Mode to each activity's normal-polarity frame. SleepActivity
       // preserves it only for Quick Resume and clears it for other sleep screens.
@@ -611,6 +646,7 @@ void ActivityManager::renderTaskLoop() {
       if (currentActivity.get() != listSelectionOwner) {
         listSelectionOwner = currentActivity.get();
         ListSelection::tapRowShown = false;  // a popup of the previous screen
+        ghostBusters = ghostBustersFit(*currentActivity) ? SETTINGS.ghostBusters : 0;
       }
       ListSelection::revealed = currentActivity->listSelectionRevealed;
       ListSelection::hidThisFrame = false;
@@ -623,13 +659,16 @@ void ActivityManager::renderTaskLoop() {
       renderer.setBeforeDisplay(nullptr, nullptr);  // never outlives the render that set it
       restoredActivityNeedsRender = false;
     }
-    TouchRegistry::getInstance().publish();
-    // Notify any task blocked in requestUpdateAndWait() that the render is done.
+    // A buster drew nothing: touch targets and any waiter's frame are still to come.
     TaskHandle_t waiter = nullptr;
-    taskENTER_CRITICAL(&renderStateMux);
-    waiter = waitingTaskHandle;
-    waitingTaskHandle = nullptr;
-    taskEXIT_CRITICAL(&renderStateMux);
+    if (!ghostBuster) {
+      TouchRegistry::getInstance().publish();
+      // Notify any task blocked in requestUpdateAndWait() that the render is done.
+      taskENTER_CRITICAL(&renderStateMux);
+      waiter = waitingTaskHandle;
+      waitingTaskHandle = nullptr;
+      taskEXIT_CRITICAL(&renderStateMux);
+    }
     if (waiter) {
       xTaskNotify(waiter, 1, eIncrement);
     }
@@ -677,10 +716,16 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = true;
       idlePanelOffMs = PANEL_OFF_POLL_MS;
     }
+    if (!ghostBuster) lastFrameMs = millis();
     // Renders leave work for the loop (queued page turns, toasts, alerts,
     // prerender timers): one pass now instead of at the next idle tick.
     InputTask::wakeLoop();
   }
+}
+
+// The keyboard by name: batchesInputDuringRefresh() is also true for menus that batch taps.
+bool ActivityManager::ghostBustersFit(const Activity& activity) {
+  return allowsDeferredRefresh(activity) && activity.name != "KeyboardEntry" && !activity.powerOffPanelWhenIdle();
 }
 
 bool ActivityManager::allowsDeferredRefresh(const Activity& activity) {
@@ -803,7 +848,15 @@ void ActivityManager::loop() {
     mappedInput.setPowerAsConfirmInReaderMode(false);
   }
 
-  while (pendingAction != PendingAction::None) {
+  // A deferred full-stack replace waits until its requester has popped and every
+  // result handler has settled, then runs as an ordinary Replace.
+  while (pendingAction != PendingAction::None || (afterReturnActivity && afterReturnOwnerExited)) {
+    if (pendingAction == PendingAction::None) {
+      afterReturnOwnerExited = false;
+      TouchRegistry::getInstance().clear();
+      pendingActivity = std::move(afterReturnActivity);
+      pendingAction = PendingAction::Replace;
+    }
     if (pendingAction == PendingAction::Pop) {
       RenderLock lock;
 
@@ -816,6 +869,10 @@ void ActivityManager::loop() {
 
       const bool closedFrontlightPanel = currentActivity->name == "FrontlightPanel";
       ActivityResult pendingResult = std::move(currentActivity->result);
+      if (afterReturnActivity && currentActivity.get() == afterReturnOwner) {
+        afterReturnOwnerExited = true;
+        afterReturnOwner = nullptr;
+      }
 
       // Destroy the current activity
       exitActivity(lock);
@@ -902,6 +959,16 @@ void ActivityManager::loop() {
 
       if (pendingAction == PendingAction::Replace) {
         pendingHomeReaderTarget = nullptr;
+        // A full-stack navigation while the requester is still open (Home
+        // gesture, sleep) cancels the deferred one. After the requester has
+        // exited (e.g. its pop fell back to Home) the deferred one still runs.
+        if (afterReturnActivity && !afterReturnOwnerExited) {
+          LOG_INF("ACT", "Dropping deferred %s for %s", afterReturnActivity->name.c_str(),
+                  pendingActivity->name.c_str());
+          afterReturnActivity.reset();
+          afterReturnOwner = nullptr;
+          afterReturnOwnerExited = false;
+        }
         // Destroy the current activity
         exitActivity(lock);
         // Clear the stack
@@ -968,15 +1035,11 @@ void ActivityManager::loop() {
           if (resume.overlay == PendingOverlayType::ReaderDrawer && currentActivity->restorePendingOverlay(resume)) {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
-          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&
-                     supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                              hasStickyReaderDetailsPanel())) {
-            FrontlightDrawerState restoredState;
-            restoredState.selectedAction = static_cast<int8_t>(resume.selectedIndex);
-            if (openFrontlightPanel(*currentActivity, renderer, mappedInput, &restoredState)) {
-              PendingOverlayResume consumed;
-              APP_STATE.consumePendingOverlayResume(consumed);
-            }
+          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer) {
+            // The top drawer stays closed after a Sync & Transfer flow; the resume only
+            // carries reader orientation / return-home state, so just consume it.
+            PendingOverlayResume consumed;
+            APP_STATE.consumePendingOverlayResume(consumed);
           }
         }
       }
@@ -1037,17 +1100,22 @@ bool ActivityManager::handleGlobalHomeGesture() {
     return false;
   }
 
-  const bool homeGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
-                               ? mappedInput.wasReaderHomeGesture()
-                               : (currentActivity->allowGlobalHomeSwipeGesture() || mappedInput.hasHomeKey()) &&
-                                     mappedInput.wasHomeGesture();
+  const bool readerSwipes = currentActivity->usesFullScreenReaderVerticalSwipes();
+  const bool allowSwipe = currentActivity->allowGlobalHomeSwipeGesture();
+  // Home-key boards: a bottom-edge up-swipe goes straight Home on non-reader
+  // screens. The reader keeps the old flow: the swipe opens the drawer first.
+  const bool edgeSwipeHome = mappedInput.hasHomeKey() && !mappedInput.isHomeButtonLockedInReader() && !readerSwipes &&
+                             allowSwipe && mappedInput.wasBottomEdgeUpSwipe();
+  const bool homeGesture =
+      edgeSwipeHome || (readerSwipes ? mappedInput.wasReaderHomeGesture()
+                                     : (allowSwipe || mappedInput.hasHomeKey()) && mappedInput.wasHomeGesture());
   if (!homeGesture) {
     return false;
   }
 
   // Touch-only devices use an edge swipe as a Home shortcut. Keep that
   // shortcut separate from the X4 Pro's physical Back/Home key.
-  if (!mappedInput.hasHomeKey()) {
+  if (!mappedInput.hasHomeKey() || edgeSwipeHome) {
     if (!currentActivity->handleHomeGesture()) goHome();
     return true;
   }
@@ -1100,6 +1168,7 @@ void ActivityManager::cancelOptionalRenderWork(const char* reason) {
 }
 
 void ActivityManager::notifyUserInput() {
+  lastInputMs.store(millis(), std::memory_order_relaxed);
   if (currentActivity) currentActivity->onUserInput();
 }
 
@@ -1399,6 +1468,13 @@ void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
   TouchRegistry::getInstance().clear();
   pendingActivity = std::move(activity);
   pendingAction = PendingAction::Push;
+}
+
+void ActivityManager::replaceAfterReturn(std::unique_ptr<Activity>&& activity) {
+  // Main-loop only, like replaceActivity(): no lock.
+  afterReturnActivity = std::move(activity);
+  afterReturnOwner = currentActivity.get();
+  afterReturnOwnerExited = false;
 }
 
 void ActivityManager::popActivity() {
