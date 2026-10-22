@@ -75,6 +75,13 @@ struct ImageFolderIndexRecord {
 
 ## `/.crossdink/library.idx`
 
+### Version 8
+
+Version 8 keeps the version 7 layout but invalidates extracted metadata so EPUB3
+series refinements resolve by collection ID. The next Library scan reparses EPUB
+metadata when enabled; first-seen history and each book's EPUB content key (and
+so its reading progress) carry over unchanged.
+
 ### Version 7
 
 Each book's name blob now ends with a `uint64_t` EPUB content key after the
