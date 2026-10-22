@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Settings > Reader: the Line spacing, Word spacing and margin sliders show a live text preview of the reader font that updates on each step, on the same partial refresh as the slider.
 - Add a Display toggle to swap Library and File Browser on the Minimal and Dashboard home screens.
 - Reader menu (button devices) and the pull-down drawer (X4 Pro, Sticky) show the current chapter title under the book title. The drawer leaves the chapter line out when it would push the handle off screen.
 - File browser and Library list: a book marked as finished shows a book-with-check icon instead of its file icon (EPUB and XTC). Each row's finished flag is read once when the row is first drawn and kept in memory, so moving the selection reads nothing from the card; marking a book finished or unfinished updates the icon. Library skips the lookup while Hide finished books is on.
@@ -33,6 +34,14 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 - X4 Pro (debug builds): power counters for working out what each function costs in battery, since the gauge reports only charge. Time awake, in light sleep and at full clock, per-core busy time, time in each Wi-Fi state, Wi-Fi scans, connects and IP packets, frontlight time weighted by PWM duty, panel busy and booster time, and SD traffic are counted across deep sleep, along with deep sleep split by whether the charger-status wake is armed. A row of these with the battery %, voltage and temperatures goes to `/debug/logs/power.csv` at every wake and sleep, % change, Wi-Fi on/off and every 10 min awake (Goodies > Knobs powerTickMin). Goodies > Power Test runs one load at a time for 30 min (Knobs powerTestMin): idle, frontlight 50% or 100%, Wi-Fi in modem sleep or awake, one busy core, or a Fast or Full refresh loop, marking the log and showing the drop and rate; its voltage sag probe steps each load on and off for about 2 min and logs the cell voltage drop under each. `scripts/power_fit.py` splits the logged drain into a cost per function (%/h, or mA with `--capacity-mah`) and summarizes the Power Test runs. Knobs chargeWake 0 turns off the charger-status wake to compare deep sleep drain with and without it. See docs/power-counters.md.
 ### Changed
+- Keyboard layouts and Controls > Orientation aware show toggle switches instead of On/Off or Yes/No.
+- Reader menu: option lists (font, font size, alignment and similar) open scrolled to the current value; on button devices the cursor starts on it. A failed SD font preview no longer leaves a stale font pick.
+- Settings > Font: the preview text is centered between the header and the Preview label and clipped so a tall SD font cannot overlap the label. A newly picked SD font scans the whole sample before drawing.
+- Reading stats: page dots no longer overlap the bottom of the last card.
+- Auto page turn: the top status bar keeps the book and chapter titles; the "Auto Page Turn" label shows only in the bottom bar (also when the bottom bar has no items).
+- Wi-Fi: the Save password? prompt shows full-width Yes/No buttons on button devices too.
+- Reader menu (X4 Classic, landscape): font, size, alignment, spacing and margin panes show the text preview in a full-height column beside the controls; slider step hints use the small font.
+- Reader menu (X4 Pro, Sticky): in the Spacing and Margins tabs each label sits left of its slider and the drawer is shorter, so more of the live page preview shows.
 - The KOReader Sync progress choice now shows remote and local progress as cards with a large percentage, a progress bar and the chapter, with an "Ahead" marker on the further one. In landscape the cards sit side by side; the Apply/Upload buttons stay pinned above the button hints.
 - X4 Pro: the Up/Down wake lockout (a page key still held 2 s after sleep starts) now clears on the next Power wake, so after waking with Power and sleeping again, holding Up and Down shows the clock. Charger and stray page-key wakes still keep the lockout.
 - Library and File browser: a book's Render mode choice opens as a small popup over the list instead of a full-screen list. Restored from earlier test builds; it never reached main.
