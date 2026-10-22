@@ -59,7 +59,6 @@ bool FontInstaller::validateCpfontFile(const char* path) {
     return false;
   }
 
-  const bool scalable = fontfiles::isScalable(path);
   uint8_t magic[CPFONT_MAGIC_LEN];
   const int bytesRead = file.read(magic, CPFONT_MAGIC_LEN);
   file.close();
@@ -70,12 +69,13 @@ bool FontInstaller::validateCpfontFile(const char* path) {
   }
 
 #if CROSSDINK_SCALABLE_FONTS
-  if (scalable) {
+  if (fontfiles::isScalable(path)) {
     HalScalableFont::Info info;
     return HalScalableFont::inspectFile(path, info);
   }
 #endif
-  if (scalable || memcmp(magic, "CPFONT\0\0", CPFONT_MAGIC_LEN) != 0) {
+  // Without scalable fonts a .ttf/.otf upload fails here: it has no CPFONT magic.
+  if (memcmp(magic, "CPFONT\0\0", CPFONT_MAGIC_LEN) != 0) {
     LOG_ERR("FONT", "Bad magic in: %s", path);
     return false;
   }
