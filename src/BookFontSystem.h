@@ -1,7 +1,12 @@
 #pragma once
 
 #if CROSSDINK_SCALABLE_FONTS
+// This is the first src file the library finder scans: reach the HAL library before the font libraries, or the
+// simulator HAL is built as a circular dependency without the EpdFont include path.
+// clang-format off
+#include <HalStorage.h>
 #include <HalScalableFont.h>
+// clang-format on
 
 #include <array>
 #include <memory>
