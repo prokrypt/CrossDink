@@ -5064,7 +5064,7 @@ async function assertEpubHasNoContentEncryption(zip) {
 
 // Get WebSocket URL based on current page location
 function getWsUrl() {
-  const host = window.location.hostname;
+  const host = window.WS_HOST || window.location.hostname;  // WS_HOST: scripts/preview_web.py --device
   return `ws://${host}:${WS_PORT}/`;
 }
 
