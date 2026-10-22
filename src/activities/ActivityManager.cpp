@@ -162,10 +162,8 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   return context;
 }
 
-bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput,
-                         const FrontlightDrawerState* restoredState = nullptr) {
+bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput) {
   FrontlightPanelContext context = buildFrontlightPanelContext(activity, renderer, mappedInput);
-  if (restoredState) context.drawerState = *restoredState;
   auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput, std::move(context));
   if (!panel) {
     LOG_ERR("ACT", "OOM opening frontlight panel");
@@ -924,15 +922,11 @@ void ActivityManager::loop() {
           if (resume.overlay == PendingOverlayType::ReaderDrawer && currentActivity->restorePendingOverlay(resume)) {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
-          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&
-                     supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                              hasStickyReaderDetailsPanel())) {
-            FrontlightDrawerState restoredState;
-            restoredState.selectedAction = static_cast<int8_t>(resume.selectedIndex);
-            if (openFrontlightPanel(*currentActivity, renderer, mappedInput, &restoredState)) {
-              PendingOverlayResume consumed;
-              APP_STATE.consumePendingOverlayResume(consumed);
-            }
+          } else if (resume.overlay == PendingOverlayType::FrontlightDrawer) {
+            // The top drawer stays closed after a Sync & Transfer flow; the resume only
+            // carries reader orientation / return-home state, so just consume it.
+            PendingOverlayResume consumed;
+            APP_STATE.consumePendingOverlayResume(consumed);
           }
         }
       }
@@ -989,17 +983,22 @@ bool ActivityManager::handleGlobalHomeGesture() {
     return false;
   }
 
-  const bool homeGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
-                               ? mappedInput.wasReaderHomeGesture()
-                               : (currentActivity->allowGlobalHomeSwipeGesture() || mappedInput.hasHomeKey()) &&
-                                     mappedInput.wasHomeGesture();
+  const bool readerSwipes = currentActivity->usesFullScreenReaderVerticalSwipes();
+  const bool allowSwipe = currentActivity->allowGlobalHomeSwipeGesture();
+  // Home-key boards: a bottom-edge up-swipe goes straight Home on non-reader
+  // screens. The reader keeps the old flow: the swipe opens the drawer first.
+  const bool edgeSwipeHome = mappedInput.hasHomeKey() && !mappedInput.isHomeButtonLockedInReader() && !readerSwipes &&
+                             allowSwipe && mappedInput.wasBottomEdgeUpSwipe();
+  const bool homeGesture =
+      edgeSwipeHome || (readerSwipes ? mappedInput.wasReaderHomeGesture()
+                                     : (allowSwipe || mappedInput.hasHomeKey()) && mappedInput.wasHomeGesture());
   if (!homeGesture) {
     return false;
   }
 
   // Touch-only devices use an edge swipe as a Home shortcut. Keep that
   // shortcut separate from the X4 Pro's physical Back/Home key.
-  if (!mappedInput.hasHomeKey()) {
+  if (!mappedInput.hasHomeKey() || edgeSwipeHome) {
     if (!currentActivity->handleHomeGesture()) goHome();
     return true;
   }

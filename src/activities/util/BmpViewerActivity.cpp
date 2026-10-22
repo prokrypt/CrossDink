@@ -704,6 +704,9 @@ void BmpViewerActivity::showContextMenu() {
   startActivityForResult(
       std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath), std::move(items)),
       [this](const ActivityResult& result) {
+        // The tap or long-press cancelled any draw so the menu opened at once; clear that here,
+        // before the redraw on return (also behind the Delete prompt), or it stops at the Loading popup.
+        drawCancelled.store(false, std::memory_order_release);
         if (result.isCancelled) return;
 
         const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);

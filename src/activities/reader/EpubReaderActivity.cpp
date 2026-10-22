@@ -3765,6 +3765,10 @@ void EpubReaderActivity::loop() {
   if (!endOfBookMenuOpen) {
     queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
   }
+  if (endOfBookMenuOpen != endOfBookHomeUnlocked) {
+    endOfBookHomeUnlocked = endOfBookMenuOpen;
+    mappedInput.setReaderTouchscreenOverride(endOfBookMenuOpen);
+  }
   if (endOfBookMenuOpen) {
     longPressMenuHandled = false;
     lastPageTurnTime = millis();
