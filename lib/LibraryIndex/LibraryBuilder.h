@@ -54,16 +54,37 @@ struct BuildStats {
   bool ranksDegraded = false;
   bool dedupDegraded = false;
   bool arrivalDegraded = false;
-  bool cancelled = false;  // the owner stopped the build; the previous index is untouched
+  bool cancelled = false;     // the owner stopped the build; the previous index is untouched
+  bool tooManyBooks = false;  // the card holds more than libraryBookLimit() books
 };
+
+enum class BuildPhase : uint8_t {
+  Scanning,    // walking folders and reading book metadata; `books` counts what was found
+  Organizing,  // sorting and writing the finished index
+};
+
+struct BuildProgress {
+  BuildPhase phase = BuildPhase::Scanning;
+  uint16_t books = 0;
+};
+
+inline constexpr uint32_t LIBRARY_PROGRESS_INTERVAL_MS = 3000;
 
 // Lets a background owner pause or stop a build. `service` runs on the building
 // task between directory entries and during the later phases; it may block while
 // the owner wants the card and CPU back, and returns false to stop the build.
+// `progress` is for a foreground owner: called at most every
+// LIBRARY_PROGRESS_INTERVAL_MS while the count changes, plus once per phase
+// change, because each call usually repaints the panel.
 struct BuildControl {
   bool (*service)(void* context) = nullptr;
   void* context = nullptr;
+  void (*progress)(void* context, const BuildProgress& progress) = nullptr;
 };
+
+// Books one build can index on this device. Without PSRAM every per-book sort
+// array sits in internal RAM, which bounds it well below the format ceiling.
+uint16_t libraryBookLimit();
 
 // Walk `rootPath`, write `/.crossdink/library.idx`, and report what happened.
 // The previous index, including its monotonic "recently added" counter, is read
