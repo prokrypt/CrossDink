@@ -9,9 +9,6 @@
 #include <string>
 
 class HalFile : public Print {
-  std::string contents_;
-  size_t offset_ = 0;
-
  public:
   // In-memory contents for tests that read through a file; empty acts as a closed file.
   std::string data;
@@ -37,7 +34,7 @@ class HalFile : public Print {
   bool seekSet(size_t p) { return seek(p); }
   bool close() { return true; }
   bool isOpen() const { return false; }
-  operator bool() const { return !contents_.empty(); }
+  operator bool() const { return !data.empty(); }
   size_t write(uint8_t) override { return 0; }
   size_t write(const uint8_t*, size_t) { return 0; }
 };

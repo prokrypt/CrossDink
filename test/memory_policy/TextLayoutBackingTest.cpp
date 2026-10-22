@@ -242,7 +242,7 @@ TEST_F(TextLayoutBackingTest, PublisherBaselineIsComputedOncePerRender) {
   constexpr size_t count = 30;
   TextBlock block(std::vector<std::string>(count, "a"), std::vector<int16_t>(count, 0),
                   std::vector<EpdFontFamily::Style>(count, EpdFontFamily::REGULAR), {}, {}, {}, {}, {}, BlockStyle{},
-                  {}, {}, "", 0, std::vector<uint32_t>(count, 123));
+                  {}, 0, {}, "", std::vector<uint32_t>(count, 123));
   ASSERT_TRUE(block.valid());
   block.render(renderer, 0, 0, 0);
   EXPECT_LE(renderer.ascenderCalls, count * 2 + 1);
