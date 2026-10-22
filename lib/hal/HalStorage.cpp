@@ -416,7 +416,9 @@ bool inDataRoot(const char* path) {
 bool twinAllowed(const char* path) {
   if (path[kDataRootLen] == '\0') return true;
   const char* first = path + kDataRootLen + 1;
-  for (const char* cache : {"home_carousel_cache.bin", "font-catalog.bin", "sleep_frame.bin", "fileindex"}) {
+  // Carousel Home snapshots: home_carousel_cache_<N>.bin, its .tmp and the legacy single file.
+  if (strncmp(first, "home_carousel_cache", 19) == 0) return false;
+  for (const char* cache : {"font-catalog.bin", "sleep_frame.bin", "fileindex"}) {
     const size_t n = strlen(cache);
     if (strncmp(first, cache, n) == 0 && (first[n] == '\0' || first[n] == '/')) return false;
   }
