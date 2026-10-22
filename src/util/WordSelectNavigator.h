@@ -38,6 +38,7 @@ class WordSelectNavigator {
     // exposed as independent selectable fragments while retaining this link to
     // the canonical reader word for clipping.
     uint16_t sourceWordByteOffset = 0;
+    uint8_t sourcePrefixBytes = 0;  // logical initial letter omitted from highlight display
     int16_t screenX = 0;
     int16_t screenY = 0;
     int16_t width = 0;
@@ -48,7 +49,7 @@ class WordSelectNavigator {
     bool isIpa = false;
     int fontId = 0;  // resolved at extraction time; used by renderHighlight()
     // Pack display and compound-separator metadata into the byte that already
-    // preceded focusBoundary so WordInfo remains 36 bytes on 32-bit targets.
+    // preceded focusBoundary without separate boolean storage.
     uint8_t isRtl : 1;
     // The source layout placed this token directly beside the previous
     // selectable token without whitespace (for example adjacent CJK glyphs).
@@ -59,6 +60,22 @@ class WordSelectNavigator {
     uint8_t compoundSeparatorBefore : 2;
     uint8_t focusBoundary = 0;
     uint16_t focusSuffixX = 0;
+#if CROSSDINK_SCALABLE_FONTS
+    uint16_t lineHeight = 0;
+#endif
+    int heightOr(const int fallback) const {
+#if CROSSDINK_SCALABLE_FONTS
+      if (lineHeight) return lineHeight;
+#endif
+      return fallback;
+    }
+    void setLineHeight(const uint16_t height) {
+#if CROSSDINK_SCALABLE_FONTS
+      lineHeight = height;
+#else
+      (void)height;
+#endif
+    }
 
     WordInfo() : isRtl(0), joinWithoutSpaceBefore(0), isTableText(0), compoundSeparatorBefore(0) {}
   };
