@@ -328,3 +328,8 @@ TEST(ReaderDrawerModel, SamplePreviewCoversLiveTextSettingsOnly) {
     EXPECT_FALSE(readerDrawerShowsSamplePreview(Pane::EnumOptions, Tab::Layout, row));
   EXPECT_FALSE(readerDrawerShowsSamplePreview(Pane::DictionaryFont, Tab::Font, Row::FontSize));
 }
+
+TEST(ReaderDrawerModel, LandscapePreviewPanesPlaceSamplePreviewBesideControls) {
+  EXPECT_TRUE(readerDrawerSamplePreviewBesideControls(true));
+  EXPECT_FALSE(readerDrawerSamplePreviewBesideControls(false));
+}
