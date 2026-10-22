@@ -43,6 +43,7 @@ class TextBlock final : public Block {
   const char* textArr = nullptr;
   std::vector<std::string> rubyTexts;
 
+  int baselineOffset(uint16_t i, int ascender, int baseline) const;
   TextBlock() = default;  // deserialize() fills the fields directly.
   static constexpr size_t wordSpacesBytes(const uint16_t wordCount) { return (wordCount + 7U) / 8U; }
   static size_t arenaSize(uint16_t wordCount, bool hasFocus, bool hasGuideDots, bool hasWordFlags, bool hasWordSpaces,

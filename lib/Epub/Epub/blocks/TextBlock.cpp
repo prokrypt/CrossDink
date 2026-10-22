@@ -283,8 +283,11 @@ int TextBlock::maxLineHeight(const GfxRenderer& renderer, int fontId) const {
 }
 
 int TextBlock::wordYOffset(const GfxRenderer& renderer, int fontId, uint16_t i, int baseline) const {
-  const int ascender = renderer.getFontAscenderSize(wordFontId(renderer, fontId, i));
   if (baseline < 0) baseline = maxAscender(renderer, fontId);
+  return baselineOffset(i, renderer.getFontAscenderSize(wordFontId(renderer, fontId, i)), baseline);
+}
+
+int TextBlock::baselineOffset(const uint16_t i, const int ascender, const int baseline) const {
   int offset = baseline - ascender + getRubyShift(baseline);
   if (wordStyle(i) & EpdFontFamily::SUP)
     offset -= ascender * 2 / 5;
@@ -326,7 +329,7 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
       }
     }
 
-    const int wordY = y + wordYOffset(renderer, baseFont, i, baseline);
+    const int wordY = y + baselineOffset(i, ascender, baseline);
 
     if (boundary > 0) {
       const auto boldStyle = static_cast<EpdFontFamily::Style>(currentStyle | EpdFontFamily::BOLD);
