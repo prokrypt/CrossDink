@@ -373,8 +373,9 @@ RecentBookProgress::SyncBadge RecentBookProgress::syncBadge(const std::string& c
     if (const HeldMark* held = findHeld(cachePath)) mark = held->mark;
   }
   if (mark.bp == SyncMark::kNever) return SyncBadge::None;
-  if (mark.serverAhead) return SyncBadge::ServerAhead;
-  return toBasisPoints(progress) > mark.bp ? SyncBadge::Unsynced : SyncBadge::Synced;
+  // Read on since the check (a push failed or never ran): unsynced, whatever the server held then.
+  if (toBasisPoints(progress) > mark.bp) return SyncBadge::Unsynced;
+  return mark.serverAhead ? SyncBadge::ServerAhead : SyncBadge::Synced;
 }
 
 bool RecentBookProgress::hasPercent(const float progress) { return progress >= 0.0f; }

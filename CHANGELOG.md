@@ -247,6 +247,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - The firmware is renamed CrossDink, with a new two-drop logo on the boot screen and web portal, and every remaining CrossInk name in code, build flags, scripts and docs is now CrossDink.
 
 ### Fixed
+- KOReader Sync badge: a book read further after a check that found the server ahead now shows the crossed-out cloud (not synced) when its upload fails or has not run, instead of the cloud with a down arrow.
 - KOReader Auto Sync with Wi-Fi already on (such as the Wi-Fi remote) now runs on a PSRAM stack instead of taking 14 KB of internal memory, so a sync at book open no longer starves the chapter being laid out beside it, which could cut the chapter short and silently restart the reader to retry it. With Wi-Fi off, the sync still brings the radio up itself as before.
 - Flash duck: the frontlight stays at full until the last fade window before a flashing refresh instead of dimming from the moment the refresh is planned, and it comes back up on time after a long main-loop job (a sleep-image decode used to hold it down ~760 ms longer). Restored from earlier test builds; it never reached main.
 - OPDS: when a catalog page fails to load, the error now says why: "Check username and password" (401), "Credentials withheld. Check server URL" (a redirect to another server, which never gets your login), "Server error, try again later" (5xx) or "Can't reach server" (no response). Other failures still show "Failed to fetch feed".
