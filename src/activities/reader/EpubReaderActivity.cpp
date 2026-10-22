@@ -2868,7 +2868,7 @@ void EpubReaderActivity::openReaderMenu() {
 
 void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
-  openingFeedback.showIndexing(renderer);  // drawPopup() already refreshes with a FAST waveform
+  openingFeedback.showIndexing(renderer);                      // drawPopup() already refreshes with a FAST waveform
   if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
 }
@@ -5010,7 +5010,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       if (!localKoPos.valid) {
         LOG_ERR("NBPS", "Cannot resolve nearby sync position (needs re-optimization=%d)",
                 localKoPos.needsReoptimization);
-        Toast::show(renderer, localKoPos.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG),
+        Toast::show(renderer,
+                    localKoPos.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG),
                     ReaderUtils::readerForegroundBlack());
         requestUpdate();
         break;
