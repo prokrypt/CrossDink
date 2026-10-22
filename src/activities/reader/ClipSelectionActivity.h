@@ -70,6 +70,7 @@ class ClipSelectionActivity final : public Activity {
   int touchDragPageEndIdx = -1;
   uint32_t touchDragPageEndHeldSince = 0;
   bool hasDictionaryRequest = false;
+  bool textBuildMemoryError = false;
   bool ignoreInitialConfirmRelease = false;
   bool ignoreInitialPowerRelease = false;
   bool ignoreInitialBackRelease = false;
@@ -93,6 +94,7 @@ class ClipSelectionActivity final : public Activity {
   bool selectWordAtPoint(int x, int y);
   bool isWithinCurrentPageEndDwellSlop(int x, int y) const;
   uint16_t tableSelectionForRange(int from, int to) const;
+  bool hasTextBuildMemory(int from, int to, uint16_t tableSelection = UINT16_MAX) const;
   void confirmSelection();
   bool finishDictionarySelection();
   int lineEndForward(int orderIdx) const;

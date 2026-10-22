@@ -461,3 +461,24 @@ TEST(ClippingTextMatcher, PreservesCompleteShortClippingsAndLongerRelayoutRuns) 
   EXPECT_TRUE(ClippingTextMatcher::isReliableRun(4, false, 3, 3));
   EXPECT_FALSE(ClippingTextMatcher::isReliableRun(0, false, 0, 3));
 }
+
+TEST(ClipTextBuilder, BudgetsTheCompleteSelectionAndTemporaryWords) {
+  ClipWordStore store;
+  WordRef first;
+  first.tableSelection = 1;
+  ASSERT_TRUE(store.appendText(first, "first"));
+  store.words.push_back(first);
+  WordRef second;
+  second.tableSelection = 2;
+  ASSERT_TRUE(store.appendText(second, "second"));
+  store.words.push_back(second);
+  const uint16_t order[] = {0, 1};
+  const auto budget = ClipTextBuilder::allocationBudget(store, order, 0, 1);
+  EXPECT_EQ(budget.textCapacity, 13);
+  EXPECT_EQ(budget.temporaryBytes, 28);
+  EXPECT_FALSE(budget.fits(100000, 13));
+  EXPECT_FALSE(budget.fits(1065, 100000));
+  EXPECT_TRUE(budget.fits(1066, 14));
+  EXPECT_EQ(ClipTextBuilder::allocationBudget(store, order, 0, 1, 1).textCapacity, 6);
+  EXPECT_LE(ClipTextBuilder::build(store, order, 0, 1, 0, 1).text.size(), budget.textCapacity);
+}
