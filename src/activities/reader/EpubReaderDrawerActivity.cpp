@@ -1097,8 +1097,8 @@ void EpubReaderDrawerActivity::buildPaneHeader(UiApp::ScreenType& screen) {
   header.sidePadding = screen.theme().headerSidePadding;
   header.minTouchSize = screen.theme().minTouchSize;
   // Two sliders and their button hints need the landscape column's full height.
-  const bool compactSliders =
-      CROSSDINK_APP_READER_SAMPLE_PREVIEW && samplePreviewBesideControls() && readerDrawerSliderPreviewsText(state.pane);
+  const bool compactSliders = CROSSDINK_APP_READER_SAMPLE_PREVIEW && samplePreviewBesideControls() &&
+                              readerDrawerSliderPreviewsText(state.pane);
   const int16_t height =
       compactSliders ? screen.target().lineHeight(header.titleText.font) + 10 : screen.theme().headerHeight;
   const fui::Rect rect = screen.takeTop(height);
