@@ -19,6 +19,8 @@ class EpubReaderChapterSelectionActivity final : public Activity {
   std::shared_ptr<Epub> epub;
   std::string epubPath;
   ButtonNavigator buttonNavigator;
+  bool ignoreInitialUpRelease = false;
+  bool ignoreInitialDownRelease = false;
   int currentSpineIndex = 0;
   int selectorIndex = 0;
   freeink::ui::GfxRendererTarget uiTarget;

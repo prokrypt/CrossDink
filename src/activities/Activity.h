@@ -105,6 +105,9 @@ class Activity {
   // activity validates that trigger without routing any other normal input.
   virtual bool handleQuickLockUnlock(QuickLockTrigger) { return false; }
   virtual bool isReaderActivity() const { return false; }
+  // Reader-mode child screens may also report isReaderActivity(); only the
+  // activity owning the open book should be the Home/Reader unwind target.
+  virtual bool isBookReaderActivity() const { return false; }
   virtual bool isHomeActivity() const { return false; }
   // Main loop, render lock held, just before a toast refresh: redraw the shown
   // book's KOSync badge into the framebuffer so the toast's refresh carries it.
