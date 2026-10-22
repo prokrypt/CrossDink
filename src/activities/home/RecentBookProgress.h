@@ -15,8 +15,9 @@ struct RecentBook;
 namespace RecentBookProgress {
 // KOSync state of an EPUB, shown next to its % (Home) and left of its Library row icon.
 enum class SyncBadge : uint8_t { None, Synced, Unsynced, ServerAhead, Syncing };
-// The book's own % (basis points) when a KOSync check last found the server
-// holding it; serverAhead: the server was further on. kNever: no check yet.
+// Where a KOSync check last found the server, in basis points of the book: the
+// book's own % then, or the server's % when it was further on (serverAhead).
+// kNever: no check yet. Marks saved before the server's % was kept hold the book's own %.
 struct SyncMark {
   static constexpr uint16_t kNever = 0xFFFF;
   uint16_t bp = kNever;
@@ -41,9 +42,9 @@ void saveCachedEpubPercent(const std::string& cachePath, float progress);
 void saveCachedEpubPercent(const Epub& epub, int spineIndex, int currentPage, int pageCount, bool hold = false);
 // The cached % of a reader position, in basis points.
 uint16_t basisPoints(const Epub& epub, int spineIndex, int currentPage, int pageCount);
-// Any task: a KOSync check found the server holding this book at bp (its own %)
-// or further on. Kept in RAM until flushSyncMarks(); a newer note replaces it.
-void noteSynced(const std::string& cachePath, uint16_t bp, bool serverAhead);
+// Any task: a KOSync check found the server holding this book at bp (its own %),
+// or further on at serverPct (0-1). Kept in RAM until flushSyncMarks(); a newer note replaces it.
+void noteSynced(const std::string& cachePath, uint16_t bp, bool serverAhead, float serverPct = 0.0f);
 // Any task: the book's KOSync mark, the held one if newer (kNever when none). One small read.
 SyncMark syncMark(const std::string& cachePath);
 // Sleep, restart, OTA, USB Drive, File Transfer: saves held marks with the books' %.

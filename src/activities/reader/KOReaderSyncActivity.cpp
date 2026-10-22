@@ -542,6 +542,10 @@ void KOReaderSyncActivity::finishSync() {
     saveProgressAndReturn(remotePosition);
     return;
   }
+  // The badge keeps showing the server ahead if the user leaves without applying it.
+  if (remoteProgress.percentage - localProgress.percentage > 0.001f) {  // Smart Sync's epsilon
+    RecentBookProgress::noteSynced(localCachePath, localBp, true, remoteProgress.percentage);
+  }
   {
     RenderLock lock(*this);
     state = SHOWING_RESULT;
