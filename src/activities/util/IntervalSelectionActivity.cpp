@@ -14,7 +14,6 @@
 #include "CrossPointSettings.h"
 #include "DeviceCapabilities.h"
 #include "SdCardFontSystem.h"
-#include "WordSpacing.h"
 #include "components/SliderValue.h"
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
