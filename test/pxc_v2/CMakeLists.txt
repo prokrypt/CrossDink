@@ -27,3 +27,8 @@ add_executable(pixel_cache_test PixelCacheTest.cpp)
 target_include_directories(pixel_cache_test PRIVATE stubs ${REPO_ROOT}/lib/Epub/Epub/converters)
 target_link_libraries(pixel_cache_test PRIVATE gtest_main crosspoint_test_common)
 gtest_discover_tests(pixel_cache_test)
+
+add_executable(ZipCentralDirectoryTest ZipCentralDirectoryTest.cpp ${PXC_ROOT}/lib/ZipFile/ZipFile.cpp)
+target_include_directories(ZipCentralDirectoryTest PRIVATE stubs ${PXC_ROOT}/lib/ZipFile ${PXC_ROOT}/lib/Memory)
+target_link_libraries(ZipCentralDirectoryTest PRIVATE gtest_main crosspoint_test_common)
+gtest_discover_tests(ZipCentralDirectoryTest)
