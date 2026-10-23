@@ -100,10 +100,11 @@ void LookedUpWordsActivity::historyScreen(UiApp::ScreenType& screen, void* user)
 
 void LookedUpWordsActivity::buildHistoryScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                       metrics.verticalSpacing),
-                  0, static_cast<int16_t>(metrics.buttonHintsHeight + metrics.verticalSpacing), 0});
+  setUiContentMargin(
+      screen, renderer,
+      fui::Insets{
+          static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing), 0,
+          static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing), 0});
   if (entries.empty()) {
     screen.centeredText(tr(STR_LOOKUP_HISTORY_EMPTY), screen.theme().bodyText);
     return;
@@ -235,7 +236,7 @@ void LookedUpWordsActivity::loop() {
   }
 
   const int totalItems = static_cast<int>(entries.size());
-  const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false);
+  const int pageItems = visibleRows;
 
   buttonNavigator.onNextRelease([this, totalItems] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, totalItems);
@@ -277,7 +278,7 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LOOKUP_HISTORY), true);
 
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
 
   const bool empty = entries.empty();

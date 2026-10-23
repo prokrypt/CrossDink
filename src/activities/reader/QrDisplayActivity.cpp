@@ -37,9 +37,8 @@ void QrDisplayActivity::render(RenderLock&&) {
   TouchHeaderBackButton::draw(renderer, header, tr(STR_DISPLAY_QR), false);
 
   const int availableWidth = pageWidth - 40;
-  const int availableHeight = pageHeight - metrics.topPadding - TouchHeaderBackButton::height(metrics, mappedInput) -
-                              metrics.verticalSpacing * 2 - 40;
-  const int startY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
+  const int startY = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
+  const int availableHeight = pageHeight - startY - metrics.verticalSpacing - 40;
 
   const Rect qrBounds(20, startY, availableWidth, availableHeight);
   QrUtils::drawQrCode(renderer, qrBounds, textPayload);

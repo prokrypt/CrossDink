@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -159,6 +160,8 @@ int StatusBarSettingsActivity::previewHeight() const {
 }
 
 int StatusBarSettingsActivity::topPreviewOriginY() const {
+  // Calibrated: match the row every other screen and the reader use.
+  if (renderer.hasCustomViewableInsets()) return UITheme::getTopStatusBarY(renderer);
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
   (void)marginRight;
@@ -331,15 +334,16 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   const auto orientation = renderer.getOrientation();
   const bool landscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
                          orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  const int hintGutterWidth = landscape ? metrics.buttonHintsHeight : 0;
+  const int hintGutterWidth = landscape ? UITheme::getButtonHintsReserve(renderer) : 0;
   const int contentX = orientation == GfxRenderer::Orientation::LandscapeClockwise ? hintGutterWidth : 0;
   const int contentWidth = pageWidth - hintGutterWidth;
   const Rect header = settingsHeaderRect();
   const int contentTop = header.y + header.height + metrics.verticalSpacing;
   const int bottomPreviewHeight = view == View::Bottom ? previewHeight() : 0;
-  const int contentHeight =
-      pageHeight - contentTop - metrics.buttonHintsHeight - bottomPreviewHeight - metrics.verticalSpacing * 2;
-  screen.setContentMargin(
+  const int contentHeight = pageHeight - contentTop - UITheme::getButtonHintsReserve(renderer) - bottomPreviewHeight -
+                            metrics.verticalSpacing * 2;
+  setUiContentMargin(
+      screen, renderer,
       fui::Insets{static_cast<int16_t>(contentTop), static_cast<int16_t>(pageWidth - (contentX + contentWidth)),
                   static_cast<int16_t>(pageHeight - (contentTop + contentHeight)), static_cast<int16_t>(contentX)});
 
@@ -506,8 +510,9 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   const auto orientation = renderer.getOrientation();
   const bool landscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
                          orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  const int contentX = orientation == GfxRenderer::Orientation::LandscapeClockwise ? metrics.buttonHintsHeight : 0;
-  const int contentWidth = pageWidth - (landscape ? metrics.buttonHintsHeight : 0);
+  const int contentX =
+      orientation == GfxRenderer::Orientation::LandscapeClockwise ? UITheme::getButtonHintsReserve(renderer) : 0;
+  const int contentWidth = pageWidth - (landscape ? UITheme::getButtonHintsReserve(renderer) : 0);
   const char* headerTitle = view == View::Root  ? tr(STR_STATUS_BARS)
                             : view == View::Top ? tr(STR_TOP_STATUS_BAR)
                                                 : tr(STR_BOTTOM_STATUS_BAR);
@@ -523,15 +528,15 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
                    showHeaderStatus);
   }
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   if (view != View::Root) {
     const auto position = selectedPosition();
     const int barHeight = UITheme::getReaderStatusBarHeight(position);
-    const int previewOriginY = view == View::Top
-                                   ? topPreviewOriginY()
-                                   : pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - barHeight;
+    const int previewOriginY =
+        view == View::Top ? topPreviewOriginY()
+                          : pageHeight - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - barHeight;
     const int labelY = view == View::Top ? previewOriginY + barHeight + 9
                                          : previewOriginY - renderer.getLineHeight(UI_10_FONT_ID) - 18;
     renderer.drawText(UI_10_FONT_ID, contentX + metrics.contentSidePadding, labelY, tr(STR_PREVIEW));

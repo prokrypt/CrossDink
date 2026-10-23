@@ -505,7 +505,7 @@ void IntervalSelectionActivity::render(RenderLock&&) {
 #if CROSSDINK_APP_CAP_TOUCH
   if (usesReaderSlider()) {
     uiReady = false;
-    app.render();
+    renderUiApp(app, uiTarget);
     uiReady = true;
 
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
