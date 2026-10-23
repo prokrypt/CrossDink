@@ -238,7 +238,7 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   constexpr int buttonHeight = BaseMetrics::values.buttonHintsHeight;
   const int buttonY =
       BaseMetrics::values.buttonHintsHeight + UITheme::getButtonHintsBottomInset(renderer);  // Distance from bottom
-  constexpr int textYOffset = 7;  // Distance from top of button to text baseline
+  const int textYOffset = std::max(1, (buttonHeight - renderer.getTextHeight(UI_10_FONT_ID)) / 2);
   // Keyed to the portrait panel width: the 528-wide X3 gets more spacing than
   // the 480-wide boards (X4, X4 Pro, and the other 800x480 panels).
   constexpr int narrowButtonPositions[] = {25, 130, 245, 350};

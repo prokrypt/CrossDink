@@ -18,6 +18,7 @@ inline constexpr oflag_t O_RDWR = 1;
 
 struct HostFileData {
   std::vector<uint8_t> bytes;
+  bool failClose = false;
   size_t readCalls = 0;
   size_t seekCalls = 0;
   size_t failAt = std::numeric_limits<size_t>::max();
@@ -65,9 +66,10 @@ class HalFile : public Print {
 
   bool sync() const { return static_cast<bool>(data_); }
   bool close() {
+    const bool ok = !data_ || !data_->failClose;
     data_.reset();
     cursor_ = 0;
-    return true;
+    return ok;
   }
   bool isOpen() const { return static_cast<bool>(data_); }
   explicit operator bool() const { return isOpen(); }
@@ -115,6 +117,7 @@ class HalStorage {
 
   size_t readCalls(const std::string& path) const { return files_.at(path)->readCalls; }
   size_t seekCalls(const std::string& path) const { return files_.at(path)->seekCalls; }
+  void failClose(const std::string& path) { files_.at(path)->failClose = true; }
   void failWritesAt(const std::string& path, size_t offset) { files_.at(path)->failAt = offset; }
   const std::vector<uint8_t>& bytes(const std::string& path) const { return files_.at(path)->bytes; }
   void put(const std::string& path, std::vector<uint8_t> bytes) {
