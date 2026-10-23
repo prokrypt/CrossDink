@@ -11,10 +11,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 
-#include <filesystem>
 #include <fstream>
 
 #include "FontInstaller.h"
@@ -31,6 +31,7 @@
 #include "SettingsList.h"
 #include "activities/ActivityManager.h"
 #include "activities/home/RecentBookProgress.h"
+#include "activities/reader/BookReadingStats.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/ReaderFontLoading.h"
@@ -104,6 +105,7 @@ enum class SmokeStep : uint8_t {
   ReaderInput,
   CompletionReturnedHome,
   CompletionReaderRestored,
+  CarouselHome,
   Done,
 };
 
@@ -161,6 +163,11 @@ class SimulatorSmokeTest {
   unsigned libraryRefreshPass = 0;
   uint16_t libraryBaselineBooks = 0;
   SmokeStep inputCompletionStep = SmokeStep::Done;
+  unsigned carouselCachePass = 0;
+  std::filesystem::file_time_type carouselCacheWrittenAt;
+  std::filesystem::file_time_type carouselSecondWrittenAt;
+  uint64_t carouselCacheHash = 0;
+  uint64_t carouselScreenHash = 0;
 
   static bool enabled() { return std::getenv("CROSSDINK_SIMULATOR_SMOKE_TEST") != nullptr; }
 
@@ -892,6 +899,128 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Legacy Home progress migration without EPUB loading passed");
   }
 
+  static uint64_t hashBytes(const uint8_t* bytes, size_t size, uint64_t hash = 14695981039346656037ull) {
+    for (size_t i = 0; i < size; ++i) {
+      hash ^= bytes[i];
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+
+  static uint64_t hashCarouselCache() {
+    FsFile file;
+    if (!Storage.openFileForRead("SMOKE", "/.crossdink/home_carousel_cache_0.bin", file)) {
+      fail("Carousel did not publish an artwork cache");
+    }
+    if (file.size() < renderer.getBufferSize() || file.size() >= 2 * renderer.getBufferSize()) {
+      file.close();
+      fail("Carousel snapshot must contain only one viewed artwork frame");
+    }
+    uint64_t hash = 14695981039346656037ull;
+    uint8_t bytes[128];
+    int count;
+    while ((count = file.read(bytes, sizeof(bytes))) > 0) hash = hashBytes(bytes, count, hash);
+    file.close();
+    return hash;
+  }
+
+  void queueCarouselSwipe(bool next) {
+    ++carouselCachePass;
+    inputScript.clear();
+    scriptIndex = 0;
+    inputCompletionStep = SmokeStep::CarouselHome;
+#if CROSSDINK_APP_CAP_TOUCH
+    if (mappedInputManager.hasTouchHardware()) {
+      const int startX = renderer.getScreenWidth() * (next ? 3 : 1) / 4;
+      const int endX = renderer.getScreenWidth() * (next ? 1 : 3) / 4;
+      const int y = renderer.getScreenHeight() / 2;
+      inputScript.push_back(touchDown(startX, y));
+      inputScript.push_back(touchMove(endX, y));
+      inputScript.push_back(touchRelease(endX, y));
+    } else
+#endif
+    {
+      addTap(next ? MappedInputManager::Button::Right : MappedInputManager::Button::Left);
+    }
+    inputScript.push_back(render("Carousel viewed position", 8));
+    step = SmokeStep::ReaderInput;
+  }
+
+  void verifyCarouselCacheReturn() {
+    const auto writtenAt = std::filesystem::last_write_time("fs_/.crossdink/home_carousel_cache_0.bin");
+    const uint64_t cacheHash = hashCarouselCache();
+    uint64_t screenHash;
+    {
+      RenderLock lock;
+      screenHash = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+    }
+    if (carouselCachePass == 0) {
+      if (Storage.exists("/.crossdink/home_carousel_cache_1.bin") ||
+          Storage.exists("/.crossdink/home_carousel_cache_2.bin")) {
+        fail("Carousel eagerly prepared unviewed positions");
+      }
+      carouselCacheWrittenAt = writtenAt;
+      carouselCacheHash = cacheHash;
+      const RecentBook& book = RECENT_BOOKS.getBooks().front();
+      const std::string cachePath = Epub::resolveCachePathForFilePath(book.path, "/.crossdink");
+      const float oldProgress = RecentBookProgress::loadCachedEpubPercent(book);
+      RecentBookProgress::saveCachedEpubPercent(cachePath, oldProgress < 50.0f ? 75.0f : 25.0f);
+      BookReadingStats stats = BookReadingStats::load(cachePath);
+      stats.sessionCount = 1;
+      stats.totalReadingSeconds += 7200;
+      if (!stats.save(cachePath)) fail("Cannot save carousel stats fixture");
+    } else if (carouselCachePass <= 2) {
+      if (writtenAt != carouselCacheWrittenAt || cacheHash != carouselCacheHash) {
+        fail("Reading progress/stats or tracking settings rebuilt the carousel artwork");
+      }
+      if (screenHash == carouselScreenHash) fail("Carousel restored stale progress/stats or menu pixels");
+      if (carouselCachePass == 1) {
+        SETTINGS.trackReadingStats = 0;
+      } else {
+        SETTINGS.screenInverted = !SETTINGS.screenInverted;
+      }
+    } else if (carouselCachePass == 3) {
+      if (cacheHash == carouselCacheHash) fail("Dark Mode did not invalidate carousel artwork");
+      carouselCacheHash = cacheHash;
+      const RecentBook book = RECENT_BOOKS.getBooks().front();
+      if (!RECENT_BOOKS.updateBook(book.path, "Changed carousel title", book.author, book.coverBmpPath,
+                                   book.coverState))
+        fail("Cannot update carousel title fixture");
+    } else if (carouselCachePass == 4) {
+      if (cacheHash == carouselCacheHash) fail("Title changes did not invalidate carousel artwork");
+      carouselCacheHash = cacheHash;
+      carouselCacheWrittenAt = writtenAt;
+      queueCarouselSwipe(true);
+      return;
+    } else {
+      if (cacheHash != carouselCacheHash || writtenAt != carouselCacheWrittenAt) {
+        fail("Navigating the carousel rewrote an already cached position");
+      }
+      const bool secondExists = Storage.exists("/.crossdink/home_carousel_cache_1.bin");
+      if (!secondExists || Storage.exists("/.crossdink/home_carousel_cache_2.bin")) {
+        fail("Carousel navigation did not cache only the viewed position");
+      }
+      const auto secondWrittenAt = std::filesystem::last_write_time("fs_/.crossdink/home_carousel_cache_1.bin");
+      const int selected = carouselCachePass == 5 ? 1 : 0;
+      if (activityManager.getCurrentBookPath() != RECENT_BOOKS.getBooks()[selected].path) {
+        fail("Carousel swipe did not select the expected book");
+      }
+      if (carouselCachePass == 5) {
+        carouselSecondWrittenAt = secondWrittenAt;
+        queueCarouselSwipe(false);
+        return;
+      }
+      if (secondWrittenAt != carouselSecondWrittenAt) fail("Carousel rewrote the previous position while leaving it");
+      LOG_INF("SMOKE", "Carousel lazy cache, live progress/stats/menu, Dark Mode and title invalidation passed");
+      step = SmokeStep::Done;
+      return;
+    }
+    carouselScreenHash = screenHash;
+    ++carouselCachePass;
+    activityManager.goHome();
+    queueStep("Carousel return cache", SmokeStep::CarouselHome, 8);
+  }
+
   void tickImpl() {
     mappedInputManager.simulatorClearInputFrame();
 
@@ -1274,7 +1403,24 @@ class SimulatorSmokeTest {
         runReaderInputScript();
         break;
 
+      case SmokeStep::CarouselHome:
+        verifyCarouselCacheReturn();
+        break;
+
       case SmokeStep::Done:
+        if (SETTINGS.uiTheme == CrossPointSettings::LYRA_CAROUSEL && carouselCachePass == 0 &&
+            std::getenv("CROSSDINK_SIMULATOR_SMOKE_BOOK")) {
+          const RecentBook book = RECENT_BOOKS.getBooks().front();
+          for (const char* path : {"/books/carousel-second.txt", "/books/carousel-third.txt"}) {
+            if (!Storage.writeFile(path, "Carousel side cover fixture")) fail("Cannot create carousel fixture");
+            RECENT_BOOKS.addOrUpdateBook(path, path, {}, {}, RecentBook::CoverState::Missing);
+          }
+          RECENT_BOOKS.addOrUpdateBook(book.path, book.title, book.author, book.coverBmpPath, book.coverState);
+          SETTINGS.trackReadingStats = 1;
+          activityManager.goHome();
+          queueStep("Carousel return cache", SmokeStep::CarouselHome, 8);
+          break;
+        }
         LOG_INF("SMOKE", "Simulator smoke test passed");
         std::_Exit(0);
     }
