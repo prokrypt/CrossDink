@@ -588,7 +588,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
         st.previous->header().metadataEnabled == st.readMetadata &&
         (priorRecord.metadataStatus == expectedStatus ||
          (extractionExpected && !st.retryFailedMetadata && priorRecord.metadataStatus == CLIX_METADATA_FAILED)) &&
-        (!extractionExpected || st.previous->header().formatVersion >= 6);
+        (!extractionExpected || st.previous->header().formatVersion >= 8);
   }
   // An unchanged EPUB keeps its key; a new or changed one reads its 16 KB tail.
   // A changed one (re-uploaded, edited over USB) carries its progress and stats.
