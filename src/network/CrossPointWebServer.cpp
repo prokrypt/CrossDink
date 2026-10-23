@@ -78,6 +78,7 @@
 #include "util/DeviceIdentity.h"
 #include "util/DeviceSecurity.h"
 #include "util/FontFamilyLabel.h"
+#include "util/OpdsDownloadFolder.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/StringUtils.h"
 
@@ -3247,6 +3248,19 @@ void CrossPointWebServer::handlePostSettings() {
     return;
   }
 
+  // Normalized like the on-device editor; the SD root is stored as empty.
+  const JsonVariantConst folderValue = doc["opdsDownloadFolder"];
+  if (!folderValue.isUnbound()) {
+    std::string folder;
+    const auto input = folderValue.as<JsonString>();
+    if (!folderValue.is<const char*>() ||
+        !OpdsDownloadFolder::normalize(std::string_view(input.c_str(), input.size()), folder)) {
+      server->send(400, "text/plain", "Invalid download folder (maximum 63 bytes)");
+      return;
+    }
+    doc["opdsDownloadFolder"] = folder == "/" ? "" : folder;
+  }
+
   sdFontSystem.refreshIfDirty();
   const auto& settings = getSettingsList(&sdFontSystem.registry());
   int applied = 0;
@@ -3358,6 +3372,7 @@ void CrossPointWebServer::handleGetOpdsServers() const {
     doc["url"] = servers[i].url;
     doc["username"] = servers[i].username;
     doc["filenameFormat"] = opdsFilenameFormatToJson(servers[i].filenameFormat);
+    doc["downloadFolder"] = servers[i].downloadFolder;
     // Never expose passwords over the API — only indicate whether one is set
     doc["hasPassword"] = !servers[i].password.empty();
 
@@ -3392,6 +3407,11 @@ void CrossPointWebServer::handlePostOpdsServer() {
   opdsServer.url = doc["url"] | std::string("");
   opdsServer.username = doc["username"] | std::string("");
   opdsServer.filenameFormat = opdsFilenameFormatFromJson(doc["filenameFormat"] | "");
+  if (!applyOpdsDownloadFolder(doc.as<JsonVariantConst>(), opdsServer.downloadFolder)) {
+    server->send(400, "text/plain", "Invalid download folder (maximum 63 bytes)");
+    return;
+  }
+  const bool hasDownloadFolderField = !doc["downloadFolder"].isUnbound();
 
   // The password field is optional in the JSON payload. When absent (vs. present but empty),
   // we preserve the existing password — the web UI omits it when the user hasn't changed it.
@@ -3414,8 +3434,12 @@ void CrossPointWebServer::handlePostOpdsServer() {
     if (existing && !hasFilenameFormatField) {
       opdsServer.filenameFormat = existing->filenameFormat;
     }
+    if (existing && !hasDownloadFolderField) opdsServer.downloadFolder = existing->downloadFolder;
     opdsServer.password = password;
-    OPDS_STORE.updateServer(static_cast<size_t>(idx), opdsServer);
+    if (!OPDS_STORE.updateServer(static_cast<size_t>(idx), opdsServer)) {
+      server->send(500, "text/plain", "Could not save OPDS server");
+      return;
+    }
     LOG_DBG("WEB", "Updated OPDS server at index %d", idx);
   } else {
     opdsServer.password = password;

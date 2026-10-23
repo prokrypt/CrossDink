@@ -9,10 +9,13 @@
 enum class OpdsFilenameFormat : uint8_t {
   AUTHOR_TITLE = 0,
   TITLE_AUTHOR = 1,
+  SERVER_FILENAME = 2,  // Content-Disposition name; falls back to AUTHOR_TITLE
 };
 
 const char* opdsFilenameFormatToJson(OpdsFilenameFormat format);
 OpdsFilenameFormat opdsFilenameFormatFromJson(const char* value);
+// A missing field keeps `folder` (older web clients); false on a bad value.
+bool applyOpdsDownloadFolder(JsonVariantConst object, std::string& folder);
 
 struct OpdsServer {
   std::string name;
@@ -20,6 +23,7 @@ struct OpdsServer {
   std::string username;
   std::string password;  // Plaintext in memory; obfuscated with hardware key on disk
   OpdsFilenameFormat filenameFormat = OpdsFilenameFormat::AUTHOR_TITLE;
+  std::string downloadFolder;  // Empty: the shared default folder; "/": SD root
 };
 
 /**
