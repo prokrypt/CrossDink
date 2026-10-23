@@ -1874,10 +1874,10 @@ static void showChordClock() {
 void enterDeepSleep(bool fromTimeout) {
   // Deep sleep powers PSRAM down and would lose a running macro: any sleep
   // (power key, timeout, menu, SLEEPREBOOT) restarts instead, and the macro
-  // resumes; no ring write to SD after the boot.
+  // resumes.
   if (SerialRemote::macroRunning()) {
     LOG_INF("MAC", "sleep during macro: sleep-reboot instead");
-    SleepLog::armSleepReboot(false);
+    SleepLog::armSleepReboot();
   }
   armSleepGuard();
   HalPowerManager::sleepStep = "activity exit";
@@ -3164,8 +3164,11 @@ static void loopPass() {
   }
   const unsigned long LIGHT_FADE_MS = KNOBS.lightFadeMs;  // Goodies > Knobs
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();
+  const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
+  // Panel booster off on the same timeout, light on or off; input powers it
+  // back on early (wakePanelEarly above).
+  if (lightTimeoutMs > 0 && idleMs >= lightTimeoutMs) activityManager.dozePanel();
   if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
-    const unsigned long idleMs = lightIdleMs(std::min(millis() - lastActivityTime, millis() - lastSleepBlockTime));
     if (idleMs >= lightTimeoutMs) {
       const unsigned long fadeMs = idleMs - lightTimeoutMs;
       const uint8_t level = fadeMs >= LIGHT_FADE_MS ? 0 : static_cast<uint8_t>(100 - fadeMs * 100 / LIGHT_FADE_MS);
@@ -3520,7 +3523,6 @@ static void loopPass() {
 void loop() {
   loopPassBlocked = false;
   loopPass();
-  SleepLog::loop();
   // loopTask runs on core 0 at priority 2, above IDLE0 and the priority-1
   // workers. Early returns (held chords, Home-key taps, shortcut dispatch)
   // skip the pass-end wait; one tick keeps them from starving IDLE0 into a

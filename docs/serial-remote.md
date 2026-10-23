@@ -207,7 +207,7 @@ A step that gets no reply in 15 s records `ERR:MACRO:no_reply`; the script goes 
 the script and its position sit in PSRAM that survives a software restart (CRC-checked), as does the PSRAM log, so the
 script carries on after the boot (a `[MAC] resuming` line marks it; follow with `WAITIDLE`). Any other deep sleep while
 a macro runs (power key, auto-sleep during a long `WAIT`, a Sleep menu tap) becomes a sleep-reboot, so the macro never
-powers down; these restarts, `SLEEPREBOOT` steps included, skip the `/debug/sleep-reboot-*.log` copy of the ring. The main loop keeps its fast tick while a macro runs, so waits resolve within about 50 ms. `MACRO stop`
+powers down. The main loop keeps its fast tick while a macro runs, so waits resolve within about 50 ms. `MACRO stop`
 (USB serial while the remote is off) ends it.
 
 Results go to the PSRAM log, one `[MAC]` line per step: `<line> +<step ms>ms @<log offset> <command> => <reply>`, the
