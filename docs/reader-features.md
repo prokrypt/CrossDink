@@ -35,7 +35,7 @@ books](./user-guide.md#362-reader) for how to restore a book's layout choices
 to the global defaults.
 
 For books that are slow to index or fail because of complex publisher styling,
-see [EPUB Indexing Methods](./epub-indexing.md) and
+see [EPUB Indexing](./epub-indexing.md) and
 [EPUB Render Modes](./epub-render-modes.md).
 
 ## Focus Reading
@@ -145,7 +145,7 @@ book's layout.
 Stable Page Numbers show a consistent reference page number in the reader's
 status bar, such as `120/540`. They are calculated from fixed reference-page
 metadata in the EPUB instead of the current screen layout, so they remain
-consistent when you change fonts, spacing, orientation, or indexing mode.
+consistent when you change fonts, spacing, or orientation.
 
 To enable them:
 

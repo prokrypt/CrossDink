@@ -128,7 +128,6 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   StatusBar,
   BookDictionary,
   RenderMode,
-  IndexingMethod,
   ToggleCompleted,
   Controls,
   ResetReadingPace,
@@ -234,7 +233,6 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   settings.add(ReaderDrawerCatalogItem::Controls);
   settings.add(ReaderDrawerCatalogItem::BookDictionary);
   settings.add(ReaderDrawerCatalogItem::RenderMode);
-  settings.add(ReaderDrawerCatalogItem::IndexingMethod);
   settings.add(ReaderDrawerCatalogItem::ToggleCompleted);
   if (available.globalStatsEnabled) settings.add(ReaderDrawerCatalogItem::TrackBookStats);
   if (available.showReadingPaceReset) settings.add(ReaderDrawerCatalogItem::ResetReadingPace);
@@ -350,7 +348,6 @@ struct ReaderSettingsDraft {
   uint8_t publisherFonts = 0;
   uint8_t imageRendering = 0;
   uint8_t epubRenderMode = 0;
-  uint8_t indexingMethod = 0;
 };
 
 inline void restoreReaderDraftFont(ReaderSettingsDraft& draft, const ReaderSettingsDraft& lastGood) {
