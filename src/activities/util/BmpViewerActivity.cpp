@@ -753,6 +753,8 @@ void BmpViewerActivity::showContextMenu() {
           case FileBrowserAction::DeleteClippings:
           case FileBrowserAction::EpubRenderMode:
           case FileBrowserAction::ResetReaderSettings:
+          case FileBrowserAction::SelectChapter:
+          case FileBrowserAction::ToggleTouchscreen:
           case FileBrowserAction::Rename:
             return;
         }
