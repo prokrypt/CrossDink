@@ -1047,3 +1047,7 @@ STR_CALIBRATION_RESET: "Reset to Defaults"
 STR_CALIBRATION_SAVE_FAILED: "Could not save calibration. Try again."
 STR_CALIBRATION_EDIT_OR_APPLY: "Edit or Apply"
 STR_CALIBRATION_ADJUST: "Adjust"
+
+STR_PUBLISHER_FONTS: "Publisher fonts"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignore Body Font"
+STR_PUBLISHER_FONTS_ALL: "All Text"

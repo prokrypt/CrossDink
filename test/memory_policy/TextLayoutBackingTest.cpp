@@ -215,3 +215,35 @@ TEST_F(TextLayoutBackingTest, ImageOnlyLineDropsInitialLetterAndSurvivesCacheRou
   ASSERT_NE(restored, nullptr);
   EXPECT_EQ(restored->wordCount(), 0);
 }
+
+TEST_F(TextLayoutBackingTest, PublisherRubyReservesItsActualEdgeOverhang) {
+  GfxRenderer renderer;
+  renderer.publisherFont = 30;
+  BlockStyle style;
+  style.alignment = CssTextAlign::Left;
+  ParsedText text(false, false, false, false, false, 0, style);
+  text.addWord("a", EpdFontFamily::REGULAR, false, false, false, 0, 0, 0, 0, false, 0, 123);
+  text.setRubyForWordAt(0, "long");
+  unsigned lines = 0;
+  ASSERT_TRUE(text.layoutAndExtractLines(renderer, 0, 180, [&](std::shared_ptr<TextBlock> block, uint32_t, uint32_t) {
+    ++lines;
+    EXPECT_EQ(block->wordCount(), 1);
+    EXPECT_EQ(block->wordFontId(renderer, 0, 0), 30);
+    // Stub widths: base=36, annotation=144. Reserve half the 108px overhang on each edge.
+    EXPECT_GE(block->wordXpos(0), 54);
+    EXPECT_LE(block->wordXpos(0) + 36 + 54, 180);
+  }));
+  EXPECT_EQ(lines, 1u);
+}
+
+TEST_F(TextLayoutBackingTest, PublisherBaselineIsComputedOncePerRender) {
+  GfxRenderer renderer;
+  renderer.publisherFont = 3;
+  constexpr size_t count = 30;
+  TextBlock block(std::vector<std::string>(count, "a"), std::vector<int16_t>(count, 0),
+                  std::vector<EpdFontFamily::Style>(count, EpdFontFamily::REGULAR), {}, {}, {}, {}, {}, BlockStyle{},
+                  {}, 0, {}, "", std::vector<uint32_t>(count, 123));
+  ASSERT_TRUE(block.valid());
+  block.render(renderer, 0, 0, 0);
+  EXPECT_LE(renderer.ascenderCalls, count * 2 + 1);
+}
