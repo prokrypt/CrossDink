@@ -56,9 +56,13 @@ bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgres
   progress.percentage = mapped.percentage;
   progress.device = SETTINGS.getEffectiveDeviceName();
   if (KOREADER_STORE.getSendMetadata()) {
-    progress.metadata = KOReaderMetadata{path.substr(path.find_last_of('/') + 1), epub->getTitle(), epub->getAuthor()};
+    progress.metadata.emplace();
+    progress.metadata->filename = path.substr(path.find_last_of('/') + 1);
+    progress.metadata->title = epub->getTitle();
+    progress.metadata->authors = epub->getAuthor();
+    progress.metadata->loadExtended(*epub);
   }
-  if (KOREADER_STORE.usesCrossPointSyncServer()) {
+  if (KOREADER_STORE.supportsRichProgress()) {
     KOReaderRichPosition rich;
     rich.pctQ = static_cast<uint32_t>(mapped.percentage * 1000000.0f + 0.5f);
     rich.spineIndex = saved.spineIndex;

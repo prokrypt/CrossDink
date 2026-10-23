@@ -948,6 +948,7 @@ void KOReaderSyncActivity::performUpload() {
     if (epub) {
       meta.title = epub->getTitle();
       meta.authors = epub->getAuthor();
+      meta.loadExtended(*epub);
     } else {
       LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
     }
@@ -962,7 +963,7 @@ void KOReaderSyncActivity::performUpload() {
   // Rich CrossPoint position for the default CrossPoint sync server (lossless
   // CrossPoint<->CrossPoint sync). The HTTP client also enforces this boundary
   // before serializing the extension.
-  if (KOREADER_STORE.usesCrossPointSyncServer()) {
+  if (KOREADER_STORE.supportsRichProgress()) {
     KOReaderRichPosition pos;
     const float pct = localProgress.percentage < 0.0f   ? 0.0f
                       : localProgress.percentage > 1.0f ? 1.0f

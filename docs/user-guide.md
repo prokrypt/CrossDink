@@ -481,6 +481,19 @@ Behavior notes:
 CrossDink can sync reading progress with KOReader-compatible sync servers.
 It also interoperates with KOReader apps/devices when they use the same server and credentials.
 
+**Server Type** controls optional progress fields, independently of the server URL:
+
+- **CrossPoint**: standard KOReader sync plus rich book positions, including self-hosted CrossPoint servers.
+- **KOSync**: standard progress without rich positions or extended metadata. Use this for `sync.koreader.rocks` and standard KOSync servers.
+- **Other**: rich positions plus ISBN, ASIN, series, and series number for custom servers that accept these fields. Book metadata is only sent when **Send Metadata** is on.
+
+Upgrades preserve the previous behavior: the default hosted server uses CrossPoint; existing custom URLs use KOSync. Choose the matching type after changing the URL. Stats and clippings still require separately detected server support and their own opt-in.
+
+Percentage-only positions from compatible servers are supported as an approximate position in the local book, including optimized EPUBs. XPath positions still use the source-document map.
+
+**Custom Header 1/2** accept `Header-Name: value` for authentication proxies, such as Cloudflare Access. Values are masked in settings and obfuscated on the SD card like passwords. Clear a row to remove it. In the web portal, replace the masked value with the complete header when editing. HTTP framing headers and built-in sync authentication headers cannot be overridden.
+
+
 ##### Option A: CrossPoint Sync Server (`sync.crossdinkreader.com`, default)
 
 When **Sync Server URL** is left empty, CrossDink uses the free CrossPoint sync server at `https://sync.crossdinkreader.com`. It speaks the standard KOReader sync protocol (so KOReader apps can use it too) and additionally stores an exact spine/page position for lossless CrossDink-to-CrossDink sync.

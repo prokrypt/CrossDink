@@ -1,7 +1,9 @@
 #pragma once
 #include <ArduinoJson.h>
+#include <HttpHeader.h>
 #include <PersistableStore.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -31,8 +33,12 @@ enum class SyncServerSupport : uint8_t {
  * but prevents casual reading and ties credentials to the specific device).
  */
 
+enum class KOReaderServerType : uint8_t { CROSSPOINT = 0, KOSYNC = 1, OTHER = 2 };
+
 class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore> {
  private:
+  KOReaderServerType serverType = KOReaderServerType::CROSSPOINT;
+  std::array<HttpHeader, 2> customHeaders;
   std::string username;
   std::string password;
   std::string serverUrl;                                            // Custom sync server URL (empty = default)
@@ -85,6 +91,19 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
 
   // Whether API calls target the CrossPoint sync server that supports protocol extensions.
   bool usesCrossPointSyncServer() const;
+
+  void setServerType(KOReaderServerType type);
+  KOReaderServerType getServerType() const {
+    ensureLoaded();
+    return serverType;
+  }
+  bool supportsRichProgress() const { return getServerType() != KOReaderServerType::KOSYNC; }
+  bool supportsExtendedMetadata() const { return getServerType() == KOReaderServerType::OTHER; }
+  bool setCustomHeader(size_t index, const std::string& name, const std::string& value);
+  const std::array<HttpHeader, 2>& getCustomHeaders() const {
+    ensureLoaded();
+    return customHeaders;
+  }
 
   // Document matching method
   void setMatchMethod(DocumentMatchMethod method);

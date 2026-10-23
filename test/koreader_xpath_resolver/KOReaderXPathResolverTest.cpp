@@ -323,3 +323,21 @@ TEST(KOReaderXPathResolver, WhitespaceTargetsAreIndependentOfStreamChunkSize) {
     EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 0.5f), "/body/DocFragment[1]/body/p[1]/text()[1].0");
   }
 }
+
+TEST(KOReaderXPathResolver, PercentageOnlyPositionsDoNotRequireSourceLocators) {
+  auto epub = epubWith(kNestedFixture);
+  epub->sourceMapRequired = true;
+  for (bool mapPresent : {false, true}) {
+    epub->sourceMapPresent = mapPresent;
+    const auto position =
+        ProgressMapper::toCrossPoint(epub, {"", 0.5f}, 0, 10, PositionCoordinateSpace::SourceDocument);
+    EXPECT_TRUE(position.valid);
+    EXPECT_EQ(position.spineIndex, 0);
+    EXPECT_GE(position.pageNumber, 4);
+    EXPECT_LE(position.pageNumber, 5);
+    // A real source locator still fails when its mapping is unavailable.
+    const auto located = ProgressMapper::toCrossPoint(epub, {"/body/DocFragment[1]/body/p[1]", 0.5f}, 0, 10,
+                                                      PositionCoordinateSpace::SourceDocument);
+    EXPECT_FALSE(located.valid);
+  }
+}

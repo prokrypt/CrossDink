@@ -9,17 +9,22 @@
  * Mirrors the metadata object added in KOReader PR #15306.
  * The official sync server ignores this field; custom servers may use it.
  */
+class Epub;
 struct KOReaderMetadata {
+  void loadExtended(Epub& epub);
+
   std::string filename;  // e.g. "my_book.epub"
   std::string title;     // Document title from EPUB metadata
   std::string authors;   // Author(s) from EPUB metadata
+  std::string isbn, asin, series;
+  std::optional<float> seriesIndex;
 };
 
 /**
  * Rich CrossPoint position sent alongside progress uploads. Maps 1:1 onto the
  * crosspoint-sync extended `position` object (see crosspoint-sync docs/API.md).
- * It is only transmitted to sync.crosspointreader.com, where it makes
- * CrossPoint<->CrossPoint sync lossless instead of xpath-approximated.
+ * It is transmitted only for profiles that support rich progress. Layout
+ * coordinates are hints; the standard XPath remains the content anchor.
  */
 struct KOReaderRichPosition {
   uint32_t pctQ = 0;                       // Percentage quantized 0..1,000,000 (authoritative)
