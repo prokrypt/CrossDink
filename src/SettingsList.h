@@ -371,8 +371,10 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
   using Chord = CrossPointSettings::POWER_CHORD_ACTION;
 
   switch (catalog) {
-    case ShortcutOptionCatalog::PowerButton:
     case ShortcutOptionCatalog::SideButton:
+      if (action == Action::ROTATE_FLIP) return CrossPointSettings::SIDE_ROTATE_FLIP;
+      return static_cast<uint8_t>(action);
+    case ShortcutOptionCatalog::PowerButton:
       return static_cast<uint8_t>(action);
     case ShortcutOptionCatalog::ButtonChord:
       switch (action) {
@@ -408,6 +410,8 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return Chord::CHORD_LIBRARY;
         case Action::SELECT_CHAPTER:
           return Chord::CHORD_SELECT_CHAPTER;
+        case Action::ROTATE_FLIP:
+          return Chord::CHORD_ROTATE_FLIP;
         case Action::FILE_TRANSFER:
           return Chord::CHORD_FILE_TRANSFER;
         case Action::CALIBRE_WIRELESS:
@@ -506,6 +510,8 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return LongPress::LONG_MENU_BACK_HOME;
         case Action::SELECT_CHAPTER:
           return LongPress::LONG_MENU_SELECT_CHAPTER;
+        case Action::ROTATE_FLIP:
+          return LongPress::LONG_MENU_ROTATE_FLIP;
         case Action::PAGE_TURN:
         case Action::PREVIOUS_PAGE:
         case Action::NEARBY_POSITION_SYNC:
@@ -591,7 +597,6 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
       {CrossPointSettings::SIDE_DECREASE_FONT, StrId::STR_DECREASE_FONT_SIZE},
       {CrossPointSettings::SIDE_ROTATE_COUNTERCLOCKWISE, StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
       {CrossPointSettings::SIDE_ROTATE_CLOCKWISE, StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
-      {CrossPointSettings::SIDE_ROTATE_FLIP, StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
   };
   for (const auto& [action, label] : readerActions) {
     setting.enumValues.push_back(label);

@@ -129,7 +129,7 @@ TEST(ButtonShortcutController, EveryChordActionConsumesBothReleaseOrders) {
       Action::Footnotes,        Action::FileBrowser,        Action::CreateClipping,
       Action::LookupWord,       Action::ToggleHomeButton,   Action::QuickActions,
       Action::ToggleFrontlight, Action::ToggleTouchscreen,  Action::Library,
-      Action::SelectChapter,
+      Action::SelectChapter,    Action::RotateFlip,
   };
 
   for (const auto action : actions) {
@@ -153,7 +153,7 @@ TEST(ButtonShortcutController, NavigationUpDownChordsFireOnceAndReleaseBothButto
   using Action = ButtonShortcutController::ChordAction;
   using Event = ButtonShortcutController::Event;
 
-  for (const auto action : {Action::Library, Action::SelectChapter}) {
+  for (const auto action : {Action::Library, Action::SelectChapter, Action::RotateFlip}) {
     for (const bool releaseUpFirst : {false, true}) {
       ButtonShortcutController controller;
       const auto started = controller.updateUpDown(1U, true, true, action, false);
