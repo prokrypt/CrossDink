@@ -33,9 +33,9 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
-#include "activities/home/BookActions.h"
 #include "activities/util/BugReportActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "components/Toast.h"
 #include "network/SerialRemote.h"
 #include "util/BootReason.h"
 #include "util/BugReportSanitize.h"
@@ -655,7 +655,7 @@ void begin(Activity& source) {
       activityManager.requestUpdateAndWait();
       if (!outcome || !outcome->index) {
         RenderLock lock;
-        BookActions::drawToast(renderer, tr(STR_REPORT_NOT_SAVED));
+        Toast::show(renderer, tr(STR_REPORT_NOT_SAVED));
       }
     });
   });
@@ -702,7 +702,7 @@ void loop() {
     saveJob.secrets = SecretTable{};
     {
       RenderLock lock;
-      BookActions::drawToast(renderer, saveJob.ok ? tr(STR_REPORT_SAVED) : tr(STR_REPORT_NOT_SAVED));
+      Toast::show(renderer, saveJob.ok ? tr(STR_REPORT_SAVED) : tr(STR_REPORT_NOT_SAVED));
     }
 #ifndef SIMULATOR
     if (saveJob.ok) {
