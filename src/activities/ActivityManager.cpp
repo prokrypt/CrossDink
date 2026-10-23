@@ -597,7 +597,7 @@ void ActivityManager::renderTaskLoop() {
       deferredRender = !waiterPending && allowsDeferredRefresh(*currentActivity);
       batchInput = currentActivity->batchesInputDuringRefresh();
       renderer.setDeferFastRefresh(deferredRender);
-      PerfLog::noteRenderStart(currentActivity->name.c_str());
+      PerfLog::noteRenderStart(currentActivity->name.c_str(), renderer.isRefreshPending());
       // Interactive screens keep the booster on so input never waits on PON,
       // until the frame has dwelled PANEL_DWELL_OFF_MS.
       idlePanelOffArmed = true;

@@ -93,6 +93,7 @@ class OpdsBookBrowserActivity final : public Activity {
   std::bitset<MAX_OPDS_FEED_ENTRIES + 2> pageCached;  // feed rows whose page is in pageCache
   std::array<char, 16> countLabel{};                  // scratch for the row provider's count label
   uint32_t pageCachedAt = 0;                          // pageCache->changes() when pageCached was set
+  uint32_t marksPendingMs = 0;                        // millis() | 1 when pageCached first changed unshown
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
@@ -201,7 +202,7 @@ class OpdsBookBrowserActivity final : public Activity {
   // The server's file name is already on SD: Confirm replaces that file.
   void offerOverwrite(const std::string& path);
   void markBooksOnSd();
-  void markCachedFeeds();
+  bool markCachedFeeds();  // true when a row's mark changed
   bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
   void launchSearch();
   void performSearch(const std::string& query);
