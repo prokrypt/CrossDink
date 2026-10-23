@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -256,6 +257,7 @@ class ActivityManager {
   void notifyUserInput();
   bool skipLoopDelay() const;
   bool allowsRadioIdleSleep() const;
+  uint8_t inputPollDelayMs() const;
   std::string getCurrentBookPath() const;
   // Saves the open EPUB reader's position and returns its book, else empty.
   std::string flushEpubProgressForSync();
