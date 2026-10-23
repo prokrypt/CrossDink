@@ -176,8 +176,9 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
   }
   registryWasDirty = registryWasDirty || fontReloadPending_ || loadedRegistryRevision_ != registry_.revision();
 
-  const auto* family = registry_.findFamily(wantedFamily);
+  const auto* family = registry_.findSummary(wantedFamily);
   if (family && !family->ensureDetails()) {
+    LOG_ERR("SDFS", "Cannot read SD font details: %s (preserving selection)", wantedFamily);
 #if CROSSDINK_SCALABLE_FONTS
     ensureBuiltInReaderFont(renderer);
 #endif
@@ -328,7 +329,7 @@ bool SdCardFontSystem::registryRefreshedWithin(const uint32_t maxAgeMs) const {
 }
 
 void SdCardFontSystem::releaseRegistry() {
-  if (!registryLoaded_) return;
+  // FontInstaller can populate the shared registry directly.
   LOG_DBG("SDFS", "Releasing SD font catalog (%d families)", registry_.getFamilyCount());
   registry_.clear();
   registryLoaded_ = false;
