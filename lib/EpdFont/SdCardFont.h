@@ -38,7 +38,9 @@ class SdCardFont {
   // Load .cpfont file: reads header + intervals into RAM, records file layout offsets.
   // Supports v4 (multi-style) format.
   // Returns true on success.
-  bool load(const char* path);
+  // A nonzero ceiling is for optional content sizes: includes this object,
+  // conservative interval/ligature residency, and one reusable 4KB bitmap.
+  bool load(const char* path, size_t residentLimit = 0);
 
   // Pre-read glyphs needed for the given UTF-8 text from SD card.
   // styleMask: bitmask of styles to prewarm (bit 0=regular, 1=bold, 2=italic, 3=bolditalic).
@@ -247,6 +249,12 @@ class SdCardFont {
   PerStyle styles_[MAX_STYLES] = {};
   uint8_t styleCount_ = 0;
 
+  // Optional sizes never allocate page/advance caches or per-glyph bitmaps.
+  // 4KB covers normal content glyphs through 44pt; larger files are rejected
+  // before registration so layout falls back to a supported physical size.
+  static constexpr size_t CONTENT_BITMAP_BYTES = 4096;
+  std::unique_ptr<uint8_t[]> contentBitmap_;
+  bool leanContent_ = false;
   char filePath_[128] = {};
 
   // Overflow context: glyphMissHandler needs to know which style it's serving

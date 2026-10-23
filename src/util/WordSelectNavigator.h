@@ -47,6 +47,8 @@ class WordSelectNavigator {
     int continuationOf = -1;     // index of hyphenated first half (EPUB only)
     EpdFontFamily::Style style = EpdFontFamily::REGULAR;
     bool isIpa = false;
+    // Use the two padding bytes before fontId; word records do not grow.
+    uint16_t lineHeight = 0;
     int fontId = 0;  // resolved at extraction time; used by renderHighlight()
     // Pack display and compound-separator metadata into the byte that already
     // preceded focusBoundary without separate boolean storage.
@@ -60,22 +62,8 @@ class WordSelectNavigator {
     uint8_t compoundSeparatorBefore : 2;
     uint8_t focusBoundary = 0;
     uint16_t focusSuffixX = 0;
-#if CROSSDINK_SCALABLE_FONTS
-    uint16_t lineHeight = 0;
-#endif
-    int heightOr(const int fallback) const {
-#if CROSSDINK_SCALABLE_FONTS
-      if (lineHeight) return lineHeight;
-#endif
-      return fallback;
-    }
-    void setLineHeight(const uint16_t height) {
-#if CROSSDINK_SCALABLE_FONTS
-      lineHeight = height;
-#else
-      (void)height;
-#endif
-    }
+    int heightOr(const int fallback) const { return lineHeight ? lineHeight : fallback; }
+    void setLineHeight(const uint16_t height) { lineHeight = height; }
 
     WordInfo() : isRtl(0), joinWithoutSpaceBefore(0), isTableText(0), compoundSeparatorBefore(0) {}
   };

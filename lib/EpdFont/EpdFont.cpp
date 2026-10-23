@@ -246,18 +246,14 @@ const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
     }
   }
 
-  return nullptr;
+  // SD content sizes deliberately skip page-sized glyph caches. Exact family
+  // lookups must still reach their bounded on-demand loader before fallback.
+  return data->glyphMissHandler ? data->glyphMissHandler(data->glyphMissCtx, cp) : nullptr;
 }
 
 const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
   if (const EpdGlyph* glyph = findGlyph(cp)) {
     return glyph;
-  }
-
-  // Codepoint not in interval table — try on-demand loading (SD card fonts).
-  if (data->glyphMissHandler) {
-    const EpdGlyph* loaded = data->glyphMissHandler(data->glyphMissCtx, cp);
-    if (loaded) return loaded;
   }
 
   // Use the matching quotation mark when the turned comma is absent.
