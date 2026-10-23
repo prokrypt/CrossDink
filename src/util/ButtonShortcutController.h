@@ -43,6 +43,7 @@ class ButtonShortcutController {
     HomeReader = 32,
     BackHome = 33,
     SelectChapter = 34,
+    RotateFlip = 35,
   };
 
   enum class Event : uint8_t { None, QuickLockChanged, Screenshot, PageTurn, ConfiguredAction, TouchscreenEscapeHatch };
