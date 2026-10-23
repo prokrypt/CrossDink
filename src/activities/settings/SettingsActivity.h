@@ -340,7 +340,7 @@ class SettingsActivity final : public Activity {
  public:
   explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool dismissOnUpSwipe = false,
                             bool returnToParentOnClose = false, View view = View::Root);
-  bool allowGlobalHomeSwipeGesture() const override { return false; }
+  bool allowGlobalHomeSwipeGesture() const override { return !dismissOnUpSwipe && !optionPopup.isActive(); }
   bool handleHomeGesture() override;
   void onEnter() override;
   void onExit() override;
