@@ -65,6 +65,7 @@ class TxtReaderActivity final : public Activity {
   bool saveProgress(int page, bool hold = false);
   bool queueProgressSave();
   bool flushQueuedProgress(bool hold = false);
+  void saveProgressBeforeRestart();
   void loadProgress();
   void toggleDarkMode();
   void toggleHomeButtonInReader();
@@ -125,7 +126,7 @@ class TxtReaderActivity final : public Activity {
   std::string getCurrentBookTitle() const override { return txt ? txt->getTitle() : std::string{}; }
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
   // The panel leads to Settings, whose update and font downloads restart the device.
-  void onFrontlightPanelOpened() override { flushQueuedProgress(); }
+  void onFrontlightPanelOpened() override { saveProgressBeforeRestart(); }
   bool flushHeldProgress() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
