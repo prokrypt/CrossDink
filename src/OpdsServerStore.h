@@ -35,6 +35,10 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
  private:
   std::vector<OpdsServer> servers;
   bool loaded_ = false;
+  // Server list emptiness seen at the last release(): Home asks after every reader visit, so skip re-parsing
+  // opds.json for it. shortcut: an opds.json replaced by file transfer or USB while released keeps the old answer
+  // until the store loads again (OPDS settings, network boot); invalidate on those writes if it matters.
+  int8_t hasServersHint_ = -1;
 
   OpdsServerStore() = default;
   bool migrateFromSettings();
@@ -64,6 +68,7 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
     return servers.size();
   }
   bool hasServers() const {
+    if (!loaded_ && hasServersHint_ >= 0) return hasServersHint_ != 0;
     ensureLoaded();
     return !servers.empty();
   }
