@@ -396,7 +396,7 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   constexpr int buttonHeight = LyraMetrics::values.buttonHintsHeight;
   const int buttonY =
       LyraMetrics::values.buttonHintsHeight + UITheme::getButtonHintsBottomInset(renderer);  // Distance from bottom
-  constexpr int textYOffset = 7;  // Distance from top of button to text baseline
+  const int textYOffset = std::max(1, (buttonHeight - renderer.getTextHeight(SMALL_FONT_ID)) / 2);
   // Keyed to the portrait panel width: the 528-wide X3 gets more spacing than
   // the 480-wide boards (X4, X4 Pro, and the other 800x480 panels).
   constexpr int narrowButtonPositions[] = {58, 146, 254, 342};
