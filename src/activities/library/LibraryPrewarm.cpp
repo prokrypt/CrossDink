@@ -8,6 +8,7 @@
 #include <Logging.h>
 #include <TaskCores.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/idf_additions.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
@@ -34,7 +35,8 @@ bool finishForLibrary(uint32_t) { return true; }
 
 namespace {
 // The builder normally runs on the 8 KB Arduino loop task; give it the same.
-// Transient: the stack is freed as soon as the build has been collected.
+// Transient: the stack is freed as soon as the build has been collected. PSRAM
+// when it can be had: the walk reads and writes the SD card only, never flash.
 constexpr uint32_t kStackBytes = 8192;
 // Same internal-heap floor as other opportunistic background work: a paused
 // build keeps its buffers, and Home must still be able to decode covers.
@@ -44,6 +46,7 @@ constexpr uint32_t kMinMaxAlloc = 48 * 1024;
 // Everything below is touched by the main loop only, except the atomics and
 // the result fields, which the build task writes before giving doneSem.
 TaskHandle_t task = nullptr;
+bool psramStack = false;  // task was created with caps: delete it with caps
 SemaphoreHandle_t doneSem = nullptr;
 std::atomic<bool> paused{false};
 std::atomic<bool> cancelRequested{false};
@@ -106,7 +109,10 @@ void wake() {
 }
 
 void finalize() {
-  vTaskDelete(task);
+  if (psramStack)
+    vTaskDeleteWithCaps(task);
+  else
+    vTaskDelete(task);
   task = nullptr;
   if (buildOk) {
     // The generation read before the walk: a change made during it leaves the
@@ -161,8 +167,10 @@ void start() {
   // Priority 1 on the worker core, away from the render task. At idle
   // priority it would time-slice with IDLE0 (which does not yield) and get
   // about half the core. Mutex priority inheritance covers the card lock.
-  if (xTaskCreatePinnedToCore(&buildTask, "LibPrewarm", kStackBytes, nullptr, tskIDLE_PRIORITY + 1, &task,
-                              TaskCores::kWorker) != pdPASS) {
+  psramStack = xTaskCreatePinnedToCoreWithCaps(&buildTask, "LibPrewarm", kStackBytes, nullptr, tskIDLE_PRIORITY + 1,
+                                               &task, TaskCores::kWorker, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+  if (!psramStack && xTaskCreatePinnedToCore(&buildTask, "LibPrewarm", kStackBytes, nullptr, tskIDLE_PRIORITY + 1,
+                                             &task, TaskCores::kWorker) != pdPASS) {
     task = nullptr;
     gaveUp = true;
     LOG_ERR("LIBPW", "Cannot start background Library build (%" PRIu32 " free, %" PRIu32 " max alloc)",
