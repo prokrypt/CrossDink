@@ -639,6 +639,14 @@ void CrossPointWebServer::begin(const bool logOnly) {
   LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %" PRId32 " bytes", ESP.getFreeHeap());
 }
 
+bool CrossPointWebServer::dropUploadIfStopping() const {
+  if (running.load(std::memory_order_acquire)) return false;
+  // stop() is waiting for this request: end the body read now instead of
+  // after its grace period and the client timeout.
+  server->client().stop();
+  return true;
+}
+
 void CrossPointWebServer::abortWsUpload(const char* tag) {
   wsWriteBehind.abort();  // the writer task must be done with the file first
   // Explicit close() required: file-scope global persists beyond function scope
@@ -2441,14 +2449,30 @@ static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
   return true;
 }
 
+void CrossPointWebServer::abortUpload(UploadState& state) const {
+  state.powerSaveGuard.reset();
+  state.bufferPos = 0;  // Discard buffered data
+  if (state.file) {
+    state.file.close();
+    removePartialUpload(state);
+  }
+  state.success = false;
+  state.error = "Upload aborted";
+  LOG_DBG("WEB", "Upload aborted");
+}
+
 void CrossPointWebServer::handleUpload(UploadState& state) const {
   // Safety check: ensure server is still valid
-  if (!running || !server) {
-    LOG_DBG("WEB", "[UPLOAD] ERROR: handleUpload called but server not running!");
+  if (!server) {
+    LOG_DBG("WEB", "[UPLOAD] ERROR: handleUpload called with null server!");
     return;
   }
 
   const HTTPUpload& upload = server->upload();
+  if (dropUploadIfStopping()) {
+    abortUpload(state);
+    return;
+  }
 
   if (upload.status == UPLOAD_FILE_START) {
     state.fileName = StringUtils::sanitizeFilename(upload.filename.c_str()).c_str();
@@ -2595,14 +2619,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
-    state.powerSaveGuard.reset();
-    state.bufferPos = 0;  // Discard buffered data
-    if (state.file) {
-      state.file.close();
-      removePartialUpload(state);
-    }
-    state.error = "Upload aborted";
-    LOG_DBG("WEB", "Upload aborted");
+    abortUpload(state);
   }
 }
 
@@ -3911,8 +3928,23 @@ void CrossPointWebServer::handleFontList() const {
   server->sendContent("");
 }
 
+void CrossPointWebServer::abortFontUpload() {
+  fontUpload.bufferPos = 0;
+  // Only a file this upload still has open is partial; filePath may name the last finished font.
+  if (fontUpload.file) {
+    fontUpload.file.close();
+    Storage.remove(fontUpload.filePath.c_str());
+  }
+  fontUpload.valid = false;
+  LOG_DBG("WEB", "Font upload aborted");
+}
+
 void CrossPointWebServer::handleFontUploadData() {
   HTTPUpload& upload = server->upload();
+  if (dropUploadIfStopping()) {
+    abortFontUpload();
+    return;
+  }
 
   switch (upload.status) {
     case UPLOAD_FILE_START: {
@@ -4020,14 +4052,7 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_ABORTED: {
-      if (fontUpload.file) {
-        fontUpload.file.close();
-      }
-      if (!fontUpload.filePath.empty()) {
-        Storage.remove(fontUpload.filePath.c_str());
-      }
-      fontUpload.valid = false;
-      LOG_DBG("WEB", "Font upload aborted");
+      abortFontUpload();
       break;
     }
   }
