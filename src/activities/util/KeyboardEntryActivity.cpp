@@ -146,9 +146,6 @@ const fui::KeyboardLayout URL_SNIPPET_LAYOUT{URL_SNIP_ROWS, 4};
 void KeyboardEntryActivity::onEnter() {
   Activity::onEnter();
   inputLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  // Every keystroke repaints: alternating the gray panel behind the keys would
-  // drive half its pixels on each short Turbo DU refresh, so hold its phase here.
-  renderer.setDitherAlternate(false);
   cursorPos = text.length();
   layoutId = inputType == InputType::Url ? fui::KeyboardLayoutId::QwertyEn : keyboard_layouts::startingLayout();
   const uint16_t enabledLayouts = keyboard_layouts::enabled();
@@ -179,7 +176,6 @@ void KeyboardEntryActivity::onEnter() {
 
 void KeyboardEntryActivity::onExit() {
   Activity::onExit();
-  renderer.setDitherAlternate(true);
 #ifndef SIMULATOR
   // ActivityManager holds RenderLock around onExit, so no refresh is running.
   freeink::setUc8179KbdExperiment(nullptr);

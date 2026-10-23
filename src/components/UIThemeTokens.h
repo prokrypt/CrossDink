@@ -31,7 +31,7 @@ inline int16_t scaledListMetric(const int metric) {
 }
 }  // namespace UiThemeTokensDetail
 
-// Lyra draws selection boxes in the header rule's 50% dither (swaps phase on full repaints).
+// Lyra draws selection boxes in a 50% dither.
 inline bool uiGraySelection() {
   return UITheme::getInstance().getMetrics().listSelectionStyle == 5;  // fui::SelectionStyle::GrayOutline
 }

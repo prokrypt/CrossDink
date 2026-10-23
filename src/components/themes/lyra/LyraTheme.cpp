@@ -276,8 +276,7 @@ void LyraTheme::drawListWithMetrics(const GfxRenderer& renderer, Rect rect, int 
     if (invertSelectedRows) {
       renderer.fillRoundedRect(selX, selY, selW, rowHeight, cornerRadius, Color::Black);
     } else {
-      // Outline, not a dither fill: fewer pixels change per move, all in lines, so less ghosting.
-      // 50% gray like the header rule; its dither swaps on full repaints (burn-in guard).
+      // 50% dotted outline, not a dither fill: fewer pixels change per move, all in lines, so less ghosting.
       renderer.drawRoundedRect(selX, selY, selW, rowHeight, 2, cornerRadius, Color::DarkGray);
     }
   }
