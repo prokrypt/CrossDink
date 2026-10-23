@@ -514,8 +514,8 @@ bool ClipSelectionActivity::finishDictionarySelection() {
     return false;
   }
 
-  const int from = std::min(firstOrder, lastOrder);
-  const int to = std::max(firstOrder, lastOrder);
+  int from = std::min(firstOrder, lastOrder);
+  int to = std::max(firstOrder, lastOrder);
   if (!firstRequestedWord || !lastRequestedWord ||
       dictionaryRequest.firstWordByteOffset > firstRequestedWord->textLength ||
       dictionaryRequest.lastWordByteEndOffset > lastRequestedWord->textLength ||
@@ -525,10 +525,12 @@ bool ClipSelectionActivity::finishDictionarySelection() {
     LOG_ERR("CLIP", "Dictionary clipping fragment range is invalid");
     return false;
   }
-  const ClipTextBuilder::SelectionBounds selectionBounds{
+  ClipTextBuilder::SelectionBounds selectionBounds{
       dictionaryRequest.firstPageOffset,     dictionaryRequest.firstPageWordOrdinal,
       dictionaryRequest.firstWordByteOffset, dictionaryRequest.lastPageOffset,
       dictionaryRequest.lastPageWordOrdinal, dictionaryRequest.lastWordByteEndOffset};
+  ClipTextBuilder::fitBoundsToPunctuation(wordStore, readingOrder.data(), static_cast<int>(readingOrderSize), from, to,
+                                          selectionBounds);
   auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, startPageInSection, section.pageCount,
                                        &selectionBounds);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
