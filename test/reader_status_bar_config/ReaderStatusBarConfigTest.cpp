@@ -272,3 +272,25 @@ TEST(ReaderStatusBarLayout, TopTextUsesHomeInsetAndOnlyEnabledProgressReservesSp
   EXPECT_EQ(readerStatusBarTotalHeight(ReaderStatusBarPosition::Bottom, true, 0, textLane), 19);
   EXPECT_EQ(readerStatusBarTotalHeight(ReaderStatusBarPosition::Bottom, false, 7, textLane), 14);
 }
+
+TEST(ReaderStatusBarConfig, ChapterPercentageKeepsSavedItemIdsAndRoundTripsBothBars) {
+  EXPECT_EQ(static_cast<int>(ReaderStatusBarItem::BookProgressPercentage), 7);
+  EXPECT_EQ(static_cast<int>(ReaderStatusBarItem::ChapterProgressPercentage), 10);
+  const auto item = ReaderStatusBarItem::ChapterProgressPercentage;
+  EXPECT_TRUE(validReaderStatusBarItemValue(static_cast<int>(item), false));
+  ReaderStatusBarsPayload outgoing;
+  outgoing.top.slots[0] = item;
+  outgoing.bottom.slots[6] = item;
+  outgoing.top.percentageFormat = 2;
+  outgoing.bottom.percentageFormat = 1;
+  JsonDocument saved;
+  writeReaderStatusBarJson(saved["top"].to<JsonObject>(), outgoing.top);
+  writeReaderStatusBarJson(saved["bottom"].to<JsonObject>(), outgoing.bottom);
+  saved["xtcMode"] = 3;
+  ReaderStatusBarsPayload loaded;
+  ASSERT_TRUE(readReaderStatusBarsPayload(saved.as<JsonVariantConst>(), loaded, false, 3, 3, 3, 4));
+  EXPECT_EQ(loaded.top.slots, outgoing.top.slots);
+  EXPECT_EQ(loaded.bottom.slots, outgoing.bottom.slots);
+  EXPECT_EQ(loaded.top.percentageFormat, 2);
+  EXPECT_EQ(loaded.bottom.percentageFormat, 1);
+}

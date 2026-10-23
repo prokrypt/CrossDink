@@ -1087,3 +1087,4 @@ STR_SYNC_SERVER_SETUP_FIRST: "Set up an account in Settings > System > Sync Serv
 STR_SYNC_TO_REVIEW_FORMAT: "Conflicts to review: %u"
 STR_UPLOADING_CHANGES: "Uploading changes..."
 STR_WHAT_TO_SYNC: "What to Sync"
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Chapter Progress Percentage"

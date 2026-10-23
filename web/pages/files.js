@@ -56,6 +56,9 @@ function showNotification(message, type = "info") {
     document.body.appendChild(notification);
   }
 
+  clearTimeout(notification.hideTimer);
+  clearTimeout(notification.removeTimer);
+
   // Set styles based on type
   const styles = {
     success: "background-color: #27ae60;",
@@ -71,10 +74,10 @@ function showNotification(message, type = "info") {
   notification.style.transform = "translateX(0)";
 
   // Auto-hide after 5 seconds
-  setTimeout(() => {
+  notification.hideTimer = setTimeout(() => {
     notification.style.opacity = "0";
     notification.style.transform = "translateX(100%)";
-    setTimeout(() => {
+    notification.removeTimer = setTimeout(() => {
       if (notification.parentNode) {
         notification.parentNode.removeChild(notification);
       }

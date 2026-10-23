@@ -39,6 +39,7 @@ constexpr ReaderStatusBarItem pickerItems[] = {
     ReaderStatusBarItem::ChapterPageCount,
     ReaderStatusBarItem::StablePageNumber,
     ReaderStatusBarItem::BookProgressPercentage,
+    ReaderStatusBarItem::ChapterProgressPercentage,
     ReaderStatusBarItem::TitleBook,
     ReaderStatusBarItem::TitleChapter,
     ReaderStatusBarItem::Empty,
@@ -60,6 +61,8 @@ std::string itemLabel(const ReaderStatusBarItem item) {
       return tr(STR_STABLE_PAGE_NUMBERS);
     case ReaderStatusBarItem::BookProgressPercentage:
       return tr(STR_BOOK_PROGRESS_PERCENTAGE);
+    case ReaderStatusBarItem::ChapterProgressPercentage:
+      return tr(STR_CHAPTER_PROGRESS_PERCENTAGE);
     case ReaderStatusBarItem::TitleBook:
       return std::string(tr(STR_TITLE)) + " (" + tr(STR_BOOK) + ")";
     case ReaderStatusBarItem::TitleChapter:
@@ -126,7 +129,11 @@ void StatusBarSettingsActivity::onEnter() {
 void StatusBarSettingsActivity::onExit() { Activity::onExit(); }
 
 bool StatusBarSettingsActivity::handleHomeGesture() {
-  goBack();
+  if (mappedInput.wasBottomEdgeUpSwipe()) {
+    onGoHome();
+  } else {
+    goBack();
+  }
   return true;
 }
 

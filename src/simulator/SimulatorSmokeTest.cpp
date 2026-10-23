@@ -265,14 +265,17 @@ class SimulatorSmokeTest {
     const auto all = getSettingsList();
     const auto gestures = buildControlsTapsGesturesSettingsList(all);
     if (gpio.hasTouch()) {
-      if (gestures.size() < 3 || gestures[0].nameId != StrId::STR_NEXT_PAGE ||
-          gestures[1].nameId != StrId::STR_PREV_PAGE || gestures[0].enumValues != gestures[1].enumValues) {
+      if (gestures.empty() || gestures[0].nameId != StrId::STR_TOUCH_READER_CONTROLS) {
+        fail("Reader touch toggle missing from device gesture settings");
+      }
+      if (gestures.size() < 4 || gestures[1].nameId != StrId::STR_NEXT_PAGE ||
+          gestures[2].nameId != StrId::STR_PREV_PAGE || gestures[1].enumValues != gestures[2].enumValues) {
         fail("Page gesture settings order/options mismatch");
       }
-      if (gpio.supportsMultiTouch() && (gestures.size() < 4 || gestures[3].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
+      if (gpio.supportsMultiTouch() && (gestures.size() < 5 || gestures[4].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
         fail("Two-finger rotation gesture setting order mismatch");
       }
-      const size_t statusIndex = gpio.supportsMultiTouch() ? 4 : 2;
+      const size_t statusIndex = gpio.supportsMultiTouch() ? 5 : 3;
       if (gestures.size() <= statusIndex || gestures[statusIndex].nameId != StrId::STR_TAP_HIDE_STATUS_BAR) {
         fail("Status bar gesture setting order mismatch");
       }
