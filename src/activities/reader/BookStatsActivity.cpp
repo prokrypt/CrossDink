@@ -5,6 +5,7 @@
 
 #include "BookStatsView.h"
 #include "EpubReaderMenuModel.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/StatsUploadActivity.h"
