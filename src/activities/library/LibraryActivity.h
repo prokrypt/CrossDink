@@ -13,6 +13,7 @@
 #include "activities/Activity.h"
 #include "activities/home/RecentBookProgress.h"
 #include "components/OptionPopup.h"
+#include "components/SwipeDeleteRow.h"
 #include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #include "util/WorkerTask.h"
@@ -36,6 +37,7 @@ class LibraryActivity final : public Activity {
   using UiApp = UiAppLarge;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
+  SwipeDeleteRow swipeDelete;
   ButtonNavigator buttonNavigator;
   freeink::ui::ListNav listNav;
   OptionPopup actionPopup;
@@ -141,7 +143,10 @@ class LibraryActivity final : public Activity {
     int16_t pressY = 0;
     int16_t releaseX = 0;
     int16_t releaseY = 0;
-    int8_t scrollPages = 0;  // positive moves down the list
+    int8_t scrollPages = 0;                                                      // positive moves down the list
+    MappedInputManager::SwipeDir rowSwipe = MappedInputManager::SwipeDir::None;  // list: swipe-to-delete
+    int16_t swipeX = 0;
+    int16_t swipeY = 0;
     int8_t steps = 0;
     int8_t pageSteps = 0;
   };
@@ -154,6 +159,7 @@ class LibraryActivity final : public Activity {
   int touchLastY = 0;
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onDeleteEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onControlEvent(const freeink::ui::ActionEvent& event, void* user);
   static void provideRow(void* user, uint16_t row, freeink::ui::ListItem& item);

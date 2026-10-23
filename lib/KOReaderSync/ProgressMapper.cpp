@@ -883,7 +883,9 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
                                                 const PositionCoordinateSpace coordinateSpace) {
   CrossPointPosition result{};
   KOReaderPosition mappedKoPos = koPos;
-  if (coordinateSpace == PositionCoordinateSpace::SourceDocument) {
+  // Percentage-only records have no source locator to translate. They use the
+  // approximate whole-book fallback below; real source XPaths still require a map.
+  if (coordinateSpace == PositionCoordinateSpace::SourceDocument && !mappedKoPos.xpath.empty()) {
     int mappedSpineIndex = -1;
     if (!mapSourceXPathToCurrent(epub, mappedKoPos.xpath, mappedSpineIndex)) {
       LOG_ERR("PM", "Cannot map source XPath into this optimized EPUB; re-optimize the EPUB");

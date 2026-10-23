@@ -7,6 +7,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
 /**
@@ -27,9 +28,11 @@ class KOReaderSettingsActivity final : public Activity {
   // header stays on GUI.drawHeader for the battery indicator.
   using UiApp = freeink::ui::FreeInkApp<16, 4>;
 
+  OptionPopup optionPopup;
   ButtonNavigator buttonNavigator;
   freeink::ui::ListNav listNav;
 
+  int headerErrorRow = -1;
   size_t selectedIndex = 0;
   std::string rowValue;  // Scratch for the row being laid out; read only during that row's draw.
 

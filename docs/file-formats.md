@@ -767,6 +767,14 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 103
+
+Complete caches use `103`; suspended partial caches use `0xE9`, and `0xEA` joins
+the retired sentinels. The payload is unchanged, but token boundaries after
+visible hyphens and dashes (not soft hyphens or U+2011) may now end a line
+without inserting a space, and justification no longer stretches boundaries
+inside hyphenated words, so both cache types rebuild.
+
 ### Version 102
 
 Complete caches use `102`; suspended partial caches use `0xEA`, and `0xEB`-`0xED`
@@ -1443,3 +1451,7 @@ EPUB layout cache versions and identities are unchanged by this catalog.
 `/.crossdink/opds.json` holds `servers`, an array of objects with `name`, `url`, `username`, `password_obf`, `filenameFormat` (`author_title`, `title_author` or `server_filename`) and an optional `downloadFolder`. A missing or empty `downloadFolder` uses the global `opdsDownloadFolder` setting; `/` is the SD root; anything else is an absolute folder path of at most 63 bytes, normalized on load. An invalid value is logged and treated as empty. Older files need no migration.
 Version 2 rescans `.ttf` and `.otf` files so static TrueType and OpenType CFF
 faces rejected by earlier firmware enter the catalog. The binary layout is unchanged.
+
+### KOReader server configuration v3
+
+`/.crossdink/koreader.json` adds `serverType` (0: CrossPoint, 1: KOSync, 2: Other) and up to two `headers` entries with `name` and device-obfuscated `value_obf`. Version 2 configurations keep their URL and opt-ins; the hosted default maps to CrossPoint and custom URLs to KOSync. No EPUB cache layout changes.

@@ -15,6 +15,7 @@
 namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
+constexpr fui::ActionId ACTION_DELETE = 2;
 }  // namespace
 
 EpubReaderBookmarkListActivity::EpubReaderBookmarkListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -32,6 +33,7 @@ void EpubReaderBookmarkListActivity::onEnter() {
   uiReady = false;
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_ROW, &EpubReaderBookmarkListActivity::onRowEvent, this);
+  app.on(ACTION_DELETE, &EpubReaderBookmarkListActivity::onDeleteEvent, this);
   app.setScreen(&EpubReaderBookmarkListActivity::listScreen, this);
   requestUpdate();
 }
@@ -49,6 +51,7 @@ void EpubReaderBookmarkListActivity::deleteSelectedBookmark() {
 }
 
 void EpubReaderBookmarkListActivity::showBookmarkDeletePopup() {
+  swipeDelete.close();
   if (bookmarks.empty() || selectedIndex < 0 || selectedIndex >= static_cast<int>(bookmarks.size())) return;
   confirmingDelete = true;
   const char* options[] = {tr(STR_CANCEL), tr(STR_DELETE)};
@@ -68,6 +71,16 @@ void EpubReaderBookmarkListActivity::selectBookmark() {
   finish();
 }
 
+void EpubReaderBookmarkListActivity::onDeleteEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<EpubReaderBookmarkListActivity*>(user);
+  if (event.value < 0 || event.value != self->swipeDelete.index ||
+      event.value >= static_cast<int>(self->bookmarks.size()))
+    return;
+  self->selectedIndex = event.value;
+  self->app.clearTapFlash();
+  self->showBookmarkDeletePopup();
+}
+
 void EpubReaderBookmarkListActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<EpubReaderBookmarkListActivity*>(user);
   if (event.value < 0 || event.value >= static_cast<int16_t>(self->bookmarks.size())) return;
@@ -82,6 +95,7 @@ void EpubReaderBookmarkListActivity::onRowEvent(const fui::ActionEvent& event, v
 }
 
 void EpubReaderBookmarkListActivity::loop() {
+  RenderLock lock(*this);
   if (confirmPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
   if (confirmingDelete) {
     confirmingDelete = false;
@@ -105,8 +119,20 @@ void EpubReaderBookmarkListActivity::loop() {
     return;
   }
   if (uiReady) {
+    MappedInputManager::SwipeDir direction = MappedInputManager::SwipeDir::None;
+    int sx = 0, sy = 0, ex = 0, ey = 0;
+    if (mappedInput.wasSwipeWithPoints(direction, sx, sy, ex, ey)) {
+      const bool hadReveal = swipeDelete.index >= 0;
+      const bool horizontal = swipeDelete.swipe(app, direction, sx, sy, ACTION_ROW);
+      if (horizontal || hadReveal) requestUpdate();
+      if (horizontal) return;
+    }
     const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
     if (snap.touchPressed || snap.touchReleased) {
+      if (swipeDelete.dismissTap(app, snap, ACTION_DELETE)) {
+        requestUpdate();
+        return;
+      }
       const auto event = app.route(snap);
       if (app.invalidated()) requestUpdate();
       if (event) return;
@@ -128,6 +154,7 @@ void EpubReaderBookmarkListActivity::loop() {
     return;
   }
   const auto move = [this, total](const int next) {
+    swipeDelete.close();
     selectedIndex = next;
     topIndex = followListSelection(selectedIndex, topIndex, visibleRows, total);
     requestUpdate();
@@ -179,6 +206,8 @@ void EpubReaderBookmarkListActivity::buildListScreen(UiApp::ScreenType& screen) 
   props.items = items.data();
   props.count = static_cast<uint16_t>(items.size());
   props.selectedIndex = static_cast<int16_t>(selectedIndex);
+  const auto reveal = swipeDelete.reveal(ACTION_DELETE);
+  props.reveal = &reveal;
   props.action = ACTION_ROW;
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
   props.valueInset = 8;

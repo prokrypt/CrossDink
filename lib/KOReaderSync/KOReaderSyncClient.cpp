@@ -1,6 +1,7 @@
 #include "KOReaderSyncClient.h"
 
 #include <ArduinoJson.h>
+#include <Epub.h>
 #include <Knobs.h>
 #ifdef SIMULATOR
 #include <ArduinoJsonStringCompat.h>
@@ -17,7 +18,9 @@
 #include <base64.h>
 #endif
 
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <memory>
@@ -140,6 +143,7 @@ constexpr size_t MAX_AUTH_RESPONSE_BYTES = 4096;
 
 #ifdef SIMULATOR
 void addAuthHeaders(HTTPClient& http) {
+  applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
   http.addHeader("Accept", "application/vnd.koreader.v1+json");
   http.addHeader("x-auth-user", KOREADER_STORE.getUsername().c_str());
   http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password().c_str());
@@ -173,6 +177,7 @@ void applyAuthHeaders(freeink::SecureHttpClient& http) {
   const std::string credentials = KOREADER_STORE.getUsername() + ":" + KOREADER_STORE.getPassword();
   const String encoded = base64::encode(credentials.c_str());
   http.addHeader("Authorization", std::string("Basic ") + encoded.c_str());
+  applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
 }
 #endif
 
@@ -335,6 +340,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
   }
+  applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
   http.addHeader("Accept", "application/vnd.koreader.v1+json");
   http.addHeader("Content-Type", "application/json");
   const int httpCode = http.sendRequest("POST", body);
@@ -358,7 +364,8 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
     return NO_CREDENTIALS;
   }
 
-  const std::string url = KOREADER_STORE.getBaseUrl() + "/syncs/progress/" + documentHash;
+  const std::string url =
+      KOREADER_STORE.getBaseUrl() + "/syncs/progress/" + documentHash + "?position_kinds=locator,percentage";
   LOG_DBG("KOSync", "Getting progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
   if (insufficientHeap()) return LOW_MEMORY;
 
@@ -399,13 +406,14 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
       return JSON_ERROR;
     }
 
-    if (doc["progress"].isNull()) {
+    if (doc["progress"].isNull() && !(doc["percentage"].is<float>() && std::isfinite(doc["percentage"].as<float>()) &&
+                                      doc["percentage"].as<float>() >= 0 && doc["percentage"].as<float>() <= 1)) {
       LOG_DBG("KOSync", "No stored progress in successful response");
       return NOT_FOUND;
     }
 
     outProgress.document = documentHash;
-    outProgress.progress = doc["progress"].as<std::string>();
+    outProgress.progress = doc["progress"] | "";
     outProgress.percentage = doc["percentage"].as<float>();
     outProgress.device = doc["device"].as<std::string>();
     outProgress.deviceId = doc["device_id"].as<std::string>();
@@ -463,21 +471,22 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
       return JSON_ERROR;
     }
 
-    if (doc["progress"].isNull()) {
+    if (doc["progress"].isNull() && !(doc["percentage"].is<float>() && std::isfinite(doc["percentage"].as<float>()) &&
+                                      doc["percentage"].as<float>() >= 0 && doc["percentage"].as<float>() <= 1)) {
       releaseClient(http, httpCode);
       LOG_DBG("KOSync", "No stored progress in successful response");
       return NOT_FOUND;
     }
 
     outProgress.document = documentHash;
-    outProgress.progress = doc["progress"].as<std::string>();
+    outProgress.progress = doc["progress"] | "";
     outProgress.percentage = doc["percentage"].as<float>();
     outProgress.device = doc["device"].as<std::string>();
     outProgress.deviceId = doc["device_id"].as<std::string>();
     outProgress.timestamp = doc["timestamp"].as<int64_t>();
 
     outProgress.position.reset();
-    if (KOREADER_STORE.usesCrossPointSyncServer()) {
+    if (KOREADER_STORE.supportsRichProgress()) {
       const JsonObjectConst pos = doc["position"].as<JsonObjectConst>();
       if (!pos.isNull()) {
         KOReaderRichPosition rich;
@@ -516,6 +525,12 @@ void fillProgressJson(JsonObject item, const KOReaderProgress& progress) {
     meta["filename"] = progress.metadata->filename;
     meta["title"] = progress.metadata->title;
     meta["authors"] = progress.metadata->authors;
+    if (KOREADER_STORE.supportsExtendedMetadata()) {
+      if (!progress.metadata->isbn.empty()) meta["isbn"] = progress.metadata->isbn;
+      if (!progress.metadata->asin.empty()) meta["asin"] = progress.metadata->asin;
+      if (!progress.metadata->series.empty()) meta["series"] = progress.metadata->series;
+      if (progress.metadata->seriesIndex) meta["series_index"] = *progress.metadata->seriesIndex;
+    }
   }
   item["progress"] = progress.progress;
   item["percentage"] = progress.percentage;
@@ -523,8 +538,8 @@ void fillProgressJson(JsonObject item, const KOReaderProgress& progress) {
   // shortcut: every push keeps the shared id; the per-reader id the change feed
   // needs comes with the bulk sync screens, which are its only users.
   item["device_id"] = SHARED_DEVICE_ID;
-  if (progress.position.has_value() && KOREADER_STORE.usesCrossPointSyncServer()) {
-    // CrossPoint-specific extension: do not send it to third-party KOSync servers.
+  if (progress.position.has_value() && KOREADER_STORE.supportsRichProgress()) {
+    // Rich positions are opt-in by profile; standard KOSync never receives them.
     const auto& p = *progress.position;
     auto pos = item["position"].to<JsonObject>();
     pos["pctQ"] = p.pctQ;
@@ -686,7 +701,7 @@ KOReaderSyncClient::Error parseChangesPage(const char* body, const size_t length
   page.cursor = doc["cursor"].as<uint32_t>();
   page.more = doc["more"].as<bool>();
   page.count = 0;
-  const bool richPositions = KOREADER_STORE.usesCrossPointSyncServer();
+  const bool richPositions = KOREADER_STORE.supportsRichProgress();
   // ~300 bytes with its aliases: one allocation per page instead of stack
   // space on a path that runs with TLS up.
   auto changeStorage = makeUniqueNoThrow<KOReaderProgressChange>();
@@ -855,4 +870,19 @@ std::string KOReaderSyncClient::errorString(Error error) {
     default:
       return tr(STR_UNKNOWN_ERROR);
   }
+}
+
+void KOReaderMetadata::loadExtended(Epub& epub) {
+  if (!KOREADER_STORE.supportsExtendedMetadata()) return;
+  Epub::SyncMetadata metadata;
+  if (!epub.loadSyncMetadata(metadata)) {
+    LOG_ERR("KOSync", "Cannot read extended metadata");
+    return;
+  }
+  isbn = std::move(metadata.isbn);
+  asin = std::move(metadata.asin);
+  series = std::move(metadata.series);
+  char* end = nullptr;
+  const float index = std::strtof(metadata.seriesIndex.c_str(), &end);
+  if (end != metadata.seriesIndex.c_str() && *end == '\0' && std::isfinite(index)) seriesIndex = index;
 }

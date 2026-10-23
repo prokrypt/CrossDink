@@ -1602,7 +1602,6 @@ void HomeActivity::loop() {
     }
 
     const int bookCount = static_cast<int>(recentBooks.size());
-    const int tabCount = hasOpdsServers ? 5 : 4;
     const auto cycleBand = [this](const int base, const int count, const int dir) {
       if (count <= 0) return;
       const int current = selectorIndex - base;
@@ -1612,10 +1611,12 @@ void HomeActivity::loop() {
     };
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [&] { cycleBand(0, bookCount, -1); });
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [&] { cycleBand(0, bookCount, 1); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left},
-                                         [&] { cycleBand(bookCount, tabCount, -1); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right},
-                                         [&] { cycleBand(bookCount, tabCount, 1); });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this, &cycleBand] {
+      cycleBand(static_cast<int>(recentBooks.size()), hasOpdsServers ? 5 : 4, -1);
+    });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this, &cycleBand] {
+      cycleBand(static_cast<int>(recentBooks.size()), hasOpdsServers ? 5 : 4, 1);
+    });
     return;
   }
 

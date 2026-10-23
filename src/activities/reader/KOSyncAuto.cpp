@@ -190,9 +190,10 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, s
     meta.filename = slash != std::string::npos ? path.substr(slash + 1) : path;
     meta.title = epub->getTitle();
     meta.authors = epub->getAuthor();
+    meta.loadExtended(*epub);
     out.metadata = std::move(meta);
   }
-  if (KOREADER_STORE.usesCrossPointSyncServer()) {
+  if (KOREADER_STORE.supportsRichProgress()) {
     KOReaderRichPosition rich;
     rich.pctQ = static_cast<uint32_t>(std::clamp(ko.percentage, 0.0f, 1.0f) * 1000000.0f + 0.5f);
     rich.spineIndex = static_cast<uint16_t>(spine);
@@ -204,11 +205,11 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, s
   return true;
 }
 
-// The book's badge reads Unsynced: its % is past the last mark, so a sync since
-// then failed or never ran. The mark survives a reboot, unlike unpushedPath.
+// The book's badge reads Unsynced: its % is past the server's at the last mark, so
+// a sync since then failed or never ran. The mark survives a reboot, unlike unpushedPath.
 bool lastSyncFailed(const std::string& cachePath, const uint16_t bp) {
   const RecentBookProgress::SyncMark mark = RecentBookProgress::syncMark(cachePath);
-  return mark.bp != RecentBookProgress::SyncMark::kNever && !mark.serverAhead && bp > mark.bp;
+  return mark.bp != RecentBookProgress::SyncMark::kNever && bp > mark.bp;
 }
 
 std::string documentId(const std::string& path, const DocumentMatchMethod method) {
@@ -283,7 +284,7 @@ void run(void*) {
             knownRemote);
     pushOutcome = knownRemote - progress.percentage > SAME_PROGRESS_EPSILON ? kosync_auto::PushOutcome::ServerAhead
                                                                             : kosync_auto::PushOutcome::Same;
-    RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead);
+    RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead, knownRemote);
     return;
   } else {
     altHash = documentId(jobPath, otherMethod(method));  // SD reads before the radio comes up
@@ -359,7 +360,8 @@ void run(void*) {
         pushOutcome = pulled.percentage - progress.percentage > SAME_PROGRESS_EPSILON
                           ? kosync_auto::PushOutcome::ServerAhead
                           : kosync_auto::PushOutcome::Same;
-        RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead);
+        RecentBookProgress::noteSynced(cachePath, bp, pushOutcome == kosync_auto::PushOutcome::ServerAhead,
+                                       pulled.percentage);
       } else if ((result == KOReaderSyncClient::OK || result == KOReaderSyncClient::NOT_FOUND) &&
                  !radioClaimed.load()) {
         result = retriedOnce([&] { return KOReaderSyncClient::updateProgress(progress); });

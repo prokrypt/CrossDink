@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "InlineImageToken.h"
+#include "TokenBoundary.h"
 #include "WordSpacing.h"
 #include "hyphenation/Hyphenator.h"
 
@@ -74,6 +75,7 @@ uint32_t lastCodepoint(const std::string& word) {
 bool containsSoftHyphen(const std::string& word) { return word.find(SOFT_HYPHEN_UTF8) != std::string::npos; }
 
 bool isNoBreakBeforeCjkPunctuation(const uint32_t cp) {
+  if (TokenBoundary::allowsBreakAfterExplicitHyphen(cp)) return true;
   switch (cp) {
     case '.':
     case ',':
@@ -164,15 +166,17 @@ uint32_t countCodepoints(const std::string_view text) {
 }
 
 bool cjkBoundaryAllowsBreak(const uint32_t leftCp, const uint32_t rightCp) {
+  if (utf8IsCombiningMark(rightCp) || utf8IsVariationSelector(rightCp)) return false;
+  if (TokenBoundary::allowsBreakAfterExplicitHyphen(leftCp)) return !isNoBreakBeforeCjkPunctuation(rightCp);
   if (!utf8IsCjkBreakable(leftCp) && !utf8IsCjkBreakable(rightCp)) return false;
   if (isNoBreakAfterCjkPunctuation(leftCp) || isNoBreakBeforeCjkPunctuation(rightCp)) return false;
-  if (utf8IsCombiningMark(rightCp) || utf8IsVariationSelector(rightCp)) return false;
   return true;
 }
 
 // Korean separates words with spaces, so a boundary touching Hangul is not a gap-less break inside
 // a line. hangulLineEndBreaks() still lets a Hangul word split there at a line end.
 bool hasCjkBreakOpportunityBetween(const uint32_t leftCp, const uint32_t rightCp) {
+  if (TokenBoundary::allowsBreakAfterExplicitHyphen(leftCp)) return cjkBoundaryAllowsBreak(leftCp, rightCp);
   if (utf8IsHangul(leftCp) || utf8IsHangul(rightCp)) return false;
   return cjkBoundaryAllowsBreak(leftCp, rightCp);
 }
@@ -210,7 +214,7 @@ std::vector<size_t> cjkCharacterBreakByteOffsets(const std::string& text) {
   while (*ptr) {
     const uint32_t cp = utf8NextCodepoint(&ptr);
     if (cp == 0) break;
-    if (utf8IsCjkBreakable(cp)) {
+    if (utf8IsCjkBreakable(cp) || TokenBoundary::allowsBreakAfterExplicitHyphen(cp)) {
       hasCjkBreakable = true;
     }
     codepoints.push_back({cp, static_cast<size_t>(ptr - start)});
@@ -220,7 +224,11 @@ std::vector<size_t> cjkCharacterBreakByteOffsets(const std::string& text) {
 
   std::vector<size_t> allowedOffsets;
   allowedOffsets.reserve(codepoints.size() - 1);
+  bool hasLeadingContent = false;
   for (size_t i = 0; i + 1 < codepoints.size(); ++i) {
+    const bool dash = TokenBoundary::allowsBreakAfterExplicitHyphen(codepoints[i].cp);
+    if (!dash) hasLeadingContent = true;
+    if (dash && !hasLeadingContent) continue;
     if (!hasCjkBreakOpportunityBetween(codepoints[i].cp, codepoints[i + 1].cp)) continue;
     allowedOffsets.push_back(codepoints[i].endOffset);
   }
@@ -451,9 +459,8 @@ size_t gapSlotsBeforeToken(const std::string& leftWord, const std::string& right
   if (guideDotBefore) {
     return guideDotGapSlots(rightWord);
   }
-  if (noSpaceBefore) {
-    return isClosingPunctuationForJustify(firstCodepoint(rightWord)) ? 0 : 1;
-  }
+  // A same-word boundary may allow wrapping after a hyphen, but must not stretch.
+  // CJK boundaries (noSpaceBefore without continues) remain justification slots.
   if (continues) {
     return rightWord == " " ? 1 : 0;
   }
@@ -699,7 +706,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   // is a space-delimited script written in Hangul, which utf8IsCjkBreakable() covers.
   if (attachToPrevious && !words.empty() &&
       hasCjkBreakOpportunityBetween(lastCodepoint(words.back()), firstCodepoint(word))) {
-    effectiveAttachToPrevious = false;
+    effectiveAttachToPrevious = TokenBoundary::allowsBreakAfterExplicitHyphen(lastCodepoint(words.back()));
     effectiveNoSpaceBefore = true;
   }
 
@@ -713,6 +720,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     // CJK-heavy paragraphs can push hundreds of tiny tokens quickly when CSS toggles
     // inline styles. Reserve once up front to avoid repeated vector growth reallocations.
     reserveTokenCapacity(breakOffsets.size() + 1);
+    const bool focusSplitTokens = focusReadingEnabled && !containsCjkBreakableCodepoint(word);
     bool firstToken = true;
     size_t tokenStart = 0;
     uint32_t tokenVisibleOffset = visibleTextOffset;
@@ -720,9 +728,11 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     for (const size_t breakOffset : breakOffsets) {
       if (breakOffset <= tokenStart || breakOffset > word.size()) continue;
       const std::string_view token(word.data() + tokenStart, breakOffset - tokenStart);
-      pushToken(std::string(token), firstToken ? effectiveAttachToPrevious : false,
-                firstToken ? effectiveNoSpaceBefore : true, baseStyle, 0, tokenVisibleOffset, tokenReferenceOffset,
-                firstToken ? leadingPadding : 0);
+      const bool attach = firstToken ? effectiveAttachToPrevious
+                                     : TokenBoundary::allowsBreakAfterExplicitHyphen(lastCodepoint(words.back()));
+      const auto focus = computeFocusMetadata(token, baseStyle, focusSplitTokens);
+      pushToken(std::string(token), attach, firstToken ? effectiveNoSpaceBefore : true, focus.style, focus.boundary,
+                tokenVisibleOffset, tokenReferenceOffset, firstToken ? leadingPadding : 0);
       const uint32_t tokenCodepoints = countCodepoints(token);
       tokenVisibleOffset += tokenCodepoints;
       tokenReferenceOffset += tokenCodepoints;
@@ -730,9 +740,11 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
       tokenStart = breakOffset;
     }
     if (tokenStart < word.size()) {
-      pushToken(word.substr(tokenStart), firstToken ? effectiveAttachToPrevious : false,
-                firstToken ? effectiveNoSpaceBefore : true, baseStyle, 0, tokenVisibleOffset, tokenReferenceOffset,
-                firstToken ? leadingPadding : 0);
+      const bool attach = firstToken ? effectiveAttachToPrevious
+                                     : TokenBoundary::allowsBreakAfterExplicitHyphen(lastCodepoint(words.back()));
+      const auto focus = computeFocusMetadata(std::string_view(word).substr(tokenStart), baseStyle, focusSplitTokens);
+      pushToken(word.substr(tokenStart), attach, firstToken ? effectiveNoSpaceBefore : true, focus.style,
+                focus.boundary, tokenVisibleOffset, tokenReferenceOffset, firstToken ? leadingPadding : 0);
     }
     if (wordStartsRtl) {
       hasRtlWord = true;
@@ -1238,7 +1250,8 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
   }
 
   auto nextTokenAttaches = [&](const size_t index, const size_t totalWordCount) {
-    return index + 1 < totalWordCount && continuesVec[index + 1];
+    return index + 1 < totalWordCount &&
+           !TokenBoundary::allowsBreak(continuesVec[index + 1], noSpaceBeforeVec[index + 1]);
   };
 
   const int firstLineIndent = resolveFirstLineIndent(true, renderer, fontId);
@@ -1373,7 +1386,9 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
 
   size_t currentIndex = 0;
   bool isFirstLine = true;
-  auto currentTokenAttaches = [&](const size_t index) { return index < wordWidths.size() && continuesVec[index]; };
+  auto currentTokenAttaches = [&](const size_t index) {
+    return index < wordWidths.size() && !TokenBoundary::allowsBreak(continuesVec[index], noSpaceBeforeVec[index]);
+  };
 
   while (currentIndex < wordWidths.size()) {
     const size_t lineStart = currentIndex;

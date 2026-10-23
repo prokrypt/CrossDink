@@ -23,6 +23,7 @@ enum class ReaderStatusBarItem : uint8_t {
   BookProgressPercentage,
   TitleBook,
   TitleChapter,
+  ChapterProgressPercentage,
   Count,
 };
 

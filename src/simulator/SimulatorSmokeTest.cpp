@@ -265,14 +265,17 @@ class SimulatorSmokeTest {
     const auto all = getSettingsList();
     const auto gestures = buildControlsTapsGesturesSettingsList(all);
     if (gpio.hasTouch()) {
-      if (gestures.size() < 3 || gestures[0].nameId != StrId::STR_NEXT_PAGE ||
-          gestures[1].nameId != StrId::STR_PREV_PAGE || gestures[0].enumValues != gestures[1].enumValues) {
+      if (gestures.empty() || gestures[0].nameId != StrId::STR_TOUCH_READER_CONTROLS) {
+        fail("Reader touch toggle missing from device gesture settings");
+      }
+      if (gestures.size() < 4 || gestures[1].nameId != StrId::STR_NEXT_PAGE ||
+          gestures[2].nameId != StrId::STR_PREV_PAGE || gestures[1].enumValues != gestures[2].enumValues) {
         fail("Page gesture settings order/options mismatch");
       }
-      if (gpio.supportsMultiTouch() && (gestures.size() < 4 || gestures[3].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
+      if (gpio.supportsMultiTouch() && (gestures.size() < 5 || gestures[4].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
         fail("Two-finger rotation gesture setting order mismatch");
       }
-      const size_t statusIndex = gpio.supportsMultiTouch() ? 4 : 2;
+      const size_t statusIndex = gpio.supportsMultiTouch() ? 5 : 3;
       if (gestures.size() <= statusIndex || gestures[statusIndex].nameId != StrId::STR_TAP_HIDE_STATUS_BAR) {
         fail("Status bar gesture setting order mismatch");
       }
@@ -1317,6 +1320,45 @@ class SimulatorSmokeTest {
             LOG_INF("SMOKE", "TTF replacement, duplicate deletion and restoration passed");
           }
           LOG_INF("SMOKE", "TTF discovery, size reuse, dictionary and reload passed");
+        }
+        if (std::getenv("CROSSDINK_SIMULATOR_SMOKE_FONT_RECOVERY")) {
+          // A catalog-only fixture: the detail allocation fails before the
+          // deliberately invalid font bytes are opened.
+          std::filesystem::create_directories("fs_/fonts/Recovery");
+          if (!Storage.writeFile("/fonts/Recovery/Recovery_12.cpfont", "catalog fixture"))
+            fail("Cannot create font recovery fixture");
+          std::strcpy(SETTINGS.sdFontFamilyName, "Recovery");
+          SETTINGS.legacySdFontSizeStep = UINT8_MAX;
+          SETTINGS.readerFontPointSize = 12;
+          int saves = 0;
+          sdFontSystem.setSettingsPersistenceCallback([](void* ctx) { ++*static_cast<int*>(ctx); }, &saves);
+          sdFontSystem.releaseForNetwork(renderer);
+          // Model FontInstaller's direct catalog discovery and subsequent exit.
+          sdFontSystem.registry().discover();
+          sdFontSystem.releaseRegistry();
+          if (sdFontSystem.registry().getFamilyCount() != 0) fail("Installer catalog survived release");
+          sdFontSystem.ensureRegistry();
+          const auto* summary = sdFontSystem.registry().findSummary("Recovery");
+          if (!summary || !summary->files.empty()) fail("Recovery summary not lazy");
+          const size_t available = ESP.getFreeHeap();
+          if (available <= 4096) fail("Insufficient initial heap for recovery check");
+          void* pressure = heap_caps_malloc(available - 4096, MALLOC_CAP_INTERNAL);
+          if (!pressure) fail("Cannot inject font detail memory pressure");
+          sdFontSystem.ensureLoaded(renderer);
+          heap_caps_free(pressure);
+          if (std::strcmp(SETTINGS.sdFontFamilyName, "Recovery") != 0 || saves != 0)
+            fail("Temporary detail failure erased the reader selection");
+          if (!summary->ensureDetails()) fail("Font details did not recover after memory pressure");
+          sdFontSystem.ensureLoaded(renderer);
+          if (std::strcmp(SETTINGS.sdFontFamilyName, "Recovery") != 0 || saves != 0)
+            fail("Unreadable font file erased the reader selection");
+          std::strcpy(SETTINGS.sdFontFamilyName, "Missing Recovery Family");
+          sdFontSystem.ensureLoaded(renderer);
+          if (SETTINGS.sdFontFamilyName[0] || saves != 1) fail("Truly missing family was not cleared");
+          sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
+          sdFontSystem.releaseRegistry();
+          LOG_INF("SMOKE", "Simulator smoke test passed: font recovery");
+          std::_Exit(0);
         }
 #endif
         applyRequestedTheme();

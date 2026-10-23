@@ -372,6 +372,23 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
     return;
   }
 
+  if (self->state == IN_METADATA && isDcElement(name, "identifier")) {
+    self->state = IN_BOOK_IDENTIFIER;
+    self->identifierText.clear();
+    self->identifierKind = 0;
+    self->identifierTruncated = false;
+    self->metadataSpacePending = false;
+    for (int i = 0; atts[i]; i += 2) {
+      if (!isOpfElement(atts[i], "scheme")) continue;
+      if (strcasecmp(atts[i + 1], "ISBN") == 0)
+        self->identifierKind = 1;
+      else if (strcasecmp(atts[i + 1], "ASIN") == 0 || strcasecmp(atts[i + 1], "MOBI-ASIN") == 0 ||
+               strcasecmp(atts[i + 1], "AMAZON") == 0)
+        self->identifierKind = 2;
+    }
+    return;
+  }
+
   if (self->state == IN_METADATA && isDcElement(name, "language")) {
     self->state = IN_BOOK_LANGUAGE;
     self->metadataSpacePending = false;
@@ -625,6 +642,10 @@ void XMLCALL ContentOpfParser::characterData(void* userData, const XML_Char* s, 
     return;
   }
 
+  if (self->state == IN_BOOK_IDENTIFIER) {
+    appendMetadataText(self->identifierText, s, len, self->metadataSpacePending, self->identifierTruncated);
+    return;
+  }
   if (self->state == IN_BOOK_LANGUAGE) {
     appendMetadataText(self->language, s, len, self->metadataSpacePending, self->languageTruncated);
     return;
@@ -683,6 +704,25 @@ void XMLCALL ContentOpfParser::endElement(void* userData, const XML_Char* name) 
     return;
   }
 
+  if (self->state == IN_BOOK_IDENTIFIER && isDcElement(name, "identifier")) {
+    const char* value = self->identifierText.c_str();
+    if (strncasecmp(value, "urn:", 4) == 0) value += 4;
+    if (strncasecmp(value, "isbn:", 5) == 0) {
+      self->identifierKind = 1;
+      value += 5;
+    } else if (strncasecmp(value, "asin:", 5) == 0) {
+      self->identifierKind = 2;
+      value += 5;
+    } else
+      value = self->identifierText.c_str();
+    while (*value == ' ') ++value;
+    if (!self->identifierTruncated) {
+      if (self->identifierKind == 1 && self->isbn.empty()) self->isbn = value;
+      if (self->identifierKind == 2 && self->asin.empty()) self->asin = value;
+    }
+    self->state = IN_METADATA;
+    return;
+  }
   if (self->state == IN_BOOK_LANGUAGE && isDcElement(name, "language")) {
     self->state = IN_METADATA;
     return;

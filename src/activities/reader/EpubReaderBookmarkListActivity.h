@@ -9,6 +9,7 @@
 #include "../Activity.h"
 #include "BookmarkStore.h"
 #include "components/OptionPopup.h"
+#include "components/SwipeDeleteRow.h"
 #include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
@@ -33,11 +34,13 @@ class EpubReaderBookmarkListActivity final : public Activity {
   using UiApp = UiAppList;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
+  SwipeDeleteRow swipeDelete;
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;
   int topIndex = 0;
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onDeleteEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
   void selectBookmark();

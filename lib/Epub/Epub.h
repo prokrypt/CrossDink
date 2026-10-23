@@ -18,6 +18,12 @@ class ZipFileStreamReader;
 class GfxRenderer;
 
 class Epub {
+ public:
+  struct SyncMetadata {
+    std::string isbn, asin, series, seriesIndex;
+  };
+  bool loadSyncMetadata(SyncMetadata& metadata);
+
  private:
   // the ncx file (EPUB 2)
   std::string tocNcxItem;
@@ -104,7 +110,8 @@ class Epub {
 
   bool findContentOpfFile(std::string* contentOpfFile) const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true,
-                       bool collectCssFiles = true, bool metadataOnly = false, std::string* seriesIndex = nullptr);
+                       bool collectCssFiles = true, bool metadataOnly = false, std::string* seriesIndex = nullptr,
+                       SyncMetadata* syncMetadata = nullptr);
   bool parseTocNcxFile() const;
   bool parseTocNavFile() const;
   CssParseStatus parseCssFiles(bool forceRebuild = false) const;
