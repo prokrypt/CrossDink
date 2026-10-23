@@ -2,6 +2,10 @@
 
 #include <Logging.h>
 #include <TaskCores.h>
+#ifndef SIMULATOR
+#include <esp_heap_caps.h>
+#include <freertos/idf_additions.h>
+#endif
 
 #include "DictionaryLookupController.h"
 
@@ -13,15 +17,19 @@ DictionaryLookupWorker& DictionaryLookupWorker::instance() {
 bool DictionaryLookupWorker::start(DictionaryLookupController& owner) {
   if (taskHandle_ == nullptr) {
 #ifdef SIMULATOR
-    taskHandle_ = xTaskCreateStatic(taskEntry, "DictLookup", kStackBytes, this, 1, stack_, &taskStorage_);
+    xTaskCreatePinnedToCore(taskEntry, "DictLookup", kStackBytes, this, 1, &taskHandle_, TaskCores::kWorker);
 #else
     // Worker core: a lookup scans dictionary files on SD and must not
-    // time-slice with the render task.
-    taskHandle_ = xTaskCreateStaticPinnedToCore(taskEntry, "DictLookup", kStackBytes, this, 1, stack_, &taskStorage_,
-                                                TaskCores::kWorker);
+    // time-slice with the render task. SD only, never flash, so the stack can
+    // live in PSRAM; internal RAM is the fallback. The task is never deleted.
+    if (xTaskCreatePinnedToCoreWithCaps(taskEntry, "DictLookup", kStackBytes, this, 1, &taskHandle_,
+                                        TaskCores::kWorker, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+      taskHandle_ = nullptr;
+      xTaskCreatePinnedToCore(taskEntry, "DictLookup", kStackBytes, this, 1, &taskHandle_, TaskCores::kWorker);
+    }
 #endif
     if (taskHandle_ == nullptr) {
-      LOG_ERR("DICT", "Could not start static dictionary lookup worker");
+      LOG_ERR("DICT", "Could not start dictionary lookup worker");
       return false;
     }
   }
