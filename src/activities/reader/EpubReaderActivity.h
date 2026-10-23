@@ -22,6 +22,7 @@
 #include "BookLoadingFeedback.h"
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
+#include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "EpubLinkReturnState.h"
 #include "EpubReaderMenuModel.h"
@@ -35,6 +36,7 @@
 #include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
 #include "components/Toast.h"
+#include "sync/KeptPosition.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include "activities/reader/ReaderPinchGesture.h"
 #endif
@@ -221,6 +223,8 @@ class EpubReaderActivity final : public Activity {
   uint32_t sessionPaceSampleSeconds = 0;
   uint16_t sessionPaceSampleCount = 0;
   uint32_t sessionReadingSeconds = 0;
+  DailyReadingStats::Session dailyReadingSession;
+  void startDailyReadingInterval();
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
   bool bookHasCustomReaderSettings = false;
   bool bookHasAutoPageTurnInterval = false;
@@ -365,6 +369,10 @@ class EpubReaderActivity final : public Activity {
   // Last position successfully persisted by saveProgress, used to skip redundant
   // writeAtomic calls on no-op re-renders.
   int lastSavedSpineIndex = -1;
+  bool progressSavedThisSession = false;  // queues the book for the next sync push on exit
+  // A position a bulk sync kept for this book ("Continue from 45% (Phone)?"), offered once after open.
+  std::unique_ptr<KeptPosition::Offer> keptOffer;
+  bool offerKeptPosition();
   int lastSavedPage = -1;
   int lastSavedPageCount = -1;
   ReaderProgressSaveDebouncer progressSaveDebouncer;

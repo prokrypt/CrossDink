@@ -1,11 +1,19 @@
 #include "BookStatsActivity.h"
 
 #include <I18n.h>
+#include <Memory.h>
 
 #include "BookStatsView.h"
+#include "EpubReaderMenuModel.h"
 #include "MappedInputManager.h"
+#include "activities/ActivityManager.h"
+#include "activities/network/StatsUploadActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "network/ReadingSyncUpload.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncPending.h"
 #include "util/InputReleaseGuard.h"
 
 namespace {
@@ -42,6 +50,7 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
       bookTitle(title),
       bookCachePath(bookCachePath),
       stats(stats),
+      savedCompleted(stats.isCompleted),
       globalStats(globalStats),
       returnToHomeOnExit(returnToHomeOnExit),
       progressPercent(progressPercent),
@@ -57,6 +66,7 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
       bookTitle(title),
       bookCachePath(bookCachePath),
       stats(stats),
+      savedCompleted(stats.isCompleted),
       globalStats(globalStats),
       allDevicesStats(allDevicesStats),
       showAllDevicesStats(true),
@@ -71,6 +81,20 @@ void BookStatsActivity::refreshAllDevicesStats() {
   }
 }
 
+void BookStatsActivity::loadDailySummary() {
+  dailySummary = {};
+  if (!halClock.isAvailable()) {
+    return;
+  }
+  ReadingStatsDateTime now;
+  if (!getCurrentLocalDailyReadingDateTime(now)) {
+    LOG_DBG("BookStats", "No local date for daily reading time");
+    return;
+  }
+
+  dailySummary = DailyReadingStats::summarize(readingStatsDayIndex(now.date));
+}
+
 void BookStatsActivity::saveStats() {
   if (!didChangeStats || !hasEditableBook()) {
     return;
@@ -81,6 +105,12 @@ void BookStatsActivity::saveStats() {
     return;
   }
   globalStats.save();
+  if (!syncBookPath.empty()) {
+    SyncPending::mark(syncBookPath, SyncPending::STATS_BIT);
+    // The date editor can mark the book finished (or not) too.
+    if (stats.isCompleted != savedCompleted) BookSyncFile::onFinishedChanged(syncBookPath, stats.isCompleted);
+  }
+  savedCompleted = stats.isCompleted;
   refreshAllDevicesStats();
   didChangeStats = false;
 }
@@ -276,6 +306,7 @@ void BookStatsActivity::onEnter() {
   ignoreInitialConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   ignoreInitialPowerRelease = mappedInput.isPressed(MappedInputManager::Button::Power);
   if (bookCachePath.empty()) page = Page::ThisDevice;
+  loadDailySummary();
   previousOrientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   requestUpdate();
@@ -342,6 +373,40 @@ bool BookStatsActivity::selectEditFieldFromTouchTarget(const int touchTarget) {
   return true;
 }
 
+bool BookStatsActivity::canSyncReadingStats() { return ReadingSyncUpload::canSyncReadingStats(); }
+
+void BookStatsActivity::startSyncReadingStats() {
+  // Ask here so Cancel returns to these stats instead of an already-closed reader.
+  auto confirm = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_SYNC_READING_STATS),
+                                                         tr(STR_SYNC_READING_STATS_CONFIRM), true);
+  if (!confirm) {
+    LOG_ERR("BookStats", "Cannot allocate Sync Reading Stats confirmation");
+    return;
+  }
+  startActivityForResult(std::move(confirm), [this](const ActivityResult& result) {
+    if (result.isCancelled) {
+      requestUpdate();
+      return;
+    }
+    auto sync = makeUniqueNoThrow<StatsUploadActivity>(renderer, mappedInput, std::string{},
+                                                       StatsUploadActivity::Scope::ReadingStats, true);
+    if (!sync) {
+      LOG_ERR("BookStats", "Cannot allocate Sync Reading Stats activity");
+      requestUpdate();
+      return;
+    }
+    // Only a reader underneath is a screen to come back to; Home is the default anyway.
+    if (activityManager.isReaderActivity())
+      sync->setReturnToBook(activityManager.getCurrentBookPath(),
+                            static_cast<uint8_t>(EpubReaderMenuAction::READING_STATS));
+    saveStats();
+    // Close normally first: the parent (often the reader) imports these stats
+    // edits in its result handler before the sync replaces the stack.
+    activityManager.replaceAfterReturn(std::move(sync));
+    finish();
+  });
+}
+
 void BookStatsActivity::loop() {
   if (InputReleaseGuard::consumeInitialRelease(mappedInput, MappedInputManager::Button::Back,
                                                ignoreInitialBackRelease) ||
@@ -358,6 +423,12 @@ void BookStatsActivity::loop() {
     } else {
       exitStatsActivity();
     }
+    return;
+  }
+  int syncTarget = -1;
+  if (page == Page::ThisDevice && canSyncReadingStats() && mappedInput.wasItemTapped(syncTarget) &&
+      syncTarget == BookStatsTouchTarget::SyncAll) {
+    startSyncReadingStats();
     return;
   }
   if (usesNoRtcSingleScreenLayout()) {
@@ -443,6 +514,10 @@ void BookStatsActivity::loop() {
       beginDateEditing();
       return;
     }
+    if (page == Page::ThisDevice && canSyncReadingStats()) {
+      startSyncReadingStats();
+      return;
+    }
     exitStatsActivity();
     return;
   }
@@ -506,7 +581,7 @@ void BookStatsActivity::render(RenderLock&&) {
       break;
     case Page::ThisDevice:
       renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_THIS_DEVICE_SCREEN), globalStats, true,
-                            showAllDevicesStats);
+                            showAllDevicesStats, &dailySummary, canSyncReadingStats());
       break;
     case Page::AllDevices:
       renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_ALL_DEVICES_SCREEN), allDevicesStats, true, false);
