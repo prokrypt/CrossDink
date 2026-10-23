@@ -36,7 +36,8 @@ FootnoteLinkTargets buildFootnoteLinkTargets(const Page& page, const std::vector
       } else if ((style & EpdFontFamily::SUB) != 0) {
         wordY += renderer.getFontAscenderSize(fontId) / 4;
       }
-      int wordWidth = renderer.getTextAdvanceX(fontId, block.wordText(wordIndex), style);
+      int wordWidth =
+          renderer.getTextAdvanceX(fontId, block.wordText(wordIndex), style, 0, block.getCharacterSpacing());
       if (wordIndex + 1 < block.wordCount() && block.wordXpos(wordIndex + 1) > block.wordXpos(wordIndex)) {
         wordWidth = std::min(wordWidth, static_cast<int>(block.wordXpos(wordIndex + 1) - block.wordXpos(wordIndex)));
       }
