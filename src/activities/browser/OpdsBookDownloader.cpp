@@ -17,8 +17,9 @@
 
 namespace {
 // Same stack as the page prefetch (wolfSSL handshake plus the HTTP client),
-// plus headroom for the EPUB check (ZipFile) after the last byte. Internal
-// RAM, held only while a download runs.
+// plus headroom for the EPUB check (ZipFile) after the last byte. PSRAM
+// (no flash writes on this path), held only while a download runs; Wi-Fi and
+// TLS keep the internal heap.
 constexpr uint32_t DOWNLOAD_STACK_BYTES = 14 * 1024;
 constexpr size_t DOWNLOAD_BUFFER_SIZE = 2048;
 // PSRAM, held only while a download runs: one SD write per 32 KB instead of
@@ -54,7 +55,7 @@ bool OpdsBookDownloader::start(Request&& request) {
   // The size probe runs under the download prompt instead, which must draw at
   // once: it stays off the render core.
   if (!task.start([](void* self) { static_cast<OpdsBookDownloader*>(self)->run(); }, this, DOWNLOAD_STACK_BYTES,
-                  "OpdsDownload", !job.sizeOnly)) {
+                  "OpdsDownload", !job.sizeOnly, WorkerTask::Stack::Psram)) {
     LOG_ERR("OPDS", "Download task could not start");
     return false;
   }

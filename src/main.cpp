@@ -410,10 +410,10 @@ constexpr uint32_t SILENT_REBOOT_READER_CLEAN_IMAGE_BASE = 1U << 0;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_MAGIC = 0xC1EAB017;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_AUTO_TURN = 1U << 0;
 constexpr uint32_t NETWORK_RENDER_TASK_STACK_BYTES = 8192;
-// FreeType's anti-aliased rasterizer reserves a 16 KiB scratch pool on its
-// caller's stack. Scalable fonts are S3-only, so leave C3's constrained reader
-// stack unchanged and give S3 reader renders room for their normal call frames.
-constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = FREEINK_MCU_S3 ? 24576 : 16384;
+// FreeType's anti-aliased rasterizer keeps a 4 KB scratch pool on its caller's
+// stack (capped in the SDK's ftgrays.c). Internal RAM for render latency;
+// [STK] logs showed at most ~9.8 KB used, so this keeps ~10 KB of headroom.
+constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = 20480;
 
 // How the device is coming back to life, resolved once at boot. Both resume
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
