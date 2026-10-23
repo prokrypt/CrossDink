@@ -1662,12 +1662,22 @@ int flushSettingsStores() {
   return written;
 }
 
+// SdFat holds a written FAT sector in RAM until some handle syncs; syncing the
+// root writes the volume's data and FAT caches. Deep sleep syncs in Storage.shutdown().
+static void syncSdVolume() {
+  if (HalFile root = Storage.open("/")) {
+    if (!root.sync()) LOG_ERR("MAIN", "SD volume sync failed");
+    root.close();
+  }
+}
+
 int flushHeldWrites() {
   int written = activityManager.flushHeldProgress() ? 1 : 0;
   if (ReaderExitSave::flush()) written++;
   RecentBookProgress::flushSyncMarks();
   APP_STATE.saveToFile();
   written += flushSettingsStores();
+  syncSdVolume();
   LOG_INF("HLD", "Flushed %d held write(s)", written);
   return written;
 }
@@ -2007,6 +2017,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
       flushSettingsStores();
     }
     BatteryLog::onRestart();
+    syncSdVolume();
   });
   if (seamless) {
     seedRetainedPanelFrame();

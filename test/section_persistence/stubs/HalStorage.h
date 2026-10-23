@@ -18,6 +18,8 @@ inline constexpr oflag_t O_RDWR = 1;
 
 struct HostFileData {
   std::vector<uint8_t> bytes;
+  size_t reads = 0;
+  size_t seeks = 0;
   size_t failAt = std::numeric_limits<size_t>::max();
 };
 
@@ -34,6 +36,7 @@ class HalFile : public Print {
 
   int read(void* output, const size_t length) {
     if (!data_) return 0;
+    ++data_->reads;
     const size_t readable = std::min(length, data_->bytes.size() - std::min(cursor_, data_->bytes.size()));
     if (readable > 0) std::copy_n(data_->bytes.data() + cursor_, readable, static_cast<uint8_t*>(output));
     cursor_ += readable;
@@ -42,6 +45,7 @@ class HalFile : public Print {
 
   bool seek(const size_t position) {
     if (!data_ || position > data_->bytes.size()) return false;
+    ++data_->seeks;
     cursor_ = position;
     return true;
   }
@@ -82,6 +86,8 @@ class HalStorage {
   }
 
   void reset() { files_.clear(); }
+  size_t reads(const std::string& path) const { return files_.at(path)->reads; }
+  size_t seeks(const std::string& path) const { return files_.at(path)->seeks; }
   bool mkdir(const char*, bool = true) { return true; }
   bool exists(const char* path) const { return files_.contains(path); }
   bool remove(const char* path) { return files_.erase(path) > 0; }

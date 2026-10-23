@@ -8468,29 +8468,10 @@ void EpubReaderActivity::cacheCurrentSectionPosition() {
   if (section->currentPage >= 0 && section->currentPage < section->pageCount) {
     const uint16_t currentPage = static_cast<uint16_t>(section->currentPage);
     cachedVisibleTextOffset = section->getVisibleTextOffsetForPage(currentPage);
-    if (const auto pIdx = section->getParagraphIndexForPage(currentPage)) {
-      cachedPageParagraphIndex = *pIdx;
-
-      uint16_t paragraphStartPage = currentPage;
-      while (paragraphStartPage > 0) {
-        const auto prevPIdx = section->getParagraphIndexForPage(paragraphStartPage - 1);
-        if (!prevPIdx || *prevPIdx != *pIdx) {
-          break;
-        }
-        paragraphStartPage--;
-      }
-
-      uint16_t paragraphEndPage = currentPage + 1;
-      while (paragraphEndPage < section->pageCount) {
-        const auto nextPIdx = section->getParagraphIndexForPage(paragraphEndPage);
-        if (!nextPIdx || *nextPIdx != *pIdx) {
-          break;
-        }
-        paragraphEndPage++;
-      }
-
-      cachedPageParagraphOffset = currentPage - paragraphStartPage;
-      cachedPageParagraphSpan = std::max<uint16_t>(1, paragraphEndPage - paragraphStartPage);
+    if (const auto position = section->getParagraphPositionForPage(currentPage)) {
+      cachedPageParagraphIndex = position->index;
+      cachedPageParagraphOffset = position->offset;
+      cachedPageParagraphSpan = position->span;
     }
   }
 }
