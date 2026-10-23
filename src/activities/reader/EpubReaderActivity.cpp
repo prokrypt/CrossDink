@@ -9,6 +9,7 @@
 #include <BidiUtils.h>
 #include <Epub/Page.h>
 #include <Epub/PageCountEstimator.h>
+#include <Epub/SpineSizeLookup.h>
 #include <Epub/blocks/TextBlock.h>
 #include <Epub/converters/DirectPixelWriter.h>
 #include <FontCacheManager.h>
@@ -2034,17 +2035,9 @@ void EpubReaderActivity::initializeCompletionPromptTrigger() {
     targetSize = bookSize - 1;
   }
 
-  int targetSpineIndex = spineCount - 1;
-  size_t prevCumulative = 0;
-
-  for (int i = 0; i < spineCount; i++) {
-    const size_t cumulative = epub->getCumulativeSpineItemSize(i);
-    if (targetSize <= cumulative) {
-      targetSpineIndex = i;
-      prevCumulative = (i > 0) ? epub->getCumulativeSpineItemSize(i - 1) : 0;
-      break;
-    }
-  }
+  const int targetSpineIndex =
+      findSpineForSize(spineCount, targetSize, [this](int index) { return epub->getCumulativeSpineItemSize(index); });
+  const size_t prevCumulative = targetSpineIndex > 0 ? epub->getCumulativeSpineItemSize(targetSpineIndex - 1) : 0;
 
   const size_t cumulative = epub->getCumulativeSpineItemSize(targetSpineIndex);
   const size_t spineSize = (cumulative > prevCumulative) ? (cumulative - prevCumulative) : 0;
@@ -2870,8 +2863,8 @@ void EpubReaderActivity::openReaderMenu() {
 
 void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
+  // drawPopup() already refreshes the panel with a FAST waveform.
   GUI.drawPopup(renderer, tr(STR_INDEXING));
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;  // see showIndexingPopup
   buildPopupPending = false;
 }
@@ -4312,18 +4305,9 @@ void EpubReaderActivity::jumpToPercent(float percent) {
     return;
   }
 
-  int targetSpineIndex = spineCount - 1;
-  size_t prevCumulative = 0;
-
-  for (int i = 0; i < spineCount; i++) {
-    const size_t cumulative = epub->getCumulativeSpineItemSize(i);
-    if (targetSize <= cumulative) {
-      // Found the spine item containing the absolute position.
-      targetSpineIndex = i;
-      prevCumulative = (i > 0) ? epub->getCumulativeSpineItemSize(i - 1) : 0;
-      break;
-    }
-  }
+  const int targetSpineIndex =
+      findSpineForSize(spineCount, targetSize, [this](int index) { return epub->getCumulativeSpineItemSize(index); });
+  const size_t prevCumulative = targetSpineIndex > 0 ? epub->getCumulativeSpineItemSize(targetSpineIndex - 1) : 0;
 
   const size_t cumulative = epub->getCumulativeSpineItemSize(targetSpineIndex);
   const size_t spineSize = (cumulative > prevCumulative) ? (cumulative - prevCumulative) : 0;
@@ -6904,8 +6888,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   };
 
   const auto showIndexingPopup = [this]() {
+    // drawPopup() already refreshes the panel with a FAST waveform. A second
+    // refresh of the identical frame cost ~0.55-0.7 s before every index build.
     GUI.drawPopup(renderer, tr(STR_INDEXING));
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     // The popup is a Fast frame too: where Fast tracks the panel, the chapter's
     // first page needs no cleanup flash.
     if (!renderer.fastTracksPanel()) pagesUntilFullRefresh = 1;
@@ -7665,7 +7650,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 #endif
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
       GUI.drawPopup(renderer, renderer.isSdCardFont(renderFontId) ? tr(STR_MEMORY_ERROR) : tr(STR_PAGE_LOAD_ERROR));
-      renderer.displayBuffer();
       pageBufferStale.store(false, std::memory_order_relaxed);
       automaticPageTurnActive = false;
       showPendingSyncSaveError();
