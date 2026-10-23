@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
+#include <FontFileTypes.h>
 #ifdef SIMULATOR
 #include <ArduinoJsonStringCompat.h>
 #endif
@@ -3998,7 +3999,7 @@ void CrossPointWebServer::handleFontUploadData() {
       String filename = upload.filename;
       filename.replace(' ', '_');
       // Validate filename: rejects path traversal (../, /, \) and enforces
-      // a .cpfont basename of alphanumeric + hyphen + underscore. Without
+      // a supported font basename with safe path characters. Without
       // this an attacker could supply "../../.crossdink/settings.json" as
       // a "filename" and have it written outside the fonts directory.
       if (!FontInstaller::isValidCpfontFilename(filename.c_str())) {
@@ -4037,10 +4038,10 @@ void CrossPointWebServer::handleFontUploadData() {
       // split the signature at any byte boundary.
 #if CROSSDINK_SCALABLE_FONTS
       const auto& path = fontUpload.filePath;
-      if (path.size() > 4 && strcasecmp(path.c_str() + path.size() - 4, ".ttf") == 0 &&
+      if (fontfiles::isScalable(path.c_str()) &&
           fontUpload.bytesWritten + fontUpload.bufferPos + upload.currentSize > 2 * 1024 * 1024) {
         fontUpload.valid = false;
-        LOG_ERR("WEB", "TTF exceeds 2 MiB limit");
+        LOG_ERR("WEB", "Scalable font exceeds 2 MiB limit");
         break;
       }
 #endif
@@ -4057,7 +4058,11 @@ void CrossPointWebServer::handleFontUploadData() {
         remaining -= chunk;
 
         if (fontUpload.bufferPos >= FontUploadState::BUFFER_SIZE) {
-          fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos);
+          if (fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos) != fontUpload.bufferPos) {
+            LOG_ERR("WEB", "Font upload SD write failed");
+            fontUpload.valid = false;  // END removes the partial file
+            break;
+          }
           fontUpload.bytesWritten += fontUpload.bufferPos;
           fontUpload.bufferPos = 0;
         }
@@ -4068,18 +4073,18 @@ void CrossPointWebServer::handleFontUploadData() {
     case UPLOAD_FILE_END: {
       // Flush remaining buffer
       if (fontUpload.valid && fontUpload.bufferPos > 0) {
-        fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos);
+        fontUpload.valid =
+            fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos) == fontUpload.bufferPos;
         fontUpload.bytesWritten += fontUpload.bufferPos;
         fontUpload.bufferPos = 0;
       }
       if (fontUpload.file.isOpen()) {
-        fontUpload.file.close();
+        fontUpload.valid = fontUpload.file.sync() && fontUpload.valid;
+        fontUpload.valid = fontUpload.file.close() && fontUpload.valid;
       }
 
-      if (fontUpload.valid) fontUpload.valid = FontInstaller::validateCpfontFile(fontUpload.filePath.c_str());
-      if (!fontUpload.valid && !fontUpload.filePath.empty()) {
-        Storage.remove(fontUpload.filePath.c_str());
-      }
+      if (!fontUpload.filePath.empty())
+        fontUpload.valid = FontInstaller::finishUpload(fontUpload.filePath.c_str(), fontUpload.valid);
 
       LOG_DBG("WEB", "Font upload end: valid=%d, %zu bytes", fontUpload.valid, fontUpload.bytesWritten);
       break;

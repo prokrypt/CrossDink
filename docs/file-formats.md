@@ -1130,7 +1130,7 @@ limits and lifecycle.
 
 ## `/.crossdink/font-catalog.bin`
 
-### Version 1
+### Versions 1–2
 
 Disposable font metadata cache, shared by reader, settings and web font controls.
 The 24-byte little-endian header contains magic `0x46434931`, version, a 64-bit
@@ -1167,3 +1167,5 @@ EPUB layout cache versions and identities are unchanged by this catalog.
 ## OPDS server list
 
 `/.crossdink/opds.json` holds `servers`, an array of objects with `name`, `url`, `username`, `password_obf`, `filenameFormat` (`author_title`, `title_author` or `server_filename`) and an optional `downloadFolder`. A missing or empty `downloadFolder` uses the global `opdsDownloadFolder` setting; `/` is the SD root; anything else is an absolute folder path of at most 63 bytes, normalized on load. An invalid value is logged and treated as empty. Older files need no migration.
+Version 2 rescans `.ttf` and `.otf` files so static TrueType and OpenType CFF
+faces rejected by earlier firmware enter the catalog. The binary layout is unchanged.
