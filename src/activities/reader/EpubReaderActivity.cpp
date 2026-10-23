@@ -3729,7 +3729,8 @@ void EpubReaderActivity::loop() {
     // The KOSync badge: server at this page, or further on (behind: the close push decides).
     if (autoRemote->percentage - localPercent >= -SAME_PROGRESS_EPSILON) {
       RecentBookProgress::noteSynced(epub->getCachePath(), localBp,
-                                     autoRemote->percentage - localPercent > SAME_PROGRESS_EPSILON);
+                                     autoRemote->percentage - localPercent > SAME_PROGRESS_EPSILON,
+                                     autoRemote->percentage);
     }
     if (autoRemote->percentage - localPercent > SAME_PROGRESS_EPSILON) {
       auto prompt =
