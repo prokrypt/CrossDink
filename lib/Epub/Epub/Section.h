@@ -187,6 +187,13 @@ class Section {
 
   // Look up the synthetic paragraph index for the given rendered page.
   std::optional<uint16_t> getParagraphIndexForPage(uint16_t page) const;
+  struct ParagraphPosition {
+    uint16_t index;
+    uint16_t offset;
+    uint16_t span;
+  };
+  // Capture the contiguous paragraph run using one cache-file session.
+  std::optional<ParagraphPosition> getParagraphPositionForPage(uint16_t page) const;
 
   // Look up the running list-item index for the given rendered page.
   std::optional<uint16_t> getListItemIndexForPage(uint16_t page) const;

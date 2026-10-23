@@ -133,6 +133,7 @@ class ZipFile {
   int fillUncompressedSizes(const SizeTarget* targets, size_t targetCount, uint32_t* sizes, size_t sizeCount);
   // Batch lookup for duplicate detection. Targets must be sorted by (hash,
   // len); identities[target.index] receives the ZIP entry's CRC and sizes.
+  // Returns matches, or -1 on open/header/directory read failure.
   int fillEntryIdentities(const EntryTarget* targets, size_t targetCount, EntryIdentity* identities,
                           size_t identityCount);
   // Due to the memory required to run each of these, it is recommended to not preopen the zip file for multiple
