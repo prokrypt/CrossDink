@@ -620,3 +620,5 @@ STR_CLOCK_OUTSIDE_READER: "Оқудан тыс сағат"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Кітапхана/файл шолғышын ауыстыру"
 STR_CLIP: "Үзінді"
+STR_FILENAME_FALLBACK_FONT: "Файл атауларының қосалқы қарпі"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Қалыпты міндетті; қалың міндетті емес."

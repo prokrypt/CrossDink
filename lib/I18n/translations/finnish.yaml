@@ -609,3 +609,5 @@ STR_CLOCK_OUTSIDE_READER: "Kello lukijan ulkopuolella"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Vaihda kirjasto/tiedostoselain"
 STR_CLIP: "Leike"
+STR_FILENAME_FALLBACK_FONT: "Tiedostonimien varafontti"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Tavallinen vaaditaan; lihavoitu valinnainen."

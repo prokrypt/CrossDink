@@ -620,3 +620,5 @@ STR_CLOCK_OUTSIDE_READER: "Óra az olvasón kívül"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Könyvtár/fájlböngésző felcserélése"
 STR_CLIP: "Kivágás"
+STR_FILENAME_FALLBACK_FONT: "Fájlnevek tartalék betűtípusa"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normál kötelező; félkövér választható."

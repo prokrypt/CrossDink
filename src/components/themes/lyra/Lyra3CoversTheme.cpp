@@ -104,9 +104,10 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
       const int maxLineWidth = tileWidth - 2 * hPaddingInSelection;
 
-      auto titleLines = renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 3);
+      auto titleLines =
+          renderer.wrappedText(renderer.filenameFontId(SMALL_FONT_ID), recentBooks[i].title.c_str(), maxLineWidth, 3);
 
-      const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+      const int titleLineHeight = renderer.getLineHeight(renderer.filenameFontId(SMALL_FONT_ID));
       const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;
       // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
       // The book's % and then its KOSync badge sit on one row below the title, inside the selection box.
@@ -128,7 +129,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
       int currentY = tileY + themed(Lyra3CoversMetrics::values).homeCoverHeight + hPaddingInSelection + 5;
       for (const auto& line : titleLines) {
-        renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, line.c_str(), true);
+        renderer.drawText(renderer.filenameFontId(SMALL_FONT_ID), tileX + hPaddingInSelection, currentY, line.c_str(),
+                          true);
         currentY += titleLineHeight;
       }
       int badgeX = tileX + hPaddingInSelection;

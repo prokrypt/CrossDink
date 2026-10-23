@@ -617,3 +617,5 @@ STR_CLOCK_OUTSIDE_READER: "שעון מחוץ לקורא"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "החלפת ספרייה/דפדפן קבצים"
 STR_CLIP: "קטע"
+STR_FILENAME_FALLBACK_FONT: "גופן חלופי לשמות קבצים"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. רגיל נדרש; מודגש אופציונלי."

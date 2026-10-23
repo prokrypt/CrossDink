@@ -640,3 +640,5 @@ STR_CLOCK_OUTSIDE_READER: "Zegar poza czytnikiem"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Zamień bibliotekę/przeglądarkę plików"
 STR_CLIP: "Wycinek"
+STR_FILENAME_FALLBACK_FONT: "Zapasowa czcionka nazw plików"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Zwykły wymagany; pogrubiony opcjonalny."
