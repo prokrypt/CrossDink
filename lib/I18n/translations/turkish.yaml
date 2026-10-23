@@ -880,3 +880,6 @@ STR_RECOVERY_MODE_HINT: "firmware.bin dosyasını SD kart köküne yerleştirip 
 STR_TAP_HOME_SHORTCUT: "Ana Sayfa'ya dokunun"
 STR_LONG_PRESS_HOME_SHORTCUT: "Ana Sayfaya Uzun Basma"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Ana Sayfaya Çift Dokunun"
+STR_MENU_NAVIGATION: "Menü gezintisi"
+STR_MENU_DIRECTIONAL: "Yönlü"
+STR_MENU_CLASSIC: "Eski"

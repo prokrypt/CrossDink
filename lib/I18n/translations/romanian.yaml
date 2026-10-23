@@ -880,3 +880,6 @@ STR_RECOVERY_MODE_HINT: "Plasați firmware.bin pe rădăcina cardului SD și sel
 STR_TAP_HOME_SHORTCUT: "Atinge Acasă"
 STR_LONG_PRESS_HOME_SHORTCUT: "Apăsați lung Acasă"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Atingeți de două ori Acasă"
+STR_MENU_NAVIGATION: "Navigare în meniu"
+STR_MENU_DIRECTIONAL: "Direcțională"
+STR_MENU_CLASSIC: "Veche"
