@@ -1141,7 +1141,7 @@ void command(const char* args) {
 
 #ifndef SIMULATOR
 // BOOTSLOT: the other OTA slot's image header. BOOTSLOT <label>: full image check
-// of that slot (as Goodies > Boot previous firmware), then switch and restart into it.
+// of that slot (as Goodies > Boot alternate slot), then switch and restart into it.
 // The label must name the other slot, so a stale script cannot switch blind.
 void cmdBootSlot(const char* args) {
   esp_app_desc_t desc;
