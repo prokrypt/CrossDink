@@ -3486,6 +3486,7 @@ static void loopPass() {
   // Add delay at the end of the loop to prevent tight spinning
   // When an activity requests skip loop delay (e.g., webserver running), sleep one tick for faster response
   // Otherwise, use longer delay to save power
+  const uint8_t inputPollDelayMs = activityManager.inputPollDelayMs();
   bool skipLoopDelay = false;
   {
     // Reader scheduling inspects state also owned by the render task. Never wait
@@ -3493,7 +3494,8 @@ static void loopPass() {
     RenderLock lock(RenderLock::Mode::Try);
     if (!lock.ownsLock()) {
       loopPassBlocked = true;
-      delay(10);
+      // Continue polling at the activity's rate while its screen is drawn.
+      delay(inputPollDelayMs);
       return;
     }
     skipLoopDelay = activityManager.skipLoopDelay();
