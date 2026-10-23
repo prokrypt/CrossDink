@@ -47,6 +47,7 @@ namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_CONTROL = 2;
+constexpr fui::ActionId ACTION_DELETE = 3;
 constexpr unsigned long LONG_PRESS_MS = 1000;
 constexpr int HEADER_CONTROL_SIZE = 44;
 constexpr int HEADER_CONTROL_GAP = 10;
@@ -112,6 +113,7 @@ void LibraryActivity::onEnter() {
                                                                          : Sort::RecentlyRead;
   descending = SETTINGS.librarySortDescending != 0;
   app.on(ACTION_ROW, &LibraryActivity::onRowEvent, this);
+  app.on(ACTION_DELETE, &LibraryActivity::onDeleteEvent, this);
   app.on(ACTION_CONTROL, &LibraryActivity::onControlEvent, this);
   app.setScreen(&LibraryActivity::listScreen, this);
   // Card contents may change through USB, Wi-Fi, transfers or file actions.
@@ -563,6 +565,7 @@ void LibraryActivity::applyFilter() {
 }
 
 void LibraryActivity::resetViewport() {
+  swipeDelete.close();
   selection = rowCount() || !mappedInput.hasTouchHardware() ? CONTROL_COUNT : 3;
   showSelection = !mappedInput.hasTouchHardware();
   topIndex = 0;
@@ -576,6 +579,7 @@ void LibraryActivity::resetViewport() {
 }
 
 void LibraryActivity::reloadAfterBookAction() {
+  swipeDelete.close();
   // Deleting or moving a book changes the storage generation and rescans;
   // cache, stats and settings actions only refresh recents and rows.
   rebuildIndex(true);
@@ -727,6 +731,17 @@ void LibraryActivity::activateControl(const int control) {
   }
 }
 
+void LibraryActivity::onDeleteEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<LibraryActivity*>(user);
+  if (event.value < 0 || event.value != self->swipeDelete.index || event.value >= self->rowCount()) return;
+  RecentBook book;
+  if (!self->readBook(event.value, book)) return;
+  self->swipeDelete.close();
+  self->app.clearTapFlash();
+  self->selection = event.value + CONTROL_COUNT;
+  self->promptDeleteBook(book);
+}
+
 void LibraryActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<LibraryActivity*>(user);
   if (event.value < 0 || event.value >= self->rowCount()) return;
@@ -785,10 +800,17 @@ void LibraryActivity::latchInput() {
     pending.releaseY = snap.touchY;
   }
 
-  const auto swipe = mappedInput.wasSwipe();
+  MappedInputManager::SwipeDir swipe = MappedInputManager::SwipeDir::None;
+  int swipeX = 0, swipeY = 0, endX = 0, endY = 0;
+  mappedInput.wasSwipeWithPoints(swipe, swipeX, swipeY, endX, endY);
   if (released) touchTracking = false;
-  // The cover grid also pages with horizontal swipes.
+  // The cover grid also pages with horizontal swipes; the list reveals a delete button.
   const bool gridSwipe = gridEnabled();
+  if (!gridSwipe && (swipe == MappedInputManager::SwipeDir::Left || swipe == MappedInputManager::SwipeDir::Right)) {
+    pending.rowSwipe = swipe;
+    pending.swipeX = static_cast<int16_t>(swipeX);
+    pending.swipeY = static_cast<int16_t>(swipeY);
+  }
   if ((swipe == MappedInputManager::SwipeDir::Up || (gridSwipe && swipe == MappedInputManager::SwipeDir::Left)) &&
       pending.scrollPages < INT8_MAX)
     ++pending.scrollPages;
@@ -877,6 +899,21 @@ void LibraryActivity::loop() {
       activateControl(selection);
     return;
   }
+  if (uiReady && input.rowSwipe != MappedInputManager::SwipeDir::None) {
+    swipeDelete.swipe(app, input.rowSwipe, input.swipeX, input.swipeY, ACTION_ROW);
+    requestUpdate();
+    return;
+  }
+  if (uiReady && input.touchRelease) {
+    fui::InputSnapshot snap{};
+    snap.touchReleased = true;
+    snap.touchX = input.releaseX;
+    snap.touchY = input.releaseY;
+    if (swipeDelete.dismissTap(app, snap, ACTION_DELETE)) {
+      requestUpdate();
+      return;
+    }
+  }
   if (uiReady && (input.touchPress || input.touchRelease)) {
     bool routed = false;
     if (input.touchPress) {
@@ -915,6 +952,7 @@ void LibraryActivity::loop() {
     return;
   }
   if (input.scrollPages != 0) {
+    swipeDelete.close();
     if (mappedInput.hasTouchHardware()) showSelection = false;
     if (gridEnabled()) {
       const int lastPage = rowCount() > 0 ? ((rowCount() - 1) / GRID_PAGE_SIZE) * GRID_PAGE_SIZE : 0;
@@ -943,6 +981,7 @@ void LibraryActivity::loop() {
   }
   const int count = rowCount() + CONTROL_COUNT;
   const auto move = [this](const int next) {
+    swipeDelete.close();
     if (!showSelection) {
       showSelection = true;
       loadGridProgress();
@@ -1312,6 +1351,8 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.rowProviderCtx = this;
   props.count = static_cast<uint16_t>(rowCount());
   props.selectedIndex = showSelection ? static_cast<int16_t>(selection - CONTROL_COUNT) : -1;
+  const auto reveal = swipeDelete.reveal(ACTION_DELETE);
+  props.reveal = &reveal;
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch | fui::InputLongPress;
   props.labelText = screen.theme().bodyText;

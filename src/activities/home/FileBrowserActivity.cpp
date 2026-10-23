@@ -52,6 +52,7 @@ KNOB_ALIAS(GO_HOME_MS, goHomeHoldMs);  // Goodies > Knobs
 constexpr int ROOT_HINT_GAP = 20;
 constexpr size_t NAME_BUFFER_SIZE = 500;
 constexpr fui::ActionId ACTION_ROW = 1;
+constexpr fui::ActionId ACTION_DELETE = 4;
 constexpr fui::ActionId ACTION_SETTINGS = 2;
 constexpr fui::ActionId ACTION_SELECT_DIRECTORY = 3;
 constexpr size_t INDEX_THRESHOLD = 200;
@@ -300,6 +301,7 @@ void FileBrowserActivity::loadFiles() {
 }
 
 void FileBrowserActivity::loadFilesLocked() {
+  swipeDelete.close();
   usingIndex = false;
   clearIndexNameCache();
   finishedMemo.fill({});
@@ -436,6 +438,7 @@ void FileBrowserActivity::onEnter() {
   listNav.visibleRows = visibleRows;
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_ROW, &FileBrowserActivity::onRowEvent, this);
+  app.on(ACTION_DELETE, &FileBrowserActivity::onDeleteEvent, this);
   app.on(ACTION_SETTINGS, &FileBrowserActivity::onSettingsEvent, this);
   app.on(ACTION_SELECT_DIRECTORY, &FileBrowserActivity::onSelectDirectoryEvent, this);
   app.setScreen(&FileBrowserActivity::listScreen, this);
@@ -894,6 +897,25 @@ void FileBrowserActivity::toggleHiddenFiles() {
   requestUpdate();
 }
 
+void FileBrowserActivity::onDeleteEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<FileBrowserActivity*>(user);
+  RenderLock lock(*self);
+  if (self->mode != Mode::Books || event.value < 0 || event.value != self->swipeDelete.index) return;
+  const size_t row = self->actionWindowFirst + static_cast<size_t>(event.value);
+  if (row >= self->entryCount()) return;
+  const std::string entry = self->entryNameAt(row);
+  self->swipeDelete.close();
+  self->app.clearTapFlash();
+  if (entry.empty() || entry == "../" || entry == "..") return;
+  self->selectorIndex = row;
+  const std::string path = buildFullPath(self->basepath, entry);
+  lock.unlock();
+  if (entry.back() == '/')
+    self->promptDeleteDirectory(path, entry);
+  else
+    self->promptDeleteFile(path, entry);
+}
+
 void FileBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<FileBrowserActivity*>(user);
   std::string entry;
@@ -1056,9 +1078,27 @@ void FileBrowserActivity::loop() {
 
   // Touch goes through the FreeInkApp: render() registered the row hit rects;
   // route the snapshot and let onRowEvent dispatch.
+  {
+    RenderLock lock(*this);
+    MappedInputManager::SwipeDir direction = MappedInputManager::SwipeDir::None;
+    int sx = 0, sy = 0, ex = 0, ey = 0;
+    if (uiReady && mode == Mode::Books && mappedInput.wasSwipeWithPoints(direction, sx, sy, ex, ey)) {
+      const bool hadReveal = swipeDelete.index >= 0;
+      const bool horizontal = swipeDelete.swipe(app, direction, sx, sy, ACTION_ROW);
+      if (horizontal || hadReveal) requestUpdate();
+      if (horizontal) return;
+    }
+  }
   if (uiReady) {
     const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
     if (snap.touchPressed || snap.touchReleased) {
+      {
+        RenderLock lock(*this);
+        if (swipeDelete.dismissTap(app, snap, ACTION_DELETE)) {
+          requestUpdate();
+          return;
+        }
+      }
       const auto event = app.route(snap);
       // No pressed-state repaint: the render it triggers would drop a slow
       // tap's release inside the uiReady window (tap-to-activate needed two
@@ -1122,6 +1162,7 @@ void FileBrowserActivity::loop() {
   const auto moveSelection = [this, listSize](const int index) {
     {
       RenderLock lock(*this);
+      swipeDelete.close();
       selectorIndex = static_cast<size_t>(index);
       showFileSelection = true;
       if (static_cast<size_t>(listSize) > MAX_VIRTUAL_LIST_ENTRIES) {
@@ -1383,6 +1424,8 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     props.topIndex = 0;
     props.nav = nullptr;
   }
+  const auto reveal = swipeDelete.reveal(ACTION_DELETE);
+  props.reveal = &reveal;
   props.action = ACTION_ROW;
   props.inputMask = mode == Mode::Books ? static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress)
                                         : fui::InputTouch;  // physical buttons stay in loop()

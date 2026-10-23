@@ -136,3 +136,5 @@ add_subdirectory(sync_files)
 add_subdirectory(sync_ids)
 add_subdirectory(sync_parked)
 add_subdirectory(sync_pending)
+
+add_subdirectory(swipe_delete)
