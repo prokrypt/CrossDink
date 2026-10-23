@@ -34,6 +34,7 @@
 #include "activities/util/OptionPopupActivity.h"
 #include "components/KOSyncBadge.h"
 #include "components/NoCoverPlaceholder.h"
+#include "components/Toast.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -1630,7 +1631,7 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
             bool enabled = false;
             if (!BookActions::toggleBookStatsTracking(book.path, enabled)) {
               const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
-              BookActions::drawToast(renderer, error.c_str());
+              Toast::show(renderer, error.c_str());
             }
             reloadAfterBookAction();
             return;
@@ -1667,8 +1668,7 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
                     if (!BookActions::deleteBookStats(book.path)) {
                       LOG_ERR("LIB", "Failed to delete book stats for: %s", book.path.c_str());
                     } else {
-                      BookActions::drawToast(renderer, tr(STR_BOOK_STATS_DELETED));
-                      delay(1000);
+                      Toast::show(renderer, tr(STR_BOOK_STATS_DELETED));
                     }
                   }
                   reloadAfterBookAction();
@@ -1683,8 +1683,7 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
                            if (!BookActions::resetBookReaderSettings(book.path)) {
                              LOG_ERR("LIB", "Failed to reset reader settings for: %s", book.path.c_str());
                            } else {
-                             BookActions::drawToast(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
-                             delay(1000);
+                             Toast::show(renderer, tr(STR_BOOK_READER_SETTINGS_RESET));
                            }
                          }
                          reloadAfterBookAction();
@@ -1693,8 +1692,7 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex) {
           case FileBrowserAction::ToggleCompleted: {
             bool completed = false;
             if (BookActions::toggleBookCompleted(book.path, book.title, completed)) {
-              BookActions::drawToast(renderer, completed ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
-              delay(1000);
+              Toast::show(renderer, completed ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
             }
             reloadAfterBookAction();
             return;
