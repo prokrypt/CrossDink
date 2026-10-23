@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Arena.h>
 #include <HalStorage.h>
 #include <ZipFile.h>
@@ -17,6 +16,7 @@
 #include "Epub/FootnoteEntry.h"
 #include "Epub/Page.h"
 #include "Epub/ParsedText.h"
+#include "Epub/WordSpacing.h"
 #include "Epub/blocks/ImageBlock.h"
 #include "Epub/blocks/TextBlock.h"
 #include "Epub/css/CssParser.h"
@@ -93,6 +93,7 @@ class ChapterHtmlSlimParser {
   bool focusReadingEnabled;
   bool guideReadingEnabled;
   uint8_t wordSpacing;
+  int8_t characterSpacing;
   CssParser* cssParser;
   bool embeddedStyle;
   uint8_t imageRendering;
@@ -345,7 +346,8 @@ class ChapterHtmlSlimParser {
       const uint8_t imageRendering = 0, std::vector<std::string> tocAnchors = {},
       const std::function<void()>& popupFn = nullptr, CssParser* cssParser = nullptr,
       const EpubRenderMode renderMode = EpubRenderMode::CrossDinkDefault, std::string previewAnchor = {},
-      const uint16_t previewMaxPages = 0, const bool trackReferenceCharacters = false)
+      const uint16_t previewMaxPages = 0, const bool trackReferenceCharacters = false,
+      const int8_t characterSpacing = 0)
 
       : epub(&epub),
         filepath(filepath),
@@ -363,7 +365,8 @@ class ChapterHtmlSlimParser {
         hyphenationEnabled(hyphenationEnabled),
         focusReadingEnabled(focusReadingEnabled),
         guideReadingEnabled(guideReadingEnabled),
-        wordSpacing(wordSpacing > 4 ? 4 : wordSpacing),
+        wordSpacing(std::min<uint8_t>(wordSpacing, WordSpacing::MAX_VALUE)),
+        characterSpacing(characterSpacing),
         cssParser(cssParser),
         embeddedStyle(embeddedStyle),
         imageRendering(imageRendering),

@@ -108,7 +108,8 @@ const char* withoutSoftHyphens(const char* word, const size_t length, char* scra
 int16_t measureWordAdvanceX(const GfxRenderer& renderer, const int fontId, const char* word, const size_t length,
                             const EpdFontFamily::Style style, char* scratch, const size_t scratchCapacity) {
   const char* measured = withoutSoftHyphens(word, length, scratch, scratchCapacity);
-  return static_cast<int16_t>(renderer.getTextAdvanceX(fontId, measured, style));
+  return static_cast<int16_t>(renderer.getTextAdvanceX(
+      fontId, measured, style, 0, CrossPointSettings::characterSpacingLevel(SETTINGS.characterSpacing)));
 }
 
 int16_t measureWordAdvanceX(const GfxRenderer& renderer, const int fontId, const char* word, const size_t length,
@@ -118,7 +119,9 @@ int16_t measureWordAdvanceX(const GfxRenderer& renderer, const int fontId, const
     return measureWordAdvanceX(renderer, fontId, word, length, style, scratch, scratchCapacity);
   }
   const size_t suffixStart = std::min<size_t>(focusBoundary, length);
-  return static_cast<int16_t>(focusSuffixX + renderer.getTextAdvanceX(fontId, word + suffixStart, style));
+  return static_cast<int16_t>(
+      focusSuffixX + renderer.getTextAdvanceX(fontId, word + suffixStart, style, 0,
+                                              CrossPointSettings::characterSpacingLevel(SETTINGS.characterSpacing)));
 }
 
 int16_t measureWordAdvanceX(const GfxRenderer& renderer, const int fontId, const char* word, const size_t length,
@@ -135,7 +138,9 @@ int16_t measureWordAdvanceX(const GfxRenderer& renderer, const int fontId, const
   const size_t boldLen = std::min<size_t>({static_cast<size_t>(focusBoundary), length, sizeof(boldBuf) - 1});
   memcpy(boldBuf, word, boldLen);
   boldBuf[boldLen] = '\0';
-  return static_cast<int16_t>(focusRunOffset + renderer.getTextAdvanceX(fontId, boldBuf, boldStyle));
+  return static_cast<int16_t>(
+      focusRunOffset + renderer.getTextAdvanceX(fontId, boldBuf, boldStyle, 0,
+                                                CrossPointSettings::characterSpacingLevel(SETTINGS.characterSpacing)));
 }
 
 bool isRtlWord(const char* word, const bool fallbackRtl) {
@@ -647,7 +652,8 @@ bool DictionaryWordSelectActivity::extractWords() {
           const uint16_t previousIndex = wordIndex - 1;
           const auto previousStyle = block->wordStyle(previousIndex);
           const int16_t previousMeasuredWidth = static_cast<int16_t>(
-              renderer.getTextAdvanceX(SETTINGS.getReaderFontId(), block->wordText(previousIndex), previousStyle));
+              renderer.getTextAdvanceX(SETTINGS.getReaderFontId(), block->wordText(previousIndex), previousStyle, 0,
+                                       CrossPointSettings::characterSpacingLevel(SETTINGS.characterSpacing)));
           const int16_t currentMeasuredWidth =
               measureWordAdvanceX(renderer, SETTINGS.getReaderFontId(), wordText, wordLength, wordStyle, focusBoundary,
                                   focusSuffixX, wordIsRtl, sanitizeScratch, scratchHalf);
@@ -689,7 +695,9 @@ bool DictionaryWordSelectActivity::extractWords() {
       }
 
       bool partSucceeded = true;
-      int fullWordWidth = renderer.getTextAdvanceX(SETTINGS.getReaderFontId(), wordText, wordStyle);
+      int fullWordWidth =
+          renderer.getTextAdvanceX(SETTINGS.getReaderFontId(), wordText, wordStyle, 0,
+                                   CrossPointSettings::characterSpacingLevel(SETTINGS.characterSpacing));
       if (wordIndex + 1 < sourceWordCount && block->wordXpos(wordIndex + 1) > block->wordXpos(wordIndex)) {
         fullWordWidth =
             std::min(fullWordWidth, static_cast<int>(block->wordXpos(wordIndex + 1) - block->wordXpos(wordIndex)));
