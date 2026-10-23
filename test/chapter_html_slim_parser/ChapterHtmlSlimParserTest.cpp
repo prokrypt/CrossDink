@@ -1481,6 +1481,123 @@ TEST_F(ChapterHtmlSlimParserTest, BorderedParagraphAddsABoxAfterItsText) {
             1);
 }
 
+TEST_F(ChapterHtmlSlimParserTest, BareFieldsetFramesChildParagraphsAndRestoresFollowingText) {
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  ASSERT_EQ(parser.boxScopeCount, 1u);
+  const auto fieldsetStyle = parser.currentTextBlock->getBlockStyle();
+  EXPECT_GT(fieldsetStyle.leftInset(), 2);
+  for (const auto& side : parser.boxScopes[0].sides) {
+    EXPECT_TRUE(side.visible());
+    EXPECT_EQ(side.width, 1);
+  }
+  for (const char* text : {"This is a test", "Second paragraph"}) {
+    ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+    EXPECT_EQ(parser.currentTextBlock->getBlockStyle().leftInset(), fieldsetStyle.leftInset());
+    ChapterHtmlSlimParser::characterData(&parser, text, std::strlen(text));
+    ChapterHtmlSlimParser::endElement(&parser, "p");
+  }
+  ChapterHtmlSlimParser::endElement(&parser, "fieldset");
+  EXPECT_EQ(parser.boxScopeCount, 0u);
+  EXPECT_EQ(parser.blockStyleCount_, 1u);
+  ASSERT_TRUE(parser.currentPage);
+  EXPECT_EQ(std::count_if(parser.currentPage->elements.begin(), parser.currentPage->elements.end(),
+                          [](const auto& item) { return item->getTag() == TAG_PageBorderBox; }),
+            1);
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().leftInset(), 0);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().paddingTop, 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FieldsetCssOverridesDefaultsWithoutResettingOtherEdges) {
+  cssParser.rulesBySelector_["fieldset"] = CssParser::parseInlineStyle("border-width: 2px; padding-left: 20px");
+  const XML_Char* attrs[] = {"style", "border-top-style: dashed; border-left: none; margin-right: 10px", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", attrs);
+  ASSERT_EQ(parser.boxScopeCount, 1u);
+  const auto& box = parser.boxScopes[0];
+  EXPECT_EQ(box.sides[0].style, CssBorderStyle::Dashed);
+  EXPECT_EQ(box.sides[0].width, 2);
+  EXPECT_EQ(box.sides[1].style, CssBorderStyle::Solid);
+  EXPECT_EQ(box.sides[1].width, 2);
+  EXPECT_FALSE(box.sides[3].visible());
+  EXPECT_EQ(box.left, 2);
+  EXPECT_EQ(box.right, parser.viewportWidth - 10);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().paddingLeft, 20);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FieldsetBorderCanBeSuppressedByPublisherCss) {
+  cssParser.rulesBySelector_["fieldset"] = CssParser::parseInlineStyle("border: none; padding: 0; margin: 0");
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  EXPECT_EQ(parser.boxScopeCount, 0u);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().leftInset(), 0);
+  ChapterHtmlSlimParser::endElement(&parser, "fieldset");
+  const XML_Char* attrs[] = {"style", "border: 0", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", attrs);
+  EXPECT_EQ(parser.boxScopeCount, 0u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FieldsetDefaultsWorkWithoutCssParser) {
+  parser.cssParser = nullptr;
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  EXPECT_EQ(parser.boxScopeCount, 1u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FieldsetRespectsDisabledEmbeddedStylesAndLightMode) {
+  parser.embeddedStyle = false;
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  EXPECT_EQ(parser.boxScopeCount, 0u);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().leftInset(), 0);
+  ChapterHtmlSlimParser::endElement(&parser, "fieldset");
+  parser.embeddedStyle = true;
+  parser.renderMode = EpubRenderMode::Light;
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  EXPECT_EQ(parser.boxScopeCount, 0u);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().leftInset(), 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, NestedFieldsetsKeepIndependentBoxes) {
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  ASSERT_EQ(parser.boxScopeCount, 2u);
+  EXPECT_GT(parser.boxScopes[1].left, parser.boxScopes[0].left);
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Nested", 6);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  ChapterHtmlSlimParser::endElement(&parser, "fieldset");
+  EXPECT_EQ(parser.boxScopeCount, 1u);
+  ChapterHtmlSlimParser::endElement(&parser, "fieldset");
+  EXPECT_EQ(parser.boxScopeCount, 0u);
+  ASSERT_TRUE(parser.currentPage);
+  EXPECT_EQ(std::count_if(parser.currentPage->elements.begin(), parser.currentPage->elements.end(),
+                          [](const auto& item) { return item->getTag() == TAG_PageBorderBox; }),
+            2);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, LongFieldsetEmitsOneBoxPerPageAndClosesBeforeFollowingText) {
+  renderer.textAdvancePerChar = 4;
+  parser.viewportHeight = 64;
+  int framedPages = 0;
+  parser.completePageFn = [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+    EXPECT_EQ(std::count_if(page->elements.begin(), page->elements.end(),
+                            [](const auto& item) { return item->getTag() == TAG_PageBorderBox; }),
+              1);
+    ++framedPages;
+  };
+  ChapterHtmlSlimParser::startElement(&parser, "fieldset", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  std::string text;
+  for (int i = 0; i < 500; ++i) text += "word ";
+  ChapterHtmlSlimParser::characterData(&parser, text.data(), text.size());
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  ChapterHtmlSlimParser::endElement(&parser, "fieldset");
+  ASSERT_GT(framedPages, 1);
+  EXPECT_FALSE(parser.lowMemoryAbort);
+  EXPECT_EQ(parser.boxScopeCount, 0u);
+  ASSERT_TRUE(parser.currentPage);
+  parser.completeCurrentPage();
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().leftInset(), 0);
+}
+
 TEST_F(ChapterHtmlSlimParserTest, InlineFontSizesMeasureAndRestoreWithinOneLine) {
   renderer.scalableBaseSize = 12;
   renderer.textAdvancePerChar = 6;
