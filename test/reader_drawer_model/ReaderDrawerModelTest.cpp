@@ -335,3 +335,8 @@ TEST(ReaderDrawerModelTest, CharacterSpacingReservesPreviewAndUsesSliderInput) {
                                              ReaderDrawerCatalogItem::CharacterSpacing));
   EXPECT_TRUE(readerDrawerSliderPreviewsText(ReaderDrawerPane::CharacterSpacing));
 }
+
+TEST(ReaderDrawerModel, LandscapePreviewPanesPlaceSamplePreviewBesideControls) {
+  EXPECT_TRUE(readerDrawerSamplePreviewBesideControls(true));
+  EXPECT_FALSE(readerDrawerSamplePreviewBesideControls(false));
+}
