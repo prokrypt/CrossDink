@@ -18,7 +18,7 @@
 
 namespace {
 constexpr char LOG_TAG[] = "SBACK";
-constexpr char BACKUP_DIR[] = "/.crossink-stats-backup";
+constexpr char BACKUP_DIR[] = "/.crossdink-stats-backup";
 constexpr int DEFAULT_BACKUP_KEEP_COUNT = 7;
 
 struct BackupName {

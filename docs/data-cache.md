@@ -83,7 +83,7 @@ Cache data is cleared by supported CrossDink delete/move flows. If you remove or
 All-time reading stats can also be backed up outside `.crossdink` in:
 
 ```text
-/.crossink-stats-backup/
+/.crossdink-stats-backup/
 ```
 
 For binary file layout details, see [File Formats](./file-formats.md).

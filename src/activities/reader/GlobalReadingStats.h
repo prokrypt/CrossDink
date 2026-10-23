@@ -51,7 +51,7 @@ struct GlobalReadingStats {
   static size_t readLocalFile(std::array<uint8_t, CURRENT_FILE_SIZE>& out);
 
   // Replaces the stats files (both slots and global_stats.bin) with fresh empty stats
-  // without touching the backups in /.crossink-stats-backup.
+  // without touching the backups in /.crossdink-stats-backup.
   static bool resetLocal();
   // Advances after each successful resetLocal(), so an open reader knows its
   // in-memory copy was replaced on disk. Any new path that replaces the file
