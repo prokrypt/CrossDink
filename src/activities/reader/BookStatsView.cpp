@@ -124,8 +124,9 @@ int noRtcCombinedContentHeight(const StatsLayout& layout, const int headerHeight
          (showAllDevicesStats ? layout.cardGap + layout.globalCardH : 0);
 }
 
-int statsBottomInset(const ThemeMetrics& metrics, const bool showButtonHints) {
-  return metrics.verticalSpacing + (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+int statsBottomInset(const GfxRenderer& renderer, const ThemeMetrics& metrics, const bool showButtonHints) {
+  return metrics.verticalSpacing +
+         (showButtonHints ? UITheme::getButtonHintsReserve(renderer) + kStatsButtonHintTopGap : 0);
 }
 
 int perBookRtcTopCardHeight(const StatsLayout& layout, const int extraHeight) {
@@ -144,7 +145,7 @@ const StatsLayout& getStatsLayout(const GfxRenderer& renderer, const MappedInput
                                   const bool globalPage, const bool showButtonHints, const bool showRtcStats) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int availableHeight =
-      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
+      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(renderer, metrics, showButtonHints);
   const int defaultHeaderHeight = statsHeaderHeight(metrics, kDefaultLayout, mappedInput);
   const bool defaultFitsCurrentPage =
       statsContentHeight(kDefaultLayout, defaultHeaderHeight, globalPage, showRtcStats) <= availableHeight;
@@ -161,7 +162,7 @@ const StatsLayout& getNoRtcCombinedLayout(const GfxRenderer& renderer, const Map
                                           const bool showButtonHints, const bool showAllDevicesStats) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int availableHeight =
-      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
+      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(renderer, metrics, showButtonHints);
   if (noRtcCombinedContentHeight(kDefaultLayout, statsHeaderHeight(metrics, kDefaultLayout, mappedInput),
                                  showAllDevicesStats) <= availableHeight) {
     return kDefaultLayout;
@@ -427,14 +428,16 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
   } else {
     CompactHeader::drawTitle(renderer, tr(STR_READING_STATS), true);
   }
-  const int screenW = renderer.getScreenWidth();
-  const int cardX = metrics.contentSidePadding;
-  const int cardW = screenW - metrics.contentSidePadding * 2;
+  // Calibrated edges only: without them this is the whole screen.
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, false, false);
+  const int cardX = safe.x + metrics.contentSidePadding;
+  const int cardW = safe.width - metrics.contentSidePadding * 2;
+  const int contentY = UITheme::getHeaderRect(renderer, 0).y;
   const int availableHeight =
-      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
+      renderer.getScreenHeight() - contentY - statsBottomInset(renderer, metrics, showButtonHints);
   int topCardH = layout.topCardH;
   const int headerHeight = statsHeaderHeight(metrics, layout, mappedInput);
-  int y = metrics.topPadding + headerHeight + layout.topGap;
+  int y = contentY + headerHeight + layout.topGap;
 
   if (showRtcStats) {
     const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
@@ -498,14 +501,16 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   } else {
     CompactHeader::drawTitle(renderer, screenTitle);
   }
-  const int screenW = renderer.getScreenWidth();
-  const int cardX = metrics.contentSidePadding;
-  const int cardW = screenW - metrics.contentSidePadding * 2;
+  // Calibrated edges only: without them this is the whole screen.
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, false, false);
+  const int cardX = safe.x + metrics.contentSidePadding;
+  const int cardW = safe.width - metrics.contentSidePadding * 2;
+  const int contentY = UITheme::getHeaderRect(renderer, 0).y;
   const int availableHeight =
-      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
+      renderer.getScreenHeight() - contentY - statsBottomInset(renderer, metrics, showButtonHints);
   int globalCardH = layout.globalCardH;
   const int headerHeight = statsHeaderHeight(metrics, layout, mappedInput);
-  int y = metrics.topPadding + headerHeight + layout.topGap;
+  int y = contentY + headerHeight + layout.topGap;
 
   if (showRtcStats) {
     const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
@@ -560,11 +565,13 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
   } else {
     CompactHeader::drawTitle(renderer, tr(STR_READING_STATS));
   }
-  const int screenW = renderer.getScreenWidth();
-  const int cardX = metrics.contentSidePadding;
-  const int cardW = screenW - metrics.contentSidePadding * 2;
+  // Calibrated edges only: without them this is the whole screen.
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, false, false);
+  const int cardX = safe.x + metrics.contentSidePadding;
+  const int cardW = safe.width - metrics.contentSidePadding * 2;
+  const int contentY = UITheme::getHeaderRect(renderer, 0).y;
   const int availableHeight =
-      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
+      renderer.getScreenHeight() - contentY - statsBottomInset(renderer, metrics, showButtonHints);
   const int headerHeight = statsHeaderHeight(metrics, layout, mappedInput);
   const int compactContentHeight = noRtcCombinedContentHeight(layout, headerHeight, allDevicesStats != nullptr);
   const int extraHeight = std::max(0, availableHeight - compactContentHeight);
@@ -578,7 +585,7 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
   const int deviceCardH = layout.globalCardH + deviceExtraHeight;
   const int allDevicesCardH = layout.globalCardH + allDevicesExtraHeight;
 
-  int y = metrics.topPadding + headerHeight + layout.topGap;
+  int y = contentY + headerHeight + layout.topGap;
   drawPerBookStatsCard(renderer, cardX, y, cardW, perBookCardH, bookTitle, bookStats, progressPercent,
                        hasEstimatedTimeLeft, estimatedTimeLeftSeconds, layout);
   y += perBookCardH + layout.cardGap;

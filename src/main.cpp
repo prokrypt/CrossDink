@@ -12,6 +12,7 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
+#include <HalScreenCalibration.h>
 #include <HalStorage.h>
 #include <HalSystem.h>
 #include <HalTiltSensor.h>
@@ -2033,6 +2034,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
 #endif
   renderer.begin();
   renderer.setDitherPhase(AntiBurnIn::seed() & 1, (AntiBurnIn::seed() >> 1) & 1);
+  renderer.setViewableInsets(HalScreenCalibration::load());
   display.setInverted(SETTINGS.screenInverted != 0);
   // FreeInkUI headers need more than 4 KB once the render loop and nested
   // screen builders share the task stack. Some S3 network flows can render a

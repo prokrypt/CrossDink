@@ -25,6 +25,7 @@ class FontSelectionActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+  void updateLayoutMetrics();
   void handleSelection();
   void activateSelected();
   int getFontIdForPreview(int index) const;

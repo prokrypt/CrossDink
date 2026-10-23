@@ -517,15 +517,10 @@ KeyboardEntryActivity::InputFieldTouchTarget KeyboardEntryActivity::inputFieldTo
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   const int lineHeight = inputLineHeight;
-  const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                          metrics.verticalSpacing + metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
+  const int inputStartY = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing +
+                          metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
 
-  int availableWidth = pageWidth;
-  // Clear the side-button hint gutters, which only render on edge-button boards without touch.
-  if (deviceUsesSideButtonHintGutters(gpio)) {
-    availableWidth -= 2 * metrics.sideButtonHintsWidth;
-  }
-  const int effectiveMargin = (pageWidth - availableWidth * metrics.keyboardTextFieldWidthPercent / 100) / 2;
+  const int effectiveMargin = textFieldMargin();
   const int toggleGap = inputType == InputType::Password ? 4 : 0;
   const int toggleReserve = inputType == InputType::Password ? std::max(renderer.getTextWidth(UI_12_FONT_ID, "[abc]"),
                                                                         renderer.getTextWidth(UI_12_FONT_ID, "[***]")) +
@@ -608,6 +603,18 @@ KeyboardEntryActivity::InputFieldTouchTarget KeyboardEntryActivity::inputFieldTo
   return InputFieldTouchTarget::None;
 }
 
+int KeyboardEntryActivity::textFieldMargin() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int width = renderer.getScreenWidth();
+  int available = width;
+  if (deviceUsesSideButtonHintGutters(gpio)) available -= 2 * metrics.sideButtonHintsWidth;
+  const int legacy = (width - available * metrics.keyboardTextFieldWidthPercent / 100) / 2;
+  if (!renderer.hasCustomViewableInsets()) return legacy;
+  const auto edges = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation())).edges;
+  const int sideHints = deviceUsesSideButtonHintGutters(gpio) ? metrics.sideButtonHintsWidth : 0;
+  return std::max(legacy, static_cast<int>(std::max(edges[1], edges[3])) + sideHints);
+}
+
 fui::Rect KeyboardEntryActivity::keyboardRect() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
@@ -616,12 +623,20 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
   const bool hasTouch = mappedInput.hasTouchHardware();
   const int height = keyboardKeysHeight(metrics, rows, hasTouch);
   const int hintGap = hasTouch ? metrics.verticalSpacing - metrics.keyboardVerticalOffset : BUTTON_KEYBOARD_HINT_GAP;
-  int y = pageHeight - metrics.buttonHintsHeight - height - hintGap;
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int bottom =
+      renderer.hasCustomViewableInsets() ? safe.y + safe.height : pageHeight - UITheme::getButtonHintsReserve(renderer);
+  int y = bottom - height - hintGap;
   if (hasTouch) {
-    const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                            metrics.verticalSpacing * 5 + metrics.keyboardVerticalOffset;
+    const int inputStartY = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing * 5 +
+                            metrics.keyboardVerticalOffset;
     const int inputBottom = inputStartY + inputLineHeight + metrics.verticalSpacing + 8;
     y = std::max(y, inputBottom);
+  }
+  if (renderer.hasCustomViewableInsets()) {
+    y = std::max(safe.y, std::min(y, bottom));
+    return fui::Rect{static_cast<int16_t>(safe.x), static_cast<int16_t>(y), static_cast<int16_t>(safe.width),
+                     static_cast<int16_t>(std::max(0, hasTouch ? bottom - y : std::min(height, bottom - y)))};
   }
   return fui::Rect{0, static_cast<int16_t>(y), static_cast<int16_t>(pageWidth),
                    static_cast<int16_t>(hasTouch ? pageHeight - y : height)};
@@ -903,19 +918,14 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   TouchHeaderBackButton::draw(renderer, header, title.c_str(), false);
 
   const int lineHeight = inputLineHeight;
-  const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                          metrics.verticalSpacing + metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
+  const int inputStartY = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing +
+                          metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
   int inputHeight = 0;
 
   std::string displayText = displayTextForCurrentState();
 
   const bool isPassword = (inputType == InputType::Password);
-  int availableWidth = pageWidth;
-  // Clear the side-button hint gutters, which only render on edge-button boards without touch.
-  if (deviceUsesSideButtonHintGutters(gpio)) {
-    availableWidth -= 2 * metrics.sideButtonHintsWidth;
-  }
-  const int effectiveMargin = (pageWidth - availableWidth * metrics.keyboardTextFieldWidthPercent / 100) / 2;
+  const int effectiveMargin = textFieldMargin();
   const int toggleGap = isPassword ? 4 : 0;
   const int toggleReserve = isPassword ? std::max(renderer.getTextWidth(UI_12_FONT_ID, "[abc]"),
                                                   renderer.getTextWidth(UI_12_FONT_ID, "[***]")) +
@@ -1091,7 +1101,14 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 
   const int tipsLh = renderer.getLineHeight(SMALL_FONT_ID);
   const int underlineBottom = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing + 4;
-  auto drawTip = [&](const char* tip, int y) { renderer.drawCenteredText(SMALL_FONT_ID, y, tip, true); };
+  auto drawTip = [&](const char* tip, int y) {
+    if (renderer.hasCustomViewableInsets()) {
+      const auto safe = UITheme::getInstance().getScreenSafeArea(renderer);
+      GUI.drawHelpText(renderer, Rect{safe.x, y, safe.width, tipsLh}, tip);
+    } else {
+      renderer.drawCenteredText(SMALL_FONT_ID, y, tip, true);
+    }
+  };
 
   int tipCount = 0;
   if (cursorMode) {
@@ -1232,9 +1249,12 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.background = fui::Paint::none();
   // Fingers land low on the bottom row (occlusion) and there is no key below
   // to catch the miss — extend its hit band down to the button hints bar.
-  const int bottomEdge = mappedInput.hasTouchHardware() ? renderer.getScreenHeight()
-                                                        : renderer.getScreenHeight() - metrics.buttonHintsHeight;
-  props.bottomHitOverflow = static_cast<int16_t>(std::max(0, bottomEdge - keysRect.bottom()));
+  const int bottomEdge = mappedInput.hasTouchHardware()
+                             ? renderer.getScreenHeight()
+                             : renderer.getScreenHeight() - UITheme::getButtonHintsReserve(renderer);
+  const auto safeBottom = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int calibratedBottom = renderer.hasCustomViewableInsets() ? safeBottom.y + safeBottom.height : bottomEdge;
+  props.bottomHitOverflow = static_cast<int16_t>(std::max(0, calibratedBottom - keysRect.bottom()));
   // Every tap inside the keyboard lands on a key: gaps split between
   // neighbours, and edge keys reach the screen sides.
   props.fillHitGaps = mappedInput.hasTouchHardware();

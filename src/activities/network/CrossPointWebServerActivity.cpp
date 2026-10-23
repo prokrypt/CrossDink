@@ -521,7 +521,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
   const auto pageWidth = renderer.getScreenWidth();
 
   renderHeader();
-  const int subHeaderTop = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
+  const int subHeaderTop = TouchHeaderBackButton::contentTop(renderer, mappedInput);
   GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
   int startY = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing;
