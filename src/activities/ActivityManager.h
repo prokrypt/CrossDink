@@ -111,6 +111,15 @@ class ActivityManager {
   [[noreturn]] virtual void renderTaskLoop();
   // Whether a FAST refresh in this activity's render may return before the waveform ends.
   static bool allowsDeferredRefresh(const Activity& activity);
+  // Ghost Busters (Display setting): a new screen gets this many plain Fast
+  // refreshes of its own frame once input and frames pause for the knob below.
+  // Only screens whose frame stays in the framebuffer as B/W (menus: no readers,
+  // Sleep, Boot or image viewer), not the keyboard (its own typing LUT) and not
+  // screens that switch the booster off when idle (transfers, Goodies).
+  static bool ghostBustersFit(const Activity& activity);
+  static KNOB_ALIAS(GHOST_BUSTER_QUIET_MS, ghostBusterQuietMs);  // Goodies > Knobs
+  // millis() of the last user input, for Ghost Busters. Main task writes.
+  std::atomic<uint32_t> lastInputMs{0};
   static constexpr uint32_t DEFERRED_REFRESH_POLL_MS = 5;
   // Screens that opt in (powerOffPanelWhenIdle) switch the booster off as
   // soon as their frame's refresh is done and no new frame is queued within

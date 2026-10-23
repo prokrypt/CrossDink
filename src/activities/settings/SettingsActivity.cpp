@@ -235,6 +235,9 @@ std::string formatSettingValue(const SettingInfo& setting) {
     CrossPointSettings::formatCharacterSpacing(SETTINGS.characterSpacing, value, sizeof(value));
     return value;
   }
+  if (setting.valuePtr == &CrossPointSettings::ghostBusters && SETTINGS.ghostBusters == 0) {
+    return tr(STR_STATE_OFF);
+  }
   return std::to_string(SETTINGS.*(setting.valuePtr));
 }
 

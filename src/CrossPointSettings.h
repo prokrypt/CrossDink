@@ -742,6 +742,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint8_t FLASH_DUCK_DEPTH_MAX = 90;
   static constexpr uint8_t FLASH_DUCK_DEPTH_STEP = 10;
   uint8_t flashDuckDepth = 0;
+  // Ghost Busters: extra Fast refreshes of a new menu screen once input pauses, 0 = off.
+  static constexpr uint8_t GHOST_BUSTERS_MAX = 10;
+  uint8_t ghostBusters = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   char filenameFallbackFont[64] = "";  // Folder name under /.crossdink/languages/fonts; empty disables fallback.
