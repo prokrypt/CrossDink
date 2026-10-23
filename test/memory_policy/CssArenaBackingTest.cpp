@@ -14,7 +14,8 @@ struct CssArenaBackingTest : testing::Test {
   }
   void createCache() {
     const std::string text =
-        "p { text-align: center; margin-top: 12px; } .em { font-weight: bold; } div p { font-style: italic; } "
+        "p { text-align: center; margin-top: 12px; font-size: 150%; } .em { font-weight: bold; } div p { font-style: "
+        "italic; } "
         ".plain { list-style-type: none; }";
     Storage.put("input.css", {text.begin(), text.end()});
     FsFile file;
@@ -33,6 +34,9 @@ struct CssArenaBackingTest : testing::Test {
     EXPECT_TRUE(style.hasTextAlign());
     EXPECT_TRUE(style.hasMarginTop());
     EXPECT_EQ(style.marginTop.value, 12);
+    ASSERT_TRUE(style.hasFontSize());
+    EXPECT_EQ(style.fontSize.value, 150);
+    EXPECT_EQ(style.fontSize.unit, CssUnit::Percent);
     EXPECT_EQ(style.fontWeight, CssFontWeight::Bold);
     EXPECT_EQ(style.fontStyle, CssFontStyle::Italic);
     EXPECT_EQ(style.textAlign, CssTextAlign::Center);
@@ -186,5 +190,32 @@ TEST_F(CssArenaBackingTest, BorderSuppressionSurvivesHydrationAndDiskFallback) {
     EXPECT_TRUE(css.resolveStyle("hr", "transition").suppressesHorizontalRule());
     EXPECT_FALSE(css.resolveStyle("hr", "visible").suppressesHorizontalRule());
     EXPECT_TRUE(css.resolveStyle("hr", "", {{0, "div", ""}}).suppressesHorizontalRule());
+  }
+}
+
+TEST_F(CssArenaBackingTest, PublisherDecorationsAndContextSurviveAllCacheBackings) {
+  for (int mode = 0; mode < 3; ++mode) {
+    fakeheap::reset(mode != 0);
+    const std::string text =
+        "section#chapter > p.note.wide { border: 2px dashed; background: #ddd; white-space: pre-wrap; } "
+        "p.note::first-letter { initial-letter: 3; float: left; }";
+    Storage.put("input.css", {text.begin(), text.end()});
+    FsFile file;
+    ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+    CssParser css("book");
+    ASSERT_TRUE(css.loadFromStream(file));
+    file.close();
+    ASSERT_TRUE(css.saveToCache());
+    css.clear();
+    if (mode == 2) fakeheap::external.fail = 1;
+    ASSERT_TRUE(css.loadFromCache());
+    auto style = css.resolveStyle("p", "wide note", {{0, "section", "", "chapter"}});
+    EXPECT_EQ(style.borders[0].width, 2);
+    EXPECT_EQ(style.borders[0].style, CssBorderStyle::Dashed);
+    EXPECT_TRUE(style.shaded);
+    EXPECT_TRUE(style.preserveWhitespace);
+    auto cap = css.resolveStyle("p", "note", {}, {}, true);
+    EXPECT_EQ(cap.initialLetter, 3);
+    EXPECT_TRUE(cap.floatLeft);
   }
 }

@@ -11,13 +11,16 @@ FootnoteLinkTargets buildFootnoteLinkTargets(const Page& page, const std::vector
   FootnoteLinkTargets targets{};
   if (footnotes.empty()) return targets;
 
-  const int lineHeight = renderer.getLineHeight(fontId);
   for (const auto& element : page.elements) {
     if (!element || element->getTag() != TAG_PageLine) continue;
     const auto& line = static_cast<const PageLine&>(*element);
     if (!line.getBlock()) continue;
 
     const auto& block = *line.getBlock();
+    const int lineFontId = block.resolvedFontId(renderer, fontId);
+    const int lineHeight =
+        block.getBlockStyle().lineHeight ? block.getBlockStyle().lineHeight : block.maxLineHeight(renderer, lineFontId);
+    int baseline = -1;
     for (uint16_t wordIndex = 0; wordIndex < block.wordCount(); ++wordIndex) {
       const uint8_t linkId = block.wordLinkId(wordIndex);
       if (linkId == 0) continue;
@@ -30,14 +33,11 @@ FootnoteLinkTargets buildFootnoteLinkTargets(const Page& page, const std::vector
 
       const auto style = static_cast<EpdFontFamily::Style>(block.wordStyle(wordIndex) & ~EpdFontFamily::UNDERLINE);
       const int wordX = marginLeft + line.xPos + block.wordXpos(wordIndex);
-      int wordY = marginTop + line.yPos;
-      if ((style & EpdFontFamily::SUP) != 0) {
-        wordY -= renderer.getFontAscenderSize(fontId) * 2 / 5;
-      } else if ((style & EpdFontFamily::SUB) != 0) {
-        wordY += renderer.getFontAscenderSize(fontId) / 4;
-      }
+      if (baseline < 0) baseline = block.maxAscender(renderer, lineFontId);
+      const int wordY = marginTop + line.yPos + block.wordYOffset(renderer, lineFontId, wordIndex, baseline);
+      const int wordFontId = block.wordFontId(renderer, lineFontId, wordIndex);
       int wordWidth =
-          renderer.getTextAdvanceX(fontId, block.wordText(wordIndex), style, 0, block.getCharacterSpacing());
+          renderer.getTextAdvanceX(wordFontId, block.visibleWordText(wordIndex), style, 0, block.getCharacterSpacing());
       if (wordIndex + 1 < block.wordCount() && block.wordXpos(wordIndex + 1) > block.wordXpos(wordIndex)) {
         wordWidth = std::min(wordWidth, static_cast<int>(block.wordXpos(wordIndex + 1) - block.wordXpos(wordIndex)));
       }

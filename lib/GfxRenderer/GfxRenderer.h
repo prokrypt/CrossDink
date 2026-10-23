@@ -371,8 +371,14 @@ class GfxRenderer {
   /// step that drawText() uses, without drawing or consuming that codepoint.
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style, uint32_t followingCp = 0,
                       int8_t characterSpacing = 0) const;
+  bool getCodepointMetrics(int fontId, uint32_t cp, EpdFontFamily::Style style, int32_t& advanceFP, int& top) const;
+  int drawScaledCodepoint(int fontId, uint32_t cp, EpdFontFamily::Style style, int x, int baselineY, int scale256,
+                          bool pixelState = true) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  // Zero means bitmap font: EPUB content sizing stays disabled.
+  uint8_t getFontPointSize(int fontId) const;
+  int getFontIdForSize(int fontId, uint8_t points) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than
