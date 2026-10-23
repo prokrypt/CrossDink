@@ -10,6 +10,7 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
+#include "util/InputReleaseGuard.h"
 
 namespace fui = freeink::ui;
 
@@ -41,6 +42,8 @@ void XtcReaderChapterSelectionActivity::onEnter() {
   Activity::onEnter();
   // Like Home, keep the current chapter selected on touch: it is the "you are here" marker.
   listSelectionRevealed = true;
+  ignoreInitialUpRelease = mappedInput.isPhysicalPressed(MappedInputManager::Button::Up);
+  ignoreInitialDownRelease = mappedInput.isPhysicalPressed(MappedInputManager::Button::Down);
   mappedInput.setReaderTouchscreenOverride(true);
   if (!xtc) return;
 
@@ -78,6 +81,14 @@ void XtcReaderChapterSelectionActivity::onRowEvent(const fui::ActionEvent& event
 }
 
 void XtcReaderChapterSelectionActivity::loop() {
+  // A held side shortcut opens this list before its release. Keep that hold
+  // from scrolling the new list or selecting a different chapter.
+  if (InputReleaseGuard::consumeInitialRelease(mappedInput, MappedInputManager::Button::Up, ignoreInitialUpRelease) ||
+      InputReleaseGuard::consumeInitialRelease(mappedInput, MappedInputManager::Button::Down,
+                                               ignoreInitialDownRelease)) {
+    return;
+  }
+
   const int totalItems = static_cast<int>(xtc->getChapterCount());
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
