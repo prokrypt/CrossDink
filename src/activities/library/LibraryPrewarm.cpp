@@ -167,8 +167,9 @@ void start() {
   // Priority 1 on the worker core, away from the render task. At idle
   // priority it would time-slice with IDLE0 (which does not yield) and get
   // about half the core. Mutex priority inheritance covers the card lock.
-  psramStack = xTaskCreatePinnedToCoreWithCaps(&buildTask, "LibPrewarm", kStackBytes, nullptr, tskIDLE_PRIORITY + 1,
-                                               &task, TaskCores::kWorker, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+  psramStack =
+      xTaskCreatePinnedToCoreWithCaps(&buildTask, "LibPrewarm", kStackBytes, nullptr, tskIDLE_PRIORITY + 1, &task,
+                                      TaskCores::kWorker, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
   if (!psramStack && xTaskCreatePinnedToCore(&buildTask, "LibPrewarm", kStackBytes, nullptr, tskIDLE_PRIORITY + 1,
                                              &task, TaskCores::kWorker) != pdPASS) {
     task = nullptr;
