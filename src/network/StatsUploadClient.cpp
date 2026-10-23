@@ -61,6 +61,7 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
   }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
+  applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
   http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
   http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
   size_t size = 0;
@@ -122,6 +123,7 @@ StatsUploadClient::Result StatsUploadClient::probe(const bool trustHtml) {
     return Result::Network;
   }
   http.addHeader("Accept", "application/json");
+  applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
   http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
   http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
   // A JSON object body separates the summary API from catch-all HTML pages that

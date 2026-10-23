@@ -341,6 +341,32 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Toggle(StrId::STR_FRONTLIGHT, &CrossPointSettings::frontlightOn, "frontlightOn"));
 
     // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
+    add(SettingInfo::DynamicEnum(
+        StrId::STR_SERVER_TYPE, {StrId::STR_CROSSPOINT, StrId::STR_KOSYNC_SERVER, StrId::STR_OTHER},
+        [] { return static_cast<uint8_t>(KOREADER_STORE.getServerType()); },
+        [](uint8_t value) {
+          KOREADER_STORE.setServerType(static_cast<KOReaderServerType>(value));
+          KOREADER_STORE.saveToFile();
+        },
+        "koServerType", StrId::STR_SYNC_SERVER));
+    add(SettingInfo::DynamicString(
+        StrId::STR_CUSTOM_HEADER_1, [] { return formatHttpHeaderLine(KOREADER_STORE.getCustomHeaders()[0], true); },
+        [](const std::string& value) {
+          if (value == formatHttpHeaderLine(KOREADER_STORE.getCustomHeaders()[0], true)) return;
+          HttpHeader header;
+          if (parseHttpHeaderLine(value, header) && KOREADER_STORE.setCustomHeader(0, header.name, header.value))
+            KOREADER_STORE.saveToFile();
+        },
+        "koCustomHeader1", StrId::STR_SYNC_SERVER));
+    add(SettingInfo::DynamicString(
+        StrId::STR_CUSTOM_HEADER_2, [] { return formatHttpHeaderLine(KOREADER_STORE.getCustomHeaders()[1], true); },
+        [](const std::string& value) {
+          if (value == formatHttpHeaderLine(KOREADER_STORE.getCustomHeaders()[1], true)) return;
+          HttpHeader header;
+          if (parseHttpHeaderLine(value, header) && KOREADER_STORE.setCustomHeader(1, header.name, header.value))
+            KOREADER_STORE.saveToFile();
+        },
+        "koCustomHeader2", StrId::STR_SYNC_SERVER));
     add(SettingInfo::DynamicString(
         StrId::STR_KOREADER_USERNAME, [] { return KOREADER_STORE.getUsername(); },
         [](const std::string& v) {

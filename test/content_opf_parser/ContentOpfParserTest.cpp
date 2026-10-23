@@ -332,3 +332,31 @@ TEST(ContentOpfParserMetadata, RepeatedMetadataCannotReuseReleasedCollectionSlot
   parse(parser, xml);
   EXPECT_TRUE(parser.series.empty());
 }
+
+TEST(ContentOpfParserMetadata, SyncIdentifiersAndExistingSeries) {
+  const std::string xml =
+      R"(<package xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf"><metadata>
+    <dc:identifier opf:scheme="ISBN">978-1-4028-9462-6</dc:identifier>
+    <dc:identifier opf:scheme="AMAZON">B012345678</dc:identifier>
+    <meta name="calibre:series" content="Series"/><meta name="calibre:series_index" content="2.5"/>
+  </metadata></package>)";
+  ContentOpfParser parser(kEmptyPath, kEmptyPath, xml.size(), nullptr);
+  parse(parser, xml);
+  EXPECT_EQ(parser.isbn, "978-1-4028-9462-6");
+  EXPECT_EQ(parser.asin, "B012345678");
+  EXPECT_EQ(parser.series, "Series");
+  EXPECT_EQ(parser.seriesIndex, "2.5");
+}
+TEST(ContentOpfParserMetadata, SyncIdentifierPrefixesAndBounds) {
+  const std::string xml =
+      R"(<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:identifier>urn:isbn:9781234567890</dc:identifier><dc:identifier>ASIN: B012345678</dc:identifier></metadata></package>)";
+  ContentOpfParser parser(kEmptyPath, kEmptyPath, xml.size(), nullptr);
+  parse(parser, xml);
+  EXPECT_EQ(parser.isbn, "9781234567890");
+  EXPECT_EQ(parser.asin, "B012345678");
+  const std::string huge = R"(<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:identifier>ISBN:)" +
+                           std::string(4096, '1') + "</dc:identifier></metadata></package>";
+  ContentOpfParser bounded(kEmptyPath, kEmptyPath, huge.size(), nullptr);
+  parse(bounded, huge);
+  EXPECT_TRUE(bounded.isbn.empty());
+}

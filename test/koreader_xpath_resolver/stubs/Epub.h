@@ -33,7 +33,8 @@ class Epub {
   bool failRead = false;
   bool sourceMapRequired = false;
 
-  bool hasSourceSpineMap() const { return false; }
+  bool sourceMapPresent = false;
+  bool hasSourceSpineMap() const { return sourceMapPresent; }
   bool requiresSourceSpineMap() const { return sourceMapRequired; }
   bool getSourceSpineMapEntry(int, SourceSpineMapEntry&) const { return false; }
   const SourceChildRange* getSourceChildRange(const SourceSpineMapEntry&, size_t) const { return nullptr; }

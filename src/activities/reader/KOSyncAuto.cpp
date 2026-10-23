@@ -190,9 +190,10 @@ bool buildProgress(const std::string& path, KOReaderProgress& out, int& moved, s
     meta.filename = slash != std::string::npos ? path.substr(slash + 1) : path;
     meta.title = epub->getTitle();
     meta.authors = epub->getAuthor();
+    meta.loadExtended(*epub);
     out.metadata = std::move(meta);
   }
-  if (KOREADER_STORE.usesCrossPointSyncServer()) {
+  if (KOREADER_STORE.supportsRichProgress()) {
     KOReaderRichPosition rich;
     rich.pctQ = static_cast<uint32_t>(std::clamp(ko.percentage, 0.0f, 1.0f) * 1000000.0f + 0.5f);
     rich.spineIndex = static_cast<uint16_t>(spine);

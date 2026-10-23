@@ -19,6 +19,7 @@ class ContentOpfParser final : public Print {
     IN_BOOK_TITLE,
     IN_BOOK_AUTHOR,
     IN_BOOK_LANGUAGE,
+    IN_BOOK_IDENTIFIER,
     IN_BOOK_SUBJECT,
     IN_BOOK_COLLECTION,
     IN_BOOK_COLLECTION_TYPE,
@@ -50,6 +51,9 @@ class ContentOpfParser final : public Print {
   bool titleTruncated = false;
   bool authorTruncated = false;
   bool languageTruncated = false;
+  bool identifierTruncated = false;
+  std::string identifierText;
+  uint8_t identifierKind = 0;
   bool subjectTruncated = false;
   bool seriesTruncated = false;
   bool collectionTypeTruncated = false;
@@ -128,6 +132,8 @@ class ContentOpfParser final : public Print {
   std::string title;
   std::string author;
   std::string language;
+  std::string isbn;
+  std::string asin;
   std::string subject;
   std::string series;
   std::string seriesIndex;
