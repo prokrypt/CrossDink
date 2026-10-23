@@ -888,3 +888,6 @@ STR_FIRMWARE_WRONG_DEVICE: "Прошивка для іншого пристро�
 STR_TAP_HOME_SHORTCUT: "Торкніться «Додому»"
 STR_LONG_PRESS_HOME_SHORTCUT: "Довге натискання «Додому»"
 STR_DOUBLE_TAP_HOME_SHORTCUT: "Двічі торкніться «Додому»"
+STR_MENU_NAVIGATION: "Навігація меню"
+STR_MENU_DIRECTIONAL: "За напрямками"
+STR_MENU_CLASSIC: "Попередня"
