@@ -608,10 +608,10 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
-// 115 entries on every build, four edge gesture entries compiled only for
+// 116 entries on every build, four edge gesture entries compiled only for
 // touch devices, and the two tilt page-turn entries inserted at runtime on
 // devices with an IMU. The simulator smoke test fails if this falls short.
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 115 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + 2;
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 116 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + 2;
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the
@@ -1011,7 +1011,7 @@ inline std::vector<SettingInfo> buildControlsSideButtonSettingsList(const std::v
 
 inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> displaySettings;
-  displaySettings.reserve(12);
+  displaySettings.reserve(13);
 
   auto addDisplaySetting = [&](StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
@@ -1031,6 +1031,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   }
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SCREEN_CALIBRATION, SettingAction::ScreenCalibration));
   addDisplaySetting(StrId::STR_REFRESH_FREQ);
+  addDisplaySetting(StrId::STR_GHOST_BUSTERS);
   addDisplaySetting(StrId::STR_NIGHT_MODE);
   addDisplaySetting(StrId::STR_UI_THEME);
   if (SETTINGS.supportsLibraryFileBrowserSwap()) {

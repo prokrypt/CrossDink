@@ -524,11 +524,25 @@ void ActivityManager::renderTaskLoop() {
   bool displayPmHeld = false;
   bool idlePanelOffArmed = false;
   uint32_t idlePanelOffMs = PANEL_OFF_POLL_MS;
+  uint8_t ghostBusters = 0;  // left for the screen now shown
+  uint32_t lastFrameMs = 0;  // when the last frame (not a buster) was done
+  const auto ghostBusterWaitMs = [this, &lastFrameMs]() -> uint32_t {
+    const uint32_t now = millis();
+    const uint32_t quietMs = std::min(now - lastFrameMs, now - lastInputMs.load(std::memory_order_relaxed));
+    return quietMs >= GHOST_BUSTER_QUIET_MS ? 0 : GHOST_BUSTER_QUIET_MS - quietMs;
+  };
   while (true) {
+    bool ghostBuster = false;
     if (!renderQueued) {
-      const uint32_t notified =
-          ulTaskNotifyTake(pdTRUE, idlePanelOffArmed ? pdMS_TO_TICKS(idlePanelOffMs) : portMAX_DELAY);
-      if (notified == 0) {
+      TickType_t wait = idlePanelOffArmed ? pdMS_TO_TICKS(idlePanelOffMs) : portMAX_DELAY;
+      if (ghostBusters > 0) wait = std::min<TickType_t>(wait, pdMS_TO_TICKS(ghostBusterWaitMs()));
+      const uint32_t notified = ulTaskNotifyTake(pdTRUE, wait);
+      if (notified == 0 && ghostBusters > 0) {
+        // Input meanwhile: wait for the pause again. The booster stays on until
+        // the busters are done; each of them would power it on anyway.
+        if (ghostBusterWaitMs() > 0) continue;
+        ghostBuster = true;
+      } else if (notified == 0) {
         // No new frame within the idle delay (right after the draw on screens
         // that opted in): switch the booster off. The next refresh, or an
         // early wake on input, powers it back on.
@@ -579,11 +593,34 @@ void ActivityManager::renderTaskLoop() {
       continue;
     }
     entryRenderRequested = false;
-    TouchRegistry::getInstance().setEnabled(mappedInput.hasTouch());
-    TouchRegistry::getInstance().beginFrame();
+    if (!ghostBuster) {
+      TouchRegistry::getInstance().setEnabled(mappedInput.hasTouch());
+      TouchRegistry::getInstance().beginFrame();
+    }
     bool deferredRender = false;
     bool batchInput = false;
-    if (currentActivity) {
+    if (ghostBuster) {
+#ifndef SIMULATOR  // the simulator HAL has no panel
+      // The frame on screen again as a plain Fast refresh: no flash, and OLD =
+      // NEW, so only the panel's own Fast hold rows run. Only while the
+      // framebuffer is that frame: same screen, no gray since, not lent out.
+      if (currentActivity && currentActivity.get() == listSelectionOwner && ghostBustersFit(*currentActivity) &&
+          renderer.hasFrameBuffer() && !display.grayShown()) {
+        HalPowerManager::Lock powerLock;
+        panelBoosterOff.store(false, std::memory_order_release);  // the refresh powers it on
+        renderer.setDeferFastRefresh(true);
+        renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+        renderer.setDeferFastRefresh(false);
+        deferredRender = true;
+        ghostBusters--;
+        LOG_DBG("ACT", "Ghost buster, %u left", static_cast<unsigned>(ghostBusters));
+      } else {
+        ghostBusters = 0;
+      }
+#else
+      ghostBusters = 0;
+#endif
+    } else if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
       // Apply Night Mode to each activity's normal-polarity frame. SleepActivity
       // preserves it only for Quick Resume and clears it for other sleep screens.
@@ -609,6 +646,7 @@ void ActivityManager::renderTaskLoop() {
       if (currentActivity.get() != listSelectionOwner) {
         listSelectionOwner = currentActivity.get();
         ListSelection::tapRowShown = false;  // a popup of the previous screen
+        ghostBusters = ghostBustersFit(*currentActivity) ? SETTINGS.ghostBusters : 0;
       }
       ListSelection::revealed = currentActivity->listSelectionRevealed;
       ListSelection::hidThisFrame = false;
@@ -621,13 +659,16 @@ void ActivityManager::renderTaskLoop() {
       renderer.setBeforeDisplay(nullptr, nullptr);  // never outlives the render that set it
       restoredActivityNeedsRender = false;
     }
-    TouchRegistry::getInstance().publish();
-    // Notify any task blocked in requestUpdateAndWait() that the render is done.
+    // A buster drew nothing: touch targets and any waiter's frame are still to come.
     TaskHandle_t waiter = nullptr;
-    taskENTER_CRITICAL(&renderStateMux);
-    waiter = waitingTaskHandle;
-    waitingTaskHandle = nullptr;
-    taskEXIT_CRITICAL(&renderStateMux);
+    if (!ghostBuster) {
+      TouchRegistry::getInstance().publish();
+      // Notify any task blocked in requestUpdateAndWait() that the render is done.
+      taskENTER_CRITICAL(&renderStateMux);
+      waiter = waitingTaskHandle;
+      waitingTaskHandle = nullptr;
+      taskEXIT_CRITICAL(&renderStateMux);
+    }
     if (waiter) {
       xTaskNotify(waiter, 1, eIncrement);
     }
@@ -675,10 +716,16 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = true;
       idlePanelOffMs = PANEL_OFF_POLL_MS;
     }
+    if (!ghostBuster) lastFrameMs = millis();
     // Renders leave work for the loop (queued page turns, toasts, alerts,
     // prerender timers): one pass now instead of at the next idle tick.
     InputTask::wakeLoop();
   }
+}
+
+// The keyboard by name: batchesInputDuringRefresh() is also true for menus that batch taps.
+bool ActivityManager::ghostBustersFit(const Activity& activity) {
+  return allowsDeferredRefresh(activity) && activity.name != "KeyboardEntry" && !activity.powerOffPanelWhenIdle();
 }
 
 bool ActivityManager::allowsDeferredRefresh(const Activity& activity) {
@@ -1099,6 +1146,7 @@ void ActivityManager::cancelOptionalRenderWork(const char* reason) {
 }
 
 void ActivityManager::notifyUserInput() {
+  lastInputMs.store(millis(), std::memory_order_relaxed);
   if (currentActivity) currentActivity->onUserInput();
 }
 
