@@ -91,6 +91,16 @@ TEST(FilenameFallback, UsesRegularWhenBoldIsMissingOrLacksAGlyph) {
   EXPECT_TRUE(partialBold.hasCodepoint(0x4E01, EpdFontFamily::BOLD));
 }
 
+TEST(UiSymbolFallback, RemovingBorrowedFacesPreservesBuiltinsAndSharedSymbols) {
+  const auto restored = small.withFallbackFonts(&cjkRegular, &cjkBold).withFallbackFonts(nullptr);
+  for (const auto style :
+       {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC}) {
+    EXPECT_FALSE(restored.hasCodepoint(0x4E00, style));
+    EXPECT_EQ(restored.getGlyphData('A', style).glyph, small.getGlyphData('A', style).glyph);
+    EXPECT_EQ(restored.getGlyphData(POWER, style).fontData, &ui_symbols_10);
+  }
+}
+
 TEST(FilenameFallback, MeasuresFallbackGlyphsAndPreservesMissingGlyphBehavior) {
   const auto composite = small.withFallbackFonts(&cjkRegular);
   int width = 0, height = 0;
@@ -101,4 +111,18 @@ TEST(FilenameFallback, MeasuresFallbackGlyphsAndPreservesMissingGlyphBehavior) {
   EXPECT_EQ(composite.getGlyphData(0x4E02).glyph, smallRegular.getGlyph(REPLACEMENT_GLYPH));
   EXPECT_EQ(composite.getKerning('A', 0x4E00), 0);
   EXPECT_EQ(composite.getKerning(0x4E00, 'V'), 0);
+}
+
+TEST(FilenameFallback, SupportsNonCjkGlyphsWithoutAProbeList) {
+  constexpr EpdUnicodeInterval armenianIntervals[] = {{0x0531, 0x0532, 0}};
+  const auto data = cjkData(cjkGlyphs, armenianIntervals);
+  const EpdFont armenian(&data);
+  const auto composite = small.withFallbackFonts(&armenian);
+  EXPECT_EQ(composite.getGlyphData(0x0531).fontData, &data);
+  EXPECT_EQ(composite.getGlyphData(0x0532, EpdFontFamily::BOLD).fontData, &data);
+  EXPECT_EQ(composite.getGlyphData('A').fontData, &inter_10_regular);
+  EXPECT_FALSE(composite.hasCodepoint(0x4E00));
+  int width = 0, height = 0;
+  composite.getTextDimensions("ԱԲ", &width, &height);
+  EXPECT_EQ(width, 38);
 }

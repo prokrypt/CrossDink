@@ -257,8 +257,8 @@ void drawPerBookStatsCard(const GfxRenderer& renderer, const int x, const int y,
   renderer.drawRect(x, y, w, h);
   renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
   const std::string visibleTitle =
-      renderer.truncatedText(UI_10_FONT_ID, bookTitle.c_str(), w - 20, EpdFontFamily::BOLD);
-  drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
+      renderer.truncatedText(renderer.filenameFontId(UI_10_FONT_ID), bookTitle.c_str(), w - 20, EpdFontFamily::BOLD);
+  drawCenteredLabel(renderer, renderer.filenameFontId(UI_10_FONT_ID), x, w,
                     y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, visibleTitle.c_str(), true);
 
   const bool showRtcStats = shouldShowRtcBasedStats();

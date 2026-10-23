@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "activities/ActivityResult.h"
@@ -152,6 +153,10 @@ EpubReaderClippingListActivity::EpubReaderClippingListActivity(GfxRenderer& rend
 
 void EpubReaderClippingListActivity::onEnter() {
   Activity::onEnter();
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   selectedIndex = 0;
   topIndex = 0;
   visibleRows = 1;
@@ -239,7 +244,7 @@ void EpubReaderClippingListActivity::rebuildDetailLayoutIfNeeded() {
   const int linesPerPage = getDetailLinesPerPage();
   if (textWidth == detailLayoutWidth && linesPerPage == detailLinesPerPage && !detailLines.empty()) return;
 
-  buildWrappedDetailLines(renderer, UI_10_FONT_ID, detailText, textWidth, detailLines);
+  buildWrappedDetailLines(renderer, renderer.filenameFontId(UI_10_FONT_ID), detailText, textWidth, detailLines);
   if (detailLines.empty()) detailLines.push_back("");
   detailLayoutWidth = textWidth;
   detailLinesPerPage = linesPerPage;
@@ -501,6 +506,7 @@ void EpubReaderClippingListActivity::buildListScreen(UiApp::ScreenType& screen) 
     screen.centeredText(tr(STR_NO_CLIPPINGS), screen.theme().bodyText);
     return;
   }
+  FilenameUiFontScope fonts(uiTarget, renderer);
   fui::ListProps props;
   props.action = ACTION_ROW;
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
@@ -558,26 +564,29 @@ void EpubReaderClippingListActivity::renderDetail() {
   Rect openButton{};
   if (showTouchControls) {
     const Rect header = clippingHeaderRect(renderer, safe, mappedInput);
+    FilenameUiFontScope fonts(uiTarget, renderer);
     TouchHeaderBackButton::draw(renderer, uiTarget, header, chapter, true);
     textStartY = header.y + header.height + metrics.verticalSpacing;
     openButton = touchDetailOpenButtonRect(safe, metrics);
   } else
 #endif
   {
-    const std::string title =
-        renderer.truncatedText(UI_12_FONT_ID, chapter, contentWidth - DETAIL_SIDE_MARGIN * 2, EpdFontFamily::BOLD);
-    const int titleX =
-        contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, title.c_str(), EpdFontFamily::BOLD)) / 2;
-    renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, title.c_str(), true, EpdFontFamily::BOLD);
+    const std::string title = renderer.truncatedText(renderer.filenameFontId(UI_12_FONT_ID), chapter,
+                                                     contentWidth - DETAIL_SIDE_MARGIN * 2, EpdFontFamily::BOLD);
+    const int titleX = contentX + (contentWidth - renderer.getTextWidth(renderer.filenameFontId(UI_12_FONT_ID),
+                                                                        title.c_str(), EpdFontFamily::BOLD)) /
+                                      2;
+    renderer.drawText(renderer.filenameFontId(UI_12_FONT_ID), titleX, 15 + contentY, title.c_str(), true,
+                      EpdFontFamily::BOLD);
   }
 
-  const int lineStep = renderer.getLineHeight(UI_10_FONT_ID) + DETAIL_LINE_GAP;
+  const int lineStep = renderer.getLineHeight(renderer.filenameFontId(UI_10_FONT_ID)) + DETAIL_LINE_GAP;
   const int textX = contentX + DETAIL_SIDE_MARGIN;
   const int firstLine = detailPage * detailLinesPerPage;
   const int lastLine = std::min(static_cast<int>(detailLines.size()), firstLine + detailLinesPerPage);
   int y = textStartY;
   for (int i = firstLine; i < lastLine; i++) {
-    renderer.drawText(UI_10_FONT_ID, textX, y, detailLines[i].c_str());
+    renderer.drawText(renderer.filenameFontId(UI_10_FONT_ID), textX, y, detailLines[i].c_str());
     y += lineStep;
   }
 

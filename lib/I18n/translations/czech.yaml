@@ -806,7 +806,7 @@ STR_CLOCK_OUTSIDE_READER: "Hodiny mimo čtečku"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Prohodit knihovnu/soubory"
 STR_CLIP: "Výstřižek"
-STR_FILENAME_FALLBACK_FONT: "Záložní písmo názvů souborů"
+STR_FILENAME_FALLBACK_FONT: "Písmo rozhraní"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Běžný řez povinný; tučný volitelný."
 STR_AM: "dop."
 STR_PM: "odp."

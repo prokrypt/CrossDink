@@ -621,7 +621,7 @@ STR_CLOCK_OUTSIDE_READER: "Гадзіннік па-за чытаннем"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Памяняць бібліятэку/файлы"
 STR_CLIP: "Выразка"
-STR_FILENAME_FALLBACK_FONT: "Рэзервовы шрыфт назваў файлаў"
+STR_FILENAME_FALLBACK_FONT: "Шрыфт інтэрфейсу"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Звычайны абавязковы; тлусты неабавязковы."
 STR_AM: "AM"
 STR_PM: "PM"

@@ -45,7 +45,7 @@ void UsbDriveActivity::onEnter() {
   requestUpdateAndWait();
   {
     RenderLock lock(*this);
-    filenameFontSystem.release(renderer);
+    filenameFontSystem.suspend(renderer);
   }
 #ifndef SIMULATOR
   // The host can replace fonts without going through firmware file APIs.
@@ -79,6 +79,7 @@ void UsbDriveActivity::onExit() {
   }
   Epub::forgetCacheKeys();  // the host may have replaced books
 #endif
+  filenameFontSystem.resume();
   Activity::onExit();
 }
 

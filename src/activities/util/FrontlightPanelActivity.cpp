@@ -10,6 +10,7 @@
 #include <cstdio>
 
 #include "CrossPointSettings.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
@@ -72,6 +73,10 @@ FrontlightPanelActivity::FrontlightPanelActivity(GfxRenderer& renderer, MappedIn
 
 void FrontlightPanelActivity::onEnter() {
   Activity::onEnter();
+  if (context.activeReaderBook) {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
 
   // The HAL is the live source of truth; SETTINGS only mirrors it for boot.
   brightness = Frontlight.brightness();
@@ -446,8 +451,8 @@ void FrontlightPanelActivity::drawReaderDetails(UiApp::ScreenType& screen) {
   body.align = fui::TextAlign::Center;
   const int16_t bodyLh = screen.target().lineHeight(body.font);
   if (subtitle[0] != '\0') {
-    const std::string visible =
-        renderer.truncatedText(UI_10_FONT_ID, subtitle, screen.body().width - sideInset.left - sideInset.right);
+    const std::string visible = renderer.truncatedText(renderer.filenameFontId(uiScaleSpec().bodyFontId), subtitle,
+                                                       screen.body().width - sideInset.left - sideInset.right);
     screen.target().text(screen.takeTop(bodyLh, theme.spaceLg).inset(sideInset), visible.c_str(), body);
   }
 
@@ -559,7 +564,7 @@ void FrontlightPanelActivity::drawHeader() {
     titleFontId = UI_10_FONT_ID;
   } else if (context.activeReaderBook && !context.bookTitle.empty()) {
     title = context.bookTitle.c_str();
-    titleFontId = UI_10_FONT_ID;
+    titleFontId = renderer.filenameFontId(UI_10_FONT_ID);
   } else if (formatHeaderDateText(date, sizeof(date))) {
     title = date;
     titleFontId = UI_10_FONT_ID;

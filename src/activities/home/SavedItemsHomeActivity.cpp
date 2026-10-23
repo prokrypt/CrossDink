@@ -14,6 +14,7 @@
 #include "ClippingStore.h"
 #include "CrossPointState.h"
 #include "FileBrowserActionActivity.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/CompactHeader.h"
@@ -87,6 +88,10 @@ void SavedItemsHomeActivity::reloadSavedBooks() {
 
 void SavedItemsHomeActivity::onEnter() {
   Activity::onEnter();
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   reloadSavedBooks();
   selectedIndex = 0;
   topIndex = 0;
@@ -207,6 +212,7 @@ void SavedItemsHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);
   }
+  FilenameUiFontScope fonts(uiTarget, renderer);
   fui::ListProps props;
   props.items = items.data();
   props.count = static_cast<uint16_t>(items.size());

@@ -678,7 +678,7 @@ STR_CLOCK_OUTSIDE_READER: "Đồng hồ ngoài trình đọc"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Đổi thư viện/trình duyệt tệp"
 STR_CLIP: "Trích đoạn"
-STR_FILENAME_FALLBACK_FONT: "Phông dự phòng tên tệp"
+STR_FILENAME_FALLBACK_FONT: "Phông giao diện"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Bắt buộc kiểu thường; kiểu đậm tùy chọn."
 STR_AM: "SA"
 STR_PM: "CH"

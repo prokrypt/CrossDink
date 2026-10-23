@@ -5,6 +5,7 @@
 
 #include "BookStatsView.h"
 #include "EpubReaderMenuModel.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/StatsUploadActivity.h"
@@ -302,6 +303,10 @@ void BookStatsActivity::adjustSelectedDateField(const int delta) {
 
 void BookStatsActivity::onEnter() {
   Activity::onEnter();
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   ignoreInitialBackRelease = mappedInput.isPressed(MappedInputManager::Button::Back);
   ignoreInitialConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   ignoreInitialPowerRelease = mappedInput.isPressed(MappedInputManager::Button::Power);

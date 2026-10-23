@@ -12,6 +12,7 @@
 #include <cstddef>
 
 #include "CrossPointState.h"
+#include "FilenameFontSystem.h"
 #include "HeldWrites.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
@@ -78,6 +79,9 @@ void CrossPointWebServerActivity::releaseFontsForNetwork() {
 }
 
 void CrossPointWebServerActivity::onEnter() {
+  // The server can replace the selected font through HTTP/WebDAV. Keep it
+  // closed throughout this activity and its Wi-Fi/password child screens.
+  filenameFontSystem.suspend(renderer);
   Activity::onEnter();
   BatteryLog::event("xfer_start", "file-transfer");
   RecentBookProgress::flushSyncMarks();  // the computer sees the books' KOSync marks
@@ -115,6 +119,8 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  // Only lifts the suspension; the parent reloads the font when it redraws.
+  filenameFontSystem.resume();
   BatteryLog::event("xfer_end", "file-transfer");
   library::invalidateLibraryIndex();
   Activity::onExit();

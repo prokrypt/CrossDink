@@ -884,7 +884,7 @@ STR_CLOCK_OUTSIDE_READER: "Relógio fora do leitor"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Trocar biblioteca/ficheiros"
 STR_CLIP: "Recorte"
-STR_FILENAME_FALLBACK_FONT: "Tipo de letra alternativo dos ficheiros"
+STR_FILENAME_FALLBACK_FONT: "Tipo de letra da interface"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal obrigatório; negrito opcional."
 STR_AM: "da manhã"
 STR_PM: "da tarde"

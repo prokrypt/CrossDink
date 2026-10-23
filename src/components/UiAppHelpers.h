@@ -28,8 +28,8 @@ inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) 
   return target;
 }
 
-// The scope only wraps filename/book metadata components. UI chrome keeps its
-// original slots, and layout/drawing see the same per-glyph composite fonts.
+// Legacy metadata slots share the same per-glyph fallbacks as the base UI
+// families. Keep their aliases stable for existing screens and cached layouts.
 class FilenameUiFontScope {
  public:
   FilenameUiFontScope(freeink::ui::GfxRendererTarget& target, const GfxRenderer& renderer) : target_(target) {

@@ -340,7 +340,8 @@ void SdCardFontSystem::releaseForNetwork(GfxRenderer& renderer) {
   ScalableFontAccess access;
 #endif
   releaseLoadedFont(renderer);
-  filenameFontSystem.release(renderer);
+  // UI fallback is shared by translated network screens too. It uses the
+  // existing S3/PSRAM font budget; storage-ownership flows suspend it explicitly.
 
   releaseRegistry();
   registryDirty_.store(true, std::memory_order_release);
