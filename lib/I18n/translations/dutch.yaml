@@ -619,7 +619,7 @@ STR_CLOCK_OUTSIDE_READER: "Klok buiten lezer"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Bibliotheek/bestandsbrowser wisselen"
 STR_CLIP: "Knipsel"
-STR_FILENAME_FALLBACK_FONT: "Terugvallettertype bestandsnamen"
+STR_FILENAME_FALLBACK_FONT: "Interfacelettertype"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normaal verplicht; vet optioneel."
 STR_AM: "a.m."
 STR_PM: "p.m."

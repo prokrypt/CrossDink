@@ -23,6 +23,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "DeviceCapabilities.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "ReaderFontLoading.h"
 #include "ReaderUtils.h"
@@ -502,6 +503,11 @@ EpubReaderDrawerActivity::EpubReaderDrawerActivity(
 
 void EpubReaderDrawerActivity::onEnter() {
   Activity::onEnter();
+  // Only the full-screen button drawer displays the book/chapter summary.
+  if (!mappedInput.hasTouchHardware()) {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   if (mappedInput.hasTouchHardware()) mappedInput.setReaderTouchscreenOverride(true);
 
   const ReaderDrawerCatalog catalog = makeReaderDrawerCatalog(

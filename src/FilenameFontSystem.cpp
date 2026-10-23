@@ -167,6 +167,7 @@ bool FilenameFontSystem::ensureLoaded(GfxRenderer& renderer) {
 #if CROSSDINK_SCALABLE_FONTS
   ScalableFontAccess access;
   const char* wanted = SETTINGS.filenameFallbackFont;
+  if (suspensionCount_) return !wanted[0];
   const bool dirty = dirty_.exchange(false, std::memory_order_acq_rel);
   if (!dirty && std::strcmp(attemptedFamily_, wanted) == 0) return !wanted[0] || regular_ != nullptr;
   release(renderer);
@@ -221,6 +222,22 @@ bool FilenameFontSystem::ensureLoaded(GfxRenderer& renderer) {
   LOG_INF("FNFONT", "Loaded filename fallback %s (%s)", wanted, bold_ ? "regular/bold" : "regular");
 #endif
   return true;
+}
+
+void FilenameFontSystem::suspend(GfxRenderer& renderer) {
+#if CROSSDINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+  ++suspensionCount_;
+  release(renderer);
+#endif
+}
+
+void FilenameFontSystem::resume() {
+#if CROSSDINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+  if (suspensionCount_) --suspensionCount_;
+  invalidate();
+#endif
 }
 
 uint32_t FilenameFontSystem::fingerprint() const {

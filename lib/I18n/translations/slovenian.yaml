@@ -620,7 +620,7 @@ STR_CLOCK_OUTSIDE_READER: "Ura zunaj bralnika"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Zamenjaj knjižnico/datoteke"
 STR_CLIP: "Izrezek"
-STR_FILENAME_FALLBACK_FONT: "Nadomestna pisava imen datotek"
+STR_FILENAME_FALLBACK_FONT: "Pisava vmesnika"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Navadna obvezna; krepka neobvezna."
 STR_AM: "dop."
 STR_PM: "pop."

@@ -619,7 +619,7 @@ STR_CLOCK_OUTSIDE_READER: "Okuyucu dışı saat"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Kitaplık/dosya tarayıcısını değiştir"
 STR_CLIP: "Alıntı"
-STR_FILENAME_FALLBACK_FONT: "Dosya adı yedek yazı tipi"
+STR_FILENAME_FALLBACK_FONT: "Arayüz yazı tipi"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal gerekli; kalın isteğe bağlı."
 STR_AM: "ÖÖ"
 STR_PM: "ÖS"

@@ -673,7 +673,7 @@ STR_CLOCK_OUTSIDE_READER: "Годинник поза читанням"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Поміняти бібліотеку/файли"
 STR_CLIP: "Уривок"
-STR_FILENAME_FALLBACK_FONT: "Запасний шрифт назв файлів"
+STR_FILENAME_FALLBACK_FONT: "Шрифт інтерфейсу"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Звичайний обов’язковий; жирний необов’язковий."
 STR_AM: "дп"
 STR_PM: "пп"

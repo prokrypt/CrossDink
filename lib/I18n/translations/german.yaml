@@ -792,7 +792,7 @@ STR_CLOCK_OUTSIDE_READER: "Uhr außerhalb des Lesers"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Bibliothek/Dateibrowser tauschen"
 STR_CLIP: "Auszug"
-STR_FILENAME_FALLBACK_FONT: "Ersatzschrift für Dateinamen"
+STR_FILENAME_FALLBACK_FONT: "Oberflächenschrift"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal erforderlich; Fett optional."
 STR_DATE_FORMAT: "Datumsformat"
 STR_DATE_FORMAT_MONTH_DAY_YEAR_LONG: "Dez 31, 2026"

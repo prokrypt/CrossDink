@@ -410,11 +410,19 @@ bool GfxRenderer::setFilenameFallback(const int primaryFontId, const int composi
   }
   insertFont(compositeFontId, it->second.withFallbackFonts(regular, bold));
   filenameFontMap_[primaryFontId] = compositeFontId;
+  // Attach to the shared UI family too: every renderer path (including SDK
+  // widgets) then measures and draws the same per-glyph fallback. Reader font
+  // registrations are separate and retain their own glyphs.
+  it->second = it->second.withFallbackFonts(regular, bold);
   return true;
 }
 
 void GfxRenderer::clearFilenameFallbacks() {
-  for (const auto& entry : filenameFontMap_) removeFont(entry.second);
+  for (const auto& entry : filenameFontMap_) {
+    const auto primary = fontMap.find(entry.first);
+    if (primary != fontMap.end()) primary->second = primary->second.withFallbackFonts(nullptr);
+    removeFont(entry.second);
+  }
   filenameFontMap_.clear();
 }
 

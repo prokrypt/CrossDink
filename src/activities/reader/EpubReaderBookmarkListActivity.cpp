@@ -5,6 +5,7 @@
 
 #include <cmath>
 
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "components/TouchHeaderBackButton.h"
@@ -27,6 +28,10 @@ EpubReaderBookmarkListActivity::EpubReaderBookmarkListActivity(GfxRenderer& rend
 
 void EpubReaderBookmarkListActivity::onEnter() {
   Activity::onEnter();
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   selectedIndex = 0;
   topIndex = 0;
   visibleRows = 1;
@@ -202,6 +207,7 @@ void EpubReaderBookmarkListActivity::buildListScreen(UiApp::ScreenType& screen) 
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);
   }
+  FilenameUiFontScope fonts(uiTarget, renderer);
   fui::ListProps props;
   props.items = items.data();
   props.count = static_cast<uint16_t>(items.size());

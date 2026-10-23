@@ -888,12 +888,9 @@ void ActivityManager::loop() {
         stackActivities.pop_back();
         restoredActivityNeedsRender = true;
 
-        // Network children release streamed fonts. Restore browsing metadata
-        // before the first parent redraw, without reloading into network/readers.
-        if (currentActivity->isHomeActivity() || currentActivity->name == "FileBrowser" ||
-            currentActivity->name == "Library") {
-          filenameFontSystem.ensureLoaded(renderer);
-        }
+        // A file-transfer child may have released UI fonts. Restore them for
+        // any parent (including Settings) before its first measurement/redraw.
+        filenameFontSystem.ensureLoaded(renderer);
 
         if (closedFrontlightPanel) currentActivity->onFrontlightPanelClosed();
 

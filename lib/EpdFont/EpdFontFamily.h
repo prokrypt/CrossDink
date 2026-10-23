@@ -35,7 +35,7 @@ class EpdFontFamily {
   }
   int sizeFamilyId() const { return sizeFamilyId_; }
   uint8_t pointSize() const { return pointSize_; }
-  // Missing filename glyphs retain their own font data and share the primary baseline.
+  // Missing glyphs retain their own font data and share the primary baseline.
   EpdFontFamily withFallbackFonts(const EpdFont* regularFont, const EpdFont* boldFont = nullptr) const {
     auto family = *this;
     family.fallbackRegular = regularFont;

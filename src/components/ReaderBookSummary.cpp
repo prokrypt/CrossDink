@@ -14,7 +14,7 @@ constexpr int kChapterTopGap = 4;
 bool hasChapter(const char* chapter) { return chapter != nullptr && chapter[0] != '\0'; }
 
 int chapterLineHeight(const GfxRenderer& renderer, const char* chapter) {
-  return hasChapter(chapter) ? kChapterTopGap + renderer.getLineHeight(UI_10_FONT_ID) : 0;
+  return hasChapter(chapter) ? kChapterTopGap + renderer.getLineHeight(renderer.filenameFontId(UI_10_FONT_ID)) : 0;
 }
 }  // namespace
 
@@ -28,8 +28,10 @@ void draw(const GfxRenderer& renderer, const Rect& rect, const char* chapter, co
   const int chapterHeight = chapterLineHeight(renderer, chapter);
   if (chapterHeight > 0) {
     const int sidePadding = UITheme::getInstance().getMetrics().contentSidePadding;
-    const std::string visible = renderer.truncatedText(UI_10_FONT_ID, chapter, rect.width - sidePadding * 2);
-    renderer.drawText(UI_10_FONT_ID, rect.x + sidePadding, rect.y + kChapterTopGap, visible.c_str());
+    const std::string visible =
+        renderer.truncatedText(renderer.filenameFontId(UI_10_FONT_ID), chapter, rect.width - sidePadding * 2);
+    renderer.drawText(renderer.filenameFontId(UI_10_FONT_ID), rect.x + sidePadding, rect.y + kChapterTopGap,
+                      visible.c_str());
   }
   const Rect row{rect.x, rect.y + chapterHeight, rect.width, UITheme::getInstance().getMetrics().tabBarHeight};
   GUI.drawSubHeader(renderer, row, progress);

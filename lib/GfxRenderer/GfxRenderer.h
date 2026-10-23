@@ -201,7 +201,8 @@ class GfxRenderer {
   // card font), so a task other than the render task may lay out text with it
   // while the font registry stays unchanged.
   bool fontMeasuresWithoutSd(int fontId) const { return !isSdCardFont(fontId); }
-  // Only filename/book metadata surfaces opt into these composite UI fonts.
+  // Shared UI families fill missing characters; legacy metadata aliases use
+  // the same composites. Clear all borrowed pointers before releasing faces.
   int filenameFontId(int primaryFontId) const;
   bool setFilenameFallback(int primaryFontId, int compositeFontId, const EpdFont* regular, const EpdFont* bold);
   void clearFilenameFallbacks();

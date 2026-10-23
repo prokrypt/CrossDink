@@ -680,7 +680,7 @@ STR_CLOCK_OUTSIDE_READER: "Rellotge fora del lector"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Intercanvia biblioteca/fitxers"
 STR_CLIP: "Fragment"
-STR_FILENAME_FALLBACK_FONT: "Font alternativa de fitxers"
+STR_FILENAME_FALLBACK_FONT: "Lletra de la interfície"
 STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normal obligatòria; negreta opcional."
 STR_AM: "a. m."
 STR_PM: "p. m."
