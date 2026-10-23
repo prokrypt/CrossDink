@@ -33,7 +33,9 @@ class EpdFontFamily {
     family.fallbackBold = boldFont;
     return family;
   }
-  void getTextDimensions(const char* string, int* w, int* h, Style style = REGULAR) const;
+  // Optional ink bounds use font coordinates, increasing upward from the baseline.
+  void getTextDimensions(const char* string, int* w, int* h, Style style = REGULAR, int* inkMinY = nullptr,
+                         int* inkMaxY = nullptr) const;
   const EpdFontData* getData(Style style = REGULAR) const;
   GlyphData findGlyphData(uint32_t cp, Style style = REGULAR) const;
   GlyphData getGlyphData(uint32_t cp, Style style = REGULAR) const;
