@@ -164,12 +164,14 @@ class Section {
   // Resolve an anchor from the in-progress build first, then the on-disk anchor map
   // (covers finalized sections and partials from a previous session).
   std::optional<uint16_t> findAnchor(const std::string& anchor) const;
+  int getTocIndexForPage(int page) const;
 
   // True if this spine's unzipped HTML is already cached, so a build won't pay the (multi-second on a
   // giant spine) zip inflation. Lets the reader skip the indexing popup on a fast reopen/rebuild.
   bool hasHtmlCache() const;
 
   // Look up the page number for an anchor id from the section cache file.
+  bool openAnchorMap(FsFile& f, uint16_t& count) const;
   std::optional<uint16_t> getPageForAnchor(const std::string& anchor) const;
 
   // Look up an anchor among the pages built so far by the in-progress build, so an anchor jump

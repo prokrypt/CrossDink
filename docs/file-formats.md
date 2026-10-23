@@ -767,6 +767,14 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 103
+
+Complete caches use `103`; suspended partial caches use `0xE9`, and `0xEA` joins
+the retired sentinels. The payload is unchanged, but token boundaries after
+visible hyphens and dashes (not soft hyphens or U+2011) may now end a line
+without inserting a space, and justification no longer stretches boundaries
+inside hyphenated words, so both cache types rebuild.
+
 ### Version 102
 
 Complete caches use `102`; suspended partial caches use `0xEA`, and `0xEB`-`0xED`
