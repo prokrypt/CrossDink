@@ -331,8 +331,10 @@ uint16_t RecentBookProgress::basisPoints(const Epub& epub, const int spineIndex,
   return toBasisPoints(epub.calculateProgress(spineIndex, chapterProgress) * 100.0f);
 }
 
-void RecentBookProgress::noteSynced(const std::string& cachePath, const uint16_t bp, const bool serverAhead) {
+void RecentBookProgress::noteSynced(const std::string& cachePath, uint16_t bp, const bool serverAhead,
+                                    const float serverPct) {
   if (cachePath.empty()) return;
+  if (serverAhead) bp = std::max(bp, toBasisPoints(serverPct * 100.0f));
   HeldMark evicted;
   {
     std::lock_guard<std::mutex> lock(heldMutex);
@@ -384,9 +386,10 @@ RecentBookProgress::SyncBadge RecentBookProgress::syncBadge(const std::string& c
     if (const HeldMark* held = findHeld(cachePath)) mark = held->mark;
   }
   if (mark.bp == SyncMark::kNever) return SyncBadge::None;
-  // Read on since the check (a push failed or never ran): unsynced, whatever the server held then.
-  if (toBasisPoints(progress) > mark.bp) return SyncBadge::Unsynced;
-  return mark.serverAhead ? SyncBadge::ServerAhead : SyncBadge::Synced;
+  // Against the server's position, so moving back or reading on after the check keeps the badge right.
+  const uint16_t bp = toBasisPoints(progress);
+  if (bp > mark.bp) return SyncBadge::Unsynced;
+  return bp < mark.bp || mark.serverAhead ? SyncBadge::ServerAhead : SyncBadge::Synced;
 }
 
 bool RecentBookProgress::hasPercent(const float progress) { return progress >= 0.0f; }
