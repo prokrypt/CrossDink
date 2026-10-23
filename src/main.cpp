@@ -107,7 +107,6 @@
 #include "simulator/SimulatorHomeKeyInput.h"
 #include "simulator/SimulatorSmokeTest.h"
 #endif
-#include "util/AntiBurnIn.h"
 #include "util/BatteryDiagnosticLog.h"
 #include "util/BatteryLog.h"
 #include "util/BugReport.h"
@@ -2033,7 +2032,6 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   bootPhase("panel");
 #endif
   renderer.begin();
-  renderer.setDitherPhase(AntiBurnIn::seed() & 1, (AntiBurnIn::seed() >> 1) & 1);
   renderer.setViewableInsets(HalScreenCalibration::load());
   display.setInverted(SETTINGS.screenInverted != 0);
   // FreeInkUI headers need more than 4 KB once the render loop and nested

@@ -28,7 +28,6 @@
 #include "components/UIThemeTokens.h"
 #include "fontIds.h"
 #include "network/WifiUtils.h"
-#include "util/AntiBurnIn.h"
 #include "util/LocalClock.h"
 
 // Internal constants
@@ -542,53 +541,34 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     }
   }
   if (title != nullptr && props.styles.normal.border.kind == fui::PaintKind::None && tokens.headerUnderline > 0) {
-    // 50% dither, not solid: the per-boot dither phase then moves every pixel of the rule.
-    props.styles.normal.border = fui::Paint::dither(fui::Color::DarkGray);
+    props.styles.normal.border = fui::Paint::solid(fui::Color::Black);
     props.styles.normal.borderWidth = tokens.headerUnderline;
   }
-  // Burn-in guard: the band's fill stays put, its rule rises; its text and status
-  // chrome are drawn at the per-boot offset.
-  const int16_t shiftX = static_cast<int16_t>(AntiBurnIn::shiftX());
-  const int16_t shiftY = static_cast<int16_t>(AntiBurnIn::shiftY());
-  fui::HeaderProps chrome;
-  chrome.styles = props.styles;
-  chrome.borderEdges = 0;
-  fui::header(ui.frame, band, chrome);
-  // The rule rises by the per-boot amount (fill stays put, so a filled band keeps its extent).
-  chrome.borderEdges = props.borderEdges;
-  const int16_t ruleHeight = static_cast<int16_t>(band.height - AntiBurnIn::ruleUp());
-  fui::header(ui.frame, fui::Rect{band.x, band.y, band.width, ruleHeight}, chrome);
-  props.styles = fui::StyleSet{};
-  props.styles.explicitlySet = true;
-  fui::header(
-      ui.frame,
-      fui::Rect{static_cast<int16_t>(band.x + shiftX), static_cast<int16_t>(band.y + shiftY), band.width, band.height},
-      props);
+  fui::header(ui.frame, band, props);
 
   if (!showStatus) return;
 
   const int16_t batteryEdgeInset = batteryDetached ? StatusBarMetrics::sideInset : tokens.headerSidePadding;
-  const int16_t batteryX = batteryLeft
-                               ? static_cast<int16_t>(band.x + shiftX + batteryEdgeInset)
-                               : static_cast<int16_t>(band.right() + shiftX - batteryEdgeInset - batteryReserve);
+  const int16_t batteryX = batteryLeft ? static_cast<int16_t>(band.x + batteryEdgeInset)
+                                       : static_cast<int16_t>(band.right() - batteryEdgeInset - batteryReserve);
   // Shared detached headers use the same status row as Dashboard Home.
   const int16_t batteryY = [&] {
     if (batteryDetached && SETTINGS.uiTheme != CrossPointSettings::UI_THEME::ROUNDEDRAFF) {
-      return static_cast<int16_t>(rect.y + shiftY + UITheme::getTopStatusBarInset(renderer) + homeHeaderTopInset);
+      return static_cast<int16_t>(rect.y + UITheme::getTopStatusBarInset(renderer) + homeHeaderTopInset);
     }
 
     // RoundedRaff's Home header is taller than ordinary headers. Shift compact
     // headers to its battery baseline; Home already has that extra height.
     return static_cast<int16_t>(
-        band.y + shiftY + UITheme::getTopStatusBarInset(renderer) +
+        band.y + UITheme::getTopStatusBarInset(renderer) +
         (batteryDetached
              ? detachedHeaderBatteryTopInset
              : (roundedRaffCompactHeader ? std::max(0, (metrics.homeTopPadding - metrics.headerHeight) / 2) : 0)));
   }();
-  const int16_t batteryIconX =
-      batteryLeft ? batteryX
-                  : static_cast<int16_t>(band.right() + shiftX - batteryEdgeInset - metrics.batteryWidth -
-                                         (batteryDetached ? 0 : batteryNubWidth));
+  const int16_t batteryIconX = batteryLeft
+                                   ? batteryX
+                                   : static_cast<int16_t>(band.right() - batteryEdgeInset - metrics.batteryWidth -
+                                                          (batteryDetached ? 0 : batteryNubWidth));
   const Rect batteryRect{batteryIconX, batteryY, metrics.batteryWidth, metrics.batteryHeight};
   if (batteryLeft) {
     drawBatteryLeft(renderer, batteryRect, showBatteryPercentage);
@@ -1013,9 +993,7 @@ void BaseTheme::drawReaderStatusBar(GfxRenderer& renderer, const ReaderStatusBar
                         ? content.previewOriginY
                         : (top ? UITheme::getTopStatusBarY(renderer) + content.edgePadding
                                : renderer.getScreenHeight() - marginBottom - totalHeight - content.edgePadding);
-  // Burn-in guard: top bar text sits at the per-boot offset (the progress bar stays put).
-  const int shiftX = top ? AntiBurnIn::shiftX() : 0;
-  const int textY = (top ? AntiBurnIn::shiftY() : 0) + edgeY + (top ? progressSpace : 0) +
+  const int textY = edgeY + (top ? progressSpace : 0) +
                     (hasText ? (top ? ReaderStatusBarConfig::TOP_TEXT_INSET
                                     : (textHeight - renderer.getLineHeight(SMALL_FONT_ID)) / 2)
                              : 0);
@@ -1129,11 +1107,10 @@ void BaseTheme::drawReaderStatusBar(GfxRenderer& renderer, const ReaderStatusBar
   };
 
   constexpr int itemGap = 8;
-  const int leftEdge = shiftX + (top ? std::max(marginLeft, StatusBarMetrics::sideInset)
-                                     : marginLeft + metrics.statusBarHorizontalMargin + 1);
-  const int rightEdge =
-      shiftX + screenWidth -
-      (top ? std::max(marginRight, StatusBarMetrics::sideInset) : marginRight + metrics.statusBarHorizontalMargin);
+  const int leftEdge =
+      (top ? std::max(marginLeft, StatusBarMetrics::sideInset) : marginLeft + metrics.statusBarHorizontalMargin + 1);
+  const int rightEdge = screenWidth - (top ? std::max(marginRight, StatusBarMetrics::sideInset)
+                                           : marginRight + metrics.statusBarHorizontalMargin);
   const int available = std::max(0, rightEdge - leftEdge);
 
   std::array<int, ReaderStatusBarConfig::SLOT_COUNT> widths{};
@@ -1158,8 +1135,7 @@ void BaseTheme::drawReaderStatusBar(GfxRenderer& renderer, const ReaderStatusBar
   if (centerWidth > 0) {
     const int width = measureItem(centerItem, centerWidth);
     if (width > 0) {
-      const int centeredX =
-          std::clamp(shiftX + (screenWidth - width) / 2, placement.centerLeft, placement.centerRight - width);
+      const int centeredX = std::clamp((screenWidth - width) / 2, placement.centerLeft, placement.centerRight - width);
       drawItem(centerItem, centeredX, width, false);
     }
   }
@@ -1192,8 +1168,8 @@ void BaseTheme::drawTopStatusBarClock(const GfxRenderer& renderer, int topY, con
 
   const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, timeText);
   const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  const int textX = (renderer.getScreenWidth() - textWidth) / 2 + AntiBurnIn::shiftX();
-  const int effectiveTextYOffset = textYOffset + AntiBurnIn::shiftY() + UITheme::getTopStatusBarInset(renderer) +
+  const int textX = (renderer.getScreenWidth() - textWidth) / 2;
+  const int effectiveTextYOffset = textYOffset + UITheme::getTopStatusBarInset(renderer) +
                                    (readerContext ? homeHeaderClockTextYOffset(renderer) : 0);
   const int baseTopY = topY >= 0 ? topY : UITheme::getHeaderRect(renderer, 0).y;
   const int textY = baseTopY + (statusBarHeight - lineHeight) / 2 + effectiveTextYOffset;
