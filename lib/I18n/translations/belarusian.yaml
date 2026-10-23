@@ -890,3 +890,7 @@ STR_CALIBRATION_RESET: "Скінуць да стандартных"
 STR_CALIBRATION_SAVE_FAILED: "Не ўдалося захаваць каліброўку. Паспрабуйце яшчэ раз."
 STR_CALIBRATION_EDIT_OR_APPLY: "Змяніць або ўжыць"
 STR_CALIBRATION_ADJUST: "Змяніць"
+
+STR_PUBLISHER_FONTS: "Шрыфты выдаўца"
+STR_PUBLISHER_FONTS_ACCENTS: "Ігнараваць асноўны шрыфт"
+STR_PUBLISHER_FONTS_ALL: "Увесь тэкст"

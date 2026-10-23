@@ -889,3 +889,7 @@ STR_CALIBRATION_RESET: "Standaardwaarden herstellen"
 STR_CALIBRATION_SAVE_FAILED: "Kalibratie opslaan is mislukt. Probeer het opnieuw."
 STR_CALIBRATION_EDIT_OR_APPLY: "Wijzigen of toepassen"
 STR_CALIBRATION_ADJUST: "Aanpassen"
+
+STR_PUBLISHER_FONTS: "Uitgeverslettertypen"
+STR_PUBLISHER_FONTS_ACCENTS: "Negeer hoofdtekstlettertype"
+STR_PUBLISHER_FONTS_ALL: "Alle tekst"

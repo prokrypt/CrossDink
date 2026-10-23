@@ -61,6 +61,7 @@ class EpubReaderActivity final : public Activity {
     uint8_t publisherPageNumbers = 0;
     uint8_t paragraphAlignment = 0;
     uint8_t embeddedStyle = 1;
+    uint8_t publisherFonts = 0;
     uint8_t hyphenationEnabled = 0;
     uint8_t textAntiAliasing = 1;
     uint8_t imageRendering = 0;
@@ -129,7 +130,6 @@ class EpubReaderActivity final : public Activity {
   int currentSpineIndex = 0;
   int nextPageNumber = 0;
   int activeSectionFontId = 0;
-  uint32_t activeSectionLayoutSignature = 0;
   std::optional<uint16_t> pendingPageJump;
   // Set when navigating to a footnote href with a fragment (e.g. #note1).
   // Cleared on the next render after the new section loads and resolves it to a page.

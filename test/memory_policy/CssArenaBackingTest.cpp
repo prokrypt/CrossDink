@@ -219,3 +219,55 @@ TEST_F(CssArenaBackingTest, PublisherDecorationsAndContextSurviveAllCacheBacking
     EXPECT_TRUE(cap.floatLeft);
   }
 }
+
+TEST_F(CssArenaBackingTest, PublisherFacesShareTheRulesCacheAndDetectTruncation) {
+  const std::string source =
+      "@font-face {font-family: Body; src:url(../font.ttf);font-weight:bold} p {font-family:Body}";
+  Storage.put("input.css", {source.begin(), source.end()});
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  CssParser css("book");
+  ASSERT_TRUE(css.loadFromStream(file, "EPUB/css/"));
+  file.close();
+  ASSERT_TRUE(css.saveToCache());
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Complete);
+  std::vector<CssFontFace> faces;
+  ASSERT_TRUE(CssParser::loadFontFaces("book", faces));
+  ASSERT_EQ(faces.size(), 1u);
+  EXPECT_EQ(faces[0].family, CssParser::hashFontFamily("Body"));
+  EXPECT_EQ(faces[0].href, "EPUB/css/../font.ttf");
+  EXPECT_TRUE(faces[0].bold);
+  EXPECT_TRUE(css.loadFromCache());
+  Storage.data("book/css_rules.cache").bytes.pop_back();
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Invalid);
+  EXPECT_FALSE(CssParser::loadFontFaces("book", faces));
+  EXPECT_TRUE(faces.empty());
+}
+
+TEST_F(CssArenaBackingTest, EmptyPublisherManifestIsValidAndRequired) {
+  CssParser css("book");
+  ASSERT_TRUE(css.saveToCache());
+  std::vector<CssFontFace> faces;
+  ASSERT_TRUE(CssParser::loadFontFaces("book", faces));
+  EXPECT_TRUE(faces.empty());
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Complete);
+  auto& bytes = Storage.data("book/css_rules.cache").bytes;
+  bytes.resize(bytes.size() - 5);
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Invalid);
+}
+
+TEST_F(CssArenaBackingTest, PublisherMetadataRespectsInternalReserve) {
+  fakeheap::reset(false);
+  fakeheap::internal.free = 64 * 1024;
+  const std::string source = "@font-face {font-family: Body; src:url(font.ttf)}";
+  Storage.put("input.css", {source.begin(), source.end()});
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  CssParser css("book");
+  EXPECT_FALSE(css.loadFromStream(file));
+  file.close();
+  ASSERT_TRUE(css.saveToCache());
+  std::vector<CssFontFace> faces;
+  ASSERT_TRUE(CssParser::loadFontFaces("book", faces));
+  EXPECT_TRUE(faces.empty());
+}

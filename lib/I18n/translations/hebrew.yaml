@@ -878,3 +878,7 @@ STR_CALIBRATION_RESET: "איפוס לברירות מחדל"
 STR_CALIBRATION_SAVE_FAILED: "שמירת הכיול נכשלה. נסה שוב."
 STR_CALIBRATION_EDIT_OR_APPLY: "עריכה או החלה"
 STR_CALIBRATION_ADJUST: "כוונון"
+
+STR_PUBLISHER_FONTS: "גופני המוציא לאור"
+STR_PUBLISHER_FONTS_ACCENTS: "התעלמות מגופן גוף הטקסט"
+STR_PUBLISHER_FONTS_ALL: "כל הטקסט"

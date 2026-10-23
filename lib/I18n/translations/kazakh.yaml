@@ -890,3 +890,7 @@ STR_CALIBRATION_RESET: "Әдепкі мәндерді қалпына келті�
 STR_CALIBRATION_SAVE_FAILED: "Калибрлеуді сақтау мүмкін болмады. Қайталап көріңіз."
 STR_CALIBRATION_EDIT_OR_APPLY: "Өңдеу не қолдану"
 STR_CALIBRATION_ADJUST: "Реттеу"
+
+STR_PUBLISHER_FONTS: "Баспа қаріптері"
+STR_PUBLISHER_FONTS_ACCENTS: "Негізгі мәтін қарпін елемеу"
+STR_PUBLISHER_FONTS_ALL: "Барлық мәтін"

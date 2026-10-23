@@ -889,3 +889,7 @@ STR_CALIBRATION_RESET: "Restabilește valorile implicite"
 STR_CALIBRATION_SAVE_FAILED: "Calibrarea nu a putut fi salvată. Încercați din nou."
 STR_CALIBRATION_EDIT_OR_APPLY: "Editare sau aplicare"
 STR_CALIBRATION_ADJUST: "Reglare"
+
+STR_PUBLISHER_FONTS: "Fonturile editurii"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignoră fontul corpului"
+STR_PUBLISHER_FONTS_ALL: "Tot textul"

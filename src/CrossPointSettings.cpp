@@ -1245,6 +1245,9 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   spec.wordSpacing = wordSpacing;
   spec.characterSpacing = characterSpacingLevel(characterSpacing);
   spec.renderMode = renderMode;
+#if CROSSDINK_SCALABLE_FONTS
+  if (publisherFontsEnabled(renderMode)) spec.publisherFonts = static_cast<PublisherFonts>(publisherFonts);
+#endif
   return spec;
 }
 

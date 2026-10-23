@@ -900,3 +900,7 @@ STR_CALIBRATION_RESET: "Przywróć wartości domyślne"
 STR_CALIBRATION_SAVE_FAILED: "Nie udało się zapisać kalibracji. Spróbuj ponownie."
 STR_CALIBRATION_EDIT_OR_APPLY: "Edytuj lub zastosuj"
 STR_CALIBRATION_ADJUST: "Dostosuj"
+
+STR_PUBLISHER_FONTS: "Czcionki wydawcy"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignoruj czcionkę treści"
+STR_PUBLISHER_FONTS_ALL: "Cały tekst"

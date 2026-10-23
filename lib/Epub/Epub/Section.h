@@ -84,6 +84,12 @@ class Section {
   uint32_t partialTotalBytes_ = 0;
   std::string activeBuildTmpSectionPath_;
 
+  uint32_t baseLayoutSignature_ = 0;
+  bool publisherFontsEnabled_ = false;
+  uint32_t publisherFontFaces_ = 0;
+  uint32_t publisherFaceSignature_ = 0;
+  uint32_t publisherLoadedFaces_ = 0;
+  bool writePublisherFontState();
   bool writeSectionFileHeader(const ReaderRenderSpec& spec);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
   bool ensureBuildFileOpen();
@@ -100,6 +106,10 @@ class Section {
   std::unique_ptr<Page> loadPageDuringBuild(int page);
 
  public:
+  bool usesPublisherFonts() const { return publisherFontFaces_ != 0; }
+  uint32_t layoutSignature() const {
+    return publisherFontFaces_ ? (baseLayoutSignature_ ^ publisherFaceSignature_) * 16777619U : baseLayoutSignature_;
+  }
   uint16_t pageCount = 0;
   int currentPage = 0;
 
