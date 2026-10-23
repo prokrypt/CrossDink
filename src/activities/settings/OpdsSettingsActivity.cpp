@@ -6,6 +6,7 @@
 
 #include <cstring>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -14,13 +15,14 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "util/OpdsDownloadFolder.h"
 
 namespace fui = freeink::ui;
 
 namespace {
-// Editable fields: Name, URL, Username, Password, Filename.
+// Editable fields: Name, URL, Username, Password, Filename, Download Folder.
 // Existing servers also show a Delete option (BASE_ITEMS + 1).
-constexpr int BASE_ITEMS = 5;
+constexpr int BASE_ITEMS = 6;
 constexpr fui::ActionId ACTION_ROW = 1;
 }  // namespace
 
@@ -51,6 +53,7 @@ void OpdsSettingsActivity::onEnter() {
   selectedIndex = 0;
   isNewServer = (serverIndex < 0);
   showSaveError = false;
+  showFolderError = false;
 
   if (!isNewServer) {
     // Edit flow: copy the selected server into local editable state.
@@ -65,6 +68,7 @@ void OpdsSettingsActivity::onEnter() {
     }
   }
 
+  updateDownloadFolderLabel();
   uiReady = false;
   visibleRows = 1;
   topIndex = 0;
@@ -105,11 +109,13 @@ void OpdsSettingsActivity::loop() {
   const int menuItems = getMenuItemCount();
   buttonNavigator.onNext([this, menuItems] {
     selectedIndex = (selectedIndex + 1) % menuItems;
+    topIndex = followListSelection(static_cast<int>(selectedIndex), topIndex, visibleRows, menuItems);
     requestUpdate();
   });
 
   buttonNavigator.onPrevious([this, menuItems] {
     selectedIndex = (selectedIndex + menuItems - 1) % menuItems;
+    topIndex = followListSelection(static_cast<int>(selectedIndex), topIndex, visibleRows, menuItems);
     requestUpdate();
   });
 }
@@ -201,12 +207,33 @@ void OpdsSettingsActivity::handleSelection() {
                                                                    editServer.password, 63, InputType::Text),
                            handler);
   } else if (selectedIndex == 4) {
-    editServer.filenameFormat = editServer.filenameFormat == OpdsFilenameFormat::AUTHOR_TITLE
-                                    ? OpdsFilenameFormat::TITLE_AUTHOR
-                                    : OpdsFilenameFormat::AUTHOR_TITLE;
+    // Author - Title -> Title - Author -> Server filename -> ...
+    editServer.filenameFormat =
+        static_cast<OpdsFilenameFormat>((static_cast<unsigned>(editServer.filenameFormat) + 1) % 3);
     saveServer();
     requestUpdate();
-  } else if (selectedIndex == 5 && !isNewServer) {
+  } else if (selectedIndex == 5) {
+    // Empty uses the shared default folder, "/" the SD root.
+    showFolderError = false;
+    auto handler = [this](const ActivityResult& result) {
+      if (result.isCancelled) return;
+      std::string folder;
+      if (!OpdsDownloadFolder::normalize(std::get<KeyboardResult>(result.data).text, folder)) {
+        showFolderError = true;
+        requestUpdate();
+        return;
+      }
+      std::string previous = std::move(editServer.downloadFolder);
+      editServer.downloadFolder = std::move(folder);
+      if (!saveServer()) editServer.downloadFolder = std::move(previous);
+      updateDownloadFolderLabel();
+      requestUpdate();
+    };
+    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_OPDS_DOWNLOAD_FOLDER),
+                                                                   editServer.downloadFolder,
+                                                                   OpdsDownloadFolder::MAX_LENGTH, InputType::Text),
+                           handler);
+  } else if (selectedIndex == BASE_ITEMS && !isNewServer) {
     // Delete flow is only available for existing servers.
     if (!OPDS_STORE.removeServer(static_cast<size_t>(serverIndex))) {
       LOG_ERR("OPS", "Failed to remove OPDS server at index %d", serverIndex);
@@ -215,6 +242,16 @@ void OpdsSettingsActivity::handleSelection() {
       return;
     }
     finish();
+  }
+}
+
+void OpdsSettingsActivity::updateDownloadFolderLabel() {
+  if (editServer.downloadFolder.empty()) {
+    downloadFolderLabel = tr(STR_OPDS_USE_DEFAULT);
+    downloadFolderLabel += ": ";
+    downloadFolderLabel += SETTINGS.opdsDownloadFolder[0] ? SETTINGS.opdsDownloadFolder : tr(STR_OPDS_SD_ROOT);
+  } else {
+    downloadFolderLabel = editServer.downloadFolder == "/" ? tr(STR_OPDS_SD_ROOT) : editServer.downloadFolder;
   }
 }
 
@@ -236,14 +273,17 @@ void OpdsSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   const StrId fieldNames[] = {StrId::STR_SERVER_NAME, StrId::STR_OPDS_SERVER_URL, StrId::STR_USERNAME,
-                              StrId::STR_PASSWORD, StrId::STR_FILENAME};
+                              StrId::STR_PASSWORD,    StrId::STR_FILENAME,        StrId::STR_OPDS_DOWNLOAD_FOLDER};
   const int menuItems = getMenuItemCount();
   const char* values[BASE_ITEMS] = {
       editServer.name.empty() ? tr(STR_NOT_SET) : editServer.name.c_str(),
       editServer.url.empty() ? tr(STR_NOT_SET) : editServer.url.c_str(),
       editServer.username.empty() ? tr(STR_NOT_SET) : editServer.username.c_str(),
       editServer.password.empty() ? tr(STR_NOT_SET) : "******",
-      editServer.filenameFormat == OpdsFilenameFormat::TITLE_AUTHOR ? tr(STR_TITLE_AUTHOR) : tr(STR_AUTHOR_TITLE),
+      editServer.filenameFormat == OpdsFilenameFormat::SERVER_FILENAME ? tr(STR_SERVER_FILENAME)
+      : editServer.filenameFormat == OpdsFilenameFormat::TITLE_AUTHOR  ? tr(STR_TITLE_AUTHOR)
+                                                                       : tr(STR_AUTHOR_TITLE),
+      downloadFolderLabel.c_str(),
   };
 
   std::vector<fui::ListItem> items;
@@ -289,7 +329,9 @@ void OpdsSettingsActivity::render(RenderLock&&) {
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  if (showSaveError) {
+  if (showFolderError) {
+    GUI.drawPopup(renderer, tr(STR_OPDS_INVALID_FOLDER));
+  } else if (showSaveError) {
     GUI.drawPopup(renderer, tr(STR_ERROR_GENERAL_FAILURE));
   }
 

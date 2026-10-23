@@ -187,7 +187,9 @@ class OpdsBookBrowserActivity final : public Activity {
   static bool pollDownloadSize(void* self, std::string& body);
   // filename: the SD destination from requestDownload. resumeValidator: set
   // on Retry to continue the failed attempt's .part file (may be empty).
-  void downloadBook(const OpdsEntry& book, const std::string& filename, const std::string* resumeValidator = nullptr);
+  // serverFilename: save under the server's name in filename's folder instead.
+  void downloadBook(const OpdsEntry& book, const std::string& filename, const std::string* resumeValidator = nullptr,
+                    bool serverFilename = false);
   // DOWNLOADING state: forwards cancel input, redraws progress, and finishes
   // once the background task has exited.
   void pollDownload();
@@ -196,6 +198,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // After a failed download: Retry resumes the same book (from byte 0 when the
   // server cannot), Cancel removes the partial file and returns to the listing.
   void offerRetry(const std::string& path);
+  // The server's file name is already on SD: Confirm replaces that file.
+  void offerOverwrite(const std::string& path);
   void markBooksOnSd();
   void markCachedFeeds();
   bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
