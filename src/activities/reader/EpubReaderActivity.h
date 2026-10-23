@@ -159,6 +159,7 @@ class EpubReaderActivity final : public Activity {
   bool skipRecentBookUpdateOnEntry = false;
   int cachedSpineIndex = 0;
   int cachedChapterPageNumber = 0;
+  int cachedTocIndex = -1;  // resolved against the old layout before a settings-driven reset
   int cachedChapterTotalPageCount = 0;
   std::optional<uint32_t> cachedVisibleTextOffset;
   struct ChapterGroupEstimateCache {

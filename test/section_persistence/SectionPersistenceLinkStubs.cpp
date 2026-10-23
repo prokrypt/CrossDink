@@ -26,9 +26,14 @@ const std::string& Epub::getLanguage() const {
   return language;
 }
 BookMetadataCache::SpineEntry Epub::getSpineItem(int) const { return {}; }
-BookMetadataCache::TocEntry Epub::getTocItem(int) const { return {}; }
-int Epub::getTocItemsCount() const { return 0; }
-int Epub::getTocIndexForSpineIndex(int) const { return -1; }
+std::vector<BookMetadataCache::TocEntry> testTocEntries;
+BookMetadataCache::TocEntry Epub::getTocItem(int i) const { return testTocEntries.at(i); }
+int Epub::getTocItemsCount() const { return testTocEntries.size(); }
+int Epub::getTocIndexForSpineIndex(int spine) const {
+  for (size_t i = 0; i < testTocEntries.size(); ++i)
+    if (testTocEntries[i].spineIndex == spine) return i;
+  return -1;
+}
 bool Epub::readItemContentsToStream(const std::string&, Print&, size_t, bool) const { return false; }
 
 bool CssParser::loadFromCache() { return false; }
