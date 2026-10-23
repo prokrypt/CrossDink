@@ -1,9 +1,11 @@
 #include "ClipTextBuilder.h"
 
 #include <Logging.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 namespace ClipTextBuilder {
 namespace {
@@ -94,7 +96,148 @@ bool isSelectedTableWord(const WordRef& word, const uint16_t tableSelection) {
   return tableSelection == UINT16_MAX || word.tableSelection == tableSelection;
 }
 
+bool isQuoteAt(const char* text) {
+  return text[0] == '\xE2' && text[1] == '\x80' && (text[2] == '\x9C' || text[2] == '\x9D');
+}
+
+// Byte length of a double quote (" or a curly one) ending at text[end - 1], else 0.
+size_t quoteLengthBefore(const char* text, const size_t end) {
+  if (end >= 1 && text[end - 1] == '"') return 1;
+  return end >= 3 && isQuoteAt(text + end - 3) ? 3 : 0;
+}
+
+size_t quoteLengthAt(const char* text, const size_t begin, const size_t end) {
+  if (begin < end && text[begin] == '"') return 1;
+  return begin + 3 <= end && isQuoteAt(text + begin) ? 3 : 0;
+}
+
+// A sentence starts with an uppercase letter (after any opening quotes) at a word start, right after
+// .?! or the start of the loaded text. shortcut: ASCII capitals only, upgrade for non-Latin scripts.
+bool isSentenceStart(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int fromOrder, const int toOrder,
+                     const size_t firstOffset) {
+  const auto& words = wordStore.words;
+  if (firstOffset != 0) return false;
+  if (fromOrder > 0) {
+    const WordRef& previous = words[wordOrder[fromOrder - 1]];
+    const char* text = wordStore.text(previous);
+    size_t end = previous.textLength;
+    while (const size_t q = quoteLengthBefore(text, end)) end -= q;
+    if (end == 0 || !strchr(".?!", text[end - 1])) return false;
+  }
+  for (int order = fromOrder; order <= toOrder; ++order) {
+    const WordRef& word = words[wordOrder[order]];
+    const char* text = wordStore.text(word);
+    size_t i = 0;
+    while (const size_t q = quoteLengthAt(text, i, word.textLength)) i += q;
+    if (i < word.textLength) return text[i] >= 'A' && text[i] <= 'Z';
+  }
+  return false;
+}
+
 }  // namespace
+
+void fitBoundsToPunctuation(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int orderCount,
+                            int& fromOrder, int& toOrder, SelectionBounds& bounds) {
+  const auto& words = wordStore.words;
+  const auto isAttachedPunctuation = [&](const WordRef& anchor, const WordRef& word) {
+    return areWordsVisuallyAttached(anchor, word) && !utf8ContainsLookupCharacter(wordStore.text(word));
+  };
+  if (bounds.lastWordByteEndOffset >= words[wordOrder[toOrder]].textLength) {
+    while (toOrder + 1 < orderCount &&
+           isAttachedPunctuation(words[wordOrder[toOrder]], words[wordOrder[toOrder + 1]])) {
+      const WordRef& word = words[wordOrder[++toOrder]];
+      bounds.lastPageIdx = static_cast<uint8_t>(word.pageIdx);
+      bounds.lastPageWordOrdinal = word.pageWordIndex;
+      bounds.lastWordByteEndOffset = word.textLength;
+    }
+  }
+  if (bounds.firstWordByteOffset == 0) {
+    while (fromOrder > 0 && isAttachedPunctuation(words[wordOrder[fromOrder]], words[wordOrder[fromOrder - 1]])) {
+      const WordRef& word = words[wordOrder[--fromOrder]];
+      bounds.firstPageIdx = static_cast<uint8_t>(word.pageIdx);
+      bounds.firstPageWordOrdinal = word.pageWordIndex;
+    }
+  }
+
+  // Text after `?` stays only when the selection is a sentence; a double quote at
+  // either end stays only when the selection holds another one.
+  if (bounds.lastWordByteEndOffset > words[wordOrder[toOrder]].textLength) {
+    bounds.lastWordByteEndOffset = words[wordOrder[toOrder]].textLength;
+  }
+  const auto setLast = [&](const int order, const size_t end) {
+    const WordRef& word = words[wordOrder[order]];
+    toOrder = order;
+    bounds.lastPageIdx = static_cast<uint8_t>(word.pageIdx);
+    bounds.lastPageWordOrdinal = word.pageWordIndex;
+    bounds.lastWordByteEndOffset = static_cast<uint16_t>(end);
+  };
+  // Widened words are punctuation-only, so a trim that empties one steps back to the full previous word.
+  // Returns whether it stepped back.
+  const auto trimLastTo = [&](const size_t end) {
+    if (end == 0 && toOrder > fromOrder) {
+      setLast(toOrder - 1, words[wordOrder[toOrder - 1]].textLength);
+      return true;
+    }
+    bounds.lastWordByteEndOffset = static_cast<uint16_t>(end);
+    return false;
+  };
+
+  if (!isSentenceStart(wordStore, wordOrder, fromOrder, toOrder, bounds.firstWordByteOffset)) {
+    // Drop the first `?` of the trailing ?/quote run and everything after it.
+    for (bool trimmed = true; trimmed;) {
+      const char* text = wordStore.text(words[wordOrder[toOrder]]);
+      const size_t end = bounds.lastWordByteEndOffset;
+      size_t i = end;
+      size_t questionAt = SIZE_MAX;
+      while (i > 0) {
+        if (text[i - 1] == '?') {
+          questionAt = --i;
+        } else if (const size_t q = quoteLengthBefore(text, i)) {
+          i -= q;
+        } else {
+          break;
+        }
+      }
+      // Stepped back: the previous word may end in ? too.
+      trimmed = questionAt != SIZE_MAX && trimLastTo(questionAt);
+    }
+  }
+
+  int quotes = 0;
+  for (int order = fromOrder; order <= toOrder; ++order) {
+    const WordRef& word = words[wordOrder[order]];
+    const char* text = wordStore.text(word);
+    const size_t begin = order == fromOrder ? std::min<size_t>(bounds.firstWordByteOffset, word.textLength) : 0;
+    const size_t end = order == toOrder ? bounds.lastWordByteEndOffset : word.textLength;
+    for (size_t i = end; i > begin;) {
+      if (const size_t q = quoteLengthBefore(text, i); q && i - q >= begin) {
+        ++quotes;
+        i -= q;
+      } else {
+        --i;
+      }
+    }
+  }
+  if (quotes >= 2) return;
+
+  if (const size_t q = quoteLengthBefore(wordStore.text(words[wordOrder[toOrder]]), bounds.lastWordByteEndOffset)) {
+    if (fromOrder < toOrder || bounds.lastWordByteEndOffset - q >= bounds.firstWordByteOffset) {
+      trimLastTo(bounds.lastWordByteEndOffset - q);
+      return;
+    }
+  }
+  const WordRef& first = words[wordOrder[fromOrder]];
+  if (const size_t q = quoteLengthAt(wordStore.text(first), bounds.firstWordByteOffset, first.textLength)) {
+    if (bounds.firstWordByteOffset + q >= first.textLength && fromOrder < toOrder) {
+      const WordRef& next = words[wordOrder[++fromOrder]];
+      bounds.firstPageIdx = static_cast<uint8_t>(next.pageIdx);
+      bounds.firstPageWordOrdinal = next.pageWordIndex;
+      bounds.firstWordByteOffset = 0;
+    } else {
+      bounds.firstWordByteOffset = static_cast<uint16_t>(bounds.firstWordByteOffset + q);
+    }
+  }
+}
 
 ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, const int fromOrder, const int toOrder,
                      const int startPageInSection, const int sectionPageCount, const SelectionBounds* selectionBounds,

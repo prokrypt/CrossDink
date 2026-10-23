@@ -143,6 +143,112 @@ TEST(ClipTextBuilder, AppliesDictionaryFragmentBoundsToTheirOwnPages) {
   EXPECT_EQ(result.text, "t middle f");
 }
 
+TEST(ClipTextBuilder, DictionarySelectionKeepsGluedPunctuation) {
+  ClipWordStore store;
+  const auto add = [&](const char* text, const int x, const int w) {
+    WordRef word;
+    word.pageWordIndex = static_cast<uint16_t>(store.words.size());
+    word.x = x;
+    word.w = w;
+    ASSERT_TRUE(store.appendText(word, text));
+    store.words.push_back(word);
+  };
+  add("\xE2\x80\x9C", 0, 4);  // opening quote in its own run
+  add("you", 4, 10);
+  add("say", 20, 10);
+  add("?\xE2\x80\x9D", 30, 6);  // ?" glued after "say"
+  add("Then", 46, 12);
+
+  const uint16_t order[] = {0, 1, 2, 3, 4};
+  int from = 1;
+  int to = 2;
+  ClipTextBuilder::SelectionBounds bounds{0, 1, 0, 0, 2, 3};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 5, from, to, bounds);
+  // Not a sentence: the glued ?" and the then-unpaired opening quote are dropped.
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "you say");
+
+  // A selection ending mid-word does not widen.
+  from = 1;
+  to = 2;
+  bounds = ClipTextBuilder::SelectionBounds{0, 1, 1, 0, 2, 2};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 5, from, to, bounds);
+  EXPECT_EQ(from, 1);
+  EXPECT_EQ(to, 2);
+}
+
+TEST(ClipTextBuilder, DictionarySelectionDropsUnpairedQuotes) {
+  ClipWordStore store;
+  const auto add = [&](const char* text, const int x, const int w) {
+    WordRef word;
+    word.pageWordIndex = static_cast<uint16_t>(store.words.size());
+    word.x = x;
+    word.w = w;
+    ASSERT_TRUE(store.appendText(word, text));
+    store.words.push_back(word);
+  };
+  add("\xE2\x80\x9C", 0, 4);
+  add("you", 4, 10);
+  add("say", 20, 10);
+  add("?\xE2\x80\x9D", 30, 6);
+  add("he", 46, 8);
+  add("said\"", 60, 20);
+
+  const uint16_t order[] = {0, 1, 2, 3, 4, 5};
+  int from = 2;
+  int to = 2;
+  ClipTextBuilder::SelectionBounds bounds{0, 2, 0, 0, 2, 3};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "say");
+
+  from = 1;
+  to = 1;
+  bounds = ClipTextBuilder::SelectionBounds{0, 1, 0, 0, 1, 3};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "you");
+
+  from = 4;
+  to = 5;
+  bounds = ClipTextBuilder::SelectionBounds{0, 4, 0, 0, 5, 5};
+  ClipTextBuilder::fitBoundsToPunctuation(store, order, 6, from, to, bounds);
+  EXPECT_EQ(ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text, "he said");
+}
+
+TEST(ClipTextBuilder, DictionarySelectionKeepsQuestionMarkOnlyForSentences) {
+  ClipWordStore store;
+  const auto add = [&](const char* text, const int x, const int w) {
+    WordRef word;
+    word.pageWordIndex = static_cast<uint16_t>(store.words.size());
+    word.x = x;
+    word.w = w;
+    ASSERT_TRUE(store.appendText(word, text));
+    store.words.push_back(word);
+  };
+  add("Fine.", 0, 20);
+  add("\xE2\x80\x9C", 30, 4);
+  add("Do", 34, 10);
+  add("you", 50, 10);
+  add("say?\xE2\x80\x9D", 66, 20);
+  add("Do", 96, 10);
+  add("say?\"", 112, 20);
+
+  const uint16_t order[] = {0, 1, 2, 3, 4, 5, 6};
+  const auto clip = [&](int from, int to, const uint16_t lastEnd) {
+    ClipTextBuilder::SelectionBounds bounds{0, static_cast<uint16_t>(from), 0, 0, static_cast<uint16_t>(to), lastEnd};
+    ClipTextBuilder::fitBoundsToPunctuation(store, order, 7, from, to, bounds);
+    return ClipTextBuilder::build(store, order, from, to, 0, 1, &bounds).text;
+  };
+  // Sentence after "Fine.": ? stays, quotes pair up.
+  EXPECT_EQ(clip(2, 4, 7),
+            "\xE2\x80\x9C"
+            "Do you say?\xE2\x80\x9D");
+  // Not a sentence (lowercase start): ? and the quotes go.
+  EXPECT_EQ(clip(3, 4, 7), "you say");
+  // Sentence (previous word ends in ?) with one quote: ? stays, the lone quote goes.
+  EXPECT_EQ(clip(5, 6, 5), "Do say?");
+  // A single word is not a sentence unless it follows one.
+  EXPECT_EQ(clip(6, 6, 5), "say");
+}
+
 TEST(ClipTextBuilder, KeepsVerticalTableSelectionsInTheirColumn) {
   ClipWordStore store;
   constexpr uint16_t leftColumn = 8;
