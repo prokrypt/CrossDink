@@ -690,3 +690,5 @@ STR_CLOCK_OUTSIDE_READER: "Orologio fuori dal lettore"
 
 STR_SWAP_LIBRARY_FILE_BROWSER: "Scambia libreria/file"
 STR_CLIP: "Ritaglio"
+STR_FILENAME_FALLBACK_FONT: "Font alternativo nomi file"
+STR_FILENAME_FONT_HINT: "TTF: /.crossdink/languages/fonts. Normale obbligatorio; grassetto facoltativo."

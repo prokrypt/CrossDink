@@ -376,7 +376,7 @@ void MinimalTheme::formatStreakStat(const GlobalReadingStats* globalStats, char*
 }
 
 void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
-                              const bool readerContext, const bool showStatus) const {
+                              const bool readerContext, const bool showStatus, const bool filenameTitle) const {
   (void)subtitle;
   (void)readerContext;
 
@@ -407,12 +407,13 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   }
 
   if (title) {
+    const int titleFontId = filenameTitle ? renderer.filenameFontId(UI_12_FONT_ID) : UI_12_FONT_ID;
     constexpr int titleInsetX = 12;
     const int titleRight = showStatus ? batteryX - wifiReserve : rect.x + shiftX + rect.width - 12;
     const int maxTitleWidth =
         titleRight - (rect.x + shiftX) - titleInsetX - themed(MinimalMetrics::values).contentSidePadding;
-    auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
-    renderer.drawText(UI_12_FONT_ID, rect.x + shiftX + titleInsetX,
+    auto truncatedTitle = renderer.truncatedText(titleFontId, title, maxTitleWidth, EpdFontFamily::BOLD);
+    renderer.drawText(titleFontId, rect.x + shiftX + titleInsetX,
                       rect.y + shiftY + themed(MinimalMetrics::values).batteryBarHeight + 3, truncatedTitle.c_str(),
                       true, EpdFontFamily::BOLD);
     // 50% dither, not solid: the per-boot dither phase then moves every pixel of the rule.

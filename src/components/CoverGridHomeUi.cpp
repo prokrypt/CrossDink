@@ -188,7 +188,10 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
   card.coverPainter = [](fui::DrawTarget& target, fui::Rect cover, const fui::BookCardProps&, void* user) {
     return static_cast<CoverGridHomeUi*>(user)->paintFramedCover(target, cover, 0);
   };
-  fui::bookCard(screen.frame(), rect, card);
+  {
+    FilenameUiFontScope fonts(target, renderer);
+    fui::bookCard(screen.frame(), rect, card);
+  }
   if (card.progressLabel) {
     // KOSync badge just above the %: bookCard()'s cover and progress-row geometry.
     const fui::Rect content = rect.inset(card.padding);
