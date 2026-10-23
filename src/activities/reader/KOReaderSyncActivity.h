@@ -11,6 +11,9 @@
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
+#include "network/ReadingSyncUpload.h"
+
+struct Rect;
 
 /**
  * Activity for syncing reading progress with KOReader sync server.
@@ -40,7 +43,8 @@ class KOReaderSyncActivity final : public Activity {
         readerOrientation(readerOrientation) {}
 
   explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string epubPath,
-                                DocumentMatchMethod matchMethod, const uint8_t readerOrientation)
+                                DocumentMatchMethod matchMethod, const uint8_t readerOrientation,
+                                bool folderSync = false, bool includeGlobalStats = true)
       : Activity(NAME, renderer, mappedInput),
         epubPath(std::move(epubPath)),
         currentSpineIndex(0),
@@ -52,6 +56,8 @@ class KOReaderSyncActivity final : public Activity {
         remotePosition{},
         localProgress{},
         localProgressDeferred(true),
+        folderSync(folderSync),
+        includeGlobalStats(includeGlobalStats),
         readerOrientation(readerOrientation) {}
 
   // Remote progress to a position in this book, as Apply does: rich position or
@@ -60,6 +66,18 @@ class KOReaderSyncActivity final : public Activity {
   static bool mapRemoteProgress(const std::shared_ptr<Epub>& epub, GfxRenderer& renderer,
                                 const KOReaderProgress& remote, DocumentMatchMethod method, int currentSpine,
                                 int totalPages, CrossPointPosition& remotePosition);
+
+  // Bulk sync behind its own progress screen: draw nothing and never wait for
+  // input. An Ask on conflicts choice is kept (parked) for the end of the run,
+  // and a failure is reported in the result instead of a Skip book screen.
+  void setBackground() { background = true; }
+
+  // Incremental bulk sync: apply a position the change feed already delivered
+  // (no progress request), and leave stats and clippings to the push.
+  void setRemoteProgress(KOReaderProgress remote) {
+    injectedRemote = std::move(remote);
+    progressOnly = true;
+  }
 
   void onEnter() override;
   void onExit() override;
@@ -116,12 +134,26 @@ class KOReaderSyncActivity final : public Activity {
   std::string localCachePath;
   uint16_t localBp = 0;
   bool restartBeforeNetwork = false;
+  bool folderSync = false;
+  bool includeGlobalStats = true;
+  std::optional<KOReaderProgress> injectedRemote;
+  bool progressOnly = false;
+  bool syncSucceeded = false;
+  bool progressSucceeded = false;
+  bool progressFailed = false;  // the progress step failed (as opposed to stats or clippings)
+  bool background = false;
+  std::string bookTitle;  // from the EPUB once loaded; failure screens fall back to the file name
+  bool extrasAttempted = false;
+  bool exitingBatch = false;
+  ReadingSyncUpload::ExtrasResult extrasResult;
+  StatsUploadClient::Result globalStatsResult = StatsUploadClient::Result::Skipped;
+  ProgressSyncResult syncResult() const;
   // The reader can use a book-specific orientation that its teardown restores
   // before this activity gets control. Keep that one value through the
   // lightweight network reboot so every sync screen matches the book.
   uint8_t readerOrientation = CrossPointSettings::ORIENTATION_COUNT;
 
-  // Selection in result screen (0=Apply, 1=Upload)
+  // Selection in result screen (0=Apply, 1=Upload, 2=Skip book in a bulk sync).
   int selectedOption = 0;
 
   // Timed return for successful smart-sync terminal states.
@@ -152,15 +184,26 @@ class KOReaderSyncActivity final : public Activity {
   // state, so a request still running when sleep abandons it never touches `this`.
   bool netJobPending = false;  // main loop only: a started job not yet polled
   bool abandonNetJob = false;  // Back during a request: reboot drops it
+  bool exitRequested = false;  // bulk sync: Back during a request, exit when it ends
+  // What runs once stats and clippings are sent (they upload on the worker too).
+  enum class AfterExtras : uint8_t { ReturnToSource, SyncComplete, UploadComplete, Skip, Defer, ShowFailure };
+  AfterExtras afterExtras = AfterExtras::ReturnToSource;
+  std::string progressError;  // ShowFailure: the progress step's message, kept while extras run
   static constexpr uint32_t NET_JOIN_TIMEOUT_MS = 3000;
   void startNetJob();
   void pollNetJob();
   void finishSync();
   void finishUpload();
+  void finishExtras();
+  void continueAfterExtras();
 
   void onWifiSelectionComplete(bool success);
   void performSync();
   void performUpload();
+  // Sends stats and clippings (once), then continues with `next`; on failure shows SYNC_FAILED.
+  void uploadExtras(AfterExtras next);
+  // Per-data result rows; `withProgress` adds a Progress row (failure screen).
+  void drawExtrasResults(Rect textArea, int y, bool withProgress = false) const;
   bool consumeInitialConfirmRelease();
   bool smartSyncEnabled() const;
   void markAutoReturn();
@@ -168,5 +211,14 @@ class KOReaderSyncActivity final : public Activity {
   void ensureEpubLoaded();
   bool ensureLocalProgressLoaded();
   void saveProgressAndReturn(const CrossPointPosition& position);
-  void returnToReader();
+  void returnToSource();
+  // Bulk sync only: Skip book keeps the batch going, Exit stops all of it.
+  void skipBook();
+  // Background bulk sync: keep a conflict for the end of the run.
+  void deferChoice();
+  // Background bulk sync: report a failure and let the run continue.
+  void finishFailed();
+  void parkRemote();
+  bool batchExitRequested() const { return folderSync && (exitingBatch || exitRequested); }
+  void exitBatch();
 };

@@ -13,6 +13,7 @@ class ConfirmationActivity : public Activity {
   OptionPopup confirmPopup;
   bool overrideDisabledReaderTouchscreen = false;
   const char* confirmLabel = nullptr;  // null: "Confirm"
+  const char* cancelLabel = nullptr;   // null: "Cancel"
   bool confirmFocused = false;
   const char* noteLabel = nullptr;
   char noteBody[24] = "";  // fixed: the popup holds a pointer to it
@@ -29,6 +30,8 @@ class ConfirmationActivity : public Activity {
     confirmLabel = label;
     confirmFocused = focused;
   }
+  // Relabels the cancel option (e.g. "Stay here"). Call before the activity starts.
+  void setCancelOption(const char* label) { cancelLabel = label; }
 
   // Bold-label note under the question ("Size: 1.6 MB"). poll, when set, runs
   // each loop and returns true after rewriting body; the note then redraws.

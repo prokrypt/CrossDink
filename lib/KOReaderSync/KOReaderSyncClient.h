@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 /**
  * Optional document metadata sent alongside progress sync requests.
@@ -44,6 +45,24 @@ struct KOReaderProgress {
 };
 
 /**
+ * One entry of the CrossPoint Sync progress change feed: a document's newest
+ * position, with every hash it is known by.
+ */
+struct KOReaderProgressChange {
+  // A merged document rarely has more than a couple of aliases; the matching
+  // hash can be any of them, so keep enough.
+  static constexpr size_t MAX_ALIASES = 8;
+  std::string document;  // canonical hash
+  std::string aliases[MAX_ALIASES];
+  uint8_t aliasCount = 0;
+  float percentage = 0;
+  std::string progress;  // KOReader xpath
+  std::optional<KOReaderRichPosition> position;
+  std::string device;
+  int64_t timestamp = 0;
+};
+
+/**
  * HTTP client for KOReader sync API.
  *
  * Base URL: https://sync.koreader.rocks:443/
@@ -69,8 +88,22 @@ class KOReaderSyncClient {
     NOT_FOUND,
     INVALID_AUTH_RESPONSE,
     LOW_MEMORY,
-    USER_EXISTS
+    USER_EXISTS,
+    FEED_UNSUPPORTED,  // stock KOSync or an older CrossPoint Sync: no change feed
+    BATCH_UNSUPPORTED  // no PUT /api/v1/progress/batch: send one PUT per book
   };
+
+  // Progress positions per batch request: each item is a few hundred bytes and
+  // the whole body is held in RAM during the TLS request.
+  static constexpr size_t MAX_PROGRESS_BATCH = 8;
+
+  struct ChangesPage {
+    uint32_t cursor = 0;  // where the next page starts
+    bool more = false;
+    uint16_t count = 0;  // changes passed to the callback
+  };
+  // Called once per change in a page, in feed order. Return false to stop.
+  using ChangeCallback = bool (*)(const KOReaderProgressChange& change, void* context);
 
   /**
    * Authenticate with the sync server (validate credentials).
@@ -109,9 +142,32 @@ class KOReaderSyncClient {
   static void endSession();
 
   /**
+   * PUT /api/v1/progress/batch (CrossPoint Sync): up to MAX_PROGRESS_BATCH
+   * positions in one request, all accepted or none. Consumes `items` (cleared
+   * before the request, so only the serialized body is alive during TLS).
+   * @return OK, BATCH_UNSUPPORTED on servers without the route, or an error
+   */
+  static Error updateProgressBatch(std::vector<KOReaderProgress>& items);
+
+  /**
+   * GET /api/v1/progress/changes?since=&limit=&device=: progress changed since
+   * a cursor, leaving out documents whose newest position is this reader's.
+   * `limit` 0 only reads the current cursor. A page is at most 8 KB; it is
+   * parsed with a filter and each change handed to `callback`.
+   */
+  static Error getProgressChanges(uint32_t since, uint8_t limit, ChangesPage& page, ChangeCallback callback,
+                                  void* context);
+
+  /**
    * Get human-readable error message.
    */
   static std::string errorString(Error error);
+
+  // This reader's own device id ("crossink-<mac>"), shared by progress, stats
+  // and clippings uploads. Each reader gets its own server progress row, so the
+  // change feed can leave out a reader's own writes without hiding another
+  // CrossInk reader's progress.
+  static bool readerId(char* out, size_t capacity);
 
   /** HTTP status code from the last request (for diagnostics). */
   static int lastHttpCode;

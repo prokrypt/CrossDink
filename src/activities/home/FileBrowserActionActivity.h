@@ -33,6 +33,8 @@ enum class FileBrowserAction : int {
   ToggleBookStatsTracking = 20,
   SelectChapter = 21,
   ToggleTouchscreen = 22,
+  SyncProgress = 23,
+  SyncFolder = 24,
 };
 
 class FileBrowserActionActivity final : public Activity {
