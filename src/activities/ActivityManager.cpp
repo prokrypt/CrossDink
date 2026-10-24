@@ -698,9 +698,11 @@ void ActivityManager::renderTaskLoop() {
         // cppcheck-suppress knownConditionTrueFalse
         if (!renderer.isRefreshPending()) break;
         if (!renderer.isRefreshBusy()) {
-          renderer.waitRefreshComplete();
-          // Already over, so the busy-wait hook that marks ink never fired.
+          // Already over, so the busy-wait hook that marks ink never fired. Mark
+          // it before the finish: its OLD-plane resync and panel temperature
+          // read (~130 ms after a Full) come after the frame is visible.
           PerfLog::noteInk();
+          renderer.waitRefreshComplete();
           break;
         }
       }
