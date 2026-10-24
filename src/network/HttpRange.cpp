@@ -141,16 +141,22 @@ void sendFileWithRange(WebServer& server, HalFile& file, const char* contentType
   if (remaining > 0 && startStream(server.client(), file, remaining)) return;
 #endif
 
+  // Heap, not stack: a 4 KB local here left the 8 KB server task 440 B free.
+  constexpr size_t BUFFER_SIZE = 4096;
+  const auto buffer = makeUniqueNoThrow<uint8_t[]>(BUFFER_SIZE);
+  if (!buffer) {
+    LOG_ERR("WEB", "download: no %u-byte buffer", static_cast<unsigned>(BUFFER_SIZE));
+    return;
+  }
   NetworkClient client = server.client();
-  uint8_t buffer[4096];
   bool clientOk = true;
   while (clientOk && remaining > 0) {
-    const int result = file.read(buffer, remaining < sizeof(buffer) ? static_cast<size_t>(remaining) : sizeof(buffer));
+    const int result = file.read(buffer.get(), remaining < BUFFER_SIZE ? static_cast<size_t>(remaining) : BUFFER_SIZE);
     if (result <= 0) break;
     const size_t bytesRead = static_cast<size_t>(result);
     size_t totalWritten = 0;
     while (totalWritten < bytesRead) {
-      const size_t wrote = client.write(buffer + totalWritten, bytesRead - totalWritten);
+      const size_t wrote = client.write(buffer.get() + totalWritten, bytesRead - totalWritten);
       if (wrote == 0) {  // client gone
         clientOk = false;
         break;
