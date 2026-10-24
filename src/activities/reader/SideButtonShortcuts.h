@@ -8,7 +8,10 @@
 #include "util/QuickLockTrigger.h"
 
 // A reader owns one tracker for each logical side button. Short actions fire
-// on release; long actions fire once when the hold threshold is reached.
+// on release; long actions fire once when the hold threshold is reached. A
+// button with no long action fires its short action on the press instead,
+// unless Power or the other side button is down or the Up+Down chord is set
+// (a chord may be forming).
 // Tracking only starts on a press edge, so a button already held while a
 // reader activity opens cannot turn into an accidental shortcut.
 class SideButtonShortcuts {
@@ -46,6 +49,7 @@ class SideButtonShortcuts {
     unsigned long pressedAt = 0;
     bool tracking = false;
     bool longFired = false;
+    bool shortFired = false;
   };
   ButtonState up_;
   ButtonState down_;
@@ -54,27 +58,39 @@ class SideButtonShortcuts {
                           ButtonState& state, const unsigned long now) {
     Result result;
     result.up = up;
+    const uint8_t longAction = up ? SETTINGS.sideButtonUpLong : SETTINGS.sideButtonDownLong;
+    const uint8_t shortAction = up ? SETTINGS.sideButtonUpShort : SETTINGS.sideButtonDownShort;
     if (input.wasPressed(button)) {
       state.pressedAt = now;
       state.tracking = true;
       state.longFired = false;
+      const auto other = up ? MappedInputManager::Button::Down : MappedInputManager::Button::Up;
+      state.shortFired = longAction == CrossPointSettings::IGNORE &&
+                         SETTINGS.sideButtonChordAction == CrossPointSettings::CHORD_DISABLED &&
+                         !input.isPressed(MappedInputManager::Button::Power) && !input.isPressed(other);
+      if (state.shortFired) {
+        result.consumed = true;
+        result.triggered = true;
+        result.action = shortAction;
+        if (!input.isPressed(button)) state.tracking = false;
+        return result;
+      }
     }
     if (!state.tracking) return result;
 
     result.consumed = true;
     const bool pressed = input.isPressed(button);
     const bool released = input.wasReleased(button);
-    const uint8_t longAction = up ? SETTINGS.sideButtonUpLong : SETTINGS.sideButtonDownLong;
-    if (!state.longFired && longAction != CrossPointSettings::IGNORE &&
+    if (!state.longFired && !state.shortFired && longAction != CrossPointSettings::IGNORE &&
         now - state.pressedAt >= ReaderUtils::SKIP_HOLD_MS && (pressed || released)) {
       state.longFired = true;
       result.triggered = true;
       result.longPress = true;
       result.action = longAction;
     } else if (released) {
-      if (!state.longFired) {
+      if (!state.longFired && !state.shortFired) {
         result.triggered = true;
-        result.action = up ? SETTINGS.sideButtonUpShort : SETTINGS.sideButtonDownShort;
+        result.action = shortAction;
       }
     }
     if (!pressed) state.tracking = false;

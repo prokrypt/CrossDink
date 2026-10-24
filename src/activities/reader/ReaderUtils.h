@@ -230,14 +230,21 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
 
-  const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
+  // With no front long-press action Left/Right turn on the press; the Chord
+  // Page Turn still arrives as an injected Right release.
+  const bool frontOnPress = SETTINGS.longPressButtonBehavior == CrossPointSettings::OFF;
+  const bool frontPrev = frontOnPress ? input.wasPressed(MappedInputManager::Button::Left)
+                                      : input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
   const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                               input.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
   const bool longPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                              input.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
   const bool powerTurn = shortPowerTurn || longPowerTurn;
-  const bool frontNext = input.wasReleased(MappedInputManager::Button::Right) || powerTurn;
+  const bool frontNext = (frontOnPress ? input.wasPressed(MappedInputManager::Button::Right) ||
+                                             input.hasInjectedRelease(MappedInputManager::Button::Right)
+                                       : input.wasReleased(MappedInputManager::Button::Right)) ||
+                         powerTurn;
 
   // Side-button actions are resolved by SideButtonShortcuts in each reader.
   return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
