@@ -179,6 +179,11 @@ class HalGPIO {
   bool wasTouchActivity() const;
   // GT911 sleep; see InputManager::setTouchSleep().
   bool setTouchSleep(bool asleep);
+  // Non-blocking form for the loop: with latched input the input task steps
+  // the transition and keeps sampling keys; otherwise it blocks like
+  // setTouchSleep(). See InputManager::requestTouchSleep().
+  bool requestTouchSleep(bool asleep);
+  bool isTouchSleepPending() const;
   bool isTouchAsleep() const;
 #else
   // cppcheck-suppress-begin functionStatic ; stubs mirror the touch-build instance API
