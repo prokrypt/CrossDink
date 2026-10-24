@@ -21,6 +21,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "FilenameFontSystem.h"
+#include "GhostBusterPace.h"
 #include "GlobalActions.h"
 #include "HeldWrites.h"
 #include "OpdsServerStore.h"
@@ -529,7 +530,8 @@ void ActivityManager::renderTaskLoop() {
   const auto ghostBusterWaitMs = [this, &lastFrameMs]() -> uint32_t {
     const uint32_t now = millis();
     const uint32_t quietMs = std::min(now - lastFrameMs, now - lastInputMs.load(std::memory_order_relaxed));
-    return quietMs >= GHOST_BUSTER_QUIET_MS ? 0 : GHOST_BUSTER_QUIET_MS - quietMs;
+    const uint32_t needMs = std::max<uint32_t>(GHOST_BUSTER_QUIET_MS, learnedBusterQuietMs.load());
+    return quietMs >= needMs ? 0 : needMs - quietMs;
   };
   while (true) {
     bool ghostBuster = false;
@@ -1175,9 +1177,31 @@ void ActivityManager::cancelOptionalRenderWork(const char* reason) {
   if (currentActivity) currentActivity->cancelOptionalRenderWork(reason);
 }
 
-void ActivityManager::notifyUserInput() {
-  lastInputMs.store(millis(), std::memory_order_relaxed);
+void ActivityManager::notifyUserInput(const bool started) {
+  const uint32_t now = millis();
+  if (started) noteInputStart(now);
+  lastInputMs.store(now, std::memory_order_relaxed);
   if (currentActivity) currentActivity->onUserInput();
+}
+
+void ActivityManager::noteInputStart(const uint32_t now) {
+  // A Fast refresh's waveform; a press stops the busters after the one running.
+  constexpr uint32_t BUSTER_REFRESH_MS = 600;
+  constexpr uint8_t MIN_SAMPLES = 8;
+  const uint32_t gap = now - lastInputStartMs;
+  lastInputStartMs = now;
+  if (SETTINGS.ghostBusters == 0 || !currentActivity || !ghostBustersFit(*currentActivity)) return;
+  inputGapsMs[inputGapNext] = static_cast<uint16_t>(std::min<uint32_t>(gap, UINT16_MAX));
+  inputGapNext = static_cast<uint8_t>((inputGapNext + 1) % INPUT_GAP_SAMPLES);
+  if (inputGapCount < INPUT_GAP_SAMPLES) inputGapCount++;
+  if (inputGapCount < MIN_SAMPLES) return;
+  uint8_t hits = 0;
+  const uint32_t quiet = GhostBusterPace::quietMs(inputGapsMs, inputGapCount, SETTINGS.ghostBusters * BUSTER_REFRESH_MS,
+                                                  GHOST_BUSTER_QUIET_MS, &hits);
+  if (learnedBusterQuietMs.exchange(quiet, std::memory_order_relaxed) != quiet) {
+    LOG_DBG("ACT", "Ghost Busters quiet time %lu ms (%u of %u recent gaps would hit)",
+            static_cast<unsigned long>(quiet), static_cast<unsigned>(hits), static_cast<unsigned>(inputGapCount));
+  }
 }
 
 void ActivityManager::exitActivity(const RenderLock& lock) {
