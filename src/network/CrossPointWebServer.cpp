@@ -850,17 +850,19 @@ bool CrossPointWebServer::startServeTask(const bool psramStack) {
   // flash writes, and the SDMMC driver bounces PSRAM buffers through its DMA
   // buffer, so its stack goes to PSRAM (internal fallback). UI core: on core 0
   // with Wi-Fi, lwIP and the loop, uploads held core 0 at 92% (WebServer 36%)
-  // while core 1 did ~20%. The upload writer takes core 0.
+  // while core 1 did ~20%. The upload writer takes core 0. The log-only server
+  // runs at the render task's priority so a log pull never preempts a frame.
   // Set before the task can run: serverTaskMain reads it to decide how to exit.
   serverTaskPsram = psramStack;
+  const UBaseType_t priority = logOnly_ ? 1 : 2;
   if (serverTaskPsram &&
       (!stateMutex || !serverStopped ||
-       xTaskCreatePinnedToCoreWithCaps(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2, &serverTask,
-                                       TaskCores::kUi, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)) {
+       xTaskCreatePinnedToCoreWithCaps(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, priority,
+                                       &serverTask, TaskCores::kUi, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)) {
     serverTaskPsram = false;
   }
   if (!stateMutex || !serverStopped ||
-      (!serverTaskPsram && xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, 2,
+      (!serverTaskPsram && xTaskCreatePinnedToCore(serverTaskMain, "WebServer", SERVER_TASK_STACK_BYTES, this, priority,
                                                    &serverTask, TaskCores::kUi) != pdPASS)) {
     LOG_ERR("WEB", "Failed to start web server task");
     serverTask = nullptr;
