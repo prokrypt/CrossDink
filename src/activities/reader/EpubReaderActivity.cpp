@@ -2688,6 +2688,8 @@ void EpubReaderActivity::onExit() {
   }
 
   std::string syncPath = epub ? epub->getPath() : std::string();
+  EpubReaderUtils::Progress exitSaved;  // the position just saved above
+  const bool hasExitSaved = epub && EpubReaderUtils::loadProgress(*epub, exitSaved, "KOSync");
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
     const std::string oldCachePath = epub->getCachePath();
@@ -2701,7 +2703,7 @@ void EpubReaderActivity::onExit() {
   } else {
     epub.reset();
   }
-  if (!syncPath.empty()) kosync_auto::queue(syncPath);
+  if (!syncPath.empty()) kosync_auto::queue(syncPath, hasExitSaved ? &exitSaved : nullptr);
 
   restoreGlobalReaderSettings();
 }
