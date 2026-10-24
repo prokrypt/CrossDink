@@ -71,6 +71,8 @@ void InputTask::waitForInput(const uint32_t timeoutMs) {
     InputWake::wait(timeoutMs);
     return;
   }
+  // The binary semaphore counts one give for a burst; drain the rest without waiting.
+  if (gpio.hasQueuedInput()) return;
   xSemaphoreTake(loopWake, pdMS_TO_TICKS(timeoutMs));
 }
 

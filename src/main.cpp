@@ -3519,8 +3519,9 @@ static void loopPass() {
     RenderLock lock(RenderLock::Mode::Try);
     if (!lock.ownsLock()) {
       loopPassBlocked = true;
-      // Continue polling at the activity's rate while its screen is drawn.
-      delay(inputPollDelayMs);
+      // Continue polling at the activity's rate while its screen is drawn;
+      // inputs queued behind a stall drain without the wait.
+      if (!gpio.hasQueuedInput()) delay(inputPollDelayMs);
       return;
     }
     skipLoopDelay = activityManager.skipLoopDelay();
