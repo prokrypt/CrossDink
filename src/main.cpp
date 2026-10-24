@@ -124,6 +124,7 @@
 #include "util/SleepWakePolicy.h"
 #include "util/TouchNoiseMonitor.h"
 #include "util/TransferLightPulse.h"
+#include "util/WorkerTask.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -2220,19 +2221,36 @@ void setup() {
   PerfLog::setPmWindowHook(&CoreLoadLog::logQuietWindowTasks);
 
   const auto wakeupReason = gpio.getWakeupReason();
+  bool storageMountedEarly = false;
 #ifndef SIMULATOR
   // Marks for the gap between "Input wake armed" and the IMU/RTC lines.
   LOG_INF("BOOT", "mark: power-button wake check");
   const bool shortPressWakes = readWakeShortPressFromNvs();
   const HalGPIO::PageKeyWake pageKeyWake = HalGPIO::checkPageKeyWake();
   wallpaperChordWake = pageKeyWake == HalGPIO::PageKeyWake::Chord;
-  if (pageKeyWake == HalGPIO::PageKeyWake::Stray ||
-      (pageKeyWake == HalGPIO::PageKeyWake::None && wakeupReason == HalGPIO::WakeupReason::PowerButton &&
-       !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS))) {
+  const bool powerWake =
+      pageKeyWake == HalGPIO::PageKeyWake::None && wakeupReason == HalGPIO::WakeupReason::PowerButton;
+  bool powerHeld = powerWake && gpio.verifyPowerButtonWakeup(shortPressWakes, /*longHoldMs=*/0);
+  if (powerHeld && !shortPressWakes) {
+    // Mount the card on the UI core while this core times the long hold,
+    // instead of idling through it; a release before then unmounts it again on
+    // the way back to sleep. Internal stack: SDMMC init must not run on PSRAM.
+    static WorkerTask mountTask;
+    static bool mounted = false;
+    const bool mounting =
+        mountTask.start([](void*) { mounted = Storage.begin(); }, nullptr, 6144, "SdMount", /*uiCore=*/true);
+    powerHeld = gpio.powerButtonHeldUntil(CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS);
+    if (mounting) {
+      mountTask.join();
+      storageMountedEarly = mounted;
+    }
+  }
+  if (pageKeyWake == HalGPIO::PageKeyWake::Stray || (powerWake && !powerHeld)) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     PerfLog::noteDeepSleep("wake-not-held", "boot");
     armSleepGuard();
     BatteryLog::noteFalseWake();
+    if (storageMountedEarly) Storage.shutdown();
     powerManager.startDeepSleep(gpio);
   }
 #endif
@@ -2321,7 +2339,7 @@ void setup() {
   bootPhase("start");
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
-  if (!Storage.begin()) {
+  if (!storageMountedEarly && !Storage.begin()) {
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts(isSilentReboot, !isNetworkResume, useReaderRenderStack);
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
