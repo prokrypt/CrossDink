@@ -4,6 +4,7 @@
 #include <Memory.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 
 #include <atomic>
 #include <cstddef>
@@ -67,5 +68,6 @@ class HtmlInflateStream {
   std::atomic<bool> stopRequested_{false};
   SemaphoreHandle_t dataReady_ = nullptr;
   SemaphoreHandle_t workerDone_ = nullptr;
+  TaskHandle_t worker_ = nullptr;  // PSRAM stack; finish() deletes it
   bool joined_ = true;
 };

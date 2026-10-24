@@ -138,6 +138,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Fewer SD card reads: the SD filesystem keeps its FAT data in its own 512-byte cache instead of sharing one with book and font data, and drops cached data after a failed read so it is never reused or written back. Restoring a position in a long chapter reads its page table in batches, one file open captures the current paragraph run, Library search reads finished state only for books that match, a Library row is decoded once for its labels and icon, an EPUB without an optimizer manifest is only checked once, and TXT indexing reuses one scratch buffer. ZIP directory scans read each entry header in one call and fail cleanly on a short read. Cached filesystem data is written to the card before deep sleep, every restart, USB Drive and the low-battery flush.
 
 ### Fixed
+- Opening chapters and drawing images no longer leaves an 8 KB gap in internal RAM each time: the HTML inflate and image decode helper tasks now keep their stacks in PSRAM, so the largest free internal block stays the same across chapter builds instead of shrinking for the rest of the session.
 - Reader status bar: Chapter Progress Percentage can be picked for any slot on the device and in web settings.
 - Settings > Controls > Taps & Gestures lists Touch Reader Controls again, so reader touch can be turned back on from the device.
 - X4 Pro: a bottom-edge swipe up goes Home from Settings and Status Bar settings (it was ignored there); About stops swallowing it. The Home key still steps back.
