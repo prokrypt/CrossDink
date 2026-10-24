@@ -562,7 +562,10 @@ void KOReaderSyncActivity::startNetJob() {
                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
                     static_cast<unsigned>(NET_TASK_STACK_BYTES));
           },
-          nullptr, NET_TASK_STACK_BYTES, "KOSyncNet")) {
+          // Wi-Fi is up before any job (no radio start or NVS write), so the
+          // stack can go to PSRAM as KOSyncAuto's does; TLS keeps the internal heap.
+          nullptr, NET_TASK_STACK_BYTES, "KOSyncNet", false,
+          hasActiveStationWifiConnection() ? WorkerTask::Stack::Psram : WorkerTask::Stack::Internal)) {
     return;
   }
 #ifndef SIMULATOR
