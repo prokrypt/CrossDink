@@ -681,6 +681,25 @@ void SettingsActivity::openWordSpacingPicker() {
       });
 }
 
+void SettingsActivity::openGhostBustersPicker() {
+  startActivityForResult(
+      std::make_unique<IntervalSelectionActivity>(
+          renderer, mappedInput, "GhostBustersInterval", StrId::STR_GHOST_BUSTERS, SETTINGS.ghostBusters, 0,
+          CrossPointSettings::GHOST_BUSTERS_MAX, 1, 3, StrId::STR_NONE_OPT,
+          /*readerActivity=*/false, /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false,
+          /*showPercentValue=*/false, StrId::STR_NONE_OPT, /*overrideDisabledReaderTouchscreen=*/false,
+          /*showTouchHeaderBackButton=*/true, /*valueFormatter=*/nullptr,
+          /*tapStep=*/1,
+          /*useReaderSlider=*/true),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          SETTINGS.ghostBusters = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+          SETTINGS.saveToFile();
+        }
+        requestUpdate();
+      });
+}
+
 void SettingsActivity::openCharacterSpacingPicker() {
   startActivityForResult(
       std::make_unique<IntervalSelectionActivity>(
@@ -1209,6 +1228,10 @@ void SettingsActivity::toggleCurrentSetting() {
           }
           requestUpdate();
         });
+    return;
+  }
+  if (setting.valuePtr == &CrossPointSettings::ghostBusters) {
+    openGhostBustersPicker();
     return;
   }
   if (setting.valuePtr == &CrossPointSettings::characterSpacing) {
