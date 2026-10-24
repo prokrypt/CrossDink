@@ -57,7 +57,8 @@ std::string queuedPath;  // main task only
 // draw it as Syncing from the render task, so it is guarded.
 std::mutex pendingMutex;
 std::string pendingCache;
-bool settled = false;  // main task only
+bool settled = false;         // main task only
+bool settleUnbadged = false;  // main task only: a queued close with no Syncing badge
 void setPending(const std::string& epubPath) {
   std::string cache = epubPath.empty() ? std::string() : Epub::cachePathForFilePath(epubPath, "/.crossdink");
   std::lock_guard<std::mutex> lock(pendingMutex);
@@ -521,7 +522,10 @@ void queue(const std::string& epubPath, const EpubReaderUtils::Progress* saved) 
   queuedPath = epubPath;
   queuedAt = millis();
   // Still queued: a book whose badge reads Unsynced is retried, and keeps that badge until it lands.
-  setPending(!saved || pushOwed(epubPath, *saved) ? epubPath : std::string());
+  const bool owed = !saved || pushOwed(epubPath, *saved);
+  setPending(owed ? epubPath : std::string());
+  // A retry of an Unsynced book can still move its mark, so Home repaints the badge when the job ends.
+  settleUnbadged = !owed;
 }
 
 const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMethod& method) {
@@ -554,6 +558,7 @@ void loop() {
       pendingCache.clear();
       settled = true;
     }
+    if (std::exchange(settleUnbadged, false)) settled = true;
   }
   if (!queuedPath.empty() && millis() - queuedAt >= START_DELAY_MS) {
     // A screen with its own network (the KOSync screen included) keeps it queued.
