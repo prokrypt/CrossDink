@@ -1882,6 +1882,25 @@ static void showChordClock() {
   }
 }
 
+// Ghost Busters (Display setting) on the sleep screen, once the light is out:
+// the sleep frame again as plain Fast refreshes, OLD = NEW, like the menu ones.
+// Only while the framebuffer is that frame (B/W, not lent out). A key press
+// stops them, so sleep is never held up by more than the refresh running.
+static void bustSleepGhosts() {
+#ifndef SIMULATOR  // the simulator HAL has no panel
+  RenderLock lock;
+  for (uint8_t left = SETTINGS.ghostBusters; left > 0 && renderer.hasFrameBuffer() && !display.grayShown(); left--) {
+    gpio.update();
+    if (gpio.wasAnyPressed()) {
+      LOG_DBG("SLP", "Sleep ghost busters stopped by a key, %u left", static_cast<unsigned>(left));
+      return;
+    }
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    LOG_DBG("SLP", "Sleep ghost buster, %u left", static_cast<unsigned>(left - 1));
+  }
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   // Deep sleep powers PSRAM down and would lose a running macro: any sleep
@@ -1967,13 +1986,17 @@ void enterDeepSleep(bool fromTimeout) {
     Storage.shutdown();
 
     putTiltSensorToSleepForDeepSleep();
-    HalPowerManager::sleepStep = "display sleep";
-    display.deepSleep();
+    HalPowerManager::sleepStep = "sleep refresh";
+    renderer.waitRefreshComplete();
     HalPowerManager::sleepStep = "nvs, frontlight";
     mirrorWakeShortPressToNvs();
     // Last visible step: the sleep screen has settled and every write is done.
     frontlightFadeOutForSleep();
     Frontlight.prepareForDeepSleep();
+    HalPowerManager::sleepStep = "ghost busters";
+    bustSleepGhosts();
+    HalPowerManager::sleepStep = "display sleep";
+    display.deepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
 
   }  // Release powerLock before deep sleep entry
