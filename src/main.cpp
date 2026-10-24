@@ -3001,18 +3001,21 @@ void updateTouchControllerSleep() {
   const bool readerTouchOff = activityManager.isReaderActivity() && !mappedInputManager.hasTouch() &&
                               (!mappedInputManager.hasHomeKey() || mappedInputManager.isHomeButtonLockedInReader());
   const bool wantAsleep = quickLockedByKeys || readerTouchOff;
+  if (gpio.isTouchSleepPending()) return;
   if (wantAsleep == gpio.isTouchAsleep()) {
     retryPending = false;
     return;
   }
   if (retryPending && static_cast<long>(millis() - retryAt) < 0) return;
-  if (gpio.setTouchSleep(wantAsleep)) {
-    retryPending = false;
-    LOG_DBG("TOUCH", "Touch controller %s", wantAsleep ? "asleep" : "awake");
-  } else {
-    // Refused while a finger or the Home key is down, or no answer on I2C.
-    retryPending = true;
-    retryAt = millis() + 1000;
+  // The input task steps the transition (~60 ms of INT timing) between key
+  // samples, so keys are not held up. Refused while a finger or the Home key
+  // is down; a transition that did not land (no I2C answer) shows as the old
+  // state once it ends. Either way, retry in 1 s.
+  retryPending = true;
+  retryAt = millis() + 1000;
+  if (gpio.requestTouchSleep(wantAsleep)) {
+    InputWake::wake();  // the input task may be in its long idle wait
+    LOG_DBG("TOUCH", "Touch controller %s", wantAsleep ? "going to sleep" : "waking");
   }
 }
 #endif

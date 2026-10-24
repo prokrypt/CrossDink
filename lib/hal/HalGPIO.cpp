@@ -257,7 +257,8 @@ HalGPIO::SampleResult HalGPIO::sampleInput() {
   bool held = sampler_.isDebouncePending();
   for (uint8_t button = BTN_BACK; button <= BTN_POWER && !held; ++button) held = sampler_.isPressed(button);
 #if CROSSDINK_APP_CAP_TOUCH
-  held = held || sampler_.isTouchPressed();
+  // A GT911 sleep/wake in flight is stepped by these samples.
+  held = held || sampler_.isTouchPressed() || sampler_.touchSleepPending();
 #endif
   result.active = held;
   xSemaphoreGive(sampleMutex_);
@@ -485,6 +486,23 @@ bool HalGPIO::isTouchAsleep() const {
   const bool asleep = sampler_.isTouchAsleep();
   xSemaphoreGive(sampleMutex_);
   return asleep;
+}
+
+bool HalGPIO::requestTouchSleep(const bool asleep) {
+  if (!latched_) return setTouchSleep(asleep);
+  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+  const bool ok = sampler_.requestTouchSleep(asleep);
+  xSemaphoreGive(sampleMutex_);
+  if (ok) PowerCounters::touch(!asleep);
+  return ok;
+}
+
+bool HalGPIO::isTouchSleepPending() const {
+  if (!latched_) return false;  // setTouchSleep() finishes before it returns
+  xSemaphoreTake(sampleMutex_, portMAX_DELAY);
+  const bool pending = sampler_.touchSleepPending();
+  xSemaphoreGive(sampleMutex_);
+  return pending;
 }
 #endif
 
