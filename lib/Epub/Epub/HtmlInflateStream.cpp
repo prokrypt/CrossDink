@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "Epub.h"
+#include "PsramWorker.h"
 #include "TaskCores.h"
 
 namespace {
@@ -84,8 +85,7 @@ bool HtmlInflateStream::start(const Epub& epub, const std::string& itemHref, con
   cacheFile_ = std::move(cacheFile);
   state_.store(State::Running, std::memory_order_release);
   joined_ = false;
-  if (xTaskCreatePinnedToCore(workerMain, "HtmlInflate", WORKER_STACK_BYTES, this, 1, nullptr, TaskCores::kWorker) !=
-      pdPASS) {
+  if (!psramworker::start(workerMain, "HtmlInflate", WORKER_STACK_BYTES, this, &worker_, TaskCores::kWorker)) {
     LOG_ERR("SCT", "Cannot start inflate worker; inflating first");
     cacheFile = std::move(cacheFile_);
     state_.store(State::Idle, std::memory_order_relaxed);
@@ -124,9 +124,9 @@ void HtmlInflateStream::workerMain(void* param) {
   self->state_.store(ok ? State::Done : State::Failed, std::memory_order_release);
   xSemaphoreGive(self->dataReady_);
   PerfLog::noteTaskExit("HtmlInflate");
-  // The stream may be destroyed as soon as this is given.
+  // The stream may be destroyed once finish() has reaped this task.
   xSemaphoreGive(self->workerDone_);
-  vTaskDelete(nullptr);
+  psramworker::park();
 }
 
 size_t HtmlInflateStream::read(void* dst, const size_t maxBytes) {
@@ -154,6 +154,7 @@ bool HtmlInflateStream::finish(const bool stopEarly) {
   if (!joined_) {
     if (stopEarly) stopRequested_.store(true, std::memory_order_relaxed);
     xSemaphoreTake(workerDone_, portMAX_DELAY);
+    psramworker::reap(worker_);
     joined_ = true;
   }
   buffer_.reset();

@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <PerfLog.h>
 
+#include "Epub/PsramWorker.h"
 #include "ImageToFramebufferDecoder.h"
 #include "TaskCores.h"
 
@@ -69,9 +70,9 @@ void DecodePipeline::workerMain(void* param) {
   const int end = END_OF_DECODE;
   xQueueSend(self->filledSlots_, &end, portMAX_DELAY);
   PerfLog::noteTaskExit("ImgDecode");
-  // The pipeline may be destroyed as soon as this is given.
+  // run() reaps this task before the pipeline can be destroyed.
   xSemaphoreGive(self->workerDone_);
-  vTaskDelete(nullptr);
+  psramworker::park();
 }
 
 bool DecodePipeline::run(const DecodeFn decode, void* decodeContext, const ConsumeFn consume, void* consumeContext,
@@ -80,8 +81,7 @@ bool DecodePipeline::run(const DecodeFn decode, void* decodeContext, const Consu
   decodeContext_ = decodeContext;
   stopped_.store(false, std::memory_order_relaxed);
   workerLastYieldMs_ = millis();
-  if (xTaskCreatePinnedToCore(workerMain, "ImgDecode", WORKER_STACK_BYTES, this, 1, nullptr, TaskCores::kWorker) !=
-      pdPASS) {
+  if (!psramworker::start(workerMain, "ImgDecode", WORKER_STACK_BYTES, this, &worker_, TaskCores::kWorker)) {
     LOG_ERR("IMG", "Cannot start decode worker; decoding inline");
     return false;
   }
@@ -100,6 +100,7 @@ bool DecodePipeline::run(const DecodeFn decode, void* decodeContext, const Consu
     xQueueSend(freeSlots_, &slot, 0);
   }
   xSemaphoreTake(workerDone_, portMAX_DELAY);
+  psramworker::reap(worker_);
   rc = result_;
   LOG_DBG("IMG", "Split decode: %u blocks in %ums", static_cast<unsigned>(blocks),
           static_cast<unsigned>(millis() - startedAt));
