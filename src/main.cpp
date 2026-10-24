@@ -3601,7 +3601,11 @@ static void loopPass() {
       loopPassBlocked = true;
       // Continue polling at the activity's rate while its screen is drawn;
       // inputs queued behind a stall drain without the wait.
+#ifdef SIMULATOR  // its HAL samples on the loop: nothing is queued
+      delay(inputPollDelayMs);
+#else
       if (!gpio.hasQueuedInput()) delay(inputPollDelayMs);
+#endif
       return;
     }
     skipLoopDelay = activityManager.skipLoopDelay();
