@@ -2623,6 +2623,21 @@ KNOB_ALIAS(IDLE_WAIT_LONG_MS, idleWaitLongMs);
 // of seconds of the last input, so the idle tick stays short until then.
 KNOB_ALIAS(IDLE_WAIT_BACKOFF_AFTER_MS, idleBackoffAfterMs);
 
+// App-side hold thresholds (skip, long Confirm, Power long press, keypad) are
+// polled by the loop and all fall within this; the SDK's touch and Home key
+// long presses arrive as events instead.
+constexpr unsigned long HOLD_TICK_MS = 3000;
+
+// A key is down and may still cross a hold threshold: keep the 10 ms tick at
+// full clock so the hold action fires on time. A stuck key falls back to the
+// idle tick after HOLD_TICK_MS.
+bool holdThresholdPending() {
+  for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
+    if (gpio.isPressed(button)) return gpio.getHeldTime() < HOLD_TICK_MS;
+  }
+  return false;
+}
+
 bool anyInputHeld() {
   for (uint8_t button = HalGPIO::BTN_BACK; button <= HalGPIO::BTN_POWER; ++button) {
     if (gpio.isPressed(button)) return true;
@@ -3543,7 +3558,8 @@ static void loopPass() {
     // Wi-Fi keeps the CPU at full clock unless the screen opts in (File
     // Transfer and Calibre when idle, the OPDS list, KOSync results).
     powerManager.setRadioIdleSleepAllowed(radioIdleOk);
-    if (!radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
+    if (!radioExchange && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS &&
+        !holdThresholdPending()) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
       InputTask::waitForInput(idleWaitMs(millis() - lastActivityTime));
