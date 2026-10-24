@@ -7,9 +7,10 @@
 
 class DictionaryLookupController;
 
-// A single, static dictionary worker avoids allocating a 4 KB task stack for
-// every lookup. Controllers still own all lookup state and must wait for the
-// worker before they are destroyed.
+// A single dictionary worker, created on the first lookup and kept parked,
+// avoids allocating a 4 KB task stack for every lookup; the stack is in PSRAM.
+// Controllers still own all lookup state and must wait for the worker before
+// they are destroyed.
 class DictionaryLookupWorker {
  public:
   static DictionaryLookupWorker& instance();
@@ -24,15 +25,10 @@ class DictionaryLookupWorker {
 
  private:
   static constexpr size_t kStackBytes = 4096;
-  // ESP-IDF's xTaskCreateStatic takes its depth in bytes. Keep the storage
-  // expressed in StackType_t units so the backing buffer is sized correctly.
-  static constexpr size_t kStackWords = (kStackBytes + sizeof(StackType_t) - 1) / sizeof(StackType_t);
 
   static void taskEntry(void* context);
   void run();
 
-  StaticTask_t taskStorage_ = {};
-  StackType_t stack_[kStackWords] = {};
   TaskHandle_t taskHandle_ = nullptr;
   std::atomic<DictionaryLookupController*> owner_{nullptr};
 };
