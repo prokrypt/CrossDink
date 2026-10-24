@@ -59,7 +59,7 @@ std::mutex pendingMutex;
 std::string pendingCache;
 bool settled = false;  // main task only
 void setPending(const std::string& epubPath) {
-  std::string cache = Epub::cachePathForFilePath(epubPath, "/.crossdink");
+  std::string cache = epubPath.empty() ? std::string() : Epub::cachePathForFilePath(epubPath, "/.crossdink");
   std::lock_guard<std::mutex> lock(pendingMutex);
   pendingCache = std::move(cache);
 }
@@ -139,6 +139,13 @@ int vsOpen(const bool opened, const OpenAt& o, const EpubReaderUtils::Progress& 
   const float s = static_cast<float>(saved.pageNumber) / saved.pageCount;
   const float a = static_cast<float>(o.page) / o.pages;
   return (s > a) - (s < a);
+}
+
+// Main task: a push of saved could reach the radio. False only when it is not past
+// where the book opened this boot and no earlier push of it is owed.
+bool pushOwed(const std::string& epubPath, const EpubReaderUtils::Progress& saved) {
+  if (task.running()) return true;  // the job owns unpushedPath; its own check decides
+  return unpushedPath == epubPath || vsOpen(epubPath == openPath, openAt, saved) > 0;
 }
 
 // Same mapping as the KOSync screen's upload of saved progress.
@@ -508,12 +515,13 @@ void queuePull(const std::string& epubPath, const int spineIndex, const int page
   pullAt = millis();
 }
 
-void queue(const std::string& epubPath) {
+void queue(const std::string& epubPath, const EpubReaderUtils::Progress* saved) {
   pullPath.clear();
   if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE) || !KOREADER_STORE.hasCredentials()) return;
   queuedPath = epubPath;
   queuedAt = millis();
-  setPending(epubPath);
+  // Still queued: a book whose badge reads Unsynced is retried, and keeps that badge until it lands.
+  setPending(!saved || pushOwed(epubPath, *saved) ? epubPath : std::string());
 }
 
 const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMethod& method) {
@@ -571,8 +579,7 @@ std::string pendingPushPath() {
 }
 
 bool movedSinceOpen(const std::string& epubPath, const EpubReaderUtils::Progress& saved) {
-  if (task.running()) return true;  // the job owns unpushedPath; its own check decides, as before
-  if (unpushedPath == epubPath || vsOpen(epubPath == openPath, openAt, saved) > 0) return true;
+  if (pushOwed(epubPath, saved)) return true;
   LOG_INF("KOSync", "sleep push skipped: not past the page it opened at (no toast, radio skipped)");
   return false;
 }

@@ -150,6 +150,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Opening chapters and drawing images no longer leaves an 8 KB gap in internal RAM each time: the HTML inflate and image decode helper tasks now keep their stacks in PSRAM, so the largest free internal block stays the same across chapter builds instead of shrinking for the rest of the session.
 - Web server: downloads (File Transfer, WebDAV, log downloads) no longer push the web server task to within 440 bytes of a stack overflow; the 4 KB fallback send buffer moved from the stack to the heap (PSRAM on device).
 - Quick button presses are no longer lost while the device idles (most noticeable in the reader with the touchscreen off): a press the input task just missed now wakes it at once instead of waiting for the release.
+- KOSync Auto Sync: closing a book at the page it opened at no longer shows the uploading cloud on Home (or a redraw to remove it); nothing is uploaded then. A book whose last sync failed is still retried and keeps its cloud-off badge until the upload lands.
 - Reader status bar: Chapter Progress Percentage can be picked for any slot on the device and in web settings.
 - Settings > Controls > Taps & Gestures lists Touch Reader Controls again, so reader touch can be turned back on from the device.
 - X4 Pro: a bottom-edge swipe up goes Home from Settings and Status Bar settings (it was ignored there); About stops swallowing it. The Home key still steps back.
