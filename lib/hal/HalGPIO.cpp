@@ -309,6 +309,14 @@ unsigned long HalGPIO::sampleAgeMs() const {
 #endif
 }
 
+bool HalGPIO::hasQueuedInput() const {
+#if CROSSPOINT_EMULATED == 0
+  return latched_ && uxQueueMessagesWaiting(eventSamples_) > 0;
+#else
+  return false;
+#endif
+}
+
 void HalGPIO::updateUsbState() {
   usbStateChanged = false;
   const unsigned long now = millis();
