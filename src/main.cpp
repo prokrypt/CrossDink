@@ -42,6 +42,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -2278,13 +2279,25 @@ void setup() {
   bool powerHeld = powerWake && gpio.verifyPowerButtonWakeup(shortPressWakes, /*longHoldMs=*/0);
   if (powerHeld && !shortPressWakes) {
     // Mount the card on the UI core while this core times the long hold,
-    // instead of idling through it; a release before then unmounts it again on
-    // the way back to sleep. Internal stack: SDMMC init must not run on PSRAM.
+    // instead of idling through it. The mount (~160 ms on a deep-sleep wake)
+    // starts as late as it can and still end with the hold, so a short press
+    // never powers the card; a release after that unmounts it again on the way
+    // back to sleep. Internal stack: SDMMC init must not run on PSRAM.
+    static constexpr unsigned long MOUNT_START_MS = CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS - 160;
     static WorkerTask mountTask;
     static bool mounted = false;
-    const bool mounting =
-        mountTask.start([](void*) { mounted = Storage.begin(); }, nullptr, 6144, "SdMount", /*uiCore=*/true);
+    static std::atomic<bool> released{false};
+    const bool mounting = mountTask.start(
+        [](void*) {
+          while (millis() < MOUNT_START_MS) {
+            if (released.load()) return;
+            delay(1);
+          }
+          mounted = Storage.begin();
+        },
+        nullptr, 6144, "SdMount", /*uiCore=*/true);
     powerHeld = gpio.powerButtonHeldUntil(CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS);
+    released.store(!powerHeld);
     if (mounting) {
       mountTask.join();
       storageMountedEarly = mounted;
