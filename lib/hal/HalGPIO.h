@@ -199,7 +199,11 @@ class HalGPIO {
   // hold when the saved shortcut does not permit short-press wake.
   // Returns true if verification succeeded, false if device should return to sleep.
   // Should only be called when wakeup reason is PowerButton.
+  // longHoldMs 0 checks only the press; powerButtonHeldUntil() then finishes
+  // the hold, so boot work can run while it qualifies.
   bool verifyPowerButtonWakeup(bool shortPressWakes, uint16_t longHoldMs);
+  // True once Power has been held until longHoldMs after reset; false at release.
+  bool powerButtonHeldUntil(uint16_t longHoldMs);
 
   // X4 Pro deep-sleep wake by Up or Down (HalPowerManager arms them with Power).
   // Chord = both held together, which shows the clock and redraws the sleep screen; Stray = any
