@@ -3242,14 +3242,15 @@ static void loopPass() {
 
   // A new press, touch or tilt ends a toast's hold, so input never waits it
   // out; the release of the press that raised the toast does not.
+  {
 #if CROSSDINK_APP_CAP_TOUCH
-  float touchX = 0, touchY = 0;
-  const bool touchDown = gpio.wasTouchDown(touchX, touchY);
+    float touchX = 0, touchY = 0;
+    const bool touchDown = gpio.wasTouchDown(touchX, touchY);
 #else
-  constexpr bool touchDown = false;
+    constexpr bool touchDown = false;
 #endif
-  const bool inputStarted = gpio.wasAnyPressed() || touchDown || tiltActivity;
-  if (inputStarted) Toast::release();
+    if (gpio.wasAnyPressed() || touchDown || tiltActivity) Toast::release();
+  }
   // User input paces power saving. Background work that only has to keep the
   // device out of deep sleep (automatic page turn, sync screens) holds off the
   // sleep timeout separately, so it no longer pins the CPU at full clock.
@@ -3265,7 +3266,7 @@ static void loopPass() {
     lastSleepBlockTime = millis();
   }
   if (userInputReceived) {
-    activityManager.notifyUserInput(inputStarted);
+    activityManager.notifyUserInput();
   }
 
   // Light timeout. Any input brings the light back and still acts, so the
@@ -3413,7 +3414,7 @@ static void loopPass() {
   // known.
   if (handleX4ProHomeKeyShortcuts()) {
     // Simulator Home-key events bypass HalGPIO's raw touch activity signal.
-    activityManager.notifyUserInput(/*started=*/true);
+    activityManager.notifyUserInput();
     return;
   }
 
