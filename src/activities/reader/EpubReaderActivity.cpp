@@ -55,6 +55,7 @@
 #include "EpubReaderUtils.h"
 #include "FocusReadingText.h"
 #include "GlobalActions.h"
+#include "HeldWrites.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "KOSyncAuto.h"
@@ -162,6 +163,8 @@ constexpr uint8_t READER_SETTINGS_FLAG_RENDER_MODE = 1 << 2;
 constexpr uint8_t READER_SETTINGS_FLAG_DICTIONARY_FONT = 1 << 3;
 constexpr uint8_t READER_SETTINGS_FLAG_SAFE_MODE = 1 << 4;
 constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
+// The current record is 160 B; older versions are shorter.
+constexpr size_t READER_SETTINGS_MAX_BYTES = 192;
 KNOB_ALIAS(MIN_MANUAL_PAGE_TURN_GAP_MS, pageTurnGapMs);         // Goodies > Knobs
 KNOB_ALIAS(IDLE_SD_FONT_PREWARM_DELAY_MS, fontPrewarmDelayMs);  // Goodies > Knobs, as the two below
 KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_FREE, idlePrewarmMinFree);
@@ -1109,27 +1112,45 @@ uint16_t clampAutoPageTurnIntervalSeconds(const uint16_t seconds) {
   return std::clamp(seconds, MIN_AUTO_PAGE_TURN_INTERVAL_S, MAX_AUTO_PAGE_TURN_INTERVAL_S);
 }
 
-bool readExact(FsFile& file, void* data, const size_t size) { return file.read(data, size) == static_cast<int>(size); }
+// reader_settings.bin is built and parsed in RAM: it goes through HeldWrites,
+// which holds it until sleep instead of writing the card on the loop.
+struct SettingsBytes {
+  uint8_t* data;
+  size_t len;
+  size_t pos = 0;
+};
 
-bool writeExact(FsFile& file, const void* data, const size_t size) { return file.write(data, size) == size; }
+bool readExact(SettingsBytes& file, void* data, const size_t size) {
+  if (file.len - file.pos < size) return false;
+  memcpy(data, file.data + file.pos, size);
+  file.pos += size;
+  return true;
+}
 
-bool readU8(FsFile& file, uint8_t& value) { return readExact(file, &value, sizeof(value)); }
+bool writeExact(SettingsBytes& file, const void* data, const size_t size) {
+  if (file.len - file.pos < size) return false;
+  memcpy(file.data + file.pos, data, size);
+  file.pos += size;
+  return true;
+}
 
-bool writeU8(FsFile& file, const uint8_t value) { return writeExact(file, &value, sizeof(value)); }
+bool readU8(SettingsBytes& file, uint8_t& value) { return readExact(file, &value, sizeof(value)); }
 
-bool readU16(FsFile& file, uint16_t& value) {
+bool writeU8(SettingsBytes& file, const uint8_t value) { return writeExact(file, &value, sizeof(value)); }
+
+bool readU16(SettingsBytes& file, uint16_t& value) {
   uint8_t data[2] = {};
   if (!readExact(file, data, sizeof(data))) return false;
   value = static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
   return true;
 }
 
-bool writeU16(FsFile& file, const uint16_t value) {
+bool writeU16(SettingsBytes& file, const uint16_t value) {
   const uint8_t data[2] = {static_cast<uint8_t>(value & 0xFF), static_cast<uint8_t>((value >> 8) & 0xFF)};
   return writeExact(file, data, sizeof(data));
 }
 
-bool readU32(FsFile& file, uint32_t& value) {
+bool readU32(SettingsBytes& file, uint32_t& value) {
   uint8_t data[4] = {};
   if (!readExact(file, data, sizeof(data))) return false;
   value = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
@@ -1137,7 +1158,7 @@ bool readU32(FsFile& file, uint32_t& value) {
   return true;
 }
 
-bool writeU32(FsFile& file, const uint32_t value) {
+bool writeU32(SettingsBytes& file, const uint32_t value) {
   const uint8_t data[4] = {static_cast<uint8_t>(value), static_cast<uint8_t>(value >> 8),
                            static_cast<uint8_t>(value >> 16), static_cast<uint8_t>(value >> 24)};
   return writeExact(file, data, sizeof(data));
@@ -1270,7 +1291,7 @@ void applyReaderSettingsOverrides(ReaderSettingsSnapshot& target, const ReaderSe
 
 using BookReaderSettingsData = EpubReaderActivity::BookReaderSettingsData;
 
-bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettingsSnapshot& out,
+bool readReaderSettingsSnapshot(SettingsBytes& file, EpubReaderActivity::ReaderSettingsSnapshot& out,
                                 const bool includesWordSpacing, const bool includesIndexingMethod,
                                 const bool includesSplitScreenMargins, const bool includesLegacyReaderDarkMode) {
   if (!(readU8(file, out.fontFamily) && readU8(file, out.readerFontPointSize) && readU8(file, out.lineHeightPercent) &&
@@ -1310,7 +1331,7 @@ bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettings
   return readExact(file, out.sdFontFamilyName, sizeof(out.sdFontFamilyName));
 }
 
-bool writeReaderSettingsSnapshot(FsFile& file, const EpubReaderActivity::ReaderSettingsSnapshot& in) {
+bool writeReaderSettingsSnapshot(SettingsBytes& file, const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   return writeU8(file, in.fontFamily) && writeU8(file, in.readerFontPointSize) && writeU8(file, in.lineHeightPercent) &&
          writeU8(file, std::min<uint8_t>(in.wordSpacing, CrossPointSettings::MAX_WORD_SPACING)) &&
          writeU8(file, in.orientation) && writeU8(file, in.screenMarginVertical) &&
@@ -1333,14 +1354,14 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   data.dictionaryFontPointSize = SETTINGS.dictionaryFontPointSize;
 
   const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
-  FsFile file;
-  if (!PersistableStoreBase::recoverBackup(path.c_str()) || !Storage.openFileForRead("ERS", path, file)) {
-    return data;
-  }
+  uint8_t bytes[READER_SETTINGS_MAX_BYTES];
+  const int len =
+      PersistableStoreBase::recoverBackup(path.c_str()) ? HeldWrites::readFile("ERS", path, bytes, sizeof(bytes)) : -1;
+  if (len < 0) return data;
+  SettingsBytes file{bytes, static_cast<size_t>(len)};
 
   uint8_t version = 0;
   if (!readU8(file, version)) {
-    file.close();
     LOG_DBG("ERS", "Reader settings missing version, using defaults");
     return data;
   }
@@ -1351,7 +1372,6 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
       data.hasAutoPageTurnInterval = true;
       data.autoPageTurnSeconds = clampAutoPageTurnIntervalSeconds(seconds);
     }
-    file.close();
     return data;
   }
 
@@ -1365,7 +1385,6 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
       version != PRE_FIELD_OVERRIDES_READER_SETTINGS_FILE_VERSION &&
       version != PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION &&
       version != PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION) {
-    file.close();
     LOG_DBG("ERS", "Reader settings version mismatch, using defaults");
     return data;
   }
@@ -1413,7 +1432,6 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   if (ok && version >= READER_SETTINGS_FILE_VERSION) {
     ok = readU8(file, snapshot.publisherFonts) && snapshot.publisherFonts <= static_cast<uint8_t>(PublisherFonts::All);
   }
-  file.close();
   if (!ok) {
     LOG_ERR("ERS", "Reader settings file is truncated, using defaults");
     return data;
@@ -1452,13 +1470,11 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
 }
 
 bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSettingsData& data) {
-  // Written to .tmp and moved over the old file, so a power cut never leaves it truncated.
+  // Held until sleep, then rewritten in place: one sector, and a torn record
+  // fails the loader's checks and falls back to the global settings.
   const std::string path = cachePath + READER_SETTINGS_FILE_NAME;
-  FsFile file;
-  if (!Storage.openFileForWrite("ERS", path + ".tmp", file)) {
-    LOG_ERR("ERS", "Could not open reader settings file for write");
-    return false;
-  }
+  uint8_t bytes[READER_SETTINGS_MAX_BYTES];
+  SettingsBytes file{bytes, sizeof(bytes)};
 
   uint8_t flags = 0;
   if (data.readerSettingsOverrideMask != 0) flags |= READER_SETTINGS_FLAG_CUSTOM;
@@ -1481,13 +1497,15 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
                   writeU8(file, std::min<uint8_t>(normalizedReaderSettings.characterSpacing,
                                                   CrossPointSettings::MAX_CHARACTER_SPACING)) &&
                   writeU8(file, normalizedReaderSettings.publisherFonts);
-  file.close();
   if (!ok) {
-    LOG_ERR("ERS", "Short write saving reader settings");
-    Storage.remove((path + ".tmp").c_str());
+    LOG_ERR("ERS", "Reader settings record outgrew its buffer");
     return false;
   }
-  return PersistableStoreBase::replaceWithTemp(path.c_str());
+  if (!HeldWrites::saveFile(path.c_str(), bytes, file.pos, /*hold=*/true)) {
+    LOG_ERR("ERS", "Could not save reader settings");
+    return false;
+  }
+  return true;
 }
 
 bool saveBookRenderModeForCache(const std::string& cachePath, const uint8_t renderMode) {
@@ -1579,6 +1597,7 @@ bool EpubReaderActivity::saveBookRenderMode(const std::string& filePath, const u
 bool EpubReaderActivity::resetBookReaderSettings(const std::string& filePath) {
   Epub epub(filePath, "/.crossdink");
   const std::string settingsPath = epub.getCachePath() + READER_SETTINGS_FILE_NAME;
+  HeldWrites::dropFile(settingsPath.c_str());
   if (!Storage.exists(settingsPath.c_str())) {
     return true;
   }

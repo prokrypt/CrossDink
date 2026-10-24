@@ -73,11 +73,11 @@ struct Record {
 };
 
 // Reader exit files: one book's progress slot and percent per exit, so four
-// cover two books exited between flushes.
-constexpr size_t kFiles = 4;
+// cover two books exited between flushes, plus a book's reader settings.
+constexpr size_t kFiles = 6;
 constexpr size_t kFilePathCap = 80;          // "/.crossdink/epub_<20 digits>/progress.bin.bak" is 53
-constexpr size_t kFileDataCap = 32;          // progress record 20 B, percent 7 B
-constexpr uint32_t kFileMagic = 0x484C4631;  // "HLF1"; change it when FileRecord changes
+constexpr size_t kFileDataCap = 192;         // progress record 20 B, percent 7 B, reader settings 160 B
+constexpr uint32_t kFileMagic = 0x484C4632;  // "HLF2"; change it when FileRecord changes
 
 struct FileRecord {
   uint32_t magic;  // kFileMagic = held, not yet on the card
@@ -321,6 +321,11 @@ int readFile(const char* module, const std::string& path, uint8_t* out, const si
   const int read = file.read(out, cap);
   file.close();
   return read;
+}
+
+void dropFile(const char* path) {
+  std::lock_guard<std::mutex> lock(heldMutex);
+  if (const int i = ready ? findFile(path) : -1; i >= 0) clearFile(held.files[i]);
 }
 
 void flushFiles() {

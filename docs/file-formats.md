@@ -336,6 +336,8 @@ if (parsedSize != fileSize) {
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
+Saves are held in RAM until the next flush point (sleep, restart, low battery;
+`HeldWrites`) and then rewritten in place.
 
 Version 1 stored only:
 
