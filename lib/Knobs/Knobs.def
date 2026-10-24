@@ -98,7 +98,7 @@ X("Power", idleWaitLongMs, uint32_t, 1000, 250, 5000, 250, "ms")       // deep i
 X("Power", idleBackoffAfterMs, unsigned long, 2000, 2000, 10000, 500, "ms")  // idle before backing off
 X("Power", panelIdleOffMs, uint32_t, 10000, 2000, 60000, 1000, "ms")   // booster off after an early wake
 X("Power", panelDwellOffMs, uint32_t, 60000, 10000, 600000, 10000, "ms")  // booster off on a screen left unchanged this long
-X("Power", ghostBusterQuietMs, uint32_t, 1000, 200, 5000, 100, "ms")  // Ghost Busters start after this long without input or a new frame
+X("Power", ghostBusterQuietMs, uint32_t, 1000, 200, 5000, 100, "ms")  // Ghost Busters start no sooner than this after input or a new frame (later as learned from input gaps)
 X("Power", batteryPollMs, unsigned long, 6000, 1000, 60000, 1000, "ms")  // battery gauge cache
 X("Power", batteryStateSkipS, uint16_t, 120, 0, 900, 10, "s")      // Battery & stats: per-state drain skips this after a light/Wi-Fi/wake change
 X("Power", batteryHalfLifeH, uint16_t, 24, 0, 720, 1, "h")       // Battery & stats: Est to empty weighs an awake step half per this age, 0 = all equal

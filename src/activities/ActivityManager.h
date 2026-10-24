@@ -123,9 +123,19 @@ class ActivityManager {
   // Sleep, Boot or image viewer), not the keyboard (its own typing LUT) and not
   // screens that switch the booster off when idle (transfers, Goodies).
   static bool ghostBustersFit(const Activity& activity);
-  static KNOB_ALIAS(GHOST_BUSTER_QUIET_MS, ghostBusterQuietMs);  // Goodies > Knobs
+  static KNOB_ALIAS(GHOST_BUSTER_QUIET_MS, ghostBusterQuietMs);  // Goodies > Knobs: the shortest quiet time
   // millis() of the last user input, for Ghost Busters. Main task writes.
   std::atomic<uint32_t> lastInputMs{0};
+  // Ghost Busters learn the user's pace: the gaps between recent input starts
+  // on screens that get busters pick the earliest quiet time a buster would
+  // rarely have been hit at (noteInputStart()). Main task writes.
+  static constexpr uint8_t INPUT_GAP_SAMPLES = 32;
+  uint16_t inputGapsMs[INPUT_GAP_SAMPLES] = {};
+  uint8_t inputGapCount = 0;
+  uint8_t inputGapNext = 0;
+  uint32_t lastInputStartMs = 0;
+  std::atomic<uint32_t> learnedBusterQuietMs{0};  // 0 until enough gaps are seen
+  void noteInputStart(uint32_t now);
   static constexpr uint32_t DEFERRED_REFRESH_POLL_MS = 5;
   // Screens that opt in (powerOffPanelWhenIdle) switch the booster off as
   // soon as their frame's refresh is done and no new frame is queued within
@@ -274,7 +284,8 @@ class ActivityManager {
   // Lets the current activity drop optional render work before an event takes
   // the render lock. Main loop only.
   void cancelOptionalRenderWork(const char* reason);
-  void notifyUserInput();
+  // started: a press, touch-down or tilt (not a release or a drag).
+  void notifyUserInput(bool started);
   bool skipLoopDelay() const;
   bool allowsRadioIdleSleep() const;
   uint8_t inputPollDelayMs() const;
