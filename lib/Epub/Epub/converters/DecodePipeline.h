@@ -66,6 +66,7 @@ class DecodePipeline {
   QueueHandle_t freeSlots_ = nullptr;
   QueueHandle_t filledSlots_ = nullptr;
   SemaphoreHandle_t workerDone_ = nullptr;
+  TaskHandle_t worker_ = nullptr;  // PSRAM stack; run() deletes it
   std::atomic<bool> stopped_{false};
   DecodeFn decode_ = nullptr;
   void* decodeContext_ = nullptr;
