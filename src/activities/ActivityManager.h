@@ -119,9 +119,10 @@ class ActivityManager {
   static bool allowsDeferredRefresh(const Activity& activity);
   // Ghost Busters (Display setting): a new screen gets this many plain Fast
   // refreshes of its own frame once input and frames pause for the knob below.
-  // Only screens whose frame stays in the framebuffer as B/W (menus: no readers,
-  // Sleep, Boot or image viewer), not the keyboard (its own typing LUT) and not
-  // screens that switch the booster off when idle (transfers, Goodies).
+  // Only screens whose frame stays in the framebuffer as B/W (menus and reader
+  // menus: not the open book, Sleep, Boot or image viewer), not the keyboard
+  // (its own typing LUT) and not screens that switch the booster off when idle
+  // (transfers, Goodies).
   static bool ghostBustersFit(const Activity& activity);
   static KNOB_ALIAS(GHOST_BUSTER_QUIET_MS, ghostBusterQuietMs);  // Goodies > Knobs: the shortest quiet time
   // millis() of the last user input, for Ghost Busters. Main task writes.

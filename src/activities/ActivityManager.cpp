@@ -729,25 +729,21 @@ void ActivityManager::renderTaskLoop() {
 
 // The keyboard by name: batchesInputDuringRefresh() is also true for menus that batch taps.
 bool ActivityManager::ghostBustersFit(const Activity& activity) {
-#if defined(BOARD_HAS_PSRAM)
-  // Reader menus (pull-up drawer, chapters, bookmarks) keep blocking refreshes,
-  // but a buster is the same Fast refresh of their B/W frame as on any menu.
-  // Only the open book runs its own refresh and grayscale flows.
-  const bool readerMenu = activity.isReaderActivity() && !activity.isBookReaderActivity();
-#else
-  const bool readerMenu = false;  // a buster is a deferred refresh, off without PSRAM
-#endif
-  return (readerMenu || allowsDeferredRefresh(activity)) && activity.name != "KeyboardEntry" &&
-         !activity.powerOffPanelWhenIdle();
+  // Reader menus (pull-up drawer, chapters, bookmarks) defer their refreshes
+  // like any menu, so a buster is the same Fast refresh of their B/W frame.
+  return allowsDeferredRefresh(activity) && activity.name != "KeyboardEntry" && !activity.powerOffPanelWhenIdle();
 }
 
 bool ActivityManager::allowsDeferredRefresh(const Activity& activity) {
 #if defined(BOARD_HAS_PSRAM)
-  // Readers run their own overlapped refresh and grayscale flows. Sleep and
-  // Boot must reach the panel before the device powers down or moves on, and
-  // the image viewer follows its refresh with grayscale plane uploads.
-  return !activity.isReaderActivity() && activity.name != "Sleep" && activity.name != "Boot" &&
-         activity.name != "BmpViewer";
+  // The open book runs its own overlapped refresh and grayscale flows (Reader
+  // only hands over to it); its menus (drawer, chapters, bookmarks, footnotes)
+  // are plain B/W frames, and a gray pass after one (the drawer's preview)
+  // waits for the refresh in the driver. Sleep and Boot must reach the panel
+  // before the device powers down or moves on, and the image viewer follows
+  // its refresh with grayscale plane uploads.
+  return !activity.isBookReaderActivity() && activity.name != "Reader" && activity.name != "Sleep" &&
+         activity.name != "Boot" && activity.name != "BmpViewer";
 #else
   // The 48 KB baseline copy the deferred refresh needs is too much internal RAM
   // for boards without PSRAM.
