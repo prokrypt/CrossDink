@@ -101,6 +101,7 @@
 #include "network/WifiUtils.h"
 #include "platform/InputTask.h"
 #include "platform/InputWake.h"
+#include "platform/PanelProbe.h"
 #include "platform/PinMon.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
@@ -2064,7 +2065,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   static bool controllerResolved = false;
   if (!controllerResolved) {
     controllerResolved = true;
-    freeink::applyXteinkDisplayController();  // DeviceIdentity::logPanel() below reports the outcome
+    PanelProbe::resolve();  // DeviceIdentity::logPanel() below reports the outcome
   }
   bootPhase("probe");
 #endif

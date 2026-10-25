@@ -14,6 +14,7 @@
 #include "AppVersion.h"
 #include "BuildInfo.h"
 #include "DeviceSecurity.h"
+#include "platform/PanelProbe.h"
 #endif
 
 namespace DeviceIdentity {
@@ -24,6 +25,7 @@ namespace {
 using BoardConfig::DisplayController;
 
 const char* detectMethod(const freeink::XteinkDisplayProbeDiag& d) {
+  if (PanelProbe::cached()) return "deep-sleep cache of last probe";
   if (d.valid && d.verBytesRead >= 5) return "bus probe (VER/FLG)";
   if (d.valid && d.verBytesRead > 0) return "X3 VER probe";
   if (d.promoted) return "NVS screenType";
@@ -69,7 +71,7 @@ const char* controllerName() {
 }
 
 void logPanel() {
-  const auto& d = freeink::getXteinkDisplayProbeDiag();
+  const auto& d = PanelProbe::diag();
   char id[8];
   char lut[32];
   formatPanelId(d, id, sizeof(id), lut, sizeof(lut));
@@ -90,7 +92,7 @@ void logPanel() {
 }
 
 size_t formatLogHeader(char* buf, const size_t size) {
-  const auto& d = freeink::getXteinkDisplayProbeDiag();
+  const auto& d = PanelProbe::diag();
   char id[8];
   char lut[32];
   formatPanelId(d, id, sizeof(id), lut, sizeof(lut));
