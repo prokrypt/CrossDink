@@ -1273,6 +1273,8 @@ void XtcReaderActivity::render(RenderLock&&) {
   }
 
   renderPage(pageToRender);
+  ghostBustersRequested = !firstPageShown;
+  firstPageShown = true;
   openingFeedback.finish();
   pageShownAtMs = millis();
   startDailyReadingInterval();

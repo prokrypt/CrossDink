@@ -8533,6 +8533,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     pageShownAtMs = 0UL;
     return true;
   }
+  // This page reaches the panel: Ghost Busters follow the first one after opening.
+  ghostBustersRequested = !firstPageShown;
+  firstPageShown = true;
   // Input can arrive while the page and status bar are being composed. Make
   // one final decision immediately before selecting the grayscale path so a
   // queued successor never starts an AA pass for this transient page.
