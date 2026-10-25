@@ -141,6 +141,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Fewer SD card reads: the SD filesystem keeps its FAT data in its own 512-byte cache instead of sharing one with book and font data, and drops cached data after a failed read so it is never reused or written back. Restoring a position in a long chapter reads its page table in batches, one file open captures the current paragraph run, Library search reads finished state only for books that match, a Library row is decoded once for its labels and icon, an EPUB without an optimizer manifest is only checked once, and TXT indexing reuses one scratch buffer. ZIP directory scans read each entry header in one call and fail cleanly on a short read. Cached filesystem data is written to the card before deep sleep, every restart, USB Drive and the low-battery flush.
 
 ### Fixed
+- Web server: downloads (File Transfer, WebDAV, log downloads) no longer push the web server task to within 440 bytes of a stack overflow; the 4 KB fallback send buffer moved from the stack to the heap (PSRAM on device).
 - Quick button presses are no longer lost while the device idles (most noticeable in the reader with the touchscreen off): a press the input task just missed now wakes it at once instead of waiting for the release.
 - Reader status bar: Chapter Progress Percentage can be picked for any slot on the device and in web settings.
 - Settings > Controls > Taps & Gestures lists Touch Reader Controls again, so reader touch can be turned back on from the device.
