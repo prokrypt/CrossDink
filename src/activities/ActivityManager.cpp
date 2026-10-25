@@ -727,7 +727,16 @@ void ActivityManager::renderTaskLoop() {
 
 // The keyboard by name: batchesInputDuringRefresh() is also true for menus that batch taps.
 bool ActivityManager::ghostBustersFit(const Activity& activity) {
-  return allowsDeferredRefresh(activity) && activity.name != "KeyboardEntry" && !activity.powerOffPanelWhenIdle();
+#if defined(BOARD_HAS_PSRAM)
+  // Reader menus (pull-up drawer, chapters, bookmarks) keep blocking refreshes,
+  // but a buster is the same Fast refresh of their B/W frame as on any menu.
+  // Only the open book runs its own refresh and grayscale flows.
+  const bool readerMenu = activity.isReaderActivity() && !activity.isBookReaderActivity();
+#else
+  const bool readerMenu = false;  // a buster is a deferred refresh, off without PSRAM
+#endif
+  return (readerMenu || allowsDeferredRefresh(activity)) && activity.name != "KeyboardEntry" &&
+         !activity.powerOffPanelWhenIdle();
 }
 
 bool ActivityManager::allowsDeferredRefresh(const Activity& activity) {
