@@ -164,9 +164,18 @@ void logTrail() {
     pos += static_cast<size_t>(n);
   }
   LOG_INF("BOOT", "trail: %s", text);
-  if (t.err[0] != '\0') {
+  // Each error prints at the one boot after its run, then clears; one from this boot so far waits for the next.
+  const uint32_t bootMs = now - millis();
+  if (t.err[0] != '\0' && static_cast<int32_t>(t.errAtMs - bootMs) < 0) {
     t.err[sizeof(t.err) - 1] = '\0';
     LOG_INF("BOOT", "trail: last err -%lus %s", static_cast<unsigned long>((now - t.errAtMs) / 1000), t.err);
+    portENTER_CRITICAL_SAFE(&trailMux);
+    Trail& live = trailLocked();
+    if (live.errAtMs == t.errAtMs) {
+      live.err[0] = '\0';
+      live.crc = trailCrc();
+    }
+    portEXIT_CRITICAL_SAFE(&trailMux);
   }
 }
 
@@ -545,6 +554,10 @@ void noteRenderEnd() {
   staleRefresh = false;  // the earlier refresh ended inside the render, logged or not
 }
 
+void noteRenderDrawn() {
+  if (inputPending && renderStartMs != 0 && renderEndMs == 0) renderEndMs = millis();
+}
+
 void notePagePath(const char* path) {
   if (inputPending) pagePath = path;
 }
@@ -590,7 +603,7 @@ void noteInk(const bool finishedEarlier) {
   if (renderStartMs == 0) return;
   // The render's display call finished the frame that was on the panel when
   // it began: that ink predates the input's own frame.
-  if (staleRefresh && finishedEarlier && renderEndMs == 0) {
+  if (staleRefresh && finishedEarlier) {
     staleRefresh = false;
     return;
   }

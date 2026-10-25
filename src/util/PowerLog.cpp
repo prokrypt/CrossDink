@@ -161,7 +161,6 @@ void writeRow(const char* name, const char* detail, const bool toRing) {
     return;
   }
   if (toRing) append(rowBuf, static_cast<uint32_t>(n));
-  LOG_INF("PWL", "%.*s", static_cast<int>(n - 1), rowBuf);
 }
 }  // namespace
 
