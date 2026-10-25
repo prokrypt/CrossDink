@@ -535,7 +535,9 @@ void restartKeepingPanelFrame() {
   ESP.restart();
 }
 
-static void restartWithSilentToken() {
+// lightOn -1 hands over the live light state; 0 or 1 the state it had before a
+// sleep entry faded it out.
+static void restartWithSilentToken(const int lightOn = -1) {
   PerfLog::noteRestart();
   HeldWrites::carryNextRestart();
   retainPanelFrame();
@@ -543,7 +545,8 @@ static void restartWithSilentToken() {
   // policy change the light without saving it, so hand the live state over.
   // A transfer pulse turns the light on for itself: hand over the user's state.
   TransferLightPulse::yieldToUser();
-  silentRebootFrontlight = Frontlight.isOn() ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
+  const bool on = lightOn < 0 ? Frontlight.isOn() : lightOn != 0;
+  silentRebootFrontlight = on ? SILENT_REBOOT_FRONTLIGHT_ON : SILENT_REBOOT_FRONTLIGHT_OFF;
 #ifdef SIMULATOR
   SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
 #endif
@@ -1887,20 +1890,48 @@ static void showChordClock() {
 // the sleep frame again as plain Fast refreshes, OLD = NEW, like the menu ones.
 // Only while the framebuffer is that frame (B/W, not lent out). A key press
 // stops them, so sleep is never held up by more than the refresh running.
-static void bustSleepGhosts() {
+// True when a key stopped them.
+static bool bustSleepGhosts() {
 #ifndef SIMULATOR  // the simulator HAL has no panel
   RenderLock lock;
   for (uint8_t left = SETTINGS.ghostBusters; left > 0 && renderer.hasFrameBuffer() && !display.grayShown(); left--) {
     gpio.update();
     if (gpio.wasAnyPressed()) {
       LOG_DBG("SLP", "Sleep ghost busters stopped by a key, %u left", static_cast<unsigned>(left));
-      return;
+      return true;
     }
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     LOG_DBG("SLP", "Sleep ghost buster, %u left", static_cast<unsigned>(left - 1));
   }
 #endif
+  return false;
 }
+
+#ifndef SIMULATOR  // the simulator's deep sleep returns to the loop anyway
+// A key press the loop has not handled yet, read from the samples the input
+// task queued while sleep entry ran (sleep screen, writes).
+static bool keyPressedDuringSleepEntry() {
+  bool pressed = false;
+  do {
+    gpio.update();
+    pressed = pressed || gpio.wasAnyPressed();
+  } while (gpio.hasQueuedInput());
+  return pressed;
+}
+
+// Boots back into the screen the wake would open instead of powering down, so
+// the press is not lost; every sleep write is done. lightOn as for
+// restartWithSilentToken().
+static void restartInsteadOfSleep(const int lightOn = -1) {
+  const bool reader = APP_STATE.lastSleepFromReader && !APP_STATE.openEpubPath.empty();
+  if (!reader) clearSilentRestartReaderPageBuild();
+  silentRebootTarget = reader ? SILENT_REBOOT_TARGET_READER : SILENT_REBOOT_TARGET_HOME;
+  silentRebootPayload = 0;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  LOG_INF("SLP", "Key pressed during sleep entry: waking (target=%s)", reader ? "reader" : "home");
+  restartWithSilentToken(lightOn);
+}
+#endif
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
@@ -1976,6 +2007,12 @@ void enterDeepSleep(bool fromTimeout) {
       }
     }
 
+#ifndef SIMULATOR
+    // A press while the sleep screen drew would otherwise be lost: the card is
+    // still mounted here, so wake instead. The chord clock is a peek at a
+    // sleeping device and keeps going back to sleep.
+    if (!wallpaperChordWake && keyPressedDuringSleepEntry()) restartInsteadOfSleep();
+#endif
     // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
     // can be written again until the next wake.
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
@@ -1992,10 +2029,18 @@ void enterDeepSleep(bool fromTimeout) {
     HalPowerManager::sleepStep = "nvs, frontlight";
     mirrorWakeShortPressToNvs();
     // Last visible step: the sleep screen has settled and every write is done.
+    [[maybe_unused]] const bool lightWasOn = Frontlight.isOn();
     frontlightFadeOutForSleep();
     Frontlight.prepareForDeepSleep();
     HalPowerManager::sleepStep = "ghost busters";
-    bustSleepGhosts();
+    [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts();
+#ifndef SIMULATOR
+    // A key during the fade or the busters wakes too, with the light as it was;
+    // the restart mounts the card again.
+    if (!wallpaperChordWake && (keyStoppedBusters || keyPressedDuringSleepEntry())) {
+      restartInsteadOfSleep(lightWasOn ? 1 : 0);
+    }
+#endif
     HalPowerManager::sleepStep = "display sleep";
     display.deepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
