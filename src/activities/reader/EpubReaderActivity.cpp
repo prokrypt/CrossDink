@@ -8462,6 +8462,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
     finalizeBufferComposition();
     renderStatusBar();
+    PerfLog::noteRenderDrawn();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   }
