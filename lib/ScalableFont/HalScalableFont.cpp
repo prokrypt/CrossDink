@@ -719,7 +719,13 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
   }
   uint32_t contentHash = 0;
   if (mode != FileMode::Temporary) {
-    FontByteDigest digest(renderingRevision());
+    // The UI Font's identity only keys Home's cached rows, so it hashes the
+    // cached prefix (at least one buffer) plus the size instead of the whole
+    // file: a multi-MB CJK face took seconds under the render lock on every
+    // load. Its checksum then covers part of the file, so it is not checked.
+    const bool partial = mode == FileMode::Filename;
+    const size_t scanBytes = partial ? std::max(streamPrefixSize_, std::min(size, StreamBufferBytes)) : size;
+    FontByteDigest digest(renderingRevision() ^ (partial ? static_cast<uint32_t>(size) : 0U));
     if (!file.seekSet(0)) {
       LOG_ERR("TTF", "Cannot rewind streamed font: %s", path);
       file.close();
@@ -731,8 +737,8 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
     const bool watchdogWatchesThisTask = esp_task_wdt_status(nullptr) == ESP_OK;
     uint32_t lastYieldMs = millis();
 #endif
-    for (size_t offset = 0; offset < size;) {
-      const size_t count = std::min(StreamBufferBytes, size - offset);
+    for (size_t offset = 0; offset < scanBytes;) {
+      const size_t count = std::min(StreamBufferBytes, scanBytes - offset);
       const int got = file.read(chunk.get(), count);
       if (got < 0 || size_t(got) != count) {
         LOG_ERR("TTF", "Short streamed font read: %s at %u (%d/%u bytes)", path, unsigned(offset), got,
@@ -753,8 +759,8 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
 #endif
     }
     contentHash = digest.hash();
-    integrityChecksum_ = digest.checksum();
-    integrityMismatch_ = digest.integrityMismatch();
+    integrityChecksum_ = partial ? 0 : digest.checksum();
+    integrityMismatch_ = !partial && digest.integrityMismatch();
     if (integrityMismatch_)
       LOG_INF("TTF", "Font integrity warning: %s checksum=%08X expected=%08X", path, unsigned(integrityChecksum_),
               unsigned(SfntChecksumMagic));
