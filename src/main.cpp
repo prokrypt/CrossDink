@@ -410,10 +410,10 @@ constexpr uint32_t SILENT_REBOOT_READER_CLEAN_IMAGE_BASE = 1U << 0;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_MAGIC = 0xC1EAB017;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_AUTO_TURN = 1U << 0;
 constexpr uint32_t NETWORK_RENDER_TASK_STACK_BYTES = 8192;
-// FreeType's anti-aliased rasterizer reserves a 16 KiB scratch pool on its
-// caller's stack. Scalable fonts are S3-only, so leave C3's constrained reader
-// stack unchanged and give S3 reader renders room for their normal call frames.
-constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = FREEINK_MCU_S3 ? 24576 : 16384;
+// FreeType's anti-aliased rasterizer keeps a 4 KB scratch pool on its caller's
+// stack (capped in the SDK's ftgrays.c). Internal RAM for render latency;
+// [STK] logs showed at most ~9.8 KB used, so this keeps ~10 KB of headroom.
+constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = 20480;
 
 // How the device is coming back to life, resolved once at boot. Both resume
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
@@ -1882,6 +1882,25 @@ static void showChordClock() {
   }
 }
 
+// Ghost Busters (Display setting) on the sleep screen, once the light is out:
+// the sleep frame again as plain Fast refreshes, OLD = NEW, like the menu ones.
+// Only while the framebuffer is that frame (B/W, not lent out). A key press
+// stops them, so sleep is never held up by more than the refresh running.
+static void bustSleepGhosts() {
+#ifndef SIMULATOR  // the simulator HAL has no panel
+  RenderLock lock;
+  for (uint8_t left = SETTINGS.ghostBusters; left > 0 && renderer.hasFrameBuffer() && !display.grayShown(); left--) {
+    gpio.update();
+    if (gpio.wasAnyPressed()) {
+      LOG_DBG("SLP", "Sleep ghost busters stopped by a key, %u left", static_cast<unsigned>(left));
+      return;
+    }
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    LOG_DBG("SLP", "Sleep ghost buster, %u left", static_cast<unsigned>(left - 1));
+  }
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
   // Deep sleep powers PSRAM down and would lose a running macro: any sleep
@@ -1967,13 +1986,17 @@ void enterDeepSleep(bool fromTimeout) {
     Storage.shutdown();
 
     putTiltSensorToSleepForDeepSleep();
-    HalPowerManager::sleepStep = "display sleep";
-    display.deepSleep();
+    HalPowerManager::sleepStep = "sleep refresh";
+    renderer.waitRefreshComplete();
     HalPowerManager::sleepStep = "nvs, frontlight";
     mirrorWakeShortPressToNvs();
     // Last visible step: the sleep screen has settled and every write is done.
     frontlightFadeOutForSleep();
     Frontlight.prepareForDeepSleep();
+    HalPowerManager::sleepStep = "ghost busters";
+    bustSleepGhosts();
+    HalPowerManager::sleepStep = "display sleep";
+    display.deepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
 
   }  // Release powerLock before deep sleep entry
