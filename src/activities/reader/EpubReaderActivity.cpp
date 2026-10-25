@@ -3155,35 +3155,38 @@ void EpubReaderActivity::prefetchImageCaches() {
     steps[0] = 1;
     steps[1] = -1;
   }
-  // shortcut: a back turn into the previous chapter's last page is not prefetched.
   for (const int step : steps) {
     const uint8_t bit = step > 0 ? 1 : 2;
     const int target = section->currentPage + step;
-    if (step == 0 || (imagePrefetchTried & bit) || target < 0) continue;
-    const bool nextChapter = target >= static_cast<int>(section->pageCount);
+    if (step == 0 || (imagePrefetchTried & bit)) continue;
+    // Past either end: the neighbouring chapter's first (forward) or last (back) page.
+    const bool otherChapter = target < 0 || target >= static_cast<int>(section->pageCount);
+    const int spine = otherChapter ? currentSpineIndex + step : currentSpineIndex;
     // A next chapter still being built holds its file open; the turn draws it as before.
-    if (nextChapter && (step < 0 || section->isPartial() || nextSection || buildViewportWidth == 0 ||
-                        currentSpineIndex + 1 >= epub->getSpineItemsCount())) {
+    if (otherChapter && (section->isPartial() || buildViewportWidth == 0 || spine < 0 ||
+                         spine >= epub->getSpineItemsCount() || (step > 0 && nextSection))) {
       continue;
     }
     imagePrefetchTried |= bit;
     // One page read per idle pass; the other side waits for the next one.
     std::unique_ptr<Page> page;
-    if (nextChapter) {
-      // Page 0 of the next chapter's cached section file, same spec the chapter open uses.
+    int pageIndex = target;
+    if (otherChapter) {
+      // That chapter's cached section file, same spec the chapter open uses.
       const SectionBuildProfile profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
       const ReaderRenderSpec spec =
           readerRenderSpecForProfile(SETTINGS.getReaderFontId(), buildViewportWidth, buildViewportHeight, profile);
-      auto next = makeUniqueNoThrow<Section>(epub, currentSpineIndex + 1, renderer,
-                                             sectionCacheSuffixForRenderMode(profile.renderMode));
-      if (next && next->loadSectionFile(spec) && !next->isPartial()) page = next->loadPage(0);
+      auto other =
+          makeUniqueNoThrow<Section>(epub, spine, renderer, sectionCacheSuffixForRenderMode(profile.renderMode));
+      if (other && other->loadSectionFile(spec) && !other->isPartial() && other->pageCount > 0) {
+        pageIndex = step > 0 ? 0 : static_cast<int>(other->pageCount) - 1;
+        page = other->loadPage(pageIndex);
+      }
     } else {
       page = section->loadPage(target);
     }
     if (!page || !page->hasImagesNeedingDecode()) return;
     const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
-    const int spine = nextChapter ? currentSpineIndex + 1 : currentSpineIndex;
-    const int pageIndex = nextChapter ? 0 : target;
     if (startImageCacheWorker(*page, layout.marginLeft, layout.marginTop, spine, pageIndex)) {
       LOG_DBG("ERS", "Prefetching image caches for spine %d page %d", spine, pageIndex);
     }
@@ -8418,10 +8421,12 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   // A prefetch this page no longer neighbours (a jump, or a turn away from it)
   // stops at its next chunk; nothing waits for it here.
-  const bool prefetchingNextChapter = imageCacheWorker.spine == currentSpineIndex + 1 &&
-                                      imageCacheWorker.pageIndex == 0 &&
-                                      section->currentPage + 1 >= static_cast<int>(section->pageCount);
-  if (imageCacheWorker.task && !prefetchingNextChapter &&
+  // A neighbouring chapter's prefetch (its first page from our last, its last page from our first) is kept too.
+  const bool prefetchingOtherChapter =
+      (imageCacheWorker.spine == currentSpineIndex + 1 && imageCacheWorker.pageIndex == 0 &&
+       section->currentPage + 1 >= static_cast<int>(section->pageCount)) ||
+      (imageCacheWorker.spine == currentSpineIndex - 1 && section->currentPage == 0);
+  if (imageCacheWorker.task && !prefetchingOtherChapter &&
       (imageCacheWorker.spine != currentSpineIndex || imageCacheWorker.pageIndex < section->currentPage - 1 ||
        imageCacheWorker.pageIndex > section->currentPage + 1)) {
     imageCacheWorker.cancel.store(true);
