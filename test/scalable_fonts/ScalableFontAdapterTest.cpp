@@ -242,6 +242,10 @@ int main(int argc, char** argv) {
     const auto* residentData = builtin[0].atSize(12)->data;
     assert(streamedData->dynamicGlyphHandler(streamedData->glyphMissCtx, 'T')->width ==
            residentData->dynamicGlyphHandler(residentData->glyphMissCtx, 'T')->width);
+    // The UI Font identity hashes only the prefix and size; it must still be stable across opens.
+    HalScalableFont again;
+    assert(again.openFile(largePath.c_str(), HalScalableFont::MaxFilenameFileBytes, options, FileMode::Filename));
+    assert(again.fingerprint() == filename.fingerprint());
   }
   assert(openStorageFiles == 0);
   std::filesystem::remove(largePath);

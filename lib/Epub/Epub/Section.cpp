@@ -1215,8 +1215,9 @@ int Section::getTocIndexForPage(const int page) const {
     size_t hash;
     int index;
   };
-  // Bound scratch space to 512 bytes on C3; anchor text stays in the existing caches.
-  constexpr size_t BATCH_SIZE = 64;
+  // One pass over the anchor map for nearly every chapter: each batch re-reads the
+  // whole map from SD under the render lock. 4 KB of scratch, so it goes to PSRAM.
+  constexpr size_t BATCH_SIZE = 512;
   auto targets = makeUniqueNoThrow<TocAnchor[]>(BATCH_SIZE);
   if (!targets) {
     LOG_ERR("SCT", "OOM: TOC anchor lookup");

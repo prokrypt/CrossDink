@@ -109,11 +109,11 @@ namespace {
 // flash may use one (these touch the SD card only). The worker parks after
 // giving its done semaphore; the joiner deletes it, which frees the stack.
 bool startPsramWorker(TaskFunction_t fn, const char* name, const uint32_t stackBytes, void* arg, TaskHandle_t* task,
-                      const BaseType_t core = TaskCores::kWorker) {
+                      const BaseType_t core = TaskCores::kWorker, const UBaseType_t priority = 1) {
 #ifdef SIMULATOR
-  return xTaskCreatePinnedToCore(fn, name, stackBytes, arg, 1, task, core) == pdPASS;
+  return xTaskCreatePinnedToCore(fn, name, stackBytes, arg, priority, task, core) == pdPASS;
 #else
-  return xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, 1, task, core,
+  return xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, priority, task, core,
                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
 #endif
 }
@@ -7807,18 +7807,17 @@ void EpubReaderActivity::maybeStartHomeThumbWorker() {
     }
   }
   if (homeThumbWorker.specs.count == 0) return;
-  // The decoder and inflate buffers go to PSRAM; the stack is internal RAM
-  // only while the job runs.
+  // The decoder and inflate buffers and the stack go to PSRAM (SD only, no flash).
   constexpr uint32_t STACK_BYTES = 8192;
-  if (!MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, STACK_BYTES + 4096U)) {
+  if (!MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, 4096U)) {
     LOG_DBG("ERS", "Skipping Home thumbs: low heap (free=%" PRIu32 ", maxAlloc=%" PRIu32 ")", ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
     return;
   }
   powerManager.beginBackgroundWork();
   // Idle priority: page draw-ahead and next-chapter indexing preempt it.
-  if (xTaskCreatePinnedToCore(homeThumbWorkerMain, "HomeThumbs", STACK_BYTES, this, tskIDLE_PRIORITY,
-                              &homeThumbWorker.task, TaskCores::kWorker) != pdPASS) {
+  if (!startPsramWorker(homeThumbWorkerMain, "HomeThumbs", STACK_BYTES, this, &homeThumbWorker.task, TaskCores::kWorker,
+                        tskIDLE_PRIORITY)) {
     homeThumbWorker.task = nullptr;
     powerManager.endBackgroundWork();
     LOG_ERR("ERS", "Cannot start Home thumb worker");
@@ -7840,12 +7839,13 @@ void EpubReaderActivity::homeThumbWorkerMain(void* param) {
   PerfLog::noteTaskExit("HomeThumbs");
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(self->homeThumbWorker.done);
-  vTaskDelete(nullptr);
+  parkPsramWorker();
 }
 
 void EpubReaderActivity::waitHomeThumbWorker() {
   if (!homeThumbWorker.task) return;
   xSemaphoreTake(homeThumbWorker.done, portMAX_DELAY);
+  deletePsramWorker(homeThumbWorker.task);
   homeThumbWorker.task = nullptr;
 }
 
@@ -7910,9 +7910,9 @@ bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int margi
   // it streams the pixel cache; the panel's frame stays with the render task.
   if (fits && !job.frame) job.frame = makePsramByteBufferNoThrow(renderer.getBufferSize());
   if (fits && job.frame && !job.renderer) job.renderer = renderer.makeOffscreen(job.frame.get());
-  // Decoder buffers go to PSRAM; the stack is internal RAM only while it runs.
+  // Decoder buffers and the stack go to PSRAM (SD only, no flash).
   constexpr uint32_t STACK_BYTES = 12288;
-  if (fits && (!job.renderer || !MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, STACK_BYTES + 4096U))) {
+  if (fits && (!job.renderer || !MemoryBudget::hasHeap(MemoryBudget::snapshot(), 48U * 1024U, 4096U))) {
     LOG_ERR("ERS", "Image cache worker unavailable (frame=%u, free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
             job.frame ? 1U : 0U, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     fits = false;
@@ -7931,8 +7931,7 @@ bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int margi
   job.redraw.store(false);
   powerManager.beginBackgroundWork();
   // Priority 1 on the worker core: the loop task (2) preempts it for input.
-  if (xTaskCreatePinnedToCore(imageCacheWorkerMain, "ImageCache", STACK_BYTES, this, 1, &job.task,
-                              TaskCores::kWorker) != pdPASS) {
+  if (!startPsramWorker(imageCacheWorkerMain, "ImageCache", STACK_BYTES, this, &job.task, TaskCores::kWorker)) {
     job.task = nullptr;
     powerManager.endBackgroundWork();
     for (uint8_t i = 0; i < count; ++i) job.items[i].block.reset();
@@ -7980,7 +7979,7 @@ void EpubReaderActivity::imageCacheWorkerMain(void* param) {
   powerManager.endBackgroundWork();
   // The activity may be destroyed as soon as this is given.
   xSemaphoreGive(job.done);
-  vTaskDelete(nullptr);
+  parkPsramWorker();
 }
 
 bool EpubReaderActivity::joinImageCacheWorker(const bool cancel) {
@@ -7989,6 +7988,7 @@ bool EpubReaderActivity::joinImageCacheWorker(const bool cancel) {
   if (cancel) job.cancel.store(true);
   // A cancelled job stops within one ZIP chunk or decoded block.
   if (xSemaphoreTake(job.done, cancel ? portMAX_DELAY : 0) != pdTRUE) return false;
+  deletePsramWorker(job.task);
   job.task = nullptr;
   // The render that joins draws the result; no second redraw.
   job.redraw.store(false);
