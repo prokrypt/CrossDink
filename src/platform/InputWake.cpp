@@ -30,6 +30,8 @@ namespace {
 std::array<gpio_num_t, 10> wakePins{};  // keys, touch INT, charger STAT
 size_t wakePinCount = 0;
 std::array<bool, 10> armedHigh{};  // level each line was last armed for
+// Keys: the level a press reads (0/1); -1 for touch INT and charger STAT.
+std::array<int8_t, 10> pressedLevel{};
 SemaphoreHandle_t wakeSignal = nullptr;
 bool allInputsCovered = false;
 // Charger STAT: not an input, but a charge start or stop should end the wait
@@ -105,7 +107,7 @@ void IRAM_ATTR onWakeLine(void* arg) {
 }
 
 // Returns false only when a real pin could not be armed.
-bool addWakePin(const int8_t pin) {
+bool addWakePin(const int8_t pin, const int8_t pressed = -1) {
   if (pin < 0) return true;
   if (wakePinCount >= wakePins.size()) return false;
   const auto gpioPin = static_cast<gpio_num_t>(pin);
@@ -116,6 +118,7 @@ bool addWakePin(const int8_t pin) {
     LOG_ERR("WAKE", "Could not attach input wake handler to GPIO%d", pin);
     return false;
   }
+  pressedLevel[wakePinCount] = pressed;
   wakePins[wakePinCount++] = gpioPin;
   return true;
 }
@@ -178,9 +181,10 @@ void InputWake::begin() {
   // GPIO interrupt, so only plain digital keys take part.
   if (board.inputStyle == BoardConfig::InputStyle::DigitalButtons) {
     for (const int8_t pin : {board.input.back, board.input.confirm, board.input.left, board.input.right, board.input.up,
-                             board.input.down, board.input.power}) {
-      allArmed = addWakePin(pin) && allArmed;
+                             board.input.down}) {
+      allArmed = addWakePin(pin, 0) && allArmed;
     }
+    allArmed = addWakePin(board.input.power, board.input.powerActiveHigh ? 1 : 0) && allArmed;
   }
   if (board.touch.controller != BoardConfig::TouchController::None) {
     allArmed = addWakePin(board.touch.irq) && allArmed;
@@ -223,9 +227,12 @@ bool InputWake::wait(const uint32_t timeoutMs) {
   }
   for (size_t i = 0; i < wakePinCount; ++i) {
     const gpio_num_t pin = wakePins[i];
-    // Trigger on the opposite of the level present now, so a press, a release
-    // and a touch INT pulse of either polarity all end the wait.
-    const gpio_int_type_t level = gpio_get_level(pin) ? GPIO_INTR_LOW_LEVEL : GPIO_INTR_HIGH_LEVEL;
+    // Keys arm at their pressed level: the caller waits only while no key is
+    // held, so a key already down here is a press the last sample missed
+    // (contact bounce, or pressed after it) and must end the wait at once.
+    // Touch INT and STAT trigger on the opposite of the level present now.
+    const bool high = pressedLevel[i] >= 0 ? pressedLevel[i] == 1 : !gpio_get_level(pin);
+    const gpio_int_type_t level = high ? GPIO_INTR_HIGH_LEVEL : GPIO_INTR_LOW_LEVEL;
     armedHigh[i] = level == GPIO_INTR_HIGH_LEVEL;
     if (static_cast<int>(pin) == chargePin) {
       gpio_set_intr_type(pin, level);
