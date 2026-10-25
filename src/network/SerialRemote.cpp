@@ -354,7 +354,6 @@ void run(void*) {
     return;
   }
   uint32_t mux[N];
-  gpio_install_isr_service(0);  // usually already installed by InputWake (then INVALID_STATE)
   for (size_t i = 0; i < N; ++i) {
     const auto pin = static_cast<gpio_num_t>(PINS[i]);
     mux[i] = REG_READ(GPIO_PIN_MUX_REG[PINS[i]]);

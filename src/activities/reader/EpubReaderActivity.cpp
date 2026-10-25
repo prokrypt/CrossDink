@@ -8558,6 +8558,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
   const bool grayImages = pageHasImages && !DirectPixelWriter::bwImages;
   if (updatePanel) {
+    PerfLog::noteRenderDrawn();  // the refreshes below block inside render(): split render from ink here
     renderer.setSmoothGray((SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH || pageHasImages) &&
                            !grayImages && !smoothFullSwingPending && !grayCadenceDue);
     // Night mode: text AA only. Image pages keep their polarity-preserved B/W
