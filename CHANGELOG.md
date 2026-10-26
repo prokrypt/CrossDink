@@ -90,6 +90,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Sleep images (custom, `/sleep.bmp` and covers) show sooner from the second time the same image is used: the decoded screen is kept in `/.crossdink/sleepcache/` (up to 128 images, oldest dropped first) and read back instead of decoding the image again, about 0.3 s faster for black-and-white images and 0.85 s for gray ones. Changing the image, its cover mode or filter, or updating the firmware decodes it again.
 - Plain allocations of 513 B to 1 KB now go to PSRAM instead of internal RAM, leaving more internal RAM for Wi-Fi, OPDS and image decoding.
 - Release builds (Sticky, X4 Pro, X4 Classic) give the main loop a 12 KB stack instead of 16 KB, as the X4 Pro debug build has for weeks, leaving 4 KB more internal RAM for the rest of the firmware.
+- Waking into a book or Home is about 0.13 s faster: the screen's power-up runs while the book opens instead of before the first page is drawn.
 - Ghost Busters (Settings > Display) opens a stepper screen for 0-10 (0 is Off): Left/Right or the on-screen -1/+1 step by 1, Up/Down or -3/+3 by 3.
 - X4 Pro and X4 Classic wake from sleep about 80 ms sooner: the SD card mount no longer repeats the 80 ms power-off its card already had all through the sleep.
 - A large UI Font (for example a multi-megabyte CJK family) no longer holds up the screen and buttons for seconds when it loads after boot or after File Transfer/USB Drive: only its first megabyte is read to identify it instead of the whole file.
