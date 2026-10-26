@@ -72,6 +72,19 @@ class OpdsBookBrowserActivity final : public Activity {
   // Declared so the pool is destroyed (joined) before the cache.
   std::unique_ptr<OpdsPageCache> pageCache;
   std::unique_ptr<OpdsPreloadPool> preload;
+  // An uncached feed downloading on a pool worker while the loop runs: rows
+  // show as soon as the first screenful has parsed, the rest land silently.
+  // parser (null: none) reads into `entries`, so it is declared after them.
+  struct StreamFetch {
+    std::string url;
+    std::string path;
+    size_t drained = 0;  // page bytes handed to the parser so far
+    int restoreRow = 0;
+    int restoreTop = 0;
+    bool recheck = true;
+    std::unique_ptr<OpdsParser> parser;
+  };
+  StreamFetch stream;
   size_t entryCount = 0;
   // Catalog size from the feed's opensearch:totalResults; -1 when not given.
   int32_t feedTotal = -1;
@@ -158,7 +171,21 @@ class OpdsBookBrowserActivity final : public Activity {
   // restoreRow/restoreTop: selection and scroll to show once loaded (Back).
   // recheck: refetch a page shown from the cache in the background (off for
   // the redraw a recheck itself triggers).
-  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0, bool recheck = true);
+  // stream: an uncached page may show progressively (see StreamFetch); off
+  // for the blocking retry after a streamed fetch failed.
+  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0, bool recheck = true,
+                 bool stream = true);
+  // The parsed page becomes the listing: Prev/Next rows, marks, selection.
+  void finishFeed(OpdsParser& parser, const std::string& url, int restoreRow, int restoreTop, bool recheck);
+  bool streaming() const { return stream.parser != nullptr; }
+  // True when url is downloading on a pool worker and the parser is set up.
+  bool startStream(const std::string& url, const std::string& path, int restoreRow, int restoreTop, bool recheck);
+  // Each loop tick: parses the bytes received so far, shows rows once a
+  // screenful is in, finishes the feed when the download ends.
+  void pumpStream();
+  // Shows the rows parsed so far. done: the whole page has parsed.
+  void publishStreamedRows(bool done);
+  void abortStream();
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser, OpdsFeedError* error = nullptr);

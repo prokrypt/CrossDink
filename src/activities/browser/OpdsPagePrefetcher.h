@@ -1,7 +1,10 @@
 #pragma once
 
+#include <Print.h>
+
 #include <atomic>
 #include <cstddef>
+#include <mutex>
 #include <string>
 
 #include "OpdsPageCache.h"
@@ -44,6 +47,12 @@ class OpdsPagePrefetcher {
 
   // True while the background task is alive.
   bool running() const { return task.running(); }
+  // Running, or finished with a page that harvestInto() has not taken yet.
+  bool holdsPage() const { return running() || succeeded; }
+  // Writes the bytes received since *offset to sink and advances it, while
+  // the task is still appending. The page shows progressively this way:
+  // the foreground fetch parses rows as they arrive. Main loop only.
+  void drain(size_t& offset, Print& sink);
   // URL of the running or last finished job; stable while running.
   const std::string& url() const { return job.url; }
 
@@ -68,7 +77,8 @@ class OpdsPagePrefetcher {
   void run();
 
   Request job;
-  OpdsPageBuffer page;
+  OpdsPageBuffer page;  // guarded by pageMutex while the task runs
+  std::mutex pageMutex;
   bool succeeded = false;      // written by the task before running() clears
   bool networkFailed = false;  // likewise
   std::atomic<bool> cancelRequested{false};

@@ -168,6 +168,13 @@ bool OpdsPreloadPool::startNext(Worker& worker) {
   return true;
 }
 
+OpdsPagePrefetcher* OpdsPreloadPool::fetching(const std::string& url) {
+  for (auto& worker : workers) {
+    if (worker.prefetcher.holdsPage() && worker.prefetcher.url() == url) return &worker.prefetcher;
+  }
+  return nullptr;
+}
+
 void OpdsPreloadPool::collect() {
   for (auto& worker : workers) {
     if (!worker.prefetcher.running()) harvest(worker);

@@ -278,6 +278,7 @@ void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::WIFI_SELECTION || state == BrowserState::SEARCH_INPUT) {
     return;
   }
+  if (streaming()) pumpStream();
 
   if (state == BrowserState::ERROR) {
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
@@ -333,8 +334,8 @@ void OpdsBookBrowserActivity::loop() {
 
   if (state == BrowserState::BROWSING) {
     // Queued feed downloads start only from the browsing list; a network
-    // fetch or a book download pauses them.
-    if (preload) {
+    // fetch (the streamed page included) or a book download pauses them.
+    if (preload && !streaming()) {
       preload->pump();
       // A preload stored or evicted a page: recheck the row marks and redraw
       // them in batches (as the server list): a redraw per landed page cost
@@ -413,6 +414,7 @@ void OpdsBookBrowserActivity::loop() {
 }
 
 bool OpdsBookBrowserActivity::preventAutoSleep() {
+  if (streaming()) return true;  // keeps the fast loop tick that feeds the parser
   switch (state) {
     case BrowserState::CHECK_WIFI:
     case BrowserState::WIFI_SELECTION:
@@ -671,8 +673,15 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
       return;
     }
     // The tapped page goes first: other downloads stop sharing Wi-Fi with it
-    // while the Loading frame draws, not after.
-    if (preload) preload->cancelOthers(url);
+    // while the Loading frame draws, not after. Its own download starts now
+    // (on a free worker) so the handshake overlaps the frame's refresh;
+    // fetchFeed() then streams it, or fetches in the foreground if no worker
+    // took it.
+    if (preload) {
+      preload->cancelOthers(url);
+      preload->enqueue(url, true);
+      preload->pump();
+    }
   }
   state = BrowserState::LOADING;
   statusMessage = tr(STR_LOADING);
@@ -680,10 +689,11 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
     LOG_ERR("OPDS", "Loading screen could not be rendered before feed fetch");
     requestUpdate(true);
   }
+  if (preload) preload->pump();  // a worker cancelled above may have freed up meanwhile
 }
 
 void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop,
-                                        const bool recheck) {
+                                        const bool recheck, const bool stream) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_MEMORY_ERROR);
@@ -725,6 +735,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
 
   clearEntries();
   const std::string url = UrlUtils::buildUrl(server.url, path);
+  if (stream && startStream(url, path, restoreRow, restoreTop, recheck)) return;
   OpdsParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
   fetchCancelled = false;
   OpdsFeedError feedError = OpdsFeedError::Other;
@@ -768,10 +779,20 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
     return;
   }
 
+  finishFeed(parser, url, restoreRow, restoreTop, recheck);
+}
+
+void OpdsBookBrowserActivity::finishFeed(OpdsParser& parser, const std::string& url, const int restoreRow,
+                                         const int restoreTop, const bool recheck) {
   searchTemplate = parser.getSearchTemplate();
   searchDescriptionUrl = parser.getSearchDescriptionUrl();
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
+  // A streamed page already shows its rows: the render task reads them, and
+  // only what changes on screen (a Prev row, rows in view, marks) redraws.
+  const bool shown = state == BrowserState::BROWSING && entryCount > 0;
+  const size_t shownCount = shown ? entryCount : 0;
+  RenderLock lock(*this);
   entryCount = parser.getEntryCount();
   feedTotal = parser.getTotalResults();
   for (size_t i = 0; i < entryCount; ++i) {
@@ -801,20 +822,28 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
     if (!hasNextPageRow) LOG_DBG("OPDS", "No room for next-page entry");
   }
 
-  // The feed may have changed since the row was saved: clamp the row here and
-  // leave topIndex to render()'s clamp.
-  selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
-  topIndex = restoreTop;
-  if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
+  if (shown) {
+    // The selection stays on its row when the Prev row shifts the list.
+    if (hasPrevPageRow) selectorIndex = std::min(selectorIndex + 1, static_cast<int>(entryCount) - 1);
+  } else {
+    // The feed may have changed since the row was saved: clamp the row here and
+    // leave topIndex to render()'s clamp.
+    selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
+    topIndex = restoreTop;
+    if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
+  }
+  lock.unlock();
+  const auto onSdBefore = onSd;
   markBooksOnSd();
-  markCachedFeeds();
+  const bool marksChanged = markCachedFeeds() || onSd != onSdBefore;
   marksPendingMs = 0;  // the redraw below shows them
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // Kept cached (the server list marks it fetched); Retry refetches it.
     errorMessage = tr(STR_NO_ENTRIES);
   }
-  requestUpdate();
+  const bool rowsInView = entryCount > shownCount && shownCount < static_cast<size_t>(topIndex + visibleRows);
+  if (!shown || hasPrevPageRow || rowsInView || marksChanged) requestUpdate();
 
   if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
   if (currentPath.empty()) preloadFeedsOnPage();
@@ -939,6 +968,108 @@ void OpdsBookBrowserActivity::stopPrefetch() {
   preload->closeConnections();
 }
 
+bool OpdsBookBrowserActivity::startStream(const std::string& url, const std::string& path, const int restoreRow,
+                                          const int restoreTop, const bool recheck) {
+  if (!preload || !pageCache || pageCache->contains(url)) return false;
+  // showLoadingBeforeFetch() queued the page; a pump here covers the callers
+  // that did not (the first page after a Wi-Fi join) and a worker freed since.
+  preload->enqueue(url, true);
+  preload->pump();
+  if (!preload->fetching(url)) return false;  // no free worker: fetch in the foreground
+  stream.parser = makeUniqueNoThrow<OpdsParser>(entries.get(), MAX_OPDS_FEED_ENTRIES);
+  if (!stream.parser || stream.parser->error()) {
+    LOG_ERR("OPDS", "No parser for the streamed feed");
+    stream.parser.reset();
+    return false;
+  }
+  stream.url = url;
+  stream.path = path;
+  stream.drained = 0;
+  stream.restoreRow = restoreRow;
+  stream.restoreTop = restoreTop;
+  stream.recheck = recheck;
+  shownFromCache = false;
+  LOG_INF("OPDS", "Streaming: %s", UrlUtils::maskUserInfo(url).c_str());
+  return true;
+}
+
+void OpdsBookBrowserActivity::pumpStream() {
+  OpdsPagePrefetcher* job = preload->fetching(stream.url);
+  if (!job) {
+    // The worker dropped the page (network failure, oversized) or pump()
+    // cached it first: the foreground fetch retries once (a cache hit, or
+    // the error named as before).
+    LOG_INF("OPDS", "Streamed page gone, fetching in the foreground");
+    const StreamFetch retry = std::move(stream);
+    abortStream();
+    fetchFeed(retry.path, retry.restoreRow, retry.restoreTop, retry.recheck, false);
+    return;
+  }
+  const bool done = !job->running();
+  job->drain(stream.drained, *stream.parser);
+  OpdsParser& parser = *stream.parser;
+  if (done) parser.flush();
+  if (!parser) {
+    // Never keep bytes that do not parse: abortStream() cancels the worker,
+    // which then drops them.
+    const bool memory = parser.getErrorReason() == OpdsParserError::BUFFER_MEMORY;
+    const std::string url = stream.url;
+    abortStream();
+    preload->collect();     // a finished page would be cached by the next pump()
+    pageCache->erase(url);  // so a retry goes back to the server
+    clearEntries();
+    state = BrowserState::ERROR;
+    errorMessage = memory ? tr(STR_OPDS_FEED_BUFFER_MEMORY_ERROR) : tr(STR_PARSE_FEED_FAILED);
+    requestUpdate();
+    return;
+  }
+  publishStreamedRows(done);
+  if (!done) return;
+  preload->collect();  // the whole page lands in the cache
+  const std::unique_ptr<OpdsParser> finished = std::move(stream.parser);
+  const StreamFetch ended = std::move(stream);
+  abortStream();
+  finishFeed(*finished, ended.url, ended.restoreRow, ended.restoreTop, ended.recheck);
+}
+
+void OpdsBookBrowserActivity::publishStreamedRows(const bool done) {
+  const size_t parsed = stream.parser->getEntryCount();
+  if (parsed <= entryCount) return;
+  const size_t first = entryCount;
+  {
+    RenderLock lock(*this);
+    for (size_t i = first; i < parsed; ++i) {
+      if (entries[i].type == OpdsEntryType::NAVIGATION) replaceFolderEmoji(entries[i].title);
+    }
+    entryCount = parsed;
+  }
+  if (state == BrowserState::LOADING) {
+    // The Loading frame stays until a screenful is in: fewer refreshes.
+    // shortcut: before the first list render visibleRows is still 1, so a
+    // typical row count stands in; measure it from the theme if that shows
+    // too few rows first.
+    const int screenful = visibleRows > 1 ? visibleRows : 10;
+    if (!done && parsed < static_cast<size_t>(screenful)) return;
+    selectorIndex = std::min(std::max(stream.restoreRow, 0), static_cast<int>(entryCount) - 1);
+    topIndex = stream.restoreTop;
+    state = BrowserState::BROWSING;
+    LOG_INF("OPDS", "Showing %zu rows while the feed streams", entryCount);
+  } else if (first >= static_cast<size_t>(topIndex + visibleRows)) {
+    return;  // the new rows are below the viewport: no redraw
+  }
+  markBooksOnSd();
+  markCachedFeeds();
+  requestUpdate();
+}
+
+void OpdsBookBrowserActivity::abortStream() {
+  if (!streaming()) return;
+  if (preload) {  // already gone on exit, with its workers joined
+    if (OpdsPagePrefetcher* job = preload->fetching(stream.url); job && job->running()) job->cancel();
+  }
+  stream.parser.reset();
+}
+
 // Feed rows (Prev/Next included) resolved to cache keys as navigateToEntry()
 // and the preloads do. Main loop only: the cache has no lock.
 bool OpdsBookBrowserActivity::markCachedFeeds() {
@@ -1006,6 +1137,7 @@ bool OpdsBookBrowserActivity::ensureEntryBuffer() {
 }
 
 void OpdsBookBrowserActivity::clearEntries() {
+  abortStream();
   // The app's interaction table still references the old row indices until
   // the next render, so stop routing touches while clearing the backing data.
   uiReady = false;
