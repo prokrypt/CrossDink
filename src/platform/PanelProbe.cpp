@@ -25,7 +25,6 @@ struct Record {
   uint8_t defaultController;  // the profile's controller before the probe
   uint8_t controller;
   uint8_t variant;
-  uint8_t reserved[3];
   uint64_t mac;  // eFuse MAC: a flash image copied from another unit carries that unit's record
   Diag diag;
 };
