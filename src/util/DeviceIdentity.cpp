@@ -25,7 +25,7 @@ namespace {
 using BoardConfig::DisplayController;
 
 const char* detectMethod(const freeink::XteinkDisplayProbeDiag& d) {
-  if (PanelProbe::cached()) return "deep-sleep cache of last probe";
+  if (PanelProbe::cached()) return "saved probe (NVS)";
   if (d.valid && d.verBytesRead >= 5) return "bus probe (VER/FLG)";
   if (d.valid && d.verBytesRead > 0) return "X3 VER probe";
   if (d.promoted) return "NVS screenType";

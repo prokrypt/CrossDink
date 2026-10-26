@@ -4,10 +4,8 @@
 #include <Arduino.h>
 #include <BoardConfig.h>
 #include <Logging.h>
-#include <esp_system.h>
-#include <uzlib.h>
+#include <nvs.h>
 
-#include <cstddef>
 #include <cstring>
 #include <type_traits>
 
@@ -17,38 +15,57 @@ namespace {
 using Diag = freeink::XteinkDisplayProbeDiag;
 static_assert(std::is_trivially_copyable<Diag>::value, "the record stores the diag as raw bytes");
 
-constexpr uint32_t RECORD_MAGIC = 0x50505231;  // "PPR1"
+constexpr char NVS_NAMESPACE[] = "panel";
+constexpr char NVS_KEY[] = "probe";
+constexpr uint8_t RECORD_VERSION = 1;
 
-// Diag is kept as raw bytes: its member initializers would make static init
-// zero an RTC_NOINIT Diag on every boot.
 struct Record {
-  uint32_t magic;
+  uint8_t version;
   uint8_t board;
   uint8_t defaultController;  // the profile's controller before the probe
   uint8_t controller;
   uint8_t variant;
-  uint8_t diag[sizeof(Diag)];
-  uint32_t crc;
+  uint8_t reserved[3];
+  uint64_t mac;  // eFuse MAC: a flash image copied from another unit carries that unit's record
+  Diag diag;
 };
 
-// RTC_NOINIT holds garbage after power-on, so every read checks magic and CRC.
-RTC_NOINIT_ATTR Record rtcRecord;
 Diag restoredDiag;
 bool restored = false;
 
-uint32_t checksum(const Record& record) { return uzlib_crc32(&record, offsetof(Record, crc), 0); }
+bool load(Record& record) {
+  nvs_handle_t handle;
+  if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return false;
+  size_t size = sizeof(record);
+  const esp_err_t err = nvs_get_blob(handle, NVS_KEY, &record, &size);
+  nvs_close(handle);
+  return err == ESP_OK && size == sizeof(record);
+}
+
+void store(const Record* record) {
+  nvs_handle_t handle;
+  if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+    LOG_ERR("PANEL", "probe record: nvs_open failed");
+    return;
+  }
+  const esp_err_t err =
+      record ? nvs_set_blob(handle, NVS_KEY, record, sizeof(*record)) : nvs_erase_key(handle, NVS_KEY);
+  if (err == ESP_OK) nvs_commit(handle);
+  nvs_close(handle);
+}
 
 }  // namespace
 
 void resolve() {
   const uint8_t board = static_cast<uint8_t>(BoardConfig::ACTIVE.board);
   const uint8_t defaultController = static_cast<uint8_t>(BoardConfig::ACTIVE.displayController);
-  if (esp_reset_reason() == ESP_RST_DEEPSLEEP && rtcRecord.magic == RECORD_MAGIC &&
-      rtcRecord.crc == checksum(rtcRecord) && rtcRecord.board == board &&
-      rtcRecord.defaultController == defaultController) {
-    BoardConfig::ACTIVE.displayController = static_cast<BoardConfig::DisplayController>(rtcRecord.controller);
-    BoardConfig::ACTIVE.displayControllerVariant = rtcRecord.variant;
-    memcpy(&restoredDiag, rtcRecord.diag, sizeof(Diag));
+  const uint64_t mac = ESP.getEfuseMac();
+  Record record;
+  if (load(record) && record.version == RECORD_VERSION && record.board == board &&
+      record.defaultController == defaultController && record.mac == mac) {
+    BoardConfig::ACTIVE.displayController = static_cast<BoardConfig::DisplayController>(record.controller);
+    BoardConfig::ACTIVE.displayControllerVariant = record.variant;
+    restoredDiag = record.diag;
     restored = true;
     return;
   }
@@ -56,20 +73,22 @@ void resolve() {
   freeink::applyXteinkDisplayController();
   const Diag& d = freeink::getXteinkDisplayProbeDiag();
   // Record only a decisive answer: an inconclusive probe ran the default
-  // controller and must probe again next wake.
+  // controller and must probe again next boot.
   const bool decisive =
       d.valid && (d.promoted || d.verdict == static_cast<uint8_t>(freeink::DisplayControllerVerdict::PrimaryAssumed));
   if (!decisive) {
-    rtcRecord.magic = 0;
+    store(nullptr);
     return;
   }
-  rtcRecord.magic = RECORD_MAGIC;
-  rtcRecord.board = board;
-  rtcRecord.defaultController = defaultController;
-  rtcRecord.controller = static_cast<uint8_t>(BoardConfig::ACTIVE.displayController);
-  rtcRecord.variant = BoardConfig::ACTIVE.displayControllerVariant;
-  memcpy(rtcRecord.diag, &d, sizeof(Diag));
-  rtcRecord.crc = checksum(rtcRecord);
+  record = {};
+  record.version = RECORD_VERSION;
+  record.board = board;
+  record.defaultController = defaultController;
+  record.controller = static_cast<uint8_t>(BoardConfig::ACTIVE.displayController);
+  record.variant = BoardConfig::ACTIVE.displayControllerVariant;
+  record.mac = mac;
+  record.diag = d;
+  store(&record);
 }
 
 const freeink::XteinkDisplayProbeDiag& diag() { return restored ? restoredDiag : freeink::getXteinkDisplayProbeDiag(); }
