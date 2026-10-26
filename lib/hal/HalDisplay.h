@@ -31,6 +31,10 @@ class HalDisplay {
   // counter; otherwise the first two paints get promoted to FULL
   // (~770ms each on X3).
   void begin(bool seamless = false);
+  // begin() in two steps: the panel reset and controller init (safe on another
+  // core, before `seamless` is known), then the first-paint choice above.
+  void beginHardware();
+  void finishBegin(bool seamless);
   // After a silent restart: the panel still shows `frame`, so the driver can
   // use it as the previous frame and make the first paint Fast. Call after
   // begin(). False when the panel driver cannot use it.

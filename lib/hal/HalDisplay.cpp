@@ -181,6 +181,11 @@ HalDisplay::HalDisplay() : einkDisplay(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_R
 HalDisplay::~HalDisplay() {}
 
 void HalDisplay::begin(bool seamless) {
+  beginHardware();
+  finishBegin(seamless);
+}
+
+void HalDisplay::beginHardware() {
   HalSpiBus::Lock spiLock;
 
   // Set X3-specific panel mode before initializing.
@@ -198,7 +203,9 @@ void HalDisplay::begin(bool seamless) {
   // whose edge a light sleep would miss.
   setRefreshLightSleep(BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8179);
 #endif
+}
 
+void HalDisplay::finishBegin(bool seamless) {
   if (seamless) {
     // Defuse the SDK's X3 _x3InitialFullSyncsRemaining counter (no-op on X4)
     // so the first paint isn't promoted to FULL (~770ms). Skips the wakeup-
