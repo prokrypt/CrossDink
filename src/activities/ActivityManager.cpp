@@ -604,7 +604,11 @@ void ActivityManager::renderTaskLoop() {
       // The frame on screen again as a plain Fast refresh: no flash, and OLD =
       // NEW, so only the panel's own Fast hold rows run. Only while the
       // framebuffer is that frame: same screen, no gray since, not lent out.
-      if (currentActivity && currentActivity.get() == listSelectionOwner && ghostBustersFit(*currentActivity) &&
+      // The open book's first page also stops at any input after it.
+      if (currentActivity && currentActivity.get() == listSelectionOwner &&
+          (currentActivity->isBookReaderActivity()
+               ? static_cast<int32_t>(lastInputMs.load(std::memory_order_relaxed) - lastFrameMs) <= 0
+               : ghostBustersFit(*currentActivity)) &&
           renderer.hasFrameBuffer() && !display.grayShown()) {
         HalPowerManager::Lock powerLock;
         panelBoosterOff.store(false, std::memory_order_release);  // the refresh powers it on
@@ -651,7 +655,16 @@ void ActivityManager::renderTaskLoop() {
       ListSelection::revealed = currentActivity->listSelectionRevealed;
       ListSelection::hidThisFrame = false;
       ListSelection::listThisFrame = false;
+      const uint32_t inputBeforeRender = lastInputMs.load(std::memory_order_relaxed);
       currentActivity->render(std::move(lock));
+      // The open book has them only for its first page after opening, with no
+      // input since that draw began (a gray page skips them above); any later
+      // frame of it stops them.
+      if (currentActivity->isBookReaderActivity()) {
+        const bool noInput = lastInputMs.load(std::memory_order_relaxed) == inputBeforeRender;
+        ghostBusters = currentActivity->ghostBustersRequested && noInput ? SETTINGS.ghostBusters : 0;
+        currentActivity->ghostBustersRequested = false;
+      }
       ListSelection::hidOnScreen = ListSelection::hidThisFrame;
       ListSelection::listOnScreen = ListSelection::listThisFrame;
       PerfLog::noteRenderEnd();
