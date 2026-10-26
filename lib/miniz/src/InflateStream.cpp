@@ -51,7 +51,7 @@ bool InflateStream::init(const bool streaming) {
     stateOwner = makeDefaultByteBufferNoThrow(sizeof(tinfl_decompressor));
     state = reinterpret_cast<tinfl_decompressor*>(stateOwner.get());
     if (!state) {
-      LOG_ERR("INF", "OOM allocating inflate state (%u bytes)", unsigned(sizeof(tinfl_decompressor)));
+      LOG_ERR("INFL", "OOM allocating inflate state (%u bytes)", unsigned(sizeof(tinfl_decompressor)));
       return false;
     }
     if (streaming) {
@@ -67,11 +67,11 @@ bool InflateStream::init(const bool streaming) {
       }
       window = windowOwner.get();
       if (!window) {
-        LOG_ERR("INF", "No admitted storage for inflate window (%u bytes)", unsigned(WINDOW_SIZE));
+        LOG_ERR("INFL", "No admitted storage for inflate window (%u bytes)", unsigned(WINDOW_SIZE));
         deinit();
         return false;
       }
-      LOG_DBG("INF", "Window: bytes=%u pool=%s psramReserve=%u", unsigned(WINDOW_SIZE), memoryPoolName(windowPool()),
+      LOG_DBG("INFL", "Window: bytes=%u pool=%s psramReserve=%u", unsigned(WINDOW_SIZE), memoryPoolName(windowPool()),
               unsigned(MemoryBudget::EPUB_PSRAM_RESERVE));
     }
   }
