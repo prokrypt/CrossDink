@@ -507,8 +507,8 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
 void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   screenHeader(screen, true);
 
-  const size_t rows = knownRows();
-  if (rows == 0) {
+  const size_t count = knownRows();
+  if (count == 0) {
     screen.centeredText(tr(STR_NO_ENTRIES), screen.theme().bodyText);
     return;
   }
@@ -518,7 +518,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   fui::ListProps props;
   props.rowProvider = &OpdsBookBrowserActivity::provideRow;
   props.rowProviderCtx = this;
-  props.count = static_cast<uint16_t>(rows);
+  props.count = static_cast<uint16_t>(count);
   props.selectedIndex = static_cast<int16_t>(selectorIndex);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
@@ -526,7 +526,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.iconsInMargin = true;         // the check sits left of the title: nothing else moves
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
-  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(rows));  // clamp to range
+  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(count));  // clamp to range
   props.topIndex = static_cast<uint16_t>(topIndex);
   screen.list(props);
 }
