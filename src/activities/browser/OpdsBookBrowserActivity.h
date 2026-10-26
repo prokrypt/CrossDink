@@ -28,7 +28,9 @@
 class OpdsBookBrowserActivity final : public Activity {
  public:
   enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
-  // Rows one feed can show across its pages (the array lands in PSRAM).
+  // Rows held in memory at a time (the array lands in PSRAM): a window over
+  // the feed's pages that follows the view; pages outside it re-parse from
+  // the page cache when scrolled back to.
   static constexpr size_t ENTRY_CAPACITY = 2000;
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server,
@@ -54,7 +56,7 @@ class OpdsBookBrowserActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   BrowserState state = BrowserState::LOADING;
   ScreenTransitionRefresh screenTransitionRefresh;
-  std::unique_ptr<OpdsEntry[]> entries;
+  std::unique_ptr<OpdsEntry[]> entries;  // the window: rows [windowBase, windowBase + entryCount)
 #if defined(FREEINK_NET_WOLFSSL)
   // Kept-alive HTTPS connection for foreground feed fetches. Background
   // preloads use the pool's own connections.
@@ -91,9 +93,19 @@ class OpdsBookBrowserActivity final : public Activity {
   size_t entryCount = 0;
   // Catalog size from the feed's opensearch:totalResults; -1 when not given.
   int32_t feedTotal = -1;
-  // One continuous list per feed: the page behind the last loaded one (its
-  // rel="next" link, absolute) is appended once the view nears the end of the
-  // list; empty when there is none or the list is full.
+  // One continuous list per feed. Every page seen so far, in feed order
+  // (strings in PSRAM: a long browse sees hundreds); list indices (selection,
+  // scroll, taps) are absolute rows over these.
+  struct PageInfo {
+    PsramString path;
+    uint32_t firstRow = 0;
+    uint16_t rows = 0;
+  };
+  std::vector<PageInfo> pages;
+  size_t windowBase = 0;  // absolute row of entries[0]
+  // The page behind the last known one (its rel="next" link, absolute),
+  // appended once the view nears the end of the list; empty when there is
+  // none or the list is full.
   std::string nextPagePath;
   uint32_t appendRetryMs = 0;  // millis() | 1 after a failed append (0: none)
   // Feeds Back returns to, with the row and scroll position to restore there.
@@ -238,8 +250,27 @@ class OpdsBookBrowserActivity final : public Activity {
   void offerRetry(const std::string& path);
   // The server's file name is already on SD: Confirm replaces that file.
   void offerOverwrite(const std::string& path);
-  void markBooksOnSd(size_t from = 0);  // rows from `from` on; earlier marks stay
-  bool markCachedFeeds();               // true when a row's mark changed
+  // Window rows [from, to) (window-relative); the other marks stay.
+  void markBooksOnSd(size_t from = 0, size_t to = SIZE_MAX);
+  // Rows known so far (the list length); at most what the list can index.
+  size_t knownRows() const;
+  // The entry at an absolute row, or null when it is outside the window.
+  const OpdsEntry* rowEntry(int row) const;
+  const PageInfo* pageStartingAt(uint32_t row) const;
+  const PageInfo* pageEndingAt(uint32_t row) const;
+  // Drop whole pages at the window's front (back) so `rows` more fit, never
+  // a page the view is on. Returns the room left.
+  size_t makeRoom(size_t rows, bool atFront);
+  // Shifts the window rows and their marks by `delta` (positive: towards
+  // higher indices), adjusting entryCount and windowBase. Render lock held.
+  void shiftWindow(int delta, size_t fromRow);
+  // Re-parses a known page (from the cache, else the network, blocking) into
+  // the window: at its end, or at its front when `front`.
+  void reloadPage(const PageInfo& page, bool front);
+  // Each tick while browsing: keeps the window covering the view plus a few
+  // screens ahead and behind, loading or dropping one page per call.
+  void keepWindowAroundView();
+  bool markCachedFeeds();  // true when a row's mark changed
   bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
   void launchSearch();
   void performSearch(const std::string& query);
