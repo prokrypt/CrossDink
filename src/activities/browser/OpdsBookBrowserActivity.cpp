@@ -824,7 +824,7 @@ void OpdsBookBrowserActivity::loadPage(const std::string& url, const std::string
   finishFeed(parser, url, pagePath, base, restoreRow, restoreTop, recheck);
 }
 
-void OpdsBookBrowserActivity::finishFeed(OpdsParser& parser, const std::string& url, const std::string& pagePath,
+void OpdsBookBrowserActivity::finishFeed(const OpdsParser& parser, const std::string& url, const std::string& pagePath,
                                          const size_t base, const int restoreRow, const int restoreTop,
                                          const bool recheck) {
   if (base == 0) {
@@ -915,7 +915,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   OpdsPageBuffer page(MemoryPool::Psram, OPDS_PAGE_MAX_BYTES);
   const bool cachePage = pageCache != nullptr;
   {
-    OpdsParserStream stream{parser};
+    OpdsParserStream parserStream{parser};
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
@@ -924,10 +924,10 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     HttpRequestDiagnostics diagnostics;
     const auto result = HttpDownloader::streamUrl(
         url,
-        [&stream, &page, &parser, cachePage](const uint8_t* data, const size_t len) {
+        [&parserStream, &page, &parser, cachePage](const uint8_t* data, const size_t len) {
           if (cachePage) page.append(data, len);  // overflow only skips caching
           // Stop at the entry limit: the rest of a huge feed is never shown.
-          return stream.write(data, len) == len && !parser.wasTruncated();
+          return parserStream.write(data, len) == len && !parser.wasTruncated();
         },
         nullptr, server.username, server.password, std::move(downloadOptions), &diagnostics);
     if (parser.wasTruncated() && !fetchCancelled) {

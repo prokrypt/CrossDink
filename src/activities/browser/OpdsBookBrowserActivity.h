@@ -187,8 +187,8 @@ class OpdsBookBrowserActivity final : public Activity {
   // Appends the page behind the list (nextPagePath), if any.
   void appendNextPage(bool stream);
   // The parsed page joins the listing: rows, marks, selection, next page.
-  void finishFeed(OpdsParser& parser, const std::string& url, const std::string& pagePath, size_t base, int restoreRow,
-                  int restoreTop, bool recheck);
+  void finishFeed(const OpdsParser& parser, const std::string& url, const std::string& pagePath, size_t base,
+                  int restoreRow, int restoreTop, bool recheck);
   bool streaming() const { return stream.parser != nullptr; }
   // True when url is downloading on a pool worker and the parser is set up.
   bool startStream(const std::string& url, const std::string& path, size_t base, int restoreRow, int restoreTop,
