@@ -74,6 +74,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - OPDS: the "downloaded" check mark now also comes from the Library index, so a book whose file name matches in any folder on the card is marked, not only one in the server's download folder. Books added since the Library last scanned the card are still found by the download-folder check.
 - Waking into a book is slightly faster: the dictionary-path check (and, in battery-diagnostic builds, the wake-log row) now runs after the first page is drawn instead of before it.
 - Waking into a book or Home is about 0.13 s faster: the screen's power-up runs while the book opens instead of before the first page is drawn.
+- Waking from sleep into a book with an SD reading font is about 0.13 s faster: the font list check from before sleep is reused instead of re-reading every file in /.fonts. Fonts added or removed on a computer while the device sleeps show after the next restart.
 - Ghost Busters (Settings > Display) opens a stepper screen for 0-10 (0 is Off): Left/Right or the on-screen -1/+1 step by 1, Up/Down or -3/+3 by 3.
 - X4 Pro and X4 Classic wake from sleep about 80 ms sooner: the SD card mount no longer repeats the 80 ms power-off its card already had all through the sleep.
 - A large UI Font (for example a multi-megabyte CJK family) no longer holds up the screen and buttons for seconds when it loads after boot or after File Transfer/USB Drive: only its first megabyte is read to identify it instead of the whole file.
