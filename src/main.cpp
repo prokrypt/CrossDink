@@ -1756,6 +1756,23 @@ static const char* bootStep = "init";
 static esp_timer_handle_t bootGuard = nullptr;
 #endif
 
+// Boot work the first page does not need, run once the first frame is rendered
+// (its panel waveform then covers the SD writes) or after BOOT_TAIL_MAX_MS.
+static const char* bootTailRoute = nullptr;  // non-null: the wake row is still owed
+static bool bootTailDictionary = false;
+constexpr uint32_t BOOT_TAIL_MAX_MS = 5000;
+
+// sleeping: a sleep before the first loop pass (the Up+Down clock) or the first
+// frame still owes the wake row ahead of its sleep row; the next boot checks the dictionary.
+static void runBootTail(const bool sleeping = false) {
+  if (bootTailRoute == nullptr) return;
+  if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
+  BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
+  bootTailRoute = nullptr;
+  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
+  bootTailDictionary = false;
+}
+
 static void bootPhase(const char* name) {
   bootStep = name;
   PerfLog::noteBootPhase(name);
@@ -2017,6 +2034,7 @@ void enterDeepSleep(bool fromTimeout) {
 #endif
     // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
     // can be written again until the next wake.
+    runBootTail(true);
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
     BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
     SleepLog::onSleep();
@@ -2414,9 +2432,9 @@ void setup() {
   Storage.installDateTimeCallback(LocalClock::offsetQAtUtc);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
-  // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
-  BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,
-                               wakeupRouteName(wakeupReason));
+  // The wake row (needs SETTINGS for the clock's UTC offset) and the dictionary
+  // check feed nothing the first page draws; runBootTail() does them after it.
+  bootTailRoute = wakeupRouteName(wakeupReason);
   BatteryLog::onBoot();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -2424,7 +2442,7 @@ void setup() {
   // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT). Accessors load these
   // stores when Home, reader bookkeeping, or sync actually need them.
   if (!isNetworkResume) {
-    Dictionary::isValidDictionary();
+    bootTailDictionary = true;
   } else if (snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::KOREADER_SYNC) ||
              snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::KOREADER_AUTH) ||
              snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) {
@@ -3172,6 +3190,7 @@ static void loopPass() {
   static unsigned long lastSlowLoopLog = 0;
   const unsigned long loopStartTime = millis();
   PerfLog::noteLoopPass();
+  runBootTail();
   static unsigned long lastSysLog = 0;
 
   // Keep release suppression in the mapped-input layer in sync with every
