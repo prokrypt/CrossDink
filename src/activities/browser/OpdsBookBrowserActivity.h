@@ -121,8 +121,8 @@ class OpdsBookBrowserActivity final : public Activity {
   std::string searchDescriptionUrl;        // OpenSearch description; fetched on first search
   std::bitset<ENTRY_CAPACITY> onSd;        // book rows already in the download folder
   std::bitset<ENTRY_CAPACITY> pageCached;  // feed rows whose page is in pageCache
-  // Sorted keys of every book in the Library index (folded title + author key,
-  // and folded basename), so rows match books in any folder. Empty without an index.
+  // Sorted folded-basename keys of every book in the Library index, so rows
+  // match a file of the same name in any folder. Empty without an index.
   std::vector<uint64_t, PsramPreferAllocator<uint64_t>> libraryKeys;
   std::array<char, 16> countLabel{};  // scratch for the row provider's count label
   uint32_t pageCachedAt = 0;          // pageCache->changes() when pageCached was set
