@@ -63,7 +63,7 @@ void logLastSleep();
 // Trail entries (RTC slow memory, CRC-guarded; name is copied).
 void noteActivity(const char* name);
 void noteError(const char* line);
-// "[ERS] open: <stage>=<ms> ... other= total=" once per book open, from
+// "[ERS] open: <stage>=<ms> ... other= total= sd=<opens>" once per book open, from
 // bookOpenBegin() (the reader starts loading) to bookOpenEnd() (first page on
 // the panel, or the open failed). Stages add up under a string-literal name
 // and are dropped outside an open.

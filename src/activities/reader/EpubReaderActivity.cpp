@@ -2449,6 +2449,8 @@ void EpubReaderActivity::onEnter() {
   // Activate reader-specific front button mapping (if configured).
   mappedInput.setReaderMode(true);
 
+  // Per-book stores, progress and stats, up to the first update request.
+  const uint32_t storesStartMs = millis();
   BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   showOpeningFeedback();
@@ -2581,6 +2583,7 @@ void EpubReaderActivity::onEnter() {
       currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
   kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
                          openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt);
+  PerfLog::bookOpenStage("stores", millis() - storesStartMs);
 
   showOpeningFeedback();
   // Trigger first update
