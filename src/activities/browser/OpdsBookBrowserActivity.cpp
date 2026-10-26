@@ -8,6 +8,8 @@
 #include <I18n.h>
 #include <Knobs.h>
 #include <LibraryBuilder.h>
+#include <LibraryIndexFile.h>
+#include <LibraryText.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <OpdsStream.h>
@@ -50,7 +52,12 @@
 namespace fui = freeink::ui;
 
 namespace {
-constexpr size_t OPDS_BROWSER_ENTRY_CAPACITY = MAX_OPDS_FEED_ENTRIES + 2;
+// Plain allocations this large land in PSRAM (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL).
+constexpr size_t OPDS_BROWSER_ENTRY_CAPACITY = OpdsBookBrowserActivity::ENTRY_CAPACITY;
+// The next page is appended once the view is within this many screens of
+// the end of the list.
+constexpr int APPEND_AHEAD_SCREENS = 2;
+constexpr uint32_t APPEND_RETRY_MS = 10000;
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SEARCH = 2;
 constexpr fui::ActionId ACTION_CANCEL = 3;
@@ -94,6 +101,13 @@ std::string bookDownloadPath(const OpdsEntry& book, const OpdsFilenameFormat for
   path += StringUtils::sanitizeFilename(buildBookFilenameBase(book, format));
   path += ".epub";
   return path;
+}
+
+// Library index match key: the folded basename, so case and punctuation
+// differences do not matter, as in the folder scan's strcasecmp.
+uint64_t libraryNameKey(const std::string& name) {
+  const std::string folded = library::fold(name);
+  return library::clixPathHash(folded.data(), folded.size());
 }
 
 // "12.3 MB", "456 KB" or "789 B", with integer math only.
@@ -183,6 +197,7 @@ void OpdsBookBrowserActivity::onEnter() {
     requestUpdate();
     return;
   }
+  loadLibraryKeys();
 
   if (psramHeapAvailable()) {
     // The server list may have prefetched this server's root page already.
@@ -228,6 +243,8 @@ void OpdsBookBrowserActivity::onExit() {
 #endif
   clearEntries();
   entries.reset();
+  libraryKeys.clear();
+  libraryKeys.shrink_to_fit();
   navigationHistory.clear();
 
 #ifndef SIMULATOR
@@ -238,21 +255,19 @@ void OpdsBookBrowserActivity::onExit() {
 }
 
 void OpdsBookBrowserActivity::activateSelected() {
-  if (!entries || entryCount == 0 || selectorIndex < 0 || selectorIndex >= static_cast<int>(entryCount)) return;
-  const auto& entry = entries[selectorIndex];
-  if (entry.type == OpdsEntryType::BOOK) {
-    requestDownload(entry);
+  const OpdsEntry* entry = rowEntry(selectorIndex);
+  if (!entry) return;  // outside the window: keepWindowAroundView() brings it in
+  if (entry->type == OpdsEntryType::BOOK) {
+    requestDownload(*entry);
     return;
   }
-  const bool pageLink =
-      (hasPrevPageRow && selectorIndex == 0) || (hasNextPageRow && selectorIndex == static_cast<int>(entryCount) - 1);
-  navigateToEntry(entry, pageLink);
+  navigateToEntry(*entry);
 }
 
 void OpdsBookBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<OpdsBookBrowserActivity*>(user);
   if (self->state != BrowserState::BROWSING) return;
-  if (event.value < 0 || event.value >= static_cast<int16_t>(self->entryCount)) return;
+  if (event.value < 0 || event.value >= static_cast<int>(self->knownRows())) return;
   self->selectorIndex = event.value;
   // The tapped row leaves the screen either way (new feed or download view);
   // a lingering tap flash would gray an unrelated row on the next list.
@@ -278,6 +293,7 @@ void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::WIFI_SELECTION || state == BrowserState::SEARCH_INPUT) {
     return;
   }
+  if (streaming()) pumpStream();
 
   if (state == BrowserState::ERROR) {
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
@@ -332,9 +348,10 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::BROWSING) {
+    if (!streaming()) keepWindowAroundView();
     // Queued feed downloads start only from the browsing list; a network
-    // fetch or a book download pauses them.
-    if (preload) {
+    // fetch (the streamed page included) or a book download pauses them.
+    if (preload && !streaming()) {
       preload->pump();
       // A preload stored or evicted a page: recheck the row marks and redraw
       // them in batches (as the server list): a redraw per landed page cost
@@ -379,13 +396,14 @@ void OpdsBookBrowserActivity::loop() {
       }
     }
 
-    if (entryCount > 0) {
+    const int rows = static_cast<int>(knownRows());
+    if (rows > 0) {
       // Swipes scroll the viewport; the selection stays put (it may scroll
       // off-screen) and button navigation pulls the view back to it.
       const auto swipe = mappedInput.wasSwipe();
       if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
         const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
-        const int next = scrollListBy(topIndex, delta, visibleRows, static_cast<int>(entryCount));
+        const int next = scrollListBy(topIndex, delta, visibleRows, rows);
         if (next != topIndex) {
           topIndex = next;
           requestUpdate();
@@ -393,26 +411,27 @@ void OpdsBookBrowserActivity::loop() {
         return;
       }
 
-      const auto moveSelection = [this](const int index) {
+      const auto moveSelection = [this, rows](const int index) {
         selectorIndex = index;
-        topIndex = followListSelection(selectorIndex, topIndex, visibleRows, static_cast<int>(entryCount));
+        topIndex = followListSelection(selectorIndex, topIndex, visibleRows, rows);
         requestUpdate();
       };
       buttonNavigator.onNextRelease(
-          [this, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectorIndex, entryCount)); });
+          [this, rows, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectorIndex, rows)); });
       buttonNavigator.onPreviousRelease(
-          [this, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectorIndex, entryCount)); });
-      buttonNavigator.onNextContinuous([this, &moveSelection] {
-        moveSelection(ButtonNavigator::nextPageIndex(selectorIndex, entryCount, visibleRows));
+          [this, rows, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectorIndex, rows)); });
+      buttonNavigator.onNextContinuous([this, rows, &moveSelection] {
+        moveSelection(ButtonNavigator::nextPageIndex(selectorIndex, rows, visibleRows));
       });
-      buttonNavigator.onPreviousContinuous([this, &moveSelection] {
-        moveSelection(ButtonNavigator::previousPageIndex(selectorIndex, entryCount, visibleRows));
+      buttonNavigator.onPreviousContinuous([this, rows, &moveSelection] {
+        moveSelection(ButtonNavigator::previousPageIndex(selectorIndex, rows, visibleRows));
       });
     }
   }
 }
 
 bool OpdsBookBrowserActivity::preventAutoSleep() {
+  if (streaming()) return true;  // keeps the fast loop tick that feeds the parser
   switch (state) {
     case BrowserState::CHECK_WIFI:
     case BrowserState::WIFI_SELECTION:
@@ -500,7 +519,8 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
 void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   screenHeader(screen, true);
 
-  if (entryCount == 0) {
+  const size_t count = knownRows();
+  if (count == 0) {
     screen.centeredText(tr(STR_NO_ENTRIES), screen.theme().bodyText);
     return;
   }
@@ -510,7 +530,7 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   fui::ListProps props;
   props.rowProvider = &OpdsBookBrowserActivity::provideRow;
   props.rowProviderCtx = this;
-  props.count = static_cast<uint16_t>(entryCount);
+  props.count = static_cast<uint16_t>(count);
   props.selectedIndex = static_cast<int16_t>(selectorIndex);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
@@ -518,20 +538,29 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.iconsInMargin = true;         // the check sits left of the title: nothing else moves
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
-  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entryCount));  // clamp to range
+  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(count));  // clamp to range
   props.topIndex = static_cast<uint16_t>(topIndex);
   screen.list(props);
 }
 
 void OpdsBookBrowserActivity::provideRow(void* user, const uint16_t index, fui::ListItem& item) {
   auto& self = *static_cast<OpdsBookBrowserActivity*>(user);
-  const auto& entry = self.entries[index];
+  const OpdsEntry* row = self.rowEntry(index);
+  if (!row) {
+    // Outside the window (a far scroll): keepWindowAroundView() loads the
+    // page and redraws; the row shows blank meanwhile.
+    item.label = "";
+    item.actionValue = static_cast<int16_t>(index);
+    return;
+  }
+  const OpdsEntry& entry = *row;
+  const size_t slot = index - self.windowBase;
   item.label = entry.title.c_str();
   if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
   // 20 px bold check in the row inset left of the title (Lyra: 20 inset + 8
   // padding); the list clamps it to that room, so titles never move.
   // One mark for "no network needed": a downloaded book or a cached feed page.
-  if ((entry.type == OpdsEntryType::BOOK && self.onSd[index]) || self.pageCached[index]) {
+  if ((entry.type == OpdsEntryType::BOOK && self.onSd[slot]) || self.pageCached[slot]) {
     item.icon = fui::bitmapFromIcon(icon_check_20);
   }
   if (entry.type == OpdsEntryType::NAVIGATION) {
@@ -623,8 +652,8 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   MappedInputManager::Labels labels;
   switch (state) {
     case BrowserState::BROWSING: {
-      const char* confirmLabel =
-          (entryCount > 0 && entries[selectorIndex].type == OpdsEntryType::BOOK) ? tr(STR_DOWNLOAD) : tr(STR_OPEN);
+      const OpdsEntry* selected = rowEntry(selectorIndex);
+      const char* confirmLabel = (selected && selected->type == OpdsEntryType::BOOK) ? tr(STR_DOWNLOAD) : tr(STR_OPEN);
       const char* searchLabel = (hasSearch() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
       labels =
           mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, searchLabel, tr(STR_DIR_DOWN));
@@ -671,8 +700,15 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
       return;
     }
     // The tapped page goes first: other downloads stop sharing Wi-Fi with it
-    // while the Loading frame draws, not after.
-    if (preload) preload->cancelOthers(url);
+    // while the Loading frame draws, not after. Its own download starts now
+    // (on a free worker) so the handshake overlaps the frame's refresh;
+    // fetchFeed() then streams it, or fetches in the foreground if no worker
+    // took it.
+    if (preload) {
+      preload->cancelOthers(url);
+      preload->enqueue(url, true);
+      preload->pump();
+    }
   }
   state = BrowserState::LOADING;
   statusMessage = tr(STR_LOADING);
@@ -680,10 +716,11 @@ void OpdsBookBrowserActivity::showLoadingBeforeFetch(const std::string& path) {
     LOG_ERR("OPDS", "Loading screen could not be rendered before feed fetch");
     requestUpdate(true);
   }
+  if (preload) preload->pump();  // a worker cancelled above may have freed up meanwhile
 }
 
 void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int restoreRow, const int restoreTop,
-                                        const bool recheck) {
+                                        const bool recheck, const bool stream) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_MEMORY_ERROR);
@@ -708,6 +745,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
     appendEntry(OpdsEntry{OpdsEntryType::BOOK, "Kindred", "Octavia E. Butler", "/books/kindred.epub", ""});
     appendEntry(OpdsEntry{OpdsEntryType::BOOK, "The Time Machine", "H. G. Wells", "/books/the-time-machine.epub", ""});
   }
+  pages.push_back(PageInfo{PsramString(path), 0, static_cast<uint16_t>(entryCount)});
 
   selectorIndex = 0;
   topIndex = 0;
@@ -725,10 +763,163 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
 
   clearEntries();
   const std::string url = UrlUtils::buildUrl(server.url, path);
-  OpdsParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
+  loadPage(url, path, 0, restoreRow, restoreTop, recheck, stream);
+  if (streaming() || state != BrowserState::BROWSING) return;
+  // Back: the saved row may sit on a later page; pull cached pages in until
+  // it is on the list (an uncached one would block: the user scrolls to it).
+  while (restoreRow >= static_cast<int>(knownRows()) && !nextPagePath.empty() && pageCache &&
+         pageCache->contains(UrlUtils::buildUrl(server.url, nextPagePath))) {
+    appendNextPage(false);
+  }
+  selectorIndex = std::min(std::max(restoreRow, 0), static_cast<int>(knownRows()) - 1);
+  topIndex = restoreTop;
+}
+
+void OpdsBookBrowserActivity::appendNextPage(const bool stream) {
+  if (nextPagePath.empty() || streaming()) return;
+  // A new page's size is unknown: keep a quarter of the window free for it.
+  if (makeRoom(OPDS_BROWSER_ENTRY_CAPACITY / 4, true) == 0) return;
+  const std::string path = std::move(nextPagePath);
+  nextPagePath.clear();  // finishFeed() sets the page after this one
+  loadPage(UrlUtils::buildUrl(server.url, path), path, entryCount, 0, 0, false, stream);
+}
+
+size_t OpdsBookBrowserActivity::knownRows() const {
+  if (pages.empty()) return 0;
+  return std::min<size_t>(pages.back().firstRow + pages.back().rows, UINT16_MAX);
+}
+
+const OpdsEntry* OpdsBookBrowserActivity::rowEntry(const int row) const {
+  if (!entries || row < static_cast<int>(windowBase) || row >= static_cast<int>(windowBase + entryCount))
+    return nullptr;
+  return &entries[row - windowBase];
+}
+
+const OpdsBookBrowserActivity::PageInfo* OpdsBookBrowserActivity::pageStartingAt(const uint32_t row) const {
+  const auto page = std::find_if(pages.begin(), pages.end(), [row](const PageInfo& p) { return p.firstRow == row; });
+  return page == pages.end() ? nullptr : &*page;
+}
+
+const OpdsBookBrowserActivity::PageInfo* OpdsBookBrowserActivity::pageEndingAt(const uint32_t row) const {
+  const auto page =
+      std::find_if(pages.begin(), pages.end(), [row](const PageInfo& p) { return p.firstRow + p.rows == row; });
+  return page == pages.end() ? nullptr : &*page;
+}
+
+void OpdsBookBrowserActivity::shiftWindow(const int delta, const size_t fromRow) {
+  if (delta > 0) {
+    for (size_t i = entryCount; i > fromRow; --i) entries[i - 1 + delta] = std::move(entries[i - 1]);
+    for (size_t i = fromRow; i < fromRow + delta; ++i) entries[i] = OpdsEntry{};
+    onSd <<= delta;
+    pageCached <<= delta;
+    entryCount += delta;
+    windowBase -= delta;
+  } else if (delta < 0) {
+    const size_t drop = static_cast<size_t>(-delta);
+    for (size_t i = drop; i < entryCount; ++i) entries[i - drop] = std::move(entries[i]);
+    for (size_t i = entryCount - drop; i < entryCount; ++i) entries[i] = OpdsEntry{};
+    onSd >>= drop;
+    pageCached >>= drop;
+    entryCount -= drop;
+    windowBase += drop;
+  }
+}
+
+size_t OpdsBookBrowserActivity::makeRoom(const size_t rows, const bool atFront) {
+  while (entryCount + rows > OPDS_BROWSER_ENTRY_CAPACITY) {
+    const PageInfo* page = atFront ? pageStartingAt(windowBase) : pageEndingAt(windowBase + entryCount);
+    if (!page || page->rows == 0 || page->rows >= entryCount) break;
+    // Never drop a page the view (or the selection) is on.
+    const int viewTop = std::min(topIndex, selectorIndex);
+    const int viewEnd = std::max(topIndex + visibleRows, selectorIndex + 1);
+    const int pageTop = static_cast<int>(page->firstRow);
+    const int pageEnd = static_cast<int>(page->firstRow + page->rows);
+    const bool inView = pageTop < viewEnd && pageEnd > viewTop;
+    if (inView) break;
+    RenderLock lock(*this);
+    if (atFront) {
+      shiftWindow(-static_cast<int>(page->rows), 0);
+    } else {
+      const size_t keep = entryCount - page->rows;
+      for (size_t i = keep; i < entryCount; ++i) entries[i] = OpdsEntry{};
+      entryCount = keep;
+    }
+    LOG_DBG("OPDS", "Window %s dropped %u rows: rows %zu-%zu", atFront ? "front" : "back",
+            static_cast<unsigned>(page->rows), windowBase, windowBase + entryCount);
+  }
+  return OPDS_BROWSER_ENTRY_CAPACITY - entryCount;
+}
+
+void OpdsBookBrowserActivity::reloadPage(const PageInfo& page, const bool front) {
+  if (makeRoom(page.rows, !front) < page.rows) return;
+  const std::string path(page.path.c_str());
+  const std::string url = UrlUtils::buildUrl(server.url, path);
+  size_t slot = entryCount;
+  {
+    RenderLock lock(*this);
+    if (front) {
+      shiftWindow(static_cast<int>(page.rows), 0);
+      slot = 0;
+    } else {
+      entryCount += page.rows;
+    }
+  }
+  // Blocking: a cached page parses in tens of ms; one evicted from the cache
+  // (or changed its row count) fetches again, and any rows it no longer
+  // fills stay blank.
+  OpdsParser parser(entries.get() + slot, page.rows);
+  if (!loadFeed(url, parser) || !parser) LOG_ERR("OPDS", "Page reload failed: %s", UrlUtils::maskUserInfo(url).c_str());
+  {
+    RenderLock lock(*this);
+    for (size_t i = slot; i < slot + page.rows; ++i) {
+      if (entries[i].type == OpdsEntryType::NAVIGATION) replaceFolderEmoji(entries[i].title);
+    }
+  }
+  markBooksOnSd(slot, slot + page.rows);
+  markCachedFeeds();
+  const int viewEnd = topIndex + visibleRows;
+  if (static_cast<int>(windowBase + slot) < viewEnd && static_cast<int>(windowBase + slot + page.rows) > topIndex) {
+    requestUpdate();
+  }
+  LOG_INF("OPDS", "Window reloaded rows %zu-%zu (%s)", windowBase + slot, windowBase + slot + page.rows,
+          front ? "front" : "back");
+  if (preload) preload->pump();
+}
+
+void OpdsBookBrowserActivity::keepWindowAroundView() {
+  const int ahead = APPEND_AHEAD_SCREENS * visibleRows;
+  const int viewEnd = topIndex + visibleRows;
+  const int windowEnd = static_cast<int>(windowBase + entryCount);
+  if (viewEnd + ahead > windowEnd) {
+    // Forward: a page seen before re-parses from the cache; past the last
+    // known page the feed's next page is fetched (streamed when uncached).
+    if (const PageInfo* next = pageStartingAt(windowEnd)) {
+      reloadPage(*next, false);
+    } else if (!nextPagePath.empty() && (appendRetryMs == 0 || millis() - appendRetryMs >= APPEND_RETRY_MS)) {
+      appendNextPage(true);
+    }
+    return;
+  }
+  if (windowBase > 0 && topIndex - ahead < static_cast<int>(windowBase)) {
+    if (const PageInfo* previous = pageEndingAt(windowBase)) reloadPage(*previous, true);
+  }
+}
+
+void OpdsBookBrowserActivity::loadPage(const std::string& url, const std::string& pagePath, const size_t base,
+                                       const int restoreRow, const int restoreTop, const bool recheck,
+                                       const bool stream) {
+  if (stream && startStream(url, pagePath, base, restoreRow, restoreTop, recheck)) return;
+  OpdsParser parser(entries.get() + base, OPDS_BROWSER_ENTRY_CAPACITY - base);
   fetchCancelled = false;
   OpdsFeedError feedError = OpdsFeedError::Other;
   if (!loadFeed(url, parser, &feedError)) {
+    if (base > 0) {
+      // The list stays as it is; the append is retried after a pause.
+      LOG_ERR("OPDS", "Next page failed (%d): %s", static_cast<int>(feedError), UrlUtils::maskUserInfo(url).c_str());
+      nextPagePath = pagePath;
+      appendRetryMs = millis() | 1;
+      return;
+    }
     if (fetchCancelled) {
       // pollFetchCancel() consumed the Back press, so act on it here.
       LOG_INF("OPDS", "Feed fetch cancelled by Back");
@@ -761,6 +952,10 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
   if (!parser) {
     // Never keep bytes that do not parse; a retry must go back to the server.
     if (pageCache) pageCache->erase(url);
+    if (base > 0) {
+      LOG_ERR("OPDS", "Next page does not parse: %s", UrlUtils::maskUserInfo(url).c_str());
+      return;  // the list ends here
+    }
     state = BrowserState::ERROR;
     errorMessage = parser.getErrorReason() == OpdsParserError::BUFFER_MEMORY ? tr(STR_OPDS_FEED_BUFFER_MEMORY_ERROR)
                                                                              : tr(STR_PARSE_FEED_FAILED);
@@ -768,58 +963,72 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path, const int resto
     return;
   }
 
-  searchTemplate = parser.getSearchTemplate();
-  searchDescriptionUrl = parser.getSearchDescriptionUrl();
-  const auto& nextUrl = parser.getNextPageUrl();
-  const auto& prevUrl = parser.getPrevPageUrl();
-  entryCount = parser.getEntryCount();
-  feedTotal = parser.getTotalResults();
-  for (size_t i = 0; i < entryCount; ++i) {
+  finishFeed(parser, url, pagePath, base, restoreRow, restoreTop, recheck);
+}
+
+void OpdsBookBrowserActivity::finishFeed(const OpdsParser& parser, const std::string& url, const std::string& pagePath,
+                                         const size_t base, const int restoreRow, const int restoreTop,
+                                         const bool recheck) {
+  if (base == 0) {
+    searchTemplate = parser.getSearchTemplate();
+    searchDescriptionUrl = parser.getSearchDescriptionUrl();
+    feedTotal = parser.getTotalResults();
+  }
+  // The list may be on screen already (a streamed page, an appended one): the
+  // render task reads it, and only what changes in view (rows, marks) redraws.
+  const bool shown = state == BrowserState::BROWSING && (base > 0 || entryCount > 0);
+  const size_t shownCount = shown ? entryCount : base;
+  RenderLock lock(*this);
+  entryCount = base + parser.getEntryCount();
+  for (size_t i = base; i < entryCount; ++i) {
     if (entries[i].type == OpdsEntryType::NAVIGATION) replaceFolderEmoji(entries[i].title);
   }
-  if (parser.wasTruncated()) {
-    LOG_DBG("OPDS", "Feed truncated to %zu entries", entryCount);
+  if (!shown) {
+    // The feed may have changed since the row was saved: clamp the row here and
+    // leave topIndex to render()'s clamp.
+    selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
+    topIndex = restoreTop;
+    if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
+  }
+  lock.unlock();
+
+  // A page joins the directory once; the page after it, resolved against it
+  // as navigateToEntry() resolves rows, so its cache key matches the
+  // prefetch below.
+  const std::string& nextHref = parser.getNextPageUrl();
+  nextPagePath.clear();
+  appendRetryMs = 0;
+  pages.push_back(PageInfo{PsramString(pagePath.c_str()), static_cast<uint32_t>(windowBase + base),
+                           static_cast<uint16_t>(parser.getEntryCount())});
+  if (parser.wasTruncated() || knownRows() >= UINT16_MAX) {
+    LOG_INF("OPDS", "List full at %zu rows, later pages are not loaded", knownRows());
+  } else if (base > 0 && parser.getEntryCount() == 0) {
+    LOG_INF("OPDS", "Empty page ends the list");  // never append in a loop
+  } else if (!nextHref.empty()) {
+    nextPagePath = UrlUtils::buildUrl(UrlUtils::buildUrl(server.url, pagePath), nextHref);
   }
 
-  hasPrevPageRow = false;
-  hasNextPageRow = false;
-  if (!prevUrl.empty()) {
-    hasPrevPageRow = true;
-    for (size_t i = entryCount; i > 0; --i) {
-      entries[i] = std::move(entries[i - 1]);
-    }
-    entries[0] = OpdsEntry{OpdsEntryType::NAVIGATION,
-                           PsramString(mappedInput.resolveLabel(mappedInput.withPreviousPageArrow(tr(STR_PREV_PAGE)))),
-                           "", PsramString(prevUrl), ""};
-    entryCount++;
-  }
-  if (!nextUrl.empty()) {
-    hasNextPageRow =
-        appendEntry(OpdsEntry{OpdsEntryType::NAVIGATION,
-                              PsramString(mappedInput.resolveLabel(mappedInput.withNextPageArrow(tr(STR_NEXT_PAGE)))),
-                              "", PsramString(nextUrl), ""});
-    if (!hasNextPageRow) LOG_DBG("OPDS", "No room for next-page entry");
-  }
-
-  // The feed may have changed since the row was saved: clamp the row here and
-  // leave topIndex to render()'s clamp.
-  selectorIndex = entryCount > 0 ? std::min(std::max(restoreRow, 0), static_cast<int>(entryCount) - 1) : 0;
-  topIndex = restoreTop;
-  if (restoreRow != 0 || restoreTop != 0) LOG_DBG("OPDS", "Restored row %d top %d", selectorIndex, topIndex);
-  markBooksOnSd();
-  markCachedFeeds();
+  const auto onSdBefore = onSd;
+  markBooksOnSd(shownCount);  // rows shown earlier keep their marks
+  const bool marksChanged = markCachedFeeds() || onSd != onSdBefore;
   marksPendingMs = 0;  // the redraw below shows them
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entryCount == 0) {
     // Kept cached (the server list marks it fetched); Retry refetches it.
     errorMessage = tr(STR_NO_ENTRIES);
   }
-  requestUpdate();
+  const bool rowsInView =
+      entryCount > shownCount && windowBase + shownCount < static_cast<size_t>(topIndex + visibleRows);
+  if (!shown || rowsInView || marksChanged) requestUpdate();
 
-  if (!nextUrl.empty()) startNextPagePrefetch(nextUrl);
-  if (currentPath.empty()) preloadFeedsOnPage();
-  if (recheck && shownFromCache && preload) preload->revalidate(url);
-  if (preload) preload->pump();
+  if (preload) {
+    // The next page downloads now so it is in the cache before the view
+    // nears the end of the list.
+    if (!nextPagePath.empty()) preload->enqueue(UrlUtils::buildUrl(server.url, nextPagePath), true);
+    if (base == 0 && currentPath.empty()) preloadFeedsOnPage();
+    if (base == 0 && recheck && shownFromCache) preload->revalidate(url);
+    preload->pump();
+  }
 }
 
 bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parser, OpdsFeedError* error) {
@@ -852,7 +1061,7 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
   OpdsPageBuffer page(MemoryPool::Psram, OPDS_PAGE_MAX_BYTES);
   const bool cachePage = pageCache != nullptr;
   {
-    OpdsParserStream stream{parser};
+    OpdsParserStream parserStream{parser};
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
@@ -861,10 +1070,10 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
     HttpRequestDiagnostics diagnostics;
     const auto result = HttpDownloader::streamUrl(
         url,
-        [&stream, &page, &parser, cachePage](const uint8_t* data, const size_t len) {
+        [&parserStream, &page, &parser, cachePage](const uint8_t* data, const size_t len) {
           if (cachePage) page.append(data, len);  // overflow only skips caching
           // Stop at the entry limit: the rest of a huge feed is never shown.
-          return stream.write(data, len) == len && !parser.wasTruncated();
+          return parserStream.write(data, len) == len && !parser.wasTruncated();
         },
         nullptr, server.username, server.password, std::move(downloadOptions), &diagnostics);
     if (parser.wasTruncated() && !fetchCancelled) {
@@ -891,23 +1100,12 @@ bool OpdsBookBrowserActivity::pollFetchCancel() {
   return fetchCancelled;
 }
 
-void OpdsBookBrowserActivity::startNextPagePrefetch(const std::string& nextHref) {
-  if (!preload) return;
-  // Same resolution navigateToEntry() and fetchFeed() apply, so the cache key
-  // matches when the user selects the Next page row.
-  const std::string nextPath = UrlUtils::buildUrl(UrlUtils::buildUrl(server.url, currentPath), nextHref);
-  preload->enqueue(UrlUtils::buildUrl(server.url, nextPath), true);
-}
-
 void OpdsBookBrowserActivity::preloadFeedsOnPage() {
   if (!preload) return;
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  // Skips the synthetic Prev/Next rows (Next is already queued first) and
-  // books, whose links are downloads rather than feeds.
-  const size_t first = hasPrevPageRow ? 1 : 0;
-  const size_t last = hasNextPageRow ? entryCount - 1 : entryCount;
+  // Skips books, whose links are downloads rather than feeds.
   size_t queuedCount = 0;
-  for (size_t i = first; i < last; ++i) {
+  for (size_t i = 0; i < entryCount; ++i) {
     if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
     const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
     preload->enqueue(UrlUtils::buildUrl(server.url, path), false);
@@ -939,10 +1137,123 @@ void OpdsBookBrowserActivity::stopPrefetch() {
   preload->closeConnections();
 }
 
-// Feed rows (Prev/Next included) resolved to cache keys as navigateToEntry()
+bool OpdsBookBrowserActivity::startStream(const std::string& url, const std::string& path, const size_t base,
+                                          const int restoreRow, const int restoreTop, const bool recheck) {
+  if (!preload || !pageCache || pageCache->contains(url)) return false;
+  // showLoadingBeforeFetch() queued the page; a pump here covers the callers
+  // that did not (the first page after a Wi-Fi join) and a worker freed since.
+  preload->enqueue(url, true);
+  preload->pump();
+  if (!preload->fetching(url)) return false;  // no free worker: fetch in the foreground
+  stream.parser = makeUniqueNoThrow<OpdsParser>(entries.get() + base, OPDS_BROWSER_ENTRY_CAPACITY - base);
+  if (!stream.parser || stream.parser->error()) {
+    LOG_ERR("OPDS", "No parser for the streamed feed");
+    stream.parser.reset();
+    return false;
+  }
+  stream.url = url;
+  stream.path = path;
+  stream.base = base;
+  stream.drained = 0;
+  stream.restoreRow = restoreRow;
+  stream.restoreTop = restoreTop;
+  stream.recheck = recheck;
+  shownFromCache = false;
+  LOG_INF("OPDS", "Streaming: %s", UrlUtils::maskUserInfo(url).c_str());
+  return true;
+}
+
+void OpdsBookBrowserActivity::pumpStream() {
+  OpdsPagePrefetcher* job = preload->fetching(stream.url);
+  if (!job) {
+    // The worker dropped the page (network failure, oversized) or pump()
+    // cached it first: the foreground fetch retries once (a cache hit, or
+    // the error named as before).
+    LOG_INF("OPDS", "Streamed page gone, fetching in the foreground");
+    const StreamFetch retry = std::move(stream);
+    abortStream();
+    loadPage(retry.url, retry.path, retry.base, retry.restoreRow, retry.restoreTop, retry.recheck, false);
+    return;
+  }
+  const bool done = !job->running();
+  job->drain(stream.drained, *stream.parser);
+  OpdsParser& parser = *stream.parser;
+  if (done) parser.flush();
+  if (!parser) {
+    // Never keep bytes that do not parse: abortStream() cancels the worker,
+    // which then drops them.
+    const bool memory = parser.getErrorReason() == OpdsParserError::BUFFER_MEMORY;
+    const std::string url = stream.url;
+    const bool append = stream.base > 0;
+    abortStream();
+    preload->collect();     // a finished page would be cached by the next pump()
+    pageCache->erase(url);  // so a retry goes back to the server
+    if (append) {
+      LOG_ERR("OPDS", "Next page does not parse: %s", UrlUtils::maskUserInfo(url).c_str());
+      {
+        RenderLock rows(*this);  // drop the partial rows shown so far
+        for (size_t i = stream.base; i < entryCount; ++i) entries[i] = OpdsEntry{};
+        entryCount = stream.base;
+      }
+      return;  // the list ends here
+    }
+    clearEntries();
+    state = BrowserState::ERROR;
+    errorMessage = memory ? tr(STR_OPDS_FEED_BUFFER_MEMORY_ERROR) : tr(STR_PARSE_FEED_FAILED);
+    requestUpdate();
+    return;
+  }
+  publishStreamedRows(done);
+  if (!done) return;
+  preload->collect();  // the whole page lands in the cache
+  const std::unique_ptr<OpdsParser> finished = std::move(stream.parser);
+  const StreamFetch ended = std::move(stream);
+  abortStream();
+  finishFeed(*finished, ended.url, ended.path, ended.base, ended.restoreRow, ended.restoreTop, ended.recheck);
+}
+
+void OpdsBookBrowserActivity::publishStreamedRows(const bool done) {
+  const size_t parsed = stream.base + stream.parser->getEntryCount();
+  if (parsed <= entryCount) return;
+  const size_t first = entryCount;
+  {
+    RenderLock lock(*this);
+    for (size_t i = first; i < parsed; ++i) {
+      if (entries[i].type == OpdsEntryType::NAVIGATION) replaceFolderEmoji(entries[i].title);
+    }
+    entryCount = parsed;
+  }
+  if (state == BrowserState::LOADING) {
+    // The Loading frame stays until a screenful is in: fewer refreshes.
+    // shortcut: before the first list render visibleRows is still 1, so a
+    // typical row count stands in; measure it from the theme if that shows
+    // too few rows first.
+    const int screenful = visibleRows > 1 ? visibleRows : 10;
+    if (!done && parsed < static_cast<size_t>(screenful)) return;
+    selectorIndex = std::min(std::max(stream.restoreRow, 0), static_cast<int>(entryCount) - 1);
+    topIndex = stream.restoreTop;
+    state = BrowserState::BROWSING;
+    LOG_INF("OPDS", "Showing %zu rows while the feed streams", entryCount);
+  } else if (windowBase + first >= static_cast<size_t>(topIndex + visibleRows)) {
+    return;  // the new rows are below the viewport: no redraw
+  }
+  markBooksOnSd(first);
+  markCachedFeeds();
+  requestUpdate();
+}
+
+void OpdsBookBrowserActivity::abortStream() {
+  if (!streaming()) return;
+  if (preload) {  // already gone on exit, with its workers joined
+    if (OpdsPagePrefetcher* job = preload->fetching(stream.url); job && job->running()) job->cancel();
+  }
+  stream.parser.reset();
+}
+
+// Feed rows resolved to cache keys as navigateToEntry()
 // and the preloads do. Main loop only: the cache has no lock.
 bool OpdsBookBrowserActivity::markCachedFeeds() {
-  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> cached;
+  std::bitset<ENTRY_CAPACITY> cached;
   if (pageCache) {
     pageCachedAt = pageCache->changes();
     const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
@@ -960,20 +1271,27 @@ bool OpdsBookBrowserActivity::markCachedFeeds() {
 
 // One pass over the download folder, not an exists() per book: each lookup
 // rescans the folder, so 50 books would read it 50 times. Read-only.
-void OpdsBookBrowserActivity::markBooksOnSd() {
-  onSd.reset();
+void OpdsBookBrowserActivity::markBooksOnSd(const size_t from, size_t to) {
+  to = std::min(to, entryCount);
+  for (size_t i = from; i < to; ++i) onSd.reset(i);
   // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long startMs = millis();
   const std::string folder = downloadFolderFor(server);
   if (folder.empty()) return;
-  // Transient: the page's expected file names, freed on return. With server
-  // filenames only the generated fallback name can be predicted.
-  std::vector<std::string> names(entryCount);
+  // Transient: the new rows' expected file names, freed on return (PSRAM:
+  // thousands of rows would split internal RAM). With server filenames only
+  // the generated fallback name can be predicted.
+  std::vector<PsramString, PsramPreferAllocator<PsramString>> names(to);
   size_t wanted = 0;
-  for (size_t i = 0; i < entryCount; ++i) {
+  for (size_t i = from; i < to; ++i) {
     if (entries[i].type != OpdsEntryType::BOOK) continue;
     const std::string path = bookDownloadPath(entries[i], server.filenameFormat, folder);
-    names[i] = path.substr(path.rfind('/') + 1);
+    names[i].assign(path, path.rfind('/') + 1, std::string::npos);
+    // Library index first: the same file name in any folder.
+    if (std::binary_search(libraryKeys.begin(), libraryKeys.end(), libraryNameKey(std::string(names[i])))) {
+      onSd.set(i);
+      continue;
+    }
     ++wanted;
   }
   if (wanted == 0) return;
@@ -986,7 +1304,7 @@ void OpdsBookBrowserActivity::markBooksOnSd() {
       const bool isFile = !file.isDirectory();
       file.close();
       if (!isFile) continue;
-      for (size_t i = 0; i < entryCount; ++i) {
+      for (size_t i = from; i < to; ++i) {
         if (!onSd[i] && !names[i].empty() && strcasecmp(name, names[i].c_str()) == 0) {
           onSd.set(i);
           ++found;
@@ -999,6 +1317,28 @@ void OpdsBookBrowserActivity::markBooksOnSd() {
           millis() - startMs);
 }
 
+// One pass over the Library index on entry (2000 books: 256 KB of records plus
+// names, read from a PSRAM copy) into 8 bytes per book, so marking a page costs
+// no I/O. The index can lag the card until the Library next rebuilds it, which
+// is why the download-folder scan stays.
+void OpdsBookBrowserActivity::loadLibraryKeys() {
+  libraryKeys.clear();
+  library::LibraryIndexFile index;
+  if (!index.open(library::libraryIndexPath())) return;  // no index yet: folder scan only
+  index.loadIntoMemory();                                // PSRAM copy; on failure records come off the card
+  const uint16_t count = index.bookCount();
+  libraryKeys.reserve(count);
+  library::ClixRecord record;
+  std::string name;
+  for (uint16_t i = 0; i < count; ++i) {
+    if (!index.readRecord(i, record)) break;
+    if (index.readName(record, name)) libraryKeys.push_back(libraryNameKey(name));
+  }
+  index.close();
+  std::sort(libraryKeys.begin(), libraryKeys.end());
+  LOG_DBG("OPDS", "Library keys: %u books", static_cast<unsigned>(count));
+}
+
 bool OpdsBookBrowserActivity::ensureEntryBuffer() {
   if (entries) return true;
   entries = makeUniqueNoThrow<OpdsEntry[]>(OPDS_BROWSER_ENTRY_CAPACITY);
@@ -1006,6 +1346,7 @@ bool OpdsBookBrowserActivity::ensureEntryBuffer() {
 }
 
 void OpdsBookBrowserActivity::clearEntries() {
+  abortStream();
   // The app's interaction table still references the old row indices until
   // the next render, so stop routing touches while clearing the backing data.
   uiReady = false;
@@ -1013,9 +1354,11 @@ void OpdsBookBrowserActivity::clearEntries() {
     entries[i] = OpdsEntry{};
   }
   entryCount = 0;
+  windowBase = 0;
+  pages.clear();
   feedTotal = -1;
-  hasPrevPageRow = false;
-  hasNextPageRow = false;
+  nextPagePath.clear();
+  appendRetryMs = 0;
 }
 
 bool OpdsBookBrowserActivity::appendEntry(OpdsEntry&& entry) {
@@ -1024,10 +1367,8 @@ bool OpdsBookBrowserActivity::appendEntry(OpdsEntry&& entry) {
   return true;
 }
 
-void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool pageLink) {
-  // Prev/Next page stay at the same level: Back goes up to the feed that
-  // opened this listing, not through every page visited.
-  if (!pageLink) pushHistory();
+void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry) {
+  pushHistory();
   // Resolve to a full URL so sub-sub-navigation retains parent path context
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   currentPath = UrlUtils::buildUrl(feedUrl, std::string(entry.href));
@@ -1127,12 +1468,13 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   // entries and selectorIndex stay put while the dialog is on top (this
   // activity's loop does not run), so the index is enough to find the book.
   const int bookIndex = selectorIndex;
-  startActivityForResult(
-      std::move(dialog), [this, bookIndex, path = std::move(path), serverFilename](const ActivityResult& result) {
-        bookDownloader.cancel();  // a size probe still running; downloadBook joins it
-        if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
-        downloadBook(entries[bookIndex], path, nullptr, serverFilename);
-      });
+  startActivityForResult(std::move(dialog),
+                         [this, bookIndex, path = std::move(path), serverFilename](const ActivityResult& result) {
+                           bookDownloader.cancel();  // a size probe still running; downloadBook joins it
+                           const OpdsEntry* book = rowEntry(bookIndex);
+                           if (result.isCancelled || !book) return;
+                           downloadBook(*book, path, nullptr, serverFilename);
+                         });
 }
 
 bool OpdsBookBrowserActivity::pollDownloadSize(void* self, std::string& body) {
@@ -1254,7 +1596,7 @@ void OpdsBookBrowserActivity::pollDownload() {
   const std::string& filename = bookDownloader.path();
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
-    if (selectorIndex >= 0 && selectorIndex < static_cast<int>(onSd.size())) onSd.set(selectorIndex);
+    if (rowEntry(selectorIndex)) onSd.set(selectorIndex - windowBase);
     state = BrowserState::BROWSING;
     // The prompt draws over the last frame: show the list under it, not the
     // download screen (this also replaces the download frame's ghost).
@@ -1308,13 +1650,14 @@ void OpdsBookBrowserActivity::offerRetry(const std::string& path) {
   const bool serverFilename = bookDownloader.serverFilenamePending();
   startActivityForResult(std::move(dialog), [this, bookIndex, path, serverFilename,
                                              validator = bookDownloader.validator()](const ActivityResult& result) {
-    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) {
+    const OpdsEntry* book = rowEntry(bookIndex);
+    if (result.isCancelled || !book) {
       LOG_INF("OPDS", "Download retry declined; removing partial file");
       if (!serverFilename) Storage.remove((path + ".part").c_str());
       return;
     }
     LOG_INF("OPDS", "Retrying download: %s", path.c_str());
-    downloadBook(entries[bookIndex], path, &validator, serverFilename);
+    downloadBook(*book, path, &validator, serverFilename);
   });
 }
 
@@ -1341,9 +1684,10 @@ void OpdsBookBrowserActivity::offerOverwrite(const std::string& path) {
   }
   const int bookIndex = selectorIndex;
   startActivityForResult(std::move(dialog), [this, bookIndex, path](const ActivityResult& result) {
-    if (result.isCancelled || !entries || bookIndex < 0 || bookIndex >= static_cast<int>(entryCount)) return;
+    const OpdsEntry* book = rowEntry(bookIndex);
+    if (result.isCancelled || !book) return;
     // The name is settled: replace exactly that file, no second lookup.
-    downloadBook(entries[bookIndex], path);
+    downloadBook(*book, path);
   });
 }
 

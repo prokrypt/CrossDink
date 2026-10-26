@@ -1,6 +1,7 @@
 #pragma once
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
+#include <Memory.h>
 #include <OpdsParser.h>
 
 #include <array>
@@ -28,6 +29,10 @@
 class OpdsBookBrowserActivity final : public Activity {
  public:
   enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
+  // Rows held in memory at a time (the array lands in PSRAM): a window over
+  // the feed's pages that follows the view; pages outside it re-parse from
+  // the page cache when scrolled back to.
+  static constexpr size_t ENTRY_CAPACITY = 2000;
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server,
                                    bool fromServerList = false);
@@ -52,7 +57,7 @@ class OpdsBookBrowserActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   BrowserState state = BrowserState::LOADING;
   ScreenTransitionRefresh screenTransitionRefresh;
-  std::unique_ptr<OpdsEntry[]> entries;
+  std::unique_ptr<OpdsEntry[]> entries;  // the window: rows [windowBase, windowBase + entryCount)
 #if defined(FREEINK_NET_WOLFSSL)
   // Kept-alive HTTPS connection for foreground feed fetches. Background
   // preloads use the pool's own connections.
@@ -72,13 +77,38 @@ class OpdsBookBrowserActivity final : public Activity {
   // Declared so the pool is destroyed (joined) before the cache.
   std::unique_ptr<OpdsPageCache> pageCache;
   std::unique_ptr<OpdsPreloadPool> preload;
+  // An uncached page downloading on a pool worker while the loop runs: rows
+  // show as soon as the first screenful has parsed, the rest land silently.
+  // parser (null: none) reads into `entries`, so it is declared after them.
+  struct StreamFetch {
+    std::string url;
+    std::string path;
+    size_t base = 0;     // list rows before this page (0: the feed's first page)
+    size_t drained = 0;  // page bytes handed to the parser so far
+    int restoreRow = 0;
+    int restoreTop = 0;
+    bool recheck = true;
+    std::unique_ptr<OpdsParser> parser;
+  };
+  StreamFetch stream;
   size_t entryCount = 0;
   // Catalog size from the feed's opensearch:totalResults; -1 when not given.
   int32_t feedTotal = -1;
-  // Whether entries[0] / entries[entryCount - 1] are the synthetic Prev / Next
-  // page rows added from the feed's rel="previous" / rel="next" links.
-  bool hasPrevPageRow = false;
-  bool hasNextPageRow = false;
+  // One continuous list per feed. Every page seen so far, in feed order
+  // (strings in PSRAM: a long browse sees hundreds); list indices (selection,
+  // scroll, taps) are absolute rows over these.
+  struct PageInfo {
+    PsramString path;
+    uint32_t firstRow = 0;
+    uint16_t rows = 0;
+  };
+  std::vector<PageInfo> pages;
+  size_t windowBase = 0;  // absolute row of entries[0]
+  // The page behind the last known one (its rel="next" link, absolute),
+  // appended once the view nears the end of the list; empty when there is
+  // none or the list is full.
+  std::string nextPagePath;
+  uint32_t appendRetryMs = 0;  // millis() | 1 after a failed append (0: none)
   // Feeds Back returns to, with the row and scroll position to restore there.
   struct HistoryEntry {
     std::string path;
@@ -88,12 +118,15 @@ class OpdsBookBrowserActivity final : public Activity {
   std::vector<HistoryEntry> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
-  std::string searchDescriptionUrl;                   // OpenSearch description; fetched on first search
-  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> onSd;        // book rows already in the download folder
-  std::bitset<MAX_OPDS_FEED_ENTRIES + 2> pageCached;  // feed rows whose page is in pageCache
-  std::array<char, 16> countLabel{};                  // scratch for the row provider's count label
-  uint32_t pageCachedAt = 0;                          // pageCache->changes() when pageCached was set
-  uint32_t marksPendingMs = 0;                        // millis() | 1 when pageCached first changed unshown
+  std::string searchDescriptionUrl;        // OpenSearch description; fetched on first search
+  std::bitset<ENTRY_CAPACITY> onSd;        // book rows already in the download folder
+  std::bitset<ENTRY_CAPACITY> pageCached;  // feed rows whose page is in pageCache
+  // Sorted folded-basename keys of every book in the Library index, so rows
+  // match a file of the same name in any folder. Empty without an index.
+  std::vector<uint64_t, PsramPreferAllocator<uint64_t>> libraryKeys;
+  std::array<char, 16> countLabel{};  // scratch for the row provider's count label
+  uint32_t pageCachedAt = 0;          // pageCache->changes() when pageCached was set
+  uint32_t marksPendingMs = 0;        // millis() | 1 when pageCached first changed unshown
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
@@ -158,12 +191,34 @@ class OpdsBookBrowserActivity final : public Activity {
   // restoreRow/restoreTop: selection and scroll to show once loaded (Back).
   // recheck: refetch a page shown from the cache in the background (off for
   // the redraw a recheck itself triggers).
-  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0, bool recheck = true);
+  // Starts a feed: its first page replaces the list. stream: an uncached
+  // page may show progressively (see StreamFetch); off for the blocking retry
+  // after a streamed fetch failed.
+  void fetchFeed(const std::string& path, int restoreRow = 0, int restoreTop = 0, bool recheck = true,
+                 bool stream = true);
+  // Loads one page into the list at row `base` (0 replaces the list): from
+  // the cache, streamed, or fetched in the foreground.
+  void loadPage(const std::string& url, const std::string& pagePath, size_t base, int restoreRow, int restoreTop,
+                bool recheck, bool stream);
+  // Appends the page behind the list (nextPagePath), if any.
+  void appendNextPage(bool stream);
+  // The parsed page joins the listing: rows, marks, selection, next page.
+  void finishFeed(const OpdsParser& parser, const std::string& url, const std::string& pagePath, size_t base,
+                  int restoreRow, int restoreTop, bool recheck);
+  bool streaming() const { return stream.parser != nullptr; }
+  // True when url is downloading on a pool worker and the parser is set up.
+  bool startStream(const std::string& url, const std::string& path, size_t base, int restoreRow, int restoreTop,
+                   bool recheck);
+  // Each loop tick: parses the bytes received so far, shows rows once a
+  // screenful is in, finishes the feed when the download ends.
+  void pumpStream();
+  // Shows the rows parsed so far. done: the whole page has parsed.
+  void publishStreamedRows(bool done);
+  void abortStream();
   // Fills parser from the PSRAM cache, a finished prefetch, or the network
   // (caching the response). False only on a network failure.
   bool loadFeed(const std::string& url, OpdsParser& parser, OpdsFeedError* error = nullptr);
   bool pollFetchCancel();
-  void startNextPagePrefetch(const std::string& nextHref);
   // First page only: queues every navigation row's feed for the preload pool.
   void preloadFeedsOnPage();
   void stopPrefetch();
@@ -174,9 +229,7 @@ class OpdsBookBrowserActivity final : public Activity {
   bool ensureEntryBuffer();
   void clearEntries();
   bool appendEntry(OpdsEntry&& entry);
-  // pageLink: the synthetic Prev/Next page row, which replaces the current
-  // listing instead of pushing it onto the Back history.
-  void navigateToEntry(const OpdsEntry& entry, bool pageLink);
+  void navigateToEntry(const OpdsEntry& entry);
   void leaveBrowser();  // server list when picked from it, else Home
   void navigateBack();
   // Asks before replacing a book already on SD (showing its size and date),
@@ -201,7 +254,27 @@ class OpdsBookBrowserActivity final : public Activity {
   void offerRetry(const std::string& path);
   // The server's file name is already on SD: Confirm replaces that file.
   void offerOverwrite(const std::string& path);
-  void markBooksOnSd();
+  // Window rows [from, to) (window-relative); the other marks stay.
+  void markBooksOnSd(size_t from = 0, size_t to = SIZE_MAX);
+  void loadLibraryKeys();
+  // Rows known so far (the list length); at most what the list can index.
+  size_t knownRows() const;
+  // The entry at an absolute row, or null when it is outside the window.
+  const OpdsEntry* rowEntry(int row) const;
+  const PageInfo* pageStartingAt(uint32_t row) const;
+  const PageInfo* pageEndingAt(uint32_t row) const;
+  // Drop whole pages at the window's front (back) so `rows` more fit, never
+  // a page the view is on. Returns the room left.
+  size_t makeRoom(size_t rows, bool atFront);
+  // Shifts the window rows and their marks by `delta` (positive: towards
+  // higher indices), adjusting entryCount and windowBase. Render lock held.
+  void shiftWindow(int delta, size_t fromRow);
+  // Re-parses a known page (from the cache, else the network, blocking) into
+  // the window: at its end, or at its front when `front`.
+  void reloadPage(const PageInfo& page, bool front);
+  // Each tick while browsing: keeps the window covering the view plus a few
+  // screens ahead and behind, loading or dropping one page per call.
+  void keepWindowAroundView();
   bool markCachedFeeds();  // true when a row's mark changed
   bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
   void launchSearch();
