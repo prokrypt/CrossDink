@@ -116,7 +116,6 @@
 #include "util/ButtonShortcutController.h"
 #include "util/CoreLoadLog.h"
 #include "util/DeviceIdentity.h"
-#include "util/DeviceSecurity.h"
 #include "util/Dictionary.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
@@ -2101,7 +2100,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   static bool panelLogged = false;
   if (!panelLogged) {
     panelLogged = true;
-    DeviceIdentity::logPanel();  // debug builds: exact controller, detect method, VER/MTP
+    DeviceIdentity::logPanel();  // debug builds: exact controller, detect method, VER (XTDET logs the MTP)
   }
   bootPhase("panel");
 #endif
@@ -2220,13 +2219,6 @@ void setup() {
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
-#ifndef SIMULATOR
-  {
-    char sec[96];
-    DeviceSecurity::format(sec, sizeof(sec));
-    LOG_INF("BOOT", "sec: %s", sec);
-  }
-#endif
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
   // Validate the target too — RTC_NOINIT memory is uninitialized on cold boot.
@@ -2931,9 +2923,15 @@ static void updateFlashDuckLocked() {
 // The fade is stepped from the main loop and its render waits, but a long main-loop job (a 930 ms BMP
 // decode right after a refresh) starves both and the light came back ~760 ms late. While a duck is
 // pending or running an esp_timer steps it too; the mutex keeps the statics above to one caller.
+// A duck can start only where updateFlashDuckLocked() would start one: with the light off, timed-out
+// dim or at the floor it does nothing, so don't tick the loop at 10 ms for it.
 static bool flashDuckPending() {
-  return flashDuckActive || (SETTINGS.frontlightFlashDuck && (liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 ||
-                                                              display.flashPlannedMs() != 0));
+  if (flashDuckActive) return true;
+  if (!SETTINGS.frontlightFlashDuck || !Frontlight.isOn() || Frontlight.idleDimPercent() != 100 ||
+      Frontlight.brightness() <= std::max<unsigned long>(KNOBS.flashDuckMinPct, 2)) {
+    return false;
+  }
+  return liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0;
 }
 static void updateFlashDuck() {
 #ifndef SIMULATOR
@@ -2990,10 +2988,7 @@ uint32_t idleWaitMs(const unsigned long idleMs) {
   if (TransferLightPulse::animating()) return TransferLightPulse::WRITE_INTERVAL_MS;
   if (SerialRemote::macroRunning()) return IDLE_WAIT_MS;  // macro WAIT/WAITLOG steps resolve on the loop tick
   if (Toast::holding()) return IDLE_WAIT_MS;              // repaint on time when the toast ends
-  if (flashDuckActive || ((liveFlashStartMs() != 0 || display.flashMarkedMs() != 0 || display.flashPlannedMs() != 0) &&
-                          SETTINGS.frontlightFlashDuck)) {
-    return FLASH_DUCK_TICK_MS;
-  }
+  if (flashDuckPending()) return FLASH_DUCK_TICK_MS;
   if (!InputWake::coversAllInputs() || idleMs < IDLE_WAIT_BACKOFF_AFTER_MS) return IDLE_WAIT_MS;
   // Light timeout: wake on time for the fade and step it at the fast tick.
   const unsigned long lightTimeoutMs = SETTINGS.getFrontlightTimeoutMs();

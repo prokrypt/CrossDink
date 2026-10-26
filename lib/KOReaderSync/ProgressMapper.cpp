@@ -806,19 +806,19 @@ KOReaderPosition ProgressMapper::toKOReader(const std::shared_ptr<Epub>& epub, c
     result.xpath = ChapterXPathResolver::findXPathForProgress(epub, pos.spineIndex, intra, minimumPathDepth);
   }
   if (result.xpath.empty()) {
-    LOG_ERR("PM", "Cannot resolve a structural XPath for spine %d", pos.spineIndex);
+    LOG_ERR("KOPM", "Cannot resolve a structural XPath for spine %d", pos.spineIndex);
     result.valid = false;
     return result;
   }
   if (coordinateSpace == PositionCoordinateSpace::SourceDocument &&
       !mapCurrentXPathToSource(epub, pos.spineIndex, result.xpath)) {
-    LOG_ERR("PM", "Source position map unavailable for optimized spine %d; re-optimize the EPUB", pos.spineIndex);
+    LOG_ERR("KOPM", "Source position map unavailable for optimized spine %d; re-optimize the EPUB", pos.spineIndex);
     result.xpath.clear();
     result.valid = false;
     result.needsReoptimization = true;
     return result;
   }
-  LOG_DBG("PM", "-> KO: spine=%d page=%d/%d %.2f%% %s", pos.spineIndex, pos.pageNumber, pos.totalPages,
+  LOG_DBG("KOPM", "-> KO: spine=%d page=%d/%d %.2f%% %s", pos.spineIndex, pos.pageNumber, pos.totalPages,
           result.percentage * 100, result.xpath.c_str());
   return result;
 }
@@ -830,7 +830,7 @@ std::optional<CrossPointPosition> ProgressMapper::fromRichPosition(const std::sh
                                                                    const bool landscapeLayout) {
   const int spineCount = epub->getSpineItemsCount();
   if (static_cast<int>(rich.spineIndex) >= spineCount) {
-    LOG_DBG("PM", "Rich position spine %u out of range (%d spine items)", rich.spineIndex, spineCount);
+    LOG_DBG("KOPM", "Rich position spine %u out of range (%d spine items)", rich.spineIndex, spineCount);
     return std::nullopt;
   }
 
@@ -842,7 +842,7 @@ std::optional<CrossPointPosition> ProgressMapper::fromRichPosition(const std::sh
   if (!cachedCount || *cachedCount <= 0) {
     // No local layout for the target spine yet; the percentage/xpath mapping
     // handles density estimation better than a blind copy of remote pages.
-    LOG_DBG("PM", "Rich position spine %u has no cached page count", rich.spineIndex);
+    LOG_DBG("KOPM", "Rich position spine %u has no cached page count", rich.spineIndex);
     return std::nullopt;
   }
   result.totalPages = *cachedCount;
@@ -851,7 +851,8 @@ std::optional<CrossPointPosition> ProgressMapper::fromRichPosition(const std::sh
   if (result.totalPages == remotePages) {
     // Identical layout (same render settings) — the page transfers losslessly.
     result.pageNumber = std::min<int>(rich.pageNumber, result.totalPages - 1);
-    LOG_DBG("PM", "Rich position exact: spine=%d page=%d/%d", result.spineIndex, result.pageNumber, result.totalPages);
+    LOG_DBG("KOPM", "Rich position exact: spine=%d page=%d/%d", result.spineIndex, result.pageNumber,
+            result.totalPages);
     return result;
   }
 
@@ -862,7 +863,7 @@ std::optional<CrossPointPosition> ProgressMapper::fromRichPosition(const std::sh
       result.paragraphIndex = *rich.paragraphIndex;
       result.hasParagraphIndex = true;
       result.pageNumber = std::min<int>(*lutPage, result.totalPages - 1);
-      LOG_DBG("PM", "Rich position para %u -> spine=%d page=%d/%d", *rich.paragraphIndex, result.spineIndex,
+      LOG_DBG("KOPM", "Rich position para %u -> spine=%d page=%d/%d", *rich.paragraphIndex, result.spineIndex,
               result.pageNumber, result.totalPages);
       return result;
     }
@@ -873,7 +874,7 @@ std::optional<CrossPointPosition> ProgressMapper::fromRichPosition(const std::sh
       (remotePages > 1) ? static_cast<float>(rich.pageNumber) / static_cast<float>(remotePages - 1) : 0.0f;
   result.pageNumber = std::max(
       0, std::min(static_cast<int>(intra * static_cast<float>(result.totalPages - 1) + 0.5f), result.totalPages - 1));
-  LOG_DBG("PM", "Rich position scaled: spine=%d remote %u/%d -> page=%d/%d", result.spineIndex, rich.pageNumber,
+  LOG_DBG("KOPM", "Rich position scaled: spine=%d remote %u/%d -> page=%d/%d", result.spineIndex, rich.pageNumber,
           remotePages, result.pageNumber, result.totalPages);
   return result;
 }
@@ -888,7 +889,7 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
   if (coordinateSpace == PositionCoordinateSpace::SourceDocument && !mappedKoPos.xpath.empty()) {
     int mappedSpineIndex = -1;
     if (!mapSourceXPathToCurrent(epub, mappedKoPos.xpath, mappedSpineIndex)) {
-      LOG_ERR("PM", "Cannot map source XPath into this optimized EPUB; re-optimize the EPUB");
+      LOG_ERR("KOPM", "Cannot map source XPath into this optimized EPUB; re-optimize the EPUB");
       result.valid = false;
       return result;
     }
@@ -964,7 +965,7 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
       if (anchorId) {
         strncpy(result.xpathAnchorId, anchorId, sizeof(result.xpathAnchorId) - 1);
       }
-      LOG_DBG("PM", "XPath ancestry(%s[%d])/text()[%d]+%d -> %.1f%% (target=%zu total=%zu p~%d li~%d anchor=%s)",
+      LOG_DBG("KOPM", "XPath ancestry(%s[%d])/text()[%d]+%d -> %.1f%% (target=%zu total=%zu p~%d li~%d anchor=%s)",
               xpathSteps[xpathStepCount - 1].tag, xpathSteps[xpathStepCount - 1].siblingIndex, xpathTextNode, xpathChar,
               intra * 100, s.getTargetVisChars(), s.getTotalVisChars(), pAtMatch,
               result.hasLiIndex ? static_cast<int>(result.liIndex) : 0, anchorId ? anchorId : "none");
@@ -978,14 +979,14 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
         result.visibleTextOffset = static_cast<uint32_t>(s.getTargetVisChars() - 1);
         result.hasVisibleTextOffset = true;
       }
-      LOG_DBG("PM", "XPath p[%d]/text()[%d]+%d -> %.1f%% (target=%zu total=%zu)", xpathP, xpathTextNode, xpathChar,
+      LOG_DBG("KOPM", "XPath p[%d]/text()[%d]+%d -> %.1f%% (target=%zu total=%zu)", xpathP, xpathTextNode, xpathChar,
               intra * 100, s.getTargetVisChars(), s.getTotalVisChars());
     }
   }
   if (!resolvedIntra && xpathSpine >= 0 && xpathSpine < spineCount && isChapterStartXPath(mappedKoPos.xpath)) {
     intra = 0.0f;
     resolvedIntra = true;
-    LOG_DBG("PM", "Chapter-start XPath %s -> spine=%d page start", mappedKoPos.xpath.c_str(), result.spineIndex);
+    LOG_DBG("KOPM", "Chapter-start XPath %s -> spine=%d page start", mappedKoPos.xpath.c_str(), result.spineIndex);
   }
   if (!resolvedIntra) {
     const size_t bytesIn = (targetBytes > prevCum) ? (targetBytes - prevCum) : 0;
@@ -994,7 +995,7 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
 
   result.pageNumber = std::max(
       0, std::min(static_cast<int>(intra * static_cast<float>(result.totalPages - 1) + 0.5f), result.totalPages - 1));
-  LOG_DBG("PM", "<- KO: %.2f%% %s -> spine=%d page=%d/%d", koPos.percentage * 100, mappedKoPos.xpath.c_str(),
+  LOG_DBG("KOPM", "<- KO: %.2f%% %s -> spine=%d page=%d/%d", koPos.percentage * 100, mappedKoPos.xpath.c_str(),
           result.spineIndex, result.pageNumber, result.totalPages);
   return result;
 }

@@ -73,7 +73,7 @@ StatPad readStatPad(const int n) {
 
 void logStatPad(const char* when, const int n, const StatPad& p) {
   const auto fieldBit = [](const uint32_t v, const int s) { return static_cast<unsigned>((v >> s) & 1); };
-  LOG_INF("STATPAD",
+  LOG_DBG("STATPAD",
           "%s GPIO%d gpio=%u rtc=%u | dig ie=%u pd=%u pu=%u slpsel=%u | rtc mux=%u ie=%u slpie=%u slpsel=%u rde=%u "
           "rue=%u | rtcwake en=%u type=%u st=%u hold=%u | raw iomux=%08lx pad=%08lx pin=%08lx",
           when, n, static_cast<unsigned>(p.gpioIn), static_cast<unsigned>(p.rtcIn), fieldBit(p.iomux, FUN_IE_S),
