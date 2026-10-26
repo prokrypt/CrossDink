@@ -177,6 +177,8 @@ uint32_t openStartMs = 0;
 const char* openStageName[OPEN_STAGES];
 uint32_t openStageMs[OPEN_STAGES];
 int openStageCount = 0;
+// SD opens while a book open is in progress, from any task.
+std::atomic<uint32_t> openSdOpens{0};
 
 uint32_t take(std::atomic<uint32_t>& counter) { return counter.exchange(0, std::memory_order_relaxed); }
 void add(std::atomic<uint32_t>& counter, const uint32_t value) { counter.fetch_add(value, std::memory_order_relaxed); }
@@ -661,6 +663,7 @@ void noteError(const char* line) {
 void bookOpenBegin() {
   openStartMs = millis() | 1;
   openStageCount = 0;
+  openSdOpens.store(0, std::memory_order_relaxed);
 }
 
 void bookOpenStage(const char* name, const uint32_t ms) {
@@ -691,8 +694,9 @@ void bookOpenEnd() {
     pos += static_cast<size_t>(n);
     sum += openStageMs[i];
   }
-  LOG_INF("ERS", "open: %sother=%lu total=%lu", stages, static_cast<unsigned long>(total > sum ? total - sum : 0),
-          static_cast<unsigned long>(total));
+  LOG_INF("ERS", "open: %sother=%lu total=%lu sd=%lu", stages,
+          static_cast<unsigned long>(total > sum ? total - sum : 0), static_cast<unsigned long>(total),
+          static_cast<unsigned long>(openSdOpens.load(std::memory_order_relaxed)));
 }
 
 void noteRestart() {
@@ -703,6 +707,7 @@ void noteRestart() {
 
 void noteSdOpen(const bool opened) {
   add(sdOpens, 1);
+  if (openStartMs != 0) add(openSdOpens, 1);
   if (!opened) add(sdMisses, 1);
 }
 
