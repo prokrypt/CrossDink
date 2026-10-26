@@ -15,6 +15,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -125,6 +126,7 @@ class EpubReaderActivity final : public Activity {
   // Next chapter, built on buildWorker while the last pages of this one are read.
   // Dropping it mid-build suspends to a partial cache that resumes when the chapter opens.
   std::unique_ptr<Section> nextSection = nullptr;
+  bool exitingForSleep = false;
   ReaderRenderSpec nextSectionSpec;
   const char* nextSectionSuffix = "";
   int nextSectionSpine = -1;  // one try per spine, so a cached or failed chapter is not retried
@@ -523,6 +525,8 @@ class EpubReaderActivity final : public Activity {
   // before every tick) keeps the background build responsive while it works to completion.
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
   static constexpr int NEXT_SECTION_BUILD_PAGES_LEFT = 2;
+  // Two 1 KB parse buffers, about a page of text: keeps the extra sleep-time layout short.
+  static constexpr uint32_t SLEEP_FINISH_BUILD_MAX_BYTES = 2048;
   // Its HTML inflate holds RenderLock in one piece, so start it only once the page has sat a while.
   static constexpr unsigned long NEXT_SECTION_BUILD_IDLE_MS = 1500;
   // Pages past the current one built before the deferred font prewarm runs.
@@ -722,7 +726,11 @@ class EpubReaderActivity final : public Activity {
   bool isBookReaderActivity() const override { return true; }
   bool isEpubReaderActivity() const override { return true; }
   void onInputLockChanged(bool locked) override;
-  void cancelOptionalRenderWork(const char* reason) override { cancelGrayscalePass(reason); }
+  void cancelOptionalRenderWork(const char* reason) override {
+    // goToSleep() and the sleep-time sync push call this right before onExit().
+    if (strstr(reason, "sleep")) exitingForSleep = true;
+    cancelGrayscalePass(reason);
+  }
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }
   bool flushProgressForSync() override;
