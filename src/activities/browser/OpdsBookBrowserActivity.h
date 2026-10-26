@@ -29,7 +29,7 @@ class OpdsBookBrowserActivity final : public Activity {
  public:
   enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
   // Rows one feed can show across its pages (the array lands in PSRAM).
-  static constexpr size_t ENTRY_CAPACITY = 500;
+  static constexpr size_t ENTRY_CAPACITY = 2000;
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server,
                                    bool fromServerList = false);
@@ -238,8 +238,8 @@ class OpdsBookBrowserActivity final : public Activity {
   void offerRetry(const std::string& path);
   // The server's file name is already on SD: Confirm replaces that file.
   void offerOverwrite(const std::string& path);
-  void markBooksOnSd();
-  bool markCachedFeeds();  // true when a row's mark changed
+  void markBooksOnSd(size_t from = 0);  // rows from `from` on; earlier marks stay
+  bool markCachedFeeds();               // true when a row's mark changed
   bool hasSearch() const { return !searchTemplate.empty() || !searchDescriptionUrl.empty(); }
   void launchSearch();
   void performSearch(const std::string& query);

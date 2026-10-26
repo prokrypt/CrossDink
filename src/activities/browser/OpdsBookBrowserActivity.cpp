@@ -864,7 +864,7 @@ void OpdsBookBrowserActivity::finishFeed(const OpdsParser& parser, const std::st
   }
 
   const auto onSdBefore = onSd;
-  markBooksOnSd();
+  markBooksOnSd(shownCount);  // rows shown earlier keep their marks
   const bool marksChanged = markCachedFeeds() || onSd != onSdBefore;
   marksPendingMs = 0;  // the redraw below shows them
   state = entryCount == 0 ? BrowserState::ERROR : BrowserState::BROWSING;
@@ -1091,7 +1091,7 @@ void OpdsBookBrowserActivity::publishStreamedRows(const bool done) {
   } else if (first >= static_cast<size_t>(topIndex + visibleRows)) {
     return;  // the new rows are below the viewport: no redraw
   }
-  markBooksOnSd();
+  markBooksOnSd(first);
   markCachedFeeds();
   requestUpdate();
 }
@@ -1125,20 +1125,21 @@ bool OpdsBookBrowserActivity::markCachedFeeds() {
 
 // One pass over the download folder, not an exists() per book: each lookup
 // rescans the folder, so 50 books would read it 50 times. Read-only.
-void OpdsBookBrowserActivity::markBooksOnSd() {
-  onSd.reset();
+void OpdsBookBrowserActivity::markBooksOnSd(const size_t from) {
+  for (size_t i = from; i < onSd.size(); ++i) onSd.reset(i);
   // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
   const unsigned long startMs = millis();
   const std::string folder = downloadFolderFor(server);
   if (folder.empty()) return;
-  // Transient: the page's expected file names, freed on return. With server
-  // filenames only the generated fallback name can be predicted.
-  std::vector<std::string> names(entryCount);
+  // Transient: the new rows' expected file names, freed on return (PSRAM:
+  // thousands of rows would split internal RAM). With server filenames only
+  // the generated fallback name can be predicted.
+  std::vector<PsramString, PsramPreferAllocator<PsramString>> names(entryCount);
   size_t wanted = 0;
-  for (size_t i = 0; i < entryCount; ++i) {
+  for (size_t i = from; i < entryCount; ++i) {
     if (entries[i].type != OpdsEntryType::BOOK) continue;
     const std::string path = bookDownloadPath(entries[i], server.filenameFormat, folder);
-    names[i] = path.substr(path.rfind('/') + 1);
+    names[i].assign(path, path.rfind('/') + 1, std::string::npos);
     ++wanted;
   }
   if (wanted == 0) return;
@@ -1151,7 +1152,7 @@ void OpdsBookBrowserActivity::markBooksOnSd() {
       const bool isFile = !file.isDirectory();
       file.close();
       if (!isFile) continue;
-      for (size_t i = 0; i < entryCount; ++i) {
+      for (size_t i = from; i < entryCount; ++i) {
         if (!onSd[i] && !names[i].empty() && strcasecmp(name, names[i].c_str()) == 0) {
           onSd.set(i);
           ++found;
