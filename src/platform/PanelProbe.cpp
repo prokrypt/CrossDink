@@ -56,12 +56,12 @@ void store(const Record* record) {
 
 }  // namespace
 
-void resolve() {
+void resolve(const bool force) {
   const uint8_t board = static_cast<uint8_t>(BoardConfig::ACTIVE.board);
   const uint8_t defaultController = static_cast<uint8_t>(BoardConfig::ACTIVE.displayController);
   const uint64_t mac = ESP.getEfuseMac();
   Record record;
-  if (load(record) && record.version == RECORD_VERSION && record.board == board &&
+  if (!force && load(record) && record.version == RECORD_VERSION && record.board == board &&
       record.defaultController == defaultController && record.mac == mac) {
     BoardConfig::ACTIVE.displayController = static_cast<BoardConfig::DisplayController>(record.controller);
     BoardConfig::ACTIVE.displayControllerVariant = record.variant;

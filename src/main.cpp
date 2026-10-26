@@ -426,6 +426,7 @@ using BootResume = SleepWakePolicy::Resume;
 // X4 Pro: this boot is an Up+Down wake to change the sleep wallpaper. It goes
 // straight back to sleep, so the reader-or-Home resume flag must stay as it was.
 bool wallpaperChordWake = false;
+bool forcePanelProbe = false;  // Down+Power wake (recovery chord) re-runs the panel probe
 
 // Latched true once enterDeepSleep() commits to sleeping, before it tears down
 // the current activity. WiFi activities call silentRestart() in onExit() to
@@ -2065,7 +2066,7 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   static bool controllerResolved = false;
   if (!controllerResolved) {
     controllerResolved = true;
-    PanelProbe::resolve();  // DeviceIdentity::logPanel() below reports the outcome
+    PanelProbe::resolve(forcePanelProbe);  // DeviceIdentity::logPanel() below reports the outcome
   }
   bootPhase("probe");
 #endif
@@ -2323,6 +2324,7 @@ void setup() {
                                   : MappedInputManager::Button::Up;
   const bool recoveryFirmwareMode = wakeupReason == HalGPIO::WakeupReason::PowerButton && !BoardConfig::isPaperMono() &&
                                     !wallpaperChordWake && mappedInputManager.isPressed(recoveryButton);
+  forcePanelProbe = recoveryFirmwareMode;
 #else
   const bool recoveryFirmwareMode = false;
 #endif
