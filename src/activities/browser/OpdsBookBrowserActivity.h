@@ -1,6 +1,7 @@
 #pragma once
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
+#include <Memory.h>
 #include <OpdsParser.h>
 
 #include <array>
@@ -120,9 +121,12 @@ class OpdsBookBrowserActivity final : public Activity {
   std::string searchDescriptionUrl;        // OpenSearch description; fetched on first search
   std::bitset<ENTRY_CAPACITY> onSd;        // book rows already in the download folder
   std::bitset<ENTRY_CAPACITY> pageCached;  // feed rows whose page is in pageCache
-  std::array<char, 16> countLabel{};       // scratch for the row provider's count label
-  uint32_t pageCachedAt = 0;               // pageCache->changes() when pageCached was set
-  uint32_t marksPendingMs = 0;             // millis() | 1 when pageCached first changed unshown
+  // Sorted keys of every book in the Library index (folded title + author key,
+  // and folded basename), so rows match books in any folder. Empty without an index.
+  std::vector<uint64_t, PsramPreferAllocator<uint64_t>> libraryKeys;
+  std::array<char, 16> countLabel{};  // scratch for the row provider's count label
+  uint32_t pageCachedAt = 0;          // pageCache->changes() when pageCached was set
+  uint32_t marksPendingMs = 0;        // millis() | 1 when pageCached first changed unshown
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
@@ -252,6 +256,7 @@ class OpdsBookBrowserActivity final : public Activity {
   void offerOverwrite(const std::string& path);
   // Window rows [from, to) (window-relative); the other marks stay.
   void markBooksOnSd(size_t from = 0, size_t to = SIZE_MAX);
+  void loadLibraryKeys();
   // Rows known so far (the list length); at most what the list can index.
   size_t knownRows() const;
   // The entry at an absolute row, or null when it is outside the window.

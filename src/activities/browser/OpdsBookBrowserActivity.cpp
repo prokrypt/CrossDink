@@ -8,12 +8,15 @@
 #include <I18n.h>
 #include <Knobs.h>
 #include <LibraryBuilder.h>
+#include <LibraryIndexFile.h>
+#include <LibraryText.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <OpdsStream.h>
 #if defined(FREEINK_NET_WOLFSSL)
 #include <SecureHttpClient.h>
 #endif
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include <algorithm>
@@ -99,6 +102,23 @@ std::string bookDownloadPath(const OpdsEntry& book, const OpdsFilenameFormat for
   path += StringUtils::sanitizeFilename(buildBookFilenameBase(book, format));
   path += ".epub";
   return path;
+}
+
+// Library index match keys. The title key uses the index's own fold and author
+// key, cut exactly as the builder stores them, so an OPDS row hashes like the
+// record of the same book wherever it sits on the card.
+uint64_t libraryTitleKey(const std::string& title, const std::string& author) {
+  std::string key = library::fold(title);
+  key.resize(utf8SafeTruncateBuffer(key.data(), static_cast<int>(std::min(key.size(), library::CLIX_FOLD_BYTES))));
+  key += '\0';
+  // The builder files "Unknown" authors as no author.
+  if (library::fold(author) != "unknown") key += library::authorKey(author).substr(0, library::CLIX_AUTHOR_KEY_BYTES);
+  return library::clixPathHash(key.data(), key.size());
+}
+
+uint64_t libraryNameKey(const std::string& name) {
+  const std::string folded = library::fold(name);
+  return library::clixPathHash(folded.data(), folded.size()) ^ 1;  // distinct from title keys
 }
 
 // "12.3 MB", "456 KB" or "789 B", with integer math only.
@@ -188,6 +208,7 @@ void OpdsBookBrowserActivity::onEnter() {
     requestUpdate();
     return;
   }
+  loadLibraryKeys();
 
   if (psramHeapAvailable()) {
     // The server list may have prefetched this server's root page already.
@@ -233,6 +254,8 @@ void OpdsBookBrowserActivity::onExit() {
 #endif
   clearEntries();
   entries.reset();
+  libraryKeys.clear();
+  libraryKeys.shrink_to_fit();
   navigationHistory.clear();
 
 #ifndef SIMULATOR
@@ -1274,6 +1297,18 @@ void OpdsBookBrowserActivity::markBooksOnSd(const size_t from, size_t to) {
     if (entries[i].type != OpdsEntryType::BOOK) continue;
     const std::string path = bookDownloadPath(entries[i], server.filenameFormat, folder);
     names[i].assign(path, path.rfind('/') + 1, std::string::npos);
+    // Library index first: the same book in any folder, by metadata or by name.
+    if (!libraryKeys.empty()) {
+      const uint64_t keys[2] = {libraryTitleKey(std::string(entries[i].title), std::string(entries[i].author)),
+                                libraryNameKey(std::string(names[i]))};
+      for (const uint64_t key : keys) {
+        if (std::binary_search(libraryKeys.begin(), libraryKeys.end(), key)) {
+          onSd.set(i);
+          break;
+        }
+      }
+    }
+    if (onSd[i]) continue;
     ++wanted;
   }
   if (wanted == 0) return;
@@ -1297,6 +1332,32 @@ void OpdsBookBrowserActivity::markBooksOnSd(const size_t from, size_t to) {
   if (dir) dir.close();
   LOG_DBG("OPDS", "On SD: %u of %u books (%lu ms)", static_cast<unsigned>(onSd.count()), static_cast<unsigned>(wanted),
           millis() - startMs);
+}
+
+// One pass over the Library index on entry (2000 books: 256 KB of records, read
+// from a PSRAM copy) into 16 bytes per book, so marking a page costs no I/O.
+// The index can lag the card until the Library next rebuilds it, which is why
+// the download-folder scan stays.
+void OpdsBookBrowserActivity::loadLibraryKeys() {
+  libraryKeys.clear();
+  library::LibraryIndexFile index;
+  if (!index.open(library::libraryIndexPath())) return;  // no index yet: folder scan only
+  index.loadIntoMemory();                                // PSRAM copy; on failure records come off the card
+  const uint16_t count = index.bookCount();
+  libraryKeys.reserve(static_cast<size_t>(count) * 2);
+  library::ClixRecord record;
+  std::string name;
+  for (uint16_t i = 0; i < count; ++i) {
+    if (!index.readRecord(i, record)) break;
+    std::string key(record.fold, record.foldLen);
+    key += '\0';
+    key.append(record.authorKey, record.authorKeyLen);
+    libraryKeys.push_back(library::clixPathHash(key.data(), key.size()));
+    if (index.readName(record, name)) libraryKeys.push_back(libraryNameKey(name));
+  }
+  index.close();
+  std::sort(libraryKeys.begin(), libraryKeys.end());
+  LOG_DBG("OPDS", "Library keys: %u books", static_cast<unsigned>(count));
 }
 
 bool OpdsBookBrowserActivity::ensureEntryBuffer() {
