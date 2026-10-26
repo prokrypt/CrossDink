@@ -127,7 +127,7 @@ void CoverGridHomeUi::draw(UiScreen& screen) {
 
 void CoverGridHomeUi::drawHeaderBand() {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.homeTopPadding}, nullptr);
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
 }
 
 void CoverGridHomeUi::drawEmpty(UiScreen& screen) {
