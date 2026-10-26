@@ -843,8 +843,9 @@ size_t OpdsBookBrowserActivity::makeRoom(const size_t rows, const bool atFront) 
     // Never drop a page the view (or the selection) is on.
     const int viewTop = std::min(topIndex, selectorIndex);
     const int viewEnd = std::max(topIndex + visibleRows, selectorIndex + 1);
-    const bool inView =
-        static_cast<int>(page->firstRow)<viewEnd&& static_cast<int>(page->firstRow + page->rows)> viewTop;
+    const int pageTop = static_cast<int>(page->firstRow);
+    const int pageEnd = static_cast<int>(page->firstRow + page->rows);
+    const bool inView = pageTop < viewEnd && pageEnd > viewTop;
     if (inView) break;
     RenderLock lock(*this);
     if (atFront) {
