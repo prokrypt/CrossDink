@@ -1447,7 +1447,7 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   // window path has only the fixed-height estimate.
   const auto indicatorRows =
       static_cast<uint16_t>(usesVirtualList ? listNav.pageRowsFor(static_cast<int>(totalEntries)) : visibleRows);
-  fui::drawListScrollIndicator(screen.target(), listRect, totalEntries, indicatorRows, topIndex,
+  fui::drawListScrollIndicator(screen.target(), uiListTrackRect(listRect, props), totalEntries, indicatorRows, topIndex,
                                screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
 }
