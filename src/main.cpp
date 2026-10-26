@@ -1761,12 +1761,14 @@ static const char* bootTailRoute = nullptr;  // non-null: the wake row is still 
 static bool bootTailDictionary = false;
 constexpr uint32_t BOOT_TAIL_MAX_MS = 5000;
 
-static void runBootTail() {
+// sleeping: a sleep before the first loop pass (the Up+Down clock) or the first
+// frame still owes the wake row ahead of its sleep row; the next boot checks the dictionary.
+static void runBootTail(const bool sleeping = false) {
   if (bootTailRoute == nullptr) return;
-  if (!activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
+  if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
-  if (bootTailDictionary) Dictionary::isValidDictionary();
+  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
   bootTailDictionary = false;
 }
 
@@ -2031,6 +2033,7 @@ void enterDeepSleep(bool fromTimeout) {
 #endif
     // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
     // can be written again until the next wake.
+    runBootTail(true);
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
     BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
     SleepLog::onSleep();
