@@ -575,12 +575,16 @@ void ActivityManager::renderTaskLoop() {
         // Input with no frame requested yet (finger down, button press):
         // power the booster on now, so the coming refresh skips its ~127 ms
         // power-on. Nothing drawn: switch it off again after the idle delay.
+        // Before the first frame (boot wake) that frame arms the off instead,
+        // so a slow book open never powers it off in between.
 #ifndef SIMULATOR
         RenderLock wakeLock;
         if (display.powerOnIdle()) LOG_DBG("ACT", "Panel booster on early");
 #endif
-        idlePanelOffArmed = true;
-        idlePanelOffMs = PANEL_IDLE_OFF_MS;
+        if (lastFrameMs != 0) {
+          idlePanelOffArmed = true;
+          idlePanelOffMs = PANEL_IDLE_OFF_MS;
+        }
         continue;
       }
     }
