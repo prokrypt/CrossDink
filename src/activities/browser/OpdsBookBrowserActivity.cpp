@@ -785,8 +785,10 @@ void OpdsBookBrowserActivity::appendNextPage(const bool stream) {
 }
 
 size_t OpdsBookBrowserActivity::knownRows() const {
-  if (pages.empty()) return 0;
-  return std::min<size_t>(pages.back().firstRow + pages.back().rows, UINT16_MAX);
+  // Rows still streaming in sit after the last finished page; they count too,
+  // so the scrollbar and the empty state see them.
+  const size_t finished = pages.empty() ? 0 : pages.back().firstRow + pages.back().rows;
+  return std::min<size_t>(std::max(finished, windowBase + entryCount), UINT16_MAX);
 }
 
 const OpdsEntry* OpdsBookBrowserActivity::rowEntry(const int row) const {
@@ -1017,8 +1019,9 @@ void OpdsBookBrowserActivity::finishFeed(const OpdsParser& parser, const std::st
     // Kept cached (the server list marks it fetched); Retry refetches it.
     errorMessage = tr(STR_NO_ENTRIES);
   }
+  // <=: a list that exactly filled the screen redraws so the scrollbar appears.
   const bool rowsInView =
-      entryCount > shownCount && windowBase + shownCount < static_cast<size_t>(topIndex + visibleRows);
+      entryCount > shownCount && windowBase + shownCount <= static_cast<size_t>(topIndex + visibleRows);
   if (!shown || rowsInView || marksChanged) requestUpdate();
 
   if (preload) {
@@ -1234,8 +1237,10 @@ void OpdsBookBrowserActivity::publishStreamedRows(const bool done) {
     topIndex = stream.restoreTop;
     state = BrowserState::BROWSING;
     LOG_INF("OPDS", "Showing %zu rows while the feed streams", entryCount);
-  } else if (windowBase + first >= static_cast<size_t>(topIndex + visibleRows)) {
-    return;  // the new rows are below the viewport: no redraw
+  } else if (windowBase + first > static_cast<size_t>(topIndex + visibleRows)) {
+    // Below the viewport: no redraw. A list that exactly filled the screen
+    // (==) redraws once so the scrollbar appears when it first outgrows it.
+    return;
   }
   markBooksOnSd(first);
   markCachedFeeds();
