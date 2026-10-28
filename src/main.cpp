@@ -1799,7 +1799,7 @@ void syncBookBeforeSleep() {
   const bool readerFlushed = !path.empty();
   if (!readerFlushed) path = kosync_auto::pendingPushPath();
   if (path.empty()) return;
-  HalPowerManager::sleepStep = "kosync push";
+  HalPowerManager::setSleepStep("kosync push");
   activityManager.cancelOptionalRenderWork("kosync sleep push");
   // Held throughout so the reader cannot repaint over the toasts; bounded so a
   // busy render task only costs the toasts, never the push or the sleep.
@@ -1944,12 +1944,12 @@ void enterDeepSleep(bool fromTimeout) {
     SleepLog::armSleepReboot();
   }
   armSleepGuard();
-  HalPowerManager::sleepStep = "activity exit";
+  HalPowerManager::setSleepStep("activity exit");
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
 #endif
   syncBookBeforeSleep();
-  HalPowerManager::sleepStep = "activity exit";
+  HalPowerManager::setSleepStep("activity exit");
   kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
   BugReport::stopForSleep();  // no report upload may hold an SD file through Storage.shutdown()
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
@@ -1977,9 +1977,10 @@ void enterDeepSleep(bool fromTimeout) {
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
+    HalPowerManager::setSleepStep("sleep draw");
     activityManager.goToSleep(fromTimeout);
     wifi_background_join::wait();  // the OPDS list's onExit() may have queued the radio off
-    HalPowerManager::sleepStep = "sleep writes";
+    HalPowerManager::setSleepStep("sleep writes");
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     RecentBookProgress::flushSyncMarks();
     // Hold the newest state, then write every held store behind the sleep screen.
@@ -2021,19 +2022,20 @@ void enterDeepSleep(bool fromTimeout) {
     SleepLog::onSleep();
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
-    HalPowerManager::sleepStep = "storage shutdown";
+    HalPowerManager::setSleepStep("storage shutdown");
     Storage.shutdown();
 
+    HalPowerManager::setSleepStep("tilt sleep");
     putTiltSensorToSleepForDeepSleep();
-    HalPowerManager::sleepStep = "sleep refresh";
+    HalPowerManager::setSleepStep("sleep refresh");
     renderer.waitRefreshComplete();
-    HalPowerManager::sleepStep = "nvs, frontlight";
+    HalPowerManager::setSleepStep("nvs, frontlight");
     mirrorWakeShortPressToNvs();
     // Last visible step: the sleep screen has settled and every write is done.
     [[maybe_unused]] const bool lightWasOn = Frontlight.isOn();
     frontlightFadeOutForSleep();
     Frontlight.prepareForDeepSleep();
-    HalPowerManager::sleepStep = "ghost busters";
+    HalPowerManager::setSleepStep("ghost busters");
     [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts();
 #ifndef SIMULATOR
     // A key during the fade or the busters wakes too, with the light as it was;
@@ -2042,7 +2044,7 @@ void enterDeepSleep(bool fromTimeout) {
       restartInsteadOfSleep(lightWasOn ? 1 : 0);
     }
 #endif
-    HalPowerManager::sleepStep = "display sleep";
+    HalPowerManager::setSleepStep("display sleep");
     display.deepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
 
@@ -2218,6 +2220,7 @@ void setup() {
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
+  HalPowerManager::logLastSleepSteps();
 #ifndef SIMULATOR
   {
     char sec[96];
