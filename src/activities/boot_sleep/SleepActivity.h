@@ -35,7 +35,7 @@ class SleepActivity final : public Activity {
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen() const;
-  void idlePanel() const;
+  void idlePanel(bool directGray) const;
   // Set while the pre-draw panel idle is left to the Direct gray image path,
   // which overlaps it with the decode.
   mutable bool panelIdlePending = false;

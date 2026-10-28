@@ -549,15 +549,16 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
 }  // namespace
 
 // Start every generated sleep screen from the same panel state, however long
-// the outgoing screen sat idle: cut the booster (after the idle temperature
-// read), so the next refresh powers on fresh and a Direct gray cover takes the
-// reset + OEM power cycle instead of loading its power registers into pumps
-// that may have idled on since the last draw (auto-sleep only).
-void SleepActivity::idlePanel() const {
+// the outgoing screen sat idle: cut the booster, so the next refresh powers on
+// fresh and a Direct gray cover takes the reset + OEM power cycle instead of
+// loading its power registers into pumps that may have idled on since the last
+// draw (auto-sleep only). Only Direct gray reads the panel temperature (its
+// VCOM); B/W screens skip the ~106 ms idle read and reuse the last sample.
+void SleepActivity::idlePanel(const bool directGray) const {
   panelIdlePending = false;
 #ifndef SIMULATOR
   // cppcheck-suppress unreadVariable ; read by LOG_DBG, which release builds compile out
-  const bool panelWasOn = display.powerOffIdle();
+  const bool panelWasOn = display.powerOffIdle(directGray);
   LOG_DBG("SLP", "Sleep draw: timeout=%d panelWasOn=%d lastDrfAgoMs=%lu", fromTimeout ? 1 : 0, panelWasOn ? 1 : 0,
           static_cast<unsigned long>(millis() - freeink::uc8179KbdTiming().doneMs));
 #endif
@@ -593,7 +594,7 @@ void SleepActivity::onEnter() {
                      (sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM ||
                       sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER ||
                       sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM);
-  if (!panelIdlePending) idlePanel();
+  if (!panelIdlePending) idlePanel(false);
 
   const bool sleepScreenUsesRecentBooks = sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP ||
                                           sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP ||
@@ -777,7 +778,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 118, visibleBuildInfo.c_str(), lightSleepScreen);
 #endif
 
-  if (panelIdlePending) idlePanel();  // custom and cover fallbacks
+  if (panelIdlePending) idlePanel(false);  // custom and cover fallbacks
   refreshSleepFrame(renderer);
 }
 
@@ -877,7 +878,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
     } prep{this, false};
     const auto preparePanel = [](void* ctx) {
       auto& p = *static_cast<PanelPrep*>(ctx);
-      if (p.activity->panelIdlePending) p.activity->idlePanel();
+      if (p.activity->panelIdlePending) p.activity->idlePanel(true);
       p.baseShown = display.displayGrayscaleBase(HalDisplay::GrayscaleMode::Direct, HalDisplay::HALF_REFRESH, false);
     };
     // Keeps the CPU at full speed for the decode while the panel task waits on BUSY.
@@ -914,7 +915,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
     renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
     return true;
   }
-  if (panelIdlePending) idlePanel();
+  if (panelIdlePending) idlePanel(hasGreyscale && direct);
   // Direct starts from the two complete gray planes and never reads the B/W
   // frame buffer, so a B/W render ahead of it would be a whole image decode
   // that the LSB pass immediately clears. Absolute and Overlay bases still
