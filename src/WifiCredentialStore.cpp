@@ -92,7 +92,7 @@ bool WifiCredentialStore::fromJson(JsonVariantConst doc) {
 }
 
 bool WifiCredentialStore::loadFromFile() {
-  LOG_INF("WCS", "load start");
+  LOG_DBG("WCS", "load start");
   {
     std::lock_guard<std::mutex> lock(credentialMutex);
     credentials.clear();
@@ -101,30 +101,30 @@ bool WifiCredentialStore::loadFromFile() {
 
   const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<WifiCredentialStore>::loadFromFile()) {
-    LOG_INF("WCS", "load JSON complete");
+    LOG_DBG("WCS", "load JSON complete");
     return true;
   }
   if (hasStoreFile) {
-    LOG_INF("WCS", "load JSON present but unreadable");
+    LOG_DBG("WCS", "load JSON present but unreadable");
     return false;
   }
 
   if (Storage.exists(WIFI_FILE_BIN)) {
-    LOG_INF("WCS", "load legacy migration attempted");
+    LOG_DBG("WCS", "load legacy migration attempted");
     if (!loadFromBinaryFile()) {
-      LOG_INF("WCS", "load legacy migration failed: read");
+      LOG_DBG("WCS", "load legacy migration failed: read");
       return false;
     }
     if (saveToFile()) {
       Storage.rename(WIFI_FILE_BIN, WIFI_FILE_BAK);
-      LOG_INF("WCS", "load legacy migration complete");
+      LOG_DBG("WCS", "load legacy migration complete");
       return true;
     }
-    LOG_INF("WCS", "load legacy migration failed: save");
+    LOG_DBG("WCS", "load legacy migration failed: save");
     return false;
   }
 
-  LOG_INF("WCS", "load no store");
+  LOG_DBG("WCS", "load no store");
   return false;
 }
 
