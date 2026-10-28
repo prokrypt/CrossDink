@@ -48,6 +48,10 @@ class OpdsPreloadPool {
   void revalidate(const std::string& url);
   // Moves the URL of the last recheck that changed the cache into url.
   bool takeChange(std::string& url);
+  // The worker downloading url (or holding its finished page), or null. The
+  // activity drains it to show a feed while it streams; collect() takes the
+  // page afterwards.
+  OpdsPagePrefetcher* fetching(const std::string& url);
   // Moves finished pages into the cache.
   void collect();
   // collect(), then starts queued URLs on idle workers.
