@@ -50,6 +50,11 @@ void noteBootPhase(const char* name);
 // A silent restart is about to happen; the first ink after it logs the time
 // from this call across the reset (RTC timer, survives software restart).
 void noteRestart();
+// "[BOOT] pre-app N ms": time before the app started (ROM + bootloader image
+// check), from the RTC timer: since power-on on a cold boot, since
+// noteRestart() on a silent restart (also covers its shutdown work). Other
+// resets print nothing: the RTC timer did not start with them.
+void logPreApp(bool powerOn);
 // Deep sleep is about to start: reason and activity go to RTC memory (survives
 // deep sleep, not power loss) and the next boot prints them with logLastSleep()
 // as "[BOOT] last sleep: ...", since the PSRAM log ring does not survive.
@@ -113,6 +118,7 @@ inline void notePagePath(const char*) {}
 inline void noteInk(bool = false) {}
 inline void noteBootPhase(const char*) {}
 inline void noteRestart() {}
+inline void logPreApp(bool) {}
 inline void noteDeepSleep(const char*, const char*) {}
 inline void logLastSleep() {}
 inline void noteActivity(const char*) {}

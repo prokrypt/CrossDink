@@ -701,6 +701,22 @@ void noteRestart() {
   LOG_DBG("RST", "silent restart at %lu ms", static_cast<unsigned long>(millis()));
 }
 
+void logPreApp(const bool powerOn) {
+  // millis() counts from app start, the RTC timer from power-on and across
+  // software resets: the difference is what ran before the app.
+  const uint32_t appMs = millis();
+  const uint64_t rtcUs = esp_rtc_get_time_us();
+  if (powerOn) {
+    LOG_INF("BOOT", "pre-app %lu ms (power-on) app=%lu", static_cast<unsigned long>(rtcUs / 1000 - appMs),
+            static_cast<unsigned long>(appMs));
+  } else if (restartMagic == RESTART_MAGIC) {
+    // restartMagic stays set: the first ink logs restart->ink from it.
+    const uint32_t sinceMs = static_cast<uint32_t>((rtcUs - restartRequestedUs) / 1000);
+    LOG_INF("BOOT", "pre-app %lu ms (since restart request) app=%lu", static_cast<unsigned long>(sinceMs - appMs),
+            static_cast<unsigned long>(appMs));
+  }
+}
+
 void noteSdOpen(const bool opened) {
   add(sdOpens, 1);
   if (!opened) add(sdMisses, 1);
