@@ -84,6 +84,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Opening a book in the Read folder that has no bookmarks no longer re-scans every bookmark file on each open; the check for bookmarks left behind by a move outside CrossDink runs once per book per boot.
 - First open of an EPUB: the book is indexed while the Indexing popup is still being drawn instead of after it, about 0.6 s sooner to the first page on the X4 Pro. Cached opens are unchanged.
 - Going to sleep from a Wi-Fi screen (OPDS, File Transfer, remote on) is up to 60 ms faster: Wi-Fi shutdown waits only until the radio reports off instead of two fixed 30 ms pauses.
+- Sticky and X4 Pro release builds keep 4 short crash-log lines in RTC memory instead of 16 (about 3.5 KB of RTC slow memory freed); crash reports now include the last 16 KB of the release PSRAM log ring instead.
 - Ghost Busters (Settings > Display) opens a stepper screen for 0-10 (0 is Off): Left/Right or the on-screen -1/+1 step by 1, Up/Down or -3/+3 by 3.
 - X4 Pro and X4 Classic wake from sleep about 80 ms sooner: the SD card mount no longer repeats the 80 ms power-off its card already had all through the sleep.
 - A large UI Font (for example a multi-megabyte CJK family) no longer holds up the screen and buttons for seconds when it loads after boot or after File Transfer/USB Drive: only its first megabyte is read to identify it instead of the whole file.
