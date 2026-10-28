@@ -3098,7 +3098,7 @@ bool EpubReaderActivity::backgroundBuildCanUsePageBuffer() const {
 
 bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
   const auto heap = MemoryBudget::snapshot();
-  // Allocations over 1 KB go to PSRAM where it exists (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so a
+  // Allocations over 512 B go to PSRAM where it exists (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so a
   // fragmented internal heap must not stall the build there; it still needs the internal total.
   const uint32_t minMaxAlloc =
       MemoryBudget::psramSnapshot().maxAllocHeap >= MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC
