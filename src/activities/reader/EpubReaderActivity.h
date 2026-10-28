@@ -428,12 +428,13 @@ class EpubReaderActivity final : public Activity {
   };
   ImageCacheWorker imageCacheWorker;
   // Render task (or loop under RenderLock): true when the missing image caches
-  // of `pageIndex` are (still) being built in the background and that page
-  // should draw placeholders for now.
-  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop, int pageIndex);
+  // of `spine`/`pageIndex` are (still) being built in the background and that
+  // page should draw placeholders for now.
+  bool startImageCacheWorker(const Page& page, int marginLeft, int marginTop, int spine, int pageIndex);
   // Idle: starts the worker on the next page (previous after a back turn;
   // both after an open or a jump) so turning onto it draws its images at once.
-  // Same section only.
+  // Past a chapter's end it is the next chapter's first page, before its start
+  // the previous chapter's last page, when that section file is already on SD.
   void prefetchImageCaches();
   const Section* imagePrefetchAnchorSection = nullptr;  // the page the tried bits belong to
   int imagePrefetchAnchorSpine = -1;

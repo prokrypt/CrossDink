@@ -3157,20 +3157,40 @@ void EpubReaderActivity::prefetchImageCaches() {
     steps[0] = 1;
     steps[1] = -1;
   }
-  // shortcut: stays inside the current section; the next/previous chapter's first page is not prefetched.
   for (const int step : steps) {
     const uint8_t bit = step > 0 ? 1 : 2;
     const int target = section->currentPage + step;
-    if (step == 0 || (imagePrefetchTried & bit) || target < 0 || target >= static_cast<int>(section->pageCount)) {
+    if (step == 0 || (imagePrefetchTried & bit)) continue;
+    // Past either end: the neighbouring chapter's first (forward) or last (back) page.
+    const bool otherChapter = target < 0 || target >= static_cast<int>(section->pageCount);
+    const int spine = otherChapter ? currentSpineIndex + step : currentSpineIndex;
+    // A next chapter still being built holds its file open; the turn draws it as before.
+    if (otherChapter && (section->isPartial() || buildViewportWidth == 0 || spine < 0 ||
+                         spine >= epub->getSpineItemsCount() || (step > 0 && nextSection))) {
       continue;
     }
     imagePrefetchTried |= bit;
     // One page read per idle pass; the other side waits for the next one.
-    auto page = section->loadPage(target);
+    std::unique_ptr<Page> page;
+    int pageIndex = target;
+    if (otherChapter) {
+      // That chapter's cached section file, same spec the chapter open uses.
+      const SectionBuildProfile profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
+      const ReaderRenderSpec spec =
+          readerRenderSpecForProfile(SETTINGS.getReaderFontId(), buildViewportWidth, buildViewportHeight, profile);
+      auto other =
+          makeUniqueNoThrow<Section>(epub, spine, renderer, sectionCacheSuffixForRenderMode(profile.renderMode));
+      if (other && other->loadSectionFile(spec) && !other->isPartial() && other->pageCount > 0) {
+        pageIndex = step > 0 ? 0 : static_cast<int>(other->pageCount) - 1;
+        page = other->loadPage(pageIndex);
+      }
+    } else {
+      page = section->loadPage(target);
+    }
     if (!page || !page->hasImagesNeedingDecode()) return;
     const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
-    if (startImageCacheWorker(*page, layout.marginLeft, layout.marginTop, target)) {
-      LOG_DBG("ERS", "Prefetching image caches for page %d", target);
+    if (startImageCacheWorker(*page, layout.marginLeft, layout.marginTop, spine, pageIndex)) {
+      LOG_DBG("ERS", "Prefetching image caches for spine %d page %d", spine, pageIndex);
     }
     return;
   }
@@ -7879,7 +7899,7 @@ void EpubReaderActivity::waitHomeThumbWorker() {
 
 // Render task or idle loop, RenderLock held.
 bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int marginLeft, const int marginTop,
-                                               const int pageIndex) {
+                                               const int spine, const int pageIndex) {
 #if defined(portNUM_PROCESSORS) && portNUM_PROCESSORS > 1
   auto& job = imageCacheWorker;
   if (!job.done || !section || !psramHeapAvailable() || !renderer.hasFrameBuffer()) return false;
@@ -7897,7 +7917,7 @@ bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int margi
     // Same page drawn again (overlay closed, repeat render): still loading.
     if (!joinImageCacheWorker(/*cancel=*/false) && job.count > 0 &&
         job.items[0].block->getImagePath() == first->getImagePath()) {
-      job.spine = currentSpineIndex;
+      job.spine = spine;
       job.pageIndex = pageIndex;
       return true;
     }
@@ -7953,7 +7973,7 @@ bool EpubReaderActivity::startImageCacheWorker(const Page& page, const int margi
   job.renderer->setRenderMode(GfxRenderer::BW);
   for (uint8_t i = 0; i < count; ++i) job.items[i].block->beginBackgroundCache();
   job.count = count;
-  job.spine = currentSpineIndex;
+  job.spine = spine;
   job.pageIndex = pageIndex;
   job.cancel.store(false);
   job.redraw.store(false);
@@ -8408,7 +8428,12 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   // A prefetch this page no longer neighbours (a jump, or a turn away from it)
   // stops at its next chunk; nothing waits for it here.
-  if (imageCacheWorker.task &&
+  // A neighbouring chapter's prefetch (its first page from our last, its last page from our first) is kept too.
+  const bool prefetchingOtherChapter =
+      (imageCacheWorker.spine == currentSpineIndex + 1 && imageCacheWorker.pageIndex == 0 &&
+       section->currentPage + 1 >= static_cast<int>(section->pageCount)) ||
+      (imageCacheWorker.spine == currentSpineIndex - 1 && section->currentPage == 0);
+  if (imageCacheWorker.task && !prefetchingOtherChapter &&
       (imageCacheWorker.spine != currentSpineIndex || imageCacheWorker.pageIndex < section->currentPage - 1 ||
        imageCacheWorker.pageIndex > section->currentPage + 1)) {
     imageCacheWorker.cancel.store(true);
@@ -8421,7 +8446,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // redraw. Input and overlays stay live meanwhile.
   bool imagesLoadingInBackground = false;
   if (updatePanel && pageHasImagesNeedingDecode &&
-      startImageCacheWorker(*page, orientedMarginLeft, orientedMarginTop, section->currentPage)) {
+      startImageCacheWorker(*page, orientedMarginLeft, orientedMarginTop, currentSpineIndex, section->currentPage)) {
     imagesLoadingInBackground = true;
     pageHasImagesNeedingDecode = false;
     deferImageLoading = true;
