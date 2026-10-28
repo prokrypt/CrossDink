@@ -2104,7 +2104,11 @@ static void initPanelHardware() {
   // C3 X3/X4 detection already runs in HalGPIO::begin() before SPI owns the
   // panel pins. S3 boards initialize display SPI inside display.begin(), so an
   // X4 Pro must resolve a UC8179 replacement panel here, before driver selection.
-  PanelProbe::resolve(forcePanelProbe);  // DeviceIdentity::logPanel() below reports the outcome
+  static bool controllerResolved = false;
+  if (!controllerResolved) {
+    controllerResolved = true;
+    PanelProbe::resolve(forcePanelProbe);  // DeviceIdentity::logPanel() below reports the outcome
+  }
 #endif
   display.beginHardware();
 }
