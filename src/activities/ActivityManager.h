@@ -122,7 +122,8 @@ class ActivityManager {
   // Only screens whose frame stays in the framebuffer as B/W (menus and reader
   // menus: not the open book, Sleep, Boot or image viewer), not the keyboard
   // (its own typing LUT) and not screens that switch the booster off when idle
-  // (transfers, Goodies).
+  // (transfers, Goodies). The open book gets them only for its first page
+  // after opening, shown B/W (Activity::ghostBustersRequested).
   static bool ghostBustersFit(const Activity& activity);
   static KNOB_ALIAS(GHOST_BUSTER_QUIET_MS, ghostBusterQuietMs);  // Goodies > Knobs
   // millis() of the last user input, for Ghost Busters. Main task writes.
