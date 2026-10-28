@@ -2255,6 +2255,21 @@ void setup() {
     silentFirmwareUpdateMagic = 0;
   }
 
+#ifndef SIMULATOR
+  const bool shortPressWakes = readWakeShortPressFromNvs();
+  // Boots that never wait on the Power-button hold mount the card on the UI
+  // core while this core resets the touch controller (gpio.begin, ~170 ms): any
+  // reset but a deep-sleep wake or power-on, or a power-on that boots on any
+  // press or has a USB host attached (AfterUSBPower). Other power-ons keep the
+  // hold-timed mount below, so a press too short to wake never powers the card.
+  // Internal stack: SDMMC init must not run on PSRAM.
+  static WorkerTask earlyMountTask;
+  static bool earlyMounted = false;
+  const bool earlyMounting =
+      rawResetReason != ESP_RST_DEEPSLEEP &&
+      (rawResetReason != ESP_RST_POWERON || shortPressWakes || HalGPIO::usbHostAttached()) &&
+      earlyMountTask.start([](void*) { earlyMounted = Storage.begin(); }, nullptr, 6144, "SdMount", /*uiCore=*/true);
+#endif
   gpio.begin();
   // Sticky shares Confirm and Power on one GPIO. Emit Power first so the
   // configured shortcut wins; MappedInputManager mirrors it back to Confirm
@@ -2272,13 +2287,12 @@ void setup() {
 #ifndef SIMULATOR
   // Marks for the gap between "Input wake armed" and the IMU/RTC lines.
   LOG_INF("BOOT", "mark: power-button wake check");
-  const bool shortPressWakes = readWakeShortPressFromNvs();
   const HalGPIO::PageKeyWake pageKeyWake = HalGPIO::checkPageKeyWake();
   wallpaperChordWake = pageKeyWake == HalGPIO::PageKeyWake::Chord;
   const bool powerWake =
       pageKeyWake == HalGPIO::PageKeyWake::None && wakeupReason == HalGPIO::WakeupReason::PowerButton;
   bool powerHeld = powerWake && gpio.verifyPowerButtonWakeup(shortPressWakes, /*longHoldMs=*/0);
-  if (powerHeld && !shortPressWakes) {
+  if (powerHeld && !shortPressWakes && !earlyMounting) {
     // Mount the card on the UI core while this core times the long hold,
     // instead of idling through it. The mount (~160 ms on a deep-sleep wake)
     // starts as late as it can and still end with the hold, so a short press
@@ -2309,6 +2323,7 @@ void setup() {
     PerfLog::noteDeepSleep("wake-not-held", "boot");
     armSleepGuard();
     BatteryLog::noteFalseWake();
+    if (earlyMounting) storageMountedEarly = earlyMountTask.join() && earlyMounted;
     if (storageMountedEarly) Storage.shutdown();
     powerManager.startDeepSleep(gpio);
   }
@@ -2337,6 +2352,8 @@ void setup() {
     BatteryLog::onChargeWake();
     PerfLog::noteDeepSleep("charge-wake", "boot");
     armSleepGuard();
+    if (earlyMounting) storageMountedEarly = earlyMountTask.join() && earlyMounted;
+    if (storageMountedEarly) Storage.shutdown();
     powerManager.startDeepSleep(gpio);
   }
 #endif
@@ -2396,6 +2413,9 @@ void setup() {
   }
 
   bootPhase("start");
+#ifndef SIMULATOR
+  if (earlyMounting) storageMountedEarly = earlyMountTask.join() && earlyMounted;
+#endif
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!storageMountedEarly && !Storage.begin()) {
