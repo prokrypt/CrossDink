@@ -2575,6 +2575,9 @@ void setup() {
       }
       break;
     case BootResume::Splash:
+      // The splash paints next: the render task powers the booster on (~127 ms
+      // PON) while this core draws the logo; BootActivity's refresh waits on it.
+      activityManager.wakePanelEarly();
       activityManager.goToBoot();
       break;
   }
