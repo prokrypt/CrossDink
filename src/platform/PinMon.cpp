@@ -150,7 +150,6 @@ void run(void*) {
 void PinMon::begin() {
   if (task) return;
   for (const uint8_t p : PINS) (p < 32 ? maskLo : maskHi) |= 1u << (p & 31);
-  gpio_install_isr_service(0);  // usually already installed by InputWake (then INVALID_STATE)
 #if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
   esp_pm_sleep_cbs_register_config_t cbs = {};
   cbs.exit_cb = onSleepExit;

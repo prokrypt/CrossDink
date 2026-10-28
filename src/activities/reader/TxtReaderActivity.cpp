@@ -861,6 +861,8 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   renderPage();
+  ghostBustersRequested = !firstPageShown;
+  firstPageShown = true;
 
   if (!queueProgressSave()) {
     LOG_ERR("TRS", "Failed to save debounced reader progress");
