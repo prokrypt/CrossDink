@@ -80,6 +80,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - X4 Pro: gray sleep images and covers (Direct gray) no longer wait for their gray refresh before the sleep-time saves; the saves run while the image is still drawing, so the device sleeps 0.1-0.4 s sooner. The image is unchanged, and the panel still finishes it before powering off.
 - X4 Pro / X4 Classic: black-and-white sleep screens skip the panel temperature reading before the sleep draw (about 0.1 s faster sleep); the panel still powers off and on as before. Gray sleep images keep the reading.
 - With Text Anti-Aliasing on, the next page is now drawn ahead on the second core while the current page's gray pass runs, as it already was with AA off, so the following turn starts from a ready page.
+- Opening a book in the Read folder that has no bookmarks no longer re-scans every bookmark file on each open; the check for bookmarks left behind by a move outside CrossDink runs once per book per boot.
 - Ghost Busters (Settings > Display) opens a stepper screen for 0-10 (0 is Off): Left/Right or the on-screen -1/+1 step by 1, Up/Down or -3/+3 by 3.
 - X4 Pro and X4 Classic wake from sleep about 80 ms sooner: the SD card mount no longer repeats the 80 ms power-off its card already had all through the sleep.
 - A large UI Font (for example a multi-megabyte CJK family) no longer holds up the screen and buttons for seconds when it loads after boot or after File Transfer/USB Drive: only its first megabyte is read to identify it instead of the whole file.
