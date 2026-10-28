@@ -3363,7 +3363,11 @@ void GfxRenderer::displayGrayBuffer(const bool turnOffScreen) const {
 }
 
 void GfxRenderer::displayGrayBufferAsync() const {
+#ifdef SIMULATOR  // the simulator HAL has no deferred gray pass
+  display.displayGrayBuffer(false);
+#else
   display.displayGrayBufferAsync();
+#endif
   absoluteGrayPlanes = false;
 }
 

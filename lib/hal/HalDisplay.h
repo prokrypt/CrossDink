@@ -129,8 +129,8 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
-  // displayGrayBuffer() without the wait (Direct/Absolute passes; Overlay and
-  // the simulator stay blocking): the gray waveform runs, panel left on, until
+  // displayGrayBuffer() without the wait (Direct/Absolute passes; Overlay
+  // stays blocking): the gray waveform runs, panel left on, until
   // waitRefreshComplete() or deepSleep(). True while it is pending.
   bool displayGrayBufferAsync();
   // millis() when the running refresh's full-screen swing shows (UC8179: from
