@@ -246,6 +246,8 @@ class EpubReaderActivity final : public Activity {
   uint32_t globalStatsResetRevisionAtPanelOpen = 0;
   uint32_t ttfRenderGenerationAtPanelOpen = 0;
   bool pendingTtfRenderRelayout = false;
+  // Set by onEnter: the first render loads the SD font, keeping its SD reads off the main loop.
+  bool readerFontLoadPending = false;
   void relayoutAfterTtfRenderChange();
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.

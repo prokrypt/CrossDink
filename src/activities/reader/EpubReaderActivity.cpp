@@ -2424,8 +2424,7 @@ void EpubReaderActivity::onEnter() {
   showOpeningFeedback();
   loadBookReaderSettings();
   sdFontSystem.setSettingsPersistenceCallback(persistReaderSdFontSettingsForBook, this);
-  ensureReaderSdFontLoaded(renderer);
-  workerLaneMissFontId = 0;
+  readerFontLoadPending = true;
   if (!drawAheadMutex) drawAheadMutex = xSemaphoreCreateMutex();
   if (!drawAhead.done) drawAhead.done = xSemaphoreCreateBinary();
   if (!homeThumbWorker.done) homeThumbWorker.done = xSemaphoreCreateBinary();
@@ -6973,6 +6972,11 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+  if (readerFontLoadPending) {
+    readerFontLoadPending = false;
+    ensureReaderSdFontLoaded(renderer);
+    workerLaneMissFontId = 0;
+  }
 #if CROSSDINK_SCALABLE_FONTS
   if (epub)
     bookFontSystem.ensure(*epub, renderer,
