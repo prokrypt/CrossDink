@@ -3362,6 +3362,15 @@ void GfxRenderer::displayGrayBuffer(const bool turnOffScreen) const {
   absoluteGrayPlanes = false;
 }
 
+void GfxRenderer::displayGrayBufferAsync() const {
+#ifdef SIMULATOR  // the simulator HAL has no deferred gray pass
+  display.displayGrayBuffer(false);
+#else
+  display.displayGrayBufferAsync();
+#endif
+  absoluteGrayPlanes = false;
+}
+
 void GfxRenderer::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const {
   // Guard the uint16_t casts below: a negative would wrap to a huge length.
   assert(yStart >= 0 && numRows > 0 && yStart <= static_cast<int>(panelHeight) - numRows);

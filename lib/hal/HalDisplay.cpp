@@ -333,9 +333,9 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
 
 bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
 
-bool HalDisplay::powerOffIdle() {
+bool HalDisplay::powerOffIdle(const bool sampleTemp) {
   HalSpiBus::Lock spiLock;
-  const bool off = einkDisplay.powerOffIdle();
+  const bool off = einkDisplay.powerOffIdle(sampleTemp);
   if (off) PowerCounters::booster(false);
   return off;
 }
@@ -489,6 +489,16 @@ void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
   einkDisplay.displayGrayBuffer(turnOffScreen);
   if (turnOffScreen) PowerCounters::booster(false);
   shotGrayShown();
+}
+
+bool HalDisplay::displayGrayBufferAsync() {
+  HalSpiBus::Lock spiLock;
+  count(GRAY_PASSES);
+  // A pending pass keeps its planes' mark until waitRefreshComplete() clears it.
+  const bool pending = einkDisplay.displayGrayBufferAsync();
+  if (!pending) flashStart.store(0, std::memory_order_relaxed);
+  shotGrayShown();
+  return pending;
 }
 
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
