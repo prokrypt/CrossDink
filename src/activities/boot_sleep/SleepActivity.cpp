@@ -67,6 +67,16 @@ void refreshSleepFrame(const GfxRenderer& renderer) {
   }
 }
 
+// The final gray sleep frame, the same way: the Direct gray waveform runs
+// while enterDeepSleep() writes, and display.deepSleep() powers the panel off.
+void refreshSleepGrayFrame(const GfxRenderer& renderer) {
+  if (renderer.supportsAsyncRefresh()) {
+    renderer.displayGrayBufferAsync();
+  } else {
+    renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  }
+}
+
 bool sleepCoverFilterInvertsGeneratedScreen() {
   return SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE;
 }
@@ -912,7 +922,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
       }
     }
     renderer.copyGrayscalePlanes(lsb.get(), msb.get());
-    renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+    refreshSleepGrayFrame(renderer);
     return true;
   }
   if (panelIdlePending) idlePanel(hasGreyscale && direct);
@@ -972,7 +982,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
       renderer.copyGrayscaleMsbBuffers();
   }
   LOG_DBG("SLP", "Sleep image decoded in %lu ms (%d passes)", millis() - decodeStartMs, drawBwFrame ? 3 : 2);
-  renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  refreshSleepGrayFrame(renderer);
   renderer.setRenderMode(GfxRenderer::BW);
   return true;
 }

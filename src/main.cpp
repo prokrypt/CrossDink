@@ -1989,8 +1989,9 @@ void enterDeepSleep(bool fromTimeout) {
     HeldWrites::setWriteThrough(HeldWrites::Sleeping, true);
     flushSettingsStores();  // knobs.json
 
-    // B/W sleep screens start their refresh without waiting (SleepActivity), so
-    // these writes run during its waveform; gray ones refresh synchronously.
+    // Sleep screens start their refresh without waiting (SleepActivity), so
+    // these writes run during its waveform; Overlay gray ones (PNG, reader
+    // page) still refresh synchronously.
     // display.deepSleep() waits out any pending refresh before the power-off,
     // so no settle delay is needed here. A delay would only widen the window in
     // which a wake press is swallowed.

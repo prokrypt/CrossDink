@@ -484,6 +484,16 @@ void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
   shotGrayShown();
 }
 
+bool HalDisplay::displayGrayBufferAsync() {
+  HalSpiBus::Lock spiLock;
+  count(GRAY_PASSES);
+  // A pending pass keeps its planes' mark until waitRefreshComplete() clears it.
+  const bool pending = einkDisplay.displayGrayBufferAsync();
+  if (!pending) flashStart.store(0, std::memory_order_relaxed);
+  shotGrayShown();
+  return pending;
+}
+
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
   HalSpiBus::Lock spiLock;
   shotPlane(lsbPlane, rows, static_cast<uint32_t>(yStart) * getDisplayWidthBytes(),

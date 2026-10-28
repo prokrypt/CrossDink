@@ -130,6 +130,10 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
+  // displayGrayBuffer() without the wait (Direct/Absolute passes; Overlay
+  // stays blocking): the gray waveform runs, panel left on, until
+  // waitRefreshComplete() or deepSleep(). True while it is pending.
+  bool displayGrayBufferAsync();
   // millis() when the running refresh's full-screen swing shows (UC8179: from
   // the driver, per waveform; it may lie ahead), 0 while none runs. The main
   // loop dims the frontlight around it.
