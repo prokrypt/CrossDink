@@ -81,14 +81,6 @@ void logPanel() {
     LOG_DBG("PANEL", "VER=%02X %02X %02X %02X %02X FLG=%02X verdict=%u busyTimeout=%d productId=%s lutVer=%s", d.ver[0],
             d.ver[1], d.ver[2], d.ver[3], d.ver[4], d.flg, d.verdict, d.busyTimedOut ? 1 : 0, id, lut);
   }
-  if (d.mtpValid) {
-    char hex[sizeof(d.mtp) * 3 + 1];
-    size_t used = 0;
-    for (size_t i = 0; i < sizeof(d.mtp); i++) {
-      used += static_cast<size_t>(snprintf(hex + used, sizeof(hex) - used, "%02X ", d.mtp[i]));
-    }
-    LOG_DBG("PANEL", "MTP[0x000..0x02F]: %s", hex);
-  }
 }
 
 size_t formatLogHeader(char* buf, const size_t size) {

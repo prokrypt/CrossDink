@@ -50,6 +50,7 @@ class HalDisplay {
   void copyGrayscaleLsbBuffers(const uint8_t*) {}
   void copyGrayscaleMsbBuffers(const uint8_t*) {}
   void displayGrayBuffer(bool) {}
+  bool displayGrayBufferAsync() { return false; }
   void writeGrayscalePlaneStrip(bool, const uint8_t*, uint16_t, uint16_t) {}
   bool shouldSkipImageBlanking() const { return false; }
   void setSmoothGray(bool) {}
