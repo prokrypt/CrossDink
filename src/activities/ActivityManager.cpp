@@ -656,13 +656,18 @@ void ActivityManager::renderTaskLoop() {
       ListSelection::hidThisFrame = false;
       ListSelection::listThisFrame = false;
       const uint32_t inputBeforeRender = lastInputMs.load(std::memory_order_relaxed);
+      const uint32_t renderStartMs = millis();
       currentActivity->render(std::move(lock));
       // The open book has them only for its first page after opening, with no
       // input since that draw began (a gray page skips them above); any later
-      // frame of it stops them.
+      // frame of it stops them. Not after a page the panel drew with its
+      // clearing Full/Half waveform (a wake with no retained frame, or after the
+      // opening popup): it drove every pixel, so no Fast ghost is left to fade.
       if (currentActivity->isBookReaderActivity()) {
         const bool noInput = lastInputMs.load(std::memory_order_relaxed) == inputBeforeRender;
-        ghostBusters = currentActivity->ghostBustersRequested && noInput ? SETTINGS.ghostBusters : 0;
+        const bool clearedByFull = display.flashKind() == HalDisplay::FlashKind::Full &&
+                                   static_cast<int32_t>(display.flashEndsMs() - renderStartMs) >= 0;
+        ghostBusters = currentActivity->ghostBustersRequested && noInput && !clearedByFull ? SETTINGS.ghostBusters : 0;
         currentActivity->ghostBustersRequested = false;
       }
       ListSelection::hidOnScreen = ListSelection::hidThisFrame;
@@ -731,7 +736,10 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = true;
       idlePanelOffMs = PANEL_OFF_POLL_MS;
     }
-    if (!ghostBuster) lastFrameMs = millis();
+    if (!ghostBuster) {
+      lastFrameMs = millis();
+      firstFrameRendered.store(true, std::memory_order_release);
+    }
     // Renders leave work for the loop (queued page turns, toasts, alerts,
     // prerender timers): one pass now instead of at the next idle tick.
     InputTask::wakeLoop();

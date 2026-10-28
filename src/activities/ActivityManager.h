@@ -165,6 +165,7 @@ class ActivityManager {
   // Whether to trigger a render after the current loop()
   // This variable must only be set by the main loop, to avoid race conditions
   std::atomic<bool> requestedUpdate{false};
+  std::atomic<bool> firstFrameRendered{false};
   // A popped full-screen child leaves its pixels in the framebuffer until the
   // restored activity renders. Partial-screen overlays must not preserve that
   // stale child as their backdrop.
@@ -248,6 +249,8 @@ class ActivityManager {
   const char* currentActivityName() const;
   // No render is queued, running or waiting on the panel. Main task only.
   bool isRenderIdle() const;
+  // A frame has been rendered since boot (its refresh may still be running). Any task.
+  bool hasRenderedFirstFrame() const { return firstFrameRendered.load(std::memory_order_acquire); }
   // Serial remote control: forwards typed text to the foreground activity.
   bool injectText(const char* utf8);
   bool isReaderActivity() const;
