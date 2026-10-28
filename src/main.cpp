@@ -2076,8 +2076,9 @@ void enterDeepSleep(bool fromTimeout) {
 #endif
 }
 
-void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, const bool useReaderRenderStack) {
-#if !defined(SIMULATOR) && !FREEINK_MCU_C3
+#ifndef SIMULATOR
+static void initPanelHardware() {
+#if !FREEINK_MCU_C3
   // C3 X3/X4 detection already runs in HalGPIO::begin() before SPI owns the
   // panel pins. S3 boards initialize display SPI inside display.begin(), so an
   // X4 Pro must resolve a UC8179 replacement panel here, before driver selection.
@@ -2086,14 +2087,36 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
     controllerResolved = true;
     PanelProbe::resolve(forcePanelProbe);  // DeviceIdentity::logPanel() below reports the outcome
   }
-  bootPhase("probe");
+#endif
+  display.beginHardware();
+}
+
+// The panel probe, reset and controller init (~85 ms, mostly fixed delays)
+// need no settings, so they run on the UI core while setup() loads them.
+// setupDisplayAndFonts() joins before the settings-dependent first-paint choice.
+static WorkerTask panelInitTask;
+static bool panelInitStarted = false;
+
+static void startPanelInit() {
+  panelInitStarted =
+      panelInitTask.start([](void*) { initPanelHardware(); }, nullptr, 6144, "PanelInit", /*uiCore=*/true);
+}
 #endif
 
+void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, const bool useReaderRenderStack) {
 #ifdef SIMULATOR
   (void)seamless;
   display.begin();
 #else
-  display.begin(seamless);
+  if (panelInitStarted) {
+    bootStep = "panel init";  // a hung init then reports itself, not 'settings'
+    panelInitTask.join();
+    panelInitStarted = false;
+  } else {
+    initPanelHardware();
+  }
+  bootPhase("probe");
+  display.finishBegin(seamless);
   esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
   // Every restart writes held reader exit data and deferred settings first.
   // One handler: IDF has 5 slots and Wi-Fi takes one.
@@ -2420,6 +2443,9 @@ void setup() {
   }
   logBootHeap("storage ready");
   bootPhase("sd");
+#ifndef SIMULATOR
+  startPanelInit();
+#endif
 
   HalSystem::checkPanic();
   HeldWrites::begin();  // a held copy a reset carried wins over the card's
