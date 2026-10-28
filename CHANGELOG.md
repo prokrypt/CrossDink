@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Serial log: the boot after a deep sleep logs `[SLP] t request=.. draw=.. writes=.. shutdown=.. tilt=.. refresh=.. fade=.. busters=.. dslp=.. wifi=.. rails=.. release=.. total=..`, the time in ms of each step of that sleep entry, including the steps after the serial log ends.
 - Rotate Page 180° can be assigned to the power button, button chords, front-button long presses and long-press menu actions as well as the side buttons, on the device or in web settings (EPUB and TXT readers).
 - Touch: swipe left on a File Browser row, a Library list row or a bookmark to reveal a delete button; deleting still asks for confirmation. A tap elsewhere or a swipe right hides it. The Library cover grid keeps paging with horizontal swipes.
 - Sync Server: **Server Type** (CrossPoint, KOSync, Other) picks which optional fields are exchanged: CrossPoint and Other send exact book positions, Other also sends ISBN/ASIN/series when Send Metadata is on, KOSync sends standard progress only. Existing setups keep their behavior (default server: CrossPoint, custom URL: KOSync). **Custom Header 1/2** add a `Name: value` header for authentication proxies such as Cloudflare Access; values are masked and obfuscated on the card. Servers that store only a percentage now restore an approximate position instead of nothing. Also in web settings.
