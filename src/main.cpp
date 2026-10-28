@@ -1893,11 +1893,14 @@ static void showChordClock() {
 // stops them, so sleep is never held up by more than the refresh running.
 // None after a sleep frame the panel drew with its clearing Half/Full waveform
 // (every generated sleep screen): it drove every pixel, so no Fast ghost is left
-// to fade. Quick Resume's Fast frame keeps them. True when a key stopped them.
-static bool bustSleepGhosts([[maybe_unused]] const uint32_t sleepDrawStartMs) {
+// to fade. Quick Resume's Fast frame keeps them, even right after a Half whose
+// swing ends after sleepDrawStartMs. True when a key stopped them.
+static bool bustSleepGhosts([[maybe_unused]] const bool quickResume, [[maybe_unused]] const uint32_t sleepDrawStartMs) {
 #ifndef SIMULATOR  // the simulator HAL has no panel
-  if (SETTINGS.ghostBusters > 0 && display.flashKind() == HalDisplay::FlashKind::Full &&
-      static_cast<int32_t>(display.flashEndsMs() - sleepDrawStartMs) >= 0) {
+  // 0: no swing tracked (non-UC8179 panels).
+  const uint32_t flashEndsMs = display.flashEndsMs();
+  if (SETTINGS.ghostBusters > 0 && !quickResume && display.flashKind() == HalDisplay::FlashKind::Full &&
+      flashEndsMs != 0 && static_cast<int32_t>(flashEndsMs - sleepDrawStartMs) >= 0) {
     LOG_DBG("SLP", "Sleep ghost busters skipped: sleep frame drawn with Half/Full");
     return false;
   }
@@ -2042,7 +2045,7 @@ void enterDeepSleep(bool fromTimeout) {
     frontlightFadeOutForSleep();
     Frontlight.prepareForDeepSleep();
     HalPowerManager::sleepStep = "ghost busters";
-    [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts(sleepDrawStartMs);
+    [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts(isQuickResumeSleep, sleepDrawStartMs);
 #ifndef SIMULATOR
     // A key during the fade or the busters wakes too, with the light as it was;
     // the restart mounts the card again.
