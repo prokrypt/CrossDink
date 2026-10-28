@@ -148,6 +148,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Fixed
 - Opening chapters and drawing images no longer leaves an 8 KB gap in internal RAM each time: the HTML inflate and image decode helper tasks now keep their stacks in PSRAM, so the largest free internal block stays the same across chapter builds instead of shrinking for the rest of the session.
+- Home cover generation and Wi-Fi transfers (File Transfer uploads, OPDS and other downloads) no longer leave an 8 KB or 4 KB gap in internal RAM: their helper tasks keep their stacks in PSRAM, falling back to internal RAM when PSRAM is short.
 - Web server: downloads (File Transfer, WebDAV, log downloads) no longer push the web server task to within 440 bytes of a stack overflow; the 4 KB fallback send buffer moved from the stack to the heap (PSRAM on device).
 - Quick button presses are no longer lost while the device idles (most noticeable in the reader with the touchscreen off): a press the input task just missed now wakes it at once instead of waiting for the release.
 - KOSync Auto Sync: closing a book at the page it opened at no longer shows the uploading cloud on Home (or a redraw to remove it); nothing is uploaded then. A book whose last sync failed is still retried and keeps its cloud-off badge until the upload lands.

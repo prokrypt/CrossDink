@@ -2,6 +2,7 @@
 
 #include <Bitmap.h>
 #include <Epub.h>
+#include <Epub/PsramWorker.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
@@ -768,15 +769,25 @@ void HomeActivity::startCoverWorker(std::vector<CoverJob>&& jobs) {
   }
   // The covers are made on the worker core while Home stays drawn and takes
   // input; the render after the job draws them. Decoder buffers go to PSRAM.
-  // 4.8 KB used on device (0929e log).
+  // 4.8 KB used on device (0929e log). The stack goes to PSRAM too (SD only,
+  // no flash) so its self-delete leaves no internal hole (PsramWorker.h).
   constexpr uint32_t STACK_BYTES = 8192;
   if (!coverWorker.done) coverWorker.done = xSemaphoreCreateBinary();
   coverWorker.cancel.store(false, std::memory_order_relaxed);
   coverWorker.finished.store(false, std::memory_order_relaxed);
   powerManager.beginBackgroundWork();
-  if (coverWorker.done && xTaskCreatePinnedToCore(coverWorkerMain, "HomeCovers", STACK_BYTES, this, 1,
-                                                  &coverWorker.task, TaskCores::kWorker) == pdPASS) {
-    return;
+  if (coverWorker.done) {
+    // Set before the task can run: coverWorkerMain() reads it to decide how to exit.
+    coverWorker.psramStack = true;
+    if (psramworker::start(coverWorkerMain, "HomeCovers", STACK_BYTES, this, &coverWorker.task, TaskCores::kWorker)) {
+      return;
+    }
+    LOG_DBG("HOME", "HomeCovers: no PSRAM stack, using internal RAM");
+    coverWorker.psramStack = false;
+    if (xTaskCreatePinnedToCore(coverWorkerMain, "HomeCovers", STACK_BYTES, this, 1, &coverWorker.task,
+                                TaskCores::kWorker) == pdPASS) {
+      return;
+    }
   }
   coverWorker.task = nullptr;
   powerManager.endBackgroundWork();
@@ -792,8 +803,10 @@ void HomeActivity::coverWorkerMain(void* param) {
   powerManager.endBackgroundWork();
   activityManager.requestUpdate(true);
   PerfLog::noteTaskExit("HomeCovers");
-  // The activity may be destroyed as soon as this is given.
+  const bool parks = self->coverWorker.psramStack;
+  // The activity may be destroyed as soon as this is given (after reaping a parked task).
   xSemaphoreGive(self->coverWorker.done);
+  if (parks) psramworker::park();
   vTaskDelete(nullptr);
 }
 
@@ -842,6 +855,7 @@ void HomeActivity::joinCoverWorker(const bool cancel) {
   if (cancel) coverWorker.cancel.store(true, std::memory_order_relaxed);
   // Bounded by one decoded row (or the current cover copy/load) once cancelled; the worker never takes RenderLock.
   xSemaphoreTake(coverWorker.done, portMAX_DELAY);
+  if (coverWorker.psramStack) psramworker::reap(coverWorker.task);
   coverWorker.task = nullptr;
   coverWorker.finished.store(false, std::memory_order_relaxed);
 }
