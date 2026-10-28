@@ -86,7 +86,8 @@ class HalDisplay {
   // Power management
   void deepSleep();
   // Booster off between refreshes on idle screens; false when nothing changed.
-  bool powerOffIdle();
+  // sampleTemp=false skips the idle panel-temperature read.
+  bool powerOffIdle(bool sampleTemp = true);
   // Booster on ahead of the next refresh (touch-down); false when nothing changed.
   bool powerOnIdle();
   // Light-sleep through refresh busy-waits, waking on BUSY (HalPowerManager::setRefreshLightSleep).

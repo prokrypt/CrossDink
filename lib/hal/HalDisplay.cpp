@@ -326,9 +326,9 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
 
 bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
 
-bool HalDisplay::powerOffIdle() {
+bool HalDisplay::powerOffIdle(const bool sampleTemp) {
   HalSpiBus::Lock spiLock;
-  const bool off = einkDisplay.powerOffIdle();
+  const bool off = einkDisplay.powerOffIdle(sampleTemp);
   if (off) PowerCounters::booster(false);
   return off;
 }
