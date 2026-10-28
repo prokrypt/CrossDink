@@ -31,7 +31,7 @@ class SleepActivity final : public Activity {
   void renderMinimalSleepScreen() const;
   void renderMinimalStatsSleepScreen() const;
   void renderDashboardSleepScreen() const;
-  bool renderBitmapSleepScreen(Bitmap& bitmap, HalFile& file) const;
+  bool renderBitmapSleepScreen(Bitmap& bitmap, HalFile& file, const std::string& sourcePath) const;
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen() const;
