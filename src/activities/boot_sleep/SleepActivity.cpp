@@ -73,11 +73,33 @@ void refreshSleepFrame(const GfxRenderer& renderer) {
 constexpr char SLEEP_CACHE_DIR[] = "/.crossdink/sleepcache";
 constexpr int SLEEP_CACHE_MAX_FILES = 128;
 
+// Hashes 16 chunks spread over the file, first and last included: mtime is a
+// fixed fallback while the clock is unset, so a same-size replacement needs this.
+// shortcut: a sampled hash misses an edit that touches none of the chunks; hash the whole file if that shows up.
+uint64_t sampledContentHash(FsFile& file) {
+  constexpr int kChunks = 16;
+  constexpr size_t kChunkBytes = 128;
+  const size_t restore = file.position();
+  const size_t size = file.fileSize();
+  uint64_t hash = 0;
+  char chunk[kChunkBytes];
+  for (int i = 0; i < kChunks; ++i) {
+    const size_t offset = size > kChunkBytes ? (size - kChunkBytes) / (kChunks - 1) * i : 0;
+    if (!file.seekSet(offset)) break;
+    const int n = file.read(chunk, kChunkBytes);
+    if (n <= 0) break;
+    hash = hash * 1099511628211ull ^ ZipFile::fnvHash64(chunk, static_cast<size_t>(n));
+  }
+  file.seekSet(restore);
+  return hash;
+}
+
 // Keyed by everything that changes the decoded output; the firmware version
 // covers decoder changes.
 std::string sleepCachePath(const GfxRenderer& renderer, const std::string& sourcePath, FsFile& file, bool gray) {
-  char params[96];
-  snprintf(params, sizeof(params), "|%lu|%lu|%d|%d|%d|%d|%d|%d|", static_cast<unsigned long>(file.fileSize()),
+  char params[112];
+  snprintf(params, sizeof(params), "|%016llx|%lu|%lu|%d|%d|%d|%d|%d|%d|",
+           static_cast<unsigned long long>(sampledContentHash(file)), static_cast<unsigned long>(file.fileSize()),
            static_cast<unsigned long>(file.modificationTime()), static_cast<int>(SETTINGS.sleepScreenCoverMode),
            static_cast<int>(SETTINGS.sleepScreenCoverFilter), static_cast<int>(renderer.getOrientation()),
            renderer.getScreenWidth(), renderer.getScreenHeight(), gray ? 1 : 0);
