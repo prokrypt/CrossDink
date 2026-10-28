@@ -731,7 +731,10 @@ void ActivityManager::renderTaskLoop() {
       idlePanelOffArmed = true;
       idlePanelOffMs = PANEL_OFF_POLL_MS;
     }
-    if (!ghostBuster) lastFrameMs = millis();
+    if (!ghostBuster) {
+      lastFrameMs = millis();
+      firstFrameRendered.store(true, std::memory_order_release);
+    }
     // Renders leave work for the loop (queued page turns, toasts, alerts,
     // prerender timers): one pass now instead of at the next idle tick.
     InputTask::wakeLoop();

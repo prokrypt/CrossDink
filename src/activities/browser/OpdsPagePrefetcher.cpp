@@ -81,11 +81,14 @@ void OpdsPagePrefetcher::run() {
   const auto result = HttpDownloader::streamUrl(
       job.url,
       [this](const uint8_t* data, const size_t len) {
-        return !cancelRequested.load(std::memory_order_acquire) && page.append(data, len);
+        if (cancelRequested.load(std::memory_order_acquire)) return false;
+        const std::lock_guard<std::mutex> lock(pageMutex);
+        return page.append(data, len);
       },
       nullptr, job.username, job.password, std::move(options));
 
   // OK means the whole body arrived; a cancel that lands after that keeps it.
+  const std::lock_guard<std::mutex> lock(pageMutex);
   succeeded = result == HttpDownloader::OK && !page.failed() && !page.empty();
   networkFailed = result == HttpDownloader::HTTP_ERROR && !cancelRequested.load(std::memory_order_acquire);
   if (!succeeded) {
@@ -98,6 +101,13 @@ void OpdsPagePrefetcher::run() {
   }
 }
 
+void OpdsPagePrefetcher::drain(size_t& offset, Print& sink) {
+  const std::lock_guard<std::mutex> lock(pageMutex);
+  if (page.size() <= offset) return;  // nothing new (or the page was dropped)
+  sink.write(page.data() + offset, page.size() - offset);
+  offset = page.size();
+}
+
 #else  // SIMULATOR
 
 // The simulator reports no PSRAM, so the activity never creates a prefetcher;
@@ -106,5 +116,6 @@ OpdsPagePrefetcher::~OpdsPagePrefetcher() = default;
 bool OpdsPagePrefetcher::start(Request&&, size_t) { return false; }
 bool OpdsPagePrefetcher::harvestInto(OpdsPageCache&, bool, bool) { return false; }
 void OpdsPagePrefetcher::run() {}
+void OpdsPagePrefetcher::drain(size_t&, Print&) {}
 
 #endif  // SIMULATOR
