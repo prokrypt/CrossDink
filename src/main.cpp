@@ -2075,6 +2075,9 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   display.begin();
 #else
   display.begin(seamless);
+  // A Full first paint (the splash): the panel temperature converts while setup()
+  // continues, instead of holding BUSY ~106 ms after that refresh.
+  if (!seamless) display.startTemperatureRead();
   esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
   // Every restart writes held reader exit data and deferred settings first.
   // One handler: IDF has 5 slots and Wi-Fi takes one.
