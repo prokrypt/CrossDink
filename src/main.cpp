@@ -1909,9 +1909,19 @@ static void showChordClock() {
 // the sleep frame again as plain Fast refreshes, OLD = NEW, like the menu ones.
 // Only while the framebuffer is that frame (B/W, not lent out). A key press
 // stops them, so sleep is never held up by more than the refresh running.
-// True when a key stopped them.
-static bool bustSleepGhosts() {
+// None after a sleep frame the panel drew with its clearing Half/Full waveform
+// (every generated sleep screen): it drove every pixel, so no Fast ghost is left
+// to fade. Quick Resume's Fast frame keeps them, even right after a Half whose
+// swing ends after sleepDrawStartMs. True when a key stopped them.
+static bool bustSleepGhosts([[maybe_unused]] const bool quickResume, [[maybe_unused]] const uint32_t sleepDrawStartMs) {
 #ifndef SIMULATOR  // the simulator HAL has no panel
+  // 0: no swing tracked (non-UC8179 panels).
+  const uint32_t flashEndsMs = display.flashEndsMs();
+  if (SETTINGS.ghostBusters > 0 && !quickResume && display.flashKind() == HalDisplay::FlashKind::Full &&
+      flashEndsMs != 0 && static_cast<int32_t>(flashEndsMs - sleepDrawStartMs) >= 0) {
+    LOG_DBG("SLP", "Sleep ghost busters skipped: sleep frame drawn with Half/Full");
+    return false;
+  }
   RenderLock lock;
   for (uint8_t left = SETTINGS.ghostBusters; left > 0 && renderer.hasFrameBuffer() && !display.grayShown(); left--) {
     gpio.update();
@@ -1995,6 +2005,7 @@ void enterDeepSleep(bool fromTimeout) {
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
+    const uint32_t sleepDrawStartMs = millis();
     activityManager.goToSleep(fromTimeout);
     wifi_background_join::wait();  // the OPDS list's onExit() may have queued the radio off
     HalPowerManager::sleepStep = "sleep writes";
@@ -2054,7 +2065,7 @@ void enterDeepSleep(bool fromTimeout) {
     frontlightFadeOutForSleep();
     Frontlight.prepareForDeepSleep();
     HalPowerManager::sleepStep = "ghost busters";
-    [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts();
+    [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts(isQuickResumeSleep, sleepDrawStartMs);
 #ifndef SIMULATOR
     // A key during the fade or the busters wakes too, with the light as it was;
     // the restart mounts the card again.
