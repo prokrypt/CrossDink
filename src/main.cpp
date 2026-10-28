@@ -2276,6 +2276,7 @@ void setup() {
           BuildInfo::gitSha(), strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(),
           CROSSDINK_PIOENV, BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart,
           resetReasonName(rawResetReason));
+  PerfLog::logPreApp(rawResetReason == ESP_RST_POWERON);
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
