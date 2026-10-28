@@ -46,6 +46,7 @@
 #include "SavedItemsHomeActivity.h"
 #include "TaskCores.h"
 #include "activities/library/LibraryPrewarm.h"
+#include "activities/reader/KOSyncAuto.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/KOSyncBadge.h"
 #include "components/UITheme.h"
@@ -951,6 +952,7 @@ void HomeActivity::onEnter() {
   if (!selectInitialBook(initialBookPath)) {
     selectInitialBook(APP_STATE.openEpubPath);
   }
+  kosync_auto::retryUnsynced(APP_STATE.openEpubPath);
 
   reloadGlobalStats();
   if (isCarouselTheme) {

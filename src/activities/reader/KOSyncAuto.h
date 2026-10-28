@@ -27,6 +27,9 @@ void queuePull(const std::string& epubPath, int spineIndex, int pageNumber, int 
 // saved: the exit position (null if unread); a close not past the page it opened at
 // gets no Syncing badge, since the job then skips it without the radio.
 void queue(const std::string& epubPath, const EpubReaderUtils::Progress* saved);
+// Home: when the last book's badge reads Unsynced (a close push failed, or a Wi-Fi
+// screen cut it off, maybe across its restart), queues that push again, once per boot.
+void retryUnsynced(const std::string& epubPath);
 // Reader loop: a finished fetch for this book, once, else null; valid until the
 // next fetch starts. method: the hash it matched.
 const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMethod& method);
