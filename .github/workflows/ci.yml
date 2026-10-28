@@ -249,7 +249,10 @@ jobs:
           {
             echo "## ${{ matrix.environment }} firmware build stats"
             grep -E "RAM:\s|Flash:\s" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
-          } >> "$GITHUB_STEP_SUMMARY"
+            # Internal-RAM sections: unused IRAM on the S3 is returned to the DRAM heap.
+            size=$(find ~/.platformio/packages -name 'xtensa-esp32s3-elf-size' -path '*bin*' | head -1)
+            "$size" -A .pio/build/${{ matrix.environment }}/firmware.elf | awk '$1 ~ /^\.(iram0\.text|iram0\.vectors|dram0\.data|dram0\.bss)$/ { print "- " $1 ": " $2 " B" }'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Largest symbols and source files
         if: matrix.environment == 'x4-pro'
