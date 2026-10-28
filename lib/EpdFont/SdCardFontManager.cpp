@@ -9,6 +9,8 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
+#include <PoolBudget.h>
 #include <SdCardFont.h>
 #include <SdCardFontRegistry.h>
 
@@ -122,8 +124,14 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
     bool present = false;
     for (const auto& loaded : loaded_) present |= loaded.size == file->pointSize;
     if (present) continue;
-    if (ESP.getFreeHeap() < FREE_RESERVE + SIZE_BUDGET || ESP.getMaxAllocHeap() < BLOCK_RESERVE + SIZE_BUDGET) {
-      LOG_DBG("SDMGR", "Skipping optional size %u: preserving heap reserve", file->pointSize);
+    // The size set is part of the book's cache identity, so gate on the pool these
+    // >1 KB tables land in. A dip in internal heap at book open must not change
+    // the set and rebuild every section.
+    const bool fits = psramHeapAvailable() ? MemoryBudget::canAllocatePsram(SIZE_BUDGET)
+                                           : ESP.getFreeHeap() >= FREE_RESERVE + SIZE_BUDGET &&
+                                                 ESP.getMaxAllocHeap() >= BLOCK_RESERVE + SIZE_BUDGET;
+    if (!fits) {
+      LOG_INF("SDMGR", "Skipping optional size %u: preserving heap reserve (cache id changes)", file->pointSize);
       continue;
     }
     loadFilePath(file->path.c_str(), family.name.c_str(), file->pointSize, renderer, SIZE_BUDGET);

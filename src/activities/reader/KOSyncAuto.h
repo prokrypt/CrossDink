@@ -24,7 +24,9 @@ namespace kosync_auto {
 void queuePull(const std::string& epubPath, int spineIndex, int pageNumber, int pageCount,
                std::optional<uint32_t> textOffset);
 // Reader exit: drops a pending fetch; remembers the book for a push when At close is on.
-void queue(const std::string& epubPath);
+// saved: the exit position (null if unread); a close not past the page it opened at
+// gets no Syncing badge, since the job then skips it without the radio.
+void queue(const std::string& epubPath, const EpubReaderUtils::Progress* saved);
 // Reader loop: a finished fetch for this book, once, else null; valid until the
 // next fetch starts. method: the hash it matched.
 const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMethod& method);

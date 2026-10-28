@@ -38,6 +38,8 @@ void noteInput(bool release, const char* kind, uint32_t seq);
 // is still on the panel, so this render's first display call finishes it first.
 void noteRenderStart(const char* activity, bool refreshPending = false);
 void noteRenderEnd();
+// A render that refreshes inside itself (the reader) marks its frame drawn just before the refresh.
+void noteRenderDrawn();
 // Reader: how the page frame was produced ("pre" drawn ahead, "draw" composed).
 void notePagePath(const char* path);
 // A refresh finished on the panel: closes the pending latency sample, and the
@@ -61,7 +63,7 @@ void logLastSleep();
 // Trail entries (RTC slow memory, CRC-guarded; name is copied).
 void noteActivity(const char* name);
 void noteError(const char* line);
-// "[ERS] open: <stage>=<ms> ... other= total=" once per book open, from
+// "[ERS] open: <stage>=<ms> ... other= total= sd=<opens>" once per book open, from
 // bookOpenBegin() (the reader starts loading) to bookOpenEnd() (first page on
 // the panel, or the open failed). Stages add up under a string-literal name
 // and are dropped outside an open.
@@ -109,6 +111,7 @@ inline uint32_t nextInputSeq() { return 0; }
 inline void noteInput(bool, const char*, uint32_t) {}
 inline void noteRenderStart(const char*, bool = false) {}
 inline void noteRenderEnd() {}
+inline void noteRenderDrawn() {}
 inline void notePagePath(const char*) {}
 inline void noteInk(bool = false) {}
 inline void noteBootPhase(const char*) {}

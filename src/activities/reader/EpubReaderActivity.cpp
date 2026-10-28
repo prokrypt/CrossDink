@@ -2450,6 +2450,8 @@ void EpubReaderActivity::onEnter() {
   // Activate reader-specific front button mapping (if configured).
   mappedInput.setReaderMode(true);
 
+  // Per-book stores, progress and stats, up to the first update request.
+  const uint32_t storesStartMs = millis();
   BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   showOpeningFeedback();
@@ -2582,6 +2584,7 @@ void EpubReaderActivity::onEnter() {
       currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
   kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
                          openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt);
+  PerfLog::bookOpenStage("stores", millis() - storesStartMs);
 
   showOpeningFeedback();
   // Trigger first update
@@ -2688,6 +2691,8 @@ void EpubReaderActivity::onExit() {
   }
 
   std::string syncPath = epub ? epub->getPath() : std::string();
+  EpubReaderUtils::Progress exitSaved;  // the position just saved above
+  const bool hasExitSaved = epub && EpubReaderUtils::loadProgress(*epub, exitSaved, "KOSync");
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
     const std::string oldCachePath = epub->getCachePath();
@@ -2701,7 +2706,7 @@ void EpubReaderActivity::onExit() {
   } else {
     epub.reset();
   }
-  if (!syncPath.empty()) kosync_auto::queue(syncPath);
+  if (!syncPath.empty()) kosync_auto::queue(syncPath, hasExitSaved ? &exitSaved : nullptr);
 
   restoreGlobalReaderSettings();
 }
@@ -8460,6 +8465,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
     finalizeBufferComposition();
     renderStatusBar();
+    PerfLog::noteRenderDrawn();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   }
@@ -8559,6 +8565,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // never clean themselves, so a due cadence also swings fully (one balanced flash every N pages).
   const bool grayImages = pageHasImages && !DirectPixelWriter::bwImages;
   if (updatePanel) {
+    PerfLog::noteRenderDrawn();  // the refreshes below block inside render(): split render from ink here
     renderer.setSmoothGray((SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SMOOTH || pageHasImages) &&
                            !grayImages && !smoothFullSwingPending && !grayCadenceDue);
     // Night mode: text AA only. Image pages keep their polarity-preserved B/W
