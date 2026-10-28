@@ -447,6 +447,8 @@ class GfxRenderer {
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer(bool turnOffScreen = false) const;
+  // See HalDisplay::displayGrayBufferAsync; callers check supportsAsyncRefresh().
+  void displayGrayBufferAsync() const;
   void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const;
   // See HalDisplay::fastTracksPanel.
   bool fastTracksPanel() const;

@@ -90,7 +90,8 @@ class HalDisplay {
   // Power management
   void deepSleep();
   // Booster off between refreshes on idle screens; false when nothing changed.
-  bool powerOffIdle();
+  // sampleTemp=false skips the idle panel-temperature read.
+  bool powerOffIdle(bool sampleTemp = true);
   // Booster on ahead of the next refresh (touch-down); false when nothing changed.
   bool powerOnIdle();
   // Light-sleep through refresh busy-waits, waking on BUSY (HalPowerManager::setRefreshLightSleep).
@@ -133,6 +134,10 @@ class HalDisplay {
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
   void displayGrayBuffer(bool turnOffScreen = false);
+  // displayGrayBuffer() without the wait (Direct/Absolute passes; Overlay
+  // stays blocking): the gray waveform runs, panel left on, until
+  // waitRefreshComplete() or deepSleep(). True while it is pending.
+  bool displayGrayBufferAsync();
   // millis() when the running refresh's full-screen swing shows (UC8179: from
   // the driver, per waveform; it may lie ahead), 0 while none runs. The main
   // loop dims the frontlight around it.
