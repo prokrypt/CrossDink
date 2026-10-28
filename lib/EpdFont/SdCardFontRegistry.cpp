@@ -10,8 +10,14 @@
 #include <HalScalableFont.h>
 #endif
 
+#if defined(ESP_PLATFORM)
+#include <esp_attr.h>
+#include <esp_system.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 
@@ -20,6 +26,59 @@
 
 namespace {
 std::atomic<uint32_t> indexGeneration{0};
+
+// The cold /.fonts walk costs about 130 ms at the first font load after boot.
+// Deep sleep keeps RTC memory, so a wake reuses the fingerprint taken before
+// sleep. shortcut: fonts edited elsewhere while asleep show after the next
+// restart (as the Library's carried scan does); a deleted selected font falls
+// back to the built-in font until then.
+#if defined(ESP_PLATFORM)
+struct CarriedInventory {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t size;
+  uint64_t fingerprint;
+  uint32_t check;
+};
+constexpr uint32_t CARRIED_INVENTORY_MAGIC = 0x464E5449;  // "FNTI"
+constexpr uint16_t CARRIED_INVENTORY_VERSION = 1;
+RTC_NOINIT_ATTR CarriedInventory rtcInventory;
+
+uint32_t carriedCheck(const CarriedInventory& record) {
+  return fontcatalog::hashBytes(2166136261u, &record, offsetof(CarriedInventory, check));
+}
+
+void carryInventory(const uint64_t fingerprint) {
+  rtcInventory = {CARRIED_INVENTORY_MAGIC, CARRIED_INVENTORY_VERSION, sizeof(CarriedInventory), fingerprint, 0};
+  rtcInventory.check = carriedCheck(rtcInventory);
+}
+
+void dropCarriedInventory() {
+  rtcInventory.magic = 0;
+  rtcInventory.check = 0;
+}
+
+// Only the first inventory of a deep-sleep wake may use the carried value;
+// power-on leaves garbage and a restart may follow card edits.
+bool takeCarriedInventory(uint64_t& fingerprint) {
+  static bool taken = false;
+  if (taken) return false;
+  taken = true;
+  const bool valid = esp_reset_reason() == ESP_RST_DEEPSLEEP && rtcInventory.magic == CARRIED_INVENTORY_MAGIC &&
+                     rtcInventory.version == CARRIED_INVENTORY_VERSION &&
+                     rtcInventory.size == sizeof(CarriedInventory) && rtcInventory.check == carriedCheck(rtcInventory);
+  if (!valid) {
+    dropCarriedInventory();
+    return false;
+  }
+  fingerprint = rtcInventory.fingerprint;
+  return true;
+}
+#else
+void carryInventory(uint64_t) {}
+void dropCarriedInventory() {}
+bool takeCarriedInventory(uint64_t&) { return false; }
+#endif
 }  // namespace
 
 // --- SdCardFontFamilyInfo helpers ---
@@ -327,6 +386,7 @@ bool SdCardFontRegistry::discover() {
   inventoryFingerprint_ = fingerprint;
   inventoryGeneration_ = generation;
   inventoryKnown_ = true;
+  carryInventory(fingerprint);
   ++revision_;
   if (!readIndex(fingerprint)) {
     discoveryFailed_ = true;
@@ -432,6 +492,7 @@ bool SdCardFontRegistry::needsRefresh() const {
 
 void SdCardFontRegistry::invalidateIndex() {
   indexGeneration.fetch_add(1, std::memory_order_acq_rel);
+  dropCarriedInventory();
   if (Storage.exists(fontcatalog::Path) && !Storage.remove(fontcatalog::Path))
     LOG_ERR("SDREG", "Could not invalidate font index");
 }
@@ -439,12 +500,15 @@ void SdCardFontRegistry::invalidateIndex() {
 bool SdCardFontRegistry::loadNames(bool checkInventory) {
   const uint32_t generation = indexGeneration.load(std::memory_order_acquire);
   if (checkInventory || !inventoryKnown_ || inventoryGeneration_ != generation) {
-    if (!fontcatalog::inventory(inventoryFingerprint_)) {
+    if (takeCarriedInventory(inventoryFingerprint_) && !checkInventory) {
+      LOG_DBG("SDREG", "Font inventory carried over deep sleep");
+    } else if (!fontcatalog::inventory(inventoryFingerprint_)) {
       discoveryFailed_ = true;
       return false;
     }
     inventoryGeneration_ = generation;
     inventoryKnown_ = true;
+    carryInventory(inventoryFingerprint_);
   }
   const uint64_t fingerprint = inventoryFingerprint_;
   discoveryFailed_ = false;
