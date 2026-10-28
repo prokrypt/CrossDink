@@ -8657,6 +8657,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // below reaches the panel (markGrayscaleShown), so quickly skipped image
     // pages stay flash-free.
   } else if (needsAnyGrayscale) {
+    // As below: the worker draws the next page's B/W frame offscreen while the
+    // base waveform and the AA planes run here.
+    if (!activeFootnotePreview) kickDrawAhead();
     if (pagesUntilFullRefresh <= 1) {
       // Cleanup turns still need the stronger HALF pass, but X3 grayscale overlays settle better if the OEM
       // precondition step runs before the gray planes are written.
