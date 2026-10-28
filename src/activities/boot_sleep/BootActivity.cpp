@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "ImageFolderIndex.h"
+#include "activities/RenderLock.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 
@@ -145,5 +146,7 @@ void BootActivity::onEnter() {
     drawDefaultBootLogo(renderer);
   }
 
+  // RenderLock: setup()'s early PON may still be running on the render task.
+  RenderLock lock;
   renderer.displayBuffer();
 }
