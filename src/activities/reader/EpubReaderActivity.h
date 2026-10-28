@@ -669,6 +669,7 @@ class EpubReaderActivity final : public Activity {
   void restoreSavedPosition();
 
   BookLoadingFeedback openingFeedback;
+  bool firstPageShown = false;  // Ghost Busters run on the first one after opening
   bool showOpeningFeedback() {
     if (!openingFeedback.showIfDue(renderer)) return false;
     pagesUntilFullRefresh = 0;
