@@ -265,7 +265,7 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
         if (migrateForFilePath(header.path, filePath, title, author, bookType)) {
           return loadForBook(filePath, title, author, bookType);
         }
-        break;
+        return true;  // migration failed: not a miss, retry on the next open
       }
       readScanMisses[readScanMissCount++ % READ_SCAN_MISS_SLOTS] = pathCrc;
     }
