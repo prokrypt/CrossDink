@@ -20,6 +20,17 @@ constexpr size_t INITIAL_BOOKMARK_RESERVE = 8;
 constexpr char BOOKMARKS_DIR[] = "/.crossdink/bookmarks";
 constexpr char READ_FOLDER[] = "/Read";
 
+// Read-folder books whose /bookmarks scan found no orphaned file this boot (path CRCs, ring buffer).
+// In-app moves migrate directly; an orphan from an outside move is picked up after the next boot.
+constexpr size_t READ_SCAN_MISS_SLOTS = 16;
+uint32_t readScanMisses[READ_SCAN_MISS_SLOTS];
+size_t readScanMissCount = 0;
+
+bool readScanMissed(const uint32_t crc) {
+  const size_t n = std::min(readScanMissCount, READ_SCAN_MISS_SLOTS);
+  return std::find(readScanMisses, readScanMisses + n, crc) != readScanMisses + n;
+}
+
 struct BookmarkFileHeader {
   std::string title;
   std::string author;
@@ -236,7 +247,8 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
   const bool hasLegacyFile = legacyStoreFilePath != storeFilePath && Storage.exists(legacyStoreFilePath.c_str());
 
   if (!hasCurrentFile && !hasLegacyFile) {
-    if (bookType == "epub" && isInReadFolder(filePath) && Storage.exists(BOOKMARKS_DIR)) {
+    const uint32_t pathCrc = uzlib_crc32(filePath.data(), static_cast<unsigned int>(filePath.size()), 0);
+    if (bookType == "epub" && isInReadFolder(filePath) && !readScanMissed(pathCrc) && Storage.exists(BOOKMARKS_DIR)) {
       for (const auto& name : Storage.listFiles(BOOKMARKS_DIR)) {
         BookmarkFileHeader header;
         const std::string fullPath = std::string(BOOKMARKS_DIR) + "/" + name.c_str();
@@ -253,8 +265,9 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
         if (migrateForFilePath(header.path, filePath, title, author, bookType)) {
           return loadForBook(filePath, title, author, bookType);
         }
-        break;
+        return true;  // migration failed: not a miss, retry on the next open
       }
+      readScanMisses[readScanMissCount++ % READ_SCAN_MISS_SLOTS] = pathCrc;
     }
 
     return true;
