@@ -157,6 +157,15 @@ class EpubReaderActivity final : public Activity {
   };
   GrayImageOnPanel grayImageOnPanel;
   bool skipRecentBookUpdateOnEntry = false;
+  // onEnter() bookkeeping the first page doesn't need, run by the first loop().
+  struct OpenTail {
+    bool pending = false;
+    int spineIndex = 0;
+    int pageNumber = 0;
+    int pageCount = 0;
+    std::optional<uint32_t> textOffset;
+  } openTail;
+  void finishOpenTail();
   int cachedSpineIndex = 0;
   int cachedChapterPageNumber = 0;
   int cachedTocIndex = -1;  // resolved against the old layout before a settings-driven reset

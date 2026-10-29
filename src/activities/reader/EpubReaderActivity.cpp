@@ -2568,29 +2568,35 @@ void EpubReaderActivity::onEnter() {
 
   initializeCompletionPromptTrigger();
 
-  // The first page needs nothing below: start it now and finish the bookkeeping
-  // while it draws. The render task owns the position from here, so the sync
+  globalStats = GlobalReadingStats::load();  // onExit() queues it, even before the first loop()
+
+  // Save current epub as last opened epub (a held write; a low-memory restart
+  // during the first render reboots into it).
+  APP_STATE.openEpubPath = epub->getPath();
+  APP_STATE.saveToFile();
+
+  // Recent books and the sync pull wait for the first loop(), which runs while
+  // the first page draws. The render task owns the position from here, so the
   // pull takes a copy of the one the book opened at.
   const bool openedAtSavedPage =
       currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
-  const int pullSpineIndex = currentSpineIndex;
-  const int pullPageNumber = nextPageNumber;
-  const int pullPageCount = cachedChapterTotalPageCount;
-  const auto pullTextOffset = openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt;
+  openTail = {true, currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
+              openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt};
   LOG_DBG("ERS", "open stores: marks=%lu position=%lu stats=%lu", static_cast<unsigned long>(marksMs),
           static_cast<unsigned long>(positionMs),
           static_cast<unsigned long>(millis() - storesStartMs - marksMs - positionMs));
   PerfLog::bookOpenStage("stores", millis() - storesStartMs);
+
   showOpeningFeedback();
-  requestUpdate(/*immediate=*/true);
+  // Trigger first update
+  requestUpdate();
+}
 
+void EpubReaderActivity::finishOpenTail() {
+  if (!openTail.pending || !epub) return;
+  openTail.pending = false;
   // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
-  const uint32_t tailStartMs = millis();
-  globalStats = GlobalReadingStats::load();
-
-  // Save current epub as last opened epub and add to recent books
-  APP_STATE.openEpubPath = epub->getPath();
-  APP_STATE.saveToFile();
+  const uint32_t startMs = millis();
   const RecentBook::CoverState coverState =
       epub->hasCoverImage() ? RecentBook::CoverState::Unknown : RecentBook::CoverState::Missing;
   if (!skipRecentBookUpdateOnEntry) {
@@ -2598,12 +2604,13 @@ void EpubReaderActivity::onEnter() {
                                  coverState == RecentBook::CoverState::Missing ? "" : epub->getThumbBmpPath(),
                                  coverState);
   }
-
-  kosync_auto::queuePull(epub->getPath(), pullSpineIndex, pullPageNumber, pullPageCount, pullTextOffset);
-  LOG_DBG("ERS", "open stores after first-page request: %lu ms", static_cast<unsigned long>(millis() - tailStartMs));
+  kosync_auto::queuePull(epub->getPath(), openTail.spineIndex, openTail.pageNumber, openTail.pageCount,
+                         openTail.textOffset);
+  LOG_DBG("ERS", "open tail in first loop: %lu ms", static_cast<unsigned long>(millis() - startMs));
 }
 
 void EpubReaderActivity::onExit() {
+  finishOpenTail();  // closed before the first loop()
   renderer.setSmoothGray(false);
   renderer.setInvertedTextGray(false);
   joinBuildWorker(/*stop=*/true);
@@ -3606,6 +3613,7 @@ bool EpubReaderActivity::offerKeptPosition() {
 }
 
 void EpubReaderActivity::loop() {
+  finishOpenTail();
   syncStatsTrackingState();
   if (pendingTtfRenderRelayout && epub) {
     relayoutAfterTtfRenderChange();
