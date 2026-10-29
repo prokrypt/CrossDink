@@ -1641,6 +1641,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   if (statsTrackingActive && !enabled && epub) {
     commitReadingStatsSession();
     pendingStatsCommit = true;
+    ReaderExitSave::flushStats();  // held stats from the last close land first
     if (stats.save(epub->getCachePath())) {
       globalStats.save();
       pendingStatsCommit = false;
@@ -2545,8 +2546,8 @@ void EpubReaderActivity::onEnter() {
 
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
-  // Held exit stats land first, so this session's saves supersede them.
-  ReaderExitSave::flushStats();
+  // Held exit stats are read from RAM here and written once the first page is
+  // up (loop()), so this session's saves still supersede them.
   stats = BookReadingStats::load(epub->getCachePath());
   bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
   statsTrackingActive = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
@@ -2662,6 +2663,7 @@ void EpubReaderActivity::onExit() {
 
   APP_STATE.setReaderActivityLoadCount(0);
 
+  ReaderExitSave::flushStats();  // a close before the first page: older stats land first
   syncStatsTrackingState();
   commitReadingStatsSession();
   if (epub) {
@@ -3603,6 +3605,9 @@ bool EpubReaderActivity::offerKeptPosition() {
 }
 
 void EpubReaderActivity::loop() {
+  // Off the open path: the write overlaps the first page's ink, and it lands
+  // before anything below can save this session's stats.
+  if (firstPageShown) ReaderExitSave::flushStats();
   syncStatsTrackingState();
   if (pendingTtfRenderRelayout && epub) {
     relayoutAfterTtfRenderChange();
@@ -4928,6 +4933,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                 if (!saveProgress(backupSpine, backupPage, backupPageCount)) {
                   LOG_ERR("ERS", "Failed to save progress before cache clear");
                 }
+                ReaderExitSave::flushStats();  // held stats from the last close land first
                 stats.save(epub->getCachePath());
                 section.reset();
                 cacheDeleted = clearBookCachePreservingUserState(epub->getPath());
@@ -5904,6 +5910,7 @@ void EpubReaderActivity::resetReadingPaceData() {
   armReadingPaceWarmup("reading_pace_reset");
   if (epub) {
     epub->setupCacheDir();
+    ReaderExitSave::flushStats();  // held stats from the last close land first
     stats.save(epub->getCachePath());
   }
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
@@ -6608,6 +6615,7 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
     pendingReadFolderMove = false;
   }
   refreshCachedTimeLeftEstimate();
+  ReaderExitSave::flushStats();  // held stats from the last close land first
   if (!stats.save(epub->getCachePath())) return;
   SyncPending::mark(epub->getPath(), SyncPending::STATS_BIT);
   BookSyncFile::onFinishedChanged(epub->getPath(), isCompleted);
