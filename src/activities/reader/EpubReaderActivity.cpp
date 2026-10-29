@@ -2453,6 +2453,7 @@ void EpubReaderActivity::onEnter() {
   const uint32_t storesStartMs = millis();
   BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
+  const uint32_t marksMs = millis() - storesStartMs;
   showOpeningFeedback();
 
   uint16_t restartPageBuildSpine = UINT16_MAX;
@@ -2540,6 +2541,8 @@ void EpubReaderActivity::onEnter() {
   }
 
   loadLinkStack();
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
+  const uint32_t positionMs = millis() - storesStartMs - marksMs;
 
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
@@ -2563,9 +2566,27 @@ void EpubReaderActivity::onEnter() {
   dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 
-  globalStats = GlobalReadingStats::load();
-
   initializeCompletionPromptTrigger();
+
+  // The first page needs nothing below: start it now and finish the bookkeeping
+  // while it draws. The render task owns the position from here, so the sync
+  // pull takes a copy of the one the book opened at.
+  const bool openedAtSavedPage =
+      currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
+  const int pullSpineIndex = currentSpineIndex;
+  const int pullPageNumber = nextPageNumber;
+  const int pullPageCount = cachedChapterTotalPageCount;
+  const auto pullTextOffset = openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt;
+  LOG_DBG("ERS", "open stores: marks=%lu position=%lu stats=%lu", static_cast<unsigned long>(marksMs),
+          static_cast<unsigned long>(positionMs),
+          static_cast<unsigned long>(millis() - storesStartMs - marksMs - positionMs));
+  PerfLog::bookOpenStage("stores", millis() - storesStartMs);
+  showOpeningFeedback();
+  requestUpdate(/*immediate=*/true);
+
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
+  const uint32_t tailStartMs = millis();
+  globalStats = GlobalReadingStats::load();
 
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
@@ -2578,16 +2599,8 @@ void EpubReaderActivity::onEnter() {
                                  coverState);
   }
 
-  // The saved page's text offset, unless a jump or restart target replaced that page.
-  const bool openedAtSavedPage =
-      currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
-  kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
-                         openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt);
-  PerfLog::bookOpenStage("stores", millis() - storesStartMs);
-
-  showOpeningFeedback();
-  // Trigger first update
-  requestUpdate();
+  kosync_auto::queuePull(epub->getPath(), pullSpineIndex, pullPageNumber, pullPageCount, pullTextOffset);
+  LOG_DBG("ERS", "open stores after first-page request: %lu ms", static_cast<unsigned long>(millis() - tailStartMs));
 }
 
 void EpubReaderActivity::onExit() {
