@@ -2543,8 +2543,8 @@ void EpubReaderActivity::onEnter() {
 
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
-  // Held exit stats land first, so this session's saves supersede them.
-  ReaderExitSave::flushStats();
+  // Held exit stats are read from RAM here and written once the first page is
+  // up (loop()), so this session's saves still supersede them.
   stats = BookReadingStats::load(epub->getCachePath());
   bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
   statsTrackingActive = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
@@ -2652,6 +2652,7 @@ void EpubReaderActivity::onExit() {
 
   APP_STATE.setReaderActivityLoadCount(0);
 
+  ReaderExitSave::flushStats();  // a close before the first page: older stats land first
   syncStatsTrackingState();
   commitReadingStatsSession();
   if (epub) {
@@ -3593,6 +3594,9 @@ bool EpubReaderActivity::offerKeptPosition() {
 }
 
 void EpubReaderActivity::loop() {
+  // Off the open path: the write overlaps the first page's ink, and it lands
+  // before anything below can save this session's stats.
+  if (firstPageShown) ReaderExitSave::flushStats();
   syncStatsTrackingState();
   if (pendingTtfRenderRelayout && epub) {
     relayoutAfterTtfRenderChange();
