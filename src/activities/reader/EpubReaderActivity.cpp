@@ -2417,7 +2417,9 @@ void EpubReaderActivity::onEnter() {
   captureGlobalReaderSettings();
   epub->setupCacheDir();
   progressSaveDebouncer.setShadowed(ReaderProgressShadow::bind(ReaderProgressShadow::Kind::Epub, epub->getCachePath()));
-  {
+  // The loan waits out any refresh still running (Home's Ghost busters), so take
+  // it only when the index is still to be built, not on every cached open.
+  if (epub->optimizerImageIndexPending()) {
     GfxRenderer::FrameBufferLoan loan(renderer);
     epub->ensureOptimizerImageIndex();
   }
