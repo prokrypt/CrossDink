@@ -1641,6 +1641,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   if (statsTrackingActive && !enabled && epub) {
     commitReadingStatsSession();
     pendingStatsCommit = true;
+    ReaderExitSave::flushStats();  // held stats from the last close land first
     if (stats.save(epub->getCachePath())) {
       globalStats.save();
       pendingStatsCommit = false;
@@ -4919,6 +4920,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                 if (!saveProgress(backupSpine, backupPage, backupPageCount)) {
                   LOG_ERR("ERS", "Failed to save progress before cache clear");
                 }
+                ReaderExitSave::flushStats();  // held stats from the last close land first
                 stats.save(epub->getCachePath());
                 section.reset();
                 cacheDeleted = clearBookCachePreservingUserState(epub->getPath());
@@ -5895,6 +5897,7 @@ void EpubReaderActivity::resetReadingPaceData() {
   armReadingPaceWarmup("reading_pace_reset");
   if (epub) {
     epub->setupCacheDir();
+    ReaderExitSave::flushStats();  // held stats from the last close land first
     stats.save(epub->getCachePath());
   }
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
@@ -6599,6 +6602,7 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
     pendingReadFolderMove = false;
   }
   refreshCachedTimeLeftEstimate();
+  ReaderExitSave::flushStats();  // held stats from the last close land first
   if (!stats.save(epub->getCachePath())) return;
   SyncPending::mark(epub->getPath(), SyncPending::STATS_BIT);
   BookSyncFile::onFinishedChanged(epub->getPath(), isCompleted);
