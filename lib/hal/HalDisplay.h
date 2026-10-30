@@ -94,6 +94,9 @@ class HalDisplay {
   bool powerOffIdle(bool sampleTemp = true);
   // Booster on ahead of the next refresh (touch-down); false when nothing changed.
   bool powerOnIdle();
+  // Start the panel-temperature read now; it converts while boot continues and
+  // the next panel command collects it. For boots whose first refresh is Full.
+  void startTemperatureRead();
   // Light-sleep through refresh busy-waits, waking on BUSY (HalPowerManager::setRefreshLightSleep).
   // begin() turns it on for UC8179 panels in PM builds.
   void setRefreshLightSleep(bool allowed);
