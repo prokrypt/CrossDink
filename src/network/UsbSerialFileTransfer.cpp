@@ -20,6 +20,7 @@
 #include "SerialRemote.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
+#include "util/DebugDump.h"
 #include "util/DeviceIdentity.h"
 
 #if defined(FREEINK_DEVICE_X4PRO) && FREEINK_DEVICE_X4PRO && ARDUINO_USB_CDC_ON_BOOT && !ARDUINO_USB_MODE && \
@@ -786,15 +787,17 @@ ProcessResult handleLine() {
     // Fresh identity header first (counted in the length): the ring may have
     // wrapped past the boot lines.
     const size_t headerLen = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+    const std::string dump = DebugDump::format();  // settings + fonts, built per dump
     bool sent = false;
     {
       // Hold the port for the whole dump: the host counts the announced bytes.
       const LogSerialGuard port(BULK_WRITE_BUDGET_MS);
       char start[32];
       const int startLen = snprintf(start, sizeof(start), "PSRAMLOG_START:%lu\n",
-                                    static_cast<unsigned long>(headerLen + (end - cursor)));
+                                    static_cast<unsigned long>(headerLen + dump.size() + (end - cursor)));
       sent = logSerialWriteAll(start, static_cast<size_t>(startLen)) &&
-             writeRaw(reinterpret_cast<const uint8_t*>(chunk), headerLen);
+             writeRaw(reinterpret_cast<const uint8_t*>(chunk), headerLen) &&
+             writeRaw(reinterpret_cast<const uint8_t*>(dump.data()), dump.size());
       while (sent && cursor < end) {
         const size_t len = PsramLog::read(cursor, chunk, std::min<uint32_t>(sizeof(chunk), end - cursor));
         if (len == 0) break;

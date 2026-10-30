@@ -76,6 +76,7 @@
 #include "util/BookMoveUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
+#include "util/DebugDump.h"
 #include "util/DeviceIdentity.h"
 #include "util/DeviceSecurity.h"
 #include "util/FontFamilyLabel.h"
@@ -1584,6 +1585,10 @@ void CrossPointWebServer::handlePsramLog() const {
   if (!tail) {
     // Fresh identity header first: the ring may have wrapped past the boot lines.
     len = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+    if (len > 0) server->sendContent(chunk, len);
+    const std::string dump = DebugDump::format();  // settings + fonts, built per download
+    server->sendContent(dump.c_str(), dump.size());
+    len = 0;
   } else if (restarted) {
     len = snprintf(chunk, sizeof(chunk), "[psram-log restarted]\n");
   } else if (skipped > 0) {

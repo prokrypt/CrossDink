@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Bug reports and debug log downloads (web Logs page, `/api/psram-log`, serial `CMD:PSRAMLOG`) now include the reader font, every numeric setting by its web key, and the font families installed under `/.fonts` and `/fonts`. No names, logins or passwords are included; the list is built only when the report or download is made.
 - Rotate Page 180° can be assigned to the power button, button chords, front-button long presses and long-press menu actions as well as the side buttons, on the device or in web settings (EPUB and TXT readers).
 - Touch: swipe left on a File Browser row, a Library list row or a bookmark to reveal a delete button; deleting still asks for confirmation. A tap elsewhere or a swipe right hides it. The Library cover grid keeps paging with horizontal swipes.
 - Sync Server: **Server Type** (CrossPoint, KOSync, Other) picks which optional fields are exchanged: CrossPoint and Other send exact book positions, Other also sends ISBN/ASIN/series when Send Metadata is on, KOSync sends standard progress only. Existing setups keep their behavior (default server: CrossPoint, custom URL: KOSync). **Custom Header 1/2** add a `Name: value` header for authentication proxies such as Cloudflare Access; values are masked and obfuscated on the card. Servers that store only a percentage now restore an approximate position instead of nothing. Also in web settings.
