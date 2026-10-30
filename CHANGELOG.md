@@ -162,6 +162,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ### Fixed
 - SD `.cpfont` books no longer re-layout every chapter when the book opens while free memory is low: the extra heading sizes now load whenever there is room for them in PSRAM, so a book keeps the same font sizes between opens. A skipped size is logged.
 - KOReader Sync: holding Power right after leaving a book at the page it opened at no longer shows "Syncing progress..." and "Already synced" before the sleep screen; that close had nothing new to push.
+- List scrollbars (File Browser, chapter lists) now end at the last row instead of running into the empty space below it.
 - Opening chapters and drawing images no longer leaves an 8 KB gap in internal RAM each time: the HTML inflate and image decode helper tasks now keep their stacks in PSRAM, so the largest free internal block stays the same across chapter builds instead of shrinking for the rest of the session.
 - Home cover generation and Wi-Fi transfers (File Transfer uploads, OPDS and other downloads) no longer leave an 8 KB or 4 KB gap in internal RAM: their helper tasks keep their stacks in PSRAM, falling back to internal RAM when PSRAM is short.
 - Web server: downloads (File Transfer, WebDAV, log downloads) no longer push the web server task to within 440 bytes of a stack overflow; the 4 KB fallback send buffer moved from the stack to the heap (PSRAM on device).

@@ -184,8 +184,8 @@ void EpubReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& s
   props.inputMask = fui::InputTouch;
   props.topIndex = 0;
   screen.list(props);
-  fui::drawListScrollIndicator(screen.target(), screen.body(), static_cast<size_t>(totalItems), visibleRows, topIndex,
-                               screen.theme().listScrollWidth, screen.theme().listScrollSide,
+  fui::drawListScrollIndicator(screen.target(), uiListTrackRect(screen.body(), props), static_cast<size_t>(totalItems),
+                               visibleRows, topIndex, screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
 }
 

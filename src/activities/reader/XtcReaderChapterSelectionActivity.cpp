@@ -180,8 +180,8 @@ void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& sc
   props.inputMask = fui::InputTouch;
   props.topIndex = 0;
   screen.list(props);
-  fui::drawListScrollIndicator(screen.target(), screen.body(), chapterCount, visibleRows, topIndex,
-                               screen.theme().listScrollWidth, screen.theme().listScrollSide,
+  fui::drawListScrollIndicator(screen.target(), uiListTrackRect(screen.body(), props), chapterCount, visibleRows,
+                               topIndex, screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
 }
 
