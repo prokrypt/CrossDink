@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- X4 Pro: Goodies > Power Off (asks first) saves your place and shuts down as far as the hardware allows: the sleep screen stays, the power latch is released so the device loses power on battery, and only the Power button turns it back on (page keys, the Up+Down clock and charger events no longer wake it).
 - Rotate Page 180° can be assigned to the power button, button chords, front-button long presses and long-press menu actions as well as the side buttons, on the device or in web settings (EPUB and TXT readers).
 - Touch: swipe left on a File Browser row, a Library list row or a bookmark to reveal a delete button; deleting still asks for confirmation. A tap elsewhere or a swipe right hides it. The Library cover grid keeps paging with horizontal swipes.
 - Sync Server: **Server Type** (CrossPoint, KOSync, Other) picks which optional fields are exchanged: CrossPoint and Other send exact book positions, Other also sends ISBN/ASIN/series when Send Metadata is on, KOSync sends standard progress only. Existing setups keep their behavior (default server: CrossPoint, custom URL: KOSync). **Custom Header 1/2** add a `Name: value` header for authentication proxies such as Cloudflare Access; values are masked and obfuscated on the card. Servers that store only a percentage now restore an approximate position instead of nothing. Also in web settings.
