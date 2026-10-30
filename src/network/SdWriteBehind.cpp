@@ -2,6 +2,7 @@
 
 #if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR)
 
+#include <Epub/PsramWorker.h>
 #include <Logging.h>
 #include <PerfLog.h>
 #include <esp_heap_caps.h>
@@ -22,9 +23,20 @@ bool SdWriteBehind::begin(const WriteFn fn, void* const ctx, const char* const t
   quit = false;
   fillLen = 0;
   fill = 0;
-  // 4 KB internal stack: SdFat writes only, never TLS.
-  if (!bufs[0] || !bufs[1] || !work || !idle ||
-      xTaskCreatePinnedToCore(&taskMain, taskName, 4096, this, 1, &task, core) != pdPASS) {
+  // 4 KB stack: SdFat writes only, never TLS or flash, so PSRAM is safe and
+  // keeps the self-deleting stack's hole out of internal RAM (PsramWorker.h).
+  // Set before the task can run: taskMain() reads it to decide how to exit.
+  psramStack = true;
+  bool started = false;
+  if (bufs[0] && bufs[1] && work && idle) {
+    started = psramworker::start(&taskMain, taskName, 4096, this, &task, core);
+    if (!started) {
+      LOG_DBG("SDW", "%s: no PSRAM stack, using internal RAM", taskName);
+      psramStack = false;
+      started = xTaskCreatePinnedToCore(&taskMain, taskName, 4096, this, 1, &task, core) == pdPASS;
+    }
+  }
+  if (!started) {
     LOG_ERR("SDW", "%s: write-behind unavailable; writing directly", taskName);
     task = nullptr;
     release();
@@ -77,6 +89,7 @@ void SdWriteBehind::stopTask() {
   quit = true;
   xSemaphoreGive(work);
   xSemaphoreTake(idle, portMAX_DELAY);  // the task gives it once more as it exits
+  if (psramStack) psramworker::reap(task);
   task = nullptr;
 }
 
@@ -102,7 +115,9 @@ void SdWriteBehind::taskMain(void* param) {
     xSemaphoreGive(self->idle);
   }
   PerfLog::noteTaskExit(self->name);
+  const bool parks = self->psramStack;
   xSemaphoreGive(self->idle);
+  if (parks) psramworker::park();
   vTaskDelete(nullptr);
 }
 
