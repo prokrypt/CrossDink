@@ -8747,7 +8747,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // below reaches the panel (markGrayscaleShown), so quickly skipped image
     // pages stay flash-free.
   } else if (needsAnyGrayscale) {
+    // As below, the worker draws the next page's B/W frame offscreen while the
+    // base waveform and the AA planes run here. Its kick loads the page from
+    // SD, so async bases start first and blocking ones after the kick.
     if (pagesUntilFullRefresh <= 1) {
+      if (!activeFootnotePreview) kickDrawAhead();
       // Cleanup turns still need the stronger HALF pass, but X3 grayscale overlays settle better if the OEM
       // precondition step runs before the gray planes are written.
       renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
@@ -8755,11 +8759,14 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else if (overlapRefresh) {
       ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, /*async=*/true);
+      if (!activeFootnotePreview) kickDrawAhead();
     } else if (deferredGrayscaleBase) {
       // Same base waveform as below, left running while the AA planes render.
       baseRefreshPending = renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
+      if (!activeFootnotePreview) kickDrawAhead();
       pagesUntilFullRefresh--;
     } else {
+      if (!activeFootnotePreview) kickDrawAhead();
       // Use the grayscale-aware base waveform so the first visible pass is
       // closer to the final anti-aliased result instead of flashing darker
       // text first and softening after the grayscale overlay.
