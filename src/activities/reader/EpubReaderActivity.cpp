@@ -75,6 +75,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#include "TtfRenderProfileStore.h"
 #include "WordRef.h"
 #include "activities/home/RecentBookProgress.h"
 #include "activities/reader/ControlsOptionsActivity.h"
@@ -1000,6 +1001,68 @@ uint32_t prerenderLayoutKey(const GfxRenderer& renderer, const ReaderViewportLay
   mix(ReaderUtils::readerForegroundBlack() ? 1u : 0u);
   mix(static_cast<uint32_t>(ReaderUtils::readerBackgroundColor()));
   return key;
+}
+
+// The page the reader last put on the panel, kept in PSRAM past the reader's
+// exit: reopening the book on that page copies it in instead of preparing
+// glyphs and decoding images. Render task only.
+struct KeptPageDrawing {
+  HeapByteBuffer bw;  // the composed page, without the status bar
+  // Its AA planes, when the page ran the deferred gray pass (UC8179).
+  HeapByteBuffer lsb;
+  HeapByteBuffer msb;
+  bool planesText = false;
+  uint32_t key = 0;  // keptPageKey() of the page in bw; 0 = none
+};
+KeptPageDrawing keptPage;
+
+// Everything a composed page's pixels depend on: book, page, section layout,
+// viewport, font and its rendering, colors, image mode, AA and the chapter's
+// clippings. Never 0.
+uint32_t keptPageKey(const GfxRenderer& renderer, const Epub& epub, const Section& section, const int spine,
+                     const int fontId, const int marginTop, const int marginRight, const int marginBottom,
+                     const int marginLeft) {
+  uint32_t key = 2166136261u;
+  const auto mix = [&key](const uint32_t value) { key = (key ^ value) * 16777619u; };
+  for (const char c : epub.getCachePath()) mix(static_cast<uint8_t>(c));
+  mix(static_cast<uint32_t>(spine));
+  mix(static_cast<uint32_t>(section.currentPage));
+  mix(section.pageCount);
+  mix(section.layoutSignature());
+  mix(static_cast<uint32_t>(renderer.getOrientation()));
+  mix(static_cast<uint32_t>(marginTop));
+  mix(static_cast<uint32_t>(marginRight));
+  mix(static_cast<uint32_t>(marginBottom));
+  mix(static_cast<uint32_t>(marginLeft));
+  mix(static_cast<uint32_t>(fontId));
+  mix(ReaderUtils::readerForegroundBlack() ? 1u : 0u);
+  mix(ReaderUtils::readerBackgroundColor());
+  mix(DirectPixelWriter::bwImages);
+  mix(SETTINGS.screenInverted);
+  mix(SETTINGS.textAntiAliasing);
+  mix(SETTINGS.publisherPageNumbers);
+#if CROSSDINK_SCALABLE_FONTS
+  for (const char* c = SETTINGS.sdFontFamilyName; *c; ++c) mix(static_cast<uint8_t>(*c));
+  const TtfRenderProfile profile = TTF_RENDER_PROFILES.profileFor(SETTINGS.sdFontFamilyName);
+  mix(profile.hinting);
+  mix(profile.raster);
+  mix(profile.interpreter);
+  mix(profile.weight);
+  mix(profile.slant);
+  mix(profile.stemDarkening ? 1u : 0u);
+#endif
+  for (const Clipping& clipping : CLIPPINGS.getClippings()) {
+    if (clipping.spineIndex != static_cast<uint16_t>(spine)) continue;
+    mix(clipping.startPage);
+    mix(clipping.endPage);
+    mix(clipping.startWordIndex);
+    mix(clipping.endWordIndex);
+    mix(clipping.timestamp);
+    mix(clipping.textOffset);
+    mix(clipping.textLength);
+    mix(clipping.tableSelection);
+  }
+  return key != 0 ? key : 1;
 }
 
 ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bool automaticPageTurnActive,
@@ -8413,6 +8476,38 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     }
   }
 #endif
+  const bool pageHasImages = page->hasImages();
+  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
+  bool needsImageGrayscale = pageHasImages && !DirectPixelWriter::bwImages;
+  bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack && page->hasText() &&
+                            !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
+
+  // The page this render shows, as a kept drawing names it (0: never kept).
+  const uint32_t keptKey = updatePanel && !activeFootnotePreview && section
+                               ? keptPageKey(renderer, *epub, *section, currentSpineIndex, fontId, orientedMarginTop,
+                                             orientedMarginRight, orientedMarginBottom, orientedMarginLeft)
+                               : 0;
+  // The first page after an open reuses the drawing kept at the last close.
+  // Its AA planes stand in for the deferred gray draw (UC8179) only; a page any
+  // other gray path would draw is prepared and drawn as usual.
+  int16_t keptImgX = 0, keptImgY = 0, keptImgW = 0, keptImgH = 0;
+  const bool useKeptPage = keptKey != 0 && !firstPageShown && !usePrerenderedFrame && keptPage.key == keptKey &&
+                           keptPage.bw &&
+                           ((!needsTextGrayscale && !needsImageGrayscale) ||
+                            (keptPage.lsb && keptPage.msb && keptPage.planesText == needsTextGrayscale &&
+                             renderer.supportsDeferredGrayscaleBase() && !renderer.supportsStripGrayscale() &&
+                             SETTINGS.getRefreshFrequency() > 1 &&
+                             (!pageHasImages || (renderer.shouldSkipImageBlanking() && !cleanImageBasePending &&
+                                                 page->getImageBoundingBox(keptImgX, keptImgY, keptImgW, keptImgH)))));
+  if (useKeptPage) {
+    LOG_DBG("ERS", "Reusing kept drawing of spine=%d page=%d (planes=%u)", currentSpineIndex, section->currentPage,
+            keptPage.lsb ? 1U : 0U);
+  } else if (updatePanel) {
+    // Replaced by this render's page once it reaches the panel.
+    keptPage.key = 0;
+    keptPage.lsb.reset();
+    keptPage.msb.reset();
+  }
   // Font prewarm: scan pass accumulates text, then prewarm, then real render.
   // SD fonts depend on the prepared bitmap cache; drawing after a failed
   // prewarm would turn every unavailable glyph into a replacement symbol.
@@ -8420,7 +8515,8 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (auto* fcm = renderer.getFontCacheManager()) {
     const auto prewarmVisibleText = [&]() {
       pageRenderScope.emplace(*fcm, FontCacheManager::PreparationPolicy::Normal);
-      page->renderText(renderer, fontId, orientedMarginLeft, orientedMarginTop);  // scan pass
+      // A kept page is drawn already: only the status bar needs glyphs.
+      if (!useKeptPage) page->renderText(renderer, fontId, orientedMarginLeft, orientedMarginTop);  // scan pass
       // The status-bar title can route to the same SD fallback as the page. Scan
       // it into this batch before rendering so it does not evict page glyphs.
       renderStatusBar();
@@ -8451,11 +8547,6 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   buildFootnoteTouchTargets(*page, fontId, orientedMarginTop, orientedMarginLeft);
 #endif
 
-  const bool pageHasImages = page->hasImages();
-  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-  bool needsImageGrayscale = pageHasImages && !DirectPixelWriter::bwImages;
-  bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack && page->hasText() &&
-                            !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
 
   // The pending count excludes the page currently being rendered. Decide
@@ -8493,7 +8584,8 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   // A finished background job's caches (or failures) apply to this render.
   joinImageCacheWorker(/*cancel=*/false);
-  bool pageHasImagesNeedingDecode = !deferImageLoading && pageHasImages && page->hasImagesNeedingDecode();
+  bool pageHasImagesNeedingDecode =
+      !useKeptPage && !deferImageLoading && pageHasImages && page->hasImagesNeedingDecode();
   // Missing image caches are built off this task; the page shows placeholders
   // (and skips AA, which would draw the images) until the worker asks for a
   // redraw. Input and overlays stay live meanwhile.
@@ -8526,6 +8618,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   };
 
   const auto composePageBuffer = [&]() {
+    if (useKeptPage) {
+      // Composed as below, highlights and markers included, with images.
+      memcpy(renderer.getFrameBuffer(), keptPage.bw.get(), renderer.getBufferSize());
+      return;
+    }
     if (deferImageLoading) {
       page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
                                         /*renderCachedImages=*/imagesLoadingInBackground);
@@ -8551,7 +8648,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   }
-  if (pageHasImages && !deferImageLoading) {
+  if (pageHasImages && !deferImageLoading && !useKeptPage) {
     // Show the new page's placeholders before ZIP extraction or sidecar
     // materialization. The loan can overwrite the framebuffer, so rebuild
     // the complete page after returning it; the panel keeps the preview.
@@ -8572,12 +8669,23 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       needsImageGrayscale = false;
     }
   }
-  PerfLog::notePagePath(usePrerenderedFrame ? "pre" : "draw");
+  PerfLog::notePagePath(useKeptPage ? "kept" : usePrerenderedFrame ? "pre" : "draw");
   if (usePrerenderedFrame) {
     // Drawn by prerenderNextPage() with the same composition (no images).
     memcpy(renderer.getFrameBuffer(), prerenderFrameBuffer.get(), renderer.getBufferSize());
   } else {
     composePageBuffer();
+  }
+  // Kept for a reopen on this page; named once it reaches the panel. Not a
+  // placeholder page, nor one whose failed image a fresh session would retry.
+  bool pageKept = false;
+  if (keptKey != 0 && !useKeptPage && !deferImageLoading &&
+      !(pageHasImages && ImageBlock::hasSessionRenderFailures()) && psramHeapAvailable()) {
+    if (!keptPage.bw) keptPage.bw = makePsramByteBufferNoThrow(renderer.getBufferSize());
+    if (keptPage.bw) {
+      memcpy(keptPage.bw.get(), renderer.getFrameBuffer(), renderer.getBufferSize());
+      pageKept = true;
+    }
   }
   renderStatusBar();
   if (pendingBookmarkFeedback) {
@@ -8624,6 +8732,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // This page reaches the panel: Ghost Busters follow the first one after opening.
   ghostBustersRequested = !firstPageShown;
   firstPageShown = true;
+  if (pageKept) keptPage.key = keptKey;
   // Input can arrive while the page and status bar are being composed. Make
   // one final decision immediately before selecting the grayscale path so a
   // queued successor never starts an AA pass for this transient page.
@@ -8666,10 +8775,19 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // snapshot/restore and the post-base plane renders drop out of the turn.
   HeapByteBuffer deferredLsbPlane;
   HeapByteBuffer deferredMsbPlane;
-  bool deferredGrayscaleBase =
-      needsTextGrayscale && !tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 &&
-      renderer.supportsDeferredGrayscaleBase() &&
-      ReaderUtils::allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+  // A kept page brings its planes drawn.
+  bool keptPlanesDrawn = false;
+  const auto allocateDeferredPlanes = [&]() {
+    if (useKeptPage && keptPage.lsb && keptPage.msb) {
+      deferredLsbPlane = std::move(keptPage.lsb);
+      deferredMsbPlane = std::move(keptPage.msb);
+      keptPlanesDrawn = true;
+      return true;
+    }
+    return ReaderUtils::allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+  };
+  bool deferredGrayscaleBase = needsTextGrayscale && !tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 &&
+                               renderer.supportsDeferredGrayscaleBase() && allocateDeferredPlanes();
   bool baseRefreshPending = false;
   int16_t imgX = 0, imgY = 0, imgW = 0, imgH = 0;
   const bool hasImageBox = pageHasImages && page->getImageBoundingBox(imgX, imgY, imgW, imgH);
@@ -8726,10 +8844,8 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       // text-only grayscale turns; other panels keep the FAST fallback behavior.
       // X4 Pro: run that base in the background and render the AA planes
       // into PSRAM meanwhile, as text pages do.
-      deferredGrayscaleBase =
-          directImageBase && !cleanBase && needsAnyGrayscale && !tiledGrayscale &&
-          renderer.supportsDeferredGrayscaleBase() &&
-          ReaderUtils::allocateDeferredGrayscalePlanes(renderer, deferredLsbPlane, deferredMsbPlane);
+      deferredGrayscaleBase = directImageBase && !cleanBase && needsAnyGrayscale && !tiledGrayscale &&
+                              renderer.supportsDeferredGrayscaleBase() && allocateDeferredPlanes();
       if (deferredGrayscaleBase) {
         baseRefreshPending = renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
       } else {
@@ -8779,6 +8895,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     if (!activeFootnotePreview) kickDrawAhead();
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
+  // A kept page skipped the glyph and image preparation any gray draw needs.
+  // If its planes didn't serve, leave the page B/W: loop() redraws it with AA.
+  if (useKeptPage && needsAnyGrayscale && !keptPlanesDrawn) cancelGrayscalePass("kept page");
   if (deferredGrayscaleBase) {
     // Planes carry page text only, like the tiled pass: the framebuffer must
     // stay untouched until the base refresh finishes.
@@ -8794,11 +8913,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       renderer.endStripTarget();
     };
     bool cancelled = grayscalePassCancelled("deferred-start");
-    if (!cancelled) {
+    if (!cancelled && !keptPlanesDrawn) {
       renderDeferredPlane(GfxRenderer::GRAYSCALE_LSB, deferredLsbPlane.get());
       cancelled = grayscalePassCancelled("deferred-lsb");
     }
-    if (!cancelled) {
+    if (!cancelled && !keptPlanesDrawn) {
       renderDeferredPlane(GfxRenderer::GRAYSCALE_MSB, deferredMsbPlane.get());
       cancelled = grayscalePassCancelled("deferred-msb");
     }
@@ -8813,6 +8932,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       renderer.copyGrayscalePlanes(deferredLsbPlane.get(), deferredMsbPlane.get());
       renderer.displayGrayBuffer();
       markGrayscaleShown();
+      if (pageKept || useKeptPage) {
+        keptPage.lsb = std::move(deferredLsbPlane);
+        keptPage.msb = std::move(deferredMsbPlane);
+        keptPage.planesText = needsTextGrayscale;
+      }
     }
     renderer.cleanupGrayscaleWithFrameBuffer();
     return true;
