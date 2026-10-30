@@ -596,6 +596,16 @@ void loop() {
 
 std::string pendingPushPath() {
   if (activityManager.anyActivityUsesWifi() || !KOREADER_STORE.hasCredentials()) return {};
+  {
+    // A close not past the page it opened at (no Syncing badge) is not owed: the job
+    // would skip it, so sleep skips it and its toasts, as movedSinceOpen() does in the reader.
+    std::lock_guard<std::mutex> lock(pendingMutex);
+    if (pendingCache.empty()) {
+      if (!queuedPath.empty() || (task.running() && !jobIsPull))
+        LOG_INF("KOSync", "sleep push skipped: queued close not owed (no toast, radio skipped)");
+      return {};
+    }
+  }
   if (!queuedPath.empty()) return queuedPath;
   if (task.running() && !jobIsPull) return jobPath;
   return {};
