@@ -76,7 +76,8 @@ class GoodiesActivity final : public Activity {
  private:
   enum class Level : uint8_t { Root, DisplayTests, Knobs, KeyboardTest, PinMon, PowerTests };
   // Root: Display test, Wi-Fi remote, API token, Knobs, Keyboard test, Pin monitor, Battery & stats, then
-  // Sleep-reboot-log (PSRAM log builds), Power Test (powerTestRow) and the SD modules (/debug/goodies/*.wasm)
+  // Sleep-reboot-log (PSRAM log builds), Power Test (powerTestRow), Power Off (powerOffRow)
+  // and the SD modules (/debug/goodies/*.wasm)
   static constexpr int TOKEN_ROW = 2;
   static constexpr int KNOBS_ROW = 3;
   static constexpr int KBD_TEST_ROW = 4;
@@ -116,6 +117,7 @@ class GoodiesActivity final : public Activity {
   void activate(int index);
   int remoteRowShown = -1;
   int powerTestRow = -1;              // Root: the Power Test row, last (debug builds on hardware only)
+  int powerOffRow = -1;               // Root: Power Off, after Power Test (hardware only)
   unsigned long tokenShownUntil = 0;  // millis(); 0 = API token row shows only its last 4 characters
 
   void toggleRemote();

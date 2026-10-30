@@ -233,7 +233,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
-void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
+void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake, bool powerOff) const {
   sleepStep = "wifi off";
   disableWiFiBeforeDeepSleep();
 
@@ -262,12 +262,14 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
   // GPIO pads before sleeping, so an unheld latch can float LOW once external
   // power is removed and turn a fast wake into a cold boot. This is deliberately
   // complementary to the C3 path above, where the battery latch must go LOW.
+  // Power Off wants exactly that cold boot: the latch goes LOW (on USB the
+  // device stays powered and sleeps with Power as its only wake).
   for (const int8_t pin : {BoardConfig::ACTIVE.power.latch0, BoardConfig::ACTIVE.power.latch1}) {
     if (pin < 0 || BoardConfig::latchConflictsWithBus(pin)) continue;
     const auto latch = static_cast<gpio_num_t>(pin);
     gpio_hold_dis(latch);
     gpio_set_direction(latch, GPIO_MODE_OUTPUT);
-    gpio_set_level(latch, 1);
+    gpio_set_level(latch, powerOff ? 0 : 1);
     gpio_hold_en(latch);
   }
 #endif
@@ -319,7 +321,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
       pageKeysLockedOut = true;
       LOG_INF("PWR", "Up/Down held at sleep: page-key wake locked out until the next full wake");
     }
-    if (!pageKeysLockedOut) {
+    if (!pageKeysLockedOut && !powerOff) {
       pinMode(in.up, INPUT_PULLUP);
       pinMode(in.down, INPUT_PULLUP);
       mask |= (1ULL << in.up) | (1ULL << in.down);
@@ -331,7 +333,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
   // The opposite of STAT's level now, so a charge start or stop wakes the device.
   // An unpowered charger (cable out) leaves STAT floating: pull it toward "not
   // charging". ext0 keeps the RTC peripherals powered through sleep.
-  if (wakeOnChargeChange && stat >= 0 && rtc_gpio_is_valid_gpio(static_cast<gpio_num_t>(stat))) {
+  if (wakeOnChargeChange && !powerOff && stat >= 0 && rtc_gpio_is_valid_gpio(static_cast<gpio_num_t>(stat))) {
     const auto pin = static_cast<gpio_num_t>(stat);
     if (esp_sleep_enable_ext0_wakeup(pin, !statLevel) == ESP_OK) {
       const bool activeHigh = BoardConfig::ACTIVE.batteryChargeStatusActiveHigh;

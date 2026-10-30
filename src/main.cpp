@@ -1953,7 +1953,7 @@ static void restartInsteadOfSleep(const int lightOn = -1) {
 #endif
 
 // Enter deep sleep mode
-void enterDeepSleep(bool fromTimeout) {
+void enterDeepSleep(bool fromTimeout, bool powerOff) {
   // Deep sleep powers PSRAM down and would lose a running macro: any sleep
   // (power key, timeout, menu, SLEEPREBOOT) restarts instead, and the macro
   // resumes.
@@ -1978,9 +1978,9 @@ void enterDeepSleep(bool fromTimeout) {
     HalPowerManager::Lock powerLock;
     if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
     // "request" = power button or a Sleep menu/quick action.
-    PerfLog::noteDeepSleep(
-        fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
-        activityManager.currentActivityName());
+    PerfLog::noteDeepSleep(fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout")
+                                       : (powerOff ? "power-off" : "request"),
+                           activityManager.currentActivityName());
 
     const bool isQuickResumeSleep =
         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
@@ -2037,7 +2037,7 @@ void enterDeepSleep(bool fromTimeout) {
     // can be written again until the next wake.
     runBootTail(true);
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
-    BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
+    BatteryLog::onSleep(fromTimeout ? "idle-timeout" : (powerOff ? "power-off" : "request"));
     SleepLog::onSleep();
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
@@ -2072,7 +2072,7 @@ void enterDeepSleep(bool fromTimeout) {
 #ifdef SIMULATOR
   powerManager.startDeepSleep(gpio);  // the simulator's HalPowerManager has no lockout to clear
 #else
-  powerManager.startDeepSleep(gpio, true);
+  powerManager.startDeepSleep(gpio, true, powerOff);
 #endif
 }
 

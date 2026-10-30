@@ -119,7 +119,9 @@ class HalPowerManager {
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the lockCount
-  void startDeepSleep(HalGPIO& gpio, bool fullWake = false) const;
+  // powerOff (Goodies > Power Off): Power is the only wake source, and the power
+  // latch is released so a battery-only device loses power entirely.
+  void startDeepSleep(HalGPIO& gpio, bool fullWake = false, bool powerOff = false) const;
   // The sleep-entry step in progress, for main.cpp's stuck-sleep guard log.
   static inline const char* volatile sleepStep = "";
   // Also wake from deep sleep when the charger STAT pin changes (charge start or
