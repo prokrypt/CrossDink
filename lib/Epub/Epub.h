@@ -58,6 +58,8 @@ class Epub {
 
  public:
   bool ensureOptimizerImageIndex();
+  // False once the index is ready or the book has none: no scratch needed.
+  bool optimizerImageIndexPending() const { return !optimizerIndexReady && !optimizerManifestAbsent; }
   enum class OpenFailure : uint8_t {
     None,
     OutOfMemory,
