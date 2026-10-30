@@ -2209,11 +2209,6 @@ void setup() {
   const esp_sleep_wakeup_cause_t rawWakeupCause = esp_sleep_get_wakeup_cause();
 
 #ifdef ENABLE_SERIAL_LOG
-#ifdef CROSSPOINT_WAIT_FOR_USB_SERIAL
-  // Development builds preserve reliable early CDC logs; release builds let
-  // enumeration proceed asynchronously so users do not pay this startup cost.
-  delay(250);
-#endif
   // Web Serial sends file data in 256-byte chunks and waits for a 1-byte ACK.
   // Native USB CDC needs a larger queue because TinyUSB can deliver several
   // chunks before the cooperative transfer loop runs.
