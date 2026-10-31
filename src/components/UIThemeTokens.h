@@ -77,6 +77,14 @@ inline uint16_t configureUiList(freeink::ui::ListProps& props, const freeink::ui
   return freeink::ui::listVisibleRows(rect, props.rowHeight, props.rowGap);
 }
 
+// Scroll track spans the rows that fit, not the leftover band below the last one.
+inline freeink::ui::Rect uiListTrackRect(freeink::ui::Rect rect, const freeink::ui::ListProps& props) {
+  const int16_t gap = std::max<int16_t>(0, props.rowGap);
+  const uint16_t rows = freeink::ui::listVisibleRows(rect, props.rowHeight, gap);
+  if (rows > 0) rect.height = std::min<int16_t>(rect.height, rows * (props.rowHeight + gap) - gap);
+  return rect;
+}
+
 inline void configureUiListSectionHeaders(freeink::ui::ListProps& props, const freeink::ui::ThemeTokens& tokens) {
   if (SETTINGS.uiTheme != CrossPointSettings::UI_THEME::ROUNDEDRAFF) return;
 
