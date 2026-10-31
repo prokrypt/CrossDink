@@ -2594,6 +2594,14 @@ void EpubReaderActivity::onExit() {
   renderer.setSmoothGray(false);
   renderer.setInvertedTextGray(false);
   joinBuildWorker(/*stop=*/true);
+  if (exitingForSleep) {
+    // A chapter with little HTML left is committed whole, so the wake opens a finished
+    // cache instead of rebuilding a partial. No loans: the sleep screen may be in the buffer.
+    GfxRenderer::FrameBufferLoanBlock noLoans;
+    for (Section* s : {section.get(), nextSection.get()}) {
+      if (s) s->finishBuildIfNearlyDone(SLEEP_FINISH_BUILD_MAX_BYTES);
+    }
+  }
   if (buildWorker.done) vSemaphoreDelete(buildWorker.done);
   buildWorker.done = nullptr;
   waitDrawAhead(/*publish=*/false);
@@ -3701,8 +3709,11 @@ void EpubReaderActivity::loop() {
         const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
         const SectionBuildProfile profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
         const uint32_t loansBefore = renderer.frameBufferLoanCount();
+        // The font prewarm runs on the build worker (backgroundBuildTick), not on the main loop.
+        SectionBuildOptions buildOptions;
+        buildOptions.deferAdvancePrewarm = true;
         const bool started = section->startBuild(
-            readerRenderSpecForProfile(renderFontId, buildViewportWidth, buildViewportHeight, profile));
+            readerRenderSpecForProfile(renderFontId, buildViewportWidth, buildViewportHeight, profile), buildOptions);
         invalidatePageBufferAfterBuild(loansBefore);
         if (!started) {
           partialRebuildStartFailed = true;
@@ -7175,8 +7186,18 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       cachedChapterTotalPageCount = 0;
     }
     const bool partialCacheLoaded = loadedSection && section && section->isPartial();
+    // A partial that already holds the reading position is drawn as is; the loop's
+    // deferred extension build resumes it after the page is on the panel.
+    // Paragraph and page-ratio relayouts are not partial-safe, so only a text offset counts.
+    const int partialTarget = pendingPageJump.has_value() ? *pendingPageJump : std::max(0, nextPageNumber);
+    const bool partialCoversTarget =
+        partialCacheLoaded && !buildingFootnotePreview && !pendingPercentJump && pendingAnchor.empty() &&
+        pendingClippingIndex == UINT16_MAX && pendingParagraphIndex == UINT16_MAX &&
+        (pendingRelayoutReposition
+             ? cachedVisibleTextOffset && section->getPageForVisibleTextOffset(*cachedVisibleTextOffset).has_value()
+             : partialTarget < static_cast<int>(section->pageCount));
 
-    if (!loadedSection || partialCacheLoaded) {
+    if (!loadedSection || (partialCacheLoaded && !partialCoversTarget)) {
       if (!loadedSection) {
         // Font selection previews can leave glyph and advance-table caches resident.
         // Drop them before allocating a replacement layout after a render-spec mismatch.
@@ -7455,9 +7476,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     } else {
       LOG_DBG("ERS",
-              "Cache found, skipping build... (pages=%u, font=%d mode=%u free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
-              section->pageCount, activeSectionFontId, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
+              "Cache found, skipping build... (pages=%u partial=%u, font=%d mode=%u free=%" PRIu32 ", maxAlloc=%" PRIu32
+              ")",
+              section->pageCount, partialCacheLoaded ? 1U : 0U, activeSectionFontId,
+              static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     }
 
     activeFootnotePreview = buildingFootnotePreview;
