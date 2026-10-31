@@ -122,6 +122,12 @@ class HalPowerManager {
   void startDeepSleep(HalGPIO& gpio, bool fullWake = false) const;
   // The sleep-entry step in progress, for main.cpp's stuck-sleep guard log.
   static inline const char* volatile sleepStep = "";
+  // Sets sleepStep (a string literal) and times the step for logLastSleepSteps().
+  static void setSleepStep(const char* step);
+  // Boot: "[SLP] t request=.. ... total=" for the deep sleep entry this wake
+  // came from. Its tail ran after the serial log ended, so the step times wait
+  // in RTC memory for this boot.
+  static void logLastSleepSteps();
   // Also wake from deep sleep when the charger STAT pin changes (charge start or
   // stop), so the battery log can record it. Off unless set.
   bool wakeOnChargeChange = false;

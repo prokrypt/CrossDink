@@ -1641,6 +1641,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   if (statsTrackingActive && !enabled && epub) {
     commitReadingStatsSession();
     pendingStatsCommit = true;
+    ReaderExitSave::flushStats();  // held stats from the last close land first
     if (stats.save(epub->getCachePath())) {
       globalStats.save();
       pendingStatsCommit = false;
@@ -2417,7 +2418,9 @@ void EpubReaderActivity::onEnter() {
   captureGlobalReaderSettings();
   epub->setupCacheDir();
   progressSaveDebouncer.setShadowed(ReaderProgressShadow::bind(ReaderProgressShadow::Kind::Epub, epub->getCachePath()));
-  {
+  // The loan waits out any refresh still running (Home's Ghost busters), so take
+  // it only when the index is still to be built, not on every cached open.
+  if (epub->optimizerImageIndexPending()) {
     GfxRenderer::FrameBufferLoan loan(renderer);
     epub->ensureOptimizerImageIndex();
   }
@@ -2453,6 +2456,7 @@ void EpubReaderActivity::onEnter() {
   const uint32_t storesStartMs = millis();
   BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
+  const uint32_t marksMs = millis() - storesStartMs;
   showOpeningFeedback();
 
   uint16_t restartPageBuildSpine = UINT16_MAX;
@@ -2540,11 +2544,13 @@ void EpubReaderActivity::onEnter() {
   }
 
   loadLinkStack();
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
+  const uint32_t positionMs = millis() - storesStartMs - marksMs;
 
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
-  // Held exit stats land first, so this session's saves supersede them.
-  ReaderExitSave::flushStats();
+  // Held exit stats are read from RAM here and written once the first page is
+  // up (loop()), so this session's saves still supersede them.
   stats = BookReadingStats::load(epub->getCachePath());
   bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
   statsTrackingActive = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
@@ -2563,26 +2569,25 @@ void EpubReaderActivity::onEnter() {
   dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 
-  globalStats = GlobalReadingStats::load();
-
   initializeCompletionPromptTrigger();
 
-  // Save current epub as last opened epub and add to recent books
+  globalStats = GlobalReadingStats::load();  // onExit() queues it, even before the first loop()
+
+  // Save current epub as last opened epub (a held write; a low-memory restart
+  // during the first render reboots into it).
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
-  const RecentBook::CoverState coverState =
-      epub->hasCoverImage() ? RecentBook::CoverState::Unknown : RecentBook::CoverState::Missing;
-  if (!skipRecentBookUpdateOnEntry) {
-    RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(),
-                                 coverState == RecentBook::CoverState::Missing ? "" : epub->getThumbBmpPath(),
-                                 coverState);
-  }
 
-  // The saved page's text offset, unless a jump or restart target replaced that page.
+  // Recent books and the sync pull wait for the first loop(), which runs while
+  // the first page draws. The render task owns the position from here, so the
+  // pull takes a copy of the one the book opened at.
   const bool openedAtSavedPage =
       currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
-  kosync_auto::queuePull(epub->getPath(), currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
-                         openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt);
+  openTail = {true, currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
+              openedAtSavedPage ? cachedVisibleTextOffset : std::nullopt};
+  LOG_DBG("ERS", "open stores: marks=%lu position=%lu stats=%lu", static_cast<unsigned long>(marksMs),
+          static_cast<unsigned long>(positionMs),
+          static_cast<unsigned long>(millis() - storesStartMs - marksMs - positionMs));
   PerfLog::bookOpenStage("stores", millis() - storesStartMs);
 
   showOpeningFeedback();
@@ -2590,10 +2595,36 @@ void EpubReaderActivity::onEnter() {
   requestUpdate();
 }
 
+void EpubReaderActivity::finishOpenTail() {
+  if (!openTail.pending || !epub) return;
+  openTail.pending = false;
+  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
+  const uint32_t startMs = millis();
+  const RecentBook::CoverState coverState =
+      epub->hasCoverImage() ? RecentBook::CoverState::Unknown : RecentBook::CoverState::Missing;
+  if (!skipRecentBookUpdateOnEntry) {
+    RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(),
+                                 coverState == RecentBook::CoverState::Missing ? "" : epub->getThumbBmpPath(),
+                                 coverState);
+  }
+  kosync_auto::queuePull(epub->getPath(), openTail.spineIndex, openTail.pageNumber, openTail.pageCount,
+                         openTail.textOffset);
+  LOG_DBG("ERS", "open tail in first loop: %lu ms", static_cast<unsigned long>(millis() - startMs));
+}
+
 void EpubReaderActivity::onExit() {
+  finishOpenTail();  // closed before the first loop()
   renderer.setSmoothGray(false);
   renderer.setInvertedTextGray(false);
   joinBuildWorker(/*stop=*/true);
+  if (exitingForSleep) {
+    // A chapter with little HTML left is committed whole, so the wake opens a finished
+    // cache instead of rebuilding a partial. No loans: the sleep screen may be in the buffer.
+    GfxRenderer::FrameBufferLoanBlock noLoans;
+    for (Section* s : {section.get(), nextSection.get()}) {
+      if (s) s->finishBuildIfNearlyDone(SLEEP_FINISH_BUILD_MAX_BYTES);
+    }
+  }
   if (buildWorker.done) vSemaphoreDelete(buildWorker.done);
   buildWorker.done = nullptr;
   waitDrawAhead(/*publish=*/false);
@@ -2652,6 +2683,7 @@ void EpubReaderActivity::onExit() {
 
   APP_STATE.setReaderActivityLoadCount(0);
 
+  ReaderExitSave::flushStats();  // a close before the first page: older stats land first
   syncStatsTrackingState();
   commitReadingStatsSession();
   if (epub) {
@@ -3100,7 +3132,7 @@ bool EpubReaderActivity::backgroundBuildCanUsePageBuffer() const {
 
 bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
   const auto heap = MemoryBudget::snapshot();
-  // Allocations over 1 KB go to PSRAM where it exists (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so a
+  // Allocations over 512 B go to PSRAM where it exists (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so a
   // fragmented internal heap must not stall the build there; it still needs the internal total.
   const uint32_t minMaxAlloc =
       MemoryBudget::psramSnapshot().maxAllocHeap >= MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC
@@ -3593,6 +3625,10 @@ bool EpubReaderActivity::offerKeptPosition() {
 }
 
 void EpubReaderActivity::loop() {
+  // Off the open path: the write overlaps the first page's ink, and it lands
+  // before anything below can save this session's stats.
+  if (firstPageShown) ReaderExitSave::flushStats();
+  finishOpenTail();
   syncStatsTrackingState();
   if (pendingTtfRenderRelayout && epub) {
     relayoutAfterTtfRenderChange();
@@ -3701,8 +3737,11 @@ void EpubReaderActivity::loop() {
         const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
         const SectionBuildProfile profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
         const uint32_t loansBefore = renderer.frameBufferLoanCount();
+        // The font prewarm runs on the build worker (backgroundBuildTick), not on the main loop.
+        SectionBuildOptions buildOptions;
+        buildOptions.deferAdvancePrewarm = true;
         const bool started = section->startBuild(
-            readerRenderSpecForProfile(renderFontId, buildViewportWidth, buildViewportHeight, profile));
+            readerRenderSpecForProfile(renderFontId, buildViewportWidth, buildViewportHeight, profile), buildOptions);
         invalidatePageBufferAfterBuild(loansBefore);
         if (!started) {
           partialRebuildStartFailed = true;
@@ -4915,6 +4954,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                 if (!saveProgress(backupSpine, backupPage, backupPageCount)) {
                   LOG_ERR("ERS", "Failed to save progress before cache clear");
                 }
+                ReaderExitSave::flushStats();  // held stats from the last close land first
                 stats.save(epub->getCachePath());
                 section.reset();
                 cacheDeleted = clearBookCachePreservingUserState(epub->getPath());
@@ -5891,6 +5931,7 @@ void EpubReaderActivity::resetReadingPaceData() {
   armReadingPaceWarmup("reading_pace_reset");
   if (epub) {
     epub->setupCacheDir();
+    ReaderExitSave::flushStats();  // held stats from the last close land first
     stats.save(epub->getCachePath());
   }
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
@@ -6595,6 +6636,7 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
     pendingReadFolderMove = false;
   }
   refreshCachedTimeLeftEstimate();
+  ReaderExitSave::flushStats();  // held stats from the last close land first
   if (!stats.save(epub->getCachePath())) return;
   SyncPending::mark(epub->getPath(), SyncPending::STATS_BIT);
   BookSyncFile::onFinishedChanged(epub->getPath(), isCompleted);
@@ -7175,8 +7217,18 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       cachedChapterTotalPageCount = 0;
     }
     const bool partialCacheLoaded = loadedSection && section && section->isPartial();
+    // A partial that already holds the reading position is drawn as is; the loop's
+    // deferred extension build resumes it after the page is on the panel.
+    // Paragraph and page-ratio relayouts are not partial-safe, so only a text offset counts.
+    const int partialTarget = pendingPageJump.has_value() ? *pendingPageJump : std::max(0, nextPageNumber);
+    const bool partialCoversTarget =
+        partialCacheLoaded && !buildingFootnotePreview && !pendingPercentJump && pendingAnchor.empty() &&
+        pendingClippingIndex == UINT16_MAX && pendingParagraphIndex == UINT16_MAX &&
+        (pendingRelayoutReposition
+             ? cachedVisibleTextOffset && section->getPageForVisibleTextOffset(*cachedVisibleTextOffset).has_value()
+             : partialTarget < static_cast<int>(section->pageCount));
 
-    if (!loadedSection || partialCacheLoaded) {
+    if (!loadedSection || (partialCacheLoaded && !partialCoversTarget)) {
       if (!loadedSection) {
         // Font selection previews can leave glyph and advance-table caches resident.
         // Drop them before allocating a replacement layout after a render-spec mismatch.
@@ -7455,9 +7507,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     } else {
       LOG_DBG("ERS",
-              "Cache found, skipping build... (pages=%u, font=%d mode=%u free=%" PRIu32 ", maxAlloc=%" PRIu32 ")",
-              section->pageCount, activeSectionFontId, static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
+              "Cache found, skipping build... (pages=%u partial=%u, font=%d mode=%u free=%" PRIu32 ", maxAlloc=%" PRIu32
+              ")",
+              section->pageCount, partialCacheLoaded ? 1U : 0U, activeSectionFontId,
+              static_cast<unsigned>(usedRenderMode), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     }
 
     activeFootnotePreview = buildingFootnotePreview;
@@ -8694,7 +8747,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // below reaches the panel (markGrayscaleShown), so quickly skipped image
     // pages stay flash-free.
   } else if (needsAnyGrayscale) {
+    // As below, the worker draws the next page's B/W frame offscreen while the
+    // base waveform and the AA planes run here. Its kick loads the page from
+    // SD, so async bases start first and blocking ones after the kick.
     if (pagesUntilFullRefresh <= 1) {
+      if (!activeFootnotePreview) kickDrawAhead();
       // Cleanup turns still need the stronger HALF pass, but X3 grayscale overlays settle better if the OEM
       // precondition step runs before the gray planes are written.
       renderer.displayBuffer(ReaderUtils::cleanupRefreshMode(pagesUntilFullRefresh));
@@ -8702,11 +8759,14 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else if (overlapRefresh) {
       ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, /*async=*/true);
+      if (!activeFootnotePreview) kickDrawAhead();
     } else if (deferredGrayscaleBase) {
       // Same base waveform as below, left running while the AA planes render.
       baseRefreshPending = renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
+      if (!activeFootnotePreview) kickDrawAhead();
       pagesUntilFullRefresh--;
     } else {
+      if (!activeFootnotePreview) kickDrawAhead();
       // Use the grayscale-aware base waveform so the first visible pass is
       // closer to the final anti-aliased result instead of flashing darker
       // text first and softening after the grayscale overlay.

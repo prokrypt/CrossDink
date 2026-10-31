@@ -10,12 +10,20 @@
 #include <soc/soc_caps.h>
 
 #include <cassert>
+#include <cstring>
 
 #include "HalGPIO.h"
 
 HalPowerManager powerManager;  // Singleton instance
 
 namespace {
+// Up to 30 ms for the driver to report Wi-Fi off, polled in 5 ms steps instead of a fixed wait.
+void waitWiFiModeNull() {
+  for (int i = 0; i < 6 && WiFi.getMode() != WIFI_MODE_NULL; ++i) {
+    delay(5);
+  }
+}
+
 void disableWiFiBeforeDeepSleep() {
   const wifi_mode_t wifiMode = WiFi.getMode();
   if (wifiMode == WIFI_MODE_NULL) {
@@ -29,10 +37,41 @@ void disableWiFiBeforeDeepSleep() {
   if (wifiMode & WIFI_MODE_STA) {
     WiFi.disconnect(true);
   }
-  delay(30);
+  waitWiFiModeNull();
   WiFi.mode(WIFI_OFF);
-  delay(30);
+  waitWiFiModeNull();
 }
+
+// [SLP] t columns in sleep-path order; each step adds its time to one column.
+constexpr const char* kSleepCols[] = {"request", "draw",    "writes", "shutdown", "tilt",  "refresh",
+                                      "fade",    "busters", "dslp",   "wifi",     "rails", "release"};
+constexpr unsigned kSleepColCount = sizeof(kSleepCols) / sizeof(kSleepCols[0]);
+constexpr struct {
+  const char* step;
+  uint8_t col;
+} kSleepStepCols[] = {
+    {"kosync push", 0},      {"activity exit", 0},
+    {"sleep draw", 1},       {"sleep writes", 2},
+    {"storage shutdown", 3}, {"tilt sleep", 4},
+    {"sleep refresh", 5},    {"nvs, frontlight", 6},
+    {"ghost busters", 7},    {"display sleep", 8},
+    {"wifi off", 9},         {"serial end", 9},
+    {"rails off", 10},       {"power button release", 11},
+};
+
+// RTC noinit (survives deep sleep and restarts, random after power loss): the
+// magic gates it, and the boot clears it, so a sleep entry that restarted
+// instead never prints.
+struct SleepSteps {
+  static constexpr uint32_t MAGIC = 0x534C5431;  // "SLT1"
+  uint32_t magic;
+  uint32_t startMs;
+  uint32_t stepMs;
+  uint32_t totalMs;  // 0 until "deep sleep start"
+  int8_t col;        // column of the step in progress, -1 for none
+  uint32_t ms[kSleepColCount];
+};
+RTC_NOINIT_ATTR SleepSteps rtcSleepSteps;
 }  // namespace
 
 void HalPowerManager::begin() {
@@ -233,8 +272,47 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
+void HalPowerManager::setSleepStep(const char* step) {
+  sleepStep = step;
+  SleepSteps& s = rtcSleepSteps;
+  const uint32_t now = millis();
+  if (s.magic != SleepSteps::MAGIC) {
+    s = {};
+    s.magic = SleepSteps::MAGIC;
+    s.startMs = now;
+    s.col = -1;
+  }
+  if (s.col >= 0 && static_cast<unsigned>(s.col) < kSleepColCount) s.ms[s.col] += now - s.stepMs;
+  s.stepMs = now;
+  s.col = -1;
+  for (const auto& m : kSleepStepCols) {
+    if (strcmp(m.step, step) == 0) {
+      s.col = static_cast<int8_t>(m.col);
+      break;
+    }
+  }
+  if (strcmp(step, "deep sleep start") == 0) s.totalMs = (now - s.startMs) | 1;
+}
+
+void HalPowerManager::logLastSleepSteps() {
+  SleepSteps& s = rtcSleepSteps;
+  if (s.magic == SleepSteps::MAGIC && s.totalMs != 0) {
+    char cols[192];
+    size_t pos = 0;
+    cols[0] = '\0';
+    for (unsigned i = 0; i < kSleepColCount; i++) {
+      const int n =
+          snprintf(cols + pos, sizeof(cols) - pos, "%s=%lu ", kSleepCols[i], static_cast<unsigned long>(s.ms[i]));
+      if (n < 0 || static_cast<size_t>(n) >= sizeof(cols) - pos) break;
+      pos += static_cast<size_t>(n);
+    }
+    LOG_INF("SLP", "t %stotal=%lu", cols, static_cast<unsigned long>(s.totalMs));
+  }
+  s.magic = 0;
+}
+
 void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
-  sleepStep = "wifi off";
+  setSleepStep("wifi off");
   disableWiFiBeforeDeepSleep();
 
 #ifdef ENABLE_SERIAL_LOG
@@ -242,7 +320,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
   // doesn't hold power domains that interfere with USB-powered GPIO wake.
   // logSerial is the raw HWCDC reference; Serial is the MySerialImpl proxy
   // (which doesn't expose end()).
-  sleepStep = "serial end";
+  setSleepStep("serial end");
   logSerial.end();
 #endif
 
@@ -279,14 +357,14 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
   // button. Must run after display.deepSleep() so the panel controller gets its
   // deep-sleep command while its rail is still up (enterDeepSleep() in main.cpp
   // guarantees that ordering).
-  sleepStep = "rails off";
+  setSleepStep("rails off");
   freeink::PowerManager::powerDownRailsForSleep();
 
   // The SDK convenience helper currently isolates every GPIO after arming the
   // wake source. On the ESP32-C3 that overwrites the power pin's sleep input
   // configuration, so short presses can be missed. Isolate first, then restore
   // and arm the board-configured power pin immediately before sleeping.
-  sleepStep = "power button release";
+  setSleepStep("power button release");
   freeink::PowerManager::waitForPowerButtonRelease();
   const int8_t stat = BoardConfig::ACTIVE.batteryChargeStatus;
   const int statLevel = stat >= 0 ? gpio_get_level(static_cast<gpio_num_t>(stat)) : 0;
@@ -344,7 +422,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool fullWake) const {
   // The ROM otherwise prints its boot banner at 115200 baud on every deep-sleep
   // wake before the bootloader runs. setup() logs the reset and wake causes.
   esp_deep_sleep_disable_rom_logging();
-  sleepStep = "deep sleep start";
+  setSleepStep("deep sleep start");
   esp_deep_sleep_start();
 }
 

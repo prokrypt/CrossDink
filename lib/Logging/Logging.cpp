@@ -27,7 +27,7 @@ void MySerialImpl::flush() { logSerial.flush(); }
 #define MAX_ENTRY_LEN 256
 // A log line waits at most this long for a reply or stream holding the port.
 static constexpr uint32_t LOG_LINE_LOCK_WAIT_MS = 2;
-#if CROSSDINK_PSRAM_LOG
+#if CROSSDINK_HAS_PSRAM_LOG_RING
 // The crash report reads the PSRAM ring (HalSystem::checkPanic), so the RTC
 // copy only needs a few short lines; this frees ~3.5 KB of RTC slow memory.
 #define MAX_LOG_LINES 4

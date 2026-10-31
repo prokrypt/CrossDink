@@ -2,6 +2,7 @@
 
 #include <Bitmap.h>
 #include <Epub.h>
+#include <Epub/PsramWorker.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
@@ -46,6 +47,7 @@
 #include "SavedItemsHomeActivity.h"
 #include "TaskCores.h"
 #include "activities/library/LibraryPrewarm.h"
+#include "activities/reader/KOSyncAuto.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/KOSyncBadge.h"
 #include "components/UITheme.h"
@@ -768,15 +770,25 @@ void HomeActivity::startCoverWorker(std::vector<CoverJob>&& jobs) {
   }
   // The covers are made on the worker core while Home stays drawn and takes
   // input; the render after the job draws them. Decoder buffers go to PSRAM.
-  // 4.8 KB used on device (0929e log).
+  // 4.8 KB used on device (0929e log). The stack goes to PSRAM too (SD only,
+  // no flash) so its self-delete leaves no internal hole (PsramWorker.h).
   constexpr uint32_t STACK_BYTES = 8192;
   if (!coverWorker.done) coverWorker.done = xSemaphoreCreateBinary();
   coverWorker.cancel.store(false, std::memory_order_relaxed);
   coverWorker.finished.store(false, std::memory_order_relaxed);
   powerManager.beginBackgroundWork();
-  if (coverWorker.done && xTaskCreatePinnedToCore(coverWorkerMain, "HomeCovers", STACK_BYTES, this, 1,
-                                                  &coverWorker.task, TaskCores::kWorker) == pdPASS) {
-    return;
+  if (coverWorker.done) {
+    // Set before the task can run: coverWorkerMain() reads it to decide how to exit.
+    coverWorker.psramStack = true;
+    if (psramworker::start(coverWorkerMain, "HomeCovers", STACK_BYTES, this, &coverWorker.task, TaskCores::kWorker)) {
+      return;
+    }
+    LOG_DBG("HOME", "HomeCovers: no PSRAM stack, using internal RAM");
+    coverWorker.psramStack = false;
+    if (xTaskCreatePinnedToCore(coverWorkerMain, "HomeCovers", STACK_BYTES, this, 1, &coverWorker.task,
+                                TaskCores::kWorker) == pdPASS) {
+      return;
+    }
   }
   coverWorker.task = nullptr;
   powerManager.endBackgroundWork();
@@ -792,8 +804,10 @@ void HomeActivity::coverWorkerMain(void* param) {
   powerManager.endBackgroundWork();
   activityManager.requestUpdate(true);
   PerfLog::noteTaskExit("HomeCovers");
-  // The activity may be destroyed as soon as this is given.
+  const bool parks = self->coverWorker.psramStack;
+  // The activity may be destroyed as soon as this is given (after reaping a parked task).
   xSemaphoreGive(self->coverWorker.done);
+  if (parks) psramworker::park();
   vTaskDelete(nullptr);
 }
 
@@ -842,6 +856,7 @@ void HomeActivity::joinCoverWorker(const bool cancel) {
   if (cancel) coverWorker.cancel.store(true, std::memory_order_relaxed);
   // Bounded by one decoded row (or the current cover copy/load) once cancelled; the worker never takes RenderLock.
   xSemaphoreTake(coverWorker.done, portMAX_DELAY);
+  if (coverWorker.psramStack) psramworker::reap(coverWorker.task);
   coverWorker.task = nullptr;
   coverWorker.finished.store(false, std::memory_order_relaxed);
 }
@@ -951,6 +966,7 @@ void HomeActivity::onEnter() {
   if (!selectInitialBook(initialBookPath)) {
     selectInitialBook(APP_STATE.openEpubPath);
   }
+  kosync_auto::retryUnsynced(APP_STATE.openEpubPath);
 
   reloadGlobalStats();
   if (isCarouselTheme) {
@@ -2333,7 +2349,7 @@ void HomeActivity::render(RenderLock&&) {
     renderer.clearScreen();
 
     if (minimalMenuOpen) {
-      GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
+      GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
       const auto menuItems = buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
       GUI.drawButtonMenu(
           renderer, Rect{0, metrics.homeTopPadding, pageWidth, pageHeight - metrics.homeTopPadding},
@@ -2349,8 +2365,9 @@ void HomeActivity::render(RenderLock&&) {
       return;
     }
 
+    // Header band first: the restored cover then covers the band's overlap, as the cover draw does.
+    GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
     bool bufferRestored = coverBufferStored && restoreCoverBuffer();
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
 
     coverRectX = 0;
     coverRectY = metrics.homeTopPadding;
@@ -2414,7 +2431,7 @@ void HomeActivity::render(RenderLock&&) {
       // The snapshot contains artwork only; all changing UI uses current state.
       const Rect coverRect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
       const auto& carouselTheme = static_cast<const LyraCarouselTheme&>(GUI);
-      GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
+      GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
       GUI.drawCarouselBorder(renderer, coverRect, recentBooks, centerIdx, inCarouselRow);
       beginSyncBadge();
       carouselTheme.drawReadingProgress(renderer, coverRect, recentBooks,
@@ -2450,7 +2467,6 @@ void HomeActivity::render(RenderLock&&) {
   }
 
   renderer.clearScreen();
-  bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
   auto menuItems = buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
                                                 metrics.homeContinueReadingInMenu && !recentBooks.empty());
@@ -2466,9 +2482,11 @@ void HomeActivity::render(RenderLock&&) {
     homeCoverTileHeight = std::clamp(maxCoverHeight, 0, metrics.homeCoverTileHeight);
   }
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding},
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding),
                  metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr,
                  nullptr, false, true, true);
+  // After the header band: the restored cover covers the band's overlap, as the cover draw does.
+  bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
   // Record the tile rect so storeCoverBuffer (called from the theme) knows
   // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait

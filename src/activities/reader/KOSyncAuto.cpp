@@ -405,9 +405,11 @@ void run(void*) {
           "%s %s: result=%d http=%d pct=%.4f claimed=%d %lu ms heap free/block start %" PRIu32 "/%" PRIu32
           " joined %" PRIu32 "/%" PRIu32 " end %" PRIu32 "/%" PRIu32 " stack free %u",
           what,
-          skipped                            ? "skipped"
-          : result == KOReaderSyncClient::OK ? "ok"
-                                             : "failed",
+          skipped ? "skipped"
+          // A Wi-Fi screen or sleep took the radio before the push landed; result is the fetch's.
+          : !jobIsPull && !pushOk && radioClaimed.load() ? "cut off"
+          : result == KOReaderSyncClient::OK             ? "ok"
+                                                         : "failed",
           result, KOReaderSyncClient::lastHttpCode, jobIsPull ? pulled.percentage : progress.percentage,
           radioClaimed.load() ? 1 : 0, static_cast<unsigned long>(millis() - start), heapStart.freeHeap,
           heapStart.maxAllocHeap, heapJoined.freeHeap, heapJoined.maxAllocHeap, heapEnd.freeHeap, heapEnd.maxAllocHeap,
@@ -528,6 +530,22 @@ void queue(const std::string& epubPath, const EpubReaderUtils::Progress* saved) 
   settleUnbadged = !owed;
 }
 
+void retryUnsynced(const std::string& epubPath) {
+  // shortcut: a book never checked (no mark, no badge) is not retried; key off unpushedPath in RTC if that matters.
+  static std::string retried;  // once per boot per book: a failing push must not reach the radio on every Home
+  if (epubPath.empty() || epubPath == retried || !queuedPath.empty() || task.running()) return;
+  if (!(SETTINGS.koAutoSync & CrossPointSettings::KO_AUTO_SYNC_CLOSE) || !KOREADER_STORE.hasCredentials()) return;
+  const std::string cache = Epub::cachePathForFilePath(epubPath, "/.crossdink");
+  RecentBookProgress::SyncMark mark;
+  const float pct = RecentBookProgress::loadSavedEpubPercent(cache, mark);
+  if (RecentBookProgress::syncBadge(cache, pct, mark) != RecentBookProgress::SyncBadge::Unsynced) return;
+  retried = epubPath;
+  LOG_INF("KOSync", "home: retrying the unsynced close push");
+  queuedPath = epubPath;
+  queuedAt = millis();
+  setPending(epubPath);
+}
+
 const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMethod& method) {
   if (!pullReady || task.running()) return nullptr;
   pullReady = false;
@@ -578,6 +596,16 @@ void loop() {
 
 std::string pendingPushPath() {
   if (activityManager.anyActivityUsesWifi() || !KOREADER_STORE.hasCredentials()) return {};
+  {
+    // A close not past the page it opened at (no Syncing badge) is not owed: the job
+    // would skip it, so sleep skips it and its toasts, as movedSinceOpen() does in the reader.
+    std::lock_guard<std::mutex> lock(pendingMutex);
+    if (pendingCache.empty()) {
+      if (!queuedPath.empty() || (task.running() && !jobIsPull))
+        LOG_INF("KOSync", "sleep push skipped: queued close not owed (no toast, radio skipped)");
+      return {};
+    }
+  }
   if (!queuedPath.empty()) return queuedPath;
   if (task.running() && !jobIsPull) return jobPath;
   return {};
