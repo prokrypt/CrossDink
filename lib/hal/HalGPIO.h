@@ -219,6 +219,10 @@ class HalGPIO {
   // Check if USB is connected
   bool isUsbConnected() const;
 
+  // A USB host's start-of-frame traffic only (no charger fallback, no I2C), so
+  // setup() can ask before the input bus is up. False on non-S3 boards.
+  static bool usbHostAttached();
+
   // Return the latest loop-owned sample. Before the first update(), fall back
   // to a direct probe so setup-time callers still report external power.
   bool isUsbConnectedCached() const;
