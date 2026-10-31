@@ -2349,7 +2349,7 @@ void HomeActivity::render(RenderLock&&) {
     renderer.clearScreen();
 
     if (minimalMenuOpen) {
-      GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
+      GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
       const auto menuItems = buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
       GUI.drawButtonMenu(
           renderer, Rect{0, metrics.homeTopPadding, pageWidth, pageHeight - metrics.homeTopPadding},
@@ -2365,8 +2365,9 @@ void HomeActivity::render(RenderLock&&) {
       return;
     }
 
+    // Header band first: the restored cover then covers the band's overlap, as the cover draw does.
+    GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
     bool bufferRestored = coverBufferStored && restoreCoverBuffer();
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
 
     coverRectX = 0;
     coverRectY = metrics.homeTopPadding;
@@ -2430,7 +2431,7 @@ void HomeActivity::render(RenderLock&&) {
       // The snapshot contains artwork only; all changing UI uses current state.
       const Rect coverRect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
       const auto& carouselTheme = static_cast<const LyraCarouselTheme&>(GUI);
-      GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
+      GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
       GUI.drawCarouselBorder(renderer, coverRect, recentBooks, centerIdx, inCarouselRow);
       beginSyncBadge();
       carouselTheme.drawReadingProgress(renderer, coverRect, recentBooks,
@@ -2466,7 +2467,6 @@ void HomeActivity::render(RenderLock&&) {
   }
 
   renderer.clearScreen();
-  bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
   auto menuItems = buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
                                                 metrics.homeContinueReadingInMenu && !recentBooks.empty());
@@ -2482,9 +2482,11 @@ void HomeActivity::render(RenderLock&&) {
     homeCoverTileHeight = std::clamp(maxCoverHeight, 0, metrics.homeCoverTileHeight);
   }
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding},
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding),
                  metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr,
                  nullptr, false, true, true);
+  // After the header band: the restored cover covers the band's overlap, as the cover draw does.
+  bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
   // Record the tile rect so storeCoverBuffer (called from the theme) knows
   // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait
