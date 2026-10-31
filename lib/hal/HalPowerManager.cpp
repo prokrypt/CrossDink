@@ -16,6 +16,13 @@
 HalPowerManager powerManager;  // Singleton instance
 
 namespace {
+// Up to 30 ms for the driver to report Wi-Fi off, polled in 5 ms steps instead of a fixed wait.
+void waitWiFiModeNull() {
+  for (int i = 0; i < 6 && WiFi.getMode() != WIFI_MODE_NULL; ++i) {
+    delay(5);
+  }
+}
+
 void disableWiFiBeforeDeepSleep() {
   const wifi_mode_t wifiMode = WiFi.getMode();
   if (wifiMode == WIFI_MODE_NULL) {
@@ -29,9 +36,9 @@ void disableWiFiBeforeDeepSleep() {
   if (wifiMode & WIFI_MODE_STA) {
     WiFi.disconnect(true);
   }
-  delay(30);
+  waitWiFiModeNull();
   WiFi.mode(WIFI_OFF);
-  delay(30);
+  waitWiFiModeNull();
 }
 }  // namespace
 
