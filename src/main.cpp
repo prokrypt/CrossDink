@@ -2676,6 +2676,11 @@ void setup() {
     disarmBootGuard();  // the hold can run 30 s; sleep entry arms its own guard
     enterDeepSleep();
   }
+  if (resume == BootResume::SplashlessWake || resume == BootResume::Silent) {
+    // A first paint is certain: the render task powers the booster on now (~127 ms
+    // PON) while this core opens the book, so that paint skips the wait.
+    activityManager.wakePanelEarly();
+  }
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
