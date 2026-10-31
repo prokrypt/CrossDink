@@ -22,6 +22,7 @@ class ImageBlock final : public Block {
   bool needsDecode() const;
   void renderPlaceholder(GfxRenderer& renderer, int x, int y, bool foregroundBlack) const;
   static void clearSessionRenderFailures();
+  static bool hasSessionRenderFailures();
   static void releaseSessionPixelCache();
 
   // The section builder only reads image headers. The reader supplies this

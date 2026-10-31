@@ -554,6 +554,8 @@ void ImageBlock::clearSessionRenderFailures() {
   releaseSessionPixelCache();
 }
 
+bool ImageBlock::hasSessionRenderFailures() { return failedImageCount > 0; }
+
 void ImageBlock::releaseSessionPixelCache() {
   retainedPxcCapacity = 0;
   retainedPxcUseClock = 0;
