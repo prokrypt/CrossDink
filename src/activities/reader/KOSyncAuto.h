@@ -64,7 +64,8 @@ bool wantsSleepPush();
 // pendingPushPath()'s, and a push of it already running is finished, not redone).
 bool pushBegin(std::string epubPath, bool readerFlushed);
 PushOutcome pushFinish();
-// A close push queued or running (not yet landed), when no Wi-Fi screen is up.
+// A close push queued or running (not yet landed) and owed (the book shows Syncing),
+// when no Wi-Fi screen is up.
 std::string pendingPushPath();
 // Before a Wi-Fi screen or deep sleep takes the radio: waits out the task's
 // Wi-Fi start/stop calls; the task then leaves the radio alone.
