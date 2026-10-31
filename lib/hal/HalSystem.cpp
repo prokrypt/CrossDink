@@ -298,7 +298,7 @@ void checkPanic() {
     auto file = Storage.open("/debug/crash_report.txt", O_WRITE | O_CREAT | O_TRUNC);
     if (file) {
       const size_t written = file.write(panicInfo.c_str(), panicInfo.size());
-#if CROSSDINK_PSRAM_LOG
+#if CROSSDINK_HAS_PSRAM_LOG_RING
       // The PSRAM ring survives a panic reset: add its last 16 KB, which holds
       // far more of the run-up to the crash than the RTC lines above.
       static constexpr char header[] = "\n\nPSRAM log (last 16 KB):\n";
