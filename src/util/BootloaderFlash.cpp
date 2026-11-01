@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <esp_app_desc.h>
+#include <esp_app_format.h>
 #include <esp_flash.h>
 #include <hal/efuse_hal.h>
 #include <mbedtls/sha256.h>
@@ -18,9 +19,7 @@ extern "C" esp_err_t __real_bootloader_common_check_efuse_blk_validity(uint32_t 
 namespace bootloader_flash {
 namespace {
 
-constexpr uint8_t IMAGE_MAGIC = 0xE9;
-constexpr uint16_t CHIP_ID_ESP32S3 = 9;
-constexpr size_t HEADER_SIZE = 24;
+constexpr size_t HEADER_SIZE = sizeof(esp_image_header_t);
 constexpr size_t SHA_SIZE = 32;
 
 bool appAccepted() {
@@ -49,16 +48,27 @@ bool load(uint8_t* buf, Image& image, char* err, const size_t errLen) {
   file.close();
   if (got != static_cast<int>(size)) return fail(err, errLen, "SD read failed");
 
-  uint16_t chipId;
-  memcpy(&chipId, buf + 12, sizeof(chipId));
-  if (buf[0] != IMAGE_MAGIC || chipId != CHIP_ID_ESP32S3) return fail(err, errLen, "Not an ESP32-S3 image");
-  if (buf[23] != 1) return fail(err, errLen, "Image has no appended SHA-256");
+  esp_image_header_t hdr;
+  memcpy(&hdr, buf, sizeof(hdr));
+  if (hdr.magic != ESP_IMAGE_HEADER_MAGIC || hdr.chip_id != ESP_CHIP_ID_ESP32S3) {
+    return fail(err, errLen, "Not an ESP32-S3 image");
+  }
+  if (hdr.hash_appended != 1) return fail(err, errLen, "Image has no appended SHA-256");
+  // The ROM and the image loader refuse an image built for other silicon revisions (major * 100 + minor).
+  const uint32_t rev = efuse_hal_chip_revision();
+  if (rev < hdr.min_chip_rev_full || (hdr.max_chip_rev_full != 0xFFFF && rev > hdr.max_chip_rev_full)) {
+    snprintf(err, errLen, "Image is for chip rev v%u.%u..v%u.%u, this chip is v%lu.%lu", hdr.min_chip_rev_full / 100,
+             hdr.min_chip_rev_full % 100, hdr.max_chip_rev_full / 100, hdr.max_chip_rev_full % 100,
+             static_cast<unsigned long>(rev / 100), static_cast<unsigned long>(rev % 100));
+    LOG_ERR("BOOTLDR", "%s", err);
+    return false;
+  }
   uint8_t sha[SHA_SIZE];
   mbedtls_sha256(buf, size - SHA_SIZE, sha, /*is224=*/0);
   if (memcmp(sha, buf + size - SHA_SIZE, SHA_SIZE) != 0) return fail(err, errLen, "SHA-256 mismatch");
 
   image.size = size;
-  image.spiMode = buf[2] & 0x0F;
+  image.spiMode = hdr.spi_mode;
   // A quad bootloader needs QE set in the flash status register; this app's QIO
   // init (esp_flash_init_main) did that, a DIO build never does.
   if (image.spiMode <= 1 && !esp_flash_is_quad_mode(esp_flash_default_chip)) {
@@ -91,9 +101,11 @@ bool write(const uint8_t* buf, const size_t size, char* err, const size_t errLen
 }
 
 void logAppCheck() {
-  const uint32_t rev = efuse_hal_blk_version();
-  LOG_INF("BOOT", "idf bootloader app check=%s efuse blk rev=v%lu.%lu", appAccepted() ? "ok" : "FAIL",
-          static_cast<unsigned long>(rev / 100), static_cast<unsigned long>(rev % 100));
+  const uint32_t blk = efuse_hal_blk_version();
+  const uint32_t chip = efuse_hal_chip_revision();
+  LOG_INF("BOOT", "idf bootloader app check=%s efuse blk rev=v%lu.%lu chip rev=v%lu.%lu", appAccepted() ? "ok" : "FAIL",
+          static_cast<unsigned long>(blk / 100), static_cast<unsigned long>(blk % 100),
+          static_cast<unsigned long>(chip / 100), static_cast<unsigned long>(chip % 100));
 }
 
 }  // namespace bootloader_flash
