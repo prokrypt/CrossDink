@@ -573,6 +573,9 @@ class EpubReaderActivity final : public Activity {
   // footnote preview). Used before handing off to anything that can silently
   // restart the device, which reboots without running onExit().
   void saveProgressBeforeRestart();
+  // Writes this session's reading time to SD and starts a new session, so a
+  // silent restart (which skips onExit()) does not lose it. Only on restart paths.
+  void checkpointReadingStatsBeforeRestart();
   bool saveReadingProgress(bool hold = false);
   bool saveLinkStack() const;
   void loadLinkStack();
