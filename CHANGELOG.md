@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Goodies (debug builds): **Flash bootloader** writes `/bootloader.bin` from the SD card over the second-stage bootloader after checking the image (ESP32-S3 header, appended SHA-256, QE set for a quad bootloader, bootloader accepts this app); the old bootloader is restored if the write does not read back. Boot logs `[BOOT] flash cache io=` (the cache read mode the bootloader set) and `idf bootloader app check=`.
 - X4 Pro: the firmware is built for Quad I/O (QIO) flash. The app enables the flash chip's quad mode and reads flash over four data lines; the cache that runs code stays in dual mode until the bootloader is reflashed over USB once, after which code and font reads from flash move four bits per clock instead of two.
 - Serial log: the boot after a deep sleep logs `[SLP] t request=.. draw=.. writes=.. shutdown=.. tilt=.. refresh=.. fade=.. busters=.. dslp=.. wifi=.. rails=.. release=.. total=..`, the time in ms of each step of that sleep entry, including the steps after the serial log ends.
 - Rotate Page 180° can be assigned to the power button, button chords, front-button long presses and long-press menu actions as well as the side buttons, on the device or in web settings (EPUB and TXT readers).

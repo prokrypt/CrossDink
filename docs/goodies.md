@@ -37,6 +37,12 @@
   only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
   PLL bytes are never knobs (PLL is not a knob; `CMD:KBDEXP` and test scripts pick panel default / 40 / 50 Hz only). To add one: an `X(...)` row
   whose default equals the constant, then read `KNOBS.<id>` where the constant was.
+- **Flash bootloader** writes `/bootloader.bin` from the SD card (the `bootloader.bin` of a CrossDink build) over the
+  second-stage bootloader at flash offset 0, which OTA never updates, then reboots. The file must be an ESP32-S3 image
+  with a valid appended SHA-256; a quad (QIO/QOUT) bootloader is refused unless this build already runs the flash in
+  QIO (so QE is set), and any file is refused when an ESP-IDF 5.5 bootloader would reject the running app
+  (`[BOOT] idf bootloader app check=` at boot). The old bootloader is read first and written back if the read-back
+  of the new one differs. A bootloader that does not boot is only recoverable over USB (esptool).
 - **Power Test** runs one load at a time (idle, frontlight 50% / 100%, Wi-Fi modem sleep / awake, one busy core,
   Fast / Full refresh loops) for Knobs `powerTestMin`, or steps each load on and off while reading the cell voltage
   (voltage sag probe), marking `/debug/logs/power.csv` for `scripts/power_fit.py`. See
