@@ -57,6 +57,7 @@ class SdWriteBehind {
   SemaphoreHandle_t work = nullptr;
   SemaphoreHandle_t idle = nullptr;
   TaskHandle_t task = nullptr;
+  bool psramStack = false;  // the task parks; stopTask() deletes it
 #else
   bool begin(WriteFn, void*, const char*, int) { return false; }
   bool active() const { return false; }

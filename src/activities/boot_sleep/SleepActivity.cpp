@@ -17,6 +17,7 @@
 #include <Memory.h>
 #include <PngRowDecoder.h>
 #include <Xtc.h>
+#include <ZipFile.h>
 
 #include <algorithm>
 #include <cmath>
@@ -74,6 +75,102 @@ void refreshSleepGrayFrame(const GfxRenderer& renderer) {
     renderer.displayGrayBufferAsync();
   } else {
     renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  }
+}
+
+// Finished sleep frames (the B/W frame, or both Direct gray planes), so a
+// repeat of the same image skips the BMP decode.
+constexpr char SLEEP_CACHE_DIR[] = "/.crossdink/sleepcache";
+constexpr int SLEEP_CACHE_MAX_FILES = 128;
+
+// Hashes 16 chunks spread over the file, first and last included: mtime is a
+// fixed fallback while the clock is unset, so a same-size replacement needs this.
+// shortcut: a sampled hash misses an edit that touches none of the chunks; hash the whole file if that shows up.
+uint64_t sampledContentHash(FsFile& file) {
+  constexpr int kChunks = 16;
+  constexpr size_t kChunkBytes = 128;
+  const size_t restore = file.position();
+  const size_t size = file.fileSize();
+  uint64_t hash = 0;
+  char chunk[kChunkBytes];
+  for (int i = 0; i < kChunks; ++i) {
+    const size_t offset = size > kChunkBytes ? (size - kChunkBytes) / (kChunks - 1) * i : 0;
+    if (!file.seekSet(offset)) break;
+    const int n = file.read(chunk, kChunkBytes);
+    if (n <= 0) break;
+    hash = hash * 1099511628211ull ^ ZipFile::fnvHash64(chunk, static_cast<size_t>(n));
+  }
+  file.seekSet(restore);
+  return hash;
+}
+
+// Keyed by everything that changes the decoded output; the firmware version
+// covers decoder changes.
+std::string sleepCachePath(const GfxRenderer& renderer, const std::string& sourcePath, FsFile& file, bool gray) {
+  char params[112];
+  snprintf(params, sizeof(params), "|%016llx|%lu|%lu|%d|%d|%d|%d|%d|%d|",
+           static_cast<unsigned long long>(sampledContentHash(file)), static_cast<unsigned long>(file.fileSize()),
+           static_cast<unsigned long>(file.modificationTime()), static_cast<int>(SETTINGS.sleepScreenCoverMode),
+           static_cast<int>(SETTINGS.sleepScreenCoverFilter), static_cast<int>(renderer.getOrientation()),
+           renderer.getScreenWidth(), renderer.getScreenHeight(), gray ? 1 : 0);
+  const std::string key = sourcePath + params + AppVersion::version();
+  char path[64];
+  snprintf(path, sizeof(path), "%s/%016llx.bin", SLEEP_CACHE_DIR,
+           static_cast<unsigned long long>(ZipFile::fnvHash64(key.data(), key.size())));
+  return path;
+}
+
+bool readSleepCache(const std::string& path, uint8_t* const* buffers, int count, size_t bytes) {
+  if (!Storage.exists(path.c_str())) return false;
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", path, file)) return false;
+  bool ok = file.fileSize() == count * bytes;
+  for (int i = 0; ok && i < count; ++i) ok = file.read(buffers[i], bytes) == static_cast<int>(bytes);
+  file.close();
+  if (!ok) {
+    LOG_ERR("SLP", "Bad sleep cache file %s, removing", path.c_str());
+    Storage.remove(path.c_str());
+  }
+  return ok;
+}
+
+// Drops the oldest file once the folder holds SLEEP_CACHE_MAX_FILES.
+// shortcut: oldest by FAT creation time, ties (no clock) drop an arbitrary file; fine for a cache.
+void trimSleepCache() {
+  auto dir = Storage.open(SLEEP_CACHE_DIR);
+  if (!dir || !dir.isDirectory()) return;
+  int files = 0;
+  uint32_t oldestTime = UINT32_MAX;
+  char name[32];
+  char oldest[32] = "";
+  for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    if (!entry.isDirectory()) {
+      ++files;
+      const uint32_t created = entry.creationTime();
+      if (created < oldestTime && entry.getName(name, sizeof(name)) > 0) {
+        oldestTime = created;
+        memcpy(oldest, name, sizeof(oldest));
+      }
+    }
+    entry.close();
+  }
+  dir.close();
+  if (files < SLEEP_CACHE_MAX_FILES || oldest[0] == '\0') return;
+  const std::string victim = std::string(SLEEP_CACHE_DIR) + "/" + oldest;
+  Storage.remove(victim.c_str());
+}
+
+void writeSleepCache(const std::string& path, const uint8_t* const* buffers, int count, size_t bytes) {
+  if (!Storage.ensureDirectoryExists(SLEEP_CACHE_DIR)) return;
+  trimSleepCache();
+  FsFile file;
+  if (!Storage.openFileForWrite("SLP", path, file)) return;
+  bool ok = true;
+  for (int i = 0; ok && i < count; ++i) ok = file.write(buffers[i], bytes) == bytes;
+  file.close();
+  if (!ok) {
+    LOG_ERR("SLP", "Failed to write sleep cache %s", path.c_str());
+    Storage.remove(path.c_str());
   }
 }
 
@@ -722,7 +819,7 @@ void SleepActivity::renderCustomSleepScreen() const {
       return false;
     }
 
-    const bool success = renderBitmapSleepScreen(bitmap, file);
+    const bool success = renderBitmapSleepScreen(bitmap, file, selection.path);
     file.close();
     return success;
   };
@@ -752,7 +849,7 @@ void SleepActivity::renderCustomSleepScreen() const {
                   renderer.supportsAbsoluteGrayscale() &&
                       SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      const bool success = renderBitmapSleepScreen(bitmap, file);
+      const bool success = renderBitmapSleepScreen(bitmap, file, "/sleep.bmp");
       file.close();
       if (success) return;
     }
@@ -792,7 +889,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
   refreshSleepFrame(renderer);
 }
 
-bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const {
+bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file, const std::string& sourcePath) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -880,8 +977,6 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
   }
   if (msb) {
     [[maybe_unused]] const unsigned long startMs = millis();
-    memset(lsb.get(), 0xFF, planeBytes);  // absolute white margins
-    memset(msb.get(), 0xFF, planeBytes);
     struct PanelPrep {
       const SleepActivity* activity;
       bool baseShown;
@@ -895,22 +990,34 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
     powerManager.beginBackgroundWork();
     WorkerTask panelTask;
     if (!panelTask.start(preparePanel, &prep, 4096, "SleepPanel", /*uiCore=*/true)) preparePanel(&prep);
-    DirectPixelWriter::levelPlanes[0] = lsb.get();
-    DirectPixelWriter::levelPlanes[1] = msb.get();
-    const bool decoded = bitmap.rewindToData() == BmpReaderError::Ok &&
-                         decodeBmpLevelPlanes(renderer, bitmap, file, x, y, pageWidth, pageHeight, cropX, cropY);
-    DirectPixelWriter::levelPlanes[0] = DirectPixelWriter::levelPlanes[1] = nullptr;
+    uint8_t* const planes[] = {lsb.get(), msb.get()};
+    const std::string cachePath = sleepCachePath(renderer, sourcePath, file, true);
+    const bool cacheHit = readSleepCache(cachePath, planes, 2, planeBytes);
+    bool decoded = cacheHit;
+    if (!cacheHit) {
+      memset(lsb.get(), 0xFF, planeBytes);  // absolute white margins
+      memset(msb.get(), 0xFF, planeBytes);
+      DirectPixelWriter::levelPlanes[0] = lsb.get();
+      DirectPixelWriter::levelPlanes[1] = msb.get();
+      decoded = bitmap.rewindToData() == BmpReaderError::Ok &&
+                decodeBmpLevelPlanes(renderer, bitmap, file, x, y, pageWidth, pageHeight, cropX, cropY);
+      DirectPixelWriter::levelPlanes[0] = DirectPixelWriter::levelPlanes[1] = nullptr;
+    }
     [[maybe_unused]] const unsigned long decodedMs = millis();
     panelTask.join();
     powerManager.endBackgroundWork();
-    LOG_DBG("SLP", "Sleep image decoded once in %lu ms, panel ready %lu ms later", decodedMs - startMs,
-            millis() - decodedMs);
+    if (cacheHit) {
+      LOG_INF("SLP", "Sleep cache hit in %lu ms, panel ready %lu ms later", decodedMs - startMs, millis() - decodedMs);
+    } else {
+      LOG_DBG("SLP", "Sleep image decoded once in %lu ms, panel ready %lu ms later", decodedMs - startMs,
+              millis() - decodedMs);
+    }
     if (!decoded) {
       LOG_ERR("SLP", "Failed to decode sleep image");
       return false;
     }
     if (!prep.baseShown) return false;
-    if (extendEdges || mirrorEdges) {
+    if (!cacheHit && (extendEdges || mirrorEdges)) {
       for (uint8_t* plane : {lsb.get(), msb.get()}) {
         renderer.beginStripTarget(plane, 0, renderer.getDisplayHeight());
         if (extendEdges) {
@@ -923,6 +1030,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
     }
     renderer.copyGrayscalePlanes(lsb.get(), msb.get());
     refreshSleepGrayFrame(renderer);
+    if (!cacheHit) writeSleepCache(cachePath, planes, 2, planeBytes);  // the image is on the glass
     return true;
   }
   if (panelIdlePending) idlePanel(hasGreyscale && direct);
@@ -932,6 +1040,18 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
   // push the B/W frame, so they keep it.
   const bool drawBwFrame = !hasGreyscale || !direct;
   [[maybe_unused]] const unsigned long decodeStartMs = millis();
+
+  std::string bwCachePath;
+  uint8_t* const frame[] = {renderer.getFrameBuffer()};
+  if (!hasGreyscale) {
+    bwCachePath = sleepCachePath(renderer, sourcePath, file, false);
+    if (readSleepCache(bwCachePath, frame, 1, renderer.getBufferSize())) {
+      LOG_INF("SLP", "Sleep cache hit in %lu ms", millis() - decodeStartMs);
+      refreshSleepFrame(renderer);
+      return true;
+    }
+    renderer.clearScreen();  // a failed read may have left part of a frame
+  }
 
   if (drawBwFrame) {
     if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY)) return false;
@@ -949,6 +1069,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file) const 
 
   if (!hasGreyscale) {
     refreshSleepFrame(renderer);
+    writeSleepCache(bwCachePath, frame, 1, renderer.getBufferSize());  // under the async refresh
     return true;
   }
 
@@ -1019,7 +1140,7 @@ void SleepActivity::renderCoverSleepScreen() const {
     Bitmap bitmap(file, absolute, absolute);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
-      const bool success = renderBitmapSleepScreen(bitmap, file);
+      const bool success = renderBitmapSleepScreen(bitmap, file, coverBmpPath);
       file.close();
       if (success) return;
     }

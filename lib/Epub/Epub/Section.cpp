@@ -1186,6 +1186,15 @@ bool Section::buildSomeMore(const int maxPages) {
   }
 }
 
+bool Section::finishBuildIfNearlyDone(const uint32_t maxRemainingBytes) {
+  if (!build_ || !build_->parser || build_->totalBytes == 0) return false;
+  const size_t consumed = build_->parser->parseBytesConsumed();
+  if (consumed + maxRemainingBytes < build_->totalBytes) return false;
+  LOG_DBG("SCT", "Finishing nearly done build: spine=%d %u/%u bytes", spineIndex, static_cast<unsigned>(consumed),
+          static_cast<unsigned>(build_->totalBytes));
+  return buildSomeMore(0);
+}
+
 bool Section::hasHtmlCache() const {
   const std::string htmlPath = epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
   return Storage.exists(htmlPath.c_str());

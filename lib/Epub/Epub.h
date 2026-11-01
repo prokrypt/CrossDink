@@ -58,6 +58,8 @@ class Epub {
 
  public:
   bool ensureOptimizerImageIndex();
+  // False once the index is ready or the book has none: no scratch needed.
+  bool optimizerImageIndexPending() const { return !optimizerIndexReady && !optimizerManifestAbsent; }
   enum class OpenFailure : uint8_t {
     None,
     OutOfMemory,
@@ -201,6 +203,8 @@ class Epub {
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
                                 bool allowEarlyStop = false) const;
+  // Publisher-font access also reverses declared Adobe font obfuscation.
+  bool readFontContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
   // Stops early and fails, removing destPath, once *cancel turns true.
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096,
                          const std::atomic<bool>* cancel = nullptr) const;

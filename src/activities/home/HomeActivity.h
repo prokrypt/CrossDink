@@ -172,6 +172,7 @@ class HomeActivity final : public Activity {
     std::atomic<bool> finished{false};  // set by the task before done
     std::atomic<bool> cancel{false};
     std::vector<CoverJob> jobs;  // the task's while it runs
+    bool psramStack = false;     // the task parks; joinCoverWorker() deletes it
   };
   CoverWorker coverWorker;
   // Cover grid slot sizes changed while a job ran: load again after it.

@@ -42,7 +42,7 @@ std::unique_ptr<T> makeUniqueNoThrow(size_t count) {
 }
 
 // std allocator that prefers PSRAM, for small, short-lived strings that would
-// land in internal RAM under the 1 KB malloc threshold and split it (OPDS
+// land in internal RAM under the 512 B malloc threshold and split it (OPDS
 // feeds). Plain CPU data only: no DMA or ISR use. Out of memory aborts, as
 // std::allocator does with exceptions disabled (IDF's operator new is malloc,
 // so heap_caps_free releases either).

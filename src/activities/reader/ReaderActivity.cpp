@@ -6,6 +6,8 @@
 #include <Memory.h>
 #include <PerfLog.h>
 
+#include <optional>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub.h"
@@ -60,7 +62,11 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
     allowFastInitialRefresh = false;
     const uint32_t popupStartMs = millis();
     openingFeedback.finish();
+    // Deferred: the panel runs the popup's waveform from a baseline copy while
+    // the index builds below; the next display call finishes it.
+    renderer.setDeferFastRefresh(true);
     GUI.drawPopup(renderer, tr(STR_INDEXING));
+    renderer.setDeferFastRefresh(false);
     PerfLog::bookOpenStage("popup", millis() - popupStartMs);
   }
   // Keep one settings snapshot for both EPUB preparation and the reader handoff.
@@ -69,7 +75,10 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   // Lend the framebuffer's 48 KB for every EPUB load: even a cached book may
   // rebuild stale/missing CSS and need miniz's ~43 KB streaming workspace. The
   // panel keeps showing its last image, and the next activity redraws fully.
-  GfxRenderer::FrameBufferLoan loan(renderer);
+  // Not while the popup's refresh runs: lending would wait it out. Inflate then
+  // takes its workspace from PSRAM, where the framebuffer lives anyway.
+  std::optional<GfxRenderer::FrameBufferLoan> loan;
+  if (!renderer.isRefreshPending()) loan.emplace(renderer);
   uint32_t stageStartMs = millis();
   const bool loaded = epub->load(
       true, result.readerSettings.hasSafeModeOverride || result.readerSettings.readerSettings.embeddedStyle == 0,
@@ -78,7 +87,7 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   stageStartMs = millis();
   if (loaded) epub->ensureOptimizerImageIndex();
   PerfLog::bookOpenStage("imgidx", millis() - stageStartMs);
-  loan.end();
+  loan.reset();
   if (loaded && openingFeedback.showIfDue(renderer)) allowFastInitialRefresh = false;
   if (loaded) {
     result.epub = std::move(epub);

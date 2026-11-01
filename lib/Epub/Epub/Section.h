@@ -134,6 +134,9 @@ class Section {
   bool startBuild(const ReaderRenderSpec& spec, SectionBuildOptions buildOptions = {},
                   const std::function<void()>& popupFn = nullptr);
   bool buildSomeMore(int maxPages);
+  // Runs an active build to completion when at most maxRemainingBytes of HTML are left,
+  // so a nearly finished chapter is committed whole instead of as a partial.
+  bool finishBuildIfNearlyDone(uint32_t maxRemainingBytes);
   // One slice of the build's deferred font advance prewarm; false when none is left.
   bool prewarmSomeMore();
   void releaseBuildFile();

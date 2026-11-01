@@ -84,7 +84,7 @@ SDK.
 ## Hardware Constraints
 
 - Every firmware target is ESP32-S3R8 (Seeed reTerminal Sticky/Xteink X4 Pro/Xteink X4 Classic): dual-core Xtensa at up to 240 MHz with 8 MB PSRAM. C3 and no-PSRAM branches inherited from upstream remain in shared code: the C3 ones compile out of every firmware env, and the no-PSRAM ones still serve the simulator and failed PSRAM allocations.
-- Internal RAM is still the scarce resource. Plain allocations above 1 KB try PSRAM first (`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024` in `[dualpoint_cores]`), but task stacks, DMA buffers (EPD SPI, SDMMC), and ISR data must ask for internal RAM explicitly. PSRAM is slower than internal DRAM and is not suitable for every DMA, ISR, or latency-sensitive buffer.
+- Internal RAM is still the scarce resource. Plain allocations over 512 B try PSRAM first (`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512` in `[dualpoint_cores]`), but task stacks, DMA buffers (EPD SPI, SDMMC), and ISR data must ask for internal RAM explicitly. PSRAM is slower than internal DRAM and is not suitable for every DMA, ISR, or latency-sensitive buffer.
 - Both cores run app work. Core 1 runs the render task (`TaskCores::kUi` in `include/TaskCores.h`); core 0 runs Arduino's `loopTask` in every firmware env (`[x4_pro_loop_core0]` in `platformio.ini`), Wi-Fi/lwIP, the input task, and background workers (`TaskCores::kWorker`).
 - Current displays use an 800x480 1-bit e-ink framebuffer: `800 * 480 / 8 = 48000` bytes. Use runtime renderer dimensions because orientation and future device profiles may differ.
 - Use one framebuffer only. Every firmware env places it in PSRAM via `FREEINK_FB_PSRAM=1`.

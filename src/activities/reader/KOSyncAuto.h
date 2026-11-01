@@ -27,6 +27,9 @@ void queuePull(const std::string& epubPath, int spineIndex, int pageNumber, int 
 // saved: the exit position (null if unread); a close not past the page it opened at
 // gets no Syncing badge, since the job then skips it without the radio.
 void queue(const std::string& epubPath, const EpubReaderUtils::Progress* saved);
+// Home: when the last book's badge reads Unsynced (a close push failed, or a Wi-Fi
+// screen cut it off, maybe across its restart), queues that push again, once per boot.
+void retryUnsynced(const std::string& epubPath);
 // Reader loop: a finished fetch for this book, once, else null; valid until the
 // next fetch starts. method: the hash it matched.
 const KOReaderProgress* takePull(const std::string& epubPath, DocumentMatchMethod& method);
@@ -61,7 +64,8 @@ bool wantsSleepPush();
 // pendingPushPath()'s, and a push of it already running is finished, not redone).
 bool pushBegin(std::string epubPath, bool readerFlushed);
 PushOutcome pushFinish();
-// A close push queued or running (not yet landed), when no Wi-Fi screen is up.
+// A close push queued or running (not yet landed) and owed (the book shows Syncing),
+// when no Wi-Fi screen is up.
 std::string pendingPushPath();
 // Before a Wi-Fi screen or deep sleep takes the radio: waits out the task's
 // Wi-Fi start/stop calls; the task then leaves the radio alone.

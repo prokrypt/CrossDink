@@ -351,6 +351,13 @@ bool HalDisplay::powerOnIdle() {
 #endif
 }
 
+void HalDisplay::startTemperatureRead() {
+#ifndef SIMULATOR
+  HalSpiBus::Lock spiLock;
+  einkDisplay.startTemperatureRead();
+#endif
+}
+
 void HalDisplay::setRefreshLightSleep(const bool allowed) {
 #ifndef SIMULATOR
   powerManager.setRefreshLightSleep(allowed);

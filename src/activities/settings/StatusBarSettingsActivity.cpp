@@ -531,8 +531,9 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, headerTitle, readerContext, 0, nullptr,
                                 TouchHeaderBackButton::TITLE_VERTICAL_OFFSET, showHeaderStatus);
   } else {
-    GUI.drawHeader(renderer, Rect{contentX, header.y, contentWidth, header.height}, headerTitle, nullptr, readerContext,
-                   showHeaderStatus);
+    Rect band = UITheme::getHeaderRect(renderer, header.height, Rect{contentX, 0, contentWidth, header.height});
+    band.y = header.y;
+    GUI.drawHeader(renderer, band, headerTitle, nullptr, readerContext, showHeaderStatus);
   }
   uiReady = false;
   renderUiApp(app, uiTarget);
