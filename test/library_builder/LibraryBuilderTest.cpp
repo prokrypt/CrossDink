@@ -109,6 +109,25 @@ class LibraryBuilderTest : public ::testing::Test {
 
 }  // namespace
 
+TEST_F(LibraryBuilderTest, SkipsOnlyExactSystemDirectoriesInAnyFatCasing) {
+  for (const char* path : {"/XTCache/fontPos.txt", "/Backup/xtcache/epub/language.txt",
+                           "/SYSTEM VOLUME INFORMATION/notes.md", "/Books/System Volume Information/book.epub"})
+    fake::add(path);
+  for (const char* path : {"/fontPos.txt", "/language.txt", "/XTCache.txt", "/System Volume Information.md",
+                           "/XTCacheArchive/book.txt", "/System Volume Information Archive/book.md"})
+    fake::add(path);
+  initial();
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 8u);
+  for (const char* path : {"/XTCache/fontPos.txt", "/Backup/xtcache/epub", "/SYSTEM VOLUME INFORMATION/notes.md",
+                           "/Books/System Volume Information/book.epub"})
+    EXPECT_EQ(fake::directoryEntriesByPath[path], 0u) << path;
+  ClixRecord record{};
+  EXPECT_TRUE(recordAtPath(index, "/XTCacheArchive/book.txt", record));
+  EXPECT_TRUE(recordAtPath(index, "/System Volume Information.md", record));
+}
+
 TEST_F(LibraryBuilderTest, UnchangedRebuildReusesMetadataAndDoesNotReplaceIndex) {
   initial();
   const auto old = fake::files[INDEX]->bytes;
