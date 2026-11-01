@@ -122,6 +122,7 @@ add_subdirectory(library_builder)
 add_subdirectory(library_recent_order)
 add_subdirectory(scalable_fonts)
 add_subdirectory(otf_fonts)
+add_subdirectory(adobe_font_obfuscation)
 
 add_subdirectory(glyph_bitmap)
 add_subdirectory(png_row_decoder)
