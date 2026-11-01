@@ -129,8 +129,9 @@ struct Sink {
   uint32_t firstByteTimeoutMs = 0;   // DownloadOptions::firstByteTimeoutMs
   uint32_t startMs = 0;              // millis() when runGet started
   HttpRequestDiagnostics* diagnostics = nullptr;
-  bool wantDisposition = false;  // DownloadOptions::useServerFilename
-  std::string disposition;       // the final response's sole Content-Disposition
+  bool wantDisposition = false;    // DownloadOptions::useServerFilename
+  bool reserveFullRecord = false;  // DownloadOptions::reserveFullRecord (wolfSSL path)
+  std::string disposition;         // the final response's sole Content-Disposition
 };
 
 // wolfSSL path abort poll: a user cancel, or a body that stopped arriving.
@@ -221,6 +222,9 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     if (sink.diagnostics) sink.diagnostics->authorizationWithheld = hasCredentials && !sendAuthorization;
 
     http.setTimeout(HTTP_TIMEOUT_MS);
+    // Opt in only for bulk WOLFSSL transfers. Reserve after request text is
+    // freed; other transports and SDK builds without retention ignore this.
+    http.setReserveFullRecord(sink.reserveFullRecord);
     // SecureNet does not yet expose ESP-IDF's CA bundle. This matches the
     // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
@@ -684,6 +688,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   sink.validator = options.validator;
   sink.stallTimeoutMs = options.stallTimeoutMs;
   sink.wantDisposition = options.useServerFilename;
+  sink.reserveFullRecord = options.reserveFullRecord;
 
   DownloadError destinationError = OK;
   auto prepareDestination = [&]() {

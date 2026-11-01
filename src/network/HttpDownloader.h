@@ -51,6 +51,9 @@ class HttpDownloader {
           transport(transport) {}
 
     bool preservePartial;
+    // WOLFSSL only: reserve the retained TLS input buffer once the request is
+    // sent, for bulk downloads (see SecureHttpClient::setReserveFullRecord()).
+    bool reserveFullRecord = false;
     bool resumePartial;
     CancelCallback shouldCancel;
     size_t bufferSize;
