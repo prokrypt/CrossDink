@@ -37,7 +37,8 @@
   only reach the SDK's DC-balance-gated LUT generators; LUT shapes, VCOM, voltages, TSSET, power registers and raw
   PLL bytes are never knobs (PLL is not a knob; `CMD:KBDEXP` and test scripts pick panel default / 40 / 50 Hz only). To add one: an `X(...)` row
   whose default equals the constant, then read `KNOBS.<id>` where the constant was.
-- **Flash bootloader** writes `/bootloader.bin` from the SD card (the `bootloader.bin` of a CrossDink build) over the
+- **Flash bootloader** writes `/bootloader.bin` from the SD card (CI's `bootloader-x4-pro` artifact, built from
+  `tools/bootloader`: QIO, rollback, no app check on power-on wakes) over the
   second-stage bootloader at flash offset 0, which OTA never updates, then reboots. The file must be an ESP32-S3 image
   with a valid appended SHA-256; a quad (QIO/QOUT) bootloader is refused unless this build already runs the flash in
   QIO (so QE is set), and any file is refused when an ESP-IDF 5.5 bootloader would reject the running app
