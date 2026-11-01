@@ -92,6 +92,14 @@ struct ImageFolderIndexRecord {
 
 ## `/.crossdink/library.idx`
 
+### Version 9
+
+Version 9 keeps the version 8 layout and rebuilds the index to exclude
+`XTCache` and `System Volume Information` directories, regardless of FAT name
+casing. Version 8 remains readable for reconciliation, preserving arrival
+history and reusable metadata. Rebuilding never deletes the source books or
+system directories.
+
 ### Version 8
 
 Version 8 keeps the version 7 layout but invalidates extracted metadata so EPUB3
@@ -529,7 +537,7 @@ folder already exists.
 | hasId | `uint8` | `1` when `id` is valid |
 | method | `uint8` | `DocumentMatchMethod` the id was computed with |
 | id | 16 bytes | raw KOReader document MD5 |
-| fileSize | `uint32` | book size when `id` was computed; a different size recomputes it |
+| fileSize | `uint32` | book size when `id` was recorded; binary matching samples the current file at lookup |
 | statsStamp | `uint32` | stats catch-up id that last sent this book |
 | clippingsStamp | `uint32` | clippings catch-up id that last sent this book |
 | walkStamp | `uint32` | version 2: first-walk id that finished this book |

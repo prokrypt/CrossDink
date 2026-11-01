@@ -173,6 +173,11 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Fixed
 - Sleep and boot images copied in over USB Drive are picked up at the next sleep: starting USB Drive drops the cached image folder index, which the firmware could not see the host change. Web transfer uploads already did this.
+- Library: the `XTCache` and `System Volume Information` folders (in any letter casing, at any depth) are no longer scanned, so the Xteink stock firmware's `fontPos.txt` / `language.txt` cache files stop showing up as books. The Library index rebuilds once after updating; book history and metadata carry over.
+- OPDS: book downloads reserve wolfSSL's full TLS record buffer right after the request is sent, so a server that ignores the small-record request can no longer fail the download later with a buffer allocation error mid-body.
+- EPUB publisher fonts: fonts obfuscated with the Adobe scheme (declared in `META-INF/encryption.xml`, common in books exported from InDesign and Adobe Digital Editions) now load; the obfuscated first 1024 bytes are decoded with the book's UUID while the font is extracted. Such books previously fell back to your reading font. Books re-layout once after updating.
+- Web portal: EPUB image previews and conversion log lines now escape file names, so a crafted file name inside a book cannot run script in the portal page.
+- Sync Server: binary book matching hashes the current file at every sync instead of trusting a stored size, so a book replaced on the SD card (same name and size) syncs under its new id; a short read now fails the hash instead of producing a wrong id. A remote position is only handed to a book whose current id still matches it. A corrupt sync file never displaces the backup it was recovered from.
 - SD `.cpfont` books no longer re-layout every chapter when the book opens while free memory is low: the extra heading sizes now load whenever there is room for them in PSRAM, so a book keeps the same font sizes between opens. A skipped size is logged.
 - KOReader Sync: holding Power right after leaving a book at the page it opened at no longer shows "Syncing progress..." and "Already synced" before the sleep screen; that close had nothing new to push.
 - List scrollbars (File Browser, chapter lists) now end at the last row instead of running into the empty space below it.

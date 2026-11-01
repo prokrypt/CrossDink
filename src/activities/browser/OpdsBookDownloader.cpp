@@ -88,6 +88,7 @@ void OpdsBookDownloader::run() {
     options.bufferSize = DOWNLOAD_BUFFER_SIZE;
     options.transport = HttpDownloader::Transport::WOLFSSL;
     options.authorizationOrigin = job.authorizationOrigin;
+    options.reserveFullRecord = true;
     options.stageAsPart = true;
     options.checkFreeSpace = true;
     options.writeBufferBytes = DOWNLOAD_WRITE_BUFFER_BYTES;
