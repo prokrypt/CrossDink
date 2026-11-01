@@ -1550,10 +1550,40 @@ bool XtcReaderActivity::flushHeldProgress() {
   return pending;
 }
 
+void XtcReaderActivity::checkpointReadingStatsBeforeRestart() {
+  if (!xtc || !statsTrackingActive) return;
+  // A paused timer (menu, drawer) stays paused: its resume re-arms the page clock.
+  const bool timerRunning = pageShownAtMs != 0UL;
+  recordCurrentPageReadingTime("restart_checkpoint");
+  if (sessionReadingSeconds == 0 && !pendingStatsCommit) {
+    if (timerRunning) pageShownAtMs = millis();
+    return;  // nothing read since the last save: no SD write
+  }
+  commitReadingSession(stats, globalStats, sessionReadingSeconds,
+                       hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+  sessionReadingSeconds = 0;
+  pendingStatsCommit = true;
+  ReaderExitSave::flushStats();  // held stats from the last close land first
+  if (stats.save(xtc->getCachePath())) {
+    globalStats.save();
+    pendingStatsCommit = false;
+  } else {
+    LOG_ERR("XTR", "Failed to save reading stats before restart");
+  }
+  // The rest of this sitting is a new session; onExit() commits only that part.
+  dailyReadingSession.reset();
+  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  if (timerRunning) {
+    pageShownAtMs = millis();
+    startDailyReadingInterval();
+  }
+}
+
 void XtcReaderActivity::saveProgressBeforeRestart() {
   // Network and Settings flows can restart without onExit(); the render task updates the debouncer.
   RenderLock lock(*this);
   if (!flushQueuedProgress()) LOG_ERR("XTR", "Failed to save progress before restart");
+  checkpointReadingStatsBeforeRestart();
 }
 
 bool XtcReaderActivity::flushQueuedProgress(const bool hold) {

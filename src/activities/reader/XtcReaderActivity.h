@@ -77,6 +77,9 @@ class XtcReaderActivity final : public Activity {
   bool queueProgressSave(uint32_t pageToRender);
   bool flushQueuedProgress(bool hold = false);
   void saveProgressBeforeRestart();
+  // Writes this session's reading time to SD and starts a new session, so a
+  // silent restart (which skips onExit()) does not lose it. Only on restart paths.
+  void checkpointReadingStatsBeforeRestart();
   void loadProgress();
   void pauseReadingStatsTimer(const char* source = "unknown");
   void syncStatsTrackingState();

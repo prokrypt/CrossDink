@@ -7115,6 +7115,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       LOG_ERR("ERS", "Skipping silent restart because progress save failed");
       return false;
     }
+    checkpointReadingStatsBeforeRestart();
     armSilentRestartReaderPageBuild(epub->getPath(), static_cast<uint16_t>(currentSpineIndex),
                                     static_cast<uint16_t>(targetPage), automaticPageTurnActive);
     lowMemoryPartialRestartAttempted = true;
@@ -8261,10 +8262,38 @@ void EpubReaderActivity::loadLinkStack() {
   EpubLinkReturnState::load(epub->getCachePath(), savedPositions, footnoteDepth, epub->getSpineItemsCount());
 }
 
+void EpubReaderActivity::checkpointReadingStatsBeforeRestart() {
+  if (!epub || !statsTrackingActive) return;
+  // A paused timer (menu, drawer) stays paused: its resume re-arms the page clock.
+  const bool timerRunning = pageShownAtMs != 0UL;
+  recordCurrentPageReadingTime("restart_checkpoint");
+  if (sessionReadingSeconds == 0 && !pendingStatsCommit) {
+    if (timerRunning) pageShownAtMs = millis();
+    return;  // nothing read since the last save: no SD write
+  }
+  commitReadingStatsSession();
+  pendingStatsCommit = true;
+  ReaderExitSave::flushStats();  // held stats from the last close land first
+  if (stats.save(epub->getCachePath())) {
+    globalStats.save();
+    pendingStatsCommit = false;
+  } else {
+    LOG_ERR("ERS", "Failed to save reading stats before restart");
+  }
+  // The rest of this sitting is a new session; onExit() commits only that part.
+  dailyReadingSession.reset();
+  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  if (timerRunning) {
+    pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
+    startDailyReadingInterval();
+  }
+}
+
 void EpubReaderActivity::saveProgressBeforeRestart() {
   // Runs on the input loop; the render task may be building or swapping `section`,
   // which saveProgress() reads and whose build file it may release.
   RenderLock lock(*this);
+  checkpointReadingStatsBeforeRestart();
   if (!saveReadingProgress()) {
     LOG_ERR("ERS", "Failed to save progress before restart");
   }
