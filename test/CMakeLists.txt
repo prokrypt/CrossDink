@@ -141,5 +141,6 @@ add_subdirectory(sync_parked)
 add_subdirectory(sync_pending)
 
 add_subdirectory(swipe_delete)
+add_subdirectory(touch_action_buttons)
 add_subdirectory(http_header)
 add_subdirectory(language_cache)
