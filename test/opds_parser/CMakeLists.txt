@@ -1,6 +1,12 @@
 add_executable(OpdsParserTest
   OpdsParserTest.cpp
+  OpdsJsonParserTest.cpp
+  OpdsUrlTest.cpp
+  ${REPO_ROOT}/src/util/UrlUtils.cpp
   ${REPO_ROOT}/lib/OpdsParser/OpdsParser.cpp
+  ${REPO_ROOT}/lib/OpdsParser/OpdsJsonParser.cpp
+  ${REPO_ROOT}/lib/OpdsParser/OpdsSearchTemplate.cpp
+  ${REPO_ROOT}/lib/JsonParser/StreamingJsonParser.cpp
   ${REPO_ROOT}/lib/expat/xmlparse.c
   ${REPO_ROOT}/lib/expat/xmlrole.c
   ${REPO_ROOT}/lib/expat/xmltok.c
@@ -8,6 +14,8 @@ add_executable(OpdsParserTest
 
 target_include_directories(OpdsParserTest PRIVATE
   stubs
+  ${REPO_ROOT}/src
+  ${REPO_ROOT}/lib/JsonParser
   ${REPO_ROOT}/lib/OpdsParser
   ${REPO_ROOT}/lib/XmlParserUtils
   ${REPO_ROOT}/lib/Memory
