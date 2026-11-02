@@ -3074,7 +3074,7 @@ void CrossPointWebServer::handleGetStatusBars() const {
   addLabels("thicknesses",
             {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK});
   addLabels("xtcModes", {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP, StrId::STR_STATUS_BAR_BOTH});
-  addLabels("centerOptions", {StrId::STR_OFF, StrId::STR_ON});
+  addLabels("centerOptions", {StrId::STR_DISABLED, StrId::STR_ENABLED});
   JsonArray separators = doc["separators"].to<JsonArray>();
   for (uint8_t i = 0; i < static_cast<uint8_t>(ReaderStatusBarSeparator::Count); ++i) {
     separators.add(readerStatusBarSeparatorGlyph(static_cast<ReaderStatusBarSeparator>(i)));
