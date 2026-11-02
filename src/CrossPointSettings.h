@@ -174,6 +174,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     TWO_FINGER_SWIPE_BACK_HOME,
     TWO_FINGER_SWIPE_HOME_READER,
     TWO_FINGER_SWIPE_SELECT_CHAPTER,
+    TWO_FINGER_SWIPE_TOGGLE_PAGE_TURN_GESTURES,
     TWO_FINGER_SWIPE_ACTION_COUNT,
   };
 
@@ -295,6 +296,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     BACK_HOME = 37,
     SELECT_CHAPTER = 38,
     ROTATE_FLIP = 39,
+    TOGGLE_PAGE_TURN_GESTURES = 40,
     SHORT_PWRBTN_COUNT
   };
 
@@ -338,6 +340,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     CHORD_BACK_HOME = 33,
     CHORD_SELECT_CHAPTER = 34,
     CHORD_ROTATE_FLIP = 35,
+    CHORD_TOGGLE_PAGE_TURN_GESTURES = 36,
     POWER_CHORD_ACTION_COUNT
   };
 
@@ -400,7 +403,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     IMAGE_VIEWER_GRAY = 4,
     IMAGE_VIEWER_MODE_COUNT
   };
-  enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
   enum PAGE_TURN_GESTURE {
     TAP_AND_SWIPE = 0,
     TAP_ONLY = 1,
@@ -451,6 +453,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     LONG_MENU_BACK_HOME = 26,
     LONG_MENU_SELECT_CHAPTER = 27,
     LONG_MENU_ROTATE_FLIP = 28,
+    LONG_MENU_TOGGLE_PAGE_TURN_GESTURES = 29,
     LONG_PRESS_MENU_ACTION_COUNT
   };
 
@@ -535,9 +538,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t extraParagraphSpacing = 1;
   uint8_t forceParagraphIndents = 0;
   uint8_t textAntiAliasing = TEXT_AA_OFF;
-  // Touch screen reader zones/gestures on boards with a touch controller.
-  uint8_t touchReaderControls = TOUCH_READER_ON;
-  // Page-turn gestures remain independently configurable while touch reader controls stay enabled.
+  // Shortcut-only pause of page-turn taps/swipes; keeps the saved tap/swipe choices unchanged.
+  uint8_t disablePageTurnGestures = 0;
   uint8_t pageTurnGesture = TAP_AND_SWIPE;
   uint8_t previousPageGesture = TAP_AND_SWIPE;
   uint8_t customBootscreenEnabled = 1;
@@ -641,8 +643,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   char nearbyReceiveFolder[64] = "";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
-  // Long-press page turn button behavior
-  uint8_t longPressButtonBehavior = OFF;
+  uint8_t longPressButtonBehavior = OFF;  // Legacy binary migration only.
+  uint8_t frontButtonLeftLong = IGNORE;
+  uint8_t frontButtonRightLong = IGNORE;
   // UI Theme
   uint8_t uiTheme = LYRA;
   // SD theme pack folder in /.themes or /themes (empty = built-in theme only); its base sets uiTheme.

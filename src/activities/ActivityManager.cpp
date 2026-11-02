@@ -231,6 +231,8 @@ bool applyConfiguredSwipeAction(Activity& activity, ActivityManager& activityMan
       return activityManager.handleShortcutAction(CrossPointSettings::BACK_HOME);
     case CrossPointSettings::TWO_FINGER_SWIPE_HOME_READER:
       return activityManager.handleShortcutAction(CrossPointSettings::HOME_READER);
+    case CrossPointSettings::TWO_FINGER_SWIPE_TOGGLE_PAGE_TURN_GESTURES:
+      return handleGlobalPowerButtonAction(CrossPointSettings::TOGGLE_PAGE_TURN_GESTURES);
     case CrossPointSettings::TWO_FINGER_SWIPE_SELECT_CHAPTER:
     case CrossPointSettings::TWO_FINGER_SWIPE_NEXT_CHAPTER:
     case CrossPointSettings::TWO_FINGER_SWIPE_PREVIOUS_CHAPTER:

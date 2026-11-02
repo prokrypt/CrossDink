@@ -96,6 +96,7 @@ class MappedInputManager {
   void suppressNextConfirmRelease() { releaseSuppression.suppressConfirm(); }
   void suppressNextPowerRelease() { releaseSuppression.suppressPower(); }
   void suppressNextSideRelease(Button button);
+  void suppressNextFrontRelease(Button button);
   void suppressNextPowerConfirmRelease() { releaseSuppression.suppressPowerConfirm(); }
   bool isPowerReleaseSuppressed() const { return releaseSuppression.isPowerReleaseSuppressed(); }
   bool wasPressed(Button button) const;
@@ -328,6 +329,10 @@ class MappedInputManager {
   bool edgeSlideQualified = false;
 #endif
   mutable ReleaseSuppression releaseSuppression;
+  mutable uint8_t suppressedFrontReleases = 0;
+#ifdef SIMULATOR
+  mutable uint8_t suppressedSimulatedFrontReleases = 0;
+#endif
   mutable bool suppressPhysicalUpRelease = false;
   mutable bool suppressPhysicalDownRelease = false;
   static constexpr size_t LABEL_BUFFER_SIZE = 128;
