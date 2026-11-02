@@ -38,11 +38,11 @@
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
+#include "activities/reader/ReaderButtonShortcuts.h"
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderOptionsActivity.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
-#include "activities/reader/SideButtonShortcuts.h"
 #include "activities/settings/QuickActionsActivity.h"
 #include "components/ReaderBookSummary.h"
 #include "components/TouchHeaderBackButton.h"
@@ -446,17 +446,18 @@ class SimulatorSmokeTest {
     const auto all = getSettingsList();
     const auto gestures = buildControlsTapsGesturesSettingsList(all);
     if (gpio.hasTouch()) {
-      if (gestures.empty() || gestures[0].nameId != StrId::STR_TOUCH_READER_CONTROLS) {
-        fail("Reader touch toggle missing from device gesture settings");
+      if (std::any_of(gestures.begin(), gestures.end(),
+                      [](const SettingInfo& s) { return s.nameId == StrId::STR_TOUCH_READER_CONTROLS; })) {
+        fail("Retired Touch Reader Controls toggle still listed");
       }
-      if (gestures.size() < 4 || gestures[1].nameId != StrId::STR_NEXT_PAGE ||
-          gestures[2].nameId != StrId::STR_PREV_PAGE || gestures[1].enumValues != gestures[2].enumValues) {
+      if (gestures.size() < 3 || gestures[0].nameId != StrId::STR_NEXT_PAGE ||
+          gestures[1].nameId != StrId::STR_PREV_PAGE || gestures[0].enumValues != gestures[1].enumValues) {
         fail("Page gesture settings order/options mismatch");
       }
-      if (gpio.supportsMultiTouch() && (gestures.size() < 5 || gestures[4].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
+      if (gpio.supportsMultiTouch() && (gestures.size() < 4 || gestures[3].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
         fail("Two-finger rotation gesture setting order mismatch");
       }
-      const size_t statusIndex = gpio.supportsMultiTouch() ? 5 : 3;
+      const size_t statusIndex = gpio.supportsMultiTouch() ? 4 : 2;
       if (gestures.size() <= statusIndex || gestures[statusIndex].nameId != StrId::STR_TAP_HIDE_STATUS_BAR) {
         fail("Status bar gesture setting order mismatch");
       }
@@ -485,8 +486,7 @@ class SimulatorSmokeTest {
       crosspoint["touchReaderControls"] = mode;
       crosspoint["disableReaderTouchscreen"] = 1;
       SETTINGS.fromJson(crosspoint.as<JsonVariantConst>(), true);
-      if (SETTINGS.disableReaderTouchscreen || SETTINGS.touchReaderControls != (mode != 0) ||
-          SETTINGS.pageTurnGesture != importedGestures[mode] ||
+      if (SETTINGS.disableReaderTouchscreen || SETTINGS.pageTurnGesture != importedGestures[mode] ||
           SETTINGS.previousPageGesture != importedGestures[mode]) {
         fail("CrossPoint touch settings migration mismatch");
       }
@@ -496,8 +496,7 @@ class SimulatorSmokeTest {
       SETTINGS.pageTurnGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
       SETTINGS.previousPageGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
       SETTINGS.fromJson(migrated.as<JsonVariantConst>());
-      if (SETTINGS.disableReaderTouchscreen || SETTINGS.touchReaderControls != (mode != 0) ||
-          SETTINGS.pageTurnGesture != importedGestures[mode] ||
+      if (SETTINGS.disableReaderTouchscreen || SETTINGS.pageTurnGesture != importedGestures[mode] ||
           SETTINGS.previousPageGesture != importedGestures[mode]) {
         fail("Migrated CrossPoint touch settings did not survive reload");
       }
@@ -542,7 +541,6 @@ class SimulatorSmokeTest {
     const String savedLegacySettings = hadLegacySettings ? Storage.readFile(LEGACY_SETTINGS_FILE_JSON) : String();
 
     JsonDocument crossDinkSettings;
-    crossDinkSettings["touchReaderControls"] = CrossPointSettings::TOUCH_READER_ON;
     crossDinkSettings["pageTurnGesture"] = CrossPointSettings::TAP_ONLY;
     crossDinkSettings["previousPageGesture"] = CrossPointSettings::SWIPE_ONLY;
     crossDinkSettings["disableReaderTouchscreen"] = 0;
@@ -882,12 +880,12 @@ class SimulatorSmokeTest {
         fail("Side-button menu is missing an individual shortcut");
     }
 
-    SideButtonShortcuts shortcuts;
+    ReaderButtonShortcuts shortcuts;
     mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Up);
     const auto heldUp = shortcuts.update(mappedInputManager, 1000);
     if (!heldUp.consumed) fail("Side-button press was not captured");
     mappedInputManager.injectRelease(MappedInputManager::Button::Right);
-    if (SideButtonShortcuts::shouldConsume(heldUp, mappedInputManager))
+    if (ReaderButtonShortcuts::shouldConsume(heldUp, mappedInputManager))
       fail("Side-button hold swallowed a chord page turn");
     mappedInputManager.clearInjectedReleases();
     mappedInputManager.simulatorClearInputFrame();
