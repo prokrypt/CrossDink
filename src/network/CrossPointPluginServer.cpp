@@ -590,7 +590,7 @@ void CrossPointWebServer::handleFetch() {
   const auto shouldAbort = [&] {
     resetTaskWatchdogIfSubscribed();
     keepBrowserAlive();
-    return static_cast<uint32_t>(millis() - fetchStartedAt) >= 300000 || dropUploadIfCancelled();
+    return static_cast<uint32_t>(millis() - fetchStartedAt) >= 300000 || dropUploadIfStopping();
   };
   const freeink::FetchResult result = freeink::fetchResumable(
       url, options,
@@ -720,7 +720,7 @@ void CrossPointWebServer::handlePluginFsUpload() {
     }
     case UPLOAD_FILE_WRITE:
       if (st.errorStatus) return;
-      if (!st.started || !st.file.isOpen() || dropUploadIfCancelled()) {
+      if (!st.started || !st.file.isOpen() || dropUploadIfStopping()) {
         fail(400, "upload aborted");
         return;
       }
@@ -737,7 +737,7 @@ void CrossPointWebServer::handlePluginFsUpload() {
       return;
     case UPLOAD_FILE_END:
       if (st.errorStatus) return;
-      if (!st.started || dropUploadIfCancelled()) {
+      if (!st.started || dropUploadIfStopping()) {
         fail(400, "upload aborted");
         return;
       }

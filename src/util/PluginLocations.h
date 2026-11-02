@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -25,10 +26,7 @@ inline constexpr size_t ROOT_COUNT = sizeof(ROOTS) / sizeof(ROOTS[0]);
 inline constexpr const char* INSTALL_MARKER = ".installing";
 
 inline bool isPluginRoot(const std::string& dir) {
-  for (size_t i = 0; i < ROOT_COUNT; i++) {
-    if (dir == ROOTS[i]) return true;
-  }
-  return false;
+  return std::any_of(std::begin(ROOTS), std::end(ROOTS), [&](const char* root) { return dir == root; });
 }
 
 // A bundle targeting one direct child of a plugin root may update an existing

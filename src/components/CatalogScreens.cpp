@@ -13,7 +13,7 @@
 
 namespace fui = freeink::ui;
 
-void catalogScreenHeader(UiAppHost<24, 6>::Screen& screen, GfxRenderer& renderer, const MappedInputManager& input,
+void catalogScreenHeader(UiAppHost<24, 6>::Screen& screen, const GfxRenderer& renderer, const MappedInputManager& input,
                          freeink::ui::GfxRendererTarget& target, const char* title, const fui::BitmapRef& trailingIcon,
                          const fui::ActionId trailingAction) {
   const auto& metrics = UITheme::getInstance().getMetrics();
