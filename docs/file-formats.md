@@ -50,6 +50,30 @@ keeps at most 24 modified family profiles to bound RAM use while settings are op
 
 ## `/.crossdink/sleep-image-index/<directory-hash>-{bmp,all}.idx`
 
+### Version 2
+
+Version 2 appends a `u64 fingerprint` to the header: FNV-1a 64 over each
+candidate entry's name, size and modification time in directory walk order,
+seeded with the FNV offset basis. Once per boot, after the first frame is
+drawn, `ImageFolderIndex::dropStaleIndexes()` walks each indexed folder's
+metadata again and drops every index when any fingerprint differs, so images
+copied in with a card reader are seen at the next sleep. The sleep path itself
+never walks the folder. Version 1 indexes are dropped at that boot check.
+
+```c++
+struct ImageFolderIndexHeader {
+    char magic[4];       // "CSIX"
+    u8 version;          // 2
+    u8 flags;            // bit 0: BMP+PNG, bit 1: BMP headers validated
+    u16 pathLength;
+    u16 recordCount;
+    u16 recordSize;      // sizeof(ImageFolderIndexRecord)
+    u32 recordsOffset;   // sizeof(header) + pathLength
+    u64 fingerprint;
+    char directory[pathLength];
+};
+```
+
 ### Version 1
 
 `ImageFolderIndex` (`src/activities/boot_sleep/ImageFolderIndex.{h,cpp}`) keeps

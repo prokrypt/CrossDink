@@ -1769,7 +1769,10 @@ static void runBootTail(const bool sleeping = false) {
   if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
-  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
+  if (bootTailDictionary && !sleeping) {
+    Dictionary::isValidDictionary();
+    ImageFolderIndex::dropStaleIndexes();
+  }
   bootTailDictionary = false;
 }
 
