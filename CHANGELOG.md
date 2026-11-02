@@ -205,6 +205,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - EPUB: Select Chapter opens on the current sub-chapter (the latest heading at or before the current page) instead of the chapter's first entry, also for chapters with many headings.
 - Footer button hints are centered on their actual font height in the Classic and Lyra themes.
 - An EPUB image cache whose final write (close) fails is deleted instead of being kept half-written.
+- SD fonts: a damaged `.cpfont` glyph (bitmap size that does not match its dimensions, or data past the end of the file) is drawn blank with zero width instead of reading garbage, and the first three are logged as `Corrupt glyph U+XXXX in <font>`. Long chapters with many link targets grow their anchor list in small blocks instead of one large reallocation.
 - Home: moving between the bottom tabs no longer copies temporary state into each button callback.
 - Newly converted latin-ext SD fonts include currency and letterlike symbols and the minus sign.
 - Reading stats backups now go to `/.crossdink-stats-backup/` instead of `/.crossink-stats-backup/`, so keeping the last 7 backups no longer deletes ones CrossInk wrote. Backups already in the old folder stay there. Nearby book transfer temp files are named `.crossdink-part`/`.crossdink-backup`.
