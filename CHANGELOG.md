@@ -191,6 +191,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - KOSync Auto Sync: closing a book at the page it opened at no longer shows the uploading cloud on Home (or a redraw to remove it); nothing is uploaded then. A book whose last sync failed is still retried and keeps its cloud-off badge until the upload lands.
 - Reader status bar: Chapter Progress Percentage can be picked for any slot on the device and in web settings.
 - Settings > Controls > Taps & Gestures lists Touch Reader Controls again, so reader touch can be turned back on from the device.
+- Reader drawer: the Font list and other option lists scroll inside the drawer instead of running under the navigation bar, and the font preview keeps the book's side margins inside the screen's calibrated area.
 - X4 Pro: a bottom-edge swipe up goes Home from Settings and Status Bar settings (it was ignored there); About stops swallowing it. The Home key still steps back.
 - Web Fonts page: upload/delete results stay visible until dismissed, and a new notification restarts the hide timer instead of vanishing early.
 - EPUB: lines can now wrap after visible hyphens and dashes (not soft or non-breaking hyphens) without adding a space, and justified lines no longer stretch gaps inside hyphenated words. Books re-layout once after updating.
