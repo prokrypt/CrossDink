@@ -238,7 +238,8 @@ bool isValidQuickActionSlot(const uint8_t action) {
          action == CrossPointSettings::TOGGLE_FRONTLIGHT || action == CrossPointSettings::TOGGLE_TOUCHSCREEN ||
          action == CrossPointSettings::PREVIOUS_PAGE || action == CrossPointSettings::NEARBY_POSITION_SYNC ||
          action == CrossPointSettings::LIBRARY || action == CrossPointSettings::HOME_READER ||
-         action == CrossPointSettings::BACK_HOME || action == CrossPointSettings::SELECT_CHAPTER;
+         action == CrossPointSettings::BACK_HOME || action == CrossPointSettings::SELECT_CHAPTER ||
+         action == CrossPointSettings::ROTATE_FLIP;
 }
 
 uint8_t migrateTiltDirectionValue(const uint8_t direction) {
