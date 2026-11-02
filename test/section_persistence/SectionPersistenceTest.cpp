@@ -24,8 +24,10 @@ extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 namespace {
 constexpr uint8_t kFullVersion = 106;
 constexpr uint8_t kPartialVersion = 0xE6;
-constexpr uint8_t kPreGifFullVersion = 104;
-constexpr uint8_t kPreGifPartialVersion = 0xE8;
+constexpr uint8_t kPreGifFullVersion = 105;
+constexpr uint8_t kPreGifPartialVersion = 0xE7;
+constexpr uint8_t kPreSdFontRoundingFullVersion = 104;
+constexpr uint8_t kPreSdFontRoundingPartialVersion = 0xE8;
 constexpr uint8_t kPreNestedBlockFullVersion = 103;
 constexpr uint8_t kPreNestedBlockPartialVersion = 0xE9;
 constexpr uint8_t kPreDashWrapFullVersion = 102;
@@ -176,10 +178,12 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   for (const uint8_t staleVersion :
-       {kPreGifFullVersion, kPreGifPartialVersion, kPreNestedBlockFullVersion, kPreNestedBlockPartialVersion,
-        kPreDashWrapFullVersion, kPreDashWrapPartialVersion, kPublisherFontsFullVersion, kPublisherFontsPartialVersion,
-        kFieldsetFullVersion, kFieldsetPartialVersion, kPreFieldsetFullVersion, kPreFieldsetPartialVersion,
-        kPreviousFullVersion, kPreviousPartialVersion, kOlderFullVersion, kOlderPartialVersion}) {
+constexpr uint8_t kFullVersion = 106;
+constexpr uint8_t kPartialVersion = 0xE6;
+constexpr uint8_t kPreGifFullVersion = 105;
+constexpr uint8_t kPreGifPartialVersion = 0xE7;
+constexpr uint8_t kPreSdFontRoundingFullVersion = 104;
+constexpr uint8_t kPreSdFontRoundingPartialVersion = 0xE8;
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);
@@ -189,7 +193,7 @@ TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
     Section reopened(harness.epub, 0, harness.renderer);
     EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
     EXPECT_FALSE(Storage.exists(harness.section.filePath.c_str()));
-  }
+}
 }
 TEST_F(SectionPersistenceTest, PositionLookupBatchesReadsAcrossALongChapter) {
   SectionHarness harness;

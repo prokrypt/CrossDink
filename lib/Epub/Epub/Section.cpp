@@ -48,8 +48,8 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 //       justification no longer stretches boundaries inside hyphenated words.
 // v104: Buffered words flush before a nested block, and words below a drop cap
 //       stay unsplit until full-width layout.
-// v106: GIF images take part in layout instead of the [Image] placeholder
-//       (105 is SD-font advance rounding).
+// v105: SD-font glyph advances round to pixels one at a time, as drawing does.
+// v106: GIF images take part in layout instead of the [Image] placeholder.
 constexpr uint8_t SECTION_FILE_VERSION = 106;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume

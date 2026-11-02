@@ -779,10 +779,16 @@ Binary layout:
 
 ### Version 106
 
-Complete caches use `106`; suspended partial caches use `0xE6`, and `0xE7`-`0xE8`
-join the retired sentinels (105/`0xE7` is SD-font advance rounding on another
-branch). The payload is unchanged, but GIF images now take part in EPUB layout
-instead of an `[Image]` placeholder, so both cache types rebuild.
+Complete caches use `106`; suspended partial caches use `0xE6`, and `0xE7` joins
+the retired sentinels. The payload is unchanged, but GIF images now take part in
+EPUB layout instead of an `[Image]` placeholder, so both cache types rebuild.
+
+### Version 105
+
+Complete caches use `105`; suspended partial caches use `0xE7`, and `0xE8` joins
+the retired sentinels. The payload is unchanged, but SD-font layout now rounds
+each glyph advance to pixels before summing, matching drawing while preserving
+character spacing and boundary kerning, so both cache types rebuild.
 
 ### Version 104
 
