@@ -957,14 +957,11 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   }
   int16_t buttonHeaderHeight = 0;
   if (buttonDevice) {
-    const auto& metrics = UITheme::getInstance().getMetrics();
     const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
     const int summaryHeight = ReaderBookSummary::height(renderer, chapterTitle.c_str());
     buttonHeaderHeight =
-        static_cast<int16_t>(renderer.hasCustomViewableInsets()
-                                 ? std::max(0, header.y + header.height + summaryHeight - screen.contentRect().y)
-                                 : metrics.topPadding + header.height + summaryHeight);
+        static_cast<int16_t>(std::max(0, header.y + header.height + summaryHeight - screen.contentRect().y));
     screen.takeTop(buttonHeaderHeight);
   }
   // Give every tab row four pixels of white space above and below its icons.

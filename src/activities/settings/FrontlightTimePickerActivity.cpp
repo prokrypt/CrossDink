@@ -51,16 +51,13 @@ fui::Rect keyboardRect(const GfxRenderer& renderer) {
   int x = (renderer.getScreenWidth() - width) / 2;
   int y = renderer.getScreenHeight() - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - height +
           metrics.keyboardVerticalOffset;
-  int visibleHeight = height;
-  if (renderer.hasCustomViewableInsets()) {
-    const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-    const int right = std::min(x + width, safe.x + safe.width);
-    x = std::max(x, safe.x);
-    width = std::max(0, right - x);
-    const int bottom = std::min(y + height, safe.y + safe.height);
-    y = std::max(safe.y, bottom - height);
-    visibleHeight = std::max(0, bottom - y);
-  }
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int right = std::min(x + width, safe.x + safe.width);
+  x = std::max(x, safe.x);
+  width = std::max(0, right - x);
+  const int bottom = std::min(y + height, safe.y + safe.height);
+  y = std::max(safe.y, bottom - height);
+  const int visibleHeight = std::max(0, bottom - y);
   return {static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(width),
           static_cast<int16_t>(visibleHeight)};
 }
@@ -71,8 +68,7 @@ PickerLayout getPickerLayout(const GfxRenderer& renderer, const MappedInputManag
   const int fieldsWidth = kHourWidth + kFieldGap + kColonGap + colonWidth + kColonGap + kMinuteWidth + kFieldGap +
                           kPeriodWidth + backspaceWidth;
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int startX = renderer.hasCustomViewableInsets() ? safe.x + (safe.width - fieldsWidth) / 2
-                                                        : (renderer.getScreenWidth() - fieldsWidth) / 2;
+  const int startX = safe.x + (safe.width - fieldsWidth) / 2;
   int fieldY = renderer.getScreenHeight() / 2 - kFieldHeight / 2;
   if (mappedInput.hasTouch()) {
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);

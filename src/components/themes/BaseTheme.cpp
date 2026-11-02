@@ -51,7 +51,7 @@ void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, int x, int y, in
   renderer.drawLine(x + battWidth - 2, y + 1, x + battWidth - 2, y + rectHeight - 2, foregroundBlack);
   renderer.drawPixel(x + battWidth - 1, y + 3, foregroundBlack);
   renderer.drawPixel(x + battWidth - 1, y + rectHeight - 4, foregroundBlack);
-  renderer.drawLine(x + battWidth - 0, y + 4, x + battWidth - 0, y + rectHeight - 5, foregroundBlack);
+  renderer.drawLine(x + battWidth - 1, y + 4, x + battWidth - 1, y + rectHeight - 5, foregroundBlack);
 }
 
 void BaseTheme::drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY,
@@ -309,7 +309,10 @@ void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     }
   } else {
     // X4 layout: Both buttons stacked on right side
-    constexpr int topButtonY = 345;
+    const auto insets = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation()));
+    const int topButtonY = std::clamp(
+        345, static_cast<int>(insets.edges[0]),
+        std::max(static_cast<int>(insets.edges[0]), renderer.getScreenHeight() - insets.edges[2] - 2 * buttonHeight));
     const char* labels[] = {topBtn, bottomBtn};
     const int x = UITheme::getHintSafeX(renderer, screenWidth - buttonMargin - buttonWidth, buttonWidth);
 
@@ -831,7 +834,7 @@ void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
   const int pageItems = std::clamp((availableHeight + metrics.menuSpacing) / rowStep, 1, maxVisibleItems);
   const int totalPages = (buttonCount + pageItems - 1) / pageItems;
 
-  const int pageStartIndex = (selectedIndex / pageItems) * pageItems;
+  const int pageStartIndex = (std::max(0, selectedIndex) / pageItems) * pageItems;
 
   if (totalPages > 1) {
     constexpr int indicatorWidth = 20;
@@ -899,13 +902,16 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message, cons
   const int marginY = metrics.popupMarginY;
   const int frameThickness = metrics.popupFrameThickness;
   const EpdFontFamily::Style popupFontFamily = metrics.popupTextBold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
-  // Scale y position proportionally to screen height
-  const int y = static_cast<int>(renderer.getScreenHeight() * metrics.popupTopOffsetRatio);
-  const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, message, popupFontFamily);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const auto visible = renderer.truncatedText(
+      UI_12_FONT_ID, message, std::max(0, safe.width - 2 * (marginX + frameThickness)), popupFontFamily);
+  const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, visible.c_str(), popupFontFamily);
   const int textHeight = renderer.getLineHeight(UI_12_FONT_ID);
   const int w = textWidth + marginX * 2;
   const int h = textHeight + marginY * 2;
-  const int x = (renderer.getScreenWidth() - w) / 2;
+  const int x = safe.x + (safe.width - w) / 2;
+  const int y = std::clamp(safe.y + static_cast<int>(safe.height * metrics.popupTopOffsetRatio),
+                           safe.y + frameThickness, safe.y + safe.height - h - frameThickness);
 
   const int backupX = x - frameThickness;
   const int backupY = y - frameThickness;
@@ -935,7 +941,7 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message, cons
 
   const int textX = x + (w - textWidth) / 2;
   const int textY = y + marginY + metrics.popupTextBaselineOffsetY;
-  renderer.drawText(UI_12_FONT_ID, textX, textY, message, metrics.popupTextInverted, popupFontFamily);
+  renderer.drawText(UI_12_FONT_ID, textX, textY, visible.c_str(), metrics.popupTextInverted, popupFontFamily);
   renderer.displayBuffer();
   if (backdrop) {
     renderer.copyBufferToRegion(backupX, backupY, backupW, backupH, backdrop.get(),
@@ -1227,7 +1233,8 @@ void BaseTheme::drawHelpText(const GfxRenderer& renderer, Rect rect, const char*
   const auto& metrics = UITheme::getInstance().getMetrics();
   auto truncatedLabel =
       renderer.truncatedText(SMALL_FONT_ID, label, rect.width - metrics.contentSidePadding * 2, EpdFontFamily::REGULAR);
-  renderer.drawCenteredText(SMALL_FONT_ID, rect.y, truncatedLabel.c_str());
+  const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, truncatedLabel.c_str());
+  renderer.drawText(SMALL_FONT_ID, rect.x + (rect.width - textWidth) / 2, rect.y, truncatedLabel.c_str());
 }
 
 void BaseTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode,
@@ -1252,8 +1259,9 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
                                 const char* noteLabel, const char* noteBody, const std::vector<bool>& disabledOptions,
                                 const int firstOptionIndex) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
+  const int pageHeight = safe.height;
 
   const int optionFontId = uiScaleSpec().bodyFontId;
   const EpdFontFamily::Style optionStyle =
@@ -1304,7 +1312,7 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
   const int footerSpace = showConfirmationFooter ? footerHeight : 0;
   const int maxDialogH =
       std::max(rowHeight + titleLineHeight + metrics.optionPopupTitleGap + noteHeight + innerPadding * 2 + footerSpace,
-               pageHeight - metrics.buttonHintsHeight - metrics.optionPopupDialogSideMargin * 2);
+               pageHeight - metrics.optionPopupDialogSideMargin * 2);
   // Reserve the narrow scroll gutter up front. A wrapped title may reduce the
   // number of visible options, so deciding this after title layout would make
   // the draw and cached touch geometry disagree.
@@ -1335,8 +1343,8 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       hasHiddenOptions ? metrics.scrollBarWidth + metrics.scrollBarRightOffset + selectionHPadding : 0;
   const int contentHeight = titleHeight + metrics.optionPopupTitleGap + noteHeight + listHeight;
   const int dialogH = contentHeight + innerPadding * 2 + footerSpace;
-  const int dialogX = (pageWidth - dialogW) / 2;
-  const int dialogY = (pageHeight - dialogH) / 2;
+  const int dialogX = safe.x + (pageWidth - dialogW) / 2;
+  const int dialogY = safe.y + (pageHeight - dialogH) / 2;
 
   const int frameThickness = metrics.popupFrameThickness;
   const int frameRadius = metrics.popupCornerRadius;

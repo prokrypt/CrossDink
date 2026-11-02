@@ -266,9 +266,10 @@ void UsbDriveActivity::render(RenderLock&&) {
 
 void UsbDriveActivity::renderMessage(const char* message, const char* detail) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect textArea{metrics.contentSidePadding, 0, renderer.getScreenWidth() - metrics.contentSidePadding * 2,
-                      renderer.getScreenHeight()};
-  int y = renderer.getScreenHeight() / 2 - renderer.getLineHeight(UI_10_FONT_ID);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect textArea{safe.x + metrics.contentSidePadding, safe.y, safe.width - metrics.contentSidePadding * 2,
+                      safe.height};
+  int y = safe.y + safe.height / 2 - renderer.getLineHeight(UI_10_FONT_ID);
   y += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, message, 2, true, EpdFontFamily::BOLD);
   if (detail) {
     y += metrics.verticalSpacing;
