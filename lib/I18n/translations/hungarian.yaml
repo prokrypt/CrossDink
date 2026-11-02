@@ -440,6 +440,7 @@ STR_LOW_MEMORY_IMAGES_TITLE: "A fejezet néhány vagy az összes kép nélkül t
 STR_LOW_MEMORY_IMAGES_BODY: "Túl kevés volt a szabad memória a fejezet összes képének kinyeréséhez."
 STR_TILT_PAGE_TURN: "Döntéses lapozás"
 STR_TILT_PAGE_TURN_DIRECTION: "Döntés iránya"
+STR_TILT_NEXT_PAGE_ONLY: "Döntés: csak következő oldal"
 STR_TILT_DIRECTION_LEFT_RIGHT: "Bal-jobb"
 STR_TILT_DIRECTION_LEFT_RIGHT_INVERTED: "Jobb-bal"
 STR_TILT_DIRECTION_FORWARD_BACK: "Előre-hátra"

@@ -439,6 +439,7 @@ STR_LOW_MEMORY_IMAGES_TITLE: "Bölüm bazı veya tüm görseller olmadan yüklen
 STR_LOW_MEMORY_IMAGES_BODY: "Bu bölümün tüm görsellerini çıkarmak için kullanılabilir bellek çok düşüktü."
 STR_TILT_PAGE_TURN: "Eğerek sayfa çevirme"
 STR_TILT_PAGE_TURN_DIRECTION: "Eğme yönü"
+STR_TILT_NEXT_PAGE_ONLY: "Eğme: yalnızca sonraki sayfa"
 STR_TILT_DIRECTION_LEFT_RIGHT: "Sol-sağ"
 STR_TILT_DIRECTION_LEFT_RIGHT_INVERTED: "Sağ-sol"
 STR_TILT_DIRECTION_FORWARD_BACK: "İleri-geri"

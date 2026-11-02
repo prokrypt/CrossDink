@@ -445,6 +445,7 @@ STR_LOW_MEMORY_IMAGES_TITLE: "Раздзел загружаны без нека�
 STR_LOW_MEMORY_IMAGES_BODY: "Даступнай памяці было занадта мала, каб выняць усе выявы для гэтага раздзела."
 STR_TILT_PAGE_TURN: "Перагортванне нахілам"
 STR_TILT_PAGE_TURN_DIRECTION: "Напрамак нахілу"
+STR_TILT_NEXT_PAGE_ONLY: "Нахіл: толькі наперад"
 STR_TILT_DIRECTION_LEFT_RIGHT: "Лева-права"
 STR_TILT_DIRECTION_LEFT_RIGHT_INVERTED: "Права-лева"
 STR_TILT_DIRECTION_FORWARD_BACK: "Наперад-назад"

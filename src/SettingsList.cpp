@@ -490,15 +490,16 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     // on next WiFi connect, which is useful when crossing time zones.
     add(SettingInfo::Toggle(StrId::STR_CLOCK_SYNCED, &CrossPointSettings::clockHasBeenSynced, "clockHasBeenSynced",
                             StrId::STR_CAT_SYSTEM));
-    // Only show tilt page turn settings when the active device has a supported IMU.
-    if (QuickActions::supportsTiltPageTurn()) {
+    // Tilt rows are always in the persisted list so saved values survive a failed IMU probe;
+    // getSettingsList() and the web hide them when the sensor is unavailable.
+    {
       auto shortPowerButtonIt = std::find_if(
           v.begin(), v.end(), [](const SettingInfo& setting) { return settingKeyIs(setting, "shortPwrBtn"); });
       if (shortPowerButtonIt != v.end()) {
         auto insertPos = v.insert(shortPowerButtonIt + 1,
                                   SettingInfo::Toggle(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
                                                       "tiltPageTurn", StrId::STR_CAT_CONTROLS));
-        v.insert(
+        insertPos = v.insert(
             insertPos + 1,
             SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN_DIRECTION, &CrossPointSettings::tiltPageTurnDirection,
 #if CROSSDINK_APP_DEVICE_X4CLASSIC || defined(SIMULATOR_DEVICE_X4_CLASSIC)
@@ -511,15 +512,9 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                                StrId::STR_TILT_DIRECTION_FORWARD_BACK, StrId::STR_TILT_DIRECTION_FORWARD_BACK_INVERTED},
 #endif
                               "tiltPageTurnDirection", StrId::STR_CAT_CONTROLS));
-      }
-    } else {
-      for (auto& setting : v) {
-        if (settingKeyIs(setting, "shortPwrBtn") || settingKeyIs(setting, "longPwrBtn")) {
-          removeEnumRawValue(setting, static_cast<uint8_t>(CrossPointSettings::TOGGLE_TILT_PAGE_TURN));
-        } else if (setting.nameId == StrId::STR_LONG_PRESS_MENU_ACTION ||
-                   setting.nameId == StrId::STR_LONG_PRESS_BACK_ACTION) {
-          removeEnumRawValue(setting, static_cast<uint8_t>(CrossPointSettings::LONG_MENU_TOGGLE_TILT_PAGE_TURN));
-        }
+        v.insert(insertPos + 1,
+                 SettingInfo::Toggle(StrId::STR_TILT_NEXT_PAGE_ONLY, &CrossPointSettings::tiltNextPageOnly,
+                                     "tiltNextPageOnly", StrId::STR_CAT_CONTROLS));
       }
     }
 
