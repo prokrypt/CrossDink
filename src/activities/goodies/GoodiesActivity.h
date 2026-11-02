@@ -84,10 +84,11 @@ class GoodiesActivity final : public Activity {
   static constexpr int PINMON_ROW = 5;
   static constexpr int SLEEP_REBOOT_ROW = 7;  // after Battery Stats (6), debug builds with the PSRAM log
 #if CROSSDINK_PSRAM_LOG
-  static constexpr int BOOT_ALT_ROW = 8;  // last row, after Sleep-reboot-log
+  static constexpr int BOOT_ALT_ROW = 8;  // after Sleep-reboot-log
 #else
   static constexpr int BOOT_ALT_ROW = 7;
 #endif
+  static constexpr int BOOTLOADER_ROW = BOOT_ALT_ROW + 1;  // Flash bootloader (/bootloader.bin), then Power Test
   struct Entry {
     std::string label;
     int builtIn;       // Display tests: >= 0 display_script::BUILT_INS index. Knobs: knob index, < 0 Reset all
@@ -129,6 +130,7 @@ class GoodiesActivity final : public Activity {
   std::string tokenRowValue();
   void confirmNewPin();
   void confirmBootAlternate();
+  void confirmFlashBootloader();
   void showMessage(const char* text);
   void openRemotePicker();
   static int remoteRowState();

@@ -44,6 +44,7 @@
 #include "network/SerialRemote.h"
 #include "network/WifiUtils.h"
 #include "platform/PinMon.h"
+#include "util/BootloaderFlash.h"
 #include "util/SleepLog.h"
 #include "util/TransferLightPulse.h"
 #include "util/WorkerTask.h"
@@ -547,6 +548,8 @@ void GoodiesActivity::showLevel(const Level next) {
       const esp_partition_t* part = firmware_flash::otherSlot(desc);
       entries.push_back({"Boot alternate slot", -1, {}, part ? std::string(part->label) + " >" : "none"});
     }
+    entries.push_back(
+        {"Flash bootloader", -1, {}, Storage.exists(bootloader_flash::SD_PATH) ? "/bootloader.bin >" : "no file"});
     powerTestRow = static_cast<int>(entries.size());
     entries.push_back({"Power Test", -1, {}, ">"});
     powerOffRow = static_cast<int>(entries.size());
@@ -703,6 +706,8 @@ void GoodiesActivity::activate(const int index) {
 #ifndef SIMULATOR
     } else if (index == BOOT_ALT_ROW) {
       confirmBootAlternate();
+    } else if (index == BOOTLOADER_ROW) {
+      confirmFlashBootloader();
 #endif
     } else {
 #ifndef SIMULATOR
@@ -914,6 +919,48 @@ void GoodiesActivity::confirmBootAlternate() {
                            if (!ota_boot::switchTo(part)) {
                              LOG_ERR("BOOT", "boot-alternate switch to %s failed", part->label);
                              showMessage("Switch failed");
+                             return;
+                           }
+                           restartKeepingPanelFrame();  // does not return
+                         });
+}
+
+// Writes /bootloader.bin (validated in bootloader_flash::load) over the second-stage bootloader at flash
+// offset 0, which OTA never updates. The file is read and checked again after the confirmation.
+void GoodiesActivity::confirmFlashBootloader() {
+  HeapByteBuffer buf = makeHeapByteBufferNoThrow(bootloader_flash::REGION_SIZE);
+  bootloader_flash::Image image;
+  char err[96];
+  if (!buf || !bootloader_flash::load(buf.get(), image, err, sizeof(err))) {
+    showMessage(buf ? err : "Out of memory");
+    return;
+  }
+  static const char* const kModes[] = {"qio", "qout", "dio", "dout"};
+  char body[160];
+  snprintf(body, sizeof(body),
+           "Writes %u bytes (flash mode %s) to offset 0 and reboots. Do not power off. A bootloader that does not "
+           "boot is only recoverable over USB.",
+           static_cast<unsigned>(image.size), image.spiMode < 4 ? kModes[image.spiMode] : "?");
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Flash bootloader?", body),
+                         [this](const ActivityResult& result) {
+                           mappedInput.suppressNextConfirmRelease();
+                           if (result.isCancelled) {
+                             requestUpdate();
+                             return;
+                           }
+                           HeapByteBuffer buf = makeHeapByteBufferNoThrow(bootloader_flash::REGION_SIZE);
+                           bootloader_flash::Image image;
+                           char err[96];
+                           if (!buf || !bootloader_flash::load(buf.get(), image, err, sizeof(err))) {
+                             showMessage(buf ? err : "Out of memory");
+                             return;
+                           }
+                           {
+                             RenderLock lock(*this);
+                             GUI.drawPopup(renderer, "Writing bootloader...");
+                           }
+                           if (!bootloader_flash::write(buf.get(), image.size, err, sizeof(err))) {
+                             showMessage(err);
                              return;
                            }
                            restartKeepingPanelFrame();  // does not return

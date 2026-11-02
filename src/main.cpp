@@ -113,6 +113,7 @@
 #endif
 #include "util/BatteryDiagnosticLog.h"
 #include "util/BatteryLog.h"
+#include "util/BootloaderFlash.h"
 #include "util/BugReport.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
@@ -2303,6 +2304,13 @@ void setup() {
   PerfLog::logLastSleep();
 #ifndef SIMULATOR
   HalPowerManager::logLastSleepSteps();
+  {
+    // The XIP cache read mode (SPI0 ctrl) is set by the bootloader, not by this build.
+    static const char* const kCacheIo[] = {"qio", "qout", "dio", "dout", "fastrd", "slowrd"};
+    const unsigned mode = ESP.getFlashChipMode();
+    LOG_INF("BOOT", "flash cache io=%s", mode < sizeof(kCacheIo) / sizeof(kCacheIo[0]) ? kCacheIo[mode] : "?");
+    bootloader_flash::logAppCheck();
+  }
 #endif
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
