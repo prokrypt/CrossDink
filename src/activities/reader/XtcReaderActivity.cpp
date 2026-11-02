@@ -470,8 +470,7 @@ void XtcReaderActivity::loop() {
     if (!shortcutPageTurn && !shortcutPreviousPage) return;
   }
 
-  const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
-  const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
+  const auto tilt = detectReaderTiltPageTurn(halTiltSensor, SETTINGS.tiltPageTurn, SETTINGS.tiltNextPageOnly);
   const bool frontPrev = mappedInput.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
   if (longPowerPageTurnHandled && (powerReleased || !mappedInput.isPressed(MappedInputManager::Button::Power))) {
@@ -569,9 +568,9 @@ void XtcReaderActivity::loop() {
     }
   }
 
-  const bool fromTilt = tiltPrev || tiltNext;
-  bool prevTriggered = tiltPrev || frontPrev;
-  bool nextTriggered = tiltNext || frontNext;
+  const bool fromTilt = tilt.prev || tilt.next;
+  bool prevTriggered = tilt.prev || frontPrev;
+  bool nextTriggered = tilt.next || frontNext;
   prevTriggered = prevTriggered || touch.prev || shortcutPreviousPage;
   nextTriggered = nextTriggered || touch.next || shortcutPageTurn;
 
