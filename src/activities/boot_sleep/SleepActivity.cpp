@@ -418,7 +418,7 @@ BookReadingStats loadBookStatsForPath(const std::string& path) {
   BookReadingStats stats = BookReadingStats::load(cachePath);
   if (!BookStatsTracking::isEnabled(cachePath)) {
     BookReadingStats paceOnly;
-    paceOnly.avgSecondsPerForwardPage = stats.avgSecondsPerForwardPage;
+    paceOnly.setAverageForwardPageMillis(stats.averageForwardPageMillis());
     paceOnly.paceSampleCount = stats.paceSampleCount;
     paceOnly.estimatedTimeLeftSeconds = stats.estimatedTimeLeftSeconds;
     return paceOnly;
