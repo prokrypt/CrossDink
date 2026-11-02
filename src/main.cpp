@@ -2903,9 +2903,13 @@ static void updateFlashDuckLocked() {
   const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
   // A Half/Full call that swings another waveform first (the gray exit before the Half when leaving
   // the image viewer) keeps a running duck down until its own swing, instead of coming up in between.
+#ifndef SIMULATOR
   const uint32_t callMs = display.flashMarkedMs();
   const bool fullFollows = callMs != 0 && now - callMs <= FLASH_DUCK_MAX_MS &&
                            display.flashMarkedKind() == HalDisplay::FlashKind::Full && !full;
+#else
+  const bool fullFollows = false;  // the simulator's display reports no per-waveform swings
+#endif
   const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && (holdLate || fullFollows));
   // Plan to swing per kind (Gray, Full, Paint), re-measured by every planned
   // flash: the driver's own SPI/power work plus the waveform's offset, so it
@@ -3079,9 +3083,11 @@ void installFlashDuckRenderWait() {
   RenderLock::waitTick = &flashDuckRenderWait;
   // A refresh on the main loop itself (BmpViewer's onExit() clear) blocks every step above until it
   // ends, so the duck never started: arm its timer as the refresh is marked.
+#ifndef SIMULATOR
   HalDisplay::onFlashMarked = [] {
     if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
   };
+#endif
 }
 
 // A running transfer pulse owns the light (the dim doesn't show under it), so the
