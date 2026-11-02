@@ -768,6 +768,29 @@ synced until its next check). Home and Library draw the KOSync badge from it.
 
 Bytes 0-6 of version 2 (CrossInk writes this one). Read as never checked.
 
+## `stats_v6.bin`
+
+### Version 6
+
+Version 6 extends the 73-byte version 5 layout below to 75 bytes:
+
+- `[0]` version (`6`)
+- `[1-72]` unchanged version 5 fields
+- `[73-74]` `paceFractionMillis` (`uint16_t` LE, `0..999`)
+
+Reading pace is `avgSecondsPerForwardPage * 1000 + paceFractionMillis`
+milliseconds per forward page, capped at `65535000` ms. The fraction is zero
+at that cap. Fractional precision is preserved across updates and reopen.
+The whole-second field and sync payload retain their existing units.
+
+The file is saved in two slots (`stats_v6.bin` and `stats_v6.bin.bak`,
+TwoSlotFile.h) like version 5. When neither slot is usable, reads try the
+version 5 slots, `stats_v4.bin`, then legacy `stats.bin`. Older payloads start
+with a zero fractional part. Saves write only version 6; older snapshots stay
+on the card for older firmware. Reset removes all supported versioned snapshots
+and their slot files to avoid restoring old history. This stats-only change
+does not invalidate EPUB layout caches.
+
 ## `stats_v5.bin`
 
 ### Version 5
@@ -800,6 +823,29 @@ Binary layout:
 - `[69-72]` `estimatedTimeLeftSeconds` (`uint32_t` LE, `0` means unavailable)
 
 ## `section.bin`
+
+### Version 107
+
+Complete caches use `107`; suspended partial caches use `0xE5`, and `0xE6` and `0xE7`
+join the retired sentinels (106/`0xE6` is GIF image support). The header and existing lookup-table offsets are
+unchanged. After the visible-text offset table, a second `uint32_t[pageCount]`
+table stores normalized reference-text character offsets at each page start,
+followed by a `uint32_t` total normalized text length (zero while partial). The
+partial parse-watermark trailer follows these new fields. Both cache types
+rebuild automatically.
+
+All section builders record these coordinates, including sleep-page rebuilds
+that skip location metadata. The in-memory page index grows from 12 to 16 bytes
+per page, in fallible 1 KiB chunks; active text buffers also retain the parser's
+existing optional four-byte reference offset per buffered word.
+
+These coordinates let book time-left use the stable-page manifest's text units
+without relying on a provisional chapter page count. Character-based manifests
+work during incremental indexing. Older word-based manifests use the complete
+section's text length to map character positions to fractional word progress;
+they retain the screen-page fallback while that length is unknown. Stable pace
+is learned in memory from three accepted forward reads per session and remains
+valid through font/layout changes; the persisted screen-page pace is separate.
 
 ### Version 105
 

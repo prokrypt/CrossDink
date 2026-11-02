@@ -845,7 +845,7 @@ bool XtcReaderActivity::formatTimeLeftLabel(char* buf, const size_t len, const u
   }
 
   const uint64_t estimatedSeconds =
-      static_cast<uint64_t>(total - current) * static_cast<uint64_t>(stats.avgSecondsPerForwardPage);
+      (static_cast<uint64_t>(total - current) * stats.averageForwardPageMillis() + 500U) / 1000U;
   formatCompactReadingDuration(static_cast<uint32_t>(std::min<uint64_t>(estimatedSeconds, UINT32_MAX)), buf, len);
   return true;
 }
