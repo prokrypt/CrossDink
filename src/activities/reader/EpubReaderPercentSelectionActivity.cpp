@@ -62,6 +62,7 @@ EpubReaderPercentSelectionActivity::EpubReaderPercentSelectionActivity(GfxRender
 
 void EpubReaderPercentSelectionActivity::onEnter() {
   Activity::onEnter();
+  mappedInput.setReaderTouchscreenOverride(true);
   ReaderSliderHints::bindFont(uiTarget);
   uiReady = false;
   applySharedUiTheme(app, uiTarget);
@@ -74,7 +75,10 @@ void EpubReaderPercentSelectionActivity::onEnter() {
   requestUpdate();
 }
 
-void EpubReaderPercentSelectionActivity::onExit() { Activity::onExit(); }
+void EpubReaderPercentSelectionActivity::onExit() {
+  mappedInput.setReaderTouchscreenOverride(false);
+  Activity::onExit();
+}
 
 int EpubReaderPercentSelectionActivity::deltaForDisplayStep(const int displaySteps) const {
   // StablePage steps by whole pages; Percent stores centipercent, so a "1" or "10"

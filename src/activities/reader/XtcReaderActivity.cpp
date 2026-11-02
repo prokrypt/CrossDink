@@ -20,6 +20,7 @@
 #include "BookStatsTracking.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "EpubReaderPercentSelectionActivity.h"
 #include "GlobalActions.h"
 #include "HeldWrites.h"
 #include "MappedInputManager.h"
@@ -30,6 +31,7 @@
 #include "ReadingSessionStats.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
+#include "XtcReaderNavigation.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/home/FileBrowserActionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -190,8 +192,9 @@ void XtcReaderActivity::openReaderMenu() {
 
   const bool trackStats = SETTINGS.shouldTrackReadingStats();
   std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.reserve(8);
+  items.reserve(9);
   if (hasChapters) items.push_back({FileBrowserAction::SelectChapter, StrId::STR_SELECT_CHAPTER});
+  items.push_back({FileBrowserAction::GoToPercent, StrId::STR_GO_TO_PERCENT});
   if (trackStats) {
     items.push_back({FileBrowserAction::ToggleBookStatsTracking, StrId::STR_TRACK_READING_STATS,
                      bookStatsEnabled ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF});
@@ -992,6 +995,36 @@ void XtcReaderActivity::openChapterSelection() {
   });
 }
 
+void XtcReaderActivity::openPercentSelection() {
+  pauseReadingStatsTimer("percent_selection");
+  float progress = 0.0f;
+  {
+    RenderLock lock(*this);
+    if (xtc) progress = std::max(0.0f, getCurrentBookProgressPercent());
+  }
+  auto selection = makeUniqueNoThrow<EpubReaderPercentSelectionActivity>(renderer, mappedInput, progress);
+  if (!selection) {
+    LOG_ERR("XTR", "OOM: percent selection activity");
+    resumeReadingStatsTimer("percent_selection_oom");
+    requestUpdate();
+    return;
+  }
+  mappedInput.suppressNextConfirmRelease();
+  mappedInput.suppressNextPowerRelease();
+  mappedInput.suppressNextPowerConfirmRelease();
+  startActivityForResult(std::move(selection), [this](const ActivityResult& result) {
+    const auto* percent = std::get_if<PercentResult>(&result.data);
+    if (!result.isCancelled && percent) {
+      RenderLock lock(*this);
+      if (xtc && xtc->getPageCount() > 0) {
+        currentPage = xtcPageForPercent(percent->percent, xtc->getPageCount());
+      }
+    }
+    resumeReadingStatsTimer("percent_selection_return");
+    requestUpdate();
+  });
+}
+
 void XtcReaderActivity::openReadingStats() {
   if (!statsTrackingActive) return;
   auto bookStats = createFrontlightReadingStatsActivity();
@@ -1064,6 +1097,9 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
   switch (static_cast<FileBrowserAction>(action)) {
     case FileBrowserAction::SelectChapter:
       openChapterSelection();
+      break;
+    case FileBrowserAction::GoToPercent:
+      openPercentSelection();
       break;
     case FileBrowserAction::ReadingStats:
       openReadingStats();
