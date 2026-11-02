@@ -2,7 +2,6 @@
 
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
-#include <HalGPIO.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -12,7 +11,6 @@
 #include <utility>
 
 #include "CrossPointSettings.h"
-#include "DeviceCapabilities.h"
 #include "SdCardFontSystem.h"
 #include "components/SliderValue.h"
 #include "components/TouchActionButtons.h"
@@ -487,7 +485,7 @@ void IntervalSelectionActivity::loop() {
   // tap feel ignored while the controller settles its release event.
   if (mappedInput.hasTouch() && mappedInput.wasScreenTouchDown(tx, ty)) {
     const auto actions = touchActionLayout(touchScreen);
-    const int touchedAction = TouchActionButtons::indexAt(actions, tx, ty);
+    const int touchedAction = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
     if (touchedAction == 0) {
       // This activity closes on touch-down, so keep its matching release from
       // activating a settings row or gesture after the parent resumes.
@@ -568,14 +566,8 @@ void IntervalSelectionActivity::loop() {
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustValue(-smallStep); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustValue(smallStep); });
 
-  // On edge-button boards (X3, X4 Pro) the side buttons sit on the left/right edges of the screen rather
-  // than as a vertical up/down rocker (X4), so BTN_UP is physically the left button and BTN_DOWN the right
-  // one. Flip the large-step direction there so the left button decreases and the right button increases.
-  const int upDelta = deviceHasEdgeSideButtons(gpio) ? -largeStep : largeStep;
-  const int downDelta = deviceHasEdgeSideButtons(gpio) ? largeStep : -largeStep;
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this, upDelta] { adjustValue(upDelta); });
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
-                                       [this, downDelta] { adjustValue(downDelta); });
+  buttonNavigator.onPressAndContinuous({mappedInput.sliderIncreaseButton()}, [this] { adjustValue(largeStep); });
+  buttonNavigator.onPressAndContinuous({mappedInput.sliderDecreaseButton()}, [this] { adjustValue(-largeStep); });
 }
 
 void IntervalSelectionActivity::render(RenderLock&&) {

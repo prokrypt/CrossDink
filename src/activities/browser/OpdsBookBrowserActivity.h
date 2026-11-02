@@ -235,6 +235,10 @@ class OpdsBookBrowserActivity final : public Activity {
   // Asks before replacing a book already on SD (showing its size and date),
   // otherwise downloads straight away.
   void requestDownload(const OpdsEntry& book);
+  // OPDS 2: book.href names a publication document; follows it (at most 4
+  // hops, blocking like a feed fetch) and puts the EPUB link in the row.
+  // False shows the error or, on Back, the list again.
+  bool resolveIndirectLink(OpdsEntry& book);
   // URL, credentials and auth origin for downloading book from the current feed.
   OpdsBookDownloader::Request bookRequest(const OpdsEntry& book) const;
   // ConfirmationActivity note poll: the size probe's result once it finishes.
