@@ -117,12 +117,11 @@ EndOfBookOptions::MenuKey EndOfBookOptions::readMenuKey(const MappedInputManager
     return MenuKey::Back;
   }
 
-  // Side-button navigation follows each button's configured short action.
-  if (input.wasReleased(MappedInputManager::Button::PageBack) || input.wasReleased(MappedInputManager::Button::Left)) {
+  // Suggestions are a menu: use spatial directions rather than reader page-turn actions.
+  if (input.wasReleased(MappedInputManager::Button::Up) || input.wasReleased(MappedInputManager::Button::Left)) {
     return MenuKey::Previous;
   }
-  if (input.wasReleased(MappedInputManager::Button::PageForward) ||
-      input.wasReleased(MappedInputManager::Button::Right)) {
+  if (input.wasReleased(MappedInputManager::Button::Down) || input.wasReleased(MappedInputManager::Button::Right)) {
     return MenuKey::Next;
   }
   return MenuKey::None;

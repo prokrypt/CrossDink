@@ -2,7 +2,6 @@
 
 #include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
-#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -11,7 +10,6 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "DeviceCapabilities.h"
 #include "MappedInputManager.h"
 #include "StablePageSelectionModel.h"
 #include "components/ReaderSliderHints.h"
@@ -356,15 +354,10 @@ void EpubReaderPercentSelectionActivity::loop() {
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right},
                                        [this] { adjustValue(deltaForDisplayStep(kSmallStep)); });
 
-  // On edge-button boards (X3, X4 Pro) the side buttons sit on the left/right edges of the screen rather
-  // than as a vertical up/down rocker (X4), so BTN_UP is physically the left button and BTN_DOWN the right
-  // one. Flip the large-step direction there so the left button decreases and the right button increases.
-  const int upDelta = deviceHasEdgeSideButtons(gpio) ? -kLargeStep : kLargeStep;
-  const int downDelta = deviceHasEdgeSideButtons(gpio) ? kLargeStep : -kLargeStep;
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up},
-                                       [this, upDelta] { adjustValue(deltaForDisplayStep(upDelta)); });
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
-                                       [this, downDelta] { adjustValue(deltaForDisplayStep(downDelta)); });
+  buttonNavigator.onPressAndContinuous({mappedInput.sliderIncreaseButton()},
+                                       [this] { adjustValue(deltaForDisplayStep(kLargeStep)); });
+  buttonNavigator.onPressAndContinuous({mappedInput.sliderDecreaseButton()},
+                                       [this] { adjustValue(deltaForDisplayStep(-kLargeStep)); });
 }
 
 void EpubReaderPercentSelectionActivity::percentScreen(UiApp::ScreenType& screen, void* user) {
