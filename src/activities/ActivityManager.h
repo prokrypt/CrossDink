@@ -221,7 +221,7 @@ class ActivityManager {
   void goToBrowser(bool networkBootReady = false);
   bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false, bool fromServerList = false);
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
-                  bool cleanImageBaseOnEntry = false);
+                  bool cleanImageBaseOnEntry = false, bool keepWakeFrame = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
   void goToSleep(bool fromTimeout = false);
   // Runs every activity's onExit (reader progress, reading stats, Home %) before a restart.

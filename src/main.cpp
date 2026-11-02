@@ -2617,6 +2617,8 @@ void setup() {
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
   bool x4WakeCanFastPaint = false;
+  // A retained page is useful opening feedback even when a fast refresh is unavailable.
+  bool quickResumeFrameVisible = false;
 
   // A plain software restart that left its frame behind (restartKeepingPanelFrame,
   // e.g. after an SD firmware update) also starts seamlessly: the splash is
@@ -2640,6 +2642,7 @@ void setup() {
       break;
     case BootResume::SplashlessWake:
       if (shouldRestoreSleepFrame && loadSleepFrameBuffer()) {
+        quickResumeFrameVisible = true;
         if (gpio.deviceIsX3()) {
           // begin() clears the X3 controller RAM. Restore the saved frame as
           // the baseline for the first reader paint without refreshing the panel.
@@ -2761,7 +2764,8 @@ void setup() {
     // Count the attempt in RTC so a book that crashes on load boots to Home next time.
     APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
     if (isSleepWake) kosync_auto::noteWake();
-    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
+    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh, false,
+                               quickResumeFrameVisible);
   }
 
   bootPhase("route");

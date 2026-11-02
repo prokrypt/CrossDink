@@ -1416,12 +1416,12 @@ bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool netw
 }
 
 void ActivityManager::goToReader(std::string path, const bool suppressBackRelease, const bool allowFastInitialRefresh,
-                                 const bool cleanImageBaseOnEntry) {
+                                 const bool cleanImageBaseOnEntry, const bool keepWakeFrame) {
   // OPDS credentials are unrelated to local reading and may contain several
   // heap-backed strings. Home reloads them lazily when it becomes active.
   OPDS_STORE.release();
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease,
-                                                   allowFastInitialRefresh, cleanImageBaseOnEntry));
+                                                   allowFastInitialRefresh, cleanImageBaseOnEntry, keepWakeFrame));
 }
 
 void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t action) {
