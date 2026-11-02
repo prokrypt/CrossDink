@@ -2618,7 +2618,6 @@ void EpubReaderActivity::onExit() {
   syncStatsTrackingState();
   commitReadingStatsSession();
   if (epub) {
-    recoverStoredPaceFromSession("reader_exit");
     const uint32_t previousEstimate = stats.estimatedTimeLeftSeconds;
     refreshCachedTimeLeftEstimate();
     const bool saveStats =
