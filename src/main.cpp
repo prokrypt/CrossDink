@@ -1771,7 +1771,10 @@ static void runBootTail(const bool sleeping = false) {
   bootTailRoute = nullptr;
   if (bootTailDictionary && !sleeping) {
     Dictionary::isValidDictionary();
-    ImageFolderIndex::dropStaleIndexes();
+    // Folder walks on the worker core at the background priority, so a slow
+    // card never holds input or a page turn (HalStorage serializes SD access).
+    static WorkerTask imageIndexTask;
+    imageIndexTask.start([](void*) { ImageFolderIndex::dropStaleIndexes(); }, nullptr, 4096, "ImgIdx");
   }
   bootTailDictionary = false;
 }
