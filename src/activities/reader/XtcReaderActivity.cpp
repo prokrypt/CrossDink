@@ -615,6 +615,7 @@ void XtcReaderActivity::syncStatsTrackingState() {
   if (active == statsTrackingActive) return;
   if (statsTrackingActive) {  // active differs, so tracking is turning off
     recordCurrentPageReadingTime("session_commit");
+    readingSessionJournal.flush();
     commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
     pendingStatsCommit = true;
     if (stats.save(xtc->getCachePath())) {
@@ -724,6 +725,9 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source) {
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
     readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
+    if (xtc && !readingSessionJournal.accept(xtc->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
+      LOG_ERR("SessionStats", "Reading session not journaled");
+    }
     if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
       LOG_ERR("DailyStats", "Cannot record accepted reading interval");
     }
@@ -760,7 +764,7 @@ bool XtcReaderActivity::formatTimeLeftLabel(char* buf, const size_t len, const u
   }
 
   const uint64_t estimatedSeconds =
-      static_cast<uint64_t>(total - current) * static_cast<uint64_t>(stats.avgSecondsPerForwardPage);
+      (static_cast<uint64_t>(total - current) * stats.averageForwardPageMillis() + 500U) / 1000U;
   formatCompactReadingDuration(static_cast<uint32_t>(std::min<uint64_t>(estimatedSeconds, UINT32_MAX)), buf, len);
   return true;
 }
@@ -771,6 +775,7 @@ void XtcReaderActivity::commitReadingStats() {
   }
   if (statsTrackingActive) {
     recordCurrentPageReadingTime("reader_exit");
+    readingSessionJournal.flush();
     commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   }
   sessionReadingSeconds = 0;
@@ -784,6 +789,7 @@ void XtcReaderActivity::commitReadingStats() {
 }
 
 void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
+  readingSessionJournal.flush();
   stats = BookReadingStats{};
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
@@ -1489,6 +1495,7 @@ void XtcReaderActivity::checkpointReadingStatsBeforeRestart() {
     if (timerRunning) pageShownAtMs = millis();
     return;  // nothing read since the last save: no SD write
   }
+  readingSessionJournal.flush();
   commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   sessionReadingSeconds = 0;
   pendingStatsCommit = true;
@@ -1607,6 +1614,7 @@ void XtcReaderActivity::startDailyReadingInterval() {
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 ScreenshotInfo XtcReaderActivity::getScreenshotInfo() const {
