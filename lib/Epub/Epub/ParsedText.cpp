@@ -918,7 +918,7 @@ bool ParsedText::layoutAndExtractLines(
     const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
     const std::function<void(std::shared_ptr<TextBlock>, uint32_t, uint32_t)>& processLine, const bool includeLastLine,
     const size_t maxLines) {
-  if (words.empty()) {
+  if (words.empty() || maxLines == 0) {
     return true;
   }
 
@@ -978,10 +978,10 @@ bool ParsedText::layoutAndExtractLines(
   ArenaVector<uint8_t> gapSlots(layoutArena);
   ArenaVector<size_t> lineBreakIndices(layoutArena);
   bool breaksOk = false;
-  if (hyphenationEnabled) {
-    // Use greedy layout that can split words mid-loop when a hyphenated prefix fits.
+  if (hyphenationEnabled || maxLines != SIZE_MAX) {
+    // Bounded layout leaves words beyond the emitted lines unsplit for a later width.
     breaksOk = computeHyphenatedLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore,
-                                           lineBreakIndices);
+                                           lineBreakIndices, maxLines);
     if (breaksOk) {
       breaksOk = calculateGapMetrics(naturalGaps, gapSlots, renderer, fontId);
     }
@@ -992,7 +992,8 @@ bool ParsedText::layoutAndExtractLines(
   if (!breaksOk || lineBreakIndices.empty()) {
     return false;
   }
-  const size_t lineCount = std::min(maxLines, includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1);
+  const bool allLinesComputed = lineBreakIndices[lineBreakIndices.size() - 1] == words.size();
+  const size_t lineCount = lineBreakIndices.size() - (!includeLastLine && allLinesComputed ? 1 : 0);
 
   for (size_t i = 0; i < lineCount; ++i) {
     if (!extractLine(layoutArena, i, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore, naturalGaps, gapSlots,
@@ -1380,8 +1381,8 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
 // Builds break indices while opportunistically splitting the word that would overflow the current line.
 bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const int fontId, const int pageWidth,
                                              ArenaVector<uint16_t>& wordWidths, std::vector<bool>& continuesVec,
-                                             std::vector<bool>& noSpaceBeforeVec,
-                                             ArenaVector<size_t>& lineBreakIndices) {
+                                             std::vector<bool>& noSpaceBeforeVec, ArenaVector<size_t>& lineBreakIndices,
+                                             const size_t maxLines) {
   const int firstLineIndent = resolveFirstLineIndent(true, renderer, fontId);
 
   size_t currentIndex = 0;
@@ -1390,9 +1391,10 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
     return index < wordWidths.size() && !TokenBoundary::allowsBreak(continuesVec[index], noSpaceBeforeVec[index]);
   };
 
-  while (currentIndex < wordWidths.size()) {
+  while (currentIndex < wordWidths.size() && lineBreakIndices.size() < maxLines) {
     const size_t lineStart = currentIndex;
-    int lineWidth = 0;
+    size_t lastFittingBreak = lineStart;
+    int lineWidth = calculateRubyExtraStartOffset(lineStart, wordWidths.size(), renderer, fontId);
 
     // First line has reduced width due to text-indent
     const int effectivePageWidth = isFirstLine ? pageWidth - firstLineIndent : pageWidth;
@@ -1410,9 +1412,13 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
       const int candidateWidth = spacing + wordWidths[currentIndex];
 
       // Word fits on current line
+      const int extraEndOffset = calculateRubyExtraEndOffset(lineStart, currentIndex + 1, renderer, fontId);
       if (lineWidth + candidateWidth <= effectivePageWidth) {
         lineWidth += candidateWidth;
         ++currentIndex;
+        if (lineWidth + extraEndOffset <= effectivePageWidth && !currentTokenAttaches(currentIndex)) {
+          lastFittingBreak = currentIndex;
+        }
         continue;
       }
 
@@ -1420,12 +1426,13 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
       const int availableWidth = effectivePageWidth - lineWidth - spacing;
       const bool allowFallbackBreaks = isFirstWord;  // Only for first word on line
 
-      if (availableWidth > 0 &&
+      if (availableWidth > 0 && (hyphenationEnabled || isFirstWord) &&
           hyphenateWordAtIndex(currentIndex, availableWidth, renderer, wordFontId(renderer, fontId, currentIndex),
                                wordWidths, allowFallbackBreaks)) {
         // Prefix now fits; append it to this line and move to next line
         lineWidth += spacing + wordWidths[currentIndex];
         ++currentIndex;
+        lastFittingBreak = currentIndex;
         break;
       }
 
@@ -1436,6 +1443,8 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
       }
       break;
     }
+
+    if (lastFittingBreak > lineStart) currentIndex = lastFittingBreak;
 
     // Don't break before a continuation word (e.g., orphaned "?" after "question").
     // Backtrack to the start of the continuation group so the whole group moves to the next line.
@@ -1776,7 +1785,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
 
   // Calculate spacing (account for indent reducing effective page width on first line)
   const int effectivePageWidth = pageWidth - firstLineIndent;
-  const bool isLastLine = breakIndex == lineBreakIndices.size() - 1;
+  const bool isLastLine = lineBreak == words.size();
   const CssTextAlign effectiveAlignment =
       (blockStyle.isRtl && !blockStyle.textAlignDefined && blockStyle.alignment == CssTextAlign::Left)
           ? CssTextAlign::Right
