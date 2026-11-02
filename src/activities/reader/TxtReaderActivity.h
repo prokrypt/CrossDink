@@ -6,8 +6,8 @@
 
 #include "BookLoadingFeedback.h"
 #include "CrossPointSettings.h"
+#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
-#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #if CROSSDINK_APP_CAP_TOUCH
@@ -23,8 +23,7 @@ class TxtReaderActivity final : public Activity {
   int pagesUntilFullRefresh = 0;
   // Session-only display toggle; cached page layout remains unchanged.
   bool statusBarVisible = true;
-  SideButtonShortcuts sideButtonShortcuts;
-  bool frontButtonLongPressHandled = false;
+  ReaderButtonShortcuts readerButtonShortcuts;
   bool longPowerButtonHandled = false;
   bool longPressBackHandled = false;
   bool longPressMenuHandled = false;
