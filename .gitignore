@@ -53,3 +53,6 @@ dist-publish/
 
 /.platformio-core
 lib/ScalableFont/*.generated.h
+
+# Native simulator device identity (outside its SD root)
+.crossink-device-secret

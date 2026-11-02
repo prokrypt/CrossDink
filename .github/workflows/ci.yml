@@ -123,7 +123,7 @@ jobs:
           enable-cache: true
 
       - name: Install SDL2 and OpenSSL headers
-        run: sudo apt-get update -q && sudo apt-get install -y -q libsdl2-dev libssl-dev
+        run: sudo apt-get update -q && sudo apt-get install -y -q libsdl2-dev libssl-dev libwolfssl-dev
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip

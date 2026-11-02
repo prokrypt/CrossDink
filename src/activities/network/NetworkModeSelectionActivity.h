@@ -16,7 +16,8 @@ enum class NetworkMode {
   NEARBY_STATS_SYNC,
   SYNC_BOOKS,
   SYNC_READING_STATS,
-  SYNC_CLIPPINGS
+  SYNC_CLIPPINGS,
+  OPDS_BROWSER
 };
 
 /**
@@ -36,6 +37,9 @@ class NetworkModeSelectionActivity final : public Activity {
   static constexpr int MAX_MENU_ROWS = 16;
 
  private:
+#ifdef SIMULATOR
+  friend struct PluginCatalogSmokeTest;
+#endif
   // FreeInkApp hosts the mode list (themed rows, icons, touch routing); the
   // header stays on GUI.drawHeader for the battery indicator.
   using UiHost = UiAppHost<14, kUiSmallHandlers>;  // up to 9 rows plus 2 section headings

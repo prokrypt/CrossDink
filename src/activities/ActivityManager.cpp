@@ -1,5 +1,7 @@
 #include "ActivityManager.h"
 
+#include "activities/plugins/PluginCatalogActivity.h"
+
 #if CROSSDINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #endif
@@ -1370,6 +1372,15 @@ bool ActivityManager::goToLibrary() {
   return true;
 }
 
+void ActivityManager::goToPlugins() {
+  auto plugins = makeUniqueNoThrow<PluginCatalogActivity>(renderer, mappedInput, true);
+  if (!plugins) {
+    LOG_ERR("ACT", "Cannot allocate Plugins activity");
+    return;
+  }
+  replaceActivity(std::move(plugins));
+}
+
 void ActivityManager::goToBrowser(const bool networkBootReady) {
   const auto& servers = OPDS_STORE.getServers();
   // Skip the server picker when there's only one server configured
@@ -1488,10 +1499,12 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, const HalDisplay::Ref
     const auto& activityName = currentActivity->name;
     if (activityName == "FileBrowser") {
       initialMenuItem = HomeMenuItem::FILE_BROWSER;
+    } else if (activityName == "PluginCatalog") {
+      initialMenuItem = HomeMenuItem::PLUGINS;
     } else if (activityName == "Library") {
       initialMenuItem = HomeMenuItem::LIBRARY;
     } else if (activityName == "OpdsBookBrowser") {
-      initialMenuItem = HomeMenuItem::OPDS_BROWSER;
+      initialMenuItem = HomeMenuItem::FILE_TRANSFER;
     } else if (activityName == "CrossPointWebServer") {
       initialMenuItem = HomeMenuItem::FILE_TRANSFER;
     } else if (activityName == "NearbyStatsSync") {
@@ -1911,3 +1924,9 @@ const char* ActivityManager::currentActivityName() const {
 }
 
 bool ActivityManager::injectText(const char* utf8) { return currentActivity && currentActivity->injectText(utf8); }
+
+void ActivityManager::preparePluginSleep() {
+  RenderLock lock;
+  for (auto& activity : stackActivities) activity->prepareForSleep();
+  if (currentActivity) currentActivity->prepareForSleep();
+}

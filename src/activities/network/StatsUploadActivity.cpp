@@ -5,6 +5,7 @@
 #include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <Memory.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #include <Xtc.h>
 
@@ -967,6 +968,8 @@ void StatsUploadActivity::uploadNext() {
     }
 #ifndef SIMULATOR
     halClock.syncSystemTimeFromNTP();
+    trustedtime::note();
+    trustedtime::startSync();
 #endif
     const auto result =
         KOREADER_STORE.getSyncStats() ? ReadingSyncUpload::globalStats() : StatsUploadClient::Result::Skipped;

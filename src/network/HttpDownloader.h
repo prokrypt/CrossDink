@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "HttpRequestDiagnostics.h"
 
@@ -20,6 +21,7 @@ class SecureHttpClient;
  */
 class HttpDownloader {
  public:
+  using Header = std::pair<std::string, std::string>;
   using ProgressCallback = std::function<void(size_t downloaded, size_t total)>;
   using CancelCallback = std::function<bool()>;
   // Called with each body chunk as it arrives; return false to abort. Lets a
@@ -32,6 +34,7 @@ class HttpDownloader {
     FILE_ERROR,
     ABORTED,
     INSUFFICIENT_SPACE,
+    UNAUTHORIZED,
     FILE_EXISTS,  // useServerFilename: the server's name is taken; needs overwrite approval
   };
 
@@ -50,6 +53,8 @@ class HttpDownloader {
           bufferSize(bufferSize),
           transport(transport) {}
 
+    // Borrowed for the synchronous call; never forwarded to a different origin.
+    const std::vector<Header>* headers = nullptr;
     bool preservePartial;
     // WOLFSSL only: reserve the retained TLS input buffer once the request is
     // sent, for bulk downloads (see SecureHttpClient::setReserveFullRecord()).

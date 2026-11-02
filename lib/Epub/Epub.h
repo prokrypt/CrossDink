@@ -1,4 +1,5 @@
 #pragma once
+#include <ContentProtection.h>
 #include <Memory.h>
 #include <Print.h>
 
@@ -25,6 +26,9 @@ class Epub {
   bool loadSyncMetadata(SyncMetadata& metadata);
 
  private:
+  mutable std::unique_ptr<freeink::content::ContentDecryptor> decryptor;
+  bool openProtection() const;
+  mutable std::string protectionError;
   // the ncx file (EPUB 2)
   std::string tocNcxItem;
   // the nav file (EPUB 3)
@@ -64,6 +68,9 @@ class Epub {
     None,
     OutOfMemory,
     InvalidOrUnreadable,
+    ProtectedUnavailable,
+    LoanExpired,
+    LoanClockUnavailable,
   };
 
   struct SourceChildRange {

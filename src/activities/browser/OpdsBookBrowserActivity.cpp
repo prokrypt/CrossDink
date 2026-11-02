@@ -1,6 +1,7 @@
 #include "OpdsBookBrowserActivity.h"
 
 #include <Arduino.h>
+#include <DownloadFileSwap.h>
 #include <FreeInkUIIcon.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -1142,7 +1143,9 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
       // The parser stopped the download; the caller reports its error, not a network one.
       LOG_ERR("OPDS", "Feed rejected by parser after %zu bytes", page.size());
     } else if (result != HttpDownloader::OK) {
-      if (error) *error = classifyFeedFailure(diagnostics, result == HttpDownloader::HTTP_ERROR);
+      if (error)
+        *error = classifyFeedFailure(diagnostics,
+                                     result == HttpDownloader::HTTP_ERROR || result == HttpDownloader::UNAUTHORIZED);
       return false;
     }
   }

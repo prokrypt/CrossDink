@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Page.h>
@@ -31,6 +30,7 @@
 #include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
+#include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
@@ -47,6 +47,7 @@
 #endif
 
 class EpubReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
   friend struct EpubReaderCompletionSmokeTest;
 #endif
@@ -726,6 +727,11 @@ class EpubReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!saveReadingProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   void onCovered() override {
     smoothFullSwingPending = true;
     // Menus over a Noflash page get the longer repaint (driver keys it on smooth gray).

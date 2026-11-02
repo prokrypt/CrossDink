@@ -6,7 +6,7 @@ add_executable(OpdsParserTest
   ${REPO_ROOT}/lib/OpdsParser/OpdsParser.cpp
   ${REPO_ROOT}/lib/OpdsParser/OpdsJsonParser.cpp
   ${REPO_ROOT}/lib/OpdsParser/OpdsSearchTemplate.cpp
-  ${REPO_ROOT}/lib/JsonParser/StreamingJsonParser.cpp
+  ${REPO_ROOT}/freeink-sdk/libs/network/JsonSax/src/StreamingJsonParser.cpp
   ${REPO_ROOT}/lib/expat/xmlparse.c
   ${REPO_ROOT}/lib/expat/xmlrole.c
   ${REPO_ROOT}/lib/expat/xmltok.c
@@ -16,6 +16,7 @@ target_include_directories(OpdsParserTest PRIVATE
   stubs
   ${REPO_ROOT}/src
   ${REPO_ROOT}/lib/JsonParser
+  ${REPO_ROOT}/freeink-sdk/libs/network/JsonSax/include
   ${REPO_ROOT}/lib/OpdsParser
   ${REPO_ROOT}/lib/XmlParserUtils
   ${REPO_ROOT}/lib/Memory

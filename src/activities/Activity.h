@@ -49,6 +49,7 @@ class Activity {
   // Stop background work that must not overlap what the next activity may
   // change, such as fonts or settings.
   virtual void onCovered() {}
+  virtual void prepareForSleep() {}
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}
