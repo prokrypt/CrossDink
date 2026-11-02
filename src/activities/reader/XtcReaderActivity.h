@@ -19,10 +19,10 @@
 #include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
+#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
 #include "ReadingSessionStats.h"
-#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
@@ -49,14 +49,11 @@ class XtcReaderActivity final : public Activity {
   // Home-key shortcuts are dispatched before this activity's normal input loop.
   // Queue the turn so it follows the same guarded XTC page-turn path.
   bool shortcutPageTurnPending = false;
-  bool shortcutPageTurnPendingFromSide = false;
   bool shortcutPreviousPagePending = false;
-  bool shortcutPreviousPagePendingFromSide = false;
   // Session-only display toggle; fixed-layout XTC pages are never regenerated.
   bool statusBarVisible = true;
   bool longPressMenuHandled = false;
-  SideButtonShortcuts sideButtonShortcuts;
-  bool frontButtonLongPressHandled = false;
+  ReaderButtonShortcuts readerButtonShortcuts;
   bool longPressBackHandled = false;
   bool skipRecentBookUpdateOnEntry = false;
   ReaderProgressSaveDebouncer progressSaveDebouncer;

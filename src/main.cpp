@@ -1228,6 +1228,12 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       LOG_INF("LIGHT", "Frontlight toggled %s by shortcut", lightOn ? "on" : "off");
       return true;
     }
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
+      if (!gpio.hasTouch()) return false;
+      SETTINGS.disablePageTurnGestures = !SETTINGS.disablePageTurnGestures;
+      activityManager.persistGlobalSettings();
+      activityManager.requestUpdate();
+      return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       if (!gpio.hasTouch()) return false;
       SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
@@ -1337,6 +1343,8 @@ CrossPointSettings::SHORT_PWRBTN chordPowerAction(const ButtonShortcutController
       return Power::QUICK_ACTIONS;
     case Chord::ToggleFrontlight:
       return Power::TOGGLE_FRONTLIGHT;
+    case Chord::TogglePageTurnGestures:
+      return Power::TOGGLE_PAGE_TURN_GESTURES;
     case Chord::ToggleTouchscreen:
       return Power::TOGGLE_TOUCHSCREEN;
     default:
@@ -3483,6 +3491,19 @@ static void loopPass() {
                                                mappedInputManager.wasReleased(MappedInputManager::Button::Down),
                                                SETTINGS.sideButtonDownLong != CrossPointSettings::IGNORE,
                                                ReaderUtils::SKIP_HOLD_MS)) {
+      notifyQuickLockChanged();
+      lastActivityTime = millis();
+      return;
+    }
+    if (buttonShortcutController.tryUnlockFront(
+            millis(), mappedInputManager.isPressed(MappedInputManager::Button::Left),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Left),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Left),
+            mappedInputManager.isPressed(MappedInputManager::Button::Right),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Right),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Right), ReaderUtils::SKIP_HOLD_MS)) {
+      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Left);
+      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Right);
       notifyQuickLockChanged();
       lastActivityTime = millis();
       return;
