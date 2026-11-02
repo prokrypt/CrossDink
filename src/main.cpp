@@ -2427,7 +2427,7 @@ void setup() {
     // Convert the RTC's UTC calendar without depending on the display timezone.
     uint16_t rtcYear;
     uint8_t rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond;
-    if (halClock.getReadingDateTime(rtcYear, rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond)) {
+    if (halClock.getDateTime(rtcYear, rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond)) {
       int year = rtcYear - (rtcMonth <= 2);
       const int era = year / 400;
       const unsigned yoe = year - era * 400;
