@@ -105,6 +105,11 @@ int centredErrorY(const GfxRenderer& renderer) {
 
 }  // namespace
 
+bool XtcReaderActivity::usesMenuButtonOrientation() const {
+  return quickActionsPopup.isActive() ||
+         (xtc && currentPage >= xtc->getPageCount() && endOfBookMenuActive.load(std::memory_order_relaxed));
+}
+
 void XtcReaderActivity::onEnter() {
   Activity::onEnter();
   showOpeningFeedback();
@@ -267,6 +272,7 @@ void XtcReaderActivity::loop() {
     RenderLock lock(*this);
     if (endOfBookOptions) {
       endOfBookOptions.reset();
+      endOfBookMenuActive.store(false, std::memory_order_relaxed);
     }
   }
 
@@ -283,6 +289,8 @@ void XtcReaderActivity::loop() {
     }
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(xtc->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
     }
   }
   if (atEndOfBook && RenderLock::peek() && !(endOfBookOptions && endOfBookOptions->loaded())) {
@@ -1186,6 +1194,8 @@ void XtcReaderActivity::render(RenderLock&&) {
     renderer.clearScreen();
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(xtc->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
       endOfBookOptions->render(renderer, mappedInput);
     }
     openingFeedback.finish();

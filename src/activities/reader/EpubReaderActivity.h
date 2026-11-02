@@ -330,6 +330,7 @@ class EpubReaderActivity final : public Activity {
   bool pendingReadFolderMove = false;
   // The end screen owns these UI resources only while it is visible.
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
+  std::atomic<bool> endOfBookMenuActive{false};
   // First menu press made while the end-of-book menu was still loading (main loop only).
   EndOfBookOptions::MenuKey queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
   bool endOfBookHomeUnlocked = false;  // Home key lock lifted while the menu is open
@@ -739,6 +740,7 @@ class EpubReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
+  bool usesMenuButtonOrientation() const override;
   bool isEpubReaderActivity() const override { return true; }
   void onInputLockChanged(bool locked) override;
   void cancelOptionalRenderWork(const char* reason) override {

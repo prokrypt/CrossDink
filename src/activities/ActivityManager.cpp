@@ -663,6 +663,7 @@ void ActivityManager::renderTaskLoop() {
       ListSelection::listThisFrame = false;
       const uint32_t inputBeforeRender = lastInputMs.load(std::memory_order_relaxed);
       const uint32_t renderStartMs = millis();
+      mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
       currentActivity->render(std::move(lock));
       // The open book has them only for its first page after opening, with no
       // input since that draw began (a gray page skips them above); any later
@@ -798,6 +799,10 @@ void ActivityManager::loop() {
 #endif
 
   if (currentActivity) {
+    if (mappedInput.isMenuMode() != currentActivity->usesMenuButtonOrientation()) {
+      RenderLock lock;
+      mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+    }
     mappedInput.setPowerAsConfirmInReaderMode(currentActivity->allowPowerAsConfirmInReaderMode());
 
 #if CROSSDINK_APP_CAP_TOUCH
@@ -920,6 +925,7 @@ void ActivityManager::loop() {
       } else {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
+        mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
         restoredActivityNeedsRender = true;
 
         // A file-transfer child may have released UI fonts. Restore them for
@@ -1088,6 +1094,10 @@ void ActivityManager::loop() {
     pushActivity(std::make_unique<AlertActivity>(renderer, mappedInput));
   }
 
+  if (currentActivity && mappedInput.isMenuMode() != currentActivity->usesMenuButtonOrientation()) {
+    RenderLock lock;
+    mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+  }
   // A toast holds the next frame until it times out or input releases it.
   if (!Toast::holding() && requestedUpdate.exchange(false)) {
     // Using direct notification to signal the render task to update
@@ -1214,8 +1224,13 @@ void ActivityManager::exitActivity(const RenderLock& lock) {
 }
 
 void ActivityManager::enterCurrentActivity() {
+  {
+    RenderLock lock;
+    mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+  }
   currentActivity->onEnter();
   RenderLock lock;  // a render that skipped this activity has set requestedUpdate before this returns
+  mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
   enteringTask = nullptr;
   entryRenderRequested = false;
 }

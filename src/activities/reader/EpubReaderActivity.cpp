@@ -2403,6 +2403,11 @@ void EpubReaderActivity::endGlobalSettingsEditForBookReader(void* ctx) {
   static_cast<EpubReaderActivity*>(ctx)->endGlobalSettingsEdit();
 }
 
+bool EpubReaderActivity::usesMenuButtonOrientation() const {
+  return quickActionsPopup.isActive() || (epub && currentSpineIndex >= epub->getSpineItemsCount() &&
+                                          endOfBookMenuActive.load(std::memory_order_relaxed));
+}
+
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
   showOpeningFeedback();
@@ -3926,6 +3931,7 @@ void EpubReaderActivity::loop() {
   if (!atEndOfBook && endOfBookOptions) {
     RenderLock lock(*this);
     endOfBookOptions.reset();
+    endOfBookMenuActive.store(false, std::memory_order_relaxed);
   }
 
   // The render task is asynchronous. Prepare suggestions before an input can
@@ -3943,6 +3949,8 @@ void EpubReaderActivity::loop() {
     }
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(epub->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
     }
   }
 
@@ -7037,6 +7045,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderer.clearScreen();
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(epub->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
       endOfBookOptions->render(renderer, mappedInput);
     }
     openingFeedback.finish();
