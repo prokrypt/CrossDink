@@ -22,8 +22,10 @@
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 103;
-constexpr uint8_t kPartialVersion = 0xE9;
+constexpr uint8_t kFullVersion = 104;
+constexpr uint8_t kPartialVersion = 0xE8;
+constexpr uint8_t kPreNestedBlockFullVersion = 103;
+constexpr uint8_t kPreNestedBlockPartialVersion = 0xE9;
 constexpr uint8_t kPreDashWrapFullVersion = 102;
 constexpr uint8_t kPreDashWrapPartialVersion = 0xEA;
 constexpr uint8_t kPublisherFontsFullVersion = 101;
@@ -65,7 +67,7 @@ struct SectionHarness {
         [](std::unique_ptr<Page>, uint16_t, uint16_t, uint32_t, uint32_t) {}, spec.embeddedStyle, "", "",
         spec.imageRendering, std::vector<std::string>{}, nullptr, nullptr, spec.renderMode);
     ASSERT_NE(context->parser, nullptr);
-    context->parser->anchorData = anchors;
+    context->parser->anchorData.assign(anchors.begin(), anchors.end());
     section.build_ = std::move(context);
     ASSERT_TRUE(Storage.openFileForWrite("TEST", section.build_->tmpSectionPath, section.file));
     ASSERT_TRUE(section.writeSectionFileHeader(spec));
@@ -172,9 +174,10 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   for (const uint8_t staleVersion :
-       {kPreDashWrapFullVersion, kPreDashWrapPartialVersion, kPublisherFontsFullVersion, kPublisherFontsPartialVersion,
-        kFieldsetFullVersion, kFieldsetPartialVersion, kPreFieldsetFullVersion, kPreFieldsetPartialVersion,
-        kPreviousFullVersion, kPreviousPartialVersion, kOlderFullVersion, kOlderPartialVersion}) {
+       {kPreNestedBlockFullVersion, kPreNestedBlockPartialVersion, kPreDashWrapFullVersion, kPreDashWrapPartialVersion,
+        kPublisherFontsFullVersion, kPublisherFontsPartialVersion, kFieldsetFullVersion, kFieldsetPartialVersion,
+        kPreFieldsetFullVersion, kPreFieldsetPartialVersion, kPreviousFullVersion, kPreviousPartialVersion,
+        kOlderFullVersion, kOlderPartialVersion}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);
