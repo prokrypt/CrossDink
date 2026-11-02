@@ -6,6 +6,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Added
 - Bug reports and debug log downloads (web Logs page, `/api/psram-log`, serial `CMD:PSRAMLOG`) now include the reader font, every numeric setting by its web key, and the font families installed under `/.fonts` and `/fonts`. No names, logins or passwords are included; the list is built only when the report or download is made.
+- Serial log: boot logs `[BOOT] flash id=0x.. drv=.. io=.. size=..MB`, the flash chip's JEDEC id, ESP-IDF chip driver, active SPI read mode (dio/qio/...) and size. Log only.
 - Serial log: the boot after a deep sleep logs `[SLP] t request=.. draw=.. writes=.. shutdown=.. tilt=.. refresh=.. fade=.. busters=.. dslp=.. wifi=.. rails=.. release=.. total=..`, the time in ms of each step of that sleep entry, including the steps after the serial log ends.
 - X4 Pro: Goodies > Power Off (asks first) saves your place and shuts down as far as the hardware allows: the sleep screen stays, the power latch is released so the device loses power on battery, and only the Power button turns it back on (page keys, the Up+Down clock and charger events no longer wake it).
 - Rotate Page 180° can be assigned to the power button, button chords, front-button long presses and long-press menu actions as well as the side buttons, on the device or in web settings (EPUB and TXT readers).
