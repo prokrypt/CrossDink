@@ -777,6 +777,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 106
+
+Complete caches use `106`; suspended partial caches use `0xE6`, and `0xE7`-`0xE8`
+join the retired sentinels (105/`0xE7` is SD-font advance rounding on another
+branch). The payload is unchanged, but GIF images now take part in EPUB layout
+instead of an `[Image]` placeholder, so both cache types rebuild.
+
 ### Version 104
 
 Complete caches use `104`; suspended partial caches use `0xE8`, and `0xE9` joins
