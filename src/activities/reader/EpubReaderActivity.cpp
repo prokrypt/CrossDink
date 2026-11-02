@@ -9209,6 +9209,9 @@ void EpubReaderActivity::renderStatusBar() const {
     if (tocIndex != -1) {
       const auto tocItem = epub->getTocItem(tocIndex);
       chapterTitle = tocItem.title;
+    } else if (!epub->getTitle().empty()) {
+      // A cover or title page before the first TOC entry has no chapter: show the book.
+      chapterTitle = epub->getTitle();
     }
   }
 
