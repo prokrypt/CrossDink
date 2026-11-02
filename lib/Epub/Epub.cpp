@@ -2694,6 +2694,22 @@ bool Epub::hasStablePageNumbers() const {
          EpubNavigation::hasResolvableReferencePageRanges(totalWords, locationSpine.get(), locationSpineCount);
 }
 
+bool Epub::resolveReferenceTextProgress(const int spineIndex, const uint32_t textOffset,
+                                        const uint32_t sectionTextLength, double& completedUnits,
+                                        double& totalUnits) const {
+  completedUnits = totalUnits = 0;
+  if (!hasStablePageNumbers() || spineIndex < 0 || spineIndex >= static_cast<int>(locationSpineCount)) return false;
+  const auto& entry = locationSpine[spineIndex];
+  if (entry.wordCount == 0 || entry.startLocation == 0 || entry.endLocation < entry.startLocation) return false;
+  // Older manifests count words. Their complete section's normalized text
+  // length supplies the conversion; a partial section cannot invent that total.
+  if (!EpubNavigation::resolveReferenceTextProgress(entry.wordStart, entry.wordCount, totalWords, textOffset,
+                                                    sectionTextLength, referencePagesUseCharacters, completedUnits))
+    return false;
+  totalUnits = totalWords;
+  return true;
+}
+
 bool Epub::resolveReferencePageToSpineProgress(const uint32_t page, int& spineIndex, float& spineProgress) const {
   if (!hasStablePageNumbers()) return false;
   return EpubNavigation::resolveReferencePageToSpineProgress(page, totalReferencePages, totalWords,
