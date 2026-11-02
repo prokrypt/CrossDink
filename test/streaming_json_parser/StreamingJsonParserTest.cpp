@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "lib/JsonParser/StreamingJsonParser.h"
+#include "StreamingJsonParser.h"
 
 namespace {
 
