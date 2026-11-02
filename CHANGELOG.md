@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- OPDS: catalogs in OPDS 2 (JSON) format work alongside Atom feeds: navigation, publications, groups (with a "see all" row), facets (with item counts), search (`{searchTerms}` and `{?query}` templates), next/previous pages and the catalog size. A publication whose download goes through a publication document is followed (up to 4 hops) when you confirm it; purchase and LCP-licensed books show "Not supported". Localized titles use the device language. Feed links are now resolved like a browser does (relative to the feed's URL, with `?query` and `../` references), for Atom feeds too.
 - Bug reports and debug log downloads (web Logs page, `/api/psram-log`, serial `CMD:PSRAMLOG`) now include the reader font, every numeric setting by its web key, and the font families installed under `/.fonts` and `/fonts`. No names, logins or passwords are included; the list is built only when the report or download is made.
 - Serial log: the boot after a deep sleep logs `[SLP] t request=.. draw=.. writes=.. shutdown=.. tilt=.. refresh=.. fade=.. busters=.. dslp=.. wifi=.. rails=.. release=.. total=..`, the time in ms of each step of that sleep entry, including the steps after the serial log ends.
 - Rotate Page 180° can be assigned to the power button, button chords, front-button long presses and long-press menu actions as well as the side buttons, on the device or in web settings (EPUB and TXT readers).

@@ -5,7 +5,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
+
+class OpdsJsonParser;
 
 constexpr size_t MAX_OPDS_FEED_ENTRIES = 50;
 
@@ -35,6 +38,10 @@ struct OpdsEntry {
   // Book file size in bytes from the acquisition link's length attribute; -1
   // when the feed does not say.
   int32_t length = -1;
+  // OPDS 2: href is a publication document to fetch for the real download link.
+  bool indirect = false;
+  // OPDS 2: the best link is a purchase or an LCP license, which cannot be downloaded.
+  bool unsupportedAcquisition = false;
 };
 
 // Legacy alias for backward compatibility
@@ -117,8 +124,8 @@ class OpdsBookView {
 };
 
 /**
- * Parser for OPDS (Open Publication Distribution System) Atom feeds.
- * Uses the Expat XML parser to parse OPDS catalog entries.
+ * Parser for OPDS (Open Publication Distribution System) feeds: Atom through
+ * Expat, or OPDS 2 JSON through OpdsJsonParser once the first byte says `{`.
  *
  * Usage:
  *   OpdsEntry entries[MAX_OPDS_FEED_ENTRIES];
@@ -135,19 +142,24 @@ class OpdsBookView {
  */
 class OpdsParser final : public Print {
  public:
-  OpdsParser(OpdsEntry* entries, size_t entryCapacity);
+  // publication: an OPDS 2 publication document (one entry), not a feed.
+  OpdsParser(OpdsEntry* entries, size_t entryCapacity, bool publication = false);
   template <size_t N>
   explicit OpdsParser(OpdsEntry (&entries)[N]) : OpdsParser(entries, N) {}
   ~OpdsParser();
 
+  // UI language code for localized OPDS 2 titles; set before the first write.
+  void setPreferredLanguage(const char* lang);
+
   // Disable copy
-  const std::string& getSearchTemplate() const { return searchTemplate; }
+  const std::string& getSearchTemplate() const;
   // rel="search" link without {searchTerms}: an OpenSearch description to fetch.
   const std::string& getSearchDescriptionUrl() const { return searchDescriptionUrl; }
-  const std::string& getNextPageUrl() const { return nextPageUrl; }
-  const std::string& getPrevPageUrl() const { return prevPageUrl; }
-  // OpenSearch opensearch:totalResults on the feed; -1 when the feed does not say.
-  int32_t getTotalResults() const { return totalResults; }
+  const std::string& getNextPageUrl() const;
+  const std::string& getPrevPageUrl() const;
+  // opensearch:totalResults (Atom) or metadata.numberOfItems (OPDS 2); -1 when
+  // the feed does not say.
+  int32_t getTotalResults() const;
   OpdsParser(const OpdsParser&) = delete;
   OpdsParser& operator=(const OpdsParser&) = delete;
 
@@ -163,14 +175,14 @@ class OpdsParser final : public Print {
 
   operator bool() const { return !error(); }
 
-  size_t getEntryCount() const { return entryCount; }
+  size_t getEntryCount() const;
   const OpdsEntry* getEntry(size_t index) const {
-    if (!entries || index >= entryCount) return nullptr;
+    if (!entries || index >= getEntryCount()) return nullptr;
     return &entries[index];
   }
-  OpdsEntryView getEntries() const { return OpdsEntryView(entries, entryCount); }
-  OpdsBookView getBooks() const { return OpdsBookView(entries, entryCount); }
-  bool wasTruncated() const { return truncated; }
+  OpdsEntryView getEntries() const { return OpdsEntryView(entries, getEntryCount()); }
+  OpdsBookView getBooks() const { return OpdsBookView(entries, getEntryCount()); }
+  bool wasTruncated() const;
 
   /**
    * Clear all parsed entries.
@@ -183,6 +195,15 @@ class OpdsParser final : public Print {
   static void XMLCALL endElement(void* userData, const XML_Char* name);
   static void XMLCALL characterData(void* userData, const XML_Char* s, int len);
   bool resetXmlParser();
+  // Skips BOM and whitespace; `{` hands the rest of the feed to json. True
+  // until the format is known or the input ends.
+  bool sniffFormat(const uint8_t*& data, size_t& length);
+
+  std::unique_ptr<OpdsJsonParser> json;
+  bool sniffed = false;
+  uint8_t bomBytes = 0;
+  const bool publicationDocument;
+  char preferredLang[12] = {0};
 
   std::string searchTemplate;
   std::string searchDescriptionUrl;

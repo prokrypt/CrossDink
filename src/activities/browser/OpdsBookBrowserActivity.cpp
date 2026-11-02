@@ -12,6 +12,7 @@
 #include <LibraryText.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <OpdsSearchTemplate.h>
 #include <OpdsStream.h>
 #if defined(FREEINK_NET_WOLFSSL)
 #include <SecureHttpClient.h>
@@ -254,14 +255,68 @@ void OpdsBookBrowserActivity::onExit() {
 #endif
 }
 
+namespace {
+// For localized OPDS 2 titles.
+const char* uiLanguageCode() { return LANGUAGE_CODES[static_cast<size_t>(I18n::getInstance().getLanguage())]; }
+}  // namespace
+
 void OpdsBookBrowserActivity::activateSelected() {
   const OpdsEntry* entry = rowEntry(selectorIndex);
   if (!entry) return;  // outside the window: keepWindowAroundView() brings it in
   if (entry->type == OpdsEntryType::BOOK) {
+    if (entry->unsupportedAcquisition) {
+      state = BrowserState::ERROR;
+      errorMessage = tr(STR_NOT_SUPPORTED);
+      requestUpdate();
+      return;
+    }
+    if (entry->indirect && !resolveIndirectLink(entries[selectorIndex - windowBase])) return;
     requestDownload(*entry);
     return;
   }
   navigateToEntry(*entry);
+}
+
+bool OpdsBookBrowserActivity::resolveIndirectLink(OpdsEntry& book) {
+  state = BrowserState::LOADING;
+  statusMessage = tr(STR_LOADING);
+  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) requestUpdate(true);
+  std::string base = UrlUtils::buildUrl(server.url, currentPath);
+  OpdsEntry detail[1];
+  fetchCancelled = false;
+  for (int hop = 0; book.indirect && hop < 4 && !fetchCancelled; ++hop) {
+    const std::string url = UrlUtils::resolveReference(base, std::string(book.href));
+    OpdsParser parser(detail, 1, true);
+    parser.setPreferredLanguage(uiLanguageCode());
+    if (!loadFeed(url, parser) || !parser || parser.getEntryCount() != 1) {
+      LOG_ERR("OPDS", "Publication document failed: %s", UrlUtils::maskUserInfo(url).c_str());
+      break;
+    }
+    const std::string href = UrlUtils::resolveReference(url, std::string(detail[0].href));
+    RenderLock lock(*this);  // the render task reads the rows
+    book.href.assign(href.data(), href.size());
+    book.indirect = detail[0].indirect;
+    book.unsupportedAcquisition = detail[0].unsupportedAcquisition;
+    base = url;
+  }
+  if (fetchCancelled) {
+    fetchCancelled = false;
+    state = BrowserState::BROWSING;
+    requestUpdate();
+    return false;
+  }
+  if (book.indirect || book.unsupportedAcquisition || book.href.empty()) {
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_NOT_SUPPORTED);
+    requestUpdate();
+    return false;
+  }
+  state = BrowserState::BROWSING;
+  // The download prompt draws over the last frame: show the list under it.
+  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+    LOG_ERR("OPDS", "List could not be rendered before the download prompt");
+  }
+  return true;
 }
 
 void OpdsBookBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
@@ -870,6 +925,7 @@ void OpdsBookBrowserActivity::reloadPage(const PageInfo& page, const bool front)
   // (or changed its row count) fetches again, and any rows it no longer
   // fills stay blank.
   OpdsParser parser(entries.get() + slot, page.rows);
+  parser.setPreferredLanguage(uiLanguageCode());
   if (!loadFeed(url, parser) || !parser) LOG_ERR("OPDS", "Page reload failed: %s", UrlUtils::maskUserInfo(url).c_str());
   {
     RenderLock lock(*this);
@@ -912,6 +968,7 @@ void OpdsBookBrowserActivity::loadPage(const std::string& url, const std::string
                                        const bool stream) {
   if (stream && startStream(url, pagePath, base, restoreRow, restoreTop, recheck)) return;
   OpdsParser parser(entries.get() + base, OPDS_BROWSER_ENTRY_CAPACITY - base);
+  parser.setPreferredLanguage(uiLanguageCode());
   fetchCancelled = false;
   OpdsFeedError feedError = OpdsFeedError::Other;
   if (!loadFeed(url, parser, &feedError)) {
@@ -1113,7 +1170,7 @@ void OpdsBookBrowserActivity::preloadFeedsOnPage() {
   size_t queuedCount = 0;
   for (size_t i = 0; i < entryCount; ++i) {
     if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
-    const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
+    const std::string path = UrlUtils::resolveReference(feedUrl, std::string(entries[i].href));
     preload->enqueue(UrlUtils::buildUrl(server.url, path), false);
     ++queuedCount;
   }
@@ -1157,6 +1214,7 @@ bool OpdsBookBrowserActivity::startStream(const std::string& url, const std::str
     stream.parser.reset();
     return false;
   }
+  stream.parser->setPreferredLanguage(uiLanguageCode());
   stream.url = url;
   stream.path = path;
   stream.base = base;
@@ -1267,7 +1325,7 @@ bool OpdsBookBrowserActivity::markCachedFeeds() {
     const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
     for (size_t i = 0; i < entryCount; ++i) {
       if (entries[i].type != OpdsEntryType::NAVIGATION || entries[i].href.empty()) continue;
-      const std::string path = UrlUtils::buildUrl(feedUrl, std::string(entries[i].href));
+      const std::string path = UrlUtils::resolveReference(feedUrl, std::string(entries[i].href));
       if (pageCache->contains(UrlUtils::buildUrl(server.url, path))) cached.set(i);
     }
   }
@@ -1379,7 +1437,7 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry) {
   pushHistory();
   // Resolve to a full URL so sub-sub-navigation retains parent path context
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  currentPath = UrlUtils::buildUrl(feedUrl, std::string(entry.href));
+  currentPath = UrlUtils::resolveReference(feedUrl, std::string(entry.href));
 
   clearEntries();
   selectorIndex = 0;
@@ -1499,7 +1557,7 @@ OpdsBookDownloader::Request OpdsBookBrowserActivity::bookRequest(const OpdsEntry
   // Relative to the current feed, not the root server URL.
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   OpdsBookDownloader::Request request;
-  request.url = UrlUtils::buildUrl(feedUrl, std::string(book.href));
+  request.url = UrlUtils::resolveReference(feedUrl, std::string(book.href));
   request.username = server.username;
   request.password = server.password;
   request.authorizationOrigin = UrlUtils::ensureProtocol(server.url);
@@ -1746,25 +1804,10 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
     return;
   }
 
-  auto urlEncode = [](const std::string& s) {
-    std::string out;
-    out.reserve(s.size() * 3);
-    for (unsigned char c : s) {
-      if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
-        out += static_cast<char>(c);
-      else {
-        char buf[4];
-        snprintf(buf, sizeof(buf), "%%%02X", c);
-        out += buf;
-      }
-    }
-    return out;
-  };
-
-  std::string url = searchTemplate;
-  const std::string placeholder = "{searchTerms}";
-  const size_t pos = url.find(placeholder);
-  if (pos != std::string::npos) url.replace(pos, placeholder.length(), urlEncode(query));
+  // OpenSearch ({searchTerms}) and OPDS 2 ({?query}) templates, relative to
+  // the current feed like any other link.
+  const std::string url = UrlUtils::resolveReference(
+      UrlUtils::buildUrl(server.url, currentPath), expandOpdsSearchTemplate(searchTemplate, opdsPercentEncode(query)));
 
   pushHistory();
   currentPath = url;
