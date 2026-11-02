@@ -32,6 +32,7 @@
 #include "ManualPageTurnQueue.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "ReadingSessionStats.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/HomeCoverThumbs.h"
@@ -250,8 +251,7 @@ class EpubReaderActivity final : public Activity {
   bool statsTrackingActive = true;
   bool paceDirty = false;
   bool pendingStatsCommit = false;
-  ReadingStatsDateTime sessionStartLocalDateTime;
-  bool hasSessionStartLocalDateTime = false;
+  ReadingSessionDates readingSessionDates;
   void syncStatsTrackingState();
   void commitReadingStatsSession();
   uint32_t globalStatsResetRevisionAtPanelOpen = 0;

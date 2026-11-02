@@ -1630,9 +1630,9 @@ void EpubReaderActivity::pauseReadingPaceTimer(const char* reason) {
 void EpubReaderActivity::commitReadingStatsSession() {
   if (!statsTrackingActive) return;
   recordCurrentPageReadingTime("session_commit");
-  commitReadingSession(stats, globalStats, sessionReadingSeconds,
-                       hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+  commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   sessionReadingSeconds = 0;
+  readingSessionDates.reset();
 }
 
 void EpubReaderActivity::syncStatsTrackingState() {
@@ -1650,7 +1650,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   statsTrackingActive = enabled;
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
   startDailyReadingInterval();
   armReadingPaceWarmup("stats_toggle");
@@ -1757,6 +1757,7 @@ void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
+    readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
     if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
       LOG_ERR("DailyStats", "Cannot record accepted reading interval");
     }
@@ -2572,7 +2573,7 @@ void EpubReaderActivity::onEnter() {
   armReadingPaceWarmup("reader_open");
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
 
   initializeCompletionPromptTrigger();
 
@@ -5844,7 +5845,7 @@ void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
   pendingReadFolderMove = false;
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   armReadingPaceWarmup("book_stats_delete");
   initializeCompletionPromptTrigger();
 }
@@ -8186,7 +8187,7 @@ void EpubReaderActivity::checkpointReadingStatsBeforeRestart() {
   }
   // The rest of this sitting is a new session; onExit() commits only that part.
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   if (timerRunning) {
     pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
     startDailyReadingInterval();
@@ -9659,6 +9660,7 @@ void EpubReaderActivity::startDailyReadingInterval() {
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {

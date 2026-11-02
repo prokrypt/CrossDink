@@ -41,9 +41,6 @@ struct BookReadingStats {
   // Updates the running reading pace with one forward page dwell sample.
   void recordForwardPageRead(uint32_t seconds);
 
-  // Attributes reading time to local date/time buckets when RTC data exists.
-  void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
-
   // Formats a duration in seconds into a human-readable string.
   // Output examples: "< 1 min", "45 min", "2h 30 min"
   static void formatDuration(uint32_t seconds, char* buf, size_t len);
