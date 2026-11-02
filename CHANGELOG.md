@@ -193,6 +193,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Home cover generation and Wi-Fi transfers (File Transfer uploads, OPDS and other downloads) no longer leave an 8 KB or 4 KB gap in internal RAM: their helper tasks keep their stacks in PSRAM, falling back to internal RAM when PSRAM is short.
 - Web server: downloads (File Transfer, WebDAV, log downloads) no longer push the web server task to within 440 bytes of a stack overflow; the 4 KB fallback send buffer moved from the stack to the heap (PSRAM on device).
 - Quick button presses are no longer lost while the device idles (most noticeable in the reader with the touchscreen off): a press the input task just missed now wakes it at once instead of waiting for the release.
+- Quick Actions: Rotate Page 180° can be put in a Quick Actions slot (EPUB and TXT readers); a saved slot with it is kept on load.
 - KOSync Auto Sync: closing a book at the page it opened at no longer shows the uploading cloud on Home (or a redraw to remove it); nothing is uploaded then. A book whose last sync failed is still retried and keeps its cloud-off badge until the upload lands.
 - Reader status bar: Chapter Progress Percentage can be picked for any slot on the device and in web settings.
 - Settings > Controls > Taps & Gestures lists Touch Reader Controls again, so reader touch can be turned back on from the device.
