@@ -459,12 +459,12 @@ void dropStaleIndexes() {
     if (length > 0 && length <= MAX_FILENAME_LENGTH &&
         FsHelpers::checkFileExtension(std::string_view(name, length), ".idx")) {
       IndexHeader header{};
-      uint64_t fingerprint = 0;
       stale = true;  // an unreadable or outdated index is dropped too
       if (readExact(file, &header, sizeof(header)) && memcmp(header.magic, INDEX_MAGIC, sizeof(INDEX_MAGIC)) == 0 &&
           header.version == INDEX_VERSION && header.pathLength < sizeof(name) &&
           readExact(file, name, header.pathLength)) {
         name[header.pathLength] = '\0';
+        uint64_t fingerprint = 0;
         stale = !folderFingerprint(name, (header.flags & FLAG_INCLUDE_PNG) != 0, fingerprint) ||
                 fingerprint != header.fingerprint;
       }
