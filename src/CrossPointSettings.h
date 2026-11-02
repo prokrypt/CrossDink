@@ -743,8 +743,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Ghost Busters: extra Fast refreshes of a new menu screen once input pauses, 0 = off.
   static constexpr uint8_t GHOST_BUSTERS_MAX = 10;
   uint8_t ghostBusters = 0;
-  // Language setting (Language enum index, default 0 = EN)
-  uint8_t language = 0;
+  // Language code (built-in enum code or an SD language's _language_code, default EN)
+  // and the SD cache generation that boot must find; 0 for a built-in language.
+  char languageCode[32] = "EN";
+  uint64_t languageCacheGeneration = 0;
   char filenameFallbackFont[64] = "";  // Folder name under /.crossdink/languages/fonts; empty disables fallback.
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
