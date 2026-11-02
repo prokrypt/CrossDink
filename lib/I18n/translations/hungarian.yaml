@@ -901,3 +901,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Egyéb"
 STR_CUSTOM_HEADER_1: "Egyéni fejléc 1"
 STR_CUSTOM_HEADER_2: "Egyéni fejléc 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Bal hosszú nyomásra"
+STR_LONG_PRESS_RIGHT_ACTION: "Jobb hosszú nyomásra"
+STR_DISABLE_PAGE_TURN_GESTURES: "Lapozógesztusok kikapcsolása"

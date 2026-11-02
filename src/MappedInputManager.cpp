@@ -119,8 +119,20 @@ void MappedInputManager::update() const {
   updateSelectionTouchDown();
   if (twoFingerContactConsumed && gpio.getTouchSnapshot().count == 0) twoFingerContactConsumed = false;
 #endif
+  for (const auto button : {HalGPIO::BTN_BACK, HalGPIO::BTN_CONFIRM, HalGPIO::BTN_LEFT, HalGPIO::BTN_RIGHT}) {
+    if (!gpio.isPressed(button) && !gpio.wasReleased(button)) suppressedFrontReleases &= ~(1u << button);
+  }
   if (!gpio.isPressed(HalGPIO::BTN_UP) && !gpio.wasReleased(HalGPIO::BTN_UP)) suppressPhysicalUpRelease = false;
   if (!gpio.isPressed(HalGPIO::BTN_DOWN) && !gpio.wasReleased(HalGPIO::BTN_DOWN)) suppressPhysicalDownRelease = false;
+}
+
+void MappedInputManager::suppressNextFrontRelease(const Button button) {
+  const auto physical = mappedFrontButtonFor(button);
+  if (physical != kNoButton) suppressedFrontReleases |= 1u << physical;
+#ifdef SIMULATOR
+  if (simulatorHeld[buttonIndex(button)] || simulatorReleased[buttonIndex(button)])
+    suppressedSimulatedFrontReleases |= 1u << static_cast<uint8_t>(button);
+#endif
 }
 
 void MappedInputManager::suppressNextSideRelease(const Button button) {
@@ -192,7 +204,7 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
     case Button::Confirm:
     case Button::Left:
     case Button::Right:
-      return frontButton != kNoButton && (gpio.*fn)(frontButton);
+      return frontButton != kNoButton && !(suppressedFrontReleases & (1u << frontButton)) && (gpio.*fn)(frontButton);
     case Button::Up:
       // Reader menus should follow the same top/bottom side-button orientation as reader page turns.
       return sideEvent(up);
@@ -968,6 +980,7 @@ bool MappedInputManager::wasReleased(const Button button) const {
   }
 #ifdef SIMULATOR
   const bool simulatedRelease = simulatorReleased[buttonIndex(button)];
+  if (suppressedSimulatedFrontReleases & (1u << static_cast<uint8_t>(button))) return false;
 #else
   constexpr bool simulatedRelease = false;
 #endif
@@ -1057,6 +1070,9 @@ bool MappedInputManager::wasReleased(const Button button) const {
 }
 
 bool MappedInputManager::isPressed(const Button button) const {
+#ifdef SIMULATOR
+  if (suppressedSimulatedFrontReleases & (1u << static_cast<uint8_t>(button))) return false;
+#endif
   if (button == Button::Power && releaseSuppression.isPowerReleaseSuppressed()) {
     return false;
   }
@@ -1300,6 +1316,9 @@ void MappedInputManager::simulatorInjectRelease(Button button) {
 }
 
 void MappedInputManager::simulatorClearInputFrame() {
+  for (size_t i = 0; i < simulatorPressed.size(); ++i) {
+    if (!simulatorHeld[i]) suppressedSimulatedFrontReleases &= ~(1u << i);
+  }
   simulatorPressed.fill(false);
   simulatorReleased.fill(false);
 #if CROSSDINK_APP_CAP_TOUCH

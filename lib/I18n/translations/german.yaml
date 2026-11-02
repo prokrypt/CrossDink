@@ -933,3 +933,7 @@ STR_CROSSPOINT: "CrossPoint"
 STR_KOSYNC_SERVER: "KOSync"
 STR_CUSTOM_HEADER_1: "Eigener Header 1"
 STR_CUSTOM_HEADER_2: "Eigener Header 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Links bei langem Druck"
+STR_LONG_PRESS_RIGHT_ACTION: "Rechts bei langem Druck"
+STR_DISABLE_PAGE_TURN_GESTURES: "Blättergesten deaktivieren"

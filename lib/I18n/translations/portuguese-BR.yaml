@@ -941,3 +941,7 @@ STR_CROSSPOINT: "CrossPoint"
 STR_KOSYNC_SERVER: "KOSync"
 STR_CUSTOM_HEADER_1: "Cabeçalho personalizado 1"
 STR_CUSTOM_HEADER_2: "Cabeçalho personalizado 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Esquerda por toque longo"
+STR_LONG_PRESS_RIGHT_ACTION: "Direita por toque longo"
+STR_DISABLE_PAGE_TURN_GESTURES: "Desativar gestos de página"

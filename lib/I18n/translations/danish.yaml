@@ -901,3 +901,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Anden"
 STR_CUSTOM_HEADER_1: "Tilpasset header 1"
 STR_CUSTOM_HEADER_2: "Tilpasset header 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Venstre ved langt tryk"
+STR_LONG_PRESS_RIGHT_ACTION: "Højre ved langt tryk"
+STR_DISABLE_PAGE_TURN_GESTURES: "Deaktiver sideskiftbevægelser"

@@ -908,3 +908,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Інший"
 STR_CUSTOM_HEADER_1: "Власний заголовок 1"
 STR_CUSTOM_HEADER_2: "Власний заголовок 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Вліво при довгому натисканні"
+STR_LONG_PRESS_RIGHT_ACTION: "Вправо при довгому натисканні"
+STR_DISABLE_PAGE_TURN_GESTURES: "Вимкнути жести гортання"

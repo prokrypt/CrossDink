@@ -907,3 +907,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Annan"
 STR_CUSTOM_HEADER_1: "Anpassad header 1"
 STR_CUSTOM_HEADER_2: "Anpassad header 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Vänster vid långt tryck"
+STR_LONG_PRESS_RIGHT_ACTION: "Höger vid långt tryck"
+STR_DISABLE_PAGE_TURN_GESTURES: "Inaktivera sidvändningsgester"

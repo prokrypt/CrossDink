@@ -941,3 +941,7 @@ STR_CROSSPOINT: "CrossPoint"
 STR_KOSYNC_SERVER: "KOSync"
 STR_CUSTOM_HEADER_1: "ترويسة مخصصة 1"
 STR_CUSTOM_HEADER_2: "ترويسة مخصصة 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "يسار بالضغطة الطويلة"
+STR_LONG_PRESS_RIGHT_ACTION: "يمين بالضغطة الطويلة"
+STR_DISABLE_PAGE_TURN_GESTURES: "تعطيل إيماءات تقليب الصفحات"

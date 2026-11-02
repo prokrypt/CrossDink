@@ -901,3 +901,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Drugo"
 STR_CUSTOM_HEADER_1: "Glava po meri 1"
 STR_CUSTOM_HEADER_2: "Glava po meri 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Levo ob dolgem pritisku"
+STR_LONG_PRESS_RIGHT_ACTION: "Desno ob dolgem pritisku"
+STR_DISABLE_PAGE_TURN_GESTURES: "Onemogoči kretnje za listanje"

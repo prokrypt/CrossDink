@@ -30,8 +30,8 @@
 #include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
+#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
-#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/HomeCoverThumbs.h"
@@ -286,8 +286,7 @@ class EpubReaderActivity final : public Activity {
   bool longPressBackHandled = false;
   bool longPowerButtonHandled = false;
   OptionPopup quickActionsPopup;
-  SideButtonShortcuts sideButtonShortcuts;
-  bool frontButtonLongPressHandled = false;
+  ReaderButtonShortcuts readerButtonShortcuts;
   bool touchDictionaryLookupHandled = false;
   int pageLoadRetryCount = 0;
   enum class BookmarkFeedbackType : uint8_t {

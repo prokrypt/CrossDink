@@ -942,3 +942,7 @@ STR_CROSSPOINT: "CrossPoint"
 STR_KOSYNC_SERVER: "KOSync"
 STR_CUSTOM_HEADER_1: "Vlastní hlavička 1"
 STR_CUSTOM_HEADER_2: "Vlastní hlavička 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Vlevo při dlouhém stisku"
+STR_LONG_PRESS_RIGHT_ACTION: "Vpravo při dlouhém stisku"
+STR_DISABLE_PAGE_TURN_GESTURES: "Vypnout gesta otáčení stránek"

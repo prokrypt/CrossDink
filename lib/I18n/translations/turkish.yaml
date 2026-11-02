@@ -900,3 +900,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Diğer"
 STR_CUSTOM_HEADER_1: "Özel başlık 1"
 STR_CUSTOM_HEADER_2: "Özel başlık 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Uzun Basma Sol"
+STR_LONG_PRESS_RIGHT_ACTION: "Uzun Basma Sağ"
+STR_DISABLE_PAGE_TURN_GESTURES: "Sayfa çevirme hareketlerini kapat"

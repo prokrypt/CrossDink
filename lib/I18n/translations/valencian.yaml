@@ -903,3 +903,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Altre"
 STR_CUSTOM_HEADER_1: "Capçalera personalitzada 1"
 STR_CUSTOM_HEADER_2: "Capçalera personalitzada 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Esquerra amb pulsació llarga"
+STR_LONG_PRESS_RIGHT_ACTION: "Dreta amb pulsació llarga"
+STR_DISABLE_PAGE_TURN_GESTURES: "Desactiva els gestos de pàgina"

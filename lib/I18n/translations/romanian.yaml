@@ -900,3 +900,7 @@ STR_KOSYNC_SERVER: "KOSync"
 STR_OTHER: "Altul"
 STR_CUSTOM_HEADER_1: "Antet personalizat 1"
 STR_CUSTOM_HEADER_2: "Antet personalizat 2"
+
+STR_LONG_PRESS_LEFT_ACTION: "Stânga la apăsare lungă"
+STR_LONG_PRESS_RIGHT_ACTION: "Dreapta la apăsare lungă"
+STR_DISABLE_PAGE_TURN_GESTURES: "Dezactivează gesturile de pagină"
