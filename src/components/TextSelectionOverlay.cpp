@@ -6,6 +6,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <iterator>
 
 #include "UIScale.h"
 #include "UITheme.h"
@@ -97,7 +98,7 @@ Handle handle(const Rect safe, const Rect word, const bool onLeft, const bool is
 
 void placeActions(const GfxRenderer& renderer, Layout& layout, Rect firstWord, Rect lastWord,
                   const bool lookupAvailable) {
-  for (auto& action : layout.actions) action = {};
+  std::fill(std::begin(layout.actions), std::end(layout.actions), Rect{});
   layout.bar = {};
   layout.showPointer = false;
   layout.showIcons = true;
@@ -119,7 +120,8 @@ void placeActions(const GfxRenderer& renderer, Layout& layout, Rect firstWord, R
   // Long translations shrink the segments evenly and wrap to two lines.
   int lines = 1;
   if (total > safe.width) {
-    for (auto& width : widths) width = width * safe.width / total;
+    std::transform(std::begin(widths), std::end(widths), std::begin(widths),
+                   [&](const int width) { return width * safe.width / total; });
     total = safe.width;
     lines = 2;
     // The SDK centers icon + label on one line, so a wrapped label drops its icon.
@@ -161,10 +163,9 @@ void placeActions(const GfxRenderer& renderer, Layout& layout, Rect firstWord, R
     };
     const auto hidesHandle = [&](const int x, const int y) {
       const auto bar = makeRect(x, y, barWidth, barHeight);
-      for (const auto* handle : {&layout.start, &layout.end}) {
-        if (overlaps(bar, handle->dot) || overlaps(bar, handle->stem)) return true;
-      }
-      return false;
+      const auto grips = {&layout.start, &layout.end};
+      return std::any_of(grips.begin(), grips.end(),
+                         [&](const Handle* grip) { return overlaps(bar, grip->dot) || overlaps(bar, grip->stem); });
     };
     const auto clampY = [&](const int y) { return std::clamp(y, static_cast<int>(safe.y), safe.bottom() - barHeight); };
     // Screen edges first; then just inside the first or last selected line,
@@ -221,10 +222,10 @@ void draw(const GfxRenderer& renderer, const Layout& layout, const bool showActi
   fui::GfxRendererFrame<actionCount> ui(renderer, spec.smallFontId, spec.bodyFontId, spec.titleFontId);
   const auto black = fui::Paint::solid(fui::Color::Black);
   const auto white = fui::Paint::solid(fui::Color::White);
-  for (const auto* handle : {&layout.start, &layout.end}) {
-    if (handle->empty()) continue;
-    ui.target.fill(handle->stem, black);
-    ui.target.fill(handle->dot, black, kDotSize / 2);
+  for (const auto* grip : {&layout.start, &layout.end}) {
+    if (grip->empty()) continue;
+    ui.target.fill(grip->stem, black);
+    ui.target.fill(grip->dot, black, kDotSize / 2);
   }
   if (!showActions || layout.bar.empty()) return;
 
