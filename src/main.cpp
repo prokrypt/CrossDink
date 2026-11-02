@@ -3072,6 +3072,11 @@ static void flashDuckRenderWait() {
 void installFlashDuckRenderWait() {
   mainLoopTask = xTaskGetCurrentTaskHandle();  // setup() and loop() share the Arduino loop task
   RenderLock::waitTick = &flashDuckRenderWait;
+  // A refresh on the main loop itself (BmpViewer's onExit() clear) blocks every step above until it
+  // ends, so the duck never started: arm its timer as the refresh is marked.
+  HalDisplay::onFlashMarked = [] {
+    if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
+  };
 }
 
 // A running transfer pulse owns the light (the dim doesn't show under it), so the

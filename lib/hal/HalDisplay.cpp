@@ -18,6 +18,7 @@
 
 // Global HalDisplay instance
 HalDisplay display;
+void (*HalDisplay::onFlashMarked)() = nullptr;
 
 #if CROSSDINK_GOODIES
 namespace {
@@ -428,6 +429,7 @@ void HalDisplay::markFlash(const bool flashes, const FlashKind kind) {
   markKind.store(kind, std::memory_order_relaxed);
   flashStart.store(millis() | 1, std::memory_order_relaxed);  // | 1: never 0 while set
   count(FLASHING);
+  if (onFlashMarked) onFlashMarked();
 }
 
 void HalDisplay::markFlash(const RefreshMode mode) { markFlash(mode != FAST_REFRESH); }

@@ -148,6 +148,9 @@ class HalDisplay {
   // millis() when a refresh that may flash was entered (0: none); the loop
   // ticks fast meanwhile.
   uint32_t flashMarkedMs() const { return flashStart.load(std::memory_order_relaxed); }
+  // Called on the refreshing task as a refresh that may flash is marked: a
+  // refresh the main loop runs itself blocks the loop that steps the duck.
+  static void (*onFlashMarked)();
   // When that refresh is expected to end (UC8179), 0 when unknown.
   uint32_t flashEndsMs() const;
   // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
