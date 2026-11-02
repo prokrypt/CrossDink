@@ -129,6 +129,61 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
   }
 };
 
+// Regression cases adapted from yassine-cc's fix for CrossInk #886.
+TEST_F(ChapterHtmlSlimParserTest, NestedQuotationKeepsPrecedingWordOutsideQuote) {
+  cssParser.rulesBySelector_[".quote"] = CssParser::parseInlineStyle("margin-left: 3em");
+  const XML_Char* quoteAttributes[] = {"class", "quote", nullptr};
+
+  ChapterHtmlSlimParser::startElement(&parser, "div", nullptr);
+  const std::string introduction = "Their hypothesis was remarkably straightforward:";
+  ChapterHtmlSlimParser::characterData(&parser, introduction.data(), introduction.size());
+  ChapterHtmlSlimParser::startElement(&parser, "div", quoteAttributes);
+  ChapterHtmlSlimParser::startElement(&parser, "i", nullptr);
+  const std::string quotation = "If an MBA education";
+  ChapterHtmlSlimParser::characterData(&parser, quotation.data(), quotation.size());
+  ChapterHtmlSlimParser::endElement(&parser, "i");
+
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+  ASSERT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  const auto& introductionLine = static_cast<const PageLine&>(*parser.currentPage->elements[0]);
+  EXPECT_EQ(introductionLine.getBlock()->wordCount(), 5u);
+  EXPECT_EQ(introductionLine.xPos, 0);
+  EXPECT_EQ(introductionLine.yPos, 0);
+
+  ASSERT_EQ(parser.currentTextBlock->size(), 4u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "If");
+  EXPECT_EQ(parser.currentTextBlock->getWordStyleAt(0), EpdFontFamily::ITALIC);
+  EXPECT_FALSE(parser.currentTextBlock->wordContinues[0]);
+  const int16_t quoteInset = parser.currentTextBlock->getBlockStyle().leftInset();
+  EXPECT_GT(quoteInset, 0);
+  ChapterHtmlSlimParser::endElement(&parser, "div");
+  ChapterHtmlSlimParser::endElement(&parser, "div");
+  parser.makePages();
+
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  ASSERT_EQ(parser.currentPage->elements[1]->getTag(), TAG_PageLine);
+  EXPECT_EQ(parser.currentPage->elements[1]->xPos, quoteInset);
+  EXPECT_GT(parser.currentPage->elements[1]->yPos, introductionLine.yPos);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, NestedHeadingDoesNotAbsorbSingleBufferedWord) {
+  ChapterHtmlSlimParser::startElement(&parser, "div", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Before", 6);
+  ChapterHtmlSlimParser::startElement(&parser, "h2", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Heading", 7);
+  ChapterHtmlSlimParser::endElement(&parser, "h2");
+  ChapterHtmlSlimParser::endElement(&parser, "div");
+  parser.makePages();
+
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  for (const auto& element : parser.currentPage->elements) {
+    ASSERT_EQ(element->getTag(), TAG_PageLine);
+    EXPECT_EQ(static_cast<const PageLine&>(*element).getBlock()->wordCount(), 1u);
+  }
+}
+
 TEST_F(ChapterHtmlSlimParserTest, BlockquoteParagraphsInheritItalicAndRestoreFollowingText) {
   cssParser.rulesBySelector_["blockquote"] =
       CssParser::parseInlineStyle("margin-left: 2em; margin-right: 1em; font-style: italic");

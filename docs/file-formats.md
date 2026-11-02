@@ -777,6 +777,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 104
+
+Complete caches use `104`; suspended partial caches use `0xE8`, and `0xE9` joins
+the retired sentinels. The payload is unchanged, but words buffered before a
+nested block now stay in their own paragraph, and words below a drop cap are no
+longer split at the narrow drop-cap width, so both cache types rebuild.
+
 ### Version 103
 
 Complete caches use `103`; suspended partial caches use `0xE9`, and `0xEA` joins

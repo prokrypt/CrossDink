@@ -22,8 +22,10 @@
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 103;
-constexpr uint8_t kPartialVersion = 0xE9;
+constexpr uint8_t kFullVersion = 104;
+constexpr uint8_t kPartialVersion = 0xE8;
+constexpr uint8_t kPreNestedBlockFullVersion = 103;
+constexpr uint8_t kPreNestedBlockPartialVersion = 0xE9;
 constexpr uint8_t kPreDashWrapFullVersion = 102;
 constexpr uint8_t kPreDashWrapPartialVersion = 0xEA;
 constexpr uint8_t kPublisherFontsFullVersion = 101;
@@ -172,9 +174,10 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   for (const uint8_t staleVersion :
-       {kPreDashWrapFullVersion, kPreDashWrapPartialVersion, kPublisherFontsFullVersion, kPublisherFontsPartialVersion,
-        kFieldsetFullVersion, kFieldsetPartialVersion, kPreFieldsetFullVersion, kPreFieldsetPartialVersion,
-        kPreviousFullVersion, kPreviousPartialVersion, kOlderFullVersion, kOlderPartialVersion}) {
+       {kPreNestedBlockFullVersion, kPreNestedBlockPartialVersion, kPreDashWrapFullVersion, kPreDashWrapPartialVersion,
+        kPublisherFontsFullVersion, kPublisherFontsPartialVersion, kFieldsetFullVersion, kFieldsetPartialVersion,
+        kPreFieldsetFullVersion, kPreFieldsetPartialVersion, kPreviousFullVersion, kPreviousPartialVersion,
+        kOlderFullVersion, kOlderPartialVersion}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);
