@@ -1860,7 +1860,8 @@ void SettingsActivity::render(RenderLock&&) {
                  : tr(STR_TOGGLE));
 
   const bool horizontalFront = SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_DIRECTIONAL &&
-                               !isFileBrowserView() && !deviceUsesHorizontalSideButtonsForMenus(gpio);
+                               !isFileBrowserView() &&
+                               mappedInput.menuButton(MappedInputManager::Button::Up) == MappedInputManager::Button::Up;
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel,
                                             (horizontalFront ? tr(STR_DIR_LEFT) : tr(STR_DIR_UP)),
                                             (horizontalFront ? tr(STR_DIR_RIGHT) : tr(STR_DIR_DOWN)));

@@ -12,8 +12,8 @@ inline bool deviceHasEdgeSideButtons(const HalGPIO& gpio) {
 #endif
 }
 
-// Menu navigation follows physical placement without changing the legacy
-// layout rules used by sliders, step controls, and side-button hints.
+// Portrait side-button geometry for orientation-aware menu and slider input.
+// Keep the legacy side-button hint layout separate.
 inline bool deviceUsesHorizontalSideButtonsForMenus(const HalGPIO& gpio) {
 #if defined(SIMULATOR_DEVICE_X4_PRO) || defined(SIMULATOR_DEVICE_X4_CLASSIC)
   return true;
