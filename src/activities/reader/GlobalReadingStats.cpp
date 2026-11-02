@@ -1,7 +1,9 @@
 #include "GlobalReadingStats.h"
 
 #include <HalStorage.h>
+#include <KOReaderCredentialStore.h>
 #include <Logging.h>
+#include <MD5Builder.h>
 #include <esp_mac.h>
 
 #include <array>
@@ -11,6 +13,7 @@
 
 #include "ReaderExitSave.h"
 #include "TwoSlotFile.h"
+#include "sync/SyncFiles.h"
 
 namespace {
 enum class StatsLoadResult : uint8_t { Ok, Invalid, NewerFormat };
@@ -56,6 +59,47 @@ static_assert(GLOBAL_STATS_FILE_SIZE <= two_slot::MAX_PAYLOAD_BYTES, "stats slot
 // payload it understands), which is only read here until the first save.
 static constexpr char GLOBAL_STATS_PATH[] = "/.crossdink/global_stats_dink.bin";
 static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crossdink/global_stats_dink.bin.bak";
+
+// Bind the cached calendar to the selected server/account without storing credentials.
+std::string serverStreakPath() {
+  MD5Builder md5;
+  md5.begin();
+  md5.add(KOREADER_STORE.getBaseUrl().c_str());
+  md5.add("\n");
+  md5.add(KOREADER_STORE.getUsername().c_str());
+  md5.calculate();
+  return std::string("/.crossdink/server_streak_") + md5.toString().c_str() + ".bin";
+}
+
+// One in-RAM copy of the calendar: Home and the stats screens ask for the
+// streak on every draw, and that must not become an SD read each time.
+struct ServerStreakCache {
+  std::string path;
+  bool present = false;
+  GlobalReadingStats streak;
+};
+ServerStreakCache& serverStreakCache() {
+  static ServerStreakCache cache;
+  return cache;
+}
+
+bool loadServerStreak(GlobalReadingStats& out) {
+  if (!KOREADER_STORE.hasCredentials() || !KOREADER_STORE.getSyncStats()) return false;
+  auto& cache = serverStreakCache();
+  const std::string path = serverStreakPath();
+  if (cache.path != path) {
+    SyncFiles::Reader reader(path.c_str());
+    uint8_t version = 0;
+    cache.present = reader.open() != SyncFiles::Reader::Source::None && reader.pod(version) && version == 1 &&
+                    reader.pod(cache.streak.readingHistoryAnchorDay) &&
+                    reader.read(cache.streak.readingHistoryBits.data(), READING_HISTORY_BYTES) &&
+                    reader.pod(cache.streak.longestReadingStreak) && reader.atEnd();
+    reader.close();
+    cache.path = path;
+  }
+  if (cache.present) out = cache.streak;
+  return cache.present;
+}
 static constexpr char LEGACY_STATS_PATH[] = "/.crossdink/global_stats.bin";
 static constexpr char LEGACY_STATS_BAK_PATH[] = "/.crossdink/global_stats.bin.bak";
 static constexpr char SYNCED_STATS_DIR[] = "/.crossdink/synced_stats";
@@ -347,10 +391,41 @@ bool GlobalReadingStats::resetLocal() {
 uint32_t GlobalReadingStats::localResetRevision() { return s_localResetRevision; }
 
 uint16_t GlobalReadingStats::currentReadingStreak(const ReadingStatsDate* today) const {
+  GlobalReadingStats server;
+  if (loadServerStreak(server)) {
+    mergeReadingHistory(server.readingHistoryAnchorDay, server.readingHistoryBits, readingHistoryAnchorDay,
+                        readingHistoryBits);
+    return computeReadingHistoryCurrentStreak(server.readingHistoryAnchorDay, server.readingHistoryBits, today);
+  }
   return computeReadingHistoryCurrentStreak(readingHistoryAnchorDay, readingHistoryBits, today);
 }
 
 uint16_t GlobalReadingStats::displayLongestReadingStreak() const {
+  GlobalReadingStats server;
+  if (loadServerStreak(server)) {
+    mergeReadingHistory(server.readingHistoryAnchorDay, server.readingHistoryBits, readingHistoryAnchorDay,
+                        readingHistoryBits);
+    return std::max(std::max(longestReadingStreak, server.longestReadingStreak),
+                    computeReadingHistoryLongestStreak(server.readingHistoryAnchorDay, server.readingHistoryBits));
+  }
   return std::max(longestReadingStreak,
                   computeReadingHistoryLongestStreak(readingHistoryAnchorDay, readingHistoryBits));
+}
+
+bool GlobalReadingStats::saveServerStreak(const GlobalReadingStats& streak) {
+  const std::string path = serverStreakPath();
+  SyncFiles::Writer writer(path.c_str());
+  constexpr uint8_t version = 1;
+  const bool saved = writer.open() && writer.pod(version) && writer.pod(streak.readingHistoryAnchorDay) &&
+                     writer.write(streak.readingHistoryBits.data(), READING_HISTORY_BYTES) &&
+                     writer.pod(streak.longestReadingStreak) && writer.commit();
+  if (!saved) {
+    LOG_ERR("GSTATS", "Cannot save server reading calendar");
+    return false;
+  }
+  auto& cache = serverStreakCache();
+  cache.path = path;
+  cache.present = true;
+  cache.streak = streak;
+  return true;
 }

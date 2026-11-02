@@ -91,7 +91,8 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
   using Result = StatsUploadClient::Result;
   if (!SETTINGS.shouldTrackReadingStats()) return Result::Skipped;
   GlobalReadingStats global;
-  if (!GlobalReadingStats::loadForUpload(global)) return Result::Skipped;
+  // Nothing read yet on this device: still fetch the account's calendar.
+  if (!GlobalReadingStats::loadForUpload(global)) return client.downloadStreak();
   if (!StatsUploadPayload::global(payload, capacity, deviceId, global)) return Result::InvalidResponse;
   auto result = client.put("/api/v1/stats/global", payload, false);
   if (result != Result::Ok) return result;
@@ -143,7 +144,9 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
       &context);
   if (!sessionsComplete) LOG_ERR("ReadingSync", "Reading session upload incomplete");
   if (!sessionsComplete && context.result == Result::Ok) return Result::InvalidResponse;
-  return context.result;
+  if (context.result != Result::Ok) return context.result;
+  const auto downloaded = client.downloadStreak();
+  return StatsUploadClient::failed(downloaded) ? downloaded : Result::Ok;
 }
 
 bool ReadingSyncUpload::loadBookStats(const std::string& path, BookReadingStats& stats) {
