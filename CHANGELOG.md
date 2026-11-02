@@ -200,6 +200,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - X4 Pro: a bottom-edge swipe up goes Home from Settings and Status Bar settings (it was ignored there); About stops swallowing it. The Home key still steps back.
 - Web Fonts page: upload/delete results stay visible until dismissed, and a new notification restarts the hide timer instead of vanishing early.
 - EPUB: lines can now wrap after visible hyphens and dashes (not soft or non-breaking hyphens) without adding a space, and justified lines no longer stretch gaps inside hyphenated words. Books re-layout once after updating.
+- OPDS: a feed that stops parsing (broken XML, or out of memory for the parser buffer) now ends its download at once and shows the parse or memory error, instead of downloading the rest of the feed first.
 - EPUB: Select Chapter opens on the current sub-chapter (the latest heading at or before the current page) instead of the chapter's first entry, also for chapters with many headings.
 - Footer button hints are centered on their actual font height in the Classic and Lyra themes.
 - An EPUB image cache whose final write (close) fails is deleted instead of being kept half-written.

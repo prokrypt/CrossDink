@@ -1081,6 +1081,9 @@ bool OpdsBookBrowserActivity::loadFeed(const std::string& url, OpdsParser& parse
         nullptr, server.username, server.password, std::move(downloadOptions), &diagnostics);
     if (parser.wasTruncated() && !fetchCancelled) {
       LOG_INF("OPDS", "Stopped feed at entry limit after %zu bytes", page.size());
+    } else if (!parser && diagnostics.callbackRejected) {
+      // The parser stopped the download; the caller reports its error, not a network one.
+      LOG_ERR("OPDS", "Feed rejected by parser after %zu bytes", page.size());
     } else if (result != HttpDownloader::OK) {
       if (error) *error = classifyFeedFailure(diagnostics, result == HttpDownloader::HTTP_ERROR);
       return false;
