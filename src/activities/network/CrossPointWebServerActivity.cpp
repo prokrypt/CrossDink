@@ -553,11 +553,12 @@ int drawCenteredQr(const GfxRenderer& renderer, int y, const std::string& payloa
 
 void CrossPointWebServerActivity::renderServerRunning() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
 
   renderHeader();
   const int subHeaderTop = TouchHeaderBackButton::contentTop(renderer, mappedInput);
-  GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
+  GUI.drawSubHeader(renderer, Rect{safe.x, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
   int startY = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing;
   const int height10 = renderer.getLineHeight(UI_10_FONT_ID);

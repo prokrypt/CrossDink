@@ -52,7 +52,7 @@ fui::Rect keyboardRect(const GfxRenderer& renderer) {
   int y = renderer.getScreenHeight() - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - height +
           metrics.keyboardVerticalOffset;
   int visibleHeight = height;
-  if (renderer.hasCustomViewableInsets()) {
+  {
     const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     const int right = std::min(x + width, safe.x + safe.width);
     x = std::max(x, safe.x);
@@ -71,8 +71,7 @@ PickerLayout getPickerLayout(const GfxRenderer& renderer, const MappedInputManag
   const int fieldsWidth = kHourWidth + kFieldGap + kColonGap + colonWidth + kColonGap + kMinuteWidth + kFieldGap +
                           kPeriodWidth + backspaceWidth;
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int startX = renderer.hasCustomViewableInsets() ? safe.x + (safe.width - fieldsWidth) / 2
-                                                        : (renderer.getScreenWidth() - fieldsWidth) / 2;
+  const int startX = safe.x + (safe.width - fieldsWidth) / 2;
   int fieldY = renderer.getScreenHeight() / 2 - kFieldHeight / 2;
   if (mappedInput.hasTouch()) {
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
