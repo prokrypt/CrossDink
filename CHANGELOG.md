@@ -180,6 +180,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 
 ### Fixed
 - Touch action buttons (Wi-Fi password prompts, Nearby transfer, Stats Upload, KOReader Sync, the interval picker) accept a tap up to 8 px outside their drawn edge, so a finger landing just past the button edge, as recorded on the Sticky, still counts. Neighboring buttons stay separate: the margin is half the gap between them.
+- Reading stats: EPUB and XTC reading is credited to the local day and time it actually happened. A session that stays open across midnight, or pauses for hours, no longer books all its time to the day and hour the book was opened, so the day-of-week and time-of-day buckets, the streak history and the book start date follow the clock.
 - Tilt Page Turn, Tilt Direction and Tilt: Next Page Only keep their saved values when the motion sensor fails its start-up check; the rows are only hidden from Settings and web settings until it answers again, instead of being dropped from the saved settings.
 - EPUB text in SD `.cpfont` fonts is measured the way it is drawn (each glyph rounded to whole pixels, character spacing kept), so lines no longer end a pixel or two short of or past the margin. Books re-layout once after updating.
 - X4 Pro: swiping the frontlight drawer closed from a book returns to the book; a swipe that reached the bottom edge no longer went Home. The Home key still goes Home from the drawer.

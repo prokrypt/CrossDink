@@ -250,10 +250,6 @@ void BookReadingStats::recordForwardPageRead(uint32_t seconds) {
   }
 }
 
-void BookReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStart, const uint32_t seconds) {
-  recordReadingSpanIntoBuckets(timeOfDaySeconds, dayOfWeekSeconds, localStart, seconds);
-}
-
 void BookReadingStats::formatDuration(uint32_t seconds, char* buf, size_t len) {
   if (seconds < 60) {
     snprintf(buf, len, "%s", tr(STR_STATS_LESS_THAN_MIN));
