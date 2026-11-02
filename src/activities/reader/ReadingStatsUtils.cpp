@@ -516,3 +516,14 @@ bool readingStatsIntervalSeconds(uint32_t nowMs, uint32_t shownAtMs, uint32_t id
   seconds = elapsed;
   return true;
 }
+
+bool isValidReadingStatsInterval(const ReadingStatsDateTime& start, const ReadingStatsDateTime& end,
+                                 const uint8_t startOffset, const uint8_t endOffset, const uint32_t seconds) {
+  if (!seconds || !start.isValid() || !end.isValid() || startOffset != endOffset || endOffset > 104) return false;
+  const uint64_t first =
+      uint64_t(readingStatsDayIndex(start.date)) * 86400 + start.hour * 3600u + start.minute * 60u + start.second;
+  const uint64_t last =
+      uint64_t(readingStatsDayIndex(end.date)) * 86400 + end.hour * 3600u + end.minute * 60u + end.second;
+  // Match the existing daily counters' allowance for RTC/subsecond rounding.
+  return last >= first && last - first + 2 >= seconds && last - first <= uint64_t(seconds) + 2;
+}

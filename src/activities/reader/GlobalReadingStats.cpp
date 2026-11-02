@@ -346,16 +346,6 @@ bool GlobalReadingStats::resetLocal() {
 
 uint32_t GlobalReadingStats::localResetRevision() { return s_localResetRevision; }
 
-void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStart, const uint32_t seconds) {
-  recordReadingSpanIntoBuckets(timeOfDaySeconds, dayOfWeekSeconds, localStart, seconds);
-  recordReadingSpanIntoHistory(readingHistoryAnchorDay, readingHistoryBits, localStart, seconds);
-
-  const uint16_t historyLongest = computeReadingHistoryLongestStreak(readingHistoryAnchorDay, readingHistoryBits);
-  if (historyLongest > longestReadingStreak) {
-    longestReadingStreak = historyLongest;
-  }
-}
-
 uint16_t GlobalReadingStats::currentReadingStreak(const ReadingStatsDate* today) const {
   return computeReadingHistoryCurrentStreak(readingHistoryAnchorDay, readingHistoryBits, today);
 }

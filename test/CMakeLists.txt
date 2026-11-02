@@ -134,6 +134,7 @@ add_test(NAME WifiAutoConnectRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_wifi_auto_connect.py)
 add_subdirectory(screen_calibration)
 add_subdirectory(daily_reading_stats)
+add_subdirectory(reading_session_dates)
 add_subdirectory(sync_files)
 add_subdirectory(sync_ids)
 add_subdirectory(sync_parked)
