@@ -1494,6 +1494,41 @@ this cache to force reinspection after external same-length font changes.
 
 EPUB layout cache versions and identities are unchanged by this catalog.
 
+## Reading session outbox
+
+Measured reading sessions for the Sync Server, alongside the existing book/global
+counters and daily history; no existing stats file or EPUB cache format changes.
+Each continuous tracking session keeps a random 128-bit ID and its active
+seconds. Nothing is written while paging: the record reaches the SD when the
+reader commits its stats (book close, stats tracking turned off, the restart
+checkpoint, book stats reset) or when a pause ends the session and the next
+accepted page interval starts a new one. A sudden power loss loses the live
+session, as it does the other unsaved reader stats. Idle page intervals and
+intervals with an unavailable or corrected clock never enter a session.
+
+`/.crossdink/reading_sessions/<32-lowercase-hex-id>.bin` uses SyncFiles atomic
+writes, CRC validation, and `.tmp`/`.bak` recovery. Fields are written separately
+in little-endian order, without struct padding:
+
+| Field | Bytes |
+|---|---:|
+| Format version (1) | 1 |
+| Session ID, ASCII hex without terminator | 32 |
+| Document ID, ASCII hex without terminator | 32 |
+| UTC start timestamp, seconds | 8 |
+| UTC end timestamp, seconds | 8 |
+| Active reading seconds | 4 |
+| Signed UTC offset, minutes | 2 |
+| CRC32 over preceding bytes | 4 |
+
+Uploads run after the global stats upload, with the same credentials and
+privacy switches, one `PUT /api/v1/stats/sessions` per record. A record is
+deleted (with its recovery copies) only after the reply lists its ID in
+`accepted_session_ids`. A server without the endpoint leaves the outbox intact
+and does not mark the older stats endpoints unsupported. Unreadable records,
+failed uploads and records dated more than five minutes in the future (a clock
+corrected backwards) are retained. Sessions under ten seconds are not exported.
+
 ## OPDS server list
 
 `/.crossdink/opds.json` holds `servers`, an array of objects with `name`, `url`, `username`, `password_obf`, `filenameFormat` (`author_title`, `title_author` or `server_filename`) and an optional `downloadFolder`. A missing or empty `downloadFolder` uses the global `opdsDownloadFolder` setting; `/` is the SD root; anything else is an absolute folder path of at most 63 bytes, normalized on load. An invalid value is logged and treated as empty. Older files need no migration.

@@ -37,7 +37,7 @@ bool StatsUploadClient::deviceId(char* out, const size_t capacity) {
 }
 
 StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const char* payload, const bool book,
-                                                 const bool daily) {
+                                                 const bool daily, const char* sessionId) {
   if (!impl) {
     LOG_ERR("StatsSync", "Cannot allocate HTTP client");
     return Result::LowMemory;
@@ -83,7 +83,9 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
   complete = http.responseComplete();
 #endif
   LOG_INF("StatsSync", "Upload response: HTTP %d", status);
-  recordMissingApi(status);
+  // A missing sessions endpoint on an older Sync server does not invalidate
+  // support for the existing stats endpoints. Keep the outbox for an upgrade.
+  if (!sessionId) recordMissingApi(status);
   auto failure = [&](Result result) {
     http.end();
     return result;
@@ -96,6 +98,9 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
   impl->response[size] = '\0';
   JsonDocument reply;
   if (deserializeJson(reply, impl->response) || !reply["until"].is<uint64_t>() ||
+      (sessionId && (!reply["accepted_session_ids"].is<JsonArray>() || reply["accepted_session_ids"].size() != 1 ||
+                     !reply["accepted_session_ids"][0].is<const char*>() ||
+                     strcmp(reply["accepted_session_ids"][0].as<const char*>(), sessionId) != 0)) ||
       (book && (!reply["accepted"].is<unsigned>() || reply["accepted"].as<unsigned>() != 1)) ||
       (daily && (!reply["accepted_daily"].is<unsigned>() || reply["accepted_daily"].as<unsigned>() != 1))) {
     return failure(Result::InvalidResponse);

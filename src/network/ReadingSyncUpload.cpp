@@ -19,6 +19,7 @@
 #include "activities/reader/BookStatsTracking.h"
 #include "activities/reader/DailyReadingStats.h"
 #include "activities/reader/EpubReaderUtils.h"
+#include "activities/reader/ReadingSessionJournal.h"
 #include "activities/reader/StatsUploadPayload.h"
 #include "sync/BookSyncFile.h"
 
@@ -121,7 +122,28 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
     if (getCurrentLocalDailyReadingDateTime(local) && !DailyReadingStats::pruneSyncedMonths(local.date))
       LOG_ERR("ReadingSync", "Synced monthly history cleanup deferred");
   }
-  return result;
+  if (result != Result::Ok) return result;
+  const bool sessionsComplete = ReadingSessionJournal::uploadPending(
+      [](void* opaque, const ReadingSessionJournal::Record& record) {
+        auto& ctx = *static_cast<UploadContext*>(opaque);
+        const int n =
+            snprintf(ctx.payload, ctx.capacity,
+                     "{\"device_id\":\"%s\",\"items\":[{\"session_id\":\"%s\",\"document\":\"%s\","
+                     "\"started_at\":%llu,\"ended_at\":%llu,\"seconds\":%lu,\"utc_offset_minutes\":%d}]}",
+                     ctx.deviceId, record.id, record.document, static_cast<unsigned long long>(record.startedAt),
+                     static_cast<unsigned long long>(record.endedAt), static_cast<unsigned long>(record.seconds),
+                     int(record.utcOffsetMinutes));
+        if (n < 0 || size_t(n) >= ctx.capacity) {
+          ctx.result = Result::InvalidResponse;
+          return false;
+        }
+        ctx.result = ctx.client.put("/api/v1/stats/sessions", ctx.payload, false, false, record.id);
+        return ctx.result == Result::Ok;
+      },
+      &context);
+  if (!sessionsComplete) LOG_ERR("ReadingSync", "Reading session upload incomplete");
+  if (!sessionsComplete && context.result == Result::Ok) return Result::InvalidResponse;
+  return context.result;
 }
 
 bool ReadingSyncUpload::loadBookStats(const std::string& path, BookReadingStats& stats) {
