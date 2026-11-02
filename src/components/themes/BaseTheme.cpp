@@ -1117,6 +1117,49 @@ void BaseTheme::drawReaderStatusBar(GfxRenderer& renderer, const ReaderStatusBar
                                            : marginRight + metrics.statusBarHorizontalMargin);
   const int available = std::max(0, rightEdge - leftEdge);
 
+  if (config.centered) {
+    // One centered group in slot order; the bottom bar's auto-turn label still replaces the center item.
+    std::array<ReaderStatusBarItem, ReaderStatusBarConfig::SLOT_COUNT> items = config.slots;
+    if (!top && content.autoTurnLabel) items[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::TitleChapter;
+    std::array<int, ReaderStatusBarConfig::SLOT_COUNT> itemWidths{};
+    for (unsigned i = 0; i < itemWidths.size(); ++i) itemWidths[i] = measureItem(items[i], available);
+    const char* glyph = readerStatusBarSeparatorGlyph(config.separator);
+    const int separatorWidth = renderer.getTextWidth(SMALL_FONT_ID, glyph);
+    auto group = layoutCenteredReaderStatusBarItems(leftEdge, rightEdge, screenWidth / 2, itemWidths, separatorWidth,
+                                                    bookmarkReserve);
+    // Ellipsized text ends short of its trimmed slot; lay out again on the drawn widths so no gap is left.
+    bool trimmed = false;
+    for (unsigned i = 0; i < items.size(); ++i) {
+      if (group.widths[i] <= 0 || group.widths[i] >= itemWidths[i]) continue;
+      if (items[i] == ReaderStatusBarItem::Battery) {
+        // A squeezed battery drops its percentage, or disappears, so no separator sits beside a gap.
+        itemWidths[i] = group.widths[i] >= metrics.batteryWidth ? metrics.batteryWidth : 0;
+        trimmed = true;
+        continue;
+      }
+      char scratch[48];
+      const char* value = itemText(items[i], scratch, sizeof(scratch));
+      if (!value || !value[0]) continue;
+      // +1 because truncatedText keeps only candidates strictly narrower than the limit, so drawItem
+      // reproduces this same string instead of dropping another character.
+      itemWidths[i] =
+          renderer.getTextWidth(SMALL_FONT_ID, renderer.truncatedText(SMALL_FONT_ID, value, group.widths[i]).c_str()) +
+          1;
+      trimmed = true;
+    }
+    if (trimmed) {
+      group = layoutCenteredReaderStatusBarItems(leftEdge, rightEdge, screenWidth / 2, itemWidths, separatorWidth,
+                                                 bookmarkReserve);
+    }
+    for (unsigned i = 0; i < items.size(); ++i) {
+      if (group.widths[i] > 0) drawItem(items[i], group.x[i], group.widths[i], false);
+    }
+    for (int i = 0; i < group.separatorCount; ++i) {
+      renderer.drawText(SMALL_FONT_ID, group.separatorX[i], textY, glyph, foregroundBlack);
+    }
+    return;
+  }
+
   std::array<int, ReaderStatusBarConfig::SLOT_COUNT> widths{};
   for (unsigned i = ReaderStatusBarConfig::LEFT_FIRST; i <= ReaderStatusBarConfig::LEFT_THIRD; ++i) {
     widths[i] = measureItem(config.slots[i], available);

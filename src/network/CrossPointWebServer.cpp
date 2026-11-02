@@ -3039,6 +3039,8 @@ void CrossPointWebServer::handleGetStatusBars() const {
   labels["percentageFormat"] = tr(STR_PERCENTAGE_FORMAT);
   labels["progressBar"] = tr(STR_PROGRESS_BAR);
   labels["thickness"] = tr(STR_PROGRESS_BAR_THICKNESS);
+  labels["centered"] = tr(STR_CENTER_STATUS_BAR);
+  labels["separator"] = tr(STR_SEPARATOR);
   labels["xtcMode"] = tr(STR_XTC_STATUS_BAR);
   labels["preview"] = tr(STR_PREVIEW);
 
@@ -3071,6 +3073,11 @@ void CrossPointWebServer::handleGetStatusBars() const {
   addLabels("thicknesses",
             {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK});
   addLabels("xtcModes", {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP, StrId::STR_STATUS_BAR_BOTH});
+  addLabels("centerOptions", {StrId::STR_OFF, StrId::STR_ON});
+  JsonArray separators = doc["separators"].to<JsonArray>();
+  for (uint8_t i = 0; i < static_cast<uint8_t>(ReaderStatusBarSeparator::Count); ++i) {
+    separators.add(readerStatusBarSeparatorGlyph(static_cast<ReaderStatusBarSeparator>(i)));
+  }
 
   String payload;
   serializeJson(doc, payload);
@@ -3098,9 +3105,16 @@ void CrossPointWebServer::handlePostStatusBars() {
     if (previousTop.slots != bars.top.slots || previousTop.percentageFormat != bars.top.percentageFormat ||
         previousTop.progressBar != bars.top.progressBar ||
         previousTop.progressBarThickness != bars.top.progressBarThickness ||
+        (!doc["top"]["centered"].isUnbound() && previousTop.centered != bars.top.centered) ||
+        (!doc["top"]["separator"].isUnbound() && previousTop.separator != bars.top.separator) ||
         SETTINGS.xtcStatusBarMode != bars.xtcMode) {
       SETTINGS.legacyXtcTopUsesBottom = 0;
     }
+    // Older web pages have no Center/Separator fields; editing slots must retain them.
+    if (doc["top"]["centered"].isUnbound()) bars.top.centered = previousTop.centered;
+    if (doc["bottom"]["centered"].isUnbound()) bars.bottom.centered = SETTINGS.bottomReaderStatusBar.centered;
+    if (doc["top"]["separator"].isUnbound()) bars.top.separator = previousTop.separator;
+    if (doc["bottom"]["separator"].isUnbound()) bars.bottom.separator = SETTINGS.bottomReaderStatusBar.separator;
     SETTINGS.topReaderStatusBar = bars.top;
     SETTINGS.bottomReaderStatusBar = bars.bottom;
     SETTINGS.xtcStatusBarMode = bars.xtcMode;

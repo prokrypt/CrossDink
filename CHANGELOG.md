@@ -5,6 +5,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 ## [Unreleased]
 
 ### Added
+- Status bars: Center Status Bar (Settings > Status Bars > Top/Bottom, and web settings) draws every item of that bar in one centered row, joined by a separator of your choice (•, –, |, ·). The option rows now sit under an Options heading.
 - Bug reports and debug log downloads (web Logs page, `/api/psram-log`, serial `CMD:PSRAMLOG`) now include the reader font, every numeric setting by its web key, and the font families installed under `/.fonts` and `/fonts`. No names, logins or passwords are included; the list is built only when the report or download is made.
 - Serial log: the boot after a deep sleep logs `[SLP] t request=.. draw=.. writes=.. shutdown=.. tilt=.. refresh=.. fade=.. busters=.. dslp=.. wifi=.. rails=.. release=.. total=..`, the time in ms of each step of that sleep entry, including the steps after the serial log ends.
 - Rotate Page 180° can be assigned to the power button, button chords, front-button long presses and long-press menu actions as well as the side buttons, on the device or in web settings (EPUB and TXT readers).
