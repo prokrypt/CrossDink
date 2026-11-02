@@ -441,6 +441,38 @@ Result I18n::discover(Catalog& catalog) const {
   return Result::Ok;
 }
 
+const char* I18n::sourceContract() { return SOURCE_SHA256; }
+const char* I18n::keysetContract() { return KEYSET_SHA256; }
+bool I18n::supportedDownload(const char* code) {
+  if (!code) return false;
+  for (size_t i = 1; i < getLanguageCount(); ++i)
+    if (!std::strcmp(code, LANGUAGE_CODES[i])) return true;
+  return false;
+}
+
+Result I18n::validateSource(const char* path, const char* code, const char* source, const char* keyset, void* context,
+                            bool (*continueWork)(void*)) const {
+  if (!supportedDownload(code) || !source || !keyset || std::strcmp(source, sourceContract()) ||
+      std::strcmp(keyset, keysetContract())) {
+    LOG_ERR("LANG", "Download source contract mismatch");
+    return Result::Invalid;
+  }
+  HalFile file;
+  if (!Storage.openFileForRead("LANG", path, file)) return Result::Io;
+  Metadata metadata;
+  ValidationOptions options;
+  options.expectedCode = code;
+  options.sourceSha256 = source;
+  options.keysetSha256 = keyset;
+  options.context = context;
+  options.continueWork = continueWork;
+  const auto result =
+      file.fileSize() > MAX_SOURCE_SIZE ? Result::TooLarge : validate({&file, readInput}, SCHEMA, metadata, options);
+  file.close();
+  if (result != Result::Ok) LOG_ERR("LANG", "Download validation: %s", resultName(result));
+  return result;
+}
+
 Result I18n::install(const char* path, Installed& result) {
   HalFile source;
   if (!Storage.openFileForRead("LANG", path, source)) return Result::Io;
