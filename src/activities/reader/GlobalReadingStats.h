@@ -58,7 +58,10 @@ struct GlobalReadingStats {
   // while a reader may be open must advance it too.
   static uint32_t localResetRevision();
 
-  void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
+  // Streaks shown to the user combine the local history with the Sync Server's
+  // calendar when stats sync is on for the configured account.
   uint16_t currentReadingStreak(const ReadingStatsDate* today) const;
   uint16_t displayLongestReadingStreak() const;
+  // Separate server calendar; never included in loadForUpload() or Nearby exports.
+  static bool saveServerStreak(const GlobalReadingStats& streak);
 };

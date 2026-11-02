@@ -815,7 +815,7 @@ void NearbyBookTransferActivity::loop() {
     const Rect safeArea = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     if (state_ == State::CollisionPrompt) {
       const auto actions = touchActionLayout(safeArea, 3);
-      const int index = TouchActionButtons::indexAt(actions, tx, ty);
+      const int index = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
       if (index >= 0) {
         selectedIndex_ = index;
         activateSelected();
@@ -824,7 +824,7 @@ void NearbyBookTransferActivity::loop() {
     }
     const uint8_t actionCount = state_ == State::Success && mode_ != Mode::Receive ? 1 : 2;
     const auto actions = touchActionLayout(safeArea, actionCount);
-    const int action = TouchActionButtons::indexAt(actions, tx, ty);
+    const int action = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
     if (action >= 0) {
       if (actionCount == 2 && action == 1) {
         if (state_ == State::Success) {

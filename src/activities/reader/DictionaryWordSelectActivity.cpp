@@ -1049,38 +1049,36 @@ TextSelectionOverlay::Layout DictionaryWordSelectActivity::touchSelectionLayout(
   const auto wordRect = [lineHeight](const WordSelectNavigator::WordInfo& word) {
     return TextSelectionOverlay::Rect{word.screenX, word.screenY, word.width, static_cast<int16_t>(lineHeight)};
   };
+  const auto firstRect = startWord ? wordRect(*startWord) : TextSelectionOverlay::Rect{};
+  const auto lastRect = endWord ? wordRect(*endWord) : TextSelectionOverlay::Rect{};
   if (startWord && !hasCrossPageSelection_) {
-    layout.startOnLeft = !startWord->isRtl;
-    layout.startHandle = TextSelectionOverlay::handle(safe, wordRect(*startWord), layout.startOnLeft);
+    layout.start = TextSelectionOverlay::handle(safe, firstRect, !startWord->isRtl, true);
   }
   if (endWord) {
-    layout.endOnLeft = endWord->isRtl;
-    layout.endHandle = TextSelectionOverlay::handle(safe, wordRect(*endWord), layout.endOnLeft);
+    layout.end = TextSelectionOverlay::handle(safe, lastRect, endWord->isRtl, false);
   }
-  TextSelectionOverlay::placeActions(renderer, layout, startWord ? startWord->screenX : safe.x,
-                                     startWord ? startWord->screenY : safe.y);
+  TextSelectionOverlay::placeActions(renderer, layout, firstRect, lastRect, touchLookupEnabled_);
   return layout;
 }
 
 void DictionaryWordSelectActivity::drawTouchSelection() const {
-  if (touchSelectionActive_)
-    TextSelectionOverlay::draw(renderer, touchSelectionLayout(), !touchDragLookup_, touchLookupEnabled_);
+  if (touchSelectionActive_) TextSelectionOverlay::draw(renderer, touchSelectionLayout(), !touchDragLookup_);
 }
 
 void DictionaryWordSelectActivity::performTouchSelectionAction(const int action) {
   RenderLock lock(*this);
-  if (action == 0 && !touchLookupEnabled_) return;
-  if (action == 1 && !hasPendingClippingRequest_) return;
+  if (action == TextSelectionOverlay::lookupAction && !touchLookupEnabled_) return;
+  if (action == TextSelectionOverlay::clipAction && !hasPendingClippingRequest_) return;
   touchSelectionActive_ = false;
   forceFullRepaintOnNextRender();
-  if (action == 0) {
+  if (action == TextSelectionOverlay::lookupAction) {
     const size_t wordCount = pendingTouchPhrase_.empty()
                                  ? crossPageLookupWordCount_ + navigator.getLookupSelectionWordCount()
                                  : pendingTouchWordCount_;
     auto phrase = pendingTouchPhrase_.empty() ? finishTouchLookupPhrase() : std::move(pendingTouchPhrase_);
     lock.unlock();
     controller.lookupOrPopup(phrase, wordCount);
-  } else if (action == 1) {
+  } else if (action == TextSelectionOverlay::clipAction) {
     finishWithClippingRequest();
   }
 }
@@ -1172,7 +1170,7 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
       touchPressedAction_ = -1;
       return true;
     }
-    if (layout.startHandle.contains(x, y) || layout.endHandle.contains(x, y)) return true;
+    if (layout.start.hit.contains(x, y) || layout.end.hit.contains(x, y)) return true;
     int first = -1, last = -1;
     navigator.getExpandedSelectionRange(first, last);
     for (int i = first; i <= last; ++i) {
@@ -1190,8 +1188,8 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
     bool startDrag = false;
     touchDragOffsetX_ = touchDragOffsetY_ = 0;
     if (touchSelectionActive_) {
-      const bool start = layout.startHandle.contains(x, y);
-      const bool end = layout.endHandle.contains(x, y);
+      const bool start = layout.start.hit.contains(x, y);
+      const bool end = layout.end.hit.contains(x, y);
       if (!start && !end) return true;
       int first = -1, last = -1;
       navigator.getExpandedSelectionRange(first, last);

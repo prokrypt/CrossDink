@@ -37,6 +37,57 @@ import zlib
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+# Offset value that selects the English string for the same key (packs and SD caches).
+ENGLISH_FALLBACK_OFFSET = 0xFFFF
+
+# Existing printf keys without the preferred _FORMAT suffix.
+FORMAT_KEYS = {
+    "STR_NETWORKS_FOUND", "STR_NEARBY_TRANSFER_SIZE", "STR_MOVE_TO_READ_FAILED_BODY",
+    "STR_HOLD_FOR_KEYBOARD", "STR_LIBRARY_SCAN_COUNT", "STR_LIBRARY_FILES_COUNT",
+    "STR_STATS_UPLOAD_COUNTS", "STR_FOLDER_SYNC_COUNTS",
+}
+
+
+def is_formatted_key(key: str) -> bool:
+    return key.endswith("_FORMAT") or key in FORMAT_KEYS
+
+
+def stable_hash(text: str) -> int:
+    """FNV-1a 64, the same hash LanguageCache uses for keys and English text."""
+    value = 14695981039346656037
+    for byte in text.encode("utf-8"):
+        value = ((value ^ byte) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return value
+
+
+def format_signature(text: str):
+    """Match the bounded printf argument contract enforced by LanguageCache."""
+    pattern = re.compile(r'%[-+ #0]*(\*|[0-9]*)(?:\.(\*|[0-9]*))?'
+                         r'(hh|ll|h|l|j|z|t|L)?([diouxXaAeEfFgGcsp])')
+    lengths = {None: 0, "h": 1, "hh": 2, "l": 3, "ll": 4, "j": 5, "z": 6, "t": 7, "L": 8}
+    types = {**dict.fromkeys("di", 1), **dict.fromkeys("ouxX", 2),
+             **dict.fromkeys("aAeEfFgG", 3), "c": 4, "s": 5, "p": 6}
+    signature = []
+    index = 0
+    while (index := text.find("%", index)) >= 0:
+        if text.startswith("%%", index):
+            index += 2
+            continue
+        match = pattern.match(text, index)
+        if not match:
+            return None
+        width, precision, length, conversion = match.groups()
+        for value, limit in [(width, 1024), (precision, 128)]:
+            if value == "*":
+                signature.append(1)
+            elif value is not None and int(value or "0") > limit:
+                return None
+        signature.append(types[conversion] + lengths[length] * 8)
+        if len(signature) > 32:
+            return None
+        index = match.end()
+    return tuple(signature)
+
 
 # ---------------------------------------------------------------------------
 # YAML file reading (simple key: "value" format, no PyYAML dependency)
@@ -213,10 +264,17 @@ def load_translations(
     translations: Dict[str, List[str]] = {}
     for key in string_keys:
         row: List[str] = []
+        signature = format_signature(english_data[key]) if is_formatted_key(key) else None
+        if is_formatted_key(key) and signature is None:
+            raise ValueError(f"Invalid English printf contract: {key}")
         for lang_idx, fname in enumerate(ordered_files):
             data = parsed[fname]
             value = data.get(key, "")
-            if not value.strip() and fname != english_file:
+            # Same rule as LanguageCache for SD files: a translation whose printf
+            # arguments differ from English falls back to English.
+            if fname != english_file and (
+                not value.strip() or (signature is not None and format_signature(value) != signature)
+            ):
                 value = english_data[key]
                 inherited_sets[lang_idx].add(key)
                 if verbose:
@@ -461,7 +519,8 @@ def generate_keys_header(
         "",
         "// English is stored raw (the always-available fallback). Every other",
         "// built-in language is one raw-DEFLATE pack of [uint16 offsets x",
-        "// StrId::_COUNT][string blob], inflated into PSRAM when selected.",
+        "// StrId::_COUNT][string blob], inflated into PSRAM when selected. An",
+        "// offset of I18N_ENGLISH_FALLBACK_OFFSET selects the English string.",
         "namespace i18n_strings {",
         "extern const char STRINGS_EN_DATA[];",
         "extern const uint16_t OFFSETS_EN[];",
@@ -496,6 +555,21 @@ def generate_keys_header(
     lines.append("// Character sets for each language (defined in I18nStrings.cpp)")
     lines.append("extern const char* const CHARACTER_SETS[];")
     lines.append("")
+
+    lines.extend([
+        "// Stable key metadata used only while installing or opening an SD language cache.",
+        "struct TranslationKey {",
+        "  uint64_t keyHash;",
+        "  uint64_t englishHash;",
+        "  const char* name;",
+        "  uint16_t id;",
+        "  bool formatted;",
+        "};",
+        "extern const TranslationKey TRANSLATION_KEYS[];",
+        "",
+        f"constexpr uint16_t I18N_ENGLISH_FALLBACK_OFFSET = {ENGLISH_FALLBACK_OFFSET};",
+        "",
+    ])
 
     # StrId enum
     lines.append("// String IDs")
@@ -640,14 +714,24 @@ def generate_strings_cpp(
     lines.append("};")
     lines.append("")
 
+    # Sorted by key hash so LanguageCache can binary-search the schema.
+    keyed = sorted((stable_hash(key), key, i) for i, key in enumerate(string_keys))
+    if len({h for h, _, _ in keyed}) != len(keyed):
+        raise ValueError("Translation key hash collision")
+    lines.append("const TranslationKey TRANSLATION_KEYS[] = {")
+    for key_hash, key, i in keyed:
+        source_hash = stable_hash(translations[key][0])
+        formatted = "true" if is_formatted_key(key) else "false"
+        lines.append(f'  {{0x{key_hash:016x}ULL, 0x{source_hash:016x}ULL, "{key}", {i}, {formatted}}},')
+    lines.extend(["};", ""])
+
     # Per-language flat string blobs and offset tables.
     # Non-English languages skip strings identical to English; their offset
-    # tables use bit 15 (0x8000) to flag "use English blob at offset & 0x7FFF".
+    # tables use ENGLISH_FALLBACK_OFFSET to select the same key in English.
     lines.append("namespace i18n_strings {")
     lines.append("")
 
     en_strings = [translations[key][0] for key in string_keys]
-    en_offsets: List[int] = []
     packs: Dict[str, Tuple[int, int]] = {}
     packed_bytes_total = [0]
     raw_bytes_total = [0]
@@ -665,28 +749,27 @@ def generate_strings_cpp(
             for s in lang_strings:
                 offsets.append(current_offset)
                 current_offset += len(s.encode("utf-8")) + 1
-            if current_offset > 0x7FFF:
+            if current_offset >= ENGLISH_FALLBACK_OFFSET:
                 raise ValueError(
                     f"Language {code}: blob size ({current_offset} bytes) exceeds "
-                    "15-bit offset limit (32767)"
+                    "the 16-bit offset limit (65534)"
                 )
-            en_offsets = list(offsets)
             blob_strings = lang_strings
         else:
             offsets = []
             current_offset = 0
             blob_strings = []
-            for i, (s, en_s) in enumerate(zip(lang_strings, en_strings)):
+            for s, en_s in zip(lang_strings, en_strings):
                 if s == en_s:
-                    offsets.append(en_offsets[i] | 0x8000)
+                    offsets.append(ENGLISH_FALLBACK_OFFSET)
                 else:
                     offsets.append(current_offset)
                     current_offset += len(s.encode("utf-8")) + 1
                     blob_strings.append(s)
-            if current_offset > 0x7FFF:
+            if current_offset >= ENGLISH_FALLBACK_OFFSET:
                 raise ValueError(
                     f"Language {code}: blob size ({current_offset} bytes) exceeds "
-                    "15-bit offset limit (32767)"
+                    "the 16-bit offset limit (65534)"
                 )
 
         if not is_english:
