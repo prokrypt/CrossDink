@@ -950,7 +950,6 @@ STR_LANGUAGE_SAVE_FAILED: "No se puede guardar el idioma. Verifique la tarjeta S
 STR_LANGUAGE_DUPLICATE: "Códigos de idioma duplicados. Verifique los archivos SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Demasiados archivos de idioma o nombres largos. Mantenga menos en SD."
 
-# Plugins
 STR_PLUGINS: "Complementos"
 STR_NO_PLUGINS_INSTALLED: "No hay complementos instalados"
 STR_PLUGIN_NOT_SIGNED_IN: "Inicia sesión mediante el complemento en la página web de ajustes."
@@ -975,3 +974,4 @@ STR_BOOK_LOAN_CLOCK: "Conecta el Wi-Fi para verificar la fecha del préstamo."
 STR_PLUGIN_UNINSTALL: "Desinstalar"
 STR_PLUGIN_UNINSTALL_TITLE: "Desinstalar complemento"
 STR_PLUGIN_UNINSTALL_CONFIRM: "¿Desinstalar %s y eliminar todos sus archivos?"
+STR_ASSET_STEP_FORMAT: "Paso %u/%u"

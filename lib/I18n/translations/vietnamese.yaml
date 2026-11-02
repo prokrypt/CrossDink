@@ -924,7 +924,6 @@ STR_LANGUAGE_SAVE_FAILED: "Không thể lưu ngôn ngữ. Hãy kiểm tra thẻ 
 STR_LANGUAGE_DUPLICATE: "Mã ngôn ngữ trùng lặp. Kiểm tra các tập tin SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Quá nhiều tập tin ngôn ngữ hoặc tên dài. Giữ ít hơn trên SD."
 
-# Plugins
 STR_PLUGINS: "Tiện ích"
 STR_NO_PLUGINS_INSTALLED: "Chưa cài tiện ích nào"
 STR_PLUGIN_NOT_SIGNED_IN: "Đăng nhập qua tiện ích trên trang cài đặt web."
@@ -949,3 +948,4 @@ STR_BOOK_LOAN_CLOCK: "Kết nối Wi-Fi để xác minh ngày mượn."
 STR_PLUGIN_UNINSTALL: "Gỡ cài đặt"
 STR_PLUGIN_UNINSTALL_TITLE: "Gỡ tiện ích"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Gỡ cài đặt %s và xóa tất cả tệp của tiện ích?"
+STR_ASSET_STEP_FORMAT: "Bước %u/%u"

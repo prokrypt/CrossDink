@@ -909,7 +909,6 @@ STR_LANGUAGE_SAVE_FAILED: "Kan taal niet opslaan. Controleer de SD-kaart en prob
 STR_LANGUAGE_DUPLICATE: "Dubbele taalcodes. Controleer de SD-bestanden."
 STR_LANGUAGE_CATALOG_LIMIT: "Te veel taalbestanden of lange namen. Houd minder over op SD."
 
-# Plugins
 STR_PLUGINS: "Plugins"
 STR_NO_PLUGINS_INSTALLED: "Geen plugins geïnstalleerd"
 STR_PLUGIN_NOT_SIGNED_IN: "Meld je aan via de plugin op de webinstellingenpagina."
@@ -934,3 +933,4 @@ STR_BOOK_LOAN_CLOCK: "Verbind met wifi om de leendatum te controleren."
 STR_PLUGIN_UNINSTALL: "Verwijderen"
 STR_PLUGIN_UNINSTALL_TITLE: "Plug-in verwijderen"
 STR_PLUGIN_UNINSTALL_CONFIRM: "%s verwijderen en alle bijbehorende bestanden wissen?"
+STR_ASSET_STEP_FORMAT: "Stap %u/%u"

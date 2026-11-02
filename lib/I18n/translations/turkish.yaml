@@ -909,7 +909,6 @@ STR_LANGUAGE_SAVE_FAILED: "Dil kaydedilemiyor. SD kartını kontrol edin ve tekr
 STR_LANGUAGE_DUPLICATE: "Yinelenen dil kodları. SD dosyalarını kontrol edin."
 STR_LANGUAGE_CATALOG_LIMIT: "Çok fazla dil dosyası veya uzun adlar. SD'de daha az tutun."
 
-# Plugins
 STR_PLUGINS: "Eklentiler"
 STR_NO_PLUGINS_INSTALLED: "Yüklü eklenti yok"
 STR_PLUGIN_NOT_SIGNED_IN: "Web ayarları sayfasındaki eklenti üzerinden giriş yapın."
@@ -934,3 +933,4 @@ STR_BOOK_LOAN_CLOCK: "Ödünç tarihini doğrulamak için Wi-Fi ağına bağlan�
 STR_PLUGIN_UNINSTALL: "Kaldır"
 STR_PLUGIN_UNINSTALL_TITLE: "Eklentiyi kaldır"
 STR_PLUGIN_UNINSTALL_CONFIRM: "%s kaldırılsın ve tüm dosyaları silinsin mi?"
+STR_ASSET_STEP_FORMAT: "Adım %u/%u"

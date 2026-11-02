@@ -942,7 +942,6 @@ STR_LANGUAGE_SAVE_FAILED: "Die Sprache kann nicht gespeichert werden. Überprüf
 STR_LANGUAGE_DUPLICATE: "Doppelte Sprachcodes. Überprüfen Sie die SD-Dateien."
 STR_LANGUAGE_CATALOG_LIMIT: "Zu viele Sprachdateien oder lange Namen. Halten Sie weniger auf SD."
 
-# Plugins
 STR_PLUGINS: "Plugins"
 STR_NO_PLUGINS_INSTALLED: "Keine Plugins installiert"
 STR_PLUGIN_NOT_SIGNED_IN: "Über das Plugin auf der Web-Einstellungsseite anmelden."
@@ -967,3 +966,4 @@ STR_BOOK_LOAN_CLOCK: "WLAN verbinden, um das Ausleihdatum zu prüfen."
 STR_PLUGIN_UNINSTALL: "Deinstallieren"
 STR_PLUGIN_UNINSTALL_TITLE: "Plugin deinstallieren"
 STR_PLUGIN_UNINSTALL_CONFIRM: "%s deinstallieren und alle zugehörigen Dateien löschen?"
+STR_ASSET_STEP_FORMAT: "Schritt %u/%u"

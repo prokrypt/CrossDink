@@ -950,7 +950,6 @@ STR_LANGUAGE_SAVE_FAILED: "Não é possível salvar o idioma. Verifique a placa 
 STR_LANGUAGE_DUPLICATE: "Códigos de idioma duplicados. Verifique os arquivos SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Muitos arquivos de idiomas ou nomes longos. Mantenha menos em SD."
 
-# Plugins
 STR_PLUGINS: "Plugins"
 STR_NO_PLUGINS_INSTALLED: "Nenhum plugin instalado"
 STR_PLUGIN_NOT_SIGNED_IN: "Entre pelo plugin na página de configurações web."
@@ -975,3 +974,4 @@ STR_BOOK_LOAN_CLOCK: "Conecte o Wi-Fi para verificar a data do empréstimo."
 STR_PLUGIN_UNINSTALL: "Desinstalar"
 STR_PLUGIN_UNINSTALL_TITLE: "Desinstalar plugin"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Desinstalar %s e excluir todos os seus arquivos?"
+STR_ASSET_STEP_FORMAT: "Etapa %u/%u"

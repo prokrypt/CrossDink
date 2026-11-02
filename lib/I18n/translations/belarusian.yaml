@@ -910,7 +910,6 @@ STR_LANGUAGE_SAVE_FAILED: "Немагчыма захаваць мову. Пра�
 STR_LANGUAGE_DUPLICATE: "Дублікаты моўных кодаў. Праверце файлы SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Зашмат моўных файлаў або доўгіх імёнаў. Захоўвайце менш на SD."
 
-# Plugins
 STR_PLUGINS: "Убудовы"
 STR_NO_PLUGINS_INSTALLED: "Няма ўсталяваных убудоў"
 STR_PLUGIN_NOT_SIGNED_IN: "Увайдзіце праз убудову на вэб-старонцы налад."
@@ -935,3 +934,4 @@ STR_BOOK_LOAN_CLOCK: "Падключыце Wi-Fi для праверкі дат�
 STR_PLUGIN_UNINSTALL: "Выдаліць"
 STR_PLUGIN_UNINSTALL_TITLE: "Выдаліць убудову"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Выдаліць %s і ўсе яе файлы?"
+STR_ASSET_STEP_FORMAT: "Крок %u/%u"

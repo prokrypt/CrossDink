@@ -898,7 +898,6 @@ STR_LANGUAGE_SAVE_FAILED: "לא ניתן לשמור שפה. בדוק את כרט
 STR_LANGUAGE_DUPLICATE: "קודי שפה כפולים. בדוק את קבצי SD."
 STR_LANGUAGE_CATALOG_LIMIT: "יותר מדי קובצי שפה או שמות ארוכים. השאר פחות ב-SD."
 
-# Plugins
 STR_PLUGINS: "תוספים"
 STR_NO_PLUGINS_INSTALLED: "אין תוספים מותקנים"
 STR_PLUGIN_NOT_SIGNED_IN: "יש להתחבר דרך התוסף בדף ההגדרות בדפדפן."
@@ -923,3 +922,4 @@ STR_BOOK_LOAN_CLOCK: "יש להתחבר ל-Wi-Fi לאימות תאריך ההש�
 STR_PLUGIN_UNINSTALL: "הסרה"
 STR_PLUGIN_UNINSTALL_TITLE: "הסרת תוסף"
 STR_PLUGIN_UNINSTALL_CONFIRM: "להסיר את %s ולמחוק את כל הקבצים שלו?"
+STR_ASSET_STEP_FORMAT: "שלב %u/%u"

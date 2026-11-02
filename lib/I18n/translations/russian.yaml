@@ -917,7 +917,6 @@ STR_LANGUAGE_SAVE_FAILED: "Невозможно сохранить язык. П�
 STR_LANGUAGE_DUPLICATE: "Дублирующиеся языковые коды. Проверьте файлы SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Слишком много языковых файлов или длинные имена. Держите меньше на SD."
 
-# Plugins
 STR_PLUGINS: "Плагины"
 STR_NO_PLUGINS_INSTALLED: "Нет установленных плагинов"
 STR_PLUGIN_NOT_SIGNED_IN: "Войдите через плагин на веб-странице настроек."
@@ -942,3 +941,4 @@ STR_BOOK_LOAN_CLOCK: "Подключите Wi-Fi для проверки дат�
 STR_PLUGIN_UNINSTALL: "Удалить"
 STR_PLUGIN_UNINSTALL_TITLE: "Удалить плагин"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Удалить %s и все его файлы?"
+STR_ASSET_STEP_FORMAT: "Шаг %u/%u"

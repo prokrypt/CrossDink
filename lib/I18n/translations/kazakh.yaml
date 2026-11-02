@@ -910,7 +910,6 @@ STR_LANGUAGE_SAVE_FAILED: "Тілді сақтау мүмкін емес. SD к�
 STR_LANGUAGE_DUPLICATE: "Қайталанатын тіл кодтары. SD файлдарын тексеріңіз."
 STR_LANGUAGE_CATALOG_LIMIT: "Тым көп тілдік файлдар немесе ұзын атаулар. SD-де азырақ сақтаңыз."
 
-# Plugins
 STR_PLUGINS: "Плагиндер"
 STR_NO_PLUGINS_INSTALLED: "Орнатылған плагиндер жоқ"
 STR_PLUGIN_NOT_SIGNED_IN: "Веб-баптаулар бетіндегі плагин арқылы кіріңіз."
@@ -935,3 +934,4 @@ STR_BOOK_LOAN_CLOCK: "Қарыз күнін тексеру үшін Wi-Fi жел
 STR_PLUGIN_UNINSTALL: "Жою"
 STR_PLUGIN_UNINSTALL_TITLE: "Плагинді жою"
 STR_PLUGIN_UNINSTALL_CONFIRM: "%s плагинін және оның барлық файлдарын жою керек пе?"
+STR_ASSET_STEP_FORMAT: "Қадам %u/%u"

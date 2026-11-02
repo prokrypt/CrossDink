@@ -909,7 +909,6 @@ STR_LANGUAGE_SAVE_FAILED: "Nu se poate salva limba. Verificați cardul SD și î
 STR_LANGUAGE_DUPLICATE: "Coduri de limbă duplicate. Verificați fișierele SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Prea multe fișiere de limbă sau nume lungi. Păstrați mai puține pe SD."
 
-# Plugins
 STR_PLUGINS: "Extensii"
 STR_NO_PLUGINS_INSTALLED: "Nicio extensie instalată"
 STR_PLUGIN_NOT_SIGNED_IN: "Autentificați-vă prin extensie pe pagina web de setări."
@@ -934,3 +933,4 @@ STR_BOOK_LOAN_CLOCK: "Conectați Wi-Fi pentru verificarea datei împrumutului."
 STR_PLUGIN_UNINSTALL: "Dezinstalează"
 STR_PLUGIN_UNINSTALL_TITLE: "Dezinstalează extensia"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Dezinstalezi %s și ștergi toate fișierele sale?"
+STR_ASSET_STEP_FORMAT: "Pasul %u/%u"

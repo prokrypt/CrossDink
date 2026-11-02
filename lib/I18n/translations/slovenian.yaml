@@ -910,7 +910,6 @@ STR_LANGUAGE_SAVE_FAILED: "Jezika ni mogoče shraniti. Preverite kartico SD in p
 STR_LANGUAGE_DUPLICATE: "Podvojene jezikovne kode. Preverite datoteke SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Preveč jezikovnih datotek ali dolga imena. Ohranite manj na SD."
 
-# Plugins
 STR_PLUGINS: "Vtičniki"
 STR_NO_PLUGINS_INSTALLED: "Ni nameščenih vtičnikov"
 STR_PLUGIN_NOT_SIGNED_IN: "Prijavite se prek vtičnika na spletni strani nastavitev."
@@ -935,3 +934,4 @@ STR_BOOK_LOAN_CLOCK: "Povežite Wi-Fi za preverjanje datuma izposoje."
 STR_PLUGIN_UNINSTALL: "Odstrani"
 STR_PLUGIN_UNINSTALL_TITLE: "Odstrani vtičnik"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Odstranim %s in vse njegove datoteke?"
+STR_ASSET_STEP_FORMAT: "Korak %u/%u"

@@ -910,7 +910,6 @@ STR_LANGUAGE_SAVE_FAILED: "Kan ikke gemme sproget. Tjek SD-kortet, og prøv igen
 STR_LANGUAGE_DUPLICATE: "Dublerede sprogkoder. Tjek SD-filerne."
 STR_LANGUAGE_CATALOG_LIMIT: "For mange sprogfiler eller lange navne. Hold færre på SD."
 
-# Plugins
 STR_PLUGINS: "Plugins"
 STR_NO_PLUGINS_INSTALLED: "Ingen plugins installeret"
 STR_PLUGIN_NOT_SIGNED_IN: "Log ind via pluginet på webindstillingssiden."
@@ -935,3 +934,4 @@ STR_BOOK_LOAN_CLOCK: "Tilslut Wi-Fi for at kontrollere lånedatoen."
 STR_PLUGIN_UNINSTALL: "Afinstaller"
 STR_PLUGIN_UNINSTALL_TITLE: "Afinstaller plugin"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Afinstaller %s og slet alle dets filer?"
+STR_ASSET_STEP_FORMAT: "Trin %u/%u"

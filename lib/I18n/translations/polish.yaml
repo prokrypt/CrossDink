@@ -920,7 +920,6 @@ STR_LANGUAGE_SAVE_FAILED: "Nie można zapisać języka. Sprawdź kartę SD i spr
 STR_LANGUAGE_DUPLICATE: "Zduplikowane kody języków. Sprawdź pliki SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Zbyt wiele plików językowych lub długich nazw. Zachowaj mniej na SD."
 
-# Plugins
 STR_PLUGINS: "Wtyczki"
 STR_NO_PLUGINS_INSTALLED: "Brak zainstalowanych wtyczek"
 STR_PLUGIN_NOT_SIGNED_IN: "Zaloguj się przez wtyczkę na stronie ustawień w przeglądarce."
@@ -945,3 +944,4 @@ STR_BOOK_LOAN_CLOCK: "Połącz z Wi-Fi, aby sprawdzić datę wypożyczenia."
 STR_PLUGIN_UNINSTALL: "Odinstaluj"
 STR_PLUGIN_UNINSTALL_TITLE: "Odinstaluj wtyczkę"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Odinstalować %s i usunąć wszystkie jej pliki?"
+STR_ASSET_STEP_FORMAT: "Krok %u/%u"

@@ -908,7 +908,6 @@ STR_LANGUAGE_SAVE_FAILED: "Kieltä ei voi tallentaa. Tarkista SD-kortti ja yrit�
 STR_LANGUAGE_DUPLICATE: "Päällekkäiset kielikoodit. Tarkista SD-tiedostot."
 STR_LANGUAGE_CATALOG_LIMIT: "Liian monta kielitiedostoa tai pitkiä nimiä. Pidä vähemmän SD:ssä."
 
-# Plugins
 STR_PLUGINS: "Lisäosat"
 STR_NO_PLUGINS_INSTALLED: "Ei asennettuja lisäosia"
 STR_PLUGIN_NOT_SIGNED_IN: "Kirjaudu lisäosan kautta verkkoasetussivulla."
@@ -933,3 +932,4 @@ STR_BOOK_LOAN_CLOCK: "Yhdistä Wi-Fiin lainapäivän tarkistamiseksi."
 STR_PLUGIN_UNINSTALL: "Poista"
 STR_PLUGIN_UNINSTALL_TITLE: "Poista lisäosa"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Poistetaanko %s ja kaikki sen tiedostot?"
+STR_ASSET_STEP_FORMAT: "Vaihe %u/%u"

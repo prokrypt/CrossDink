@@ -1103,7 +1103,6 @@ STR_LANGUAGE_DUPLICATE: "Duplicate language codes. Check the SD files."
 STR_LANGUAGE_CATALOG_LIMIT: "Too many language files or long names. Keep fewer on SD."
 STR_LANGUAGE_APPLY_HINT: "Built-in languages and YAML files from SD: /.crossdink/languages"
 
-# Plugins
 STR_PLUGINS: "Plugins"
 STR_NO_PLUGINS_INSTALLED: "No plugins installed"
 STR_PLUGIN_NOT_SIGNED_IN: "Sign in through the plugin on the web Settings page."
@@ -1128,3 +1127,4 @@ STR_BOOK_LOAN_CLOCK: "Connect to Wi-Fi to verify the loan date."
 STR_PLUGIN_UNINSTALL: "Uninstall"
 STR_PLUGIN_UNINSTALL_TITLE: "Uninstall plugin"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Uninstall %s and delete all of its files?"
+STR_ASSET_STEP_FORMAT: "Step %u/%u"

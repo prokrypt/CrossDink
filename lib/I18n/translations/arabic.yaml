@@ -950,7 +950,6 @@ STR_LANGUAGE_SAVE_FAILED: "لا يمكن حفظ اللغة. تحقق من بطا
 STR_LANGUAGE_DUPLICATE: "رموز اللغة المكررة. تحقق من ملفات SD."
 STR_LANGUAGE_CATALOG_LIMIT: "عدد كبير جدًا من ملفات اللغة أو الأسماء الطويلة. احتفظ بعدد أقل على SD."
 
-# Plugins
 STR_PLUGINS: "الإضافات"
 STR_NO_PLUGINS_INSTALLED: "لا توجد إضافات مثبتة"
 STR_PLUGIN_NOT_SIGNED_IN: "سجّل الدخول عبر الإضافة في صفحة إعدادات الويب."
@@ -975,3 +974,4 @@ STR_BOOK_LOAN_CLOCK: "اتصل بشبكة Wi-Fi للتحقق من تاريخ ا�
 STR_PLUGIN_UNINSTALL: "إلغاء التثبيت"
 STR_PLUGIN_UNINSTALL_TITLE: "إلغاء تثبيت الإضافة"
 STR_PLUGIN_UNINSTALL_CONFIRM: "إلغاء تثبيت %s وحذف جميع ملفاتها؟"
+STR_ASSET_STEP_FORMAT: "الخطوة %u/%u"

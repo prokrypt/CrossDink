@@ -910,7 +910,6 @@ STR_LANGUAGE_SAVE_FAILED: "Negalima išsaugoti kalbos. Patikrinkite SD kortelę 
 STR_LANGUAGE_DUPLICATE: "Pasikartojantys kalbos kodai. Patikrinkite SD failus."
 STR_LANGUAGE_CATALOG_LIMIT: "Per daug kalbos failų arba ilgų pavadinimų. Turėkite mažiau SD."
 
-# Plugins
 STR_PLUGINS: "Papildiniai"
 STR_NO_PLUGINS_INSTALLED: "Nėra įdiegtų papildinių"
 STR_PLUGIN_NOT_SIGNED_IN: "Prisijunkite per papildinį žiniatinklio nuostatų puslapyje."
@@ -935,3 +934,4 @@ STR_BOOK_LOAN_CLOCK: "Prisijunkite prie Wi-Fi skolinimo datai patikrinti."
 STR_PLUGIN_UNINSTALL: "Pašalinti"
 STR_PLUGIN_UNINSTALL_TITLE: "Pašalinti papildinį"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Pašalinti %s ir visus jo failus?"
+STR_ASSET_STEP_FORMAT: "Žingsnis %u/%u"

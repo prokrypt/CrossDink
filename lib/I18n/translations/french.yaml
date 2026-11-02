@@ -910,7 +910,6 @@ STR_LANGUAGE_SAVE_FAILED: "Impossible d'enregistrer la langue. Vérifiez la cart
 STR_LANGUAGE_DUPLICATE: "Codes de langue en double. Vérifiez les fichiers SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Trop de fichiers de langue ou de noms longs. Gardez-en moins sur SD."
 
-# Plugins
 STR_PLUGINS: "Extensions"
 STR_NO_PLUGINS_INSTALLED: "Aucune extension installée"
 STR_PLUGIN_NOT_SIGNED_IN: "Connectez-vous via l’extension sur la page web des paramètres."
@@ -935,3 +934,4 @@ STR_BOOK_LOAN_CLOCK: "Connectez le Wi-Fi pour vérifier la date du prêt."
 STR_PLUGIN_UNINSTALL: "Désinstaller"
 STR_PLUGIN_UNINSTALL_TITLE: "Désinstaller le module"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Désinstaller %s et supprimer tous ses fichiers ?"
+STR_ASSET_STEP_FORMAT: "Étape %u/%u"

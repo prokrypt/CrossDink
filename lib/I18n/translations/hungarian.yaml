@@ -910,7 +910,6 @@ STR_LANGUAGE_SAVE_FAILED: "Nem menthető a nyelv. Ellenőrizze a SD kártyát, �
 STR_LANGUAGE_DUPLICATE: "Ismétlődő nyelvi kódok. Ellenőrizze a SD fájlokat."
 STR_LANGUAGE_CATALOG_LIMIT: "Túl sok nyelvi fájl vagy hosszú név. Tartson kevesebbet a SD-n."
 
-# Plugins
 STR_PLUGINS: "Bővítmények"
 STR_NO_PLUGINS_INSTALLED: "Nincs telepített bővítmény"
 STR_PLUGIN_NOT_SIGNED_IN: "Jelentkezzen be a bővítménnyel a webes beállítások oldalán."
@@ -935,3 +934,4 @@ STR_BOOK_LOAN_CLOCK: "Csatlakozzon Wi-Fihez a kölcsönzési dátum ellenőrzés
 STR_PLUGIN_UNINSTALL: "Eltávolítás"
 STR_PLUGIN_UNINSTALL_TITLE: "Bővítmény eltávolítása"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Eltávolítja ezt: %s, és törli az összes fájlját?"
+STR_ASSET_STEP_FORMAT: "%u/%u. lépés"

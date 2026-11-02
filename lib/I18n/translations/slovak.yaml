@@ -936,7 +936,6 @@ STR_LANGUAGE_SAVE_FAILED: "Jazyk nie je možné uložiť. Skontrolujte kartu SD 
 STR_LANGUAGE_DUPLICATE: "Duplicitné kódy jazykov. Skontrolujte súbory SD."
 STR_LANGUAGE_CATALOG_LIMIT: "Príliš veľa jazykových súborov alebo dlhých názvov. Ponechajte menej na SD."
 
-# Plugins
 STR_PLUGINS: "Doplnky"
 STR_NO_PLUGINS_INSTALLED: "Žiadne nainštalované doplnky"
 STR_PLUGIN_NOT_SIGNED_IN: "Prihláste sa cez doplnok na webovej stránke nastavení."
@@ -961,3 +960,4 @@ STR_BOOK_LOAN_CLOCK: "Pripojte Wi-Fi na overenie dátumu výpožičky."
 STR_PLUGIN_UNINSTALL: "Odinštalovať"
 STR_PLUGIN_UNINSTALL_TITLE: "Odinštalovať doplnok"
 STR_PLUGIN_UNINSTALL_CONFIRM: "Odinštalovať %s a vymazať všetky jeho súbory?"
+STR_ASSET_STEP_FORMAT: "Krok %u/%u"
