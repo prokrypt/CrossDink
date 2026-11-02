@@ -24,6 +24,7 @@
 #include <PackedFontBitmaps.h>
 #include <PerfLog.h>
 #include <SPI.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
@@ -103,6 +104,8 @@
 #include "platform/InputWake.h"
 #include "platform/PanelProbe.h"
 #include "platform/PinMon.h"
+#include "util/PluginBundle.h"
+#include "util/PluginEvents.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
 
@@ -2014,6 +2017,14 @@ void enterDeepSleep(bool fromTimeout) {
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
+    activityManager.preparePluginSleep();
+    {
+      RenderLock lock;
+      const std::string book = activityManager.getCurrentBookPath();
+      pluginevents::prepareSleep(book.c_str(), activityManager.getScreenshotInfo().progressPercent,
+                                 powerManager.getBatteryPercentage() >= 20);
+    }
+    trustedtime::note();
     const uint32_t sleepDrawStartMs = millis();
     setSleepStep("sleep draw");
     activityManager.goToSleep(fromTimeout);
@@ -2412,6 +2423,22 @@ void setup() {
   LOG_INF("BOOT", "mark: RTC read");
   halClock.begin();
 #ifndef SIMULATOR
+  {
+    // Convert the RTC's UTC calendar without depending on the display timezone.
+    uint16_t rtcYear;
+    uint8_t rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond;
+    if (halClock.getReadingDateTime(rtcYear, rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond)) {
+      int year = rtcYear - (rtcMonth <= 2);
+      const int era = year / 400;
+      const unsigned yoe = year - era * 400;
+      const unsigned doy = (153 * (rtcMonth + (rtcMonth > 2 ? -3 : 9)) + 2) / 5 + rtcDay - 1;
+      const int64_t days = era * 146097LL + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+      trustedtime::adopt(days * 86400 + rtcHour * 3600 + rtcMinute * 60 + rtcSecond);
+    }
+  }
+#endif
+  trustedtime::init();
+#ifndef SIMULATOR
   // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
   if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
     BatteryLog::onChargeWake();
@@ -2501,7 +2528,9 @@ void setup() {
   // Before anything reads progress.bin: replay a position a crash or reset kept
   // off the card (it supersedes a held exit copy of the same book).
   ReaderProgressShadow::recoverPending();
+  if (!PluginBundle::recoverPending()) LOG_ERR("PLUG", "Plugin install recovery pending");
   SETTINGS.loadFromFile();
+  pluginevents::refreshSubscriptions();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
 #endif
@@ -3638,6 +3667,12 @@ static void loopPass() {
     }
   }
 
+  // Background delivery must not hold up text entry or wait for a screen
+  // refresh after input was sampled: a stale touch-down can become a false hold.
+  if (!activityManager.isReaderActivity() && !activityManager.hasActivityNamed("KeyboardEntry")) {
+    RenderLock lock(RenderLock::Mode::Try);
+    if (lock.ownsLock()) pluginevents::pollOnline();
+  }
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();

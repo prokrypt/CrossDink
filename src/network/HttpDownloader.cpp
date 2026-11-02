@@ -6,7 +6,7 @@
 #include <Memory.h>
 #include <WiFi.h>
 #include <base64.h>
-#if defined(FREEINK_NET_WOLFSSL)
+#if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
 #include <SecureHttpClient.h>
 #endif
 #include <esp_crt_bundle.h>
@@ -111,6 +111,7 @@ class ProgressNotifier {
 };
 
 struct Sink {
+  const std::vector<HttpDownloader::Header>* headers = nullptr;
   std::function<bool(const uint8_t*, size_t)> write;
   HttpDownloader::ProgressCallback progress;
   bool* cancelFlag = nullptr;
@@ -184,7 +185,7 @@ void logTlsError(esp_http_client_handle_t client, const char* phase) {
   }
 }
 
-#if defined(FREEINK_NET_WOLFSSL)
+#if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
 // Empty when absent, repeated (ambiguous) or oversized.
 // shortcut: copies every header once per response; use SecureHttpClient::getUniqueHeader once the SDK pin has it.
 std::string uniqueDisposition(const freeink::SecureHttpClient& http) {
@@ -235,6 +236,10 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
     // exactly one header while retaining CrossDink's device/version identity.
     http.setUserAgent(AppVersion::userAgent());
+    if (sink.headers && currentParsed &&
+        HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, true)) {
+      for (const auto& h : *sink.headers) http.addHeader(h.first, h.second);
+    }
     if (sink.resumeOffset > 0) {
       char rangeHeader[40];
       snprintf(rangeHeader, sizeof(rangeHeader), "bytes=%zu-", sink.resumeOffset);
@@ -313,6 +318,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     if (http.aborted()) return HttpDownloader::ABORTED;
     // 416: the partial file is not a prefix the server can continue.
     if (sink.resumeOffset > 0 && status == 416) sink.rangeIgnored = true;
+    if (status == 401 || status == 403) return HttpDownloader::UNAUTHORIZED;
     if (sink.rangeIgnored) {
       LOG_INF("HTTP", "Server ignored range request (status %d); restarting download", status);
       sink.resumeOffset = 0;
@@ -407,6 +413,10 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
     }
 
     setRequestHeaders(client, username, password, sink.resumeOffset, sendAuthorization);
+    if (sink.headers && currentParsed &&
+        HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, true)) {
+      for (const auto& h : *sink.headers) esp_http_client_set_header(client, h.first.c_str(), h.second.c_str());
+    }
 
     if (sink.diagnostics) sink.diagnostics->attempted = true;
     esp_err_t err = esp_http_client_open(client, 0);
@@ -428,6 +438,10 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
 
+    if (status == 401 || status == 403) {
+      esp_http_client_cleanup(client);
+      return HttpDownloader::UNAUTHORIZED;
+    }
     if (isRedirect(status)) {
       if (redirectLocation.empty()) {
         LOG_ERR("HTTP", "Redirect missing Location header");
@@ -567,9 +581,9 @@ HttpDownloader::DownloadError runGetTransport(const std::string& url, const std:
                                               freeink::SecureHttpClient* const sharedHttp) {
   HttpRedirectPolicy::Url credentialOrigin;
   const std::string_view credentialUrl = authorizationOrigin.empty() ? std::string_view(url) : authorizationOrigin;
-  const bool hasCredentials =
-      !username.empty() && !password.empty() && HttpRedirectPolicy::parseUrl(credentialUrl, credentialOrigin);
-#if defined(FREEINK_NET_WOLFSSL)
+  const bool originValid = HttpRedirectPolicy::parseUrl(credentialUrl, credentialOrigin);
+  const bool hasCredentials = !username.empty() && !password.empty() && originValid;
+#if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
   if (transport == HttpDownloader::Transport::WOLFSSL) {
     return runGetWolfSsl(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize, sharedHttp);
   }
@@ -639,6 +653,7 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
 
   Sink sink;
   sink.diagnostics = diagnostics;
+  sink.headers = options.headers;
   sink.write = onData;
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);
@@ -681,6 +696,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
 
   Sink sink;
+  sink.headers = options.headers;
   sink.progress = std::move(progress);
   sink.cancelFlag = cancelFlag;
   sink.shouldCancel = std::move(options.shouldCancel);

@@ -174,7 +174,8 @@ enum UIIcon {
   Wifi,
   Hotspot,
   Chart,
-  Flask
+  Flask,
+  Plugins
 };
 
 // Default theme implementation (Classic Theme)

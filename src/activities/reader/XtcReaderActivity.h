@@ -6,7 +6,6 @@
  */
 
 #pragma once
-
 #include <Xtc.h>
 
 #include <atomic>
@@ -19,12 +18,14 @@
 #include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
+#include "PluginReaderEvents.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
 class XtcReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
   OptionPopup quickActionsPopup;
   std::shared_ptr<Xtc> xtc;
 
@@ -126,6 +127,11 @@ class XtcReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!flushQueuedProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   void loop() override;
   void render(RenderLock&&) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;

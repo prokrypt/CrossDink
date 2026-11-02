@@ -163,6 +163,7 @@ void XtcReaderActivity::onExit() {
     LOG_ERR("XTR", "Failed to flush debounced reader progress on exit");
   }
   ReaderProgressShadow::unbind(progressFlushed);
+  pluginEvents.exit(getCurrentBookPath(), getScreenshotInfo().progressPercent);
 
   APP_STATE.setReaderActivityLoadCount(0);
   APP_STATE.saveToFile();
@@ -230,6 +231,10 @@ void XtcReaderActivity::openReaderMenu() {
 }
 
 void XtcReaderActivity::loop() {
+  {
+    RenderLock lock(*this);
+    pluginEvents.poll(getCurrentBookPath());
+  }
   if (!xtc) {
     return;
   }
@@ -634,6 +639,7 @@ void XtcReaderActivity::loop() {
     } else if (prevTriggered && currentPage == 0) {
       // First page of the book: nothing to go back to, so skip the redraw too.
     } else if (prevTriggered) {
+      pluginEvents.noteTurn(false);
       recordCurrentPageReadingTime("page_back");
       if (currentPage >= static_cast<uint32_t>(skipAmount)) {
         currentPage -= skipAmount;
@@ -645,6 +651,7 @@ void XtcReaderActivity::loop() {
       uint32_t forwardReadSeconds = 0;
       const bool shouldRecordForwardRead = forwardPageReadElapsed(forwardReadSeconds, "page_forward");
       recordCurrentPageReadingTime("page_forward");
+      pluginEvents.noteTurn(true);
       currentPage += skipAmount;
       if (currentPage >= pageCount) {
         currentPage = pageCount;  // Allow showing "End of book"
@@ -1456,6 +1463,8 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
     }
     renderOverlays(true);
     renderer.cleanupGrayscaleWithFrameBuffer();
+    pluginEvents.rendered(xtc->getPageCount() ? static_cast<int>((pageToRender + 1ULL) * 10000 / xtc->getPageCount())
+                                              : 0);
     return;
   }
 
@@ -1519,6 +1528,8 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
 
   // Display with appropriate refresh
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  pluginEvents.rendered(xtc->getPageCount() ? static_cast<int>((pageToRender + 1ULL) * 10000 / xtc->getPageCount())
+                                            : 0);
 }
 
 bool XtcReaderActivity::saveProgress(const uint32_t page, const bool hold) {

@@ -104,6 +104,9 @@ void ReaderActivity::queueEpubOpenAlert(const Epub::OpenFailure failure) {
   const bool outOfMemory = failure == Epub::OpenFailure::OutOfMemory;
   const char* title = outOfMemory ? tr(STR_MEMORY_ERROR) : tr(STR_INDEX_FAILED);
   const char* body = outOfMemory ? tr(STR_EPUB_OPEN_MEMORY_BODY) : tr(STR_EPUB_OPEN_FAILED_BODY);
+  if (failure == Epub::OpenFailure::ProtectedUnavailable) body = tr(STR_BOOK_KEY_REQUIRED);
+  if (failure == Epub::OpenFailure::LoanExpired) body = tr(STR_BOOK_LOAN_EXPIRED);
+  if (failure == Epub::OpenFailure::LoanClockUnavailable) body = tr(STR_BOOK_LOAN_CLOCK);
   snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s", title);
   snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), "%s", body);
   APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);

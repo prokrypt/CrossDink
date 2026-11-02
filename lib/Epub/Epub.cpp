@@ -1110,10 +1110,24 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
   return parsedAllCss ? CssParseStatus::Complete : CssParseStatus::Partial;
 }
 
+bool Epub::openProtection() const {
+  decryptor = freeink::content::openProtectedBook(filepath, protectionError);
+  if (!protectionError.empty()) LOG_ERR("EBP", "Protected book: %s", protectionError.c_str());
+  return protectionError.empty();
+}
+
 // load in the meta data for the epub file
 bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLocationLoadMode xLocationLoadMode,
                 const bool cacheCumulativeSpineSizes) {
   lastLoadFailure = OpenFailure::InvalidOrUnreadable;
+  // Enforce access before loading any previously rendered cache.
+  if (!openProtection()) {
+    lastLoadFailure = protectionError == "access expired"         ? OpenFailure::LoanExpired
+                      : protectionError == "loan date unverified" ? OpenFailure::LoanClockUnavailable
+                      : protectionError == "out of memory"        ? OpenFailure::OutOfMemory
+                                                                  : OpenFailure::ProtectedUnavailable;
+    return false;
+  }
   // Initialize spine/TOC cache
   bookMetadataCache = makeBookMetadataCacheNoThrow(cachePath, cacheCumulativeSpineSizes);
   if (!bookMetadataCache) {
@@ -1436,6 +1450,7 @@ std::string Epub::getCoverBmpPath(bool cropped, bool imageLevels) const {
 }
 
 bool Epub::generateCoverBmp(bool cropped, const GfxRenderer* renderer, const int readerFontId, bool imageLevels) const {
+  if (!decryptor && !openProtection()) return false;
   // Already generated, return true
   if (Storage.exists(getCoverBmpPath(cropped, imageLevels).c_str())) {
     return true;
@@ -1718,6 +1733,50 @@ uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size
 
   const std::string path = FsHelpers::normalisePath(itemHref);
 
+  // Decode encrypted entries on demand in memory.
+  if (decryptor && decryptor->isEncrypted(path)) {
+    const size_t plainSize = decryptor->decryptedSize(path);
+    if (plainSize > SIZE_MAX - (trailingNullByte ? 1 : 0)) return nullptr;
+    const size_t total = plainSize + (trailingNullByte ? 1 : 0);
+    uint8_t* content = static_cast<uint8_t*>(malloc(total > 0 ? total : 1));
+    if (!content) {
+      LOG_ERR("EBP", "insufficient memory for %s (%u bytes)", path.c_str(), static_cast<unsigned>(total));
+      return nullptr;
+    }
+    struct BufferSink {
+      uint8_t* data;
+      size_t capacity;
+      size_t written;
+    } state{content, plainSize, 0};
+    auto append = [](void* context, const uint8_t* data, size_t size) {
+      auto* target = static_cast<BufferSink*>(context);
+      if (size > SIZE_MAX - target->written - 1) return false;
+      const size_t needed = target->written + size;
+      if (needed > target->capacity) {
+        // ADEPT manifests may omit OriginalLength; the ZIP then reports the
+        // compressed ciphertext size, so grow only as plaintext arrives.
+        auto* grown = static_cast<uint8_t*>(realloc(target->data, needed + 1));
+        if (!grown) {
+          LOG_ERR("EBP", "OOM growing decrypted resource");
+          return false;
+        }
+        target->data = grown;
+        target->capacity = needed;
+      }
+      memcpy(target->data + target->written, data, size);
+      target->written += size;
+      return true;
+    };
+    if (!decryptor->decryptToSink(path, append, &state)) {
+      free(state.data);
+      LOG_ERR("EBP", "content read failed for %s", path.c_str());
+      return nullptr;
+    }
+    if (trailingNullByte) state.data[state.written] = 0;
+    if (size) *size = state.written;
+    return state.data;
+  }
+
   const auto content = ZipFile(filepath).readFileToMemory(path.c_str(), size, trailingNullByte);
   if (!content) {
     LOG_DBG("EBP", "Failed to read item %s", path.c_str());
@@ -1735,6 +1794,20 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   }
 
   const std::string path = FsHelpers::normalisePath(itemHref);
+  if (decryptor && decryptor->isEncrypted(path)) {
+    struct Sink {
+      Print& out;
+      bool stopped = false;
+    } sink{out};
+    auto append = [](void* context, const uint8_t* bytes, size_t length) {
+      auto& sink = *static_cast<Sink*>(context);
+      if (sink.stopped) return true;
+      sink.stopped = sink.out.write(bytes, length) != length;
+      // Finish decryption/decompression even when a parser stops early.
+      return true;
+    };
+    return decryptor->decryptToSink(path, append, &sink) && (!sink.stopped || allowEarlyStop);
+  }
   return ZipFile(filepath).readFileToStream(path.c_str(), out, chunkSize, allowEarlyStop);
 }
 
@@ -1853,6 +1926,23 @@ HeapByteBuffer Epub::readItemToPsram(const std::string& itemHref, size_t& size, 
 
 bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
   const std::string path = FsHelpers::normalisePath(itemHref);
+  if (decryptor && decryptor->isEncrypted(path)) {
+    // ADEPT may omit OriginalLength. Ciphertext size is not an exact size
+    // (publisher-font loading, for example, compares it with extracted bytes).
+    size_t count = 0;
+    auto countBytes = [](void* context, const uint8_t*, size_t length) {
+      auto& count = *static_cast<size_t*>(context);
+      if (length > SIZE_MAX - count) return false;
+      count += length;
+      return true;
+    };
+    if (!decryptor->decryptToSink(path, countBytes, &count)) {
+      LOG_ERR("EBP", "Could not measure protected resource: %s", path.c_str());
+      return false;
+    }
+    if (size) *size = count;
+    return true;
+  }
   return ZipFile(filepath).getInflatedFileSize(path.c_str(), size);
 }
 
@@ -1996,6 +2086,7 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
 }
 
 bool Epub::ensureOptimizerImageIndex() {
+  if (decryptor) return false;
   if (optimizerIndexReady) return true;
   if (optimizerManifestAbsent) return false;
   taskENTER_CRITICAL(&optimizerHitMux);

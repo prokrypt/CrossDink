@@ -678,3 +678,5 @@ let allSettings = [];
     await loadWifiNetworks();
     await loadOpdsServers();
   })();
+
+loadPlugins("settings");

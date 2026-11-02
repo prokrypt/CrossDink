@@ -26,6 +26,7 @@ enum class SettingAction {
   CustomiseStatusBar,
   KOReaderSync,
   OPDSBrowser,
+  Plugins,
   DisplaySleepScreen,
   DisplayFrontlight,
   ReaderFontOptions,

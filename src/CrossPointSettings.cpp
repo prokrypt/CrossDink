@@ -29,6 +29,7 @@
 #include "fontIds.h"
 #include "util/FrontlightSchedule.h"
 #include "util/InPlaceFileWrite.h"
+#include "util/PluginLocations.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/TwoFingerSwipe.h"
 
@@ -519,6 +520,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   doc["screenInverted"] = screenInvertedHeld >= 0 ? static_cast<uint8_t>(screenInvertedHeld) : screenInverted;
   doc["goodiesWifiRemote"] = goodiesWifiRemote;
+  doc["pluginsEnabled"] = pluginsEnabled;
+  doc["pluginHubPromptHidden"] = pluginHubPromptHidden;
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint) {
@@ -945,6 +948,13 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     needsResave = true;
   }
 
+  if (doc["pluginsEnabled"].isNull()) {
+    pluginsEnabled = PluginLocations::anyPluginInstalledOnDisk() ? 1 : 0;
+    needsResave = true;
+  } else {
+    pluginsEnabled = clamp(doc["pluginsEnabled"] | uint8_t{0}, 2, 0);
+  }
+  pluginHubPromptHidden = clamp(doc["pluginHubPromptHidden"] | uint8_t{0}, 2, 0);
   if (needsResave) requestResave();
   LOG_DBG("CPS", "Settings loaded from file");
   return true;

@@ -30,6 +30,7 @@ target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}/lib
   ${REPO_ROOT}/lib/Knobs
   ${REPO_ROOT}/lib/MemoryBudget
+  ${REPO_ROOT}/freeink-sdk/libs/book/ContentProtection/include
   ${REPO_ROOT}/freeink-sdk/libs/hardware/FrontlightManager/include
 )
 target_compile_options(crosspoint_test_common INTERFACE
@@ -142,3 +143,13 @@ add_subdirectory(sync_pending)
 add_subdirectory(swipe_delete)
 add_subdirectory(http_header)
 add_subdirectory(language_cache)
+
+add_subdirectory(protected_paths)
+add_subdirectory(plugin_manifest_classification)
+add_subdirectory(plugin_catalog_paging)
+add_subdirectory(plugin_http_policy)
+add_subdirectory(plugin_bundle)
+add_subdirectory(plugin_picker_layout)
+add_subdirectory(plugin_details)
+add_subdirectory(reader_session)
+add_subdirectory(reader_plugin_events)
