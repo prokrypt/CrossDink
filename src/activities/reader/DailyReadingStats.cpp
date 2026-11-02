@@ -430,9 +430,9 @@ bool Session::accept(const ReadingStatsDateTime& end, uint8_t utcOffset, uint32_
     pendingCount = retained;
   }
   if (!isValidReadingStatsInterval(startTime, end, offset, utcOffset, seconds)) return ok;
-  const uint64_t start = uint64_t(readingStatsDayIndex(startTime.date)) * 86400 + startTime.hour * 3600u +
-                         startTime.minute * 60u + startTime.second;
-  uint64_t cursor = start;
+  const uint64_t startSecond = uint64_t(readingStatsDayIndex(startTime.date)) * 86400 + startTime.hour * 3600u +
+                               startTime.minute * 60u + startTime.second;
+  uint64_t cursor = startSecond;
   uint32_t remaining = seconds;
   while (remaining) {
     const uint32_t segment = std::min(remaining, 86400u - uint32_t(cursor % 86400));
