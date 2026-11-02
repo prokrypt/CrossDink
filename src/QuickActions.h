@@ -120,8 +120,8 @@ inline bool isActionAvailable(const uint8_t action) {
 // Quick Lock needs a single physical shortcut to unlock. Quick Actions opens
 // this same menu, so neither belongs in a menu slot.
 inline bool isQuickActionSlotActionAvailable(const uint8_t action) {
-  return action != CrossPointSettings::ROTATE_FLIP && action != CrossPointSettings::QUICK_LOCK &&
-         action != CrossPointSettings::QUICK_ACTIONS && isActionAvailable(action);
+  return action != CrossPointSettings::QUICK_LOCK && action != CrossPointSettings::QUICK_ACTIONS &&
+         isActionAvailable(action);
 }
 
 inline StrId actionLabel(const uint8_t action) {

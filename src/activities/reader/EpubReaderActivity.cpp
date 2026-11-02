@@ -9058,8 +9058,6 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
   ClippingHighlightGeometry::WordRect previousHighlight;
   const TextBlock* previousHighlightBlock = nullptr;
   bool hasPreviousHighlight = false;
-  const TextBlock* baselineBlock = nullptr;
-  int baseline = 0;
   forEachVisiblePageWord(page, [&](const uint16_t pageWordIndex, const PageTextLine& line, const TextBlock& block,
                                    const size_t i) {
     if (!isHighlightedWord(pageWordIndex, line)) {
@@ -9074,20 +9072,19 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
     const auto wordIndex = static_cast<uint16_t>(i);
     const char* wordText = block.visibleWordText(wordIndex);
     const bool hasEmSpace = hasEmSpacePrefix(wordText);
-    const char* visibleText = wordText + (hasEmSpace ? 3 : 0);
     const int lineFontId = block.wordFontId(renderer, fontId, wordIndex);
     const auto textStyle = static_cast<EpdFontFamily::Style>(block.wordStyle(wordIndex) & ~EpdFontFamily::UNDERLINE);
     const int skipX = hasEmSpace ? renderer.getTextAdvanceX(lineFontId, "\xe2\x80\x83", textStyle) : 0;
     const PageWordGeometry geometry = pageWordGeometry(renderer, fontId, line, block, wordIndex);
     const int wordX = orientedMarginLeft + line.xPos + geometry.xOffset + skipX;
-    const int wordY = orientedMarginTop + line.yPos;
-    if (baselineBlock != &block) {
-      baselineBlock = &block;
-      baseline = block.maxAscender(renderer, fontId);
-    }
-    const int textY = wordY + block.wordYOffset(renderer, fontId, wordIndex, baseline);
+    // Keep the marker on the font's line box, not in the leading above a
+    // tightly spaced line.
+    const auto band =
+        ClippingHighlightGeometry::lineBand(orientedMarginTop + line.yPos, block.maxLineHeight(renderer, fontId),
+                                            line.lineHeight, SETTINGS.lineHeightPercent);
+    const int wordY = band.y;
     int wordW = geometry.width - skipX;
-    const int wordH = line.lineHeight > 0 ? line.lineHeight : renderer.getLineHeight(fontId);
+    const int wordH = band.height;
     if (wordIndex + 1 < block.wordCount()) {
       const uint16_t nextIndex = static_cast<uint16_t>(wordIndex + 1);
       const char* nextWordText = block.wordText(nextIndex);
@@ -9104,6 +9101,11 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
       }
     }
     if (wordW > 0) {
+      const bool clipped = line.clipWidth > 0 && line.clipHeight > 0;
+      if (clipped) {
+        renderer.beginTextClip(orientedMarginLeft + line.clipX, orientedMarginTop + line.clipY, line.clipWidth,
+                               line.clipHeight);
+      }
       const ClippingHighlightGeometry::WordRect currentHighlight{pageWordIndex, wordX, wordY, wordW, wordH};
       ClippingHighlightGeometry::GapRect gap;
       // No-break spaces are stored as hidden layout words. Bridge to the next
@@ -9114,38 +9116,75 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
         renderer.fillRectDither(gap.x, gap.y, gap.width, gap.height, Color::LightGray);
       }
       renderer.fillRectDither(wordX, wordY, wordW, wordH, Color::LightGray);
-      // A saved clipping always uses black text on its light-gray marker.
-      // The ordinary reader foreground is white in dark mode, which makes the
-      // text fade into this marker.
-      if (line.clipWidth > 0 && line.clipHeight > 0) {
-        renderer.beginTextClip(orientedMarginLeft + line.clipX, orientedMarginTop + line.clipY, line.clipWidth,
-                               line.clipHeight);
-      }
-      // Match TextBlock::render()'s Focus Reading split. The prewarm pass
-      // loaded the leading run as bold, so redrawing it as regular here can
-      // miss the glyph bitmap for SD-card fonts and show replacement marks.
-      const uint8_t focusBoundary = block.focusBoundary(wordIndex);
-      const uint16_t wordLength = block.visibleWordTextLen(wordIndex);
-      const int fullWordX = orientedMarginLeft + line.xPos + geometry.xOffset;
-      const auto baseDir = static_cast<BidiUtils::BidiBaseDir>(
-          BidiUtils::detectParagraphLevel(wordText, block.getBlockStyle().isRtl ? 1 : 0));
-      if (!FocusReadingText::drawSplitRuns(
-              wordText, wordLength, focusBoundary, fullWordX, block.focusRunOffset(wordIndex), textStyle,
-              baseDir == BidiUtils::BidiBaseDir::RTL,
-              [&](const int runX, const char* runText, const EpdFontFamily::Style runStyle) {
-                renderer.drawText(lineFontId, runX, textY, runText, true, runStyle, baseDir);
-              })) {
-        renderer.drawText(lineFontId, wordX, textY, visibleText, true, textStyle);
-      }
-      if (line.clipWidth > 0 && line.clipHeight > 0) {
-        renderer.endTextClip();
-      }
+      if (clipped) renderer.endTextClip();
       previousHighlight = currentHighlight;
       previousHighlightBlock = &block;
       hasPreviousHighlight = true;
     } else {
       hasPreviousHighlight = false;
     }
+    return true;
+  });
+
+  // Paint every marker before restoring text: at tight spacing a marker can
+  // cover a neighboring line's glyphs, such as an unselected descender. Redraw
+  // the lines in the reader's own foreground so dark mode keeps white text.
+  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
+  forEachPageTextLine(page, [&](const PageTextLine& line) {
+    const bool clipped = line.clipWidth > 0 && line.clipHeight > 0;
+    if (clipped) {
+      renderer.beginTextClip(orientedMarginLeft + line.clipX, orientedMarginTop + line.clipY, line.clipWidth,
+                             line.clipHeight);
+    }
+    line.block->render(renderer, fontId, orientedMarginLeft + line.xPos, orientedMarginTop + line.yPos,
+                       foregroundBlack);
+    if (clipped) renderer.endTextClip();
+    return true;
+  });
+
+  // A saved clipping always uses black text on its light-gray marker; in dark
+  // mode the ordinary white foreground would fade into it.
+  const TextBlock* baselineBlock = nullptr;
+  int baseline = 0;
+  forEachVisiblePageWord(page, [&](const uint16_t pageWordIndex, const PageTextLine& line, const TextBlock& block,
+                                   const size_t i) {
+    if (i >= block.wordCount() || !isHighlightedWord(pageWordIndex, line)) return true;
+    const auto wordIndex = static_cast<uint16_t>(i);
+    const char* wordText = block.visibleWordText(wordIndex);
+    const bool hasEmSpace = hasEmSpacePrefix(wordText);
+    const char* visibleText = wordText + (hasEmSpace ? 3 : 0);
+    const int lineFontId = block.wordFontId(renderer, fontId, wordIndex);
+    const auto textStyle = static_cast<EpdFontFamily::Style>(block.wordStyle(wordIndex) & ~EpdFontFamily::UNDERLINE);
+    const int skipX = hasEmSpace ? renderer.getTextAdvanceX(lineFontId, "\xe2\x80\x83", textStyle) : 0;
+    const PageWordGeometry geometry = pageWordGeometry(renderer, fontId, line, block, wordIndex);
+    const int wordX = orientedMarginLeft + line.xPos + geometry.xOffset + skipX;
+    if (baselineBlock != &block) {
+      baselineBlock = &block;
+      baseline = block.maxAscender(renderer, fontId);
+    }
+    const int textY = orientedMarginTop + line.yPos + block.wordYOffset(renderer, fontId, wordIndex, baseline);
+    const bool clipped = line.clipWidth > 0 && line.clipHeight > 0;
+    if (clipped) {
+      renderer.beginTextClip(orientedMarginLeft + line.clipX, orientedMarginTop + line.clipY, line.clipWidth,
+                             line.clipHeight);
+    }
+    // Match TextBlock::render()'s Focus Reading split. The prewarm pass
+    // loaded the leading run as bold, so redrawing it as regular here can
+    // miss the glyph bitmap for SD-card fonts and show replacement marks.
+    const uint8_t focusBoundary = block.focusBoundary(wordIndex);
+    const uint16_t wordLength = block.visibleWordTextLen(wordIndex);
+    const int fullWordX = orientedMarginLeft + line.xPos + geometry.xOffset;
+    const auto baseDir = static_cast<BidiUtils::BidiBaseDir>(
+        BidiUtils::detectParagraphLevel(wordText, block.getBlockStyle().isRtl ? 1 : 0));
+    if (!FocusReadingText::drawSplitRuns(wordText, wordLength, focusBoundary, fullWordX,
+                                         block.focusRunOffset(wordIndex), textStyle,
+                                         baseDir == BidiUtils::BidiBaseDir::RTL,
+                                         [&](const int runX, const char* runText, const EpdFontFamily::Style runStyle) {
+                                           renderer.drawText(lineFontId, runX, textY, runText, true, runStyle, baseDir);
+                                         })) {
+      renderer.drawText(lineFontId, wordX, textY, visibleText, true, textStyle);
+    }
+    if (clipped) renderer.endTextClip();
     return true;
   });
 }

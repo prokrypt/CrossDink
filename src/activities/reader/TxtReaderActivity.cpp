@@ -201,6 +201,11 @@ bool TxtReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult&
 void TxtReaderActivity::loop() {
   if (quickActionsPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 #if CROSSDINK_APP_CAP_TOUCH
+  // TXT has no reader drawer: the bottom edge exits directly on every touch device.
+  if (mappedInput.wasBottomEdgeUpSwipe()) {
+    onGoHome();
+    return;
+  }
   if (handlePinchFontResize()) return;
 #endif
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
@@ -499,6 +504,7 @@ bool TxtReaderActivity::consumeLongPowerButtonHold() {
 
 bool TxtReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRBTN action) {
   switch (action) {
+    case CrossPointSettings::SHORT_PWRBTN::ROTATE_FLIP:
     case CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE:
     case CrossPointSettings::SHORT_PWRBTN::SLEEP:
     case CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH:

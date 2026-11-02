@@ -238,7 +238,8 @@ bool isValidQuickActionSlot(const uint8_t action) {
          action == CrossPointSettings::TOGGLE_FRONTLIGHT || action == CrossPointSettings::TOGGLE_TOUCHSCREEN ||
          action == CrossPointSettings::PREVIOUS_PAGE || action == CrossPointSettings::NEARBY_POSITION_SYNC ||
          action == CrossPointSettings::LIBRARY || action == CrossPointSettings::HOME_READER ||
-         action == CrossPointSettings::BACK_HOME || action == CrossPointSettings::SELECT_CHAPTER;
+         action == CrossPointSettings::BACK_HOME || action == CrossPointSettings::SELECT_CHAPTER ||
+         action == CrossPointSettings::ROTATE_FLIP;
 }
 
 uint8_t migrateTiltDirectionValue(const uint8_t direction) {
@@ -589,6 +590,12 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
 
     const uint8_t fieldDefault = this->*(info.valuePtr);
     uint8_t value = doc[info.key] | fieldDefault;
+    // CrossPoint stores normal spacing as 100%; CrossDink stores it as level 0.
+    // Keep native levels intact, including files at the legacy path.
+    if (importingCrossPoint && info.valuePtr == &CrossPointSettings::wordSpacing && value == 100) {
+      value = 0;
+      needsResave = true;
+    }
     if (strcmp(info.key, "sdFontSizeRange") == 0 && value == SD_FONT_RANGE_NO_EMOJI_LEGACY) {
       value = SD_FONT_RANGE_ALL;
       needsResave = true;
