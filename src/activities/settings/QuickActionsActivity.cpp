@@ -43,10 +43,15 @@ std::vector<QuickActions::Trigger> availableTriggers() {
   triggers.push_back(QuickActions::Trigger::SideUpLong);
   triggers.push_back(QuickActions::Trigger::SideDownShort);
   triggers.push_back(QuickActions::Trigger::SideDownLong);
+#if CROSSDINK_APP_CAP_TOUCH
   if (!gpio.hasTouch()) {  // front buttons
     triggers.push_back(QuickActions::Trigger::FrontLeftLong);
     triggers.push_back(QuickActions::Trigger::FrontRightLong);
   }
+#else
+  triggers.push_back(QuickActions::Trigger::FrontLeftLong);
+  triggers.push_back(QuickActions::Trigger::FrontRightLong);
+#endif
   if (gpio.hasHomeKey()) {
     triggers.push_back(QuickActions::Trigger::TapHome);
     triggers.push_back(QuickActions::Trigger::LongPressHome);
