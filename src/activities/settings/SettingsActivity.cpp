@@ -17,6 +17,7 @@
 #include "AboutActivity.h"
 #include "AppCapabilities.h"
 #include "AppVersion.h"
+#include "AssetDownloadActivity.h"
 #include "BackupStatsActivity.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
@@ -850,6 +851,98 @@ void SettingsActivity::applyLanguage(const I18n::Option& selected) {
   requestUpdate();
 }
 
+int SettingsActivity::languageSourceIndex(const char* code) const {
+  for (size_t i = 0; languageCatalog && i < languageCatalog->count; ++i)
+    if (!std::strcmp(languageCatalog->code(i), code)) return static_cast<int>(i);
+  return -1;
+}
+
+void SettingsActivity::openLanguageDownloads() {
+  languageCatalog.reset();
+  // Reuse the offline Language catalog to tell installed languages from ones to
+  // install; the network comes up only after the restart an Install row triggers.
+  languageCatalog.init(MemoryPool::None);
+  const auto status = languageCatalog ? I18N.discover(*languageCatalog.get()) : language_cache::Result::Memory;
+  if (status != language_cache::Result::Ok) {
+    LOG_ERR("LANG", "Download Languages catalog: %s", language_cache::resultName(status));
+    languageCatalog.reset();
+    optionPopup.show(
+        StrId::STR_DOWNLOAD_LANGUAGES, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
+        OptionPopup::Note(tr(STR_LANGUAGE_INSTALL_FAILED),
+                          status == language_cache::Result::Memory ? tr(STR_MEMORY_ERROR) : tr(STR_LANGUAGE_IO_ERROR)));
+    requestUpdate();
+    return;
+  }
+  std::vector<std::string> options;
+  std::vector<bool> disabled;
+  options.reserve(getLanguageCount());
+  disabled.reserve(getLanguageCount());
+  char label[96];
+  for (size_t i = 0; i < getLanguageCount(); ++i) {
+    const char* code = LANGUAGE_CODES[i];
+    const int source = languageSourceIndex(code);
+    const char* state = i == 0                               ? tr(STR_HYPHENATION_BUILT_IN)
+                        : !std::strcmp(code, I18N.getCode()) ? tr(STR_ASSET_CURRENT)
+                        : source >= 0                        ? tr(STR_INSTALLED)
+                                                             : tr(STR_HYPHENATION_INSTALL_ACTION);
+    std::snprintf(label, sizeof(label), "%s (%s): %s", I18N.getLanguageName(static_cast<Language>(i)), code, state);
+    options.emplace_back(label);
+    disabled.push_back(i == 0 || (source >= 0 && languageCatalog->disabled(source)));
+  }
+  optionPopup.show(
+      StrId::STR_DOWNLOAD_LANGUAGES, options, static_cast<int>(I18n::languageFromCode(I18N.getCode())),
+      [this](int index) {
+        if (index > 0 && index < static_cast<int>(getLanguageCount())) {
+          languageDownloadRow = static_cast<uint8_t>(index);
+          pendingLanguageDownloadAction = true;  // Handled in loop(), after this callback returns.
+        }
+        requestUpdate();
+      },
+      OptionPopup::Note(I18N.getName(), tr(STR_LANGUAGE_APPLY_HINT)));
+  optionPopup.setDisabledOptions(std::move(disabled));
+  requestUpdate();
+}
+
+void SettingsActivity::selectLanguageDownload() {
+  const char* code = LANGUAGE_CODES[languageDownloadRow];
+  const int source = languageSourceIndex(code);
+  if (source < 0) {
+    startLanguageDownload();  // Not installed: download and install in one step.
+    return;
+  }
+  const char* choices[] = {tr(STR_ASSET_USE), tr(STR_UPDATE), tr(STR_CANCEL)};
+  const int first = !std::strcmp(code, I18N.getCode()) ? 1 : 0;  // The active language only offers Update / Cancel.
+  optionPopup.show(I18N.getLanguageName(static_cast<Language>(languageDownloadRow)), choices + first, 3 - first,
+                   2 - first, [this, first](int choice) {
+                     choice += first;
+                     if (choice == 0) {
+                       languageCatalog->select(languageSourceIndex(LANGUAGE_CODES[languageDownloadRow]),
+                                               pendingLanguage);
+                       languageSelectionPending = true;
+                     } else if (choice == 1) {
+                       startLanguageDownload();
+                     } else {
+                       pendingLanguageDownloads = true;
+                     }
+                     requestUpdate();
+                   });
+  optionPopup.setCancelCallback([this] { pendingLanguageDownloads = true; });
+  requestUpdate();
+}
+
+void SettingsActivity::startLanguageDownload() {
+  languageCatalog.reset();
+  if (!SETTINGS.saveToFile()) {
+    LOG_ERR("LANG", "Cannot save settings before network restart");
+    optionPopup.show(
+        StrId::STR_DOWNLOAD_LANGUAGES, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
+        OptionPopup::Note(tr(STR_LANGUAGE_INSTALL_FAILED), tr(STR_LANGUAGE_SAVE_FAILED)));
+    requestUpdate();
+    return;
+  }
+  silentRestartToNetwork(NetworkBootTarget::DOWNLOAD_ASSETS, AssetDownloadActivity::bootPayload(languageDownloadRow));
+}
+
 void SettingsActivity::openStringEditor(const SettingInfo& setting) {
   std::string initialText;
   if (setting.stringGetter) {
@@ -1051,6 +1144,16 @@ void SettingsActivity::loop() {
   if (languageSelectionPending) {
     languageSelectionPending = false;
     applyLanguage(pendingLanguage);
+    return;
+  }
+  if (pendingLanguageDownloads) {
+    pendingLanguageDownloads = false;
+    openLanguageDownloads();
+    return;
+  }
+  if (pendingLanguageDownloadAction) {
+    pendingLanguageDownloadAction = false;
+    selectLanguageDownload();
     return;
   }
 #if CROSSDINK_SCALABLE_FONTS
@@ -1517,6 +1620,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::Language:
         openLanguagePicker();
+        break;
+      case SettingAction::DownloadLanguages:
+        openLanguageDownloads();
         break;
       case SettingAction::KeyboardLayouts:
         startActivityForResult(std::make_unique<KeyboardLayoutsActivity>(renderer, mappedInput), resultHandler);

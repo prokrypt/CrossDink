@@ -30,6 +30,7 @@ Examples:
 """
 
 import hashlib
+import json
 import os
 import re
 import sys
@@ -58,6 +59,12 @@ def stable_hash(text: str) -> int:
     for byte in text.encode("utf-8"):
         value = ((value ^ byte) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
     return value
+
+
+def known_languages():
+    """Frozen compatibility identities (code, name) for published language downloads."""
+    root = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
+    return json.loads((root / "lib/I18n/languages.json").read_text(encoding="utf-8"))
 
 
 def format_signature(text: str):
@@ -662,6 +669,9 @@ def generate_strings_header(
     lines.append("extern const char STRINGS_EN_DATA[];")
     lines.append("extern const uint16_t OFFSETS_EN[];")
     lines.append("extern const PackedLanguage PACKED_LANGUAGES[];")
+    lines.append("// Download contract: SHA-256 of english.yaml and of its STR_ key list.")
+    lines.append("extern const char SOURCE_SHA256[];")
+    lines.append("extern const char KEYSET_SHA256[];")
     lines.append("")
     lines.append("}  // namespace i18n_strings")
     _write_file(output_path, lines, verbose)
@@ -675,6 +685,8 @@ def generate_strings_cpp(
     output_path: str,
     verbose: bool = False,
     builtin: Optional[Set[str]] = None,
+    source_sha256: str = "",
+    keyset_sha256: str = "",
 ) -> None:
     """Generate I18nStrings.cpp."""
     compiled = [c for c in languages if builtin is None or c in builtin]
@@ -815,6 +827,9 @@ def generate_strings_cpp(
         else:
             lines.append(f"    {{nullptr, 0u, 0u}},  // {code}")
     lines.append("};")
+    lines.append("")
+    lines.append(f'const char SOURCE_SHA256[] = "{source_sha256}";')
+    lines.append(f'const char KEYSET_SHA256[] = "{keyset_sha256}";')
     lines.append("")
     lines.append("}  // namespace i18n_strings")
     lines.append("")
@@ -1066,6 +1081,13 @@ def main(
                 print(f"    - {key}")
             print()
 
+        # Download contract: the full English file and key list, before any
+        # stripping, so every build of one commit accepts the same catalog.
+        english_path = Path(translations_dir) / "english.yaml"
+        source_sha256 = hashlib.sha256(english_path.read_bytes()).hexdigest()
+        source_keys = [key for key in parse_yaml_file(str(english_path)) if key.startswith("STR_")]
+        keyset_sha256 = hashlib.sha256(("\n".join(source_keys) + "\n").encode("utf-8")).hexdigest()
+
         if unused_set and strip_unused:
             string_keys = [k for k in string_keys if k not in unused_set]
             translations = {
@@ -1094,6 +1116,8 @@ def main(
             str(out / "I18nStrings.cpp"),
             verbose,
             builtin,
+            source_sha256,
+            keyset_sha256,
         )
 
         print()

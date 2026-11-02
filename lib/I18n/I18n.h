@@ -77,6 +77,14 @@ class I18n {
   // Settings-only: compiles one SD YAML file into the cache file and activates
   // it. Unchanged means the active language already matches the file.
   language_cache::Result install(const char* path, language_cache::Installed& result);
+  // Download verification only: the file must carry this firmware's English
+  // source and key set hashes. No cache writes, settings writes or activation.
+  language_cache::Result validateSource(const char* path, const char* code, const char* source, const char* keyset,
+                                        void* context = nullptr, bool (*continueWork)(void*) = nullptr) const;
+  static const char* sourceContract();
+  static const char* keysetContract();
+  // Every non-English language of the firmware's table, built in or not.
+  static bool supportedDownload(const char* code);
 
   static constexpr const char* CACHE_FILE = "/.crossdink/languages/.cache.bin";
 

@@ -85,6 +85,7 @@
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
+#include "activities/settings/AssetDownloadActivity.h"
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -1071,6 +1072,21 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
         launched = true;
       } else {
         LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      }
+      break;
+    }
+    case NetworkBootTarget::DOWNLOAD_ASSETS: {
+      if (!AssetDownloadActivity::validBootPayload(payload)) {
+        LOG_ERR("MAIN", "Invalid language download payload 0x%" PRIx32, payload);
+        break;
+      }
+      auto assetActivity = makeUniqueNoThrow<AssetDownloadActivity>(renderer, mappedInputManager, payload);
+      if (assetActivity) {
+        activityManager.replaceActivity(std::move(assetActivity));
+        launched = true;
+      } else {
+        LOG_ERR("MAIN", "OOM: language download activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
                 ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       }
       break;
