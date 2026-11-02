@@ -801,6 +801,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 105
+
+Complete caches use `105`; suspended partial caches use `0xE7`, and `0xE8` joins
+the retired sentinels. The payload is unchanged, but SD-font layout now rounds
+each glyph advance to pixels before summing, matching drawing while preserving
+character spacing and boundary kerning, so both cache types rebuild.
+
 ### Version 104
 
 Complete caches use `104`; suspended partial caches use `0xE8`, and `0xE9` joins
