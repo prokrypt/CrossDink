@@ -161,6 +161,8 @@ class HalDisplay {
   // the driver's own swing decision, before its power and SPI work.
   uint32_t flashPlannedMs() const;
   FlashKind flashPlannedKind() const;
+  // The marked refresh's kind as the caller asked for it (Full for Half/Full).
+  FlashKind flashMarkedKind() const { return markKind.load(std::memory_order_relaxed); }
   // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
   // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
   // then gray passes, then refreshes that flash (as marked for the flash duck).

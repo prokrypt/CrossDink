@@ -2901,17 +2901,22 @@ static void updateFlashDuckLocked() {
   const bool restoreEarly =
       swingMs != 0 && restoreMs < 0 && swingEndMs != 0 && static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
   const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
-  const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && holdLate);
-  // Plan to dark per kind (Gray, Full, Paint), re-measured by every planned
-  // flash: the driver's own SPI/power work, so it barely varies (render time
-  // and queueing come before the plan; input to dark ran 109-448 ms). Seeds:
-  // logs/device/20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215 74 ms and
-  // L6236->L6240 69 ms (gray LSB to DRF; the default Gray dim is dark at DRF);
-  // Full 182 ms (boot Home paint: PON 127 + SPI 27, 20261002T011313Z-c0142b63
-  // L46-50; RAM only, so every boot starts from it); Paint (POF 82 + PON 127 +
-  // SPI 54 + reset) inferred.
-  constexpr uint32_t kMaxLeadMs = 600;
-  static uint16_t leadMs[4] = {75, 180, 330, 75};  // by FlashKind (GrayDark plans like Gray)
+  // A Half/Full call that swings another waveform first (the gray exit before the Half when leaving
+  // the image viewer) keeps a running duck down until its own swing, instead of coming up in between.
+  const uint32_t callMs = display.flashMarkedMs();
+  const bool fullFollows = callMs != 0 && now - callMs <= FLASH_DUCK_MAX_MS &&
+                           display.flashMarkedKind() == HalDisplay::FlashKind::Full && !full;
+  const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && (holdLate || fullFollows));
+  // Plan to swing per kind (Gray, Full, Paint), re-measured by every planned
+  // flash: the driver's own SPI/power work plus the waveform's offset, so it
+  // barely varies (render time and queueing come before the plan; input to dark
+  // ran 109-448 ms). The kind's dim offset is added on top. Seeds (RAM only, so
+  // every boot and wake starts from them), from device "plan to dark" logs
+  // 10/01-10/28 minus each kind's dim: Gray 648-656 ms (DRF ~75 + direct gray's
+  // 24 frames); Full 182-186 (PON 127 + SPI 27); Paint 60. GrayDark swings at
+  // DRF (gray LSB to DRF 74 ms, 20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215).
+  constexpr uint32_t kMaxLeadMs = 800;
+  static uint16_t leadMs[4] = {650, 180, 60, 75};  // by FlashKind
   static uint8_t leadKind = 0;
   static bool learned = false;      // this flash's lead is stored
   static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
@@ -2963,13 +2968,13 @@ static void updateFlashDuckLocked() {
       learned = false;
       leadKind = static_cast<uint8_t>(kind);
     }
-    uint32_t target = swingMs != 0 ? swingMs + dimMs : planMs + leadMs[leadKind];
+    uint32_t target = (swingMs != 0 ? swingMs : planMs + leadMs[leadKind]) + dimMs;
     if (swingMs != 0 && planMs != 0 && !learned) {
       learned = true;
-      const int32_t lead = static_cast<int32_t>(target - planMs);
+      const int32_t lead = static_cast<int32_t>(swingMs - planMs);
       leadMs[leadKind] = static_cast<uint16_t>(std::clamp<int32_t>(lead, 0, kMaxLeadMs));
-      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)", static_cast<long>(lead),
-              static_cast<long>(target - inputMs), leadKind);
+      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)",
+              static_cast<long>(target - planMs), static_cast<long>(target - inputMs), leadKind);
     }
     if (planMs == 0 && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
       target = fadeStartMs + FLASH_DUCK_DOWN_MS;
