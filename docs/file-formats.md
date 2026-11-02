@@ -824,6 +824,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 108
+
+Complete caches use `108`; suspended partial caches use `0xE4`, and `0xE5` joins
+the retired sentinels. The payload is unchanged from 107, but GIF images now
+take part in EPUB layout instead of an `[Image]` placeholder, so both cache
+types rebuild.
+
 ### Version 107
 
 Complete caches use `107`; suspended partial caches use `0xE5`, and `0xE6` and `0xE7`

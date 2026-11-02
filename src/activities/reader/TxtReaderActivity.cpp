@@ -291,12 +291,17 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  const auto side = sideButtonShortcuts.update(mappedInput, millis());
-  if (SideButtonShortcuts::shouldConsume(side, mappedInput)) {
+  const auto side = readerButtonShortcuts.update(mappedInput, millis());
+  if (ReaderButtonShortcuts::shouldConsume(side, mappedInput)) {
     if (side.triggered) {
-      if (side.longPress)
-        mappedInput.suppressNextSideRelease(side.up ? MappedInputManager::Button::Up
-                                                    : MappedInputManager::Button::Down);
+      if (side.longPress) {
+        if (side.front)
+          mappedInput.suppressNextFrontRelease(side.up ? MappedInputManager::Button::Left
+                                                       : MappedInputManager::Button::Right);
+        else
+          mappedInput.suppressNextSideRelease(side.up ? MappedInputManager::Button::Up
+                                                      : MappedInputManager::Button::Down);
+      }
       switch (side.action) {
         case CrossPointSettings::PAGE_TURN:
           if (currentPage < totalPages - 1) {
@@ -327,7 +332,7 @@ void TxtReaderActivity::loop() {
         default: {
           const auto action = static_cast<CrossPointSettings::SHORT_PWRBTN>(side.action);
           if (action == CrossPointSettings::QUICK_LOCK)
-            handleGlobalPowerButtonAction(action, SideButtonShortcuts::quickLockTrigger(side));
+            handleGlobalPowerButtonAction(action, ReaderButtonShortcuts::quickLockTrigger(side));
           else if (!handleShortcutAction(action))
             handleGlobalPowerButtonAction(action);
           break;
@@ -335,45 +340,6 @@ void TxtReaderActivity::loop() {
       }
     }
     return;
-  }
-
-  const bool frontLongPressChangesFont = SETTINGS.longPressButtonBehavior == CrossPointSettings::FONT_SIZE_CHANGE;
-  if (SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_CHANGE ||
-      SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_FLIP || frontLongPressChangesFont) {
-    const bool leftReleased = mappedInput.wasReleased(MappedInputManager::Button::Left);
-    const bool rightReleased = mappedInput.wasReleased(MappedInputManager::Button::Right);
-    if (frontButtonLongPressHandled && (leftReleased || rightReleased)) {
-      frontButtonLongPressHandled = false;
-      return;
-    }
-
-    const bool longPressReady = mappedInput.getHeldTime() > ReaderUtils::SKIP_HOLD_MS;
-    const bool prevLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Left);
-    const bool nextLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Right);
-    if (!frontButtonLongPressHandled && (prevLongPressed || nextLongPressed)) {
-      frontButtonLongPressHandled = true;
-      if (frontLongPressChangesFont) {
-        changeReaderFontSize(/*larger=*/nextLongPressed);
-        return;
-      }
-
-      if (SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_FLIP) {
-        applyReaderOrientation(ReaderUtils::flippedOrientation(SETTINGS.orientation));
-        return;
-      }
-
-      SETTINGS.orientation = ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/prevLongPressed);
-      SETTINGS.saveToFile();
-      {
-        RenderLock lock(*this);
-        ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-        pageOffsets.clear();
-        currentPageLines.clear();
-        initialized = false;
-      }
-      requestUpdate();
-      return;
-    }
   }
 
   auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
@@ -434,7 +400,7 @@ void TxtReaderActivity::rebuildTextLayout() {
 
 #if CROSSDINK_APP_CAP_TOUCH
 bool TxtReaderActivity::handlePinchFontResize() {
-  if (!SETTINGS.pinchFontResizeEnabled || !SETTINGS.touchReaderControls || !mappedInput.supportsMultiTouch()) {
+  if (!SETTINGS.pinchFontResizeEnabled || !mappedInput.supportsMultiTouch()) {
     resetPinchFontGesture();
     return false;
   }
@@ -534,6 +500,7 @@ bool TxtReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRB
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
     case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
     case CrossPointSettings::SHORT_PWRBTN::BACK_HOME:
     case CrossPointSettings::SHORT_PWRBTN::HOME_READER:
@@ -588,6 +555,7 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       toggleHomeButtonInReader();
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       return handleGlobalPowerButtonAction(action);
     default:

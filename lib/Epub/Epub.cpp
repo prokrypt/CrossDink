@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <GifToBmpConverter.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
@@ -1525,6 +1526,34 @@ bool Epub::generateCoverBmp(bool cropped, const GfxRenderer* renderer, const int
     return success;
   }
 
+  if (FsHelpers::hasGifExtension(coverImageHref)) {
+    std::string coverGifPath;
+    if (!ensureCachedCoverImage(coverImageHref, coverGifPath)) {
+      return false;
+    }
+
+    FsFile coverGif;
+    if (!Storage.openFileForRead("EBP", coverGifPath, coverGif)) {
+      return false;
+    }
+
+    FsFile coverBmp;
+    if (!Storage.openFileForWrite("EBP", getCoverBmpPath(cropped, imageLevels), coverBmp)) {
+      coverGif.close();
+      return false;
+    }
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "cover GIF decode");
+    const bool success = GifToBmpConverter::gifFileToBmpStream(coverGif, coverBmp, cropped, imageLevels);
+    coverGif.close();
+    coverBmp.close();
+
+    if (!success) {
+      LOG_ERR("EBP", "Failed to generate BMP from GIF cover image");
+      Storage.remove(getCoverBmpPath(cropped, imageLevels).c_str());
+    }
+    return success;
+  }
+
   LOG_ERR("EBP", "Cover image is not a supported format, skipping");
   return false;
 }
@@ -1588,6 +1617,9 @@ std::string Epub::getCachedCoverImagePath(const std::string& coverImageHref) con
   }
   if (FsHelpers::hasPngExtension(coverImageHref)) {
     return getCachePath() + "/cover_src.png";
+  }
+  if (FsHelpers::hasGifExtension(coverImageHref)) {
+    return getCachePath() + "/cover_src.gif";
   }
   return {};
 }
@@ -1714,6 +1746,34 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
 
     if (!success) {
       LOG_ERR("EBP", "Failed to generate thumb BMP from PNG cover image");
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
+    return finalizeThumbBmp(tmpPath, thumbPath);
+  } else if (FsHelpers::hasGifExtension(coverImageHref)) {
+    std::string coverGifPath;
+    if (!ensureCachedCoverImage(coverImageHref, coverGifPath)) {
+      return false;
+    }
+
+    FsFile coverGif;
+    if (!Storage.openFileForRead("EBP", coverGifPath, coverGif)) {
+      return false;
+    }
+
+    FsFile thumbBmp;
+    if (!Storage.openFileForWrite("EBP", tmpPath, thumbBmp)) {
+      coverGif.close();
+      return false;
+    }
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "thumbnail GIF decode");
+    const bool success =
+        GifToBmpConverter::gifFileTo1BitBmpStreamWithSize(coverGif, thumbBmp, width, height, adaptiveContain);
+    coverGif.close();
+    thumbBmp.close();
+
+    if (!success) {
+      LOG_ERR("EBP", "Failed to generate thumb BMP from GIF cover image");
       Storage.remove(tmpPath.c_str());
       return false;
     }

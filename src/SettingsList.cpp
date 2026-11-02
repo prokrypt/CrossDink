@@ -171,8 +171,6 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                               CrossPointSettings::IMAGES_PLACEHOLDER,     CrossPointSettings::IMAGES_SUPPRESS};
       add(std::move(images));
     }
-    add(SettingInfo::Toggle(StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
-                            "touchReaderControls", StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_DISABLE_TOUCHSCREEN, &CrossPointSettings::disableReaderTouchscreen,
                             "disableReaderTouchscreen", StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing,
@@ -190,10 +188,19 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Toggle(StrId::STR_TWO_FINGER_ROTATION, &CrossPointSettings::twoFingerRotationEnabled,
                             "twoFingerRotationEnabled", StrId::STR_CAT_CONTROLS));
     const std::vector<StrId> twoFingerSwipeActions = {
-        StrId::STR_NOT_SET,          StrId::STR_INCREASE_BRIGHTNESS, StrId::STR_DECREASE_BRIGHTNESS,
-        StrId::STR_INCREASE_WARMTH,  StrId::STR_DECREASE_WARMTH,     StrId::STR_NEXT_CHAPTER,
-        StrId::STR_PREVIOUS_CHAPTER, StrId::STR_INCREASE_FONT_SIZE,  StrId::STR_DECREASE_FONT_SIZE,
-        StrId::STR_BACK_HOME,        StrId::STR_HOME_READER,         StrId::STR_SELECT_CHAPTER,
+        StrId::STR_NOT_SET,
+        StrId::STR_INCREASE_BRIGHTNESS,
+        StrId::STR_DECREASE_BRIGHTNESS,
+        StrId::STR_INCREASE_WARMTH,
+        StrId::STR_DECREASE_WARMTH,
+        StrId::STR_NEXT_CHAPTER,
+        StrId::STR_PREVIOUS_CHAPTER,
+        StrId::STR_INCREASE_FONT_SIZE,
+        StrId::STR_DECREASE_FONT_SIZE,
+        StrId::STR_BACK_HOME,
+        StrId::STR_HOME_READER,
+        StrId::STR_SELECT_CHAPTER,
+        StrId::STR_DISABLE_PAGE_TURN_GESTURES,
     };
     const std::vector<uint8_t> twoFingerSwipeActionValues = {
         CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET,
@@ -208,6 +215,7 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
         CrossPointSettings::TWO_FINGER_SWIPE_BACK_HOME,
         CrossPointSettings::TWO_FINGER_SWIPE_HOME_READER,
         CrossPointSettings::TWO_FINGER_SWIPE_SELECT_CHAPTER,
+        CrossPointSettings::TWO_FINGER_SWIPE_TOGGLE_PAGE_TURN_GESTURES,
     };
     add(SettingInfo::Enum(StrId::STR_TWO_FINGER_SWIPE_UP, &CrossPointSettings::twoFingerSwipeUp, twoFingerSwipeActions,
                           "twoFingerSwipeUp", StrId::STR_CAT_CONTROLS)
@@ -248,13 +256,6 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_ORIENTATION_AWARE, &CrossPointSettings::frontButtonOrientationAware,
                           {StrId::STR_NO, StrId::STR_NAV_BUTTONS, StrId::STR_ALL_BUTTONS},
                           "frontButtonOrientationAware", StrId::STR_CAT_CONTROLS));
-    add(SettingInfo::Enum(StrId::STR_LONG_PRESS_ACTION, &CrossPointSettings::longPressButtonBehavior,
-                          {StrId::STR_STATE_OFF, StrId::STR_LONG_PRESS_BEHAVIOR_SKIP, StrId::STR_CHANGE_FONT_SIZE,
-                           StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION, StrId::STR_ROTATE_FLIP},
-                          "longPressButtonBehavior", StrId::STR_CAT_CONTROLS)
-            .withEnumRawValues({CrossPointSettings::OFF, CrossPointSettings::CHAPTER_SKIP,
-                                CrossPointSettings::FONT_SIZE_CHANGE, CrossPointSettings::ORIENTATION_CHANGE,
-                                CrossPointSettings::ORIENTATION_FLIP}));
     add(buildShortcutSetting(StrId::STR_SHORT_PWR_BTN, &CrossPointSettings::shortPwrBtn, "shortPwrBtn",
                              ShortcutOptionCatalog::PowerButton));
     add(buildShortcutSetting(StrId::STR_LONG_PRESS_ACTION, &CrossPointSettings::longPwrBtn, "longPwrBtn",
@@ -273,6 +274,10 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                                      "homeButtonDoubleTapAction"));
     add(buildHomeButtonActionSetting(StrId::STR_LONG_PRESS_ACTION, &CrossPointSettings::homeButtonLongPressAction,
                                      "homeButtonLongPressAction"));
+    add(buildSideButtonActionSetting(StrId::STR_LONG_PRESS_LEFT_ACTION, &CrossPointSettings::frontButtonLeftLong,
+                                     "frontButtonLeftLong"));
+    add(buildSideButtonActionSetting(StrId::STR_LONG_PRESS_RIGHT_ACTION, &CrossPointSettings::frontButtonRightLong,
+                                     "frontButtonRightLong"));
     add(buildShortcutSetting(StrId::STR_LONG_PRESS_MENU_ACTION, &CrossPointSettings::longPressMenuAction,
                              "longPressMenuAction", ShortcutOptionCatalog::LongPress));
     add(buildShortcutSetting(StrId::STR_LONG_PRESS_BACK_ACTION, &CrossPointSettings::longPressBackAction,

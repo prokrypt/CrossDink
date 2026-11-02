@@ -918,7 +918,7 @@ Please note that this firmware is currently in active development. The following
   seconds to convert for the sleep screen and home-screen thumbnail. Use the
   built-in [EPUB optimization](./webserver.md#epub-optimization) before upload
   if a book is slow or memory-sensitive.
-- **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
+- **Unsupported Image Formats:** Most JPG, PNG and non-interlaced GIF images in EPUBs render correctly (animated GIFs show their first frame). Interlaced GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
 
 ---
 
