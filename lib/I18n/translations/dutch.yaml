@@ -439,6 +439,7 @@ STR_LOW_MEMORY_IMAGES_TITLE: "Hoofdstuk geladen zonder sommige of alle afbeeldin
 STR_LOW_MEMORY_IMAGES_BODY: "Er was te weinig beschikbaar geheugen om alle afbeeldingen voor dit hoofdstuk uit te pakken."
 STR_TILT_PAGE_TURN: "Kantel om te bladeren"
 STR_TILT_PAGE_TURN_DIRECTION: "Kantelrichting"
+STR_TILT_NEXT_PAGE_ONLY: "Kantelen: alleen volgende"
 STR_TILT_DIRECTION_LEFT_RIGHT: "Links-rechts"
 STR_TILT_DIRECTION_LEFT_RIGHT_INVERTED: "Rechts-links"
 STR_TILT_DIRECTION_FORWARD_BACK: "Vooruit-achteruit"

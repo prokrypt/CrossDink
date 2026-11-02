@@ -380,6 +380,7 @@ void SettingsActivity::rebuildSettingsLists() {
   const size_t expectedControlsCount = controlsParentBaseCount - (hasTouch ? 1u : 0u) + (hasHomeKey ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
+                                       (hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u) +
                                        (deviceHasMenuNavigationSetting(gpio) ? 1u : 0u);
   const size_t expectedFrontButtonCount = hasTouch ? 0u : controlsFrontButtonCount;
@@ -390,6 +391,7 @@ void SettingsActivity::rebuildSettingsLists() {
   const size_t expectedControlsCount = controlsParentBaseCount + (gpio.hasHomeKey() ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
+                                       (hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u) +
                                        1u;  // Menu navigation: always shown without touch
   constexpr size_t expectedFrontButtonCount = controlsFrontButtonCount;
@@ -1860,7 +1862,8 @@ void SettingsActivity::render(RenderLock&&) {
                  : tr(STR_TOGGLE));
 
   const bool horizontalFront = SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_DIRECTIONAL &&
-                               !isFileBrowserView() && !deviceUsesHorizontalSideButtonsForMenus(gpio);
+                               !isFileBrowserView() &&
+                               mappedInput.menuButton(MappedInputManager::Button::Up) == MappedInputManager::Button::Up;
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel,
                                             (horizontalFront ? tr(STR_DIR_LEFT) : tr(STR_DIR_UP)),
                                             (horizontalFront ? tr(STR_DIR_RIGHT) : tr(STR_DIR_DOWN)));

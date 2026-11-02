@@ -105,6 +105,11 @@ int centredErrorY(const GfxRenderer& renderer) {
 
 }  // namespace
 
+bool XtcReaderActivity::usesMenuButtonOrientation() const {
+  return quickActionsPopup.isActive() ||
+         (xtc && currentPage >= xtc->getPageCount() && endOfBookMenuActive.load(std::memory_order_relaxed));
+}
+
 void XtcReaderActivity::onEnter() {
   Activity::onEnter();
   showOpeningFeedback();
@@ -271,6 +276,7 @@ void XtcReaderActivity::loop() {
     RenderLock lock(*this);
     if (endOfBookOptions) {
       endOfBookOptions.reset();
+      endOfBookMenuActive.store(false, std::memory_order_relaxed);
     }
   }
 
@@ -287,6 +293,8 @@ void XtcReaderActivity::loop() {
     }
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(xtc->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
     }
   }
   if (atEndOfBook && RenderLock::peek() && !(endOfBookOptions && endOfBookOptions->loaded())) {
@@ -470,8 +478,7 @@ void XtcReaderActivity::loop() {
     if (!shortcutPageTurn && !shortcutPreviousPage) return;
   }
 
-  const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
-  const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
+  const auto tilt = detectReaderTiltPageTurn(halTiltSensor, SETTINGS.tiltPageTurn, SETTINGS.tiltNextPageOnly);
   const bool frontPrev = mappedInput.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
   if (longPowerPageTurnHandled && (powerReleased || !mappedInput.isPressed(MappedInputManager::Button::Power))) {
@@ -569,9 +576,9 @@ void XtcReaderActivity::loop() {
     }
   }
 
-  const bool fromTilt = tiltPrev || tiltNext;
-  bool prevTriggered = tiltPrev || frontPrev;
-  bool nextTriggered = tiltNext || frontNext;
+  const bool fromTilt = tilt.prev || tilt.next;
+  bool prevTriggered = tilt.prev || frontPrev;
+  bool nextTriggered = tilt.next || frontNext;
   prevTriggered = prevTriggered || touch.prev || shortcutPreviousPage;
   nextTriggered = nextTriggered || touch.next || shortcutPageTurn;
 
@@ -1265,6 +1272,8 @@ void XtcReaderActivity::render(RenderLock&&) {
     renderer.clearScreen();
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(xtc->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
       endOfBookOptions->render(renderer, mappedInput);
     }
     openingFeedback.finish();
