@@ -506,7 +506,6 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
   const auto orientation = renderer.getOrientation();
   const bool landscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
                          orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
