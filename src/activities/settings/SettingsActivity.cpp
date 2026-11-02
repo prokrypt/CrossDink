@@ -758,37 +758,94 @@ void SettingsActivity::openFilenameFontPicker() {
 }
 
 void SettingsActivity::openLanguagePicker() {
-  const int languageCount = static_cast<int>(sizeof(SORTED_LANGUAGE_INDICES) / sizeof(SORTED_LANGUAGE_INDICES[0]));
-
+  languageCatalog.reset();
+  languageCatalog.init(MemoryPool::None);
+  const auto status = languageCatalog ? I18N.discover(*languageCatalog.get()) : language_cache::Result::Memory;
   std::vector<std::string> options;
-  options.reserve(languageCount);
-  for (int i = 0; i < languageCount; i++) {
-    options.push_back(I18N.getLanguageName(static_cast<Language>(SORTED_LANGUAGE_INDICES[i])));
+  std::vector<bool> disabled;
+  int currentIndex = 0;
+  bool duplicates = false;
+  if (status == language_cache::Result::Ok) {
+    options.reserve(languageCatalog->count);
+    disabled.reserve(languageCatalog->count);
+    for (size_t i = 0; i < languageCatalog->count; ++i) {
+      if (std::strcmp(languageCatalog->code(i), I18N.getCode()) == 0) currentIndex = static_cast<int>(i);
+      options.emplace_back(languageCatalog->name(i));
+      disabled.push_back(languageCatalog->disabled(i));
+      duplicates = duplicates || languageCatalog->disabled(i);
+    }
+  } else {
+    // No catalog: still offer English and the active language.
+    LOG_ERR("LANG", "Language picker: %s", language_cache::resultName(status));
+    languageCatalog.reset();
+    options.emplace_back("English");
+    if (std::strcmp(I18N.getCode(), "EN") != 0) {
+      options.emplace_back(I18N.getName());
+      currentIndex = 1;
+    }
   }
+  const char* note = status == language_cache::Result::Ok
+                         ? (duplicates ? tr(STR_LANGUAGE_DUPLICATE) : tr(STR_LANGUAGE_APPLY_HINT))
+                     : status == language_cache::Result::Memory   ? tr(STR_MEMORY_ERROR)
+                     : status == language_cache::Result::TooLarge ? tr(STR_LANGUAGE_CATALOG_LIMIT)
+                                                                  : tr(STR_LANGUAGE_IO_ERROR);
+  optionPopup.show(
+      StrId::STR_LANGUAGE, options, currentIndex,
+      [this](int index) {
+        if (index < 0) {
+          requestUpdate();
+          return;
+        }
+        if (languageCatalog) {
+          if (static_cast<size_t>(index) >= languageCatalog->count || languageCatalog->disabled(index)) {
+            requestUpdate();
+            return;
+          }
+          languageCatalog->select(index, pendingLanguage);
+        } else if (index == 0) {
+          pendingLanguage = {};
+          std::strcpy(pendingLanguage.code, "EN");
+        } else {
+          requestUpdate();
+          return;
+        }
+        languageSelectionPending = true;  // Applied in loop(), after this callback returns.
+      },
+      OptionPopup::Note(tr(STR_LANGUAGE), note));
+  optionPopup.setDisabledOptions(std::move(disabled));
+  requestUpdate();
+}
 
-  const auto currentLang = static_cast<uint8_t>(I18N.getLanguage());
-  const auto* begin = std::begin(SORTED_LANGUAGE_INDICES);
-  const auto* end = std::end(SORTED_LANGUAGE_INDICES);
-  const auto* it = std::find(begin, end, currentLang);
-  int currentIndex = (it != end) ? static_cast<int>(std::distance(begin, it)) : 0;
-
-  optionPopup.show(StrId::STR_LANGUAGE, options, currentIndex, [this](int selectedIndex) {
-    const int languageCount = static_cast<int>(sizeof(SORTED_LANGUAGE_INDICES) / sizeof(SORTED_LANGUAGE_INDICES[0]));
-    if (selectedIndex < 0 || selectedIndex >= languageCount) {
-      requestUpdate();
-      return;
+void SettingsActivity::applyLanguage(const I18n::Option& selected) {
+  languageCatalog.reset();
+  StrId error = StrId::_COUNT;
+  {
+    RenderLock lock(*this);
+    if (selected.path[0]) {
+      GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
+      language_cache::Installed installed;
+      const auto status = I18N.install(selected.path, installed);
+      if (status != language_cache::Result::Ok && status != language_cache::Result::Unchanged) {
+        error = status == language_cache::Result::StorageUnavailable ? StrId::STR_LANGUAGE_STORAGE_UNAVAILABLE
+                : status == language_cache::Result::Memory           ? StrId::STR_MEMORY_ERROR
+                : status == language_cache::Result::Io               ? StrId::STR_LANGUAGE_IO_ERROR
+                                                                     : StrId::STR_LANGUAGE_FILE_INVALID;
+      }
+    } else if (!selected.generation) {
+      // A built-in language; a row with a generation is the active SD language.
+      I18N.setLanguage(I18n::languageFromCode(selected.code));
     }
-
-    const uint8_t langIndex = SORTED_LANGUAGE_INDICES[selectedIndex];
-    {
-      RenderLock lock(*this);
-      I18N.setLanguage(static_cast<Language>(langIndex));
-    }
-
-    SETTINGS.language = langIndex;
-    SETTINGS.saveToFile();
-    requestUpdate();
-  });
+  }
+  if (error == StrId::_COUNT) {
+    std::strcpy(SETTINGS.languageCode, I18N.getCode());
+    SETTINGS.languageCacheGeneration = I18N.getGeneration();
+    if (!SETTINGS.saveToFile()) error = StrId::STR_LANGUAGE_SAVE_FAILED;
+  }
+  if (error != StrId::_COUNT) {
+    optionPopup.show(
+        StrId::STR_LANGUAGE, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
+        OptionPopup::Note(tr(STR_LANGUAGE_INSTALL_FAILED), I18N.get(error)));
+  }
   requestUpdate();
 }
 
@@ -990,6 +1047,11 @@ void SettingsActivity::reapplyUiTheme(const bool reloadThemePack) {
 }
 
 void SettingsActivity::loop() {
+  if (languageSelectionPending) {
+    languageSelectionPending = false;
+    applyLanguage(pendingLanguage);
+    return;
+  }
 #if CROSSDINK_SCALABLE_FONTS
   if (filenameFontSelectionPending) {
     filenameFontSelectionPending = false;
@@ -1611,7 +1673,7 @@ std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
     return SETTINGS.filenameFallbackFont[0] ? SETTINGS.filenameFallbackFont : tr(STR_NONE_OPT);
   }
   if (setting.type == SettingType::ACTION && setting.action == SettingAction::Language) {
-    return I18N.getLanguageName(I18N.getLanguage());
+    return I18N.getName();
   }
   if (setting.type == SettingType::STRING) {
     if (setting.nameId == StrId::STR_DEVICE_NAME) return SETTINGS.getEffectiveDeviceName();
