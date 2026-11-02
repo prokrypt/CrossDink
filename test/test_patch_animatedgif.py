@@ -28,7 +28,7 @@ class PatchAnimatedGifTest(unittest.TestCase):
         library = self.root / name / "AnimatedGIF"
         source = library / "src"
         source.mkdir(parents=True)
-        (source / "AnimatedGIF.h").write_text(PATCH.OLD_SNIPPET)
+        (source / "AnimatedGIF.h").write_text(PATCH.INCLUDE_OLD + PATCH.OLD_SNIPPET)
         (source / "gif.inl").write_text(PATCH.PALETTE_OLD + PATCH.COPY_OLD)
         return library
 
@@ -40,8 +40,10 @@ class PatchAnimatedGifTest(unittest.TestCase):
         first = {p.name: p.read_bytes() for p in (active / "src").iterdir()}
         self.assertTrue(PATCH.patch_animatedgif(env, require_found=True))
         self.assertEqual(first, {p.name: p.read_bytes() for p in (active / "src").iterdir()})
-        self.assertEqual((sibling / "src" / "AnimatedGIF.h").read_text(), PATCH.OLD_SNIPPET)
+        self.assertEqual((sibling / "src" / "AnimatedGIF.h").read_text(), PATCH.INCLUDE_OLD + PATCH.OLD_SNIPPET)
         self.assertEqual((sibling / "src" / "gif.inl").read_text(), PATCH.PALETTE_OLD + PATCH.COPY_OLD)
+        self.assertIn(PATCH.INCLUDE_NEW, first["AnimatedGIF.h"].decode())
+        self.assertIn(PATCH.NEW_SNIPPET, first["AnimatedGIF.h"].decode())
         self.assertIn(PATCH.PALETTE_NEW, first["gif.inl"].decode())
         self.assertIn(PATCH.COPY_NEW, first["gif.inl"].decode())
 

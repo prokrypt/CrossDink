@@ -26,6 +26,16 @@ NEW_SNIPPET = """#define MAX_COLORS 256
 #endif // MAX_WIDTH
 """
 
+# The simulator's Arduino.h supplies millis()/delay() but the native build does
+# not define ARDUINO, so the header would otherwise fall back to stdio only.
+INCLUDE_OLD = """#if defined(ARDUINO)
+#include <Arduino.h>
+"""
+
+INCLUDE_NEW = """#if defined(ARDUINO) || defined(SIMULATOR)
+#include <Arduino.h>
+"""
+
 MAX_WIDTH_DEFINE_RE = re.compile(r"^\s*#\s*define\s+MAX_WIDTH\b", re.MULTILINE)
 MAX_WIDTH_GUARD_RE = re.compile(
     r"^\s*#\s*(?:ifndef\s+MAX_WIDTH\b|if\s+!\s*defined\s*\(?\s*MAX_WIDTH\s*\)?)",
@@ -82,34 +92,41 @@ COPY_NEW = """#ifdef ALLOWS_UNALIGNED
 
 def _patch_header(header_path):
     with open(header_path, "r", encoding="utf-8") as file:
-        text = file.read()
+        original = file.read()
+    text = original
 
     max_width_define = MAX_WIDTH_DEFINE_RE.search(text)
     max_width_guard = MAX_WIDTH_GUARD_RE.search(text)
-    if NEW_SNIPPET in text or (
+    guarded = NEW_SNIPPET in text or (
         max_width_define
         and max_width_guard
         and max_width_guard.start() < max_width_define.start()
-    ):
-        return True
-
-    if OLD_SNIPPET not in text:
-        if not max_width_define:
+    )
+    if not guarded:
+        if OLD_SNIPPET not in text:
+            if not max_width_define:
+                sys.stderr.write(
+                    "WARNING: AnimatedGIF no longer defines MAX_WIDTH in %s\n"
+                    % header_path
+                )
+                return True
             sys.stderr.write(
-                "WARNING: AnimatedGIF no longer defines MAX_WIDTH in %s\n"
+                "ERROR: AnimatedGIF has an unguarded MAX_WIDTH definition in %s\n"
                 % header_path
             )
-            return True
-        sys.stderr.write(
-            "ERROR: AnimatedGIF has an unguarded MAX_WIDTH definition in %s\n"
-            % header_path
-        )
-        raise SystemExit(1)
+            raise SystemExit(1)
+        text = text.replace(OLD_SNIPPET, NEW_SNIPPET, 1)
+        print("Patched AnimatedGIF MAX_WIDTH guard")
 
-    with open(header_path, "w", encoding="utf-8") as file:
-        file.write(text.replace(OLD_SNIPPET, NEW_SNIPPET, 1))
+    if INCLUDE_NEW not in text:
+        if text.count(INCLUDE_OLD) != 1:
+            raise RuntimeError("AnimatedGIF Arduino include patch does not match %s" % header_path)
+        text = text.replace(INCLUDE_OLD, INCLUDE_NEW, 1)
+        print("Patched AnimatedGIF Arduino include for the simulator")
 
-    print("Patched AnimatedGIF MAX_WIDTH guard")
+    if text != original:
+        with open(header_path, "w", encoding="utf-8") as file:
+            file.write(text)
     return True
 
 
