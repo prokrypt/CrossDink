@@ -1630,6 +1630,7 @@ void EpubReaderActivity::pauseReadingPaceTimer(const char* reason) {
 void EpubReaderActivity::commitReadingStatsSession() {
   if (!statsTrackingActive) return;
   recordCurrentPageReadingTime("session_commit");
+  readingSessionJournal.flush();
   commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   sessionReadingSeconds = 0;
   readingSessionDates.reset();
@@ -1758,6 +1759,9 @@ void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
     readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
+    if (epub && !readingSessionJournal.accept(epub->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
+      LOG_ERR("SessionStats", "Reading session not journaled");
+    }
     if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
       LOG_ERR("DailyStats", "Cannot record accepted reading interval");
     }
@@ -5951,6 +5955,7 @@ void EpubReaderActivity::resetReadingPaceData() {
 }
 
 void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
+  readingSessionJournal.flush();
   stats = BookReadingStats{};
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
@@ -9768,6 +9773,7 @@ void EpubReaderActivity::startDailyReadingInterval() {
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {

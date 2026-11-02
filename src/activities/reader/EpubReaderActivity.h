@@ -31,6 +31,7 @@
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "ReadingSessionJournal.h"
 #include "ReadingSessionStats.h"
 #include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
@@ -252,6 +253,7 @@ class EpubReaderActivity final : public Activity {
   bool paceDirty = false;
   bool pendingStatsCommit = false;
   ReadingSessionDates readingSessionDates;
+  ReadingSessionJournal::Session readingSessionJournal;
   void syncStatsTrackingState();
   void commitReadingStatsSession();
   uint32_t globalStatsResetRevisionAtPanelOpen = 0;

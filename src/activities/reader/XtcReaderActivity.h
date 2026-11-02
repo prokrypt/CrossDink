@@ -20,6 +20,7 @@
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "ReadingSessionJournal.h"
 #include "ReadingSessionStats.h"
 #include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
@@ -39,6 +40,7 @@ class XtcReaderActivity final : public Activity {
   BookReadingStats stats;
   GlobalReadingStats globalStats;
   ReadingSessionDates readingSessionDates;
+  ReadingSessionJournal::Session readingSessionJournal;
   bool bookStatsEnabled = true;
   bool statsTrackingActive = true;
   bool paceDirty = false;

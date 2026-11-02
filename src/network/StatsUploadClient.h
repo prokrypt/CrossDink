@@ -8,7 +8,8 @@ class StatsUploadClient {
   enum class Result { Ok, Network, Auth, Unsupported, InvalidResponse, LowMemory, Server, Skipped };
   StatsUploadClient();
   ~StatsUploadClient();
-  Result put(const char* endpoint, const char* payload, bool book, bool daily = false);
+  // sessionId: expect that reading session acknowledged; a 404 then means only the sessions endpoint is missing.
+  Result put(const char* endpoint, const char* payload, bool book, bool daily = false, const char* sessionId = nullptr);
   // Read-only capability check against the stats summary endpoint. Records the
   // answer in the credential store; Unsupported means a KOSync-only server.
   // A non-JSON 200 (captive portal, proxy page) is only persisted when
