@@ -178,12 +178,11 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   for (const uint8_t staleVersion :
-constexpr uint8_t kFullVersion = 106;
-constexpr uint8_t kPartialVersion = 0xE6;
-constexpr uint8_t kPreGifFullVersion = 105;
-constexpr uint8_t kPreGifPartialVersion = 0xE7;
-constexpr uint8_t kPreSdFontRoundingFullVersion = 104;
-constexpr uint8_t kPreSdFontRoundingPartialVersion = 0xE8;
+       {kPreGifFullVersion, kPreGifPartialVersion, kPreSdFontRoundingFullVersion, kPreSdFontRoundingPartialVersion,
+        kPreNestedBlockFullVersion, kPreNestedBlockPartialVersion, kPreDashWrapFullVersion, kPreDashWrapPartialVersion,
+        kPublisherFontsFullVersion, kPublisherFontsPartialVersion, kFieldsetFullVersion, kFieldsetPartialVersion,
+        kPreFieldsetFullVersion, kPreFieldsetPartialVersion, kPreviousFullVersion, kPreviousPartialVersion,
+        kOlderFullVersion, kOlderPartialVersion}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);
@@ -193,7 +192,7 @@ constexpr uint8_t kPreSdFontRoundingPartialVersion = 0xE8;
     Section reopened(harness.epub, 0, harness.renderer);
     EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
     EXPECT_FALSE(Storage.exists(harness.section.filePath.c_str()));
-}
+  }
 }
 TEST_F(SectionPersistenceTest, PositionLookupBatchesReadsAcrossALongChapter) {
   SectionHarness harness;
