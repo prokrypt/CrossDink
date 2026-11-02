@@ -368,6 +368,13 @@ class OptionPopup {
     if (active) cancel(input, requestUpdate, false);
   }
 
+  // Hide without firing the cancel callback: for owners that already decided what happens next.
+  void close() {
+    active = false;
+    if (showsTapRow) ListSelection::tapRowShown = false;
+    showsTapRow = false;
+  }
+
  private:
   struct Layout {
     Rect dialog{0, 0, 0, 0};
@@ -558,12 +565,6 @@ class OptionPopup {
     popupFramePending = false;
     showsTapRow = baseFramePending;
     if (showsTapRow) ListSelection::tapRowShown = true;
-  }
-
-  void close() {
-    active = false;
-    if (showsTapRow) ListSelection::tapRowShown = false;
-    showsTapRow = false;
   }
 
   void prepareStandardShow() {
