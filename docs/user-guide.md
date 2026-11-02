@@ -452,6 +452,7 @@ Behavior notes:
 
 - You can store up to 8 OPDS servers.
 - OPDS authentication supports HTTP Basic auth. If you use Calibre Content Server with authentication enabled, set it to Basic (not Digest).
+- Catalogs may use Atom or OPDS 2 JSON. JSON navigation, groups, facets, search, pagination and indirect EPUB links are supported; purchase and LCP-licensed books are listed as not supported. OAuth sign-in is not included.
 
 You can also manage OPDS servers from the web interface while in File Transfer mode:
 

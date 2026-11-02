@@ -174,6 +174,7 @@ uint8_t enumDisplayIndexForWeb(const SettingInfo& setting, uint8_t rawValue) {
 }
 
 bool isWebSettingAvailable(const SettingInfo& setting) {
+  if (isTiltPageTurnSetting(setting) && !QuickActions::supportsTiltPageTurn()) return false;
   if (setting.category == StrId::STR_STATUS_BARS || setting.nameId == StrId::STR_HIDE_CLOCK) {
     return false;
   }

@@ -114,6 +114,8 @@ class Activity {
   // Reader-mode child screens may also report isReaderActivity(); only the
   // activity owning the open book should be the Home/Reader unwind target.
   virtual bool isBookReaderActivity() const { return false; }
+  // Lists use spatial menu directions; text-selection/keyboard screens keep their own navigation rules.
+  virtual bool usesMenuButtonOrientation() const { return !isBookReaderActivity(); }
   virtual bool isHomeActivity() const { return false; }
   // Main loop, render lock held, just before a toast refresh: redraw the shown
   // book's KOSync badge into the framebuffer so the toast's refresh carries it.

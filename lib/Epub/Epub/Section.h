@@ -102,6 +102,7 @@ class Section {
   // partial/finalized file stays readable while a rebuild is in progress.
   std::string binTmpPath() const { return filePath + ".part"; }
   std::unique_ptr<Page> loadPageAt(int page) const;
+  std::optional<uint32_t> getTextOffsetForPage(uint16_t page, bool reference, uint32_t* textLength) const;
   // Read a page already laid out by the in-progress build (page < build LUT size), from
   // the partially-written tmp .bin without disturbing the build's write cursor.
   std::unique_ptr<Page> loadPageDuringBuild(int page);
@@ -217,5 +218,6 @@ class Section {
   // Content coordinate recorded at the start of each rendered page. Available
   // for finalized sections and the readable prefix of incremental sections.
   std::optional<uint32_t> getVisibleTextOffsetForPage(uint16_t page) const;
+  std::optional<uint32_t> getReferenceTextOffsetForPage(uint16_t page, uint32_t& textLength) const;
   std::optional<uint16_t> getPageForVisibleTextOffset(uint32_t offset, bool preferFirstAtOffset = false) const;
 };
