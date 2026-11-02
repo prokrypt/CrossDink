@@ -1772,7 +1772,13 @@ static void runBootTail(const bool sleeping = false) {
   if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
-  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
+  if (bootTailDictionary && !sleeping) {
+    Dictionary::isValidDictionary();
+    // Folder walks on the worker core at the background priority, so a slow
+    // card never holds input or a page turn (HalStorage serializes SD access).
+    static WorkerTask imageIndexTask;
+    imageIndexTask.start([](void*) { ImageFolderIndex::dropStaleIndexes(); }, nullptr, 4096, "ImgIdx");
+  }
   bootTailDictionary = false;
 }
 

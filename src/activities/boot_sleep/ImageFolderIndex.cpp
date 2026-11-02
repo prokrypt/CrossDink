@@ -26,7 +26,7 @@ namespace {
 // the boot-screen use and is kept to avoid orphaning existing sleep caches.
 constexpr char INDEX_DIR[] = "/.crossdink/sleep-image-index";
 constexpr char INDEX_MAGIC[] = {'C', 'S', 'I', 'X'};
-constexpr uint8_t INDEX_VERSION = 1;
+constexpr uint8_t INDEX_VERSION = 2;
 constexpr uint8_t FLAG_INCLUDE_PNG = 1 << 0;
 constexpr uint8_t FLAG_VALIDATED = 1 << 1;
 constexpr size_t MAX_FILENAME_LENGTH = 255;
@@ -46,6 +46,7 @@ struct IndexHeader {
   uint16_t recordCount;
   uint16_t recordSize;
   uint32_t recordsOffset;
+  uint64_t fingerprint;  // candidate names, sizes and mtimes in walk order
 };
 
 // A fixed-size record keeps the cache seekable without retaining a directory
@@ -67,6 +68,45 @@ uint64_t fnv1a64(std::string_view value) {
     hash *= 1099511628211ULL;
   }
   return hash;
+}
+
+bool isCandidate(const FsFile& file, const std::string_view name, const bool includePng) {
+  return !file.isDirectory() && !name.empty() && name.front() != '.' &&
+         (FsHelpers::hasBmpExtension(name) || (includePng && FsHelpers::hasPngExtension(name)));
+}
+
+void fingerprintEntry(uint64_t& fingerprint, FsFile& file, const std::string_view name) {
+  fingerprint ^= fnv1a64(name);
+  fingerprint *= 1099511628211ULL;
+  fingerprint ^= file.fileSize64();
+  fingerprint *= 1099511628211ULL;
+  fingerprint ^= file.modificationTime();
+  fingerprint *= 1099511628211ULL;
+}
+
+// Metadata-only walk; image contents are read only on rebuild or render failure.
+bool folderFingerprint(const char* directory, const bool includePng, uint64_t& fingerprint) {
+  FsFile dir = Storage.open(directory);
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    LOG_ERR("IMGIDX", "Cannot scan image folder: %s", directory);
+    return false;
+  }
+  char name[NAME_BUFFER_SIZE];
+  fingerprint = 1469598103934665603ULL;
+  uint32_t scanned = 0;
+  for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const size_t length = file.getName(name, sizeof(name));
+    if (length > 0 && length <= MAX_FILENAME_LENGTH && isCandidate(file, std::string_view(name, length), includePng)) {
+      fingerprintEntry(fingerprint, file, std::string_view(name, length));
+    }
+    file.close();
+    if ((++scanned & 0xFF) == 0) delay(1);
+  }
+  const bool failed = FsHelpers::directoryIterationFailed(dir);
+  dir.close();
+  if (failed) LOG_ERR("IMGIDX", "Image folder scan failed before EOF: %s", directory);
+  return !failed;
 }
 
 bool pathHasPrefix(std::string_view path, std::string_view folder, const bool ignoreCase = false) {
@@ -241,6 +281,7 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
   header.pathLength = static_cast<uint16_t>(directory.size());
   header.recordSize = sizeof(IndexRecord);
   header.recordsOffset = sizeof(IndexHeader) + header.pathLength;
+  header.fingerprint = 1469598103934665603ULL;
   if (directory.size() > MAX_FILENAME_LENGTH || !writeExact(output, &header, sizeof(header)) ||
       !writeExact(output, directory.data(), directory.size())) {
     output.close();
@@ -261,8 +302,8 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
     const std::string_view name(nameBuffer.get(), std::min(nameLength, MAX_FILENAME_LENGTH));
     const bool isBmp = FsHelpers::hasBmpExtension(name);
     const bool isPng = includePng && FsHelpers::hasPngExtension(name);
-    bool valid = nameLength > 0 && nameLength <= MAX_FILENAME_LENGTH && !name.empty() && name.front() != '.' &&
-                 !file.isDirectory() && (isBmp || isPng);
+    bool valid = nameLength > 0 && nameLength <= MAX_FILENAME_LENGTH && isCandidate(file, name, includePng);
+    if (valid) fingerprintEntry(header.fingerprint, file, name);
 
     if (valid && validateBmpHeaders && isBmp) {
       Bitmap bitmap(file);
@@ -404,6 +445,37 @@ bool select(const std::string& directory, const bool includePng, const bool vali
 
   invalidate();
   return false;
+}
+
+void dropStaleIndexes() {
+  FsFile dir = Storage.open(INDEX_DIR);
+  if (!dir) return;
+  // One buffer: the entry name is only needed for the extension check, then it
+  // holds the indexed folder path read from the header.
+  char name[NAME_BUFFER_SIZE];
+  bool stale = false;
+  for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const size_t length = file.getName(name, sizeof(name));
+    if (length > 0 && length <= MAX_FILENAME_LENGTH &&
+        FsHelpers::checkFileExtension(std::string_view(name, length), ".idx")) {
+      IndexHeader header{};
+      stale = true;  // an unreadable or outdated index is dropped too
+      if (readExact(file, &header, sizeof(header)) && memcmp(header.magic, INDEX_MAGIC, sizeof(INDEX_MAGIC)) == 0 &&
+          header.version == INDEX_VERSION && header.pathLength < sizeof(name) &&
+          readExact(file, name, header.pathLength)) {
+        name[header.pathLength] = '\0';
+        uint64_t fingerprint = 0;
+        stale = !folderFingerprint(name, (header.flags & FLAG_INCLUDE_PNG) != 0, fingerprint) ||
+                fingerprint != header.fingerprint;
+      }
+    }
+    file.close();
+    if (stale) break;  // nothing may stay open when invalidate() removes the directory
+  }
+  dir.close();
+  if (!stale) return;
+  LOG_INF("IMGIDX", "Image folder changed outside the firmware; dropping indexes");
+  invalidate();
 }
 
 void invalidate() {

@@ -136,7 +136,7 @@ void XtcReaderActivity::onEnter() {
   pendingStatsCommit = false;
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
 
   // Save current XTC as last opened book and add to recent books
   APP_STATE.openEpubPath = xtc->getPath();
@@ -703,8 +703,8 @@ void XtcReaderActivity::syncStatsTrackingState() {
   if (active == statsTrackingActive) return;
   if (statsTrackingActive) {  // active differs, so tracking is turning off
     recordCurrentPageReadingTime("session_commit");
-    commitReadingSession(stats, globalStats, sessionReadingSeconds,
-                         hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+    readingSessionJournal.flush();
+    commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
     pendingStatsCommit = true;
     if (stats.save(xtc->getCachePath())) {
       globalStats.save();
@@ -714,7 +714,7 @@ void XtcReaderActivity::syncStatsTrackingState() {
   statsTrackingActive = active;
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   pageShownAtMs = millis();
   startDailyReadingInterval();
 }
@@ -812,6 +812,10 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
+    readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
+    if (xtc && !readingSessionJournal.accept(xtc->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
+      LOG_ERR("SessionStats", "Reading session not journaled");
+    }
     if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
       LOG_ERR("DailyStats", "Cannot record accepted reading interval");
     }
@@ -848,7 +852,7 @@ bool XtcReaderActivity::formatTimeLeftLabel(char* buf, const size_t len, const u
   }
 
   const uint64_t estimatedSeconds =
-      static_cast<uint64_t>(total - current) * static_cast<uint64_t>(stats.avgSecondsPerForwardPage);
+      (static_cast<uint64_t>(total - current) * stats.averageForwardPageMillis() + 500U) / 1000U;
   formatCompactReadingDuration(static_cast<uint32_t>(std::min<uint64_t>(estimatedSeconds, UINT32_MAX)), buf, len);
   return true;
 }
@@ -859,10 +863,11 @@ void XtcReaderActivity::commitReadingStats() {
   }
   if (statsTrackingActive) {
     recordCurrentPageReadingTime("reader_exit");
-    commitReadingSession(stats, globalStats, sessionReadingSeconds,
-                         hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+    readingSessionJournal.flush();
+    commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   }
   sessionReadingSeconds = 0;
+  readingSessionDates.reset();
   // Written at the next flush point, as the EPUB reader's are (ReaderExitSave).
   if (statsTrackingActive || paceDirty || pendingStatsCommit) {
     ReaderExitSave::queue(xtc->getCachePath(), &stats,
@@ -872,10 +877,11 @@ void XtcReaderActivity::commitReadingStats() {
 }
 
 void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
+  readingSessionJournal.flush();
   stats = BookReadingStats{};
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
 }
 
 void XtcReaderActivity::setBookCompleted(const bool isCompleted) {
@@ -1579,8 +1585,8 @@ void XtcReaderActivity::checkpointReadingStatsBeforeRestart() {
     if (timerRunning) pageShownAtMs = millis();
     return;  // nothing read since the last save: no SD write
   }
-  commitReadingSession(stats, globalStats, sessionReadingSeconds,
-                       hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+  readingSessionJournal.flush();
+  commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   sessionReadingSeconds = 0;
   pendingStatsCommit = true;
   ReaderExitSave::flushStats();  // held stats from the last close land first
@@ -1592,7 +1598,7 @@ void XtcReaderActivity::checkpointReadingStatsBeforeRestart() {
   }
   // The rest of this sitting is a new session; onExit() commits only that part.
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   if (timerRunning) {
     pageShownAtMs = millis();
     startDailyReadingInterval();
@@ -1697,6 +1703,8 @@ void XtcReaderActivity::startDailyReadingInterval() {
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 ScreenshotInfo XtcReaderActivity::getScreenshotInfo() const {

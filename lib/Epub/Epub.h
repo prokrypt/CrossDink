@@ -239,6 +239,8 @@ class Epub {
   size_t getBookSize() const;
   bool hasXLocations() const { return xLocationsLoaded; }
   bool hasStablePageNumbers() const;
+  bool resolveReferenceTextProgress(int spineIndex, uint32_t textOffset, uint32_t sectionTextLength,
+                                    double& completedUnits, double& totalUnits) const;
   uint32_t getReferencePageCount() const { return hasStablePageNumbers() ? totalReferencePages : 0; }
   float calculateSizeProgress(int currentSpineIndex, float currentSpineRead) const;
   float calculateProgress(int currentSpineIndex, float currentSpineRead) const;

@@ -20,6 +20,7 @@
 #include <string>
 
 #include "BookLoadingFeedback.h"
+#include "BookPageEstimate.h"
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "DailyReadingStats.h"
@@ -31,7 +32,10 @@
 #include "ManualPageTurnQueue.h"
 #include "PluginReaderEvents.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "ReadingSessionJournal.h"
+#include "ReadingSessionStats.h"
 #include "SideButtonShortcuts.h"
+#include "StableReadingPace.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/HomeCoverThumbs.h"
@@ -232,8 +236,24 @@ class EpubReaderActivity final : public Activity {
   int prerenderAttemptSpine = -1;
   int prerenderAttemptPage = -1;
   bool paceSampleWarmupPending = true;
+  uint32_t sessionStartPaceMillis = 0;
+  uint16_t sessionStartPaceSampleCount = 0;
   uint32_t sessionPaceSampleSeconds = 0;
   uint16_t sessionPaceSampleCount = 0;
+  BookPageEstimate bookPageEstimate;
+  StableReadingPace stableReadingPace;
+  // A display fallback while fresh text pace or chapter density is unavailable.
+  mutable uint32_t lastBookTimeLeftSeconds = 0;
+  double stableTextPosition = 0;
+  double stableTextTotal = 0;
+  double pendingStableReadStart = 0;
+  uint32_t pendingStableReadSeconds = 0;
+  int pendingStableReadSpine = -1;
+  int pendingStableReadPage = -1;
+  bool hasStableTextPosition = false;
+  int stableTextSpine = -1;
+  int stableTextPage = -1;
+  void refreshStableTextProgress();
   uint32_t sessionReadingSeconds = 0;
   DailyReadingStats::Session dailyReadingSession;
   void startDailyReadingInterval();
@@ -251,8 +271,8 @@ class EpubReaderActivity final : public Activity {
   bool statsTrackingActive = true;
   bool paceDirty = false;
   bool pendingStatsCommit = false;
-  ReadingStatsDateTime sessionStartLocalDateTime;
-  bool hasSessionStartLocalDateTime = false;
+  ReadingSessionDates readingSessionDates;
+  ReadingSessionJournal::Session readingSessionJournal;
   void syncStatsTrackingState();
   void commitReadingStatsSession();
   uint32_t globalStatsResetRevisionAtPanelOpen = 0;
@@ -589,11 +609,9 @@ class EpubReaderActivity final : public Activity {
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
   void recordCurrentPageReadingTime(const char* source = "unknown");
   void recordForwardPagePaceSample(uint32_t seconds, const char* source);
-  bool getSessionAveragePaceSeconds(uint16_t& avgSeconds) const;
-  void recoverStoredPaceFromSession(const char* reason = "unknown");
-  bool getTimeLeftPaceSeconds(uint16_t& avgSeconds, const char*& source, uint16_t& sampleCount) const;
+  bool getTimeLeftPaceSeconds(float& avgSeconds, const char*& source, uint16_t& sampleCount) const;
+  void refreshBookPageEstimate();
   bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
-  bool estimateProgressTimeLeftSeconds(uint32_t& seconds) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
   bool formatTimeLeftLabel(char* buf, size_t len, bool bookEstimate) const;
   void refreshCachedTimeLeftEstimate();

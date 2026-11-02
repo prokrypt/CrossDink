@@ -1431,7 +1431,7 @@ void StatsUploadActivity::loop() {
       const auto area = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
       const auto layout =
           TouchActionButtons::vertical(Rect{area.x + 20, area.y + area.height - 80, area.width - 40, 56}, 1);
-      actionTapped = TouchActionButtons::indexAt(layout, x, y) == 0;
+      actionTapped = TouchActionButtons::indexAt(layout, x, y, TouchActionButtons::kDefaultGap / 2) == 0;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || actionTapped) {
       if (state == State::Done) {

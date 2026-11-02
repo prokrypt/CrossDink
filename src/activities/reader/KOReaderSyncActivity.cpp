@@ -1319,8 +1319,9 @@ void KOReaderSyncActivity::loop() {
       return;
     }
     int x = 0, y = 0;
-    const bool skipTapped = mappedInput.wasScreenTapped(x, y) &&
-                            TouchActionButtons::indexAt(bottomActionLayout(screen, metrics, 1), x, y) == 0;
+    const bool skipTapped =
+        mappedInput.wasScreenTapped(x, y) && TouchActionButtons::indexAt(bottomActionLayout(screen, metrics, 1), x, y,
+                                                                         TouchActionButtons::kDefaultGap / 2) == 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || skipTapped) {
       LOG_INF("KOSync", "Skipping failed folder book: %s", epubPath.c_str());
       parkRemote();
@@ -1359,7 +1360,9 @@ void KOReaderSyncActivity::loop() {
       if (actions.buttons[1].x != actions.buttons[0].x) {
         // The landscape two-row layout is not a single column, so hit-test the tap directly.
         int x = 0, y = 0;
-        const int tapped = mappedInput.wasScreenTapped(x, y) ? TouchActionButtons::indexAt(actions, x, y) : -1;
+        const int tapped = mappedInput.wasScreenTapped(x, y)
+                               ? TouchActionButtons::indexAt(actions, x, y, TouchActionButtons::kDefaultGap / 2)
+                               : -1;
         if (tapped >= 0) {
           selectedOption = tapped;
           chooseSelected();

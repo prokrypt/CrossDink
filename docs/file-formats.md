@@ -50,6 +50,30 @@ keeps at most 24 modified family profiles to bound RAM use while settings are op
 
 ## `/.crossdink/sleep-image-index/<directory-hash>-{bmp,all}.idx`
 
+### Version 2
+
+Version 2 appends a `u64 fingerprint` to the header: FNV-1a 64 over each
+candidate entry's name, size and modification time in directory walk order,
+seeded with the FNV offset basis. Once per boot, after the first frame is
+drawn, `ImageFolderIndex::dropStaleIndexes()` walks each indexed folder's
+metadata again and drops every index when any fingerprint differs, so images
+copied in with a card reader are seen at the next sleep. The sleep path itself
+never walks the folder. Version 1 indexes are dropped at that boot check.
+
+```c++
+struct ImageFolderIndexHeader {
+    char magic[4];       // "CSIX"
+    u8 version;          // 2
+    u8 flags;            // bit 0: BMP+PNG, bit 1: BMP headers validated
+    u16 pathLength;
+    u16 recordCount;
+    u16 recordSize;      // sizeof(ImageFolderIndexRecord)
+    u32 recordsOffset;   // sizeof(header) + pathLength
+    u64 fingerprint;
+    char directory[pathLength];
+};
+```
+
 ### Version 1
 
 `ImageFolderIndex` (`src/activities/boot_sleep/ImageFolderIndex.{h,cpp}`) keeps
@@ -744,6 +768,29 @@ synced until its next check). Home and Library draw the KOSync badge from it.
 
 Bytes 0-6 of version 2 (CrossInk writes this one). Read as never checked.
 
+## `stats_v6.bin`
+
+### Version 6
+
+Version 6 extends the 73-byte version 5 layout below to 75 bytes:
+
+- `[0]` version (`6`)
+- `[1-72]` unchanged version 5 fields
+- `[73-74]` `paceFractionMillis` (`uint16_t` LE, `0..999`)
+
+Reading pace is `avgSecondsPerForwardPage * 1000 + paceFractionMillis`
+milliseconds per forward page, capped at `65535000` ms. The fraction is zero
+at that cap. Fractional precision is preserved across updates and reopen.
+The whole-second field and sync payload retain their existing units.
+
+The file is saved in two slots (`stats_v6.bin` and `stats_v6.bin.bak`,
+TwoSlotFile.h) like version 5. When neither slot is usable, reads try the
+version 5 slots, `stats_v4.bin`, then legacy `stats.bin`. Older payloads start
+with a zero fractional part. Saves write only version 6; older snapshots stay
+on the card for older firmware. Reset removes all supported versioned snapshots
+and their slot files to avoid restoring old history. This stats-only change
+does not invalidate EPUB layout caches.
+
 ## `stats_v5.bin`
 
 ### Version 5
@@ -776,6 +823,29 @@ Binary layout:
 - `[69-72]` `estimatedTimeLeftSeconds` (`uint32_t` LE, `0` means unavailable)
 
 ## `section.bin`
+
+### Version 107
+
+Complete caches use `107`; suspended partial caches use `0xE5`, and `0xE6` and `0xE7`
+join the retired sentinels (106/`0xE6` is GIF image support). The header and existing lookup-table offsets are
+unchanged. After the visible-text offset table, a second `uint32_t[pageCount]`
+table stores normalized reference-text character offsets at each page start,
+followed by a `uint32_t` total normalized text length (zero while partial). The
+partial parse-watermark trailer follows these new fields. Both cache types
+rebuild automatically.
+
+All section builders record these coordinates, including sleep-page rebuilds
+that skip location metadata. The in-memory page index grows from 12 to 16 bytes
+per page, in fallible 1 KiB chunks; active text buffers also retain the parser's
+existing optional four-byte reference offset per buffered word.
+
+These coordinates let book time-left use the stable-page manifest's text units
+without relying on a provisional chapter page count. Character-based manifests
+work during incremental indexing. Older word-based manifests use the complete
+section's text length to map character positions to fractional word progress;
+they retain the screen-page fallback while that length is unknown. Stable pace
+is learned in memory from three accepted forward reads per session and remains
+valid through font/layout changes; the persisted screen-page pace is separate.
 
 ### Version 105
 
@@ -1469,6 +1539,57 @@ the card to the host. Manage Fonts performs a full rescan; alternatively remove
 this cache to force reinspection after external same-length font changes.
 
 EPUB layout cache versions and identities are unchanged by this catalog.
+
+## Server reading streak
+
+`/.crossdink/server_streak_<source>.bin` caches the combined Sync Server
+calendar. `<source>` is the MD5 of the server base URL, a newline, and the sync
+username; no password is stored. The version 1 payload is 99 bytes: version
+(`uint8_t`), anchor day since 2000-01-01 (`uint32_t`), 92 history bytes (bit N is
+anchor minus N days, LSB first), and longest streak (`uint16_t`). The shared
+`SyncFiles` writer appends CRC32 for a total of 103 bytes, publishes through
+`.tmp`, and retains `.bak` for interruption/corruption recovery.
+
+This is a replaceable server snapshot, downloaded (`GET /api/v1/stats/streak?tz=`)
+after each successful stats upload when Reading Stats sync is on. Streak
+displays combine it with local history for the matching account. It is never
+merged into the global stats file, uploaded as device history, or exported
+through Nearby. Existing stats/cache versions stay unchanged.
+
+## Reading session outbox
+
+Measured reading sessions for the Sync Server, alongside the existing book/global
+counters and daily history; no existing stats file or EPUB cache format changes.
+Each continuous tracking session keeps a random 128-bit ID and its active
+seconds. Nothing is written while paging: the record reaches the SD when the
+reader commits its stats (book close, stats tracking turned off, the restart
+checkpoint, book stats reset) or when a pause ends the session and the next
+accepted page interval starts a new one. A sudden power loss loses the live
+session, as it does the other unsaved reader stats. Idle page intervals and
+intervals with an unavailable or corrected clock never enter a session.
+
+`/.crossdink/reading_sessions/<32-lowercase-hex-id>.bin` uses SyncFiles atomic
+writes, CRC validation, and `.tmp`/`.bak` recovery. Fields are written separately
+in little-endian order, without struct padding:
+
+| Field | Bytes |
+|---|---:|
+| Format version (1) | 1 |
+| Session ID, ASCII hex without terminator | 32 |
+| Document ID, ASCII hex without terminator | 32 |
+| UTC start timestamp, seconds | 8 |
+| UTC end timestamp, seconds | 8 |
+| Active reading seconds | 4 |
+| Signed UTC offset, minutes | 2 |
+| CRC32 over preceding bytes | 4 |
+
+Uploads run after the global stats upload, with the same credentials and
+privacy switches, one `PUT /api/v1/stats/sessions` per record. A record is
+deleted (with its recovery copies) only after the reply lists its ID in
+`accepted_session_ids`. A server without the endpoint leaves the outbox intact
+and does not mark the older stats endpoints unsupported. Unreadable records,
+failed uploads and records dated more than five minutes in the future (a clock
+corrected backwards) are retained. Sessions under ten seconds are not exported.
 
 ## OPDS server list
 
