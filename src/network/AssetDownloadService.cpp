@@ -8,6 +8,7 @@
 #include <Memory.h>
 #include <mbedtls/sha256.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -308,7 +309,7 @@ Result scan(AssetCatalog::Kind kind, const AssetCatalog::Entry& entry, Source& s
                                                                                    : Status::Different;
   return Result::Ok;
 }
-Result sourceCountCapacity(Workspace& work) {
+Result sourceCountCapacity(const Workspace& work) {
   const char* filename = std::strrchr(work.source.path, '/');
   if (!filename) return failure(Result::Invalid);
   ++filename;
@@ -353,9 +354,11 @@ bool cleanHttps(std::string_view value) {
   if (value.size() < 10 || value.size() >= MAX_URL || value.substr(0, 8) != "https://") return false;
   const size_t slash = value.find('/', 8);
   if (slash == std::string_view::npos || slash == 8) return false;
-  for (char c : value)
-    if (c <= 32 || static_cast<unsigned char>(c) >= 127 || c == '@' || c == '%' || c == '?' || c == '#' || c == '\\')
-      return false;
+  if (std::any_of(value.begin(), value.end(), [](char c) {
+        return c <= 32 || static_cast<unsigned char>(c) >= 127 || c == '@' || c == '%' || c == '?' || c == '#' ||
+               c == '\\';
+      }))
+    return false;
   if (value.substr(8, slash - 8).find(':') != std::string_view::npos) return false;
   const auto path = value.substr(slash);
   return path.find("//") == std::string_view::npos && path.find("/../") == std::string_view::npos &&
@@ -369,6 +372,7 @@ bool matches(std::string_view value, const char* prefix) {
          value.substr(0, allowed.size()) == allowed;
 }
 }  // namespace
+// cppcheck-suppress constParameterCallback ; HttpDownloader's allowUrl callback takes void*
 bool allowUrl(std::string_view url, void* context) {
   if (!context || !cleanHttps(url)) return false;
   const auto& endpoints = *static_cast<const Endpoints*>(context);
@@ -433,6 +437,7 @@ Result download(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry&
         if (callbacks.progress) callbacks.progress(callbacks.context, done, total);
       },
       nullptr, "", "", options);
+  // cppcheck-suppress knownConditionTrueFalse ; validate() writes it through options.validationContext
   if (work->validationResult != Result::Ok) return work->validationResult;
   if (downloaded == HttpDownloader::OK) return Result::Ok;
   return failure(downloaded == HttpDownloader::ABORTED      ? Result::Cancelled
