@@ -589,6 +589,12 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
 
     const uint8_t fieldDefault = this->*(info.valuePtr);
     uint8_t value = doc[info.key] | fieldDefault;
+    // CrossPoint stores normal spacing as 100%; CrossDink stores it as level 0.
+    // Keep native levels intact, including files at the legacy path.
+    if (importingCrossPoint && info.valuePtr == &CrossPointSettings::wordSpacing && value == 100) {
+      value = 0;
+      needsResave = true;
+    }
     if (strcmp(info.key, "sdFontSizeRange") == 0 && value == SD_FONT_RANGE_NO_EMOJI_LEGACY) {
       value = SD_FONT_RANGE_ALL;
       needsResave = true;
