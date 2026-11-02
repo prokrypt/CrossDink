@@ -527,6 +527,7 @@ void GoodiesActivity::showLevel(const Level next) {
   tokenShownUntil = 0;
   entries.clear();
   powerTestRow = -1;
+  powerOffRow = -1;
   if (level == Level::Root) {
     // ">" (as in Settings) marks a row that opens another menu or page.
     entries.push_back({tr(STR_DISPLAY_TEST), -1, {}, ">"});
@@ -548,6 +549,8 @@ void GoodiesActivity::showLevel(const Level next) {
     }
     powerTestRow = static_cast<int>(entries.size());
     entries.push_back({"Power Test", -1, {}, ">"});
+    powerOffRow = static_cast<int>(entries.size());
+    entries.push_back({"Power Off", -1, {}});
     // SD modules (goodies/goody.h): /debug/goodies/*.wasm, sorted by name.
     appendSdEntries(GOODY_MODULE_DIR, ".wasm");
 #endif
@@ -663,6 +666,16 @@ void GoodiesActivity::activate(const int index) {
       showLevel(Level::PinMon);
     } else if (index == powerTestRow) {
       showLevel(Level::PowerTests);
+    } else if (index == powerOffRow) {
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, "Power off?", ""),
+                             [this](const ActivityResult& result) {
+                               mappedInput.suppressNextConfirmRelease();
+                               if (result.isCancelled) {
+                                 requestUpdate();
+                                 return;
+                               }
+                               enterDeepSleep(false, true);  // does not return
+                             });
 #ifndef SIMULATOR
     } else if (!entries[index].path.empty()) {
       startActivityForResult(

@@ -61,7 +61,8 @@ inline bool isPowerButtonActionAvailableOutsideReader(const CrossPointSettings::
   }
 }
 
-void enterDeepSleep(bool fromTimeout = false);
+// powerOff: Goodies > Power Off, see HalPowerManager::startDeepSleep().
+void enterDeepSleep(bool fromTimeout = false, bool powerOff = false);
 // Writes every held store (HeldWrites: settings, state, recent books) and
 // knobs.json. Sleep, non-silent restarts, firmware flashing, USB Drive / File
 // Transfer entry, low battery and the remote FLUSH command call it.
