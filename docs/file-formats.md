@@ -1494,6 +1494,22 @@ this cache to force reinspection after external same-length font changes.
 
 EPUB layout cache versions and identities are unchanged by this catalog.
 
+## Server reading streak
+
+`/.crossdink/server_streak_<source>.bin` caches the combined Sync Server
+calendar. `<source>` is the MD5 of the server base URL, a newline, and the sync
+username; no password is stored. The version 1 payload is 99 bytes: version
+(`uint8_t`), anchor day since 2000-01-01 (`uint32_t`), 92 history bytes (bit N is
+anchor minus N days, LSB first), and longest streak (`uint16_t`). The shared
+`SyncFiles` writer appends CRC32 for a total of 103 bytes, publishes through
+`.tmp`, and retains `.bak` for interruption/corruption recovery.
+
+This is a replaceable server snapshot, downloaded (`GET /api/v1/stats/streak?tz=`)
+after each successful stats upload when Reading Stats sync is on. Streak
+displays combine it with local history for the matching account. It is never
+merged into the global stats file, uploaded as device history, or exported
+through Nearby. Existing stats/cache versions stay unchanged.
+
 ## Reading session outbox
 
 Measured reading sessions for the Sync Server, alongside the existing book/global
