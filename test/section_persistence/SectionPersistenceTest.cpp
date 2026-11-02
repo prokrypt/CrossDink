@@ -22,8 +22,12 @@
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 105;
-constexpr uint8_t kPartialVersion = 0xE7;
+constexpr uint8_t kFullVersion = 107;
+constexpr uint8_t kPartialVersion = 0xE5;
+constexpr uint8_t kGifFullVersion = 106;
+constexpr uint8_t kGifPartialVersion = 0xE6;
+constexpr uint8_t kPreReferenceFullVersion = 105;
+constexpr uint8_t kPreReferencePartialVersion = 0xE7;
 constexpr uint8_t kPreSdFontRoundingFullVersion = 104;
 constexpr uint8_t kPreSdFontRoundingPartialVersion = 0xE8;
 constexpr uint8_t kPreNestedBlockFullVersion = 103;
@@ -80,8 +84,8 @@ struct SectionHarness {
       ASSERT_EQ(section.build_->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
       const uint32_t offset = section.onPageComplete(std::make_unique<Page>());
       ASSERT_NE(offset, 0U);
-      section.build_->pageIndex.appendPrepared(
-          {offset, static_cast<uint16_t>(i * 3U), static_cast<uint16_t>(i * 5U), static_cast<uint32_t>(i * 17U)});
+      section.build_->pageIndex.appendPrepared({offset, static_cast<uint16_t>(i * 3U), static_cast<uint16_t>(i * 5U),
+                                                static_cast<uint32_t>(i * 17U), static_cast<uint32_t>(i * 13U)});
     }
   }
 
@@ -144,7 +148,8 @@ TEST_F(SectionPersistenceTest, PartialCommitFiltersFutureAnchorsAndFallsBackBeyo
   for (size_t i = 0; i < 10; ++i) {
     ASSERT_EQ(replay->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
     replay->pageIndex.appendPrepared({static_cast<uint32_t>(1000 + i), static_cast<uint16_t>(i * 3U),
-                                      static_cast<uint16_t>(i * 5U), static_cast<uint32_t>(i * 17U)});
+                                      static_cast<uint16_t>(i * 5U), static_cast<uint32_t>(i * 17U),
+                                      static_cast<uint32_t>(i * 13U)});
   }
   reopened.build_ = std::move(replay);
   reopened.builtPageCount_ = 10;
@@ -175,12 +180,26 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion :
-       {kPreSdFontRoundingFullVersion, kPreSdFontRoundingPartialVersion, kPreNestedBlockFullVersion,
-        kPreNestedBlockPartialVersion, kPreDashWrapFullVersion, kPreDashWrapPartialVersion, kPublisherFontsFullVersion,
-        kPublisherFontsPartialVersion, kFieldsetFullVersion, kFieldsetPartialVersion, kPreFieldsetFullVersion,
-        kPreFieldsetPartialVersion, kPreviousFullVersion, kPreviousPartialVersion, kOlderFullVersion,
-        kOlderPartialVersion}) {
+  for (const uint8_t staleVersion : {kGifFullVersion,
+                                     kGifPartialVersion,
+                                     kPreReferenceFullVersion,
+                                     kPreReferencePartialVersion,
+                                     kPreSdFontRoundingFullVersion,
+                                     kPreSdFontRoundingPartialVersion,
+                                     kPreNestedBlockFullVersion,
+                                     kPreNestedBlockPartialVersion,
+                                     kPreDashWrapFullVersion,
+                                     kPreDashWrapPartialVersion,
+                                     kPublisherFontsFullVersion,
+                                     kPublisherFontsPartialVersion,
+                                     kFieldsetFullVersion,
+                                     kFieldsetPartialVersion,
+                                     kPreFieldsetFullVersion,
+                                     kPreFieldsetPartialVersion,
+                                     kPreviousFullVersion,
+                                     kPreviousPartialVersion,
+                                     kOlderFullVersion,
+                                     kOlderPartialVersion}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);
@@ -383,4 +402,25 @@ TEST_F(SectionPersistenceTest, ContentsSelectsLatestSubchapterAcrossAnchorBatche
   EXPECT_EQ(h.section.getTocIndexForPage(65), 65);
   EXPECT_EQ(h.section.getTocIndexForPage(0), 0);
   EXPECT_EQ(h.section.getTocIndexForPage(100), 69);
+}
+
+TEST_F(SectionPersistenceTest, ReferenceCoordinatesSurviveCompletePartialAndLiveReplay) {
+  for (const uint8_t version : {kFullVersion, kPartialVersion}) {
+    Storage.reset();
+    SectionHarness harness;
+    harness.begin();
+    harness.appendPages(65);
+    harness.section.build_->parser->referenceTextOffset = 1000;
+    uint32_t textLength = 0;
+    EXPECT_EQ(harness.section.getReferenceTextOffsetForPage(64, textLength), 64U * 13U);
+    EXPECT_EQ(textLength, 0U);
+    ASSERT_TRUE(harness.commit(version, 100, 200));
+    harness.finishSuccessfulCommit();
+    Section reopened(harness.epub, 0, harness.renderer);
+    ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+    EXPECT_EQ(reopened.getReferenceTextOffsetForPage(64, textLength), 64U * 13U);
+    EXPECT_EQ(textLength, version == kFullVersion ? 1000U : 0U);
+    EXPECT_FALSE(reopened.getReferenceTextOffsetForPage(65, textLength));
+    EXPECT_EQ(reopened.getVisibleTextOffsetForPage(64), 64U * 17U);
+  }
 }

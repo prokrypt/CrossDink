@@ -435,6 +435,7 @@ class ChapterHtmlSlimParser {
 
   ~ChapterHtmlSlimParser();
   uint32_t getVisibleTextLength() const { return visibleTextOffset; }
+  uint32_t getReferenceTextLength() const { return referenceTextOffset; }
   bool parseAndBuildPages();
   // Parse from an overlapped inflate instead of the file (non-preview builds
   // without SD card font prewarm). Set before beginParse().

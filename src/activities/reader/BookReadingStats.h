@@ -5,13 +5,14 @@
 
 #include "ReadingStatsUtils.h"
 
-// Per-book reading statistics, persisted to cachePath/stats_v5.bin.
+// Per-book reading statistics, persisted to cachePath/stats_v6.bin.
 struct BookReadingStats {
   uint16_t sessionCount = 0;              // Total times this book was opened
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
   uint32_t totalPagesTurned = 0;          // Total forward page turns after the dwell threshold
   bool isCompleted = false;               // Whether the user manually marked this book as finished
   uint16_t avgSecondsPerForwardPage = 0;  // Running average pace for time-left estimates
+  uint16_t paceFractionMillis = 0;        // Millisecond remainder beyond avgSecondsPerForwardPage (0..999)
   uint16_t paceSampleCount = 0;           // Number of forward-page pace samples included in the average
   uint32_t estimatedTimeLeftSeconds = 0;  // Last live reader book time-left estimate; 0 means unavailable
   bool startDateManual = false;           // Permanent user override for the reading start date
@@ -21,22 +22,24 @@ struct BookReadingStats {
   std::array<uint32_t, READING_TIME_BUCKET_COUNT> timeOfDaySeconds{};
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
 
-  // Loads stats from the newest valid slot of cachePath/stats_v5.bin, with fallback reads from the
-  // previous versioned filename and legacy cachePath/stats.bin. Returns
+  // Loads stats from the newest valid slot of cachePath/stats_v6.bin, with fallback reads from the
+  // supported older versioned filenames and legacy cachePath/stats.bin. Returns
   // default-constructed stats if no compatible file exists.
   static BookReadingStats load(const std::string& cachePath);
 
   // Checked export: false for missing, malformed, or unsupported snapshots.
   static bool loadForUpload(const std::string& cachePath, BookReadingStats& stats);
 
-  // Saves stats in place to the older of the two slots stats_v5.bin and
-  // stats_v5.bin.bak (TwoSlotFile.h). Returns false if the write failed.
+  // Saves stats in place to the older of the two slots stats_v6.bin and
+  // stats_v6.bin.bak (TwoSlotFile.h). Returns false if the write failed.
   bool save(const std::string& cachePath) const;
 
-  // Deletes cachePath/stats_v5.bin, its transaction files, the previous
-  // versioned filename, and legacy cachePath/stats.bin. Missing files are
-  // treated as success.
+  // Deletes all supported versioned snapshots and their slot/transaction files,
+  // and legacy cachePath/stats.bin. Missing files are treated as success.
   static bool remove(const std::string& cachePath);
+
+  uint32_t averageForwardPageMillis() const;
+  void setAverageForwardPageMillis(uint32_t millis);
 
   // Updates the running reading pace with one forward page dwell sample.
   void recordForwardPageRead(uint32_t seconds);
