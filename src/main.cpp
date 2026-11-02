@@ -1769,7 +1769,13 @@ static void runBootTail(const bool sleeping = false) {
   if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
-  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
+  if (bootTailDictionary && !sleeping) {
+    Dictionary::isValidDictionary();
+    // Folder walks on the worker core at the background priority, so a slow
+    // card never holds input or a page turn (HalStorage serializes SD access).
+    static WorkerTask imageIndexTask;
+    imageIndexTask.start([](void*) { ImageFolderIndex::dropStaleIndexes(); }, nullptr, 4096, "ImgIdx");
+  }
   bootTailDictionary = false;
 }
 
@@ -2513,7 +2519,7 @@ void setup() {
   bootTailRoute = wakeupRouteName(wakeupReason);
   BatteryLog::onBoot();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
-  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
+  I18N.begin(SETTINGS.languageCode, SETTINGS.languageCacheGeneration);
   // Normal boot store deferral adapted from Sichroteph/YACP commit
   // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT). Accessors load these
   // stores when Home, reader bookkeeping, or sync actually need them.

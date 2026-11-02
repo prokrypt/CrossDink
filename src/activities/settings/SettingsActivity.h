@@ -2,6 +2,7 @@
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
 #include <I18n.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <atomic>
@@ -284,6 +285,9 @@ class SettingsActivity final : public Activity {
   SettingAction parentSubmenu = SettingAction::None;
 
   OptionPopup optionPopup;
+  HeapObject<I18n::Catalog> languageCatalog;  // Borrowed by the Language popup; cold path only.
+  I18n::Option pendingLanguage;
+  bool languageSelectionPending = false;
 #if CROSSDINK_SCALABLE_FONTS
   std::vector<std::string> filenameFontNames;
   char pendingFilenameFont[64] = {};
@@ -325,6 +329,7 @@ class SettingsActivity final : public Activity {
   void openGhostBustersPicker();
   void openCharacterSpacingPicker();
   void openLanguagePicker();
+  void applyLanguage(const I18n::Option& selected);
   void openFilenameFontPicker();
   void openIdleTimeThresholdPicker();
   void toggleCurrentSetting();

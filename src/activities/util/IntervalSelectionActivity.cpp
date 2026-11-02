@@ -485,7 +485,7 @@ void IntervalSelectionActivity::loop() {
   // tap feel ignored while the controller settles its release event.
   if (mappedInput.hasTouch() && mappedInput.wasScreenTouchDown(tx, ty)) {
     const auto actions = touchActionLayout(touchScreen);
-    const int touchedAction = TouchActionButtons::indexAt(actions, tx, ty);
+    const int touchedAction = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
     if (touchedAction == 0) {
       // This activity closes on touch-down, so keep its matching release from
       // activating a settings row or gesture after the parent resumes.

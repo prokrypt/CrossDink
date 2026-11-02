@@ -1146,7 +1146,7 @@ void WifiSelectionActivity::loop() {
       int tx = 0;
       int ty = 0;
       if (mappedInput.wasSelectionTouchDown(tx, ty)) {
-        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty);
+        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
         if (touchedOption >= 0 && savePromptSelection != touchedOption) {
           savePromptSelection = touchedOption;
           requestUpdate();
@@ -1154,7 +1154,7 @@ void WifiSelectionActivity::loop() {
         return;
       }
       if (mappedInput.wasScreenTapped(tx, ty)) {
-        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty);
+        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
         if (touchedOption < 0) return;
         savePromptSelection = touchedOption;
         if (touchedOption == 0) {
