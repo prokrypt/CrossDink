@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #if CROSSDINK_SCALABLE_FONTS
@@ -40,6 +41,7 @@
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderOptionsActivity.h"
 #include "activities/reader/ReaderUtils.h"
+#include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/SideButtonShortcuts.h"
 #include "activities/settings/QuickActionsActivity.h"
 #include "components/ReaderBookSummary.h"
@@ -54,12 +56,191 @@ extern MappedInputManager mappedInputManager;
 
 // Use a detached reader so these boundary checks cannot race its render task.
 struct EpubReaderCompletionSmokeTest {
+  static bool readingPace(EpubReaderActivity& reader) {
+    for (const uint32_t sample : {20U, 40U}) {
+      reader.stats.setAverageForwardPageMillis(30000);
+      reader.stats.paceSampleCount = 100;
+      reader.sessionStartPaceMillis = 30000;
+      reader.sessionStartPaceSampleCount = 100;
+      reader.sessionPaceSampleSeconds = 0;
+      reader.sessionPaceSampleCount = 0;
+      reader.paceSampleWarmupPending = true;
+      reader.recordForwardPagePaceSample(sample, "pace_smoke_warmup");
+      reader.recordForwardPagePaceSample(1, "pace_smoke_fast");
+      reader.recordForwardPagePaceSample(SETTINGS.getReadingIdleTimeThresholdSeconds() + 1, "pace_smoke_idle");
+      if (reader.sessionPaceSampleCount != 0 || reader.stats.paceSampleCount != 100) return false;
+      for (uint16_t count = 1; count <= 12; ++count) {
+        reader.recordForwardPagePaceSample(sample, "pace_smoke");
+        const uint32_t expected = count < 10 ? 30000 + (static_cast<int>(sample) - 30) * 100 * count : sample * 1000;
+        float seconds = 0;
+        const char* source = nullptr;
+        uint16_t samples = 0;
+        if (!reader.getTimeLeftPaceSeconds(seconds, source, samples) || samples != count ||
+            static_cast<uint32_t>(seconds * 1000.0f + 0.5f) != expected ||
+            reader.stats.averageForwardPageMillis() != expected)
+          return false;
+      }
+    }
+    reader.resetReadingPaceData();
+    float seconds = 0;
+    const char* source = nullptr;
+    uint16_t samples = 0;
+    if (reader.stats.averageForwardPageMillis() != 0 || reader.getTimeLeftPaceSeconds(seconds, source, samples))
+      return false;
+    reader.recordForwardPagePaceSample(30, "pace_smoke_reset_warmup");
+    for (int i = 0; i < 3; ++i) reader.recordForwardPagePaceSample(30, "pace_smoke_reset_sample");
+    if (!reader.getTimeLeftPaceSeconds(seconds, source, samples) || seconds != 30.0f) return false;
+    reader.recordForwardPagePaceSample(28, "pace_smoke_fraction");
+    if (!reader.getTimeLeftPaceSeconds(seconds, source, samples) || seconds != 29.5f ||
+        reader.stats.averageForwardPageMillis() != 29500)
+      return false;
+    LOG_INF("SMOKE", "EPUB reading pace: filters, gradual handover, persisted pace and reset passed");
+    return true;
+  }
   static bool run(EpubReaderActivity& active) {
     auto reader = std::make_unique<EpubReaderActivity>(renderer, mappedInputManager, nullptr,
                                                        EpubReaderActivity::BookReaderSettingsData{}, 1);
+    if (!readingPace(*reader)) return false;
     reader->epub = active.epub;
     const int spineCount = reader->epub->getSpineItemsCount();
     if (spineCount <= 0) return false;
+
+    if (reader->epub->hasStablePageNumbers()) {
+      reader->section = std::make_unique<Section>(reader->epub, 0, renderer, "_eta_smoke");
+      const auto spec = SETTINGS.readerRenderSpec(160, 200, EpubRenderMode::CrossDinkDefault);
+      if (!reader->section->startBuild(spec)) return false;
+      while (reader->section->pageCount < 5 && !reader->section->isBuildComplete()) {
+        if (!reader->section->buildSomeMore(1)) return false;
+      }
+      if (!reader->section->isBuilding() || reader->section->pageCount < 5) return false;
+      reader->section->currentPage = 0;
+      reader->statsTrackingActive = false;
+      reader->refreshStableTextProgress();
+      if (!reader->hasStableTextPosition) return false;
+      // An established book estimate survives a new session's text-pace warmup,
+      // even before this incremental chapter supplies a usable page density.
+      reader->lastBookTimeLeftSeconds = 1800;
+      uint32_t retained = 0;
+      if (!reader->estimateTimeLeftSeconds(true, retained) || retained != 1800) return false;
+      char retainedLabel[24] = {};
+      char expectedLabel[24] = {};
+      formatCompactReadingDuration(1800, expectedLabel, sizeof(expectedLabel));
+      if (!reader->formatTimeLeftLabel(retainedLabel, sizeof(retainedLabel), true) ||
+          std::strcmp(retainedLabel, expectedLabel))
+        return false;
+      reader->refreshCachedTimeLeftEstimate();
+      if (reader->stats.estimatedTimeLeftSeconds != 1800) return false;
+      const double start = reader->stableTextPosition;
+      reader->paceSampleWarmupPending = false;
+      for (int page = 1; page <= 3; ++page) {
+        reader->pageShownAtMs = millis() - 10000UL;
+        reader->pageTurn(true, "stable_eta_smoke");
+        if (reader->pendingStableReadSeconds != 10 || reader->section->currentPage != page) return false;
+        reader->refreshStableTextProgress();
+        if (page < 3 && (!reader->estimateTimeLeftSeconds(true, retained) || retained != 1800)) return false;
+      }
+      uint32_t actual = 0;
+      const double distance = reader->stableTextPosition - start;
+      if (distance <= 0) return false;
+      const uint32_t expected =
+          static_cast<uint32_t>((reader->stableTextTotal - reader->stableTextPosition) * 30.0 / distance + 0.5);
+      if (!reader->estimateTimeLeftSeconds(true, actual) || actual != expected) return false;
+      reader->section->suspendBuild();
+      reader->refreshStableTextProgress();
+      uint32_t suspended = 0;
+      if (!reader->hasStableTextPosition || !reader->estimateTimeLeftSeconds(true, suspended) || suspended != actual)
+        return false;
+      reader->section.reset();
+      reader->hasStableTextPosition = false;
+      if (!reader->estimateTimeLeftSeconds(true, retained) || retained != actual) return false;
+      reader->refreshCachedTimeLeftEstimate();
+      if (reader->stats.estimatedTimeLeftSeconds != actual) return false;
+      if (reader->estimateTimeLeftSeconds(false, retained)) return false;  // Never use book ETA as chapter ETA.
+      reader->resetReadingPaceData();
+      if (reader->estimateTimeLeftSeconds(true, retained)) return false;
+      reader->stableReadingPace = {};
+      reader->statsTrackingActive = true;
+      if (!readingPace(*reader)) return false;
+      LOG_INF("SMOKE",
+              "Stable book ETA: retained warmup, fresh handover, missing chapter, saved fallback and reset passed");
+    }
+
+    // Exercise the real ETA path with a chapter count that changes 40 -> 100
+    // between its first two pages. Established book density must survive both
+    // the chapter switch and refresh; historical time cannot override measured pace.
+    if (spineCount > 1) {
+      reader->section = std::make_unique<Section>(reader->epub, 0, renderer);
+      const uint32_t bytes = reader->epub->getCumulativeSpineItemSize(0);
+      if (bytes == 0) return false;
+      reader->bookPageEstimate.observe(spineCount, bytes, 100, 100, 32, true);
+      reader->section->pageCount = 40;
+      reader->section->currentPage = 0;
+      reader->refreshBookPageEstimate();
+      uint32_t first = 0;
+      if (!reader->estimateTimeLeftSeconds(true, first)) return false;
+      // Without a retained value, usable page pace bridges text-pace warmup.
+      reader->lastBookTimeLeftSeconds = 0;
+      reader->hasStableTextPosition = true;
+      reader->stableTextSpine = reader->currentSpineIndex;
+      reader->stableTextPage = reader->section->currentPage;
+      reader->stableTextTotal = 200000;
+      reader->stableTextPosition = 100000;
+      uint32_t provisional = 0;
+      if (!reader->estimateTimeLeftSeconds(true, provisional) || provisional != first) return false;
+      reader->hasStableTextPosition = false;
+      reader->section->pageCount = 100;
+      reader->section->currentPage = 1;
+      reader->refreshBookPageEstimate();
+      uint32_t second = 0;
+      if (!reader->estimateTimeLeftSeconds(true, second) || second > first || first - second > 31) return false;
+      char label[24] = {};
+      if (!reader->formatTimeLeftLabel(label, sizeof(label), true) || !label[0]) return false;
+      // Stable distance and pace must override both chapter estimates and
+      // accumulated historical time (which may include rereading).
+      reader->hasStableTextPosition = true;
+      reader->stableTextSpine = reader->currentSpineIndex;
+      reader->stableTextPage = reader->section->currentPage;
+      reader->stableTextTotal = 200000;
+      reader->stableTextPosition = 100000;
+      reader->stableReadingPace.record(30, 1000);
+      reader->stableReadingPace.record(30, 1000);
+      reader->stableReadingPace.record(30, 1000);
+      reader->stats.totalReadingSeconds = 100000;
+      uint32_t stableSeconds = 0;
+      if (!reader->estimateTimeLeftSeconds(true, stableSeconds) || stableSeconds != 3000) return false;
+      reader->section->pageCount = 400;
+      reader->refreshBookPageEstimate();
+      uint32_t revisedSeconds = 0;
+      if (!reader->estimateTimeLeftSeconds(true, revisedSeconds) || revisedSeconds != stableSeconds) return false;
+      reader->stableTextPosition += 1000;
+      reader->stableReadingPace.record(30, 1000);
+      if (!reader->estimateTimeLeftSeconds(true, revisedSeconds) || revisedSeconds != 2970) return false;
+      reader->hasStableTextPosition = false;
+      // Once the final section is indexed, its known remaining pages take
+      // precedence even when there is no session density to extrapolate from.
+      reader->statsTrackingActive = false;
+      reader->currentSpineIndex = spineCount - 1;
+      reader->bookPageEstimate = {};
+      reader->section->pageCount = 3;
+      reader->section->currentPage = 2;
+      uint32_t finalSeconds = 0;
+      if (!reader->estimateTimeLeftSeconds(true, finalSeconds) || finalSeconds != 30) return false;
+      reader->statsTrackingActive = true;
+      reader->stats.totalReadingSeconds = 0;
+      reader->currentSpineIndex = 0;
+      reader->prepareCurrentSectionForRelayout();
+      if (reader->bookPageEstimate.pagesPerByte() != 0) return false;
+      reader->section.reset();
+      // Deleting book stats must clear both display fallback and text pace.
+      reader->resetCurrentBookStatsAfterDelete();
+      uint32_t deletedSeconds = 0;
+      if (reader->estimateTimeLeftSeconds(true, deletedSeconds) ||
+          reader->stableReadingPace.estimate(1000, deletedSeconds))
+        return false;
+      reader->pendingRelayoutReposition = false;
+      reader->nextPageNumber = 0;
+      LOG_INF("SMOKE", "Book time-left: chapter opening, revised count, stable pace, final page and relayout passed");
+    }
 
     // Both shortcut entry points must tolerate a chapter that has not loaded yet.
     for (const auto action :

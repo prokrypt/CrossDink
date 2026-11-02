@@ -134,7 +134,7 @@ and merge upstream CrossInk often.
 - Global reading stats: `global_stats_dink.bin` and `.bak` (two slots; legacy `global_stats.bin` is read until the first save).
 - `library.idx`, plus the `bookmarks/` and `clippings/` folders.
 - One cache folder per book:
-  - EPUB: `epub_<fnv64>/`, with `book.bin`, `sections/*.bin`, `progress.bin` (A/B slots), `stats_v5.bin`, `reader_settings.bin`, covers and thumbnails, and `path.txt`.
+  - EPUB: `epub_<fnv64>/`, with `book.bin`, `sections/*.bin`, `progress.bin` (A/B slots), `stats_v6.bin`, `reader_settings.bin`, covers and thumbnails, and `path.txt`.
   - Other formats: `xtc_<hash>/` and `txt_<hash>/`, still keyed by path.
 
 ## Web portal, tests, tooling

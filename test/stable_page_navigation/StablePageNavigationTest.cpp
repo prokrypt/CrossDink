@@ -149,3 +149,22 @@ TEST(SpineSizeLookup, LargeBookNeedsOnlyLogarithmicSdLookups) {
     EXPECT_LE(reads, 15);
   }
 }
+
+TEST(StablePageNavigation, TextProgressUsesSourceCharactersEvenWhileSectionTotalIsUnknown) {
+  double progress = 0;
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(10000, 20000, 100000, 250, 0, true, progress));
+  EXPECT_DOUBLE_EQ(progress, 10250);
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(10000, 20000, 100000, 1250, 0, true, progress));
+  EXPECT_DOUBLE_EQ(progress, 11250);
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(10000, 20000, 100000, UINT32_MAX, 0, true, progress));
+  EXPECT_DOUBLE_EQ(progress, 30000);
+}
+
+TEST(StablePageNavigation, LegacyWordProgressRequiresKnownTextLengthAndPreservesFractions) {
+  double progress = 0;
+  EXPECT_FALSE(EpubNavigation::resolveReferenceTextProgress(100, 1000, 5000, 1, 0, false, progress));
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(100, 1000, 5000, 1, 4000, false, progress));
+  EXPECT_DOUBLE_EQ(progress, 100.25);
+  EXPECT_FALSE(EpubNavigation::resolveReferenceTextProgress(UINT32_MAX, 1000, 5000, 1, 4000, false, progress));
+  EXPECT_FALSE(EpubNavigation::resolveReferenceTextProgress(100, UINT32_MAX, 5000, 1, 4000, false, progress));
+}

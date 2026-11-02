@@ -1,20 +1,63 @@
 #include "TextSelectionOverlay.h"
 #if CROSSDINK_APP_CAP_TOUCH
 #include <FreeInkUIGfxRenderer.h>
+#include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 
 #include <algorithm>
+#include <iterator>
 
 #include "UIScale.h"
 #include "UITheme.h"
+#include "icons/selectionIcons.h"
 
 namespace TextSelectionOverlay {
 namespace fui = freeink::ui;
 namespace {
+// Device pixels. The hit size keeps handles at roughly 7 mm on current panels.
+constexpr int kStemWidth = 3;
+constexpr int kDotSize = 16;
+constexpr int kHandleHitSize = 60;
+constexpr int kBarMinHeight = 56;
+constexpr int kBarPaddingY = 10;
+constexpr int kSegmentMinWidth = 116;
+constexpr int kSegmentPaddingX = 16;
+constexpr int kIconSize = 24;
+constexpr int kIconGap = 8;
+constexpr int kBorderWidth = 2;
+constexpr int kRadius = 4;
+constexpr int kDividerInset = 10;
+constexpr int kPointerHalfWidth = 12;
+constexpr int kPointerHeight = 12;
+// Inner white triangle inset; keeps the pointer outline about as thick as the border.
+constexpr int kPointerInsetX = 4;
+constexpr int kPointerInsetTip = 5;
+constexpr int kSelectionGap = 6;
+
 const char* label(int index) {
   static constexpr StrId labels[] = {StrId::STR_LOOKUP_SHORT, StrId::STR_CLIP};
   return I18n::getInstance().get(labels[index]);
+}
+
+const freeink::Icon& icon(int index) {
+  return index == lookupAction ? icon_selection_lookup_24 : icon_selection_clip_24;
+}
+
+Rect makeRect(int x, int y, int width, int height) {
+  return {static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(std::max(0, width)),
+          static_cast<int16_t>(std::max(0, height))};
+}
+
+Rect clipTo(const Rect rect, const Rect bounds) {
+  const int x = std::max(rect.x, bounds.x), y = std::max(rect.y, bounds.y);
+  return makeRect(x, y, std::min(rect.right(), bounds.right()) - x, std::min(rect.bottom(), bounds.bottom()) - y);
+}
+
+int centerX(const Rect rect) { return rect.x + rect.width / 2; }
+
+bool overlaps(const Rect a, const Rect b) {
+  return !a.empty() && !b.empty() && a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
 }
 }  // namespace
 
@@ -28,50 +71,142 @@ Rect safeArea(const GfxRenderer& renderer) {
           static_cast<int16_t>(std::max(0, std::min(area.y + area.height, renderer.getScreenHeight() - bottom) - y))};
 }
 
-void placeActions(const GfxRenderer& renderer, Layout& layout, const int anchorX, const int textTop) {
-  const auto safe = safeArea(renderer);
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int font = uiScaleSpec().smallFontId;
-  const int padding = metrics.menuSpacing;
-  int labelWidth = 0;
-  for (int i = 0; i < actionCount; ++i) labelWidth = std::max(labelWidth, renderer.getTextWidth(font, label(i)));
-  const int width = std::min<int>(safe.width, actionCount * (labelWidth + padding * 2) + padding * (actionCount + 1));
-  const int buttonWidth = std::max(1, (width - padding * (actionCount + 1)) / actionCount);
-  const int lines = labelWidth > buttonWidth - padding * 2 ? 2 : 1;
-  const int height = std::max(36, renderer.getLineHeight(font) * lines + padding * 2);
-  const int x = std::clamp(anchorX - padding, static_cast<int>(safe.x), safe.right() - width);
-  const int top = safe.y + std::max(metrics.topPadding, metrics.verticalSpacing);
-  int y = std::clamp(textTop - height - padding * 2 - metrics.verticalSpacing, top,
-                     std::max(top, safe.bottom() - height - padding * 2));
-  // Clamping an above-text toolbar at the top edge can cover the handles.
-  // Move below them when that happens, keeping both endpoints reachable.
-  const auto overlaps = [&](const Rect rect) {
-    return !rect.empty() && rect.x < x + width && rect.right() > x && rect.y < y + padding + height &&
-           rect.bottom() > y + padding;
-  };
-  if (overlaps(layout.startHandle) || overlaps(layout.endHandle)) {
-    const int below = std::max(layout.startHandle.bottom(), layout.endHandle.bottom()) + metrics.verticalSpacing;
-    int firstBottom = safe.bottom();
-    for (const auto box : {layout.startHandle, layout.endHandle}) {
-      if (!box.empty()) firstBottom = std::min<int>(firstBottom, box.bottom());
-    }
-    const int buttonY = below + height <= safe.bottom() ? below : firstBottom + metrics.verticalSpacing;
-    y = std::clamp(buttonY - padding, top, std::max(top, safe.bottom() - height - padding));
-  }
-  for (int i = 0; i < actionCount; ++i) {
-    layout.actions[i] = {static_cast<int16_t>(x + padding + i * (buttonWidth + padding)),
-                         static_cast<int16_t>(y + padding), static_cast<int16_t>(buttonWidth),
-                         static_cast<int16_t>(height)};
-  }
+Handle handle(const Rect safe, const Rect word, const bool onLeft, const bool isStart) {
+  Handle result;
+  if (word.empty() || safe.width < kDotSize || safe.height < kDotSize) return result;
+  const int stemX = std::clamp(onLeft ? word.x - kStemWidth : static_cast<int>(word.right()), static_cast<int>(safe.x),
+                               safe.right() - kStemWidth);
+  const int stemTop = std::clamp(word.y - 2, static_cast<int>(safe.y), safe.bottom() - 1);
+  const int stemBottom = std::clamp(word.bottom() + 2, stemTop + 1, static_cast<int>(safe.bottom()));
+  result.stem = makeRect(stemX, stemTop, kStemWidth, stemBottom - stemTop);
+
+  const int middleX = stemX + kStemWidth / 2;
+  const int dotX = std::clamp(middleX - kDotSize / 2, static_cast<int>(safe.x), safe.right() - kDotSize);
+  const int dotY =
+      std::clamp(isStart ? stemTop - kDotSize + 1 : stemBottom - 1, static_cast<int>(safe.y), safe.bottom() - kDotSize);
+  result.dot = makeRect(dotX, dotY, kDotSize, kDotSize);
+
+  // Split the touch area at the word's middle so a one-word selection's start
+  // and end handles never overlap.
+  const int wordMiddle = word.y + word.height / 2;
+  const int dotMiddle = dotY + kDotSize / 2;
+  const int hitTop = isStart ? std::min(dotMiddle - kHandleHitSize / 2, dotY) : wordMiddle;
+  const int hitBottom = isStart ? wordMiddle : std::max(dotMiddle + kHandleHitSize / 2, dotY + kDotSize);
+  result.hit = clipTo(makeRect(middleX - kHandleHitSize / 2, hitTop, kHandleHitSize, hitBottom - hitTop), safe);
+  return result;
 }
 
-Rect handle(const Rect safe, const Rect word, const bool left) {
-  const int size = std::min<int>(std::min(safe.width, safe.height),
-                                 std::max(24, UITheme::getInstance().getMetrics().verticalSpacing * 2));
-  const int edge = left ? word.x : word.right();
-  return {static_cast<int16_t>(std::clamp(edge - (left ? size : 0), static_cast<int>(safe.x), safe.right() - size)),
-          static_cast<int16_t>(std::clamp<int>(word.bottom(), static_cast<int>(safe.y), safe.bottom() - size)),
-          static_cast<int16_t>(size), static_cast<int16_t>(size)};
+void placeActions(const GfxRenderer& renderer, Layout& layout, Rect firstWord, Rect lastWord,
+                  const bool lookupAvailable) {
+  std::fill(std::begin(layout.actions), std::end(layout.actions), Rect{});
+  layout.bar = {};
+  layout.showPointer = false;
+  layout.showIcons = true;
+  const auto safe = safeArea(renderer);
+  if (safe.empty()) return;
+  if (firstWord.empty()) firstWord = lastWord;
+  if (lastWord.empty()) lastWord = firstWord;
+
+  const int font = uiScaleSpec().bodyFontId;
+  const bool visible[actionCount] = {lookupAvailable, true};
+  int widths[actionCount] = {};
+  int total = 0;
+  for (int i = 0; i < actionCount; ++i) {
+    if (!visible[i]) continue;
+    const int labelWidth = renderer.getTextWidth(font, label(i), EpdFontFamily::BOLD);
+    widths[i] = std::max(kSegmentMinWidth, kSegmentPaddingX * 2 + kIconSize + kIconGap + labelWidth);
+    total += widths[i];
+  }
+  // Long translations shrink the segments evenly and wrap to two lines.
+  int lines = 1;
+  if (total > safe.width) {
+    std::transform(std::begin(widths), std::end(widths), std::begin(widths),
+                   [&](const int width) { return width * safe.width / total; });
+    total = safe.width;
+    lines = 2;
+    // The SDK centers icon + label on one line, so a wrapped label drops its icon.
+    layout.showIcons = false;
+  }
+  const int barWidth = total;
+  const int barHeight =
+      std::min<int>(safe.height, std::max(kBarMinHeight, renderer.getLineHeight(font) * lines + kBarPaddingY * 2));
+
+  // Visual extent of the selection, including the handle dots.
+  int selectionTop = firstWord.empty() ? safe.y : firstWord.y;
+  int selectionBottom = lastWord.empty() ? safe.y : lastWord.bottom();
+  if (!layout.start.empty()) selectionTop = std::min<int>(selectionTop, layout.start.dot.y);
+  if (!layout.end.empty()) selectionBottom = std::max<int>(selectionBottom, layout.end.dot.bottom());
+
+  const int reach = kSelectionGap + kPointerHeight;
+  const int aboveY = selectionTop - reach - barHeight;
+  const int belowY = selectionBottom + reach;
+  const auto clampX = [&](const int x) { return std::clamp(x, static_cast<int>(safe.x), safe.right() - barWidth); };
+  int barY = 0;
+  int anchorX = firstWord.empty() ? centerX(safe) : centerX(firstWord);
+  int barX = clampX(anchorX - barWidth / 2);
+  if (aboveY >= safe.y) {
+    barY = aboveY;
+    layout.showPointer = !firstWord.empty();
+    layout.pointerUp = false;
+  } else if (belowY + barHeight <= safe.bottom()) {
+    barY = belowY;
+    anchorX = lastWord.empty() ? anchorX : centerX(lastWord);
+    barX = clampX(anchorX - barWidth / 2);
+    layout.showPointer = !lastWord.empty();
+    layout.pointerUp = true;
+  } else {
+    // The selection fills the page: the bar has to cover some of it. Prefer the
+    // edge that covers less, but never hide a drag handle, which would turn a
+    // handle press into a toolbar tap.
+    const auto covered = [&](const int y) {
+      return std::max(0, std::min(y + barHeight, selectionBottom) - std::max(y, selectionTop));
+    };
+    const auto hidesHandle = [&](const int x, const int y) {
+      const auto bar = makeRect(x, y, barWidth, barHeight);
+      const auto grips = {&layout.start, &layout.end};
+      return std::any_of(grips.begin(), grips.end(),
+                         [&](const Handle* grip) { return overlaps(bar, grip->dot) || overlaps(bar, grip->stem); });
+    };
+    const auto clampY = [&](const int y) { return std::clamp(y, static_cast<int>(safe.y), safe.bottom() - barHeight); };
+    // Screen edges first; then just inside the first or last selected line,
+    // for when both handles sit mid-screen and nothing beside them fits.
+    int rows[] = {safe.y, safe.bottom() - barHeight, clampY(layout.start.stem.bottom() + kSelectionGap),
+                  clampY(layout.end.stem.y - kSelectionGap - barHeight)};
+    if (covered(rows[1]) < covered(rows[0])) std::swap(rows[0], rows[1]);
+    barY = rows[0];
+    bool placed = false;
+    for (const int y : rows) {
+      const int candidates[] = {barX,
+                                clampX(layout.start.hit.right()),
+                                clampX(layout.start.hit.x - barWidth),
+                                clampX(layout.end.hit.right()),
+                                clampX(layout.end.hit.x - barWidth),
+                                clampX(layout.start.dot.right() + kSelectionGap),
+                                clampX(layout.start.dot.x - kSelectionGap - barWidth),
+                                clampX(layout.end.dot.right() + kSelectionGap),
+                                clampX(layout.end.dot.x - kSelectionGap - barWidth)};
+      for (const int x : candidates) {
+        if (hidesHandle(x, y)) continue;
+        barX = x;
+        barY = y;
+        placed = true;
+        break;
+      }
+      if (placed) break;
+    }
+  }
+
+  layout.bar = makeRect(barX, barY, barWidth, barHeight);
+  const int pointerMargin = kRadius + kBorderWidth + kPointerHalfWidth;
+  layout.pointerX = static_cast<int16_t>(
+      barWidth > pointerMargin * 2 ? std::clamp(anchorX, barX + pointerMargin, barX + barWidth - pointerMargin)
+                                   : barX + barWidth / 2);
+  int x = barX;
+  for (int i = 0; i < actionCount; ++i) {
+    if (!visible[i]) continue;
+    layout.actions[i] = makeRect(x, barY, widths[i], barHeight);
+    x += widths[i];
+  }
 }
 
 int actionAt(const Layout& layout, const int x, const int y) {
@@ -81,32 +216,61 @@ int actionAt(const Layout& layout, const int x, const int y) {
   return -1;
 }
 
-void draw(const GfxRenderer& renderer, const Layout& layout, const bool showActions, const bool lookupEnabled) {
+void draw(const GfxRenderer& renderer, const Layout& layout, const bool showActions) {
   const auto spec = uiScaleSpec();
   // Fixed-capacity SDK frame: no retained widget tree or framebuffer allocation.
   fui::GfxRendererFrame<actionCount> ui(renderer, spec.smallFontId, spec.bodyFontId, spec.titleFontId);
-  const auto drawHandle = [&](Rect rect, bool left) {
-    if (rect.empty()) return;
-    const uint8_t corners = fui::CornersAll & ~(left ? fui::CornerTopRight : fui::CornerTopLeft);
-    ui.target.fill(rect, fui::Paint::solid(fui::Color::Black), rect.width / 2, corners);
-  };
-  drawHandle(layout.startHandle, layout.startOnLeft);
-  drawHandle(layout.endHandle, layout.endOnLeft);
-  if (!showActions) return;
-  const int actionRadius =
-      SETTINGS.uiTheme == CrossPointSettings::LYRA ? 3 : UITheme::getInstance().getMetrics().optionPopupSelectionRadius;
+  const auto black = fui::Paint::solid(fui::Color::Black);
+  const auto white = fui::Paint::solid(fui::Color::White);
+  for (const auto* grip : {&layout.start, &layout.end}) {
+    if (grip->empty()) continue;
+    ui.target.fill(grip->stem, black);
+    ui.target.fill(grip->dot, black, kDotSize / 2);
+  }
+  if (!showActions || layout.bar.empty()) return;
+
+  const auto& bar = layout.bar;
+  ui.target.fill(bar, white, kRadius);
+  ui.target.stroke(bar, black, kBorderWidth, kRadius);
+  if (layout.showPointer) {
+    // The outline triangle starts inside the border; the white inner triangle
+    // then erases that stretch of border so the outline runs unbroken.
+    const int direction = layout.pointerUp ? -1 : 1;
+    const int baseY = (layout.pointerUp ? bar.y : bar.bottom()) - direction * kBorderWidth;
+    const int tipY = (layout.pointerUp ? bar.y : bar.bottom()) + direction * kPointerHeight;
+    const int px = layout.pointerX;
+    const auto point = [](const int x, const int y) {
+      return fui::Point{static_cast<int16_t>(x), static_cast<int16_t>(y)};
+    };
+    ui.target.triangle(point(px - kPointerHalfWidth, baseY), point(px + kPointerHalfWidth, baseY), point(px, tipY),
+                       black);
+    ui.target.triangle(point(px - kPointerHalfWidth + kPointerInsetX, baseY),
+                       point(px + kPointerHalfWidth - kPointerInsetX, baseY),
+                       point(px, tipY - direction * kPointerInsetTip), white);
+  }
+
+  bool first = true;
   for (int i = 0; i < actionCount; ++i) {
+    const auto& rect = layout.actions[i];
+    if (rect.empty()) continue;
+    if (!first) {
+      ui.target.fill(
+          makeRect(rect.x - kBorderWidth / 2, rect.y + kDividerInset, kBorderWidth, rect.height - kDividerInset * 2),
+          black);
+    }
+    first = false;
     fui::ButtonProps props;
     props.label = label(i);
-    props.text.font = fui::GfxRendererTarget::FONT_SMALL;
+    if (layout.showIcons) props.icon = fui::bitmapFromIcon(icon(i));
+    props.gap = kIconGap;
+    props.text.font = fui::GfxRendererTarget::FONT_BODY;
+    props.text.bold = true;
     props.text.maxLines = 2;
-    props.styles = fui::outlinedButtonStyles(actionRadius);
-    props.styles.disabled = props.styles.normal;
-    props.styles.disabled.foreground = fui::Paint::dither(fui::Color::LightGray);
-    props.enabled = i != 0 || lookupEnabled;
+    props.styles = fui::plainStyles(black);
+    props.padding = {kBorderWidth, kSegmentPaddingX / 2, kBorderWidth, kSegmentPaddingX / 2};
     // Use the same exact bounds for painting and hit testing, as upstream does.
     props.minTouchSize = 0;
-    fui::button(ui.frame, layout.actions[i], props);
+    fui::button(ui.frame, rect, props);
   }
 }
 }  // namespace TextSelectionOverlay
