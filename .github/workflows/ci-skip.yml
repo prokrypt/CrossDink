@@ -1,0 +1,18 @@
+name: CI (build)
+
+# Docs-only PRs skip ci.yml (its paths-ignore), so a required "Test Status" check would never
+# report and the PR could not merge. This reports it green for exactly those paths; a PR that
+# also touches code runs the real one too.
+on:
+  pull_request:
+    paths: ["**.md", "docs/**", "site/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  test-status:
+    name: Test Status
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "docs-only change, no build needed"

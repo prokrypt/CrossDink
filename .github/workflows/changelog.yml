@@ -1,8 +1,9 @@
 name: Changelog
 
 # PRs: every PR brings a changelog.d/ fragment (or edits CHANGELOG.md, or says "No changelog").
-# main: fold the fragments into CHANGELOG.md and commit them away. The bot push uses GITHUB_TOKEN,
-# which starts no workflow run, and leaves no fragment behind, so it cannot loop.
+# main: fold the fragments into CHANGELOG.md and commit them away. The push uses the
+# CHANGELOG_DEPLOY_KEY secret (a write deploy key listed as a bypass actor of the main ruleset)
+# when set, else GITHUB_TOKEN; "[skip ci]" and the empty fragment dir keep it from looping.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
@@ -44,6 +45,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: main  # the tip, not the event sha: an earlier assemble commit may already be there
+          ssh-key: ${{ secrets.CHANGELOG_DEPLOY_KEY }}  # empty = GITHUB_TOKEN
       - name: Assemble
         run: python3 scripts/changelog_assemble.py
       - name: Commit
@@ -51,5 +53,5 @@ jobs:
           git add -A changelog.d CHANGELOG.md
           git diff --cached --quiet && { echo "nothing to assemble"; exit 0; }
           git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
-            commit -m "chore: assemble changelog"
+            commit -m "chore: assemble changelog [skip ci]"
           git push origin HEAD:main

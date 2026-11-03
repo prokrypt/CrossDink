@@ -16,3 +16,6 @@ them and commits `chore: assemble changelog`. The PR check fails when a PR touch
 `changelog.d/` nor `CHANGELOG.md` unless its body contains `No changelog`.
 
 `python3 scripts/changelog_assemble.py --check` validates the fragments without writing.
+
+The workflow pushes to main with the `CHANGELOG_DEPLOY_KEY` secret (a deploy key with write access, listed as a
+bypass actor in the main branch ruleset) so required status checks on main do not reject it.
