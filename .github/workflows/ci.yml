@@ -5,9 +5,9 @@ on:
     # Combine branches build so their firmware can be downloaded from the run.
     branches: [main, "test/combined-dink-*"]
     paths-ignore: ["**.md", "docs/**", "site/**"]
+  # Every PR, so the Test Status check the main ruleset requires always reports;
+  # the `changes` job skips the code jobs when the diff is docs-only.
   pull_request:
-    # A docs-only change skips the whole run; any other file in the diff runs it.
-    paths-ignore: ["**.md", "docs/**", "site/**"]
 
 # A newer commit supersedes older PR validation; keep main pushes independent.
 concurrency:
@@ -18,7 +18,29 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # A push always counts as code; a PR counts when any changed file is not .md, docs/ or site/.
+        run: |
+          if [ -z "$BASE_SHA" ] || git diff --name-only --merge-base "$BASE_SHA" "$HEAD_SHA" | grep -vE '\.md$|^docs/|^site/' | grep -q .; then
+            echo code=true >> "$GITHUB_OUTPUT"
+          else
+            echo "docs-only change, code jobs skipped"; echo code=false >> "$GITHUB_OUTPUT"
+          fi
+
   clang-format:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -43,6 +65,8 @@ jobs:
           git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
 
   cppcheck:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -106,6 +130,8 @@ jobs:
     # The simulator mocks every HAL class, so a HAL change without a matching
     # stub in prokrypt/crossdink-simulator breaks it. Build the X4 Pro profile
     # and walk the app flows headless so that shows up here.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -142,6 +168,8 @@ jobs:
     # in the dedicated release workflow. Pushes build too, only to save the
     # caches: PR runs can restore caches from the base branch, not from other PRs,
     # and never save their own (see "Save PlatformIO packages" in cppcheck).
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -275,6 +303,8 @@ jobs:
           retention-days: 14
 
   unit-tests:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
