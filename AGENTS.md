@@ -195,7 +195,7 @@ SDK.
 
 ## Changelog
 
-When new features are added or issues are fixed, make sure to add an entry to `CHANGELOG.md` with the user-facing description of the change. Types of changes should have their own section.
+When new features are added or issues are fixed, add a fragment `changelog.d/<topic>.md` (first line `Added:`, `Changed:`, `Deprecated:`, `Removed:`, `Fixed:` or `Security:`, then the user-facing description; see `changelog.d/README.md`) instead of editing `CHANGELOG.md`. The `Changelog` workflow folds fragments into the Unreleased section of `CHANGELOG.md` on every merge to main; a PR without a fragment fails that check unless its body says `No changelog`. Types of changes have their own section.
 
 ### Changelog Guiding Principles
 
