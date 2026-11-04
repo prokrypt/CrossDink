@@ -302,6 +302,88 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload x4-pro-debug flash parts for the emulator
+        if: matrix.environment == 'x4-pro-debug'
+        uses: actions/upload-artifact@v7
+        with:
+          name: emu-x4-pro-debug
+          path: |
+            .pio/build/x4-pro-debug/bootloader.bin
+            .pio/build/x4-pro-debug/partitions.bin
+            .pio/build/x4-pro-debug/firmware.bin
+          if-no-files-found: error
+          retention-days: 3
+
+  emu:
+    # x4-pro-debug boots in the x4prosim emulator; test/emu/run.sh walks the screens and
+    # diffs them with test/emu/goldens. Not in Test Status yet: required once it has
+    # stayed green for a while.
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      X4PROSIM_SHA: 55c23be3400da697521207eebcf9ccca4b81a0b2  # x4prosim with sim.py + shotdiff.py
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download x4-pro-debug build
+        uses: actions/download-artifact@v8
+        with:
+          name: emu-x4-pro-debug
+          path: fw
+
+      - name: Install emulator deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build libglib2.0-dev libpixman-1-dev libgcrypt20-dev libslirp-dev dosfstools mtools
+          pip install -q --break-system-packages esptool pillow
+
+      - name: Restore x4prosim
+        id: sim-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: x4prosim/install
+          key: x4prosim-${{ runner.os }}-${{ env.X4PROSIM_SHA }}
+
+      - name: Build x4prosim
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git init -q x4prosim && cd x4prosim
+          git fetch -q --depth 1 https://github.com/prokrypt/x4prosim "$X4PROSIM_SHA"
+          git checkout -q FETCH_HEAD
+          mkdir build && cd build
+          ../configure --target-list=xtensa-softmmu --enable-gcrypt --enable-slirp --disable-sdl \
+            --disable-user --disable-capstone --disable-vnc --disable-gtk --disable-docs \
+            --prefix="$PWD/../install" --bindir=bin --datadir=share/qemu --with-suffix="" > /dev/null
+          ninja install > /dev/null
+          # only the ESP ROMs are needed, as in x4prosim's release archives
+          find ../install/share/qemu -maxdepth 1 -mindepth 1 -not -name 'esp*.bin' -exec rm -rf {} +
+          cp -R ../x4prosim ../install/
+
+      - name: Save x4prosim
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: x4prosim/install
+          key: ${{ steps.sim-cache.outputs.cache-primary-key }}
+
+      - name: Boot and compare screens
+        run: test/emu/run.sh fw x4prosim/install emu-out
+
+      - name: Upload emulator output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emu-x4-pro-debug-out
+          path: |
+            emu-out/run/*.png
+            emu-out/run/log.txt
+            emu-out/run/qemu.err
+            emu-out/guest.log
+            emu-out/steps.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+
   unit-tests:
     needs: changes
     if: needs.changes.outputs.code == 'true'
