@@ -257,6 +257,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Sleeping from the image viewer no longer replaces the sleep image with a blank screen a moment after it appears.
 - Flash Duck now also dims the frontlight for refreshes the app runs while it waits on them, such as the white screen when you leave the image viewer; before, those flashed at full brightness. Leaving the image viewer dims once for both of its refreshes instead of coming back up in between, and the first gray (anti-aliased) page or image after a wake no longer dims about 0.6 s before it flashes.
 - Serial and Wi-Fi remote `CMD:SLEEP` (debug builds) now puts the device to sleep the way the power key does. It used to draw the sleep screen and stay awake, with the main loop ticking every 10 ms.
+- The Home cover tile and menu span the full screen width again instead of being inset by the screen calibration; the top and bottom calibration still apply.
 
 ### Added
 
