@@ -124,3 +124,28 @@ TEST_F(SyncFilesTest, RecoveringFromTheBackupKeepsItUntilTheNewFileIsInPlace) {
   ASSERT_TRUE(readValue(value, text));
   EXPECT_EQ(value, 3u);
 }
+
+TEST_F(SyncFilesTest, FailedReplacementOfCorruptMainRetainsReadableBackup) {
+  ASSERT_TRUE(writeValue(1, "kept"));
+  ASSERT_TRUE(writeValue(2, "damaged"));
+  (*Storage.bytes(PATH))[2] ^= 0xff;
+  Storage.failNextRenameFrom(std::string(PATH) + ".tmp");
+  EXPECT_FALSE(writeValue(3, "replacement"));
+  uint32_t value = 0;
+  std::string text;
+  ASSERT_TRUE(readValue(value, text));
+  EXPECT_EQ(text, "kept");
+  ASSERT_TRUE(writeValue(3, "replacement"));
+  ASSERT_TRUE(readValue(value, text));
+  EXPECT_EQ(text, "replacement");
+}
+
+TEST(SyncFilesParseHex, ParsesExactlyThirtyTwoHexDigits) {
+  uint8_t id[16];
+  ASSERT_TRUE(SyncFiles::parseHex("00112233445566778899aabbccddeeFF", id));
+  EXPECT_EQ(id[0], 0x00);
+  EXPECT_EQ(id[10], 0xaa);
+  EXPECT_EQ(id[15], 0xff);
+  EXPECT_FALSE(SyncFiles::parseHex("00112233445566778899aabbccddee", id));
+  EXPECT_FALSE(SyncFiles::parseHex("zz112233445566778899aabbccddeeff", id));
+}

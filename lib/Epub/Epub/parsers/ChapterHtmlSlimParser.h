@@ -6,6 +6,7 @@
 
 #include <array>
 #include <climits>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <string>
@@ -276,8 +277,9 @@ class ChapterHtmlSlimParser {
   std::vector<CssAncestorEntry> ancestorStack_;
 
   // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
+  // Grow anchors in small chunks instead of reallocating one chapter-sized block (#4040).
   int completedPageCount = 0;
-  std::vector<std::pair<std::string, uint16_t>> anchorData;
+  std::deque<std::pair<std::string, uint16_t>> anchorData;
   std::string pendingAnchorId;  // deferred until after previous text block is flushed
   bool pendingAnchorFromInlineA = false;
   std::vector<std::string> tocAnchors;  // the list of anchors that are TOC chapter boundaries
@@ -433,6 +435,7 @@ class ChapterHtmlSlimParser {
 
   ~ChapterHtmlSlimParser();
   uint32_t getVisibleTextLength() const { return visibleTextOffset; }
+  uint32_t getReferenceTextLength() const { return referenceTextOffset; }
   bool parseAndBuildPages();
   // Parse from an overlapped inflate instead of the file (non-preview builds
   // without SD card font prewarm). Set before beginParse().
@@ -451,7 +454,7 @@ class ChapterHtmlSlimParser {
   void releaseInputFile();
 
   void addLineToPage(std::shared_ptr<TextBlock> line, uint32_t visibleOffset, uint32_t referenceOffset);
-  const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
+  const std::deque<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool wasLowMemoryFallbackTriggered() const { return lowMemoryImageFallback; }
   bool wasLowMemoryAbortTriggered() const { return lowMemoryAbort; }
 

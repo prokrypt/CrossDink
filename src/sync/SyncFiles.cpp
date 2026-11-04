@@ -3,9 +3,20 @@
 #include <Logging.h>
 #include <uzlib.h>
 
+#include <cstdio>
 #include <cstring>
 
 namespace SyncFiles {
+bool parseHex(const std::string& hex, uint8_t (&out)[16]) {
+  if (hex.size() != 32) return false;
+  for (size_t i = 0; i < 16; ++i) {
+    unsigned value = 0;
+    if (std::sscanf(hex.c_str() + i * 2, "%2x", &value) != 1) return false;
+    out[i] = static_cast<uint8_t>(value);
+  }
+  return true;
+}
+
 uint32_t crc(const void* data, const size_t length, const uint32_t running) {
   return uzlib_crc32(data, static_cast<unsigned int>(length), running);
 }
@@ -64,6 +75,16 @@ bool Writer::commit(const bool trailingChecksum) {
   // recovering from the backup) the backup is kept, and a crash before the
   // final rename leaves a complete .tmp that Reader::open() also accepts.
   const std::string backupPath = path + ".bak";
+  if (trailingChecksum && Storage.exists(path.c_str()) && Storage.exists(backupPath.c_str())) {
+    Reader reader(path.c_str());
+    const auto source = reader.open();
+    reader.close();
+    // A corrupt primary must never displace the backup we recovered from.
+    if (source == Reader::Source::Backup && !Storage.remove(path.c_str())) {
+      LOG_ERR("SYNC", "Cannot remove corrupt primary: %s", path.c_str());
+      return false;
+    }
+  }
   if (!Storage.exists(path.c_str())) {
     if (Storage.rename(tmpPath.c_str(), path.c_str())) return true;
     LOG_ERR("SYNC", "Cannot place %s", path.c_str());

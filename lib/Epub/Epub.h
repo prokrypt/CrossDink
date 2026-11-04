@@ -1,4 +1,5 @@
 #pragma once
+#include <ContentProtection.h>
 #include <Memory.h>
 #include <Print.h>
 
@@ -25,6 +26,9 @@ class Epub {
   bool loadSyncMetadata(SyncMetadata& metadata);
 
  private:
+  mutable std::unique_ptr<freeink::content::ContentDecryptor> decryptor;
+  bool openProtection() const;
+  mutable std::string protectionError;
   // the ncx file (EPUB 2)
   std::string tocNcxItem;
   // the nav file (EPUB 3)
@@ -64,6 +68,9 @@ class Epub {
     None,
     OutOfMemory,
     InvalidOrUnreadable,
+    ProtectedUnavailable,
+    LoanExpired,
+    LoanClockUnavailable,
   };
 
   struct SourceChildRange {
@@ -203,6 +210,8 @@ class Epub {
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
                                 bool allowEarlyStop = false) const;
+  // Publisher-font access also reverses declared Adobe font obfuscation.
+  bool readFontContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
   // Stops early and fails, removing destPath, once *cancel turns true.
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096,
                          const std::atomic<bool>* cancel = nullptr) const;
@@ -228,8 +237,9 @@ class Epub {
   int getSpineIndexForTextReference() const;
 
   size_t getBookSize() const;
-  bool hasXLocations() const { return xLocationsLoaded; }
   bool hasStablePageNumbers() const;
+  bool resolveReferenceTextProgress(int spineIndex, uint32_t textOffset, uint32_t sectionTextLength,
+                                    double& completedUnits, double& totalUnits) const;
   uint32_t getReferencePageCount() const { return hasStablePageNumbers() ? totalReferencePages : 0; }
   float calculateSizeProgress(int currentSpineIndex, float currentSpineRead) const;
   float calculateProgress(int currentSpineIndex, float currentSpineRead) const;

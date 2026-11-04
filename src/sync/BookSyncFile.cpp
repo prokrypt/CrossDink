@@ -7,12 +7,10 @@
 #include <Logging.h>
 #include <Xtc.h>
 
-#include <cstdio>
 #include <cstring>
 
 #include "SyncFiles.h"
 #include "SyncIds.h"
-#include "SyncPending.h"
 #include "activities/reader/BookReadingStats.h"
 
 namespace {
@@ -21,29 +19,6 @@ constexpr uint8_t VERSION = 2;
 constexpr uint8_t VERSION_1 = 1;
 constexpr const char* FILE_NAME = "/sync.bin";
 
-bool parseHex(const std::string& hex, uint8_t (&out)[16]) {
-  if (hex.size() != 32) return false;
-  for (size_t i = 0; i < 16; ++i) {
-    unsigned value = 0;
-    if (std::sscanf(hex.c_str() + i * 2, "%2x", &value) != 1) return false;
-    out[i] = static_cast<uint8_t>(value);
-  }
-  return true;
-}
-
-std::string toHex(const uint8_t (&id)[16]) {
-  char hex[33];
-  for (size_t i = 0; i < 16; ++i) std::snprintf(hex + i * 2, 3, "%02x", id[i]);
-  return std::string(hex, 32);
-}
-
-bool bookSize(const std::string& bookPath, uint32_t& size) {
-  FsFile file;
-  if (!Storage.openFileForRead("SYNC", bookPath, file)) return false;
-  size = static_cast<uint32_t>(file.fileSize());
-  file.close();
-  return true;
-}
 }  // namespace
 
 std::string BookSyncFile::cachePathFor(const std::string& bookPath) {
@@ -99,23 +74,18 @@ std::string BookSyncFile::documentId(const std::string& bookPath) {
     // Filename matching hashes the name only: nothing to read or cache.
     id = KOReaderDocumentId::calculateFromFilename(bookPath);
   } else {
+    // An SD card can be edited outside CrossDink, even preserving size and timestamps.
     uint32_t size = 0;
-    const bool sized = bookSize(bookPath, size);
-    if (known && record.hasId && record.method == method && sized && record.fileSize == size) {
-      id = toHex(record.id);
-    } else {
-      id = KOReaderDocumentId::calculate(bookPath);
-      uint8_t fresh[16];
-      if (!id.empty() && sized && parseHex(id, fresh)) {
-        // A replaced file (new edition, same path) has a new id: the map must
-        // stop pointing the old document at it.
-        idChanged = !record.hasId || memcmp(record.id, fresh, sizeof(fresh)) != 0;
-        memcpy(record.id, fresh, sizeof(fresh));
-        record.hasId = true;
-        record.method = method;
-        record.fileSize = size;
-        changed = true;
-      }
+    id = KOReaderDocumentId::calculate(bookPath, &size);
+    uint8_t fresh[16];
+    if (!SyncFiles::parseHex(id, fresh)) return {};
+    idChanged = !known || !record.hasId || record.method != method || memcmp(record.id, fresh, sizeof(fresh)) != 0;
+    if (idChanged || record.fileSize != size) {
+      memcpy(record.id, fresh, sizeof(fresh));
+      record.hasId = true;
+      record.method = method;
+      record.fileSize = size;
+      changed = true;
     }
   }
   if (id.empty()) return id;
@@ -123,7 +93,8 @@ std::string BookSyncFile::documentId(const std::string& bookPath) {
   // Only the pull reads sync_ids.bin, and XTC has no position to pull. A
   // finished book is left out so the map stays close to books being read.
   uint8_t raw[16];
-  if (FsHelpers::hasEpubExtension(bookPath) && parseHex(id, raw) && !BookReadingStats::load(cachePath).isCompleted) {
+  if (FsHelpers::hasEpubExtension(bookPath) && SyncFiles::parseHex(id, raw) &&
+      !BookReadingStats::load(cachePath).isCompleted) {
     const uint32_t current = SyncIds::generation();
     if (!current || record.idsGeneration != current || idChanged) {
       record.idsGeneration = SyncIds::record(bookPath, raw);
@@ -168,42 +139,6 @@ void BookSyncFile::onRenamed(const std::string& oldPath, const std::string& newP
     return;
   }
   SyncIds::renamePath(oldPath, newPath);
-}
-
-void BookSyncFile::onDeleted(const std::string& bookPath) { SyncIds::removePath(bookPath); }
-
-bool BookSyncFile::onFileChanged(const std::string& bookPath) {
-  const std::string cachePath = cachePathFor(bookPath);
-  if (cachePath.empty() || !Storage.exists(cachePath.c_str())) return true;
-
-  BookSyncFile record;
-  if (read(cachePath, record)) {
-    record.hasId = false;
-    memset(record.id, 0, sizeof(record.id));
-    record.fileSize = 0;
-    record.idsGeneration = 0;
-    // Refresh both the main record and its backup so recovery cannot bring
-    // back the old file's id. Keep the catch-up and first-walk stamps intact.
-    if (!write(cachePath, record) || !write(cachePath, record)) return false;
-  } else {
-    const std::string path = cachePath + FILE_NAME;
-    if (Storage.exists(path.c_str()) || Storage.exists((path + ".bak").c_str()) ||
-        Storage.exists((path + ".tmp").c_str())) {
-      LOG_ERR("SYNC", "Cannot preserve unreadable book sync history: %s", bookPath.c_str());
-      return false;
-    }
-  }
-
-  // A deleted/reuploaded book may have lost its pending entry. Requeue its
-  // saved data under the fresh id, respecting the configured sync toggles.
-  const uint8_t pendingBits = FsHelpers::hasEpubExtension(bookPath)
-                                  ? SyncPending::PROGRESS_BIT | SyncPending::STATS_BIT | SyncPending::CLIPPINGS_BIT
-                                  : SyncPending::STATS_BIT;
-  if (!SyncIds::removePath(bookPath) || !SyncPending::mark(bookPath, pendingBits)) {
-    LOG_ERR("SYNC", "Cannot refresh book sync tracking: %s", bookPath.c_str());
-    return false;
-  }
-  return true;
 }
 
 void BookSyncFile::stampWalk(const std::string& bookPath, const uint32_t walkId) {

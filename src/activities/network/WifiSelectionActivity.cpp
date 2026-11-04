@@ -5,6 +5,7 @@
 #include <I18n.h>
 #include <Knobs.h>
 #include <Logging.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -1146,7 +1147,7 @@ void WifiSelectionActivity::loop() {
       int tx = 0;
       int ty = 0;
       if (mappedInput.wasSelectionTouchDown(tx, ty)) {
-        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty);
+        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
         if (touchedOption >= 0 && savePromptSelection != touchedOption) {
           savePromptSelection = touchedOption;
           requestUpdate();
@@ -1154,7 +1155,7 @@ void WifiSelectionActivity::loop() {
         return;
       }
       if (mappedInput.wasScreenTapped(tx, ty)) {
-        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty);
+        const int touchedOption = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
         if (touchedOption < 0) return;
         savePromptSelection = touchedOption;
         if (touchedOption == 0) {
@@ -1549,6 +1550,8 @@ void WifiSelectionActivity::onComplete(const bool connected) {
   ActivityResult result;
   result.isCancelled = !connected;
   if (connected) {
+    trustedtime::startSync();
+    trustedtime::note();
     result.data = WifiResult{true, selectedSSID, connectedIP};
   }
   setResult(std::move(result));

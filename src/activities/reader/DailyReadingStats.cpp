@@ -429,14 +429,9 @@ bool Session::accept(const ReadingStatsDateTime& end, uint8_t utcOffset, uint32_
     }
     pendingCount = retained;
   }
-  if (!seconds || !startTime.isValid() || !end.isValid() || offset != utcOffset || utcOffset > 104) return ok;
+  if (!isValidReadingStatsInterval(startTime, end, offset, utcOffset, seconds)) return ok;
   const uint64_t startSecond = uint64_t(readingStatsDayIndex(startTime.date)) * 86400 + startTime.hour * 3600u +
                                startTime.minute * 60u + startTime.second;
-  const uint64_t finish =
-      uint64_t(readingStatsDayIndex(end.date)) * 86400 + end.hour * 3600u + end.minute * 60u + end.second;
-  // Clock corrections and unavailable clocks must not manufacture dated time.
-  if (finish < startSecond || finish - startSecond + 2 < seconds || finish - startSecond > uint64_t(seconds) + 2)
-    return ok;
   uint64_t cursor = startSecond;
   uint32_t remaining = seconds;
   while (remaining) {
