@@ -961,7 +961,6 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   protectedImageUnits_ = 0;
   pageCount = partial_ ? partialPageCount_ : 0;
   buildComplete_ = false;
-  lastImagesWereSuppressed_ = false;
   lastLayoutAbortedForLowMemory_ = false;
 
   if (Storage.exists(tmpSectionPath.c_str())) {
@@ -1167,7 +1166,6 @@ bool Section::buildSomeMore(const int maxPages) {
   const uint32_t startUs = micros();
   for (;;) {
     const auto status = build_->parser->parseStep();
-    lastImagesWereSuppressed_ = lastImagesWereSuppressed_ || build_->parser->wasLowMemoryFallbackTriggered();
     lastLayoutAbortedForLowMemory_ = lastLayoutAbortedForLowMemory_ || build_->parser->wasLowMemoryAbortTriggered();
     if (build_->pageCompletionFailed || status == ChapterHtmlSlimParser::ParseStatus::Error) {
       LOG_ERR("SCT", "Failed during incremental section build");
@@ -1467,7 +1465,6 @@ bool Section::finalizeBuild() {
   }
 
   const bool success = build_->parser->finishParse();
-  lastImagesWereSuppressed_ = lastImagesWereSuppressed_ || build_->parser->wasLowMemoryFallbackTriggered();
   lastLayoutAbortedForLowMemory_ = lastLayoutAbortedForLowMemory_ || build_->parser->wasLowMemoryAbortTriggered();
   if (!success || build_->pageCompletionFailed) {
     LOG_ERR("SCT", "Failed to finalize parser output");

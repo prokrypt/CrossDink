@@ -823,10 +823,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   bool shortPowerPressWakes() const { return shortPwrBtn == SLEEP || shortPwrBtn == WAKE_ONLY; }
 
-  bool shouldShowClockInReader() const {
-    return topReaderStatusBar.contains(ReaderStatusBarItem::Clock) ||
-           bottomReaderStatusBar.contains(ReaderStatusBarItem::Clock);
-  }
   bool shouldShowClockOutsideReader() const { return showClockOutsideReader != 0; }
   bool shouldTrackReadingStats() const { return trackReadingStats != 0; }
   static const char* getDefaultDeviceName();
@@ -839,10 +835,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   SdFontIdResolver sdFontIdResolver = nullptr;
   void* sdFontResolverCtx = nullptr;
 
-  uint16_t getPowerButtonDuration() const { return getPowerButtonWakeDuration(); }
   uint16_t getPowerButtonLongPressDuration() const { return POWER_BUTTON_LONG_PRESS_MS; }
   static uint8_t getActiveReaderFontSizeCount();
-  static uint8_t getStoredReaderFontSize(FONT_SIZE size);
   static uint8_t getReaderFontPointSize(FONT_SIZE size);
   static uint8_t getSdFontRangePointSize(uint8_t range, uint8_t step);
   static bool isSdFontPointSizeAllowedForRange(uint8_t pointSize, uint8_t range);

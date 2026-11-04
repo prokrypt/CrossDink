@@ -92,11 +92,6 @@ struct SettingInfo {
   std::function<std::string()> stringGetter;
   std::function<void(const std::string&)> stringSetter;
 
-  SettingInfo& withObfuscated() {
-    obfuscated = true;
-    return *this;
-  }
-
   static SettingInfo Toggle(StrId nameId, uint8_t CrossPointSettings::* ptr, const char* key = nullptr,
                             StrId category = StrId::STR_NONE_OPT) {
     SettingInfo s;
