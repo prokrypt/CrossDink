@@ -2,6 +2,7 @@
 #include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
 #include <I18n.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <atomic>
@@ -25,6 +26,7 @@ enum class SettingAction {
   CustomiseStatusBar,
   KOReaderSync,
   OPDSBrowser,
+  Plugins,
   DisplaySleepScreen,
   DisplayFrontlight,
   ReaderFontOptions,
@@ -50,6 +52,7 @@ enum class SettingAction {
   CheckForUpdates,
   SdFirmwareUpdate,
   Language,
+  DownloadLanguages,
   FilenameFallbackFont,
   KeyboardLayouts,
   DownloadFonts,
@@ -284,6 +287,12 @@ class SettingsActivity final : public Activity {
   SettingAction parentSubmenu = SettingAction::None;
 
   OptionPopup optionPopup;
+  HeapObject<I18n::Catalog> languageCatalog;  // Borrowed by the Language popup; cold path only.
+  I18n::Option pendingLanguage;
+  bool languageSelectionPending = false;
+  bool pendingLanguageDownloads = false;       // Reopen the Download Languages list from loop().
+  bool pendingLanguageDownloadAction = false;  // A download row was picked; handle it from loop().
+  uint8_t languageDownloadRow = 0;             // Index into LANGUAGE_CODES of the picked row.
 #if CROSSDINK_SCALABLE_FONTS
   std::vector<std::string> filenameFontNames;
   char pendingFilenameFont[64] = {};
@@ -325,6 +334,11 @@ class SettingsActivity final : public Activity {
   void openGhostBustersPicker();
   void openCharacterSpacingPicker();
   void openLanguagePicker();
+  void applyLanguage(const I18n::Option& selected);
+  int languageSourceIndex(const char* code) const;
+  void openLanguageDownloads();
+  void selectLanguageDownload();
+  void startLanguageDownload();
   void openFilenameFontPicker();
   void openIdleTimeThresholdPicker();
   void toggleCurrentSetting();

@@ -5,6 +5,7 @@
 #include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <Memory.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #include <Xtc.h>
 
@@ -967,6 +968,8 @@ void StatsUploadActivity::uploadNext() {
     }
 #ifndef SIMULATOR
     halClock.syncSystemTimeFromNTP();
+    trustedtime::note();
+    trustedtime::startSync();
 #endif
     const auto result =
         KOREADER_STORE.getSyncStats() ? ReadingSyncUpload::globalStats() : StatsUploadClient::Result::Skipped;
@@ -1428,7 +1431,7 @@ void StatsUploadActivity::loop() {
       const auto area = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
       const auto layout =
           TouchActionButtons::vertical(Rect{area.x + 20, area.y + area.height - 80, area.width - 40, 56}, 1);
-      actionTapped = TouchActionButtons::indexAt(layout, x, y) == 0;
+      actionTapped = TouchActionButtons::indexAt(layout, x, y, TouchActionButtons::kDefaultGap / 2) == 0;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || actionTapped) {
       if (state == State::Done) {

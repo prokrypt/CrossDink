@@ -274,7 +274,6 @@ class GfxRenderer {
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
   const ScreenInsets& getViewableInsets() const { return viewableInsets; }
-  bool hasCustomViewableInsets() const { return viewableInsets != ScreenInsets{}; }
   void setViewableInsets(const ScreenInsets& insets) {
     if (insets.valid()) viewableInsets = insets;
   }

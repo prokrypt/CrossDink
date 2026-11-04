@@ -3,6 +3,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "CrossPointState.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -34,9 +36,9 @@ void AlertActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto contentWidth = pageWidth - 2 * metrics.contentSidePadding;
-  const auto x = metrics.contentSidePadding;
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int x = safe.x + metrics.contentSidePadding;
+  const int contentWidth = safe.width - 2 * metrics.contentSidePadding;
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
@@ -44,7 +46,8 @@ void AlertActivity::render(RenderLock&&) {
 
   int y = header.y + header.height + metrics.verticalSpacing;
 
-  auto bodyLines = renderer.wrappedText(UI_10_FONT_ID, body.c_str(), contentWidth, 10);
+  const int maxLines = std::max(0, std::min(10, (safe.y + safe.height - y) / lineHeight));
+  auto bodyLines = renderer.wrappedText(UI_10_FONT_ID, body.c_str(), contentWidth, maxLines);
   for (const auto& line : bodyLines) {
     renderer.drawText(UI_10_FONT_ID, x, y, line.c_str());
     y += lineHeight;
