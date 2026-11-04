@@ -474,6 +474,7 @@ void BmpViewerActivity::drawHints() const {
 void BmpViewerActivity::onExit() {
   Activity::onExit();
   recentImages.clear();
+  if (activityManager.isSleepScreenShown()) return;  // a blank frame here would replace the sleep image
   renderer.clearScreen();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }

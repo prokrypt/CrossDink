@@ -103,6 +103,8 @@ class ActivityManager {
   // is intentionally not persisted as recent-book order.
   std::string preferredHomeBookPath;
   bool returningHomeThroughSettings = false;
+  // True while goToSleep() exits the old activities under an already drawn sleep screen.
+  bool sleepScreenShown = false;
 
   // Task to render and display the activity
   TaskHandle_t renderTaskHandle = nullptr;
@@ -271,6 +273,8 @@ class ActivityManager {
   Activity* simulatorCurrentActivity() const { return currentActivity.get(); }
 #endif
   bool isCurrentActivity(const Activity* activity) const { return currentActivity.get() == activity; }
+  // onExit() must not draw: the sleep screen is already on the panel.
+  bool isSleepScreenShown() const { return sleepScreenShown; }
   bool canSnapshotForSleepOverlay() const;
   bool requestManualReaderRefresh();
   bool handleShortcutAction(CrossPointSettings::SHORT_PWRBTN action);
