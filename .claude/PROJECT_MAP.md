@@ -115,7 +115,7 @@ and merge upstream CrossInk often.
 | `Serialization/` | `PersistableStore` (writes `path.tmp`, keeps `path.bak` until the rename lands), `BufferedFile`, obfuscation |
 | `Memory/`, `MemoryBudget/` | `makeUniqueNoThrow`, `Arena`, `BuildScratch`, budgets |
 | `Logging/` | `LOG_*` including `[WRN]`, `PerfLog`, PSRAM ring log |
-| `I18n/` | `translations/*.yaml` (28 languages) produce generated keys and strings |
+| `I18n/` | `translations/*.yaml` (28 languages; English built in, the rest downloaded or read from SD) produce generated keys and strings |
 | Others | `ZipFile`, `miniz`, `uzlib`, `InflateReader`, `expat`, `XmlParserUtils`, `Utf8`, `MiniBidi`, `FsHelpers`, `FileIndex`, `DictHtmlRenderer`, `Jpeg/PngToBmpConverter`, `Knobs`, `AppVersion`, `HalClockSim` |
 
 ## Concurrency (FreeRTOS tasks)
