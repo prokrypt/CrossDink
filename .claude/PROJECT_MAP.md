@@ -145,9 +145,9 @@ and merge upstream CrossInk often.
 - Tests: 79 native CMake/CTest targets in `test/<name>/`. Run them with
   `cmake -S test -B build/test -G Ninja && cmake --build build/test && ctest --test-dir build/test`.
   The CI job installs `cmake ninja-build libexpat1-dev zlib1g-dev`. Smoke test: `scripts/run_simulator_smoke_test.py`.
-- CI (`.github/workflows/`): `ci.yml`, `release.yml`, `release_candidate.yml`, `release-fonts.yml`,
+- CI (`.github/workflows/`): `ci.yml`, `release.yml`, `release_candidate.yml`, `release-fonts.yml`, `changelog.yml`,
   `pages.yml` (builds the `site/` website and deploys `site/dist`; runs when `docs/` or `site/` change),
-  `upstream-ref-check.yml`, `issue-triage.yml`.
+  `upstream-ref-check.yml`, `publish-language-assets.yml`.
 - Post-build checks on every firmware build: `scripts/check_firmware_size.py` (size guard) and
   `scripts/check_app_touch_gate.py`, which fails a button-only build that still links touch symbols.
 - Docs to read before deeper work:
