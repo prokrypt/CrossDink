@@ -30,10 +30,12 @@
 #include <XteinkDetect.h>
 #endif
 #ifndef SIMULATOR
+#include <esp_flash.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_timer.h>
+#include <spi_flash_chip_driver.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -2326,6 +2328,18 @@ void setup() {
           CROSSDINK_PIOENV, BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart,
           resetReasonName(rawResetReason));
   PerfLog::logPreApp(rawResetReason == ESP_RST_POWERON);
+#ifndef SIMULATOR
+  // chip_id was read by esp_flash_init before the app started; no SPI traffic here.
+  {
+    static const char* const kFlashIo[] = {"slowrd", "fastrd", "dout", "dio", "qout", "qio"};
+    const esp_flash_t* flash = esp_flash_default_chip;
+    const unsigned io = flash ? flash->read_mode : 0;
+    LOG_INF("BOOT", "flash id=0x%06lx drv=%s io=%s size=%luMB", flash ? (unsigned long)flash->chip_id : 0UL,
+            flash && flash->chip_drv ? flash->chip_drv->name : "?",
+            io < sizeof(kFlashIo) / sizeof(kFlashIo[0]) ? kFlashIo[io] : "opi",
+            flash ? (unsigned long)(flash->size >> 20) : 0UL);
+  }
+#endif
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
