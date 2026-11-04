@@ -13,13 +13,23 @@ on:
       - scripts/generate_language_template.py
       - scripts/publish_language_assets.py
       - platformio.ini
+  # PRs build the catalog without pushing it, so a broken publish shows up before main.
+  pull_request:
+    paths:
+      - lib/I18n/translations/**
+      - lib/I18n/languages.json
+      - scripts/gen_i18n.py
+      - scripts/generate_language_template.py
+      - scripts/publish_language_assets.py
+      - platformio.ini
+      - .github/workflows/publish-language-assets.yml
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: language-assets
+  group: language-assets-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -43,6 +53,7 @@ jobs:
       - name: Build the catalog and snapshot
         run: python3 scripts/publish_language_assets.py --output assets-branch
       - name: Commit and push
+        if: github.event_name != 'pull_request'
         working-directory: assets-branch
         run: |
           git config user.name 'github-actions[bot]'
