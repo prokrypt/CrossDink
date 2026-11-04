@@ -70,7 +70,6 @@ class Section {
   };
   std::unique_ptr<BuildContext> build_;
   bool buildComplete_ = false;
-  bool lastImagesWereSuppressed_ = false;
   bool lastLayoutAbortedForLowMemory_ = false;
   uint16_t imageEstimateViewportHeight_ = 0;
   uint16_t imageEstimateViewportWidth_ = 0;
@@ -141,7 +140,6 @@ class Section {
   // One slice of the build's deferred font advance prewarm; false when none is left.
   bool prewarmSomeMore();
   void releaseBuildFile();
-  bool lastBuildImagesWereSuppressed() const { return lastImagesWereSuppressed_; }
   bool lastBuildLayoutAbortedForLowMemory() const { return lastLayoutAbortedForLowMemory_; }
   bool isBuilding() const { return static_cast<bool>(build_); }
   bool isBuildComplete() const { return buildComplete_; }
