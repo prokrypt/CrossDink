@@ -255,7 +255,6 @@ class EpubReaderDrawerActivity final : public Activity {
   void toggleSetting(RowId row);
   void adjustActiveSlider(int delta);
   void adjustButtonSlider(int direction);
-  void setActiveSliderPermille(int16_t permille);
   void appendKeypadDigit(char digit);
   void appendKeypadDecimalPoint();
   void backspaceKeypadEntry();

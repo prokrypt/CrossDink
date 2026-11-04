@@ -21,7 +21,6 @@ struct DictPaths {
   std::string synOftCspt() const { return folder + ".syn.oft.cspt"; }
   std::string quickIdx() const { return folder + ".qidx"; }
   std::string dictDz() const { return folder + ".dict.dz"; }
-  std::string synDz() const { return folder + ".syn.dz"; }
 };
 
 // Plain-function-pointer callbacks for Dictionary::lookup.

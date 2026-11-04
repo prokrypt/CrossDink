@@ -3,7 +3,6 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
-#include <cstdio>
 #include <cstring>
 
 #include "SyncFiles.h"
@@ -34,16 +33,6 @@ struct Layout {
   static constexpr size_t CRC = SLOT_SIZE - 4;                 // 380
 };
 static_assert(Layout::XPATH + MAX_XPATH <= Layout::CRC, "parked slot overflow");
-
-bool parseHex(const std::string& hex, uint8_t (&out)[16]) {
-  if (hex.size() != 32) return false;
-  for (size_t i = 0; i < 16; ++i) {
-    unsigned value = 0;
-    if (std::sscanf(hex.c_str() + i * 2, "%2x", &value) != 1) return false;
-    out[i] = static_cast<uint8_t>(value);
-  }
-  return true;
-}
 
 void encode(const Entry& entry, uint8_t (&slot)[SLOT_SIZE]) {
   memset(slot, 0, sizeof(slot));
@@ -169,13 +158,13 @@ bool park(const KOReaderProgressChange& change) {
     return true;
   }
   Entry entry;
-  if (!parseHex(change.document, entry.hashes[0])) {
+  if (!SyncFiles::parseHex(change.document, entry.hashes[0])) {
     LOG_ERR("SYNC", "Not parking a change with a malformed document id");
     return true;
   }
   entry.hashCount = 1;
   for (uint8_t i = 0; i < change.aliasCount && entry.hashCount < MAX_HASHES; ++i)
-    if (parseHex(change.aliases[i], entry.hashes[entry.hashCount])) ++entry.hashCount;
+    if (SyncFiles::parseHex(change.aliases[i], entry.hashes[entry.hashCount])) ++entry.hashCount;
   entry.percentage = change.percentage;
   entry.timestamp = change.timestamp;
   entry.xpath = change.progress;
@@ -244,12 +233,12 @@ bool find(const uint8_t (&id)[16], Entry& out) {
 
 bool find(const std::string& hexId, Entry& out) {
   uint8_t id[16];
-  return parseHex(hexId, id) && find(id, out);
+  return SyncFiles::parseHex(hexId, id) && find(id, out);
 }
 
 bool remove(const std::string& hexId) {
   uint8_t id[16];
-  if (!parseHex(hexId, id)) return false;
+  if (!SyncFiles::parseHex(hexId, id)) return false;
   uint32_t matches = 0;
   uint32_t others = 0;
   forEachSlot([&](const uint32_t slotIndex, const bool valid, const Entry& stored) {

@@ -139,3 +139,13 @@ TEST_F(SyncFilesTest, FailedReplacementOfCorruptMainRetainsReadableBackup) {
   ASSERT_TRUE(readValue(value, text));
   EXPECT_EQ(text, "replacement");
 }
+
+TEST(SyncFilesParseHex, ParsesExactlyThirtyTwoHexDigits) {
+  uint8_t id[16];
+  ASSERT_TRUE(SyncFiles::parseHex("00112233445566778899aabbccddeeFF", id));
+  EXPECT_EQ(id[0], 0x00);
+  EXPECT_EQ(id[10], 0xaa);
+  EXPECT_EQ(id[15], 0xff);
+  EXPECT_FALSE(SyncFiles::parseHex("00112233445566778899aabbccddee", id));
+  EXPECT_FALSE(SyncFiles::parseHex("zz112233445566778899aabbccddeeff", id));
+}
