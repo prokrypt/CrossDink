@@ -247,6 +247,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - KOReader Sync badge: the cloud with a down arrow (server further on) now stays while the book is behind the server after a sync: reading on but not yet past the server's position, paging back, or leaving the KOSync screen without applying or uploading. The book's KOSync mark now keeps the server's % when the server is further on, and the badge compares the book's % against it (crossed-out cloud only once the book is past the server).
 - KOReader Sync auto sync: closing a book whose last sync failed (crossed-out cloud) now syncs again even when it was left on the page it opened at, including after a reboot. Before, only a failed push from the same boot was retried.
 - Leaving File Transfer during a book or font upload ends the upload at once instead of waiting for it to time out, and removes the incomplete file (a resumable upload keeps its part for a retry). Before, an upload cut off this way could leave a half-written book that blocked the retry with "File already exists".
+- Sync Server progress pull finds a book again after you rename it or move it to /Read on the reader, instead of parking its remote position.
 
 ### Added
 

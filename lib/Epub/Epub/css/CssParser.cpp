@@ -851,29 +851,6 @@ CssStyle CssParser::parseDeclarations(std::string_view declBlock) {
   return style;
 }
 
-// Returns true if a simple selector (tag, .class, or tag.class) matches the element.
-// Matching is ASCII case-insensitive; class tokens are read without allocation.
-bool CssParser::selectorMatchesElement(std::string_view selector, std::string_view tag, std::string_view classAttr) {
-  if (selector.empty()) return false;
-
-  const size_t dotPos = selector.find('.');
-  if (dotPos == std::string::npos) {
-    return iequalsAscii(selector, tag);
-  }
-
-  const std::string_view selectorTag(selector.data(), dotPos);
-  const std::string_view selectorClass(selector.data() + dotPos + 1, selector.size() - dotPos - 1);
-
-  if (!selectorTag.empty() && !iequalsAscii(selectorTag, tag)) return false;
-
-  if (classAttr.empty()) return false;
-  bool matched = false;
-  forEachDelimitedToken(classAttr, isCssWhitespace, [&](std::string_view cls) {
-    if (iequalsAscii(cls, selectorClass)) matched = true;
-  });
-  return matched;
-}
-
 // Bounded compound/context matching. The existing guarded rule/cache storage owns strings;
 // matching only borrows views and uses a 100-byte index on the stack.
 namespace {
