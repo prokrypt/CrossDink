@@ -196,7 +196,7 @@ Open the reader menu and select **Auto Page Turn** to configure it.
 
 CrossDink can show estimated time left in the current chapter or book.
 
-The estimate is based on your recent forward-page reading pace. Non-linear jumps such as chapter skips, bookmark jumps, and footnote navigation are handled separately so they do not immediately distort the normal reading estimate.
+The estimate is based on your reading pace, which blends the stored pace with the current session's page turns. For books with stable page numbers, book time left follows the book's text progress, so incremental indexing and font or layout changes do not inflate it; other books use a chapter-length estimate. While a fresh session is still learning, the previous estimate stays visible. Non-linear jumps such as chapter skips, bookmark jumps, and footnote navigation are handled separately so they do not immediately distort the normal reading estimate.
 
 Use **Reset Reading Pace** if the estimate was trained by unusual reading behavior and you want it to learn again from fresh page turns.
 
@@ -225,11 +225,10 @@ your finger; CrossDink saves the clipping immediately. A touch drag does not
 turn pages, so use the direction buttons if a clipping must extend to another
 page.
 
-You can also touch and hold text directly on the EPUB reading page with
-**Touch Reader Controls** enabled. Drag to select a phrase if needed, then
-lift your finger and choose **Clip** or **Look Up** from the floating toolbar.
-Clipping is available even without a dictionary; lookup requires an active
-dictionary.
+You can also touch and hold text directly on the EPUB reading page. Drag to
+select a phrase if needed, then lift your finger and choose **Clip** or **Look
+Up** from the floating toolbar. Clipping is available even without a
+dictionary; **Look Up** appears only while a dictionary is active.
 
 A saved clipping is used in three ways:
 

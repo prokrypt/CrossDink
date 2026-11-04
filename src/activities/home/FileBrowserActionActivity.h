@@ -35,6 +35,7 @@ enum class FileBrowserAction : int {
   ToggleTouchscreen = 22,
   SyncProgress = 23,
   SyncFolder = 24,
+  GoToPercent = 25,
 };
 
 class FileBrowserActionActivity final : public Activity {

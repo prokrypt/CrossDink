@@ -469,14 +469,17 @@ void FrontlightPanelActivity::panelScreen(UiApp::ScreenType& screen, void* user)
 void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   const auto& theme = screen.theme();
   const fui::SheetProps sheet = frontlightSheetProps();
-  const fui::Rect sheetRect{0, 0, static_cast<int16_t>(renderer.getScreenWidth()), static_cast<int16_t>(panelBottom)};
+  const auto safe = screen.device().safeRect();
+  const fui::Rect sheetRect{safe.x, safe.y, safe.width,
+                            static_cast<int16_t>(std::max(0, std::min<int>(panelBottom, safe.bottom()) - safe.y))};
   fui::sheet(screen.frame(), sheetRect, sheet);
   // Body spans from below the header to the sheet's content edge. The grabber
   // owns the remaining band at the bottom of this top-anchored drawer.
   const fui::Rect sheetContent = fui::sheetContentRect(sheetRect, sheet);
   drawerHandleRect = DrawerHandle::registerTap(screen.frame(), sheetContent, sheet, ACTION_DISMISS);
   const int16_t bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - sheetContent.bottom());
-  screen.setContentMargin(
+  setUiContentMargin(
+      screen, renderer,
       fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + bookSummaryHeight()),
                   0, bottomInset, 0});
 
@@ -621,7 +624,8 @@ void FrontlightPanelActivity::drawBookProgress() {
   formatReaderBookProgress(progress, sizeof(progress), context.bookDetails.chapterPage,
                            context.bookDetails.chapterPageCount, context.bookDetails.chapterPageCountEstimated,
                            context.bookDetails.progressPercent);
-  ReaderBookSummary::draw(renderer, Rect{0, y, renderer.getScreenWidth(), 0}, bookSummaryChapter(), progress);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  ReaderBookSummary::draw(renderer, Rect{safe.x, y, safe.width, 0}, bookSummaryChapter(), progress);
 }
 
 void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui::Rect& row, const uint8_t value,

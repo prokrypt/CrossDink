@@ -50,7 +50,8 @@ void BookFontSystem::open(Epub& epub, GfxRenderer& renderer) {
   if (!CssParser::loadFontFaces(epub.getCachePath(), faces) || faces.empty()) return;
   renderer_ = &renderer;
   book_ = &epub;
-  signature_ = 2166136261U;
+  // Invalidate layouts that fell back before Adobe font obfuscation support.
+  signature_ = (2166136261U ^ 1U) * 16777619U;
   // Keep the bounded CSS paths for this session; font bytes are admitted only on demand.
   for (auto& source : faces) {
     const uint8_t style = (source.bold ? 1 : 0) | (source.italic ? 2 : 0);
@@ -100,7 +101,7 @@ void BookFontSystem::loadFace(const size_t index) {
   if (!extracted) {
     HalFile file;
     if (!Storage.openFileForWrite("BKF", path, file)) return;
-    extracted = book_->readItemContentsToStream(face.href, file, 1024) && file.size() == size;
+    extracted = book_->readFontContentsToStream(face.href, file, 1024) && file.size() == size;
     file.close();
   }
   // The HAL owns the bytes; allocate one face once per session, never a duplicate extraction buffer.

@@ -2,7 +2,12 @@
 
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
+#include <DeviceSecret.h>
 #include <FontFileTypes.h>
+#include <wolfssl/options.h>
+#include <wolfssl/wolfcrypt/hash.h>
+
+#include "util/FirmwareIdentity.h"
 #ifdef SIMULATOR
 #include <ArduinoJsonStringCompat.h>
 #endif
@@ -49,6 +54,7 @@
 #include "FontInstaller.h"
 #include "HttpRange.h"
 #include "OpdsServerStore.h"
+#include "ProtectedPaths.h"
 #include "QuickActions.h"
 #include "SdCardFontSystem.h"
 #include "SerialRemote.h"
@@ -64,6 +70,7 @@
 #include "html/HomePageHtml.generated.h"
 #include "html/LogoPng.generated.h"
 #include "html/LogsPageHtml.generated.h"
+#include "html/PluginHostJs.generated.h"
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
@@ -76,6 +83,7 @@
 #include "util/BookMoveUtils.h"
 #include "util/BootReason.h"
 #include "util/BuildInfo.h"
+#include "util/DebugDump.h"
 #include "util/DeviceIdentity.h"
 #include "util/DeviceSecurity.h"
 #include "util/FontFamilyLabel.h"
@@ -173,6 +181,7 @@ uint8_t enumDisplayIndexForWeb(const SettingInfo& setting, uint8_t rawValue) {
 }
 
 bool isWebSettingAvailable(const SettingInfo& setting) {
+  if (isTiltPageTurnSetting(setting) && !QuickActions::supportsTiltPageTurn()) return false;
   if (setting.category == StrId::STR_STATUS_BARS || setting.nameId == StrId::STR_HIDE_CLOCK) {
     return false;
   }
@@ -185,14 +194,13 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
   }
 
   const bool isTouchSetting =
-      setting.nameId == StrId::STR_TOUCH_READER_CONTROLS || setting.nameId == StrId::STR_DISABLE_TOUCHSCREEN ||
-      setting.nameId == StrId::STR_NEXT_PAGE || setting.nameId == StrId::STR_PREV_PAGE ||
-      setting.nameId == StrId::STR_TAP_HIDE_STATUS_BAR || setting.nameId == StrId::STR_PINCH_FONT_RESIZE ||
-      setting.nameId == StrId::STR_TWO_FINGER_ROTATION || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_UP ||
-      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_DOWN || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_LEFT ||
-      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_RIGHT || setting.nameId == StrId::STR_LEFT_EDGE_UP ||
-      setting.nameId == StrId::STR_LEFT_EDGE_DOWN || setting.nameId == StrId::STR_RIGHT_EDGE_UP ||
-      setting.nameId == StrId::STR_RIGHT_EDGE_DOWN;
+      setting.nameId == StrId::STR_DISABLE_TOUCHSCREEN || setting.nameId == StrId::STR_NEXT_PAGE ||
+      setting.nameId == StrId::STR_PREV_PAGE || setting.nameId == StrId::STR_TAP_HIDE_STATUS_BAR ||
+      setting.nameId == StrId::STR_PINCH_FONT_RESIZE || setting.nameId == StrId::STR_TWO_FINGER_ROTATION ||
+      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_UP || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_DOWN ||
+      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_LEFT || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_RIGHT ||
+      setting.nameId == StrId::STR_LEFT_EDGE_UP || setting.nameId == StrId::STR_LEFT_EDGE_DOWN ||
+      setting.nameId == StrId::STR_RIGHT_EDGE_UP || setting.nameId == StrId::STR_RIGHT_EDGE_DOWN;
   if (isTouchSetting && !gpio.hasTouch()) {
     return false;
   }
@@ -386,7 +394,7 @@ String normalizeWebPath(const String& inputPath) {
 }
 
 bool isProtectedPath(const String& path) {
-  if (SerialRemote::isTokenPath(path.c_str())) return true;
+  if (SerialRemote::isTokenPath(path.c_str()) || protectedpaths::isSensitivePath(path.c_str())) return true;
   // Hidden/system items stay out of the default file-manager view. Enabling
   // Show Hidden Files intentionally makes them fully manageable.
   if (SETTINGS.showHiddenFiles) return false;
@@ -778,6 +786,22 @@ void CrossPointWebServer::registerFullRoutes() {
     server->send(200, "application/json", json);
   });
 #endif
+  server->on("/plugin-host.js", HTTP_GET, [this] {
+    server->sendHeader("Content-Encoding", "gzip");
+    server->send_P(200, "application/javascript", PluginHostJs, PluginHostJsCompressedSize);
+  });
+  server->on("/api/plugins", HTTP_GET, [this] { handlePluginList(); });
+  server->on("/plugin", HTTP_GET, [this] { handlePluginFile(); });
+  server->on("/plugins-run", HTTP_GET, [this] { handlePluginRunnerPage(); });
+  server->on("/api/plugin-jobs", HTTP_POST, [this] { handlePluginJobSubmit(); });
+  server->on("/api/plugin-jobs/claim", HTTP_GET, [this] { handlePluginJobClaim(); });
+  server->on("/api/plugin-jobs/complete", HTTP_POST, [this] { handlePluginJobComplete(); });
+  server->on("/api/plugin-jobs/status", HTTP_GET, [this] { handlePluginJobStatus(); });
+  server->on("/api/relay", HTTP_POST, [this] { handleRelay(); });
+  server->on("/api/crypto", HTTP_POST, [this] { handleCrypto(); });
+  server->on("/api/fetch", HTTP_POST, [this] { handleFetch(); });
+  server->on("/api/book-key", HTTP_POST, [this] { handleBookKey(); });
+  server->on("/api/plugin-fs", HTTP_POST, [this] { handlePluginFs(); }, [this] { handlePluginFsUpload(); });
 #if !CROSSDINK_SERIAL_REMOTE
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
 #endif
@@ -899,6 +923,9 @@ void CrossPointWebServer::stop() {
     return;
   }
 
+  if (pluginFsUpload.file.isOpen()) pluginFsUpload.file.close();
+  if (!pluginFsUpload.tmp.empty()) Storage.remove(pluginFsUpload.tmp.c_str());
+  pluginFsUpload = PluginFsUploadState{};
   running.store(false, std::memory_order_release);
   // Hand the server back to this task: the serving task finishes its current
   // request, then exits.
@@ -1584,6 +1611,10 @@ void CrossPointWebServer::handlePsramLog() const {
   if (!tail) {
     // Fresh identity header first: the ring may have wrapped past the boot lines.
     len = DeviceIdentity::formatLogHeader(chunk, sizeof(chunk));
+    if (len > 0) server->sendContent(chunk, len);
+    const std::string dump = DebugDump::format();  // settings + fonts, built per download
+    server->sendContent(dump.c_str(), dump.size());
+    len = 0;
   } else if (restarted) {
     len = snprintf(chunk, sizeof(chunk), "[psram-log restarted]\n");
   } else if (skipped > 0) {
@@ -1980,11 +2011,31 @@ void CrossPointWebServer::handleStatus() const {
 
   JsonDocument doc;
   doc["version"] = AppVersion::version();
+  doc["firmwareFamily"] = firmwareidentity::FAMILY;
+  doc["pluginApi"] = firmwareidentity::PLUGIN_API_VERSION;
+  doc["pluginCapabilities"] = firmwareidentity::PLUGIN_CAPABILITIES;
   doc["ip"] = ipAddr;
   doc["mode"] = apMode ? "AP" : "STA";
   doc["rssi"] = apMode ? 0 : WiFi.RSSI();
   doc["freeHeap"] = ESP.getFreeHeap();
   doc["uptime"] = millis() / 1000;
+  // ?plugin=<name> adds a stable device ID for that plugin: sha256(secret ||
+  // name). Not reversible to any hardware ID, and different per plugin.
+  std::string plugin = server->arg("plugin").c_str();
+  for (char& c : plugin) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  uint8_t secret[32];
+  if (SETTINGS.pluginsEnabled && !plugin.empty() && plugin.length() <= 64 && deviceSecret(secret)) {
+    uint8_t input[32 + 64];
+    memcpy(input, secret, sizeof(secret));
+    memcpy(input + sizeof(secret), plugin.c_str(), plugin.length());
+    uint8_t hash[32];
+    if (wc_Sha256Hash(input, sizeof(secret) + plugin.length(), hash) == 0) {
+      char hex[65];
+      for (size_t i = 0; i < sizeof(hash); i++) snprintf(hex + 2 * i, 3, "%02x", hash[i]);
+      doc["deviceId"] = hex;
+    }
+  }
+
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   doc["device"] = gpio.deviceIsX3() ? "X3" : "X4";
 #else
@@ -2226,7 +2277,8 @@ bool CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor,
       auto fileName = String(name);
 
       // Skip hidden items (starting with ".")
-      bool shouldHide = !SETTINGS.showHiddenFiles && fileName.startsWith(".");
+      bool shouldHide = (!SETTINGS.showHiddenFiles && fileName.startsWith(".")) ||
+                        protectedpaths::isSensitivePath((String(path) + "/" + fileName).c_str());
 
       // Treat OS/device metadata like other hidden items: keep it out of the
       // default view, but let users manage it when Show Hidden Files is enabled.
@@ -2975,6 +3027,12 @@ void CrossPointWebServer::handleDelete() const {
       continue;
     }
 
+    if (isProtectedPath(itemPath) || protectedpaths::isSensitivePath(itemPath.c_str(), true)) {
+      failedItems += itemPath + " (protected path); ";
+      allSuccess = false;
+      continue;
+    }
+
     // Check if item exists
     if (!Storage.exists(itemPath.c_str())) {
       failedItems += itemPath + " (not found); ";
@@ -3034,6 +3092,8 @@ void CrossPointWebServer::handleGetStatusBars() const {
   labels["percentageFormat"] = tr(STR_PERCENTAGE_FORMAT);
   labels["progressBar"] = tr(STR_PROGRESS_BAR);
   labels["thickness"] = tr(STR_PROGRESS_BAR_THICKNESS);
+  labels["centered"] = tr(STR_CENTER_STATUS_BAR);
+  labels["separator"] = tr(STR_SEPARATOR);
   labels["xtcMode"] = tr(STR_XTC_STATUS_BAR);
   labels["preview"] = tr(STR_PREVIEW);
 
@@ -3066,6 +3126,11 @@ void CrossPointWebServer::handleGetStatusBars() const {
   addLabels("thicknesses",
             {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK});
   addLabels("xtcModes", {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP, StrId::STR_STATUS_BAR_BOTH});
+  addLabels("centerOptions", {StrId::STR_DISABLED, StrId::STR_ENABLED});
+  JsonArray separators = doc["separators"].to<JsonArray>();
+  for (uint8_t i = 0; i < static_cast<uint8_t>(ReaderStatusBarSeparator::Count); ++i) {
+    separators.add(readerStatusBarSeparatorGlyph(static_cast<ReaderStatusBarSeparator>(i)));
+  }
 
   String payload;
   serializeJson(doc, payload);
@@ -3093,9 +3158,16 @@ void CrossPointWebServer::handlePostStatusBars() {
     if (previousTop.slots != bars.top.slots || previousTop.percentageFormat != bars.top.percentageFormat ||
         previousTop.progressBar != bars.top.progressBar ||
         previousTop.progressBarThickness != bars.top.progressBarThickness ||
+        (!doc["top"]["centered"].isUnbound() && previousTop.centered != bars.top.centered) ||
+        (!doc["top"]["separator"].isUnbound() && previousTop.separator != bars.top.separator) ||
         SETTINGS.xtcStatusBarMode != bars.xtcMode) {
       SETTINGS.legacyXtcTopUsesBottom = 0;
     }
+    // Older web pages have no Center/Separator fields; editing slots must retain them.
+    if (doc["top"]["centered"].isUnbound()) bars.top.centered = previousTop.centered;
+    if (doc["bottom"]["centered"].isUnbound()) bars.bottom.centered = SETTINGS.bottomReaderStatusBar.centered;
+    if (doc["top"]["separator"].isUnbound()) bars.top.separator = previousTop.separator;
+    if (doc["bottom"]["separator"].isUnbound()) bars.bottom.separator = SETTINGS.bottomReaderStatusBar.separator;
     SETTINGS.topReaderStatusBar = bars.top;
     SETTINGS.bottomReaderStatusBar = bars.bottom;
     SETTINGS.xtcStatusBarMode = bars.xtcMode;
@@ -4134,3 +4206,34 @@ void CrossPointWebServer::handleFontDelete() {
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
 }
+
+void CrossPointWebServer::suspendTransferServices() {
+  // Leave the WebSocket server alone mid-upload; killing it would abort the
+  // transfer. The fetch just stalls that upload until it completes.
+  if (wsServer && !wsUploadInProgress) {
+    wsServer->close();
+    wsServer.reset();
+  }
+  if (udpActive) udp.stop();
+  LOG_DBG("WEB", "Transfer services suspended, heap %u, max block %u", (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
+}
+
+void CrossPointWebServer::resumeTransferServices() {
+  if (!running) return;
+  if (!wsServer) {
+    auto* ws = new (std::nothrow) BoundedCloseWebSocketsServer(wsPort);
+    if (ws) {
+      wsServer.reset(ws);
+      wsServer->begin();
+      wsServer->onEvent(wsEventCallback);
+    } else {
+      LOG_ERR("WEB", "OOM: WebSocket server restart");
+    }
+  }
+  if (udpActive) udpActive = udp.begin(LOCAL_UDP_PORT);
+  LOG_DBG("WEB", "Transfer services resumed, heap %u, max block %u", (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
+}
+
+void CrossPointWebServer::releasePluginRequest() { server->releaseRequestArguments(); }
