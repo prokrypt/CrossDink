@@ -1,0 +1,7 @@
+{
+  "name": "EpdFont",
+  "description": "Built-in, SD and scalable font loading and glyph lookup",
+  "build": {
+    "flags": ["-O2"]
+  }
+}
