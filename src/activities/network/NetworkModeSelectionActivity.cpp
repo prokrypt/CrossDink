@@ -32,6 +32,7 @@ struct MenuEntry {
 
 // Display order. A section heading precedes the first visible row of its section.
 constexpr MenuEntry MENU_ENTRIES[] = {
+    {NetworkMode::OPDS_BROWSER, StrId::STR_OPDS_BROWSER, StrId::STR_OPDS_SERVERS, UIIcon::Opds, MenuSection::None},
     {NetworkMode::JOIN_NETWORK, StrId::STR_JOIN_NETWORK, StrId::STR_JOIN_DESC, UIIcon::Wifi, MenuSection::None},
     {NetworkMode::CONNECT_CALIBRE, StrId::STR_CALIBRE_WIRELESS, StrId::STR_CALIBRE_DESC, UIIcon::Library,
      MenuSection::None},

@@ -1,6 +1,7 @@
 #include <HalScreenCalibration.h>
 #include <nvs.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <vector>
@@ -52,7 +53,11 @@ void nvs_close(nvs_handle_t) {
 
 int main() {
   const ScreenInsets defaults;
+#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
+  assert((defaults.edges == std::array<uint8_t, 4>{{0, 0, 0, 0}}));
+#else
   assert((defaults.edges == std::array<uint8_t, 4>{{9, 3, 3, 3}}));
+#endif
   const ScreenInsets calibrated{{{4, 12, 20, 32}}};
   const std::array<std::array<uint8_t, 4>, 4> expected{
       {{{4, 12, 20, 32}}, {{32, 4, 12, 20}}, {{20, 32, 4, 12}}, {{12, 20, 32, 4}}}};
@@ -60,12 +65,11 @@ int main() {
     assert(calibrated.rotated(rotation).edges == expected[rotation]);
     assert(calibrated.rotated(rotation).rotated(4 - rotation) == calibrated);
   }
-  // C3 (5), Sticky (0/-5), and Pro (10) retain exact default origins. Custom
-  // geometry keeps reader status within the physical top edge in every rotation.
+  // Default and custom geometry both keep status content inside each physical edge.
   const ScreenInsets maximum{{{32, 32, 32, 32}}};
   for (unsigned rotation = 0; rotation < 4; ++rotation) {
     for (const int legacy : {-5, 0, 5, 10}) {
-      assert(defaults.topOrigin(rotation, legacy) == legacy);
+      assert(defaults.topOrigin(rotation, legacy) == std::max<int>(defaults.rotated(rotation).edges[0], legacy));
       const int top = maximum.rotated(rotation).edges[0];
       const int adjusted = legacy + top - defaults.rotated(rotation).edges[0];
       assert(maximum.topOrigin(rotation, legacy) == (adjusted < top ? top : adjusted));

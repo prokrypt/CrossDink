@@ -70,7 +70,6 @@ class Section {
   };
   std::unique_ptr<BuildContext> build_;
   bool buildComplete_ = false;
-  bool lastImagesWereSuppressed_ = false;
   bool lastLayoutAbortedForLowMemory_ = false;
   uint16_t imageEstimateViewportHeight_ = 0;
   uint16_t imageEstimateViewportWidth_ = 0;
@@ -102,6 +101,7 @@ class Section {
   // partial/finalized file stays readable while a rebuild is in progress.
   std::string binTmpPath() const { return filePath + ".part"; }
   std::unique_ptr<Page> loadPageAt(int page) const;
+  std::optional<uint32_t> getTextOffsetForPage(uint16_t page, bool reference, uint32_t* textLength) const;
   // Read a page already laid out by the in-progress build (page < build LUT size), from
   // the partially-written tmp .bin without disturbing the build's write cursor.
   std::unique_ptr<Page> loadPageDuringBuild(int page);
@@ -140,7 +140,6 @@ class Section {
   // One slice of the build's deferred font advance prewarm; false when none is left.
   bool prewarmSomeMore();
   void releaseBuildFile();
-  bool lastBuildImagesWereSuppressed() const { return lastImagesWereSuppressed_; }
   bool lastBuildLayoutAbortedForLowMemory() const { return lastLayoutAbortedForLowMemory_; }
   bool isBuilding() const { return static_cast<bool>(build_); }
   bool isBuildComplete() const { return buildComplete_; }
@@ -217,5 +216,6 @@ class Section {
   // Content coordinate recorded at the start of each rendered page. Available
   // for finalized sections and the readable prefix of incremental sections.
   std::optional<uint32_t> getVisibleTextOffsetForPage(uint16_t page) const;
+  std::optional<uint32_t> getReferenceTextOffsetForPage(uint16_t page, uint32_t& textLength) const;
   std::optional<uint16_t> getPageForVisibleTextOffset(uint32_t offset, bool preferFirstAtOffset = false) const;
 };

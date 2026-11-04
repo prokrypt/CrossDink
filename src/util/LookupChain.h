@@ -43,7 +43,6 @@ class LookupChain {
   // Distance-from-newest of the currently displayed word (0 = newest).
   // -1 means the current word is not in the history log (cannot be referenced).
   void setCurrentHistIndex(int idx) { currentHistIndex_ = idx; }
-  int currentHistIndex() const { return currentHistIndex_; }
 
   bool empty() const { return entries_.empty(); }
   int depth() const { return static_cast<int>(entries_.size()); }

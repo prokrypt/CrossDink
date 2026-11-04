@@ -2,10 +2,12 @@
 #include <HalStorage.h>
 #include <Stream.h>
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "HttpRequestDiagnostics.h"
 
@@ -20,6 +22,7 @@ class SecureHttpClient;
  */
 class HttpDownloader {
  public:
+  using Header = std::pair<std::string, std::string>;
   using ProgressCallback = std::function<void(size_t downloaded, size_t total)>;
   using CancelCallback = std::function<bool()>;
   // Called with each body chunk as it arrives; return false to abort. Lets a
@@ -32,6 +35,7 @@ class HttpDownloader {
     FILE_ERROR,
     ABORTED,
     INSUFFICIENT_SPACE,
+    UNAUTHORIZED,
     FILE_EXISTS,  // useServerFilename: the server's name is taken; needs overwrite approval
   };
 
@@ -50,6 +54,8 @@ class HttpDownloader {
           bufferSize(bufferSize),
           transport(transport) {}
 
+    // Borrowed for the synchronous call; never forwarded to a different origin.
+    const std::vector<Header>* headers = nullptr;
     bool preservePartial;
     // WOLFSSL only: reserve the retained TLS input buffer once the request is
     // sent, for bulk downloads (see SecureHttpClient::setReserveFullRecord()).
@@ -71,10 +77,28 @@ class HttpDownloader {
     // (or deletes) an existing file and never leaves a truncated one behind
     // under the real name.
     bool stageAsPart = false;
+    // Opt-in asset contract: success also requires deleting the transaction backup.
+    bool requireBackupCleanup = false;
     // Checks the finished file before it is accepted (and, with stageAsPart,
     // before it replaces destPath). Returning false fails the download and
     // removes the file. Catches bodies cut short without a Content-Length.
     std::function<bool(const std::string& path)> validate;
+    // Optional context-aware check, also run before publication. Both checks
+    // must pass when both are supplied. Context is borrowed for this call.
+    bool (*validateWithContext)(const std::string& path, void* context) = nullptr;
+    void* validationContext = nullptr;
+    // Hard limits include any resumed bytes. Zero leaves the corresponding
+    // limit unspecified. Enforced before every body write/callback, including
+    // chunked or close-delimited responses.
+    size_t maxBytes = 0;
+    size_t expectedBytes = 0;
+    // Number of redirects after the initial request; zero prohibits redirects.
+    uint8_t maxRedirects = 4;
+    // Optional fixed endpoint policy. Checked before contacting the initial
+    // URL and every redirect target, with an absolute URL. This is a routing
+    // restriction, not TLS authentication (WOLFSSL currently uses insecure TLS).
+    bool (*allowUrl)(std::string_view url, void* context) = nullptr;
+    void* urlContext = nullptr;
     // Once the response length is known, fail with INSUFFICIENT_SPACE before
     // writing anything if the SD card cannot hold the file. The first check
     // can scan the whole FAT, so leave it off for small files.

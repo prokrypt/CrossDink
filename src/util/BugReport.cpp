@@ -28,7 +28,6 @@
 #include "KOReaderCredentialStore.h"
 #include "OpdsServerStore.h"
 #include "SdCardFontSystem.h"
-#include "SettingsList.h"
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
@@ -40,6 +39,7 @@
 #include "util/BootReason.h"
 #include "util/BugReportSanitize.h"
 #include "util/BuildInfo.h"
+#include "util/DebugDump.h"
 #include "util/ScreenshotUtil.h"
 #include "util/StoredZip.h"
 #include "util/WorkerTask.h"
@@ -415,26 +415,11 @@ bool writeReport(const Context& ctx, const std::string& text, const SecretTable&
     if (ctx.book.spineIndex >= 0) put(f, "chapter: %d\n", ctx.book.spineIndex + 1);
     put(f, "page: %d of %d, %d%% of book\n", ctx.book.currentPage, ctx.book.totalPages, ctx.book.progressPercent);
   }
-  const char* font = SETTINGS.sdFontFamilyName[0]
-                         ? SETTINGS.sdFontFamilyName
-                         : (SETTINGS.fontFamily == CrossPointSettings::BITTER ? "Bitter" : "Lexend Deca");
-  put(f, "font: %s %u pt\n", font, static_cast<unsigned>(SETTINGS.readerFontPointSize));
   put(f, "sd fonts: %u\n", static_cast<unsigned>(sdFontSystem.registry().getFamilies().size()));
   library::LibraryIndexFile index;
   if (index.open(library::libraryIndexPath())) put(f, "books: %u\n", static_cast<unsigned>(index.bookCount()));
-
-  // Every numeric setting by its web API key (the strings hold names and logins).
-  put(f, "settings:");
-  for (const SettingInfo& s : getBaseSettingsList()) {
-    if (!s.key || !(s.type == SettingType::TOGGLE || s.type == SettingType::ENUM || s.type == SettingType::VALUE))
-      continue;
-    if (s.valuePtr) {
-      put(f, " %s=%u", s.key, static_cast<unsigned>(SETTINGS.*(s.valuePtr)));
-    } else if (s.value16Ptr) {
-      put(f, " %s=%u", s.key, static_cast<unsigned>(SETTINGS.*(s.value16Ptr)));
-    }
-  }
-  put(f, "\n");
+  const std::string dump = DebugDump::format();
+  f.write(dump.data(), dump.size());
 
 #if CROSSDINK_GOODIES
   bool knobHeader = false;

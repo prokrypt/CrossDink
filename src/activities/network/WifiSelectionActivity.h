@@ -134,7 +134,6 @@ class WifiSelectionActivity final : public Activity {
   void buildListScreen(UiApp::ScreenType& screen);
 
   void renderNetworkList(const Rect* screen, const ThemeMetrics* metrics);
-  void renderPasswordEntry(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderConnecting(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderConnected(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderSavePrompt(const Rect* screen, const ThemeMetrics* metrics) const;
