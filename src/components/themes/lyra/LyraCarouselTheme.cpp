@@ -97,14 +97,10 @@ MenuLayoutMetrics computeMenuLayout(const GfxRenderer& renderer, int buttonCount
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const int rowY = safe.y + safe.height - tileH - kMenuLabelTopGap - labelLineHeight - kMenuLabelBottomGap +
                    std::min(kMenuRowDrop, kMenuLabelTopGap + labelLineHeight + kMenuLabelBottomGap);
+  // Home body spans the full width; only the vertical safe area applies (user 11/04).
+  const int width = renderer.getScreenWidth();
   return {
-      tileH,
-      safe.width / buttonCount,
-      safe.x,
-      safe.width,
-      labelLineHeight,
-      rowY,
-      rowY - kMenuLabelTopGap - labelLineHeight,
+      tileH, width / buttonCount, 0, width, labelLineHeight, rowY, rowY - kMenuLabelTopGap - labelLineHeight,
   };
 }
 
@@ -194,11 +190,8 @@ void registerCoverTarget(const GfxRenderer& renderer, int bookIdx, Rect rect, in
     registeredIds[registeredCount++] = bookIdx;
   }
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int right = std::min(rect.x + rect.width, safe.x + safe.width);
   const int bottom = std::min(rect.y + rect.height, safe.y + safe.height);
-  rect.x = std::max(rect.x, safe.x);
   rect.y = std::max(rect.y, safe.y);
-  rect.width = right - rect.x;
   rect.height = bottom - rect.y;
   if (rect.width > 0 && rect.height > 0) TouchRegistry::getInstance().add(rect, bookIdx, TouchRegistry::Cover);
 }
