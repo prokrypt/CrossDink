@@ -16,6 +16,7 @@
 #include "ClippingStore.h"
 #include "CrossPointState.h"
 #include "RecentBooksStore.h"
+#include "sync/BookSyncFile.h"
 
 namespace {
 constexpr char READ_FOLDER[] = "/Read";
@@ -213,6 +214,7 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
       }
     }
     commitMetadata();
+    BookSyncFile::onRenamed(oldPath, newPath);
     return RenameMigrationResult::KeepRenamed;
   };
 
@@ -284,6 +286,8 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
   }
 
   commitMetadata();
+  // The cache folder (and its sync.bin) came along, so sync_ids.bin must follow too.
+  BookSyncFile::onRenamed(oldPath, newPath);
 
   return RenameMigrationResult::Success;
 }
@@ -318,6 +322,7 @@ bool migrateMovedEpubState(const std::string& oldPath, const std::string& newPat
     APP_STATE.saveToFile();
   }
 
+  BookSyncFile::onRenamed(oldPath, newPath);
   return ok;
 }
 

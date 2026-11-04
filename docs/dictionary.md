@@ -60,15 +60,16 @@ The **Look Up Word** option in the reader menu is only visible when a dictionary
 
 ### Touchscreen
 
-In an EPUB reader with **Touch Reader Controls** enabled, touch and hold a
+In an EPUB reader, touch and hold a
 word for about one second. CrossDink opens word selection on that word; lift
 your finger to show the floating **Look Up** and **Clip** toolbar.
 Drag either selection handle to adjust the highlighted range. To select a phrase,
 keep holding after selection opens, drag to the last word, then lift your
 finger. Hold on the page's final word for about one second to continue onto
 the next page. You do not need to open the reader menu first. **Clip**
-is available without a dictionary; **Look Up** is disabled until one is active.
-The toolbar sits near the selection and hides while you drag. Press **Back** to clear the range,
+is available without a dictionary; **Look Up** is hidden until one is active.
+The toolbar points at the selection from above or below (or the screen edge
+that covers least of it), never hides a handle, and hides while you drag. Press **Back** to clear the range,
 or tap outside the selection and toolbar to return to reading.
 
 From a definition, touch and hold a word for about one second to start another

@@ -29,6 +29,8 @@ enum BarItem {
   PERCENTAGE_FORMAT,
   PROGRESS_BAR,
   PROGRESS_BAR_THICKNESS,
+  CENTER_ITEMS,
+  SEPARATOR,
 };
 
 constexpr ReaderStatusBarItem pickerItems[] = {
@@ -155,7 +157,8 @@ ReaderStatusBarPosition StatusBarSettingsActivity::selectedPosition() const {
 }
 
 void StatusBarSettingsActivity::refreshItemCount() {
-  visibleItemCount = view == View::Root ? 3 : PROGRESS_BAR_THICKNESS + 1;
+  visibleItemCount =
+      view == View::Root ? 3 : (SETTINGS.readerStatusBar(selectedPosition()).centered ? SEPARATOR : CENTER_ITEMS) + 1;
   selectedIndex = std::clamp(selectedIndex, 0, visibleItemCount - 1);
 }
 
@@ -166,19 +169,11 @@ int StatusBarSettingsActivity::previewHeight() const {
          metrics.verticalSpacing;
 }
 
-int StatusBarSettingsActivity::topPreviewOriginY() const {
-  // Calibrated: match the row every other screen and the reader use.
-  if (renderer.hasCustomViewableInsets()) return UITheme::getTopStatusBarY(renderer);
-  int marginTop, marginRight, marginBottom, marginLeft;
-  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  (void)marginRight;
-  (void)marginBottom;
-  (void)marginLeft;
-  return marginTop + UITheme::getInstance().getMetrics().topPadding + UITheme::getTopStatusBarInset(renderer);
-}
+int StatusBarSettingsActivity::topPreviewOriginY() const { return UITheme::getTopStatusBarY(renderer); }
 
 Rect StatusBarSettingsActivity::settingsHeaderRect() const {
-  Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
   if (view == View::Top) header.y = topPreviewOriginY() + previewHeight();
   return header;
 }
@@ -269,6 +264,16 @@ void StatusBarSettingsActivity::openOptionPicker() {
   const auto position = selectedPosition();
   const int item = selectedIndex;
   const auto config = SETTINGS.readerStatusBar(position);
+  if (item == CENTER_ITEMS) {
+    // Toggle rows flip in place, like the main Settings toggles.
+    auto updated = config;
+    updated.centered = !updated.centered;
+    SETTINGS.setReaderStatusBar(position, updated);
+    SETTINGS.saveToFile();
+    refreshItemCount();  // The Separator row only exists while centered.
+    requestUpdate();
+    return;
+  }
   std::vector<std::string> options;
   std::vector<uint8_t> rawValues;
   StrId titleId = view == View::Top ? StrId::STR_TOP_STATUS_BAR : StrId::STR_BOTTOM_STATUS_BAR;
@@ -295,6 +300,13 @@ void StatusBarSettingsActivity::openOptionPicker() {
     for (unsigned i = 0; i < rawValues.size(); ++i) {
       if (rawValues[i] == config.progressBar) currentIndex = static_cast<int>(i);
     }
+  } else if (item == SEPARATOR) {
+    titleId = StrId::STR_SEPARATOR;
+    for (uint8_t i = 0; i < static_cast<uint8_t>(ReaderStatusBarSeparator::Count); ++i) {
+      options.emplace_back(readerStatusBarSeparatorGlyph(static_cast<ReaderStatusBarSeparator>(i)));
+      rawValues.push_back(i);
+    }
+    currentIndex = static_cast<int>(config.separator);
   } else {
     titleId = StrId::STR_PROGRESS_BAR_THICKNESS;
     options = {tr(STR_PROGRESS_BAR_THIN), tr(STR_PROGRESS_BAR_MEDIUM), tr(STR_PROGRESS_BAR_THICK)};
@@ -311,6 +323,8 @@ void StatusBarSettingsActivity::openOptionPicker() {
       updated.percentageFormat = value;
     } else if (item == PROGRESS_BAR) {
       updated.progressBar = value;
+    } else if (item == SEPARATOR) {
+      updated.separator = static_cast<ReaderStatusBarSeparator>(value);
     } else {
       updated.progressBarThickness = value;
     }
@@ -384,9 +398,17 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       } else if (item == PERCENTAGE_FORMAT) {
         row.label = tr(STR_PERCENTAGE_FORMAT);
         row.value = I18N.get(percentageFormatNames[config.percentageFormat]);
+        row.sectionHeading = tr(STR_OPTIONS);
       } else if (item == PROGRESS_BAR) {
         row.label = tr(STR_PROGRESS_BAR);
         row.value = progressModeLabel(config.progressBar);
+      } else if (item == CENTER_ITEMS) {
+        row.label = tr(STR_CENTER_STATUS_BAR);
+        row.toggle = true;
+        row.toggleChecked = config.centered;
+      } else if (item == SEPARATOR) {
+        row.label = tr(STR_SEPARATOR);
+        row.value = readerStatusBarSeparatorGlyph(config.separator);
       } else {
         row.label = tr(STR_PROGRESS_BAR_THICKNESS);
         row.value = thicknessLabel(config.progressBarThickness);
@@ -415,105 +437,18 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     return;
   }
 
-  const auto renderScrollingList = [&] {
-    props.nav = &listNav;
-    screen.list(props);
-    visibleRows = listNav.pageRowsFor(visibleItemCount);
-    topIndex = listNav.top;
-  };
-
-  // Keep the separator aligned with FreeInkUI's variable-height rows when the list scrolls or wraps.
-  const auto resolvedProps = screen.resolveListProps(props);
-  const auto body = screen.body();
-  const int dividerItem = SLOT_RIGHT_3;
-  const int dividerIndex = [&] {
-    for (int i = topIndex; i < visibleItemCount; ++i) {
-      if (i == dividerItem) return i;
-    }
-    return -1;
-  }();
-  if (dividerIndex < topIndex) {
-    renderScrollingList();
-    return;
-  }
-
-  fui::ListProps layoutProps = resolvedProps;
-  layoutProps.scrollIndicator = false;
-  int16_t rowWidth = body.width;
-  if (layoutProps.rowInset > 0) rowWidth = static_cast<int16_t>(rowWidth - layoutProps.rowInset * 2);
-  const int16_t headerLineHeight = screen.target().lineHeight(layoutProps.headerText.font);
-  const int16_t headerHeight =
-      layoutProps.headerRowHeight > 0 ? layoutProps.headerRowHeight : static_cast<int16_t>(headerLineHeight + 4);
-  int16_t dividerY = body.y;
-  for (int i = topIndex; i <= dividerIndex; ++i) {
-    const auto& item = items[static_cast<size_t>(i)];
-    if (item.sectionHeading != nullptr && item.sectionHeading[0] != '\0') {
-      if (i != topIndex) dividerY = static_cast<int16_t>(dividerY + layoutProps.sectionGap);
-      dividerY = static_cast<int16_t>(dividerY + headerHeight + layoutProps.rowGap);
-    }
-    dividerY = static_cast<int16_t>(dividerY +
-                                    fui::measureListRow(screen.target(), nullptr, rowWidth, layoutProps, item).height);
-    if (i != dividerIndex) dividerY = static_cast<int16_t>(dividerY + layoutProps.rowGap);
-  }
-
-  int16_t afterDividerHeight = 0;
-  for (int i = dividerIndex + 1; i < visibleItemCount; ++i) {
-    const auto& item = items[static_cast<size_t>(i)];
-    afterDividerHeight = static_cast<int16_t>(
-        afterDividerHeight + fui::measureListRow(screen.target(), nullptr, rowWidth, layoutProps, item).height);
-    if (i + 1 < visibleItemCount) afterDividerHeight = static_cast<int16_t>(afterDividerHeight + layoutProps.rowGap);
-  }
-  const int16_t availableAfterDivider = static_cast<int16_t>(body.bottom() - dividerY);
-  const int16_t maxDividerMargin = static_cast<int16_t>((availableAfterDivider - afterDividerHeight - 1) / 2);
-  if (maxDividerMargin < 0) {
-    // On compact screens, keep every option in one scrollable list instead of
-    // splitting off a segment that cannot fit its first row.
-    renderScrollingList();
-    screen.target().fill(fui::Rect{body.x, dividerY, body.width, 1}, fui::Paint::solid(fui::Color::Black));
-    return;
-  }
-  const int16_t dividerMargin = std::min(layoutProps.sectionGap, maxDividerMargin);
-
-  fui::ListProps beforeDivider = props;
-  beforeDivider.items = items.data() + topIndex;
-  beforeDivider.count = static_cast<uint16_t>(dividerIndex - topIndex + 1);
-  beforeDivider.topIndex = 0;
-  beforeDivider.selectedIndex =
-      selectedIndex >= topIndex && selectedIndex <= dividerIndex ? static_cast<int16_t>(selectedIndex - topIndex) : -1;
-  beforeDivider.scrollIndicator = false;
-  screen.list(beforeDivider, static_cast<int16_t>(dividerY - body.y));
-
-  screen.spacer(dividerMargin);
-  const auto dividerBody = screen.body();
-  screen.target().fill(fui::Rect{dividerBody.x, dividerBody.y, dividerBody.width, 1},
-                       fui::Paint::solid(fui::Color::Black));
-  screen.spacer(1);
-  screen.spacer(dividerMargin);
-
-  fui::ListProps afterDivider = props;
-  afterDivider.items = items.data() + dividerIndex + 1;
-  afterDivider.count = static_cast<uint16_t>(visibleItemCount - dividerIndex - 1);
-  afterDivider.topIndex = 0;
-  afterDivider.selectedIndex =
-      selectedIndex > dividerIndex ? static_cast<int16_t>(selectedIndex - dividerIndex - 1) : -1;
-  afterDivider.scrollIndicator = false;
-  screen.list(afterDivider);
-
-  // The split sections share one scroll position, so keep one indicator for the full list.
-  if (resolvedProps.scrollIndicator) {
-    fui::drawListScrollIndicator(screen.target(), body, static_cast<uint32_t>(visibleItemCount),
-                                 static_cast<uint32_t>(visibleItemCount - topIndex), static_cast<uint32_t>(topIndex),
-                                 resolvedProps.scrollIndicatorWidth, resolvedProps.scrollIndicatorSide,
-                                 resolvedProps.scrollIndicatorInset);
-  }
+  props.nav = &listNav;
+  screen.list(props);
+  visibleRows = listNav.pageRowsFor(visibleItemCount);
+  topIndex = listNav.top;
 }
 
 void StatusBarSettingsActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
   const auto orientation = renderer.getOrientation();
   const bool landscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
                          orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
@@ -543,11 +478,10 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     const auto position = selectedPosition();
     const int barHeight = UITheme::getReaderStatusBarHeight(position);
     const int previewOriginY =
-        view == View::Top ? topPreviewOriginY()
-                          : pageHeight - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - barHeight;
+        view == View::Top ? topPreviewOriginY() : safe.y + safe.height - metrics.verticalSpacing - barHeight;
     const int labelY = view == View::Top ? previewOriginY + barHeight + 9
                                          : previewOriginY - renderer.getLineHeight(UI_10_FONT_ID) - 18;
-    renderer.drawText(UI_10_FONT_ID, contentX + metrics.contentSidePadding, labelY, tr(STR_PREVIEW));
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding, labelY, tr(STR_PREVIEW));
     ReaderStatusBarContent content;
     content.bookProgress = 75.12f;
     content.chapterProgress = 35.0f;

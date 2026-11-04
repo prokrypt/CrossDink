@@ -24,6 +24,7 @@
 #include <PackedFontBitmaps.h>
 #include <PerfLog.h>
 #include <SPI.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
@@ -84,6 +85,7 @@
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
+#include "activities/settings/AssetDownloadActivity.h"
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -103,6 +105,8 @@
 #include "platform/InputWake.h"
 #include "platform/PanelProbe.h"
 #include "platform/PinMon.h"
+#include "util/PluginBundle.h"
+#include "util/PluginEvents.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
 
@@ -1073,6 +1077,21 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
       }
       break;
     }
+    case NetworkBootTarget::DOWNLOAD_ASSETS: {
+      if (!AssetDownloadActivity::validBootPayload(payload)) {
+        LOG_ERR("MAIN", "Invalid language download payload 0x%" PRIx32, payload);
+        break;
+      }
+      auto assetActivity = makeUniqueNoThrow<AssetDownloadActivity>(renderer, mappedInputManager, payload);
+      if (assetActivity) {
+        activityManager.replaceActivity(std::move(assetActivity));
+        launched = true;
+      } else {
+        LOG_ERR("MAIN", "OOM: language download activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      }
+      break;
+    }
   }
   return launched;
 }
@@ -1229,6 +1248,12 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       LOG_INF("LIGHT", "Frontlight toggled %s by shortcut", lightOn ? "on" : "off");
       return true;
     }
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
+      if (!gpio.hasTouch()) return false;
+      SETTINGS.disablePageTurnGestures = !SETTINGS.disablePageTurnGestures;
+      activityManager.persistGlobalSettings();
+      activityManager.requestUpdate();
+      return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       if (!gpio.hasTouch()) return false;
       SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
@@ -1338,6 +1363,8 @@ CrossPointSettings::SHORT_PWRBTN chordPowerAction(const ButtonShortcutController
       return Power::QUICK_ACTIONS;
     case Chord::ToggleFrontlight:
       return Power::TOGGLE_FRONTLIGHT;
+    case Chord::TogglePageTurnGestures:
+      return Power::TOGGLE_PAGE_TURN_GESTURES;
     case Chord::ToggleTouchscreen:
       return Power::TOGGLE_TOUCHSCREEN;
     default:
@@ -1770,7 +1797,13 @@ static void runBootTail(const bool sleeping = false) {
   if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
-  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
+  if (bootTailDictionary && !sleeping) {
+    Dictionary::isValidDictionary();
+    // Folder walks on the worker core at the background priority, so a slow
+    // card never holds input or a page turn (HalStorage serializes SD access).
+    static WorkerTask imageIndexTask;
+    imageIndexTask.start([](void*) { ImageFolderIndex::dropStaleIndexes(); }, nullptr, 4096, "ImgIdx");
+  }
   bootTailDictionary = false;
 }
 
@@ -2015,6 +2048,14 @@ void enterDeepSleep(bool fromTimeout) {
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
+    activityManager.preparePluginSleep();
+    {
+      RenderLock lock;
+      const std::string book = activityManager.getCurrentBookPath();
+      pluginevents::prepareSleep(book.c_str(), activityManager.getScreenshotInfo().progressPercent,
+                                 powerManager.getBatteryPercentage() >= 20);
+    }
+    trustedtime::note();
     const uint32_t sleepDrawStartMs = millis();
     setSleepStep("sleep draw");
     activityManager.goToSleep(fromTimeout);
@@ -2420,6 +2461,22 @@ void setup() {
   LOG_INF("BOOT", "mark: RTC read");
   halClock.begin();
 #ifndef SIMULATOR
+  {
+    // Convert the RTC's UTC calendar without depending on the display timezone.
+    uint16_t rtcYear;
+    uint8_t rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond;
+    if (halClock.getDateTime(rtcYear, rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond)) {
+      int year = rtcYear - (rtcMonth <= 2);
+      const int era = year / 400;
+      const unsigned yoe = year - era * 400;
+      const unsigned doy = (153 * (rtcMonth + (rtcMonth > 2 ? -3 : 9)) + 2) / 5 + rtcDay - 1;
+      const int64_t days = era * 146097LL + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+      trustedtime::adopt(days * 86400 + rtcHour * 3600 + rtcMinute * 60 + rtcSecond);
+    }
+  }
+#endif
+  trustedtime::init();
+#ifndef SIMULATOR
   // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
   if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
     BatteryLog::onChargeWake();
@@ -2509,7 +2566,9 @@ void setup() {
   // Before anything reads progress.bin: replay a position a crash or reset kept
   // off the card (it supersedes a held exit copy of the same book).
   ReaderProgressShadow::recoverPending();
+  if (!PluginBundle::recoverPending()) LOG_ERR("PLUG", "Plugin install recovery pending");
   SETTINGS.loadFromFile();
+  pluginevents::refreshSubscriptions();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
 #endif
@@ -2521,7 +2580,7 @@ void setup() {
   bootTailRoute = wakeupRouteName(wakeupReason);
   BatteryLog::onBoot();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
-  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
+  I18N.begin(SETTINGS.languageCode, SETTINGS.languageCacheGeneration);
   // Normal boot store deferral adapted from Sichroteph/YACP commit
   // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT). Accessors load these
   // stores when Home, reader bookkeeping, or sync actually need them.
@@ -2611,6 +2670,8 @@ void setup() {
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
   bool x4WakeCanFastPaint = false;
+  // A retained page is useful opening feedback even when a fast refresh is unavailable.
+  bool quickResumeFrameVisible = false;
 
   // A plain software restart that left its frame behind (restartKeepingPanelFrame,
   // e.g. after an SD firmware update) also starts seamlessly: the splash is
@@ -2634,6 +2695,7 @@ void setup() {
       break;
     case BootResume::SplashlessWake:
       if (shouldRestoreSleepFrame && loadSleepFrameBuffer()) {
+        quickResumeFrameVisible = true;
         if (gpio.deviceIsX3()) {
           // begin() clears the X3 controller RAM. Restore the saved frame as
           // the baseline for the first reader paint without refreshing the panel.
@@ -2755,7 +2817,8 @@ void setup() {
     // Count the attempt in RTC so a book that crashes on load boots to Home next time.
     APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
     if (isSleepWake) kosync_auto::noteWake();
-    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
+    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh, false,
+                               quickResumeFrameVisible);
   }
 
   bootPhase("route");
@@ -3489,6 +3552,19 @@ static void loopPass() {
       lastActivityTime = millis();
       return;
     }
+    if (buttonShortcutController.tryUnlockFront(
+            millis(), mappedInputManager.isPressed(MappedInputManager::Button::Left),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Left),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Left),
+            mappedInputManager.isPressed(MappedInputManager::Button::Right),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Right),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Right), ReaderUtils::SKIP_HOLD_MS)) {
+      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Left);
+      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Right);
+      notifyQuickLockChanged();
+      lastActivityTime = millis();
+      return;
+    }
     if (handleX4ProHomeKeyQuickLockUnlock()) {
       lastActivityTime = millis();
       return;
@@ -3646,6 +3722,12 @@ static void loopPass() {
     }
   }
 
+  // Background delivery must not hold up text entry or wait for a screen
+  // refresh after input was sampled: a stale touch-down can become a false hold.
+  if (!activityManager.isReaderActivity() && !activityManager.hasActivityNamed("KeyboardEntry")) {
+    RenderLock lock(RenderLock::Mode::Try);
+    if (lock.ownsLock()) pluginevents::pollOnline();
+  }
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();

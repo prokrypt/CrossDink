@@ -2517,16 +2517,6 @@ bool GfxRenderer::isRefreshBusy() const {
 #endif
 }
 
-bool GfxRenderer::toFrameBufferRect(const int x, const int y, const int w, const int h, uint16_t& fx, uint16_t& fy,
-                                    uint16_t& fw, uint16_t& fh) const {
-  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
-  fx = mem.x;
-  fy = mem.y;
-  fw = mem.w;
-  fh = mem.h;
-  return mem.valid;
-}
-
 size_t GfxRenderer::readFramebufferRegion(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t* dst,
                                           size_t dstCapacity) const {
   if (frameBuffer == nullptr || dst == nullptr || w == 0 || h == 0) return 0;
@@ -2918,7 +2908,9 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
   // where kern/lig data was not loaded.
   auto sdIt = sdCardFonts_.find(resolvedFontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
-    int32_t widthFP = 0;
+    int widthPx = 0;
+    int trackingGaps = 0;
+    int32_t prevAdvanceFP = 0;
     const bool isSupSub = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
     const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
     const auto fontIt = fontMap.find(resolvedFontId);
@@ -2938,14 +2930,15 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
         cp = smallCapsUppercaseCodepoint(cp);
       }
       const int32_t advFP = resolveSdCardAdvanceFP(*sdIt->second, font, cp, style, styleIdx);
-      if (isSupSub) {
-        widthFP += halfAdvanceFP(advFP);
-      } else if (scaledSmallCap) {
-        widthFP += smallCapsAdvanceFP(advFP);
-      } else {
-        widthFP += advFP;
+      // Snap each glyph separately, as drawing does; retain half-pixel tracking
+      // accumulation independently so spacing does not round up at every gap.
+      if (lastCp != 0) widthPx += fp4::toPixel(prevAdvanceFP);
+      prevAdvanceFP = isSupSub ? halfAdvanceFP(advFP) : (scaledSmallCap ? smallCapsAdvanceFP(advFP) : advFP);
+      if (characterSpacing != 0 && characterSpacingBoundary(lastCp, cp)) {
+        widthPx += characterSpacingPixels(trackingGaps + 1, characterSpacing) -
+                   characterSpacingPixels(trackingGaps, characterSpacing);
+        ++trackingGaps;
       }
-      if (characterSpacing != 0 && characterSpacingBoundary(lastCp, cp)) widthFP += characterSpacing * 8;
       lastCp = cp;
       lastScaledSmallCap = scaledSmallCap;
     }
@@ -2959,10 +2952,13 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
       if (lastScaledSmallCap || followingScaledSmallCap) {
         kernFP = smallCapsAdvanceFP(kernFP);
       }
-      widthFP += kernFP;
-      if (characterSpacing != 0 && characterSpacingBoundary(lastCp, followingCp)) widthFP += characterSpacing * 8;
+      prevAdvanceFP += kernFP;
+      if (characterSpacing != 0 && characterSpacingBoundary(lastCp, followingCp)) {
+        widthPx += characterSpacingPixels(trackingGaps + 1, characterSpacing) -
+                   characterSpacingPixels(trackingGaps, characterSpacing);
+      }
     }
-    return fp4::toPixel(widthFP);
+    return widthPx + fp4::toPixel(prevAdvanceFP);
   }
 
   const auto fontIt = fontMap.find(resolvedFontId);

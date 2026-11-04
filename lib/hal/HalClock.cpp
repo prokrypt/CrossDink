@@ -2,10 +2,8 @@
 
 #include <DateFormatting.h>
 #include <Logging.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
-#include <esp_netif.h>
-#include <esp_netif_sntp.h>
-#include <lwip/dns.h>
 #include <time.h>
 
 #include <cassert>
@@ -16,11 +14,6 @@ namespace {
 constexpr uint16_t kBaseYear = 2000;
 // An RTC reading before this year was never synced or has been reset.
 constexpr uint16_t kMinTrustedYear = 2025;
-
-esp_err_t clearDnsCache(void*) {
-  dns_clear_cache();
-  return ESP_OK;
-}
 
 bool isLeapYear(const uint16_t year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
 
@@ -270,32 +263,6 @@ bool HalClock::syncSystemTimeFromNTP() {
     return false;
   }
 
-  esp_netif_sntp_deinit();
-
   LOG_INF("CLK", "Starting NTP sync...");
-  // esp-netif owns the small temporary SNTP state/semaphore and routes all
-  // lwIP timer changes through its core-lock-safe execution path.
-  esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-  const esp_err_t initResult = esp_netif_sntp_init(&config);
-  if (initResult != ESP_OK) {
-    LOG_ERR("CLK", "Failed to start NTP sync: %s", esp_err_to_name(initResult));
-    return false;
-  }
-
-  const esp_err_t syncResult = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(5000));
-  // An SNTP timeout can leave its DNS callback pending. Drain that callback
-  // under lwIP's core lock before stopping SNTP; the next hostname lookup may
-  // otherwise invoke it from the application task while clearing the cache.
-  const esp_err_t clearResult = esp_netif_tcpip_exec(clearDnsCache, nullptr);
-  esp_netif_sntp_deinit();
-  if (clearResult != ESP_OK) {
-    LOG_ERR("CLK", "Failed to clear DNS after NTP sync: %s", esp_err_to_name(clearResult));
-    return false;
-  }
-  if (syncResult != ESP_OK) {
-    LOG_ERR("CLK", "NTP sync failed: %s", esp_err_to_name(syncResult));
-    return false;
-  }
-
-  return true;
+  return trustedtime::syncNow(5000);
 }
