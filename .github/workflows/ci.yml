@@ -334,7 +334,7 @@ jobs:
       - name: Install emulator deps
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q ninja-build libglib2.0-dev libpixman-1-dev libgcrypt20-dev libslirp-dev dosfstools mtools
+          sudo apt-get install -y -q ninja-build libglib2.0-dev libpixman-1-dev libgcrypt20-dev libslirp-dev libpng-dev dosfstools mtools
           pip install -q --break-system-packages esptool pillow
 
       - name: Restore x4prosim
@@ -342,7 +342,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: x4prosim/install
-          key: x4prosim-${{ runner.os }}-${{ env.X4PROSIM_SHA }}
+          key: x4prosim-png-${{ runner.os }}-${{ env.X4PROSIM_SHA }}
 
       - name: Build x4prosim
         if: steps.sim-cache.outputs.cache-hit != 'true'
@@ -355,6 +355,7 @@ jobs:
           ../configure --target-list=xtensa-softmmu --enable-gcrypt --enable-slirp --disable-sdl \
             --disable-user --disable-capstone --disable-vnc --disable-gtk --disable-docs \
             --prefix="$PWD/../install" --bindir=bin --datadir=share/qemu --with-suffix="" > /dev/null
+          grep -qx "#define CONFIG_PNG" config-host.h  # sim.py screenshots need PNG screendump
           ninja install > /dev/null
           # only the ESP ROMs are needed, as in x4prosim's release archives
           find ../install/share/qemu -maxdepth 1 -mindepth 1 -not -name 'esp*.bin' -exec rm -rf {} +

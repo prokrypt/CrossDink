@@ -21,6 +21,7 @@ grep -nE "Guru Meditation|panic'ed|abort\(\) was called|Backtrace:|\[ERR\]" "$ou
 # Display safety (x4prosim uc8179 DC ledger): every register LUT must be DC-balanced.
 grep -n "DC-unbalanced" "$out/guest.log" && fail "DC-unbalanced LUT"
 for s in "$out"/run/*.png; do
+  [ -f "$s" ] || continue
   n=$(basename "$s")
   case $n in diff-*) continue ;; esac
   g=$here/goldens/$n
