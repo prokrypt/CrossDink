@@ -49,7 +49,9 @@ int64_t previousSampleUs = 0;
 // A task first seen this interval has no baseline; count none of its time.
 configRUN_TIME_COUNTER_TYPE previousRunTimeOf(const TaskStatus_t& status) {
   for (UBaseType_t i = 0; i < previousCount; i++) {
-    if (previous[i].handle == status.xHandle) return previous[i].runTime;
+    if (previous[i].handle != status.xHandle) continue;
+    // A lower counter means a new task reused a dead task's handle; it started at 0.
+    return previous[i].runTime <= status.ulRunTimeCounter ? previous[i].runTime : 0;
   }
   return status.ulRunTimeCounter;
 }
@@ -197,7 +199,9 @@ void logQuietWindowTasks(const unsigned rtos0Pct, const unsigned rtos1Pct, const
   for (UBaseType_t i = 0; i < count; i++) {
     configRUN_TIME_COUNTER_TYPE before = statuses[i].ulRunTimeCounter;
     for (UBaseType_t j = 0; j < windowPreviousCount; j++) {
-      if (windowPrevious[j].handle == statuses[i].xHandle) before = windowPrevious[j].runTime;
+      if (windowPrevious[j].handle != statuses[i].xHandle) continue;
+      // A lower counter means a new task reused a dead task's handle; it started at 0.
+      before = windowPrevious[j].runTime <= before ? windowPrevious[j].runTime : 0;
     }
     deltas[i] = statuses[i].ulRunTimeCounter - before;
     if (statuses[i].xHandle == idle0 || statuses[i].xHandle == idle1) deltas[i] = 0;
