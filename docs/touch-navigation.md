@@ -52,4 +52,4 @@ Lyra, Dashboard, or Minimal Home screen to switch to the other recent book.
 - Swipe right from the left edge, or use the on-screen back arrow when shown,
   to go back from most screens.
 - Reader-specific page-turn and menu gestures are documented in
-  [Touch Reader Controls](./user-guide.md#touch-reader-controls).
+  [Touch Controls](./user-guide.md#touch-controls).
