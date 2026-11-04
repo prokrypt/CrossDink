@@ -330,9 +330,11 @@ jobs:
   test-status:
     name: Test Status
     needs:
+      - changes
       - build
       - clang-format
       - cppcheck
+      - simulator
       - unit-tests
     if: always()
     runs-on: ubuntu-24.04
