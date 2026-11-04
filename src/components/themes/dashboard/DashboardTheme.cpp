@@ -58,11 +58,8 @@ constexpr int kStatsValueLabelGap = 1;
 
 bool isWideScreen(const GfxRenderer& renderer) { return renderer.getScreenWidth() >= 560; }
 
-int contentInset(const GfxRenderer& renderer) {
-  const auto edges = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation())).edges;
-  return std::max(isWideScreen(renderer) ? kContentInsetX3 : kContentInsetX4,
-                  static_cast<int>(std::max(edges[1], edges[3])));
-}
+// Home body spans the full width; side calibration insets do not apply (user 11/04).
+int contentInset(const GfxRenderer& renderer) { return isWideScreen(renderer) ? kContentInsetX3 : kContentInsetX4; }
 
 Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
   const int inset = contentInset(renderer);

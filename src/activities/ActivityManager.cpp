@@ -1456,11 +1456,13 @@ void ActivityManager::goToSleep(bool fromTimeout) {
     RenderLock lock;
     TouchRegistry::getInstance().clear();
     sleepActivity->onEnter();
+    sleepScreenShown = true;
     exitActivity(lock);
     while (!stackActivities.empty()) {
       stackActivities.back()->onExit();
       stackActivities.pop_back();
     }
+    sleepScreenShown = false;
     pendingActivity.reset();
     pendingAction = PendingAction::None;
     currentActivity = std::move(sleepActivity);

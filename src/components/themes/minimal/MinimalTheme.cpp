@@ -146,6 +146,8 @@ int progressLabelBottomY(const GfxRenderer& renderer, const Rect& coverRect, con
 
 void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& globalStats, const Rect& coverRect,
                       const float progressPercent, const bool inverted) {
+  // X3-only overlay; deviceIsX3() is a constant false on S3 boards.
+  // cppcheck-suppress knownConditionTrueFalse
   if (!gpio.deviceIsX3()) {
     return;
   }
@@ -611,10 +613,11 @@ Rect MinimalTheme::buttonMenuPanelRect(const GfxRenderer& renderer, const int bu
   }
 
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int panelW = std::min(kMenuPanelWidth, safe.width - 80);
+  // Home body spans the full width; only the vertical safe area applies (user 11/04).
+  const int panelW = std::min(kMenuPanelWidth, renderer.getScreenWidth() - 80);
   const int pageItems = std::max(1, std::min(buttonCount, (safe.height - 2) / kMenuRowHeight));
   const int panelH = pageItems * kMenuRowHeight + 2;
-  const int panelX = safe.x + (safe.width - panelW) / 2;
+  const int panelX = (renderer.getScreenWidth() - panelW) / 2;
   const int panelY = std::clamp(kMenuPanelTop, safe.y, std::max(safe.y, safe.y + safe.height - panelH));
   return Rect{panelX, panelY, panelW, panelH};
 }

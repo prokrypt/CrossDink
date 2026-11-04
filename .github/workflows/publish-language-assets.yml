@@ -32,9 +32,9 @@ jobs:
           python-version: '3.12'
       - name: Check out the language-assets branch
         run: |
-          if git ls-remote --exit-code --heads origin language-assets; then
-            git worktree add assets-branch origin/language-assets
-            git -C assets-branch checkout -B language-assets origin/language-assets
+          # checkout fetches only main, so fetch the branch before using origin/language-assets.
+          if git fetch -q --depth=1 origin +refs/heads/language-assets:refs/remotes/origin/language-assets; then
+            git worktree add -B language-assets assets-branch origin/language-assets
           else
             git worktree add --detach assets-branch
             git -C assets-branch checkout --orphan language-assets

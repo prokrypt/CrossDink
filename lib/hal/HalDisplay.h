@@ -151,6 +151,9 @@ class HalDisplay {
   // millis() when a refresh that may flash was entered (0: none); the loop
   // ticks fast meanwhile.
   uint32_t flashMarkedMs() const { return flashStart.load(std::memory_order_relaxed); }
+  // Called on the refreshing task as a refresh that may flash is marked: a
+  // refresh the main loop runs itself blocks the loop that steps the duck.
+  static void (*onFlashMarked)();
   // When that refresh is expected to end (UC8179), 0 when unknown.
   uint32_t flashEndsMs() const;
   // Its waveform, for per-kind duck timing (UC8179; Full elsewhere).
@@ -161,6 +164,8 @@ class HalDisplay {
   // the driver's own swing decision, before its power and SPI work.
   uint32_t flashPlannedMs() const;
   FlashKind flashPlannedKind() const;
+  // The marked refresh's kind as the caller asked for it (Full for Half/Full).
+  FlashKind flashMarkedKind() const { return markKind.load(std::memory_order_relaxed); }
   // Goodies > Battery & stats: refreshes by kind, kept in RTC memory across deep
   // sleep and restarts (all zero in other builds). n[FULL/HALF/FAST_REFRESH],
   // then gray passes, then refreshes that flash (as marked for the flash duck).

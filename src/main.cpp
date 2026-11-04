@@ -30,10 +30,12 @@
 #include <XteinkDetect.h>
 #endif
 #ifndef SIMULATOR
+#include <esp_flash.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_timer.h>
+#include <spi_flash_chip_driver.h>
 #endif
 #include <builtinFonts/all.h>
 #include <uzlib.h>
@@ -115,6 +117,7 @@
 #endif
 #include "util/BatteryDiagnosticLog.h"
 #include "util/BatteryLog.h"
+#include "util/BootloaderFlash.h"
 #include "util/BugReport.h"
 #include "util/ButtonNavigator.h"
 #include "util/ButtonShortcutController.h"
@@ -2005,7 +2008,7 @@ static void restartInsteadOfSleep(const int lightOn = -1) {
 #endif
 
 // Enter deep sleep mode
-void enterDeepSleep(bool fromTimeout) {
+void enterDeepSleep(bool fromTimeout, bool powerOff) {
   // Deep sleep powers PSRAM down and would lose a running macro: any sleep
   // (power key, timeout, menu, SLEEPREBOOT) restarts instead, and the macro
   // resumes.
@@ -2030,9 +2033,9 @@ void enterDeepSleep(bool fromTimeout) {
     HalPowerManager::Lock powerLock;
     if (!wallpaperChordWake) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
     // "request" = power button or a Sleep menu/quick action.
-    PerfLog::noteDeepSleep(
-        fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout") : "request",
-        activityManager.currentActivityName());
+    PerfLog::noteDeepSleep(fromTimeout ? (APP_STATE.quickLockResumePending ? "quick-lock-timeout" : "idle-timeout")
+                                       : (powerOff ? "power-off" : "request"),
+                           activityManager.currentActivityName());
 
     const bool isQuickResumeSleep =
         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
@@ -2099,7 +2102,7 @@ void enterDeepSleep(bool fromTimeout) {
     // can be written again until the next wake.
     runBootTail(true);
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
-    BatteryLog::onSleep(fromTimeout ? "idle-timeout" : "request");
+    BatteryLog::onSleep(fromTimeout ? "idle-timeout" : (powerOff ? "power-off" : "request"));
     SleepLog::onSleep();
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
@@ -2135,7 +2138,7 @@ void enterDeepSleep(bool fromTimeout) {
 #ifdef SIMULATOR
   powerManager.startDeepSleep(gpio);  // the simulator's HalPowerManager has no lockout to clear
 #else
-  powerManager.startDeepSleep(gpio, true);
+  powerManager.startDeepSleep(gpio, true, powerOff);
 #endif
 }
 
@@ -2325,11 +2328,30 @@ void setup() {
           CROSSDINK_PIOENV, BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart,
           resetReasonName(rawResetReason));
   PerfLog::logPreApp(rawResetReason == ESP_RST_POWERON);
+#ifndef SIMULATOR
+  // chip_id was read by esp_flash_init before the app started; no SPI traffic here.
+  {
+    static const char* const kFlashIo[] = {"slowrd", "fastrd", "dout", "dio", "qout", "qio"};
+    const esp_flash_t* flash = esp_flash_default_chip;
+    const unsigned io = flash ? flash->read_mode : 0;
+    LOG_INF("BOOT", "flash id=0x%06lx drv=%s io=%s size=%luMB", flash ? (unsigned long)flash->chip_id : 0UL,
+            flash && flash->chip_drv ? flash->chip_drv->name : "?",
+            io < sizeof(kFlashIo) / sizeof(kFlashIo[0]) ? kFlashIo[io] : "opi",
+            flash ? (unsigned long)(flash->size >> 20) : 0UL);
+  }
+#endif
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
 #ifndef SIMULATOR
   HalPowerManager::logLastSleepSteps();
+  {
+    // The XIP cache read mode (SPI0 ctrl) is set by the bootloader, not by this build.
+    static const char* const kCacheIo[] = {"qio", "qout", "dio", "dout", "fastrd", "slowrd"};
+    const unsigned mode = ESP.getFlashChipMode();
+    LOG_INF("BOOT", "flash cache io=%s", mode < sizeof(kCacheIo) / sizeof(kCacheIo[0]) ? kCacheIo[mode] : "?");
+    bootloader_flash::logAppCheck();
+  }
 #endif
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
@@ -2726,6 +2748,9 @@ void setup() {
       }
       break;
     case BootResume::Splash:
+      // The splash paints next: the render task powers the booster on (~127 ms
+      // PON) while this core draws the logo; BootActivity's refresh waits on it.
+      activityManager.wakePanelEarly();
       activityManager.goToBoot();
       break;
   }
@@ -2964,17 +2989,26 @@ static void updateFlashDuckLocked() {
   const bool restoreEarly =
       swingMs != 0 && restoreMs < 0 && swingEndMs != 0 && static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
   const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
-  const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && holdLate);
-  // Plan to dark per kind (Gray, Full, Paint), re-measured by every planned
-  // flash: the driver's own SPI/power work, so it barely varies (render time
-  // and queueing come before the plan; input to dark ran 109-448 ms). Seeds:
-  // logs/device/20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215 74 ms and
-  // L6236->L6240 69 ms (gray LSB to DRF; the default Gray dim is dark at DRF);
-  // Full 182 ms (boot Home paint: PON 127 + SPI 27, 20261002T011313Z-c0142b63
-  // L46-50; RAM only, so every boot starts from it); Paint (POF 82 + PON 127 +
-  // SPI 54 + reset) inferred.
-  constexpr uint32_t kMaxLeadMs = 600;
-  static uint16_t leadMs[4] = {75, 180, 330, 75};  // by FlashKind (GrayDark plans like Gray)
+  // A Half/Full call that swings another waveform first (the gray exit before the Half when leaving
+  // the image viewer) keeps a running duck down until its own swing, instead of coming up in between.
+#ifndef SIMULATOR
+  const uint32_t callMs = display.flashMarkedMs();
+  const bool fullFollows = callMs != 0 && now - callMs <= FLASH_DUCK_MAX_MS &&
+                           display.flashMarkedKind() == HalDisplay::FlashKind::Full && !full;
+#else
+  const bool fullFollows = false;  // the simulator's display reports no per-waveform swings
+#endif
+  const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && (holdLate || fullFollows));
+  // Plan to swing per kind (Gray, Full, Paint), re-measured by every planned
+  // flash: the driver's own SPI/power work plus the waveform's offset, so it
+  // barely varies (render time and queueing come before the plan; input to dark
+  // ran 109-448 ms). The kind's dim offset is added on top. Seeds (RAM only, so
+  // every boot and wake starts from them), from device "plan to dark" logs
+  // 10/01-10/28 minus each kind's dim: Gray 648-656 ms (DRF ~75 + direct gray's
+  // 24 frames); Full 182-186 (PON 127 + SPI 27); Paint 60. GrayDark swings at
+  // DRF (gray LSB to DRF 74 ms, 20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215).
+  constexpr uint32_t kMaxLeadMs = 800;
+  static uint16_t leadMs[4] = {650, 180, 60, 75};  // by FlashKind
   static uint8_t leadKind = 0;
   static bool learned = false;      // this flash's lead is stored
   static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
@@ -3026,13 +3060,13 @@ static void updateFlashDuckLocked() {
       learned = false;
       leadKind = static_cast<uint8_t>(kind);
     }
-    uint32_t target = swingMs != 0 ? swingMs + dimMs : planMs + leadMs[leadKind];
+    uint32_t target = (swingMs != 0 ? swingMs : planMs + leadMs[leadKind]) + dimMs;
     if (swingMs != 0 && planMs != 0 && !learned) {
       learned = true;
-      const int32_t lead = static_cast<int32_t>(target - planMs);
+      const int32_t lead = static_cast<int32_t>(swingMs - planMs);
       leadMs[leadKind] = static_cast<uint16_t>(std::clamp<int32_t>(lead, 0, kMaxLeadMs));
-      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)", static_cast<long>(lead),
-              static_cast<long>(target - inputMs), leadKind);
+      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)",
+              static_cast<long>(target - planMs), static_cast<long>(target - inputMs), leadKind);
     }
     if (planMs == 0 && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
       target = fadeStartMs + FLASH_DUCK_DOWN_MS;
@@ -3135,6 +3169,13 @@ static void flashDuckRenderWait() {
 void installFlashDuckRenderWait() {
   mainLoopTask = xTaskGetCurrentTaskHandle();  // setup() and loop() share the Arduino loop task
   RenderLock::waitTick = &flashDuckRenderWait;
+  // A refresh on the main loop itself (BmpViewer's onExit() clear) blocks every step above until it
+  // ends, so the duck never started: arm its timer as the refresh is marked.
+#ifndef SIMULATOR
+  HalDisplay::onFlashMarked = [] {
+    if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
+  };
+#endif
 }
 
 // A running transfer pulse owns the light (the dim doesn't show under it), so the

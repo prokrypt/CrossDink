@@ -1,0 +1,14 @@
+# X4 Pro bootloader (ESP32-S3R8, 16 MB XTX XT25F128B flash). Keep in step with platformio.ini [env:x4-pro].
+CONFIG_IDF_TARGET="esp32s3"
+# Quad I/O cache reads. The chip's QE bit is set by the app (CONFIG_ESPTOOLPY_FLASHMODE_QIO there), since the
+# bootloader's default 31h status write is not implemented by this chip.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# OTA rollback, as the app expects (Arduino marks the image valid on its first loop).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# Xteink wake is a power-on reset: do not SHA-check the whole app image on every wake. OTA validates the image
+# before switching slots; other resets keep the full check.
+CONFIG_BOOTLOADER_SKIP_VALIDATE_ON_POWER_ON=y
+CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP=y
+CONFIG_BOOTLOADER_LOG_LEVEL_ERROR=y
