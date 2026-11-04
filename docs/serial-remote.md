@@ -35,7 +35,7 @@ the `CMD:SCREENSHOT` dump (`CMD:FBINFO` gives the size).
 | `CMD:OPEN <path>` | `OK:OPEN` | Opens a book in the reader. |
 | `CMD:GOTO <screen>` | `OK:GOTO <activity>` | Opens a top-level screen 0.5 s after the reply (so a Wi-Fi reply is sent before the screen can stop the server). `<activity>` is what `ACTIVITY` reports once it is up; confirm with `WAITIDLE` + `ACTIVITY`. `ERR:GOTO:unknown_screen`, `ERR:GOTO:unavailable` (no book to resume, no OPDS server, stats off), `ERR:GOTO:busy`. |
 | `CMD:GOTO list` | `OK:GOTO list <screen> ...` | Screen names in this build. |
-| `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow. |
+| `CMD:SLEEP` | `OK:SLEEP` | Normal sleep flow, as the power key: 0.5 s after the reply, the sleep screen and then deep sleep. |
 | `CMD:SLEEPREBOOT` | `OK:SLEEPREBOOT` | Goodies > Sleep-reboot-log without the confirm (PSRAM-log builds): 0.5 s after the reply, the real deep-sleep path, then a restart instead of power-down. The PSRAM log keeps the sleep; read it from `/api/psram-log` once the remote rejoins. |
 | `CMD:FLUSH` | `OK:FLUSH <n>` | Writes everything held for sleep now: settings, state and recent books (held in PSRAM between flush points), the reader's exit writes and the open book's position. `n` = writes that landed. |
 | `CMD:REBOOT` | `OK:REBOOT` | Software restart. Held settings, state and recent books stay in PSRAM for the next boot instead of being written. |
