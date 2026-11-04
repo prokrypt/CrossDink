@@ -5950,3 +5950,5 @@ function confirmMove() {
   xhr.send(formData);
 }
 hydrate();
+
+loadPlugins("files");

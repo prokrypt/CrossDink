@@ -9,6 +9,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #ifdef SIMULATOR
+#include <HTTPClient.h>
 #include <SecureHttpClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>

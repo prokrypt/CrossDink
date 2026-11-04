@@ -6,6 +6,7 @@
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <LanguageCache.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
 #include <PersistableStore.h>
@@ -13,6 +14,7 @@
 #include <Serialization.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
@@ -27,6 +29,7 @@
 #include "fontIds.h"
 #include "util/FrontlightSchedule.h"
 #include "util/InPlaceFileWrite.h"
+#include "util/PluginLocations.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/TwoFingerSwipe.h"
 
@@ -239,7 +242,7 @@ bool isValidQuickActionSlot(const uint8_t action) {
          action == CrossPointSettings::PREVIOUS_PAGE || action == CrossPointSettings::NEARBY_POSITION_SYNC ||
          action == CrossPointSettings::LIBRARY || action == CrossPointSettings::HOME_READER ||
          action == CrossPointSettings::BACK_HOME || action == CrossPointSettings::SELECT_CHAPTER ||
-         action == CrossPointSettings::ROTATE_FLIP;
+         action == CrossPointSettings::ROTATE_FLIP || action == CrossPointSettings::TOGGLE_PAGE_TURN_GESTURES;
 }
 
 uint8_t migrateTiltDirectionValue(const uint8_t direction) {
@@ -288,6 +291,7 @@ bool CrossPointSettings::isTwoFingerSwipeActionAvailable(const uint8_t action, c
     case TWO_FINGER_SWIPE_BACK_HOME:
     case TWO_FINGER_SWIPE_HOME_READER:
     case TWO_FINGER_SWIPE_SELECT_CHAPTER:
+    case TWO_FINGER_SWIPE_TOGGLE_PAGE_TURN_GESTURES:
     case TWO_FINGER_SWIPE_NEXT_CHAPTER:
     case TWO_FINGER_SWIPE_PREVIOUS_CHAPTER:
     case TWO_FINGER_SWIPE_INCREASE_FONT_SIZE:
@@ -490,6 +494,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["libraryShowMarkdown"] = libraryShowMarkdown;
   doc["libraryHideFinishedBooks"] = libraryHideFinishedBooks;
 
+  doc["disablePageTurnGestures"] = disablePageTurnGestures;
   doc["frontButtonBack"] = frontButtonBack;
   doc["frontButtonConfirm"] = frontButtonConfirm;
   doc["frontButtonLeft"] = frontButtonLeft;
@@ -510,12 +515,15 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   }
   doc["quickActionsTrigger"] = quickActionsTrigger;
   doc["filenameFallbackFont"] = filenameFallbackFont;
-  doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
+  doc["language"] = languageCode;
+  if (languageCacheGeneration) doc["languageCacheGeneration"] = languageCacheGeneration;
   if (keyboardLayouts != 0) doc["keyboardLayouts"] = keyboardLayouts;
   doc["tiltPageTurnDirectionSchema"] = TILT_DIRECTION_SCHEMA_CURRENT;
   doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   doc["screenInverted"] = screenInvertedHeld >= 0 ? static_cast<uint8_t>(screenInvertedHeld) : screenInverted;
   doc["goodiesWifiRemote"] = goodiesWifiRemote;
+  doc["pluginsEnabled"] = pluginsEnabled;
+  doc["pluginHubPromptHidden"] = pluginHubPromptHidden;
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint) {
@@ -588,7 +596,9 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       continue;
     }
 
-    const uint8_t fieldDefault = this->*(info.valuePtr);
+    // A missing key in an older export restores bidirectional tilt, even if this session changed it.
+    const uint8_t fieldDefault =
+        info.valuePtr == &CrossPointSettings::tiltNextPageOnly ? uint8_t{0} : this->*(info.valuePtr);
     uint8_t value = doc[info.key] | fieldDefault;
     // CrossPoint stores normal spacing as 100%; CrossDink stores it as level 0.
     // Keep native levels intact, including files at the legacy path.
@@ -627,6 +637,34 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       value = std::clamp(value, static_cast<uint8_t>(info.valueRange.min), static_cast<uint8_t>(info.valueRange.max));
     }
     this->*(info.valuePtr) = value;
+  }
+
+  // Retire the old blanket touch gate. Its saved value must not leave hidden restrictions.
+  disablePageTurnGestures = clamp(doc["disablePageTurnGestures"] | uint8_t{0}, 2, 0);
+  if (!doc["touchReaderControls"].isNull()) needsResave = true;
+  const uint8_t legacyFront =
+      clamp(doc["longPressButtonBehavior"] | uint8_t{OFF}, LONG_PRESS_BUTTON_BEHAVIOR_COUNT, OFF);
+  const auto frontAction = [&](bool left) -> uint8_t {
+    switch (legacyFront) {
+      case CHAPTER_SKIP:
+        return left ? SIDE_PREVIOUS_CHAPTER : SIDE_NEXT_CHAPTER;
+      case FONT_SIZE_CHANGE:
+        return left ? SIDE_DECREASE_FONT : SIDE_INCREASE_FONT;
+      case ORIENTATION_CHANGE:
+        return left ? SIDE_ROTATE_CLOCKWISE : SIDE_ROTATE_COUNTERCLOCKWISE;
+      case ORIENTATION_FLIP:
+        return SIDE_ROTATE_FLIP;
+      default:
+        return IGNORE;
+    }
+  };
+  if (doc["frontButtonLeftLong"].isNull()) {
+    frontButtonLeftLong = frontAction(true);
+    needsResave = true;
+  }
+  if (doc["frontButtonRightLong"].isNull()) {
+    frontButtonRightLong = frontAction(false);
+    needsResave = true;
   }
 
   // Old settings assigned one layout and one long-press mode to both side
@@ -701,7 +739,6 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     if (doc["touchReaderControls"].is<uint8_t>()) {
       const uint8_t mode = doc["touchReaderControls"].as<uint8_t>();
       if (mode <= 3) {
-        touchReaderControls = mode == 0 ? TOUCH_READER_OFF : TOUCH_READER_ON;
         // CrossPoint: 0=off, 1=tap, 2=swipe, 3=inverted tap.
         pageTurnGesture = mode == 0 ? TAP_AND_SWIPE : mode == 1 ? TAP_ONLY : mode == 2 ? SWIPE_ONLY : INVERTED_TAP;
         previousPageGesture = pageTurnGesture;
@@ -895,7 +932,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   const bool unavailableHomeTrigger =
       !gpio.hasHomeKey() && persistedQuickActionsTrigger >= static_cast<uint8_t>(QuickActions::Trigger::TapHome) &&
       persistedQuickActionsTrigger <= static_cast<uint8_t>(QuickActions::Trigger::DoubleTapHome);
-  if (persistedQuickActionsTrigger <= static_cast<uint8_t>(QuickActions::Trigger::SideDownLong) &&
+  if (persistedQuickActionsTrigger <= static_cast<uint8_t>(QuickActions::Trigger::FrontRightLong) &&
       !unavailableHomeTrigger) {
     quickActionsTrigger = persistedQuickActionsTrigger;
   } else {
@@ -917,8 +954,13 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     needsResave = true;
   }
   if (doc["language"].is<const char*>()) {
-    language = static_cast<uint8_t>(I18n::languageFromCode(doc["language"].as<const char*>()));
+    const char* code = doc["language"].as<const char*>();
+    if (language_cache::validCode(code)) {
+      std::strcpy(languageCode, code);
+      for (char* p = languageCode; *p; ++p) *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
+    }
   }
+  languageCacheGeneration = doc["languageCacheGeneration"] | uint64_t{0};
   const char* filenameFont = doc["filenameFallbackFont"] | "";
   if (std::strlen(filenameFont) < sizeof(filenameFallbackFont) && !std::strchr(filenameFont, '/') &&
       !std::strchr(filenameFont, '\\') && std::strcmp(filenameFont, ".") != 0 && std::strcmp(filenameFont, "..") != 0) {
@@ -935,6 +977,13 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     needsResave = true;
   }
 
+  if (doc["pluginsEnabled"].isNull()) {
+    pluginsEnabled = PluginLocations::anyPluginInstalledOnDisk() ? 1 : 0;
+    needsResave = true;
+  } else {
+    pluginsEnabled = clamp(doc["pluginsEnabled"] | uint8_t{0}, 2, 0);
+  }
+  pluginHubPromptHidden = clamp(doc["pluginHubPromptHidden"] | uint8_t{0}, 2, 0);
   if (needsResave) requestResave();
   LOG_DBG("CPS", "Settings loaded from file");
   return true;
@@ -1064,7 +1113,7 @@ bool CrossPointSettings::migrateLanguageBinaryFile() {
       uint8_t oldIndex;
       serialization::readPod(f, oldIndex);
       if (oldIndex < V1_LANGUAGE_COUNT) {
-        language = static_cast<uint8_t>(V1_LANGUAGES[oldIndex]);
+        std::strcpy(languageCode, LANGUAGE_CODES[static_cast<uint8_t>(V1_LANGUAGES[oldIndex])]);
       }
     }
   }
@@ -1202,6 +1251,27 @@ bool CrossPointSettings::loadFromBinaryFile() {
       sideButtonDownLong = SIDE_NEXT_CHAPTER;
       break;
     default:
+      break;
+  }
+
+  switch (longPressButtonBehavior) {
+    case CHAPTER_SKIP:
+      frontButtonLeftLong = SIDE_PREVIOUS_CHAPTER;
+      frontButtonRightLong = SIDE_NEXT_CHAPTER;
+      break;
+    case FONT_SIZE_CHANGE:
+      frontButtonLeftLong = SIDE_DECREASE_FONT;
+      frontButtonRightLong = SIDE_INCREASE_FONT;
+      break;
+    case ORIENTATION_CHANGE:
+      frontButtonLeftLong = SIDE_ROTATE_CLOCKWISE;
+      frontButtonRightLong = SIDE_ROTATE_COUNTERCLOCKWISE;
+      break;
+    case ORIENTATION_FLIP:
+      frontButtonLeftLong = frontButtonRightLong = SIDE_ROTATE_FLIP;
+      break;
+    default:
+      frontButtonLeftLong = frontButtonRightLong = IGNORE;
       break;
   }
 

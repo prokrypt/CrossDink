@@ -164,31 +164,24 @@ const ThemeMetrics& UITheme::getMetrics() const {
 int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
                                      bool hasSubtitle, int extraReservedHeight) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  auto orientation = renderer.getOrientation();
-  int reservedHeight = metrics.topPadding;
+  const auto safe = getInstance().getScreenSafeArea(renderer, hasButtonHints, false);
+  int contentTop = std::max(safe.y, static_cast<int>(metrics.topPadding));
   if (hasHeader) {
-    reservedHeight += metrics.headerHeight + metrics.verticalSpacing;
+    const auto header = getHeaderRect(renderer, metrics.headerHeight, safe);
+    contentTop = header.y + header.height + metrics.verticalSpacing;
   }
-  if (hasTabBar) {
-    reservedHeight += metrics.tabBarHeight;
-  }
-  if (hasButtonHints && orientation != GfxRenderer::Orientation::LandscapeClockwise &&
-      orientation != GfxRenderer::Orientation::LandscapeCounterClockwise) {
-    reservedHeight += metrics.verticalSpacing + getButtonHintsReserve(renderer);
-  }
-  const int availableHeight = renderer.getScreenHeight() - reservedHeight - extraReservedHeight;
+  if (hasTabBar) contentTop += metrics.tabBarHeight;
+  const int availableHeight = std::max(0, safe.y + safe.height - contentTop - extraReservedHeight);
   return UITheme::getInstance().getTheme().getListPageItems(availableHeight, hasSubtitle);
 }
 
 // Screen area excluding the button hints
 Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButtonHints, bool hasSideButtonHints) {
-  (void)hasSideButtonHints;
   auto orientation = renderer.getOrientation();
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
   Rect safeArea = Rect{0, 0, screenWidth, screenHeight};
-  const int hintReserve =
-      renderer.hasCustomViewableInsets() ? getButtonHintsReserve(renderer) : currentMetrics->buttonHintsHeight;
+  const int hintReserve = getButtonHintsReserve(renderer);
   switch (orientation) {
     case GfxRenderer::Orientation::Portrait:
       if (hasFrontButtonHints) {
@@ -213,20 +206,18 @@ Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButton
       }
       break;
   }
-  if (renderer.hasCustomViewableInsets()) {
-    int top, right, bottom, left;
-    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-    // cppcheck-suppress knownConditionTrueFalse ; constant on buttons-only boards
-    if (hasSideButtonHints && !gpio.hasTouch()) {
-      if (deviceHasEdgeSideButtons(gpio)) left += getMetrics().sideButtonHintsWidth;
-      right += getMetrics().sideButtonHintsWidth;
-    }
-    const int x = std::max(safeArea.x, left);
-    const int y = std::max(safeArea.y, top);
-    const int endX = std::min(safeArea.x + safeArea.width, screenWidth - right);
-    const int endY = std::min(safeArea.y + safeArea.height, screenHeight - bottom);
-    safeArea = Rect{x, y, std::max(0, endX - x), std::max(0, endY - y)};
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  // cppcheck-suppress knownConditionTrueFalse ; constant on buttons-only boards
+  if (hasSideButtonHints && !gpio.hasTouch()) {
+    if (deviceHasEdgeSideButtons(gpio)) left += getMetrics().sideButtonHintsWidth;
+    right += getMetrics().sideButtonHintsWidth;
   }
+  const int x = std::max(safeArea.x, left);
+  const int y = std::max(safeArea.y, top);
+  const int endX = std::min(safeArea.x + safeArea.width, screenWidth - right);
+  const int endY = std::min(safeArea.y + safeArea.height, screenHeight - bottom);
+  safeArea = Rect{x, y, std::max(0, endX - x), std::max(0, endY - y)};
   return safeArea;
 }
 
@@ -321,9 +312,7 @@ int UITheme::getReaderProgressBarHeight(const ReaderStatusBarPosition position) 
              : 0;
 }
 
-int UITheme::getButtonHintsBottomInset(const GfxRenderer& renderer) {
-  return renderer.hasCustomViewableInsets() ? renderer.getViewableInsets().edges[2] : 0;
-}
+int UITheme::getButtonHintsBottomInset(const GfxRenderer& renderer) { return renderer.getViewableInsets().edges[2]; }
 
 int UITheme::getButtonHintsReserve(const GfxRenderer& renderer) {
   const int height = getInstance().getMetrics().buttonHintsHeight;
@@ -331,7 +320,6 @@ int UITheme::getButtonHintsReserve(const GfxRenderer& renderer) {
 }
 
 int UITheme::getHintSafeX(const GfxRenderer& renderer, const int x, const int width) {
-  if (!renderer.hasCustomViewableInsets()) return x;
   const auto edges = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation())).edges;
   return std::clamp(x, static_cast<int>(edges[3]),
                     std::max(static_cast<int>(edges[3]), renderer.getScreenWidth() - edges[1] - width));
@@ -343,8 +331,6 @@ int UITheme::getTopStatusBarY(const GfxRenderer& renderer) {
 }
 
 Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height) {
-  const int legacyTop = getInstance().getMetrics().topPadding;
-  if (!renderer.hasCustomViewableInsets()) return Rect{0, legacyTop, renderer.getScreenWidth(), height};
   const auto insets = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation()));
   // drawDisplayStatusBar adds the existing board offset exactly once.
   const int y =
@@ -354,7 +340,6 @@ Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height) {
 
 Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height, const Rect& area) {
   auto header = getHeaderRect(renderer, height);
-  if (!renderer.hasCustomViewableInsets()) return Rect{area.x, area.y + header.y, area.width, height};
   const int right = std::min(header.x + header.width, area.x + area.width);
   header.x = std::max(header.x, area.x);
   header.width = std::max(0, right - header.x);
@@ -381,7 +366,14 @@ int UITheme::getTopStatusBarInset(const GfxRenderer& renderer) {
 // Centered text implementation that takes the safe area into account
 void UITheme::drawCenteredText(const GfxRenderer& renderer, Rect screen, int fontId, int y, const char* text,
                                bool black, EpdFontFamily::Style style) {
-  const int x = screen.x + (screen.width - renderer.getTextWidth(fontId, text, style)) / 2;
+  const int width = renderer.getTextWidth(fontId, text, style);
+  if (width > screen.width) {
+    const auto visible = renderer.truncatedText(fontId, text, screen.width, style);
+    const int x = screen.x + (screen.width - renderer.getTextWidth(fontId, visible.c_str(), style)) / 2;
+    renderer.drawText(fontId, x, y, visible.c_str(), black, style);
+    return;
+  }
+  const int x = screen.x + (screen.width - width) / 2;
   renderer.drawText(fontId, x, y, text, black, style);
 }
 

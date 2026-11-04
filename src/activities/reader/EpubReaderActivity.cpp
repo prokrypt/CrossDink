@@ -71,6 +71,7 @@
 #include "ReaderFontLoading.h"
 #include "ReaderProgressShadow.h"
 #include "ReaderUtils.h"
+#include "ReadingPace.h"
 #include "ReadingSessionStats.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
@@ -171,13 +172,6 @@ KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_FREE, idlePrewarmMinFree);
 KNOB_ALIAS(IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC, idlePrewarmMinBlock);
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_READING_PACE_SAMPLE_SECONDS = 2;
-constexpr uint16_t MIN_STORED_TIME_LEFT_PACE_SAMPLE_COUNT = 3;
-constexpr uint16_t MIN_SESSION_TIME_LEFT_PACE_SAMPLE_COUNT = 10;
-constexpr uint16_t MIN_STORED_PACE_SLOWER_RECOVERY_SESSION_SAMPLES = 10;
-constexpr uint8_t STORED_PACE_SLOWER_RECOVERY_PERCENT = 110;
-constexpr uint16_t MIN_STORED_PACE_FASTER_RECOVERY_SESSION_SAMPLES = 15;
-constexpr uint8_t STORED_PACE_FASTER_RECOVERY_PERCENT = 90;
-constexpr uint8_t BOOK_PROGRESS_ESTIMATE_FLOOR_PERCENT = 90;
 constexpr uint16_t FOOTNOTE_PREVIEW_MAX_PAGES = 3;
 #if CROSSDINK_APP_CAP_TOUCH
 constexpr int TOUCH_FOOTNOTE_TARGET_SIZE = 48;
@@ -242,10 +236,6 @@ uint32_t pagesCentipages(const float pages) {
     return UINT32_MAX;
   }
   return static_cast<uint32_t>(pages * 100.0f + 0.5f);
-}
-
-bool hasEnoughPaceSamplesForTimeLeft(const BookReadingStats& stats) {
-  return stats.avgSecondsPerForwardPage > 0 && stats.paceSampleCount >= MIN_STORED_TIME_LEFT_PACE_SAMPLE_COUNT;
 }
 
 std::string confirmationHeading(const StrId actionLabelId) {
@@ -1630,9 +1620,10 @@ void EpubReaderActivity::pauseReadingPaceTimer(const char* reason) {
 void EpubReaderActivity::commitReadingStatsSession() {
   if (!statsTrackingActive) return;
   recordCurrentPageReadingTime("session_commit");
-  commitReadingSession(stats, globalStats, sessionReadingSeconds,
-                       hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+  readingSessionJournal.flush();
+  commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   sessionReadingSeconds = 0;
+  readingSessionDates.reset();
 }
 
 void EpubReaderActivity::syncStatsTrackingState() {
@@ -1650,7 +1641,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   statsTrackingActive = enabled;
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
   startDailyReadingInterval();
   armReadingPaceWarmup("stats_toggle");
@@ -1757,6 +1748,10 @@ void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
+    readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
+    if (epub && !readingSessionJournal.accept(epub->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
+      LOG_ERR("SessionStats", "Reading session not journaled");
+    }
     if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
       LOG_ERR("DailyStats", "Cannot record accepted reading interval");
     }
@@ -1785,74 +1780,30 @@ void EpubReaderActivity::recordForwardPagePaceSample(uint32_t seconds, const cha
   }
 
   stats.recordForwardPageRead(seconds);
+  const uint32_t paceMillis = ReadingPace::estimateMillis(sessionStartPaceMillis, sessionStartPaceSampleCount,
+                                                          sessionPaceSampleSeconds, sessionPaceSampleCount);
+  // Persist the same gradual estimate the status bar uses, including short sessions.
+  if (paceMillis > 0) stats.setAverageForwardPageMillis(paceMillis);
   paceDirty = true;
-  recoverStoredPaceFromSession("pace_sample");
 }
 
-bool EpubReaderActivity::getSessionAveragePaceSeconds(uint16_t& avgSeconds) const {
-  avgSeconds = 0;
-  if (sessionPaceSampleCount < MIN_SESSION_TIME_LEFT_PACE_SAMPLE_COUNT || sessionPaceSampleSeconds == 0) {
-    return false;
-  }
-  const uint32_t roundedAvg =
-      (sessionPaceSampleSeconds + static_cast<uint32_t>(sessionPaceSampleCount / 2)) / sessionPaceSampleCount;
-  avgSeconds = static_cast<uint16_t>(std::min<uint32_t>(roundedAvg, UINT16_MAX));
-  return avgSeconds > 0;
+bool EpubReaderActivity::getTimeLeftPaceSeconds(float& avgSeconds, const char*& source, uint16_t& sampleCount) const {
+  const uint32_t millis = ReadingPace::estimateMillis(sessionStartPaceMillis, sessionStartPaceSampleCount,
+                                                      sessionPaceSampleSeconds, sessionPaceSampleCount);
+  avgSeconds = static_cast<float>(millis) / 1000.0f;
+  sampleCount = sessionPaceSampleCount > 0 ? sessionPaceSampleCount : sessionStartPaceSampleCount;
+  source = millis == 0 ? "none" : sessionPaceSampleCount == 0 ? "stored_pace" : "blended_session_pace";
+  return millis > 0;
 }
 
-void EpubReaderActivity::recoverStoredPaceFromSession(const char* reason) {
-  if (stats.avgSecondsPerForwardPage == 0) {
-    return;
-  }
-
-  uint16_t sessionAvg = 0;
-  if (!getSessionAveragePaceSeconds(sessionAvg)) {
-    return;
-  }
-
-  const uint32_t slowerRecoveryThreshold =
-      (static_cast<uint32_t>(stats.avgSecondsPerForwardPage) * STORED_PACE_SLOWER_RECOVERY_PERCENT + 99U) / 100U;
-  if (sessionPaceSampleCount >= MIN_STORED_PACE_SLOWER_RECOVERY_SESSION_SAMPLES &&
-      sessionAvg >= slowerRecoveryThreshold) {
-    LOG_DBG("ERS",
-            "Time-left stored pace recovered: reason=%s direction=slower avg=%u->%u samples=%u sessionSamples=%u "
-            "threshold=%lu",
-            reason ? reason : "unknown", stats.avgSecondsPerForwardPage, sessionAvg, stats.paceSampleCount,
-            sessionPaceSampleCount, static_cast<unsigned long>(slowerRecoveryThreshold));
-    stats.avgSecondsPerForwardPage = sessionAvg;
-    return;
-  }
-
-  const uint32_t fasterRecoveryThreshold =
-      (static_cast<uint32_t>(stats.avgSecondsPerForwardPage) * STORED_PACE_FASTER_RECOVERY_PERCENT) / 100U;
-  if (sessionPaceSampleCount >= MIN_STORED_PACE_FASTER_RECOVERY_SESSION_SAMPLES &&
-      sessionAvg <= fasterRecoveryThreshold) {
-    LOG_DBG("ERS",
-            "Time-left stored pace recovered: reason=%s direction=faster avg=%u->%u samples=%u sessionSamples=%u "
-            "threshold=%lu",
-            reason ? reason : "unknown", stats.avgSecondsPerForwardPage, sessionAvg, stats.paceSampleCount,
-            sessionPaceSampleCount, static_cast<unsigned long>(fasterRecoveryThreshold));
-    stats.avgSecondsPerForwardPage = sessionAvg;
-  }
-}
-
-bool EpubReaderActivity::getTimeLeftPaceSeconds(uint16_t& avgSeconds, const char*& source,
-                                                uint16_t& sampleCount) const {
-  if (getSessionAveragePaceSeconds(avgSeconds)) {
-    source = "session_pace";
-    sampleCount = sessionPaceSampleCount;
-    return true;
-  }
-  if (hasEnoughPaceSamplesForTimeLeft(stats)) {
-    avgSeconds = stats.avgSecondsPerForwardPage;
-    source = "stored_pace";
-    sampleCount = stats.paceSampleCount;
-    return true;
-  }
-  avgSeconds = 0;
-  source = "none";
-  sampleCount = 0;
-  return false;
+void EpubReaderActivity::refreshBookPageEstimate() {
+  if (!epub || !section || activeFootnotePreview) return;
+  const size_t previous = currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
+  const size_t cumulative = epub->getCumulativeSpineItemSize(currentSpineIndex);
+  if (cumulative <= previous) return;
+  bookPageEstimate.observe(currentSpineIndex, static_cast<uint32_t>(cumulative - previous),
+                           section->estimatedTotalPages(), section->pageCount, section->currentPage,
+                           !section->isBuilding() && !section->isPartial());
 }
 
 bool EpubReaderActivity::estimateRemainingTimeLeftPages(const bool bookEstimate, float& remainingPages) const {
@@ -1880,100 +1831,70 @@ bool EpubReaderActivity::estimateRemainingTimeLeftPages(const bool bookEstimate,
     }
 
     const size_t prevChapterSize = currentSpineIndex >= 1 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
-    const size_t cumulativeSize = epub->getCumulativeSpineItemSize(currentSpineIndex);
-    if (cumulativeSize <= prevChapterSize) {
+    if (prevChapterSize >= bookSize) {
       return false;
     }
-
-    const float chapterSize = static_cast<float>(cumulativeSize - prevChapterSize);
-    const float completedCurrentChapter =
-        (static_cast<float>(section->currentPage) / static_cast<float>(totalPages)) * chapterSize;
-    const float completedBookSize = static_cast<float>(prevChapterSize) + completedCurrentChapter;
-    if (completedBookSize >= static_cast<float>(bookSize)) {
-      return false;
+    if (currentSpineIndex == epub->getSpineItemsCount() - 1 && !section->isBuilding() && !section->isPartial()) {
+      remainingPages = static_cast<float>(std::max(0, totalPages - section->currentPage));
+    } else {
+      remainingPages =
+          bookPageEstimate.remainingPages(bookSize - prevChapterSize, section->currentPage, section->pageCount);
     }
-
-    const float bytesPerPage = chapterSize / static_cast<float>(totalPages);
-    if (bytesPerPage <= 0.0f) {
-      return false;
-    }
-    remainingPages = (static_cast<float>(bookSize) - completedBookSize) / bytesPerPage;
   }
 
   return remainingPages > 0.0f;
 }
 
-bool EpubReaderActivity::estimateProgressTimeLeftSeconds(uint32_t& seconds) const {
-  seconds = 0;
-  const int totalPages = section ? section->estimatedTotalPages() : 0;
-  if (!epub || !section || totalPages == 0 || epub->getBookSize() == 0) {
-    return false;
+void EpubReaderActivity::refreshStableTextProgress() {
+  hasStableTextPosition = false;
+  if (!epub || !section || activeFootnotePreview || section->currentPage < 0 || !epub->hasStablePageNumbers()) {
+    pendingStableReadSeconds = 0;
+    return;
   }
-  const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(totalPages);
-  const float progressPercent = epub->calculateSizeProgress(currentSpineIndex, chapterProgress) * 100.0f;
-  uint32_t currentPageSeconds = 0;
-  uint32_t sessionSeconds = sessionReadingSeconds;
-  if (statsTrackingActive && currentPageReadingSecondsForStats(currentPageSeconds, "time_left_preview")) {
-    sessionSeconds =
-        sessionSeconds > UINT32_MAX - currentPageSeconds ? UINT32_MAX : sessionSeconds + currentPageSeconds;
+  uint32_t textLength = 0;
+  const auto offset = section->getReferenceTextOffsetForPage(section->currentPage, textLength);
+  hasStableTextPosition = offset && epub->resolveReferenceTextProgress(currentSpineIndex, *offset, textLength,
+                                                                       stableTextPosition, stableTextTotal);
+  stableTextSpine = currentSpineIndex;
+  stableTextPage = section->currentPage;
+  if (pendingStableReadSeconds > 0 && hasStableTextPosition && currentSpineIndex == pendingStableReadSpine &&
+      section->currentPage == pendingStableReadPage) {
+    stableReadingPace.record(pendingStableReadSeconds, stableTextPosition - pendingStableReadStart);
   }
-  const uint32_t elapsedReadingSeconds =
-      stats.totalReadingSeconds > UINT32_MAX - sessionSeconds ? UINT32_MAX : stats.totalReadingSeconds + sessionSeconds;
-
-  if (progressPercent <= 0.0f || progressPercent >= 100.0f || elapsedReadingSeconds < 120) {
-    return false;
-  }
-
-  const float progress = progressPercent / 100.0f;
-  const float estimate = (static_cast<float>(elapsedReadingSeconds) * (1.0f - progress)) / progress;
-  if (estimate <= 0.0f) {
-    return false;
-  }
-
-  seconds = static_cast<uint32_t>(std::min(estimate + 0.5f, static_cast<float>(UINT32_MAX)));
-  return seconds > 0;
+  pendingStableReadSeconds = 0;
 }
 
 bool EpubReaderActivity::estimateTimeLeftSeconds(const bool bookEstimate, uint32_t& seconds) const {
   seconds = 0;
-  uint16_t paceSeconds = 0;
+  // Both distance and pace use the manifest's source units. Incremental layout,
+  // font size and the number of screenfuls in a chapter cannot change this ETA.
+  if (bookEstimate && hasStableTextPosition && !activeFootnotePreview && section &&
+      stableTextSpine == currentSpineIndex && stableTextPage == section->currentPage) {
+    if (stableReadingPace.estimate(stableTextTotal - stableTextPosition, seconds)) {
+      lastBookTimeLeftSeconds = seconds;
+      return true;
+    }
+    // Reopening starts text-pace learning again. Keep the previous estimate
+    // visible until it is ready instead of repeatedly showing Calculating.
+    if (lastBookTimeLeftSeconds > 0) {
+      seconds = lastBookTimeLeftSeconds;
+      return true;
+    }
+  }
+  float paceSeconds = 0;
   const char* paceSource = "none";
   uint16_t paceSampleCount = 0;
-  const bool hasPace = getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount);
-
-  uint32_t paceEstimateSeconds = 0;
-  bool hasPaceEstimate = false;
-  float remainingPages = 0.0f;
-  if (hasPace && estimateRemainingTimeLeftPages(bookEstimate, remainingPages)) {
-    const float estimatedSeconds = remainingPages * static_cast<float>(paceSeconds);
-    if (estimatedSeconds > 0.0f) {
-      paceEstimateSeconds = static_cast<uint32_t>(std::min(estimatedSeconds + 0.5f, static_cast<float>(UINT32_MAX)));
-      hasPaceEstimate = paceEstimateSeconds > 0;
-    }
+  float remainingPages = 0;
+  if (getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount) &&
+      estimateRemainingTimeLeftPages(bookEstimate, remainingPages)) {
+    const double estimate = static_cast<double>(remainingPages) * paceSeconds;
+    seconds = estimate >= UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(estimate + 0.5);
   }
-
-  uint32_t progressEstimateSeconds = 0;
-  bool hasProgressEstimate = false;
-  if (bookEstimate && hasPace && statsTrackingActive) {
-    hasProgressEstimate = estimateProgressTimeLeftSeconds(progressEstimateSeconds);
-  }
-  if (!hasPaceEstimate && !hasProgressEstimate) {
-    return false;
-  }
-
-  if (!hasPaceEstimate) {
-    seconds = progressEstimateSeconds;
-  } else if (hasProgressEstimate) {
-    const uint32_t progressFloorSeconds = static_cast<uint32_t>(std::min<uint64_t>(
-        (static_cast<uint64_t>(progressEstimateSeconds) * BOOK_PROGRESS_ESTIMATE_FLOOR_PERCENT + 99ULL) / 100ULL,
-        UINT32_MAX));
-    if (paceEstimateSeconds < progressFloorSeconds) {
-      seconds = progressFloorSeconds;
-    } else {
-      seconds = paceEstimateSeconds;
-    }
-  } else {
-    seconds = paceEstimateSeconds;
+  if (bookEstimate) {
+    if (seconds > 0)
+      lastBookTimeLeftSeconds = seconds;
+    else
+      seconds = lastBookTimeLeftSeconds;
   }
   return seconds > 0;
 }
@@ -1988,12 +1909,14 @@ bool EpubReaderActivity::formatTimeLeftLabel(char* buf, const size_t len, const 
     return true;
   }
 
-  uint16_t paceSeconds = 0;
+  float paceSeconds = 0;
   const char* paceSource = "none";
   uint16_t paceSampleCount = 0;
-  if (!getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount)) {
+  if ((bookEstimate && hasStableTextPosition) || !getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount) ||
+      (bookEstimate && bookPageEstimate.pagesPerByte() <= 0)) {
     float remainingPages = 0.0f;
-    if (!estimateRemainingTimeLeftPages(bookEstimate, remainingPages)) {
+    if (!estimateRemainingTimeLeftPages(bookEstimate, remainingPages) &&
+        !(bookEstimate && section && section->pageCount > 0)) {
       return false;
     }
     snprintf(buf, len, "%s", tr(STR_TIME_LEFT_CALCULATING));
@@ -2403,6 +2326,11 @@ void EpubReaderActivity::endGlobalSettingsEditForBookReader(void* ctx) {
   static_cast<EpubReaderActivity*>(ctx)->endGlobalSettingsEdit();
 }
 
+bool EpubReaderActivity::usesMenuButtonOrientation() const {
+  return quickActionsPopup.isActive() || (epub && currentSpineIndex >= epub->getSpineItemsCount() &&
+                                          endOfBookMenuActive.load(std::memory_order_relaxed));
+}
+
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
   showOpeningFeedback();
@@ -2552,6 +2480,9 @@ void EpubReaderActivity::onEnter() {
   // Held exit stats are read from RAM here and written once the first page is
   // up (loop()), so this session's saves still supersede them.
   stats = BookReadingStats::load(epub->getCachePath());
+  lastBookTimeLeftSeconds = stats.isCompleted ? 0 : stats.estimatedTimeLeftSeconds;
+  sessionStartPaceMillis = stats.averageForwardPageMillis();
+  sessionStartPaceSampleCount = stats.paceSampleCount;
   bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
   statsTrackingActive = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
   paceDirty = false;
@@ -2567,7 +2498,7 @@ void EpubReaderActivity::onEnter() {
   armReadingPaceWarmup("reader_open");
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
 
   initializeCompletionPromptTrigger();
 
@@ -2677,6 +2608,7 @@ void EpubReaderActivity::onExit() {
     LOG_ERR("ERS", "Failed to flush debounced reader progress on exit");
   }
   ReaderProgressShadow::unbind(progressFlushed);
+  pluginEvents.exit(getCurrentBookPath(), getScreenshotInfo().progressPercent);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -2687,7 +2619,6 @@ void EpubReaderActivity::onExit() {
   syncStatsTrackingState();
   commitReadingStatsSession();
   if (epub) {
-    recoverStoredPaceFromSession("reader_exit");
     const uint32_t previousEstimate = stats.estimatedTimeLeftSeconds;
     refreshCachedTimeLeftEstimate();
     const bool saveStats =
@@ -3625,6 +3556,10 @@ bool EpubReaderActivity::offerKeptPosition() {
 }
 
 void EpubReaderActivity::loop() {
+  {
+    RenderLock lock(*this);
+    pluginEvents.poll(getCurrentBookPath());
+  }
   // Off the open path: the write overlaps the first page's ink, and it lands
   // before anything below can save this session's stats.
   if (firstPageShown) ReaderExitSave::flushStats();
@@ -3926,6 +3861,7 @@ void EpubReaderActivity::loop() {
   if (!atEndOfBook && endOfBookOptions) {
     RenderLock lock(*this);
     endOfBookOptions.reset();
+    endOfBookMenuActive.store(false, std::memory_order_relaxed);
   }
 
   // The render task is asynchronous. Prepare suggestions before an input can
@@ -3943,6 +3879,8 @@ void EpubReaderActivity::loop() {
     }
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(epub->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
     }
   }
 
@@ -4121,20 +4059,25 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  const bool chordPageTurn = mappedInput.hasInjectedRelease(MappedInputManager::Button::Right);
-  const auto side = sideButtonShortcuts.update(mappedInput, millis());
-  if (SideButtonShortcuts::shouldConsume(side, mappedInput)) {
+  const auto side = readerButtonShortcuts.update(mappedInput, millis());
+  if (ReaderButtonShortcuts::shouldConsume(side, mappedInput)) {
     if (side.triggered) {
-      if (side.longPress)
-        mappedInput.suppressNextSideRelease(side.up ? MappedInputManager::Button::Up
-                                                    : MappedInputManager::Button::Down);
+      if (side.longPress) {
+        if (side.front)
+          mappedInput.suppressNextFrontRelease(side.up ? MappedInputManager::Button::Left
+                                                       : MappedInputManager::Button::Right);
+        else
+          mappedInput.suppressNextSideRelease(side.up ? MappedInputManager::Button::Up
+                                                      : MappedInputManager::Button::Down);
+      }
       switch (side.action) {
         case CrossPointSettings::SIDE_PREVIOUS_CHAPTER:
         case CrossPointSettings::SIDE_NEXT_CHAPTER: {
           const bool next = side.action == CrossPointSettings::SIDE_NEXT_CHAPTER;
+          if (handleEndOfBookPageTurn(next)) break;
           clearPendingManualPageTurns(true, "chapter-skip");
           if (!next && isAtBookStart()) break;
-          if (!next && section && section->currentPage > 0) {
+          if (!side.front && !next && section && section->currentPage > 0) {
             section->currentPage = 0;
           } else {
             RenderLock lock(*this);
@@ -4169,7 +4112,7 @@ void EpubReaderActivity::loop() {
         default: {
           const auto action = static_cast<CrossPointSettings::SHORT_PWRBTN>(side.action);
           if (action == CrossPointSettings::QUICK_LOCK)
-            handleGlobalPowerButtonAction(action, SideButtonShortcuts::quickLockTrigger(side));
+            handleGlobalPowerButtonAction(action, ReaderButtonShortcuts::quickLockTrigger(side));
           else if (!handleShortcutAction(action))
             handleGlobalPowerButtonAction(action);
           break;
@@ -4178,7 +4121,9 @@ void EpubReaderActivity::loop() {
     }
     // A consumed side release that queues no render must not leave indexing paused.
     if (!side.triggered && !drainPendingManualPageTurn() && !mappedInput.isPressed(MappedInputManager::Button::Up) &&
-        !mappedInput.isPressed(MappedInputManager::Button::Down)) {
+        !mappedInput.isPressed(MappedInputManager::Button::Down) &&
+        !mappedInput.isPressed(MappedInputManager::Button::Left) &&
+        !mappedInput.isPressed(MappedInputManager::Button::Right)) {
       backgroundBuildYieldForInput.store(false, std::memory_order_relaxed);
     }
     return;
@@ -4195,78 +4140,6 @@ void EpubReaderActivity::loop() {
     // later release so the app-wide shortcut dispatcher cannot run it again.
     mappedInput.suppressNextPowerRelease();
     return;
-  }
-
-  const bool frontLongPressChangesFont = SETTINGS.longPressButtonBehavior == CrossPointSettings::FONT_SIZE_CHANGE;
-  const bool frontLongPressAction = SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP ||
-                                    SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_CHANGE ||
-                                    SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_FLIP ||
-                                    frontLongPressChangesFont;
-  if (frontLongPressAction) {
-    const bool leftReleased = mappedInput.wasReleased(MappedInputManager::Button::Left);
-    const bool rightReleased = mappedInput.wasReleased(MappedInputManager::Button::Right);
-    if (frontButtonLongPressHandled && (leftReleased || rightReleased)) {
-      frontButtonLongPressHandled = false;
-      backgroundBuildYieldForInput.store(false, std::memory_order_relaxed);
-      return;
-    }
-
-    const bool longPressReady = mappedInput.getHeldTime() > ReaderUtils::SKIP_HOLD_MS;
-    const bool prevLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Left);
-    const bool nextLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Right);
-    if (!frontButtonLongPressHandled && (prevLongPressed || nextLongPressed)) {
-      frontButtonLongPressHandled = true;
-      if (SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP) {
-        clearPendingManualPageTurns(true, "chapter-skip");
-        if (!nextLongPressed && currentSpineIndex <= 0) {
-          // No previous chapter: go to the start of this one, or do nothing on the first page.
-          if (section && section->currentPage > 0) {
-            section->currentPage = 0;
-            requestUpdate();
-          }
-          return;
-        }
-        if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
-          if (nextLongPressed) {
-            onGoHome();
-          } else {
-            currentSpineIndex = epub->getSpineItemsCount() - 1;
-            nextPageNumber = 0;
-            pendingPageJump = std::numeric_limits<uint16_t>::max();
-            requestUpdate();
-          }
-          return;
-        }
-
-        {
-          RenderLock lock(*this);
-          nextPageNumber = 0;
-          currentSpineIndex = nextLongPressed ? currentSpineIndex + 1 : currentSpineIndex - 1;
-          section.reset();
-        }
-        requestUpdate();
-        return;
-      }
-
-      if (frontLongPressChangesFont) {
-        if (ReaderUtils::changeReaderFontSizeWithFeedback(renderer, /*larger=*/nextLongPressed)) {
-          reindexCurrentSection();
-        }
-        return;
-      }
-
-      if (SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_FLIP) {
-        executeReaderQuickAction(CrossPointSettings::LONG_MENU_ROTATE_FLIP);
-        return;
-      }
-
-      const uint8_t newOrientation = nextLongPressed
-                                         ? ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/false)
-                                         : ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/true);
-      applyOrientation(newOrientation);
-      requestUpdate();
-      return;
-    }
   }
 
   auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
@@ -4308,53 +4181,7 @@ void EpubReaderActivity::loop() {
 
   if (handleEndOfBookPageTurn(nextTriggered)) return;
 
-  // Touch page turns deliberately ignore the physical-button long-press
-  // settings. Keep those saved settings intact for a later move back to a
-  // button device, but never let a held screen tap skip a chapter or rotate.
   const bool fromTouch = touch.prev || touch.next;
-  const unsigned long heldMs = fromTouch ? touch.heldMs : mappedInput.getHeldTime();
-  const bool longPress = !fromTilt && heldMs > ReaderUtils::SKIP_HOLD_MS;
-  const bool skipChapter =
-      !chordPageTurn && !fromTouch && longPress && SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP;
-
-  // Don't skip chapter after screenshot
-  if (gpio.wasReleased(HalGPIO::BTN_POWER) && gpio.wasReleased(HalGPIO::BTN_DOWN)) {
-    return;
-  }
-
-  if (skipChapter) {
-    clearPendingManualPageTurns(true, "chapter-skip");
-    if (!nextTriggered && isAtBookStart()) return;
-    if (!nextTriggered && section && section->currentPage > 0) {
-      section->currentPage = 0;
-      requestUpdate();
-      return;
-    }
-
-    // We don't want to delete the section mid-render, so grab the semaphore
-    {
-      RenderLock lock(*this);
-      nextPageNumber = 0;
-      if (nextTriggered) {
-        currentSpineIndex++;
-      } else if (currentSpineIndex > 0) {
-        currentSpineIndex--;
-      }
-      section.reset();
-    }
-    requestUpdate();
-    return;
-  }
-
-  if (!chordPageTurn && !fromTouch && longPress && !fromSideBtn &&
-      SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_CHANGE) {
-    const uint8_t newOrientation =
-        nextTriggered ? (SETTINGS.orientation - 1 + SETTINGS.ORIENTATION_COUNT) % SETTINGS.ORIENTATION_COUNT
-                      : (SETTINGS.orientation + 1) % SETTINGS.ORIENTATION_COUNT;
-    applyOrientation(newOrientation);
-    requestUpdate();
-    return;
-  }
 
   // No current section, attempt to rerender the book
   if (!section) {
@@ -4535,7 +4362,7 @@ void EpubReaderActivity::handleClippingJump(const ClippingJumpResult& clipping) 
 
 #if CROSSDINK_APP_CAP_TOUCH
 bool EpubReaderActivity::handlePinchFontResize() {
-  if (!SETTINGS.pinchFontResizeEnabled || !SETTINGS.touchReaderControls || !mappedInput.supportsMultiTouch()) {
+  if (!SETTINGS.pinchFontResizeEnabled || !mappedInput.supportsMultiTouch()) {
     resetPinchFontGesture();
     return false;
   }
@@ -4573,8 +4400,7 @@ bool EpubReaderActivity::handleTwoFingerRotation(const bool clockwise) {
 }
 
 bool EpubReaderActivity::handleTouchDictionaryLookup() {
-  if (!SETTINGS.touchReaderControls || !mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview ||
-      !epub) {
+  if (!mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview || !epub) {
     return false;
   }
 
@@ -5919,15 +5745,20 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
 }
 
 void EpubReaderActivity::resetReadingPaceData() {
+  stableReadingPace = {};
+  lastBookTimeLeftSeconds = 0;
+  pendingStableReadSeconds = 0;
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const uint16_t oldAvg = stats.avgSecondsPerForwardPage;
   const uint16_t oldCount = stats.paceSampleCount;
 #endif
-  stats.avgSecondsPerForwardPage = 0;
+  stats.setAverageForwardPageMillis(0);
   stats.paceSampleCount = 0;
   stats.estimatedTimeLeftSeconds = 0;
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
+  sessionStartPaceMillis = 0;
+  sessionStartPaceSampleCount = 0;
   armReadingPaceWarmup("reading_pace_reset");
   if (epub) {
     epub->setupCacheDir();
@@ -5942,13 +5773,19 @@ void EpubReaderActivity::resetReadingPaceData() {
 }
 
 void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
+  readingSessionJournal.flush();
   stats = BookReadingStats{};
+  stableReadingPace = {};
+  lastBookTimeLeftSeconds = 0;
+  pendingStableReadSeconds = 0;
   sessionReadingSeconds = 0;
   dailyReadingSession.reset();
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
+  sessionStartPaceMillis = 0;
+  sessionStartPaceSampleCount = 0;
   pendingReadFolderMove = false;
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   armReadingPaceWarmup("book_stats_delete");
   initializeCompletionPromptTrigger();
 }
@@ -6047,6 +5884,9 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
     case CrossPointSettings::LONG_MENU_ROTATE_FLIP:
       applyOrientation(ReaderUtils::flippedOrientation(SETTINGS.orientation));
       requestUpdate();
+      break;
+    case CrossPointSettings::LONG_MENU_TOGGLE_PAGE_TURN_GESTURES:
+      handleGlobalPowerButtonAction(CrossPointSettings::TOGGLE_PAGE_TURN_GESTURES);
       break;
     case CrossPointSettings::LONG_MENU_SELECT_CHAPTER:
       if (epub) {
@@ -6171,6 +6011,7 @@ bool EpubReaderActivity::handleShortcutAction(const uint8_t rawAction) {
       return handleGlobalPowerButtonAction(action);
     case CrossPointSettings::SHORT_PWRBTN::QUICK_LOCK:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       return handleGlobalPowerButtonAction(action);
     case CrossPointSettings::SHORT_PWRBTN::SLEEP:
@@ -6268,6 +6109,7 @@ bool EpubReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PW
     case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
       return handleGlobalPowerButtonAction(action);
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       return handleGlobalPowerButtonAction(action);
     default:
@@ -6477,6 +6319,7 @@ bool EpubReaderActivity::executeShortPowerButtonAction() {
     case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
       return handleGlobalPowerButtonAction(static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.shortPwrBtn));
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       // The global dispatcher pauses briefly after wake, so retain the reader
       // fallback for that first release and use the configured short action.
@@ -6963,6 +6806,11 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
     return;
   }
   if (isForwardTurn) {
+    refreshBookPageEstimate();
+    const bool hadStablePosition =
+        hasStableTextPosition && stableTextSpine == currentSpineIndex && stableTextPage == section->currentPage;
+    const double stableStart = stableTextPosition;
+    const bool paceWarmup = paceSampleWarmupPending;
     uint32_t forwardReadSeconds = 0;
     const bool shouldRecordForwardRead = forwardPageReadElapsed(forwardReadSeconds, source);
     recordCurrentPageReadingTime(source);
@@ -6987,6 +6835,17 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       currentSpineIndex++;
       section.reset();
     }
+    pluginEvents.noteTurn(true);
+    hasStableTextPosition = false;
+    pendingStableReadSeconds = 0;
+    if (hadStablePosition && shouldRecordForwardRead && !paceWarmup &&
+        forwardReadSeconds >= MIN_READING_PACE_SAMPLE_SECONDS &&
+        forwardReadSeconds <= SETTINGS.getReadingIdleTimeThresholdSeconds()) {
+      pendingStableReadStart = stableStart;
+      pendingStableReadSeconds = forwardReadSeconds;
+      pendingStableReadSpine = currentSpineIndex;
+      pendingStableReadPage = section ? section->currentPage : nextPageNumber;
+    }
     if (shouldRecordForwardRead) {
       if (!exitingChapter) {
         recordForwardPagePaceSample(forwardReadSeconds, source);
@@ -6998,6 +6857,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
     }
   } else {
     recordCurrentPageReadingTime(source);
+    pluginEvents.noteTurn(false);
+    hasStableTextPosition = false;
+    pendingStableReadSeconds = 0;
     armReadingPaceWarmup("back_page");
     if (section->currentPage > 0) {
       section->currentPage--;
@@ -7143,6 +7005,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderer.clearScreen();
     if (endOfBookOptions) {
       endOfBookOptions->loadOnce(epub->getPath());
+      endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
+      mappedInput.setMenuMode(endOfBookOptions->menuActive());
       endOfBookOptions->render(renderer, mappedInput);
     }
     openingFeedback.finish();
@@ -7726,6 +7590,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   applyDeferredReposition();
 
   if (!activeFootnotePreview) {
+    refreshStableTextProgress();
+    refreshBookPageEstimate();
     refreshChapterGroupEstimate(viewportWidth, viewportHeight);
   }
 
@@ -7839,6 +7705,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (heapShapeRedrawStages & HEAP_SHAPE_REDRAW_DICT) {
       MemoryBudget::logHeapShape("dict.reader_redrawn");
     }
+    if (!activeFootnotePreview) pluginEvents.rendered(static_cast<int>(getCurrentBookProgressPercent() * 100));
     pageShownAtMs = activeFootnotePreview ? 0UL : millis();
     startDailyReadingInterval();
   }
@@ -8282,7 +8149,7 @@ void EpubReaderActivity::checkpointReadingStatsBeforeRestart() {
   }
   // The rest of this sitting is a new session; onExit() commits only that part.
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   if (timerRunning) {
     pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
     startDailyReadingInterval();
@@ -8397,6 +8264,9 @@ void EpubReaderActivity::cacheCurrentSectionPosition() {
 }
 
 void EpubReaderActivity::prepareCurrentSectionForRelayout() {
+  hasStableTextPosition = false;
+  pendingStableReadSeconds = 0;
+  bookPageEstimate = {};
   if (!section) return;
   cacheCurrentSectionPosition();
 }
@@ -8940,8 +8810,7 @@ void EpubReaderActivity::buildFootnoteTouchTargets(const Page& page, const int f
 }
 
 bool EpubReaderActivity::handleTouchFootnoteLink(const int touchX, const int touchY) {
-  if (!SETTINGS.touchReaderControls || !mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview ||
-      currentPageFootnotes.empty()) {
+  if (!mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview || currentPageFootnotes.empty()) {
     return false;
   }
 
@@ -9756,6 +9625,8 @@ void EpubReaderActivity::startDailyReadingInterval() {
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {

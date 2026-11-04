@@ -1,4 +1,5 @@
 #include <Epub/Page.h>
+#include <Epub/converters/ImageDimsProbe.h>
 #include <GfxRenderer.h>
 #include <gtest/gtest.h>
 
@@ -1886,4 +1887,21 @@ TEST_F(ChapterHtmlSlimParserTest, DisabledFamilySpanPreservesFocusWordBoundary) 
   ASSERT_EQ(parser.currentTextBlock->words.size(), 1u);
   EXPECT_EQ(parser.currentTextBlock->words[0], "ordinary");
   EXPECT_TRUE(parser.currentTextBlock->wordFontFamilies.empty());
+}
+
+TEST(ImageDimsProbe, GifSignaturesAndLittleEndianDimensions) {
+  for (const char version : {'7', '9'}) {
+    ImageDimsProbe probe;
+    const uint8_t bytes[] = {'G', 'I', 'F', '8', static_cast<uint8_t>(version), 'a', 0x00, 0x02, 0x20, 0x03};
+    probe.write(bytes, sizeof(bytes));
+    ImageDimensions dims{};
+    ASSERT_TRUE(probe.getDimensions(dims));
+    EXPECT_EQ(dims.width, 512);
+    EXPECT_EQ(dims.height, 800);
+  }
+  ImageDimsProbe invalid;
+  const uint8_t bytes[] = {'G', 'I', 'F', '8', '8', 'a', 1, 0, 1, 0};
+  invalid.write(bytes, sizeof(bytes));
+  ImageDimensions dims{};
+  EXPECT_FALSE(invalid.getDimensions(dims));
 }
