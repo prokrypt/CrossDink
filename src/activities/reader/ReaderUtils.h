@@ -75,8 +75,6 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
 // stays centered in every orientation instead of sitting at a fixed portrait offset.
 inline int messageCenterY(const GfxRenderer& renderer) { return renderer.getScreenHeight() / 2; }
 
-inline bool shouldShowTopStatusBar() { return UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top) > 0; }
-
 // Night Mode is applied by the display after normal-polarity reader content is
 // rendered. Keep this compatibility helper for existing reader call sites.
 inline bool readerDarkModeEnabled() { return false; }
@@ -222,13 +220,6 @@ inline bool isTouchMenuGesture(const MappedInputManager& input) {
   // The capacitive Home key is independent from screen touch. Its configured
   // long-press reader-menu action must still work when screen touch is disabled.
   return input.wasReaderMenuHold() || (input.hasTouch() && input.wasReaderMenuGesture());
-}
-
-// X4 Pro opens the reader menu with an upward swipe. Its top-edge downward
-// swipe is the opposite gesture and dismisses the menu instead of opening the
-// frontlight panel. Other touch boards retain their existing menu behavior.
-inline bool isTouchMenuDismissGesture(const MappedInputManager& input) {
-  return input.hasTouch() && input.hasHomeKey() && input.wasLightPanelGesture();
 }
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
