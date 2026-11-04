@@ -109,10 +109,12 @@ function portal({ entries = [], fallback = false } = {}) {
     // Complete short transfer delays; do not execute the post-upload reload.
     setTimeout: (callback, delay) => { if (delay < 1000) queueMicrotask(callback); return 1; },
     clearTimeout() {},
+    // plugin-host.js (web/assets) is a separate script; plugins are out of scope here.
+    loadPlugins() {},
   });
   // The test controls when hydration occurs, after installing its fixtures.
-  assert.match(source, /hydrate\(\);?\s*$/);
-  vm.runInContext(source.replace(/hydrate\(\);?\s*$/, ''), context);
+  assert.match(source, /^hydrate\(\);?$/m);
+  vm.runInContext(source.replace(/^hydrate\(\);?$/m, ''), context);
   return { context, element, overlays, document, uploads, requests, logs, storage,
     run: code => vm.runInContext(code, context) };
 }

@@ -15,6 +15,7 @@ enum class NetworkBootTarget : uint32_t {
   KOREADER_AUTH = 5,
   FILE_TRANSFER = 6,
   MANAGE_FONTS = 7,
+  DOWNLOAD_ASSETS = 8,  // payload: AssetDownloadActivity::bootPayload()
 };
 
 // NetworkBootTarget::OPDS payload for the server list instead of one server.
@@ -31,6 +32,7 @@ constexpr bool isNetworkBootTargetValue(const uint32_t value) {
     case NetworkBootTarget::KOREADER_AUTH:
     case NetworkBootTarget::FILE_TRANSFER:
     case NetworkBootTarget::MANAGE_FONTS:
+    case NetworkBootTarget::DOWNLOAD_ASSETS:
       return true;
   }
   return false;
@@ -41,7 +43,8 @@ static_assert(isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::KOREADER_SYNC)) &&
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::KOREADER_AUTH)) &&
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) &&
-                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::MANAGE_FONTS)),
+                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::MANAGE_FONTS)) &&
+                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::DOWNLOAD_ASSETS)),
               "Every network boot target must pass RTC target validation");
 
 void silentRestart();  // home screen

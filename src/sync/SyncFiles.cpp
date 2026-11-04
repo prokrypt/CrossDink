@@ -3,9 +3,20 @@
 #include <Logging.h>
 #include <uzlib.h>
 
+#include <cstdio>
 #include <cstring>
 
 namespace SyncFiles {
+bool parseHex(const std::string& hex, uint8_t (&out)[16]) {
+  if (hex.size() != 32) return false;
+  for (size_t i = 0; i < 16; ++i) {
+    unsigned value = 0;
+    if (std::sscanf(hex.c_str() + i * 2, "%2x", &value) != 1) return false;
+    out[i] = static_cast<uint8_t>(value);
+  }
+  return true;
+}
+
 uint32_t crc(const void* data, const size_t length, const uint32_t running) {
   return uzlib_crc32(data, static_cast<unsigned int>(length), running);
 }

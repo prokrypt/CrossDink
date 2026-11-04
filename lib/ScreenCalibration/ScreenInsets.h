@@ -7,7 +7,11 @@
 // this value never changes touch coordinates or the framebuffer dimensions.
 struct ScreenInsets {
   static constexpr uint8_t MAX_INSET = 32;
-  std::array<uint8_t, 4> edges{{9, 3, 3, 3}};  // Top, right, bottom, left.
+#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
+  std::array<uint8_t, 4> edges{{0, 0, 0, 0}};  // Top, right, bottom, left.
+#else
+  std::array<uint8_t, 4> edges{{9, 3, 3, 3}};
+#endif
 
   constexpr bool valid() const {
     return edges[0] <= MAX_INSET && edges[1] <= MAX_INSET && edges[2] <= MAX_INSET && edges[3] <= MAX_INSET;
@@ -28,7 +32,6 @@ struct ScreenInsets {
   }
 
   int topOrigin(unsigned orientation, int legacyOrigin) const {
-    if (*this == ScreenInsets{}) return legacyOrigin;
     const int top = rotated(orientation).edges[0];
     const int adjusted = legacyOrigin + top - ScreenInsets{}.rotated(orientation).edges[0];
     return adjusted < top ? top : adjusted;

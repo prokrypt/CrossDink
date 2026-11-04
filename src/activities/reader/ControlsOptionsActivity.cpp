@@ -239,6 +239,7 @@ void ControlsOptionsActivity::openEnumOptionPicker(const SettingInfo& setting) {
 void ControlsOptionsActivity::toggleCurrentSetting() {
   if (selectedIndex < 0 || selectedIndex >= settingsCount) return;
   const auto& setting = (*currentSettings)[selectedIndex];
+  if (isPageGestureSettingDisabled(setting)) return;
 
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     const bool cur = SETTINGS.*(setting.valuePtr);
@@ -400,7 +401,9 @@ void ControlsOptionsActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
   items.reserve(currentSettingsList.size());
   for (size_t i = 0; i < currentSettingsList.size(); ++i) {
     const auto& setting = currentSettingsList[i];
-    if (settingShowsNavigationCaret(setting)) {
+    if (isPageGestureSettingDisabled(setting)) {
+      values[i] = tr(STR_DISABLED);
+    } else if (settingShowsNavigationCaret(setting)) {
       values[i] = ">";
     } else if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
       values[i] = SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
@@ -413,6 +416,7 @@ void ControlsOptionsActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
 
     const bool isSectionHeader = setting.type == SettingType::SECTION_HEADER;
     fui::ListItem item;
+    item.enabled = !isPageGestureSettingDisabled(setting);
     const fui::BitmapRef directionIcon = swipeActionIcon(setting.nameId);
     const char* sectionLabel =
         activeSubmenu == SettingAction::ControlsSideButtons

@@ -31,6 +31,11 @@ class UITheme {
     return instance;
   }
 
+  Rect getScreenSafeArea(const GfxRenderer& renderer, bool hints, bool) const {
+    const auto& e = renderer.insets;
+    return Rect{e[3], e[0], renderer.getScreenWidth() - e[3] - e[1],
+                renderer.getScreenHeight() - e[0] - e[2] - (hints ? metrics.buttonHintsHeight : 0)};
+  }
   const ThemeMetrics& getMetrics() const { return metrics; }
   const ThemeStub& getTheme() const { return theme; }
 

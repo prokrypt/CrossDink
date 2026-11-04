@@ -30,17 +30,16 @@ void QrDisplayActivity::loop() {
 void QrDisplayActivity::render(RenderLock&&) {
   renderer.clearScreen();
   auto metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, header, tr(STR_DISPLAY_QR), false);
 
-  const int availableWidth = pageWidth - 40;
+  const int availableWidth = safe.width - 40;
   const int startY = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
-  const int availableHeight = pageHeight - startY - metrics.verticalSpacing - 40;
+  const int availableHeight = safe.y + safe.height - startY - metrics.verticalSpacing - 40;
 
-  const Rect qrBounds(20, startY, availableWidth, availableHeight);
+  const Rect qrBounds(safe.x + 20, startY, availableWidth, availableHeight);
   QrUtils::drawQrCode(renderer, qrBounds, textPayload);
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");

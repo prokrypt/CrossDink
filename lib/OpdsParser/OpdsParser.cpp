@@ -6,6 +6,8 @@
 #include <cstring>
 #include <utility>
 
+#include "OpdsJsonParser.h"
+
 namespace {
 constexpr size_t MAX_TITLE_CHARS = 160;
 constexpr size_t MAX_AUTHOR_CHARS = 120;
@@ -72,8 +74,8 @@ const XML_Memory_Handling_Suite PSRAM_XML_MEMORY = {xmlMalloc, xmlRealloc, heap_
 #endif
 }  // namespace
 
-OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity)
-    : entries(entries), entryCapacity(entryCapacity) {
+OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity, const bool publication)
+    : publicationDocument(publication), entries(entries), entryCapacity(entryCapacity) {
   if (!entries || entryCapacity == 0) {
     errorOccured = true;
     errorReason = OpdsParserError::NO_ENTRY_BUFFER;
@@ -85,21 +87,72 @@ OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity)
 
 OpdsParser::~OpdsParser() { destroyXmlParser(parser); }
 
+void OpdsParser::setPreferredLanguage(const char* lang) {
+  const size_t len = lang ? strnlen(lang, sizeof(preferredLang) - 1) : 0;
+  if (len) memcpy(preferredLang, lang, len);
+  preferredLang[len] = '\0';
+}
+
+bool OpdsParser::sniffFormat(const uint8_t*& data, size_t& length) {
+  while (!sniffed && length > 0) {
+    const uint8_t byte = *data;
+    if (bomBytes) {
+      if (byte != (bomBytes == 1 ? 0xBB : 0xBF)) return false;
+      bomBytes = bomBytes == 1 ? 2 : 0;
+    } else if (byte == 0xEF) {
+      bomBytes = 1;
+    } else if (byte == ' ' || byte == '\r' || byte == '\n' || byte == '\t') {
+      // skip
+    } else {
+      sniffed = true;
+      if (byte == '{') {
+        json = makeUniqueNoThrow<OpdsJsonParser>(entries, entryCapacity, publicationDocument);
+        if (!json) {
+          errorReason = OpdsParserError::PARSER_MEMORY;
+          LOG_ERR("OPDS", "Couldn't allocate memory for the JSON parser");
+          return false;
+        }
+        json->setPreferredLanguage(preferredLang);
+      }
+      return true;
+    }
+    ++data;
+    --length;
+  }
+  return true;
+}
+
 size_t OpdsParser::write(uint8_t c) { return write(&c, 1); }
 
 size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
   if (errorOccured || !parser) {
     errorOccured = true;
-    return length;
+    return 0;
   }
   if (!xmlData && length > 0) {
     errorOccured = true;
     errorReason = OpdsParserError::INVALID_INPUT;
+    return 0;
+  }
+
+  const uint8_t* data = xmlData;
+  size_t remainingData = length;
+  if (!sniffFormat(data, remainingData)) {
+    errorOccured = true;
+    if (errorReason == OpdsParserError::NONE) errorReason = OpdsParserError::INVALID_INPUT;
+    return 0;
+  }
+  if (json) {
+    if (json->write(data, remainingData) != remainingData) {
+      errorOccured = true;
+      errorReason = OpdsParserError::INVALID_INPUT;
+      return 0;
+    }
     return length;
   }
 
-  const char* currentPos = reinterpret_cast<const char*>(xmlData);
-  size_t remaining = length;
+  const char* currentPos = reinterpret_cast<const char*>(data);
+  size_t remaining = remainingData;
   constexpr size_t chunkSize = 1024;
 
   // Past the entry limit nothing more is kept, so the rest is ignored and the
@@ -113,7 +166,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
       LOG_DBG("OPDS", "Couldn't allocate memory for buffer");
       destroyXmlParser(parser);
       parser = nullptr;
-      return length;
+      return 0;
     }
 
     memcpy(buf, currentPos, toRead);
@@ -125,7 +178,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
               XML_ErrorString(XML_GetErrorCode(parser)));
       destroyXmlParser(parser);
       parser = nullptr;
-      return length;
+      return 0;
     }
     currentPos += toRead;
     remaining -= toRead;
@@ -134,6 +187,14 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
 }
 
 void OpdsParser::flush() {
+  if (json) {
+    json->flush();
+    if (json->error() && !errorOccured) {
+      errorOccured = true;
+      errorReason = OpdsParserError::INVALID_INPUT;
+    }
+    return;
+  }
   // A feed cut off at the entry limit is never a complete document.
   if (!parser || truncated) return;
   if (XML_Parse(parser, nullptr, 0, XML_TRUE) != XML_STATUS_OK) {
@@ -161,7 +222,17 @@ bool OpdsParser::parse(const uint8_t* xmlData, const size_t length) {
 
 bool OpdsParser::error() const { return errorOccured; }
 
+size_t OpdsParser::getEntryCount() const { return json ? json->getEntryCount() : entryCount; }
+bool OpdsParser::wasTruncated() const { return json ? json->truncated() : truncated; }
+const std::string& OpdsParser::getSearchTemplate() const { return json ? json->getSearchTemplate() : searchTemplate; }
+const std::string& OpdsParser::getNextPageUrl() const { return json ? json->getNextPageUrl() : nextPageUrl; }
+const std::string& OpdsParser::getPrevPageUrl() const { return json ? json->getPrevPageUrl() : prevPageUrl; }
+int32_t OpdsParser::getTotalResults() const { return json ? json->getTotalResults() : totalResults; }
+
 void OpdsParser::clear() {
+  json.reset();
+  sniffed = false;
+  bomBytes = 0;
   entryCount = 0;
   truncated = false;
   searchTemplate.clear();
@@ -368,16 +439,18 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
     }
     self->inEntry = false;
   } else if (self->inEntry) {
+    // Retain the shared text scratch: moving it transfers a previous long
+    // description's spare capacity into even a short title/author/id.
     if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
-      if (self->inTitle) self->currentEntry.title = std::move(self->currentText);
+      if (self->inTitle) self->currentEntry.title = self->currentText;
       self->inTitle = false;
     } else if (strcmp(name, "author") == 0 || strstr(name, ":author") != nullptr) {
       self->inAuthor = false;
     } else if (self->inAuthorName && (strcmp(name, "name") == 0 || strstr(name, ":name") != nullptr)) {
-      if (self->currentEntry.author.empty()) self->currentEntry.author = std::move(self->currentText);
+      if (self->currentEntry.author.empty()) self->currentEntry.author = self->currentText;
       self->inAuthorName = false;
     } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
-      if (self->inId) self->currentEntry.id = std::move(self->currentText);
+      if (self->inId) self->currentEntry.id = self->currentText;
       self->inId = false;
     } else if (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr) {
       // thr:count on the link wins over a summary count.

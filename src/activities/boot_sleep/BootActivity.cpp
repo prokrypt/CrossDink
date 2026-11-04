@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "ImageFolderIndex.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 
@@ -133,7 +134,8 @@ void drawDefaultBootLogo(const GfxRenderer& renderer) {
   renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
   renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSDINK), true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_BOOTING));
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, AppVersion::version());
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer);
+  GUI.drawHelpText(renderer, Rect{safe.x, safe.y + safe.height - 30, safe.width, 30}, AppVersion::version());
 }
 
 }  // namespace
