@@ -321,7 +321,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     env:
-      X4PROSIM_SHA: 55c23be3400da697521207eebcf9ccca4b81a0b2  # x4prosim with sim.py + shotdiff.py
+      X4PROSIM_SHA: 37745e70abd6d9a20527e60cbb640be7a79645f1  # x4prosim sim.py + shotdiff.py, whole-line cmd replies
     steps:
       - uses: actions/checkout@v6
 
