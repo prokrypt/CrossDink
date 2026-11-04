@@ -162,9 +162,6 @@ class CrossPointWebServer {
   // Firmware .bin the exit request asked to flash (empty when none); cleared on read.
   std::string takeExitFlashPath();
 
-  // Get the port number
-  uint16_t getPort() const { return port; }
-
  private:
   void registerFullRoutes();
   void startWsAndUdp();

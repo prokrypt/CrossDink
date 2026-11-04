@@ -146,6 +146,8 @@ int progressLabelBottomY(const GfxRenderer& renderer, const Rect& coverRect, con
 
 void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& globalStats, const Rect& coverRect,
                       const float progressPercent, const bool inverted) {
+  // X3-only overlay; deviceIsX3() is a constant false on S3 boards.
+  // cppcheck-suppress knownConditionTrueFalse
   if (!gpio.deviceIsX3()) {
     return;
   }

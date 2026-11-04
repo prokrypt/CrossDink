@@ -194,7 +194,6 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Contributors: a PR now adds a `changelog.d/<topic>.md` fragment instead of editing `CHANGELOG.md`; a workflow folds the fragments into the Unreleased section on every merge to main, so PRs no longer conflict on the changelog. A PR without a fragment fails its Changelog check unless its description says `No changelog`.
 
 ### Fixed
-- Reader status bar: a cover or title page that comes before the first table-of-contents entry now shows the book title instead of "Unnamed".
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
 - Settings > Reader > Font Download: installed font rows are no longer dimmed; they stay tappable to delete the font, as before.
 - Settings > About shows the display controller the firmware detected at startup (for example SSD2677 on a reTerminal Sticky with that panel) instead of the board profile's default name.
@@ -247,6 +246,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - KOReader Sync badge: the cloud with a down arrow (server further on) now stays while the book is behind the server after a sync: reading on but not yet past the server's position, paging back, or leaving the KOSync screen without applying or uploading. The book's KOSync mark now keeps the server's % when the server is further on, and the badge compares the book's % against it (crossed-out cloud only once the book is past the server).
 - KOReader Sync auto sync: closing a book whose last sync failed (crossed-out cloud) now syncs again even when it was left on the page it opened at, including after a reboot. Before, only a failed push from the same boot was retried.
 - Leaving File Transfer during a book or font upload ends the upload at once instead of waiting for it to time out, and removes the incomplete file (a resumable upload keeps its part for a retry). Before, an upload cut off this way could leave a half-written book that blocked the retry with "File already exists".
+- Sync Server progress pull finds a book again after you rename it or move it to /Read on the reader, instead of parking its remote position.
 
 ### Added
 

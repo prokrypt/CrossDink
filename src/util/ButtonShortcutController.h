@@ -126,7 +126,6 @@ class ButtonShortcutController {
 
   bool isQuickLocked() const { return quickLockState_.isLocked(); }
   QuickLockTrigger quickLockTrigger() const { return quickLockTrigger_; }
-  bool isChordActive() const { return chordActive_; }
   void toggleQuickLock(uint32_t nowMs, QuickLockTrigger trigger, bool requireRelease = false) {
     const bool locked = quickLockState_.toggle(nowMs);
     quickLockTrigger_ = locked ? trigger : QuickLockTrigger::None;

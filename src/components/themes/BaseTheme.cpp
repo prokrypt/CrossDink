@@ -950,31 +950,6 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message, cons
   return Rect{x, y, w, h};
 }
 
-void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int barHeight = metrics.popupProgressBarHeight;
-  const int barWidth =
-      std::max(0, layout.width - metrics.popupMarginX * 2);  // twice the margin in drawPopup to match text width
-  const int barX = layout.x + (layout.width - barWidth) / 2;
-  const int barY = layout.y + layout.height - metrics.popupMarginY / 2 - barHeight / 2 - 1;
-  if (barWidth <= 0 || barHeight <= 0) {
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    return;
-  }
-
-  const int scaledProgress = metrics.popupProgressClampPercent ? std::clamp(progress, 0, 100) : progress;
-  const int fillWidth = barWidth * scaledProgress / 100;
-
-  if (metrics.popupProgressDrawOutline) {
-    renderer.drawRect(barX, barY, barWidth, barHeight, 1, metrics.popupProgressOutlineInverted);
-  }
-  if (fillWidth > 0) {
-    renderer.fillRect(barX, barY, fillWidth, barHeight, metrics.popupProgressFillInverted);
-  }
-
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-}
-
 void BaseTheme::drawReaderStatusBar(GfxRenderer& renderer, const ReaderStatusBarPosition position,
                                     const ReaderStatusBarContent& content,
                                     const ReaderStatusBarConfig* overrideConfig) const {
