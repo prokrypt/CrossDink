@@ -41,9 +41,9 @@ Layout layout(const Rect& header) {
   const int touchWidth = std::min(touchSize, header.width);
   const int touchHeight = touchSize;
   const int touchX = std::max(header.x, actionX + (actionWidth - touchWidth) / 2);
-  // The common 45px header is shorter than the minimum touch target. Let the
-  // hit box extend above and below the visual band instead of shrinking it.
-  const int touchY = std::max(0, actionY + (actionHeight - touchHeight) / 2);
+  // The common 45px header is shorter than the minimum touch target. Extend
+  // below the visual band while preserving the calibrated top boundary.
+  const int touchY = std::max(header.y, actionY + (actionHeight - touchHeight) / 2);
   return {Rect{actionX, actionY, actionWidth, actionHeight}, Rect{touchX, touchY, touchWidth, touchHeight},
           actionX + actionWidth + titleGap};
 }
@@ -73,8 +73,7 @@ Rect compactHeaderRect(const GfxRenderer& renderer) {
 
 int contentTop(const GfxRenderer& renderer, const MappedInputManager& input, const int areaTop) {
   const auto header = headerRect(renderer, input);
-  const int bottom = header.y + header.height;
-  return renderer.hasCustomViewableInsets() ? std::max(areaTop, header.y) + header.height : areaTop + bottom;
+  return std::max(areaTop, header.y) + header.height;
 }
 
 bool wasTapped(const MappedInputManager& input, const Rect& header) {

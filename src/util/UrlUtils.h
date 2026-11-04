@@ -31,6 +31,13 @@ std::string encodeUnsafeUrlChars(const std::string& url);
 std::string buildUrl(const std::string& serverUrl, const std::string& path);
 
 /**
+ * Resolve a feed link against the document it came from (RFC 3986: a relative
+ * link replaces the base's last path segment; "?q" and "../" work). Unlike
+ * buildUrl, which joins a path under a directory.
+ */
+std::string resolveReference(const std::string& baseUrl, const std::string& reference);
+
+/**
  * For logs: the URL (or bare host) with its userinfo masked, "user:pass@" ->
  * "****:****@" ("****@" without a password), so it shows credentials were sent.
  */

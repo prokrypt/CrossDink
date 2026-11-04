@@ -29,8 +29,6 @@ class OtaUpdater {
     SD_CARD_FULL_ERROR,
   };
 
-  size_t getOtaSize() const { return otaSize; }
-
   // Progress work covers both staging and flashing so it never moves backwards.
   size_t getProcessedSize() const { return processedSize; }
 

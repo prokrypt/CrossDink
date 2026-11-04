@@ -1,13 +1,13 @@
 #pragma once
-
 #include <Txt.h>
 
 #include <vector>
 
 #include "BookLoadingFeedback.h"
 #include "CrossPointSettings.h"
+#include "PluginReaderEvents.h"
+#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
-#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #if CROSSDINK_APP_CAP_TOUCH
@@ -15,6 +15,7 @@
 #endif
 
 class TxtReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
   OptionPopup quickActionsPopup;
   std::unique_ptr<Txt> txt;
 
@@ -23,8 +24,7 @@ class TxtReaderActivity final : public Activity {
   int pagesUntilFullRefresh = 0;
   // Session-only display toggle; cached page layout remains unchanged.
   bool statusBarVisible = true;
-  SideButtonShortcuts sideButtonShortcuts;
-  bool frontButtonLongPressHandled = false;
+  ReaderButtonShortcuts readerButtonShortcuts;
   bool longPowerButtonHandled = false;
   bool longPressBackHandled = false;
   bool longPressMenuHandled = false;
@@ -108,6 +108,11 @@ class TxtReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!flushQueuedProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   // Noflash swings fully on open and after a covering screen (see EpubReaderActivity).
   void onCovered() override {
     smoothFullSwingPending = true;
@@ -123,6 +128,7 @@ class TxtReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
+  bool usesMenuButtonOrientation() const override { return quickActionsPopup.isActive(); }
   // cppcheck-suppress uselessOverride ; differs from the base only on some device builds
   bool usesFullScreenReaderVerticalSwipes() const override {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY

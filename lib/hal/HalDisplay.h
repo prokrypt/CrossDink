@@ -44,6 +44,9 @@ class HalDisplay {
   // gray): the framebuffer is not the panel's image then.
   bool grayShown() const;
 
+  // Selected SDK driver identity; nullptr before display initialization.
+  const char* getControllerName() const;
+
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
   static constexpr uint16_t DISPLAY_HEIGHT = EInkDisplay::DISPLAY_HEIGHT;

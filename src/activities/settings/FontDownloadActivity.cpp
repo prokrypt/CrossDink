@@ -39,16 +39,16 @@ Rect downloadCancelButtonRect(const GfxRenderer& renderer, const ThemeMetrics& m
                               const int downloadAttemptTotal) {
   constexpr int kButtonHeight = 44;
   constexpr int kMaxButtonWidth = 240;
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
+  const int pageHeight = safe.height;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int centerY = (pageHeight - lineHeight) / 2;
+  const int centerY = safe.y + (pageHeight - lineHeight) / 2;
   const int barY = centerY + (downloadAttemptTotal > 1 ? lineHeight : metrics.verticalSpacing);
   const int width = std::min(kMaxButtonWidth, pageWidth - metrics.contentSidePadding * 2);
-  const int y =
-      std::min(barY + metrics.progressBarHeight + lineHeight + metrics.verticalSpacing,
-               pageHeight - UITheme::getButtonHintsReserve(renderer) - kButtonHeight - metrics.verticalSpacing);
-  return Rect{(pageWidth - width) / 2, y, width, kButtonHeight};
+  const int y = std::min(barY + metrics.progressBarHeight + lineHeight + metrics.verticalSpacing,
+                         safe.y + pageHeight - kButtonHeight - metrics.verticalSpacing);
+  return Rect{safe.x + (pageWidth - width) / 2, y, width, kButtonHeight};
 }
 
 constexpr int FONT_DOWNLOAD_MAX_ATTEMPTS = 3;
@@ -721,9 +721,6 @@ bool FontDownloadActivity::rebuildListItems() {
       item.value = tr(STR_UPDATE_AVAILABLE);
     } else if (family.installed) {
       item.value = tr(STR_INSTALLED);
-      // Dimmed but still tappable (opens the delete prompt): visual-only
-      // disabled state, the row stays enabled for hit registration.
-      item.state = fui::StateDisabled;
     }
     item.actionValue = static_cast<int16_t>(itemIndex);
     ++itemIndex;
@@ -1282,8 +1279,9 @@ void FontDownloadActivity::formatSize(const size_t bytes, char* const buffer, co
 
 void FontDownloadActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
+  const int pageHeight = safe.height;
 
   renderer.clearScreen();
 
@@ -1292,10 +1290,10 @@ void FontDownloadActivity::render(RenderLock&&) {
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto contentTop = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
-  const auto centerY = (pageHeight - lineHeight) / 2;
+  const auto centerY = safe.y + (pageHeight - lineHeight) / 2;
 
   if (state_ == LOADING_MANIFEST) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_LOADING_FONT_LIST));
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY, tr(STR_LOADING_FONT_LIST));
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == FAMILY_LIST) {
@@ -1316,11 +1314,11 @@ void FontDownloadActivity::render(RenderLock&&) {
 
     std::string statusText = std::string(tr(STR_DOWNLOADING)) + " " + familyName + " (" +
                              std::to_string(currentFileIndex_ + 1) + "/" + std::to_string(currentFileTotal_) + ")";
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight, statusText.c_str());
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY - lineHeight, statusText.c_str());
     if (downloadAttemptTotal_ > 1) {
       std::string attemptText =
           "Attempt " + std::to_string(downloadAttempt_) + "/" + std::to_string(downloadAttemptTotal_);
-      renderer.drawCenteredText(SMALL_FONT_ID, centerY, attemptText.c_str());
+      UITheme::drawCenteredText(renderer, safe, SMALL_FONT_ID, centerY, attemptText.c_str());
     }
 
     float progress = 0;
@@ -1329,10 +1327,10 @@ void FontDownloadActivity::render(RenderLock&&) {
     }
 
     int barY = centerY + (downloadAttemptTotal_ > 1 ? lineHeight : metrics.verticalSpacing);
-    GUI.drawProgressBar(
-        renderer,
-        Rect{metrics.contentSidePadding, barY, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
-        static_cast<int>(progress * 100), 100);
+    GUI.drawProgressBar(renderer,
+                        Rect{safe.x + metrics.contentSidePadding, barY, pageWidth - metrics.contentSidePadding * 2,
+                             metrics.progressBarHeight},
+                        static_cast<int>(progress * 100), 100);
 
     if (mappedInput.hasTouchHardware()) {
       const Rect cancelButton = downloadCancelButtonRect(renderer, metrics, downloadAttemptTotal_);
@@ -1340,19 +1338,21 @@ void FontDownloadActivity::render(RenderLock&&) {
                                Color::White);
       renderer.drawRoundedRect(cancelButton.x, cancelButton.y, cancelButton.width, cancelButton.height, 1, 6, true);
       const int textY = cancelButton.y + (cancelButton.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-      renderer.drawCenteredText(UI_10_FONT_ID, textY, tr(STR_CANCEL));
+      UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, textY, tr(STR_CANCEL));
     }
 
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == COMPLETE) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_FONT_INSTALLED), true, EpdFontFamily::BOLD);
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY, tr(STR_FONT_INSTALLED), true,
+                              EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == ERROR) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight, tr(STR_FONT_INSTALL_FAILED), true,
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY - lineHeight, tr(STR_FONT_INSTALL_FAILED), true,
                               EpdFontFamily::BOLD);
-    const Rect textArea{metrics.contentSidePadding, 0, pageWidth - metrics.contentSidePadding * 2, pageHeight};
+    const Rect textArea{safe.x + metrics.contentSidePadding, safe.y, pageWidth - metrics.contentSidePadding * 2,
+                        pageHeight};
     int messageY = centerY + metrics.verticalSpacing;
     if (!errorMessage_.empty()) {
       messageY += UITheme::drawCenteredWrappedText(renderer, textArea, SMALL_FONT_ID, messageY, errorMessage_.c_str(),

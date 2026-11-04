@@ -21,6 +21,10 @@ constexpr StrId triggerLabels[] = {
 std::string triggerLabel(const QuickActions::Trigger trigger) {
   const auto raw = static_cast<uint8_t>(trigger);
   if (raw < std::size(triggerLabels)) return I18N.get(triggerLabels[raw]);
+  if (trigger == QuickActions::Trigger::FrontLeftLong || trigger == QuickActions::Trigger::FrontRightLong)
+    return std::string(tr(STR_FRONT_BUTTONS)) + " " +
+           (trigger == QuickActions::Trigger::FrontLeftLong ? tr(STR_DIR_LEFT) : tr(STR_DIR_RIGHT)) + " " +
+           tr(STR_LONG_PRESS_ACTION);
   const bool up = trigger == QuickActions::Trigger::SideUpShort || trigger == QuickActions::Trigger::SideUpLong;
   const bool longPress = trigger == QuickActions::Trigger::SideUpLong || trigger == QuickActions::Trigger::SideDownLong;
   return std::string(up ? tr(STR_DIR_LEFT) : tr(STR_DIR_RIGHT)) + "/" + (up ? tr(STR_DIR_UP) : tr(STR_DIR_DOWN)) + " " +
@@ -39,6 +43,15 @@ std::vector<QuickActions::Trigger> availableTriggers() {
   triggers.push_back(QuickActions::Trigger::SideUpLong);
   triggers.push_back(QuickActions::Trigger::SideDownShort);
   triggers.push_back(QuickActions::Trigger::SideDownLong);
+#if CROSSDINK_APP_CAP_TOUCH
+  if (!gpio.hasTouch()) {  // front buttons
+    triggers.push_back(QuickActions::Trigger::FrontLeftLong);
+    triggers.push_back(QuickActions::Trigger::FrontRightLong);
+  }
+#else
+  triggers.push_back(QuickActions::Trigger::FrontLeftLong);
+  triggers.push_back(QuickActions::Trigger::FrontRightLong);
+#endif
   if (gpio.hasHomeKey()) {
     triggers.push_back(QuickActions::Trigger::TapHome);
     triggers.push_back(QuickActions::Trigger::LongPressHome);

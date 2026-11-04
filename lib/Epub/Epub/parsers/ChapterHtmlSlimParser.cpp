@@ -3381,6 +3381,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   // <br> is a line break, not a font-style container.
   if (isHeaderOrBlock(name) && strcmp(name, "br") != 0) {
+    // Finish the preceding word before changing block layout or inherited font styles.
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
     self->pushBlockFontStyle(cssStyle);
   }
 

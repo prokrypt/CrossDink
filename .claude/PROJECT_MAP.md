@@ -115,7 +115,7 @@ and merge upstream CrossInk often.
 | `Serialization/` | `PersistableStore` (writes `path.tmp`, keeps `path.bak` until the rename lands), `BufferedFile`, obfuscation |
 | `Memory/`, `MemoryBudget/` | `makeUniqueNoThrow`, `Arena`, `BuildScratch`, budgets |
 | `Logging/` | `LOG_*` including `[WRN]`, `PerfLog`, PSRAM ring log |
-| `I18n/` | `translations/*.yaml` (28 languages) produce generated keys and strings |
+| `I18n/` | `translations/*.yaml` (28 languages; English built in, the rest downloaded or read from SD) produce generated keys and strings |
 | Others | `ZipFile`, `miniz`, `uzlib`, `InflateReader`, `expat`, `XmlParserUtils`, `Utf8`, `MiniBidi`, `FsHelpers`, `FileIndex`, `DictHtmlRenderer`, `Jpeg/PngToBmpConverter`, `Knobs`, `AppVersion`, `HalClockSim` |
 
 ## Concurrency (FreeRTOS tasks)
@@ -134,7 +134,7 @@ and merge upstream CrossInk often.
 - Global reading stats: `global_stats_dink.bin` and `.bak` (two slots; legacy `global_stats.bin` is read until the first save).
 - `library.idx`, plus the `bookmarks/` and `clippings/` folders.
 - One cache folder per book:
-  - EPUB: `epub_<fnv64>/`, with `book.bin`, `sections/*.bin`, `progress.bin` (A/B slots), `stats_v5.bin`, `reader_settings.bin`, covers and thumbnails, and `path.txt`.
+  - EPUB: `epub_<fnv64>/`, with `book.bin`, `sections/*.bin`, `progress.bin` (A/B slots), `stats_v6.bin`, `reader_settings.bin`, covers and thumbnails, and `path.txt`.
   - Other formats: `xtc_<hash>/` and `txt_<hash>/`, still keyed by path.
 
 ## Web portal, tests, tooling
@@ -145,9 +145,9 @@ and merge upstream CrossInk often.
 - Tests: 79 native CMake/CTest targets in `test/<name>/`. Run them with
   `cmake -S test -B build/test -G Ninja && cmake --build build/test && ctest --test-dir build/test`.
   The CI job installs `cmake ninja-build libexpat1-dev zlib1g-dev`. Smoke test: `scripts/run_simulator_smoke_test.py`.
-- CI (`.github/workflows/`): `ci.yml`, `release.yml`, `release_candidate.yml`, `release-fonts.yml`,
+- CI (`.github/workflows/`): `ci.yml`, `release.yml`, `release_candidate.yml`, `release-fonts.yml`, `changelog.yml`,
   `pages.yml` (builds the `site/` website and deploys `site/dist`; runs when `docs/` or `site/` change),
-  `upstream-ref-check.yml`, `issue-triage.yml`.
+  `upstream-ref-check.yml`, `publish-language-assets.yml`.
 - Post-build checks on every firmware build: `scripts/check_firmware_size.py` (size guard) and
   `scripts/check_app_touch_gate.py`, which fails a button-only build that still links touch symbols.
 - Docs to read before deeper work:
