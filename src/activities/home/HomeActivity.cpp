@@ -453,7 +453,7 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const Gfx
   // Artwork includes Dark Mode's image-polarity correction. Progress, stats,
   // headers and menus are drawn live, so reading cannot invalidate this cache.
   key += SETTINGS.screenInverted ? "dark:1" : "dark:0";
-  key += "safe-home:1";
+  key += "safe-home:2";  // :2 = full-width Home body, vertical safe area only
   for (const auto edge : renderer.getViewableInsets().edges) key += static_cast<char>(edge);
   key += '\0';
   // A theme pack can change the carousel layout.
@@ -1392,13 +1392,16 @@ bool HomeActivity::allocateCarouselFrameSlots(int targetFrameCount) {
 void HomeActivity::renderCarouselFrameToCurrentBuffer(int bookIdx) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  // Home body spans the full screen width; only the vertical safe area applies (user 11/04).
+  const int homeX = 0;
+  const int homeW = renderer.getScreenWidth();
   const int homeTop = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
   bool coverRendered = false, coverBufferStored = false, bufferRestored = false;
   LyraCarouselTheme::setPreRenderIndex(bookIdx);
   renderer.clearScreen();
   // Snapshot the expensive artwork only. Fresh progress/stats and controls are
   // added after restoring it, without rereading or repainting the covers.
-  GUI.drawRecentBookCover(renderer, Rect{safe.x, homeTop, safe.width, metrics.homeCoverTileHeight}, recentBooks,
+  GUI.drawRecentBookCover(renderer, Rect{homeX, homeTop, homeW, metrics.homeCoverTileHeight}, recentBooks,
                           static_cast<int>(recentBooks.size()), coverRendered, coverBufferStored, bufferRestored,
                           []() { return true; });
 }
@@ -2314,6 +2317,9 @@ void HomeActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  // Home body spans the full screen width; only the vertical safe area applies (user 11/04).
+  const int homeX = 0;
+  const int homeW = renderer.getScreenWidth();
   const int homeTop = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
   const auto displayHomeBuffer = [this] {
     renderer.displayBuffer(initialRefreshMode);
@@ -2359,7 +2365,7 @@ void HomeActivity::render(RenderLock&&) {
       GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
       const auto menuItems = buildMinimalMenuItems(hasPlugins, hasReadingStats, hasBookmarks, hasClippings);
       GUI.drawButtonMenu(
-          renderer, Rect{safe.x, homeTop, safe.width, std::max(0, safe.y + safe.height - homeTop)},
+          renderer, Rect{homeX, homeTop, homeW, std::max(0, safe.y + safe.height - homeTop)},
           static_cast<int>(menuItems.size()), minimalMenuIndex,
           [&menuItems](int index) { return menuItems[index].label; },
           [&menuItems](int index) { return menuItems[index].icon; });
@@ -2376,13 +2382,13 @@ void HomeActivity::render(RenderLock&&) {
     GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
     bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
-    coverRectX = safe.x;
+    coverRectX = homeX;
     coverRectY = homeTop;
-    coverRectW = safe.width;
+    coverRectW = homeW;
     coverRectH = metrics.homeCoverTileHeight;
 
     beginSyncBadge();
-    GUI.drawRecentBookCover(renderer, Rect{safe.x, homeTop, safe.width, metrics.homeCoverTileHeight}, recentBooks,
+    GUI.drawRecentBookCover(renderer, Rect{homeX, homeTop, homeW, metrics.homeCoverTileHeight}, recentBooks,
                             selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                             std::bind(&HomeActivity::storeCoverBuffer, this),
                             (isDashboardTheme() || hasAnyBookStats(currentBookStats)) ? &currentBookStats : nullptr,
@@ -2436,7 +2442,7 @@ void HomeActivity::render(RenderLock&&) {
       LyraCarouselTheme::setPreRenderIndex(centerIdx);
 
       // The snapshot contains artwork only; all changing UI uses current state.
-      const Rect coverRect{safe.x, homeTop, safe.width, metrics.homeCoverTileHeight};
+      const Rect coverRect{homeX, homeTop, homeW, metrics.homeCoverTileHeight};
       const auto& carouselTheme = static_cast<const LyraCarouselTheme&>(GUI);
       GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
       GUI.drawCarouselBorder(renderer, coverRect, recentBooks, centerIdx, inCarouselRow);
@@ -2497,9 +2503,9 @@ void HomeActivity::render(RenderLock&&) {
   // Record the tile rect so storeCoverBuffer (called from the theme) knows
   // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait
   // instead of the 48 KB full framebuffer the previous bind captured.
-  coverRectX = safe.x;
+  coverRectX = homeX;
   coverRectY = homeTop;
-  coverRectW = safe.width;
+  coverRectW = homeW;
   coverRectH = homeCoverTileHeight;
 
   beginSyncBadge();
@@ -2509,7 +2515,7 @@ void HomeActivity::render(RenderLock&&) {
       Lyra3CoversTheme::setTileProgress(i, cachedBookProgress[i]);
     }
   }
-  GUI.drawRecentBookCover(renderer, Rect{safe.x, homeTop, safe.width, homeCoverTileHeight}, recentBooks, selectorIndex,
+  GUI.drawRecentBookCover(renderer, Rect{homeX, homeTop, homeW, homeCoverTileHeight}, recentBooks, selectorIndex,
                           coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this),
                           hasAnyBookStats(currentBookStats) ? &currentBookStats : nullptr, currentBookProgressPercent);
@@ -2525,7 +2531,7 @@ void HomeActivity::render(RenderLock&&) {
                                     ? carouselMenuTouchDownIndex
                                     : selectorIndex - getHomeMenuSelectionOffset(recentBooks);
   GUI.drawButtonMenu(
-      renderer, Rect{safe.x, menuStartY, safe.width, menuHeight}, static_cast<int>(menuItems.size()), menuSelectedIndex,
+      renderer, Rect{homeX, menuStartY, homeW, menuHeight}, static_cast<int>(menuItems.size()), menuSelectedIndex,
       [&menuItems](int index) { return menuItems[index].label; },
       [&menuItems](int index) { return menuItems[index].icon; });
 
