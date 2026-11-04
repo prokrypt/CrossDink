@@ -15,14 +15,15 @@ The Controls menu lets you customize front buttons, side buttons, and reader sho
 - Long-press action
 - Power + Up action
 
-### Front Buttons
+### Front Buttons (button-only devices such as the X4 Classic)
 
 - Remap front buttons
 - Remap front buttons while reading
 - Orientation aware
-- Long-press behavior (in-reader only)
-- Long-press back action (in-reader only)
-- Long-press menu action (in-reader only)
+- Long-Press Left (in-reader only)
+- Long-Press Right (in-reader only)
+- Long-Press Back (in-reader only)
+- Long-Press Menu (in-reader only)
 
 Note: Even though some actions assigned to the front buttons could be used globally, they are restricted to apply within the reader only due to the dynamic nature of the front buttons (they can mean different things based on the screen you're on).
 
@@ -40,6 +41,16 @@ Note: Even though some actions assigned to the front buttons could be used globa
 - Two-finger Screen Rotation (on supported multi-touch devices)
 - Tap to Hide Status Bar
 - Two-finger Swipe (on supported multi-touch devices)
+- Edge Gestures (touchscreen devices)
+
+### Tilt Page Turn (devices with a motion sensor)
+
+- Tilt Page Turn
+- Tilt Direction
+- Tilt: Next Page Only: every tilt, in either direction, turns to the next page
+
+The three rows are hidden while the motion sensor is unavailable; their saved
+values are kept.
 
 ### Next Page and Previous Page Gestures
 
@@ -72,8 +83,8 @@ rightward edge swipe from being treated as Back/Home while reading.
 On touchscreen devices with multi-touch support, enable **Pinch to Resize Font**
 in **Settings > Controls > Taps & Gestures**. While reading an EPUB or TXT
 book, move two fingers apart to increase the font or together to decrease it.
-Each completed pinch changes one available font-size step. Pinch resizing also
-requires **Touch Reader Controls** to be enabled. XTC pages are pre-rendered,
+Each completed pinch changes one available font-size step. Pinch resizing is
+unavailable while **Disable Touchscreen** is on. XTC pages are pre-rendered,
 so this option cannot resize them.
 
 ## Two-finger Screen Rotation
@@ -95,8 +106,8 @@ read; the four-way **Reading Orientation** setting still works.
 visible status-bar area while reading to show or hide the entire bar for the
 current reading session. The toggle does not change page layout or page breaks;
 tap the same status-bar region again to restore a hidden bar. Use **Customize
-Status Bar** to choose which items the bar contains. The tap is available while
-**Touch Reader Controls** is enabled. For XTC books, when an XTC status bar is
+Status Bar** to choose which items the bar contains. The tap is unavailable
+while **Disable Touchscreen** is on. For XTC books, when an XTC status bar is
 enabled, tap its configured top or bottom edge both to hide and to restore it.
 
 ## Two-finger Swipe Actions
@@ -119,11 +130,30 @@ Available actions depend on the device and reader:
 | Select Chapter | EPUB and XTC books with a chapter list |
 | Next Chapter / Previous Chapter | EPUB readers |
 | Increase Font Size / Decrease Font Size | EPUB and TXT readers |
+| Disable Page Turn Gestures | All readers on touchscreen devices |
 
 Use a clear, mostly straight motion so both contacts are recognized as one
 gesture. Configured two-finger swipes are handled separately from the ordinary
 one-finger page-turn mapping. Select Chapter opens the chapter list in EPUB and XTC books. On image-based XTC books, Next/Previous Chapter and font-size
 actions are consumed but cannot change the pre-rendered pages.
+
+## Front Button Long-press Actions
+
+On button-only devices, **Long-Press Left** and **Long-Press Right** in
+**Settings > Controls > Front Buttons** (also in web settings) set what holding
+each front page-turn button does while reading. They offer the same actions as
+the side buttons, including **Previous/Next Chapter**, font size, rotation,
+**Quick Actions**, and **Quick Lock**. A front button with no long-press action
+turns the page as soon as it is pressed. The older shared long-press setting
+(Chapter Skip, Font Size, Rotate, Flip) migrates automatically.
+
+## Disable Page Turn Gestures
+
+**Disable Page Turn Gestures** can be assigned to the Power button, button
+chords, long-press Back or Menu, Quick Actions, or a two-finger swipe. It
+pauses page-turn taps and swipes while reading without changing menu gestures
+or the saved **Next Page** / **Previous Page** choices; while it is on, those
+rows show **Disabled**. Trigger it again to turn page-turn gestures back on.
 
 ## Side Button Long-press Action
 
@@ -175,6 +205,7 @@ Available actions include:
 - Quick Actions
 - Toggle Frontlight (on supported devices)
 - Toggle Touchscreen (on supported devices)
+- Disable Page Turn Gestures (on supported devices)
 
 ## Power + Up Shortcut
 

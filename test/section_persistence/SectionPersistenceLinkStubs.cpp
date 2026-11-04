@@ -11,6 +11,7 @@ Epub::Epub(std::string path, const std::string& cacheDir) : filepath(std::move(p
 
 const std::string& Epub::getCachePath() const { return cachePath; }
 bool Epub::getItemSize(const std::string&, size_t*) const { return false; }
+size_t Epub::getCumulativeSpineItemSize(int) const { return 0; }
 
 BookMetadataCache::~BookMetadataCache() = default;
 

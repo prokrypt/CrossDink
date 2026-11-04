@@ -31,6 +31,7 @@
 #include "network/NetworkName.h"
 #include "network/WifiUtils.h"
 #include "util/BatteryLog.h"
+#include "util/PluginEvents.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -119,6 +120,7 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  pluginevents::refreshSubscriptions();
   // Only lifts the suspension; the parent reloads the font when it redraws.
   filenameFontSystem.resume();
   BatteryLog::event("xfer_end", "file-transfer");
@@ -181,6 +183,8 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
   const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";
+  } else if (mode == NetworkMode::OPDS_BROWSER) {
+    modeName = "OPDS Browser";
   } else if (mode == NetworkMode::CREATE_HOTSPOT) {
     modeName = "Create Hotspot";
   } else if (mode == NetworkMode::NEARBY_STATS_SYNC) {
@@ -219,6 +223,10 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     activityManager.replaceActivity(std::move(sync));
     return;
   }
+  if (mode == NetworkMode::OPDS_BROWSER) {
+    activityManager.goToBrowser();
+    return;
+  }
 
   networkMode = mode;
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);
@@ -246,6 +254,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
       case NetworkMode::USB_DRIVE:
         activityManager.goToUsbDrive();
         break;
+      case NetworkMode::OPDS_BROWSER:
       case NetworkMode::NEARBY_STATS_SYNC:
       case NetworkMode::NEARBY_BOOK_RECEIVE:
       case NetworkMode::SYNC_BOOKS:
@@ -553,11 +562,12 @@ int drawCenteredQr(const GfxRenderer& renderer, int y, const std::string& payloa
 
 void CrossPointWebServerActivity::renderServerRunning() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
 
   renderHeader();
   const int subHeaderTop = TouchHeaderBackButton::contentTop(renderer, mappedInput);
-  GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
+  GUI.drawSubHeader(renderer, Rect{safe.x, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
   int startY = subHeaderTop + metrics.tabBarHeight + metrics.verticalSpacing;
   const int height10 = renderer.getLineHeight(UI_10_FONT_ID);

@@ -45,12 +45,14 @@ TEST(OptionPopup, ConsecutiveTouchSelectionsDoNotLoseSecondRelease) {
     });
   });
 
-  touch.touchPopup(popup, 250, [] {});
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
   EXPECT_EQ(firstSelections, 1);
   EXPECT_EQ(secondSelections, 0);
   ASSERT_TRUE(popup.isActive());
 
-  touch.touchPopup(popup, 250, [] {});
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
   EXPECT_EQ(firstSelections, 1);
   EXPECT_EQ(secondSelections, 1);
   EXPECT_FALSE(popup.isActive());
@@ -71,7 +73,9 @@ TEST(OptionPopup, OpeningHeldTouchReleaseDoesNotSelect) {
   EXPECT_EQ(selections, 0);
   EXPECT_TRUE(popup.isActive());
 
-  touch.touchPopup(popup, 250, [] {});
+  GfxRenderer renderer;
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
   EXPECT_EQ(selections, 1);
 }
 
@@ -182,7 +186,8 @@ TEST(OptionPopup, DisabledTouchOptionDoesNotSelect) {
   popup.show("Sync & Transfer", options, 1, 0, [&](const int) { ++selections; });
   popup.setDisabledOptions({true});
 
-  touch.touchPopup(popup, 250, [] {});
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
   EXPECT_EQ(selections, 0);
   EXPECT_TRUE(popup.isActive());
 }
@@ -300,6 +305,38 @@ TEST(OptionPopup, SwipeKeepsDisabledDestinationUnselectableWithoutWrapping) {
 
   touch.touchPopup(popup, 116, [] {});
   EXPECT_EQ(selectedIndex, 11);
+}
+
+TEST(OptionPopup, CalibratedRowsStayVisibleAndReceiveTheirOwnTouches) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  const std::array<int, 4> cases[] = {{9, 3, 3, 3}, {0, 0, 0, 0}, {32, 32, 32, 32}, {21, 7, 32, 13}};
+  for (const auto& edges : cases) {
+    renderer.insets = edges;
+    OptionPopup popup;
+    int selected = -1;
+    const char* options[] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"};
+    popup.show("Calibration options", options, 8, 0, [&](int index) { selected = index; });
+    popup.render(renderer);
+    const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    for (int i = 0; i < 8; ++i) {
+      const auto row = popup.simulatorOptionRect(i);
+      EXPECT_GE(row.x, safe.x);
+      EXPECT_GE(row.y, safe.y);
+      EXPECT_LE(row.x + row.width, safe.x + safe.width);
+      EXPECT_LE(row.y + row.height, safe.y + safe.height);
+    }
+    const auto row = popup.simulatorOptionRect(7);
+    const int x = row.x + row.width / 2;
+    const int y = row.y + row.height / 2;
+    input.injectTouchDown(x, y);
+    popup.handleInput(input, [] {});
+    input.injectTouchRelease(x, y);
+    popup.handleInput(input, [] {});
+    EXPECT_EQ(selected, 7);
+    input.advanceInputFrame();
+  }
 }
 
 }  // namespace

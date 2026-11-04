@@ -27,6 +27,7 @@ struct ClipWordStyle {
 
 class ClipSelectionActivity final : public Activity {
  public:
+  bool usesMenuButtonOrientation() const override { return false; }
   ClipSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, ClipWordStore wordStore, int fontId,
                         Section& section, int startPageInSection, int marginTop, int marginLeft,
                         const DictionaryClippingRequest* dictionaryRequest = nullptr,

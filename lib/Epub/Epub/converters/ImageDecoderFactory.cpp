@@ -9,11 +9,13 @@
 #include <mutex>
 #include <string>
 
+#include "GifToFramebufferConverter.h"
 #include "JpegToFramebufferConverter.h"
 #include "PngToFramebufferConverter.h"
 
 std::unique_ptr<JpegToFramebufferConverter> ImageDecoderFactory::jpegDecoder = nullptr;
 std::unique_ptr<PngToFramebufferConverter> ImageDecoderFactory::pngDecoder = nullptr;
+std::unique_ptr<GifToFramebufferConverter> ImageDecoderFactory::gifDecoder = nullptr;
 
 namespace {
 // The render task and the next-chapter worker can both make the first call.
@@ -53,6 +55,16 @@ ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string& im
       }
     }
     return pngDecoder.get();
+  } else if (GifToFramebufferConverter::supportsFormat(ext)) {
+    if (!gifDecoder) {
+      gifDecoder = makeUniqueNoThrow<GifToFramebufferConverter>();
+      if (!gifDecoder) {
+        LOG_ERR("DEC", "OOM: GIF framebuffer decoder (%" PRIu32 " free, %" PRIu32 " max alloc)", ESP.getFreeHeap(),
+                ESP.getMaxAllocHeap());
+        return nullptr;
+      }
+    }
+    return gifDecoder.get();
   }
 
   LOG_ERR("DEC", "No decoder found for image: %s", imagePath.c_str());
@@ -60,5 +72,6 @@ ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string& im
 }
 
 bool ImageDecoderFactory::isFormatSupported(const std::string& imagePath) {
-  return FsHelpers::hasJpgExtension(imagePath) || FsHelpers::hasPngExtension(imagePath);
+  return FsHelpers::hasJpgExtension(imagePath) || FsHelpers::hasPngExtension(imagePath) ||
+         FsHelpers::hasGifExtension(imagePath);
 }
