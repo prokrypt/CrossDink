@@ -109,7 +109,7 @@ class HalGPIO {
   inline bool deviceIsX3() const { return _deviceType == DeviceType::X3; }
 #else
   // Only the C3 boards detect X3; a constant lets the compiler drop every X3 branch on S3.
-  constexpr bool deviceIsX3() const { return false; }
+  static constexpr bool deviceIsX3() { return false; }
 #endif
   inline bool deviceIsX4() const { return _deviceType == DeviceType::X4; }
   bool isXteinkDevice() const;
