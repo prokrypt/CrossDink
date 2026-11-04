@@ -37,6 +37,9 @@ class HomeActivity final : public Activity {
   static constexpr int kMaxCachedBooks = 3;
 
  private:
+#ifdef SIMULATOR
+  friend struct PluginCatalogSmokeTest;
+#endif
   ButtonNavigator buttonNavigator;
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
   bool gridHasContinueReading = false;
@@ -56,7 +59,7 @@ class HomeActivity final : public Activity {
   bool hasReadingStats = false;
   bool hasBookmarks = false;
   bool hasClippings = false;
-  bool hasOpdsServers = false;
+  bool hasPlugins = false;
   bool minimalMenuOpen = false;
   bool minimalSuppressInitialFrontRelease = false;
   bool homeBookSwapLongPressHandled = false;
@@ -122,7 +125,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onGoodiesOpen();
-  void onOpdsBrowserOpen();
+  void onPluginsOpen();
   void onReadingStatsOpen();
   void onSavedItemsOpen();
 
@@ -172,6 +175,7 @@ class HomeActivity final : public Activity {
     std::atomic<bool> finished{false};  // set by the task before done
     std::atomic<bool> cancel{false};
     std::vector<CoverJob> jobs;  // the task's while it runs
+    bool psramStack = false;     // the task parks; joinCoverWorker() deletes it
   };
   CoverWorker coverWorker;
   // Cover grid slot sizes changed while a job ran: load again after it.

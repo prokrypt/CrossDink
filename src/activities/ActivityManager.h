@@ -51,7 +51,7 @@ struct LiveLightSwipeState {
 #endif
 
 enum class RequestUpdateResult { Rendered, Rejected };
-enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
+enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, FILE_TRANSFER, SETTINGS_MENU, PLUGINS };
 
 /**
  * ActivityManager
@@ -147,8 +147,9 @@ class ActivityManager {
   static constexpr uint32_t PANEL_WAKE_BIT = 1UL << 31;
   // Render-task notification bit for dozePanel(): booster off, nothing to draw.
   static constexpr uint32_t PANEL_DOZE_BIT = 1UL << 30;
-  // True while the idle booster-off holds; the first input after it wakes the panel.
-  std::atomic<bool> panelBoosterOff{false};
+  // True while the booster is off (boot, idle booster-off); the first input or
+  // a boot wake (wakePanelEarly) powers it on.
+  std::atomic<bool> panelBoosterOff{true};
   // Set by dozePanel(), cleared by wakePanelEarly(): every screen powers the
   // booster off after its draws, as opted-in screens always do.
   std::atomic<bool> panelDozing{false};
@@ -189,8 +190,8 @@ class ActivityManager {
 
   void begin(uint32_t renderTaskStackBytes = 16384);
   void loop();
-  // User input (finger down, button press): power the panel booster back on
-  // ahead of the refresh if the idle booster-off switched it off. Any task.
+  // User input (finger down, button press) or a boot wake: power the panel
+  // booster on ahead of the refresh if it is off. Any task.
   void wakePanelEarly();
   // Light Timeout: power the panel booster off on any screen until the next
   // input (wakePanelEarly). Idempotent. Any task.
@@ -219,9 +220,11 @@ class ActivityManager {
   bool goToLibrary();
   void goToBrowser(bool networkBootReady = false);
   bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false, bool fromServerList = false);
+  void goToPlugins();
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
-                  bool cleanImageBaseOnEntry = false);
+                  bool cleanImageBaseOnEntry = false, bool keepWakeFrame = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
+  void preparePluginSleep();
   void goToSleep(bool fromTimeout = false);
   // Runs every activity's onExit (reader progress, reading stats, Home %) before a restart.
   void exitAllActivities();

@@ -1,4 +1,5 @@
 #include <OpdsParser.h>
+#include <XmlParserUtils.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -191,4 +192,45 @@ TEST(OpdsParserTest, FeedCutAfterEntryLimitStillParses) {
   ASSERT_TRUE(parser.parse(feed.data(), cut));
   EXPECT_TRUE(parser.wasTruncated());
   EXPECT_EQ(parser.getEntryCount(), 2u);
+}
+
+TEST(OpdsParserTest, RejectsChunkImmediatelyOnXmlErrorAndCanRetry) {
+  OpdsEntry entries[1];
+  OpdsParser parser(entries);
+  constexpr char invalid[] = "<feed><entry></feed>";
+  EXPECT_EQ(parser.write(reinterpret_cast<const uint8_t*>(invalid), sizeof(invalid) - 1), 0u);
+  EXPECT_EQ(parser.getErrorReason(), OpdsParserError::XML_PARSE);
+  EXPECT_EQ(parser.write('x'), 0u);
+  parser.flush();
+  EXPECT_EQ(parser.getErrorReason(), OpdsParserError::XML_PARSE);
+  ASSERT_TRUE(parser.parse(kMultiAuthorFeed, sizeof(kMultiAuthorFeed) - 1));
+  EXPECT_EQ(parser.getEntryCount(), 1u);
+}
+
+TEST(OpdsParserTest, RejectsChunkImmediatelyOnBufferAllocationFailureAndCanRetry) {
+  OpdsEntry entries[1];
+  OpdsParser parser(entries);
+  ASSERT_GT(XmlTestHeap::live, 0u);
+  XmlTestHeap::limit = XmlTestHeap::live;
+  EXPECT_EQ(parser.write('<'), 0u);
+  EXPECT_EQ(parser.getErrorReason(), OpdsParserError::BUFFER_MEMORY);
+  EXPECT_EQ(XmlTestHeap::live, 0u);
+  EXPECT_EQ(parser.write('x'), 0u);
+  parser.flush();
+  EXPECT_EQ(parser.getErrorReason(), OpdsParserError::BUFFER_MEMORY);
+  XmlTestHeap::limit = SIZE_MAX;
+  ASSERT_TRUE(parser.parse(kMultiAuthorFeed, sizeof(kMultiAuthorFeed) - 1));
+  EXPECT_EQ(parser.getEntryCount(), 1u);
+}
+
+TEST(OpdsParserTest, RejectsWritesWhenParserCannotBeAllocated) {
+  OpdsEntry entries[1];
+  XmlTestHeap::limit = 0;
+  {
+    OpdsParser parser(entries);
+    EXPECT_EQ(parser.getErrorReason(), OpdsParserError::PARSER_MEMORY);
+    EXPECT_EQ(parser.write('<'), 0u);
+    EXPECT_EQ(XmlTestHeap::live, 0u);
+  }
+  XmlTestHeap::limit = SIZE_MAX;
 }

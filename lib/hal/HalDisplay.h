@@ -44,6 +44,9 @@ class HalDisplay {
   // gray): the framebuffer is not the panel's image then.
   bool grayShown() const;
 
+  // Selected SDK driver identity; nullptr before display initialization.
+  const char* getControllerName() const;
+
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
   static constexpr uint16_t DISPLAY_HEIGHT = EInkDisplay::DISPLAY_HEIGHT;
@@ -94,6 +97,9 @@ class HalDisplay {
   bool powerOffIdle(bool sampleTemp = true);
   // Booster on ahead of the next refresh (touch-down); false when nothing changed.
   bool powerOnIdle();
+  // Start the panel-temperature read now; it converts while boot continues and
+  // the next panel command collects it. For boots whose first refresh is Full.
+  void startTemperatureRead();
   // Light-sleep through refresh busy-waits, waking on BUSY (HalPowerManager::setRefreshLightSleep).
   // begin() turns it on for UC8179 panels in PM builds.
   void setRefreshLightSleep(bool allowed);

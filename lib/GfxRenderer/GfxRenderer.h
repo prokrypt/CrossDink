@@ -193,7 +193,6 @@ class GfxRenderer {
   bool isFontCacheScanning() const;
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
   void registerSdCardFont(int fontId, SdCardFont* font) { sdCardFonts_[fontId] = font; }
-  void unregisterSdCardFont(int fontId) { removeFont(fontId); }
   void clearSdCardFonts() { sdCardFonts_.clear(); }
   const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
   bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
@@ -225,9 +224,6 @@ class GfxRenderer {
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { orientation = o; }
   Orientation getOrientation() const { return orientation; }
-  // Logical rect -> framebuffer (panel) rect with x and w 8-pixel aligned.
-  // False when the rect is empty or off screen.
-  bool toFrameBufferRect(int x, int y, int w, int h, uint16_t& fx, uint16_t& fy, uint16_t& fw, uint16_t& fh) const;
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
@@ -274,7 +270,6 @@ class GfxRenderer {
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
   const ScreenInsets& getViewableInsets() const { return viewableInsets; }
-  bool hasCustomViewableInsets() const { return viewableInsets != ScreenInsets{}; }
   void setViewableInsets(const ScreenInsets& insets) {
     if (insets.valid()) viewableInsets = insets;
   }

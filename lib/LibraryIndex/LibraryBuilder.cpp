@@ -337,6 +337,21 @@ bool isBookName(const std::string& name) { return fileTypeFor(name) != 0; }
 // card written on a Mac shows every book twice.
 bool isHiddenOrSidecar(const char* name) { return name[0] == '.'; }
 
+bool isSystemDirectory(const char* name) {
+  // FAT names are case-insensitive. Match whole directory names, never book
+  // basenames or prefixes such as XTCacheArchive. No temporary strings needed.
+  for (const char* system : {"XTCache", "System Volume Information"}) {
+    const char* candidate = name;
+    while (*candidate && *system &&
+           std::tolower(static_cast<unsigned char>(*candidate)) == std::tolower(static_cast<unsigned char>(*system))) {
+      ++candidate;
+      ++system;
+    }
+    if (!*candidate && !*system) return true;
+  }
+  return false;
+}
+
 std::string stemOf(const std::string& name) {
   const size_t dot = name.find_last_of('.');
   return (dot == std::string::npos || dot == 0) ? name : name.substr(0, dot);
@@ -835,7 +850,7 @@ void walk(WalkState& st, const std::string& path, const int depth) {
     const uint32_t modificationTime = isDir ? 0 : entry.modificationTime();
     entry.close();
 
-    if (st.nameBuf[0] == '\0' || isHiddenOrSidecar(st.nameBuf)) continue;
+    if (st.nameBuf[0] == '\0' || isHiddenOrSidecar(st.nameBuf) || (isDir && isSystemDirectory(st.nameBuf))) continue;
     const std::string name(st.nameBuf);
 
     if (isDir) {

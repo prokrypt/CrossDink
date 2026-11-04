@@ -636,6 +636,14 @@ static bool usbHostSofActive() {
 }
 #endif
 
+bool HalGPIO::usbHostAttached() {
+#if FREEINK_MCU_S3
+  return usbHostSofActive();
+#else
+  return false;
+#endif
+}
+
 bool HalGPIO::isUsbConnected() const {
 #if FREEINK_DEVICE_X3
   if (deviceIsX3()) {

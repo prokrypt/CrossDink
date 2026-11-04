@@ -432,7 +432,7 @@ bool ClipSelectionActivity::hasTextBuildMemory(const int from, const int to, con
   const auto budget = ClipTextBuilder::allocationBudget(wordStore, readingOrder.data(), from, to, tableSelection);
   const auto heap = MemoryBudget::snapshot();
   if (budget.fits(heap.freeHeap, heap.maxAllocHeap)) return true;
-  // snapshot() is internal RAM only. Buffers of 1 KB and up try PSRAM first
+  // snapshot() is internal RAM only. Buffers over 512 B try PSRAM first
   // (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL), so a long clipping's text can live there.
   const auto psram = MemoryBudget::psramSnapshot();
   if (budget.textCapacity >= 1024 && psram.maxAllocHeap > budget.textCapacity &&

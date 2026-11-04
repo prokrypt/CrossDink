@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Page.h>
@@ -15,11 +14,13 @@
 
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include "BookLoadingFeedback.h"
+#include "BookPageEstimate.h"
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "DailyReadingStats.h"
@@ -29,8 +30,12 @@
 #include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
+#include "PluginReaderEvents.h"
+#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
-#include "SideButtonShortcuts.h"
+#include "ReadingSessionJournal.h"
+#include "ReadingSessionStats.h"
+#include "StableReadingPace.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/HomeCoverThumbs.h"
@@ -42,6 +47,7 @@
 #endif
 
 class EpubReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
   friend struct EpubReaderCompletionSmokeTest;
 #endif
@@ -125,6 +131,7 @@ class EpubReaderActivity final : public Activity {
   // Next chapter, built on buildWorker while the last pages of this one are read.
   // Dropping it mid-build suspends to a partial cache that resumes when the chapter opens.
   std::unique_ptr<Section> nextSection = nullptr;
+  bool exitingForSleep = false;
   ReaderRenderSpec nextSectionSpec;
   const char* nextSectionSuffix = "";
   int nextSectionSpine = -1;  // one try per spine, so a cached or failed chapter is not retried
@@ -157,6 +164,15 @@ class EpubReaderActivity final : public Activity {
   };
   GrayImageOnPanel grayImageOnPanel;
   bool skipRecentBookUpdateOnEntry = false;
+  // onEnter() bookkeeping the first page doesn't need, run by the first loop().
+  struct OpenTail {
+    bool pending = false;
+    int spineIndex = 0;
+    int pageNumber = 0;
+    int pageCount = 0;
+    std::optional<uint32_t> textOffset;
+  } openTail;
+  void finishOpenTail();
   int cachedSpineIndex = 0;
   int cachedChapterPageNumber = 0;
   int cachedTocIndex = -1;  // resolved against the old layout before a settings-driven reset
@@ -220,8 +236,24 @@ class EpubReaderActivity final : public Activity {
   int prerenderAttemptSpine = -1;
   int prerenderAttemptPage = -1;
   bool paceSampleWarmupPending = true;
+  uint32_t sessionStartPaceMillis = 0;
+  uint16_t sessionStartPaceSampleCount = 0;
   uint32_t sessionPaceSampleSeconds = 0;
   uint16_t sessionPaceSampleCount = 0;
+  BookPageEstimate bookPageEstimate;
+  StableReadingPace stableReadingPace;
+  // A display fallback while fresh text pace or chapter density is unavailable.
+  mutable uint32_t lastBookTimeLeftSeconds = 0;
+  double stableTextPosition = 0;
+  double stableTextTotal = 0;
+  double pendingStableReadStart = 0;
+  uint32_t pendingStableReadSeconds = 0;
+  int pendingStableReadSpine = -1;
+  int pendingStableReadPage = -1;
+  bool hasStableTextPosition = false;
+  int stableTextSpine = -1;
+  int stableTextPage = -1;
+  void refreshStableTextProgress();
   uint32_t sessionReadingSeconds = 0;
   DailyReadingStats::Session dailyReadingSession;
   void startDailyReadingInterval();
@@ -239,8 +271,8 @@ class EpubReaderActivity final : public Activity {
   bool statsTrackingActive = true;
   bool paceDirty = false;
   bool pendingStatsCommit = false;
-  ReadingStatsDateTime sessionStartLocalDateTime;
-  bool hasSessionStartLocalDateTime = false;
+  ReadingSessionDates readingSessionDates;
+  ReadingSessionJournal::Session readingSessionJournal;
   void syncStatsTrackingState();
   void commitReadingStatsSession();
   uint32_t globalStatsResetRevisionAtPanelOpen = 0;
@@ -275,8 +307,7 @@ class EpubReaderActivity final : public Activity {
   bool longPressBackHandled = false;
   bool longPowerButtonHandled = false;
   OptionPopup quickActionsPopup;
-  SideButtonShortcuts sideButtonShortcuts;
-  bool frontButtonLongPressHandled = false;
+  ReaderButtonShortcuts readerButtonShortcuts;
   bool touchDictionaryLookupHandled = false;
   int pageLoadRetryCount = 0;
   enum class BookmarkFeedbackType : uint8_t {
@@ -320,6 +351,7 @@ class EpubReaderActivity final : public Activity {
   bool pendingReadFolderMove = false;
   // The end screen owns these UI resources only while it is visible.
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
+  std::atomic<bool> endOfBookMenuActive{false};
   // First menu press made while the end-of-book menu was still loading (main loop only).
   EndOfBookOptions::MenuKey queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
   bool endOfBookHomeUnlocked = false;  // Home key lock lifted while the menu is open
@@ -526,6 +558,8 @@ class EpubReaderActivity final : public Activity {
   // before every tick) keeps the background build responsive while it works to completion.
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
   static constexpr int NEXT_SECTION_BUILD_PAGES_LEFT = 2;
+  // Two 1 KB parse buffers, about a page of text: keeps the extra sleep-time layout short.
+  static constexpr uint32_t SLEEP_FINISH_BUILD_MAX_BYTES = 2048;
   // Its HTML inflate holds RenderLock in one piece, so start it only once the page has sat a while.
   static constexpr unsigned long NEXT_SECTION_BUILD_IDLE_MS = 1500;
   // Pages past the current one built before the deferred font prewarm runs.
@@ -560,6 +594,9 @@ class EpubReaderActivity final : public Activity {
   // footnote preview). Used before handing off to anything that can silently
   // restart the device, which reboots without running onExit().
   void saveProgressBeforeRestart();
+  // Writes this session's reading time to SD and starts a new session, so a
+  // silent restart (which skips onExit()) does not lose it. Only on restart paths.
+  void checkpointReadingStatsBeforeRestart();
   bool saveReadingProgress(bool hold = false);
   bool saveLinkStack() const;
   void loadLinkStack();
@@ -571,11 +608,9 @@ class EpubReaderActivity final : public Activity {
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
   void recordCurrentPageReadingTime(const char* source = "unknown");
   void recordForwardPagePaceSample(uint32_t seconds, const char* source);
-  bool getSessionAveragePaceSeconds(uint16_t& avgSeconds) const;
-  void recoverStoredPaceFromSession(const char* reason = "unknown");
-  bool getTimeLeftPaceSeconds(uint16_t& avgSeconds, const char*& source, uint16_t& sampleCount) const;
+  bool getTimeLeftPaceSeconds(float& avgSeconds, const char*& source, uint16_t& sampleCount) const;
+  void refreshBookPageEstimate();
   bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
-  bool estimateProgressTimeLeftSeconds(uint32_t& seconds) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
   bool formatTimeLeftLabel(char* buf, size_t len, bool bookEstimate) const;
   void refreshCachedTimeLeftEstimate();
@@ -692,6 +727,11 @@ class EpubReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!saveReadingProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   void onCovered() override {
     smoothFullSwingPending = true;
     // Menus over a Noflash page get the longer repaint (driver keys it on smooth gray).
@@ -724,9 +764,14 @@ class EpubReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
+  bool usesMenuButtonOrientation() const override;
   bool isEpubReaderActivity() const override { return true; }
   void onInputLockChanged(bool locked) override;
-  void cancelOptionalRenderWork(const char* reason) override { cancelGrayscalePass(reason); }
+  void cancelOptionalRenderWork(const char* reason) override {
+    // goToSleep() and the sleep-time sync push call this right before onExit().
+    if (strstr(reason, "sleep")) exitingForSleep = true;
+    cancelGrayscalePass(reason);
+  }
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }
   bool flushProgressForSync() override;

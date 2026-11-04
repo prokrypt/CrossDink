@@ -351,6 +351,13 @@ bool HalDisplay::powerOnIdle() {
 #endif
 }
 
+void HalDisplay::startTemperatureRead() {
+#ifndef SIMULATOR
+  HalSpiBus::Lock spiLock;
+  einkDisplay.startTemperatureRead();
+#endif
+}
+
 void HalDisplay::setRefreshLightSleep(const bool allowed) {
 #ifndef SIMULATOR
   powerManager.setRefreshLightSleep(allowed);
@@ -549,6 +556,8 @@ bool HalDisplay::displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) {
 bool HalDisplay::supportsDeferredGrayscaleBase() const { return einkDisplay.supportsDeferredGrayscaleBase(); }
 
 bool HalDisplay::supportsStripGrayscale() const { return einkDisplay.supportsStripGrayscale(); }
+
+const char* HalDisplay::getControllerName() const { return einkDisplay.getControllerName(); }
 
 uint16_t HalDisplay::getDisplayWidth() const { return einkDisplay.getDisplayWidth(); }
 

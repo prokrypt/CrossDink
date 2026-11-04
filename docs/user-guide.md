@@ -29,7 +29,7 @@ This guide covers day-to-day device use. For focused reference material, see [Re
       - [3.6.5 OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries)
       - [3.6.6 Web Settings (Wi-Fi + OPDS)](#366-web-settings-wi-fi--opds)
       - [3.6.7 KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)
-        - [Option A: CrossPoint Sync Server (`sync.crossdinkreader.com`, default)](#option-a-crosspoint-sync-server-synccrosspointreadercom-default)
+        - [Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)](#option-a-crosspoint-sync-server-synccrosspointreadercom-default)
         - [Option B: Legacy Public KOReader Server (`sync.koreader.rocks`)](#option-b-legacy-public-koreader-server-synckoreaderrocks)
         - [Option C: Self-Hosted Server (Docker Compose)](#option-c-self-hosted-server-docker-compose)
     - [3.7 Sleep Screen](#37-sleep-screen)
@@ -42,7 +42,7 @@ This guide covers day-to-day device use. For focused reference material, see [Re
     - [Chapter Navigation](#chapter-navigation)
     - [Auto Page Turn](#auto-page-turn)
     - [Tilt Page Turn (X4 Classic and Sticky)](#tilt-page-turn-x4-classic-and-sticky)
-    - [Touch Reader Controls](#touch-reader-controls)
+    - [Touch Controls](#touch-controls)
     - [Footnote Navigation](#footnote-navigation)
     - [System Navigation](#system-navigation)
     - [Supported Languages](#supported-languages)
@@ -230,6 +230,11 @@ device model and build.
 
 - **Recent Books View**: Choose whether the Recent Books screen uses a list or grid layout.
 
+- **Screen Calibration**: Adjust each screen edge until the border is fully
+  visible. Home, menus, popups, keyboards, themes, and the boot and sleep
+  screens keep their content inside the calibrated area. **Reset to Defaults**
+  restores the device's default insets.
+
 - **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
   - "OFF" (default) - Disable the fix
   - "ON" - Enable the fix
@@ -311,12 +316,10 @@ Book Cache** does not reset these choices.
   [Reader Features](./reader-features.md) for their behavior, including the
   [Focus Reading](./reader-features.md#focus-reading) guide.
 
-- **Touch Reader Controls**: Enable or disable touchscreen page turns and
-  reader-menu swipe gestures on supported devices. Device-specific full-screen
-  Home and frontlight gestures remain available as described in [Touch Reader
-  Controls](#touch-reader-controls). **Disable Touchscreen** blocks touch input
-  while a book is open, while leaving touch available in reader menus so you can
-  turn it back on.
+- **Disable Touchscreen**: Blocks touch input while a book is open, while
+  leaving touch available in reader menus so you can turn it back on. To pause
+  only page-turn taps and swipes, assign **Disable Page Turn Gestures** to a
+  shortcut; see [Touch Controls](#touch-controls).
 
 - **Status Bars**: Configure the status bars displayed while reading:
   - Top and bottom bars each have three left slots, one center slot, and three right slots.
@@ -329,11 +332,15 @@ Book Cache** does not reset these choices.
   - Time Left - Display the estimated reading time left for the book or chapter
   - Battery - Show/Hide the battery indicator
   - XTC Status Bar - Show/Hide a status bar for XTC files
+  - Center Status Bar - Under **Options**, draw the bar's items as one centered
+    row joined by the chosen **Separator** (bullet, dash, pipe, or middle dot);
+    when the row does not fit, the widest items are trimmed first. Set per bar
+    on the device and in web settings.
 
 On touchscreen readers, when **Tap to Hide Status Bar** is enabled (the default
 in **Settings > Controls > Taps & Gestures**), tap the status-bar area while
 reading to show or hide the entire status bar for the current reading session.
-This tap is available while **Touch Reader Controls** is enabled. The quick
+This tap is unavailable while **Disable Touchscreen** is on. The quick
 toggle does not change the page layout or page breaks; tap the same status-bar
 region again to restore a hidden bar. Use **Status Bars** to choose
 which status-bar items are shown.
@@ -342,14 +349,15 @@ which status-bar items are shown.
 
 - **Power Button**: Configure short-press and long-press actions independently. On supported devices, you can also configure the **Power + Up** shortcut.
 
-- **Front Buttons**: Configure front-button remapping, orientation awareness,
-  reader-only long-press behavior, Back action, and Menu action.
+- **Front Buttons** (button-only devices): Configure front-button remapping,
+  orientation awareness, and the reader-only **Long-Press Left**, **Long-Press
+  Right**, **Long-Press Back**, and **Long-Press Menu** actions.
 
 - **Side Buttons**: Configure side-button layout, orientation awareness, and side-button long-press behavior.
 
 - **Side Button Layout (reader)**: Swap the order of the up and down buttons from "Prev/Next" (default) to "Next/Prev" or "Next/Next". You can also disable them entirely. This change is only in effect when reading.
 
-- **Long-press Behavior**: Set whether long-pressing front page-turn buttons does nothing, skips to the next/previous chapter, or changes reader orientation.
+- **Long-Press Left / Long-Press Right**: Choose what holding each front page-turn button does while reading, from the same actions as the side buttons (for example chapter skip, font size, rotation, Quick Actions, or Quick Lock). A button with no long-press action turns the page on the press. See [Front Button Long-press Actions](./controls.md#front-button-long-press-actions).
 
 - **Side Button Long-press Action**: Set whether long-pressing side buttons does nothing, skips chapters, changes font size, or changes orientation.
 
@@ -382,7 +390,7 @@ which status-bar items are shown.
     reader format.
     The submenu is not shown on devices without a touchscreen, and the
     multi-touch entries appear only when the hardware supports them. See [Touch
-    Reader Controls](#touch-reader-controls) for the gesture details.
+    Controls](#touch-controls) for the gesture details.
 
 #### 3.6.4 System
 
@@ -425,11 +433,14 @@ which status-bar items are shown.
 - **Check for Updates** and **SD Firmware Update**: Check for firmware updates
   over Wi-Fi or install a `firmware.bin` placed on the SD card.
 
-- **Language**: Set the UI language. CrossDink supports 28 languages: English,
-  Spanish, French, German, Czech, Brazilian Portuguese, Russian, Swedish,
-  Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish,
-  Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew,
-  Vietnamese, Slovak, Portuguese (Portugal), and Arabic.
+- **Language**: Set the UI language. English is built in. The other 27
+  languages (Spanish, French, German, Czech, Brazilian Portuguese, Russian,
+  Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish,
+  Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian,
+  Hebrew, Vietnamese, Slovak, Portuguese (Portugal), and Arabic) install over
+  Wi-Fi from **Settings > System > Device > Download Languages**, or from YAML
+  files copied to `/.crossdink/languages/`. See
+  [Internationalization](./i18n.md#downloading-languages).
 
 #### 3.6.5 OPDS Servers (Multiple Libraries)
 
@@ -452,6 +463,7 @@ Behavior notes:
 
 - You can store up to 8 OPDS servers.
 - OPDS authentication supports HTTP Basic auth. If you use Calibre Content Server with authentication enabled, set it to Basic (not Digest).
+- Catalogs may use Atom or OPDS 2 JSON. JSON navigation, groups, facets, search, pagination and indirect EPUB links are supported; purchase and LCP-licensed books are listed as not supported. OAuth sign-in is not included.
 
 You can also manage OPDS servers from the web interface while in File Transfer mode:
 
@@ -494,16 +506,16 @@ Percentage-only positions from compatible servers are supported as an approximat
 **Custom Header 1/2** accept `Header-Name: value` for authentication proxies, such as Cloudflare Access. Values are masked in settings and obfuscated on the SD card like passwords. Clear a row to remove it. In the web portal, replace the masked value with the complete header when editing. HTTP framing headers and built-in sync authentication headers cannot be overridden.
 
 
-##### Option A: CrossPoint Sync Server (`sync.crossdinkreader.com`, default)
+##### Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)
 
-When **Sync Server URL** is left empty, CrossDink uses the free CrossPoint sync server at `https://sync.crossdinkreader.com`. It speaks the standard KOReader sync protocol (so KOReader apps can use it too) and additionally stores an exact spine/page position for lossless CrossDink-to-CrossDink sync.
+When **Sync Server URL** is left empty, CrossDink uses the free CrossPoint sync server at `https://sync.crosspointreader.com`. It speaks the standard KOReader sync protocol (so KOReader apps can use it too) and additionally stores an exact spine/page position for lossless CrossDink-to-CrossDink sync.
 
 1. On each CrossDink device:
    - Go to **Settings -> System -> KOReader Sync**.
 
    - Set **Username** and **Password** (enter the plain password; CrossDink computes MD5 internally, and use the same values on all devices).
 
-   - Leave **Sync Server URL** empty (or set it to `https://sync.crossdinkreader.com`).
+   - Leave **Sync Server URL** empty (or set it to `https://sync.crosspointreader.com`).
 
    - On the first device, run **Sign Up** once to create the account directly from the device. On every other device, just run **Authenticate**.
 
@@ -746,7 +758,7 @@ If the **Short-press Action** setting is set to "Page Turn", you can also turn t
 - **Next Chapter:** Press and **hold** the **Right** (or **Down**) button briefly, then release.
 - **Previous Chapter:** Press and **hold** the **Left** (or **Up**) button briefly, then release.
 
-This feature can be disabled in **Settings > Controls > Front Buttons** to help avoid changing chapters by mistake.
+Chapter skip is a **Long-Press Left / Long-Press Right** action in **Settings > Controls > Front Buttons**; choose another action, or none, to avoid changing chapters by mistake.
 
 ### Auto Page Turn
 
@@ -754,12 +766,12 @@ Auto Page Turn automatically advances pages at a set interval, useful for hands-
 
 ### Tilt Page Turn (X4 Classic and Sticky)
 
-On the **Xteink X4 Classic** and **Sticky**, the gyroscope can be used to turn pages by tilting the device. This feature and its left-right or forward-back direction are available in **Settings -> Controls**.
+On the **Xteink X4 Classic** and **Sticky**, the gyroscope can be used to turn pages by tilting the device. This feature and its left-right or forward-back direction are available in **Settings -> Controls**. Turn on **Tilt: Next Page Only** to make a tilt in either direction turn to the next page. The tilt rows are hidden while the motion sensor is unavailable.
 
-### Touch Reader Controls
+### Touch Controls
 
-On supported touchscreen devices, **Touch Reader Controls** is enabled by
-default. **Next Page** and **Previous Page**, in **Settings > Controls**, are
+On supported touchscreen devices, **Next Page** and **Previous Page**, in
+**Settings > Controls > Taps & Gestures**, are
 configured independently and both default to **Tap & Swipe**:
 
 | Option           | Taps                             | Swipes   |
@@ -799,9 +811,10 @@ settings above.
 
 Choose **Disabled** in **Next Page** or **Previous Page** to stop touch page
 turns in that direction without disabling the touchscreen's vertical reader-menu
-or frontlight gestures. Turn **Touch Reader Controls** off in **Reader Options**
-to disable one-finger page turns and reader-menu swipes; device-specific
-full-screen Home/frontlight gestures remain available. **Disable Touchscreen**
+or frontlight gestures. The **Disable Page Turn Gestures** shortcut (Power
+button, chords, long-press menus, Quick Actions, or a two-finger swipe) pauses
+page-turn taps and swipes in both directions without changing those saved
+choices; the rows show **Disabled** while it is on. **Disable Touchscreen**
 prevents screen-touch input while a book is open but keeps it available in
 reader menus. For the different touch selection gestures used by [dictionary
 lookup](./dictionary.md#looking-up-a-word) and [clippings](./reader-features.md#clippings-and-highlights), see those feature guides.
@@ -812,7 +825,7 @@ action for **Swipe Up**, **Swipe Down**, **Swipe Left**, or **Swipe Right**, the
 move two fingers together in that direction while reading. Available actions
 are **Not Set**, **Increase Brightness**, **Decrease Brightness**, **Increase
 Warmth**, **Decrease Warmth**, **Select Chapter**, **Next Chapter**, **Previous Chapter**, **Increase
-Font Size**, and **Decrease Font Size**. Brightness and warmth options appear
+Font Size**, **Decrease Font Size**, and **Disable Page Turn Gestures**. Brightness and warmth options appear
 only when the hardware supports them; Select Chapter opens the chapter list in EPUB and XTC books, Next/Previous Chapter apply to EPUBs, and font
 size options apply to EPUB and TXT books. Each direction starts as **Not Set**,
 and each action can be assigned to only one direction; choosing it again moves
@@ -825,7 +838,7 @@ On supported multi-touch devices, enable **Pinch to Resize Font** in the same
 menu, then move two fingers apart to increase the font or together to decrease
 it. Each completed pinch changes one available font-size step. Pinch resizing
 works in EPUB and TXT readers; XTC pages are pre-rendered and cannot be
-resized. Pinch input also requires **Touch Reader Controls** to remain enabled.
+resized. Pinch input is unavailable while **Disable Touchscreen** is on.
 
 ### Slider Controls
 
@@ -868,7 +881,7 @@ Available options include:
 - **Controls** – Open reader control options without leaving the book.
 - **Reading Orientation** – Cycle through screen orientations without leaving the reader.
 - **Auto Turn Interval** – Configure automatic page turns for hands-free reading.
-- **Go to %** – Jump to a specific position in the book by percentage.
+- **Go to %** – Jump to a specific position in the book by percentage (EPUB and XTC).
 - **Add Bookmark / Remove Bookmark** – Toggle a bookmark on the current page.
 - **View Bookmarks / Delete Bookmarks** – Manage existing bookmarks when the book has bookmarks.
 - **Take screenshot** – Save a screenshot of the current page to the `screenshots/` folder.
@@ -917,7 +930,7 @@ Please note that this firmware is currently in active development. The following
   seconds to convert for the sleep screen and home-screen thumbnail. Use the
   built-in [EPUB optimization](./webserver.md#epub-optimization) before upload
   if a book is slow or memory-sensitive.
-- **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
+- **Unsupported Image Formats:** Most JPG, PNG and non-interlaced GIF images in EPUBs render correctly (animated GIFs show their first frame). Interlaced GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
 
 ---
 

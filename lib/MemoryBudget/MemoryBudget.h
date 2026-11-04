@@ -161,7 +161,7 @@ inline MemoryPool jpegDecoderPool(const size_t decoderBytes) {
 }
 
 // PSRAM devices: plain new/malloc over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL
-// (1 KB) lands in PSRAM, so a decoder object there needs only internal headroom
+// (512 B) lands in PSRAM, so a decoder object there needs only internal headroom
 // for parsing and callbacks, not a large internal block (the PNG decoder is
 // ~42 KB). C3 has no PSRAM and keeps its internal gates.
 inline bool decoderFitsPsram(const size_t decoderBytes) { return jpegDecoderPool(decoderBytes) == MemoryPool::Psram; }

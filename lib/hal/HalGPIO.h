@@ -105,7 +105,12 @@ class HalGPIO {
   HalGPIO() = default;
 
   // Inline device type helpers for cleaner downstream checks
+#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   inline bool deviceIsX3() const { return _deviceType == DeviceType::X3; }
+#else
+  // Only the C3 boards detect X3; a constant lets the compiler drop every X3 branch on S3.
+  static constexpr bool deviceIsX3() { return false; }
+#endif
   inline bool deviceIsX4() const { return _deviceType == DeviceType::X4; }
   bool isXteinkDevice() const;
 
@@ -218,6 +223,10 @@ class HalGPIO {
 
   // Check if USB is connected
   bool isUsbConnected() const;
+
+  // A USB host's start-of-frame traffic only (no charger fallback, no I2C), so
+  // setup() can ask before the input bus is up. False on non-S3 boards.
+  static bool usbHostAttached();
 
   // Return the latest loop-owned sample. Before the first update(), fall back
   // to a direct probe so setup-time callers still report external power.

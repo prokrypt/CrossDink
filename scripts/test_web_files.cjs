@@ -109,10 +109,12 @@ function portal({ entries = [], fallback = false } = {}) {
     // Complete short transfer delays; do not execute the post-upload reload.
     setTimeout: (callback, delay) => { if (delay < 1000) queueMicrotask(callback); return 1; },
     clearTimeout() {},
+    // plugin-host.js (web/assets) is a separate script; plugins are out of scope here.
+    loadPlugins() {},
   });
   // The test controls when hydration occurs, after installing its fixtures.
-  assert.match(source, /hydrate\(\);?\s*$/);
-  vm.runInContext(source.replace(/hydrate\(\);?\s*$/, ''), context);
+  assert.match(source, /^hydrate\(\);?$/m);
+  vm.runInContext(source.replace(/^hydrate\(\);?$/m, ''), context);
   return { context, element, overlays, document, uploads, requests, logs, storage,
     run: code => vm.runInContext(code, context) };
 }
@@ -280,5 +282,20 @@ test('normal close, Cancel and Escape still close idle dialogs', async () => {
     overlay.classList.add('open');
     page.document.emit('keydown', page.document, { key: 'Escape' });
     assert.equal(overlay.classList.contains('open'), false, overlay.id);
+  }
+});
+
+test('image picker escapes EPUB filenames in every preview style', () => {
+  const { document, element, run } = portal();
+  const rows = [];
+  document.createElement = () => ({});
+  element('imageGrid').appendChild = item => rows.push(item.innerHTML);
+  run(`epubImagesCache = [{isCover:true},{isSeparator:true},{}].map(img =>
+    ({...img, name:'cover"><img src=x onerror=alert(1)>.jpg', dataUrl:'blob:preview'}));
+    renderImageGrid();`);
+  assert.equal(rows.length, 3);
+  for (const html of rows) {
+    assert.equal((html.match(/<img /g) || []).length, 1);
+    assert.match(html, /cover&quot;&gt;&lt;img/);
   }
 });

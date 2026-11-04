@@ -24,6 +24,7 @@
 #include <PackedFontBitmaps.h>
 #include <PerfLog.h>
 #include <SPI.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
@@ -84,6 +85,7 @@
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
+#include "activities/settings/AssetDownloadActivity.h"
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -103,6 +105,8 @@
 #include "platform/InputWake.h"
 #include "platform/PanelProbe.h"
 #include "platform/PinMon.h"
+#include "util/PluginBundle.h"
+#include "util/PluginEvents.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
 
@@ -1072,6 +1076,21 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
       }
       break;
     }
+    case NetworkBootTarget::DOWNLOAD_ASSETS: {
+      if (!AssetDownloadActivity::validBootPayload(payload)) {
+        LOG_ERR("MAIN", "Invalid language download payload 0x%" PRIx32, payload);
+        break;
+      }
+      auto assetActivity = makeUniqueNoThrow<AssetDownloadActivity>(renderer, mappedInputManager, payload);
+      if (assetActivity) {
+        activityManager.replaceActivity(std::move(assetActivity));
+        launched = true;
+      } else {
+        LOG_ERR("MAIN", "OOM: language download activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      }
+      break;
+    }
   }
   return launched;
 }
@@ -1228,6 +1247,12 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       LOG_INF("LIGHT", "Frontlight toggled %s by shortcut", lightOn ? "on" : "off");
       return true;
     }
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
+      if (!gpio.hasTouch()) return false;
+      SETTINGS.disablePageTurnGestures = !SETTINGS.disablePageTurnGestures;
+      activityManager.persistGlobalSettings();
+      activityManager.requestUpdate();
+      return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       if (!gpio.hasTouch()) return false;
       SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
@@ -1337,6 +1362,8 @@ CrossPointSettings::SHORT_PWRBTN chordPowerAction(const ButtonShortcutController
       return Power::QUICK_ACTIONS;
     case Chord::ToggleFrontlight:
       return Power::TOGGLE_FRONTLIGHT;
+    case Chord::TogglePageTurnGestures:
+      return Power::TOGGLE_PAGE_TURN_GESTURES;
     case Chord::ToggleTouchscreen:
       return Power::TOGGLE_TOUCHSCREEN;
     default:
@@ -1769,7 +1796,13 @@ static void runBootTail(const bool sleeping = false) {
   if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
-  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
+  if (bootTailDictionary && !sleeping) {
+    Dictionary::isValidDictionary();
+    // Folder walks on the worker core at the background priority, so a slow
+    // card never holds input or a page turn (HalStorage serializes SD access).
+    static WorkerTask imageIndexTask;
+    imageIndexTask.start([](void*) { ImageFolderIndex::dropStaleIndexes(); }, nullptr, 4096, "ImgIdx");
+  }
   bootTailDictionary = false;
 }
 
@@ -1808,6 +1841,15 @@ static void disarmBootGuard() {
 #endif
 }
 
+// The simulator's HalPowerManager keeps the step name only (no [SLP] t timing).
+void setSleepStep(const char* step) {
+#ifdef SIMULATOR
+  HalPowerManager::sleepStep = step;
+#else
+  HalPowerManager::setSleepStep(step);
+#endif
+}
+
 // Before the sleep screen, push under a progress toast and show the result for a
 // moment: the open book's just-saved position once past where it opened (KOReader
 // Sync > Sync on Wake & Sleep), else a close push still queued or running, which deep sleep would drop.
@@ -1817,7 +1859,7 @@ void syncBookBeforeSleep() {
   const bool readerFlushed = !path.empty();
   if (!readerFlushed) path = kosync_auto::pendingPushPath();
   if (path.empty()) return;
-  HalPowerManager::sleepStep = "kosync push";
+  setSleepStep("kosync push");
   activityManager.cancelOptionalRenderWork("kosync sleep push");
   // Held throughout so the reader cannot repaint over the toasts; bounded so a
   // busy render task only costs the toasts, never the push or the sleep.
@@ -1909,9 +1951,19 @@ static void showChordClock() {
 // the sleep frame again as plain Fast refreshes, OLD = NEW, like the menu ones.
 // Only while the framebuffer is that frame (B/W, not lent out). A key press
 // stops them, so sleep is never held up by more than the refresh running.
-// True when a key stopped them.
-static bool bustSleepGhosts() {
+// None after a sleep frame the panel drew with its clearing Half/Full waveform
+// (every generated sleep screen): it drove every pixel, so no Fast ghost is left
+// to fade. Quick Resume's Fast frame keeps them, even right after a Half whose
+// swing ends after sleepDrawStartMs. True when a key stopped them.
+static bool bustSleepGhosts([[maybe_unused]] const bool quickResume, [[maybe_unused]] const uint32_t sleepDrawStartMs) {
 #ifndef SIMULATOR  // the simulator HAL has no panel
+  // 0: no swing tracked (non-UC8179 panels).
+  const uint32_t flashEndsMs = display.flashEndsMs();
+  if (SETTINGS.ghostBusters > 0 && !quickResume && display.flashKind() == HalDisplay::FlashKind::Full &&
+      flashEndsMs != 0 && static_cast<int32_t>(flashEndsMs - sleepDrawStartMs) >= 0) {
+    LOG_DBG("SLP", "Sleep ghost busters skipped: sleep frame drawn with Half/Full");
+    return false;
+  }
   RenderLock lock;
   for (uint8_t left = SETTINGS.ghostBusters; left > 0 && renderer.hasFrameBuffer() && !display.grayShown(); left--) {
     gpio.update();
@@ -1962,12 +2014,12 @@ void enterDeepSleep(bool fromTimeout) {
     SleepLog::armSleepReboot();
   }
   armSleepGuard();
-  HalPowerManager::sleepStep = "activity exit";
+  setSleepStep("activity exit");
 #if CROSSDINK_GOODIES
   goodies_remote::waitForJoin();  // the Wi-Fi shutdown below must not overlap the remote's join task
 #endif
   syncBookBeforeSleep();
-  HalPowerManager::sleepStep = "activity exit";
+  setSleepStep("activity exit");
   kosync_auto::yieldRadio();  // likewise auto sync's Wi-Fi start/stop; deep sleep drops the rest
   BugReport::stopForSleep();  // no report upload may hold an SD file through Storage.shutdown()
   // Scope the CPU frequency lock so it can be released before deep sleep entry.
@@ -1995,9 +2047,19 @@ void enterDeepSleep(bool fromTimeout) {
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
+    activityManager.preparePluginSleep();
+    {
+      RenderLock lock;
+      const std::string book = activityManager.getCurrentBookPath();
+      pluginevents::prepareSleep(book.c_str(), activityManager.getScreenshotInfo().progressPercent,
+                                 powerManager.getBatteryPercentage() >= 20);
+    }
+    trustedtime::note();
+    const uint32_t sleepDrawStartMs = millis();
+    setSleepStep("sleep draw");
     activityManager.goToSleep(fromTimeout);
     wifi_background_join::wait();  // the OPDS list's onExit() may have queued the radio off
-    HalPowerManager::sleepStep = "sleep writes";
+    setSleepStep("sleep writes");
     ReaderExitSave::flush();  // the reader's exit writes, now behind the sleep screen
     RecentBookProgress::flushSyncMarks();
     // Hold the newest state, then write every held store behind the sleep screen.
@@ -2041,20 +2103,21 @@ void enterDeepSleep(bool fromTimeout) {
     SleepLog::onSleep();
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
-    HalPowerManager::sleepStep = "storage shutdown";
+    setSleepStep("storage shutdown");
     Storage.shutdown();
 
+    setSleepStep("tilt sleep");
     putTiltSensorToSleepForDeepSleep();
-    HalPowerManager::sleepStep = "sleep refresh";
+    setSleepStep("sleep refresh");
     renderer.waitRefreshComplete();
-    HalPowerManager::sleepStep = "nvs, frontlight";
+    setSleepStep("nvs, frontlight");
     mirrorWakeShortPressToNvs();
     // Last visible step: the sleep screen has settled and every write is done.
     [[maybe_unused]] const bool lightWasOn = Frontlight.isOn();
     frontlightFadeOutForSleep();
     Frontlight.prepareForDeepSleep();
-    HalPowerManager::sleepStep = "ghost busters";
-    [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts();
+    setSleepStep("ghost busters");
+    [[maybe_unused]] const bool keyStoppedBusters = bustSleepGhosts(isQuickResumeSleep, sleepDrawStartMs);
 #ifndef SIMULATOR
     // A key during the fade or the busters wakes too, with the light as it was;
     // the restart mounts the card again.
@@ -2062,7 +2125,7 @@ void enterDeepSleep(bool fromTimeout) {
       restartInsteadOfSleep(lightWasOn ? 1 : 0);
     }
 #endif
-    HalPowerManager::sleepStep = "display sleep";
+    setSleepStep("display sleep");
     display.deepSleep();
     LOG_DBG("MAIN", "Entering deep sleep");
 
@@ -2117,6 +2180,9 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   }
   bootPhase("probe");
   display.finishBegin(seamless);
+  // A Full first paint (the splash): the panel temperature converts while setup()
+  // continues, instead of holding BUSY ~106 ms after that refresh.
+  if (!seamless) display.startTemperatureRead();
   esp_register_shutdown_handler(powerOffPanelOnRestart);  // runs before PsramLog's (reverse order)
   // Every restart writes held reader exit data and deferred settings first.
   // One handler: IDF has 5 slots and Wi-Fi takes one.
@@ -2258,9 +2324,13 @@ void setup() {
           BuildInfo::gitSha(), strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "", BuildInfo::gitBranch(),
           CROSSDINK_PIOENV, BuildInfo::buildNumber(), BuildInfo::buildTime(), runningPart,
           resetReasonName(rawResetReason));
+  PerfLog::logPreApp(rawResetReason == ESP_RST_POWERON);
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
   PerfLog::logLastSleep();
+#ifndef SIMULATOR
+  HalPowerManager::logLastSleepSteps();
+#endif
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
   // Validate the target too — RTC_NOINIT memory is uninitialized on cold boot.
@@ -2290,6 +2360,21 @@ void setup() {
     silentFirmwareUpdateMagic = 0;
   }
 
+#ifndef SIMULATOR
+  const bool shortPressWakes = readWakeShortPressFromNvs();
+  // Boots that never wait on the Power-button hold mount the card on the UI
+  // core while this core resets the touch controller (gpio.begin, ~170 ms): any
+  // reset but a deep-sleep wake or power-on, or a power-on that boots on any
+  // press or has a USB host attached (AfterUSBPower). Other power-ons keep the
+  // hold-timed mount below, so a press too short to wake never powers the card.
+  // Internal stack: SDMMC init must not run on PSRAM.
+  static WorkerTask earlyMountTask;
+  static bool earlyMounted = false;
+  const bool earlyMounting =
+      rawResetReason != ESP_RST_DEEPSLEEP &&
+      (rawResetReason != ESP_RST_POWERON || shortPressWakes || HalGPIO::usbHostAttached()) &&
+      earlyMountTask.start([](void*) { earlyMounted = Storage.begin(); }, nullptr, 6144, "SdMount", /*uiCore=*/true);
+#endif
   gpio.begin();
   // Sticky shares Confirm and Power on one GPIO. Emit Power first so the
   // configured shortcut wins; MappedInputManager mirrors it back to Confirm
@@ -2307,13 +2392,12 @@ void setup() {
 #ifndef SIMULATOR
   // Marks for the gap between "Input wake armed" and the IMU/RTC lines.
   LOG_INF("BOOT", "mark: power-button wake check");
-  const bool shortPressWakes = readWakeShortPressFromNvs();
   const HalGPIO::PageKeyWake pageKeyWake = HalGPIO::checkPageKeyWake();
   wallpaperChordWake = pageKeyWake == HalGPIO::PageKeyWake::Chord;
   const bool powerWake =
       pageKeyWake == HalGPIO::PageKeyWake::None && wakeupReason == HalGPIO::WakeupReason::PowerButton;
   bool powerHeld = powerWake && gpio.verifyPowerButtonWakeup(shortPressWakes, /*longHoldMs=*/0);
-  if (powerHeld && !shortPressWakes) {
+  if (powerHeld && !shortPressWakes && !earlyMounting) {
     // Mount the card on the UI core while this core times the long hold,
     // instead of idling through it. The mount (~160 ms on a deep-sleep wake)
     // starts as late as it can and still end with the hold, so a short press
@@ -2344,6 +2428,7 @@ void setup() {
     PerfLog::noteDeepSleep("wake-not-held", "boot");
     armSleepGuard();
     BatteryLog::noteFalseWake();
+    if (earlyMounting) storageMountedEarly = earlyMountTask.join() && earlyMounted;
     if (storageMountedEarly) Storage.shutdown();
     powerManager.startDeepSleep(gpio);
   }
@@ -2368,11 +2453,29 @@ void setup() {
   LOG_INF("BOOT", "mark: RTC read");
   halClock.begin();
 #ifndef SIMULATOR
+  {
+    // Convert the RTC's UTC calendar without depending on the display timezone.
+    uint16_t rtcYear;
+    uint8_t rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond;
+    if (halClock.getDateTime(rtcYear, rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond)) {
+      int year = rtcYear - (rtcMonth <= 2);
+      const int era = year / 400;
+      const unsigned yoe = year - era * 400;
+      const unsigned doy = (153 * (rtcMonth + (rtcMonth > 2 ? -3 : 9)) + 2) / 5 + rtcDay - 1;
+      const int64_t days = era * 146097LL + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+      trustedtime::adopt(days * 86400 + rtcHour * 3600 + rtcMinute * 60 + rtcSecond);
+    }
+  }
+#endif
+  trustedtime::init();
+#ifndef SIMULATOR
   // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
   if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
     BatteryLog::onChargeWake();
     PerfLog::noteDeepSleep("charge-wake", "boot");
     armSleepGuard();
+    if (earlyMounting) storageMountedEarly = earlyMountTask.join() && earlyMounted;
+    if (storageMountedEarly) Storage.shutdown();
     powerManager.startDeepSleep(gpio);
   }
 #endif
@@ -2432,6 +2535,9 @@ void setup() {
   }
 
   bootPhase("start");
+#ifndef SIMULATOR
+  if (earlyMounting) storageMountedEarly = earlyMountTask.join() && earlyMounted;
+#endif
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!storageMountedEarly && !Storage.begin()) {
@@ -2452,7 +2558,9 @@ void setup() {
   // Before anything reads progress.bin: replay a position a crash or reset kept
   // off the card (it supersedes a held exit copy of the same book).
   ReaderProgressShadow::recoverPending();
+  if (!PluginBundle::recoverPending()) LOG_ERR("PLUG", "Plugin install recovery pending");
   SETTINGS.loadFromFile();
+  pluginevents::refreshSubscriptions();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
 #endif
@@ -2464,7 +2572,7 @@ void setup() {
   bootTailRoute = wakeupRouteName(wakeupReason);
   BatteryLog::onBoot();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
-  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
+  I18N.begin(SETTINGS.languageCode, SETTINGS.languageCacheGeneration);
   // Normal boot store deferral adapted from Sichroteph/YACP commit
   // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT). Accessors load these
   // stores when Home, reader bookkeeping, or sync actually need them.
@@ -2554,6 +2662,8 @@ void setup() {
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
   bool x4WakeCanFastPaint = false;
+  // A retained page is useful opening feedback even when a fast refresh is unavailable.
+  bool quickResumeFrameVisible = false;
 
   // A plain software restart that left its frame behind (restartKeepingPanelFrame,
   // e.g. after an SD firmware update) also starts seamlessly: the splash is
@@ -2577,6 +2687,7 @@ void setup() {
       break;
     case BootResume::SplashlessWake:
       if (shouldRestoreSleepFrame && loadSleepFrameBuffer()) {
+        quickResumeFrameVisible = true;
         if (gpio.deviceIsX3()) {
           // begin() clears the X3 controller RAM. Restore the saved frame as
           // the baseline for the first reader paint without refreshing the panel.
@@ -2626,6 +2737,11 @@ void setup() {
     showChordClock();
     disarmBootGuard();  // the hold can run 30 s; sleep entry arms its own guard
     enterDeepSleep();
+  }
+  if (resume == BootResume::SplashlessWake || resume == BootResume::Silent) {
+    // A first paint is certain: the render task powers the booster on now (~127 ms
+    // PON) while this core opens the book, so that paint skips the wait.
+    activityManager.wakePanelEarly();
   }
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
@@ -2693,7 +2809,8 @@ void setup() {
     // Count the attempt in RTC so a book that crashes on load boots to Home next time.
     APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
     if (isSleepWake) kosync_auto::noteWake();
-    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
+    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh, false,
+                               quickResumeFrameVisible);
   }
 
   bootPhase("route");
@@ -3427,6 +3544,19 @@ static void loopPass() {
       lastActivityTime = millis();
       return;
     }
+    if (buttonShortcutController.tryUnlockFront(
+            millis(), mappedInputManager.isPressed(MappedInputManager::Button::Left),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Left),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Left),
+            mappedInputManager.isPressed(MappedInputManager::Button::Right),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Right),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Right), ReaderUtils::SKIP_HOLD_MS)) {
+      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Left);
+      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Right);
+      notifyQuickLockChanged();
+      lastActivityTime = millis();
+      return;
+    }
     if (handleX4ProHomeKeyQuickLockUnlock()) {
       lastActivityTime = millis();
       return;
@@ -3584,6 +3714,12 @@ static void loopPass() {
     }
   }
 
+  // Background delivery must not hold up text entry or wait for a screen
+  // refresh after input was sampled: a stale touch-down can become a false hold.
+  if (!activityManager.isReaderActivity() && !activityManager.hasActivityNamed("KeyboardEntry")) {
+    RenderLock lock(RenderLock::Mode::Try);
+    if (lock.ownsLock()) pluginevents::pollOnline();
+  }
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();
