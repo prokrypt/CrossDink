@@ -1,28 +1,27 @@
 name: Deploy Pages
 
-# Manual only: Pages stays disabled on this repo (user 2026-11-04); enable Pages before running it.
+# Deploy is manual only: Pages stays disabled on this repo (user 2026-11-04); enable Pages before running it.
+# PRs that touch the site or this workflow build it (no deploy), so a broken site build shows up before main.
 on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "site/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-24.04
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
-
-      - uses: actions/configure-pages@v6
 
       - uses: actions/setup-node@v5
         with:
@@ -37,8 +36,22 @@ jobs:
         working-directory: site
 
       - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           path: ./site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v6
 
       - name: Deploy to GitHub Pages
         id: deployment
