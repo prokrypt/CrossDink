@@ -302,6 +302,35 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  bootloader:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    # X4 Pro second-stage bootloader (tools/bootloader, QIO + skip-validate-on-power-on). PlatformIO only ships
+    # Arduino's prebuilt bootloaders, so this is built with ESP-IDF itself, the version Arduino 3.3.9 is built on.
+    # Flashed with Goodies > Flash bootloader from /bootloader.bin on the SD card (docs/goodies.md).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build bootloader
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.4
+          target: esp32s3
+          path: tools/bootloader
+          command: idf.py bootloader
+      - name: Bootloader image info
+        run: |
+          sudo chown -R "$(id -u)" tools/bootloader/build
+          pip install -q esptool
+          python -m esptool image-info tools/bootloader/build/bootloader/bootloader.bin
+      - name: Upload bootloader
+        uses: actions/upload-artifact@v7
+        with:
+          name: bootloader-x4-pro
+          path: tools/bootloader/build/bootloader/bootloader.bin
+          if-no-files-found: error
+          retention-days: 14
+
   unit-tests:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -331,6 +360,7 @@ jobs:
     name: Test Status
     needs:
       - changes
+      - bootloader
       - build
       - clang-format
       - cppcheck
