@@ -1,12 +1,7 @@
 name: Deploy Pages
 
+# Manual only: Pages stays disabled on this repo (user 2026-11-04); enable Pages before running it.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "docs/**"
-      - "site/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
