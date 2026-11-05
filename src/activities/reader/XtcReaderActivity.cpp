@@ -521,7 +521,6 @@ void XtcReaderActivity::loop() {
   const bool prevTriggered = tilt.prev || frontPrev || touch.prev || shortcutPreviousPage;
   const bool nextTriggered = tilt.next || frontNext || touch.next || shortcutPageTurn;
   if (!prevTriggered && !nextTriggered) return;
-  const bool fromTouch = touch.prev || touch.next;
 
   // Mirror EPUB's manual-turn guard: the render task updates the panel
   // concurrently, so accepting another turn before it owns RenderLock can mix
