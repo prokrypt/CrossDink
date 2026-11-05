@@ -260,6 +260,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - The Home cover tile and menu span the full screen width again instead of being inset by the screen calibration; the top and bottom calibration still apply.
 - Rapid page turns queue and skip pages again instead of waiting for each page to draw.
 - PNG files show the image icon in the file browser.
+- Leaving the plugin catalog no longer crashes the device about 20 seconds later when the Goodies Wi-Fi remote is on; the catalog now shares the remote's Wi-Fi link instead of switching it off.
 
 ### Added
 
