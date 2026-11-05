@@ -1,0 +1,7 @@
+{
+  "name": "GfxRenderer",
+  "description": "1-bit framebuffer drawing, bitmaps and glyph rendering",
+  "build": {
+    "flags": ["-O2"]
+  }
+}
