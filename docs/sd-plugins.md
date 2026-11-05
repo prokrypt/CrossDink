@@ -124,6 +124,7 @@ JSON pagination is selected from the URL, body, and header templates:
 - `{page}` without `{limit}`: each page needs an extra row to advertise Next.
 - Neither: the firmware pages through the static response locally, counting
   compatible entries rather than letting incompatible entries consume slots.
+  Previous/Next re-read the saved response instead of requesting it again.
 
 Optional `browse.lists` contains named `{title, url, body}` views.
 `browse.search` overrides `url` and/or `body` for search. A `download.url_path`
@@ -136,6 +137,8 @@ element's local name, and field selectors to an element, `element@attribute`,
 or `@attribute`. Optional `container_element`, `skip_self`, `resolve_urls`, and
 `extensions` support directory listings. Directory links must keep the manifest's
 origin, including HTTPS and port.
+XML lists sort folders first, then titles A-Z, and show `page_size` rows per page;
+Previous/Next re-read the saved response, and opening a folder starts at page 1.
 
 A flat config file can override the destination with `{"dest_dir":"/Books"}`.
 `/` selects the SD root. Filenames retain CrossInk's normal sanitation.
@@ -165,9 +168,8 @@ Keep downloaded books outside the plugin installation folder.
 
 Manifests are limited to 8 KiB; picker titles and descriptions accept at most 128
 and 256 bytes respectively. Oversized picker fields use the folder name or no
-description. Token and configuration files are limited to 2 KiB. JSON pages contain at most 16 visible rows; XML
-lists use the SDK's 200-row limit. A list requires enough free heap for its row
-array plus 64 KiB of parser and UI headroom; otherwise it shows a memory error. Captured row text is limited to 24 KiB per
+description. Token and configuration files are limited to 2 KiB. Pages contain at most 16 visible rows; XML
+lists sort and page up to the SDK's 200-row limit. A list requires enough free heap for its page plus 64 KiB of parser and UI headroom; otherwise it shows a memory error. Captured row text is limited to 24 KiB per
 response. Catalog responses stream through an SD temporary file and are limited
 to 1 MiB; oversized or malformed responses show a feed error. HTTP response
 headers are limited to 64 fields and 8 KiB. These bounds keep catalog input from
