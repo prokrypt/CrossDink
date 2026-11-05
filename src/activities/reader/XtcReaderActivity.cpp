@@ -234,10 +234,8 @@ void XtcReaderActivity::openReaderMenu() {
 }
 
 void XtcReaderActivity::loop() {
-  {
-    RenderLock lock(*this);
-    pluginEvents.poll(getCurrentBookPath());
-  }
+  // Never wait for a page render here: input queued during one must still reach the turn queue.
+  pluginEvents.pollWhenIdle(getCurrentBookPath());
   if (!xtc) {
     return;
   }

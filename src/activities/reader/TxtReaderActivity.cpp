@@ -200,10 +200,8 @@ bool TxtReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult&
 }
 
 void TxtReaderActivity::loop() {
-  {
-    RenderLock lock(*this);
-    pluginEvents.poll(getCurrentBookPath());
-  }
+  // Never wait for a page render here: input queued during one must still reach the turn queue.
+  pluginEvents.pollWhenIdle(getCurrentBookPath());
   if (quickActionsPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 #if CROSSDINK_APP_CAP_TOUCH
   // TXT has no reader drawer: the bottom edge exits directly on every touch device.
