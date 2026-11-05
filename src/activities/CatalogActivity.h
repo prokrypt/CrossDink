@@ -26,6 +26,9 @@ class CatalogActivity : public UiListActivity {
 
   void onEnter() override;
   void onExit() override;
+  // HTTP only: the Goodies Wi-Fi remote serves on the catalog's link and keeps it on exit.
+  bool usesWifi() const override { return true; }
+  bool sharesWifiWithRemote() const override { return true; }
 
  protected:
   using UiListActivity::UiListActivity;
