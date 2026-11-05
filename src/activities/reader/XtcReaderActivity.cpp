@@ -234,10 +234,8 @@ void XtcReaderActivity::openReaderMenu() {
 }
 
 void XtcReaderActivity::loop() {
-  {
-    RenderLock lock(*this);
-    pluginEvents.poll(getCurrentBookPath());
-  }
+  // Never wait for a page render here: input queued during one must still reach the turn queue.
+  pluginEvents.pollWhenIdle(getCurrentBookPath());
   if (!xtc) {
     return;
   }
@@ -519,11 +517,9 @@ void XtcReaderActivity::loop() {
   const bool powerPageTurn = shortPowerTurn || longPowerTurn || timedLongPowerTurn;
   const bool frontNext = mappedInput.wasReleased(MappedInputManager::Button::Right) || powerPageTurn;
 
-  const bool fromTilt = tilt.prev || tilt.next;
   const bool prevTriggered = tilt.prev || frontPrev || touch.prev || shortcutPreviousPage;
   const bool nextTriggered = tilt.next || frontNext || touch.next || shortcutPageTurn;
   if (!prevTriggered && !nextTriggered) return;
-  const bool fromTouch = touch.prev || touch.next;
 
   // Mirror EPUB's manual-turn guard: the render task updates the panel
   // concurrently, so accepting another turn before it owns RenderLock can mix

@@ -3619,10 +3619,8 @@ bool EpubReaderActivity::offerKeptPosition() {
 }
 
 void EpubReaderActivity::loop() {
-  {
-    RenderLock lock(*this);
-    pluginEvents.poll(getCurrentBookPath());
-  }
+  // Never wait for a page render here: input queued during one must still reach the turn queue.
+  pluginEvents.pollWhenIdle(getCurrentBookPath());
   // Off the open path: the write overlaps the first page's ink, and it lands
   // before anything below can save this session's stats.
   if (firstPageShown) ReaderExitSave::flushStats();
