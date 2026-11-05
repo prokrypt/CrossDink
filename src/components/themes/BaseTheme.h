@@ -345,7 +345,7 @@ class BaseTheme {
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY, bool foregroundBlack = false);
   // Header Wi-Fi glyph, beside the battery group while a station link is up.
   // Width including its gap to the battery group, or 0 when not connected. A web server request in the
-  // last 30 s adds a remote-activity icon on the glyph's left.
+  // last 5 s adds a remote-activity icon on the glyph's left.
   static int wifiStatusReserve();
   // x is the left edge of the reserve (remote icon, else bars), batteryY the battery rect's y.
   static void drawWifiStatus(const GfxRenderer& renderer, int x, int batteryY, bool foregroundBlack = true);
