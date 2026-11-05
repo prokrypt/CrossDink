@@ -259,6 +259,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Serial and Wi-Fi remote `CMD:SLEEP` (debug builds) now puts the device to sleep the way the power key does. It used to draw the sleep screen and stay awake, with the main loop ticking every 10 ms.
 - The Home cover tile and menu span the full screen width again instead of being inset by the screen calibration; the top and bottom calibration still apply.
 - Rapid page turns queue and skip pages again instead of waiting for each page to draw.
+- PNG files show the image icon in the file browser.
 
 ### Added
 
