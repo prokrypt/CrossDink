@@ -17,7 +17,6 @@
 
 class DictionaryWordSelectActivity final : public Activity {
  public:
-  bool usesMenuButtonOrientation() const override { return false; }
   using ReaderPageLoadFn = std::unique_ptr<Page> (*)(void* context, int pageOffset);
 
   // reservedBottomHeight is the post-bezel reserved space the caller (EpubReader)

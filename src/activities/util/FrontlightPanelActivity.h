@@ -97,11 +97,8 @@ class FrontlightPanelActivity final : public Activity {
   void onExternalFrontlightChange() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // Let loop() dismiss handle swipes even when the drawer reaches the bottom
-  // edge. Keep the physical Home control separate from swipe dismissal.
-  bool allowGlobalHomeSwipeGesture() const override { return false; }
-  // From an active reader, the Home control returns to the library; elsewhere
-  // it dismisses the overlay back to the current screen.
+  // From an active reader, Home returns to the library; elsewhere it dismisses
+  // the overlay back to the current screen.
   bool handleHomeGesture() override;
   bool requiresFreshBackdrop() const override { return true; }
 };

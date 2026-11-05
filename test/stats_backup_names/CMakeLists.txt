@@ -1,3 +1,0 @@
-add_executable(StatsBackupNamesTest StatsBackupNamesTest.cpp)
-target_link_libraries(StatsBackupNamesTest PRIVATE crosspoint_test_common GTest::gtest_main)
-gtest_discover_tests(StatsBackupNamesTest)

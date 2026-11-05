@@ -55,7 +55,6 @@ int mainMenuIconYOffset(const UIIcon icon) {
     case UIIcon::Library:
       return -4;
     case UIIcon::Opds:
-    case UIIcon::Plugins:
       return -4;
     default:
       return 0;
@@ -82,8 +81,6 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return &icon_lyra_library_24;
       case UIIcon::Opds:
         return &icon_opds_24;
-      case UIIcon::Plugins:
-        return &icon_puzzle_24;
       default:
         return nullptr;
     }
@@ -105,8 +102,6 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return &icon_lyra_library_32;
       case UIIcon::Opds:
         return &icon_opds_32;
-      case UIIcon::Plugins:
-        return &icon_puzzle_32;
       case UIIcon::Wifi:
         return &icon_wifi_32;
       case UIIcon::Hotspot:
@@ -473,25 +468,22 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     }
   } else {
     // X4 layout: Both buttons stacked on right side
-    const auto insets = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation()));
-    const int stackTop = std::clamp(topHintButtonY, static_cast<int>(insets.edges[0]),
-                                    std::max(static_cast<int>(insets.edges[0]),
-                                             renderer.getScreenHeight() - insets.edges[2] - 2 * buttonHeight - 5));
     const char* labels[] = {topBtn, bottomBtn};
     const int x = UITheme::getHintSafeX(renderer, screenWidth - buttonWidth, buttonWidth);
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, stackTop, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false, true);
+      renderer.drawRoundedRect(x, topHintButtonY, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false,
+                               true);
     }
 
     if (bottomBtn != nullptr && bottomBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, stackTop + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true, false,
-                               true, false, true);
+      renderer.drawRoundedRect(x, topHintButtonY + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true,
+                               false, true, false, true);
     }
 
     for (int i = 0; i < 2; i++) {
       if (labels[i] != nullptr && labels[i][0] != '\0') {
-        const int y = stackTop + (i * buttonHeight) + 5;
+        const int y = topHintButtonY + (i * buttonHeight) + 5;
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         renderer.drawTextRotated90CW(SMALL_FONT_ID, x, y + (buttonHeight + textWidth) / 2, labels[i]);
       }
@@ -518,7 +510,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   // Draw cover image as background if available (inside the box)
   // Only load from SD on first render, then use stored buffer
   if (hasContinueReading) {
-    TouchRegistry::getInstance().add(Rect{rect.x + themed(LyraMetrics::values).contentSidePadding, tileY, tileWidth,
+    TouchRegistry::getInstance().add(Rect{themed(LyraMetrics::values).contentSidePadding, tileY, tileWidth,
                                           themed(LyraMetrics::values).homeCoverHeight + 2 * hPaddingInSelection},
                                      0, TouchRegistry::Cover);
 
@@ -526,7 +518,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (!coverRendered) {
       std::string coverPath = book.coverBmpPath;
       bool hasCover = true;
-      int tileX = rect.x + themed(LyraMetrics::values).contentSidePadding;
+      int tileX = themed(LyraMetrics::values).contentSidePadding;
       if (coverPath.empty()) {
         hasCover = false;
       } else {
@@ -563,7 +555,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     bool bookSelected = (selectorIndex == 0);
 
-    int tileX = rect.x + themed(LyraMetrics::values).contentSidePadding;
+    int tileX = themed(LyraMetrics::values).contentSidePadding;
     int textWidth = tileWidth - 2 * hPaddingInSelection - themed(LyraMetrics::values).verticalSpacing - coverWidth;
 
     if (bookSelected) {
@@ -650,14 +642,14 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
   const auto& menuMetrics = UITheme::getInstance().getMetrics();
 
   constexpr int maxVisibleItems = 7;
-  const int rowStep = menuMetrics.menuRowHeight + menuMetrics.menuSpacing;
-  const int pageItems = std::clamp((rect.height + menuMetrics.menuSpacing) / rowStep, 1, maxVisibleItems);
+  const int pageItems = maxVisibleItems;
   const int totalPages = (buttonCount + pageItems - 1) / pageItems;
 
   if (totalPages > 1) {
-    const int scrollAreaHeight = pageItems * rowStep - menuMetrics.menuSpacing;
+    const int scrollAreaHeight =
+        maxVisibleItems * (menuMetrics.menuRowHeight + menuMetrics.menuSpacing) - menuMetrics.menuSpacing;
     const int scrollBarHeight = (scrollAreaHeight * pageItems) / buttonCount;
-    const int currentPage = std::max(0, selectedIndex) / pageItems;
+    const int currentPage = selectedIndex / pageItems;
     const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
     const int scrollBarX = rect.x + rect.width - themed(LyraMetrics::values).scrollBarRightOffset;
     renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
@@ -665,7 +657,7 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                       themed(LyraMetrics::values).scrollBarWidth, scrollBarHeight, true);
   }
 
-  const int pageStartIndex = (std::max(0, selectedIndex) / pageItems) * pageItems;
+  const int pageStartIndex = (selectedIndex / pageItems) * pageItems;
 
   for (int i = pageStartIndex; i < buttonCount && i < pageStartIndex + pageItems; ++i) {
     const int displayIndex = i - pageStartIndex;

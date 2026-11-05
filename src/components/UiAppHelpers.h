@@ -50,17 +50,20 @@ class FilenameUiFontScope {
  private:
   freeink::ui::GfxRendererTarget& target_;
 };
-// Absolute content bounds always include calibration. Existing edge reserves
-// are minimum distances from the screen, so count each physical edge only once.
+// Preserve legacy layouts, while calibrated absolute bounds reserve each
+// physical edge only once rather than adding the SDK safe area again.
 template <size_t MaxInteractions>
 inline void setUiContentMargin(freeink::ui::Screen<MaxInteractions>& screen, const GfxRenderer& renderer,
                                freeink::ui::Insets margins) {
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  margins.top = std::max<int>(margins.top, safe.y);
-  margins.right = std::max<int>(margins.right, renderer.getScreenWidth() - safe.x - safe.width);
-  margins.bottom = std::max<int>(margins.bottom, renderer.getScreenHeight() - safe.y - safe.height);
-  margins.left = std::max<int>(margins.left, safe.x);
-  screen.setContentMarginFromScreen(margins);
+  if (renderer.hasCustomViewableInsets()) {
+    const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    margins.top = std::max<int>(margins.top, safe.y);
+    margins.right = std::max<int>(margins.right, renderer.getScreenWidth() - safe.x - safe.width);
+    margins.bottom = std::max<int>(margins.bottom, renderer.getScreenHeight() - safe.y - safe.height);
+    margins.left = std::max<int>(margins.left, safe.x);
+    screen.setContentMarginFromScreen(margins);
+  } else
+    screen.setContentMargin(margins);
 }
 
 // A child Settings screen can change calibration while this activity remains

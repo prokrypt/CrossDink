@@ -5,7 +5,6 @@
 #include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <Memory.h>
-#include <TrustedTime.h>
 #include <WiFi.h>
 #include <Xtc.h>
 
@@ -30,7 +29,6 @@
 #include "network/ReadingSyncUpload.h"
 #include "network/WifiUtils.h"
 #include "sync/BookSyncFile.h"
-#include "sync/SyncFiles.h"
 #include "sync/SyncIds.h"
 #include "sync/SyncParked.h"
 #include "sync/SyncState.h"
@@ -654,11 +652,21 @@ void StatsUploadActivity::loadPage() {
 }
 
 namespace {
+bool parseId(const std::string& hex, uint8_t (&out)[16]) {
+  if (hex.size() != 32) return false;
+  for (size_t i = 0; i < 16; ++i) {
+    unsigned value = 0;
+    if (std::sscanf(hex.c_str() + i * 2, "%2x", &value) != 1) return false;
+    out[i] = static_cast<uint8_t>(value);
+  }
+  return true;
+}
+
 bool changeMatches(const KOReaderProgressChange& change, const uint8_t (&id)[16]) {
   uint8_t candidate[16];
-  if (SyncFiles::parseHex(change.document, candidate) && memcmp(candidate, id, 16) == 0) return true;
+  if (parseId(change.document, candidate) && memcmp(candidate, id, 16) == 0) return true;
   for (uint8_t i = 0; i < change.aliasCount; ++i)
-    if (SyncFiles::parseHex(change.aliases[i], candidate) && memcmp(candidate, id, 16) == 0) return true;
+    if (parseId(change.aliases[i], candidate) && memcmp(candidate, id, 16) == 0) return true;
   return false;
 }
 
@@ -959,8 +967,6 @@ void StatsUploadActivity::uploadNext() {
     }
 #ifndef SIMULATOR
     halClock.syncSystemTimeFromNTP();
-    trustedtime::note();
-    trustedtime::startSync();
 #endif
     const auto result =
         KOREADER_STORE.getSyncStats() ? ReadingSyncUpload::globalStats() : StatsUploadClient::Result::Skipped;
@@ -1204,7 +1210,7 @@ void StatsUploadActivity::syncEpub(std::string&& bookPath, const KOReaderProgres
     // The pull map can predate an external SD edit. Check the current book (including aliases)
     // before supplying a remote position to the child activity.
     uint8_t id[16];
-    if (!SyncFiles::parseHex(documentIdFor(bookPath), id) || !changeMatches(*remote, id)) {
+    if (!parseId(documentIdFor(bookPath), id) || !changeMatches(*remote, id)) {
       keepRemote(*remote);
       return;
     }
@@ -1422,7 +1428,7 @@ void StatsUploadActivity::loop() {
       const auto area = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
       const auto layout =
           TouchActionButtons::vertical(Rect{area.x + 20, area.y + area.height - 80, area.width - 40, 56}, 1);
-      actionTapped = TouchActionButtons::indexAt(layout, x, y, TouchActionButtons::kDefaultGap / 2) == 0;
+      actionTapped = TouchActionButtons::indexAt(layout, x, y) == 0;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || actionTapped) {
       if (state == State::Done) {

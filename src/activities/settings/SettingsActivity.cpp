@@ -17,7 +17,6 @@
 #include "AboutActivity.h"
 #include "AppCapabilities.h"
 #include "AppVersion.h"
-#include "AssetDownloadActivity.h"
 #include "BackupStatsActivity.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
@@ -27,7 +26,6 @@
 #include "DeviceCapabilities.h"
 #include "FilenameFontSystem.h"
 #include "FontSelectionActivity.h"
-#include "util/PluginEvents.h"
 #if CROSSDINK_SCALABLE_FONTS
 #include "TtfRenderOptionsActivity.h"
 #endif
@@ -46,7 +44,6 @@
 #include "StatusBarSettingsActivity.h"
 #include "activities/home/BookActions.h"
 #include "activities/network/WifiSelectionActivity.h"
-#include "activities/plugins/PluginCatalogActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
@@ -81,7 +78,7 @@ constexpr size_t controlsParentBaseCount = 4;
 constexpr size_t controlsHomeButtonCount = 4;
 constexpr size_t controlsPowerMinCount = 2;
 constexpr size_t controlsPowerMaxCount = 3;
-constexpr size_t controlsFrontButtonCount = 7;
+constexpr size_t controlsFrontButtonCount = 6;
 constexpr size_t controlsSideButtonBaseCount = 7;
 
 void formatFrontlightScheduleTime(const uint16_t timeOfDay, char* const buf, const size_t len) {
@@ -125,9 +122,9 @@ uint8_t enumRawValueForDisplayIndex(const SettingInfo& setting, uint8_t displayI
   return setting.enumRawValues[displayIndex];
 }
 
-void drawCenteredTextLine(const GfxRenderer& renderer, const Rect& safe, const int y, const std::string& text) {
+void drawCenteredTextLine(const GfxRenderer& renderer, const int pageWidth, const int y, const std::string& text) {
   const int labelWidth = renderer.getTextWidth(SMALL_FONT_ID, text.c_str());
-  const int labelX = safe.x + (safe.width - labelWidth) / 2;
+  const int labelX = (pageWidth - labelWidth) / 2;
   renderer.drawText(SMALL_FONT_ID, labelX, y, text.c_str());
 }
 
@@ -165,22 +162,23 @@ int systemVersionFooterReserve(const GfxRenderer& renderer, const int pageWidth,
          versionLines * renderer.getLineHeight(SMALL_FONT_ID);
 }
 
-void drawSystemVersionFooter(const GfxRenderer& renderer, const ThemeMetrics& metrics) {
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
+                             const ThemeMetrics& metrics) {
   const std::string label = AppVersion::versionLabel();
-  const int maxWidth = safe.width - systemVersionFooterSideMargin * 2;
+  const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
   const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  const int detailsLineY = safe.y + safe.height - metrics.verticalSpacing - systemVersionFooterBottomInset;
+  const int detailsLineY =
+      pageHeight - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - systemVersionFooterBottomInset;
   const int bottomLineY = detailsLineY - lineHeight;
 
   // Short branch and commit; "*" marks uncommitted changes.
   char details[64];
   snprintf(details, sizeof(details), "%s %s%s", BuildInfo::shortBranch(), BuildInfo::gitSha(),
            strcmp(BuildInfo::gitDirty(), "1") == 0 ? "*" : "");
-  drawCenteredTextLine(renderer, safe, detailsLineY, renderer.truncatedText(SMALL_FONT_ID, details, maxWidth));
+  drawCenteredTextLine(renderer, pageWidth, detailsLineY, renderer.truncatedText(SMALL_FONT_ID, details, maxWidth));
 
   if (renderer.getTextWidth(SMALL_FONT_ID, label.c_str()) <= maxWidth) {
-    drawCenteredTextLine(renderer, safe, bottomLineY, label);
+    drawCenteredTextLine(renderer, pageWidth, bottomLineY, label);
     return;
   }
 
@@ -206,8 +204,8 @@ void drawSystemVersionFooter(const GfxRenderer& renderer, const ThemeMetrics& me
   const std::string secondLine = lineBreak == std::string::npos
                                      ? ""
                                      : renderer.truncatedText(SMALL_FONT_ID, label.substr(lineBreak).c_str(), maxWidth);
-  drawCenteredTextLine(renderer, safe, bottomLineY - lineHeight, firstLine);
-  drawCenteredTextLine(renderer, safe, bottomLineY, secondLine);
+  drawCenteredTextLine(renderer, pageWidth, bottomLineY - lineHeight, firstLine);
+  drawCenteredTextLine(renderer, pageWidth, bottomLineY, secondLine);
 }
 
 std::string formatSettingValue(const SettingInfo& setting) {
@@ -382,7 +380,6 @@ void SettingsActivity::rebuildSettingsLists() {
   const size_t expectedControlsCount = controlsParentBaseCount - (hasTouch ? 1u : 0u) + (hasHomeKey ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u) +
                                        (deviceHasMenuNavigationSetting(gpio) ? 1u : 0u);
   const size_t expectedFrontButtonCount = hasTouch ? 0u : controlsFrontButtonCount;
@@ -393,7 +390,6 @@ void SettingsActivity::rebuildSettingsLists() {
   const size_t expectedControlsCount = controlsParentBaseCount + (gpio.hasHomeKey() ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u) +
                                        1u;  // Menu navigation: always shown without touch
   constexpr size_t expectedFrontButtonCount = controlsFrontButtonCount;
@@ -760,187 +756,38 @@ void SettingsActivity::openFilenameFontPicker() {
 }
 
 void SettingsActivity::openLanguagePicker() {
-  languageCatalog.reset();
-  languageCatalog.init(MemoryPool::None);
-  const auto status = languageCatalog ? I18N.discover(*languageCatalog.get()) : language_cache::Result::Memory;
+  const int languageCount = static_cast<int>(sizeof(SORTED_LANGUAGE_INDICES) / sizeof(SORTED_LANGUAGE_INDICES[0]));
+
   std::vector<std::string> options;
-  std::vector<bool> disabled;
-  int currentIndex = 0;
-  bool duplicates = false;
-  if (status == language_cache::Result::Ok) {
-    options.reserve(languageCatalog->count);
-    disabled.reserve(languageCatalog->count);
-    for (size_t i = 0; i < languageCatalog->count; ++i) {
-      if (std::strcmp(languageCatalog->code(i), I18N.getCode()) == 0) currentIndex = static_cast<int>(i);
-      options.emplace_back(languageCatalog->name(i));
-      disabled.push_back(languageCatalog->disabled(i));
-      duplicates = duplicates || languageCatalog->disabled(i);
-    }
-  } else {
-    // No catalog: still offer English and the active language.
-    LOG_ERR("LANG", "Language picker: %s", language_cache::resultName(status));
-    languageCatalog.reset();
-    options.emplace_back("English");
-    if (std::strcmp(I18N.getCode(), "EN") != 0) {
-      options.emplace_back(I18N.getName());
-      currentIndex = 1;
-    }
+  options.reserve(languageCount);
+  for (int i = 0; i < languageCount; i++) {
+    options.push_back(I18N.getLanguageName(static_cast<Language>(SORTED_LANGUAGE_INDICES[i])));
   }
-  const char* note = status == language_cache::Result::Ok
-                         ? (duplicates ? tr(STR_LANGUAGE_DUPLICATE) : tr(STR_LANGUAGE_APPLY_HINT))
-                     : status == language_cache::Result::Memory   ? tr(STR_MEMORY_ERROR)
-                     : status == language_cache::Result::TooLarge ? tr(STR_LANGUAGE_CATALOG_LIMIT)
-                                                                  : tr(STR_LANGUAGE_IO_ERROR);
-  optionPopup.show(
-      StrId::STR_LANGUAGE, options, currentIndex,
-      [this](int index) {
-        if (index < 0) {
-          requestUpdate();
-          return;
-        }
-        if (languageCatalog) {
-          if (static_cast<size_t>(index) >= languageCatalog->count || languageCatalog->disabled(index)) {
-            requestUpdate();
-            return;
-          }
-          languageCatalog->select(index, pendingLanguage);
-        } else if (index == 0) {
-          pendingLanguage = {};
-          std::strcpy(pendingLanguage.code, "EN");
-        } else {
-          requestUpdate();
-          return;
-        }
-        languageSelectionPending = true;  // Applied in loop(), after this callback returns.
-      },
-      OptionPopup::Note(tr(STR_LANGUAGE), note));
-  optionPopup.setDisabledOptions(std::move(disabled));
-  requestUpdate();
-}
 
-void SettingsActivity::applyLanguage(const I18n::Option& selected) {
-  languageCatalog.reset();
-  StrId error = StrId::_COUNT;
-  {
-    RenderLock lock(*this);
-    if (selected.path[0]) {
-      GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
-      language_cache::Installed installed;
-      const auto status = I18N.install(selected.path, installed);
-      if (status != language_cache::Result::Ok && status != language_cache::Result::Unchanged) {
-        error = status == language_cache::Result::StorageUnavailable ? StrId::STR_LANGUAGE_STORAGE_UNAVAILABLE
-                : status == language_cache::Result::Memory           ? StrId::STR_MEMORY_ERROR
-                : status == language_cache::Result::Io               ? StrId::STR_LANGUAGE_IO_ERROR
-                                                                     : StrId::STR_LANGUAGE_FILE_INVALID;
-      }
-    } else if (!selected.generation) {
-      // A built-in language; a row with a generation is the active SD language.
-      I18N.setLanguage(I18n::languageFromCode(selected.code));
+  const auto currentLang = static_cast<uint8_t>(I18N.getLanguage());
+  const auto* begin = std::begin(SORTED_LANGUAGE_INDICES);
+  const auto* end = std::end(SORTED_LANGUAGE_INDICES);
+  const auto* it = std::find(begin, end, currentLang);
+  int currentIndex = (it != end) ? static_cast<int>(std::distance(begin, it)) : 0;
+
+  optionPopup.show(StrId::STR_LANGUAGE, options, currentIndex, [this](int selectedIndex) {
+    const int languageCount = static_cast<int>(sizeof(SORTED_LANGUAGE_INDICES) / sizeof(SORTED_LANGUAGE_INDICES[0]));
+    if (selectedIndex < 0 || selectedIndex >= languageCount) {
+      requestUpdate();
+      return;
     }
-  }
-  if (error == StrId::_COUNT) {
-    std::strcpy(SETTINGS.languageCode, I18N.getCode());
-    SETTINGS.languageCacheGeneration = I18N.getGeneration();
-    if (!SETTINGS.saveToFile()) error = StrId::STR_LANGUAGE_SAVE_FAILED;
-  }
-  if (error != StrId::_COUNT) {
-    optionPopup.show(
-        StrId::STR_LANGUAGE, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
-        OptionPopup::Note(tr(STR_LANGUAGE_INSTALL_FAILED), I18N.get(error)));
-  }
-  requestUpdate();
-}
 
-int SettingsActivity::languageSourceIndex(const char* code) const {
-  for (size_t i = 0; languageCatalog && i < languageCatalog->count; ++i)
-    if (!std::strcmp(languageCatalog->code(i), code)) return static_cast<int>(i);
-  return -1;
-}
+    const uint8_t langIndex = SORTED_LANGUAGE_INDICES[selectedIndex];
+    {
+      RenderLock lock(*this);
+      I18N.setLanguage(static_cast<Language>(langIndex));
+    }
 
-void SettingsActivity::openLanguageDownloads() {
-  languageCatalog.reset();
-  // Reuse the offline Language catalog to tell installed languages from ones to
-  // install; the network comes up only after the restart an Install row triggers.
-  languageCatalog.init(MemoryPool::None);
-  const auto status = languageCatalog ? I18N.discover(*languageCatalog.get()) : language_cache::Result::Memory;
-  if (status != language_cache::Result::Ok) {
-    LOG_ERR("LANG", "Download Languages catalog: %s", language_cache::resultName(status));
-    languageCatalog.reset();
-    optionPopup.show(
-        StrId::STR_DOWNLOAD_LANGUAGES, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
-        OptionPopup::Note(tr(STR_LANGUAGE_INSTALL_FAILED),
-                          status == language_cache::Result::Memory ? tr(STR_MEMORY_ERROR) : tr(STR_LANGUAGE_IO_ERROR)));
+    SETTINGS.language = langIndex;
+    SETTINGS.saveToFile();
     requestUpdate();
-    return;
-  }
-  std::vector<std::string> options;
-  std::vector<bool> disabled;
-  options.reserve(getLanguageCount());
-  disabled.reserve(getLanguageCount());
-  char label[96];
-  for (size_t i = 0; i < getLanguageCount(); ++i) {
-    const char* code = LANGUAGE_CODES[i];
-    const int source = languageSourceIndex(code);
-    const char* state = i == 0                               ? tr(STR_HYPHENATION_BUILT_IN)
-                        : !std::strcmp(code, I18N.getCode()) ? tr(STR_ASSET_CURRENT)
-                        : source >= 0                        ? tr(STR_INSTALLED)
-                                                             : tr(STR_HYPHENATION_INSTALL_ACTION);
-    std::snprintf(label, sizeof(label), "%s (%s): %s", I18N.getLanguageName(static_cast<Language>(i)), code, state);
-    options.emplace_back(label);
-    disabled.push_back(i == 0 || (source >= 0 && languageCatalog->disabled(source)));
-  }
-  optionPopup.show(
-      StrId::STR_DOWNLOAD_LANGUAGES, options, static_cast<int>(I18n::languageFromCode(I18N.getCode())),
-      [this](int index) {
-        if (index > 0 && index < static_cast<int>(getLanguageCount())) {
-          languageDownloadRow = static_cast<uint8_t>(index);
-          pendingLanguageDownloadAction = true;  // Handled in loop(), after this callback returns.
-        }
-        requestUpdate();
-      },
-      OptionPopup::Note(I18N.getName(), tr(STR_LANGUAGE_APPLY_HINT)));
-  optionPopup.setDisabledOptions(std::move(disabled));
+  });
   requestUpdate();
-}
-
-void SettingsActivity::selectLanguageDownload() {
-  const char* code = LANGUAGE_CODES[languageDownloadRow];
-  const int source = languageSourceIndex(code);
-  if (source < 0) {
-    startLanguageDownload();  // Not installed: download and install in one step.
-    return;
-  }
-  const char* choices[] = {tr(STR_ASSET_USE), tr(STR_UPDATE), tr(STR_CANCEL)};
-  const int first = !std::strcmp(code, I18N.getCode()) ? 1 : 0;  // The active language only offers Update / Cancel.
-  optionPopup.show(I18N.getLanguageName(static_cast<Language>(languageDownloadRow)), choices + first, 3 - first,
-                   2 - first, [this, first](int choice) {
-                     choice += first;
-                     if (choice == 0) {
-                       languageCatalog->select(languageSourceIndex(LANGUAGE_CODES[languageDownloadRow]),
-                                               pendingLanguage);
-                       languageSelectionPending = true;
-                     } else if (choice == 1) {
-                       startLanguageDownload();
-                     } else {
-                       pendingLanguageDownloads = true;
-                     }
-                     requestUpdate();
-                   });
-  optionPopup.setCancelCallback([this] { pendingLanguageDownloads = true; });
-  requestUpdate();
-}
-
-void SettingsActivity::startLanguageDownload() {
-  languageCatalog.reset();
-  if (!SETTINGS.saveToFile()) {
-    LOG_ERR("LANG", "Cannot save settings before network restart");
-    optionPopup.show(
-        StrId::STR_DOWNLOAD_LANGUAGES, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
-        OptionPopup::Note(tr(STR_LANGUAGE_INSTALL_FAILED), tr(STR_LANGUAGE_SAVE_FAILED)));
-    requestUpdate();
-    return;
-  }
-  silentRestartToNetwork(NetworkBootTarget::DOWNLOAD_ASSETS, AssetDownloadActivity::bootPayload(languageDownloadRow));
 }
 
 void SettingsActivity::openStringEditor(const SettingInfo& setting) {
@@ -1141,21 +988,6 @@ void SettingsActivity::reapplyUiTheme(const bool reloadThemePack) {
 }
 
 void SettingsActivity::loop() {
-  if (languageSelectionPending) {
-    languageSelectionPending = false;
-    applyLanguage(pendingLanguage);
-    return;
-  }
-  if (pendingLanguageDownloads) {
-    pendingLanguageDownloads = false;
-    openLanguageDownloads();
-    return;
-  }
-  if (pendingLanguageDownloadAction) {
-    pendingLanguageDownloadAction = false;
-    selectLanguageDownload();
-    return;
-  }
 #if CROSSDINK_SCALABLE_FONTS
   if (filenameFontSelectionPending) {
     filenameFontSelectionPending = false;
@@ -1369,7 +1201,6 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   const auto& setting = (*currentSettings)[selectedSetting];
-  if (isPageGestureSettingDisabled(setting)) return;
   const bool sleepScreenChanged = setting.valuePtr == &CrossPointSettings::sleepScreen;
   const bool quickResumeTimeoutChanged = setting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
 
@@ -1524,19 +1355,6 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
-      case SettingAction::Plugins: {
-        static constexpr StrId OPTIONS[] = {StrId::STR_ENABLED, StrId::STR_DISABLED, StrId::STR_CANCEL};
-        optionPopup.show(StrId::STR_PLUGINS, OPTIONS, 3, SETTINGS.pluginsEnabled ? 0 : 1, [this](const int idx) {
-          if (idx == 2) return;
-          SETTINGS.pluginsEnabled = idx == 0 ? 1 : 0;
-          pluginevents::refreshSubscriptions();
-          if (SETTINGS.pluginsEnabled) SETTINGS.pluginHubPromptHidden = 0;
-          SETTINGS.saveToFile();
-          rebuildSettingsLists();
-        });
-        requestUpdate();
-        return;
-      }
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -1620,9 +1438,6 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::Language:
         openLanguagePicker();
-        break;
-      case SettingAction::DownloadLanguages:
-        openLanguageDownloads();
         break;
       case SettingAction::KeyboardLayouts:
         startActivityForResult(std::make_unique<KeyboardLayoutsActivity>(renderer, mappedInput), resultHandler);
@@ -1774,8 +1589,6 @@ void SettingsActivity::openIdleTimeThresholdPicker() {
 }
 
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
-  if (setting.action == SettingAction::Plugins) return SETTINGS.pluginsEnabled ? tr(STR_ENABLED) : tr(STR_DISABLED);
-  if (isPageGestureSettingDisabled(setting)) return tr(STR_DISABLED);
   if (settingShowsNavigationCaret(setting)) return ">";
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     return SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
@@ -1794,7 +1607,7 @@ std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
     return SETTINGS.filenameFallbackFont[0] ? SETTINGS.filenameFallbackFont : tr(STR_NONE_OPT);
   }
   if (setting.type == SettingType::ACTION && setting.action == SettingAction::Language) {
-    return I18N.getName();
+    return I18N.getLanguageName(I18N.getLanguage());
   }
   if (setting.type == SettingType::STRING) {
     if (setting.nameId == StrId::STR_DEVICE_NAME) return SETTINGS.getEffectiveDeviceName();
@@ -1820,10 +1633,15 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   const int tabTop = std::max<int>(safe.y, CompactHeader::headerBottomY(renderer) - 1);
   int bottomMargin = UITheme::getButtonHintsReserve(renderer);
   if (!isFileBrowserView() && selectedCategoryIndex == 3) {
-    bottomMargin += systemVersionFooterReserve(renderer, safe.width, metrics);
+    bottomMargin += systemVersionFooterReserve(renderer, renderer.getScreenWidth(), metrics);
   }
-  setUiContentMargin(screen, renderer,
-                     fui::Insets{static_cast<int16_t>(tabTop), 0, static_cast<int16_t>(bottomMargin), 0});
+  if (renderer.hasCustomViewableInsets()) {
+    setUiContentMargin(screen, renderer,
+                       fui::Insets{static_cast<int16_t>(tabTop), 0, static_cast<int16_t>(bottomMargin), 0});
+  } else {
+    screen.setContentMargin(
+        fui::Insets{static_cast<int16_t>(tabTop - safe.y), 0, static_cast<int16_t>(bottomMargin), 0});
+  }
 
   if (isFileBrowserView()) {
     const int16_t listInset = static_cast<int16_t>(metrics.listInset);
@@ -1946,7 +1764,6 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     values[i] = settingValueText(settings[i]);
     const bool isSectionHeader = settings[i].type == SettingType::SECTION_HEADER;
     fui::ListItem item;
-    item.enabled = !isPageGestureSettingDisabled(settings[i]);
     const fui::BitmapRef directionIcon = swipeActionIcon(settings[i].nameId);
     const fui::BitmapRef endpointIcon = frontlightScheduleEndpointIcon(settings[i]);
     const fui::BitmapRef itemIcon = directionIcon ? directionIcon : endpointIcon;
@@ -2015,7 +1832,7 @@ void SettingsActivity::render(RenderLock&&) {
 
   // Keep build information discoverable without crowding the common header.
   if (!isFileBrowserView() && selectedCategoryIndex == 3) {
-    drawSystemVersionFooter(renderer, metrics);
+    drawSystemVersionFooter(renderer, pageWidth, renderer.getScreenHeight(), metrics);
   }
 
   const auto confirmLabel =
@@ -2043,8 +1860,7 @@ void SettingsActivity::render(RenderLock&&) {
                  : tr(STR_TOGGLE));
 
   const bool horizontalFront = SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_DIRECTIONAL &&
-                               !isFileBrowserView() &&
-                               mappedInput.menuButton(MappedInputManager::Button::Up) == MappedInputManager::Button::Up;
+                               !isFileBrowserView() && !deviceUsesHorizontalSideButtonsForMenus(gpio);
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel,
                                             (horizontalFront ? tr(STR_DIR_LEFT) : tr(STR_DIR_UP)),
                                             (horizontalFront ? tr(STR_DIR_RIGHT) : tr(STR_DIR_DOWN)));

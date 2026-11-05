@@ -1,3 +1,0 @@
-add_executable(BatteryLogParserTest BatteryLogParserTest.cpp)
-target_link_libraries(BatteryLogParserTest PRIVATE crosspoint_test_common GTest::gtest_main)
-gtest_discover_tests(BatteryLogParserTest)

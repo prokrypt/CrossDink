@@ -122,9 +122,8 @@ void OtaUpdateActivity::onExit() {
 
 void OtaUpdateActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int pageWidth = safe.width;
-  const int pageHeight = safe.height;
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
 
@@ -133,7 +132,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
   TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), tr(STR_UPDATE), false,
                               0, nullptr, TouchHeaderBackButton::TITLE_VERTICAL_OFFSET, true, canGoBack);
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
-  const auto top = safe.y + (pageHeight - height) / 2;
+  const auto top = (pageHeight - height) / 2;
 
   float updaterProgress = 0;
   if (state == UPDATE_IN_PROGRESS) {
@@ -146,7 +145,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
   }
 
   if (state == CHECKING_FOR_UPDATE) {
-    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
   } else if (state == WAITING_CONFIRMATION) {
     // The confirmation popup opened by onWifiSelectionComplete() sits over this page.
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
@@ -155,35 +154,34 @@ void OtaUpdateActivity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_10_FONT_ID, top + height * 2 + metrics.verticalSpacing * 2,
                               (std::string(tr(STR_NEW_VERSION)) + " " + updater.getLatestVersion()).c_str());
   } else if (state == UPDATE_IN_PROGRESS) {
-    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_UPDATING));
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING));
 
     int y = top + height + metrics.verticalSpacing;
-    GUI.drawProgressBar(renderer,
-                        Rect{safe.x + metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2,
-                             metrics.progressBarHeight},
-                        static_cast<int>(updaterProgress * 100), 100);
+    GUI.drawProgressBar(
+        renderer,
+        Rect{metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
+        static_cast<int>(updaterProgress * 100), 100);
 
     y += metrics.progressBarHeight + metrics.verticalSpacing;
     // BaseTheme::drawProgressBar draws the percentage. This line shows the
     // monotonic combined staging-and-flashing work instead.
     y += height + metrics.verticalSpacing;
-    UITheme::drawCenteredText(
-        renderer, safe, UI_10_FONT_ID, y,
+    renderer.drawCenteredText(
+        UI_10_FONT_ID, y,
         (std::to_string(updater.getProcessedSize()) + " / " + std::to_string(updater.getTotalSize())).c_str());
   } else if (state == NO_UPDATE) {
-    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
-    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, I18n::getInstance().get(failureMessage), true,
-                              EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, top, I18n::getInstance().get(failureMessage), true, EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
-    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
     const int hintY = top + height + metrics.verticalSpacing;
-    const Rect hintBounds{safe.x + metrics.contentSidePadding, hintY, pageWidth - metrics.contentSidePadding * 2,
-                          safe.y + pageHeight - hintY};
+    const Rect hintBounds{metrics.contentSidePadding, hintY, pageWidth - metrics.contentSidePadding * 2,
+                          pageHeight - hintY};
     UITheme::drawCenteredWrappedText(renderer, hintBounds, UI_10_FONT_ID, hintY, tr(STR_POWER_ON_HINT), 3);
   }
 

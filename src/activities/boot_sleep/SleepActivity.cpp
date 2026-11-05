@@ -418,7 +418,7 @@ BookReadingStats loadBookStatsForPath(const std::string& path) {
   BookReadingStats stats = BookReadingStats::load(cachePath);
   if (!BookStatsTracking::isEnabled(cachePath)) {
     BookReadingStats paceOnly;
-    paceOnly.setAverageForwardPageMillis(stats.averageForwardPageMillis());
+    paceOnly.avgSecondsPerForwardPage = stats.avgSecondsPerForwardPage;
     paceOnly.paceSampleCount = stats.paceSampleCount;
     paceOnly.estimatedTimeLeftSeconds = stats.estimatedTimeLeftSeconds;
     return paceOnly;
@@ -1249,12 +1249,11 @@ void SleepActivity::renderDashboardSleepScreen() const {
 }
 
 void SleepActivity::renderLastScreenSleepScreen() const {
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer);
+  const auto pageHeight = renderer.getScreenHeight();
   if (ReaderUtils::readerDarkModeEnabled()) {
-    renderer.drawImageInverted(MoonIcon, safe.x, safe.y + safe.height - MOONICON_HEIGHT, MOONICON_WIDTH,
-                               MOONICON_HEIGHT);
+    renderer.drawImageInverted(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
   } else {
-    renderer.drawImage(MoonIcon, safe.x, safe.y + safe.height - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
+    renderer.drawImage(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
   }
   // Only the moon differs from the displayed frame, so a differential FAST
   // update avoids the flashing clean pass on an inverted night-mode page.

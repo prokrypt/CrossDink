@@ -119,4 +119,6 @@ bool TtfRenderProfileStore::setProfile(const char* family, const TtfRenderProfil
   }
 }
 
+bool TtfRenderProfileStore::resetProfile(const char* family) { return setProfile(family, {}); }
+
 #endif

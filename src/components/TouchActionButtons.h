@@ -28,21 +28,7 @@ struct Layout {
 
 Layout vertical(Rect container, uint8_t count, int buttonHeight = kDefaultHeight, int gap = kDefaultGap);
 
-// Hit test with an optional finger-placement margin; callers should keep it
-// within half the gap between buttons. Header-only so the unit test needs no
-// renderer or theme stubs.
-inline int indexAt(const Layout& layout, const int x, const int y, const int touchPadding = 0) {
-  const int padding = touchPadding > 0 ? touchPadding : 0;
-  for (uint8_t i = 0; i < layout.count; ++i) {
-    const Rect& button = layout.buttons[i];
-    if (button.width <= 0 || button.height <= 0) continue;
-    if (x >= button.x - padding && x < button.x + button.width + padding && y >= button.y - padding &&
-        y < button.y + button.height + padding) {
-      return i;
-    }
-  }
-  return -1;
-}
+int indexAt(const Layout& layout, int x, int y);
 
 void draw(const GfxRenderer& renderer, const Layout& layout, const char* const* labels, int primaryIndex = -1,
           int selectedIndex = -1, int fontId = 0);

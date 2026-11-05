@@ -104,9 +104,6 @@ void ReaderActivity::queueEpubOpenAlert(const Epub::OpenFailure failure) {
   const bool outOfMemory = failure == Epub::OpenFailure::OutOfMemory;
   const char* title = outOfMemory ? tr(STR_MEMORY_ERROR) : tr(STR_INDEX_FAILED);
   const char* body = outOfMemory ? tr(STR_EPUB_OPEN_MEMORY_BODY) : tr(STR_EPUB_OPEN_FAILED_BODY);
-  if (failure == Epub::OpenFailure::ProtectedUnavailable) body = tr(STR_BOOK_KEY_REQUIRED);
-  if (failure == Epub::OpenFailure::LoanExpired) body = tr(STR_BOOK_LOAN_EXPIRED);
-  if (failure == Epub::OpenFailure::LoanClockUnavailable) body = tr(STR_BOOK_LOAN_CLOCK);
   snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s", title);
   snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), "%s", body);
   APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);
@@ -203,11 +200,8 @@ void ReaderActivity::onEnter() {
 
   // EPUBs get no Loading notice: a cached open routinely passes the delay, and the
   // notice then costs a popup refresh plus a full first-page refresh on every open.
-  // A first open still shows Indexing. Quick Resume already shows the book page;
-  // a loading notice would blank it.
-  if (!keepWakeFrame && (isXtcFile(initialBookPath) || isTxtFile(initialBookPath))) {
-    openingFeedback.start(millis());
-  }
+  // A first open still shows Indexing.
+  if (isXtcFile(initialBookPath) || isTxtFile(initialBookPath)) openingFeedback.start(millis());
 
   if (isImagePreviewFile(initialBookPath)) {
     onGoToBmpViewer(initialBookPath);

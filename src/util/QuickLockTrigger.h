@@ -18,6 +18,4 @@ enum class QuickLockTrigger : uint8_t {
   SideUpLong,
   SideDownShort,
   SideDownLong,
-  FrontLeftLong,
-  FrontRightLong,
 };

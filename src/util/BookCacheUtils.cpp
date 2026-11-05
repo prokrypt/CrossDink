@@ -88,7 +88,7 @@ bool isStatsFileName(const char* name) {
   const size_t nameLen = strlen(name);
   constexpr size_t prefixLen = std::size(STATS_PREFIX) - 1;
   constexpr size_t suffixLen = std::size(STATS_SUFFIX) - 1;
-  // stats_v6.bin.bak is the second stats slot (TwoSlotFile.h) and may hold the newest save.
+  // stats_v5.bin.bak is the second stats slot (TwoSlotFile.h) and may hold the newest save.
   constexpr size_t slotSuffixLen = std::size(STATS_SLOT_SUFFIX) - 1;
   return (nameLen >= prefixLen + suffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
           strcmp(name + nameLen - suffixLen, STATS_SUFFIX) == 0) ||

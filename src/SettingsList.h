@@ -87,20 +87,6 @@ inline bool settingKeyIs(const SettingInfo& setting, const char* key) {
   return setting.key && std::strcmp(setting.key, key) == 0;
 }
 
-inline bool isPageGestureSettingDisabled(const SettingInfo& setting) {
-  return SETTINGS.disablePageTurnGestures && (setting.valuePtr == &CrossPointSettings::pageTurnGesture ||
-                                              setting.valuePtr == &CrossPointSettings::previousPageGesture);
-}
-
-inline bool isFrontButtonActionSetting(const SettingInfo& setting) {
-  return settingKeyIs(setting, "frontButtonLeftLong") || settingKeyIs(setting, "frontButtonRightLong");
-}
-
-inline bool isTiltPageTurnSetting(const SettingInfo& setting) {
-  return settingKeyIs(setting, "tiltPageTurn") || settingKeyIs(setting, "tiltPageTurnDirection") ||
-         settingKeyIs(setting, "tiltNextPageOnly");
-}
-
 inline bool isSideButtonActionSetting(const SettingInfo& setting) {
   return settingKeyIs(setting, "sideButtonUpShort") || settingKeyIs(setting, "sideButtonUpLong") ||
          settingKeyIs(setting, "sideButtonDownShort") || settingKeyIs(setting, "sideButtonDownLong");
@@ -111,8 +97,7 @@ inline std::string sideButtonOptionLabel(const SettingInfo& setting, const uint8
       displayIndex < setting.enumRawValues.size() && setting.enumRawValues[displayIndex] == CrossPointSettings::SLEEP) {
     return std::string(tr(STR_SLEEP)) + "/" + tr(STR_WAKE);
   }
-  if ((isSideButtonActionSetting(setting) || isFrontButtonActionSetting(setting)) &&
-      displayIndex < setting.enumRawValues.size()) {
+  if (isSideButtonActionSetting(setting) && displayIndex < setting.enumRawValues.size()) {
     const uint8_t action = setting.enumRawValues[displayIndex];
     if (action == CrossPointSettings::SIDE_ROTATE_COUNTERCLOCKWISE ||
         action == CrossPointSettings::SIDE_ROTATE_CLOCKWISE || action == CrossPointSettings::SIDE_ROTATE_FLIP) {
@@ -455,8 +440,6 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return Chord::CHORD_TOGGLE_FRONTLIGHT;
         case Action::TOGGLE_TOUCHSCREEN:
           return Chord::CHORD_TOGGLE_TOUCHSCREEN;
-        case Action::TOGGLE_PAGE_TURN_GESTURES:
-          return Chord::CHORD_TOGGLE_PAGE_TURN_GESTURES;
         case Action::QUICK_LOCK:
           return Chord::CHORD_QUICK_LOCK;
         case Action::HOME_READER:
@@ -529,8 +512,6 @@ inline uint8_t shortcutRawValue(const ShortcutOptionCatalog catalog, const Cross
           return LongPress::LONG_MENU_SELECT_CHAPTER;
         case Action::ROTATE_FLIP:
           return LongPress::LONG_MENU_ROTATE_FLIP;
-        case Action::TOGGLE_PAGE_TURN_GESTURES:
-          return LongPress::LONG_MENU_TOGGLE_PAGE_TURN_GESTURES;
         case Action::PAGE_TURN:
         case Action::PREVIOUS_PAGE:
         case Action::NEARBY_POSITION_SYNC:
@@ -633,10 +614,9 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
 // 117 entries on every build, four edge gesture entries compiled only for
-// touch devices, Publisher fonts on scalable-font builds, and the three tilt
-// page-turn entries (kept on every device so saved values survive a failed IMU
-// probe; hidden from the UI without one). The simulator smoke test fails if
-// this falls short.
+// touch devices, Publisher fonts on scalable-font builds, and the two tilt
+// page-turn entries inserted at runtime on devices with an IMU. The simulator
+// smoke test fails if this falls short.
 // Saves a What to Sync toggle (device screen and web settings alike) and
 // queues or drops that data's pending uploads to match.
 void setSyncDataEnabled(bool stats, bool enabled);
@@ -646,7 +626,7 @@ inline constexpr size_t PUBLISHER_FONT_SETTINGS = 1;
 #else
 inline constexpr size_t PUBLISHER_FONT_SETTINGS = 0;
 #endif
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 120 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 3;
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 120 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 2;
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the
@@ -660,18 +640,6 @@ const std::vector<SettingInfo>& getBaseSettingsList();
 inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr,
                                                 const DictionaryRegistry* dictRegistry = nullptr) {
   std::vector<SettingInfo> v = getBaseSettingsList();
-  // Availability controls the UI, never whether preferences survive a save.
-  if (!QuickActions::supportsTiltPageTurn()) {
-    v.erase(std::remove_if(v.begin(), v.end(), isTiltPageTurnSetting), v.end());
-    for (auto& setting : v) {
-      if (settingKeyIs(setting, "shortPwrBtn") || settingKeyIs(setting, "longPwrBtn")) {
-        removeEnumRawValue(setting, static_cast<uint8_t>(CrossPointSettings::TOGGLE_TILT_PAGE_TURN));
-      } else if (setting.nameId == StrId::STR_LONG_PRESS_MENU_ACTION ||
-                 setting.nameId == StrId::STR_LONG_PRESS_BACK_ACTION) {
-        removeEnumRawValue(setting, static_cast<uint8_t>(CrossPointSettings::LONG_MENU_TOGGLE_TILT_PAGE_TURN));
-      }
-    }
-  }
   if (!SETTINGS.shouldTrackReadingStats()) {
     for (auto& setting : v) {
       if (setting.valuePtr == &CrossPointSettings::sleepScreen) {
@@ -682,7 +650,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                  setting.valuePtr == &CrossPointSettings::homeButtonTapAction ||
                  setting.valuePtr == &CrossPointSettings::homeButtonDoubleTapAction ||
                  setting.valuePtr == &CrossPointSettings::homeButtonLongPressAction ||
-                 isSideButtonActionSetting(setting) || isFrontButtonActionSetting(setting)) {
+                 isSideButtonActionSetting(setting)) {
         removeEnumRawValue(setting, CrossPointSettings::READING_STATS);
       } else if (setting.valuePtr == &CrossPointSettings::powerChordAction ||
                  setting.valuePtr == &CrossPointSettings::sideButtonChordAction) {
@@ -703,7 +671,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
   if (!hasTouch) {
     v.erase(std::remove_if(v.begin(), v.end(),
                            [](const SettingInfo& s) {
-                             return s.nameId == StrId::STR_DISABLE_TOUCHSCREEN || s.nameId == StrId::STR_NEXT_PAGE ||
+                             return s.nameId == StrId::STR_TOUCH_READER_CONTROLS ||
+                                    s.nameId == StrId::STR_DISABLE_TOUCHSCREEN || s.nameId == StrId::STR_NEXT_PAGE ||
                                     s.nameId == StrId::STR_PREV_PAGE || s.nameId == StrId::STR_TAP_HIDE_STATUS_BAR ||
                                     s.nameId == StrId::STR_PINCH_FONT_RESIZE ||
                                     s.nameId == StrId::STR_TWO_FINGER_ROTATION ||
@@ -928,7 +897,6 @@ inline bool hasSideButtonChordSetting(const std::vector<SettingInfo>& allSetting
 inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vector<SettingInfo>& allSettings) {
   const bool hasTiltPageTurnSetting = hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN);
   const bool hasTiltPageTurnDirectionSetting = hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
-  const bool hasTiltNextPageOnlySetting = hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY);
   const bool hasTapsGestures = hasSettingByName(allSettings, StrId::STR_NEXT_PAGE);
   const bool hasFrontButtons = !gpio.hasTouch();
   const bool hasMenuNavigation = deviceHasMenuNavigationSetting(gpio);
@@ -937,7 +905,7 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   std::vector<SettingInfo> settings;
   settings.reserve(3 + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 1u : 0u) + (hasMenuNavigation ? 1u : 0u) +
                    (hasTiltPageTurnSetting ? 1u : 0u) + (hasTiltPageTurnDirectionSetting ? 1u : 0u) +
-                   (hasTiltNextPageOnlySetting ? 1u : 0u) + (hasTapsGestures ? 1u : 0u));
+                   (hasTapsGestures ? 1u : 0u));
   if (hasHomeKey) {
     settings.push_back(SettingInfo::Submenu(StrId::STR_HOME_BUTTON, SettingAction::ControlsHomeButton));
   }
@@ -952,7 +920,6 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   }
   if (hasTiltPageTurnSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN);
   if (hasTiltPageTurnDirectionSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
-  if (hasTiltNextPageOnlySetting) addSettingByName(settings, allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY);
   if (hasMenuNavigation) addSettingByKey(settings, allSettings, "menuNavigation");
   return settings;
 }
@@ -963,8 +930,9 @@ inline std::vector<SettingInfo> buildControlsTapsGesturesSettingsList(const std:
   const bool hasRotation = hasSettingByName(allSettings, StrId::STR_TWO_FINGER_ROTATION);
   const bool hasTwoFingerSwipe = hasSettingByName(allSettings, StrId::STR_TWO_FINGER_SWIPE_UP);
   const bool hasEdgeGestures = hasSettingByName(allSettings, StrId::STR_LEFT_EDGE_UP);
-  settings.reserve(3 + (hasPinch ? 1u : 0u) + (hasRotation ? 1u : 0u) + (hasTwoFingerSwipe ? 1u : 0u) +
+  settings.reserve(4 + (hasPinch ? 1u : 0u) + (hasRotation ? 1u : 0u) + (hasTwoFingerSwipe ? 1u : 0u) +
                    (hasEdgeGestures ? 1u : 0u));
+  addSettingByName(settings, allSettings, StrId::STR_TOUCH_READER_CONTROLS);
   addSettingByName(settings, allSettings, StrId::STR_NEXT_PAGE);
   addSettingByName(settings, allSettings, StrId::STR_PREV_PAGE);
   if (hasPinch) addSettingByName(settings, allSettings, StrId::STR_PINCH_FONT_RESIZE);
@@ -1029,13 +997,12 @@ inline std::vector<SettingInfo> buildControlsPowerSettingsList(const std::vector
 
 inline std::vector<SettingInfo> buildControlsFrontButtonSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(7);
+  settings.reserve(6);
   settings.push_back(SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   settings.push_back(
       SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS_READER, SettingAction::RemapFrontButtonsReader));
   addSettingByKey(settings, allSettings, "frontButtonOrientationAware");
-  addSettingByKey(settings, allSettings, "frontButtonLeftLong");
-  addSettingByKey(settings, allSettings, "frontButtonRightLong");
+  addSettingByKey(settings, allSettings, "longPressButtonBehavior");
   addSettingByName(settings, allSettings, StrId::STR_LONG_PRESS_BACK_ACTION);
   addSettingByName(settings, allSettings, StrId::STR_LONG_PRESS_MENU_ACTION);
   return settings;
@@ -1145,7 +1112,6 @@ inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SYNC_SERVER, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_PLUGINS, SettingAction::Plugins));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_ABOUT, SettingAction::About));
@@ -1159,7 +1125,6 @@ inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<
   addSettingByName(settings, allSettings, StrId::STR_TIME_TO_SLEEP);
   addSettingByName(settings, allSettings, StrId::STR_CUSTOM_BOOTSCREEN);
   settings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
-  settings.push_back(SettingInfo::Action(StrId::STR_DOWNLOAD_LANGUAGES, SettingAction::DownloadLanguages));
 #if CROSSDINK_SCALABLE_FONTS
   settings.push_back(SettingInfo::Action(StrId::STR_FILENAME_FALLBACK_FONT, SettingAction::FilenameFallbackFont));
 #endif

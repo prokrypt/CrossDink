@@ -6,9 +6,9 @@
  */
 
 #pragma once
+
 #include <Xtc.h>
 
-#include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
@@ -18,16 +18,12 @@
 #include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
-#include "PluginReaderEvents.h"
-#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
-#include "ReadingSessionJournal.h"
-#include "ReadingSessionStats.h"
+#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
 class XtcReaderActivity final : public Activity {
-  PluginReaderEvents pluginEvents;
   OptionPopup quickActionsPopup;
   std::shared_ptr<Xtc> xtc;
 
@@ -40,8 +36,8 @@ class XtcReaderActivity final : public Activity {
   void startDailyReadingInterval();
   BookReadingStats stats;
   GlobalReadingStats globalStats;
-  ReadingSessionDates readingSessionDates;
-  ReadingSessionJournal::Session readingSessionJournal;
+  ReadingStatsDateTime sessionStartLocalDateTime;
+  bool hasSessionStartLocalDateTime = false;
   bool bookStatsEnabled = true;
   bool statsTrackingActive = true;
   bool paceDirty = false;
@@ -50,17 +46,19 @@ class XtcReaderActivity final : public Activity {
   // Home-key shortcuts are dispatched before this activity's normal input loop.
   // Queue the turn so it follows the same guarded XTC page-turn path.
   bool shortcutPageTurnPending = false;
+  bool shortcutPageTurnPendingFromSide = false;
   bool shortcutPreviousPagePending = false;
+  bool shortcutPreviousPagePendingFromSide = false;
   // Session-only display toggle; fixed-layout XTC pages are never regenerated.
   bool statusBarVisible = true;
   bool longPressMenuHandled = false;
-  ReaderButtonShortcuts readerButtonShortcuts;
+  SideButtonShortcuts sideButtonShortcuts;
+  bool frontButtonLongPressHandled = false;
   bool longPressBackHandled = false;
   bool skipRecentBookUpdateOnEntry = false;
   ReaderProgressSaveDebouncer progressSaveDebouncer;
   // The end screen owns these UI resources only while it is visible.
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
-  std::atomic<bool> endOfBookMenuActive{false};
   // First menu press made while the end-of-book menu was still loading (main loop only).
   EndOfBookOptions::MenuKey queuedEndOfBookKey = EndOfBookOptions::MenuKey::None;
   bool endOfBookHomeUnlocked = false;  // Home key lock lifted while the menu is open
@@ -97,7 +95,6 @@ class XtcReaderActivity final : public Activity {
   void setBookCompleted(bool isCompleted);
   float getCurrentBookProgressPercent() const;
   void openChapterSelection();
-  void openPercentSelection();
   void openReadingStats();
   void deleteBookStats();
   void deleteBookCache();
@@ -127,11 +124,6 @@ class XtcReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
-  void prepareForSleep() override {
-    if (!flushQueuedProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
-    pluginEvents.poll(getCurrentBookPath());
-    pluginEvents.flush(getCurrentBookPath());
-  }
   void loop() override;
   void render(RenderLock&&) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;
@@ -141,7 +133,6 @@ class XtcReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
-  bool usesMenuButtonOrientation() const override;
   // cppcheck-suppress uselessOverride ; differs from the base only on some device builds
   bool usesFullScreenReaderVerticalSwipes() const override {
     // The End of book menu is a plain list: Home button / bottom-edge swipe go Home as elsewhere.

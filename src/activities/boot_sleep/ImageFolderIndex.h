@@ -31,11 +31,6 @@ bool select(const std::string& directory, bool includePng, bool validateBmpHeade
 // Drop all indexes. This only removes files owned by this module.
 void invalidate();
 
-// Boot-only check for images copied in with a card reader, which no firmware
-// hook sees: walks each indexed folder's metadata once and drops the indexes
-// when any folder differs from what it was built from. Never on the sleep path.
-void dropStaleIndexes();
-
 // Invalidate only when a successful file mutation can affect a folder this
 // module indexes (sleep-image or boot-screen folders). Paths are expected to
 // be normalized absolute SD paths, as provided by the storage/file-transfer

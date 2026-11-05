@@ -174,7 +174,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     TWO_FINGER_SWIPE_BACK_HOME,
     TWO_FINGER_SWIPE_HOME_READER,
     TWO_FINGER_SWIPE_SELECT_CHAPTER,
-    TWO_FINGER_SWIPE_TOGGLE_PAGE_TURN_GESTURES,
     TWO_FINGER_SWIPE_ACTION_COUNT,
   };
 
@@ -296,7 +295,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     BACK_HOME = 37,
     SELECT_CHAPTER = 38,
     ROTATE_FLIP = 39,
-    TOGGLE_PAGE_TURN_GESTURES = 40,
     SHORT_PWRBTN_COUNT
   };
 
@@ -340,7 +338,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     CHORD_BACK_HOME = 33,
     CHORD_SELECT_CHAPTER = 34,
     CHORD_ROTATE_FLIP = 35,
-    CHORD_TOGGLE_PAGE_TURN_GESTURES = 36,
     POWER_CHORD_ACTION_COUNT
   };
 
@@ -403,6 +400,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     IMAGE_VIEWER_GRAY = 4,
     IMAGE_VIEWER_MODE_COUNT
   };
+  enum TOUCH_READER_CONTROLS { TOUCH_READER_OFF = 0, TOUCH_READER_ON = 1, TOUCH_READER_CONTROLS_COUNT };
   enum PAGE_TURN_GESTURE {
     TAP_AND_SWIPE = 0,
     TAP_ONLY = 1,
@@ -453,7 +451,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     LONG_MENU_BACK_HOME = 26,
     LONG_MENU_SELECT_CHAPTER = 27,
     LONG_MENU_ROTATE_FLIP = 28,
-    LONG_MENU_TOGGLE_PAGE_TURN_GESTURES = 29,
     LONG_PRESS_MENU_ACTION_COUNT
   };
 
@@ -538,8 +535,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t extraParagraphSpacing = 1;
   uint8_t forceParagraphIndents = 0;
   uint8_t textAntiAliasing = TEXT_AA_OFF;
-  // Shortcut-only pause of page-turn taps/swipes; keeps the saved tap/swipe choices unchanged.
-  uint8_t disablePageTurnGestures = 0;
+  // Touch screen reader zones/gestures on boards with a touch controller.
+  uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Page-turn gestures remain independently configurable while touch reader controls stay enabled.
   uint8_t pageTurnGesture = TAP_AND_SWIPE;
   uint8_t previousPageGesture = TAP_AND_SWIPE;
   uint8_t customBootscreenEnabled = 1;
@@ -643,9 +641,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   char nearbyReceiveFolder[64] = "";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
-  uint8_t longPressButtonBehavior = OFF;  // Legacy binary migration only.
-  uint8_t frontButtonLeftLong = IGNORE;
-  uint8_t frontButtonRightLong = IGNORE;
+  // Long-press page turn button behavior
+  uint8_t longPressButtonBehavior = OFF;
   // UI Theme
   uint8_t uiTheme = LYRA;
   // SD theme pack folder in /.themes or /themes (empty = built-in theme only); its base sets uiTheme.
@@ -677,8 +674,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   char dictionarySdFontFamilyName[64] = "";
   // Zero follows the active reader size.
   uint8_t dictionaryFontPointSize = 0;
-  uint8_t pluginsEnabled = 0;
-  uint8_t pluginHubPromptHidden = 0;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Prefer embedded EPUB titles/authors in Library; disable for filename-only scans.
@@ -720,7 +715,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Tilt-based page turning on devices with a supported IMU (X3 and Sticky).
   uint8_t tiltPageTurn = TILT_OFF;
   uint8_t tiltPageTurnDirection = TILT_LEFT_RIGHT;
-  uint8_t tiltNextPageOnly = 0;
   // Frontlight quick-panel state (boards with FREEINK_CAP_FRONTLIGHT, e.g. X4
   // Pro). Applied at boot, edited only from the frontlight panel; persisted as
   // category-less entries so they stay out of the Settings screen. Writes are
@@ -748,10 +742,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Ghost Busters: extra Fast refreshes of a new menu screen once input pauses, 0 = off.
   static constexpr uint8_t GHOST_BUSTERS_MAX = 10;
   uint8_t ghostBusters = 0;
-  // Language code (built-in enum code or an SD language's _language_code, default EN)
-  // and the SD cache generation that boot must find; 0 for a built-in language.
-  char languageCode[32] = "EN";
-  uint64_t languageCacheGeneration = 0;
+  // Language setting (Language enum index, default 0 = EN)
+  uint8_t language = 0;
   char filenameFallbackFont[64] = "";  // Folder name under /.crossdink/languages/fonts; empty disables fallback.
   // Enabled keyboard layouts. Zero derives a default from the UI language;
   // non-zero bits follow KeyboardLayoutSet::ALL table order.
@@ -823,6 +815,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   bool shortPowerPressWakes() const { return shortPwrBtn == SLEEP || shortPwrBtn == WAKE_ONLY; }
 
+  bool shouldShowClockInReader() const {
+    return topReaderStatusBar.contains(ReaderStatusBarItem::Clock) ||
+           bottomReaderStatusBar.contains(ReaderStatusBarItem::Clock);
+  }
   bool shouldShowClockOutsideReader() const { return showClockOutsideReader != 0; }
   bool shouldTrackReadingStats() const { return trackReadingStats != 0; }
   static const char* getDefaultDeviceName();
@@ -835,8 +831,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   SdFontIdResolver sdFontIdResolver = nullptr;
   void* sdFontResolverCtx = nullptr;
 
+  uint16_t getPowerButtonDuration() const { return getPowerButtonWakeDuration(); }
   uint16_t getPowerButtonLongPressDuration() const { return POWER_BUTTON_LONG_PRESS_MS; }
   static uint8_t getActiveReaderFontSizeCount();
+  static uint8_t getStoredReaderFontSize(FONT_SIZE size);
   static uint8_t getReaderFontPointSize(FONT_SIZE size);
   static uint8_t getSdFontRangePointSize(uint8_t range, uint8_t step);
   static bool isSdFontPointSizeAllowedForRange(uint8_t pointSize, uint8_t range);

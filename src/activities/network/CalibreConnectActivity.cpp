@@ -173,16 +173,15 @@ void CalibreConnectActivity::loop() {
 
 void CalibreConnectActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int pageWidth = safe.width;
-  const int pageHeight = safe.height;
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
 
   TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput),
                               tr(STR_CALIBRE_WIRELESS), false);
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
-  const auto top = safe.y + (pageHeight - height) / 2;
+  const auto top = (pageHeight - height) / 2;
 
   if (state == CalibreConnectState::SERVER_STARTING) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CALIBRE_STARTING), true, EpdFontFamily::BOLD);
@@ -190,7 +189,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CONNECTION_FAILED), true, EpdFontFamily::BOLD);
   } else if (state == CalibreConnectState::SERVER_RUNNING) {
     const int subHeaderTop = TouchHeaderBackButton::contentTop(renderer, mappedInput);
-    GUI.drawSubHeader(renderer, Rect{safe.x, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
+    GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
     // Keep the network name and full address independently readable on narrow
     // screens. Sharing one subheader row forces one of them to be truncated.
@@ -222,7 +221,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
       }
       renderer.drawCenteredText(SMALL_FONT_ID, y, label.c_str());
       GUI.drawProgressBar(renderer,
-                          Rect{safe.x + metrics.contentSidePadding, y + height + metrics.verticalSpacing,
+                          Rect{metrics.contentSidePadding, y + height + metrics.verticalSpacing,
                                pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
                           lastProgressReceived, lastProgressTotal);
       y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight;

@@ -45,6 +45,7 @@ constexpr size_t LINE_BUFFER_SIZE = 80;
 constexpr size_t REMOVE_RECURSIVE_MAX_DEPTH = 8;
 constexpr uint32_t SHORT_TIMEOUT_MS = 1000;
 constexpr uint32_t HEADER_TIMEOUT_MS = 2000;
+constexpr uint32_t CHECKSUM_TIMEOUT_MS = 10000;
 constexpr uint32_t CHUNK_TIMEOUT_MS = 45000;
 // Per binary write: how long a host may stop reading before a download aborts.
 constexpr uint32_t BULK_WRITE_BUDGET_MS = 3000;
@@ -107,17 +108,14 @@ void writeRxOverflowError(const uint32_t snapshot) {
 }
 #endif
 
-// Protocol replies the host waits on get the same patience as binary data.
-bool writeLine(const char* line) {
-  return logSerialWriteAll(line, strlen(line), BULK_WRITE_BUDGET_MS, BULK_WRITE_BUDGET_MS);
-}
+void writeLine(const char* line) { (void)logSerialWriteAll(line, strlen(line)); }
 
 // Binary data: a short write would desync the host, which counts bytes.
 bool writeRaw(const uint8_t* data, size_t length) {
   return logSerialWriteAll(data, length, BULK_WRITE_BUDGET_MS, BULK_WRITE_BUDGET_MS);
 }
 
-bool writeAck() { return writeRaw(&ACK, 1); }
+void writeAck() { writeRaw(&ACK, 1); }
 
 uint32_t readLe32(const uint8_t* data) {
   return static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
@@ -514,13 +512,7 @@ void handleWrite() {
     return written == bytesToWrite;
   };
 
-  // A host that never read the handshake will not send data; drop the upload
-  // instead of waiting out a chunk timeout per step.
-  if (!writeLine("READY\n")) {
-    file.close();
-    Storage.remove(TEMP_UPLOAD_PATH);
-    return;
-  }
+  writeLine("READY\n");
 
   uint32_t crc = 0;
   uint32_t remaining = expectedSize;
@@ -560,10 +552,8 @@ void handleWrite() {
       writeLine("ERR:write\n");
       return;
     }
-    if (remaining > 0 && !writeAck()) {
-      file.close();
-      Storage.remove(TEMP_UPLOAD_PATH);
-      return;
+    if (remaining > 0) {
+      writeAck();
     }
     letIdleRun();
   }
@@ -586,17 +576,12 @@ void handleWrite() {
 
   if (expectedSize > 0) {
     // Tell the host the file is saved and ready for its separately written CRC.
-    if (!writeAck()) {
-      Storage.remove(TEMP_UPLOAD_PATH);
-      return;
-    }
+    writeAck();
   }
 
   uint8_t crcBytes[4];
   size_t crcBytesReceived = 0;
-  // Hosts compute the CRC of a big file after the last chunk; allow the same
-  // wait as a chunk and keep sending BUSY so the host knows the link is up.
-  if (!readExact(crcBytes, sizeof(crcBytes), CHUNK_TIMEOUT_MS, &crcBytesReceived, "checksum")) {
+  if (!readExact(crcBytes, sizeof(crcBytes), CHECKSUM_TIMEOUT_MS, &crcBytesReceived)) {
     LOG_ERR("USB", "CRC read timed out after %zu/%zu bytes", crcBytesReceived, sizeof(crcBytes));
     Storage.remove(TEMP_UPLOAD_PATH);
     writeLine("ERR:crc_missing\n");
@@ -723,7 +708,8 @@ void handleRead() {
   {
     // Hold the port for the whole stream so no log line lands inside it.
     const LogSerialGuard port(BULK_WRITE_BUDGET_MS);
-    sent = writeLine("READY\n") && writeLe32(static_cast<uint32_t>(fileSize64));
+    writeLine("READY\n");
+    sent = writeLe32(static_cast<uint32_t>(fileSize64));
 
     uint32_t crc = 0;
     while (sent && file.available() > 0) {

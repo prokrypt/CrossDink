@@ -136,7 +136,7 @@ void RoundedRaffTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
     coverWidth = themed(RoundedRaffMetrics::values).homeCoverHeight * 2 / 3;
   }
   const int imgY = tileY + (tileHeight - themed(RoundedRaffMetrics::values).homeCoverHeight) / 2;
-  const int tileX = rect.x + themed(RoundedRaffMetrics::values).contentSidePadding;
+  const int tileX = themed(RoundedRaffMetrics::values).contentSidePadding;
   // Draw book card regardless, fill with message based on `hasContinueReading`
   // Draw cover image as background if available (inside the box)
   // Only load from SD on first render, then use stored buffer
@@ -414,8 +414,10 @@ void RoundedRaffTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, 
 
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
-  const int sidePadding = std::max(
-      20, static_cast<int>(std::max(renderer.getViewableInsets().edges[1], renderer.getViewableInsets().edges[3])));
+  const int sidePadding = renderer.hasCustomViewableInsets()
+                              ? std::max(20, static_cast<int>(std::max(renderer.getViewableInsets().edges[1],
+                                                                       renderer.getViewableInsets().edges[3])))
+                              : 20;
   const int groupGap = 10;
   const int bottomMargin = 10 + UITheme::getButtonHintsBottomInset(renderer);
   const int hintHeight = themed(RoundedRaffMetrics::values).buttonHintsHeight - 10;  // 30px total guide height

@@ -51,7 +51,7 @@ struct LiveLightSwipeState {
 #endif
 
 enum class RequestUpdateResult { Rendered, Rejected };
-enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, FILE_TRANSFER, SETTINGS_MENU, PLUGINS };
+enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
 
 /**
  * ActivityManager
@@ -222,11 +222,9 @@ class ActivityManager {
   bool goToLibrary();
   void goToBrowser(bool networkBootReady = false);
   bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false, bool fromServerList = false);
-  void goToPlugins();
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
-                  bool cleanImageBaseOnEntry = false, bool keepWakeFrame = false);
+                  bool cleanImageBaseOnEntry = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
-  void preparePluginSleep();
   void goToSleep(bool fromTimeout = false);
   // Runs every activity's onExit (reader progress, reading stats, Home %) before a restart.
   void exitAllActivities();

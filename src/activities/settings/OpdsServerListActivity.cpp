@@ -179,7 +179,7 @@ void OpdsServerListActivity::loop() {
   if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
       mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     if (pickerMode) {
-      activityManager.goToFileTransfer();
+      activityManager.goHome(HomeMenuItem::OPDS_BROWSER);
     } else {
       finish();
     }

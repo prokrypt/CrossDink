@@ -153,7 +153,6 @@ constexpr uint32_t GOTO_DELAY_MS = 500;
 int gotoPending = -1;  // index into kGoto
 uint32_t gotoAt = 0;
 uint32_t sleepRebootAt = 0;  // SLEEPREBOOT: same reply-first delay as GOTO; 0 = none
-uint32_t sleepAt = 0;        // SLEEP: likewise
 #ifndef SIMULATOR
 uint32_t slotRebootAt = 0;  // BOOTSLOT: otadata already switched; restart after the reply
 #endif
@@ -1264,9 +1263,8 @@ bool handleLine(const char* line) {
       reply("OK:OPEN");
     }
   } else if (strcmp(verb, "SLEEP") == 0) {
-    // The power key's path: goToSleep() alone draws the sleep screen but never sleeps.
-    sleepAt = (millis() + GOTO_DELAY_MS) | 1;
     reply("OK:SLEEP");
+    activityManager.goToSleep();
 #if CROSSDINK_PSRAM_LOG && !defined(SIMULATOR)
   } else if (strcmp(verb, "SLEEPREBOOT") == 0) {
     // Goodies > Sleep-reboot-log without the tap: the real sleep path, then a restart.
@@ -1320,11 +1318,6 @@ void poll() {
     gotoPending = -1;
     LOG_INF("SER", "GOTO %s", kGoto[i].name);
     kGoto[i].launch();
-  }
-
-  if (sleepAt != 0 && static_cast<int32_t>(now - sleepAt) >= 0) {
-    sleepAt = 0;
-    enterDeepSleep();  // does not return
   }
 
   if (sleepRebootAt != 0 && static_cast<int32_t>(now - sleepRebootAt) >= 0) {

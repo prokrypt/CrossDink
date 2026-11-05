@@ -37,9 +37,6 @@ class HomeActivity final : public Activity {
   static constexpr int kMaxCachedBooks = 3;
 
  private:
-#ifdef SIMULATOR
-  friend struct PluginCatalogSmokeTest;
-#endif
   ButtonNavigator buttonNavigator;
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
   bool gridHasContinueReading = false;
@@ -59,7 +56,7 @@ class HomeActivity final : public Activity {
   bool hasReadingStats = false;
   bool hasBookmarks = false;
   bool hasClippings = false;
-  bool hasPlugins = false;
+  bool hasOpdsServers = false;
   bool minimalMenuOpen = false;
   bool minimalSuppressInitialFrontRelease = false;
   bool homeBookSwapLongPressHandled = false;
@@ -125,7 +122,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onGoodiesOpen();
-  void onPluginsOpen();
+  void onOpdsBrowserOpen();
   void onReadingStatsOpen();
   void onSavedItemsOpen();
 

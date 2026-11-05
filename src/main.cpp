@@ -24,7 +24,6 @@
 #include <PackedFontBitmaps.h>
 #include <PerfLog.h>
 #include <SPI.h>
-#include <TrustedTime.h>
 #include <WiFi.h>
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
@@ -87,7 +86,6 @@
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
-#include "activities/settings/AssetDownloadActivity.h"
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -107,8 +105,6 @@
 #include "platform/InputWake.h"
 #include "platform/PanelProbe.h"
 #include "platform/PinMon.h"
-#include "util/PluginBundle.h"
-#include "util/PluginEvents.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
 
@@ -1079,21 +1075,6 @@ static bool launchNetworkTarget(const NetworkBootTarget target, const uint32_t p
       }
       break;
     }
-    case NetworkBootTarget::DOWNLOAD_ASSETS: {
-      if (!AssetDownloadActivity::validBootPayload(payload)) {
-        LOG_ERR("MAIN", "Invalid language download payload 0x%" PRIx32, payload);
-        break;
-      }
-      auto assetActivity = makeUniqueNoThrow<AssetDownloadActivity>(renderer, mappedInputManager, payload);
-      if (assetActivity) {
-        activityManager.replaceActivity(std::move(assetActivity));
-        launched = true;
-      } else {
-        LOG_ERR("MAIN", "OOM: language download activity after minimal boot (free=%" PRIu32 " maxAlloc=%" PRIu32 ")",
-                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-      }
-      break;
-    }
   }
   return launched;
 }
@@ -1250,12 +1231,6 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       LOG_INF("LIGHT", "Frontlight toggled %s by shortcut", lightOn ? "on" : "off");
       return true;
     }
-    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
-      if (!gpio.hasTouch()) return false;
-      SETTINGS.disablePageTurnGestures = !SETTINGS.disablePageTurnGestures;
-      activityManager.persistGlobalSettings();
-      activityManager.requestUpdate();
-      return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       if (!gpio.hasTouch()) return false;
       SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
@@ -1365,8 +1340,6 @@ CrossPointSettings::SHORT_PWRBTN chordPowerAction(const ButtonShortcutController
       return Power::QUICK_ACTIONS;
     case Chord::ToggleFrontlight:
       return Power::TOGGLE_FRONTLIGHT;
-    case Chord::TogglePageTurnGestures:
-      return Power::TOGGLE_PAGE_TURN_GESTURES;
     case Chord::ToggleTouchscreen:
       return Power::TOGGLE_TOUCHSCREEN;
     default:
@@ -1799,13 +1772,7 @@ static void runBootTail(const bool sleeping = false) {
   if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
-  if (bootTailDictionary && !sleeping) {
-    Dictionary::isValidDictionary();
-    // Folder walks on the worker core at the background priority, so a slow
-    // card never holds input or a page turn (HalStorage serializes SD access).
-    static WorkerTask imageIndexTask;
-    imageIndexTask.start([](void*) { ImageFolderIndex::dropStaleIndexes(); }, nullptr, 4096, "ImgIdx");
-  }
+  if (bootTailDictionary && !sleeping) Dictionary::isValidDictionary();
   bootTailDictionary = false;
 }
 
@@ -2050,14 +2017,6 @@ void enterDeepSleep(bool fromTimeout, bool powerOff) {
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
-    activityManager.preparePluginSleep();
-    {
-      RenderLock lock;
-      const std::string book = activityManager.getCurrentBookPath();
-      pluginevents::prepareSleep(book.c_str(), activityManager.getScreenshotInfo().progressPercent,
-                                 powerManager.getBatteryPercentage() >= 20);
-    }
-    trustedtime::note();
     const uint32_t sleepDrawStartMs = millis();
     setSleepStep("sleep draw");
     activityManager.goToSleep(fromTimeout);
@@ -2475,22 +2434,6 @@ void setup() {
   LOG_INF("BOOT", "mark: RTC read");
   halClock.begin();
 #ifndef SIMULATOR
-  {
-    // Convert the RTC's UTC calendar without depending on the display timezone.
-    uint16_t rtcYear;
-    uint8_t rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond;
-    if (halClock.getDateTime(rtcYear, rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond)) {
-      int year = rtcYear - (rtcMonth <= 2);
-      const int era = year / 400;
-      const unsigned yoe = year - era * 400;
-      const unsigned doy = (153 * (rtcMonth + (rtcMonth > 2 ? -3 : 9)) + 2) / 5 + rtcDay - 1;
-      const int64_t days = era * 146097LL + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
-      trustedtime::adopt(days * 86400 + rtcHour * 3600 + rtcMinute * 60 + rtcSecond);
-    }
-  }
-#endif
-  trustedtime::init();
-#ifndef SIMULATOR
   // Charger STAT wake (battery log builds): note the charge start/stop and sleep again.
   if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
     BatteryLog::onChargeWake();
@@ -2580,9 +2523,7 @@ void setup() {
   // Before anything reads progress.bin: replay a position a crash or reset kept
   // off the card (it supersedes a held exit copy of the same book).
   ReaderProgressShadow::recoverPending();
-  if (!PluginBundle::recoverPending()) LOG_ERR("PLUG", "Plugin install recovery pending");
   SETTINGS.loadFromFile();
-  pluginevents::refreshSubscriptions();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
 #endif
@@ -2594,7 +2535,7 @@ void setup() {
   bootTailRoute = wakeupRouteName(wakeupReason);
   BatteryLog::onBoot();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
-  I18N.begin(SETTINGS.languageCode, SETTINGS.languageCacheGeneration);
+  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   // Normal boot store deferral adapted from Sichroteph/YACP commit
   // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT). Accessors load these
   // stores when Home, reader bookkeeping, or sync actually need them.
@@ -2684,8 +2625,6 @@ void setup() {
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
   bool x4WakeCanFastPaint = false;
-  // A retained page is useful opening feedback even when a fast refresh is unavailable.
-  bool quickResumeFrameVisible = false;
 
   // A plain software restart that left its frame behind (restartKeepingPanelFrame,
   // e.g. after an SD firmware update) also starts seamlessly: the splash is
@@ -2709,7 +2648,6 @@ void setup() {
       break;
     case BootResume::SplashlessWake:
       if (shouldRestoreSleepFrame && loadSleepFrameBuffer()) {
-        quickResumeFrameVisible = true;
         if (gpio.deviceIsX3()) {
           // begin() clears the X3 controller RAM. Restore the saved frame as
           // the baseline for the first reader paint without refreshing the panel.
@@ -2834,8 +2772,7 @@ void setup() {
     // Count the attempt in RTC so a book that crashes on load boots to Home next time.
     APP_STATE.setReaderActivityLoadCount(APP_STATE.readerActivityLoadCount() + 1);
     if (isSleepWake) kosync_auto::noteWake();
-    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh, false,
-                               quickResumeFrameVisible);
+    activityManager.goToReader(APP_STATE.openEpubPath, false, allowFastInitialReaderRefresh);
   }
 
   bootPhase("route");
@@ -2989,26 +2926,17 @@ static void updateFlashDuckLocked() {
   const bool restoreEarly =
       swingMs != 0 && restoreMs < 0 && swingEndMs != 0 && static_cast<int32_t>(now - (swingEndMs + restoreMs)) >= 0;
   const bool holdLate = swingMs == 0 && swingGoneMs != 0 && static_cast<int32_t>(now - (swingGoneMs + restoreMs)) < 0;
-  // A Half/Full call that swings another waveform first (the gray exit before the Half when leaving
-  // the image viewer) keeps a running duck down until its own swing, instead of coming up in between.
-#ifndef SIMULATOR
-  const uint32_t callMs = display.flashMarkedMs();
-  const bool fullFollows = callMs != 0 && now - callMs <= FLASH_DUCK_MAX_MS &&
-                           display.flashMarkedKind() == HalDisplay::FlashKind::Full && !full;
-#else
-  const bool fullFollows = false;  // the simulator's display reports no per-waveform swings
-#endif
-  const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && (holdLate || fullFollows));
-  // Plan to swing per kind (Gray, Full, Paint), re-measured by every planned
-  // flash: the driver's own SPI/power work plus the waveform's offset, so it
-  // barely varies (render time and queueing come before the plan; input to dark
-  // ran 109-448 ms). The kind's dim offset is added on top. Seeds (RAM only, so
-  // every boot and wake starts from them), from device "plan to dark" logs
-  // 10/01-10/28 minus each kind's dim: Gray 648-656 ms (DRF ~75 + direct gray's
-  // 24 frames); Full 182-186 (PON 127 + SPI 27); Paint 60. GrayDark swings at
-  // DRF (gray LSB to DRF 74 ms, 20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215).
-  constexpr uint32_t kMaxLeadMs = 800;
-  static uint16_t leadMs[4] = {650, 180, 60, 75};  // by FlashKind
+  const bool ducking = ((swingMs != 0 || marked) && !restoreEarly) || (flashDuckActive && holdLate);
+  // Plan to dark per kind (Gray, Full, Paint), re-measured by every planned
+  // flash: the driver's own SPI/power work, so it barely varies (render time
+  // and queueing come before the plan; input to dark ran 109-448 ms). Seeds:
+  // logs/device/20261001T040341Z-32cc8fdd-ptests.txt L6211->L6215 74 ms and
+  // L6236->L6240 69 ms (gray LSB to DRF; the default Gray dim is dark at DRF);
+  // Full 182 ms (boot Home paint: PON 127 + SPI 27, 20261002T011313Z-c0142b63
+  // L46-50; RAM only, so every boot starts from it); Paint (POF 82 + PON 127 +
+  // SPI 54 + reset) inferred.
+  constexpr uint32_t kMaxLeadMs = 600;
+  static uint16_t leadMs[4] = {75, 180, 330, 75};  // by FlashKind (GrayDark plans like Gray)
   static uint8_t leadKind = 0;
   static bool learned = false;      // this flash's lead is stored
   static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
@@ -3060,13 +2988,13 @@ static void updateFlashDuckLocked() {
       learned = false;
       leadKind = static_cast<uint8_t>(kind);
     }
-    uint32_t target = (swingMs != 0 ? swingMs : planMs + leadMs[leadKind]) + dimMs;
+    uint32_t target = swingMs != 0 ? swingMs + dimMs : planMs + leadMs[leadKind];
     if (swingMs != 0 && planMs != 0 && !learned) {
       learned = true;
-      const int32_t lead = static_cast<int32_t>(swingMs - planMs);
+      const int32_t lead = static_cast<int32_t>(target - planMs);
       leadMs[leadKind] = static_cast<uint16_t>(std::clamp<int32_t>(lead, 0, kMaxLeadMs));
-      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)",
-              static_cast<long>(target - planMs), static_cast<long>(target - inputMs), leadKind);
+      LOG_DBG("LIGHT", "Flash duck: plan to dark %ld ms, input to dark %ld ms (kind %u)", static_cast<long>(lead),
+              static_cast<long>(target - inputMs), leadKind);
     }
     if (planMs == 0 && static_cast<int32_t>(target - (fadeStartMs + FLASH_DUCK_DOWN_MS)) < 0) {
       target = fadeStartMs + FLASH_DUCK_DOWN_MS;
@@ -3169,13 +3097,6 @@ static void flashDuckRenderWait() {
 void installFlashDuckRenderWait() {
   mainLoopTask = xTaskGetCurrentTaskHandle();  // setup() and loop() share the Arduino loop task
   RenderLock::waitTick = &flashDuckRenderWait;
-  // A refresh on the main loop itself (BmpViewer's onExit() clear) blocks every step above until it
-  // ends, so the duck never started: arm its timer as the refresh is marked.
-#ifndef SIMULATOR
-  HalDisplay::onFlashMarked = [] {
-    if (xTaskGetCurrentTaskHandle() == mainLoopTask) updateFlashDuck();
-  };
-#endif
 }
 
 // A running transfer pulse owns the light (the dim doesn't show under it), so the
@@ -3585,19 +3506,6 @@ static void loopPass() {
       lastActivityTime = millis();
       return;
     }
-    if (buttonShortcutController.tryUnlockFront(
-            millis(), mappedInputManager.isPressed(MappedInputManager::Button::Left),
-            mappedInputManager.wasPressed(MappedInputManager::Button::Left),
-            mappedInputManager.wasReleased(MappedInputManager::Button::Left),
-            mappedInputManager.isPressed(MappedInputManager::Button::Right),
-            mappedInputManager.wasPressed(MappedInputManager::Button::Right),
-            mappedInputManager.wasReleased(MappedInputManager::Button::Right), ReaderUtils::SKIP_HOLD_MS)) {
-      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Left);
-      mappedInputManager.suppressNextFrontRelease(MappedInputManager::Button::Right);
-      notifyQuickLockChanged();
-      lastActivityTime = millis();
-      return;
-    }
     if (handleX4ProHomeKeyQuickLockUnlock()) {
       lastActivityTime = millis();
       return;
@@ -3755,12 +3663,6 @@ static void loopPass() {
     }
   }
 
-  // Background delivery must not hold up text entry or wait for a screen
-  // refresh after input was sampled: a stale touch-down can become a false hold.
-  if (!activityManager.isReaderActivity() && !activityManager.hasActivityNamed("KeyboardEntry")) {
-    RenderLock lock(RenderLock::Mode::Try);
-    if (lock.ownsLock()) pluginevents::pollOnline();
-  }
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   kosync_auto::loop();

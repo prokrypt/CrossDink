@@ -47,6 +47,7 @@ class TtfRenderProfileStore : public PersistableStore<TtfRenderProfileStore> {
 
   TtfRenderProfile profileFor(const char* family) const;
   bool setProfile(const char* family, const TtfRenderProfile& profile);
+  bool resetProfile(const char* family);
 };
 
 #define TTF_RENDER_PROFILES TtfRenderProfileStore::getInstance()

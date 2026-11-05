@@ -1,6 +1,4 @@
 #pragma once
-#include <I18n.h>
-
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -14,9 +12,8 @@ class ConfirmationActivity : public Activity {
   std::string popupTitle;
   OptionPopup confirmPopup;
   bool overrideDisabledReaderTouchscreen = false;
-  const char* confirmLabel = nullptr;                 // null: "Confirm"
-  const char* cancelLabel = nullptr;                  // null: "Cancel"
-  std::string customCancelLabel, customConfirmLabel;  // own the labels set from strings
+  const char* confirmLabel = nullptr;  // null: "Confirm"
+  const char* cancelLabel = nullptr;   // null: "Cancel"
   bool confirmFocused = false;
   const char* noteLabel = nullptr;
   char noteBody[24] = "";  // fixed: the popup holds a pointer to it
@@ -45,17 +42,6 @@ class ConfirmationActivity : public Activity {
     snprintf(noteBody, sizeof(noteBody), "%s", body);
     notePoll = poll;
     notePollCtx = ctx;
-  }
-
-  void setOptionLabels(const std::string& cancel, const std::string& confirm) {
-    customCancelLabel = cancel;
-    customConfirmLabel = confirm;
-    cancelLabel = customCancelLabel.c_str();
-    confirmLabel = customConfirmLabel.c_str();
-  }
-  void setOptionLabels(const StrId cancel, const StrId confirm) {
-    cancelLabel = I18N.get(cancel);
-    confirmLabel = I18N.get(confirm);
   }
 
   void onEnter() override;

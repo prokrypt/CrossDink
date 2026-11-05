@@ -36,7 +36,6 @@ class KeyboardEntryActivity : public Activity {
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
   bool batchesInputDuringRefresh() const override { return true; }
-  bool usesMenuButtonOrientation() const override { return false; }
   uint8_t inputPollDelayMs() const override { return mappedInput.hasTouchHardware() ? 2 : 10; }
 
  private:

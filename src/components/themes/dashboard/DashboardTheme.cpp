@@ -58,7 +58,6 @@ constexpr int kStatsValueLabelGap = 1;
 
 bool isWideScreen(const GfxRenderer& renderer) { return renderer.getScreenWidth() >= 560; }
 
-// Home body spans the full width; side calibration insets do not apply (user 11/04).
 int contentInset(const GfxRenderer& renderer) { return isWideScreen(renderer) ? kContentInsetX3 : kContentInsetX4; }
 
 Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
@@ -366,8 +365,8 @@ void drawRightAnchoredFooterStat(const GfxRenderer& renderer, const int labelRig
 void drawFooterStats(const GfxRenderer& renderer, const Rect& coverRect, const GlobalReadingStats* globalStats,
                      const bool inverted = false) {
   const int inset = contentInset(renderer);
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int footerY = safe.y + safe.height - kFooterBottomGap;
+  const int buttonHintReserve = gpio.hasTouch() ? 0 : UITheme::getButtonHintsReserve(renderer);
+  const int footerY = renderer.getScreenHeight() - buttonHintReserve - kFooterBottomGap;
   const int centerY = std::max(coverRect.y + coverRect.height + 120, footerY);
 
   if (!halClock.isAvailable()) {

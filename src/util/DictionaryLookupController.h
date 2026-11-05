@@ -131,6 +131,7 @@ class DictionaryLookupController {
   const DictLocation& getFoundLocation() const { return foundLocation; }
   FoundStatus getFoundStatus() const { return foundStatus; }
   bool getRecordHistory() const { return recordHistory_; }
+  bool canCreateClipping() const { return allowCreateClipping_; }
 
  private:
 #if CROSSDINK_APP_CAP_TOUCH

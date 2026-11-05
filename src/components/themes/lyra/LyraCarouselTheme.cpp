@@ -80,12 +80,11 @@ constexpr int kMenuIconPad = 14;   // symmetric vertical padding → tile height
 constexpr int kHighlightPad = 7;   // highlight padding around the selected icon
 constexpr size_t kMenuLabelBufferSize = 96;
 // Row is anchored to the bottom of the screen, just above button hints
+constexpr int kButtonHintsH = LyraCarouselMetrics::values.buttonHintsHeight;
 
 struct MenuLayoutMetrics {
   int tileH;
   int tileW;
-  int x;
-  int width;
   int labelLineHeight;
   int rowY;
   int labelY;
@@ -94,13 +93,10 @@ struct MenuLayoutMetrics {
 MenuLayoutMetrics computeMenuLayout(const GfxRenderer& renderer, int buttonCount) {
   const int tileH = kMenuIconPad + kMenuIconSize + kMenuIconPad;
   const int labelLineHeight = renderer.getLineHeight(kMenuLabelFontId);
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int rowY = safe.y + safe.height - tileH - kMenuLabelTopGap - labelLineHeight - kMenuLabelBottomGap +
-                   std::min(kMenuRowDrop, kMenuLabelTopGap + labelLineHeight + kMenuLabelBottomGap);
-  // Home body spans the full width; only the vertical safe area applies (user 11/04).
-  const int width = renderer.getScreenWidth();
+  const int rowY = renderer.getScreenHeight() - kButtonHintsH - tileH - kMenuLabelTopGap - labelLineHeight -
+                   kMenuLabelBottomGap + kMenuRowDrop;
   return {
-      tileH, width / buttonCount, 0, width, labelLineHeight, rowY, rowY - kMenuLabelTopGap - labelLineHeight,
+      tileH, renderer.getScreenWidth() / buttonCount, labelLineHeight, rowY, rowY - kMenuLabelTopGap - labelLineHeight,
   };
 }
 
@@ -180,8 +176,7 @@ Rect computeCenterCoverSlotRect(const GfxRenderer& renderer, Rect rect, const st
   return Rect{centerX, centerDrawY, kDisplayCenterW, kDisplayCenterH};
 }
 
-void registerCoverTarget(const GfxRenderer& renderer, int bookIdx, Rect rect, int bookCount, int* registeredIds,
-                         int& registeredCount) {
+void registerCoverTarget(int bookIdx, Rect rect, int bookCount, int* registeredIds, int& registeredCount) {
   if (bookIdx < 0 || bookIdx >= bookCount || rect.width <= 0 || rect.height <= 0) return;
   for (int i = 0; i < registeredCount; ++i) {
     if (registeredIds[i] == bookIdx) return;
@@ -189,11 +184,7 @@ void registerCoverTarget(const GfxRenderer& renderer, int bookIdx, Rect rect, in
   if (registeredCount < themed(LyraCarouselMetrics::values).homeRecentBooksCount) {
     registeredIds[registeredCount++] = bookIdx;
   }
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int bottom = std::min(rect.y + rect.height, safe.y + safe.height);
-  rect.y = std::max(rect.y, safe.y);
-  rect.height = bottom - rect.y;
-  if (rect.width > 0 && rect.height > 0) TouchRegistry::getInstance().add(rect, bookIdx, TouchRegistry::Cover);
+  TouchRegistry::getInstance().add(rect, bookIdx, TouchRegistry::Cover);
 }
 
 void registerCarouselCoverTouchTargets(const GfxRenderer& renderer, Rect rect,
@@ -224,27 +215,23 @@ void registerCarouselCoverTouchTargets(const GfxRenderer& renderer, Rect rect,
   const int rightFarIdx = (centerIdx + 2) % bookCount;
 
   if (bookCount >= 5) {
-    registerCoverTarget(renderer, leftFarIdx,
-                        Rect{leftFarX, sideTileY, kFarSideW, std::max(kFarSideInnerH, kFarSideOuterH)}, bookCount,
-                        registeredIds, registeredCount);
+    registerCoverTarget(leftFarIdx, Rect{leftFarX, sideTileY, kFarSideW, std::max(kFarSideInnerH, kFarSideOuterH)},
+                        bookCount, registeredIds, registeredCount);
   }
   if (bookCount >= 4) {
-    registerCoverTarget(renderer, rightFarIdx,
-                        Rect{rightFarX, sideTileY, kFarSideW, std::max(kFarSideOuterH, kFarSideInnerH)}, bookCount,
-                        registeredIds, registeredCount);
+    registerCoverTarget(rightFarIdx, Rect{rightFarX, sideTileY, kFarSideW, std::max(kFarSideOuterH, kFarSideInnerH)},
+                        bookCount, registeredIds, registeredCount);
   }
   if (bookCount >= 2) {
-    registerCoverTarget(renderer, leftNearIdx,
-                        Rect{leftNearX, sideTileY, kNearSideW, std::max(kNearSideInnerH, kNearSideOuterH)}, bookCount,
-                        registeredIds, registeredCount);
+    registerCoverTarget(leftNearIdx, Rect{leftNearX, sideTileY, kNearSideW, std::max(kNearSideInnerH, kNearSideOuterH)},
+                        bookCount, registeredIds, registeredCount);
   }
   if (bookCount >= 3) {
-    registerCoverTarget(renderer, rightNearIdx,
+    registerCoverTarget(rightNearIdx,
                         Rect{rightNearX, sideTileY, kNearSideW, std::max(kNearSideOuterH, kNearSideInnerH)}, bookCount,
                         registeredIds, registeredCount);
   }
-  registerCoverTarget(renderer, centerIdx, shrinkCenterCoverRect(centerCoverSlotRect), bookCount, registeredIds,
-                      registeredCount);
+  registerCoverTarget(centerIdx, shrinkCenterCoverRect(centerCoverSlotRect), bookCount, registeredIds, registeredCount);
 }
 
 void drawMenuBookmarkIcon(const GfxRenderer& renderer, int x, int y, bool selected) {
@@ -574,7 +561,7 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
   registerButtonMenuTouchTargets(renderer, buttonCount);
 
   for (int i = 0; i < buttonCount; ++i) {
-    const int tileX = metrics.x + i * metrics.tileW;
+    const int tileX = i * metrics.tileW;
     const int iconX = tileX + (metrics.tileW - kMenuIconSize) / 2;
     const int iconY = metrics.rowY + kMenuIconPad;
 
@@ -602,12 +589,13 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
     }
   }
 
-  renderer.fillRect(metrics.x, metrics.labelY, metrics.width, metrics.labelLineHeight, false);
+  renderer.fillRect(0, metrics.labelY, renderer.getScreenWidth(), metrics.labelLineHeight, false);
   if (selectedIndex >= 0 && selectedIndex < buttonCount && buttonLabel != nullptr) {
     char centeredLabel[kMenuLabelBufferSize];
-    fitMenuLabel(renderer, buttonLabel(selectedIndex), metrics.width - 40, centeredLabel, sizeof(centeredLabel));
+    fitMenuLabel(renderer, buttonLabel(selectedIndex), renderer.getScreenWidth() - 40, centeredLabel,
+                 sizeof(centeredLabel));
     const int labelWidth = renderer.getTextWidth(kMenuLabelFontId, centeredLabel, EpdFontFamily::REGULAR);
-    renderer.drawText(kMenuLabelFontId, metrics.x + (metrics.width - labelWidth) / 2, metrics.labelY + 2, centeredLabel,
+    renderer.drawText(kMenuLabelFontId, (renderer.getScreenWidth() - labelWidth) / 2, metrics.labelY + 2, centeredLabel,
                       true, EpdFontFamily::REGULAR);
   }
 }
@@ -617,15 +605,15 @@ void LyraCarouselTheme::registerButtonMenuTouchTargets(const GfxRenderer& render
   const MenuLayoutMetrics metrics = computeMenuLayout(renderer, buttonCount);
   const Rect touchRect = buttonMenuTouchRect(renderer, buttonCount);
   for (int i = 0; i < buttonCount; ++i) {
-    TouchRegistry::getInstance().add(Rect{metrics.x + i * metrics.tileW, touchRect.y, metrics.tileW, touchRect.height},
-                                     i, TouchRegistry::Item);
+    TouchRegistry::getInstance().add(Rect{i * metrics.tileW, touchRect.y, metrics.tileW, touchRect.height}, i,
+                                     TouchRegistry::Item);
   }
 }
 
 Rect LyraCarouselTheme::buttonMenuTouchRect(const GfxRenderer& renderer, const int buttonCount) {
   if (buttonCount <= 0) return Rect{0, 0, 0, 0};
   const MenuLayoutMetrics metrics = computeMenuLayout(renderer, buttonCount);
-  return Rect{metrics.x, metrics.labelY, metrics.width, metrics.rowY + metrics.tileH - metrics.labelY};
+  return Rect{0, metrics.labelY, renderer.getScreenWidth(), metrics.rowY + metrics.tileH - metrics.labelY};
 }
 
 // ---------------------------------------------------------------------------

@@ -19,7 +19,6 @@
 
 class DictionaryDefinitionActivity final : public Activity {
  public:
-  bool usesMenuButtonOrientation() const override { return false; }
   using BackgroundRenderFn = void (*)(void* context);
 
   // showLookupButton=true:

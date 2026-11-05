@@ -290,8 +290,11 @@ void FontSelectionActivity::handleSelection() {
 
 void FontSelectionActivity::renderPreviewPane(int top, int height, int fontId, const char* fontName) const {
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int left = std::max(metrics_.previewPadding, safe.x);
-  const int right = std::min(renderer.getScreenWidth() - metrics_.previewPadding, safe.x + safe.width);
+  const int left =
+      renderer.hasCustomViewableInsets() ? std::max(metrics_.previewPadding, safe.x) : metrics_.previewPadding;
+  const int right = renderer.hasCustomViewableInsets()
+                        ? std::min(renderer.getScreenWidth() - metrics_.previewPadding, safe.x + safe.width)
+                        : renderer.getScreenWidth() - metrics_.previewPadding;
   const int width = right - left;
   if (width <= 0 || height <= 0) return;
 
@@ -394,8 +397,7 @@ void FontSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
 void FontSelectionActivity::updateLayoutMetrics() {
   metrics_ = UITheme::getInstance().getMetrics();
   afterHeader = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics_.verticalSpacing;
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  bottomReserved = renderer.getScreenHeight() - safe.y - safe.height + metrics_.verticalSpacing;
+  bottomReserved = UITheme::getButtonHintsReserve(renderer) + metrics_.verticalSpacing;
   usableHeight = renderer.getScreenHeight() - afterHeader - bottomReserved;
   previewHeight = usableHeight * metrics_.previewHeightPercent / 100;
 }
@@ -416,9 +418,7 @@ void FontSelectionActivity::render(RenderLock&&) {
                                     : nullptr;
   renderPreviewPane(previewTop, previewHeight, previewFontId, previewFontName);
 
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  renderer.drawLine(safe.x, listTop - metrics_.verticalSpacing / 2, safe.x + safe.width - 1,
-                    listTop - metrics_.verticalSpacing / 2);
+  renderer.drawLine(0, listTop - metrics_.verticalSpacing / 2, pageWidth, listTop - metrics_.verticalSpacing / 2);
 
   uiReady_ = false;
   renderUiApp(app_, uiTarget_);

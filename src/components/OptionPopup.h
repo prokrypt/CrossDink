@@ -21,10 +21,6 @@ extern MappedInputManager mappedInputManager;
 
 class OptionPopup {
  public:
-#ifdef SIMULATOR
-  Rect simulatorOptionRect(const int index) const { return layout.options.at(index); }
-#endif
-
   struct Note {
     constexpr Note(const char* label = nullptr, const char* body = nullptr) : boldLabel(label), body(body) {}
 
@@ -368,13 +364,6 @@ class OptionPopup {
     if (active) cancel(input, requestUpdate, false);
   }
 
-  // Hide without firing the cancel callback: for owners that already decided what happens next.
-  void close() {
-    active = false;
-    if (showsTapRow) ListSelection::tapRowShown = false;
-    showsTapRow = false;
-  }
-
  private:
   struct Layout {
     Rect dialog{0, 0, 0, 0};
@@ -393,9 +382,8 @@ class OptionPopup {
     if (layoutValid) return layout;
 
     const auto& metrics = UITheme::getInstance().getMetrics();
-    const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-    const int pageWidth = safe.width;
-    const int pageHeight = safe.height;
+    const auto pageWidth = renderer.getScreenWidth();
+    const auto pageHeight = renderer.getScreenHeight();
     const int optionFontId = uiScaleSpec().bodyFontId;
     const bool touch = gpio.hasTouch();
     const EpdFontFamily::Style optionStyle =
@@ -433,7 +421,7 @@ class OptionPopup {
     const int footerSpace = confirmationMode ? footerHeight : 0;
     const int maxDialogH = std::max(
         rowHeight + titleLineHeight + metrics.optionPopupTitleGap + noteHeight + innerPadding * 2 + footerSpace,
-        pageHeight - metrics.optionPopupDialogSideMargin * 2);
+        pageHeight - metrics.buttonHintsHeight - metrics.optionPopupDialogSideMargin * 2);
     const int dialogW = std::min((maxTextWidth + innerPadding * 2 + selectionHPadding * 2 + metrics.scrollBarWidth +
                                   metrics.scrollBarRightOffset + selectionHPadding) *
                                      12 / 10,
@@ -459,8 +447,8 @@ class OptionPopup {
         hasHiddenOptions ? metrics.scrollBarWidth + metrics.scrollBarRightOffset + selectionHPadding : 0;
     const int contentHeight = titleHeight + metrics.optionPopupTitleGap + noteHeight + listHeight;
     const int dialogH = contentHeight + innerPadding * 2 + footerSpace;
-    const int dialogX = safe.x + (pageWidth - dialogW) / 2;
-    const int dialogY = safe.y + (pageHeight - dialogH) / 2;
+    const int dialogX = (pageWidth - dialogW) / 2;
+    const int dialogY = (pageHeight - dialogH) / 2;
     const int itemRectX = dialogX + innerPadding;
     const int itemRectW = std::max(1, dialogW - innerPadding * 2 - scrollBarGutter);
     const int firstItemY = dialogY + innerPadding + titleHeight + metrics.optionPopupTitleGap + noteHeight;
@@ -565,6 +553,12 @@ class OptionPopup {
     popupFramePending = false;
     showsTapRow = baseFramePending;
     if (showsTapRow) ListSelection::tapRowShown = true;
+  }
+
+  void close() {
+    active = false;
+    if (showsTapRow) ListSelection::tapRowShown = false;
+    showsTapRow = false;
   }
 
   void prepareStandardShow() {

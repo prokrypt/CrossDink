@@ -25,6 +25,16 @@ Layout vertical(const Rect container, const uint8_t count, const int buttonHeigh
   return result;
 }
 
+int indexAt(const Layout& layout, const int x, const int y) {
+  for (uint8_t i = 0; i < layout.count; ++i) {
+    const Rect& button = layout.buttons[i];
+    if (x >= button.x && x < button.x + button.width && y >= button.y && y < button.y + button.height) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 void draw(const GfxRenderer& renderer, const Layout& layout, const char* const* labels, const int primaryIndex,
           const int selectedIndex, int fontId) {
   if (labels == nullptr) return;

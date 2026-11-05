@@ -38,10 +38,6 @@ struct SideLayoutMap {
   ButtonIndex pageForwardSecondary;
 };
 
-bool shouldSwapMenuFrontButtons(const GfxRenderer::Orientation orientation) {
-  return orientation == GfxRenderer::LandscapeCounterClockwise || orientation == GfxRenderer::PortraitInverted;
-}
-
 bool shouldSwapReaderSideButtons(const bool readerMode) {
   return readerMode && SETTINGS.sideButtonOrientationAware && SETTINGS.orientation != CrossPointSettings::PORTRAIT;
 }
@@ -123,29 +119,13 @@ void MappedInputManager::update() const {
   updateSelectionTouchDown();
   if (twoFingerContactConsumed && gpio.getTouchSnapshot().count == 0) twoFingerContactConsumed = false;
 #endif
-  for (const auto button : {HalGPIO::BTN_BACK, HalGPIO::BTN_CONFIRM, HalGPIO::BTN_LEFT, HalGPIO::BTN_RIGHT}) {
-    if (!gpio.isPressed(button) && !gpio.wasReleased(button)) suppressedFrontReleases &= ~(1u << button);
-  }
   if (!gpio.isPressed(HalGPIO::BTN_UP) && !gpio.wasReleased(HalGPIO::BTN_UP)) suppressPhysicalUpRelease = false;
   if (!gpio.isPressed(HalGPIO::BTN_DOWN) && !gpio.wasReleased(HalGPIO::BTN_DOWN)) suppressPhysicalDownRelease = false;
 }
 
-void MappedInputManager::suppressNextFrontRelease(const Button button) {
-  const auto physical = mappedFrontButtonFor(button);
-  if (physical != kNoButton) suppressedFrontReleases |= 1u << physical;
-#ifdef SIMULATOR
-  if (simulatorHeld[buttonIndex(button)] || simulatorReleased[buttonIndex(button)])
-    suppressedSimulatedFrontReleases |= 1u << static_cast<uint8_t>(button);
-#endif
-}
-
-void MappedInputManager::setMenuMode(const bool enabled) {
-  navigationContext.store(static_cast<uint8_t>(renderer.getOrientation()) | (enabled ? MENU_MODE : 0),
-                          std::memory_order_relaxed);
-}
-
 void MappedInputManager::suppressNextSideRelease(const Button button) {
-  const ButtonIndex physical = mappedSideButtonFor(button);
+  const ButtonIndex physical =
+      mapSideButtonForReaderOrientation(button == Button::Up ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, readerMode);
   if (physical == HalGPIO::BTN_UP)
     suppressPhysicalUpRelease = true;
   else
@@ -173,11 +153,7 @@ void MappedInputManager::expireReleaseSuppressions() const {
 }
 
 MappedInputManager::Button MappedInputManager::menuButton(const Button direction) const {
-  const auto orientation = static_cast<GfxRenderer::Orientation>(menuOrientation());
-  const bool landscape =
-      orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise;
-  // Keep the front pair's Up/Down role on opposite-edge devices when rotated.
-  if (!deviceUsesHorizontalSideButtonsForMenus(gpio) && !landscape) return direction;
+  if (!deviceUsesHorizontalSideButtonsForMenus(gpio)) return direction;
   switch (direction) {
     case Button::Left:
       return Button::Up;
@@ -190,26 +166,6 @@ MappedInputManager::Button MappedInputManager::menuButton(const Button direction
     default:
       return direction;
   }
-}
-
-MappedInputManager::Button MappedInputManager::sliderIncreaseButton() const {
-  const auto orientation = static_cast<GfxRenderer::Orientation>(menuOrientation());
-  const bool landscape =
-      orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise;
-  const bool horizontal = deviceUsesHorizontalSideButtonsForMenus(gpio) != landscape;
-  return horizontal ? Button::Down : Button::Up;
-}
-
-uint8_t MappedInputManager::mappedSideButtonFor(const Button button) const {
-  const ButtonIndex physical = button == Button::Up ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN;
-  const uint8_t context = navigationContext.load(std::memory_order_relaxed);
-  if (!(context & MENU_MODE)) return mapSideButtonForReaderOrientation(physical, readerMode);
-  const auto orientation = static_cast<GfxRenderer::Orientation>(context & (MENU_MODE - 1));
-  const bool swap =
-      orientation == GfxRenderer::PortraitInverted ||
-      orientation == (deviceUsesHorizontalSideButtonsForMenus(gpio) ? GfxRenderer::LandscapeCounterClockwise
-                                                                    : GfxRenderer::LandscapeClockwise);
-  return swap ? (button == Button::Up ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP) : physical;
 }
 
 bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const) const {
@@ -236,12 +192,13 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
     case Button::Confirm:
     case Button::Left:
     case Button::Right:
-      return frontButton != kNoButton && !(suppressedFrontReleases & (1u << frontButton)) && (gpio.*fn)(frontButton);
+      return frontButton != kNoButton && (gpio.*fn)(frontButton);
     case Button::Up:
-      // Menu directions follow physical placement; page turns retain the reader preference.
-      return sideEvent(mappedSideButtonFor(Button::Up));
+      // Reader menus should follow the same top/bottom side-button orientation as reader page turns.
+      return sideEvent(up);
     case Button::Down:
-      return sideEvent(mappedSideButtonFor(Button::Down));
+      // Reader menus should follow the same top/bottom side-button orientation as reader page turns.
+      return sideEvent(down);
     case Button::Power:
       // Power button bypasses remapping.
       return (gpio.*fn)(HalGPIO::BTN_POWER);
@@ -262,24 +219,6 @@ uint8_t MappedInputManager::mappedFrontButtonFor(const Button button) const {
   const ButtonIndex btnConfirm = useReaderMapping ? SETTINGS.readerFrontButtonConfirm : SETTINGS.frontButtonConfirm;
   const ButtonIndex btnLeft = useReaderMapping ? SETTINGS.readerFrontButtonLeft : SETTINGS.frontButtonLeft;
   const ButtonIndex btnRight = useReaderMapping ? SETTINGS.readerFrontButtonRight : SETTINGS.frontButtonRight;
-  // In CCW landscape the right end of the front row is the upper end.
-  // In inverted portrait it is the left end. Keep Back/Confirm in their configured slots.
-  const uint8_t context = navigationContext.load(std::memory_order_relaxed);
-  if (context & MENU_MODE) {
-    const bool swap = shouldSwapMenuFrontButtons(static_cast<GfxRenderer::Orientation>(context & (MENU_MODE - 1)));
-    switch (button) {
-      case Button::Back:
-        return btnBack;
-      case Button::Confirm:
-        return btnConfirm;
-      case Button::Left:
-        return swap ? btnRight : btnLeft;
-      case Button::Right:
-        return swap ? btnLeft : btnRight;
-      default:
-        return kNoButton;
-    }
-  }
   const ButtonIndex mappedBack = mapFrontButtonForReaderOrientation(btnBack, btnLeft, btnRight, readerMode);
   const ButtonIndex mappedConfirm = mapFrontButtonForReaderOrientation(btnConfirm, btnLeft, btnRight, readerMode);
   const ButtonIndex mappedLeft = mapFrontButtonForReaderOrientation(btnLeft, btnLeft, btnRight, readerMode);
@@ -302,10 +241,6 @@ uint8_t MappedInputManager::mappedFrontButtonFor(const Button button) const {
 bool MappedInputManager::shouldUsePowerAsConfirmFallback() const { return !readerMode || powerAsConfirmInReaderMode; }
 
 bool MappedInputManager::isFrontNavButtonSwapActive() const {
-  const uint8_t context = navigationContext.load(std::memory_order_relaxed);
-  if (context & MENU_MODE) {
-    return shouldSwapMenuFrontButtons(static_cast<GfxRenderer::Orientation>(context & (MENU_MODE - 1)));
-  }
   return readerMode && shouldSwapReaderFrontNavButtons(static_cast<CrossPointSettings::FRONT_BUTTON_ORIENTATION_AWARE>(
                            SETTINGS.frontButtonOrientationAware));
 }
@@ -1033,7 +968,6 @@ bool MappedInputManager::wasReleased(const Button button) const {
   }
 #ifdef SIMULATOR
   const bool simulatedRelease = simulatorReleased[buttonIndex(button)];
-  if (suppressedSimulatedFrontReleases & (1u << static_cast<uint8_t>(button))) return false;
 #else
   constexpr bool simulatedRelease = false;
 #endif
@@ -1109,7 +1043,8 @@ bool MappedInputManager::wasReleased(const Button button) const {
 
 #ifdef SIMULATOR
   if (simulatedRelease && (button == Button::Up || button == Button::Down)) {
-    const ButtonIndex physical = mappedSideButtonFor(button);
+    const ButtonIndex physical =
+        mapSideButtonForReaderOrientation(button == Button::Up ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, readerMode);
     if ((physical == HalGPIO::BTN_UP && suppressPhysicalUpRelease) ||
         (physical == HalGPIO::BTN_DOWN && suppressPhysicalDownRelease))
       return false;
@@ -1122,9 +1057,6 @@ bool MappedInputManager::wasReleased(const Button button) const {
 }
 
 bool MappedInputManager::isPressed(const Button button) const {
-#ifdef SIMULATOR
-  if (suppressedSimulatedFrontReleases & (1u << static_cast<uint8_t>(button))) return false;
-#endif
   if (button == Button::Power && releaseSuppression.isPowerReleaseSuppressed()) {
     return false;
   }
@@ -1256,10 +1188,15 @@ const char* MappedInputManager::resolveLabel(const Label label) const {
 
 MappedInputManager::Labels MappedInputManager::mapLabels(const Label back, const Label confirm, const Label previous,
                                                          const Label next) const {
-  const ButtonIndex mappedBack = mappedFrontButtonFor(Button::Back);
-  const ButtonIndex mappedConfirm = mappedFrontButtonFor(Button::Confirm);
-  const ButtonIndex mappedLeft = mappedFrontButtonFor(Button::Left);
-  const ButtonIndex mappedRight = mappedFrontButtonFor(Button::Right);
+  const bool useReaderMapping = readerMode && SETTINGS.readerFrontButtonsEnabled;
+  const ButtonIndex btnBack = useReaderMapping ? SETTINGS.readerFrontButtonBack : SETTINGS.frontButtonBack;
+  const ButtonIndex btnConfirm = useReaderMapping ? SETTINGS.readerFrontButtonConfirm : SETTINGS.frontButtonConfirm;
+  const ButtonIndex btnLeft = useReaderMapping ? SETTINGS.readerFrontButtonLeft : SETTINGS.frontButtonLeft;
+  const ButtonIndex btnRight = useReaderMapping ? SETTINGS.readerFrontButtonRight : SETTINGS.frontButtonRight;
+  const ButtonIndex mappedBack = mapFrontButtonForReaderOrientation(btnBack, btnLeft, btnRight, readerMode);
+  const ButtonIndex mappedConfirm = mapFrontButtonForReaderOrientation(btnConfirm, btnLeft, btnRight, readerMode);
+  const ButtonIndex mappedLeft = mapFrontButtonForReaderOrientation(btnLeft, btnLeft, btnRight, readerMode);
+  const ButtonIndex mappedRight = mapFrontButtonForReaderOrientation(btnRight, btnLeft, btnRight, readerMode);
 
   // Compose arrow labels into instance-owned buffers so returned pointers
   // remain valid until the next label mapping on this input manager.
@@ -1363,9 +1300,6 @@ void MappedInputManager::simulatorInjectRelease(Button button) {
 }
 
 void MappedInputManager::simulatorClearInputFrame() {
-  for (size_t i = 0; i < simulatorPressed.size(); ++i) {
-    if (!simulatorHeld[i]) suppressedSimulatedFrontReleases &= ~(1u << i);
-  }
   simulatorPressed.fill(false);
   simulatorReleased.fill(false);
 #if CROSSDINK_APP_CAP_TOUCH
