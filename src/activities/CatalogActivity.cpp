@@ -23,7 +23,8 @@ void CatalogActivity::onEnter() {
 
 void CatalogActivity::onExit() {
   Activity::onExit();
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // The remote's own link stays up: turning it off here left mDNS on a freed netif (panic in MDNS.end()).
+  if (WiFi.getMode() != WIFI_MODE_NULL && !keepWifiForRemote()) {
     WiFi.disconnect(false);
     delay(30);
     WiFi.mode(WIFI_OFF);
