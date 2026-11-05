@@ -517,7 +517,6 @@ void XtcReaderActivity::loop() {
   const bool powerPageTurn = shortPowerTurn || longPowerTurn || timedLongPowerTurn;
   const bool frontNext = mappedInput.wasReleased(MappedInputManager::Button::Right) || powerPageTurn;
 
-  const bool fromTilt = tilt.prev || tilt.next;
   const bool prevTriggered = tilt.prev || frontPrev || touch.prev || shortcutPreviousPage;
   const bool nextTriggered = tilt.next || frontNext || touch.next || shortcutPageTurn;
   if (!prevTriggered && !nextTriggered) return;
