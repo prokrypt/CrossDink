@@ -35,6 +35,7 @@ KNOB_ALIAS(LONG_PRESS_MENU_MS, menuHoldMs);  // Goodies > Knobs
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
 constexpr uint8_t CACHE_VERSION = 5;          // Increment when cache format changes
 constexpr uint32_t MAX_CACHE_PAGES = 65535;   // Sanity cap to prevent unbounded reserve()
+constexpr size_t kWholeLineProbeBytes = 256;  // longer TXT lines practically never fit one screen line
 
 // Parses and word-wraps lines from a file chunk into outLines.
 // Returns the number of bytes consumed from the start of buffer.
@@ -60,7 +61,10 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
         break;
       }
 
-      if (renderer.getTextWidth(fontId, line.c_str(), EpdFontFamily::REGULAR, BidiUtils::BidiBaseDir::AUTO,
+      // Whole-line fast path only for short lines: on a long paragraph it measured every remaining
+      // byte once per output line. The scan below also ends with the whole line when it fits.
+      if (line.length() <= kWholeLineProbeBytes &&
+          renderer.getTextWidth(fontId, line.c_str(), EpdFontFamily::REGULAR, BidiUtils::BidiBaseDir::AUTO,
                                 characterSpacing) <= vw) {
         outLines.push_back(line);
         lineBytePos = displayLen;
