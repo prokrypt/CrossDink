@@ -1,0 +1,460 @@
+name: CI (build)
+
+on:
+  push:
+    # Combine branches build so their firmware can be downloaded from the run.
+    branches: [main, "test/combined-dink-*"]
+    paths-ignore: ["**.md", "docs/**", "site/**"]
+  # Every PR, so the Test Status check the main ruleset requires always reports;
+  # the `changes` job skips the code jobs when the diff is docs-only.
+  pull_request:
+
+# A newer commit supersedes older PR validation; keep main pushes independent.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # A push always counts as code; a PR counts when any changed file is not .md, docs/ or site/.
+        run: |
+          if [ -z "$BASE_SHA" ] || git diff --name-only --merge-base "$BASE_SHA" "$HEAD_SHA" | grep -vE '\.md$|^docs/|^site/' | grep -q .; then
+            echo code=true >> "$GITHUB_OUTPUT"
+          else
+            echo "docs-only change, code jobs skipped"; echo code=false >> "$GITHUB_OUTPUT"
+          fi
+
+  clang-format:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install clang-format-21
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get update
+          sudo apt-get install -y clang-format-21
+
+      - name: Run clang-format
+        run: |
+          PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix
+          git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
+
+  cppcheck:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # The platformio.ini default_envs. A bare `pio check` walks them one after
+        # another (~15 min); one job each runs them in parallel.
+        environment: [sticky, x4-pro, x4-classic]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Restore PlatformIO packages
+        id: pio-cache
+        uses: actions/cache/restore@v5
+        with:
+          # Do not cache PlatformIO's Python virtual environment. It is tied to
+          # the runner's Python and can become invalid when restored elsewhere.
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          # Same key as the build job, so cppcheck and build share one ~1 GB
+          # entry per env. restore-keys lets a platformio.ini edit start from
+          # the previous packages instead of a cold download.
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          restore-keys: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Install cppcheck runtime dependency
+        # Platform 55.03.39 ships tool-cppcheck 2.20.1, linked against libpcre.so.3,
+        # which ubuntu-24.04 does not install; without it the check exits 127.
+        run: sudo apt-get update -q && sudo apt-get install -y -q libpcre3
+
+      - name: Run cppcheck
+        run: pio check -e ${{ matrix.environment }} --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+
+      # Only main writes caches: a PR can read main's, but its own are visible to
+      # that PR alone and would just push main's out of the 10 GB limit.
+      - name: Save PlatformIO packages
+        if: github.ref == 'refs/heads/main' && steps.pio-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ steps.pio-cache.outputs.cache-primary-key }}
+
+  simulator:
+    # The simulator mocks every HAL class, so a HAL change without a matching
+    # stub in prokrypt/crossdink-simulator breaks it. Build the X4 Pro profile
+    # and walk the app flows headless so that shows up here.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install SDL2 and OpenSSL headers
+        run: sudo apt-get update -q && sudo apt-get install -y -q libsdl2-dev libssl-dev libwolfssl-dev
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Build x4-pro-simulator
+        run: pio run -j4 -e x4-pro-simulator
+
+      - name: Run simulator smoke test
+        run: python3 scripts/run_simulator_smoke_test.py --env x4-pro-simulator --no-build --timeout 180
+
+      - name: Run font recovery smoke test
+        run: python3 scripts/run_simulator_smoke_test.py --env x4-pro-simulator --no-build --timeout 180 --font-recovery
+
+  build:
+    # Firmware artifacts are validated on pull requests; release builds stay
+    # in the dedicated release workflow. Pushes build too, only to save the
+    # caches: PR runs can restore caches from the base branch, not from other PRs,
+    # and never save their own (see "Save PlatformIO packages" in cppcheck).
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # x4-pro-debug compiles the debug-only code (PSRAM log, Goodies, knobs,
+        # debug web routes) that the release envs leave out.
+        environment: [sticky, x4-pro, x4-classic, x4-pro-debug]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Restore PlatformIO packages
+        id: pio-cache
+        uses: actions/cache/restore@v5
+        with:
+          # Do not cache PlatformIO's Python virtual environment. It is tied to
+          # the runner's Python and can become invalid when restored elsewhere.
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          # Same key as the cppcheck job, so both share one ~1 GB entry per
+          # env. restore-keys lets a platformio.ini edit start from the
+          # previous packages instead of a cold download.
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          restore-keys: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Pin pioarduino core inside the platform penv
+        run: |
+          set -euo pipefail
+          # Envs with custom_sdkconfig (all DualPoint firmware envs) run a
+          # nested `pio run` from ~/.platformio/penv, which the platform creates
+          # with an open-ended "pioarduino>=6.1.19". That now resolves to 6.2.0,
+          # which needs SCons 4.11 while the platform installs SCons 4.8.1; the
+          # two reinstall over each other mid-build and the link fails with
+          # "No module named 'SCons.Tool.FortranCommon'". Pin the penv core to
+          # the outer core's version. The platform leaves a satisfying version
+          # alone. See crosspoint-reader/crosspoint-reader#3594 and
+          # pioarduino/platform-espressif32#529.
+          pio pkg install -e ${{ matrix.environment }}
+          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
+          ~/.platformio/penv/bin/pio --version
+
+      - name: Save PlatformIO packages
+        if: github.ref == 'refs/heads/main' && steps.pio-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ steps.pio-cache.outputs.cache-primary-key }}
+
+      - name: Install ccache
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ccache
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.environment }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-ccache-${{ matrix.environment }}-
+
+      - name: Build ${{ matrix.environment }} firmware
+        env:
+          # scripts/pio_ccache.py prefixes the SCons compile commands with ccache;
+          # IDF_CCACHE_ENABLE covers the ESP-IDF CMake build of custom_sdkconfig envs.
+          # Absolute path: the platform's nested framework build runs from another dir.
+          XINK_CCACHE: /usr/bin/ccache
+          PLATFORMIO_EXTRA_SCRIPTS: pre:${{ github.workspace }}/scripts/pio_ccache.py
+          IDF_CCACHE_ENABLE: "1"
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: "1"
+          CCACHE_MAXSIZE: 400M
+        run: |
+          set -euo pipefail
+          ccache -z
+          pio run -j4 -e ${{ matrix.environment }} | tee pio-${{ matrix.environment }}.log
+          ccache -s
+
+      - name: Save ccache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.environment }}-${{ github.sha }}
+
+      - name: Extract firmware stats
+        run: |
+          set -euo pipefail
+          {
+            echo "## ${{ matrix.environment }} firmware build stats"
+            grep -E "RAM:\s|Flash:\s" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Largest symbols and source files
+        if: matrix.environment == 'x4-pro'
+        # Size-work map: the 150 largest flash/RAM symbols and the per-source-file totals.
+        run: |
+          set -euo pipefail
+          nm=$(find ~/.platformio/packages -name 'xtensa-esp32s3-elf-nm' -path '*bin*' | head -1)
+          elf=.pio/build/${{ matrix.environment }}/firmware.elf
+          echo "== largest symbols (bytes type name) =="
+          "$nm" -C -S --size-sort --radix=d "$elf" | tail -150 | awk '{ $1 = ""; print }'
+          echo "== bytes per source file (top 120) =="
+          timeout 600 "$nm" -S -l --radix=d "$elf" | awk 'NF >= 5 && $3 ~ /[TtRrDdBb]/ { f = $NF; sub(/:[0-9]+$/, "", f); sub(/.*\/(src|lib|freeink-sdk|libdeps|framework-[^\/]*)\//, "", f); s[f] += $2 } END { for (f in s) print s[f], f }' | sort -n | tail -120 || true
+
+      - name: Upload ${{ matrix.environment }} firmware
+        if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/test/combined-dink-')
+        # Flashable app image for testing PR and combine builds; the release workflows publish
+        # the same renamed firmware-<device>.bin.
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-${{ matrix.environment }}
+          path: .pio/build/${{ matrix.environment }}/firmware-*.bin
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload x4-pro-debug flash parts for the emulator
+        if: matrix.environment == 'x4-pro-debug'
+        uses: actions/upload-artifact@v7
+        with:
+          name: emu-x4-pro-debug
+          path: |
+            .pio/build/x4-pro-debug/bootloader.bin
+            .pio/build/x4-pro-debug/partitions.bin
+            .pio/build/x4-pro-debug/firmware.bin
+          if-no-files-found: error
+          retention-days: 3
+
+  emu:
+    # x4-pro-debug boots in the x4prosim emulator; test/emu/run.sh walks the screens and
+    # diffs them with test/emu/goldens. Not in Test Status yet: required once it has
+    # stayed green for a while.
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      X4PROSIM_SHA: 37745e70abd6d9a20527e60cbb640be7a79645f1  # x4prosim sim.py + shotdiff.py, whole-line cmd replies
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download x4-pro-debug build
+        uses: actions/download-artifact@v8
+        with:
+          name: emu-x4-pro-debug
+          path: fw
+
+      - name: Install emulator deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build libglib2.0-dev libpixman-1-dev libgcrypt20-dev libslirp-dev libpng-dev dosfstools mtools
+          pip install -q --break-system-packages esptool pillow
+
+      - name: Restore x4prosim
+        id: sim-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: x4prosim/install
+          key: x4prosim-png-${{ runner.os }}-${{ env.X4PROSIM_SHA }}
+
+      - name: Build x4prosim
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git init -q x4prosim && cd x4prosim
+          git fetch -q --depth 1 https://github.com/prokrypt/x4prosim "$X4PROSIM_SHA"
+          git checkout -q FETCH_HEAD
+          mkdir build && cd build
+          ../configure --target-list=xtensa-softmmu --enable-gcrypt --enable-slirp --disable-sdl \
+            --disable-user --disable-capstone --disable-vnc --disable-gtk --disable-docs \
+            --prefix="$PWD/../install" --bindir=bin --datadir=share/qemu --with-suffix="" > /dev/null
+          grep -qx "#define CONFIG_PNG" config-host.h  # sim.py screenshots need PNG screendump
+          ninja install > /dev/null
+          # only the ESP ROMs are needed, as in x4prosim's release archives
+          find ../install/share/qemu -maxdepth 1 -mindepth 1 -not -name 'esp*.bin' -exec rm -rf {} +
+          cp -R ../x4prosim ../install/
+
+      - name: Save x4prosim
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: x4prosim/install
+          key: ${{ steps.sim-cache.outputs.cache-primary-key }}
+
+      - name: Boot and compare screens
+        run: test/emu/run.sh fw x4prosim/install emu-out
+
+      - name: Upload emulator output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emu-x4-pro-debug-out
+          path: |
+            emu-out/run/*.png
+            emu-out/run/log.txt
+            emu-out/run/qemu.err
+            emu-out/guest.log
+            emu-out/steps.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+
+  bootloader:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    # X4 Pro second-stage bootloader (tools/bootloader, QIO + skip-validate-on-power-on). PlatformIO only ships
+    # Arduino's prebuilt bootloaders, so this is built with ESP-IDF itself, the version Arduino 3.3.9 is built on.
+    # Flashed with Goodies > Flash bootloader from /bootloader.bin on the SD card (docs/goodies.md).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build bootloader
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.4
+          target: esp32s3
+          path: tools/bootloader
+          command: idf.py bootloader
+      - name: Bootloader image info
+        run: |
+          sudo chown -R "$(id -u)" tools/bootloader/build
+          pip install -q esptool
+          python -m esptool image-info tools/bootloader/build/bootloader/bootloader.bin
+      - name: Upload bootloader
+        uses: actions/upload-artifact@v7
+        with:
+          name: bootloader-x4-pro
+          path: tools/bootloader/build/bootloader/bootloader.bin
+          if-no-files-found: error
+          retention-days: 14
+
+  unit-tests:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake ninja-build libexpat1-dev zlib1g-dev
+
+      - name: Configure
+        run: cmake -S test -B build/test -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/test
+
+      - name: Run tests
+        run: ctest --test-dir build/test --output-on-failure -j
+
+  # This job is used as the PR required actions check, allows for changes to other steps in the future without breaking
+  # PR requirements.
+  test-status:
+    name: Test Status
+    needs:
+      - changes
+      - bootloader
+      - build
+      - clang-format
+      - cppcheck
+      - simulator
+      - unit-tests
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail because needed jobs failed
+        # Fail if any job failed or was cancelled (skipped jobs are ok)
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+      - name: Success
+        run: exit 0

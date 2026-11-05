@@ -1,0 +1,484 @@
+#include "OpdsParser.h"
+
+#include <Logging.h>
+#include <XmlParserUtils.h>
+
+#include <cstring>
+#include <utility>
+
+#include "OpdsJsonParser.h"
+
+namespace {
+constexpr size_t MAX_TITLE_CHARS = 160;
+constexpr size_t MAX_AUTHOR_CHARS = 120;
+constexpr size_t MAX_ID_CHARS = 128;
+constexpr size_t MAX_HREF_CHARS = 768;
+constexpr size_t MAX_SEARCH_TEMPLATE_CHARS = 768;
+constexpr size_t MAX_PAGE_URL_CHARS = 768;
+// Only short "<N> books" summaries carry a count; one char past the limit
+// marks a longer (descriptive) summary as not-a-count.
+constexpr size_t MAX_SUMMARY_COUNT_CHARS = 32;
+constexpr size_t MAX_FEED_NUMBER_CHARS = 16;
+
+bool isSpace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+bool isDigit(const char c) { return c >= '0' && c <= '9'; }
+
+// Consumes a non-negative decimal integer at `p`; false on no digits or overflow.
+bool consumeCount(const char*& p, int32_t& out) {
+  if (!isDigit(*p)) return false;
+  int32_t value = 0;
+  for (; isDigit(*p); ++p) {
+    if (value > (INT32_MAX - 9) / 10) return false;
+    value = value * 10 + (*p - '0');
+  }
+  out = value;
+  return true;
+}
+
+// thr:count attribute value: digits only; -1 otherwise.
+int32_t parseAttributeCount(const char* text) {
+  int32_t value = -1;
+  if (!text || !consumeCount(text, value) || *text != '\0') return -1;
+  return value;
+}
+
+// "<N> <word>" summaries such as Mayberry's "12713 books"; a descriptive
+// sentence that happens to start with a number yields -1.
+int32_t parseSummaryCount(const PsramString& summary) {
+  if (summary.size() > MAX_SUMMARY_COUNT_CHARS) return -1;
+  const char* p = summary.c_str();
+  while (isSpace(*p)) ++p;
+  int32_t value = -1;
+  if (!consumeCount(p, value) || (*p != ' ' && *p != '\t')) return -1;
+  while (isSpace(*p)) ++p;
+  // One word: ASCII letters or UTF-8 multibyte (localized nouns).
+  const char* wordStart = p;
+  for (; *p && !isSpace(*p); ++p) {
+    const auto c = static_cast<unsigned char>(*p);
+    if (c < 0x80 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return -1;
+  }
+  if (p == wordStart) return -1;
+  while (isSpace(*p)) ++p;
+  return *p == '\0' ? value : -1;
+}
+
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+// Expat's tag stacks and name pools are small blocks: PSRAM, like the entries.
+void* xmlMalloc(const size_t n) {
+  return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+void* xmlRealloc(void* p, const size_t n) {
+  return heap_caps_realloc_prefer(p, n, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+const XML_Memory_Handling_Suite PSRAM_XML_MEMORY = {xmlMalloc, xmlRealloc, heap_caps_free};
+#endif
+}  // namespace
+
+OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity, const bool publication)
+    : publicationDocument(publication), entries(entries), entryCapacity(entryCapacity) {
+  if (!entries || entryCapacity == 0) {
+    errorOccured = true;
+    errorReason = OpdsParserError::NO_ENTRY_BUFFER;
+    LOG_DBG("OPDS", "No entry buffer supplied");
+  }
+
+  resetXmlParser();
+}
+
+OpdsParser::~OpdsParser() { destroyXmlParser(parser); }
+
+void OpdsParser::setPreferredLanguage(const char* lang) {
+  const size_t len = lang ? strnlen(lang, sizeof(preferredLang) - 1) : 0;
+  if (len) memcpy(preferredLang, lang, len);
+  preferredLang[len] = '\0';
+}
+
+bool OpdsParser::sniffFormat(const uint8_t*& data, size_t& length) {
+  while (!sniffed && length > 0) {
+    const uint8_t byte = *data;
+    if (bomBytes) {
+      if (byte != (bomBytes == 1 ? 0xBB : 0xBF)) return false;
+      bomBytes = bomBytes == 1 ? 2 : 0;
+    } else if (byte == 0xEF) {
+      bomBytes = 1;
+    } else if (byte == ' ' || byte == '\r' || byte == '\n' || byte == '\t') {
+      // skip
+    } else {
+      sniffed = true;
+      if (byte == '{') {
+        json = makeUniqueNoThrow<OpdsJsonParser>(entries, entryCapacity, publicationDocument);
+        if (!json) {
+          errorReason = OpdsParserError::PARSER_MEMORY;
+          LOG_ERR("OPDS", "Couldn't allocate memory for the JSON parser");
+          return false;
+        }
+        json->setPreferredLanguage(preferredLang);
+      }
+      return true;
+    }
+    ++data;
+    --length;
+  }
+  return true;
+}
+
+size_t OpdsParser::write(uint8_t c) { return write(&c, 1); }
+
+size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
+  if (errorOccured || !parser) {
+    errorOccured = true;
+    return 0;
+  }
+  if (!xmlData && length > 0) {
+    errorOccured = true;
+    errorReason = OpdsParserError::INVALID_INPUT;
+    return 0;
+  }
+
+  const uint8_t* data = xmlData;
+  size_t remainingData = length;
+  if (!sniffFormat(data, remainingData)) {
+    errorOccured = true;
+    if (errorReason == OpdsParserError::NONE) errorReason = OpdsParserError::INVALID_INPUT;
+    return 0;
+  }
+  if (json) {
+    if (json->write(data, remainingData) != remainingData) {
+      errorOccured = true;
+      errorReason = OpdsParserError::INVALID_INPUT;
+      return 0;
+    }
+    return length;
+  }
+
+  const char* currentPos = reinterpret_cast<const char*>(data);
+  size_t remaining = remainingData;
+  constexpr size_t chunkSize = 1024;
+
+  // Past the entry limit nothing more is kept, so the rest is ignored and the
+  // caller can stop the download.
+  while (remaining > 0 && !truncated) {
+    const size_t toRead = remaining < chunkSize ? remaining : chunkSize;
+    void* const buf = XML_GetBuffer(parser, toRead);
+    if (!buf) {
+      errorOccured = true;
+      errorReason = OpdsParserError::BUFFER_MEMORY;
+      LOG_DBG("OPDS", "Couldn't allocate memory for buffer");
+      destroyXmlParser(parser);
+      parser = nullptr;
+      return 0;
+    }
+
+    memcpy(buf, currentPos, toRead);
+
+    if (XML_ParseBuffer(parser, static_cast<int>(toRead), 0) == XML_STATUS_ERROR) {
+      errorOccured = true;
+      errorReason = OpdsParserError::XML_PARSE;
+      LOG_DBG("OPDS", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
+              XML_ErrorString(XML_GetErrorCode(parser)));
+      destroyXmlParser(parser);
+      parser = nullptr;
+      return 0;
+    }
+    currentPos += toRead;
+    remaining -= toRead;
+  }
+  return length;
+}
+
+void OpdsParser::flush() {
+  if (json) {
+    json->flush();
+    if (json->error() && !errorOccured) {
+      errorOccured = true;
+      errorReason = OpdsParserError::INVALID_INPUT;
+    }
+    return;
+  }
+  // A feed cut off at the entry limit is never a complete document.
+  if (!parser || truncated) return;
+  if (XML_Parse(parser, nullptr, 0, XML_TRUE) != XML_STATUS_OK) {
+    errorOccured = true;
+    errorReason = OpdsParserError::XML_PARSE;
+    destroyXmlParser(parser);
+    parser = nullptr;
+  }
+}
+
+bool OpdsParser::parse(const uint8_t* xmlData, const size_t length) {
+  clear();
+  if (!xmlData && length > 0) {
+    errorOccured = true;
+    errorReason = OpdsParserError::INVALID_INPUT;
+    return false;
+  }
+
+  if (length > 0) {
+    write(xmlData, length);
+  }
+  flush();
+  return !error();
+}
+
+bool OpdsParser::error() const { return errorOccured; }
+
+size_t OpdsParser::getEntryCount() const { return json ? json->getEntryCount() : entryCount; }
+bool OpdsParser::wasTruncated() const { return json ? json->truncated() : truncated; }
+const std::string& OpdsParser::getSearchTemplate() const { return json ? json->getSearchTemplate() : searchTemplate; }
+const std::string& OpdsParser::getNextPageUrl() const { return json ? json->getNextPageUrl() : nextPageUrl; }
+const std::string& OpdsParser::getPrevPageUrl() const { return json ? json->getPrevPageUrl() : prevPageUrl; }
+int32_t OpdsParser::getTotalResults() const { return json ? json->getTotalResults() : totalResults; }
+
+void OpdsParser::clear() {
+  json.reset();
+  sniffed = false;
+  bomBytes = 0;
+  entryCount = 0;
+  truncated = false;
+  searchTemplate.clear();
+  searchDescriptionUrl.clear();
+  nextPageUrl.clear();
+  prevPageUrl.clear();
+  totalResults = itemsPerPage = startIndex = -1;
+  feedNumber = nullptr;
+  currentEntry = OpdsEntry{};
+  currentText.clear();
+  inEntry = inTitle = inAuthor = inAuthorName = inId = inSummary = false;
+  errorOccured = !entries || entryCapacity == 0;
+  errorReason = errorOccured ? OpdsParserError::NO_ENTRY_BUFFER : OpdsParserError::NONE;
+  resetXmlParser();
+}
+
+bool OpdsParser::resetXmlParser() {
+  if (parser) {
+    if (XML_ParserReset(parser, nullptr) != XML_TRUE) {
+      destroyXmlParser(parser);
+    }
+  }
+
+  if (!parser) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+    parser = XML_ParserCreate_MM(nullptr, &PSRAM_XML_MEMORY, nullptr);
+#else
+    parser = XML_ParserCreate(nullptr);
+#endif
+    if (!parser) {
+      errorOccured = true;
+      errorReason = OpdsParserError::PARSER_MEMORY;
+      LOG_DBG("OPDS", "Couldn't allocate memory for parser");
+      return false;
+    }
+  }
+
+  XML_SetUserData(parser, this);
+  XML_SetElementHandler(parser, startElement, endElement);
+  XML_SetCharacterDataHandler(parser, characterData);
+  return true;
+}
+
+const char* OpdsParser::findAttribute(const XML_Char** atts, const char* name) {
+  for (int i = 0; atts[i]; i += 2) {
+    if (strcmp(atts[i], name) == 0) return atts[i + 1];
+  }
+  return nullptr;
+}
+
+template <typename String>
+void OpdsParser::assignBounded(String& target, const char* value, const size_t maxLen) {
+  if (!value) {
+    target.clear();
+    return;
+  }
+  target.assign(value, strnlen(value, maxLen));
+}
+
+void OpdsParser::appendBounded(PsramString& target, const char* value, const size_t len, const size_t maxLen) {
+  if (target.size() >= maxLen) return;
+  const size_t remaining = maxLen - target.size();
+  target.append(value, len < remaining ? len : remaining);
+}
+
+void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
+  auto* self = static_cast<OpdsParser*>(userData);
+
+  // OpenSearch description document: the Atom (OPDS) result template.
+  if (strcmp(name, "Url") == 0 && self->searchTemplate.empty()) {
+    const char* tmpl = findAttribute(atts, "template");
+    const char* type = findAttribute(atts, "type");
+    if (tmpl && strstr(tmpl, "{searchTerms}") != nullptr && (!type || strstr(type, "atom") != nullptr)) {
+      assignBounded(self->searchTemplate, tmpl, MAX_SEARCH_TEMPLATE_CHARS);
+    }
+    return;
+  }
+
+  if (strcmp(name, "link") == 0 || strstr(name, ":link") != nullptr) {
+    const char* href = findAttribute(atts, "href");
+    if (href) {
+      const char* rel = findAttribute(atts, "rel");
+      const char* type = findAttribute(atts, "type");
+
+      if (rel && strcmp(rel, "search") == 0) {
+        if (strstr(href, "{searchTerms}") != nullptr) {
+          assignBounded(self->searchTemplate, href, MAX_SEARCH_TEMPLATE_CHARS);
+        } else {
+          // An OpenSearch description document; its <Url template> is the search.
+          assignBounded(self->searchDescriptionUrl, href, MAX_PAGE_URL_CHARS);
+        }
+      } else if (rel && strcmp(rel, "next") == 0 && !self->inEntry) {
+        assignBounded(self->nextPageUrl, href, MAX_PAGE_URL_CHARS);
+      } else if (rel && strcmp(rel, "previous") == 0 && !self->inEntry) {
+        assignBounded(self->prevPageUrl, href, MAX_PAGE_URL_CHARS);
+      }
+
+      if (self->inEntry) {
+        if (rel && type && strstr(rel, "opds-spec.org/acquisition") != nullptr &&
+            strcmp(type, "application/epub+zip") == 0) {
+          // Prefer plain EPUB links over derived formats when multiple
+          // acquisition links are present for one entry.
+          const bool isPlainEpub = strstr(href, ".epub") != nullptr || strstr(href, "/epub/") != nullptr;
+          const bool alreadyHasPlainEpub = self->currentEntry.type == OpdsEntryType::BOOK &&
+                                           (self->currentEntry.href.find(".epub") != std::string::npos ||
+                                            self->currentEntry.href.find("/epub/") != std::string::npos);
+          if (self->currentEntry.type != OpdsEntryType::BOOK || (isPlainEpub && !alreadyHasPlainEpub)) {
+            self->currentEntry.type = OpdsEntryType::BOOK;
+            assignBounded(self->currentEntry.href, href, MAX_HREF_CHARS);
+            self->currentEntry.length = parseAttributeCount(findAttribute(atts, "length"));
+          }
+        } else if (type && strstr(type, "application/atom+xml") != nullptr) {
+          if (self->currentEntry.type != OpdsEntryType::BOOK) {
+            self->currentEntry.type = OpdsEntryType::NAVIGATION;
+            assignBounded(self->currentEntry.href, href, MAX_HREF_CHARS);
+            // Atom threading extension: thr:count="N" (any namespace prefix).
+            for (int i = 0; atts[i]; i += 2) {
+              const char* colon = strrchr(atts[i], ':');
+              if (colon && strcmp(colon + 1, "count") == 0) {
+                const int32_t count = parseAttributeCount(atts[i + 1]);
+                if (count >= 0) self->currentEntry.count = count;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (strcmp(name, "entry") == 0 || strstr(name, ":entry") != nullptr) {
+    self->inEntry = true;
+    self->currentEntry = OpdsEntry{};
+    return;
+  }
+
+  if (!self->inEntry) {
+    // OpenSearch paging on the feed itself (any prefix, e.g. opensearch:totalResults).
+    const char* colon = strrchr(name, ':');
+    const char* local = colon ? colon + 1 : name;
+    if (strcmp(local, "totalResults") == 0) {
+      self->feedNumber = &self->totalResults;
+    } else if (strcmp(local, "itemsPerPage") == 0) {
+      self->feedNumber = &self->itemsPerPage;
+    } else if (strcmp(local, "startIndex") == 0) {
+      self->feedNumber = &self->startIndex;
+    }
+    if (self->feedNumber) self->currentText.clear();
+    return;
+  }
+
+  if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
+    self->inTitle = true;
+    self->currentText.clear();
+  } else if (strcmp(name, "author") == 0 || strstr(name, ":author") != nullptr) {
+    self->inAuthor = true;
+  } else if (self->inAuthor && (strcmp(name, "name") == 0 || strstr(name, ":name") != nullptr)) {
+    self->inAuthorName = true;
+    self->currentText.clear();
+  } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
+    self->inId = true;
+    self->currentText.clear();
+  } else if (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr) {
+    self->inSummary = true;
+    self->currentText.clear();
+  }
+}
+
+void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
+  auto* self = static_cast<OpdsParser*>(userData);
+
+  if (self->feedNumber) {
+    const char* p = self->currentText.c_str();
+    while (isSpace(*p)) ++p;
+    int32_t value = -1;
+    if (consumeCount(p, value)) {
+      while (isSpace(*p)) ++p;
+      if (*p == '\0') *self->feedNumber = value;
+    }
+    self->feedNumber = nullptr;
+    return;
+  }
+
+  if (strcmp(name, "feed") == 0 || strstr(name, ":feed") != nullptr) {
+    // Last page: its items reach totalResults. start + per > total holds for both
+    // 1-based (spec) and 0-based startIndex only when nothing follows.
+    if (!self->nextPageUrl.empty() && self->totalResults >= 0 && self->itemsPerPage > 0 && self->startIndex >= 0 &&
+        static_cast<int64_t>(self->startIndex) + self->itemsPerPage > self->totalResults) {
+      LOG_DBG("OPDS", "Last page (%ld of %ld): next link dropped", static_cast<long>(self->startIndex),
+              static_cast<long>(self->totalResults));
+      self->nextPageUrl.clear();
+    }
+    return;
+  }
+
+  if (strcmp(name, "entry") == 0 || strstr(name, ":entry") != nullptr) {
+    if (!self->currentEntry.title.empty() && !self->currentEntry.href.empty()) {
+      if (self->currentEntry.type != OpdsEntryType::NAVIGATION) self->currentEntry.count = -1;
+      if (self->entryCount < self->entryCapacity) {
+        self->entries[self->entryCount++] = std::move(self->currentEntry);
+      } else {
+        self->truncated = true;
+      }
+    }
+    self->inEntry = false;
+  } else if (self->inEntry) {
+    // Retain the shared text scratch: moving it transfers a previous long
+    // description's spare capacity into even a short title/author/id.
+    if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
+      if (self->inTitle) self->currentEntry.title = self->currentText;
+      self->inTitle = false;
+    } else if (strcmp(name, "author") == 0 || strstr(name, ":author") != nullptr) {
+      self->inAuthor = false;
+    } else if (self->inAuthorName && (strcmp(name, "name") == 0 || strstr(name, ":name") != nullptr)) {
+      if (self->currentEntry.author.empty()) self->currentEntry.author = self->currentText;
+      self->inAuthorName = false;
+    } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
+      if (self->inId) self->currentEntry.id = self->currentText;
+      self->inId = false;
+    } else if (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr) {
+      // thr:count on the link wins over a summary count.
+      if (self->inSummary && self->currentEntry.count < 0) {
+        self->currentEntry.count = parseSummaryCount(self->currentText);
+      }
+      self->inSummary = false;
+    }
+  }
+}
+
+void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const int len) {
+  auto* self = static_cast<OpdsParser*>(userData);
+  if (self->feedNumber) {
+    appendBounded(self->currentText, s, len, MAX_FEED_NUMBER_CHARS);
+  } else if (self->inTitle) {
+    appendBounded(self->currentText, s, len, MAX_TITLE_CHARS);
+  } else if (self->inAuthorName) {
+    appendBounded(self->currentText, s, len, MAX_AUTHOR_CHARS);
+  } else if (self->inId) {
+    appendBounded(self->currentText, s, len, MAX_ID_CHARS);
+  } else if (self->inSummary) {
+    // Drop leading whitespace and collapse runs, so an indented "\n    12713 books\n  "
+    // still fits the count-sized buffer while a real sentence still overflows it.
+    PsramString& text = self->currentText;
+    for (int i = 0; i < len && text.size() <= MAX_SUMMARY_COUNT_CHARS; ++i) {
+      if (isSpace(s[i]) && (text.empty() || isSpace(text.back()))) continue;
+      text.push_back(s[i]);
+    }
+  }
+}

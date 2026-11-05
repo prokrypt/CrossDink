@@ -14,6 +14,8 @@
 namespace SyncFiles {
 // Running CRC32 over a file's bytes, matching uzlib_crc32 chaining.
 uint32_t crc(const void* data, size_t length, uint32_t running);
+// 32 hex digits (a KOReader document id) -> 16 bytes. False on any other input.
+bool parseHex(const std::string& hex, uint8_t (&out)[16]);
 
 // Writer for "<path>.tmp". Every byte written is folded into the trailing CRC.
 class Writer {

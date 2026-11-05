@@ -815,7 +815,7 @@ void NearbyBookTransferActivity::loop() {
     const Rect safeArea = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     if (state_ == State::CollisionPrompt) {
       const auto actions = touchActionLayout(safeArea, 3);
-      const int index = TouchActionButtons::indexAt(actions, tx, ty);
+      const int index = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
       if (index >= 0) {
         selectedIndex_ = index;
         activateSelected();
@@ -824,7 +824,7 @@ void NearbyBookTransferActivity::loop() {
     }
     const uint8_t actionCount = state_ == State::Success && mode_ != Mode::Receive ? 1 : 2;
     const auto actions = touchActionLayout(safeArea, actionCount);
-    const int action = TouchActionButtons::indexAt(actions, tx, ty);
+    const int action = TouchActionButtons::indexAt(actions, tx, ty, TouchActionButtons::kDefaultGap / 2);
     if (action >= 0) {
       if (actionCount == 2 && action == 1) {
         if (state_ == State::Success) {
@@ -859,19 +859,21 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
   renderer.clearScreen();
   bool drewReceivingScreen = false;
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int width = renderer.getScreenWidth();
-  const int height = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int width = safe.width;
+  const int height = safe.height;
+  const int centerY = safe.y + safe.height / 2;
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   TouchHeaderBackButton::draw(renderer, uiTarget_, header, tr(STR_NEARBY_BOOK_TRANSFER), false);
 
-  const Rect textArea{metrics.contentSidePadding, 0, width - metrics.contentSidePadding * 2, height};
-  auto centered = [this, height, textArea](const char* text, const int offset = 0, const int font = UI_10_FONT_ID) {
-    UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, font, height / 2 + offset, text, 2, true,
+  const Rect textArea{safe.x + metrics.contentSidePadding, safe.y, width - metrics.contentSidePadding * 2, height};
+  auto centered = [this, centerY, textArea](const char* text, const int offset = 0, const int font = UI_10_FONT_ID) {
+    UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, font, centerY + offset, text, 2, true,
                                              offset == 0 ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   };
-  auto centeredWrapped = [this, height, textArea](const char* text, const int offset, const int maxLines,
-                                                  const int font = UI_10_FONT_ID) {
-    UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, font, height / 2 + offset, text, maxLines);
+  auto centeredWrapped = [this, centerY, textArea](const char* text, const int offset, const int maxLines,
+                                                   const int font = UI_10_FONT_ID) {
+    UITheme::drawCenteredWrappedTextAtCenter(renderer, textArea, font, centerY + offset, text, maxLines);
   };
   uiReady_ = false;
   if (isMenuState()) {
@@ -900,7 +902,7 @@ void NearbyBookTransferActivity::render(RenderLock&&) {
     drewReceivingScreen = state_ == State::Receiving;
     const uint64_t scale = std::max<uint64_t>(1, session_.totalBytes() / 10000 + 1);
     GUI.drawProgressBar(renderer,
-                        Rect{metrics.contentSidePadding, height / 2 + 10, width - metrics.contentSidePadding * 2,
+                        Rect{safe.x + metrics.contentSidePadding, centerY + 10, width - metrics.contentSidePadding * 2,
                              metrics.progressBarHeight},
                         static_cast<size_t>(session_.transferredBytes() / scale),
                         static_cast<size_t>(session_.totalBytes() / scale));

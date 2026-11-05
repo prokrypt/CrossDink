@@ -1,0 +1,56 @@
+name: Publish language assets
+
+# Rebuilds the language download catalog whenever the translations or their
+# tooling change on main, and commits it to the language-assets branch that the
+# firmware's ASSET_DOWNLOAD_BASE_URL points at.
+on:
+  push:
+    branches: [main]
+    paths:
+      - lib/I18n/translations/**
+      - lib/I18n/languages.json
+      - scripts/gen_i18n.py
+      - scripts/generate_language_template.py
+      - scripts/publish_language_assets.py
+      - platformio.ini
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: language-assets
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check out the language-assets branch
+        run: |
+          # checkout fetches only main, so fetch the branch before using origin/language-assets.
+          if git fetch -q --depth=1 origin +refs/heads/language-assets:refs/remotes/origin/language-assets; then
+            git worktree add -B language-assets assets-branch origin/language-assets
+          else
+            git worktree add --detach assets-branch
+            git -C assets-branch checkout --orphan language-assets
+            git -C assets-branch rm -rfq .
+          fi
+      - name: Build the catalog and snapshot
+        run: python3 scripts/publish_language_assets.py --output assets-branch
+      - name: Commit and push
+        working-directory: assets-branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Language assets are already current'
+            exit 0
+          fi
+          git commit -m "Update language assets for ${GITHUB_SHA}"
+          git push origin HEAD:language-assets

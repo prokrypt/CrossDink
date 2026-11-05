@@ -146,6 +146,8 @@ int progressLabelBottomY(const GfxRenderer& renderer, const Rect& coverRect, con
 
 void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& globalStats, const Rect& coverRect,
                       const float progressPercent, const bool inverted) {
+  // X3-only overlay; deviceIsX3() is a constant false on S3 boards.
+  // cppcheck-suppress knownConditionTrueFalse
   if (!gpio.deviceIsX3()) {
     return;
   }
@@ -160,7 +162,8 @@ void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& glo
                        readerRegionTop, readerRegionBottom, inverted);
 
   const int streakRegionTop = progressLabelBottomY(renderer, coverRect, progressPercent);
-  const int streakRegionBottom = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int streakRegionBottom = safe.y + safe.height;
   drawCenteredStatsRow(renderer, StreakIcon, kStatsFooterStreakIconSize, streakBuf, streakRegionTop, streakRegionBottom,
                        inverted);
 }
@@ -609,10 +612,14 @@ Rect MinimalTheme::buttonMenuPanelRect(const GfxRenderer& renderer, const int bu
     return Rect{0, 0, 0, 0};
   }
 
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  // Home body spans the full width; only the vertical safe area applies (user 11/04).
   const int panelW = std::min(kMenuPanelWidth, renderer.getScreenWidth() - 80);
-  const int panelH = buttonCount * kMenuRowHeight + 2;
+  const int pageItems = std::max(1, std::min(buttonCount, (safe.height - 2) / kMenuRowHeight));
+  const int panelH = pageItems * kMenuRowHeight + 2;
   const int panelX = (renderer.getScreenWidth() - panelW) / 2;
-  return Rect{panelX, kMenuPanelTop, panelW, panelH};
+  const int panelY = std::clamp(kMenuPanelTop, safe.y, std::max(safe.y, safe.y + safe.height - panelH));
+  return Rect{panelX, panelY, panelW, panelH};
 }
 
 void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
@@ -764,8 +771,10 @@ void MinimalTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCo
   labelText.maxLines = 1;
   renderer.drawRoundedRect(panelX, panelY, panelW, panelH, 1, kMenuPanelRadius, true);
 
-  for (int i = 0; i < buttonCount; ++i) {
-    const int rowY = panelY + 1 + i * kMenuRowHeight;
+  const int pageItems = std::max(1, (panelH - 2) / kMenuRowHeight);
+  const int first = std::max(0, selectedIndex) / pageItems * pageItems;
+  for (int i = first; i < std::min(buttonCount, first + pageItems); ++i) {
+    const int rowY = panelY + 1 + (i - first) * kMenuRowHeight;
     TouchRegistry::getInstance().add(Rect{panelX, rowY, panelW, kMenuRowHeight}, i, TouchRegistry::Item);
     if (i == selectedIndex) {
       const int triangleX = panelX + kMenuSelectionTriangleInset;

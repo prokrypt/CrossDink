@@ -456,22 +456,18 @@ uint16_t computeReadingHistoryLongestStreak(const uint32_t anchorDay,
 
 uint16_t computeReadingHistoryCurrentStreak(uint32_t anchorDay, const std::array<uint8_t, READING_HISTORY_BYTES>& bits,
                                             const ReadingStatsDate* today) {
-  if (anchorDay == 0 && !isBitSet(bits, 0)) {
-    return 0;
-  }
-  if (!isBitSet(bits, 0)) {
-    return 0;
-  }
-
+  int64_t offset = 0;
   if (today && today->isValid()) {
-    const uint32_t todayDay = readingStatsDayIndex(*today);
-    if (anchorDay + 1u < todayDay) {
-      return 0;
-    }
+    offset = int64_t(anchorDay) - readingStatsDayIndex(*today);
   }
+  // A downloaded calendar is anchored to today even before any reading today.
+  // Start from the actual local day (or yesterday), excluding future bits.
+  if (offset < -1 || offset >= int64_t(READING_HISTORY_DAYS)) return 0;
+  size_t first = offset < 0 ? 0 : size_t(offset);
+  if (offset >= 0 && !isBitSet(bits, first)) ++first;
 
   uint16_t streak = 0;
-  for (size_t bitIndex = 0; bitIndex < READING_HISTORY_DAYS; ++bitIndex) {
+  for (size_t bitIndex = first; bitIndex < READING_HISTORY_DAYS; ++bitIndex) {
     if (!isBitSet(bits, bitIndex)) {
       break;
     }
@@ -515,4 +511,15 @@ bool readingStatsIntervalSeconds(uint32_t nowMs, uint32_t shownAtMs, uint32_t id
   if (!elapsed || elapsed > idleSeconds) return false;
   seconds = elapsed;
   return true;
+}
+
+bool isValidReadingStatsInterval(const ReadingStatsDateTime& start, const ReadingStatsDateTime& end,
+                                 const uint8_t startOffset, const uint8_t endOffset, const uint32_t seconds) {
+  if (!seconds || !start.isValid() || !end.isValid() || startOffset != endOffset || endOffset > 104) return false;
+  const uint64_t first =
+      uint64_t(readingStatsDayIndex(start.date)) * 86400 + start.hour * 3600u + start.minute * 60u + start.second;
+  const uint64_t last =
+      uint64_t(readingStatsDayIndex(end.date)) * 86400 + end.hour * 3600u + end.minute * 60u + end.second;
+  // Match the existing daily counters' allowance for RTC/subsecond rounding.
+  return last >= first && last - first + 2 >= seconds && last - first <= uint64_t(seconds) + 2;
 }

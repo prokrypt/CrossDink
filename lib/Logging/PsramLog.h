@@ -1,0 +1,44 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+// Debug-only text log ring in PSRAM that survives software restarts (silent
+// reboots, panics, OTA restarts), so the log leading up to a reboot can be
+// fetched afterwards over Wi-Fi (GET /api/psram-log) or USB serial
+// (CMD:PSRAMLOG). Power-on reset, the reset button and deep sleep power PSRAM
+// down and start a fresh ring.
+//
+// -DCROSSDINK_PSRAM_LOG=1 (debug envs): 512 KB ring plus the endpoints above.
+// -DCROSSDINK_PSRAM_LOG_RING=1 (release envs): a 64 KB ring only, read by bug
+// reports (src/util/BugReport.h). Needs
+// CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y ([dualpoint_cores] in
+// platformio.ini); the boot PSRAM test skips that segment. Otherwise every
+// function is an empty inline.
+#if (CROSSDINK_PSRAM_LOG || CROSSDINK_PSRAM_LOG_RING) && !defined(SIMULATOR)
+#define CROSSDINK_HAS_PSRAM_LOG_RING 1
+namespace PsramLog {
+// Appends text; safe from any task on either core.
+void append(const char* text, size_t len);
+// Byte offsets of the oldest text still in the ring and of the end of the
+// text written so far. Readers copy [oldest, end) so logging done while they
+// stream does not keep extending the dump.
+uint32_t oldest();
+uint32_t end();
+// Copies up to maxLen bytes starting at cursor into dst and advances cursor.
+// A cursor the writer has lapped snaps forward to the oldest byte. Returns 0
+// at the end of the log.
+size_t read(uint32_t& cursor, char* dst, size_t maxLen);
+// Blocks the calling task until end() moves past `since` (woken by append, no
+// polling) or timeoutMs passes. One waiter at a time. True when text arrived.
+bool waitForAppend(uint32_t since, uint32_t timeoutMs);
+}  // namespace PsramLog
+#else
+namespace PsramLog {
+inline void append(const char*, size_t) {}
+inline uint32_t oldest() { return 0; }
+inline uint32_t end() { return 0; }
+inline size_t read(uint32_t&, char*, size_t) { return 0; }
+inline bool waitForAppend(uint32_t, uint32_t) { return false; }
+}  // namespace PsramLog
+#endif

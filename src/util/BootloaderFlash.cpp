@@ -7,6 +7,7 @@
 #include <esp_app_desc.h>
 #include <esp_app_format.h>
 #include <esp_flash.h>
+#include <esp_ota_ops.h>
 #include <hal/efuse_hal.h>
 #include <mbedtls/sha256.h>
 
@@ -15,6 +16,8 @@
 
 // The original, behind the --wrap that lets this app verify itself on X4 silicon.
 extern "C" esp_err_t __real_bootloader_common_check_efuse_blk_validity(uint32_t min_rev_full, uint32_t max_rev_full);
+// Exported by esp_flash_api.c (reads the QE status bit under the flash lock) but left out of esp_flash.h.
+extern "C" esp_err_t esp_flash_get_io_mode(esp_flash_t* chip, bool* qe);
 
 namespace bootloader_flash {
 namespace {
@@ -106,6 +109,14 @@ void logAppCheck() {
   LOG_INF("BOOT", "idf bootloader app check=%s efuse blk rev=v%lu.%lu chip rev=v%lu.%lu", appAccepted() ? "ok" : "FAIL",
           static_cast<unsigned long>(blk / 100), static_cast<unsigned long>(blk % 100),
           static_cast<unsigned long>(chip / 100), static_cast<unsigned long>(chip % 100));
+  // Which bootloader sits at offset 0 (IDF >= 5.1 images carry a description; the factory one may not) and
+  // whether the chip's QE bit is set: the two facts a QIO cache depends on.
+  esp_bootloader_desc_t desc;
+  const esp_err_t rc = esp_ota_get_bootloader_description(nullptr, &desc);
+  bool qe = false;
+  const esp_err_t qeRc = esp_flash_get_io_mode(esp_flash_default_chip, &qe);
+  LOG_INF("BOOT", "bootloader idf=%s built=%s QE=%s", rc == ESP_OK ? desc.idf_ver : "none",
+          rc == ESP_OK ? desc.date_time : "?", qeRc == ESP_OK ? (qe ? "1" : "0") : "?");
 }
 
 }  // namespace bootloader_flash

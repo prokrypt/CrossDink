@@ -1,0 +1,342 @@
+#include <gtest/gtest.h>
+
+#include <functional>
+
+#include "components/OptionPopup.h"
+
+GfxRenderer mappedInputRenderer;
+MappedInputManager mappedInputManager(gpio, mappedInputRenderer);
+
+namespace {
+
+class PopupTouchHarness {
+ public:
+  explicit PopupTouchHarness(MappedInputManager& input) : input(input) {}
+
+  void touchPopup(OptionPopup& popup, const int optionY, const std::function<void()>& requestUpdate) {
+    input.injectTouchDown(400, optionY);
+    ASSERT_TRUE(popup.handleInput(input, requestUpdate));
+    input.injectTouchRelease(400, optionY);
+    ASSERT_TRUE(popup.handleInput(input, requestUpdate));
+  }
+
+ private:
+  MappedInputManager& input;
+};
+
+TEST(OptionPopup, ConsecutiveTouchSelectionsDoNotLoseSecondRelease) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  PopupTouchHarness touch(input);
+  int firstSelections = 0;
+  int secondSelections = 0;
+
+  const char* firstOptions[] = {"First"};
+  const char* secondOptions[] = {"Second"};
+  popup.show("First popup", firstOptions, 1, 0, [&](const int selectedIndex) {
+    EXPECT_EQ(selectedIndex, 0);
+    ++firstSelections;
+    // Quick Actions immediately reuses the popup for the next choice.
+    popup.show("Second popup", secondOptions, 1, 0, [&](const int nextIndex) {
+      EXPECT_EQ(nextIndex, 0);
+      ++secondSelections;
+    });
+  });
+
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
+  EXPECT_EQ(firstSelections, 1);
+  EXPECT_EQ(secondSelections, 0);
+  ASSERT_TRUE(popup.isActive());
+
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
+  EXPECT_EQ(firstSelections, 1);
+  EXPECT_EQ(secondSelections, 1);
+  EXPECT_FALSE(popup.isActive());
+}
+
+TEST(OptionPopup, OpeningHeldTouchReleaseDoesNotSelect) {
+  OptionPopup popup;
+  PopupTouchHarness touch(mappedInputManager);
+  int selections = 0;
+
+  const char* options[] = {"Delete"};
+  // A list long-press opens the popup while the finger is still down.
+  mappedInputManager.touchHeld = true;
+  popup.show("Book actions", options, 1, 0, [&](const int) { ++selections; });
+
+  mappedInputManager.injectTouchRelease(400, 250);
+  EXPECT_TRUE(popup.handleInput(mappedInputManager, [] {}));
+  EXPECT_EQ(selections, 0);
+  EXPECT_TRUE(popup.isActive());
+
+  GfxRenderer renderer;
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
+  EXPECT_EQ(selections, 1);
+}
+
+TEST(OptionPopup, TapOpenedPopupSharesTheTappedRowFrame) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  const char* options[] = {"First", "Second"};
+  int updates = 0;
+  const auto requestUpdate = [&] { ++updates; };
+
+  mappedInputManager.tapOrHeld = true;
+  popup.show("Tapped", options, 2, 0, [](const int) {});
+  mappedInputManager.tapOrHeld = false;
+  EXPECT_TRUE(ListSelection::tapRowShown);
+  EXPECT_FALSE(popup.processRender(renderer, input));  // the list draws, row selected
+  renderer.displayBuffer();                            // popup drawn into the same refresh
+  EXPECT_EQ(renderer.displayCount(), 1);
+  EXPECT_TRUE(popup.handleInput(input, requestUpdate));
+  EXPECT_EQ(updates, 0);  // no second popup frame
+
+  // A popup-only screen never calls displayBuffer() in that frame: draw it next.
+  mappedInputManager.tapOrHeld = true;
+  popup.show("Tapped", options, 2, 0, [](const int) {});
+  mappedInputManager.tapOrHeld = false;
+  EXPECT_FALSE(popup.processRender(renderer, input));
+  renderer.setBeforeDisplay(nullptr, nullptr);  // the render task clears it after each render
+  RenderLock::held = true;
+  EXPECT_TRUE(popup.handleInput(input, requestUpdate));
+  EXPECT_EQ(updates, 0);  // still rendering
+  RenderLock::held = false;
+  EXPECT_TRUE(popup.handleInput(input, requestUpdate));
+  EXPECT_EQ(updates, 1);
+  EXPECT_TRUE(popup.processRender(renderer, input));
+  popup.dismiss(input, requestUpdate);
+  EXPECT_FALSE(ListSelection::tapRowShown);
+
+  popup.show("Buttons", options, 2, 0, [](const int) {});
+  EXPECT_FALSE(ListSelection::tapRowShown);
+  EXPECT_TRUE(popup.processRender(renderer, input));  // no extra frame without a tap
+}
+
+TEST(OptionPopup, MenuAndSortDecorationsDoNotLeakToNextPopup) {
+  GfxRenderer renderer;
+  OptionPopup popup;
+  const char* options[] = {"First", "Second"};
+
+  popup.show("Sort", options, 2, 0, [](const int) {});
+  popup.setDividerAfterOption(0);
+  popup.render(renderer);
+  EXPECT_EQ(renderer.lineCount(), 1);
+  EXPECT_EQ(renderer.triangleCount(), 0);
+
+  popup.show("Menu", options, 2, 0, [](const int) {});
+  popup.setSelectionArrow(true);
+  popup.render(renderer);
+  EXPECT_EQ(renderer.lineCount(), 1);
+  EXPECT_EQ(renderer.triangleCount(), 1);
+
+  popup.show("Other", options, 2, 0, [](const int) {});
+  popup.render(renderer);
+  EXPECT_EQ(renderer.lineCount(), 1);
+  EXPECT_EQ(renderer.triangleCount(), 1);
+}
+
+TEST(OptionPopup, PowerConfirmSelectionSuppressesItsPowerRelease) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  int selections = 0;
+
+  const char* options[] = {"Toggle Frontlight"};
+  popup.show("Quick Actions", options, 1, 0, [&](const int selectedIndex) {
+    EXPECT_EQ(selectedIndex, 0);
+    ++selections;
+  });
+
+  input.injectPowerConfirmPress();
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+
+  EXPECT_EQ(selections, 1);
+  EXPECT_FALSE(popup.isActive());
+  EXPECT_TRUE(input.isPowerReleaseSuppressed());
+
+  input.injectPowerConfirmRelease();
+  EXPECT_FALSE(input.wasReleased(MappedInputManager::Button::Power));
+  // The global dispatcher and active reader can both observe the same
+  // hardware release edge in one loop; neither may run the shortcut.
+  EXPECT_FALSE(input.wasReleased(MappedInputManager::Button::Power));
+
+  input.advanceInputFrame();
+  input.injectPowerConfirmPress();
+  input.injectPowerConfirmRelease();
+  EXPECT_TRUE(input.wasReleased(MappedInputManager::Button::Power));
+}
+
+TEST(OptionPopup, DisabledTouchOptionDoesNotSelect) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  PopupTouchHarness touch(input);
+  int selections = 0;
+
+  const char* options[] = {"Unavailable"};
+  popup.show("Sync & Transfer", options, 1, 0, [&](const int) { ++selections; });
+  popup.setDisabledOptions({true});
+
+  popup.render(renderer);
+  touch.touchPopup(popup, popup.simulatorOptionRect(0).y + 10, [] {});
+  EXPECT_EQ(selections, 0);
+  EXPECT_TRUE(popup.isActive());
+}
+
+TEST(OptionPopup, OutsideTouchDismissesWhenEnabled) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+
+  const char* options[] = {"Action"};
+  popup.show("Image actions", options, 1, 0, [](const int) {});
+  popup.setDismissOnOutsideTouchDown(true);
+
+  input.injectTouchDown(0, 0);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  EXPECT_FALSE(popup.isActive());
+
+  input.injectTouchRelease(0, 0);
+  int touchX = 0;
+  int touchY = 0;
+  EXPECT_FALSE(input.wasScreenTapped(touchX, touchY));
+}
+
+TEST(OptionPopup, ButtonNavigationSkipsDisabledOptions) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  int selectedIndex = -1;
+
+  const char* options[] = {"Sync Progress", "Nearby Position Sync", "Send to Nearby Device"};
+  popup.show("Sync & Transfer", options, 3, 2, [&](const int index) { selectedIndex = index; });
+  popup.setDisabledOptions({true, true, false});
+
+  ButtonNavigator::injectNextRelease();
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  input.injectPowerConfirmPress();
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  EXPECT_EQ(selectedIndex, 2);
+}
+
+TEST(OptionPopup, SwipeMovesByAVisiblePage) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  PopupTouchHarness touch(input);
+  int selectedIndex = -1;
+
+  std::vector<std::string> options;
+  for (int i = 0; i < 25; ++i) options.push_back(std::to_string(i));
+  popup.show("Long popup", options, 0, [&](const int index) { selectedIndex = index; });
+
+  input.injectSwipe(MappedInputManager::SwipeDir::Up);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastFirstOptionIndex(), 10);
+  touch.touchPopup(popup, 80, [] {});
+  EXPECT_EQ(selectedIndex, 10);
+
+  popup.show("Long popup", options, 24, [&](const int index) { selectedIndex = index; });
+  input.injectSwipe(MappedInputManager::SwipeDir::Down);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastFirstOptionIndex(), 5);
+  touch.touchPopup(popup, 80, [] {});
+  EXPECT_EQ(selectedIndex, 5);
+}
+
+TEST(OptionPopup, SwipeDoesNotHighlightTheTouchDownOption) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+
+  std::vector<std::string> options;
+  for (int i = 0; i < 25; ++i) options.push_back(std::to_string(i));
+  popup.show("Long popup", options, 0, [](const int) {});
+
+  // The second visible row is a tentative touch target. Do not redraw it as
+  // selected until the contact completes as a tap rather than a swipe.
+  input.injectTouchDown(400, 116);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastSelectedIndex(), 0);
+
+  input.injectSwipe(MappedInputManager::SwipeDir::Up);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastSelectedIndex(), 0);
+  EXPECT_EQ(GUI.getLastFirstOptionIndex(), 10);
+}
+
+TEST(OptionPopup, SwipeKeepsDisabledDestinationUnselectableWithoutWrapping) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  PopupTouchHarness touch(input);
+  int selectedIndex = -1;
+
+  std::vector<std::string> options;
+  for (int i = 0; i < 25; ++i) options.push_back(std::to_string(i));
+  popup.show("Long popup", options, 0, [&](const int index) { selectedIndex = index; });
+  std::vector<bool> disabled(25, false);
+  disabled[10] = true;
+  popup.setDisabledOptions(std::move(disabled));
+
+  input.injectSwipe(MappedInputManager::SwipeDir::Up);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  touch.touchPopup(popup, 80, [] {});
+  EXPECT_EQ(selectedIndex, -1);
+  EXPECT_TRUE(popup.isActive());
+
+  touch.touchPopup(popup, 116, [] {});
+  EXPECT_EQ(selectedIndex, 11);
+}
+
+TEST(OptionPopup, CalibratedRowsStayVisibleAndReceiveTheirOwnTouches) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  const std::array<int, 4> cases[] = {{9, 3, 3, 3}, {0, 0, 0, 0}, {32, 32, 32, 32}, {21, 7, 32, 13}};
+  for (const auto& edges : cases) {
+    renderer.insets = edges;
+    OptionPopup popup;
+    int selected = -1;
+    const char* options[] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"};
+    popup.show("Calibration options", options, 8, 0, [&](int index) { selected = index; });
+    popup.render(renderer);
+    const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    for (int i = 0; i < 8; ++i) {
+      const auto row = popup.simulatorOptionRect(i);
+      EXPECT_GE(row.x, safe.x);
+      EXPECT_GE(row.y, safe.y);
+      EXPECT_LE(row.x + row.width, safe.x + safe.width);
+      EXPECT_LE(row.y + row.height, safe.y + safe.height);
+    }
+    const auto row = popup.simulatorOptionRect(7);
+    const int x = row.x + row.width / 2;
+    const int y = row.y + row.height / 2;
+    input.injectTouchDown(x, y);
+    popup.handleInput(input, [] {});
+    input.injectTouchRelease(x, y);
+    popup.handleInput(input, [] {});
+    EXPECT_EQ(selected, 7);
+    input.advanceInputFrame();
+  }
+}
+
+}  // namespace

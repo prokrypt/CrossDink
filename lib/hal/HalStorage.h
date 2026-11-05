@@ -1,0 +1,212 @@
+#pragma once
+
+#include <Print.h>
+#include <common/FsApiConstants.h>  // for oflag_t
+#include <freertos/semphr.h>
+
+#include <atomic>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "UsbDriveIo.h"
+
+class HalFile;
+
+enum class UsbDriveState : uint8_t {
+  Unsupported,
+  WaitingForHost,
+  Connected,
+  Accessed,
+  Ejected,
+  Disconnected,
+  IoError,
+};
+
+class HalStorage {
+ public:
+  // A book cache file the reader cannot rebuild (progress, per-book settings
+  // and stats); everything else in a book cache regenerates. Only these are
+  // read or copied from /.crosspoint.
+  static bool isBookUserData(const char* name) {
+    const size_t len = strlen(name);
+    const auto endsWith = [&](const char* suffix) {
+      const size_t n = strlen(suffix);
+      return len >= n && strcmp(name + len - n, suffix) == 0;
+    };
+    return strcmp(name, "progress.bin") == 0 || strcmp(name, "progress.bin.bak") == 0 ||
+           strcmp(name, "progress_percent.bin") == 0 || strcmp(name, "reader_settings.bin") == 0 ||
+           strcmp(name, "dictionary_history.txt") == 0 || strcmp(name, "reading_stats_off") == 0 ||
+           (strncmp(name, "stats", 5) == 0 && (endsWith(".bin") || endsWith(".bin.bak")));
+  }
+
+  HalStorage();
+  ~HalStorage();
+  bool begin();
+  bool ready() const;
+  // Flush and stop the SD backend before deep sleep. Call only after all file
+  // users have stopped; deep-sleep wake mounts the card again through begin().
+  void shutdown();
+  uint64_t totalBytes() const;
+  uint64_t usedBytes();
+  std::vector<String> listFiles(const char* path = "/", int maxFiles = 200);
+  // Read the entire file at `path` into a String. Returns empty string on failure.
+  String readFile(const char* path);
+  // Low-memory helpers:
+  // Stream the file contents to a `Print` (e.g. `Serial`, or any `Print`-derived object).
+  // Returns true on success, false on failure.
+  bool readFileToStream(const char* path, Print& out, size_t chunkSize = 256);
+  // Read up to `bufferSize-1` bytes into `buffer`, null-terminating it. Returns bytes read.
+  size_t readFileToBuffer(const char* path, char* buffer, size_t bufferSize, size_t maxBytes = 0);
+  // Write a string to `path` on the SD card. Overwrites existing file.
+  // Returns true on success.
+  bool readFileToString(const char* moduleName, const std::string& path, size_t cap, std::string& out);
+  bool writeFile(const char* path, const String& content);
+  // Ensure a directory exists, creating it if necessary. Returns true on success.
+  bool ensureDirectoryExists(const char* path);
+  // Returns the biased quarter-hour UTC offset (48 = UTC+0) in effect at a UTC instant.
+  using UtcOffsetFn = uint8_t (*)(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute);
+  // Install SdFat timestamp support when an RTC-backed clock is available.
+  void installDateTimeCallback(UtcOffsetFn utcOffsetQuarterHoursAt);
+
+  bool beginUsbDrive();
+  bool disconnectUsbDriveHost();
+  void endUsbDrive();
+  UsbDriveState usbDriveState() const;
+  bool usbDriveHostSuspended() const;
+  // False when USB Drive is unsupported.
+  bool usbDriveIo(UsbDriveIo& out) const;
+
+  HalFile open(const char* path, const oflag_t oflag = O_RDONLY);
+  bool mkdir(const char* path, const bool pFlag = true);
+  bool exists(const char* path);
+  bool remove(const char* path);
+  bool rename(const char* oldPath, const char* newPath);
+  bool rmdir(const char* path);
+
+  bool openFileForRead(const char* moduleName, const char* path, HalFile& file);
+  bool openFileForRead(const char* moduleName, const std::string& path, HalFile& file);
+  bool openFileForRead(const char* moduleName, const String& path, HalFile& file);
+  // Same, for probes where a missing file is expected (caches, optional data):
+  // no failure log and no separate exists() lookup.
+  bool openFileForReadIfPresent(const char* moduleName, const char* path, HalFile& file);
+  bool openFileForReadIfPresent(const char* moduleName, const std::string& path, HalFile& file);
+  bool openFileForWrite(const char* moduleName, const char* path, HalFile& file);
+  bool openFileForWrite(const char* moduleName, const std::string& path, HalFile& file);
+  bool openFileForWrite(const char* moduleName, const String& path, HalFile& file);
+  bool removeDir(const char* path);
+
+  // Bumped whenever something may have added, removed, renamed or rewritten a
+  // book or folder the Library can see: a book-type file or folder outside
+  // hidden (dot) paths, a remount, or a USB Drive session. Consumers compare
+  // it with the value they last synced against instead of rescanning the card.
+  uint32_t libraryContentGeneration() const { return libraryGeneration.load(std::memory_order_acquire); }
+  void markLibraryContentChanged(const char* reason = nullptr);
+  // The Library records the generation its last successful scan started at.
+  // The record survives deep sleep (not power loss or a reset), so a wake does
+  // not force a rescan when nothing changed before sleeping.
+  void noteLibraryScanned(uint32_t generation);
+  bool libraryScanCurrent() const;
+
+  static HalStorage& getInstance() { return instance; }
+
+  class StorageLock;  // private class, used internally
+
+ private:
+  bool openFileForRead(const char* moduleName, const char* path, HalFile& file, bool quietMiss);
+#if FREEINK_CAP_USB_MSC
+  class UsbDriveContext;
+#endif
+  static HalStorage instance;
+
+  bool initialized = false;
+  SemaphoreHandle_t storageMutex = nullptr;
+  std::atomic<uint32_t> libraryGeneration{0};
+  std::atomic<bool> libraryScanned{false};
+  std::atomic<uint32_t> libraryScannedGeneration{0};
+#if FREEINK_CAP_USB_MSC
+  std::unique_ptr<UsbDriveContext> usbDriveContext;
+#endif
+};
+
+#define Storage HalStorage::getInstance()
+
+class HalFile : public Print {
+  friend class HalStorage;
+  class Impl;
+  struct LegacyMerge;
+  struct ImplDeleter {
+    void operator()(Impl* impl) const;
+  };
+  using ImplPtr = std::unique_ptr<Impl, ImplDeleter>;
+
+  ImplPtr impl;
+  // Invalid handles otherwise represent both ordinary EOF/open failure and a
+  // wrapper-allocation failure. Registry scans need to distinguish them.
+  bool allocationFailed_ = false;
+  // SdFat returns an invalid child for both clean end-of-directory and a
+  // failed directory read. Preserve which case ended the latest iteration.
+  bool iterationFailed_ = false;
+
+  explicit HalFile(ImplPtr impl);
+  static void* allocateImplStorage();
+  void drainWriteBuffer();
+
+ public:
+  HalFile();
+  ~HalFile();
+  HalFile(HalFile&&);
+  HalFile& operator=(HalFile&&);
+  HalFile(const HalFile&) = delete;
+  HalFile& operator=(const HalFile&) = delete;
+
+  void flush();
+  size_t getName(char* name, size_t len);
+  size_t size();
+  size_t fileSize();
+  uint64_t fileSize64();
+  // Packed FAT date/time (date << 16 | time), or 0 when unavailable.
+  // Creation time orders the Library's Date Added sort; modification time
+  // detects EPUB content changes for metadata cache reuse.
+  uint32_t creationTime();
+  uint32_t modificationTime();
+  bool seek(size_t pos);
+  bool seek64(uint64_t pos);
+  bool seekCur(int64_t offset);
+  bool seekSet(size_t offset);
+  int available() const;
+  size_t position() const;
+  int read(void* buf, size_t count);
+  int read();  // read a single byte
+  size_t write(const void* buf, size_t count);
+  // Print's default bulk writer calls write(uint8_t) once per byte. Preserve
+  // chunked ZIP/file transfers when this handle is passed through Print&.
+  size_t write(const uint8_t* buf, size_t count) override { return write(static_cast<const void*>(buf), count); }
+  size_t write(uint8_t b) override;
+  bool sync();
+  // Collect writes in a `capacity`-byte heap buffer until it fills or any other call
+  // touches the file (seek, read, size, sync, close...). For handles that append many
+  // small records; false (and unbuffered writes) when the buffer cannot be allocated.
+  bool enableWriteBuffer(size_t capacity);
+  bool rename(const char* newPath);
+  bool isDirectory() const;
+  void rewindDirectory();
+  bool close();
+  HalFile openNextFile();
+  bool allocationFailed() const { return allocationFailed_; }
+  bool iterationFailed() const { return iterationFailed_; }
+  bool isOpen() const;
+  operator bool() const;
+};
+
+// Only rename FsFile to HalFile for downstream code. HalStorage.cpp includes
+// SdFat's real FsFile while implementing the wrapper.
+#ifndef HAL_STORAGE_IMPL
+using FsFile = HalFile;
+#endif
+
+// Downstream code must use Storage instead of SdMan
+#ifdef SdMan
+#undef SdMan
+#endif
