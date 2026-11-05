@@ -262,6 +262,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Rapid page turns queue and skip pages again instead of waiting for each page to draw.
 - PNG files show the image icon in the file browser.
 - Leaving the plugin catalog no longer crashes the device about 20 seconds later when the Goodies Wi-Fi remote is on; the catalog now shares the remote's Wi-Fi link instead of switching it off.
+- TXT books with long paragraphs open quickly: line wrapping no longer re-measures the whole paragraph for every line, which could keep a book of long unbroken paragraphs on Indexing for minutes.
 
 ### Added
 
