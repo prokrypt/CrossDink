@@ -49,11 +49,12 @@ class PluginCatalogActivity final : public CatalogActivity {
 #endif
   const bool fromHome;
   std::string previousPageLabel, nextPageLabel;
-  enum class Work { None, StartBrowse, FetchPage, BeginAuth, PollAuth, Details, Download };
+  // Repage turns the page from the SD response; FetchPage asks the server.
+  enum class Work { None, StartBrowse, FetchPage, Repage, BeginAuth, PollAuth, Details, Download };
   Work pendingWork = Work::None;
   int pendingArgument = 0;
   void startBrowseNow();
-  void fetchPageNow(int page);
+  void fetchPageNow(int page, bool refetch);
   void beginAuthNow();
   void pollAuthNow();
   void downloadItemNow(int index);
@@ -138,8 +139,8 @@ class PluginCatalogActivity final : public CatalogActivity {
   std::string catalogTitle;
   Manifest manifest;
   std::vector<PluginRef> installedPlugins;
-  // Fixed per-response storage avoids vector growth retaining two row arrays.
-  // Heap allocation is checked; XML keeps up to the SDK's 200-row ceiling.
+  // Fixed per-page storage avoids vector growth retaining two row arrays.
+  // Heap allocation is checked; every list keeps only the visible page.
   std::unique_ptr<Item[]> items;
   size_t itemCount = 0;
   bool allocateItems(size_t capacity);

@@ -1,8 +1,11 @@
 #pragma once
 
+#include <strings.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string_view>
 
 namespace plugincatalogpaging {
@@ -62,4 +65,26 @@ class PageWindow {
   size_t seen_ = 0;
   bool hasMore_ = false;
 };
+
+// XML lists show folders first, then titles A-Z. A page keeps only its own
+// rows: a first parse records one key per row, a second keeps the page's rows.
+struct SortKey {
+  // shortcut: titles that share these first bytes keep their feed order; grow it if such ties show up.
+  char title[48] = {};
+  uint16_t row = 0;
+  bool isDir = false;
+
+  SortKey() = default;
+  SortKey(const std::string_view text, const uint16_t rowIndex, const bool dir) : row(rowIndex), isDir(dir) {
+    const size_t length = std::min(text.size(), sizeof(title) - 1);
+    std::memcpy(title, text.data(), length);
+    title[length] = '\0';
+  }
+};
+
+inline bool sortsBefore(const SortKey& a, const SortKey& b) {
+  if (a.isDir != b.isDir) return a.isDir;
+  const int order = strcasecmp(a.title, b.title);
+  return order != 0 ? order < 0 : a.row < b.row;
+}
 }  // namespace plugincatalogpaging

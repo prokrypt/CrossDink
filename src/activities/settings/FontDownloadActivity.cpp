@@ -221,8 +221,6 @@ void FontDownloadActivity::onExit() {
   // The catalog is no longer rendered. Free it before restoring the reader
   // font so a full download list cannot starve the selected font of memory.
   uiReady_ = false;
-  listItems_.reset();
-  listItemCapacity_ = 0;
   retryFamily_ = {};
   hasRetryFamily_ = false;
   clearManifestFamilies();
@@ -512,14 +510,6 @@ bool FontDownloadActivity::fetchAndParseManifest() {
     resolveInstalledFamilyName(manifestFamilies_[i]);
   }
 
-  if (!rebuildListItems()) {
-    // Do not leave FAMILY_LIST with a populated manifest but no renderable
-    // rows: button navigation would still act on families the UI cannot show.
-    clearManifestFamilies();
-    errorMessage_ = tr(STR_MEMORY_ERROR);
-    return false;
-  }
-
   LOG_DBG("FONT", "Manifest loaded: %zu families", manifestFamilyCount_);
   return true;
 }
@@ -591,7 +581,6 @@ void FontDownloadActivity::resolveInstalledFamilyName(ManifestFamily& family) co
 void FontDownloadActivity::clearManifestFamilies() {
   // Keep the file table and string arena alive for a copied update/retry
   // family. The next manifest fetch frees them after that copy is cleared.
-  listItemCount_ = 0;
   manifestFamilies_.reset();
   manifestFamilyCount_ = 0;
 }
@@ -678,56 +667,28 @@ size_t FontDownloadActivity::totalUpdateSize() const {
   return total;
 }
 
-bool FontDownloadActivity::rebuildListItems() {
-  const int count = listItemCount();
-  if (count <= 0) {
-    listItemCount_ = 0;
-    return true;
-  }
-
-  const size_t required = static_cast<size_t>(count);
-  if (required > listItemCapacity_) {
-    // This activity-lifetime buffer avoids redraw-time allocation and has an
-    // explicit low-memory fallback. The log reports its exact byte size.
-    auto items = makeUniqueNoThrow<fui::ListItem[]>(required);
-    if (!items) {
-      LOG_ERR("FONT", "Failed to allocate %zu-byte font list (heap=%" PRIu32 " maxAlloc=%" PRIu32 ")",
-              required * sizeof(fui::ListItem), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-      listItemCount_ = 0;
-      return false;
-    }
-    listItems_ = std::move(items);
-    listItemCapacity_ = required;
-  }
-
-  size_t itemIndex = 0;
-  if (showUpdateAllRow()) {
+// Rows are formatted on demand for the handful the viewport shows, so a long
+// manifest pins no per-row ListItem array. Strings point into the manifest
+// arena, translations, or updateAllLabel_, all of which outlive the draw.
+void FontDownloadActivity::provideRow(void* user, const uint16_t index, fui::ListItem& item) {
+  auto& self = *static_cast<FontDownloadActivity*>(user);
+  item = fui::ListItem{};
+  item.actionValue = static_cast<int16_t>(index);
+  if (self.isUpdateAllRow(index)) {
     char sizeLabel[32];
-    formatSize(totalUpdateSize(), sizeLabel, sizeof(sizeLabel));
-    snprintf(updateAllLabel_, sizeof(updateAllLabel_), "%s (%s)", tr(STR_UPDATE_ALL), sizeLabel);
-    listItems_[itemIndex] = fui::ListItem{};
-    listItems_[itemIndex].label = updateAllLabel_;
-    listItems_[itemIndex].actionValue = static_cast<int16_t>(itemIndex);
-    ++itemIndex;
+    formatSize(self.totalUpdateSize(), sizeLabel, sizeof(sizeLabel));
+    snprintf(self.updateAllLabel_, sizeof(self.updateAllLabel_), "%s (%s)", tr(STR_UPDATE_ALL), sizeLabel);
+    item.label = self.updateAllLabel_;
+    return;
   }
-
-  for (size_t familyIndex = 0; familyIndex < manifestFamilyCount_; ++familyIndex) {
-    const ManifestFamily& family = manifestFamilies_[familyIndex];
-    fui::ListItem& item = listItems_[itemIndex];
-    item = fui::ListItem{};
-    item.label = family.name;
-    if (family.description[0] != '\0') item.subtitle = family.description;
-    if (family.hasUpdate) {
-      item.value = tr(STR_UPDATE_AVAILABLE);
-    } else if (family.installed) {
-      item.value = tr(STR_INSTALLED);
-    }
-    item.actionValue = static_cast<int16_t>(itemIndex);
-    ++itemIndex;
+  const ManifestFamily& family = self.manifestFamilies_[self.familyIndexFromList(index)];
+  item.label = family.name;
+  if (family.description[0] != '\0') item.subtitle = family.description;
+  if (family.hasUpdate) {
+    item.value = tr(STR_UPDATE_AVAILABLE);
+  } else if (family.installed) {
+    item.value = tr(STR_INSTALLED);
   }
-
-  listItemCount_ = itemIndex;
-  return true;
 }
 
 // Standard CRC32 matching zlib/Python zlib.crc32().
@@ -1058,9 +1019,6 @@ void FontDownloadActivity::onDeleteConfirmationResult(const ActivityResult& resu
     fontInstaller_.refreshRegistry();
     family.installed = false;
     family.hasUpdate = false;
-    // Deletion changes the row's visual state. Reuse the existing storage;
-    // the row count cannot grow on this path.
-    rebuildListItems();
   }
 
   requestUpdate();
@@ -1113,15 +1071,11 @@ void FontDownloadActivity::buildListScreen(UiApp::ScreenType& screen) {
     return;
   }
 
-  const int listSize = static_cast<int>(listItemCount_);
-  if (listSize <= 0 || !listItems_) {
-    screen.centeredText(tr(STR_NO_FONTS_AVAILABLE), screen.theme().bodyText);
-    return;
-  }
-
+  const int listSize = listItemCount();
   fui::ListProps props;
-  props.items = listItems_.get();
-  props.count = static_cast<uint16_t>(listItemCount_);
+  props.rowProvider = &FontDownloadActivity::provideRow;
+  props.rowProviderCtx = this;
+  props.count = static_cast<uint16_t>(listSize);
   props.selectedIndex = static_cast<int16_t>(selectedIndex_);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()

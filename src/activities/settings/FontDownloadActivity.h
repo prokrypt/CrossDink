@@ -106,12 +106,7 @@ class FontDownloadActivity : public Activity {
   std::unique_ptr<ManifestFile[]> manifestFiles_;
   std::unique_ptr<ManifestFamily[]> manifestFamilies_;
   size_t manifestFamilyCount_ = 0;
-  // Built once after each manifest load. The renderer borrows these pointers,
-  // so keeping them activity-owned avoids heap growth on every redraw.
-  std::unique_ptr<freeink::ui::ListItem[]> listItems_;
-  size_t listItemCapacity_ = 0;
-  size_t listItemCount_ = 0;
-  char updateAllLabel_[96] = {};
+  char updateAllLabel_[96] = {};  // Update All row text, formatted by provideRow
   int selectedIndex_ = 0;
   ManifestFamily retryFamily_;
   bool hasRetryFamily_ = false;
@@ -147,6 +142,7 @@ class FontDownloadActivity : public Activity {
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void provideRow(void* user, uint16_t index, freeink::ui::ListItem& item);
   void buildListScreen(UiApp::ScreenType& screen);
   void activateSelected();
   bool pollCancelInput(bool includeDownloadScreenButton);
@@ -154,7 +150,6 @@ class FontDownloadActivity : public Activity {
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
   bool internManifestString(const char* text, const char*& out);
-  bool rebuildListItems();
   const SdCardFontFamilyInfo* findInstalledFamilyCandidate(const char* familyName) const;
   bool installedFilesMatch(const ManifestFamily& family, bool& hasUpdate,
                            std::string* resolvedFamilyName = nullptr) const;

@@ -482,7 +482,10 @@ void PluginCatalogActivity::loop() {
       startBrowseNow();
       break;
     case Work::FetchPage:
-      fetchPageNow(argument);
+      fetchPageNow(argument, true);
+      break;
+    case Work::Repage:
+      fetchPageNow(argument, false);
       break;
     case Work::Details:
       showItemDetails(argument);
@@ -830,51 +833,85 @@ bool PluginCatalogActivity::allocateItems(const size_t capacity) {
 
 bool PluginCatalogActivity::parseXmlList() {
   releaseRows();
-  if (!allocateItems(XmlListParser::MAX_ITEMS)) return false;
-  auto append = [&](XmlListParser::RawItem& row) {
-    Item item;
-    item.isDir = row.isDir;
-    item.url = std::move(row.field[XmlListParser::F_URL]);
-    item.title = std::move(row.field[XmlListParser::F_TITLE]);
-    item.author = std::move(row.field[XmlListParser::F_AUTHOR]);
-    item.id = std::move(row.field[XmlListParser::F_ID]);
-    if (itemCount < XmlListParser::MAX_ITEMS) items[itemCount++] = std::move(item);
-  };
+  clearItems();
   const std::string* const selectors[] = {&manifest.urlPath, &manifest.titlePath, &manifest.authorPath,
                                           &manifest.idPath};
-  auto parser = makeUniqueNoThrow<XmlListParser>(
-      manifest.xmlItem, manifest.xmlContainer, selectors,
-      [](void* context, XmlListParser::RawItem& row) { (*static_cast<decltype(append)*>(context))(row); }, &append);
-  if (parser) {
-    XmlListParser::UrlOptions urls;
-    urls.requestUrl = browseCurrentUrl;
-    urls.skipSelf = manifest.xmlSkipSelf;
-    urls.resolveUrls = manifest.xmlResolveUrls;
-    urls.extensions = manifest.xmlExtensions;
-    parser->setUrlOptions(std::move(urls));
-  }
-  if (parser) parser->setCaptureBudget(24 * 1024);
-  if (!streamBrowseFile(parser.get())) {
+  // Both passes parse the same SD response with the same filters, so a row
+  // index names the same row in each.
+  const auto parseRows = [&](auto& sink) {
+    auto parser = makeUniqueNoThrow<XmlListParser>(
+        manifest.xmlItem, manifest.xmlContainer, selectors,
+        [](void* context, XmlListParser::RawItem& row) {
+          (*static_cast<std::remove_reference_t<decltype(sink)>*>(context))(row);
+        },
+        &sink);
+    if (parser) {
+      XmlListParser::UrlOptions urls;
+      urls.requestUrl = browseCurrentUrl;
+      urls.skipSelf = manifest.xmlSkipSelf;
+      urls.resolveUrls = manifest.xmlResolveUrls;
+      urls.extensions = manifest.xmlExtensions;
+      parser->setUrlOptions(std::move(urls));
+      parser->setCaptureBudget(24 * 1024);
+    }
+    if (streamBrowseFile(parser.get())) return true;
     fail(StrId::STR_PARSE_FEED_FAILED);
     return false;
-  }
+  };
 
+  // Pass 1: one small sort key per row (10 KB for the 200-row ceiling) instead
+  // of every row's url/title/author/id strings.
+  auto keys = makeUniqueNoThrow<plugincatalogpaging::SortKey[]>(XmlListParser::MAX_ITEMS);
+  if (!keys) {
+    LOG_ERR("PCAT", "OOM: XML list sort keys");
+    fail(StrId::STR_MEMORY_ERROR);
+    return false;
+  }
+  size_t keyCount = 0;
+  auto collectKey = [&](const XmlListParser::RawItem& row) {
+    if (keyCount >= XmlListParser::MAX_ITEMS) return;
+    keys[keyCount] =
+        plugincatalogpaging::SortKey(row.field[XmlListParser::F_TITLE], static_cast<uint16_t>(keyCount), row.isDir);
+    ++keyCount;
+  };
+  if (!parseRows(collectKey)) return false;
   // Folders first, then files, each alphabetical — matches how file managers list.
-  std::sort(items.get(), items.get() + itemCount, [](const Item& a, const Item& b) {
-    if (a.isDir != b.isDir) return a.isDir;
-    return strcasecmp(a.title.c_str(), b.title.c_str()) < 0;
-  });
-  hasMore = false;
+  std::sort(keys.get(), keys.get() + keyCount, plugincatalogpaging::sortsBefore);
+
+  const size_t pageSize = static_cast<size_t>(manifest.pageSize);
+  const size_t lastPage = keyCount == 0 ? 1 : (keyCount + pageSize - 1) / pageSize;
+  page = std::clamp(page, 1, static_cast<int>(lastPage));
+  const size_t first = static_cast<size_t>(page - 1) * pageSize;
+  const size_t shown = std::min(pageSize, keyCount - std::min(first, keyCount));
+  hasMore = first + shown < keyCount;
+  std::array<uint16_t, MAX_PAGE_SIZE> pageRows{};
+  for (size_t slot = 0; slot < shown; ++slot) pageRows[slot] = keys[first + slot].row;
+  keys.reset();  // only the page's row indices are needed now
+  if (!allocateItems(pageSize)) return false;
+
+  // Pass 2: keep only this page's rows, each in its sorted slot.
+  size_t rowIndex = 0;
+  auto keepPageRow = [&](XmlListParser::RawItem& row) {
+    const size_t thisRow = rowIndex++;
+    for (size_t slot = 0; slot < shown; ++slot) {
+      if (pageRows[slot] != thisRow) continue;
+      Item& item = items[slot];
+      item.isDir = row.isDir;
+      item.url = std::move(row.field[XmlListParser::F_URL]);
+      item.title = std::move(row.field[XmlListParser::F_TITLE]);
+      item.author = std::move(row.field[XmlListParser::F_AUTHOR]);
+      item.id = std::move(row.field[XmlListParser::F_ID]);
+      return;
+    }
+  };
+  if (!parseRows(keepPageRow)) return false;
+  itemCount = shown;
   return true;
 }
 
-bool PluginCatalogActivity::prevRowVisible() const {
-  return state == State::BROWSING && !manifest.isXmlList() && page > 1;
-}
+bool PluginCatalogActivity::prevRowVisible() const { return state == State::BROWSING && page > 1; }
 
-bool PluginCatalogActivity::nextRowVisible() const {
-  return state == State::BROWSING && !manifest.isXmlList() && hasMore;
-}
+bool PluginCatalogActivity::nextRowVisible() const { return state == State::BROWSING && hasMore; }
 
 int PluginCatalogActivity::rowCount() const {
   if (state == State::PLUGIN_PICKER)
@@ -901,9 +938,9 @@ plugincatalogpaging::Paging PluginCatalogActivity::browsePaging() const {
   return plugincatalogpaging::pagingOf(activeBrowseUrl(), activeBrowseBody(), manifest.browseReq.headers);
 }
 
-void PluginCatalogActivity::fetchPageNow(const int newPage) {
-  if (!manifest.isXmlList()) page = newPage;
-  if (!fetchBrowseResponse() || !parseBrowseResponse()) return;
+void PluginCatalogActivity::fetchPageNow(const int newPage, const bool refetch) {
+  page = newPage;
+  if ((refetch && !fetchBrowseResponse()) || !parseBrowseResponse()) return;
   nav.reset();
   state = State::BROWSING;
   requestUpdate();
@@ -1385,7 +1422,7 @@ void PluginCatalogActivity::onBackButton() {
     browseCurrentUrl = browseHistory.back();
     browseHistory.pop_back();
     beginLoading();
-    fetchPage(page);
+    fetchPage(1);
   } else if (state == State::BROWSING && currentList >= 0 && manifest.browseLists.size() > 1) {
     // Browsing a picked list: Back returns to the list picker, not out.
     currentList = -1;
@@ -1443,8 +1480,16 @@ void PluginCatalogActivity::activateIndex(const int index) {
   const int itemIndex = index - (prevRowVisible() ? 1 : 0);
   if (itemIndex == -1 || (nextRowVisible() && itemIndex == static_cast<int>(itemCount))) {
     app.clearTapFlash();
-    beginLoading();
-    fetchPage(itemIndex == -1 ? page - 1 : page + 1);
+    const int newPage = itemIndex == -1 ? page - 1 : page + 1;
+    // XML lists and static feeds already hold every row in the SD response:
+    // turn the page from it instead of asking the server again.
+    if (manifest.isXmlList() || browsePaging() == plugincatalogpaging::Paging::Static) {
+      beginLoading();
+      pendingArgument = newPage;
+      pendingWork = Work::Repage;
+    } else {
+      fetchPage(newPage);
+    }
     return;
   }
   app.clearTapFlash();  // the row leaves this screen (folder, download view)
@@ -1458,7 +1503,7 @@ void PluginCatalogActivity::activateItem(const int itemIndex) {
     browseHistory.push_back(browseCurrentUrl);
     browseCurrentUrl = item.url;
     beginLoading();
-    fetchPage(page);
+    fetchPage(1);
     return;
   }
 

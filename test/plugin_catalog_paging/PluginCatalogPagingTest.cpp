@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -86,4 +87,16 @@ TEST(PluginCatalogPaging, CompatibilityFilteringDoesNotConsumeStaticPageSlots) {
 TEST(PluginCatalogPaging, OffsetWinsAcrossHeadersAndBody) {
   const Headers headers = {{"X-Offset", "{offset}"}};
   EXPECT_EQ(pagingOf("https://x/?page={page}", "{limit}", headers), Paging::Offset);
+}
+
+TEST(PluginCatalogPaging, XmlSortKeysPutFoldersFirstThenTitles) {
+  using plugincatalogpaging::SortKey;
+  std::vector<SortKey> keys = {{"zeta.epub", 0, false}, {"Beta", 1, true},  {"alpha.epub", 2, false},
+                               {"alpha", 3, true},      {"Alpha", 4, true}, {std::string(80, 'x'), 5, false}};
+  std::sort(keys.begin(), keys.end(), plugincatalogpaging::sortsBefore);
+  std::vector<int> rows(keys.size());
+  std::transform(keys.begin(), keys.end(), rows.begin(), [](const SortKey& key) { return key.row; });
+  // Case-insensitive ties keep feed order; long titles are cut to the key size.
+  EXPECT_EQ(rows, (std::vector<int>{3, 4, 1, 2, 5, 0}));
+  EXPECT_EQ(std::string(keys[4].title).size(), sizeof(SortKey::title) - 1);
 }
