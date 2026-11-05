@@ -67,7 +67,16 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
         line.clear();
         break;
       }
+      // Start at the first word end that overflows, not the line end: backing off word by word
+      // from the end of a long paragraph measured the whole paragraph again for every line.
       size_t breakPos = line.length();
+      for (size_t sp = line.find(' ', 1); sp != std::string::npos; sp = line.find(' ', sp + 1)) {
+        if (renderer.getTextWidth(fontId, line.substr(0, sp).c_str(), EpdFontFamily::REGULAR,
+                                  BidiUtils::BidiBaseDir::AUTO, characterSpacing) > vw) {
+          breakPos = sp;
+          break;
+        }
+      }
       while (breakPos > 0 && renderer.getTextWidth(fontId, line.substr(0, breakPos).c_str(), EpdFontFamily::REGULAR,
                                                    BidiUtils::BidiBaseDir::AUTO, characterSpacing) > vw) {
         size_t spacePos = line.rfind(' ', breakPos - 1);
