@@ -16,6 +16,7 @@ static uint32_t esp_random() { return std::random_device{}(); }
 #include <WiFi.h>
 #include <time.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -58,6 +59,10 @@ struct Subscriber {
 };
 Subscriber subscribers[MAX_EVENT_PLUGINS];
 std::mutex outboxMutex;
+// Set (under the lock, as a scan starts) once a scan ran with plugins enabled: a
+// query during a boot-tail scan then waits on the lock instead of scanning again.
+// The scan costs ~350 ms of SD work (5 plugins), so sleep reuses the table.
+std::atomic<bool> scanned{false};
 
 uint8_t eventBit(const pluginevents::Event e) { return static_cast<uint8_t>(1u << static_cast<uint8_t>(e)); }
 
@@ -89,6 +94,7 @@ namespace pluginevents {
 void refreshSubscriptions() {
   std::lock_guard<std::mutex> guard(outboxMutex);
   for (auto& sub : subscribers) sub = Subscriber{};
+  scanned = SETTINGS.pluginsEnabled != 0;
 
   size_t slot = 0;
   for (const auto& entry : PluginLocations::scanPlugins()) {
@@ -139,6 +145,7 @@ void refreshSubscriptions() {
 
 bool anySubscriber(const Event e) {
   if (!SETTINGS.pluginsEnabled) return false;
+  if (!scanned) refreshSubscriptions();
   std::lock_guard<std::mutex> guard(outboxMutex);
   for (const auto& sub : subscribers) {
     if (sub.name[0] != '\0' && (sub.mask & eventBit(e))) return true;
@@ -148,6 +155,7 @@ bool anySubscriber(const Event e) {
 
 uint8_t subscriptionMask(const char* plugin) {
   if (!SETTINGS.pluginsEnabled) return 0;
+  if (!scanned) refreshSubscriptions();
   std::lock_guard<std::mutex> guard(outboxMutex);
   for (const auto& sub : subscribers) {
     if (sub.name[0] != '\0' && strcmp(sub.name, plugin) == 0) return sub.mask;
@@ -157,6 +165,7 @@ uint8_t subscriptionMask(const char* plugin) {
 
 bool wantsConnectAny() {
   if (!SETTINGS.pluginsEnabled) return false;
+  if (!scanned) refreshSubscriptions();
   std::lock_guard<std::mutex> guard(outboxMutex);
   for (const auto& sub : subscribers) {
     if (sub.name[0] == '\0' || sub.connectMask == 0) continue;
@@ -414,6 +423,7 @@ bool deliverLine(const DrainManifest& mf, const std::string& lineText, std::stri
 enum class DrainMode { Ordered, Sleep, Connect };
 static void drainQueued(GfxRenderer* renderer, size_t maxEvents, DrainMode mode, uint32_t deadline = 0) {
   if (!SETTINGS.pluginsEnabled) return;
+  if (!scanned) refreshSubscriptions();
   std::lock_guard<std::mutex> guard(outboxMutex);
   size_t budget = maxEvents;
   for (const auto& sub : subscribers) {
@@ -507,11 +517,6 @@ void drain(GfxRenderer* renderer, size_t maxEvents) { drainQueued(renderer, maxE
 
 void pollOnline() {
   static uint32_t last = 0;
-  static int lastEnabled = -1;
-  if (lastEnabled != SETTINGS.pluginsEnabled) {
-    lastEnabled = SETTINGS.pluginsEnabled;
-    refreshSubscriptions();
-  }
   if (!SETTINGS.pluginsEnabled || WiFi.status() != WL_CONNECTED || millis() - last < 30000) return;
   last = millis();
   trustedtime::startSync();
@@ -519,8 +524,8 @@ void pollOnline() {
   drain(nullptr, 1);
 }
 void prepareSleep(const char* book, int progress, bool allowNetwork) {
+  // The table from boot or the last plugin change is current: no rescan here.
   if (!SETTINGS.pluginsEnabled) return;
-  refreshSubscriptions();
   char percent[8];
   snprintf(percent, sizeof(percent), "%d", progress);
   const Var vars[] = {{"book", book}, {"percent", percent}};
