@@ -17,6 +17,7 @@
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/BatteryLog.h"
+#include "util/PluginEvents.h"
 
 void UsbDriveActivity::onEnter() {
   Activity::onEnter();
@@ -80,6 +81,7 @@ void UsbDriveActivity::onExit() {
   if (!restartRequested) {
     Storage.endUsbDrive();
     HeldWrites::setWriteThrough(HeldWrites::ServesFiles, false);  // left without the restart
+    pluginevents::refreshSubscriptions();                         // the host may have changed plugins
   }
   Epub::forgetCacheKeys();  // the host may have replaced books
 #endif

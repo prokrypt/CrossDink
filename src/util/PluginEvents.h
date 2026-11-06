@@ -58,9 +58,10 @@ struct Var {
 };
 
 // Re-reads every installed plugin's device.json "events" section into the
-// static subscription table. Cheap relative to its callers (a handful of small
-// SD reads); call at boot and whenever plugins may have changed (plugin list
-// opened, web-server session ended).
+// static subscription table. Not cheap (~350 ms of SD work with 5 plugins):
+// boot calls it after the first frame, the queries below build it on first
+// use, and callers refresh it whenever plugins may have changed (plugin list
+// opened, web-server or USB Drive session ended). Sleep reuses the table.
 void refreshSubscriptions();
 
 // Main-loop, throttled online delivery; caller holds RenderLock.
