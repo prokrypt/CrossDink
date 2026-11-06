@@ -1799,6 +1799,14 @@ static void runBootTail(const bool sleeping = false) {
   if (!sleeping && !activityManager.hasRenderedFirstFrame() && millis() < BOOT_TAIL_MAX_MS) return;
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name, bootTailRoute);
   bootTailRoute = nullptr;
+  // Plugin scan (~350 ms of SD reads) after the first frame, on the worker core so
+  // input stays live; a query that comes first builds the table or waits on its lock.
+  if (!sleeping && SETTINGS.pluginsEnabled) {
+    static WorkerTask pluginScanTask;
+    if (!pluginScanTask.start([](void*) { pluginevents::refreshSubscriptions(); }, nullptr, 4096, "PlugScan")) {
+      pluginevents::refreshSubscriptions();
+    }
+  }
   if (bootTailDictionary && !sleeping) {
     Dictionary::isValidDictionary();
     // Folder walks on the worker core at the background priority, so a slow
@@ -2582,7 +2590,6 @@ void setup() {
   ReaderProgressShadow::recoverPending();
   if (!PluginBundle::recoverPending()) LOG_ERR("PLUG", "Plugin install recovery pending");
   SETTINGS.loadFromFile();
-  pluginevents::refreshSubscriptions();
 #if CROSSDINK_GOODIES
   knobs::load(mappedInputManager.isPressed(MappedInputManager::Button::Back));
 #endif

@@ -264,6 +264,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - PNG files show the image icon in the file browser.
 - Leaving the plugin catalog no longer crashes the device about 20 seconds later when the Goodies Wi-Fi remote is on; the catalog now shares the remote's Wi-Fi link instead of switching it off.
 - TXT books with long paragraphs open quickly: line wrapping no longer re-measures the whole paragraph for every line, which could keep a book of long unbroken paragraphs on Indexing for minutes.
+- Wake and sleep are about 350 ms faster again with plugins enabled: the plugin scan no longer runs before the first page draws or when the device goes to sleep.
 
 ### Added
 
