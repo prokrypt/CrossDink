@@ -1,0 +1,7 @@
+{
+  "name": "Epub",
+  "description": "EPUB parsing, layout, page model and SD cache",
+  "build": {
+    "flags": ["-O2"]
+  }
+}
