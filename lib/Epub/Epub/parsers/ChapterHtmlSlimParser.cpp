@@ -392,14 +392,13 @@ class BodyFontProbe {
       if (!isWhitespace(text[i])) ++bytes;
     }
     if (bytes == 0) return;
-    const uint32_t family = self.useTextFamily ? frame.family : frame.paragraphFamily;
-    for (auto& candidate : self.usage) {
-      if (candidate.bytes == 0 || candidate.family == family) {
-        candidate.family = family;
-        candidate.bytes += bytes;
-        return;
-      }
-    }
+    const uint32_t textFamily = self.useTextFamily ? frame.family : frame.paragraphFamily;
+    const auto slot = std::find_if(self.usage.begin(), self.usage.end(), [textFamily](const Usage& candidate) {
+      return candidate.bytes == 0 || candidate.family == textFamily;
+    });
+    if (slot == self.usage.end()) return;
+    slot->family = textFamily;
+    slot->bytes += bytes;
   }
 
   static void XMLCALL entity(void* context, const XML_Char* text, const int length) {

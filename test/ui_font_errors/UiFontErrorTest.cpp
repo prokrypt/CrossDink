@@ -20,9 +20,10 @@ uint8_t CrossPointSettings::defaultUiScale() { return UI_SCALE_SMALL; }
 
 // Registry/cache persistence is outside this test; use its file-list lookup contract.
 const SdCardFontFileInfo* SdCardFontFamilyInfo::findFile(uint8_t size, uint8_t style) const {
-  for (const auto& file : files)
-    if (file.pointSize == size && file.style == style) return &file;
-  return nullptr;
+  const auto found = std::find_if(files.begin(), files.end(), [size, style](const SdCardFontFileInfo& file) {
+    return file.pointSize == size && file.style == style;
+  });
+  return found == files.end() ? nullptr : &*found;
 }
 
 int main(int argc, char** argv) {
