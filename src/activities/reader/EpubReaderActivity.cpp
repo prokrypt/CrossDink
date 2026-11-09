@@ -8487,6 +8487,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // redraw. Input and overlays stay live meanwhile.
   bool imagesLoadingInBackground = false;
   if (updatePanel && pageHasImagesNeedingDecode &&
+      // cppcheck-suppress knownConditionTrueFalse ; single-core configs compile the worker out
       startImageCacheWorker(*page, orientedMarginLeft, orientedMarginTop, currentSpineIndex, section->currentPage)) {
     imagesLoadingInBackground = true;
     pageHasImagesNeedingDecode = false;
