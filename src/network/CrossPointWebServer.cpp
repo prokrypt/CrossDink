@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
+#include <BookKey.h>
 #include <DeviceSecret.h>
 #include <FontFileTypes.h>
 #include <wolfssl/options.h>
@@ -3036,8 +3037,8 @@ void CrossPointWebServer::handleMove() const {
   }
 
   clearBookCache(itemPath.c_str());
-  const bool success = file.rename(newPath.c_str());
   file.close();
+  const bool success = bookkey::moveFile(itemPath.c_str(), newPath.c_str());
 
   if (success) {
     LOG_DBG("WEB", "Moved file: %s -> %s", itemPath.c_str(), newPath.c_str());

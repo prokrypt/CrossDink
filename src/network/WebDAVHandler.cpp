@@ -1,6 +1,7 @@
 #include "WebDAVHandler.h"
 
 #include <Arduino.h>
+#include <BookKey.h>
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -669,8 +670,13 @@ void WebDAVHandler::handleMove(WebServer& s) {
   }
 
   sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
+  if (dstExists && (bookkey::hasSidecar(srcPath.c_str()) || bookkey::hasSidecar(dstPath.c_str()))) {
+    s.send(409, "text/plain", "Move a protected book to an unused filename");
+    return;
+  }
   clearBookCache(srcPath.c_str());
-  const bool success = replaceFile(srcPath, dstPath, dstExists);
+  const bool success =
+      dstExists ? replaceFile(srcPath, dstPath, true) : bookkey::moveFile(srcPath.c_str(), dstPath.c_str());
 
   if (success) {
     ImageFolderIndex::invalidateForPath(srcPath.c_str());
