@@ -200,6 +200,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - EPUB: reopening the book you just closed, on the page you closed it at, shows that page sooner. The reader keeps the page's finished drawing in PSRAM (48 KB, plus 96 KB for an X4 Pro anti-aliased or gray-image page) after you leave it, and the next open copies it in instead of preparing the page's glyphs and decoding its images; the status bar is drawn fresh and the page goes to the panel through the usual refresh, waveform and cleanup choices. A changed setting, font, layout, clipping or page draws as before. Not after a restart or deep sleep, which clear PSRAM. Each page shown costs one extra 48 KB copy in PSRAM.
 - Plugin folder (WebDAV/XML) lists keep only the page on screen with Previous/Next page rows, page turns in folder and single-file catalogs re-read the saved list instead of downloading it again, and the font download list formats only the rows on screen.
 - The header Wi-Fi remote-activity icon now clears 5 seconds after the last API request instead of 30.
+- Books open about 0.1 s faster: the recent-books update and sync pull wait until the first page is on its way to the screen, and opening a book no longer checks every recent book for a missing file.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
