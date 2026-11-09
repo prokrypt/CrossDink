@@ -21,6 +21,7 @@
 class LibraryActivity final : public Activity {
  public:
   LibraryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
+  bool bookListReturn(PendingOverlayResume& resume) const override;
   void onEnter() override;
   void onExit() override;
   void loop() override;

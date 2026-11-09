@@ -182,6 +182,9 @@ class Activity {
   virtual bool handleFrontlightPanelResult(const FrontlightPanelResult&) { return false; }
   virtual bool handleExternalReaderMenuAction(uint8_t) { return false; }
   virtual bool restorePendingOverlay(const PendingOverlayResume&) { return false; }
+  // Book lists fill in how to reopen themselves after a Wi-Fi screen over them
+  // has to leave by restart (ActivityManager::saveBookListReturn()).
+  virtual bool bookListReturn(PendingOverlayResume&) const { return false; }
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }
 
   // Start a new activity without destroying the current one

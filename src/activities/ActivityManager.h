@@ -263,6 +263,9 @@ class ActivityManager {
   bool openReaderMenuFromShortcut();
   bool handleShortcutAction(uint8_t action);
   bool hasActivityNamed(const char* activityName) const;
+  // During a pop back to a book list: saves that list's return route to
+  // APP_STATE so a silent restart reopens it instead of Home.
+  bool saveBookListReturn();
   // Any activity on the stack (or pending) owns the radio. Main task only.
   bool anyActivityUsesWifi() const;
   // Every Wi-Fi activity on the stack shares its link with the remote. Main task only.

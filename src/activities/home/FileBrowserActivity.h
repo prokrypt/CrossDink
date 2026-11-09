@@ -89,6 +89,8 @@ class FileBrowserActivity final : public Activity {
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
+  // The file whose action menu opened last.
+  std::string actionMenuPath;
   // The current FreeInkUI action payload is int16_t. For larger folders the
   // renderer supplies a local row number and this records its absolute base.
   size_t actionWindowFirst = 0;
@@ -120,6 +122,7 @@ class FileBrowserActivity final : public Activity {
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
                                Mode mode = Mode::Books);
+  bool bookListReturn(PendingOverlayResume& resume) const override;
   void onEnter() override;
   void onExit() override;
   void loop() override;
