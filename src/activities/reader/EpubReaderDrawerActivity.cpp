@@ -934,7 +934,8 @@ bool EpubReaderDrawerActivity::showsSamplePreview() const {
 }
 
 bool EpubReaderDrawerActivity::showsSamplePreviewAaNote(const ReaderSettingsDraft& settings) const {
-  return CROSSDINK_APP_READER_SAMPLE_PREVIEW && state.pane == ReaderDrawerPane::FontFamily && settings.textAntiAliasing;
+  // Callers already sit behind CROSSDINK_APP_READER_SAMPLE_PREVIEW.
+  return state.pane == ReaderDrawerPane::FontFamily && settings.textAntiAliasing;
 }
 
 bool EpubReaderDrawerActivity::samplePreviewBesideControls() const {
