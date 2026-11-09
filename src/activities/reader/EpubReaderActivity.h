@@ -541,7 +541,8 @@ class EpubReaderActivity final : public Activity {
   bool ensureGrayscaleStripScratch();
   void releaseGrayscaleStripScratch(bool force = false);
   void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
-  void renderStatusBar() const;
+  // keep: snapshot what it draws for inkKeptPageEarly().
+  void renderStatusBar(bool keep = false) const;
   void refreshChapterGroupEstimate(uint16_t viewportWidth, uint16_t viewportHeight);
   bool resolveChapterGroupPageProgress(int& currentPage, int& pageCount, float& chapterProgress,
                                        bool& pageCountEstimated) const;
@@ -813,6 +814,11 @@ class EpubReaderActivity final : public Activity {
   // Returns false if the page cannot be loaded (missing cache / file error).
   static bool drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer);
   static BookReaderSettingsData readBookReaderSettings(const Epub& epub);
+  // Home's tap on the book whose page the reader kept at its last close: inks that page with
+  // a deferred Fast refresh before the book loads, so the waveform overlaps the open. The
+  // reader's first page skips its own refresh when it composes the same pixels. Main loop,
+  // render lock held; false (nothing drawn) when no kept page fits.
+  static bool inkKeptPageEarly(GfxRenderer& renderer, const std::string& bookPath);
   // Whether the reader lays this book out in landscape: its own orientation
   // override, else the global setting. Picks the section cache that position
   // sync reads outside the reader.

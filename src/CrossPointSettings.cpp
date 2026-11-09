@@ -988,8 +988,11 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   return true;
 }
 
+std::atomic<uint32_t> CrossPointSettings::saves{0};
+
 bool CrossPointSettings::saveToFile() const {
   std::lock_guard<std::mutex> lock(storeMutex);
+  saves.fetch_add(1, std::memory_order_relaxed);
   JsonDocument doc;
   toJson(doc);
   String json;
