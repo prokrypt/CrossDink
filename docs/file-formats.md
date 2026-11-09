@@ -618,7 +618,7 @@ seconds, or any corrupt or unreadable snapshot, stay.
 
 ## `/.crossdink/clippings/<bookType>_<crc32(path)>.bin`
 
-### Versions 1-4
+### Versions 1-6
 
 Clipping files store the per-book EPUB clipping list used by the reader. A
 saved clipping is also what CrossDink renders as an in-reader highlight; there is
@@ -636,11 +636,14 @@ example:
 
 Binary layout:
 
-- `[0]` version (`1`, `2`, `3`, or current version `4`)
+- `[0]` version (`1`, `2`, `3`, `4`, `5`, or current version `6`)
 - `[1-2]` clipping count (`uint16_t` LE, maximum `256`)
 - book title (`String`)
 - book author (`String`)
 - book path (`String`)
+- version 5: pending deletion count (`uint16_t` LE, maximum `256`), then that
+  many server clipping IDs (`String`, 1–64 printable ASCII bytes each)
+- version 6 uses the same deletion list with a 16-byte scope prefix on each ID
 - repeated clipping records:
   - `spineIndex` (`uint16_t` LE)
   - `startPage` (`uint16_t` LE)
@@ -651,13 +654,17 @@ Binary layout:
   - `wordCount` (`uint16_t` LE)
   - `paragraphIndex` (`uint16_t` LE, `UINT16_MAX` when unavailable)
   - `timestamp` (`uint32_t` LE, UTC Unix seconds when saved, 0 without a clock; older records hold seconds since boot, read as unknown)
-  - versions 3-4: reader layout signature (`uint32_t` LE; font, spacing,
+  - versions 3-6: reader layout signature (`uint32_t` LE; font, spacing,
     viewport, and other section-layout inputs)
-  - version 4: table selection (`uint16_t` LE; `UINT16_MAX` for non-table text)
+  - versions 4–6: table selection (`uint16_t` LE; `UINT16_MAX` for non-table text)
+  - version 5: server clipping ID (`String`, maximum 64 bytes; empty for a
+    local selection that has never been prepared for upload), then a local
+    upload marker (`uint8_t`, `0` or `1`; imported records retain `0`)
+  - version 6 uses the same ID and flag fields. Bit 0 marks a local upload and bit 1 indicates a 16-byte scope prefix on the stored ID.
   - `chapterTitle` (`char[48]`, null-terminated/truncated)
   - version 1: selected text (`String`; legacy files were written with a
     `512`-byte in-app limit)
-  - versions 2-4: selected-text length (`uint16_t` LE) followed by that many
+  - versions 2–6: selected-text length (`uint16_t` LE) followed by that many
     UTF-8 bytes (the current in-app limit is `4096` bytes, defined by
     `CLIPPING_TEXT_MAX`)
 
@@ -679,11 +686,42 @@ same total page count. Legacy records without a layout signature use text
 matching rather than trusting ambiguous numeric ranges. Version 4 adds the
 table selection field; versions 1-3 remain readable.
 
+Version 6 binds each selection to its server, account and document when first
+prepared for upload or imported. A new local selection gets a random 128-bit
+ID before its first upload. The reader keeps the ID on SD alongside the text.
+Two selections of identical text have independent IDs. A deletion travels only
+to its original destination and stays queued across account switches and book
+moves until that destination accepts it. A book can hold up to 256 pending deletions.
+
+Versions 1–5 remain readable. For previously uploaded local selections,
+migration preserves the recorded ID or the legacy timestamp/text hash. If
+multiple old selections share that ID, the first keeps it and the others get
+new IDs. An unscoped v5 import can be bound by a matching live ID and passage.
+V5 deletion records contain no destination, so upgrading skips these entries.
+A remote highlight deleted offline before the upgrade may reappear on replay.
+
+Two-way sync exchanges these per-book records, including tombstones, through
+`/api/v1/clippings/:document?cursor=…&limit=1&format=reader`. The v2 revision
+cursor pages even changes made in the same second. Each applied page checkpoints a cursor in a CRC-protected
+`/.crossdink/clipping-sync/epub_<crc32(path)>.bin` sidecar (version `uint8_t=2`, 16 ASCII hex bytes of scope
+fingerprint, `uint64_t` revision, trailing CRC32). Its scope hashes the server
+URL, username and document ID; changed accounts/servers/documents or lost sidecars
+restart at zero. Failed writes replay safely by ID; Back is checked between
+requests. A full book defers additions and replays once after later deletions,
+without skipping an unhandled addition. Sidecars are optional download caches;
+losing one only repeats the merge. Bulk Sync Books,
+Sync Folder and Sync Clippings check local EPUBs even if they have no clippings
+yet. Downloads are applied one record at a time after TLS is released, retain
+local selections, respect the 256 live-selection limit and resolve highlights
+against saved text when device layouts differ. Imported selections are not
+uploaded again, preserving server-only notes, colors and source offsets.
+
 Creating a clipping also appends a Kindle-style export entry to
 `/My Clippings.txt` on the SD-card root. That text export can keep up to `2000`
 bytes of the selected text and is append-only. Removing a clipping from the
 reader deletes or rewrites only the binary clipping file; it does not remove
-previous entries from `/My Clippings.txt`.
+previous entries from `/My Clippings.txt`. Downloading or deleting synced
+clippings never reads, appends to, rewrites or imports that text export.
 
 When CrossDink moves an EPUB through its built-in move-to-Read flow, it rewrites
 the clipping file under the new path-derived name and removes the old one. If a

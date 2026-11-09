@@ -10,6 +10,7 @@
 #include <freertos/task.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cmath>
 #include <new>
@@ -114,6 +115,8 @@ struct NetJob {
 };
 NetJob netJob;
 WorkerTask netTask;
+// Main loop sets it when the user leaves; the worker's clipping exchange stops between requests.
+std::atomic<bool> netJobCancel{false};
 
 void runNetJob() {
   NetJob& job = netJob;
@@ -131,7 +134,7 @@ void runNetJob() {
   };
   if (job.kind == NetJobKind::Extras) {
     if (job.includeGlobal) job.global = ReadingSyncUpload::globalStats(&job.globalFailedStep);
-    job.extras = ReadingSyncUpload::extras(job.path, job.hash);
+    job.extras = ReadingSyncUpload::extras(job.path, job.hash, [](void*) { return netJobCancel.load(); }, nullptr);
   } else if (job.kind == NetJobKind::Upload) {
     job.result = retriedOnce("Upload", [&job]() { return KOReaderSyncClient::updateProgress(job.progress); });
   } else {
@@ -237,6 +240,7 @@ void KOReaderSyncActivity::returnToSource() {
   if (folderSync) {
     if (netTask.running()) {
       exitRequested = true;  // pollNetJob() exits once the request ends
+      netJobCancel = true;
       return;
     }
     if (syncSucceeded) {
@@ -249,7 +253,10 @@ void KOReaderSyncActivity::returnToSource() {
     finish();
     return;
   }
-  if (netTask.running()) abandonNetJob = true;
+  if (netTask.running()) {
+    abandonNetJob = true;
+    netJobCancel = true;
+  }
   activityManager.goToReader(epubPath, false, false, true);
 }
 
@@ -433,6 +440,7 @@ void KOReaderSyncActivity::continueAfterExtras() {
 
 void KOReaderSyncActivity::startNetJob() {
   netJobPending = true;
+  netJobCancel = false;
   if (netTask.start(
           [](void*) {
             runNetJob();
@@ -983,6 +991,7 @@ void KOReaderSyncActivity::onExit() {
     // Back mid-request: the reboot drops it at once. Other exits (sleep) wait
     // a little for it, then leave it running: deep sleep drops it.
     if (abandonNetJob) silentRestartToReader(true);
+    netJobCancel = true;
     if (!netTask.join(NET_JOIN_TIMEOUT_MS)) {
       if (!folderSync) silentRestartToReader(true);  // returns only during deep sleep
       LOG_ERR("KOSync", "Net job still running at exit; left to deep sleep");
