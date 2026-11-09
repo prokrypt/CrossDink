@@ -2572,9 +2572,9 @@ void EpubReaderActivity::onEnter() {
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
 
-  // Recent books and the sync pull wait for the first loop(), which runs while
-  // the first page draws. The render task owns the position from here, so the
-  // pull takes a copy of the one the book opened at.
+  // Recent books and the sync pull wait until the first page reaches the panel, so
+  // their SD work does not hold up its render. The render task owns the position from
+  // here, so the pull takes a copy of the one the book opened at.
   const bool openedAtSavedPage =
       currentSpineIndex == cachedSpineIndex && !pendingPercentJump && !resumePageBuildAfterRestart;
   openTail = {true, currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount,
@@ -3623,8 +3623,11 @@ void EpubReaderActivity::loop() {
   pluginEvents.pollWhenIdle(getCurrentBookPath());
   // Off the open path: the write overlaps the first page's ink, and it lands
   // before anything below can save this session's stats.
-  if (firstPageShown) ReaderExitSave::flushStats();
-  finishOpenTail();
+  if (firstPageShown) {
+    ReaderExitSave::flushStats();
+    // Recents and the sync pull touch the SD, which the first page's render waits on.
+    finishOpenTail();
+  }
   syncStatsTrackingState();
   if (pendingTtfRenderRelayout && epub) {
     relayoutAfterTtfRenderChange();
