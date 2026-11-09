@@ -36,6 +36,7 @@ int collectPixels(JPEGDRAW* draw) {
 
 class JpegDecoderTest : public ::testing::TestWithParam<const char*> {};
 
+// cppcheck-suppress syntaxError ; gtest macro, cppcheck runs without gtest headers
 TEST_P(JpegDecoderTest, KeepsStripeColumnsAlignedAcrossRows) {
   std::ifstream file(std::string(JPEG_FIXTURE_DIR) + "/" + GetParam() + ".jpg", std::ios::binary);
   ASSERT_TRUE(file.is_open());

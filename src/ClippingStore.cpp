@@ -435,6 +435,7 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
     if (onlyIndex == i) break;
   }
 
+  // cppcheck-suppress unreadVariable ; read by clearPartial's destructor
   complete = true;
   f.close();
   return true;
