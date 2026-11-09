@@ -36,9 +36,8 @@ void drawCenteredBootBitmap(const GfxRenderer& renderer, Bitmap& bitmap) {
   const auto pageHeight = renderer.getScreenHeight();
   int x, y;
 
-  // Match fitted sleep images: dither on the screen-sized grid. Besides avoiding
-  // aliasing from rescaling an already dithered image, the decoder then seeks
-  // past unused source rows instead of reading the whole BMP from SD.
+  // Match fitted sleep images: average source pixels before dithering on the
+  // screen-sized grid so thin details are not skipped during reduction.
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
     const float scale = std::min(static_cast<float>(pageWidth) / bitmap.getWidth(),
                                  static_cast<float>(pageHeight) / bitmap.getHeight());

@@ -897,8 +897,8 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file, const 
   const bool extendEdges = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::EXTEND;
   const bool mirrorEdges = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::EXTEND_MIRROR;
 
-  // Keep error diffusion on the screen-sized grid. Resampling an already
-  // dithered source makes the source pattern alias into regular seams.
+  // Average source pixels before dithering on the screen-sized grid: skipping
+  // pixels can erase thin details, while resizing dithered pixels creates seams.
   if ((SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::FIT || extendEdges ||
        mirrorEdges) &&
       (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight)) {
