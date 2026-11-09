@@ -625,6 +625,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Auto-sleep timeout: an index into SLEEP_TIMEOUT_STEP_MINUTES, SLEEP_TIMEOUT_NEVER_STEP = Never (default
   // 10 min). Legacy sleepTimeoutMinutes and sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutStep = 5;
+  // Quarter-dBm ceiling; 0 preserves the driver's default transmit power.
+  uint8_t wifiTransmitPower = 0;
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;

@@ -331,6 +331,7 @@ void SettingsActivity::rebuildSettingsLists() {
   controlsEdgeGestureSettings.clear();
   systemSettings.clear();
   systemDeviceSettings.clear();
+  systemAdvancedSettings.clear();
   systemFilesCacheSettings.clear();
   fileBrowserSettings.clear();
   systemReadingStatsSettings.clear();
@@ -377,6 +378,7 @@ void SettingsActivity::rebuildSettingsLists() {
   readerScreenMarginSettings = buildReaderScreenMarginSettingsList(allSettings);
   systemSettings = buildSystemSettingsParentList(allSettings);
   systemDeviceSettings = buildSystemDeviceSettingsList(allSettings);
+  systemAdvancedSettings = buildSystemAdvancedSettingsList(allSettings);
   systemFilesCacheSettings = buildSystemFilesCacheSettingsList(allSettings);
   systemReadingStatsSettings = buildSystemReadingStatsSettingsList(allSettings);
   systemGlobalStatsSettings = buildSystemGlobalStatsSettingsList(allSettings);
@@ -499,6 +501,9 @@ void SettingsActivity::setCurrentSettingsForCategory() {
         case SettingAction::SystemDevice:
           currentSettings = &systemDeviceSettings;
           break;
+        case SettingAction::SystemAdvanced:
+          currentSettings = &systemAdvancedSettings;
+          break;
         case SettingAction::SystemFilesCache:
           currentSettings = &systemFilesCacheSettings;
           break;
@@ -558,6 +563,8 @@ StrId SettingsActivity::activeSubmenuTitleId() const {
       return StrId::STR_EDGE_GESTURES;
     case SettingAction::SystemDevice:
       return StrId::STR_SYSTEM_DEVICE;
+    case SettingAction::SystemAdvanced:
+      return StrId::STR_SYSTEM_ADVANCED;
     case SettingAction::SystemFilesCache:
       return StrId::STR_SYSTEM_FILES_CACHE;
     case SettingAction::SystemReadingStats:
@@ -630,9 +637,12 @@ void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {
   if (currentIndex >= optionCount) currentIndex = 0;
 
   const SettingInfo selectedSetting = setting;
-  const auto note = setting.valuePtr == &CrossPointSettings::sideButtonChordAction && mappedInput.hasTouchHardware()
-                        ? OptionPopup::Note{tr(STR_NOTE), tr(STR_TOUCHSCREEN_ESCAPE_HATCH_NOTE)}
-                        : OptionPopup::Note{};
+  OptionPopup::Note note;
+  if (setting.valuePtr == &CrossPointSettings::wifiTransmitPower) {
+    note = {tr(STR_NOTE), tr(STR_WIFI_TRANSMIT_POWER_HELP)};
+  } else if (setting.valuePtr == &CrossPointSettings::sideButtonChordAction && mappedInput.hasTouchHardware()) {
+    note = {tr(STR_NOTE), tr(STR_TOUCHSCREEN_ESCAPE_HATCH_NOTE)};
+  }
   optionPopup.show(
       setting.nameId, options, currentIndex,
       [this, selectedSetting](int selectedIndex) {
@@ -1675,6 +1685,7 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::ControlsTwoFingerSwipe:
       case SettingAction::ControlsEdgeGestures:
       case SettingAction::SystemDevice:
+      case SettingAction::SystemAdvanced:
       case SettingAction::SystemFilesCache:
       case SettingAction::SystemReadingStats:
       case SettingAction::SystemGlobalStats:

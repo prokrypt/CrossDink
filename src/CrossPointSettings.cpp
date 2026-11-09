@@ -12,6 +12,7 @@
 #include <PersistableStore.h>
 #include <ScalableBuiltins.h>
 #include <Serialization.h>
+#include <WifiTransmitPower.h>
 
 #include <algorithm>
 #include <cctype>
@@ -527,6 +528,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint) {
   std::lock_guard<std::mutex> lock(_mutex);
+  // Old settings files must not retain a previously selected runtime override.
+  wifiTransmitPower = 0;
   bool needsResave = false;
   auto clamp = [](const uint8_t value, const uint8_t maxValue, const uint8_t fallback) {
     return value < maxValue ? value : fallback;
@@ -984,6 +987,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   }
   pluginHubPromptHidden = clamp(doc["pluginHubPromptHidden"] | uint8_t{0}, 2, 0);
   if (needsResave) requestResave();
+  WifiTransmitPower::setLimit(wifiTransmitPower);
   LOG_DBG("CPS", "Settings loaded from file");
   return true;
 }
@@ -995,6 +999,7 @@ bool CrossPointSettings::saveToFile() const {
   saves.fetch_add(1, std::memory_order_relaxed);
   JsonDocument doc;
   toJson(doc);
+  WifiTransmitPower::setLimit(doc["wifiTransmitPower"] | uint8_t{0});
   String json;
   serializeJson(doc, json);
   return HeldWrites::hold(HeldWrites::Slot::Settings, json.c_str(), json.length());
