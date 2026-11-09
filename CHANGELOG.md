@@ -292,6 +292,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Holding a finger on the last word of a page while picking dictionary words no longer loses the hold to small touch jitter, so the selection continues onto the next page.
 - Button keyboard tips keep their place while you type and hide when the keyboard leaves too little room for them; cursor hints only show in cursor mode.
 - Long paragraphs keep their CSS space above the first line, paragraphs that end in an image keep the space below them, and very long text runs are laid out in smaller pieces. Chapters rebuild their layout cache once.
+- Syncing a book from the File Browser or Library returns to that list (same folder and book, or same sort and search) even when leaving Wi-Fi needs a restart, instead of landing on Home.
 
 ### Added
 
