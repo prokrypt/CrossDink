@@ -824,6 +824,14 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 109
+
+Complete caches use `109`; suspended partial caches use `0xE3`, and `0xE4` joins
+the retired sentinels. The payload is unchanged from 108. Missing Unicode spaces
+keep font-relative blank advances, SD bitmap heading sizes follow the book's CSS
+headings, and a chapter wrapper's closing spacing is spent before the next
+paragraph, so both cache types rebuild; reading progress is preserved.
+
 ### Version 108
 
 Complete caches use `108`; suspended partial caches use `0xE4`, and `0xE5` joins

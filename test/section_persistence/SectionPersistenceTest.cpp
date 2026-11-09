@@ -22,8 +22,10 @@
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 108;
-constexpr uint8_t kPartialVersion = 0xE4;
+constexpr uint8_t kFullVersion = 109;
+constexpr uint8_t kPartialVersion = 0xE3;
+constexpr uint8_t kPreSpacesFullVersion = 108;
+constexpr uint8_t kPreSpacesPartialVersion = 0xE4;
 constexpr uint8_t kPreGifFullVersion = 107;
 constexpr uint8_t kPreGifPartialVersion = 0xE5;
 constexpr uint8_t kGifSlotFullVersion = 106;
@@ -182,7 +184,9 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {kPreGifFullVersion,
+  for (const uint8_t staleVersion : {kPreSpacesFullVersion,
+                                     kPreSpacesPartialVersion,
+                                     kPreGifFullVersion,
                                      kPreGifPartialVersion,
                                      kGifSlotFullVersion,
                                      kGifSlotPartialVersion,

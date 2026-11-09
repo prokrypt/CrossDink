@@ -400,7 +400,13 @@ ReaderRenderSpec readerRenderSpecForProfile(const int fontId, const uint16_t vie
   return spec;
 }
 
-void ensureReaderSdFontLoaded(GfxRenderer& renderer) {
+void ensureReaderSdFontLoaded(GfxRenderer& renderer, const Epub* epub) {
+  const auto* css = epub ? epub->getCssParser() : nullptr;
+  const bool useCssSizes =
+      SETTINGS.embeddedStyle && normalizeRenderMode(SETTINGS.epubRenderMode) != EpubRenderMode::Light;
+  sdFontSystem.setContentSizeScales(css && useCssSizes && SETTINGS.sdFontFamilyName[0]
+                                        ? css->contentFontSizeScales()
+                                        : std::array<uint16_t, 2>{512, 192});
   sdFontSystem.ensureLoaded(renderer);
   // S3 scalable faces are already kept in PSRAM. Keep their small catalog while
   // reading too, so opening Font Size does not rescan the SD card. Bitmap/C3
@@ -2336,7 +2342,7 @@ void EpubReaderActivity::endGlobalSettingsEdit() {
   // The global font picker may have unloaded this book's SD font even when
   // its override kept the effective font setting unchanged.
   if (restoreBookFont) {
-    ensureReaderSdFontLoaded(renderer);
+    ensureReaderSdFontLoaded(renderer, epub.get());
     workerLaneMissFontId = 0;
   }
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
@@ -2631,6 +2637,7 @@ void EpubReaderActivity::onExit() {
   imageCacheWorker.done = nullptr;
   imageCacheWorker.renderer.reset();
   imageCacheWorker.frame.reset();
+  sdFontSystem.setContentSizeScales({512, 192});
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   // Drop the scalable-family catalog retained during reading. The active font
   // and its PSRAM face lifetime remain managed by SdCardFontSystem.
@@ -2835,7 +2842,7 @@ void EpubReaderActivity::openReaderMenu() {
         // workers on the fonts about to be unloaded.
         RenderLock lock(*this);
         waitDrawAhead(/*publish=*/false);
-        ensureReaderSdFontLoaded(renderer);
+        ensureReaderSdFontLoaded(renderer, epub.get());
         workerLaneMissFontId = 0;
         prepareCurrentSectionForRelayout();
         section.reset();
@@ -2860,7 +2867,7 @@ void EpubReaderActivity::openReaderMenu() {
         // workers on the fonts about to be unloaded.
         RenderLock lock(*this);
         waitDrawAhead(/*publish=*/false);
-        ensureReaderSdFontLoaded(renderer);
+        ensureReaderSdFontLoaded(renderer, epub.get());
         workerLaneMissFontId = 0;
         prepareCurrentSectionForRelayout();
         section.reset();  // Force re-layout with changed reader settings
@@ -2885,7 +2892,7 @@ void EpubReaderActivity::openReaderMenu() {
       // workers on the fonts about to be unloaded.
       RenderLock lock(*this);
       waitDrawAhead(/*publish=*/false);
-      ensureReaderSdFontLoaded(renderer);
+      ensureReaderSdFontLoaded(renderer, epub.get());
       workerLaneMissFontId = 0;
       prepareCurrentSectionForRelayout();
       section.reset();  // Force re-layout with changed reader settings
@@ -4907,7 +4914,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
               }
               ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
               section.reset();
-              ensureReaderSdFontLoaded(renderer);
+              ensureReaderSdFontLoaded(renderer, epub.get());
               workerLaneMissFontId = 0;
               Toast::show(renderer, tr(STR_BOOK_READER_SETTINGS_RESET), ReaderUtils::readerForegroundBlack());
             }
@@ -5340,7 +5347,7 @@ void EpubReaderActivity::relayoutAfterTtfRenderChange() {
   // workers on the fonts about to be unloaded.
   RenderLock lock(*this);
   waitDrawAhead(/*publish=*/false);
-  ensureReaderSdFontLoaded(renderer);
+  ensureReaderSdFontLoaded(renderer, epub.get());
   workerLaneMissFontId = 0;
   prepareCurrentSectionForRelayout();
   section.reset();
@@ -5408,7 +5415,7 @@ void EpubReaderActivity::reindexCurrentSection() {
     // with parseStep() so the render task cannot read a just-closed HalFile.
     saveCurrentBookReaderSettings();
     waitDrawAhead(/*publish=*/false);
-    ensureReaderSdFontLoaded(renderer);
+    ensureReaderSdFontLoaded(renderer, epub.get());
     workerLaneMissFontId = 0;
     if (!restorePreviewPosition) {
       GUI.drawPopup(renderer, tr(STR_INDEXING));
@@ -6939,7 +6946,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 void EpubReaderActivity::render(RenderLock&& lock) {
   if (readerFontLoadPending) {
     readerFontLoadPending = false;
-    ensureReaderSdFontLoaded(renderer);
+    ensureReaderSdFontLoaded(renderer, epub.get());
     workerLaneMissFontId = 0;
   }
 #if CROSSDINK_SCALABLE_FONTS
@@ -9592,7 +9599,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
     }
     epub->ensureOptimizerImageIndex();
   }
-  ensureReaderSdFontLoaded(renderer);
+  ensureReaderSdFontLoaded(renderer, epub.get());
 #if CROSSDINK_SCALABLE_FONTS
   bookFontSystem.ensure(*epub, renderer, SETTINGS.publisherFontsEnabled(normalizeRenderMode(SETTINGS.epubRenderMode)));
   // Sleep reconstruction owns this temporary provider until its page and section are released.
