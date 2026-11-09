@@ -204,6 +204,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Books open about 0.1 s faster: the recent-books update and sync pull wait until the first page is on its way to the screen, and opening a book no longer checks every recent book for a missing file.
 - Reopening a book on the page you left starts drawing that page the moment you tap it, while the book loads underneath, so the page appears about 0.2-0.3 s sooner (plain text pages with anti-aliasing off).
 - Nearby Position Sync shows the same progress cards, bars, chapter details and Ahead badge as server progress sync.
+- The frontlight fades and flash ducks are much smoother: the light ramps in steps far smaller than 1% (LEDC duty dithering) every 10 ms, and the Light Timeout fade runs on the same timer. Brightness at rest is unchanged; at the lowest levels the warm/cool mix now follows Warmth more closely.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
