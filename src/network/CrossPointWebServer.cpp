@@ -3540,6 +3540,7 @@ void CrossPointWebServer::handleGetOpdsServers() const {
     doc["url"] = servers[i].url;
     doc["username"] = servers[i].username;
     doc["filenameFormat"] = opdsFilenameFormatToJson(servers[i].filenameFormat);
+    doc["useServerFilename"] = servers[i].useServerFilename;
     doc["downloadFolder"] = servers[i].downloadFolder;
     // Never expose passwords over the API — only indicate whether one is set
     doc["hasPassword"] = !servers[i].password.empty();
@@ -3574,7 +3575,6 @@ void CrossPointWebServer::handlePostOpdsServer() {
   opdsServer.name = doc["name"] | std::string("");
   opdsServer.url = doc["url"] | std::string("");
   opdsServer.username = doc["username"] | std::string("");
-  opdsServer.filenameFormat = opdsFilenameFormatFromJson(doc["filenameFormat"] | "");
   if (!applyOpdsDownloadFolder(doc.as<JsonVariantConst>(), opdsServer.downloadFolder)) {
     server->send(400, "text/plain", "Invalid download folder (maximum 63 bytes)");
     return;
@@ -3585,8 +3585,6 @@ void CrossPointWebServer::handlePostOpdsServer() {
   // we preserve the existing password — the web UI omits it when the user hasn't changed it.
   bool hasPasswordField = doc["password"].is<const char*>() || doc["password"].is<std::string>();
   std::string password = doc["password"] | std::string("");
-  const bool hasFilenameFormatField =
-      doc["filenameFormat"].is<const char*>() || doc["filenameFormat"].is<std::string>();
 
   if (doc["index"].is<int>()) {
     int idx = doc["index"].as<int>();
@@ -3599,8 +3597,13 @@ void CrossPointWebServer::handlePostOpdsServer() {
     if (existing && !hasPasswordField) {
       password = existing->password;
     }
-    if (existing && !hasFilenameFormatField) {
+    if (existing) {
       opdsServer.filenameFormat = existing->filenameFormat;
+      opdsServer.useServerFilename = existing->useServerFilename;
+    }
+    if (!applyOpdsFilenameSettings(doc.as<JsonVariantConst>(), opdsServer)) {
+      server->send(400, "text/plain", "Invalid server filename option");
+      return;
     }
     if (existing && !hasDownloadFolderField) opdsServer.downloadFolder = existing->downloadFolder;
     opdsServer.password = password;
@@ -3610,6 +3613,10 @@ void CrossPointWebServer::handlePostOpdsServer() {
     }
     LOG_DBG("WEB", "Updated OPDS server at index %d", idx);
   } else {
+    if (!applyOpdsFilenameSettings(doc.as<JsonVariantConst>(), opdsServer)) {
+      server->send(400, "text/plain", "Invalid server filename option");
+      return;
+    }
     opdsServer.password = password;
     if (!OPDS_STORE.addServer(opdsServer)) {
       server->send(400, "text/plain", "Cannot add server (limit reached)");

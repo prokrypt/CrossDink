@@ -590,8 +590,13 @@ let allSettings = [];
         '<span class="setting-control"><select id="opds-filename-' + id + '">' +
           '<option value="author_title"' + ((srv.filenameFormat || 'author_title') === 'author_title' ? ' selected' : '') + '>Author - Title</option>' +
           '<option value="title_author"' + (srv.filenameFormat === 'title_author' ? ' selected' : '') + '>Title - Author</option>' +
-          '<option value="server_filename"' + (srv.filenameFormat === 'server_filename' ? ' selected' : '') + '>Server filename</option>' +
         '</select></span>' +
+      '</div>' +
+      '<div class="setting-row">' +
+        '<label class="setting-name" for="opds-server-filename-' + id + '">Use Server Filename</label>' +
+        '<span class="setting-control"><label class="toggle-switch">' +
+          '<input type="checkbox" id="opds-server-filename-' + id + '"' + (srv.useServerFilename ? ' checked' : '') + '>' +
+          '<span class="toggle-slider"></span></label></span>' +
       '</div>' +
       '<div class="setting-row">' +
         '<span class="setting-name">Download Folder</span>' +
@@ -649,6 +654,7 @@ let allSettings = [];
       url: document.getElementById('opds-url-' + id).value,
       username: document.getElementById('opds-user-' + id).value,
       filenameFormat: document.getElementById('opds-filename-' + id).value,
+      useServerFilename: document.getElementById('opds-server-filename-' + id).checked,
       downloadFolder: document.getElementById('opds-folder-' + id).value,
     };
     // Only include password in payload when the user actually typed something;
