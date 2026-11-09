@@ -1180,6 +1180,7 @@ TEST_F(ChapterHtmlSlimParserTest, AdvancePrewarmScanResumesAcrossSlicesAndFeedsE
     ChapterHtmlSlimParser::AdvancePrewarm state;
     state.codepoints = std::make_unique<uint32_t[]>(4096);
     state.buffer = std::make_unique<uint8_t[]>(512);
+    state.unique = UniqueCodepointSet(state.codepoints.get(), 4096);  // as startAdvancePrewarm() binds it
     HalFile file;
     file.data = html;
     while (!state.scanned) {
