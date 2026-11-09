@@ -202,6 +202,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - The header Wi-Fi remote-activity icon now clears 5 seconds after the last API request instead of 30.
 - Books open about 0.1 s faster: the recent-books update and sync pull wait until the first page is on its way to the screen, and opening a book no longer checks every recent book for a missing file.
 - Reopening a book on the page you left starts drawing that page the moment you tap it, while the book loads underneath, so the page appears about 0.2-0.3 s sooner (plain text pages with anti-aliasing off).
+- Nearby Position Sync shows the same progress cards, bars, chapter details and Ahead badge as server progress sync.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
@@ -270,6 +271,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Page-turn taps work near the top and bottom screen edges and over status bars when Tap to Hide Status Bar is off; dictionary button hints no longer blank out book text; Up + Down unlocks Quick Lock in a reader with the touchscreen off.
 - EPUB covers from progressive JPEGs are no longer slanted or wrapped on Home and sleep screens; saved clippings survive corrupt or incomplete store loads and interrupted replacements, and clipping-index allocation failures are reported instead of aborting; a failed font catalog download can be retried from touch or buttons, and the web Fonts page shows load errors.
 - Thin, hair and other Unicode spaces render as blank space instead of missing-character boxes; SD bitmap heading font sizes follow the book's CSS headings; chapter wrappers no longer add their closing spacing to the next paragraph; the font picker keeps its AA preview notice; Reset TTF Defaults confirms the reset or reports a save failure. EPUB pages rebuild once on next open.
+- All-time stats sync names the step that failed (setup, totals, daily history, sessions or streak), and a batch stats upload now only counts as done when the server accepted every book.
 
 ### Added
 
