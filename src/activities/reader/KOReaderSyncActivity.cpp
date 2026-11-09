@@ -235,6 +235,7 @@ struct NetJob {
   // Extras: one book's stats and clippings, plus overall stats when asked.
   std::string path;
   bool includeGlobal = false;
+  ReadingSyncUpload::GlobalStatsStep globalFailedStep = ReadingSyncUpload::GlobalStatsStep::None;
   ReadingSyncUpload::ExtrasResult extras{};
   StatsUploadClient::Result global = StatsUploadClient::Result::Skipped;
   uint32_t elapsedMs = 0;
@@ -257,7 +258,7 @@ void runNetJob() {
     return result;
   };
   if (job.kind == NetJobKind::Extras) {
-    if (job.includeGlobal) job.global = ReadingSyncUpload::globalStats();
+    if (job.includeGlobal) job.global = ReadingSyncUpload::globalStats(&job.globalFailedStep);
     job.extras = ReadingSyncUpload::extras(job.path, job.hash);
   } else if (job.kind == NetJobKind::Upload) {
     job.result = retriedOnce("Upload", [&job]() { return KOReaderSyncClient::updateProgress(job.progress); });
@@ -451,7 +452,11 @@ void KOReaderSyncActivity::drawExtrasResults(const Rect textArea, int y, const b
     if (!extrasAttempted) return;
   }
   // Folder runs report overall stats once in their own summary, not per book.
-  if (includeGlobalStats) drawRow(tr(STR_ALL_TIME_STATS), ReadingSyncUpload::statusLabel(globalStatsResult, false));
+  if (includeGlobalStats) {
+    char status[128];
+    drawRow(tr(STR_ALL_TIME_STATS),
+            ReadingSyncUpload::globalStatusLabel(status, sizeof(status), globalStatsResult, globalStatsFailedStep));
+  }
   drawRow(tr(STR_READING_STATS), ReadingSyncUpload::statusLabel(extrasResult.stats, false));
   drawRow(tr(STR_CLIPPINGS), ReadingSyncUpload::statusLabel(extrasResult.clippings, true));
 }
@@ -495,6 +500,7 @@ void KOReaderSyncActivity::uploadExtras(const AfterExtras next) {
 void KOReaderSyncActivity::finishExtras() {
   logSyncTiming();
   globalStatsResult = netJob.global;
+  globalStatsFailedStep = netJob.globalFailedStep;
   extrasResult = netJob.extras;
   if (!StatsUploadClient::failed(globalStatsResult) && extrasResult.success()) {
     continueAfterExtras();
