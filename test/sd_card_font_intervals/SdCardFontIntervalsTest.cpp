@@ -8,6 +8,8 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -28,29 +30,21 @@ Allocation arrays[128]{};
 int failArrayCall = -1, arrayCalls = 0;
 void* allocateArray(size_t n) {
   void* p = std::malloc(n ? n : 1);
-  if (!p) throw std::bad_alloc();
-  for (auto& a : arrays)
-    if (!a.ptr) {
-      a = {p, n};
-      return p;
-    }
-  std::abort();
+  auto* slot = std::find_if(std::begin(arrays), std::end(arrays), [](const Allocation& a) { return !a.ptr; });
+  if (!p || slot == std::end(arrays)) std::abort();  // test harness only
+  *slot = {p, n};
+  return p;
 }
 size_t arrayBytes() {
-  size_t bytes = 0;
-  for (const auto& a : arrays)
-    if (a.ptr) bytes += a.bytes;
-  return bytes;
+  return std::accumulate(std::begin(arrays), std::end(arrays), size_t{0},
+                         [](size_t sum, const Allocation& a) { return a.ptr ? sum + a.bytes : sum; });
 }
 void freeArray(void* p) {
   if (!p) return;
-  for (auto& a : arrays)
-    if (a.ptr == p) {
-      a = {};
-      std::free(p);
-      return;
-    }
-  std::abort();
+  auto* slot = std::find_if(std::begin(arrays), std::end(arrays), [p](const Allocation& a) { return a.ptr == p; });
+  if (slot == std::end(arrays)) std::abort();
+  *slot = {};
+  std::free(p);
 }
 }  // namespace
 void* operator new[](size_t n) { return allocateArray(n); }
@@ -70,9 +64,8 @@ struct Style {
   uint32_t extraGlyphs = 0;
 };
 uint32_t glyphCount(const Table& t) {
-  uint32_t count = 0;
-  for (const auto& iv : t) count += iv.last - iv.first + 1;
-  return count;
+  return std::accumulate(t.begin(), t.end(), uint32_t{0},
+                         [](uint32_t sum, const EpdUnicodeInterval& iv) { return sum + iv.last - iv.first + 1; });
 }
 Table table(std::initializer_list<std::pair<uint32_t, uint32_t>> ranges) {
   Table out;
@@ -121,9 +114,9 @@ void fixture(const std::string& path, const std::vector<Style>& styles) {
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 int32_t reference(const Table& intervals, uint32_t cp) {
-  for (const auto& iv : intervals)
-    if (cp >= iv.first && cp <= iv.last) return iv.offset + cp - iv.first;
-  return -1;
+  const auto it = std::find_if(intervals.begin(), intervals.end(),
+                               [cp](const EpdUnicodeInterval& iv) { return cp >= iv.first && cp <= iv.last; });
+  return it == intervals.end() ? -1 : static_cast<int32_t>(it->offset + cp - it->first);
 }
 void verify(SdCardFont& font, uint8_t id, const Table& intervals, uint32_t compact) {
   const auto& s = font.styles_[id];
