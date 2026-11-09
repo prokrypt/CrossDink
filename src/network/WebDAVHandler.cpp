@@ -6,6 +6,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <SdCardFontSystem.h>
 #ifndef SIMULATOR
 #include <lwip/sockets.h>
@@ -17,6 +18,7 @@
 #include <new>
 
 #include "CrossPointSettings.h"
+#include "CrossPointWebServer.h"
 #include "HttpRange.h"
 #include "ProtectedPaths.h"
 #include "SerialRemote.h"
@@ -41,6 +43,115 @@ bool replaceFile(const String& srcPath, const String& dstPath, const bool dstExi
   if (dstExists) Storage.rename(oldPath.c_str(), dstPath.c_str());
   return false;
 }
+
+// Ends a PUT whose body is in <path>.davtmp: the temp replaces `path` when
+// every write landed (`ok`), else it is removed and the old file stays.
+bool commitPut(HalFile& file, const String& path, const bool existed, bool ok) {
+  const String tempPath = path + ".davtmp";
+  // A write the card never committed must not replace the old file.
+  ok = file.sync() && ok;
+  ok = file.close() && ok;
+  if (ok) {
+    sdFontSystem.markRegistryDirtyForPath(path.c_str());
+    ok = replaceFile(tempPath, path, existed);
+  }
+  if (!ok) {
+    LOG_ERR("DAV", "Failed to finish PUT: %s", path.c_str());
+    Storage.remove(tempPath.c_str());
+    return false;
+  }
+  clearBookCachePreservingUserState(path.c_str());
+  ImageFolderIndex::invalidateForPath(path.c_str());
+  sdFontSystem.markRegistryDirtyForPath(path.c_str());
+  return true;
+}
+
+#ifndef SIMULATOR
+// PUT bodies handed to the serving task's loop (pumpPutStreams), so a long
+// upload no longer holds every other request until it ends. Serving task only.
+struct PutStream {
+  NetworkClient client;  // fd() < 0: free slot
+  HalFile file;          // <path>.davtmp
+  String path;
+  bool existed = false;
+  bool ok = true;  // false after a short write: the rest of the body is read and dropped
+  size_t remaining = 0;
+  std::unique_ptr<uint8_t[]> buf;
+  unsigned long lastRecvMs = 0;
+};
+constexpr int PUT_STREAMS = 2;  // a third concurrent PUT is read inline (blocking), as before
+constexpr size_t PUT_CHUNK = 4096;
+constexpr int PUT_CHUNKS_PER_PASS = 4;         // bounds one pass, so requests between passes stay quick
+constexpr unsigned long PUT_STALL_MS = 30000;  // a client that sends nothing this long is dropped
+PutStream putStreams[PUT_STREAMS];
+
+bool putStreamHolds(const String& path) {
+  return std::any_of(std::begin(putStreams), std::end(putStreams),
+                     [&path](const PutStream& s) { return s.client.fd() >= 0 && s.path == path; });
+}
+
+// Takes over the client and the open temp file. False: no free slot or no
+// buffer, and the caller reads the body inline.
+bool startPutStream(WebServer& server, HalFile& file, const String& path, const bool existed) {
+  for (PutStream& s : putStreams) {
+    if (s.client.fd() >= 0) continue;
+    s.buf = makeUniqueNoThrow<uint8_t[]>(PUT_CHUNK);  // PSRAM on device (above the 512 B internal limit)
+    if (!s.buf) {
+      LOG_ERR("DAV", "PUT stream: no %u-byte buffer, reading inline", static_cast<unsigned>(PUT_CHUNK));
+      return false;
+    }
+    s.remaining = static_cast<size_t>(server.clientContentLength());
+    // Only CrossPointWebServer registers this handler, on its PendingAwareWebServer.
+    s.client = static_cast<PendingAwareWebServer&>(server).takeRawBody();
+    s.file = std::move(file);
+    s.path = path;
+    s.existed = existed;
+    s.ok = true;
+    s.lastRecvMs = millis();
+    LOG_DBG("DAV", "PUT fd %d streaming %u bytes to %s", s.client.fd(), static_cast<unsigned>(s.remaining),
+            path.c_str());
+    return true;
+  }
+  return false;
+}
+
+void releasePutStream(PutStream& s) {
+  s.client.stop();
+  s.buf.reset();
+  s.path = String();
+}
+
+// Client gone, stalled or server stopping: no reply, the old file stays.
+void abortPutStream(PutStream& s, const char* why) {
+  LOG_INF("DAV", "PUT %s aborted: %s, %u bytes unread", s.path.c_str(), why, static_cast<unsigned>(s.remaining));
+  s.file.close();
+  Storage.remove((s.path + ".davtmp").c_str());
+  releasePutStream(s);
+}
+
+void answerPutStream(PutStream& s, const int status) {
+  const int fd = s.client.fd();
+  const char* line = status == 500 ? "500 Internal Server Error" : status == 204 ? "204 No Content" : "201 Created";
+  // handlePut's texts; 204 has no body and no Content-Length.
+  const char* body = status == 500 ? "Write failed - incomplete upload or disk full" : "";
+  char reply[192];
+  const int len = status == 204
+                      ? snprintf(reply, sizeof(reply), "HTTP/1.1 %s\r\nConnection: close\r\n\r\n", line)
+                      : snprintf(reply, sizeof(reply),
+                                 "HTTP/1.1 %s\r\nContent-Type: text/plain\r\nContent-Length: %u\r\nConnection: "
+                                 "close\r\n\r\n%s",
+                                 line, static_cast<unsigned>(strlen(body)), body);
+  // A few bytes into a send buffer this connection has not used yet.
+  if (lwip_send(fd, reply, static_cast<size_t>(len), MSG_DONTWAIT) != len) {
+    LOG_ERR("DAV", "PUT fd %d: reply %d not sent", fd, status);
+  }
+  // Read what the client sent past the body: closing over unread bytes sends a TCP reset.
+  while (lwip_recv(fd, s.buf.get(), PUT_CHUNK, MSG_DONTWAIT) > 0) {
+  }
+  LOG_DBG("DAV", "PUT END (streamed): %s, status %d", s.path.c_str(), status);
+  releasePutStream(s);
+}
+#endif
 
 // The Arduino parser reads a request body only for POST, PUT, PATCH and
 // DELETE. Closed with the body (e.g. a PROPFIND's XML) still unread, lwIP
@@ -113,6 +224,47 @@ String httpDate(const uint32_t fatDateTime) {
 }
 }  // namespace
 
+#ifndef SIMULATOR
+bool pumpPutStreams() {
+  bool progressed = false;
+  for (PutStream& s : putStreams) {
+    const int fd = s.client.fd();
+    if (fd < 0) continue;
+    for (int i = 0; i < PUT_CHUNKS_PER_PASS && s.remaining > 0; i++) {
+      const int got = s.client.read(s.buf.get(), std::min(s.remaining, PUT_CHUNK));
+      if (got <= 0) {
+        // read() returns 0 both for "nothing yet" and at EOF; a peek tells them apart.
+        uint8_t probe;
+        if (got < 0 || lwip_recv(fd, &probe, 1, MSG_PEEK | MSG_DONTWAIT) == 0) {
+          abortPutStream(s, "client gone");
+        } else if (millis() - s.lastRecvMs > PUT_STALL_MS) {
+          abortPutStream(s, "client stalled");
+        }
+        break;
+      }
+      s.remaining -= static_cast<size_t>(got);
+      s.lastRecvMs = millis();
+      progressed = true;
+      if (s.ok && s.file.write(s.buf.get(), static_cast<size_t>(got)) != static_cast<size_t>(got)) {
+        LOG_ERR("DAV", "PUT %s: SD write failed, dropping the rest of the body", s.path.c_str());
+        s.ok = false;
+      }
+    }
+    if (s.client.fd() >= 0 && s.remaining == 0) {
+      const bool ok = commitPut(s.file, s.path, s.existed, s.ok);
+      answerPutStream(s, ok ? (s.existed ? 204 : 201) : 500);
+    }
+  }
+  return progressed;
+}
+
+void closePutStreams() {
+  for (PutStream& s : putStreams) {
+    if (s.client.fd() >= 0) abortPutStream(s, "server stopped");
+  }
+}
+#endif
+
 // ── RequestHandler interface ─────────────────────────────────────────────────
 
 bool WebDAVHandler::canHandle(WebServer& server, HTTPMethod method, const String& uri) {
@@ -145,6 +297,8 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   (void)uri;
   if (raw.status == RAW_START) {
     _putPath = getRequestPath(server);
+    _putStreamed = false;
+    _putBusy = false;
     // Partial PUT is not supported; writing the range as the whole file would
     // truncate it (RFC 9110 14.5: reply 400).
     if (isProtectedPath(_putPath) || !server.header("Content-Range").isEmpty()) {
@@ -162,6 +316,14 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
       }
     }
 
+#ifndef SIMULATOR
+    // Its temp file is open on the serving task's loop.
+    if (putStreamHolds(_putPath)) {
+      _putBusy = true;
+      _putOk = false;
+      return;
+    }
+#endif
     if (_putFile) _putFile.close();
     _putExisted = Storage.exists(_putPath.c_str());
 
@@ -180,6 +342,10 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     Storage.remove(tempPath.c_str());
     _putOk = Storage.openFileForWrite("DAV", tempPath, _putFile);
     LOG_DBG("DAV", "PUT START: %s", _putPath.c_str());
+#ifndef SIMULATOR
+    _putStreamed =
+        _putOk && server.clientContentLength() > 0 && startPutStream(server, _putFile, _putPath, _putExisted);
+#endif
 
   } else if (raw.status == RAW_WRITE) {
     if (_stopping->load(std::memory_order_acquire)) {
@@ -197,19 +363,9 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     }
 
   } else if (raw.status == RAW_END) {
-    const bool wroteTemp = _putFile;
-    if (wroteTemp) {
-      // A write the card never committed must not replace the old file.
-      _putOk = _putFile.sync() && _putOk;
-      _putOk = _putFile.close() && _putOk;
-      if (!_putOk) LOG_ERR("DAV", "Failed to finish PUT: %s", _putPath.c_str());
-    }
-    if (_putOk) {
-      sdFontSystem.markRegistryDirtyForPath(_putPath.c_str());
-      _putOk = replaceFile(_putPath + ".davtmp", _putPath, _putExisted);
-    }
+    if (_putStreamed) return;
     // Also drops the temp of a body write that failed midway.
-    if (wroteTemp && !_putOk) Storage.remove((_putPath + ".davtmp").c_str());
+    if (_putFile) _putOk = commitPut(_putFile, _putPath, _putExisted, _putOk);
     LOG_DBG("DAV", "PUT END: %u bytes, ok=%d", raw.totalSize, _putOk);
 
   } else if (raw.status == RAW_ABORTED) {
@@ -483,6 +639,7 @@ void WebDAVHandler::handleHead(WebServer& s) {
 // ── PUT ──────────────────────────────────────────────────────────────────────
 
 void WebDAVHandler::handlePut(WebServer& s) {
+  if (_putStreamed) return;  // pumpPutStreams() answers once the body is in
   // Body was already received via canRaw/raw callbacks
   String path = getRequestPath(s);
   LOG_DBG("DAV", "PUT %s", path.c_str());
@@ -497,6 +654,11 @@ void WebDAVHandler::handlePut(WebServer& s) {
     return;
   }
 
+  if (_putBusy) {
+    s.send(423, "text/plain", "Locked: upload to this path in progress");
+    return;
+  }
+
   if (!_putOk) {
     String tempPath = path + ".davtmp";
     Storage.remove(tempPath.c_str());
@@ -504,9 +666,6 @@ void WebDAVHandler::handlePut(WebServer& s) {
     return;
   }
 
-  clearBookCachePreservingUserState(path.c_str());
-  ImageFolderIndex::invalidateForPath(path.c_str());
-  sdFontSystem.markRegistryDirtyForPath(path.c_str());
   s.send(_putExisted ? 204 : 201);
 }
 

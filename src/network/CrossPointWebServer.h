@@ -69,6 +69,13 @@ class PendingAwareWebServer final : public WebServer {
   unsigned long clientStatusMs() const { return millis() - _statusChange; }
   // False when a malformed multipart body reaches an upload callback with no upload.
   bool hasUpload() const { return static_cast<bool>(_currentUpload); }
+  // WebDAV PUT: hands the request body to the caller. _parseRequest's raw read
+  // loop then ends at once, and the returned copy keeps the socket open after
+  // handleClient() drops its own.
+  NetworkClient takeRawBody() {
+    _clientContentLength = 0;
+    return _currentClient;
+  }
 
  protected:
   size_t _currentClientWrite(const char* data, size_t size) override {
