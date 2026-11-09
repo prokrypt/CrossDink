@@ -87,6 +87,7 @@ class PluginCatalogActivity final : public CatalogActivity {
     struct BrowseList {
       std::string title, url, body;
       std::string noticeTitle, noticeMessage, noticeConfirm, noticeCancel;
+      bool fromIndex = false;
       bool hasNotice() const { return !noticeMessage.empty(); }
     };
     std::vector<BrowseList> browseLists;
