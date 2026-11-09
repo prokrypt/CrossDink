@@ -1489,7 +1489,7 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   std::string path = bookDownloadPath(book, server.filenameFormat, folder);
   // The server's name is only known once the download starts; a clash then
   // gets its own overwrite prompt (offerOverwrite).
-  const bool serverFilename = server.filenameFormat == OpdsFilenameFormat::SERVER_FILENAME;
+  const bool serverFilename = server.useServerFilename;
   std::string heading = tr(STR_CONFIRM_DOWNLOAD_PROMPT);
   // cppcheck-suppress stlcstrAssignment ; title is a PsramString, not std::string
   std::string details = book.title.c_str();

@@ -5,6 +5,8 @@
 #include <string>
 #include <unordered_map>
 
+class HalFile;
+
 class HalStorage {
  public:
   void reset() {

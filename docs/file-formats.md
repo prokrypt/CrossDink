@@ -1646,7 +1646,7 @@ corrected backwards) are retained. Sessions under ten seconds are not exported.
 
 ## OPDS server list
 
-`/.crossdink/opds.json` holds `servers`, an array of objects with `name`, `url`, `username`, `password_obf`, `filenameFormat` (`author_title`, `title_author` or `server_filename`) and an optional `downloadFolder`. A missing or empty `downloadFolder` uses the global `opdsDownloadFolder` setting; `/` is the SD root; anything else is an absolute folder path of at most 63 bytes, normalized on load. An invalid value is logged and treated as empty. Older files need no migration.
+`/.crossdink/opds.json` holds `servers`, an array of objects with `name`, `url`, `username`, `password_obf`, `filenameFormat` (`author_title` or `title_author`), an optional `useServerFilename` (boolean, written only when `true`) and an optional `downloadFolder`. With `useServerFilename` a safe server (Content-Disposition) filename wins and `filenameFormat` is the fallback. A legacy `filenameFormat: "server_filename"` loads as `author_title` with the toggle on; a non-boolean `useServerFilename` is logged and treated as off. Web API updates that omit either field keep its current value. A missing or empty `downloadFolder` uses the global `opdsDownloadFolder` setting; `/` is the SD root; anything else is an absolute folder path of at most 63 bytes, normalized on load. An invalid value is logged and treated as empty. Older files need no migration.
 Version 2 rescans `.ttf` and `.otf` files so static TrueType and OpenType CFF
 faces rejected by earlier firmware enter the catalog. The binary layout is unchanged.
 
