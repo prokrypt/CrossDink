@@ -7,6 +7,8 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <algorithm>
+
 BookFontSystem bookFontSystem;
 
 int BookFontSystem::fontId(const uint32_t family, const uint8_t points) {
@@ -164,6 +166,21 @@ uint32_t BookFontSystem::loadedFaces() const {
   for (size_t i = 0; i < faceCount_; ++i)
     if (faces_[i].font) mask |= 1U << i;
   return mask;
+}
+
+bool BookFontSystem::hasLoadedFamily(const uint32_t family) const {
+  return std::any_of(faces_.begin(), faces_.begin() + faceCount_,
+                     [family](const Face& face) { return face.family == family && face.registered; });
+}
+
+bool BookFontSystem::copyFamilyName(const uint32_t family, char* name, const size_t capacity) {
+  if (!name || !capacity) return false;
+  name[0] = '\0';
+  for (size_t i = 0; i < faceCount_; ++i) {
+    auto& face = faces_[i];
+    if (face.family == family && face.registered && face.font) return face.font->copyFamilyName(name, capacity);
+  }
+  return false;
 }
 
 uint32_t BookFontSystem::faceSignature(const uint32_t mask) const {

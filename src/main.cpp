@@ -2255,11 +2255,13 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  // Network screens can return Home without another reboot. Keep the lookup
+  // callback available for the next reader, without loading font data here.
+  sdFontSystem.begin(renderer, loadReaderResources);
   if (loadReaderResources) {
-    sdFontSystem.begin(renderer);
     readerResourcesReady = true;
   } else {
-    LOG_DBG("MAIN", "Skipping EPUB scratch workspace and SD fonts for minimal network boot");
+    LOG_DBG("MAIN", "Deferring EPUB scratch workspace and SD reader fonts for minimal network boot");
   }
 }
 

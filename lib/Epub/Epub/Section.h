@@ -140,6 +140,9 @@ class Section {
   // One slice of the build's deferred font advance prewarm; false when none is left.
   bool prewarmSomeMore();
   void releaseBuildFile();
+#if CROSSDINK_SCALABLE_FONTS
+  uint32_t publisherBodyFontFamily();
+#endif
   bool lastBuildLayoutAbortedForLowMemory() const { return lastLayoutAbortedForLowMemory_; }
   bool isBuilding() const { return static_cast<bool>(build_); }
   bool isBuildComplete() const { return buildComplete_; }

@@ -2875,6 +2875,14 @@ void EpubReaderActivity::openReaderMenu() {
     return;
   }
   menuActivity->setChapterTitle(std::move(chapterTitle));
+#if CROSSDINK_SCALABLE_FONTS
+  menuActivity->setPublisherBodyFontProbe(
+      [](void* context) -> uint32_t {
+        auto* reader = static_cast<EpubReaderActivity*>(context);
+        return reader->section && !reader->activeFootnotePreview ? reader->section->publisherBodyFontFamily() : 0;
+      },
+      this);
+#endif
   startActivityForResult(std::move(menuActivity), [this](const ActivityResult& result) {
 #if !CROSSDINK_APP_CAP_TOUCH
     const auto heapAfterMenu = MemoryBudget::snapshot();

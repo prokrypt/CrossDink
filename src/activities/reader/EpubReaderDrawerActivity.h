@@ -50,6 +50,13 @@ class EpubReaderDrawerActivity final : public Activity {
 
   // Button menu only: shown under the book title. Set before the activity starts.
   void setChapterTitle(std::string title) { chapterTitle = std::move(title); }
+#if CROSSDINK_SCALABLE_FONTS
+  using PublisherBodyFontProbe = uint32_t (*)(void* context);
+  void setPublisherBodyFontProbe(PublisherBodyFontProbe probe, void* context) {
+    publisherBodyFontProbe = probe;
+    publisherBodyFontContext = context;
+  }
+#endif
 
   void onEnter() override;
   void onExit() override;
@@ -113,6 +120,15 @@ class EpubReaderDrawerActivity final : public Activity {
   const bool chapterPageCountEstimated = false;
   const uint32_t stablePageSeed = 0;
   std::string chapterTitle;
+#if CROSSDINK_SCALABLE_FONTS
+  uint32_t publisherBodyFontFamily = 0;
+  PublisherBodyFontProbe publisherBodyFontProbe = nullptr;
+  void* publisherBodyFontContext = nullptr;
+  char publisherBodyFontName[64] = {};
+  bool publisherBodyFontNameResolved = false;
+  void resolvePublisherBodyFontName();
+#endif
+  bool publisherBodyFontActive() const;
   // Touch uses the Percent keypad directly. Button devices start on the slider
   // and can open this keypad by holding Confirm, as in the old selector.
   char entryText[8] = {0};
