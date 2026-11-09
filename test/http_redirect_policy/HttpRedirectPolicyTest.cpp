@@ -100,41 +100,35 @@ TEST(UrlUtils, MaskUserInfoMasksOnlyTheCredentials) {
   EXPECT_EQ(UrlUtils::maskUserInfo(""), "");
 }
 
-namespace {
-
-using UrlUtils::isForeignHost;
-
 TEST(IsForeignHost, CaptivePortalChecksAreForeign) {
-  EXPECT_TRUE(isForeignHost("connectivitycheck.gstatic.com"));
-  EXPECT_TRUE(isForeignHost("www.google.com"));
-  EXPECT_TRUE(isForeignHost("captive.apple.com"));
-  EXPECT_TRUE(isForeignHost("www.msftconnecttest.com"));
-  EXPECT_TRUE(isForeignHost("detectportal.firefox.com:80"));
+  EXPECT_TRUE(UrlUtils::isForeignHost("connectivitycheck.gstatic.com"));
+  EXPECT_TRUE(UrlUtils::isForeignHost("www.google.com"));
+  EXPECT_TRUE(UrlUtils::isForeignHost("captive.apple.com"));
+  EXPECT_TRUE(UrlUtils::isForeignHost("www.msftconnecttest.com"));
+  EXPECT_TRUE(UrlUtils::isForeignHost("detectportal.firefox.com:80"));
 }
 
 TEST(IsForeignHost, ReaderAddressesAreNotForeign) {
-  EXPECT_FALSE(isForeignHost("192.168.4.1"));
-  EXPECT_FALSE(isForeignHost("192.168.4.1:80"));
-  EXPECT_FALSE(isForeignHost("crossdink.local"));
-  EXPECT_FALSE(isForeignHost("CrossDink.LOCAL:8080"));
-  EXPECT_FALSE(isForeignHost("[fe80::1]:80"));
+  EXPECT_FALSE(UrlUtils::isForeignHost("192.168.4.1"));
+  EXPECT_FALSE(UrlUtils::isForeignHost("192.168.4.1:80"));
+  EXPECT_FALSE(UrlUtils::isForeignHost("crossdink.local"));
+  EXPECT_FALSE(UrlUtils::isForeignHost("CrossDink.LOCAL:8080"));
+  EXPECT_FALSE(UrlUtils::isForeignHost("[fe80::1]:80"));
 }
 
 TEST(IsForeignHost, MissingHostIsNotForeign) {
-  EXPECT_FALSE(isForeignHost(nullptr));
-  EXPECT_FALSE(isForeignHost(""));
-  EXPECT_FALSE(isForeignHost(":80"));
+  EXPECT_FALSE(UrlUtils::isForeignHost(nullptr));
+  EXPECT_FALSE(UrlUtils::isForeignHost(""));
+  EXPECT_FALSE(UrlUtils::isForeignHost(":80"));
 }
 
 TEST(IsForeignHost, SingleLabelNamesAreTheReader) {
-  EXPECT_FALSE(isForeignHost("crossdink"));
-  EXPECT_FALSE(isForeignHost("crossdink:80"));
+  EXPECT_FALSE(UrlUtils::isForeignHost("crossdink"));
+  EXPECT_FALSE(UrlUtils::isForeignHost("crossdink:80"));
 }
 
 TEST(IsForeignHost, LocalSuffixMustBeWhole) {
-  EXPECT_TRUE(isForeignHost("notlocal.com"));
-  EXPECT_TRUE(isForeignHost("example.localhost"));
-  EXPECT_FALSE(isForeignHost(".local"));
+  EXPECT_TRUE(UrlUtils::isForeignHost("notlocal.com"));
+  EXPECT_TRUE(UrlUtils::isForeignHost("example.localhost"));
+  EXPECT_FALSE(UrlUtils::isForeignHost(".local"));
 }
-
-}  // namespace
