@@ -606,14 +606,15 @@ void EpubReaderDrawerActivity::rebuildTtfRenderingRows() {
   state.paneTopIndex = std::min<int16_t>(state.paneTopIndex, static_cast<int16_t>(paneRows.size() - 1));
 }
 
-void EpubReaderDrawerActivity::saveTtfRenderingProfile() {
+bool EpubReaderDrawerActivity::saveTtfRenderingProfile() {
   const char* const family = draft.sdFontFamilyName.data();
-  if (ttfRenderProfile == TTF_RENDER_PROFILES.profileFor(family)) return;
+  if (ttfRenderProfile == TTF_RENDER_PROFILES.profileFor(family)) return true;
   if (!TTF_RENDER_PROFILES.setProfile(family, ttfRenderProfile)) {
     LOG_ERR("ERDM", "Failed to save TTF rendering profile for %s", family);
-    return;
+    return false;
   }
   ttfRenderingChanged = ttfRenderProfile != initialTtfRenderProfile;
+  return true;
 }
 
 void EpubReaderDrawerActivity::finishTtfRenderingEdit() {
@@ -930,6 +931,11 @@ fui::Rect EpubReaderDrawerActivity::previewBounds() const {
 bool EpubReaderDrawerActivity::showsSamplePreview() const {
   if (!CROSSDINK_APP_READER_SAMPLE_PREVIEW) return false;
   return readerDrawerShowsSamplePreview(state.pane, state.tab, enumOptionRow);
+}
+
+bool EpubReaderDrawerActivity::showsSamplePreviewAaNote(const ReaderSettingsDraft& settings) const {
+  // Callers already sit behind CROSSDINK_APP_READER_SAMPLE_PREVIEW.
+  return state.pane == ReaderDrawerPane::FontFamily && settings.textAntiAliasing;
 }
 
 bool EpubReaderDrawerActivity::samplePreviewBesideControls() const {
@@ -1778,12 +1784,17 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
       saveTtfRenderingProfile();
       requestUpdate();
       return;
-    case RowId::TtfReset:
+    case RowId::TtfReset: {
+      const TtfRenderProfile previous = ttfRenderProfile;
       ttfRenderProfile = {};
+      const bool saved = saveTtfRenderingProfile();
+      if (!saved) ttfRenderProfile = previous;
       rebuildTtfRenderingRows();
-      saveTtfRenderingProfile();
+      static constexpr StrId options[] = {StrId::STR_OK};
+      ttfResetPopup.show(saved ? StrId::STR_TTF_DEFAULTS_RESET : StrId::STR_TTF_RESET_FAILED, options, 1, 0, nullptr);
       requestUpdate();
       return;
+    }
 #endif
     case RowId::FontFamily:
       discoverFonts();
@@ -2567,7 +2578,8 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
   if (CROSSDINK_APP_READER_SAMPLE_PREVIEW) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
-    const int noteHeight = previewSettings.textAntiAliasing ? labelTextHeight + 2 : 0;
+    const bool showAaNote = showsSamplePreviewAaNote(previewSettings);
+    const int noteHeight = showAaNote ? labelTextHeight + 2 : 0;
     const char* name = previewSettings.sdFontFamilyName[0]
                            ? previewSettings.sdFontFamilyName.data()
                            : (previewSettings.fontFamily == 0 ? tr(STR_LEXEND_DECA) : tr(STR_BITTER));
@@ -2579,7 +2591,7 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
     renderer.beginTextClip(preview.x, preview.y, preview.width, preview.height);
     renderer.drawText(UI_10_FONT_ID, preview.x + metrics.previewPadding, labelY, label,
                       ReaderUtils::readerForegroundBlack());
-    if (previewSettings.textAntiAliasing) {
+    if (showAaNote) {
       std::snprintf(label, sizeof(label), "%s: %s", tr(STR_TEXT_AA), tr(STR_PREVIEW_UNAVAILABLE));
       renderer.drawText(SMALL_FONT_ID, preview.x + metrics.previewPadding, labelY + labelTextHeight + 6, label,
                         ReaderUtils::readerForegroundBlack());
@@ -2646,7 +2658,7 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
   const fui::Rect area = previewBounds();
   const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
   const int labelHeight =
-      labelTextHeight + (settings.textAntiAliasing ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
+      labelTextHeight + (showsSamplePreviewAaNote(settings) ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
   const int textHeight = std::max(0, area.height - labelHeight - metrics.previewPadding);
   // The sample is a short page: show top AND bottom margins proportionally
   // to its height, while horizontal margins and font sizes remain actual pixels.
@@ -2775,6 +2787,17 @@ void EpubReaderDrawerActivity::loop() {
     int heldY = 0;
     if (!mappedInput.isScreenTouchHeld(heldX, heldY)) mappedInput.suppressCurrentTouchContact();
   }
+#if CROSSDINK_SCALABLE_FONTS
+  if (ttfResetPopup.handleInput(mappedInput, [this] { requestUpdate(); })) {
+    if (!ttfResetPopup.isActive()) {
+      // The centered popup can cover reader pixels above the drawer. Restore
+      // the book backdrop as well as any draft preview before repainting.
+      activityManager.restoreBackdropBehindCurrentOverlay();
+      previewDirty = true;
+    }
+    return;
+  }
+#endif
   if (mappedInput.wasBottomEdgeUpSwipe()) {
     closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
     return;
@@ -2988,6 +3011,9 @@ void EpubReaderDrawerActivity::loop() {
 }
 
 void EpubReaderDrawerActivity::render(RenderLock&&) {
+#if CROSSDINK_SCALABLE_FONTS
+  if (ttfResetPopup.processRender(renderer, mappedInput)) return;
+#endif
   const bool buttonDevice = !mappedInput.hasTouchHardware();
   const int16_t drawerEdge =
       buttonDevice ? drawerHeight() : static_cast<int16_t>(renderer.getScreenHeight() - drawerHeight());

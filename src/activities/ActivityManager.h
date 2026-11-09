@@ -180,7 +180,6 @@ class ActivityManager {
   bool handleHomeReaderShortcut();
   bool continueHomeReaderUnwind();
   bool handleGlobalHomeGesture();
-  bool restoreBackdropBehindCurrentOverlay();
 
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -305,6 +304,10 @@ class ActivityManager {
   void requestUpdate(bool immediate = false);
   // The light changed from outside the current screen (remote SET).
   void notifyExternalFrontlightChange();
+
+  // Main-loop only, without RenderLock: restore the reader pixels covered by
+  // a dismissed popup inside a partial-screen overlay.
+  bool restoreBackdropBehindCurrentOverlay();
 
   // Trigger a render and block until it completes.
   // Returns Rejected when a synchronous render would be unsafe, such as from the render task,

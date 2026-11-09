@@ -24,7 +24,11 @@ add_custom_command(OUTPUT ${LANGUAGE_GENERATED}/I18nKeys.h ${LANGUAGE_GENERATED}
   DEPENDS ${REPO_ROOT}/scripts/gen_i18n.py ${REPO_ROOT}/lib/I18n/translations/english.yaml ${LANGUAGE_USAGE}
   WORKING_DIRECTORY ${REPO_ROOT} VERBATIM)
 # I18n.cpp on the host: real LanguageCache and generated strings, filesystem stubs for HalStorage.
-add_executable(I18nSdTest I18nSdTest.cpp ${REPO_ROOT}/lib/I18n/I18n.cpp ${LANGUAGE_GENERATED}/I18nStrings.cpp
+# Copies sit beside the generated headers: a quoted "I18nKeys.h" resolves next to its includer first, so a
+# local gen_i18n run's untracked lib/I18n/I18nKeys.h would otherwise be included alongside the test's copy.
+configure_file(${REPO_ROOT}/lib/I18n/I18n.h ${LANGUAGE_GENERATED}/I18n.h COPYONLY)
+configure_file(${REPO_ROOT}/lib/I18n/I18n.cpp ${LANGUAGE_GENERATED}/I18n.cpp COPYONLY)
+add_executable(I18nSdTest I18nSdTest.cpp ${LANGUAGE_GENERATED}/I18n.cpp ${LANGUAGE_GENERATED}/I18nStrings.cpp
   ${REPO_ROOT}/lib/LanguageCache/LanguageCache.cpp)
 target_include_directories(I18nSdTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/stubs ${LANGUAGE_GENERATED}
   ${REPO_ROOT}/lib/I18n ${REPO_ROOT}/lib/LanguageCache ${REPO_ROOT}/lib/Memory)

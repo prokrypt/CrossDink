@@ -22,6 +22,7 @@
 #include "util/ButtonNavigator.h"
 #if CROSSDINK_SCALABLE_FONTS
 #include "TtfRenderProfileStore.h"
+#include "components/OptionPopup.h"
 #endif
 
 class EpubReaderDrawerActivity final : public Activity {
@@ -204,6 +205,7 @@ class EpubReaderDrawerActivity final : public Activity {
   void buildDrawer(UiApp::ScreenType& screen);
   void drawButtonBookHeader();
   bool showsSamplePreview() const;
+  bool showsSamplePreviewAaNote(const ReaderSettingsDraft& settings) const;
   bool samplePreviewBesideControls() const;
   void renderPreviewUnavailable();
   void renderSamplePreviewText(const ReaderSettingsDraft& settings, int fontId);
@@ -276,13 +278,14 @@ class EpubReaderDrawerActivity final : public Activity {
   void discoverFonts();
   void refreshTtfRenderingRow();
 #if CROSSDINK_SCALABLE_FONTS
+  OptionPopup ttfResetPopup;
   TtfRenderProfile ttfRenderProfile{};
   TtfRenderProfile initialTtfRenderProfile{};
   bool ttfRenderingChanged = false;
 
   void rebuildTtfRenderingRows();
   void showTtfRenderingOptions(RowId row);
-  void saveTtfRenderingProfile();
+  bool saveTtfRenderingProfile();
   void finishTtfRenderingEdit();
 #endif
   void discoverDictionaries();

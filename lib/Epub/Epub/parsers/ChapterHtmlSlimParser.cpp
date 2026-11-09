@@ -4273,7 +4273,9 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->updateEffectiveInlineStyle();
   }
 
+  bool closedBoxScope = false;
   if (headerOrBlockTag && self->boxScopeCount && self->boxScopes[self->boxScopeCount - 1].depth == self->depth) {
+    closedBoxScope = true;
     // Apply the closing inset before flushing; the normal stack-pop path below
     // can no longer add it once this block has been consumed.
     if (self->blockStyleCount_ > 1 && self->blockStyleDepths_[self->blockStyleCount_ - 1] == self->depth) {
@@ -4312,6 +4314,15 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
         }
       } else {
         self->currentTextBlock->setBlockStyle(self->currentTextBlock->getBlockStyle().addBottom(closingStyle));
+        auto& pending = self->currentTextBlock->getBlockStyle();
+        if (self->currentTextBlock->isEmpty() && self->wordsExtractedInBlock == 0 && pending.topInset() == 0 &&
+            !closedBoxScope) {
+          // A flushed child leaves an empty parent block. Spend its closing spacing
+          // before that placeholder is reused for the next paragraph. Box closes
+          // above already handed their spacing to closeBoxScope().
+          self->currentPageNextY += pending.bottomInset();
+          pending.marginBottom = pending.paddingBottom = 0;
+        }
       }
       self->blockStyleCount_--;
       self->updateEffectiveInlineStyle();
