@@ -71,7 +71,9 @@ void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::strin
   // No-op write suppression adapted from Sichroteph/YACP commit
   // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT), preserving CrossDink's
   // cover-state metadata.
-  bool changed = pruneMissing();
+  // No pruneMissing() here: one exists() per entry ran on every book open. Home skips
+  // missing entries when it lists them and the Library prunes them.
+  bool changed = false;
 
   // Remove existing entry if present
   auto it =
