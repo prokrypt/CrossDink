@@ -155,7 +155,8 @@ class HomeActivity final : public Activity {
   void updateHighlightedBookContext(bool allowChapterTitleRead = true);
   void loadRecentBooks(int maxBooks);
   void fillCoverGridFromLibrary();
-  void loadCoverGridThumbnails();
+  // Returns true when a cover path was newly resolved, so Home needs a repaint.
+  bool loadCoverGridThumbnails();
   void activateCoverGridSelection();
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);

@@ -156,26 +156,16 @@ bool isSvgImagePath(const std::string_view path) {
   return false;
 }
 
-bool appendUniquePrewarmCodepoint(const uint32_t cp, uint32_t* codepoints, uint32_t& cpCount, const uint32_t maxCount) {
-  if (cp == 0) return false;
-  for (uint32_t i = 0; i < cpCount; ++i) {
-    if (codepoints[i] == cp) return false;
-  }
-  if (cpCount >= maxCount) return true;
-  codepoints[cpCount++] = cp;
-  return false;
-}
-
 void resetPrewarmUtf8(uint32_t& accumulator, uint8_t& remaining) {
   accumulator = 0;
   remaining = 0;
 }
 
-bool feedPrewarmUtf8Byte(const uint8_t byte, uint32_t* codepoints, uint32_t& cpCount, uint32_t& accumulator,
+bool feedPrewarmUtf8Byte(const uint8_t byte, UniqueCodepointSet& codepoints, uint32_t& accumulator,
                          uint8_t& remaining) {
   if (remaining == 0) {
     if (byte < 0x80) {
-      return appendUniquePrewarmCodepoint(byte, codepoints, cpCount, SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+      return codepoints.add(byte);
     }
     if ((byte & 0xE0) == 0xC0) {
       accumulator = byte & 0x1F;
@@ -187,15 +177,14 @@ bool feedPrewarmUtf8Byte(const uint8_t byte, uint32_t* codepoints, uint32_t& cpC
       accumulator = byte & 0x07;
       remaining = 3;
     } else {
-      return appendUniquePrewarmCodepoint(REPLACEMENT_GLYPH, codepoints, cpCount,
-                                          SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+      return codepoints.add(REPLACEMENT_GLYPH);
     }
     return false;
   }
 
   if ((byte & 0xC0) != 0x80) {
     resetPrewarmUtf8(accumulator, remaining);
-    return appendUniquePrewarmCodepoint(REPLACEMENT_GLYPH, codepoints, cpCount, SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+    return codepoints.add(REPLACEMENT_GLYPH);
   }
 
   accumulator = (accumulator << 6U) | (byte & 0x3FU);
@@ -203,7 +192,7 @@ bool feedPrewarmUtf8Byte(const uint8_t byte, uint32_t* codepoints, uint32_t& cpC
   if (remaining == 0) {
     const uint32_t cp = accumulator;
     accumulator = 0;
-    return appendUniquePrewarmCodepoint(cp, codepoints, cpCount, SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+    return codepoints.add(cp);
   }
   return false;
 }
@@ -4390,6 +4379,7 @@ std::unique_ptr<ChapterHtmlSlimParser::AdvancePrewarm> ChapterHtmlSlimParser::st
   if (state) {
     state->codepoints.reset(new (std::nothrow) uint32_t[SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS]);
     state->buffer.reset(new (std::nothrow) uint8_t[SECTION_ADVANCE_PREWARM_READ_BUFFER_SIZE]);
+    state->unique = UniqueCodepointSet(state->codepoints.get(), SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
   }
   if (!state || !state->codepoints || !state->buffer) {
     LOG_ERR("EHP", "Failed to allocate section advance prewarm buffers");
@@ -4405,7 +4395,6 @@ void ChapterHtmlSlimParser::scanAdvancePrewarmChunk(AdvancePrewarm& state, FsFil
   if (len == 0 && file.available() > 0) {
     LOG_DBG("EHP", "Section advance prewarm stopped after short read");
   }
-  uint32_t* const codepoints = state.codepoints.get();
   for (size_t i = 0; i < len && !state.hitCap; ++i) {
     const uint8_t byte = state.buffer[i];
     const char c = static_cast<char>(byte);
@@ -4435,18 +4424,16 @@ void ChapterHtmlSlimParser::scanAdvancePrewarmChunk(AdvancePrewarm& state, FsFil
     if (c == '&') {
       state.inEntity = true;
       resetPrewarmUtf8(state.utf8Accumulator, state.utf8Remaining);
-      state.hitCap =
-          appendUniquePrewarmCodepoint(' ', codepoints, state.cpCount, SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+      state.hitCap = state.unique.add(' ');
       continue;
     }
     if (isWhitespace(c)) {
       resetPrewarmUtf8(state.utf8Accumulator, state.utf8Remaining);
-      state.hitCap =
-          appendUniquePrewarmCodepoint(' ', codepoints, state.cpCount, SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+      state.hitCap = state.unique.add(' ');
       continue;
     }
 
-    state.hitCap = feedPrewarmUtf8Byte(byte, codepoints, state.cpCount, state.utf8Accumulator, state.utf8Remaining);
+    state.hitCap = feedPrewarmUtf8Byte(byte, state.unique, state.utf8Accumulator, state.utf8Remaining);
   }
   state.offset += len;
 
@@ -4455,9 +4442,9 @@ void ChapterHtmlSlimParser::scanAdvancePrewarmChunk(AdvancePrewarm& state, FsFil
   }
   state.scanned = true;
   if (state.utf8Remaining != 0 && !state.hitCap) {
-    state.hitCap = appendUniquePrewarmCodepoint(REPLACEMENT_GLYPH, codepoints, state.cpCount,
-                                                SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+    state.hitCap = state.unique.add(REPLACEMENT_GLYPH);
   }
+  state.cpCount = state.unique.finish();  // sorted, lowest codepoints first
   if (state.hitCap) {
     LOG_DBG("EHP", "Section advance prewarm hit unique codepoint cap (%u)",
             static_cast<unsigned>(SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS));
@@ -4538,8 +4525,7 @@ bool ChapterHtmlSlimParser::prewarmSectionAdvanceStep() {
       parseFileOffset_ = resume;
     }
     if (state.scanned) {
-      // Lowest codepoints first, as the one-shot prewarm leaves them in a full table.
-      std::sort(state.codepoints.get(), state.codepoints.get() + state.cpCount);
+      // finish() sorted them: lowest codepoints first, as the one-shot prewarm leaves them in a full table.
       state.cpCount = std::min(state.cpCount, SECTION_ADVANCE_PREWARM_FEED_LIMIT);
     }
   } else {

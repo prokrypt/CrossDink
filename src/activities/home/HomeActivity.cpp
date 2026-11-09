@@ -679,8 +679,9 @@ void HomeActivity::fillCoverGridFromLibrary() {
   }
 }
 
-void HomeActivity::loadCoverGridThumbnails() {
+bool HomeActivity::loadCoverGridThumbnails() {
   HomeCoverThumbs::coverGridThumbHeight = coverGridUi->thumbHeightFor(0);
+  bool pathsChanged = false;
   std::vector<CoverJob> jobs;
   jobs.reserve(recentBooks.size());
   for (size_t i = 0; i < recentBooks.size(); ++i) {
@@ -694,12 +695,14 @@ void HomeActivity::loadCoverGridThumbnails() {
         auto xtc = makeUniqueNoThrow<Xtc>(book.path, "/.crossdink");
         if (xtc) book.coverBmpPath = xtc->getThumbBmpPath();
       }
+      pathsChanged = pathsChanged || !book.coverBmpPath.empty();
     }
     queueMissingThumbs(
         jobs, i,
         HomeCoverThumbs::forCoverGrid(book.path, coverGridUi->thumbWidthFor(i), coverGridUi->thumbHeightFor(i)));
   }
   startCoverWorker(std::move(jobs));
+  return pathsChanged;
 }
 
 void HomeActivity::loadAllBookStats() {
@@ -795,6 +798,7 @@ void HomeActivity::startCoverWorker(std::vector<CoverJob>&& jobs) {
   LOG_ERR("HOME", "Cannot start cover worker; making covers on the render task");
   runCoverJobs();
   applyCoverJobs();
+  requestUpdate();  // draw them, as the worker's completion would
 }
 
 void HomeActivity::coverWorkerMain(void* param) {
@@ -2347,9 +2351,12 @@ void HomeActivity::render(RenderLock&&) {
     if (!std::exchange(firstRenderDone, true) && thumbSizesChanged) {
       requestUpdate();
     } else if (!recentsLoaded && !recentsLoading) {
-      loadCoverGridThumbnails();
-      coverGridUi->refreshCoverPaths();
-      requestUpdate();
+      // The panel already shows this frame: repaint only for newly resolved artwork or a
+      // reload still owed. A started worker repaints when its covers are done.
+      if (loadCoverGridThumbnails() || (!recentsLoaded && !recentsLoading)) {
+        coverGridUi->refreshCoverPaths();
+        requestUpdate();
+      }
     }
     return;
   }

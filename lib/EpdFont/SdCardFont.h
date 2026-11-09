@@ -154,7 +154,7 @@ class SdCardFont {
     uint32_t ligatureFileOffset = 0;
     uint32_t bitmapFileOffset = 0;
 
-    // Full intervals loaded from file (kept in RAM for codepoint lookup)
+    // RAM lookup: compact sorted BMP prefix, then full-width suffix (on-disk records stay 12 bytes).
     EpdUnicodeInterval* fullIntervals = nullptr;
     EPD_PACKED_BEGIN
     struct BmpInterval16 {
@@ -165,12 +165,21 @@ class SdCardFont {
     EPD_PACKED_END
     static_assert(sizeof(BmpInterval16) == 6, "BmpInterval16 must remain compact");
     BmpInterval16* bmpIntervals = nullptr;
-    bool intervalsAreBmp16 = false;
+    uint16_t bmpIntervalCount = 0;  // At most MAX_INTERVALS (4096).
     // True when bmpIntervals/fullIntervals above points at another style's table rather than
     // this style's own allocation. Regular/bold/italic weights of the same family almost always
     // cover the identical codepoint set, so a CJK font's multi-KB-per-style table is otherwise
     // paid for once per style. Only the owning style frees it -- see freeStyleAll().
     bool intervalsShared = false;
+
+    // Addresses the split table in file order for lookup and cross-style comparison.
+    EpdUnicodeInterval intervalAt(uint32_t index) const {
+      if (index < bmpIntervalCount) {
+        const auto& iv = bmpIntervals[index];
+        return {iv.first, iv.last, iv.offset};
+      }
+      return fullIntervals[index - bmpIntervalCount];
+    }
 
     // Resident kern-class + ligature tables (lazy-loaded on first full prewarm).
     // The full kern MATRIX is NOT resident (~36-42KB per style on Literata-class
