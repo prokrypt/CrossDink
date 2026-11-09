@@ -280,6 +280,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - File Transfer stays responsive after stalled browser replies, malformed uploads, oversized discovery packets and abandoned WebSocket uploads; hotspot captive-portal checks open the home page without catching WebDAV requests.
 - SD reading fonts are found again when a book is reopened after returning from Download Fonts or another minimal network screen.
 - Keep protected EPUBs readable after renaming or moving them (web, WebDAV, USB, and moves to the Read folder), and retry queuing a sync change after an SD write fails.
+- Clearing or replacing a book's cache now keeps both reading-stats save slots, so the newest stats save is never dropped.
 
 ### Added
 
