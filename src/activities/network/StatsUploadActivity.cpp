@@ -953,6 +953,7 @@ void StatsUploadActivity::uploadNext() {
       {
         RenderLock lock(*this);
         globalResult = StatsUploadClient::Result::InvalidResponse;
+        globalFailedStep = ReadingSyncUpload::GlobalStatsStep::Setup;
       }
       requestUpdate();
       return;
@@ -962,11 +963,13 @@ void StatsUploadActivity::uploadNext() {
     trustedtime::note();
     trustedtime::startSync();
 #endif
-    const auto result =
-        KOREADER_STORE.getSyncStats() ? ReadingSyncUpload::globalStats() : StatsUploadClient::Result::Skipped;
+    ReadingSyncUpload::GlobalStatsStep failedStep = ReadingSyncUpload::GlobalStatsStep::None;
+    const auto result = KOREADER_STORE.getSyncStats() ? ReadingSyncUpload::globalStats(&failedStep)
+                                                      : StatsUploadClient::Result::Skipped;
     {
       RenderLock lock(*this);
       globalResult = result;
+      globalFailedStep = failedStep;
     }
     requestUpdate();
     return;
@@ -1146,7 +1149,7 @@ bool StatsUploadActivity::flushBookStats() {
   auto result = StatsUploadClient::Result::InvalidResponse;
   if (batch.finish()) {
     StatsUploadClient client;
-    result = client.put("/api/v1/stats/books", batch.payload(), true);
+    result = client.put("/api/v1/stats/books", batch.payload(), count);
   }
   LOG_INF("StatsSync", "Stats batch of %u books: %d", static_cast<unsigned>(count), static_cast<int>(result));
   if (result == StatsUploadClient::Result::Ok) {
@@ -1521,8 +1524,10 @@ void StatsUploadActivity::render(RenderLock&&) {
         ReadingSyncUpload::countLabel(clippingsCount, sizeof(clippingsCount), clippingsUploaded, clippingsFailed, true);
     int rowY = detailY;
     if (scope != Scope::Clippings) {
+      char globalStatus[128];
       rowY += UITheme::drawCenteredStatusRow(renderer, area, UI_10_FONT_ID, rowY, tr(STR_ALL_TIME_STATS),
-                                             ReadingSyncUpload::statusLabel(globalResult, false)) +
+                                             ReadingSyncUpload::globalStatusLabel(globalStatus, sizeof(globalStatus),
+                                                                                  globalResult, globalFailedStep)) +
               8;
       rowY += UITheme::drawCenteredStatusRow(renderer, area, UI_10_FONT_ID, rowY, tr(STR_READING_STATS), statsText) + 8;
     }
