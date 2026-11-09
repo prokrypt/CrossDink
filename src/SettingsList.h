@@ -6,6 +6,7 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <SdCardFontRegistry.h>
+#include <WifiTransmitPower.h>
 
 #include <algorithm>
 #include <cstring>
@@ -646,7 +647,7 @@ inline constexpr size_t PUBLISHER_FONT_SETTINGS = 1;
 #else
 inline constexpr size_t PUBLISHER_FONT_SETTINGS = 0;
 #endif
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 120 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 3;
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 121 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 3;
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the
@@ -1138,10 +1139,11 @@ inline std::vector<SettingInfo> buildDisplaySleepSettingsList(const std::vector<
 
 inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> systemSettings;
-  systemSettings.reserve(9);
+  systemSettings.reserve(11);
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_DEVICE, SettingAction::SystemDevice));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_FILES_CACHE, SettingAction::SystemFilesCache));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_READING_STATS, SettingAction::SystemReadingStats));
+  systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_ADVANCED, SettingAction::SystemAdvanced));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SYNC_SERVER, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
@@ -1150,6 +1152,13 @@ inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_ABOUT, SettingAction::About));
   return systemSettings;
+}
+
+inline std::vector<SettingInfo> buildSystemAdvancedSettingsList(const std::vector<SettingInfo>& allSettings) {
+  std::vector<SettingInfo> settings;
+  settings.reserve(1);
+  addSettingByKey(settings, allSettings, "wifiTransmitPower");
+  return settings;
 }
 
 inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<SettingInfo>& allSettings) {
