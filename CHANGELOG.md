@@ -209,6 +209,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Rename the UI Font setting to UI Fallback Font. Its picker also lists font folders it cannot load, with the reason (not enough font memory, unsupported font, file too large, or no regular face or duplicate styles); a failed choice keeps the previous font.
 - freeink-sdk synced with upstream: OPDS/OTA HTTPS no longer resends a request on a freshly opened connection, long JSON strings keep a bounded preview, fonts can load the .notdef glyph, and SD usage scan failures are reported.
 - Book pages with images that load without the background loader decode them from memory instead of copying each image to the SD card first.
+- Dictionary definitions show the page number at the bottom right, and touch devices get a close (X) icon at the top right that returns straight to the book.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
