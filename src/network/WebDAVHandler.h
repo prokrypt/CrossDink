@@ -24,6 +24,8 @@ class WebDAVHandler : public RequestHandler {
   String _putPath;
   bool _putOk = false;
   bool _putExisted = false;
+  bool _putStreamed = false;  // body handed to pumpPutStreams(), which answers
+  bool _putBusy = false;      // a streamed PUT holds the same path
 
   // WebDAV method handlers
   static void handleOptions(WebServer& s);
@@ -48,3 +50,12 @@ class WebDAVHandler : public RequestHandler {
   void sendPropEntry(WebServer& s, const String& href, bool isDir, size_t size, const String& lastModified) const;
   static String getMimeType(const String& path);
 };
+
+#ifndef SIMULATOR
+// Serving task: writes what each handed-off PUT body has on its socket now,
+// without blocking, and answers the PUT after its last byte. True when any
+// bytes came in.
+bool pumpPutStreams();
+// Serving task, on exit: drops the PUTs still running (temp files removed).
+void closePutStreams();
+#endif

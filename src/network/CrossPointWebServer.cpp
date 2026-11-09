@@ -1140,6 +1140,7 @@ void CrossPointWebServer::serveUntilStopped() {
       const bool served = handleClient();
 #ifndef SIMULATOR
       if (pumpFileStreams()) noteTransferActivity();  // a stalled download's resume
+      if (pumpPutStreams()) noteTransferActivity();   // or upload's
 #endif
 #if CROSSDINK_PSRAM_LOG
       pumpLogStreams();
@@ -1164,6 +1165,7 @@ void CrossPointWebServer::serveUntilStopped() {
     }
 #ifndef SIMULATOR
     if (pumpFileStreams()) noteTransferActivity();  // a running download keeps the transfer hold
+    if (pumpPutStreams()) noteTransferActivity();   // so does a running WebDAV PUT
 #endif
 #if CROSSDINK_PSRAM_LOG
     pumpLogStreams();
@@ -1174,6 +1176,7 @@ void CrossPointWebServer::serveUntilStopped() {
   }
 #ifndef SIMULATOR
   closeFileStreams();
+  closePutStreams();
 #endif
   PerfLog::noteTaskExit("WebServer");
   xSemaphoreGive(serverStopped);
@@ -1208,8 +1211,8 @@ bool CrossPointWebServer::handleClient() {
     loggedActive = true;
   }
 
-  // Take the power hold before handleClient(): it reads a whole upload or
-  // sends a whole download in one blocking call.
+  // Take the power hold before handleClient(): it can read a whole upload
+  // (WebDAV PUTs and downloads mostly go to the pump loop) in one blocking call.
   const bool pending = server->requestPending();
   if (pending) {
     const unsigned long lastDataMs = lastTransferMs;
