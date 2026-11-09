@@ -207,6 +207,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Nearby Position Sync shows the same progress cards, bars, chapter details and Ahead badge as server progress sync.
 - The frontlight fades and flash ducks are much smoother: the light ramps in steps far smaller than 1% (LEDC duty dithering) every 10 ms, and the Light Timeout fade runs on the same timer. Brightness at rest is unchanged; at the lowest levels the warm/cool mix now follows Warmth more closely.
 - Rename the UI Font setting to UI Fallback Font. Its picker also lists font folders it cannot load, with the reason (not enough font memory, unsupported font, file too large, or no regular face or duplicate styles); a failed choice keeps the previous font.
+- freeink-sdk synced with upstream: OPDS/OTA HTTPS no longer resends a request on a freshly opened connection, long JSON strings keep a bounded preview, fonts can load the .notdef glyph, and SD usage scan failures are reported.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
