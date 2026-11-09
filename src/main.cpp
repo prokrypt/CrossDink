@@ -3547,8 +3547,9 @@ static void loopPass() {
     return;
   }
 
-  const bool touchscreenEscapeHatch =
-      !modalOwnsInput && gpio.hasTouch() && SETTINGS.disableReaderTouchscreen && activityManager.isReaderActivity();
+  // Quick Lock keeps Up + Down for its own unlock chord.
+  const bool touchscreenEscapeHatch = !modalOwnsInput && !buttonShortcutController.isQuickLocked() && gpio.hasTouch() &&
+                                      SETTINGS.disableReaderTouchscreen && activityManager.isReaderActivity();
   const auto sideButtonShortcutResult = buttonShortcutController.updateUpDown(
       millis(), gpio.isPressed(HalGPIO::BTN_UP), gpio.isPressed(HalGPIO::BTN_DOWN), configuredSideButtonChordAction(),
       touchscreenEscapeHatch, modalOwnsInput);
