@@ -1209,6 +1209,10 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   partWordBufferIndex = 0;
   partWordInlinePadding = 0;
   nextWordContinues = false;
+
+  // One XML callback can hold many words: check the layout budget on each append, not once per callback.
+  // Buffered table cells stay intact until the table lays them out; layoutDepth_ skips flushes made by layout itself.
+  if (layoutDepth_ == 0 && !currentTableBuffer && !currentCompactTable) flushLongTextRunIfNeeded();
 }
 
 size_t ChapterHtmlSlimParser::bufferedWordsBeforeLayoutLimit() const {
@@ -1318,8 +1322,9 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
       cancelDropCapToWord();
       flushPartWordBuffer();
     }
-    // already have a text block running and it is empty - just reuse it
-    if (currentTextBlock->isEmpty()) {
+    // already have a text block running and it is empty - just reuse it. A block emptied by a partial
+    // flush already emitted lines and charged its top spacing; finish it so its bottom spacing applies.
+    if (currentTextBlock->isEmpty() && wordsExtractedInBlock == 0) {
       currentTextBlock->setContinuation(false);
       BlockStyle incoming = blockStyle;
       const bool currentIsEmptyBr = currentTextBlock->getBlockStyle().fromBrElement;
@@ -3369,8 +3374,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
     }
-    if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+    if (self->currentTextBlock && (!self->currentTextBlock->isEmpty() || self->wordsExtractedInBlock > 0)) {
       self->makePages();
+      if (self->lowMemoryAbort) return;
+      // The old paragraph is finished; do not charge its bottom spacing again on the next page.
+      self->currentTextBlock.reset();
+      self->wordsExtractedInBlock = 0;
     }
     if (self->currentPage && !self->currentPage->elements.empty()) {
       self->completeCurrentPage();
@@ -3812,6 +3821,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   uint32_t codepointOffset = callbackVisibleOffset;
   uint32_t codepointReferenceOffset = self->referenceTextOffset;
   for (int i = 0; i < len; i++) {
+    // A layout flush inside this callback can run out of memory or reach the preview page limit.
+    if (self->lowMemoryAbort || self->previewStopRequested) return;
     const bool startsCodepoint = (static_cast<uint8_t>(s[i]) & 0xC0) != 0x80;
     if (startsCodepoint && countReferenceCharacters && !self->collectingRubyText) {
       const auto* codepointPtr = reinterpret_cast<const unsigned char*>(s + i);
@@ -4913,7 +4924,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const uint32_t visibleOffset,
                                           const uint32_t referenceOffset) {
-  if (lowMemoryAbort) {
+  if (lowMemoryAbort || previewStopRequested) {
     return;
   }
 
@@ -4935,6 +4946,10 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
     }
   }
 
+  // Charge the paragraph's top spacing with its first emitted line, so a long paragraph laid out by
+  // partial flushes keeps it too.
+  if (wordsExtractedInBlock == 0) currentPageNextY += currentTextBlock->getBlockStyle().topSpacing();
+
   if (currentPageNextY + lineHeight > viewportHeight) {
     completeCurrentPage();
     completedPageCount++;
@@ -4954,6 +4969,11 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   for (uint16_t wordIndex = 0; wordIndex < line->wordCount(); ++wordIndex) {
     const uint8_t linkId = line->wordLinkId(wordIndex);
     if (linkId == 0) continue;
+    // A partial flush can emit a linked line before </a> queues the link; the open link already has its href.
+    if (insideFootnoteLink && linkId == currentFootnote.linkId) {
+      currentPage->addFootnote(currentFootnote.number, currentFootnote.href, linkId);
+      continue;
+    }
     const auto entry = std::find_if(pendingFootnotes.begin(), pendingFootnotes.end(),
                                     [linkId](const auto& pending) { return pending.second.linkId == linkId; });
     if (entry != pendingFootnotes.end()) {
@@ -5042,19 +5062,9 @@ void ChapterHtmlSlimParser::makePages(const bool completeBlock) {
     }
   }
 
-  // Apply top spacing before the paragraph (stored in pixels). An
-  // intermediate text-run flush has already emitted the first lines and
-  // consumed this spacing, so do not apply it again to the remainder.
+  // Top spacing is charged by addLineToPage() with the first emitted line.
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
   const int lineHeight = effectiveLineHeight();
-  if (!currentTextBlock->isContinuation()) {
-    if (blockStyle.marginTop > 0) {
-      currentPageNextY += blockStyle.marginTop;
-    }
-    if (blockStyle.paddingTop > 0) {
-      currentPageNextY += blockStyle.paddingTop;
-    }
-  }
 
   LayoutTimer layoutTimer(*this);
   if (!layoutText(true)) {
@@ -5065,6 +5075,8 @@ void ChapterHtmlSlimParser::makePages(const bool completeBlock) {
   if (lowMemoryAbort) {
     return;
   }
+  // A block that emitted no line (an empty spacer) still takes its top spacing.
+  if (wordsExtractedInBlock == 0) currentPageNextY += blockStyle.topSpacing();
 
   // Fallback: transfer any remaining pending footnotes to current page.
   // Normally addLineToPage handles this via word-index tracking, but this catches
