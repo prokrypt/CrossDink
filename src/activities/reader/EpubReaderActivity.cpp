@@ -3676,13 +3676,12 @@ void EpubReaderActivity::loop() {
           ? std::max(UITheme::getStatusBarHeight(),
                      UITheme::getProgressBarHeight() + UITheme::getInstance().getMetrics().statusBarVerticalMargin)
           : UITheme::getStatusBarHeight();
-  if (touch.tapped && (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, bottomTapHeight) ||
-                       ReaderUtils::isTopStatusBarTap(
-                           renderer, touch.y, UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top)))) {
-    if (SETTINGS.tapToHideStatusBar) {
-      statusBarVisible = !statusBarVisible;
-      requestUpdate();
-    }
+  if (SETTINGS.tapToHideStatusBar && touch.tapped &&
+      (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, bottomTapHeight) ||
+       ReaderUtils::isTopStatusBarTap(renderer, touch.y,
+                                      UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top)))) {
+    statusBarVisible = !statusBarVisible;
+    requestUpdate();
     return;
   }
   // A popup selection suppresses the Confirm release that follows its press.
@@ -8491,6 +8490,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // redraw. Input and overlays stay live meanwhile.
   bool imagesLoadingInBackground = false;
   if (updatePanel && pageHasImagesNeedingDecode &&
+      // cppcheck-suppress knownConditionTrueFalse ; single-core configs compile the worker out
       startImageCacheWorker(*page, orientedMarginLeft, orientedMarginTop, currentSpineIndex, section->currentPage)) {
     imagesLoadingInBackground = true;
     pageHasImagesNeedingDecode = false;

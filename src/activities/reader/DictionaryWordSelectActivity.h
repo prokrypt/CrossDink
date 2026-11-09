@@ -202,7 +202,6 @@ class DictionaryWordSelectActivity final : public Activity {
   // of the slow per-glyph fontMap fallback (~50ms each).
   void prebuildAdvanceTable();
 
-  void clearFrontButtonHintArea();
   void openDictionarySwitch();
   void renderDefinitionBackground();
   static void renderDefinitionBackgroundCallback(void* context);

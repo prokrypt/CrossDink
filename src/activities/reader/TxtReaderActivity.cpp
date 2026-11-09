@@ -225,14 +225,12 @@ void TxtReaderActivity::loop() {
   if (handlePinchFontResize()) return;
 #endif
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
-  if (touch.tapped &&
+  if (SETTINGS.tapToHideStatusBar && touch.tapped &&
       (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, UITheme::getInstance().getStatusBarHeight()) ||
        ReaderUtils::isTopStatusBarTap(renderer, touch.y,
                                       UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top)))) {
-    if (SETTINGS.tapToHideStatusBar) {
-      statusBarVisible = !statusBarVisible;
-      requestUpdate();
-    }
+    statusBarVisible = !statusBarVisible;
+    requestUpdate();
     return;
   }
   if (consumeLongPowerButtonRelease()) {
