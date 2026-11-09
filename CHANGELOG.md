@@ -268,6 +268,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - TXT books with long paragraphs open quickly: line wrapping no longer re-measures the whole paragraph for every line, which could keep a book of long unbroken paragraphs on Indexing for minutes.
 - Wake and sleep are about 350 ms faster again with plugins enabled: the plugin scan no longer runs before the first page draws or when the device goes to sleep.
 - Page-turn taps work near the top and bottom screen edges and over status bars when Tap to Hide Status Bar is off; dictionary button hints no longer blank out book text; Up + Down unlocks Quick Lock in a reader with the touchscreen off.
+- EPUB covers from progressive JPEGs are no longer slanted or wrapped on Home and sleep screens; saved clippings survive corrupt or incomplete store loads and interrupted replacements, and clipping-index allocation failures are reported instead of aborting; a failed font catalog download can be retried from touch or buttons, and the web Fonts page shows load errors.
 
 ### Added
 
