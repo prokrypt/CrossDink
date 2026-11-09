@@ -21,10 +21,10 @@ void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const 
   lastBrightness = brightness > 100 ? 100 : brightness;
   manager.setColorTemperature(warmth > 100 ? 100 : warmth);
   lit = on;
-  idleDim = 100;
+  idleDim = DIM_FULL;
   overlay = NO_OVERLAY;
   sleepDark = false;
-  driven = 0xFF;         // begin() resets the PWM
+  driven = NOT_DRIVEN;   // begin() resets the PWM
   if (lit) startFade();  // boot and wake fade in from dark
   apply();
   LOG_INF("LIGHT", "Frontlight up: %u%% warm=%u%% %s", lastBrightness, manager.colorTemperature(), lit ? "on" : "off");
@@ -33,7 +33,7 @@ void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const 
 void HalFrontlight::setBrightness(const uint8_t percent) {
   std::lock_guard<std::recursive_mutex> guard(lock);
   lastBrightness = percent > 100 ? 100 : percent;
-  idleDim = 100;
+  idleDim = DIM_FULL;
   overlay = NO_OVERLAY;
   stopFade();  // a slider or swipe follows the finger
   apply();
@@ -46,11 +46,11 @@ void HalFrontlight::setWarmth(const uint8_t warmPercent) {
 
 void HalFrontlight::setOn(const bool on, const bool fade) {
   std::lock_guard<std::recursive_mutex> guard(lock);
-  if (on == lit && idleDim == 100 && !overlayActive()) {
+  if (on == lit && idleDim == DIM_FULL && !overlayActive()) {
     return;
   }
   lit = on;
-  idleDim = 100;
+  idleDim = DIM_FULL;
   overlay = NO_OVERLAY;
   if (fade) {
     startFade();
@@ -60,9 +60,10 @@ void HalFrontlight::setOn(const bool on, const bool fade) {
   apply();
 }
 
-void HalFrontlight::setIdleDim(const uint8_t percent) {
+void HalFrontlight::setIdleDimFine(const uint16_t level, const uint32_t rampMs) {
   std::lock_guard<std::recursive_mutex> guard(lock);
-  idleDim = percent > 100 ? 100 : percent;
+  idleDim = level > DIM_FULL ? DIM_FULL : level;
+  if (rampMs > 0 && !overlayActive()) startFade(rampMs);
   apply();  // a running fade retargets to the new level
 }
 
@@ -77,7 +78,7 @@ void HalFrontlight::setOverlay(const uint8_t percent) {
 void HalFrontlight::fadeOutForSleep() {
   {
     std::lock_guard<std::recursive_mutex> guard(lock);
-    if (sleepDark || driven == 0xFF) return;
+    if (sleepDark || driven == NOT_DRIVEN) return;
     sleepDark = true;  // also when dark now: a fade-in may still be at 0
     overlay = NO_OVERLAY;
     if (driven != 0) {
@@ -89,7 +90,7 @@ void HalFrontlight::fadeOutForSleep() {
   }
 #ifndef SIMULATOR
   // The timer steps the fade (it takes the lock, so wait unlocked); bounded in case it stalls.
-  for (uint32_t waited = 0; fading() && waited < FADE_MS + 4 * FADE_STEP_MS; waited += FADE_STEP_MS) {
+  for (uint32_t waited = 0; fading() && waited < fadeMs + 4 * FADE_STEP_MS; waited += FADE_STEP_MS) {
     vTaskDelay(pdMS_TO_TICKS(FADE_STEP_MS));
   }
 #endif
@@ -101,35 +102,39 @@ bool HalFrontlight::fading() {
 }
 
 void HalFrontlight::apply() {
-  // Rounded: at a low brightness the few duty steps fall mid-fade, not at its start and end.
-  int target = overlayActive() ? overlay : sleepDark ? 0 : ((lit ? lastBrightness : 0) * idleDim + 50) / 100;
+  // In 1/256 % of full: no whole-% steps in a fade or a duck (the manager dithers the duty).
+  int32_t target = overlayActive() ? overlay * 256
+                   : sleepDark     ? 0
+                                   : ((lit ? lastBrightness : 0) * int32_t{idleDim} * 256 + DIM_FULL / 2) / DIM_FULL;
 #ifndef SIMULATOR
   if (fadeStartUs != 0) {
     // Linear in percent; the manager's gamma curve maps each step to duty.
-    const int64_t elapsedMs = (esp_timer_get_time() - fadeStartUs) / 1000;
-    if (elapsedMs < static_cast<int64_t>(FADE_MS)) {
-      target = fadeFrom + (target - fadeFrom) * static_cast<int>(elapsedMs) / static_cast<int>(FADE_MS);
+    const int64_t elapsedUs = esp_timer_get_time() - fadeStartUs;
+    const int64_t spanUs = static_cast<int64_t>(fadeMs) * 1000;
+    if (elapsedUs < spanUs) {
+      target = fadeFrom + static_cast<int32_t>((target - fadeFrom) * elapsedUs / spanUs);
     } else {
       fadeStartUs = 0;
     }
   }
 #endif
-  drive(static_cast<uint8_t>(target));
+  drive(static_cast<uint16_t>(target));
 }
 
-void HalFrontlight::drive(const uint8_t percent) {
+void HalFrontlight::drive(const uint16_t q8) {
   // Every writer lands here: an unchanged level writes no PWM and logs nothing.
-  if (percent == driven) return;
-  driven = percent;
-  manager.setBrightness(percent);
+  if (q8 == driven) return;
+  driven = q8;
+  manager.setBrightnessFine(q8);
   // LED draw follows the PWM duty (FrontlightManager's curve), not the %.
   if (manager.present())
-    PowerCounters::lightDuty(static_cast<uint16_t>(FrontlightGamma::perceptualDuty(percent, 1023)));
+    PowerCounters::lightDuty(static_cast<uint16_t>((FrontlightGamma::perceptualDuty16(q8, 1023) + 8) / 16));
 }
 
-void HalFrontlight::startFade() {
+void HalFrontlight::startFade(const uint32_t ms) {
 #ifndef SIMULATOR
-  fadeFrom = driven == 0xFF ? 0 : driven;
+  fadeFrom = driven == NOT_DRIVEN ? 0 : driven;
+  fadeMs = ms;
   if (fadeTimer == nullptr) {
     const esp_timer_create_args_t args = {.callback = [](void*) { instance.stepFade(); },
                                           .arg = nullptr,

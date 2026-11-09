@@ -27,10 +27,15 @@ class HalFrontlight {
   // fade: ramp to the new state over FADE_MS (a light toggle). Stepped by a timer,
   // never a delay in the caller; any other change mid-fade retargets or ends it.
   void setOn(bool on, bool fade = false);
-  // Light timeout: drive the LEDs at `percent` of the user level without
+  // Light timeout / flash duck: drive the LEDs at `percent` of the user level without
   // changing brightness()/isOn() or settings. setBrightness()/setOn() end it.
-  void setIdleDim(uint8_t percent);
-  uint8_t idleDimPercent() const { return idleDim; }
+  void setIdleDim(uint8_t percent) { setIdleDimFine(static_cast<uint16_t>(percent > 100 ? DIM_FULL : percent * 100)); }
+  uint8_t idleDimPercent() const { return idleDim / 100; }
+  // The same in 1/100 % (0..DIM_FULL) so a ramp has no whole-% steps; rampMs > 0
+  // ramps there on the fade timer instead of stepping.
+  static constexpr uint16_t DIM_FULL = 10000;
+  void setIdleDimFine(uint16_t level, uint32_t rampMs = 0);
+  uint16_t idleDimFine() const { return idleDim; }
   // Transfer throb: drive the LEDs at `percent` in place of the user level
   // without changing brightness()/isOn() or settings; NO_OVERLAY ends it. The
   // dim (Light Timeout, flash duck) does not show under it and is kept for after.
@@ -53,10 +58,11 @@ class HalFrontlight {
  private:
   HalFrontlight() = default;
   static constexpr uint32_t FADE_MS = 300;
-  static constexpr uint32_t FADE_STEP_MS = 20;
+  static constexpr uint32_t FADE_STEP_MS = 10;
+  static constexpr uint16_t NOT_DRIVEN = 0xFFFF;
   void apply();
-  void drive(uint8_t percent);
-  void startFade();
+  void drive(uint16_t q8);  // 1/256 % of full
+  void startFade(uint32_t ms = FADE_MS);
   void stopFade();
   void stepFade();
   bool fading();
@@ -66,11 +72,12 @@ class HalFrontlight {
   // the on/off state separate so toggling restores the previous level.
   uint8_t lastBrightness = 60;
   bool lit = false;
-  uint8_t idleDim = 100;
+  uint16_t idleDim = DIM_FULL;
   uint8_t overlay = NO_OVERLAY;
-  uint8_t driven = 0xFF;   // the level last sent to the manager (0xFF: none yet)
-  bool sleepDark = false;  // fadeOutForSleep(): drive 0, keep lit
-  uint8_t fadeFrom = 0;
+  uint16_t driven = NOT_DRIVEN;  // the level last sent to the manager, 1/256 %
+  bool sleepDark = false;        // fadeOutForSleep(): drive 0, keep lit
+  uint16_t fadeFrom = 0;
+  uint32_t fadeMs = FADE_MS;
   int64_t fadeStartUs = 0;    // 0: no fade
   void* fadeTimer = nullptr;  // esp_timer_handle_t (device only)
   bool fadeTicking = false;
