@@ -150,3 +150,11 @@ TEST(ProgressRecordTest, CrcMatchesIeeeCheckValue) {
   const char* check = "123456789";
   EXPECT_EQ(crc32(reinterpret_cast<const uint8_t*>(check), strlen(check)), 0xCBF43926u);
 }
+
+TEST(ProgressRecordTest, UnknownFlagBitsRejectTheSlot) {
+  uint8_t bytes[RECORD_BYTES];
+  encode(position(1, 1), 5, bytes);
+  bytes[11] |= 0x02;
+  writeU32(bytes + 16, crc32(bytes, 16));  // a valid CRC must not rescue an unknown format
+  EXPECT_EQ(decode(bytes, sizeof(bytes)).kind, SlotKind::Invalid);
+}

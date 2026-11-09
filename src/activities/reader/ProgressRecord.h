@@ -85,7 +85,10 @@ inline void encode(const Fields& fields, const uint32_t seq, uint8_t out[RECORD_
 inline Slot decode(const uint8_t* data, const size_t fileSize) {
   Slot slot;
   if (fileSize == RECORD_BYTES) {
-    if (data[10] != RECORD_MARKER || readU32(data + 16) != crc32(data, 16)) return slot;
+    // Unknown flag bits mean a format this build cannot read.
+    if (data[10] != RECORD_MARKER || (data[11] & ~FLAG_HAS_VISIBLE_TEXT_OFFSET) != 0 ||
+        readU32(data + 16) != crc32(data, 16))
+      return slot;
     slot.kind = SlotKind::Versioned;
     slot.seq = readU32(data + 12);
     slot.fields.hasPageCount = true;
