@@ -283,9 +283,9 @@ void updateLiveLightSwipe(Activity& activity, ActivityManager& activityManager, 
   const int difference = sign * (target - current);
   if (difference != 0 || (brightness && amount != 0 && !Frontlight.isOn())) {
     // setBrightness() ends a dim; a slide mid-flash keeps the flash duck on the new level.
-    const uint8_t duck = Frontlight.idleDimPercent();
+    const uint16_t duck = frontlightDim();
     applyConfiguredSwipeAction(activity, activityManager, state.action, difference, false);
-    if (duck < 100 && Frontlight.isOn()) Frontlight.setIdleDim(duck);
+    if (duck < FRONTLIGHT_DIM_FULL && Frontlight.isOn()) frontlightSetDim(duck);
   }
   // Without a dead zone, amount 0 is only a narrow band mid-drag, so restoring
   // the initial on/off state here would blink the light off and back on while

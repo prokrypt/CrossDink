@@ -2946,7 +2946,7 @@ KNOB_ALIAS(FLASH_DUCK_MAX_MS, flashMaxMs);
 KNOB_ALIAS(FLASH_DUCK_UP_MS, flashUpMs);
 KNOB_ALIAS(FLASH_DUCK_TICK_MS, flashTickMs);
 static bool flashDuckActive = false;
-static uint8_t flashDuckLevel = 100;
+static uint16_t flashDuckLevel = FRONTLIGHT_DIM_FULL;  // 1/100 % of the user level
 static unsigned long flashDuckUpStartMs = 0;
 static unsigned long flashDuckInputMs = 0;  // last user input (the fade starts there)
 
@@ -3021,9 +3021,8 @@ static void updateFlashDuckLocked() {
   static uint32_t fadeStartMs = 0;  // the plan (or the start) the fade counts from
   static uint32_t planMs = 0;       // when the driver planned this flash (0: unplanned)
   static uint32_t fromMs = 0, darkMs = 0;
-  static uint8_t fromLevel = 100;  // the fade runs from (fromMs, fromLevel) to the floor at darkMs
   // The user (brightness, toggle, Quick Lock) or the light timeout took over.
-  if (flashDuckActive && Frontlight.idleDimPercent() != flashDuckLevel) flashDuckActive = false;
+  if (flashDuckActive && frontlightDim() != flashDuckLevel) flashDuckActive = false;
   const bool fresh = !flashDuckActive || flashDuckUpStartMs != 0;  // a new flash (back-to-back: from here)
   // Never duck below 2% of full: lower duty shifts the frontlight color. Every duck level below derives from this.
   const unsigned long minPct = std::max<unsigned long>(KNOBS.flashDuckMinPct, 2);
@@ -3042,18 +3041,22 @@ static void updateFlashDuckLocked() {
       return;
     }
     flashDuckActive = true;
-    flashDuckLevel = 100;
+    flashDuckLevel = FRONTLIGHT_DIM_FULL;
     flashDuckUpStartMs = 0;
   }
   // Each ramp moves only one way from where the light is, between 100% and
   // the Flash Dim Level (a % of the user's brightness; 0 = dark), but never
-  // below minPct (>= 2) of full (rounded up; at 100 the duck is over).
+  // below minPct (>= 2) of full (rounded up; at 100 the duck is over). Levels in 1/100 %, so a ramp
+  // has no whole-% steps.
   const unsigned long b = std::max<unsigned long>(Frontlight.brightness(), 1);
-  const unsigned long floor = std::min<unsigned long>(
-      std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90), (minPct * 100 + b - 1) / b), 100);
+  const unsigned long floor =
+      100 * std::min<unsigned long>(std::max<unsigned long>(std::min<unsigned long>(SETTINGS.flashDuckDepth, 90),
+                                                            (minPct * 100 + b - 1) / b),
+                                    100);
   static bool darkLogged = false;
   unsigned long level;
   if (ducking) {
+    static uint16_t fromLevel = FRONTLIGHT_DIM_FULL;  // the fade runs from (fromMs, fromLevel) to the floor at darkMs
     if (fresh && !holdLate) {
       // From the plan, the earliest sign of a flash (input to plan is render
       // time, ~150 ms: a fade from the input stepped down ~60% at the plan,
@@ -3105,22 +3108,24 @@ static void updateFlashDuckLocked() {
   } else {
     if (flashDuckUpStartMs == 0) {
       flashDuckUpStartMs = now;
-      LOG_DBG("LIGHT", "Flash duck: up at %u%%", flashDuckLevel);
+      LOG_DBG("LIGHT", "Flash duck: up at %u%%", flashDuckLevel / 100);
     }
     const unsigned long elapsed = now - flashDuckUpStartMs;
-    level = std::max<unsigned long>(
-        flashDuckLevel, elapsed >= FLASH_DUCK_UP_MS ? 100 : floor + (100 - floor) * elapsed / FLASH_DUCK_UP_MS);
+    level = std::max<unsigned long>(flashDuckLevel,
+                                    elapsed >= FLASH_DUCK_UP_MS
+                                        ? FRONTLIGHT_DIM_FULL
+                                        : floor + (FRONTLIGHT_DIM_FULL - floor) * elapsed / FLASH_DUCK_UP_MS);
   }
   if (level != flashDuckLevel) {
-    if (level == 100) {
+    if (level == FRONTLIGHT_DIM_FULL) {
       const uint32_t endMs = swingMs != 0 ? swingEndMs : swingGoneMs;
       LOG_DBG("LIGHT", "Flash duck: restored at %lu (end%+ld), duty %u%%", now, static_cast<long>(now - endMs),
               Frontlight.brightness());
     }
-    flashDuckLevel = static_cast<uint8_t>(level);
-    Frontlight.setIdleDim(flashDuckLevel);
+    flashDuckLevel = static_cast<uint16_t>(level);
+    frontlightSetDim(flashDuckLevel);
   }
-  if (!ducking && flashDuckLevel == 100) flashDuckActive = false;
+  if (!ducking && flashDuckLevel == FRONTLIGHT_DIM_FULL) flashDuckActive = false;
 }
 
 // The fade is stepped from the main loop and its render waits, but a long main-loop job (a 930 ms BMP
@@ -3509,14 +3514,12 @@ static void loopPass() {
   if (lightTimeoutMs > 0 && idleMs >= lightTimeoutMs) activityManager.dozePanel();
   if (lightTimeoutMs > 0 && Frontlight.isOn() && Frontlight.idleDimPercent() > 0) {
     if (idleMs >= lightTimeoutMs) {
-      const unsigned long fadeMs = idleMs - lightTimeoutMs;
-      const uint8_t level = fadeMs >= LIGHT_FADE_MS ? 0 : static_cast<uint8_t>(100 - fadeMs * 100 / LIGHT_FADE_MS);
-      if (level < Frontlight.idleDimPercent()) {
-        if (Frontlight.idleDimPercent() == 100) LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
-        Frontlight.setIdleDim(level);
-        lightTimedOut = true;
-        if (level == 0) BatteryLog::lightChanged(true);
-      }
+      // One ramp on the light's own 10 ms fade timer: the idle loop ticks too slowly to step it smoothly.
+      const unsigned long fadedMs = idleMs - lightTimeoutMs;
+      LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
+      frontlightSetDim(0, fadedMs >= LIGHT_FADE_MS ? 0 : LIGHT_FADE_MS - fadedMs);
+      lightTimedOut = true;
+      BatteryLog::lightChanged(true);
     }
   }
   updateFlashDuck();
