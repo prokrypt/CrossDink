@@ -51,6 +51,8 @@ struct BlockStyle {
   [[nodiscard]] int16_t rightInset() const { return marginRight + paddingRight; }
   [[nodiscard]] int16_t totalHorizontalInset() const { return leftInset() + rightInset(); }
   [[nodiscard]] int16_t topInset() const { return marginTop + paddingTop; }
+  // Space a paragraph adds above its first line; negative values add none.
+  [[nodiscard]] int topSpacing() const { return std::max<int>(0, marginTop) + std::max<int>(0, paddingTop); }
   [[nodiscard]] int16_t bottomInset() const { return marginBottom + paddingBottom; }
 
   // Return a copy with bottom margins/padding zeroed out.

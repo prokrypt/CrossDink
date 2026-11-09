@@ -1905,3 +1905,119 @@ TEST(ImageDimsProbe, GifSignaturesAndLittleEndianDimensions) {
   ImageDimensions dims{};
   EXPECT_FALSE(invalid.getDimensions(dims));
 }
+
+TEST_F(ChapterHtmlSlimParserTest, PartialFlushChargesTopSpacingOnFirstEmittedLineOnly) {
+  renderer.textAdvancePerChar = 4;
+  parser.viewportWidth = 40;
+  BlockStyle style;
+  style.marginTop = 7;
+  style.paddingTop = 5;
+  style.marginBottom = 9;
+  style.paddingBottom = 3;
+  parser.currentTextBlock->setBlockStyle(style);
+  parser.currentTextBlock->addWord("one", EpdFontFamily::REGULAR);
+  parser.flushLongTextRunIfNeeded(true);  // only the last line is pending: nothing emitted, nothing charged
+  EXPECT_EQ(parser.wordsExtractedInBlock, 0);
+  EXPECT_EQ(parser.currentPageNextY, 0);
+  for (int i = 0; i < 8; ++i) parser.currentTextBlock->addWord("one", EpdFontFamily::REGULAR);
+  parser.flushLongTextRunIfNeeded(true);
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_GT(parser.currentPage->elements.size(), 0u);
+  EXPECT_EQ(parser.currentPage->elements.front()->yPos, 12);
+  parser.makePages();
+  const int lines = static_cast<int>(parser.currentPage->elements.size());
+  for (int i = 0; i < lines; ++i) EXPECT_EQ(parser.currentPage->elements[i]->yPos, 12 + i * 16);
+  EXPECT_EQ(parser.currentPageNextY, 12 + lines * 16 + 12);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, EmptySpacerBlockKeepsTopSpacing) {
+  BlockStyle style;
+  style.marginTop = 7;
+  style.paddingTop = 5;
+  parser.currentTextBlock->setBlockStyle(style);
+  parser.makePages();
+  EXPECT_EQ(parser.currentPageNextY, 12);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FullyFlushedParagraphIsFinishedNotReused) {
+  BlockStyle style;
+  style.marginTop = 7;
+  style.paddingTop = 5;
+  style.marginBottom = 4;
+  parser.currentTextBlock->setBlockStyle(style);
+  parser.currentTextBlock->addWord("one", EpdFontFamily::REGULAR);
+  parser.flushLongTextRunIfNeeded(true, true);
+  EXPECT_EQ(parser.currentPageNextY, 28);
+  parser.currentTextBlock->addWord("two", EpdFontFamily::REGULAR);
+  parser.flushLongTextRunIfNeeded(true, true);
+  EXPECT_EQ(parser.currentPageNextY, 44);
+  parser.startNewTextBlock(style);  // the emptied block still owes its bottom spacing
+  EXPECT_EQ(parser.currentPageNextY, 48);
+  parser.currentTextBlock->addWord("three", EpdFontFamily::REGULAR);
+  parser.makePages();
+  ASSERT_EQ(parser.currentPage->elements.size(), 3u);
+  EXPECT_EQ(parser.currentPage->elements.back()->yPos, 60);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, WordAppendChecksLayoutBudgetBeforeCallbackEnds) {
+  renderer.textAdvancePerChar = 4;
+  for (size_t i = 0; i < parser.bufferedWordsBeforeLayoutLimit() + 1; ++i) {
+    std::strcpy(parser.partWordBuffer, "word");
+    parser.partWordBufferIndex = 4;
+    parser.flushPartWordBuffer();
+  }
+  EXPECT_GT(parser.wordsExtractedInBlock, 0);
+  EXPECT_LE(parser.currentTextBlock->size(), parser.bufferedWordsBeforeLayoutLimit());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, WordAppendKeepsRubyGroupBuffered) {
+  renderer.textAdvancePerChar = 4;
+  parser.inRuby = true;
+  for (size_t i = 0; i < parser.bufferedWordsBeforeLayoutLimit() + 1; ++i) {
+    std::strcpy(parser.partWordBuffer, "word");
+    parser.partWordBufferIndex = 4;
+    parser.flushPartWordBuffer();
+  }
+  EXPECT_EQ(parser.wordsExtractedInBlock, 0);
+  EXPECT_EQ(parser.currentTextBlock->size(), parser.bufferedWordsBeforeLayoutLimit() + 1);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PartialFlushKeepsOpenLinkOnEveryEmittedPage) {
+  renderer.textAdvancePerChar = 4;
+  parser.viewportHeight = 64;
+  int linkedPages = 0;
+  parser.completePageFn = [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+    ASSERT_EQ(page->footnotes.size(), 1u);
+    EXPECT_STREQ(page->footnotes[0].href, "#note");
+    ++linkedPages;
+  };
+  const XML_Char* attrs[] = {"href", "#note", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "a", attrs);
+  std::string text;
+  for (int i = 0; i < 1000; ++i) text += "linked ";
+  ChapterHtmlSlimParser::characterData(&parser, text.data(), static_cast<int>(text.size()));
+  EXPECT_GT(linkedPages, 0);
+  ChapterHtmlSlimParser::endElement(&parser, "a");
+  parser.makePages();
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->footnotes.size(), 1u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PageBreakBeforeDoesNotRepeatPreviousBottomSpacing) {
+  BlockStyle previous;
+  previous.marginBottom = 11;
+  previous.paddingBottom = 7;
+  parser.currentTextBlock->setBlockStyle(previous);
+  parser.extraParagraphSpacing = true;
+  parser.currentTextBlock->addWord("previous", EpdFontFamily::REGULAR);
+  int pages = 0;
+  parser.completePageFn = [&](std::unique_ptr<Page>, uint16_t, uint16_t, uint32_t, uint32_t) { ++pages; };
+  const XML_Char* attrs[] = {"style", "page-break-before: always", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", attrs);
+  ChapterHtmlSlimParser::characterData(&parser, "next", 4);
+  parser.flushPartWordBuffer();
+  parser.makePages();
+  EXPECT_EQ(pages, 1);
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+  EXPECT_EQ(parser.currentPage->elements[0]->yPos, 0);
+}

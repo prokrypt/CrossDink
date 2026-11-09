@@ -862,6 +862,15 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 110
+
+Complete caches use `110`; suspended partial caches use `0xE2`, and `0xE3` joins
+the retired sentinels. The payload is unchanged from 109. A long paragraph laid
+out by partial flushes now keeps its CSS top margin and padding on its first
+line, a paragraph ended early by an image keeps its bottom spacing, and long
+text runs are checked against the layout budget per word, so both cache types
+rebuild; reading progress is preserved.
+
 ### Version 109
 
 Complete caches use `109`; suspended partial caches use `0xE3`, and `0xE4` joins

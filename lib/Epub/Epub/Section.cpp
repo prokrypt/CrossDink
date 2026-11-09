@@ -53,15 +53,17 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v108: GIF images take part in layout instead of the [Image] placeholder.
 // v109: Unicode space advances, CSS-sized SD heading fonts, and chapter-wrapper
 //       closing spacing spent before the next paragraph change layout.
-constexpr uint8_t SECTION_FILE_VERSION = 109;
+// v110: Long paragraphs keep their top spacing across partial layout flushes, and
+//       text runs are checked against the layout budget per word.
+constexpr uint8_t SECTION_FILE_VERSION = 110;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract. Never reuse a retired sentinel: an old
 // partial on SD would resume with stale page positions. Pick below the lowest.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xE3;
-constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC,
-                                                        0xED, 0xEE, 0xEF, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5,
-                                                        0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xE2;
+constexpr uint8_t RETIRED_SECTION_PARTIAL_VERSIONS[] = {0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC,
+                                                        0xED, 0xEE, 0xEF, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
+                                                        0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE};
 constexpr bool isRetiredSectionPartialVersion(const uint8_t v) {
   for (const uint8_t retired : RETIRED_SECTION_PARTIAL_VERSIONS) {
     if (retired == v) return true;
