@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "FilenameFontSystem.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "components/UiAppHost.h"
@@ -289,7 +290,7 @@ class SettingsActivity final : public Activity {
   bool pendingLanguageDownloadAction = false;  // A download row was picked; handle it from loop().
   uint8_t languageDownloadRow = 0;             // Index into LANGUAGE_CODES of the picked row.
 #if CROSSDINK_SCALABLE_FONTS
-  std::vector<std::string> filenameFontNames;
+  std::vector<FilenameFontSystem::Family> filenameFontNames;
   char pendingFilenameFont[64] = {};
   bool filenameFontSelectionPending = false;
 #endif

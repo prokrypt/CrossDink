@@ -107,6 +107,8 @@ class ChapterHtmlSlimParser {
   uint32_t effectiveFontFamily = 0;
   uint32_t bodyFontFamily = 0;
   bool detectBodyFont();
+  static bool scanBodyFont(XML_Parser parser, FsFile& file, const CssParser& css, uint32_t& family,
+                           bool preferParagraph);
   uint8_t imageRendering;
   std::string contentBase;
   std::string imageBasePath;
@@ -437,6 +439,7 @@ class ChapterHtmlSlimParser {
   uint32_t getVisibleTextLength() const { return visibleTextOffset; }
   uint32_t getReferenceTextLength() const { return referenceTextOffset; }
   bool parseAndBuildPages();
+  static uint32_t publisherBodyFontFamily(const std::string& path, const CssParser& css);
   // Parse from an overlapped inflate instead of the file (non-preview builds
   // without SD card font prewarm). Set before beginParse().
   void setStreamInput(HtmlInflateStream* input) { streamInput_ = input; }

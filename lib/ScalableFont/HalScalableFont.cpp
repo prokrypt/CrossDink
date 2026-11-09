@@ -131,6 +131,7 @@ struct Runtime {
   struct Worker {};
   explicit Runtime(Worker) : pixelCapacity(WorkerPixelBytes) {}
   HeapByteBuffer workspace;
+  FontLoadError beginError = FontLoadError::None;
   HeapByteBuffer pixels;
   FixedArenaAllocator allocator;
   PixelEntry* pixelEntries = nullptr;
@@ -255,6 +256,7 @@ struct Runtime {
   bool begin() { return begin(WorkspaceOptions, nullptr); }
   bool begin(const size_t (&workspaceOptions)[3], freeink::font::FtLibrary* library) {
     if (workspace) return true;
+    beginError = FontLoadError::Memory;
     const size_t pixelArenaBytes = CacheTableBytes + pixelCapacity;
     // Persistent PSRAM arenas bound all FreeType scratch and cached coverage;
     // neither belongs on the render stack or in scarce internal DRAM.
@@ -284,11 +286,13 @@ struct Runtime {
     freeink::font::FtFont::MemoryCallbacks memory{&allocator, FixedArenaAllocator::allocate,
                                                   FixedArenaAllocator::deallocate, FixedArenaAllocator::reallocate};
     if (!(library ? library->configureMemory(&memory) : freeink::font::FtFont::configureMemory(&memory))) {
+      beginError = FontLoadError::Read;
       LOG_ERR("TTF", "Cannot configure bounded font allocator");
       workspace.reset();
       return false;
     }
     pixels = std::move(p);
+    beginError = FontLoadError::None;
     pixelEntries = reinterpret_cast<PixelEntry*>(pixels.get());
     metricEntries = reinterpret_cast<MetricEntry*>(pixels.get() + PixelTableBytes);
     kerningEntries = reinterpret_cast<KerningEntry*>(pixels.get() + PixelTableBytes + MetricTableBytes);
@@ -463,6 +467,7 @@ bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size) {
 
 bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size,
                                  const freeink::font::FtFont::RenderOptions& options) {
+  lastLoadError_ = FontLoadError::Unsupported;
   if (!bytes || truetype::inspect(size, [&](size_t offset, uint8_t* dest, size_t count) {
                   std::memcpy(dest, bytes + offset, count);
                   return true;
@@ -481,7 +486,15 @@ bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool s
                                  const freeink::font::FtFont::RenderOptions& options, const uint32_t contentHash,
                                  const bool temporary) {
   ScalableFontAccess access(ScalableFontAccess::Lane::Render);
-  if (font_.ready() || !runtime().begin()) return false;
+  if (font_.ready()) {
+    LOG_ERR("TTF", "Cannot open an already loaded font");
+    lastLoadError_ = FontLoadError::Read;
+    return false;
+  }
+  if (!runtime().begin()) {
+    lastLoadError_ = runtime().beginError;
+    return false;
+  }
   // One bounded PSRAM allocation per face; descriptors stay stable while registered.
   // Glyph pixels and FreeType scratch still share the existing fixed pools.
   sizesStorage_ = makeAlignedByteBufferNoThrow(sizeof(Size) * SizeCount, Pool);
@@ -489,6 +502,7 @@ bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool s
   if (sizes_)
     for (size_t i = 0; i < SizeCount; ++i) new (sizes_ + i) Size{};
   if (!sizes_) {
+    lastLoadError_ = FontLoadError::Memory;
     LOG_ERR("TTF", "Cannot allocate size descriptors");
     return false;
   }
@@ -497,6 +511,9 @@ bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool s
       streamed ? font_.initStream(streamRead, this, size, 1) : font_.init(bytes, static_cast<uint32_t>(size), 1);
   const bool optionsAccepted = opened && font_.setRenderOptions(options);
   if (!optionsAccepted) {
+    lastLoadError_ = streamFailureLogged_                      ? FontLoadError::Read
+                     : runtime().allocator.lastFailedRequest() ? FontLoadError::Memory
+                                                               : FontLoadError::Unsupported;
     const auto initFailure = font_.lastInitFailure();
     const int initError = font_.lastInitError();
     fontDataFailure_ = !streamFailureLogged_ && runtime().allocator.lastFailedRequest() == 0 &&
@@ -545,6 +562,7 @@ bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool s
   hashOption(options.stemDarkening ? 1u : 0u);
   // Streamed faces skip GPOS: their layout identity must reflect that.
   hashOption(streamed_ ? 1u : 0u);
+  lastLoadError_ = FontLoadError::None;
   return true;
 }
 bool HalScalableFont::setRenderOptions(const freeink::font::FtFont::RenderOptions& options) {
@@ -574,12 +592,21 @@ bool HalScalableFont::setRenderOptions(const freeink::font::FtFont::RenderOption
   hashOption(streamed_ ? 1u : 0u);
   return true;
 }
-bool HalScalableFont::fileSize(const char* path, size_t& size, size_t limit) {
-  HalFile file;
-  if (!Storage.openFileForRead("TTF", path, file)) return false;
+bool HalScalableFont::fileSize(const char* path, size_t& size, size_t limit, FontLoadError* error) {
+  // open() preserves wrapper-allocation failures; openFileForRead() only returns a bool.
+  if (error) *error = FontLoadError::Read;
+  HalFile file = Storage.open(path);
+  if (!file) {
+    if (error && file.allocationFailed()) *error = FontLoadError::Memory;
+    LOG_ERR("TTF", "Cannot read font size: %s", path);
+    file.close();
+    return false;
+  }
   size = file.size();
   file.close();
-  return validFileSize(path, size, limit);
+  const bool valid = validFileSize(path, size, limit);
+  if (error) *error = valid ? FontLoadError::None : size > limit ? FontLoadError::TooLarge : FontLoadError::Unsupported;
+  return valid;
 }
 bool HalScalableFont::prepareFamily(size_t bytes, size_t faces) {
   ScalableFontAccess access(ScalableFontAccess::Lane::Render);
@@ -612,18 +639,29 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
   fontDataFailure_ = false;
   integrityMismatch_ = false;
   integrityChecksum_ = 0;
-  if (!runtime().begin()) return false;
-  HalFile file;
-  if (!Storage.openFileForRead("TTF", path, file)) {
+  lastLoadError_ = FontLoadError::Read;
+  if (!runtime().begin()) {
+    lastLoadError_ = runtime().beginError;
+    return false;
+  }
+  HalFile file = Storage.open(path);
+  if (!file) {
+    if (file.allocationFailed()) lastLoadError_ = FontLoadError::Memory;
     LOG_ERR("TTF", "Cannot open font: %s", path);
+    file.close();
     return false;
   }
   const size_t size = file.size();
   if (!validFileSize(path, size, mode == FileMode::Filename ? MaxFilenameFileBytes : MaxFileBytes)) {
+    lastLoadError_ = size > (mode == FileMode::Filename ? MaxFilenameFileBytes : MaxFileBytes)
+                         ? FontLoadError::TooLarge
+                         : FontLoadError::Unsupported;
     file.close();
     return false;
   }
-  if (inspectFormat(file, size) != truetype::Result::Supported || !file.seekSet(0)) {
+  const auto format = inspectFormat(file, size);
+  if (format != truetype::Result::Supported || !file.seekSet(0)) {
+    lastLoadError_ = format == truetype::Result::Unsupported ? FontLoadError::Unsupported : FontLoadError::Read;
     LOG_ERR("TTF", "Unsupported or malformed static outline font: %s", path);
     file.close();
     return false;
@@ -631,6 +669,7 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
   std::strncpy(streamPath_, path, sizeof(streamPath_) - 1);
   streamPath_[sizeof(streamPath_) - 1] = '\0';
   if (size > remainingBytes) {
+    lastLoadError_ = FontLoadError::TooLarge;
     LOG_ERR("TTF", "TTF family data budget exceeded: %s (%u bytes; remaining=%u)", path, unsigned(size),
             unsigned(remainingBytes));
     file.close();
@@ -641,12 +680,14 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
   // Keep descriptors and stream buffers available for the remaining styles.
   // Prefer resident regular text even when the complete family cannot fit.
   if (pendingFaces > 3) {
+    lastLoadError_ = FontLoadError::Unsupported;
     LOG_ERR("TTF", "Invalid pending face count: %u", unsigned(pendingFaces));
     file.close();
     return false;
   }
   const size_t reserve = ReaderReserveBytes + (pendingFaces + 1) * (sizeof(Size) * SizeCount + StreamBufferBytes);
   if (heap.free < reserve) {
+    lastLoadError_ = FontLoadError::Memory;
     LOG_ERR("TTF", "Insufficient memory for TTF face: %s (free=%u required=%u)", path, unsigned(heap.free),
             unsigned(reserve));
     file.close();
@@ -697,6 +738,7 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
   // four-face family perform tens of thousands of locked SD reads at startup.
   auto chunk = makeAlignedByteBufferNoThrow(StreamBufferBytes, Pool);
   if (!chunk) {
+    lastLoadError_ = FontLoadError::Memory;
     LOG_ERR("TTF", "Cannot allocate %u-byte streamed font buffer: %s", unsigned(StreamBufferBytes), path);
     file.close();
     return false;
@@ -847,20 +889,47 @@ unsigned long HalScalableFont::streamRead(void* ctx, unsigned long offset, unsig
   }
   return count;
 }
-bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailable, size_t limit) {
-  if (unavailable) *unavailable = true;
-  HalFile file;
-  if (!Storage.openFileForRead("TTF", path, file)) return false;
+bool HalScalableFont::copyFamilyName(char* name, const size_t capacity) {
+  ScalableFontAccess access(ScalableFontAccess::Lane::Render);
+  if (!name || capacity == 0) return false;
+  name[0] = '\0';
+  if (!font_.ready() || (!streamed_ && !sourceBytes_)) return false;
+  freeink::font::FtFont::FaceInfo info;
+  const auto result = streamed_
+                          ? freeink::font::FtFont::inspectStream(streamRead, this, fileBytes_, info, name, capacity)
+                          : freeink::font::FtFont::inspectMemory(sourceBytes_, static_cast<uint32_t>(sourceSize_), info,
+                                                                 name, capacity);
+  if (result != freeink::font::FtFont::InspectResult::Ok || !name[0]) {
+    LOG_ERR("TTF", "Cannot read loaded font family name");
+    name[0] = '\0';
+    return false;
+  }
+  return true;
+}
+
+bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailable, size_t limit, FontLoadError* error) {
+  const auto failed = [&](FontLoadError reason) {
+    if (error) *error = reason;
+    if (unavailable) *unavailable = reason == FontLoadError::Memory || reason == FontLoadError::Read;
+    return false;
+  };
+  if (unavailable) *unavailable = false;
+  if (error) *error = FontLoadError::None;
+  HalFile file = Storage.open(path);
+  if (!file) {
+    const auto reason = file.allocationFailed() ? FontLoadError::Memory : FontLoadError::Read;
+    LOG_ERR("TTF", "Cannot inspect font: %s", path);
+    file.close();
+    return failed(reason);
+  }
   const size_t size = file.size();
   if (!validFileSize(path, size, limit)) {
-    if (unavailable) *unavailable = false;
     file.close();
-    return false;
+    return failed(size > limit ? FontLoadError::TooLarge : FontLoadError::Unsupported);
   }
   info = Info{};
   const auto format = inspectFormat(file, size);
   if (format != truetype::Result::Supported) {
-    if (unavailable) *unavailable = format == truetype::Result::Unavailable;
     uint8_t signature[4] = {};
     const bool signatureRead = file.seekSet(0) && file.read(signature, sizeof(signature)) == sizeof(signature);
     LOG_ERR("TTF",
@@ -868,19 +937,27 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
             path, unsigned(format), unsigned(truetype::kCffEnabled), unsigned(size), unsigned(signature[0]),
             unsigned(signature[1]), unsigned(signature[2]), unsigned(signature[3]), unsigned(signatureRead));
     file.close();
-    return false;
+    return failed(format == truetype::Result::Unavailable ? FontLoadError::Read : FontLoadError::Unsupported);
   }
   if (!runtime().begin()) {
     file.close();
-    return false;
+    return failed(runtime().beginError);
   }
   freeink::font::FtFont::FaceInfo details;
+  struct Source {
+    HalFile* file;
+    bool failed = false;
+  } source{&file};
   const auto read = [](void* context, unsigned long offset, unsigned char* bytes, unsigned long count) {
-    auto* file = static_cast<HalFile*>(context);
-    return file->seekSet(offset) ? static_cast<unsigned long>(std::max(0, file->read(bytes, count))) : 0ul;
+    auto& source = *static_cast<Source*>(context);
+    const auto got =
+        source.file->seekSet(offset) ? static_cast<unsigned long>(std::max(0, source.file->read(bytes, count))) : 0ul;
+    if (got != count) source.failed = true;
+    return got;
   };
+  runtime().allocator.clearFailure();
   const auto result =
-      freeink::font::FtFont::inspectStream(read, &file, size, details, info.family, sizeof(info.family));
+      freeink::font::FtFont::inspectStream(read, &source, size, details, info.family, sizeof(info.family));
   info.variable = false;
   if (result == freeink::font::FtFont::InspectResult::Ok) {
     // The filename picker needs fixed regular/bold faces. Read SFNT tags
@@ -889,20 +966,19 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
     if (!file.seekSet(0) || file.read(record, 12) != 12) {
       LOG_ERR("TTF", "Cannot read font table directory: %s", path);
       file.close();
-      return false;
+      return failed(FontLoadError::Read);
     }
     const unsigned tables = (unsigned(record[4]) << 8) | record[5];
     if (12u + size_t(tables) * 16u > size) {
       LOG_ERR("TTF", "Invalid font table directory: %s", path);
       file.close();
-      if (unavailable) *unavailable = false;
-      return false;
+      return failed(FontLoadError::Unsupported);
     }
     for (unsigned i = 0; i < tables; ++i) {
       if (file.read(record, sizeof(record)) != sizeof(record)) {
         LOG_ERR("TTF", "Cannot read font table tag: %s", path);
         file.close();
-        return false;
+        return failed(FontLoadError::Read);
       }
       if (std::memcmp(record, "fvar", 4) == 0) {
         info.variable = true;
@@ -911,14 +987,16 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
     }
   }
   file.close();
-  if (unavailable) *unavailable = result == freeink::font::FtFont::InspectResult::Unavailable;
   if (result != freeink::font::FtFont::InspectResult::Ok) {
     LOG_ERR("TTF", "Unsupported or unavailable font: %s", path);
-    return false;
+    return failed(source.failed                                                 ? FontLoadError::Read
+                  : runtime().allocator.lastFailedRequest()                     ? FontLoadError::Memory
+                  : result == freeink::font::FtFont::InspectResult::Unsupported ? FontLoadError::Unsupported
+                                                                                : FontLoadError::Read);
   }
   if (!details.familyLength || details.familyLength >= sizeof(info.family)) {
     LOG_ERR("TTF", "TTF family name exceeds %u bytes: %s", unsigned(sizeof(info.family) - 1), path);
-    return false;
+    return failed(FontLoadError::Unsupported);
   }
   info.style = (details.weight >= 600 ? 1 : 0) | (details.italic ? 2 : 0);
   return info.family[0] != '\0';
