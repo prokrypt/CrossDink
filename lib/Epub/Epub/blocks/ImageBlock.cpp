@@ -29,8 +29,10 @@ ImageBlock::ImageBlock(std::string imagePath, std::string sourcePath, int16_t wi
 void* ImageBlock::extractContext = nullptr;
 ImageBlock::ExtractFn ImageBlock::extractFn = nullptr;
 ImageBlock::SeedCacheFn ImageBlock::seedCacheFn = nullptr;
+ImageBlock::LoadFn ImageBlock::loadFn = nullptr;
 
-void ImageBlock::setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache) {
+void ImageBlock::setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache, LoadFn load) {
+  loadFn = load;
   extractContext = context;
   extractFn = extract;
   seedCacheFn = seedCache;
@@ -482,6 +484,8 @@ void ImageBlock::prepareCache() const {
   Storage.remove((cache + ".optimizer.tmp").c_str());
   Storage.remove((cache + ".optimizer.source").c_str());
   if (seedCacheFn && seedCacheFn(extractContext, sourcePath.c_str(), width, height, cache.c_str())) return;
+  // render() decodes from PSRAM, or extracts there when it can't.
+  if (loadFn && psramHeapAvailable()) return;
   if (extractFn && !Storage.exists(imagePath.c_str()) &&
       !extractFn(extractContext, sourcePath.c_str(), imagePath.c_str())) {
     LOG_ERR("IMG", "Image preflight extraction failed: %s", sourcePath.c_str());
@@ -628,26 +632,35 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     return;  // Successfully rendered from cache
   }
 
-  // No cache - need to decode the image
-  // Check if image file exists
-  FsFile file;
-  if (!Storage.openFileForRead("IMG", imagePath, file)) {
-    LOG_ERR("IMG", "Image file not found: %s", imagePath.c_str());
-    rememberImageFailure(imagePath);
-    renderPlaceholder(renderer, x, y, foregroundBlack);
-    return;
+  // No cache - need to decode the image. Held only for this decode.
+  HeapByteBuffer source;
+  size_t sourceSize = 0;
+  if (loadFn && !sourcePath.empty() && !Storage.exists(imagePath.c_str())) {
+    // Only an image that writes a pixel cache decodes once; a clipped one is drawn
+    // every pass, so it reads the SD copy rather than inflate each time.
+    if (fullyOnScreen) source = loadFn(extractContext, sourcePath.c_str(), sourceSize);
+    if (!source && extractFn && !extractFn(extractContext, sourcePath.c_str(), imagePath.c_str())) {
+      LOG_ERR("IMG", "Image extraction failed: %s", sourcePath.c_str());
+      rememberImageFailure(imagePath);
+      renderPlaceholder(renderer, x, y, foregroundBlack);
+      return;
+    }
   }
-  size_t fileSize = file.size();
-  file.close();
-
-  if (fileSize == 0) {
-    LOG_ERR("IMG", "Image file is empty: %s", imagePath.c_str());
-    rememberImageFailure(imagePath);
-    renderPlaceholder(renderer, x, y, foregroundBlack);
-    return;
+  if (!source) {
+    FsFile file;
+    const size_t fileSize = Storage.openFileForRead("IMG", imagePath, file) ? file.size() : 0;
+    file.close();
+    if (fileSize == 0) {
+      LOG_ERR("IMG", "Missing or empty image: %s", imagePath.c_str());
+      rememberImageFailure(imagePath);
+      renderPlaceholder(renderer, x, y, foregroundBlack);
+      return;
+    }
   }
 
   RenderConfig config;
+  config.sourceData = source.get();
+  config.sourceSize = sourceSize;
   config.x = x;
   config.y = y;
   config.maxWidth = width;
@@ -675,8 +688,8 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   bool success = decoder->decodeToFramebuffer(imagePath, renderer, config);
   const uint32_t decodeMs = millis() - decodeStartedMs;
   PerfLog::noteImage(/*cacheHit=*/false, decodeMs);
-  LOG_DBG("IMG", "Decoded %dx%d in %lu ms (cache %s)", width, height, static_cast<unsigned long>(decodeMs),
-          config.cachePath.empty() ? "off" : "write");
+  LOG_DBG("IMG", "Decoded %dx%d in %lu ms (cache %s, src %s)", width, height, static_cast<unsigned long>(decodeMs),
+          config.cachePath.empty() ? "off" : "write", source ? "psram" : "sd");
   if (!success) {
     LOG_ERR("IMG", "Failed to decode image: %s", imagePath.c_str());
     rememberImageFailure(imagePath);

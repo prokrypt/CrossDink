@@ -2488,6 +2488,9 @@ void EpubReaderActivity::onEnter() {
       },
       [](void* context, const char* source, const int width, const int height, const char* destination) {
         return static_cast<Epub*>(context)->seedOptimizerImageCache(source, width, height, destination);
+      },
+      [](void* context, const char* source, size_t& size) {
+        return static_cast<Epub*>(context)->readItemToPsram(source, size);
       });
 
   // Configure screen orientation based on settings
@@ -7318,9 +7321,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           }
           buildPopupPending = !showPopup;
           // Opening at a page: show it before the font prewarm (backgroundBuildTick runs it).
-          // Anchor and last-page jumps build most of the chapter up front, so keep it there.
-          buildOptions.deferAdvancePrewarm =
-              !anchorJump && target != std::numeric_limits<uint16_t>::max() && !buildOptions.isPreview();
+          // Anchor, relayout and last-page jumps build most of the chapter up front, so keep it there.
+          buildOptions.deferAdvancePrewarm = !anchorJump && !pendingRelayoutReposition &&
+                                             target != std::numeric_limits<uint16_t>::max() &&
+                                             !buildOptions.isPreview();
           const unsigned long buildStartMs = millis();
           bool started;
           {
