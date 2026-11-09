@@ -275,6 +275,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Thin, hair and other Unicode spaces render as blank space instead of missing-character boxes; SD bitmap heading font sizes follow the book's CSS headings; chapter wrappers no longer add their closing spacing to the next paragraph; the font picker keeps its AA preview notice; Reset TTF Defaults confirms the reset or reports a save failure. EPUB pages rebuild once on next open.
 - All-time stats sync names the step that failed (setup, totals, daily history, sessions or streak), and a batch stats upload now only counts as done when the server accepted every book.
 - Clipping sync no longer runs out of memory after uploading: downloads are streamed to the SD card and parsed from there.
+- File Transfer stays responsive after stalled browser replies, malformed uploads, oversized discovery packets and abandoned WebSocket uploads; hotspot captive-portal checks open the home page without catching WebDAV requests.
 
 ### Added
 
