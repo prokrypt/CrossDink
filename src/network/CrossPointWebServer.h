@@ -3,7 +3,7 @@
 #include <ArduinoJson.h>
 #include <HalStorage.h>
 #include <Knobs.h>
-#include <NetworkUdp.h>
+#include <Logging.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <freertos/FreeRTOS.h>
@@ -67,6 +67,27 @@ class PendingAwareWebServer final : public WebServer {
   int clientStatus() const { return _currentStatus; }
   int clientMethod() const { return _currentMethod; }
   unsigned long clientStatusMs() const { return millis() - _statusChange; }
+  // False when a malformed multipart body reaches an upload callback with no upload.
+  bool hasUpload() const { return static_cast<bool>(_currentUpload); }
+
+ protected:
+  size_t _currentClientWrite(const char* data, size_t size) override {
+    return checkedWrite(size, WebServer::_currentClientWrite(data, size));
+  }
+  size_t _currentClientWrite_P(PGM_P data, size_t size) override {
+    return checkedWrite(size, WebServer::_currentClientWrite_P(data, size));
+  }
+
+ private:
+  size_t checkedWrite(size_t wanted, size_t sent) {
+    // WebServer ignores short writes and would block again for every chunk.
+    if (sent < wanted) {
+      LOG_ERR("WEB", "Short response write: %u/%u, closing client", static_cast<unsigned>(sent),
+              static_cast<unsigned>(wanted));
+      _currentClient.stop();
+    }
+    return sent;
+  }
 #else
   int clientStatus() const { return -1; }
   int clientMethod() const { return -1; }
@@ -175,8 +196,10 @@ class CrossPointWebServer {
   bool logOnly_ = false;                        // begin(true): just the remote's routes
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
-  NetworkUDP udp;
-  bool udpActive = false;
+  int discoverySocket = -1;
+  void openDiscoverySocket();
+  void closeDiscoverySocket();
+  void answerDiscovery() const;
 
   static KNOB_ALIAS(TRANSFER_LINGER_MS, transferLingerMs);  // Goodies > Knobs
   std::atomic<bool> transferActive{false};

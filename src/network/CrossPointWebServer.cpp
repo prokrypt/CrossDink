@@ -8,6 +8,7 @@
 #include <wolfssl/wolfcrypt/hash.h>
 
 #include "util/FirmwareIdentity.h"
+#include "util/UrlUtils.h"
 #ifdef SIMULATOR
 #include <ArduinoJsonStringCompat.h>
 #endif
@@ -38,7 +39,12 @@
 #include <freertos/idf_additions.h>
 #include <lwip/netif.h>
 #include <lwip/sockets.h>
+#else
+#include <netinet/in.h>
+#include <sys/socket.h>
 #endif
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cctype>
@@ -358,6 +364,34 @@ size_t wsLastProgressSent = 0;
 String wsLastCompleteName;
 size_t wsLastCompleteSize = 0;
 unsigned long wsLastCompleteAt = 0;
+
+#ifndef SIMULATOR
+// A client that vanishes mid-upload (phone asleep, Wi-Fi lost) would keep its
+// slot and the upload lock until TCP gives up. Clients send START right after
+// connecting and then data without pause, so close one that has sent nothing
+// for two minutes; a browser runs timers in a hidden tab only once a minute.
+// A ping heartbeat would not do: the Calibre plugin does not answer pings while
+// it uploads.
+constexpr uint32_t WS_IDLE_TIMEOUT_MS = 120000;
+
+// millis() of each client's last event, 0 for a free slot.
+uint32_t wsLastActivity[WEBSOCKETS_SERVER_CLIENT_MAX] = {};
+
+void closeIdleWsClients(WebSocketsServer& ws) {
+  const uint32_t now = millis();
+  for (uint8_t i = 0; i < WEBSOCKETS_SERVER_CLIENT_MAX; i++) {
+    if (wsLastActivity[i] == 0) {
+      // Time a new client from its first sight, so one that never finishes the
+      // handshake (and so never raises an event) is closed too.
+      if (ws.clientIsConnected(i)) wsLastActivity[i] = now;
+    } else if (now - wsLastActivity[i] > WS_IDLE_TIMEOUT_MS && ws.clientIsConnected(i)) {
+      LOG_INF("WS", "Client %u sent nothing for %u s, closing it", i, (unsigned)(WS_IDLE_TIMEOUT_MS / 1000));
+      ws.disconnect(i);  // Its DISCONNECTED event frees the slot's time
+    }
+  }
+}
+#endif
+
 // Keeps the WiFi modem awake for the duration of a WS upload; STA-mode power
 // save otherwise adds beacon-interval latency to every small write round trip
 std::unique_ptr<WifiPowerSaveGuard> wsUploadPowerSaveGuard;
@@ -585,6 +619,17 @@ void CrossPointWebServer::begin(const bool logOnly) {
     }
     return handled;
   });
+  // Run before WebDAV's catch-all GET handler; never redirect body methods.
+  if (apMode) {
+    server->addMiddleware([](WebServer& request, Middleware::Callback next) {
+      if ((request.method() != HTTP_GET && request.method() != HTTP_HEAD) ||
+          !UrlUtils::isForeignHost(request.header("Host").c_str()))
+        return next();
+      request.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
+      request.send(302, "text/plain", "");
+      return true;
+    });
+  }
 #endif
 
   // Setup routes
@@ -848,10 +893,10 @@ void CrossPointWebServer::registerFullRoutes() {
   server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth",      "Destination",   "Overwrite",     "If",
-                              "Lock-Token", "Timeout",       "If-None-Match", "X-Token",
-                              "Range",      "Content-Range", "Content-Length"};
-  server->collectHeaders(davHeaders, 11);
+  const char* davHeaders[] = {"Depth",      "Destination",   "Overwrite",      "If",
+                              "Lock-Token", "Timeout",       "If-None-Match",  "X-Token",
+                              "Range",      "Content-Range", "Content-Length", "Host"};
+  server->collectHeaders(davHeaders, 12);
   // Note: WebDAVHandler will be deleted by WebServer when server is stopped
   server->addHandler(new WebDAVHandler(&stopRequested));
 }
@@ -860,11 +905,14 @@ void CrossPointWebServer::startWsAndUdp() {
   // Start WebSocket server for fast binary uploads
   wsServer.reset(new BoundedCloseWebSocketsServer(wsPort));
   wsInstance = const_cast<CrossPointWebServer*>(this);
+#ifndef SIMULATOR
+  std::fill(std::begin(wsLastActivity), std::end(wsLastActivity), 0);
+#endif
   wsServer->begin();
   wsServer->onEvent(wsEventCallback);
 
-  udpActive = udp.begin(LOCAL_UDP_PORT);
-  LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
+  openDiscoverySocket();
+  LOG_DBG("WEB", "Discovery UDP %s on port %d", discoverySocket >= 0 ? "enabled" : "failed", LOCAL_UDP_PORT);
 }
 
 bool CrossPointWebServer::startServeTask(const bool psramStack) {
@@ -975,10 +1023,7 @@ void CrossPointWebServer::stop() {
     wsInstance = nullptr;
   }
 
-  if (udpActive) {
-    udp.stop();
-    udpActive = false;
-  }
+  closeDiscoverySocket();
 
   server->stop();
 
@@ -1003,7 +1048,7 @@ void CrossPointWebServer::forEachSocket(Fn fn) const {
     if (lwip_getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) continue;
     // sin_port and sin6_port share an offset.
     const uint16_t local = ntohs(reinterpret_cast<const sockaddr_in*>(&addr)->sin_port);
-    if (local != port && !(wsServer && local == wsPort) && !(udpActive && local == LOCAL_UDP_PORT)) continue;
+    if (local != port && !(wsServer && local == wsPort) && !(discoverySocket >= 0 && local == LOCAL_UDP_PORT)) continue;
     fn(fd, local);
   }
 #else
@@ -1198,6 +1243,9 @@ bool CrossPointWebServer::handleClient() {
   servePhase.store("ws", std::memory_order_relaxed);
   if (wsServer) {
     wsServer->loop();
+#ifndef SIMULATOR
+    closeIdleWsClients(*wsServer);
+#endif
   }
   if (wsUploadParkedAt && millis() - wsUploadParkedAt > WS_RESUME_GRACE_MS) {
     LOG_DBG("WS", "Resume grace expired");
@@ -1206,30 +1254,58 @@ bool CrossPointWebServer::handleClient() {
 
   // Respond to discovery broadcasts
   servePhase.store("udp", std::memory_order_relaxed);
-  if (udpActive) {
-    int packetSize = udp.parsePacket();
-    if (packetSize > 0) {
-      char buffer[16];
-      int len = udp.read(buffer, sizeof(buffer) - 1);
-      if (len > 0) {
-        buffer[len] = '\0';
-        if (strcmp(buffer, "hello") == 0) {
-          String hostname = WiFi.getHostname();
-          if (hostname.isEmpty()) {
-            hostname = NET_HOSTNAME;
-          }
-          String message = "crosspoint (on " + hostname + ");" + String(wsPort);
-          udp.beginPacket(udp.remoteIP(), udp.remotePort());
-          udp.write(reinterpret_cast<const uint8_t*>(message.c_str()), message.length());
-          udp.endPacket();
-        }
-      }
-    }
-  }
+  answerDiscovery();
 
   updateTransferIdle();
   publishWsStatus();
   return pending;
+}
+
+// Discovery uses a plain socket: NetworkUDP keeps a 1,460-byte send buffer
+// while it is open, for a reply of a few dozen bytes.
+void CrossPointWebServer::openDiscoverySocket() {
+  if (discoverySocket >= 0) return;
+  const int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (fd < 0) {
+    LOG_ERR("WEB", "Failed to create discovery socket");
+    return;
+  }
+  sockaddr_in addr = {};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(LOCAL_UDP_PORT);
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
+      fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
+    LOG_ERR("WEB", "Failed to bind discovery socket");
+    close(fd);
+    return;
+  }
+  discoverySocket = fd;
+}
+
+void CrossPointWebServer::closeDiscoverySocket() {
+  if (discoverySocket < 0) return;
+  close(discoverySocket);
+  discoverySocket = -1;
+}
+
+// Answers a "hello" broadcast with the device name and WebSocket port.
+// Oversized or NUL-padded datagrams are dropped whole.
+void CrossPointWebServer::answerDiscovery() const {
+  if (discoverySocket < 0) return;
+  char buffer[16];
+  sockaddr_in from = {};
+  socklen_t fromLen = sizeof(from);
+  const int len =
+      recvfrom(discoverySocket, buffer, sizeof(buffer) - 1, 0, reinterpret_cast<sockaddr*>(&from), &fromLen);
+  if (len != 5 || memcmp(buffer, "hello", 5) != 0) return;
+  const String hostname = WiFi.getHostname();
+  char message[96];
+  const int messageLen = snprintf(message, sizeof(message), "crosspoint (on %s);%u",
+                                  hostname.isEmpty() ? NET_HOSTNAME : hostname.c_str(), static_cast<unsigned>(wsPort));
+  if (messageLen <= 0) return;
+  sendto(discoverySocket, message, std::min(static_cast<size_t>(messageLen), sizeof(message) - 1), 0,
+         reinterpret_cast<sockaddr*>(&from), fromLen);
 }
 
 bool PendingAwareWebServer::requestPending() {
@@ -1523,15 +1599,6 @@ void CrossPointWebServer::handleLogo() const {
 }
 
 void CrossPointWebServer::handleNotFound() const {
-  // in AP mode, redirect unmatched browser/captive-portal requests to "/" so the OS auto-opens the browser
-  // API requests (/api/*) still return 404 so XHR errors surface correctly
-  // see https://en.wikipedia.org/wiki/Captive_portal#Detection
-  if (apMode && !server->uri().startsWith("/api/")) {
-    server->sendHeader("Location", "/", true);
-    server->send(302, "text/plain", "");
-    return;
-  }
-
   String message = "404 Not Found\n\n";
   message += "URI: " + server->uri() + "\n";
   server->send(404, "text/plain", message);
@@ -1782,6 +1849,9 @@ char apiUploadOut[32];
 }  // namespace
 
 void CrossPointWebServer::handleApiUpload() {
+#ifndef SIMULATOR
+  if (!server->hasUpload()) return;  // a raw body, not a file part
+#endif
   if (server->upload().status == UPLOAD_FILE_START) {
     apiUploadStatus = checkRemoteToken(*server, apiUploadOut, sizeof(apiUploadOut));
     // Remote clients (xink-file put) name any destination: create missing parent folders.
@@ -2527,6 +2597,10 @@ void CrossPointWebServer::abortUpload(UploadState& state) const {
 }
 
 void CrossPointWebServer::handleUpload(UploadState& state) const {
+#ifndef SIMULATOR
+  // A raw (non-multipart) POST runs this callback with no upload.
+  if (!server || !server->hasUpload()) return;
+#endif
   // Safety check: ensure server is still valid
   if (!server) {
     LOG_DBG("WEB", "[UPLOAD] ERROR: handleUpload called with null server!");
@@ -2540,6 +2614,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
   }
 
   if (upload.status == UPLOAD_FILE_START) {
+    if (state.file) abortUpload(state);
     state.fileName = StringUtils::sanitizeFilename(upload.filename.c_str()).c_str();
     state.size = 0;
     state.success = false;
@@ -2692,6 +2767,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
 void CrossPointWebServer::handleUploadPost(UploadState& state) const {
   if (state.success) {
     server->send(200, "text/plain", "File uploaded successfully: " + state.fileName);
+    state.success = false;
   } else {
     const String error = state.error.isEmpty() ? "Unknown error during upload" : state.error;
     server->send(state.errorStatus, "text/plain", error);
@@ -3307,6 +3383,12 @@ void CrossPointWebServer::handleGetSettings() const {
         continue;
     }
 
+    if (doc.overflowed()) {
+      LOG_ERR("WEB", "OOM: web settings entry");
+      server->client().stop();
+      sdFontSystem.releaseRegistry();
+      return;
+    }
     if (seenFirst) json.append(",");
     seenFirst = true;
     serializeJson(doc, json);
@@ -3724,6 +3806,9 @@ void CrossPointWebServer::wsEventCallback(uint8_t num, WStype_t type, uint8_t* p
 //   3. Server sends TEXT "PROGRESS:<received>:<total>" after each chunk
 //   4. Server sends TEXT "DONE" or "ERROR:<message>" when complete
 void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+#ifndef SIMULATOR
+  if (num < WEBSOCKETS_SERVER_CLIENT_MAX) wsLastActivity[num] = type == WStype_DISCONNECTED ? 0 : millis();
+#endif
   if (type == WStype_CONNECTED || type == WStype_TEXT || type == WStype_BIN) noteTransferActivity();
   switch (type) {
     case WStype_DISCONNECTED:
@@ -4050,6 +4135,9 @@ void CrossPointWebServer::abortFontUpload() {
 }
 
 void CrossPointWebServer::handleFontUploadData() {
+#ifndef SIMULATOR
+  if (!server || !server->hasUpload()) return;
+#endif
   HTTPUpload& upload = server->upload();
   if (dropUploadIfStopping()) {
     abortFontUpload();
@@ -4058,6 +4146,7 @@ void CrossPointWebServer::handleFontUploadData() {
 
   switch (upload.status) {
     case UPLOAD_FILE_START: {
+      if (fontUpload.file) abortFontUpload();
       String family = server->arg("family");
       fontUpload.file = HalFile();
       fontUpload.familyName.clear();
@@ -4177,6 +4266,8 @@ void CrossPointWebServer::handleFontUpload() {
     sdFontSystem.markRegistryDirty();
     server->send(200, "application/json", "{\"ok\":true}");
     LOG_DBG("WEB", "Font upload complete: %s", fontUpload.filePath.c_str());
+    fontUpload.valid = false;
+    fontUpload.filePath.clear();
   } else {
     server->send(400, "application/json", "{\"error\":\"Unsupported or damaged font file\"}");
   }
@@ -4214,7 +4305,7 @@ void CrossPointWebServer::suspendTransferServices() {
     wsServer->close();
     wsServer.reset();
   }
-  if (udpActive) udp.stop();
+  closeDiscoverySocket();
   LOG_DBG("WEB", "Transfer services suspended, heap %u, max block %u", (unsigned)ESP.getFreeHeap(),
           (unsigned)ESP.getMaxAllocHeap());
 }
@@ -4225,13 +4316,16 @@ void CrossPointWebServer::resumeTransferServices() {
     auto* ws = new (std::nothrow) BoundedCloseWebSocketsServer(wsPort);
     if (ws) {
       wsServer.reset(ws);
+#ifndef SIMULATOR
+      std::fill(std::begin(wsLastActivity), std::end(wsLastActivity), 0);
+#endif
       wsServer->begin();
       wsServer->onEvent(wsEventCallback);
     } else {
       LOG_ERR("WEB", "OOM: WebSocket server restart");
     }
   }
-  if (udpActive) udpActive = udp.begin(LOCAL_UDP_PORT);
+  if (!logOnly_) openDiscoverySocket();
   LOG_DBG("WEB", "Transfer services resumed, heap %u, max block %u", (unsigned)ESP.getFreeHeap(),
           (unsigned)ESP.getMaxAllocHeap());
 }

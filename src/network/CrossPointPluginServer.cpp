@@ -679,6 +679,9 @@ void CrossPointWebServer::handleFetch() {
 void CrossPointWebServer::handlePluginFsUpload() {
   static constexpr size_t MAX_PLUGIN_FILE = 256 * 1024;
   auto& st = pluginFsUpload;
+#ifndef SIMULATOR
+  if (!server->hasUpload()) return;  // a raw body, not a file part
+#endif
   const HTTPUpload& part = server->upload();
   const auto fail = [&st](const int status, const char* error) {
     if (st.file.isOpen()) st.file.close();  // explicit: remove follows on the same path
