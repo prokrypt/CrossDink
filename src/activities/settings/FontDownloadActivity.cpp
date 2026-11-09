@@ -1157,7 +1157,7 @@ void FontDownloadActivity::loop() {
       requestUpdate();
     }
   } else if (state_ == ERROR) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       if (manifestReloadNeeded_) {
         returnToFamilyList();
         requestUpdate();
@@ -1176,7 +1176,9 @@ void FontDownloadActivity::loop() {
         state_ = FAMILY_LIST;
       }
       requestUpdate();
-    } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    } else {
+      int x = 0, y = 0;
+      if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !mappedInput.wasScreenTapped(x, y)) return;
       if (hasRetryFamily_) {
         currentFileIndex_ = 0;
         currentFileTotal_ = retryFamily_.fileCount;
@@ -1196,22 +1198,7 @@ void FontDownloadActivity::loop() {
         requestUpdateAndWait();
         return;
       } else {
-        returnToFamilyList();
-        requestUpdate();
-      }
-    } else {
-      int x = 0;
-      int y = 0;
-      if (mappedInput.wasScreenTapped(x, y)) {
-        if (downloadingFamilyIndex_ >= 0 && downloadingFamilyIndex_ < static_cast<int>(manifestFamilyCount_)) {
-          downloadFamily(manifestFamilies_[downloadingFamilyIndex_]);
-          requestUpdateAndWait();
-          return;
-        }
-        {
-          RenderLock lock(*this);
-          state_ = FAMILY_LIST;
-        }
+        onWifiSelectionComplete(true);
         requestUpdate();
       }
     }
