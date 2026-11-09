@@ -92,14 +92,16 @@ class ClippingRecords {
     if (count) --count;
   }
   void erase(const Clipping* position) {
-    const size_t index = position - records.get();
-    std::move(records.get() + index + 1, records.get() + count, records.get() + index);
+    Clipping* const base = begin();
+    const size_t index = position - base;
+    std::move(base + index + 1, base + count, base + index);
     --count;
   }
   void insert(const Clipping* position, const Clipping& clipping) {
     // Only used to restore an erased record; capacity is already available.
-    const size_t index = position - records.get();
-    std::move_backward(records.get() + index, records.get() + count, records.get() + count + 1);
+    Clipping* const base = begin();
+    const size_t index = position - base;
+    std::move_backward(base + index, base + count, base + count + 1);
     records[index] = clipping;
     ++count;
   }
@@ -113,8 +115,8 @@ class ClippingRecords {
   bool empty() const { return count == 0; }
   Clipping* begin() { return records.get(); }
   const Clipping* begin() const { return records.get(); }
-  Clipping* end() { return count ? records.get() + count : records.get(); }
-  const Clipping* end() const { return count ? records.get() + count : records.get(); }
+  Clipping* end() { return begin() + count; }
+  const Clipping* end() const { return begin() + count; }
   Clipping& front() { return records[0]; }
   Clipping& operator[](size_t i) { return records[i]; }
   const Clipping& operator[](size_t i) const { return records[i]; }
