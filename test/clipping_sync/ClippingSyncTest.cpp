@@ -389,9 +389,8 @@ TEST_F(ClippingSync, ReadsLegacyVersionsAndKeepsExistingServerIdentity) {
 
 TEST_F(ClippingSync, FullBookConvergesWhenRemoteAdditionPrecedesDeletion) {
   Clipping clip;
-  std::string id;
   for (unsigned i = 0; i < CLIPPING_MAX_PER_BOOK; ++i) {
-    id = "id-" + std::to_string(i);
+    const std::string id = "id-" + std::to_string(i);
     ASSERT_TRUE(ClippingStore::mergeFromSync(BOOK, clip, "selection", scope() + id, false));
   }
   addRemote("extra", "extra selection");

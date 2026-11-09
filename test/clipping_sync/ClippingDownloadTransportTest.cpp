@@ -22,6 +22,7 @@ class ClippingDownloadTransport : public ::testing::Test {
     EXPECT_FALSE(bookmarkMockWriting);
   }
 };
+}  // namespace
 
 TEST_F(ClippingDownloadTransport, StreamsMaximumResponseWithC3MemoryHeadroom) {
   // Enough for TLS, but not for TLS plus the former 26 KiB response buffer.
@@ -86,4 +87,3 @@ TEST_F(ClippingDownloadTransport, RejectsInvalidServerUrl) {
   EXPECT_EQ(client.get("/clippings", PATH, LIMIT), Result::Network);
   EXPECT_EQ(testHttp.streamedRequests, 0U);
 }
-}  // namespace

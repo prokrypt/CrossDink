@@ -6,6 +6,9 @@
 #include <Memory.h>
 #include <Utf8.h>
 
+#include <algorithm>
+#include <iterator>
+
 #include "ClippingStore.h"
 #include "clippings/ClippingIdentity.h"
 #include "sync/SyncFiles.h"
@@ -37,7 +40,7 @@ class ResponseReader {
 
  private:
   FsFile& file;
-  uint8_t buffer[128];
+  uint8_t buffer[128]{};
   size_t offset = 0;
   size_t size = 0;
 };
@@ -235,14 +238,15 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
       const std::string id = item["id"].as<const char*>();
       if (id.empty() || id.size() > 64 || id.size() != item["id"].as<JsonString>().size())
         return Result::InvalidResponse;
-      for (const unsigned char c : id)
-        if (c < 0x21 || c > 0x7e) return Result::InvalidResponse;
+      if (std::any_of(id.begin(), id.end(), [](const unsigned char c) { return c < 0x21 || c > 0x7e; }))
+        return Result::InvalidResponse;
       const bool deleted = item["deleted"].as<unsigned>() == 1;
       std::string text;
       if (!deleted) {
         const char* fields[] = {"spine", "start_page", "end_page", "pages", "start_word", "end_word", "words"};
-        for (const char* field : fields)
-          if (!item[field].is<uint16_t>()) return Result::InvalidResponse;
+        if (std::any_of(std::begin(fields), std::end(fields),
+                        [&item](const char* field) { return !item[field].is<uint16_t>(); }))
+          return Result::InvalidResponse;
         if (!item["created_at"].is<uint32_t>() || !item["text"].is<const char*>() ||
             !item["chapter"].is<const char*>() || (!item["para"].isNull() && !item["para"].is<uint16_t>()))
           return Result::InvalidResponse;

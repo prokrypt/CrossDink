@@ -55,6 +55,7 @@ std::string newClippingSyncId() {
   uint32_t words[4];
 #ifdef SIMULATOR
   std::random_device random;
+  // cppcheck-suppress useStlAlgorithm
   for (auto& word : words) word = random();
 #else
   esp_fill_random(words, sizeof(words));
