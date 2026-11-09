@@ -1075,20 +1075,24 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
     if (mappedInput.isScreenTouchHeld(x, y)) {
       touchDragHasMoved_ =
           touchDragHasMoved_ || ClipSelectionPaging::hasDraggedFrom(touchDragStartX_, touchDragStartY_, x, y);
-      if (touchDragHasMoved_ && navigator.selectNearestWord(x + touchDragOffsetX_, y + touchDragOffsetY_,
-                                                            renderer.getLineHeight(SETTINGS.getReaderFontId()))) {
+      const int lineHeight = renderer.getLineHeight(SETTINGS.getReaderFontId());
+      auto isAtPageEnd = [&] {
+        const int idx = navigator.getCurrentFlatIndex();
+        const auto* word = navigator.getSelected();
+        if (!word || navigator.getWordAt(idx + 1) != nullptr) return false;
+        const WordRef bounds{.x = word->screenX, .y = word->screenY, .w = word->width, .h = lineHeight};
+        return ClipSelectionPaging::isWithinPageEndDwellSlop(bounds, x, y) ||
+               ClipSelectionPaging::isWithinPageEndDwellSlop(bounds, x + touchDragOffsetX_, y + touchDragOffsetY_);
+      };
+      // Keep the held final word through capacitive jitter instead of letting
+      // nearest-word snapping hop off it and restart the dwell timer.
+      const bool keepPageEnd = touchPageEndIndex_ == navigator.getCurrentFlatIndex() && isAtPageEnd();
+      if (touchDragHasMoved_ && !keepPageEnd &&
+          navigator.selectNearestWord(x + touchDragOffsetX_, y + touchDragOffsetY_, lineHeight)) {
         requestUpdate();
       }
       const int current = navigator.getCurrentFlatIndex();
-      bool atPageEnd = false;
-      if (const auto* word = navigator.getSelected(); word && navigator.getWordAt(current + 1) == nullptr) {
-        const WordRef bounds{.x = word->screenX,
-                             .y = word->screenY,
-                             .w = word->width,
-                             .h = renderer.getLineHeight(SETTINGS.getReaderFontId())};
-        atPageEnd = ClipSelectionPaging::isWithinPageEndDwellSlop(bounds, x, y) ||
-                    ClipSelectionPaging::isWithinPageEndDwellSlop(bounds, x + touchDragOffsetX_, y + touchDragOffsetY_);
-      }
+      const bool atPageEnd = keepPageEnd || isAtPageEnd();
       if (touchDragHasMoved_ && atPageEnd) {
         const auto now = static_cast<uint32_t>(millis());
         if (touchPageEndIndex_ != current) {
