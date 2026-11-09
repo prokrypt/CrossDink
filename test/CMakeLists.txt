@@ -139,6 +139,8 @@ add_subdirectory(png_row_decoder)
 add_subdirectory(theme_pack_fields)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME TransferReliabilityRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_reliability.py)
 add_test(NAME WifiAutoConnectRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_wifi_auto_connect.py)
 add_test(NAME LanguageAssetPublicationRegression

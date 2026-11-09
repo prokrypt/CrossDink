@@ -1,7 +1,11 @@
 #include "UrlUtils.h"
 
+#include <strings.h>
+
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 
 namespace UrlUtils {
 namespace {
@@ -155,6 +159,26 @@ std::string maskUserInfo(const std::string& url) {
   const size_t colon = url.find(':', start);
   const char* mask = colon < at ? "****:****@" : "****@";
   return url.substr(0, start) + mask + url.substr(at + 1);
+}
+
+bool isForeignHost(const char* hostHeader) {
+  if (hostHeader == nullptr) return false;  // a String whose allocation failed
+  const size_t len = strcspn(hostHeader, ":");
+  if (len == 0 || hostHeader[0] == '[') return false;  // no host, or an IPv6 literal
+  constexpr char LOCAL_SUFFIX[] = ".local";
+  constexpr size_t SUFFIX_LEN = sizeof(LOCAL_SUFFIX) - 1;
+  if (len >= SUFFIX_LEN && strncasecmp(hostHeader + len - SUFFIX_LEN, LOCAL_SUFFIX, SUFFIX_LEN) == 0) return false;
+  bool hasDot = false;
+  bool allDigits = true;
+  for (size_t i = 0; i < len; i++) {
+    const char c = hostHeader[i];
+    if (c == '.') {
+      hasDot = true;
+    } else if (!isdigit(static_cast<unsigned char>(c))) {
+      allDigits = false;
+    }
+  }
+  return hasDot && !allDigits;
 }
 
 }  // namespace UrlUtils
