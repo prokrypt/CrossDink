@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <functional>
 
+#include "CrossPointState.h"
 #include "FilenameFontSystem.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActionActivity.h"
@@ -92,6 +93,14 @@ LibraryActivity::LibraryActivity(GfxRenderer& renderer, MappedInputManager& mapp
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {}
 
+bool LibraryActivity::bookListReturn(PendingOverlayResume& resume) const {
+  resume.origin = PendingOverlayOrigin::Library;
+  resume.tab = static_cast<uint8_t>(sort);
+  resume.pane = descending ? 1 : 0;
+  resume.libraryQuery = query;
+  return true;
+}
+
 void LibraryActivity::onEnter() {
   RenderLock lock;
   filenameFontSystem.ensureLoaded(renderer);
@@ -112,6 +121,14 @@ void LibraryActivity::onEnter() {
   sort = SETTINGS.librarySortMethod <= static_cast<uint8_t>(Sort::Genre) ? static_cast<Sort>(SETTINGS.librarySortMethod)
                                                                          : Sort::RecentlyRead;
   descending = SETTINGS.librarySortDescending != 0;
+  PendingOverlayResume route;
+  if (APP_STATE.pendingOverlayResume.origin == PendingOverlayOrigin::Library &&
+      APP_STATE.consumePendingOverlayResume(route)) {
+    // shortcut: the list position is not restored (the index rebuilds in the background), only the view.
+    if (route.tab <= static_cast<uint8_t>(Sort::Genre)) sort = static_cast<Sort>(route.tab);
+    descending = route.pane != 0;
+    query = std::move(route.libraryQuery);
+  }
   app.on(ACTION_ROW, &LibraryActivity::onRowEvent, this);
   app.on(ACTION_DELETE, &LibraryActivity::onDeleteEvent, this);
   app.on(ACTION_CONTROL, &LibraryActivity::onControlEvent, this);

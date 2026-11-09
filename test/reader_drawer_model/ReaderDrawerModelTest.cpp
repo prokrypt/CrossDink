@@ -313,6 +313,24 @@ TEST(PendingOverlayResume, ConsumptionIsOneShot) {
   EXPECT_FALSE(consumePendingOverlayResumeOnce(stored, second));
 }
 
+TEST(PendingOverlayResume, BookListRoutes) {
+  PendingOverlayResume browser;
+  browser.origin = PendingOverlayOrigin::FileBrowser;
+  EXPECT_FALSE(browser.returnsToBookList());  // needs the book to select
+  browser.bookPath = "/books/test.epub";
+  EXPECT_TRUE(browser.returnsToBookList());
+
+  PendingOverlayResume library;
+  library.origin = PendingOverlayOrigin::Library;
+  EXPECT_TRUE(library.returnsToBookList());
+
+  PendingOverlayResume reader;
+  reader.origin = PendingOverlayOrigin::Reader;
+  reader.overlay = PendingOverlayType::FrontlightDrawer;
+  EXPECT_TRUE(reader.valid());
+  EXPECT_FALSE(reader.returnsToBookList());
+}
+
 TEST(ReaderDrawerModel, SamplePreviewCoversLiveTextSettingsOnly) {
   using Pane = ReaderDrawerPane;
   using Tab = ReaderDrawerTab;

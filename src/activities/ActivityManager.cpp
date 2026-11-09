@@ -1604,6 +1604,14 @@ bool ActivityManager::wifiActivitiesShareRemote() const {
          std::none_of(stackActivities.begin(), stackActivities.end(), blocks);
 }
 
+bool ActivityManager::saveBookListReturn() {
+  if (pendingAction != PendingAction::Pop || stackActivities.empty()) return false;
+  PendingOverlayResume resume;
+  if (!stackActivities.back()->bookListReturn(resume)) return false;
+  APP_STATE.setPendingOverlayResume(std::move(resume));
+  return true;
+}
+
 bool ActivityManager::hasActivityNamed(const char* activityName) const {
   const auto matches = [activityName](const auto& activity) { return activity && activity->name == activityName; };
   if (matches(currentActivity) || matches(pendingActivity)) {

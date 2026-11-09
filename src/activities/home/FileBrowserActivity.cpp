@@ -382,6 +382,14 @@ const char* FileBrowserActivity::entryNameAt(size_t row) {
   return indexCachedNames[cacheSlot].c_str();
 }
 
+bool FileBrowserActivity::bookListReturn(PendingOverlayResume& resume) const {
+  if (mode != Mode::Books || actionMenuPath.empty()) return false;
+  resume.origin = PendingOverlayOrigin::FileBrowser;
+  // goToFileBrowser() on a file opens its folder with that file selected.
+  resume.bookPath = actionMenuPath;
+  return true;
+}
+
 void FileBrowserActivity::onEnter() {
   {
     RenderLock lock(*this);
@@ -717,6 +725,7 @@ bool FileBrowserActivity::isPinnedBootFavorite(const std::string& fullPath) {
 
 void FileBrowserActivity::showFileActionMenu(const std::string& entry) {
   const std::string fullPath = buildFullPath(basepath, entry);
+  actionMenuPath = fullPath;
   std::vector<FileBrowserActionActivity::MenuItem> items = BookActions::buildBookActionItems(fullPath, false);
   items.insert(items.begin(), {FileBrowserAction::Rename, StrId::STR_RENAME});
 

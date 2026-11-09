@@ -879,6 +879,7 @@ void finishNetworkExit() {
   std::string book = std::move(networkExitBook);
   if (leaveNetworkInPlace(/*goingHome=*/book.empty())) return;
   if (book.empty()) {
+    activityManager.saveBookListReturn();  // a sync opened over a book list returns there
     silentRestart();
     return;
   }
@@ -2790,6 +2791,16 @@ void setup() {
     if (!launched) {
       LOG_ERR("MAIN", "Minimal network boot target failed; returning home");
       silentRestart();
+    }
+  } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_HOME &&
+             APP_STATE.pendingOverlayResume.returnsToBookList()) {
+    // Library consumes the route in onEnter() (sort, order, search).
+    if (APP_STATE.pendingOverlayResume.origin == PendingOverlayOrigin::Library) {
+      activityManager.goToLibrary();
+    } else {
+      PendingOverlayResume route;
+      APP_STATE.consumePendingOverlayResume(route);
+      activityManager.goToFileBrowser(std::move(route.bookPath));
     }
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
