@@ -279,6 +279,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Clipping sync no longer runs out of memory after uploading: downloads are streamed to the SD card and parsed from there.
 - File Transfer stays responsive after stalled browser replies, malformed uploads, oversized discovery packets and abandoned WebSocket uploads; hotspot captive-portal checks open the home page without catching WebDAV requests.
 - SD reading fonts are found again when a book is reopened after returning from Download Fonts or another minimal network screen.
+- Keep protected EPUBs readable after renaming or moving them (web, WebDAV, USB, and moves to the Read folder), and retry queuing a sync change after an SD write fails.
 
 ### Added
 
@@ -558,3 +559,6 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - KOReader Auto Sync: closing a book (or sleeping) on a page before the one you opened it at no longer pushes that earlier position; paging back to look something up leaves the server where it was.
 - File Transfer (Wi-Fi mode): the Wi-Fi signal bars no longer show twice; only the header status bar draws them.
 - File Transfer and WebDAV: a connection that opens but sends nothing (a spare one GNOME Files/gvfs or Finder keeps ready) no longer holds up every other request for 5 s. Once another connection is waiting, the silent one is closed after 1 s. Debug logs: `Closing silent connection fd N, another is waiting`.
+
+### Security
+- Plugin catalogs no longer send credentials or secret templates to download or list URLs outside the catalog's configured origin.
