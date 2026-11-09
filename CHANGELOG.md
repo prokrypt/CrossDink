@@ -201,6 +201,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Plugin folder (WebDAV/XML) lists keep only the page on screen with Previous/Next page rows, page turns in folder and single-file catalogs re-read the saved list instead of downloading it again, and the font download list formats only the rows on screen.
 - The header Wi-Fi remote-activity icon now clears 5 seconds after the last API request instead of 30.
 - Books open about 0.1 s faster: the recent-books update and sync pull wait until the first page is on its way to the screen, and opening a book no longer checks every recent book for a missing file.
+- Reopening a book on the page you left starts drawing that page the moment you tap it, while the book loads underneath, so the page appears about 0.2-0.3 s sooner (plain text pages with anti-aliasing off).
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
