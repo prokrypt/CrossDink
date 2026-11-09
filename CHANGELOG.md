@@ -210,6 +210,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - freeink-sdk synced with upstream: OPDS/OTA HTTPS no longer resends a request on a freshly opened connection, long JSON strings keep a bounded preview, fonts can load the .notdef glyph, and SD usage scan failures are reported.
 - Book pages with images that load without the background loader decode them from memory instead of copying each image to the SD card first.
 - Dictionary definitions show the page number at the bottom right, and touch devices get a close (X) icon at the top right that returns straight to the book.
+- OPDS servers get a Use Server Filename toggle (default off) next to Filename: when on, downloads use the server's filename and fall back to the selected Author - Title or Title - Author format when the server name is missing or unsafe. Servers set to "Server filename" keep it as the toggle.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
