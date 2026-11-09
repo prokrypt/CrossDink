@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <limits>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -50,10 +52,10 @@ struct StatsFileCandidate {
 constexpr size_t MAX_PRESERVED_CACHE_FILES = std::size(EPUB_USER_STATE_FILES) > std::size(PAGE_PROGRESS_FILES)
                                                  ? std::size(EPUB_USER_STATE_FILES)
                                                  : std::size(PAGE_PROGRESS_FILES);
-constexpr size_t MAX_STATS_FILES_TO_PRESERVE = 8;
+// Both save slots (TwoSlotFile.h) plus an older firmware's interrupted save, for up to eight versions.
+constexpr size_t MAX_STATS_FILES_TO_PRESERVE = 8 * 3;
 constexpr char STATS_PREFIX[] = "stats";
 constexpr char STATS_SUFFIX[] = ".bin";
-constexpr char STATS_SLOT_SUFFIX[] = ".bin.bak";
 
 std::string getBookCachePath(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
@@ -81,41 +83,33 @@ const PreservedCacheFile* preservedFilesForPath(const std::string& path, size_t&
   return nullptr;
 }
 
+// "stats_v6.bin.bak" (second slot) and ".tmp" (older firmware's interrupted save) name the same payload.
+std::string_view statsPayloadName(const char* name) {
+  std::string_view value = name ? name : "";
+  if (value.ends_with(".bak") || value.ends_with(".tmp")) value.remove_suffix(4);
+  return value;
+}
+
 bool isStatsFileName(const char* name) {
-  if (!name) {
-    return false;
-  }
-  const size_t nameLen = strlen(name);
-  constexpr size_t prefixLen = std::size(STATS_PREFIX) - 1;
-  constexpr size_t suffixLen = std::size(STATS_SUFFIX) - 1;
-  // stats_v6.bin.bak is the second stats slot (TwoSlotFile.h) and may hold the newest save.
-  constexpr size_t slotSuffixLen = std::size(STATS_SLOT_SUFFIX) - 1;
-  return (nameLen >= prefixLen + suffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
-          strcmp(name + nameLen - suffixLen, STATS_SUFFIX) == 0) ||
-         (nameLen >= prefixLen + slotSuffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
-          strcmp(name + nameLen - slotSuffixLen, STATS_SLOT_SUFFIX) == 0);
+  const auto payload = statsPayloadName(name);
+  return payload.size() >= sizeof(STATS_PREFIX) + sizeof(STATS_SUFFIX) - 2 && payload.starts_with(STATS_PREFIX) &&
+         payload.ends_with(STATS_SUFFIX);
 }
 
 int statsFileVersion(const char* name) {
-  if (!name || strcmp(name, "stats.bin") == 0) {
-    return 0;
-  }
-
-  constexpr char VERSION_PREFIX[] = "stats_v";
-  constexpr size_t versionPrefixLen = std::size(VERSION_PREFIX) - 1;
-  constexpr size_t suffixLen = std::size(STATS_SUFFIX) - 1;
-  const size_t nameLen = strlen(name);
-  if (nameLen <= versionPrefixLen + suffixLen || strncmp(name, VERSION_PREFIX, versionPrefixLen) != 0 ||
-      strcmp(name + nameLen - suffixLen, STATS_SUFFIX) != 0) {
+  const auto payload = statsPayloadName(name);
+  if (payload == "stats.bin") return 0;
+  constexpr std::string_view prefix = "stats_v";
+  constexpr size_t suffixLength = sizeof(STATS_SUFFIX) - 1;
+  if (!payload.starts_with(prefix) || !payload.ends_with(STATS_SUFFIX) ||
+      payload.size() <= prefix.size() + suffixLength)
     return -1;
-  }
-
   int version = 0;
-  for (size_t i = versionPrefixLen; i < nameLen - suffixLen; ++i) {
-    if (name[i] < '0' || name[i] > '9') {
-      return -1;
-    }
-    version = version * 10 + (name[i] - '0');
+  for (size_t i = prefix.size(); i < payload.size() - suffixLength; ++i) {
+    if (payload[i] < '0' || payload[i] > '9') return -1;
+    const int digit = payload[i] - '0';
+    if (version > (std::numeric_limits<int>::max() - digit) / 10) return -1;
+    version = version * 10 + digit;
   }
   return version;
 }

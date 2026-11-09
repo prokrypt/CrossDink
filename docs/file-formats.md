@@ -765,7 +765,7 @@ Binary layout (little endian):
 - `[4-5]` page count (`uint16_t`)
 - `[6-9]` visible-text offset (`uint32_t`, `0` when absent)
 - `[10]` marker `0xC5`
-- `[11]` flags (`bit0=visible-text offset present`)
+- `[11]` flags (`bit0=visible-text offset present`; any other bit set makes the slot invalid)
 - `[12-15]` sequence number (`uint32_t`, compared modulo 2^32)
 - `[16-19]` CRC-32 (IEEE) of bytes `0-15`
 
