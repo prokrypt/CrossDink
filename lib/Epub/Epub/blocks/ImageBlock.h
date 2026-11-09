@@ -34,7 +34,8 @@ class ImageBlock final : public Block {
   // Inflates the source into a memory buffer (PSRAM) and sets size; empty when
   // memory is short, so the caller extracts to the SD card instead.
   using LoadFn = HeapByteBuffer (*)(void* context, const char* sourcePath, size_t& size);
-  static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache);
+  // With `load`, inline first views decode JPEG/PNG/GIF from memory instead of an SD copy.
+  static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache, LoadFn load = nullptr);
 
   // First-view cache build off the render task. beginBackgroundCache() runs on
   // the render task first; buildCacheInBackground() then extracts the source
@@ -65,4 +66,5 @@ class ImageBlock final : public Block {
   static void* extractContext;
   static ExtractFn extractFn;
   static SeedCacheFn seedCacheFn;
+  static LoadFn loadFn;
 };
