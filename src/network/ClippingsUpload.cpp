@@ -99,7 +99,7 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
     }
     serializeJson(json, payload.get(), capacity);
     json.clear();
-    const auto result = client.put(endpoint.c_str(), payload.get(), true);
+    const auto result = client.put(endpoint.c_str(), payload.get(), 1);
     if (result != Result::Ok) return result;
   }
   return Result::InvalidResponse;
