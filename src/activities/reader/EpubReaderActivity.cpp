@@ -1006,6 +1006,53 @@ struct KeptPageDrawing {
 };
 KeptPageDrawing keptPage;
 
+// The kept page's status bar, so a reopen can ink the whole page from Home's
+// tap before the reader loads (inkKeptPageEarly). Render task fills it; the
+// tap reads it under the render lock. Static: ~330 B, fixed-size text so the
+// snapshot needs no heap on every page turn.
+struct KeptStatusBar {
+  bool filled = false;  // the last renderStatusBar(keep) fit the buffers below
+  bool valid = false;   // filled, and its page is keptPage and inks on a plain Fast refresh
+  bool bars = false;    // the status bar is shown
+  GfxRenderer::Orientation orientation = GfxRenderer::Portrait;
+  uint32_t settingsSaves = 0;
+  std::string bookPath;
+  ReaderStatusBarContent content;
+  char bookTitle[128] = {};
+  char chapterTitle[128] = {};
+  char timeLeftBook[24] = {};
+  char timeLeftChapter[24] = {};
+};
+KeptStatusBar keptStatus;
+// Hash of the frame inkKeptPageEarly() put on the panel; the reader's first
+// page skips its own refresh when it composes the same pixels. 0 = none.
+std::atomic<uint32_t> earlyInkHash{0};
+
+uint32_t frameHash(const GfxRenderer& renderer) {
+  // The framebuffer is heap-allocated, so word-aligned.
+  const auto* words = reinterpret_cast<const uint32_t*>(renderer.getFrameBuffer());
+  uint32_t hash = 2166136261u;
+  for (size_t i = 0; i < renderer.getBufferSize() / sizeof(uint32_t); ++i) hash = (hash ^ words[i]) * 16777619u;
+  return hash | 1;
+}
+
+// Copies text the status bar draws with the built-in small font alone; false when it
+// would not fit or needs a glyph the tap could only draw through the reader's SD fallback.
+bool keepStatusText(const GfxRenderer& renderer, const char* text, char* out, const size_t size) {
+  out[0] = '\0';
+  if (!text) return true;
+  const size_t len = strlen(text);
+  if (len >= size) return false;
+  const auto font = renderer.getFontMap().find(SMALL_FONT_ID);
+  if (font == renderer.getFontMap().end()) return false;
+  const auto* p = reinterpret_cast<const unsigned char*>(text);
+  while (*p) {
+    if (!font->second.hasCodepoint(utf8NextCodepoint(&p))) return false;
+  }
+  memcpy(out, text, len + 1);
+  return true;
+}
+
 // Everything a composed page's pixels depend on: book, page, section layout,
 // viewport, font and its rendering, colors, image mode, AA and the chapter's
 // clippings. Never 0.
@@ -8404,6 +8451,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   } else if (updatePanel) {
     // Replaced by this render's page once it reaches the panel.
     keptPage.key = 0;
+    keptStatus.valid = false;
     keptPage.lsb.reset();
     keptPage.msb.reset();
   }
@@ -8587,7 +8635,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       pageKept = true;
     }
   }
-  renderStatusBar();
+  renderStatusBar(pageKept);
   if (pendingBookmarkFeedback) {
     const char* msg = tr(STR_BOOKMARK_ADDED);
     switch (bookmarkFeedbackType) {
@@ -8631,8 +8679,15 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   // This page reaches the panel: Ghost Busters follow the first one after opening.
   ghostBustersRequested = !firstPageShown;
+  // Set by inkKeptPageEarly() for this open's first page only.
+  const uint32_t earlyHash = firstPageShown ? 0 : earlyInkHash.exchange(0);
   firstPageShown = true;
-  if (pageKept) keptPage.key = keptKey;
+  if (pageKept) {
+    keptPage.key = keptKey;
+    // A reopen inks it early only where this page goes out as the plain Fast refresh below.
+    keptStatus.valid = keptStatus.filled && !pageHasImages && !needsTextGrayscale && !automaticPageTurnActive &&
+                       !activeFootnotePreview;
+  }
   // Input can arrive while the page and status bar are being composed. Make
   // one final decision immediately before selecting the grayscale path so a
   // queued successor never starts an AA pass for this transient page.
@@ -8792,8 +8847,16 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   } else {
     // The worker draws the next page into PSRAM on the other core while this
     // send and its waveform block the render task.
+    const bool earlyInkShown = earlyHash != 0 && pagesUntilFullRefresh > 1 && frameHash(renderer) == earlyHash;
     if (!activeFootnotePreview) kickDrawAhead();
-    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    if (earlyInkShown) {
+      // inkKeptPageEarly() already put these exact pixels on the panel with this Fast refresh.
+      LOG_DBG("ERS", "Early ink matches the first page: no second refresh");
+      pagesUntilFullRefresh--;
+    } else {
+      if (earlyHash != 0) LOG_DBG("ERS", "First page differs from the early ink: refreshing");
+      ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    }
   }
   // A kept page skipped the glyph and image preparation any gray draw needs.
   // If its planes didn't serve, leave the page B/W: loop() redraws it with AA.
@@ -9183,7 +9246,48 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
   });
 }
 
-void EpubReaderActivity::renderStatusBar() const {
+bool EpubReaderActivity::inkKeptPageEarly(GfxRenderer& renderer, const std::string& bookPath) {
+  earlyInkHash.store(0);
+  const char* skip = nullptr;
+  if (keptPage.key == 0 || !keptPage.bw || !keptStatus.valid || keptStatus.bookPath != bookPath) {
+    skip = "no kept page";
+  } else if (keptStatus.settingsSaves != CrossPointSettings::saveCount()) {
+    skip = "settings saved since";
+  } else if (APP_STATE.pendingBookmarkSpine != UINT16_MAX) {
+    skip = "bookmark jump";
+  } else if (!renderer.supportsAsyncRefresh()) {
+    skip = "no deferred refresh";
+  }
+  if (skip) {
+    LOG_DBG("ERS", "Early ink skipped: %s", skip);
+    return false;
+  }
+  memcpy(renderer.getFrameBuffer(), keptPage.bw.get(), renderer.getBufferSize());
+  if (keptStatus.bars) {
+    // The framebuffer is physical: draw the bar as the reader would, then give Home's orientation back.
+    const GfxRenderer::Orientation orientation = renderer.getOrientation();
+    renderer.setOrientation(keptStatus.orientation);
+    GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, keptStatus.content);
+    GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, keptStatus.content);
+    renderer.setOrientation(orientation);
+  }
+  earlyInkHash.store(frameHash(renderer));
+  // The popup's path: the panel runs the waveform from a copy while the book loads.
+  renderer.setDeferFastRefresh(true);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  renderer.setDeferFastRefresh(false);
+  LOG_DBG("ERS", "Early ink: kept page of %s on the panel", bookPath.c_str());
+  return true;
+}
+
+void EpubReaderActivity::renderStatusBar(const bool keep) const {
+  if (keep) {
+    keptStatus.filled = !statusBarVisible;
+    keptStatus.bars = statusBarVisible;
+    keptStatus.orientation = renderer.getOrientation();
+    keptStatus.settingsSaves = CrossPointSettings::saveCount();
+    keptStatus.bookPath = epub->getPath();
+  }
   if (!statusBarVisible) {
     return;
   }
@@ -9286,6 +9390,20 @@ void EpubReaderActivity::renderStatusBar() const {
   content.showProgress = !activeFootnotePreview;
   content.pageCountEstimated = pageCountEstimated;
   content.darkMode = ReaderUtils::readerDarkModeEnabled();
+  if (keep) {
+    keptStatus.content = content;
+    keptStatus.content.bookTitle = keptStatus.bookTitle;
+    keptStatus.content.chapterTitle = keptStatus.chapterTitle;
+    keptStatus.content.timeLeftBook = content.timeLeftBook ? keptStatus.timeLeftBook : nullptr;
+    keptStatus.content.timeLeftChapter = content.timeLeftChapter ? keptStatus.timeLeftChapter : nullptr;
+    keptStatus.filled =
+        keepStatusText(renderer, content.bookTitle, keptStatus.bookTitle, sizeof(keptStatus.bookTitle)) &&
+        keepStatusText(renderer, content.chapterTitle, keptStatus.chapterTitle, sizeof(keptStatus.chapterTitle)) &&
+        keepStatusText(renderer, content.timeLeftBook, keptStatus.timeLeftBook, sizeof(keptStatus.timeLeftBook)) &&
+        keepStatusText(renderer, content.timeLeftChapter, keptStatus.timeLeftChapter,
+                       sizeof(keptStatus.timeLeftChapter));
+    if (!content.bookTitle) keptStatus.content.bookTitle = nullptr;
+  }
   GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content);
   if (automaticPageTurnActive) {
     // Replace titles only after the configured top bar has been drawn.

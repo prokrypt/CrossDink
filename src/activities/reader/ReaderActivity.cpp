@@ -16,6 +16,7 @@
 #include "TxtReaderActivity.h"
 #include "Xtc.h"
 #include "XtcReaderActivity.h"
+#include "activities/RenderLock.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
 #include "components/UITheme.h"
@@ -231,6 +232,11 @@ void ReaderActivity::onEnter() {
     onGoToTxtReader(std::move(txt));
   } else {
     PerfLog::bookOpenBegin();
+    // A reopen on the page kept at the last close starts its refresh now; the book loads under it.
+    if (!keepWakeFrame && initialRefreshCountdown() > 1) {
+      RenderLock lock;
+      EpubReaderActivity::inkKeptPageEarly(renderer, initialBookPath);
+    }
     auto result = loadEpub(initialBookPath);
     if (!result.epub) {
       PerfLog::bookOpenEnd();  // the failed open's stages

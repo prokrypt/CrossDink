@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <PersistableStore.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
@@ -853,6 +854,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // aside around the call stay out) and holds it in HeldWrites until a flush
   // point (sleep, firmware update, low battery, USB Drive / File Transfer).
   bool saveToFile() const;
+  // Bumped by every saveToFile(): a drawing kept under older settings may not match them.
+  static uint32_t saveCount() { return saves.load(std::memory_order_relaxed); }
   bool flush() const;  // writes the held snapshot now; no-op without one
   // Writes settings JSON to the card (.bak, then the file); skips an unchanged file.
   static bool writeJsonToCard(const char* data, size_t len);
@@ -890,6 +893,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 #endif
 
  private:
+  static std::atomic<uint32_t> saves;
   bool loadFromBinaryFile();
   bool migrateLanguageBinaryFile();
 
