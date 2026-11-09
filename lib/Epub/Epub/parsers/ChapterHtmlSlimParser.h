@@ -1,6 +1,7 @@
 #pragma once
 #include <Arena.h>
 #include <HalStorage.h>
+#include <UniqueCodepointSet.h>
 #include <ZipFile.h>
 #include <expat.h>
 
@@ -367,9 +368,10 @@ class ChapterHtmlSlimParser {
   struct AdvancePrewarm {
     std::unique_ptr<uint32_t[]> codepoints;
     std::unique_ptr<uint8_t[]> buffer;
-    size_t offset = 0;  // next HTML byte to scan
-    uint32_t cpCount = 0;
-    uint32_t fedCount = 0;  // codepoints already handed to the font
+    UniqueCodepointSet unique{nullptr, 0};  // collects into `codepoints` while scanning
+    size_t offset = 0;                      // next HTML byte to scan
+    uint32_t cpCount = 0;                   // set from unique.finish() once scanned
+    uint32_t fedCount = 0;                  // codepoints already handed to the font
     uint32_t utf8Accumulator = 0;
     uint8_t utf8Remaining = 0;
     bool inTag = false;

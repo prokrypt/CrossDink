@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <PoolBudget.h>
+#include <UniqueCodepointSet.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -44,27 +45,15 @@ inline uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
 inline int16_t readI16(const uint8_t* p) { return static_cast<int16_t>(p[0] | (p[1] << 8)); }
 inline uint32_t readU32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24); }
 
-// Walks a null-terminated UTF-8 string and appends each unique codepoint to
-// codepoints[0..cpCount-1] via O(n²) dedup.  Returns true if the buffer
-// reached maxCount (cap hit), false if all codepoints fit.
-bool collectUniqueCodepoints(const char* text, uint32_t* codepoints, uint32_t& cpCount, uint32_t maxCount) {
+// Walks a null-terminated UTF-8 string and adds each codepoint to `codepoints`.
+// Returns true if the set's capacity was reached (cap hit).
+bool collectUniqueCodepoints(const char* text, UniqueCodepointSet& codepoints) {
   const unsigned char* p = reinterpret_cast<const unsigned char*>(text);
   while (*p) {
     uint32_t cp = utf8NextCodepoint(&p);
     if (cp == 0) break;
     if (utf8IsVariationSelector(cp)) continue;
-
-    bool found = false;
-    for (uint32_t i = 0; i < cpCount; i++) {
-      if (codepoints[i] == cp) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      if (cpCount >= maxCount) return true;
-      codepoints[cpCount++] = cp;
-    }
+    if (codepoints.add(cp)) return true;
   }
   return false;
 }
@@ -223,7 +212,7 @@ void SdCardFont::freeStyleAll(PerStyle& s) {
   s.fullIntervals = nullptr;
   s.bmpIntervals = nullptr;
   s.intervalsShared = false;
-  s.intervalsAreBmp16 = false;
+  s.bmpIntervalCount = 0;
   freeStyleLigatures(s);
   freeStyleKernClasses(s);
   s.present = false;
@@ -720,10 +709,11 @@ bool SdCardFont::load(const char* path, const size_t residentLimit) {
   styleCount_ = styleCount;
   contentHash_ = hash;
 
-  // Load full intervals into RAM for each present style. BMP-only fonts with
-  // fewer than 65536 glyphs use a compact 6-byte interval table instead of the
-  // on-disk 12-byte table; large sparse CJK subsets otherwise keep tens of KB
-  // of always-resident heap just for lookup metadata.
+  // Load intervals into RAM for each present style. Records that fit in 16 bits
+  // (BMP codepoints, glyph offset < 65536) form a compact 6-byte prefix and only
+  // the rest keep the on-disk 12-byte form, so a mixed BMP + supplementary font
+  // no longer pays full width for its whole table. Split-table idea adapted from
+  // YACP (MIT): https://github.com/Sichroteph/YACP/commit/23568ad3580740068cd3466f400b6900f08a1a15
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
     auto& s = styles_[i];
     if (!s.present) continue;
@@ -737,7 +727,7 @@ bool SdCardFont::load(const char* path, const size_t residentLimit) {
     // Validate interval contents before any later code (findGlobalGlyphIndex,
     // glyph reads) trusts them. A malformed file could otherwise drive
     // out-of-range glyph indices into bogus on-disk reads.
-    bool canUseBmp16 = s.header.glyphCount <= UINT16_MAX;
+    uint32_t bmpCount = 0;
     uint32_t expectedOffset = 0;
     uint32_t prevLast = 0;
     EpdUnicodeInterval iv{};
@@ -782,18 +772,13 @@ bool SdCardFont::load(const char* path, const size_t residentLimit) {
         freeAll();
         return false;
       }
-      if (iv.first > UINT16_MAX || iv.last > UINT16_MAX || iv.offset > UINT16_MAX) {
-        canUseBmp16 = false;
-      }
+      // Compact records form a prefix; a range crossing U+FFFF belongs entirely to the full-width suffix.
+      if (j == bmpCount && iv.last <= UINT16_MAX && iv.offset <= UINT16_MAX) ++bmpCount;
       for (uint8_t k = 0; k < i && shareCandidates != 0; k++) {
         if ((shareCandidates & (1u << k)) == 0) continue;
         const auto& owner = styles_[k];
-        // Compared by value, so an above-BMP record never equals a compact one and drops out here.
-        const bool same = owner.intervalsAreBmp16
-                              ? (owner.bmpIntervals[j].first == iv.first && owner.bmpIntervals[j].last == iv.last &&
-                                 owner.bmpIntervals[j].offset == iv.offset)
-                              : (owner.fullIntervals[j].first == iv.first && owner.fullIntervals[j].last == iv.last &&
-                                 owner.fullIntervals[j].offset == iv.offset);
+        const auto candidate = owner.intervalAt(j);
+        const bool same = candidate.first == iv.first && candidate.last == iv.last && candidate.offset == iv.offset;
         if (!same) shareCandidates &= static_cast<uint8_t>(~(1u << k));
       }
       expectedOffset += span;
@@ -805,16 +790,15 @@ bool SdCardFont::load(const char* path, const size_t residentLimit) {
     for (uint8_t k = 0; k < i && shareCandidates != 0; k++) {
       if ((shareCandidates & (1u << k)) == 0) continue;
       auto& owner = styles_[k];
-      // Identical content can still be held in the other resident form when the two styles
-      // disagree on glyph count; aliasing across forms would misread the table.
-      if (owner.intervalsAreBmp16 != canUseBmp16) continue;
+      // Identical records give an identical BMP prefix length, so the split matches too.
       s.bmpIntervals = owner.bmpIntervals;
       s.fullIntervals = owner.fullIntervals;
-      s.intervalsAreBmp16 = owner.intervalsAreBmp16;
+      s.bmpIntervalCount = owner.bmpIntervalCount;
       s.intervalsShared = true;
       LOG_DBG("SDCF", "Style %u: sharing style %u's %" PRIu32 "-interval table (%" PRIu32 " B not allocated)", i, k,
               s.header.intervalCount,
-              s.header.intervalCount * (canUseBmp16 ? 6u : static_cast<uint32_t>(sizeof(EpdUnicodeInterval))));
+              bmpCount * static_cast<uint32_t>(sizeof(PerStyle::BmpInterval16)) +
+                  (s.header.intervalCount - bmpCount) * static_cast<uint32_t>(sizeof(EpdUnicodeInterval)));
       break;
     }
 
@@ -825,38 +809,46 @@ bool SdCardFont::load(const char* path, const size_t residentLimit) {
       return false;
     }
 
-    if (s.intervalsShared) {
-      // Aliased above; fall through to the stub/metadata setup without touching the table.
-    } else if (canUseBmp16) {
-      s.bmpIntervals = new (std::nothrow) PerStyle::BmpInterval16[s.header.intervalCount];
-      if (!s.bmpIntervals) {
-        LOG_ERR("SDCF", "Failed to allocate compact intervals for style %u", i);
-        freeAll();
-        return false;
-      }
-      for (uint32_t j = 0; j < s.header.intervalCount; ++j) {
-        if (file.read(reinterpret_cast<uint8_t*>(&iv), sizeof(iv)) != sizeof(iv)) {
-          LOG_ERR("SDCF", "Failed to read compact interval %" PRIu32 " for style %u", j, i);
+    if (!s.intervalsShared) {
+      s.bmpIntervalCount = static_cast<uint16_t>(bmpCount);  // <= MAX_INTERVALS (4096)
+      const uint32_t fullCount = s.header.intervalCount - bmpCount;
+      // Font-lifetime storage, up to 4096 * 12 bytes: too large for stack/static.
+      // freeStyleAll() owns both allocations; shared styles borrow them without deleting.
+      if (bmpCount > 0) {
+        s.bmpIntervals = new (std::nothrow) PerStyle::BmpInterval16[bmpCount];
+        if (!s.bmpIntervals) {
+          LOG_ERR("SDCF", "Failed to allocate compact intervals for style %u", i);
           freeAll();
           return false;
         }
-        s.bmpIntervals[j] = {static_cast<uint16_t>(iv.first), static_cast<uint16_t>(iv.last),
-                             static_cast<uint16_t>(iv.offset)};
+        for (uint32_t j = 0; j < bmpCount; ++j) {
+          if (file.read(reinterpret_cast<uint8_t*>(&iv), sizeof(iv)) != sizeof(iv)) {
+            LOG_ERR("SDCF", "Failed to read compact interval %" PRIu32 " for style %u", j, i);
+            freeAll();
+            return false;
+          }
+          s.bmpIntervals[j] = {static_cast<uint16_t>(iv.first), static_cast<uint16_t>(iv.last),
+                               static_cast<uint16_t>(iv.offset)};
+        }
       }
-      s.intervalsAreBmp16 = true;
-    } else {
-      s.fullIntervals = new (std::nothrow) EpdUnicodeInterval[s.header.intervalCount];
-      if (!s.fullIntervals) {
-        LOG_ERR("SDCF", "Failed to allocate %" PRIu32 " intervals for style %u", s.header.intervalCount, i);
-        freeAll();
-        return false;
+      if (fullCount > 0) {
+        s.fullIntervals = new (std::nothrow) EpdUnicodeInterval[fullCount];
+        if (!s.fullIntervals) {
+          LOG_ERR("SDCF", "Failed to allocate %" PRIu32 " full intervals for style %u", fullCount, i);
+          freeAll();
+          return false;
+        }
+        const size_t intervalsBytes = fullCount * sizeof(EpdUnicodeInterval);
+        if (file.read(reinterpret_cast<uint8_t*>(s.fullIntervals), intervalsBytes) !=
+            static_cast<int>(intervalsBytes)) {
+          LOG_ERR("SDCF", "Failed to read intervals for style %u", i);
+          freeAll();
+          return false;
+        }
       }
-      size_t intervalsBytes = s.header.intervalCount * sizeof(EpdUnicodeInterval);
-      if (file.read(reinterpret_cast<uint8_t*>(s.fullIntervals), intervalsBytes) != static_cast<int>(intervalsBytes)) {
-        LOG_ERR("SDCF", "Failed to read intervals for style %u", i);
-        freeAll();
-        return false;
-      }
+      LOG_DBG(
+          "SDCF", "Style %u interval RAM: compact=%" PRIu32 " full=%" PRIu32 " bytes=%u", i, bmpCount, fullCount,
+          static_cast<unsigned>(bmpCount * sizeof(PerStyle::BmpInterval16) + fullCount * sizeof(EpdUnicodeInterval)));
     }
 
     // Initialize stub data
@@ -896,15 +888,13 @@ int32_t SdCardFont::findGlobalGlyphIndex(const PerStyle& s, uint32_t codepoint) 
   int right = static_cast<int>(s.header.intervalCount) - 1;
   while (left <= right) {
     int mid = left + (right - left) / 2;
-    const uint32_t first = s.intervalsAreBmp16 ? s.bmpIntervals[mid].first : s.fullIntervals[mid].first;
-    const uint32_t last = s.intervalsAreBmp16 ? s.bmpIntervals[mid].last : s.fullIntervals[mid].last;
-    if (codepoint < first) {
+    const auto iv = s.intervalAt(static_cast<uint32_t>(mid));
+    if (codepoint < iv.first) {
       right = mid - 1;
-    } else if (codepoint > last) {
+    } else if (codepoint > iv.last) {
       left = mid + 1;
     } else {
-      const uint32_t offset = s.intervalsAreBmp16 ? s.bmpIntervals[mid].offset : s.fullIntervals[mid].offset;
-      return static_cast<int32_t>(offset + (codepoint - first));
+      return static_cast<int32_t>(iv.offset + (codepoint - iv.first));
     }
   }
   return -1;
@@ -1700,20 +1690,26 @@ int SdCardFont::buildAdvanceTableRange(Iter begin, Iter end, bool includeSpace, 
             static_cast<unsigned>(capacity * sizeof(uint32_t)));
     return -1;
   }
-  uint32_t cpCount = 0;
   bool hitCap = false;
+  // Unique codepoints never exceed the source count, itself capped at
+  // MAX_UNIQUE_CODEPOINTS; the two extra slots stay free for space and hyphen.
+  UniqueCodepointSet uniqueCodepoints(codepoints.get(), sourceCodepointCount);
 
   for (auto it = begin; it != end && !hitCap; ++it) {
-    hitCap = collectUniqueCodepoints(asCStr(*it), codepoints.get(), cpCount, MAX_UNIQUE_CODEPOINTS);
+    hitCap = collectUniqueCodepoints(asCStr(*it), uniqueCodepoints);
   }
   if (extraText && !hitCap) {
-    hitCap = collectUniqueCodepoints(extraText, codepoints.get(), cpCount, MAX_UNIQUE_CODEPOINTS);
+    hitCap = collectUniqueCodepoints(extraText, uniqueCodepoints);
   }
+  uint32_t cpCount = uniqueCodepoints.finish();
 
-  if (includeSpace && std::none_of(codepoints.get(), codepoints.get() + cpCount, [](uint32_t c) { return c == ' '; }))
-    codepoints[cpCount++] = ' ';
-  if (includeHyphen && std::none_of(codepoints.get(), codepoints.get() + cpCount, [](uint32_t c) { return c == '-'; }))
-    codepoints[cpCount++] = '-';
+  // Check both against the sorted set before appending either.
+  const bool addSpace =
+      includeSpace && !std::binary_search(codepoints.get(), codepoints.get() + cpCount, static_cast<uint32_t>(' '));
+  const bool addHyphen =
+      includeHyphen && !std::binary_search(codepoints.get(), codepoints.get() + cpCount, static_cast<uint32_t>('-'));
+  if (addSpace) codepoints[cpCount++] = ' ';
+  if (addHyphen) codepoints[cpCount++] = '-';
 
   if (hitCap) {
     LOG_ERR("SDCF", "buildAdvanceTable: unique codepoint cap (%lu) hit, layout may be approximate",
