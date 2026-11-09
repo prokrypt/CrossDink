@@ -289,6 +289,8 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Clearing or replacing a book's cache now keeps both reading-stats save slots, so the newest stats save is never dropped.
 - Short and long Power assignments set to Next Page or Previous Page now turn dictionary definition pages instead of acting as Confirm.
 - Holding a finger on the last word of a page while picking dictionary words no longer loses the hold to small touch jitter, so the selection continues onto the next page.
+- Button keyboard tips keep their place while you type and hide when the keyboard leaves too little room for them; cursor hints only show in cursor mode.
+- Long paragraphs keep their CSS space above the first line, paragraphs that end in an image keep the space below them, and very long text runs are laid out in smaller pieces. Chapters rebuild their layout cache once.
 
 ### Added
 
