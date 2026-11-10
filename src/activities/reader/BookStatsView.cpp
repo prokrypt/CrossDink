@@ -107,7 +107,7 @@ int statsHeaderHeight(const ThemeMetrics& metrics, const StatsLayout& layout, co
   if (mappedInput && mappedInput->hasTouchHardware()) {
     return CompactHeader::height(metrics);
   }
-  return std::min(metrics.headerHeight, layout.headerHeight);
+  return std::min(metrics.headerHeight, layout.headerHeight + UITheme::getDisplayStatusBarHeightIncrease());
 }
 
 int statsContentHeight(const StatsLayout& layout, const int headerHeight, const bool globalPage,

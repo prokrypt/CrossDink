@@ -462,7 +462,7 @@ void DashboardTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBo
                                      const char* currentChapterTitle, const bool inverted) const {
   renderer.clearScreen(inverted ? 0xFF : 0x00);
 
-  const Rect contentRect{0, themed(DashboardMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+  const Rect contentRect{0, UITheme::getInstance().getMetrics().homeTopPadding, renderer.getScreenWidth(),
                          themed(DashboardMetrics::values).homeCoverTileHeight};
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
   drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);

@@ -647,7 +647,7 @@ inline constexpr size_t PUBLISHER_FONT_SETTINGS = 1;
 #else
 inline constexpr size_t PUBLISHER_FONT_SETTINGS = 0;
 #endif
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 121 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 3;
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 122 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 3;
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the

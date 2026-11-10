@@ -190,7 +190,9 @@ uint8_t enumDisplayIndexForWeb(const SettingInfo& setting, uint8_t rawValue) {
 
 bool isWebSettingAvailable(const SettingInfo& setting) {
   if (isTiltPageTurnSetting(setting) && !QuickActions::supportsTiltPageTurn()) return false;
-  if (setting.category == StrId::STR_STATUS_BARS || setting.nameId == StrId::STR_HIDE_CLOCK) {
+  // The status bar card edits the global status text size with the display bar.
+  if (setting.category == StrId::STR_STATUS_BARS || setting.nameId == StrId::STR_HIDE_CLOCK ||
+      settingKeyIs(setting, "displayStatusBarTextSize")) {
     return false;
   }
   if (setting.nameId == StrId::STR_SIDE_BUTTON_CHORD && !deviceSupportsSideButtonChord(gpio)) {
@@ -3161,6 +3163,7 @@ void CrossPointWebServer::handleGetStatusBars() const {
   writeReaderStatusBarJson(doc["top"].to<JsonObject>(), SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top));
   writeReaderStatusBarJson(doc["bottom"].to<JsonObject>(), SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom));
   doc["xtcMode"] = SETTINGS.xtcStatusBarMode;
+  doc["displayTextSize"] = SETTINGS.displayStatusBarTextSize;
   doc["clockAvailable"] = halClock.isAvailable();
   JsonArray displaySlots = doc["display"].to<JsonArray>();
   for (const auto item : SETTINGS.displayStatusBar.slots) displaySlots.add(static_cast<uint8_t>(item));
@@ -3177,6 +3180,7 @@ void CrossPointWebServer::handleGetStatusBars() const {
   labels["thickness"] = tr(STR_PROGRESS_BAR_THICKNESS);
   labels["centered"] = tr(STR_CENTER_STATUS_BAR);
   labels["separator"] = tr(STR_SEPARATOR);
+  labels["textSize"] = tr(STR_STATUS_BAR_TEXT_SIZE);
   labels["xtcMode"] = tr(STR_XTC_STATUS_BAR);
   labels["preview"] = tr(STR_PREVIEW);
 
@@ -3211,6 +3215,7 @@ void CrossPointWebServer::handleGetStatusBars() const {
   addLabels("progressModes", {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE});
   addLabels("thicknesses",
             {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK});
+  addLabels("textSizes", {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE});
   addLabels("xtcModes", {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP, StrId::STR_STATUS_BAR_BOTH});
   addLabels("centerOptions", {StrId::STR_DISABLED, StrId::STR_ENABLED});
   JsonArray separators = doc["separators"].to<JsonArray>();
@@ -3231,6 +3236,11 @@ void CrossPointWebServer::handlePostStatusBars() {
   JsonDocument doc;
   if (deserializeJson(doc, server->arg("plain"))) {
     server->send(400, "text/plain", "Invalid JSON");
+    return;
+  }
+  const auto textSize = doc["displayTextSize"];
+  if (!textSize.isUnbound() && (!textSize.is<int>() || textSize.as<int>() < 0 || textSize.as<int>() > 2)) {
+    server->send(400, "text/plain", "Invalid status bar text size");
     return;
   }
   ReaderStatusBarsPayload bars;
@@ -3260,6 +3270,7 @@ void CrossPointWebServer::handlePostStatusBars() {
     SETTINGS.bottomReaderStatusBar = bars.bottom;
     SETTINGS.xtcStatusBarMode = bars.xtcMode;
     if (!doc["display"].isNull()) SETTINGS.displayStatusBar = display;
+    if (!textSize.isUnbound()) SETTINGS.displayStatusBarTextSize = textSize.as<uint8_t>();
   }
   if (!SETTINGS.saveToFile()) {
     LOG_ERR("WEB", "Failed to save status bar configuration");

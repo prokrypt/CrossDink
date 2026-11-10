@@ -1134,7 +1134,7 @@ ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bo
   (void)showFootnoteHeader;
 #endif
 
-  layout.marginBottom += ReaderUtils::getReaderFooterReservedHeight(automaticPageTurnActive);
+  layout.marginBottom += ReaderUtils::getReaderFooterReservedHeight(renderer, automaticPageTurnActive);
 
   layout.viewportWidth = renderer.getScreenWidth() - layout.marginLeft - layout.marginRight;
   layout.viewportHeight = renderer.getScreenHeight() - layout.marginTop - layout.marginBottom;
@@ -3739,13 +3739,13 @@ void EpubReaderActivity::loop() {
                                                       epub && ReaderUtils::isRtlBookLanguage(epub->getLanguage()));
   const int bottomTapHeight =
       automaticPageTurnActive
-          ? std::max(UITheme::getStatusBarHeight(),
-                     UITheme::getProgressBarHeight() + UITheme::getInstance().getMetrics().statusBarVerticalMargin)
-          : UITheme::getStatusBarHeight();
+          ? std::max(UITheme::getStatusBarHeight(renderer),
+                     UITheme::getProgressBarHeight() + UITheme::getReaderStatusBarTextHeight(renderer))
+          : UITheme::getStatusBarHeight(renderer);
   if (SETTINGS.tapToHideStatusBar && touch.tapped &&
       (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, bottomTapHeight) ||
        ReaderUtils::isTopStatusBarTap(renderer, touch.y,
-                                      UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top)))) {
+                                      UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer)))) {
     statusBarVisible = !statusBarVisible;
     requestUpdate();
     return;

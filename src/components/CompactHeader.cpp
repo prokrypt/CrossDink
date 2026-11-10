@@ -17,7 +17,9 @@ constexpr int kHeaderTopGap = 6;
 constexpr int kHeaderTitleLift = 5;
 constexpr int kHeaderBaselineLift = 2;
 
-int visibleHeaderHeight(const ThemeMetrics& metrics) { return std::min(metrics.headerHeight, kHeaderHeight); }
+int visibleHeaderHeight(const ThemeMetrics& metrics) {
+  return std::min(metrics.headerHeight, kHeaderHeight + UITheme::getDisplayStatusBarHeightIncrease());
+}
 
 int headerHeight(const ThemeMetrics& metrics) {
   return visibleHeaderHeight(metrics) + (gpio.hasTouch() ? kTouchHeaderHeightIncrease : 0);

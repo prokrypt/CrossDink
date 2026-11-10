@@ -248,9 +248,10 @@ void XtcReaderActivity::loop() {
   shortcutPreviousPagePending = false;
 
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
-  const int bottomHeight = UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Bottom);
-  const int topHeight =
-      SETTINGS.legacyXtcTopUsesBottom ? bottomHeight : UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top);
+  const int bottomHeight = UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Bottom, renderer);
+  const int topHeight = SETTINGS.legacyXtcTopUsesBottom
+                            ? bottomHeight
+                            : UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer);
   const auto statusBarMode = static_cast<CrossPointSettings::XTC_STATUS_BAR_MODE>(SETTINGS.xtcStatusBarMode);
   const bool tappedStatusBar = touch.tapped && (((statusBarMode == CrossPointSettings::XTC_STATUS_BAR_TOP ||
                                                   statusBarMode == CrossPointSettings::XTC_STATUS_BAR_BOTH) &&
@@ -1292,7 +1293,7 @@ void XtcReaderActivity::renderStatusBarOverlay(const StatusBarOverlayPosition po
   const bool legacyTop = drawTop && SETTINGS.legacyXtcTopUsesBottom;
   const auto displayedBar = drawTop ? ReaderStatusBarPosition::Top : ReaderStatusBarPosition::Bottom;
   const auto configuredBar = xtcStatusBarConfigPosition(displayedBar, legacyTop);
-  const int statusBarHeight = UITheme::getReaderStatusBarHeight(configuredBar);
+  const int statusBarHeight = UITheme::getReaderStatusBarHeight(configuredBar, renderer);
   if (statusBarHeight <= 0) {
     return;
   }

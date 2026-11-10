@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "fontIds.h"
 #include "util/ReaderStatusBarConfig.h"
 
 class GfxRenderer;
@@ -269,10 +270,10 @@ class BaseTheme {
 
   // Component drawing methods
   static void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total);
-  void drawBatteryLeft(const GfxRenderer& renderer, Rect rect, bool showPercentage = true,
-                       bool foregroundBlack = true) const;  // Left aligned (reader mode)
-  void drawBatteryRight(const GfxRenderer& renderer, Rect rect, bool showPercentage = true,
-                        bool foregroundBlack = true) const;  // Right aligned (UI headers)
+  void drawBatteryLeft(const GfxRenderer& renderer, Rect rect, bool showPercentage = true, bool foregroundBlack = true,
+                       int fontId = SMALL_FONT_ID) const;  // Left aligned (reader mode)
+  void drawBatteryRight(const GfxRenderer& renderer, Rect rect, bool showPercentage = true, bool foregroundBlack = true,
+                        int fontId = SMALL_FONT_ID) const;  // Right aligned (UI headers)
   virtual void fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage,
                                bool foregroundBlack = true) const;
   // Button hint labels use three states: non-empty labels draw an active hint,

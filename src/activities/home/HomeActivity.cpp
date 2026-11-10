@@ -453,6 +453,11 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const Gfx
   // Artwork includes Dark Mode's image-polarity correction. Progress, stats,
   // headers and menus are drawn live, so reading cannot invalidate this cache.
   key += SETTINGS.screenInverted ? "dark:1" : "dark:0";
+  // Artwork positions follow the global header's reserved space.
+  if (SETTINGS.displayStatusBarTextSize != 0) {
+    key += "status-size:";
+    key += static_cast<char>('0' + SETTINGS.displayStatusBarTextSize);
+  }
   key += "safe-home:2";  // :2 = full-width Home body, vertical safe area only
   for (const auto edge : renderer.getViewableInsets().edges) key += static_cast<char>(edge);
   key += '\0';
@@ -1151,6 +1156,7 @@ void HomeActivity::onFrontlightPanelOpened() {
   insetsBeforeFrontlightPanel = renderer.getViewableInsets();
   themeBeforeFrontlightPanel = SETTINGS.uiTheme;
   scaleBeforeFrontlightPanel = SETTINGS.uiScale;
+  statusSizeBeforeFrontlightPanel = SETTINGS.displayStatusBarTextSize;
   memcpy(themePackBeforeFrontlightPanel, SETTINGS.uiThemePack, sizeof(themePackBeforeFrontlightPanel));
   // Save the selection before changed theme metrics can reinterpret its index.
   initialBookPath = getCurrentBookPath();
@@ -1173,6 +1179,7 @@ const GlobalReadingStats& HomeActivity::ensureAllDevicesStats() {
 
 void HomeActivity::onFrontlightPanelClosed() {
   if (themeBeforeFrontlightPanel != SETTINGS.uiTheme || scaleBeforeFrontlightPanel != SETTINGS.uiScale ||
+      statusSizeBeforeFrontlightPanel != SETTINGS.displayStatusBarTextSize ||
       strncmp(themePackBeforeFrontlightPanel, SETTINGS.uiThemePack, sizeof(themePackBeforeFrontlightPanel)) != 0 ||
       insetsBeforeFrontlightPanel != renderer.getViewableInsets()) {
     // Drawer Settings keeps Home alive. Recreate its theme-specific controls,

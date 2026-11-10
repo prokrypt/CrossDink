@@ -26,12 +26,45 @@
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
+#include "fontIds.h"
 
 namespace {
 constexpr char kWidthPlaceholder[] = "[WIDTH]";
 constexpr char kHeightPlaceholder[] = "[HEIGHT]";
 constexpr size_t kWidthPlaceholderLength = sizeof(kWidthPlaceholder) - 1;
 constexpr size_t kHeightPlaceholderLength = sizeof(kHeightPlaceholder) - 1;
+
+int displayStatusBarHeightIncrease(const uint8_t textSize) {
+  // Built-in Inter advances are 20/25/30px. Enlarged lanes add the same 4px padding as reader lanes, compared
+  // with the 19px Small lane, so header metrics stay independent of renderer initialization.
+  switch (textSize) {
+    case 1:
+      return 25 + 4 - 19;
+    case 2:
+      return 30 + 4 - 19;
+    default:
+      return 0;
+  }
+}
+
+int statusBarFontId(const uint8_t textSize) {
+  switch (textSize) {
+    case 1:
+      return UI_10_FONT_ID;
+    case 2:
+      return UI_12_FONT_ID;
+    default:
+      return SMALL_FONT_ID;
+  }
+}
+
+int statusBarTextHeight(const GfxRenderer& renderer, const int fontId) {
+  const int defaultHeight = UITheme::getInstance().getMetrics().statusBarVerticalMargin;
+  // Include ascenders and descenders, with room to center the line in the bar.
+  constexpr int textPadding = 4;
+  return fontId == SMALL_FONT_ID ? defaultHeight
+                                 : std::max(defaultHeight, renderer.getLineHeight(fontId) + textPadding);
+}
 
 int drawCenteredTextLines(const GfxRenderer& renderer, const Rect screen, const int fontId, int y,
                           const std::vector<std::string>& lines, const bool black, const EpdFontFamily::Style style,
@@ -140,25 +173,35 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
 }
 
 const ThemeMetrics& UITheme::getMetrics() const {
+  // hasTouch() can flip once touch init completes after static construction, and the header grows with the
+  // global status bar text size, so the cached copy is refreshed when either differs instead of copying the
+  // struct per call.
+  const uint8_t textSize = SETTINGS.displayStatusBarTextSize < 3 ? SETTINGS.displayStatusBarTextSize : 0;
 #if CROSSDINK_APP_CAP_TOUCH
-  // hasTouch() can flip once touch init completes after static construction, so the
-  // cached copy is refreshed when the flag differs instead of copying the struct per call.
   const bool touch = gpio.hasTouch();
-  if (!metricsValid || touch != metricsForTouch) {
-    adjustedMetrics = *currentMetrics;
-    if (touch) {
-      adjustedMetrics.buttonHintsHeight = 0;
-    }
-    metricsForTouch = touch;
-    metricsValid = true;
-  }
 #else
-  if (!metricsValid) {
-    adjustedMetrics = *currentMetrics;
-    metricsValid = true;
-  }
+  constexpr bool touch = false;
 #endif
-  return adjustedMetrics;
+  const uint8_t published = publishedMetrics.load(std::memory_order_acquire);
+  if (!metricsValid || touch != metricsForTouch || textSize != metricsForTextSize) {
+    // The render task and the main loop both hold references from here. Fill the copy nobody is reading,
+    // then publish it, so a text-size change never hands a frame a half-rewritten struct.
+    ThemeMetrics& next = adjustedMetrics[published ^ 1];
+    next = *currentMetrics;
+    if (touch) {
+      next.buttonHintsHeight = 0;
+    }
+    const int increase = displayStatusBarHeightIncrease(textSize);
+    next.batteryBarHeight += increase;
+    next.headerHeight += increase;
+    next.homeTopPadding += increase;
+    metricsForTouch = touch;
+    metricsForTextSize = textSize;
+    metricsValid = true;
+    publishedMetrics.store(published ^ 1, std::memory_order_release);
+    return next;
+  }
+  return adjustedMetrics[published];
 }
 
 int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
@@ -290,16 +333,34 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
   return File;
 }
 
-int UITheme::getStatusBarHeight() { return getReaderStatusBarHeight(ReaderStatusBarPosition::Bottom); }
+int UITheme::getDisplayStatusBarFontId() { return statusBarFontId(SETTINGS.displayStatusBarTextSize); }
 
-int UITheme::getReaderStatusBarHeight(const ReaderStatusBarPosition position) {
+int UITheme::getDisplayStatusBarHeightIncrease() {
+  return displayStatusBarHeightIncrease(SETTINGS.displayStatusBarTextSize);
+}
+
+int UITheme::getDisplayStatusBarTextHeight(const GfxRenderer& renderer) {
+  return statusBarTextHeight(renderer, getDisplayStatusBarFontId());
+}
+
+int UITheme::getReaderStatusBarFontId() { return statusBarFontId(SETTINGS.statusBarTextSize); }
+
+int UITheme::getReaderStatusBarTextHeight(const GfxRenderer& renderer) {
+  return statusBarTextHeight(renderer, getReaderStatusBarFontId());
+}
+
+int UITheme::getStatusBarHeight(const GfxRenderer& renderer) {
+  return getReaderStatusBarHeight(ReaderStatusBarPosition::Bottom, renderer);
+}
+
+int UITheme::getReaderStatusBarHeight(const ReaderStatusBarPosition position, const GfxRenderer& renderer) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   const auto config = SETTINGS.readerStatusBar(position);
   const bool hasText = config.hasTextItems(halClock.isAvailable());
   const int progressSpace = config.progressBar != CrossPointSettings::HIDE_PROGRESS
                                 ? static_cast<int>((config.progressBarThickness + 1) * 2) + metrics.progressBarMarginTop
                                 : 0;
-  return readerStatusBarTotalHeight(position, hasText, progressSpace, metrics.statusBarVerticalMargin);
+  return readerStatusBarTotalHeight(position, hasText, progressSpace, getReaderStatusBarTextHeight(renderer));
 }
 
 int UITheme::getProgressBarHeight() { return getReaderProgressBarHeight(ReaderStatusBarPosition::Bottom); }
