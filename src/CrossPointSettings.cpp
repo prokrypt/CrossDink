@@ -919,9 +919,9 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     legacyXtcTopUsesBottom = bars["legacyXtcTopUsesBottom"].as<bool>() ? 1 : 0;
     if (importingCrossPoint) {
       for (auto* bar : {&topReaderStatusBar, &bottomReaderStatusBar}) {
-        for (auto& slot : bar->slots) {
-          slot = static_cast<ReaderStatusBarItem>(crossInkReaderStatusBarItemValue(static_cast<int>(slot)));
-        }
+        std::transform(bar->slots.begin(), bar->slots.end(), bar->slots.begin(), [](const ReaderStatusBarItem slot) {
+          return static_cast<ReaderStatusBarItem>(crossInkReaderStatusBarItemValue(static_cast<int>(slot)));
+        });
       }
     }
   }
