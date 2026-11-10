@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 
 #include <cstdint>
+#include <memory>
 
 #include "BitmapHelpers.h"
 
@@ -92,6 +93,8 @@ class Bitmap {
  private:
   static uint16_t readLE16(HalFile& f);
   static uint32_t readLE32(HalFile& f);
+  uint8_t pixelLuminance(const uint8_t* row, int x) const;
+  BmpReaderError readAveragedRow(uint8_t* rowBuffer) const;
 
   HalFile& file;
   bool dithering = false;
@@ -108,6 +111,9 @@ class Bitmap {
   int rowBytes = 0;
   int outputWidth = 0;
   int outputHeight = 0;
+  // Set by setDitheredOutputSize(): outputWidth area sums, then outputWidth
+  // horizontal sums of source row rowSumsY.
+  std::unique_ptr<uint32_t[]> resampleSums;
   uint8_t paletteLum[256] = {};
 
   // Dithering state (mutable for const methods)
@@ -115,6 +121,7 @@ class Bitmap {
   mutable int16_t* errorNextRow = nullptr;
   mutable int sourceRowsRead = 0;
   mutable int outputRowsRead = 0;
+  mutable int rowSumsY = -1;
 
   mutable AtkinsonDitherer* atkinsonDitherer = nullptr;
   mutable FloydSteinbergDitherer* fsDitherer = nullptr;
