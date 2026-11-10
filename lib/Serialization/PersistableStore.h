@@ -61,7 +61,8 @@ class PersistableStoreBase {
   // Serializes doc into out (kept here so stores do not each instantiate serializeJson).
   static void serializeDoc(const JsonDocument& doc, String& out);
   // Same, for an already serialized document; skips the write when path already holds it.
-  static bool writeStringToFileAtomically(const char* path, const String& json);
+  // compare false skips that read-back when the caller knows the card holds something else.
+  static bool writeStringToFileAtomically(const char* path, const String& json, bool compare = true);
   // Restores a missing path from path.bak (an interrupted temp-file replacement). Returns whether path exists.
   static bool recoverBackup(const char* path);
 
@@ -74,6 +75,9 @@ class PersistableStoreBase {
   // Set by the app's HeldWrites: copies the held, not yet written contents of
   // path into out and returns true, or returns false when nothing is held.
   static inline bool (*heldJson)(const char* path, String& out) = nullptr;
+  // Set by the app's HeldWrites: told what the card's path holds when readDocFromFile
+  // parses it (padding spaces included), or data nullptr when that is unknown.
+  static inline void (*cardJson)(const char* path, const char* data, size_t len) = nullptr;
 };
 
 /**

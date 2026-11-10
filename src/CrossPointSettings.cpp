@@ -1036,14 +1036,15 @@ bool CrossPointSettings::saveToFile() const {
 
 bool CrossPointSettings::flush() const { return HeldWrites::flush(HeldWrites::Slot::Settings); }
 
-bool CrossPointSettings::writeJsonToCard(const char* json, const size_t len) {
+bool CrossPointSettings::writeJsonToCard(const char* json, const size_t len, const bool compare) {
   // Two copies rewritten in place, .bak first, so one always parses (load falls
   // back to .bak). No temp file, rename or remove: creating settings.json.tmp
   // took 580-615 ms on the card. Padding spaces from a longer save are trimmed.
-  const String onCard = Storage.exists(SETTINGS_FILE_JSON) ? Storage.readFile(SETTINGS_FILE_JSON) : String();
+  // compare false: the caller knows the card differs, so skip reading it back.
+  const String onCard = compare && Storage.exists(SETTINGS_FILE_JSON) ? Storage.readFile(SETTINGS_FILE_JSON) : String();
   size_t onCardLen = onCard.length();
   while (onCardLen > 0 && onCard[onCardLen - 1] == ' ') --onCardLen;
-  if (onCardLen != len || strncmp(onCard.c_str(), json, onCardLen) != 0) {
+  if (!compare || onCardLen != len || strncmp(onCard.c_str(), json, onCardLen) != 0) {
 #if CROSSDINK_PERF_LOG
     logChangedSettingsKeys(onCard.c_str(), onCardLen, json, len);
 #endif

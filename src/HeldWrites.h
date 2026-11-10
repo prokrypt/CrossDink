@@ -8,9 +8,11 @@
 // RAM and written to SD only at flush points: sleep, OTA/SD firmware update,
 // low battery, USB Drive / File Transfer entry, the remote FLUSH command and
 // every restart except a silent one. Firmware builds keep the held copies in
-// PSRAM noinit, so a silent restart or a crash reset carries them to the next
-// boot (CRC-checked) instead of writing them; power loss loses them, which the
-// low-battery write-through bounds. The simulator writes through.
+// PSRAM noinit, so a silent restart, a crash or the reset button carries them to
+// the next boot (CRC-checked) instead of writing them; power loss loses them,
+// which the low-battery write-through bounds. The simulator writes through.
+// A save equal to what the card holds (CRC learned at load and at each write)
+// is neither held nor written.
 namespace HeldWrites {
 
 enum class Slot : uint8_t { State, Recent, Settings, Count };

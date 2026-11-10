@@ -859,8 +859,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Bumped by every saveToFile(): a drawing kept under older settings may not match them.
   static uint32_t saveCount() { return saves.load(std::memory_order_relaxed); }
   bool flush() const;  // writes the held snapshot now; no-op without one
-  // Writes settings JSON to the card (.bak, then the file); skips an unchanged file.
-  static bool writeJsonToCard(const char* data, size_t len);
+  // Writes settings JSON to the card (.bak, then the file); with compare, skips an unchanged file.
+  static bool writeJsonToCard(const char* data, size_t len, bool compare);
   bool loadFromFile();
   static const char* getFilePath() { return "/.crossdink/settings.json"; }
   void toJson(JsonDocument& doc) const;
